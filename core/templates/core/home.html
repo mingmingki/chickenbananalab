@@ -1,21 +1,98 @@
 {% extends "core/base.html" %}
-{% block title %}Home | ChickenBanana Lab{% endblock %}
+{% block title %}ChickenBanana Lab{% endblock %}
 
 {% block content %}
-  <span class="pill">Software • Automation • Data</span>
 
-  <section class="hero">
-    <h1>Build smart automation.</h1>
-    <p>
-      ChickenBanana Lab은 수량산출 자동화, 업무도구, 데이터 처리, 웹 서비스까지
-      “현장에 바로 쓰이는 소프트웨어”를 만듭니다.
-    </p>
-    <a class="btn" href="/contact/">Contact</a>
+<section class="search-hero">
+    <div class="container">
 
-    <div class="grid">
-      <div class="card"><b>Automation</b><p>반복 업무를 코드로 자동화</p></div>
-      <div class="card"><b>Data</b><p>집계·리포트·대시보드 구축</p></div>
-      <div class="card"><b>Product</b><p>웹/데스크톱/모바일 MVP</p></div>
+        <form class="main-search" action="{% url 'search' %}" method="get">
+            <input type="text" name="q" placeholder="검색어를 입력하세요. 예: 자동매매, 공사일보, 부동산, Django">
+            <button type="submit">⌕</button>
+        </form>
+
+        <div class="icon-menu">
+            <a href="{% url 'architecture' %}" class="icon-item">
+                <div class="icon-box architecture">🏗️</div>
+                <span>건축</span>
+            </a>
+
+            <a href="{% url 'realestate' %}" class="icon-item">
+                <div class="icon-box realestate">🏢</div>
+                <span>부동산</span>
+            </a>
+
+            <a href="{% url 'finance' %}" class="icon-item">
+                <div class="icon-box finance">💹</div>
+                <span>금융</span>
+            </a>
+
+            <a href="{% url 'tech' %}" class="icon-item">
+                <div class="icon-box tech">💻</div>
+                <span>테크</span>
+            </a>
+
+            <a href="{% url 'life' %}" class="icon-item">
+                <div class="icon-box life">☕</div>
+                <span>일상</span>
+            </a>
+        </div>
     </div>
-  </section>
+</section>
+
+<section class="section">
+    <div class="container">
+        <div class="section-title title-row">
+            <div>
+                <span>Latest Contents</span>
+                <h2>최근 등록된 글</h2>
+            </div>
+
+            <a href="{% url 'post_create' %}" class="write-btn">글 올리기</a>
+        </div>
+
+        <div class="thumbnail-grid">
+    {% for post in posts %}
+    <a href="{% url 'post_detail' post.id %}" class="thumbnail-card">
+        {% if post.thumbnail %}
+            <div class="thumbnail-image-box">
+                <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">
+            </div>
+        {% else %}
+            <div class="thumbnail-box category-{{ post.category }}">
+                <div class="thumbnail-icon">
+                    {% if post.category == "architecture" %}
+                        🏗️
+                    {% elif post.category == "realestate" %}
+                        🏢
+                    {% elif post.category == "finance" %}
+                        💹
+                    {% elif post.category == "tech" %}
+                        💻
+                    {% elif post.category == "life" %}
+                        ☕
+                    {% endif %}
+                </div>
+                <span>{{ post.get_category_display }}</span>
+            </div>
+        {% endif %}
+
+        <div class="thumbnail-content">
+            <strong>{{ post.get_category_display }}</strong>
+            <h3>{{ post.title }}</h3>
+            <p>{{ post.content|truncatechars:80 }}</p>
+            <small>{{ post.created_at|date:"Y.m.d" }}</small>
+        </div>
+    </a>
+    {% empty %}
+    <div class="empty-box full-empty">
+        <h3>아직 등록된 글이 없습니다.</h3>
+        <p>첫 번째 글을 등록해보세요.</p>
+        <a href="{% url 'post_create' %}" class="write-btn empty-write">글 올리기</a>
+    </div>
+    {% endfor %}
+</div>
+    </div>
+</section>
+
 {% endblock %}

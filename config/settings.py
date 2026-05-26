@@ -11,8 +11,6 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
-
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -54,18 +52,23 @@ ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],  # ✅ 추가: 프로젝트 공용 templates 폴더
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
+
+# ✅ 추가: 로그인/로그아웃 리다이렉트
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "/"      # 로그인 성공 후 이동
+LOGOUT_REDIRECT_URL = "/"     # 로그아웃 후 이동
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
@@ -121,3 +124,15 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# (settings.py) 맨 아래쪽 아무 곳이나 추가
+
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "/"       # 로그인 성공 후 이동
+LOGOUT_REDIRECT_URL = "/"      # 로그아웃 후 이동
+
+TEMPLATES[0]["DIRS"] = [BASE_DIR / "templates"]
+
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"

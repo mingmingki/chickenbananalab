@@ -1,0 +1,48 @@
+{% extends "core/base.html" %}
+{% block title %}검색 결과 | ChickenBanana Lab{% endblock %}
+
+{% block content %}
+
+<section class="search-result-hero">
+    <div class="container">
+        <h1>통합 검색</h1>
+
+        <form class="main-search small" action="{% url 'search' %}" method="get">
+            <input type="text" name="q" value="{{ query }}" placeholder="검색어를 입력하세요">
+            <button type="submit">⌕</button>
+        </form>
+
+        {% if query %}
+            <p class="result-count">
+                “{{ query }}” 검색 결과 {{ results|length }}개
+            </p>
+        {% else %}
+            <p class="result-count">
+                검색어를 입력해주세요.
+            </p>
+        {% endif %}
+    </div>
+</section>
+
+<section class="section">
+    <div class="container">
+        <div class="post-grid">
+            {% for post in results %}
+            <a href="{% url 'post_detail' post.id %}" class="post-card">
+                <strong>{{ post.get_category_display }}</strong>
+                <h3>{{ post.title }}</h3>
+                <p>{{ post.content|truncatechars:100 }}</p>
+            </a>
+            {% empty %}
+                {% if query %}
+                <div class="empty-box">
+                    <h3>검색 결과가 없습니다.</h3>
+                    <p>다른 검색어로 다시 검색해보세요.</p>
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+{% endblock %}

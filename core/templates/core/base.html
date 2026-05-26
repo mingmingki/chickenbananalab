@@ -1,57 +1,53 @@
 {% load static %}
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>{% block title %}ChickenBanana Lab{% endblock %}</title>
-  <style>
-    body{font-family:system-ui,Segoe UI,Apple SD Gothic Neo,맑은 고딕,sans-serif;margin:0;color:#111827}
-    a{color:inherit;text-decoration:none}
-    .wrap{max-width:1000px;margin:0 auto;padding:22px 18px}
-    .nav{display:flex;align-items:center;justify-content:space-between;gap:12px}
-    /* 브랜드 로고/텍스트 정렬을 위해 flex 추가 */
-    .brand a {display:flex; align-items:center; gap:8px;} 
-    .brand{font-weight:800;letter-spacing:.4px}
-    .menu{display:flex;gap:14px;font-size:14px}
-    .pill{display:inline-block;padding:6px 10px;border:1px solid #e5e7eb;border-radius:999px;font-size:12px}
-    .hero{padding:46px 0}
-    h1{font-size:42px;line-height:1.15;margin:12px 0}
-    p{color:#374151;line-height:1.65}
-    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px}
-    .card{border:1px solid #e5e7eb;border-radius:16px;padding:16px}
-    .btn{display:inline-block;margin-top:16px;padding:10px 14px;border-radius:12px;border:1px solid #111827}
-    footer{border-top:1px solid #e5e7eb;margin-top:40px}
-    .muted{color:#6b7280;font-size:12px}
-    @media (max-width:860px){.grid{grid-template-columns:1fr}.menu{gap:10px}}
-  </style>
+    <meta charset="UTF-8">
+    <title>{% block title %}ChickenBanana Lab{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="{% static 'core/css/style.css' %}">
 </head>
 <body>
-  <header class="wrap">
-    <div class="nav">
-      <div class="brand">
-        <a href="/">
-          <img src="{% static 'core/images/logo.png' %}" alt="Logo" style="height: 64px; width: auto;">
-          CHICKENBANANA LAB
+
+<header class="site-header">
+    <div class="container header-inner">
+        <a href="{% url 'home' %}" class="brand">
+            <img src="{% static 'core/images/logo.png' %}" alt="ChickenBanana Lab">
+            <div>
+                <strong>CHICKENBANANA LAB</strong>
+                <span>Search · Automation · Contents</span>
+            </div>
         </a>
-      </div>
-      
-      <nav class="menu">
-        <a href="/">Home</a>
-        <a href="/about/">About</a>
-        <a href="/contact/">Contact</a>
-      </nav>
-    </div>
-  </header>
 
-  <main class="wrap">
-    {% block content %}{% endblock %}
-  </main>
+        <nav class="top-links">
+            <a href="{% url 'home' %}">Home</a>
+            <a href="{% url 'about' %}">About</a>
+            <a href="{% url 'contact' %}">Contact</a>
 
-  <footer>
-    <div class="wrap">
-      <div class="muted">© {% now "Y" %} ChickenBanana Lab. All rights reserved.</div>
+            {% if user.is_authenticated %}
+    <form method="post" action="{% url 'logout' %}" class="logout-form">
+        {% csrf_token %}
+        <button type="submit" class="login-btn logout-btn">Logout</button>
+    </form>
+{% else %}
+    <a href="{% url 'login' %}" class="login-btn">Login</a>
+{% endif %}
+        </nav>
     </div>
-  </footer>
+</header>
+
+<main>
+    {% block content %}
+    {% endblock %}
+</main>
+
+<footer class="footer">
+    <div class="container footer-inner">
+        <p>© 2026 ChickenBanana Lab. All rights reserved.</p>
+        <p>건축 · 부동산 · 금융 · 테크 · 일상 통합 검색 플랫폼</p>
+    </div>
+</footer>
+
 </body>
 </html>

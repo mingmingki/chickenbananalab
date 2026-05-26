@@ -1,0 +1,14 @@
+{% extends "core/base.html" %}
+{% block title %}Sign up | ChickenBanana Lab{% endblock %}
+
+{% block content %}
+  <h2 style="margin: 10px 0 16px;">Sign up</h2>
+
+  <div class="card" style="max-width:420px;">
+    <form method="post">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button class="btn" type="submit">Create account</button>
+    </form>
+  </div>
+{% endblock %}

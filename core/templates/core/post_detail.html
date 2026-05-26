@@ -1,0 +1,63 @@
+{% extends "core/base.html" %}
+{% block title %}{{ post.title }} | ChickenBanana Lab{% endblock %}
+
+{% block content %}
+
+<section class="detail-hero">
+    <div class="container">
+        <span class="detail-category">{{ post.get_category_display }}</span>
+
+        <h1>{{ post.title }}</h1>
+
+        <p>
+            등록일 {{ post.created_at|date:"Y.m.d H:i" }}
+            · 수정일 {{ post.updated_at|date:"Y.m.d H:i" }}
+        </p>
+
+        <div class="detail-actions">
+            <a href="{% url post.category %}" class="cancel-btn">목록으로</a>
+
+            {% if user.is_authenticated and user.is_staff or user.is_superuser %}
+                <a href="{% url 'post_update' post.id %}" class="write-btn">수정하기</a>
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+<section class="section">
+    <div class="container detail-container">
+
+        {% if post.thumbnail %}
+            <div class="detail-thumbnail">
+                <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">
+            </div>
+        {% endif %}
+
+        <article class="post-content">
+            {{ post.content|linebreaks }}
+        </article>
+
+        {% if user.is_authenticated and user.is_staff or user.is_superuser %}
+            <div class="delete-box">
+                <div>
+                    <h3>관리자 삭제 영역</h3>
+                    <p>이 글을 삭제하면 복구할 수 없습니다.</p>
+                </div>
+
+                <form method="post" action="{% url 'post_delete' post.id %}">
+                    {% csrf_token %}
+                    <button
+                        type="submit"
+                        class="delete-btn"
+                        onclick="return confirm('정말 이 글을 삭제하시겠습니까?');"
+                    >
+                        삭제하기
+                    </button>
+                </form>
+            </div>
+        {% endif %}
+
+    </div>
+</section>
+
+{% endblock %}

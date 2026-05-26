@@ -1,0 +1,77 @@
+{% extends "core/base.html" %}
+{% block title %}{{ page.title }} | ChickenBanana Lab{% endblock %}
+
+{% block content %}
+
+<section class="category-hero category-{{ page.theme }}">
+    <div class="container">
+        <div class="category-title">
+            <div class="category-big-icon">{{ page.icon }}</div>
+            <p>{{ page.label }}</p>
+            <h1>{{ page.title }}</h1>
+            <span>{{ page.description }}</span>
+        </div>
+
+        <form class="sub-search" action="{% url 'search' %}" method="get">
+            <input type="text" name="q" placeholder="{{ page.title }}에서 검색할 내용을 입력하세요">
+            <button type="submit">검색</button>
+        </form>
+    </div>
+</section>
+
+<section class="section" id="post-list">
+    <div class="container">
+
+        <div class="section-title category-title-row">
+            <div>
+                <span>{{ page.title }} Contents</span>
+                <h2>{{ page.title }} 관련 글</h2>
+            </div>
+
+            <div class="category-button-group">
+                <a href="{% url 'post_create' %}?category={{ slug }}" class="write-btn">
+                    글 올리기
+                </a>
+
+                <a href="#post-list" class="list-btn">
+                    목록
+                </a>
+            </div>
+        </div>
+
+        <div class="thumbnail-grid">
+    {% for post in posts %}
+    <a href="{% url 'post_detail' post.id %}" class="thumbnail-card">
+        {% if post.thumbnail %}
+            <div class="thumbnail-image-box">
+                <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">
+            </div>
+        {% else %}
+            <div class="thumbnail-box category-{{ post.category }}">
+                <div class="thumbnail-icon">{{ page.icon }}</div>
+                <span>{{ post.get_category_display }}</span>
+            </div>
+        {% endif %}
+
+        <div class="thumbnail-content">
+            <strong>{{ post.get_category_display }}</strong>
+            <h3>{{ post.title }}</h3>
+            <p>{{ post.content|truncatechars:80 }}</p>
+            <small>{{ post.created_at|date:"Y.m.d" }}</small>
+        </div>
+    </a>
+    {% empty %}
+    <div class="empty-box full-empty">
+        <h3>아직 등록된 글이 없습니다.</h3>
+        <p>{{ page.title }} 카테고리에 첫 글을 등록해보세요.</p>
+        <a href="{% url 'post_create' %}?category={{ slug }}" class="write-btn empty-write">
+            글 올리기
+        </a>
+    </div>
+    {% endfor %}
+</div>
+
+    </div>
+</section>
+
+{% endblock %}
