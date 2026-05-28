@@ -13,9 +13,9 @@ CATEGORY_PAGES = {
     "architecture": {
         "title": "건축",
         "label": "Architecture",
-        "icon": "🏗️",
+        "icon": "🏠",
         "headline": "건축 자동화와 현장관리",
-        "description": "공사일보, CAD/BIM 수량산출, 현장 사진관리, 공정 데이터 자동화를 다룹니다.",
+        "description": "CAD/BIM 수량산출, 현장 사진관리, 공정 데이터, 공사일보 자동화를 다룹니다.",
         "theme": "architecture",
     },
     "realestate": {
@@ -115,6 +115,9 @@ def search(request):
 
 def post_detail(request, pk):
     post = get_object_or_404(Post, pk=pk)
+
+    post.views += 1
+    post.save(update_fields=["views"])
 
     return render(request, "core/post_detail.html", {
         "post": post,

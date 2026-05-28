@@ -5,7 +5,14 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+
+    # Django 기본 로그인/로그아웃
     path("accounts/", include("django.contrib.auth.urls")),
+
+    # Google 로그인 / django-allauth
+    path("accounts/", include("allauth.urls")),
+
+    # 내 사이트
     path("", include("core.urls")),
 ]
 

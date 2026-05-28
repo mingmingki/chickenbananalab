@@ -1,0 +1,65 @@
+{% extends "core/base.html" %}
+
+{% block title %}Google 회원가입 | ChickenBanana Lab{% endblock %}
+
+{% block content %}
+
+<section class="social-signup-page">
+    <div class="social-signup-card">
+
+        <div class="social-signup-header">
+            <div class="google-mark">G</div>
+            <h1>Google 계정으로 시작하기</h1>
+            <p>
+                Google 계정 확인이 완료되었습니다.<br>
+                ChickenBanana Lab에서 사용할 정보를 확인해주세요.
+            </p>
+        </div>
+
+        <form method="post" class="social-signup-form">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+                <div class="social-error-box">
+                    {{ form.non_field_errors }}
+                </div>
+            {% endif %}
+
+            {% for field in form %}
+                {% if field.is_hidden %}
+                    {{ field }}
+                {% else %}
+                    <div class="social-field">
+                        <label for="{{ field.id_for_label }}">
+                            {% if field.name == "email" %}
+                                이메일
+                            {% elif field.name == "username" %}
+                                사용자 이름
+                            {% else %}
+                                {{ field.label }}
+                            {% endif %}
+                        </label>
+
+                        {{ field }}
+                        {{ field.errors }}
+                    </div>
+                {% endif %}
+            {% endfor %}
+
+            {% if redirect_field_value %}
+                <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
+            {% endif %}
+
+            <button type="submit" class="social-submit-btn">
+                가입 완료하고 시작하기
+            </button>
+        </form>
+
+        <div class="social-signup-bottom">
+            <a href="{% url 'home' %}">홈으로 돌아가기</a>
+        </div>
+
+    </div>
+</section>
+
+{% endblock %}

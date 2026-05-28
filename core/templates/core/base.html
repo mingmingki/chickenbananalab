@@ -7,6 +7,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <link rel="stylesheet" href="{% static 'core/css/style.css' %}">
+
+    <!-- 카카오 장소 검색 API -->
+    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=여기에_카카오_JavaScript_키&libraries=services"></script>
 </head>
 <body>
 
@@ -26,13 +29,55 @@
             <a href="{% url 'contact' %}">Contact</a>
 
             {% if user.is_authenticated %}
-    <form method="post" action="{% url 'logout' %}" class="logout-form">
-        {% csrf_token %}
-        <button type="submit" class="login-btn logout-btn">Logout</button>
-    </form>
-{% else %}
-    <a href="{% url 'login' %}" class="login-btn">Login</a>
-{% endif %}
+                <div class="account-menu">
+                    <button type="button" class="account-avatar-btn" id="accountMenuButton">
+                        {% if user.email %}
+                            {{ user.email|first|upper }}
+                        {% elif user.username %}
+                            {{ user.username|first|upper }}
+                        {% else %}
+                            U
+                        {% endif %}
+                    </button>
+
+                    <div class="account-dropdown" id="accountDropdown">
+                        <div class="account-info">
+                            <strong>
+                                {% if user.email %}
+                                    {{ user.email }}
+                                {% else %}
+                                    {{ user.username }}
+                                {% endif %}
+                            </strong>
+
+                            {% if user.is_staff %}
+                                <span>관리자 계정</span>
+                            {% else %}
+                                <span>일반 계정</span>
+                            {% endif %}
+                        </div>
+
+                        <button type="button" class="account-dropdown-link" onclick="openAccountModal()">
+                            계정관리
+                        </button>
+
+                        {% if user.is_staff %}
+                            <button type="button" class="account-dropdown-link" onclick="openManageModal()">
+                                홈페이지 관리
+                            </button>
+                        {% endif %}
+
+                        <form method="post" action="{% url 'logout' %}" class="account-logout-form">
+                            {% csrf_token %}
+                            <button type="submit">
+                                로그아웃
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            {% else %}
+                <a href="{% url 'login' %}" class="login-btn">Login</a>
+            {% endif %}
         </nav>
     </div>
 </header>
@@ -48,6 +93,345 @@
         <p>건축 · 부동산 · 금융 · 테크 · 일상 통합 검색 플랫폼</p>
     </div>
 </footer>
+
+{% if user.is_authenticated %}
+    <!-- 계정관리 팝업 -->
+    <div class="site-modal" id="accountModal">
+        <div class="site-modal-backdrop" onclick="closeAccountModal()"></div>
+
+        <div class="site-modal-card">
+            <div class="site-modal-header">
+                <div>
+                    <span>Account</span>
+                    <h2>계정관리</h2>
+                </div>
+
+                <button type="button" onclick="closeAccountModal()">×</button>
+            </div>
+
+            <div class="account-profile-box">
+                <div class="account-profile-avatar">
+                    {% if user.email %}
+                        {{ user.email|first|upper }}
+                    {% elif user.username %}
+                        {{ user.username|first|upper }}
+                    {% else %}
+                        U
+                    {% endif %}
+                </div>
+
+                <div>
+                    <strong>
+                        {% if user.email %}
+                            {{ user.email }}
+                        {% else %}
+                            {{ user.username }}
+                        {% endif %}
+                    </strong>
+
+                    {% if user.is_staff %}
+                        <p>관리자 권한이 있는 계정입니다.</p>
+                    {% else %}
+                        <p>일반 사용자 계정입니다.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="modal-info-list">
+                <div>
+                    <span>사용자 이름</span>
+                    <strong>{{ user.username }}</strong>
+                </div>
+
+                <div>
+                    <span>이메일</span>
+                    <strong>
+                        {% if user.email %}
+                            {{ user.email }}
+                        {% else %}
+                            등록된 이메일 없음
+                        {% endif %}
+                    </strong>
+                </div>
+
+                <div>
+                    <span>권한</span>
+                    <strong>
+                        {% if user.is_superuser %}
+                            최고 관리자
+                        {% elif user.is_staff %}
+                            관리자
+                        {% else %}
+                            일반 사용자
+                        {% endif %}
+                    </strong>
+                </div>
+            </div>
+
+            <div class="site-modal-actions">
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button type="submit" class="modal-dark-btn">로그아웃</button>
+                </form>
+
+                <button type="button" class="modal-light-btn" onclick="closeAccountModal()">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    {% if user.is_staff %}
+        <!-- 홈페이지 관리 팝업 -->
+        <div class="site-modal" id="manageModal">
+            <div class="site-modal-backdrop" onclick="closeManageModal()"></div>
+
+            <div class="site-modal-card manage-modal-card">
+                <div class="site-modal-header">
+                    <div>
+                        <span>Management</span>
+                        <h2>홈페이지 관리</h2>
+                    </div>
+
+                    <button type="button" onclick="closeManageModal()">×</button>
+                </div>
+
+                <div class="manage-menu-grid">
+                    <a href="{% url 'post_create' %}" class="manage-menu-item">
+                        <div>✍️</div>
+                        <strong>글 올리기</strong>
+                        <p>새 콘텐츠를 직접 작성합니다.</p>
+                    </a>
+
+                    <button type="button" class="manage-menu-item manage-menu-button" onclick="openAiPostModal()">
+                        <div>🤖</div>
+                        <strong>AI 자동글 생성</strong>
+                        <p>카테고리, 글 개수, 키워드로 자동 초안을 생성합니다.</p>
+                    </button>
+
+                    <a href="{% url 'admin_dashboard' %}" class="manage-menu-item">
+                        <div>📋</div>
+                        <strong>글 목록 관리</strong>
+                        <p>등록된 글을 확인하고 관리합니다.</p>
+                    </a>
+
+                    <a href="/admin/" class="manage-menu-item">
+                        <div>⚙️</div>
+                        <strong>Django 관리자</strong>
+                        <p>DB와 사용자 권한을 관리합니다.</p>
+                    </a>
+
+                    <a href="{% url 'home' %}" class="manage-menu-item">
+                        <div>🏠</div>
+                        <strong>홈페이지 보기</strong>
+                        <p>메인 화면으로 이동합니다.</p>
+                    </a>
+
+                    <button type="button" class="manage-menu-item manage-menu-button disabled-manage-item">
+                        <div>📊</div>
+                        <strong>사이트 통계</strong>
+                        <p>방문자, 조회수, 인기글 분석 기능 예정입니다.</p>
+                    </button>
+                </div>
+
+                <div class="site-modal-actions">
+                    <button type="button" class="modal-light-btn" onclick="closeManageModal()">닫기</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI 자동글 생성 팝업 -->
+        <div class="site-modal" id="aiPostModal">
+            <div class="site-modal-backdrop" onclick="closeAiPostModal()"></div>
+
+            <div class="site-modal-card ai-post-modal-card">
+                <div class="site-modal-header">
+                    <div>
+                        <span>AI Writing</span>
+                        <h2>AI 자동글 생성</h2>
+                    </div>
+
+                    <button type="button" onclick="closeAiPostModal()">×</button>
+                </div>
+
+                <div class="ai-post-intro">
+                    <strong>자동 글쓰기 초안 생성</strong>
+                    <p>
+                        카테고리와 주요 키워드를 입력하면 AI가 블로그 초안을 생성하는 화면입니다.
+                        실제 OpenAI API 연결은 다음 단계에서 붙입니다.
+                    </p>
+                </div>
+
+                <form class="ai-post-form" method="post" action="#">
+                    {% csrf_token %}
+
+                    <div class="ai-form-grid">
+                        <div class="ai-form-group">
+                            <label for="ai-category">자동글 카테고리</label>
+                            <select id="ai-category" name="category">
+                                <option value="architecture">건축</option>
+                                <option value="realestate">부동산</option>
+                                <option value="finance">금융</option>
+                                <option value="tech">테크</option>
+                                <option value="life">일상</option>
+                            </select>
+                        </div>
+
+                        <div class="ai-form-group">
+                            <label for="ai-count">생성할 글 개수</label>
+                            <input id="ai-count" name="count" type="number" min="1" max="10" value="1">
+                        </div>
+                    </div>
+
+                    <div class="ai-form-group">
+                        <label for="ai-keywords">주요 이슈 키워드</label>
+                        <input
+                            id="ai-keywords"
+                            name="keywords"
+                            type="text"
+                            placeholder="예: 금리 인하, 아파트 분양, 마감공사 하자, AI 자동화"
+                        >
+                    </div>
+
+                    <div class="ai-form-group">
+                        <label for="ai-title-style">글 작성 방향</label>
+                        <select id="ai-title-style" name="writing_style">
+                            <option value="practical">실무자 관점으로 쉽게 정리</option>
+                            <option value="issue">최신 이슈 분석형</option>
+                            <option value="guide">초보자 가이드형</option>
+                            <option value="checklist">체크리스트형</option>
+                            <option value="review">리뷰/경험담형</option>
+                        </select>
+                    </div>
+
+                    <div class="ai-form-group">
+                        <label for="ai-extra">추가 요청사항</label>
+                        <textarea
+                            id="ai-extra"
+                            name="extra_prompt"
+                            rows="5"
+                            placeholder="예: 제목은 자극적이지 않게, 본문은 1500자 이상, 표나 목록 포함, SEO 설명 포함"
+                        ></textarea>
+                    </div>
+
+                    <div class="ai-option-box">
+                        <label>
+                            <input type="checkbox" name="make_thumbnail" checked>
+                            썸네일 이미지 프롬프트도 같이 생성
+                        </label>
+
+                        <label>
+                            <input type="checkbox" name="save_draft" checked>
+                            생성된 글은 비공개 초안으로 저장
+                        </label>
+
+                        <label>
+                            <input type="checkbox" name="include_tags" checked>
+                            태그 자동 생성
+                        </label>
+                    </div>
+
+                    <div class="ai-preview-box">
+                        <span>생성 예시</span>
+                        <p>
+                            건축 / 글 1개 / 키워드: 마감공사 하자<br>
+                            → “아파트 마감공사 하자를 줄이는 현장 체크포인트 7가지” 초안 생성
+                        </p>
+                    </div>
+
+                    <div class="site-modal-actions">
+                        <button type="button" class="modal-light-btn" onclick="closeAiPostModal()">취소</button>
+                        <button type="button" class="modal-dark-btn" onclick="alert('다음 단계에서 OpenAI API와 연결해서 실제 글 생성 기능을 붙이면 됩니다.')">
+                            AI 글 생성 시작
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    {% endif %}
+{% endif %}
+
+<script>
+    const accountMenuButton = document.getElementById("accountMenuButton");
+    const accountDropdown = document.getElementById("accountDropdown");
+
+    if (accountMenuButton && accountDropdown) {
+        accountMenuButton.addEventListener("click", function (event) {
+            event.stopPropagation();
+            accountDropdown.classList.toggle("active");
+        });
+
+        document.addEventListener("click", function () {
+            accountDropdown.classList.remove("active");
+        });
+
+        accountDropdown.addEventListener("click", function (event) {
+            event.stopPropagation();
+        });
+    }
+
+    function openAccountModal() {
+        const modal = document.getElementById("accountModal");
+        if (modal) {
+            modal.classList.add("active");
+        }
+
+        if (accountDropdown) {
+            accountDropdown.classList.remove("active");
+        }
+    }
+
+    function closeAccountModal() {
+        const modal = document.getElementById("accountModal");
+        if (modal) {
+            modal.classList.remove("active");
+        }
+    }
+
+    function openManageModal() {
+        const modal = document.getElementById("manageModal");
+        if (modal) {
+            modal.classList.add("active");
+        }
+
+        if (accountDropdown) {
+            accountDropdown.classList.remove("active");
+        }
+    }
+
+    function closeManageModal() {
+        const modal = document.getElementById("manageModal");
+        if (modal) {
+            modal.classList.remove("active");
+        }
+    }
+
+    function openAiPostModal() {
+        const manageModal = document.getElementById("manageModal");
+        const aiPostModal = document.getElementById("aiPostModal");
+
+        if (manageModal) {
+            manageModal.classList.remove("active");
+        }
+
+        if (aiPostModal) {
+            aiPostModal.classList.add("active");
+        }
+    }
+
+    function closeAiPostModal() {
+        const modal = document.getElementById("aiPostModal");
+        if (modal) {
+            modal.classList.remove("active");
+        }
+    }
+
+    document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+            closeAccountModal();
+            closeManageModal();
+            closeAiPostModal();
+        }
+    });
+</script>
 
 </body>
 </html>

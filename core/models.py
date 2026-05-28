@@ -21,15 +21,59 @@ class Post(models.Model):
         verbose_name="제목"
     )
 
-    content = models.TextField(
-        verbose_name="내용"
-    )
-
     thumbnail = models.ImageField(
         upload_to="post_thumbnails/",
         blank=True,
         null=True,
         verbose_name="썸네일"
+    )
+
+    thumbnail_text = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name="썸네일 문구"
+    )
+
+    content_image = models.ImageField(
+        upload_to="post_content_images/",
+        blank=True,
+        null=True,
+        verbose_name="본문 사진"
+    )
+
+    video_file = models.FileField(
+    upload_to="post_videos/",
+    blank=True,
+    null=True,
+    verbose_name="본문 동영상"
+)
+
+    program_file = models.FileField(
+        upload_to="post_program_files/",
+        blank=True,
+        null=True,
+        verbose_name="첨부 프로그램"
+    )
+
+    location = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="위치정보"
+    )
+
+    content = models.TextField(
+        verbose_name="내용"
+    )
+
+    tags = models.CharField(
+        max_length=300,
+        blank=True,
+        verbose_name="태그"
+    )
+
+    views = models.PositiveIntegerField(
+        default=0,
+        verbose_name="조회수"
     )
 
     created_at = models.DateTimeField(
@@ -44,3 +88,9 @@ class Post(models.Model):
 
     def __str__(self):
         return self.title
+
+    @property
+    def tag_list(self):
+        if not self.tags:
+            return []
+        return [tag.strip() for tag in self.tags.split(",") if tag.strip()]

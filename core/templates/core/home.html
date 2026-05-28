@@ -13,7 +13,7 @@
 
         <div class="icon-menu">
             <a href="{% url 'architecture' %}" class="icon-item">
-                <div class="icon-box architecture">🏗️</div>
+                <div class="icon-box architecture">🏠</div>
                 <span>건축</span>
             </a>
 
@@ -48,51 +48,98 @@
                 <h2>최근 등록된 글</h2>
             </div>
 
-            <a href="{% url 'post_create' %}" class="write-btn">글 올리기</a>
+            {% if user.is_authenticated and user.is_staff %}
+                <a href="{% url 'post_create' %}" class="write-btn">글 올리기</a>
+            {% endif %}
         </div>
 
         <div class="thumbnail-grid">
-    {% for post in posts %}
-    <a href="{% url 'post_detail' post.id %}" class="thumbnail-card">
-        {% if post.thumbnail %}
-            <div class="thumbnail-image-box">
-                <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">
-            </div>
-        {% else %}
-            <div class="thumbnail-box category-{{ post.category }}">
-                <div class="thumbnail-icon">
-                    {% if post.category == "architecture" %}
-                        🏗️
-                    {% elif post.category == "realestate" %}
-                        🏢
-                    {% elif post.category == "finance" %}
-                        💹
-                    {% elif post.category == "tech" %}
-                        💻
-                    {% elif post.category == "life" %}
-                        ☕
-                    {% endif %}
-                </div>
-                <span>{{ post.get_category_display }}</span>
+            {% for post in posts %}
+                <a href="{% url 'post_detail' post.id %}" class="thumbnail-card">
+                    {% if post.thumbnail %}
+    <div class="thumbnail-image-box">
+        <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">
+
+        {% if post.thumbnail_text %}
+            <div class="thumbnail-text-overlay">
+                {{ post.thumbnail_text }}
             </div>
         {% endif %}
-
-        <div class="thumbnail-content">
-            <strong>{{ post.get_category_display }}</strong>
-            <h3>{{ post.title }}</h3>
-            <p>{{ post.content|truncatechars:80 }}</p>
-            <small>{{ post.created_at|date:"Y.m.d" }}</small>
-        </div>
-    </a>
-    {% empty %}
-    <div class="empty-box full-empty">
-        <h3>아직 등록된 글이 없습니다.</h3>
-        <p>첫 번째 글을 등록해보세요.</p>
-        <a href="{% url 'post_create' %}" class="write-btn empty-write">글 올리기</a>
     </div>
-    {% endfor %}
+{% else %}
+                        <div class="thumbnail-box category-{{ post.category }}">
+                            <div class="thumbnail-icon">
+                                {% if post.category == "architecture" %}
+                                    🏠
+                                {% elif post.category == "realestate" %}
+                                    🏢
+                                {% elif post.category == "finance" %}
+                                    💹
+                                {% elif post.category == "tech" %}
+                                    💻
+                                {% elif post.category == "life" %}
+                                    ☕
+                                {% endif %}
+                            </div>
+                            <span>{{ post.get_category_display }}</span>
+                        </div>
+                    {% endif %}
+
+                    <div class="thumbnail-content">
+                        <strong>{{ post.get_category_display }}</strong>
+                        <h3>{{ post.title }}</h3>
+                        <p>{{ post.content|striptags|truncatechars:80 }}</p>
+                        <small>{{ post.created_at|date:"Y.m.d" }}</small>
+                    </div>
+                </a>
+            {% empty %}
+                <div class="empty-box full-empty">
+                    <h3>아직 등록된 글이 없습니다.</h3>
+                    <p>첫 번째 글을 등록해보세요.</p>
+
+                    {% if user.is_authenticated and user.is_staff %}
+                        <a href="{% url 'post_create' %}" class="write-btn empty-write">글 올리기</a>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+
+       <div style="width:100%; display:flex; justify-content:flex-end; align-items:center; gap:5px; margin-top:18px; padding-right:4px; background:none; border:none; box-shadow:none;">
+    <span id="plain-date-now" style="margin:0; padding:0; background:none; border:none; box-shadow:none; border-radius:0; color:#94a3b8; font-size:14px; font-weight:400; line-height:1;">
+        날짜 불러오는 중...
+    </span>
+    <span id="plain-time-now" style="margin:0; padding:0; background:none; border:none; box-shadow:none; border-radius:0; color:#94a3b8; font-size:14px; font-weight:400; line-height:1;">
+        시간 불러오는 중...
+    </span>
 </div>
     </div>
 </section>
+
+<script>
+    function updatePlainDateTime() {
+        const dateBox = document.getElementById("plain-date-now");
+        const timeBox = document.getElementById("plain-time-now");
+
+        if (!dateBox || !timeBox) {
+            return;
+        }
+
+        const now = new Date();
+
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, "0");
+        const day = String(now.getDate()).padStart(2, "0");
+
+        const hour = String(now.getHours()).padStart(2, "0");
+        const minute = String(now.getMinutes()).padStart(2, "0");
+        const second = String(now.getSeconds()).padStart(2, "0");
+
+        dateBox.textContent = `${year}년 ${month}월 ${day}일`;
+        timeBox.textContent = `${hour}:${minute}:${second}`;
+    }
+
+    updatePlainDateTime();
+    setInterval(updatePlainDateTime, 1000);
+</script>
 
 {% endblock %}
