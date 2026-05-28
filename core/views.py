@@ -4,10 +4,11 @@ from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import user_passes_test
 from django.db.models import Q
+from django.contrib import messages
 
 from .models import Post
 from .forms import PostForm
-
+from .ai_writer import generate_ai_post
 
 CATEGORY_PAGES = {
     "architecture": {
@@ -194,6 +195,74 @@ def admin_dashboard(request):
         "posts": posts,
     })
 
+@user_passes_test(admin_required)
+def ai_post_generate(request):
+    if request.method != "POST":
+        return redirect("home")
+
+    category = request.POST.get("category", "tech")
+    keywords = request.POST.get("keywords", "").strip()
+    writing_style = request.POST.get("writing_style", "practical")
+    extra_prompt = request.POST.get("extra_prompt", "").strip()
+
+    try:
+        count = int(request.POST.get("count", 1))
+    except ValueError:
+        count = 1
+
+    count = max(1, min(count, 10))
+
+    make_thumbnail = request.POST.get("make_thumbnail") == "on"
+    include_tags = request.POST.get("include_tags") == "on"
+
+    if not keywords:
+        messages.error(request, "주요 이슈 키워드를 입력해주세요.")
+        return redirect("home")
+
+    created_posts = []
+
+    try:
+        for index in range(count):
+            ai_data = generate_ai_post(
+                category=category,
+                keywords=keywords,
+                writing_style=writing_style,
+                extra_prompt=extra_prompt,
+                include_tags=include_tags,
+                make_thumbnail=make_thumbnail,
+            )
+
+            thumbnail_text = ai_data.get("thumbnail_text", "")
+
+            thumbnail_prompt = ai_data.get("thumbnail_prompt", "")
+            content = ai_data.get("content", "")
+
+            if thumbnail_prompt:
+                content += f"""
+<hr>
+<h3>썸네일 이미지 프롬프트</h3>
+<p>{thumbnail_prompt}</p>
+"""
+
+            post = Post.objects.create(
+                category=category,
+                title=ai_data.get("title", f"{keywords} 정리"),
+                thumbnail_text=thumbnail_text,
+                content=content,
+                tags=ai_data.get("tags", ""),
+            )
+
+            created_posts.append(post)
+
+    except Exception as error:
+        messages.error(request, f"AI 글 생성 중 오류가 발생했습니다: {error}")
+        return redirect("home")
+
+    if len(created_posts) == 1:
+        return redirect("post_detail", pk=created_posts[0].pk)
+
+    messages.success(request, f"AI 글 {len(created_posts)}개를 생성했습니다.")
+    return redirect("admin_dashboard")
 
 def signup(request):
     if request.method == "POST":

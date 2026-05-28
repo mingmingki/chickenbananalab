@@ -20,6 +20,7 @@ urlpatterns = [
     path("about/", views.about, name="about"),
     path("contact/", views.contact, name="contact"),
     path("dashboard/", views.admin_dashboard, name="admin_dashboard"),
+    path("ai-post/generate/", views.ai_post_generate, name="ai_post_generate"),
 
     path("signup/", views.signup, name="signup"),
 ]

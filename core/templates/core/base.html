@@ -18,8 +18,7 @@
         <a href="{% url 'home' %}" class="brand">
             <img src="{% static 'core/images/logo.png' %}" alt="ChickenBanana Lab">
             <div>
-                <strong>CHICKENBANANA LAB</strong>
-                <span>Search · Automation · Contents</span>
+                <strong>CHICKENBANANALAB</strong>
             </div>
         </a>
 
@@ -255,12 +254,12 @@
                 <div class="ai-post-intro">
                     <strong>자동 글쓰기 초안 생성</strong>
                     <p>
-                        카테고리와 주요 키워드를 입력하면 AI가 블로그 초안을 생성하는 화면입니다.
-                        실제 OpenAI API 연결은 다음 단계에서 붙입니다.
+                        카테고리와 주요 키워드를 입력하면 AI가 블로그 초안을 생성하고,
+                        자동으로 글 목록에 저장합니다.
                     </p>
                 </div>
 
-                <form class="ai-post-form" method="post" action="#">
+                <form class="ai-post-form" method="post" action="{% url 'ai_post_generate' %}">
                     {% csrf_token %}
 
                     <div class="ai-form-grid">
@@ -339,9 +338,9 @@
 
                     <div class="site-modal-actions">
                         <button type="button" class="modal-light-btn" onclick="closeAiPostModal()">취소</button>
-                        <button type="button" class="modal-dark-btn" onclick="alert('다음 단계에서 OpenAI API와 연결해서 실제 글 생성 기능을 붙이면 됩니다.')">
-                            AI 글 생성 시작
-                        </button>
+                        <button type="submit" class="modal-dark-btn">
+    AI 글 생성 시작
+</button>
                     </div>
                 </form>
             </div>
