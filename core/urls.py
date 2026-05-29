@@ -16,11 +16,14 @@ urlpatterns = [
     path("post/<int:pk>/", views.post_detail, name="post_detail"),
     path("post/<int:pk>/edit/", views.post_update, name="post_update"),
     path("post/<int:pk>/delete/", views.post_delete, name="post_delete"),
+    path("post/<int:pk>/publish/", views.post_publish, name="post_publish"),
+    path("post/<int:pk>/unpublish/", views.post_unpublish, name="post_unpublish"),
 
     path("about/", views.about, name="about"),
     path("contact/", views.contact, name="contact"),
     path("dashboard/", views.admin_dashboard, name="admin_dashboard"),
+    path("dashboard/stats/", views.site_stats, name="site_stats"),
     path("ai-post/generate/", views.ai_post_generate, name="ai_post_generate"),
-
+    path("ai-keywords/recommend/", views.ai_keyword_recommend, name="ai_keyword_recommend"),
     path("signup/", views.signup, name="signup"),
 ]

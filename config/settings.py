@@ -1,3 +1,7 @@
+from pathlib import Path
+import os
+from dotenv import load_dotenv
+
 """
 Django settings for config project.
 
@@ -13,6 +17,9 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+load_dotenv(BASE_DIR / ".env")
+
+KAKAO_JAVASCRIPT_KEY = os.getenv("KAKAO_JAVASCRIPT_KEY", "")
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -192,3 +199,5 @@ SOCIALACCOUNT_PROVIDERS = {
 ADMIN_GOOGLE_EMAILS = [
     "pminki3@gmail.com",
 ]
+
+KAKAO_JAVASCRIPT_KEY = os.getenv("KAKAO_JAVASCRIPT_KEY", "")

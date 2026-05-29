@@ -71,6 +71,11 @@ class Post(models.Model):
         verbose_name="태그"
     )
 
+    is_published = models.BooleanField(
+        default=True,
+        verbose_name="공개 여부"
+    )
+
     views = models.PositiveIntegerField(
         default=0,
         verbose_name="조회수"

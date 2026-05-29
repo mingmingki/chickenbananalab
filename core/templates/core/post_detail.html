@@ -17,7 +17,39 @@
         </p>
 
         {% if post.location %}
-            <p class="post-location">📍 {{ post.location }}</p>
+    <p class="post-location">
+        📍 {{ post.location }}
+        <a href="https://www.google.com/maps/search/?api=1&query={{ post.location|urlencode }}"
+           class="post-location-map-btn"
+           target="_blank"
+           rel="noopener noreferrer">
+            지도 보기
+        </a>
+    </p>
+{% endif %}
+
+        {% if user.is_staff or user.is_superuser %}
+            <div class="post-admin-publish-box">
+                {% if post.is_published %}
+                    <span class="publish-status-badge published">공개중</span>
+
+                    <form method="post" action="{% url 'post_unpublish' post.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="draft-action-btn">
+                            비공개로 전환
+                        </button>
+                    </form>
+                {% else %}
+                    <span class="publish-status-badge draft">비공개 초안</span>
+
+                    <form method="post" action="{% url 'post_publish' post.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="publish-action-btn">
+                            공개하기
+                        </button>
+                    </form>
+                {% endif %}
+            </div>
         {% endif %}
 
         <div class="detail-actions">
@@ -34,21 +66,21 @@
     <div class="container post-detail-container">
 
         {% if post.thumbnail %}
-    <div class="post-main-image-wrap thumbnail-detail-wrap">
-        <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}" class="post-main-image">
+            <div class="post-main-image-wrap thumbnail-detail-wrap">
+                <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}" class="post-main-image">
 
-        {% if post.thumbnail_text %}
-            <div class="thumbnail-detail-text-overlay">
-                {{ post.thumbnail_text }}
+                {% if post.thumbnail_text %}
+                    <div class="thumbnail-detail-text-overlay">
+                        {{ post.thumbnail_text }}
+                    </div>
+                {% endif %}
             </div>
         {% endif %}
-    </div>
-{% endif %}
 
         <div class="post-content editor-output">
-            {{ post.content|safe }}
-        </div>
-{% if post.video_file %}
+    {{ post.content|safe }}
+
+    {% if post.video_file %}
         <div class="post-local-video-block">
             <video controls playsinline preload="metadata">
                 <source src="{{ post.video_file.url }}">
@@ -56,15 +88,31 @@
             </video>
         </div>
     {% endif %}
-</div>
 
-        {% if post.tag_list %}
-            <div class="post-tags">
-                {% for tag in post.tag_list %}
-                    <span>#{{ tag }}</span>
-                {% endfor %}
+    {% if post.program_file %}
+        <div class="program-download-box">
+            <div class="program-download-info">
+                <span>Program Download</span>
+                <strong>첨부 프로그램 다운로드</strong>
+                <p>
+                    첨부된 프로그램 파일은 압축 해제 후 사용해주세요.
+                </p>
             </div>
-        {% endif %}
+
+            <a href="{{ post.program_file.url }}" class="program-download-btn" download>
+                프로그램 다운로드
+            </a>
+        </div>
+    {% endif %}
+
+    {% if post.tag_list %}
+        <div class="post-tags">
+            {% for tag in post.tag_list %}
+                <span>#{{ tag }}</span>
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>
 
     </div>
 </section>

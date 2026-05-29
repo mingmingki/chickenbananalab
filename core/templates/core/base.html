@@ -7,9 +7,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <link rel="stylesheet" href="{% static 'core/css/style.css' %}">
-
-    <!-- 카카오 장소 검색 API -->
-    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=여기에_카카오_JavaScript_키&libraries=services"></script>
 </head>
 <body>
 
@@ -24,7 +21,6 @@
 
         <nav class="top-links">
             <a href="{% url 'home' %}">Home</a>
-            <a href="{% url 'about' %}">About</a>
             <a href="{% url 'contact' %}">Contact</a>
 
             {% if user.is_authenticated %}
@@ -224,11 +220,11 @@
                         <p>메인 화면으로 이동합니다.</p>
                     </a>
 
-                    <button type="button" class="manage-menu-item manage-menu-button disabled-manage-item">
-                        <div>📊</div>
-                        <strong>사이트 통계</strong>
-                        <p>방문자, 조회수, 인기글 분석 기능 예정입니다.</p>
-                    </button>
+                    <a href="{% url 'site_stats' %}" class="manage-menu-item">
+    <div>📊</div>
+    <strong>사이트 통계</strong>
+    <p>글 수, 조회수, 인기글 현황을 확인합니다.</p>
+</a>
                 </div>
 
                 <div class="site-modal-actions">
@@ -259,7 +255,7 @@
                     </p>
                 </div>
 
-                <form class="ai-post-form" method="post" action="{% url 'ai_post_generate' %}">
+                <form id="aiPostForm" class="ai-post-form" method="post" action="{% url 'ai_post_generate' %}">
                     {% csrf_token %}
 
                     <div class="ai-form-grid">
@@ -278,17 +274,63 @@
                             <label for="ai-count">생성할 글 개수</label>
                             <input id="ai-count" name="count" type="number" min="1" max="10" value="1">
                         </div>
+
+                        <div class="ai-form-group">
+    <label for="ai-image-count">본문 이미지 개수</label>
+    <select id="ai-image-count" name="image_count">
+        <option value="0">0장</option>
+        <option value="1">1장</option>
+        <option value="2" selected>2장</option>
+        <option value="3">3장</option>
+        <option value="4">4장</option>
+        <option value="5">5장</option>
+    </select>
+</div>
                     </div>
 
                     <div class="ai-form-group">
-                        <label for="ai-keywords">주요 이슈 키워드</label>
-                        <input
-                            id="ai-keywords"
-                            name="keywords"
-                            type="text"
-                            placeholder="예: 금리 인하, 아파트 분양, 마감공사 하자, AI 자동화"
-                        >
-                    </div>
+    <div class="ai-keyword-label-row">
+        <label for="ai-keywords">주요 이슈 키워드</label>
+
+        <button type="button" id="aiKeywordRecommendBtn" class="ai-keyword-recommend-btn">
+            오늘자 키워드 추천
+        </button>
+    </div>
+
+    <input
+        id="ai-keywords"
+        name="keywords"
+        type="text"
+        placeholder="예: 금리 인하, 아파트 분양, 마감공사 하자, AI 자동화"
+    >
+
+    <input
+    type="hidden"
+    id="ai-selected-keywords"
+    name="selected_keywords"
+    value=""
+>
+
+<div id="aiSelectedKeywordSummary" class="ai-selected-keyword-summary" hidden>
+    선택한 키워드 <strong>0개</strong>
+</div>
+
+    <div id="aiKeywordRecommendBox" class="ai-keyword-recommend-box" hidden>
+    <div class="ai-keyword-recommend-head">
+        <div class="ai-keyword-head-left">
+            <span class="ai-keyword-mini-label">AI TREND PICK</span>
+            <strong>오늘 글감 추천</strong>
+            <p>선택한 카테고리에 맞는 키워드만 추천합니다. 원하는 키워드를 누르면 위 입력칸에 바로 들어갑니다.</p>
+        </div>
+
+        <div class="ai-keyword-count-badge">
+            7개 추천
+        </div>
+    </div>
+
+    <div id="aiKeywordRecommendList" class="ai-keyword-recommend-list"></div>
+</div>
+</div>
 
                     <div class="ai-form-group">
                         <label for="ai-title-style">글 작성 방향</label>
@@ -314,7 +356,7 @@
                     <div class="ai-option-box">
                         <label>
                             <input type="checkbox" name="make_thumbnail" checked>
-                            썸네일 이미지 프롬프트도 같이 생성
+                            대표 썸네일 이미지 자동 생성
                         </label>
 
                         <label>
@@ -430,7 +472,210 @@
             closeAiPostModal();
         }
     });
-</script>
 
+document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+            closeAccountModal();
+            closeManageModal();
+            closeAiPostModal();
+        }
+    });
+
+const aiKeywordRecommendBtn = document.getElementById("aiKeywordRecommendBtn");
+const aiKeywordRecommendBox = document.getElementById("aiKeywordRecommendBox");
+const aiKeywordRecommendList = document.getElementById("aiKeywordRecommendList");
+const aiKeywordsInput = document.getElementById("ai-keywords");
+const aiCategorySelect = document.getElementById("ai-category");
+
+function getAiCsrfToken() {
+    const tokenInput = document.querySelector("#aiPostForm input[name='csrfmiddlewaretoken']");
+    return tokenInput ? tokenInput.value : "";
+}
+
+if (aiKeywordRecommendBtn && aiKeywordRecommendBox && aiKeywordRecommendList && aiKeywordsInput) {
+    aiKeywordRecommendBtn.addEventListener("click", function () {
+        aiKeywordRecommendBox.hidden = false;
+        aiKeywordRecommendList.innerHTML = `
+    <div class="ai-keyword-loading">
+        <div class="ai-keyword-loading-dots">
+            <span></span><span></span><span></span>
+        </div>
+        <strong>AI가 오늘 쓸 만한 키워드를 고르는 중입니다</strong>
+        <p>현재 선택한 카테고리에 맞춰 추천 키워드를 정리하고 있어요.</p>
+    </div>
+`;
+
+        aiKeywordRecommendBtn.disabled = true;
+        aiKeywordRecommendBtn.innerText = "추천 중...";
+
+        const formData = new FormData();
+        formData.append("category", aiCategorySelect ? aiCategorySelect.value : "all");
+
+const selectedInput = document.getElementById("ai-selected-keywords");
+const selectedSummary = document.getElementById("aiSelectedKeywordSummary");
+
+if (selectedInput) {
+    selectedInput.value = "";
+}
+
+if (selectedSummary) {
+    selectedSummary.hidden = true;
+    selectedSummary.innerHTML = `선택한 키워드 <strong>0개</strong>`;
+}
+
+if (aiKeywordsInput) {
+    aiKeywordsInput.value = "";
+}
+
+
+        fetch("{% url 'ai_keyword_recommend' %}", {
+            method: "POST",
+            headers: {
+                "X-CSRFToken": getAiCsrfToken(),
+            },
+            body: formData,
+        })
+            .then(function (response) {
+                return response.json();
+            })
+            .then(function (data) {
+                if (!data.ok) {
+                    throw new Error(data.message || "키워드 추천에 실패했습니다.");
+                }
+
+                aiKeywordRecommendList.innerHTML = "";
+
+                data.keywords.forEach(function (item) {
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.className = "ai-keyword-chip";
+
+                    button.innerHTML = `
+    <div class="ai-keyword-chip-top">
+        <span class="ai-keyword-category">${item.category}</span>
+        <span class="ai-keyword-select-text">선택</span>
+    </div>
+
+    <strong>${item.keyword}</strong>
+    <p>${item.reason}</p>
+`;
+
+                    button.addEventListener("click", function () {
+    const selectedInput = document.getElementById("ai-selected-keywords");
+    const selectedSummary = document.getElementById("aiSelectedKeywordSummary");
+    const aiCountInput = document.getElementById("ai-count");
+
+    let selectedKeywords = [];
+
+    if (selectedInput && selectedInput.value) {
+        try {
+            selectedKeywords = JSON.parse(selectedInput.value);
+        } catch (e) {
+            selectedKeywords = [];
+        }
+    }
+
+    const keyword = item.keyword;
+
+    if (selectedKeywords.includes(keyword)) {
+        selectedKeywords = selectedKeywords.filter(function (value) {
+            return value !== keyword;
+        });
+
+        button.classList.remove("selected");
+    } else {
+        selectedKeywords.push(keyword);
+        button.classList.add("selected");
+    }
+
+    if (selectedInput) {
+        selectedInput.value = JSON.stringify(selectedKeywords);
+    }
+
+    if (aiKeywordsInput) {
+        aiKeywordsInput.value = selectedKeywords.join(", ");
+        aiKeywordsInput.focus();
+    }
+
+    if (aiCountInput && selectedKeywords.length > 0) {
+        aiCountInput.value = selectedKeywords.length;
+    }
+
+    if (selectedSummary) {
+        if (selectedKeywords.length > 0) {
+            selectedSummary.hidden = false;
+            selectedSummary.innerHTML = `
+                선택한 키워드 <strong>${selectedKeywords.length}개</strong>
+                <span>선택한 키워드별로 글이 1개씩 생성됩니다.</span>
+            `;
+        } else {
+            selectedSummary.hidden = true;
+            selectedSummary.innerHTML = `선택한 키워드 <strong>0개</strong>`;
+        }
+    }
+});
+
+                    aiKeywordRecommendList.appendChild(button);
+                });
+            })
+            .catch(function (error) {
+                aiKeywordRecommendList.innerHTML = `
+                    <div class="ai-keyword-error">
+                        키워드 추천 중 오류가 발생했습니다.<br>
+                        ${error.message}
+                    </div>
+                `;
+            })
+            .finally(function () {
+                aiKeywordRecommendBtn.disabled = false;
+                aiKeywordRecommendBtn.innerText = "오늘자 키워드 추천";
+            });
+    });
+}
+</script>
+<div id="aiLoadingOverlay" class="ai-loading-overlay" hidden>
+    <div class="ai-loading-card">
+        <div class="ai-loading-icon">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+
+        <h2>AI가 열심히 일하는 중입니다</h2>
+        <p>
+            글을 작성하고 있습니다.<br>
+            이미지 생성이 포함되어 있으면 조금 더 오래 걸릴 수 있어요.
+        </p>
+
+        <div class="ai-loading-progress">
+            <div></div>
+        </div>
+
+        <small>
+            창을 닫지 말고 잠시만 기다려 주세요.
+        </small>
+    </div>
+</div>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const aiPostForm = document.getElementById("aiPostForm");
+        const aiLoadingOverlay = document.getElementById("aiLoadingOverlay");
+
+        if (!aiPostForm || !aiLoadingOverlay) {
+            return;
+        }
+
+        aiPostForm.addEventListener("submit", function () {
+            aiLoadingOverlay.hidden = false;
+            aiLoadingOverlay.classList.add("show");
+
+            const submitButton = aiPostForm.querySelector("button[type='submit']");
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.innerText = "AI 작성 중...";
+            }
+        });
+    });
+</script>
 </body>
 </html>

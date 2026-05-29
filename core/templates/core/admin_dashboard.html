@@ -1,11 +1,88 @@
 {% extends "core/base.html" %}
-{% block title %}Admin Dashboard | ChickenBanana Lab{% endblock %}
+
+{% block title %}글 목록 관리 | ChickenBanana Lab{% endblock %}
 
 {% block content %}
-  <h2 style="margin: 10px 0 16px;">Admin Dashboard</h2>
-  <p>이 페이지는 관리자(스태프)만 접근할 수 있습니다.</p>
 
-  <div class="card">
-    <p>관리 기능은 기본적으로 <a class="pill" href="/admin/">/admin</a> 에서 수행합니다.</p>
-  </div>
+<section class="section">
+    <div class="container">
+
+        <div class="dashboard-header">
+            <div>
+                <span class="dashboard-label">Management</span>
+                <h1>글 목록 관리</h1>
+                <p>등록된 글의 공개 상태를 확인하고 수정할 수 있습니다.</p>
+            </div>
+
+            <a href="{% url 'post_create' %}" class="save-btn">
+                새 글 작성
+            </a>
+        </div>
+
+        <div class="dashboard-summary-grid">
+            <div class="dashboard-summary-card">
+                <span>전체 글</span>
+                <strong>{{ posts|length }}</strong>
+            </div>
+
+            <div class="dashboard-summary-card">
+                <span>공개 글</span>
+                <strong>{{ published_count|default:0 }}</strong>
+            </div>
+
+            <div class="dashboard-summary-card">
+                <span>비공개 초안</span>
+                <strong>{{ draft_count|default:0 }}</strong>
+            </div>
+        </div>
+
+        <div class="dashboard-post-list">
+            {% for post in posts %}
+                <div class="dashboard-post-item">
+
+                    <div class="dashboard-post-main">
+                        <div class="dashboard-post-top">
+                            {% if post.is_published %}
+                                <span class="dashboard-status published">공개</span>
+                            {% else %}
+                                <span class="dashboard-status draft">초안</span>
+                            {% endif %}
+
+                            <span class="dashboard-category">
+                                {{ post.get_category_display }}
+                            </span>
+                        </div>
+
+                        <a href="{% url 'post_detail' post.pk %}" class="dashboard-post-title">
+                            {{ post.title }}
+                        </a>
+
+                        <p class="dashboard-post-meta">
+                            등록일 {{ post.created_at|date:"Y.m.d H:i" }}
+                            · 수정일 {{ post.updated_at|date:"Y.m.d H:i" }}
+                            · 조회수 {{ post.views|default:0 }}
+                        </p>
+                    </div>
+
+                    <div class="dashboard-post-actions">
+                        <a href="{% url 'post_detail' post.pk %}" class="cancel-btn">
+                            보기
+                        </a>
+
+                        <a href="{% url 'post_update' post.pk %}" class="save-btn">
+                            수정
+                        </a>
+                    </div>
+
+                </div>
+            {% empty %}
+                <div class="dashboard-empty">
+                    아직 등록된 글이 없습니다.
+                </div>
+            {% endfor %}
+        </div>
+
+    </div>
+</section>
+
 {% endblock %}

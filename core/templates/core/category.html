@@ -56,7 +56,7 @@
         <div class="thumbnail-content">
             <strong>{{ post.get_category_display }}</strong>
             <h3>{{ post.title }}</h3>
-            <p>{{ post.content|truncatechars:80 }}</p>
+            <p>{{ post.content|striptags|truncatechars:90 }}</p>
             <small>{{ post.created_at|date:"Y.m.d" }}</small>
         </div>
     </a>

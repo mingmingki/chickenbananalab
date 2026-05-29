@@ -7,14 +7,16 @@ class PostForm(forms.ModelForm):
         model = Post
 
         fields = [
-    "category",
-    "title",
-    "thumbnail",
-    "thumbnail_text",
-    "video_file",
-    "content",
-    "tags",
-]
+            "category",
+            "title",
+            "thumbnail",
+            "thumbnail_text",
+            "video_file",
+            "program_file",
+            "is_published",
+            "content",
+            "tags",
+        ]
 
         widgets = {
             "category": forms.Select(attrs={
@@ -31,11 +33,6 @@ class PostForm(forms.ModelForm):
                 "placeholder": "썸네일 중앙에 표시할 문구를 입력하세요"
             }),
 
-            "location": forms.TextInput(attrs={
-                "class": "form-input",
-                "placeholder": "예: 서울 강남구 / 현장명 / 장소"
-            }),
-
             "content": forms.Textarea(attrs={
                 "class": "form-textarea rich-content-input",
                 "placeholder": "내용을 입력하세요.",
@@ -48,6 +45,24 @@ class PostForm(forms.ModelForm):
             }),
 
             "video_file": forms.ClearableFileInput(attrs={
-    "accept": "video/mp4,video/webm,video/ogg,video/quicktime",
-}),
+                "accept": "video/mp4,video/webm,video/ogg,video/quicktime",
+            }),
+
+            "program_file": forms.ClearableFileInput(attrs={
+                "accept": ".zip,.rar,.7z,.exe,.msi,.dmg,.pkg,.apk,.py,.whl",
+            }),
+
+            "is_published": forms.CheckboxInput(attrs={
+                "class": "publish-checkbox",
+            }),
         }
+
+        labels = {
+            "is_published": "공개 글로 저장",
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if not self.instance.pk:
+            self.fields["is_published"].initial = True

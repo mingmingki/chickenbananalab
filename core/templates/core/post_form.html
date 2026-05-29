@@ -32,9 +32,20 @@
 
         <div class="editor-wrap">
 
-            <div class="editor-category-row">
-                {{ form.category }}
-            </div>
+            <div class="editor-category-publish-row">
+    <div class="editor-category-field">
+        {{ form.category }}
+    </div>
+
+    <div class="editor-publish-inline">
+        <label class="editor-publish-label">
+            {{ form.is_published }}
+            <span>공개 글로 저장</span>
+        </label>
+
+        <small>해제 시 비공개 초안</small>
+    </div>
+</div>
 
             <div class="editor-title-row">
                 {{ form.title }}
@@ -50,6 +61,23 @@
                     <span class="current-file-text">현재 썸네일 있음</span>
                 {% endif %}
             </div>
+
+            <div class="editor-program-file-row">
+    <label class="editor-file-label">
+        프로그램 파일 첨부
+        {{ form.program_file }}
+    </label>
+
+    {% if post and post.program_file %}
+        <span class="current-file-text">
+            현재 첨부파일 있음
+        </span>
+    {% endif %}
+
+    <p class="editor-help-text">
+        방문자가 다운로드할 수 있는 프로그램 파일입니다. EXE는 ZIP으로 압축해서 올리는 것을 권장합니다.
+    </p>
+</div>
 
             <div class="editor-thumbnail-text-row">
                 {{ form.thumbnail_text }}
@@ -228,6 +256,21 @@
     </div>
 </div>
 
+{% if kakao_javascript_key %}
+<script
+    src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={{ kakao_javascript_key }}&libraries=services&autoload=false"
+    onload="console.log('카카오 SDK 파일 다운로드 완료')"
+    onerror="console.error('카카오 SDK 파일 로드 실패')">
+</script>
+<script>
+    console.log("카카오 키 로드됨");
+</script>
+{% else %}
+<script>
+    console.error("카카오 키가 비어있음");
+</script>
+{% endif %}
+
 <script>
     const editor = document.getElementById("editor");
     const hiddenContent = document.getElementById("id_content");
@@ -367,31 +410,41 @@
     }
 
     function performLocationSearch() {
-        const keyword = locationInput.value.trim();
+    const keyword = locationInput.value.trim();
 
-        if (!keyword) {
-            locationResultArea.innerHTML = `
-                <div class="location-empty-message">
-                    검색어를 입력해주세요.
-                </div>
-            `;
-            return;
-        }
-
-        if (!window.kakao || !window.kakao.maps || !window.kakao.maps.services) {
-            locationResultArea.innerHTML = `
-                <div class="location-empty-message">
-                    카카오 지도 API 키를 확인해주세요.
-                </div>
-            `;
-            return;
-        }
-
+    if (!keyword) {
         locationResultArea.innerHTML = `
             <div class="location-empty-message">
-                장소를 검색하는 중입니다.
+                검색어를 입력해주세요.
             </div>
         `;
+        return;
+    }
+
+    if (!window.kakao || !window.kakao.maps) {
+        locationResultArea.innerHTML = `
+            <div class="location-empty-message">
+                카카오 지도 API가 아직 로드되지 않았습니다.
+            </div>
+        `;
+        return;
+    }
+
+    locationResultArea.innerHTML = `
+        <div class="location-empty-message">
+            장소를 검색하는 중입니다.
+        </div>
+    `;
+
+    kakao.maps.load(function () {
+        if (!kakao.maps.services) {
+            locationResultArea.innerHTML = `
+                <div class="location-empty-message">
+                    카카오 장소 검색 서비스를 불러오지 못했습니다.
+                </div>
+            `;
+            return;
+        }
 
         const places = new kakao.maps.services.Places();
 
@@ -416,7 +469,8 @@
                 </div>
             `;
         });
-    }
+    });
+}
 
     function renderLocationResults(results) {
         locationResultArea.innerHTML = "";

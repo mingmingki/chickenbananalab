@@ -1,10 +1,223 @@
 {% extends "core/base.html" %}
-{% block title %}Contact | ChickenBanana Lab{% endblock %}
+{% load static %}
 
 {% block content %}
-  <h1>Contact</h1>
-  <p>프로젝트 문의는 아래 이메일로 연락 주세요.</p>
-  <p><b>pminki3@gmail.com</b></p>
 
-  <a class="btn" href="mailto:hello@chickenbananalab.com">메일 보내기</a>
+<style>
+    .contact-page {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 72px 20px 90px;
+    }
+
+    .contact-hero {
+        text-align: center;
+        margin-bottom: 42px;
+    }
+
+    .contact-badge {
+        display: inline-block;
+        padding: 8px 18px;
+        border-radius: 999px;
+        background: #fff3d6;
+        color: #d97706;
+        font-size: 13px;
+        font-weight: 900;
+        letter-spacing: 1.5px;
+        margin-bottom: 16px;
+    }
+
+    .contact-hero h1 {
+        font-size: 42px;
+        font-weight: 950;
+        color: #0f172a;
+        margin: 0 0 14px;
+    }
+
+    .contact-hero p {
+        max-width: 650px;
+        margin: 0 auto;
+        color: #64748b;
+        font-size: 17px;
+        line-height: 1.75;
+    }
+
+    .contact-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 22px;
+        margin-bottom: 36px;
+    }
+
+    .contact-card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 24px;
+        padding: 30px 28px;
+        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.07);
+        transition: 0.25s ease;
+    }
+
+    .contact-card:hover {
+        transform: translateY(-6px);
+        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+    }
+
+    .contact-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 18px;
+        background: #fff7ed;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 27px;
+        margin-bottom: 18px;
+    }
+
+    .contact-card h3 {
+        margin: 0 0 10px;
+        font-size: 21px;
+        font-weight: 900;
+        color: #111827;
+    }
+
+    .contact-card p {
+        margin: 0 0 16px;
+        color: #6b7280;
+        line-height: 1.65;
+        font-size: 15px;
+    }
+
+    .contact-card a,
+    .contact-card span {
+        color: #f97316;
+        font-weight: 900;
+        text-decoration: none;
+        word-break: break-all;
+    }
+
+    .contact-card a:hover {
+        text-decoration: underline;
+    }
+
+    .contact-bottom {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 36px 40px;
+        border-radius: 28px;
+        background: linear-gradient(135deg, #111827, #1f2937);
+        color: #ffffff;
+        box-shadow: 0 24px 65px rgba(15, 23, 42, 0.2);
+    }
+
+    .contact-bottom h2 {
+        margin: 0 0 10px;
+        font-size: 26px;
+        font-weight: 950;
+    }
+
+    .contact-bottom p {
+        margin: 0;
+        max-width: 720px;
+        color: #d1d5db;
+        line-height: 1.75;
+        font-size: 15px;
+    }
+
+    .contact-button {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 52px;
+        padding: 0 26px;
+        border-radius: 999px;
+        background: #f97316;
+        color: #ffffff;
+        font-weight: 950;
+        text-decoration: none;
+        box-shadow: 0 12px 28px rgba(249, 115, 22, 0.38);
+        transition: 0.2s ease;
+    }
+
+    .contact-button:hover {
+        background: #ea580c;
+        transform: translateY(-2px);
+    }
+
+    @media (max-width: 900px) {
+        .contact-page {
+            padding: 50px 16px 70px;
+        }
+
+        .contact-hero h1 {
+            font-size: 32px;
+        }
+
+        .contact-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .contact-bottom {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 30px 24px;
+        }
+    }
+</style>
+
+<section class="contact-page">
+
+    <div class="contact-hero">
+        <div class="contact-badge">CONTACT</div>
+        <h1>치킨바나나랩에 문의하기</h1>
+        <p>
+            광고, 제휴, 콘텐츠 요청, 맛집 제보, 기술 문의가 있다면 아래 연락처로 편하게 문의해주세요.
+        </p>
+    </div>
+
+    <div class="contact-grid">
+
+        <div class="contact-card">
+            <div class="contact-icon">📩</div>
+            <h3>이메일 문의</h3>
+            <p>가장 빠르게 확인할 수 있는 공식 문의 채널입니다.</p>
+            <a href="mailto:pminki3@gmail.com">pminki3@gmail.com</a>
+        </div>
+
+        <div class="contact-card">
+            <div class="contact-icon">📝</div>
+            <h3>콘텐츠 제안</h3>
+            <p>방송 맛집, 생활정보, 테크, 금융, 이슈 콘텐츠 제안을 받습니다.</p>
+            <span>ChickenBanana Lab</span>
+        </div>
+
+        <div class="contact-card">
+            <div class="contact-icon">🤝</div>
+            <h3>광고 · 제휴</h3>
+            <p>사이트 노출, 브랜드 소개, 리뷰 콘텐츠 관련 문의가 가능합니다.</p>
+            <span>Business Inquiry</span>
+        </div>
+
+    </div>
+
+    <div class="contact-bottom">
+        <div>
+            <h2>문의 전 확인해주세요</h2>
+            <p>
+                빠른 확인을 위해 메일 제목에 문의 목적을 함께 적어주세요.
+                예: 광고 문의, 맛집 제보, 콘텐츠 수정 요청, 제휴 문의
+            </p>
+        </div>
+
+        <a class="contact-button" href="mailto:pminki3@gmail.com">
+            이메일 보내기
+        </a>
+    </div>
+
+</section>
+
 {% endblock %}

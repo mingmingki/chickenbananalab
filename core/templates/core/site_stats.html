@@ -1,0 +1,192 @@
+{% extends "core/base.html" %}
+
+{% block title %}사이트 통계 | ChickenBanana Lab{% endblock %}
+
+{% block content %}
+
+<section class="stats-page-section">
+    <div class="container">
+
+        <div class="stats-hero">
+            <div>
+                <span class="stats-label">STATISTICS</span>
+                <h1>사이트 통계</h1>
+                <p>글 수, 조회수, 카테고리별 현황을 한눈에 확인합니다.</p>
+            </div>
+
+            <a href="{% url 'admin_dashboard' %}" class="stats-back-btn">
+                글 목록 관리
+            </a>
+        </div>
+
+        <div class="stats-summary-grid">
+            <div class="stats-card primary">
+                <span>전체 글</span>
+                <strong>{{ total_posts }}</strong>
+                <p>등록된 전체 게시글</p>
+            </div>
+
+            <div class="stats-card green">
+                <span>공개 글</span>
+                <strong>{{ published_posts }}</strong>
+                <p>홈페이지에 노출 중</p>
+            </div>
+
+            <div class="stats-card red">
+                <span>비공개 초안</span>
+                <strong>{{ draft_posts }}</strong>
+                <p>관리자만 확인 가능</p>
+            </div>
+
+            <div class="stats-card blue">
+                <span>총 조회수</span>
+                <strong>{{ total_views }}</strong>
+                <p>공개 글 누적 조회수</p>
+            </div>
+
+            <div class="stats-card purple">
+                <span>프로그램 첨부 글</span>
+                <strong>{{ program_file_count }}</strong>
+                <p>다운로드 파일 포함</p>
+            </div>
+
+            <div class="stats-card dark">
+                <span>동영상 첨부 글</span>
+                <strong>{{ video_file_count }}</strong>
+                <p>영상 파일 포함</p>
+            </div>
+        </div>
+
+        <div class="stats-layout-grid">
+
+            <div class="stats-panel">
+                <div class="stats-panel-head">
+                    <div>
+                        <span>Category</span>
+                        <h2>카테고리별 글 현황</h2>
+                    </div>
+                </div>
+
+                <div class="stats-table-wrap">
+                    <table class="stats-table">
+                        <thead>
+                            <tr>
+                                <th>카테고리</th>
+                                <th>글 수</th>
+                                <th>조회수</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in category_stats %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ item.category_name }}</strong>
+                                    </td>
+                                    <td>{{ item.count }}</td>
+                                    <td>{{ item.views }}</td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="3">아직 통계가 없습니다.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="stats-panel">
+                <div class="stats-panel-head">
+                    <div>
+                        <span>Top Posts</span>
+                        <h2>조회수 높은 글</h2>
+                    </div>
+                </div>
+
+                <div class="stats-rank-list">
+                    {% for post in top_posts %}
+                        <a href="{% url 'post_detail' post.pk %}" class="stats-rank-item">
+                            <div class="stats-rank-number">
+                                {{ forloop.counter }}
+                            </div>
+
+                            <div class="stats-rank-content">
+                                <div class="stats-rank-top">
+                                    {% if post.is_published %}
+                                        <span class="stats-status published">공개</span>
+                                    {% else %}
+                                        <span class="stats-status draft">초안</span>
+                                    {% endif %}
+
+                                    <span>{{ post.get_category_display }}</span>
+                                </div>
+
+                                <strong>{{ post.title }}</strong>
+                            </div>
+
+                            <em>{{ post.views|default:0 }} views</em>
+                        </a>
+                    {% empty %}
+                        <div class="stats-empty">
+                            아직 등록된 글이 없습니다.
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+        </div>
+
+        <div class="stats-panel stats-recent-panel">
+            <div class="stats-panel-head">
+                <div>
+                    <span>Recent Posts</span>
+                    <h2>최근 작성 글</h2>
+                </div>
+            </div>
+
+            <div class="stats-recent-list">
+                {% for post in recent_posts %}
+                    <div class="stats-recent-item">
+                        <div class="stats-recent-main">
+                            <div class="stats-rank-top">
+                                {% if post.is_published %}
+                                    <span class="stats-status published">공개</span>
+                                {% else %}
+                                    <span class="stats-status draft">초안</span>
+                                {% endif %}
+
+                                <span>{{ post.get_category_display }}</span>
+                            </div>
+
+                            <a href="{% url 'post_detail' post.pk %}">
+                                {{ post.title }}
+                            </a>
+
+                            <p>
+                                등록일 {{ post.created_at|date:"Y.m.d H:i" }}
+                                · 조회수 {{ post.views|default:0 }}
+                            </p>
+                        </div>
+
+                        <div class="stats-recent-actions">
+                            <a href="{% url 'post_detail' post.pk %}" class="stats-small-btn light">
+                                보기
+                            </a>
+
+                            <a href="{% url 'post_update' post.pk %}" class="stats-small-btn dark">
+                                수정
+                            </a>
+                        </div>
+                    </div>
+                {% empty %}
+                    <div class="stats-empty">
+                        아직 등록된 글이 없습니다.
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+
+    </div>
+</section>
+
+{% endblock %}
