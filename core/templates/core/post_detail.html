@@ -1,8 +1,24 @@
 {% extends "core/base.html" %}
 
+{% block title %}{{ post.title }} - ChickenBanana Lab{% endblock %}
+
+{% block meta_description %}
+{{ post.content|striptags|truncatechars:150 }}
+{% endblock %}
+
+{% block og_title %}
+{{ post.title }} - ChickenBanana Lab
+{% endblock %}
+
+{% block og_description %}
+{{ post.content|striptags|truncatechars:150 }}
+{% endblock %}
+
 {% block title %}{{ post.title }} | ChickenBanana Lab{% endblock %}
 
 {% block content %}
+
+
 
 <section class="post-detail-hero">
     <div class="container post-detail-container">

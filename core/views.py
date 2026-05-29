@@ -8,6 +8,7 @@ from django.db.models import Q, Count, Sum
 import json
 from datetime import date
 from django.conf import settings
+from django.http import HttpResponse
 
 
 from .models import Post
@@ -188,6 +189,7 @@ def post_update(request, pk):
         "form": form,
         "mode": "update",
         "post": post,
+        "kakao_javascript_key": settings.KAKAO_JAVASCRIPT_KEY,
     })
 
 
@@ -540,3 +542,11 @@ def signup(request):
     return render(request, "registration/signup.html", {
         "form": form,
     })
+
+def robots_txt(request):
+    content = """User-agent: *
+Allow: /
+
+Sitemap: https://www.chickenbananalab.com/sitemap.xml
+"""
+    return HttpResponse(content, content_type="text/plain")

@@ -4,6 +4,14 @@
 <head>
     <meta charset="UTF-8">
     <title>{% block title %}ChickenBanana Lab{% endblock %}</title>
+
+    <meta name="description" content="{% block meta_description %}ChickenBanana Lab은 건축, 부동산, 금융, 테크, 일상 정보를 다루는 콘텐츠 플랫폼입니다.{% endblock %}">
+    <meta name="robots" content="index, follow">
+
+    <meta property="og:title" content="{% block og_title %}ChickenBanana Lab{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}건축, 부동산, 금융, 테크, 일상 정보를 다루는 ChickenBanana Lab입니다.{% endblock %}">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{ request.build_absolute_uri }}">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <link rel="stylesheet" href="{% static 'core/css/style.css' %}">

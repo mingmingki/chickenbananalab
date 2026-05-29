@@ -42,11 +42,9 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-
     "core.apps.CoreConfig",
-
     "django.contrib.sites",
-
+    "django.contrib.sitemaps",
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
@@ -202,3 +200,5 @@ ADMIN_GOOGLE_EMAILS = [
 ]
 
 KAKAO_JAVASCRIPT_KEY = os.getenv("KAKAO_JAVASCRIPT_KEY", "")
+
+SITE_ID = 1
