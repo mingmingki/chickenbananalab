@@ -1,18 +1,6 @@
-from django.contrib import admin
-from django.urls import path, include
+from django.urls import path
 from . import views
-from django.conf import settings
-from django.conf.urls.static import static
 
-from django.contrib.sitemaps.views import sitemap
-from core.sitemaps import StaticViewSitemap, PostSitemap
-from core.views import robots_txt
-
-
-sitemaps = {
-    "static": StaticViewSitemap,
-    "posts": PostSitemap,
-}
 
 urlpatterns = [
     path("", views.home, name="home"),
@@ -34,11 +22,12 @@ urlpatterns = [
 
     path("about/", views.about, name="about"),
     path("contact/", views.contact, name="contact"),
+
     path("dashboard/", views.admin_dashboard, name="admin_dashboard"),
     path("dashboard/stats/", views.site_stats, name="site_stats"),
+
     path("ai-post/generate/", views.ai_post_generate, name="ai_post_generate"),
     path("ai-keywords/recommend/", views.ai_keyword_recommend, name="ai_keyword_recommend"),
+
     path("signup/", views.signup, name="signup"),
-    path("sitemap.xml", sitemap, {"sitemaps": sitemaps}, name="django.contrib.sitemaps.views.sitemap"),
-    path("robots.txt", robots_txt, name="robots_txt"),
 ]
