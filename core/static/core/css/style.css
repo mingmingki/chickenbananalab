@@ -7490,3 +7490,222 @@ a {
     font-size: 12px;
     font-weight: 700;
 }
+
+/* =========================
+   모바일 계정 드롭다운 강제 수정
+========================= */
+@media (max-width: 768px) {
+
+  nav,
+  header,
+  .navbar,
+  .topbar,
+  .site-header {
+    overflow: visible !important;
+  }
+
+  .user-menu,
+  .profile-menu,
+  .account-menu,
+  .nav-user,
+  .login-menu,
+  .dropdown {
+    position: relative !important;
+    overflow: visible !important;
+    z-index: 99999 !important;
+  }
+
+  .dropdown-menu,
+  .dropdown-content,
+  .user-dropdown,
+  .profile-dropdown,
+  .account-dropdown,
+  .account-box,
+  .user-box,
+  .menu-box {
+    position: fixed !important;
+
+    top: 145px !important;
+    left: 12px !important;
+    right: 12px !important;
+
+    width: auto !important;
+    max-width: none !important;
+    min-width: 0 !important;
+
+    background: #15171c !important;
+    color: #ffffff !important;
+
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    border-radius: 18px !important;
+    padding: 16px !important;
+
+    z-index: 999999 !important;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6) !important;
+
+    overflow: visible !important;
+    opacity: 1 !important;
+  }
+
+  .dropdown-menu *,
+  .dropdown-content *,
+  .user-dropdown *,
+  .profile-dropdown *,
+  .account-dropdown *,
+  .account-box *,
+  .user-box *,
+  .menu-box * {
+    color: #ffffff !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    line-height: 1.5 !important;
+    text-shadow: none !important;
+  }
+
+  .dropdown-menu a,
+  .dropdown-content a,
+  .user-dropdown a,
+  .profile-dropdown a,
+  .account-dropdown a,
+  .account-box a,
+  .user-box a,
+  .menu-box a {
+    display: block !important;
+    color: #ffffff !important;
+    text-decoration: none !important;
+    padding: 12px 10px !important;
+    border-radius: 10px !important;
+  }
+
+  .dropdown-menu a:hover,
+  .dropdown-content a:hover,
+  .user-dropdown a:hover,
+  .profile-dropdown a:hover,
+  .account-dropdown a:hover,
+  .account-box a:hover,
+  .user-box a:hover,
+  .menu-box a:hover {
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: #75ff9a !important;
+  }
+
+  .dropdown-menu p,
+  .dropdown-content p,
+  .user-dropdown p,
+  .profile-dropdown p,
+  .account-dropdown p,
+  .account-box p,
+  .user-box p,
+  .menu-box p {
+    margin: 0 0 10px 0 !important;
+    color: #ffffff !important;
+  }
+}
+
+/* =========================
+   모바일 계정 드롭다운 수정
+========================= */
+.account-menu {
+    position: relative;
+}
+
+.account-dropdown {
+    display: none;
+}
+
+.account-dropdown.active {
+    display: block;
+}
+
+@media (max-width: 768px) {
+    .site-header,
+    .header-inner,
+    .top-links,
+    .account-menu {
+        overflow: visible !important;
+    }
+
+    .account-dropdown {
+        display: none !important;
+    }
+
+    .account-dropdown.active {
+        display: block !important;
+        position: fixed !important;
+
+        top: 150px !important;
+        left: 16px !important;
+        right: 16px !important;
+        width: auto !important;
+        max-width: none !important;
+
+        background: #15171c !important;
+        border: 1px solid rgba(255, 255, 255, 0.18) !important;
+        border-radius: 18px !important;
+        padding: 18px !important;
+
+        z-index: 999999 !important;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65) !important;
+
+        opacity: 1 !important;
+        visibility: visible !important;
+        transform: none !important;
+    }
+
+    .account-dropdown,
+    .account-dropdown * {
+        color: #ffffff !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        text-shadow: none !important;
+    }
+
+    .account-info {
+        padding-bottom: 14px !important;
+        margin-bottom: 10px !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.14) !important;
+    }
+
+    .account-info strong {
+        display: block !important;
+        color: #ffffff !important;
+        font-size: 15px !important;
+        font-weight: 700 !important;
+        line-height: 1.5 !important;
+        word-break: break-all !important;
+    }
+
+    .account-info span {
+        display: block !important;
+        margin-top: 6px !important;
+        color: #9dffb4 !important;
+        font-size: 13px !important;
+        font-weight: 600 !important;
+    }
+
+    .account-dropdown-link,
+    .account-logout-form button {
+        display: block !important;
+        width: 100% !important;
+        padding: 13px 12px !important;
+        margin: 4px 0 !important;
+
+        background: transparent !important;
+        border: 0 !important;
+        border-radius: 10px !important;
+
+        color: #ffffff !important;
+        font-size: 15px !important;
+        font-weight: 700 !important;
+        text-align: left !important;
+        cursor: pointer !important;
+    }
+
+    .account-dropdown-link:hover,
+    .account-logout-form button:hover {
+        background: rgba(255, 255, 255, 0.1) !important;
+        color: #75ff9a !important;
+    }
+}
