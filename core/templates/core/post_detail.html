@@ -69,24 +69,12 @@
         {% endif %}
 
         <div class="detail-actions">
-    {% if post.category == "architecture" %}
-        <a href="{% url 'architecture' %}" class="post-back-btn">목록으로</a>
-    {% elif post.category == "realestate" %}
-        <a href="{% url 'realestate' %}" class="post-back-btn">목록으로</a>
-    {% elif post.category == "finance" %}
-        <a href="{% url 'finance' %}" class="post-back-btn">목록으로</a>
-    {% elif post.category == "tech" %}
-        <a href="{% url 'tech' %}" class="post-back-btn">목록으로</a>
-    {% elif post.category == "life" %}
-        <a href="{% url 'life' %}" class="post-back-btn">목록으로</a>
-    {% else %}
-        <a href="{% url 'home' %}" class="post-back-btn">목록으로</a>
-    {% endif %}
+            <a href="{% url post.category %}" class="cancel-btn">목록으로</a>
 
-    {% if user.is_authenticated and user.is_staff %}
-        <a href="{% url 'post_update' post.pk %}" class="save-btn">수정하기</a>
-    {% endif %}
-</div>
+            {% if user.is_authenticated and user.is_staff %}
+                <a href="{% url 'post_update' post.pk %}" class="save-btn">수정하기</a>
+            {% endif %}
+        </div>
     </div>
 </section>
 
