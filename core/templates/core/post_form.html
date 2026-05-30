@@ -33,19 +33,19 @@
         <div class="editor-wrap">
 
             <div class="editor-category-publish-row">
-    <div class="editor-category-field">
-        {{ form.category }}
-    </div>
+                <div class="editor-category-field">
+                    {{ form.category }}
+                </div>
 
-    <div class="editor-publish-inline">
-        <label class="editor-publish-label">
-            {{ form.is_published }}
-            <span>공개 글로 저장</span>
-        </label>
+                <div class="editor-publish-inline">
+                    <label class="editor-publish-label">
+                        {{ form.is_published }}
+                        <span>공개 글로 저장</span>
+                    </label>
 
-        <small>해제 시 비공개 초안</small>
-    </div>
-</div>
+                    <small>해제 시 비공개 초안</small>
+                </div>
+            </div>
 
             <div class="editor-title-row">
                 {{ form.title }}
@@ -63,21 +63,19 @@
             </div>
 
             <div class="editor-program-file-row">
-    <label class="editor-file-label">
-        프로그램 파일 첨부
-        {{ form.program_file }}
-    </label>
+                <label class="editor-file-label">
+                    프로그램 파일 첨부
+                    {{ form.program_file }}
+                </label>
 
-    {% if post and post.program_file %}
-        <span class="current-file-text">
-            현재 첨부파일 있음
-        </span>
-    {% endif %}
+                {% if post and post.program_file %}
+                    <span class="current-file-text">현재 첨부파일 있음</span>
+                {% endif %}
 
-    <p class="editor-help-text">
-        방문자가 다운로드할 수 있는 프로그램 파일입니다. EXE는 ZIP으로 압축해서 올리는 것을 권장합니다.
-    </p>
-</div>
+                <p class="editor-help-text">
+                    방문자가 다운로드할 수 있는 프로그램 파일입니다. EXE는 ZIP으로 압축해서 올리는 것을 권장합니다.
+                </p>
+            </div>
 
             <div class="editor-thumbnail-text-row">
                 {{ form.thumbnail_text }}
@@ -140,23 +138,25 @@
 
                 <button type="button" onclick="formatDoc('insertUnorderedList')">목록</button>
                 <button type="button" onclick="insertLink()">링크</button>
-
-                <label class="toolbar-image-btn">
-                    사진
-                    <input type="file" accept="image/*" onchange="insertImage(event)">
-                </label>
-
+                <button type="button" class="toolbar-image-btn" onclick="triggerEditorImageUpload()">사진</button>
                 <button type="button" onclick="openLocationModal()">위치</button>
                 <button type="button" onclick="openYoutubeModal()">동영상</button>
             </div>
 
+            <input
+                type="file"
+                id="editorImageInput"
+                accept="image/*"
+                style="display:none;"
+            >
+
             <div id="editor" class="content-editor" contenteditable="true">
-    {% if post and post.content %}
-        {{ post.content|safe }}
-    {% else %}
-        <p>내용을 입력하세요.</p>
-    {% endif %}
-</div>
+                {% if post and post.content %}
+                    {{ post.content|safe }}
+                {% else %}
+                    <p>내용을 입력하세요.</p>
+                {% endif %}
+            </div>
 
             <textarea name="content" id="id_content" style="display:none;"></textarea>
 
@@ -171,62 +171,62 @@
 
         </div>
 
+        <div class="youtube-modal-backdrop" id="youtubeModal" style="display:none;">
+            <div class="youtube-modal-box">
+                <div class="youtube-modal-header">
+                    <h3>유튜브 동영상 삽입</h3>
+                    <button type="button" onclick="closeYoutubeModal()">×</button>
+                </div>
 
-    <div class="youtube-modal-backdrop" id="youtubeModal" style="display:none;">
-        <div class="youtube-modal-box">
-            <div class="youtube-modal-header">
-                <h3>유튜브 동영상 삽입</h3>
-                <button type="button" onclick="closeYoutubeModal()">×</button>
+                <div class="youtube-modal-body">
+                    <div class="video-modal-section">
+                        <label class="video-modal-label">유튜브 주소</label>
+
+                        <input
+                            type="text"
+                            id="youtubeUrlInput"
+                            class="youtube-url-input"
+                            placeholder="유튜브 주소를 붙여넣으세요. 예: https://www.youtube.com/watch?v=..."
+                        >
+
+                        <button type="button" class="youtube-preview-btn" onclick="previewYoutubeVideo()">
+                            유튜브 미리보기
+                        </button>
+                    </div>
+
+                    <div class="video-modal-divider">
+                        또는
+                    </div>
+
+                    <div class="video-modal-section">
+                        <label class="video-modal-label">로컬 동영상 업로드</label>
+
+                        {{ form.video_file }}
+
+                        <p class="local-video-help">
+                            mp4, webm 파일을 권장합니다. 선택하면 아래에서 바로 재생 미리보기가 가능합니다.
+                        </p>
+                    </div>
+
+                    <div class="youtube-preview-box" id="youtubePreviewBox">
+                        <div class="youtube-preview-empty">
+                            유튜브 주소를 입력하거나 로컬 동영상을 선택하면 미리보기가 표시됩니다.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="youtube-modal-footer">
+                    <button type="button" onclick="closeYoutubeModal()" class="youtube-cancel-btn">
+                        취소
+                    </button>
+                    <button type="button" onclick="insertSelectedVideo()" class="youtube-insert-btn">
+                        본문에 넣기
+                    </button>
+                </div>
             </div>
-
-            <div class="youtube-modal-body">
-    <div class="video-modal-section">
-        <label class="video-modal-label">유튜브 주소</label>
-
-        <input
-            type="text"
-            id="youtubeUrlInput"
-            class="youtube-url-input"
-            placeholder="유튜브 주소를 붙여넣으세요. 예: https://www.youtube.com/watch?v=..."
-        >
-
-        <button type="button" class="youtube-preview-btn" onclick="previewYoutubeVideo()">
-            유튜브 미리보기
-        </button>
-    </div>
-
-    <div class="video-modal-divider">
-        또는
-    </div>
-
-    <div class="video-modal-section">
-        <label class="video-modal-label">로컬 동영상 업로드</label>
-
-        {{ form.video_file }}
-
-        <p class="local-video-help">
-            mp4, webm 파일을 권장합니다. 선택하면 아래에서 바로 재생 미리보기가 가능합니다.
-        </p>
-    </div>
-
-    <div class="youtube-preview-box" id="youtubePreviewBox">
-        <div class="youtube-preview-empty">
-            유튜브 주소를 입력하거나 로컬 동영상을 선택하면 미리보기가 표시됩니다.
         </div>
-    </div>
-</div>
 
-            <div class="youtube-modal-footer">
-                <button type="button" onclick="closeYoutubeModal()" class="youtube-cancel-btn">
-                    취소
-                </button>
-                <button type="button" onclick="insertSelectedVideo()" class="youtube-insert-btn">
-    본문에 넣기
-</button>
-            </div>
-        </div>
-    </div>
-        </form>
+    </form>
 </section>
 
 <div id="location-modal" class="location-modal">
@@ -277,10 +277,13 @@
     const form = document.querySelector(".tistory-editor-form");
     const charCount = document.getElementById("content-char-count");
 
+    const imageInput = document.getElementById("editorImageInput");
+
     const locationModal = document.getElementById("location-modal");
     const locationInput = document.getElementById("location-search-input");
     const locationResultArea = document.getElementById("location-result-area");
 
+    let savedRange = null;
     let currentYoutubeEmbedUrl = "";
 
     function clearDefaultText() {
@@ -293,10 +296,46 @@
         }
     }
 
+    function updateCharCount() {
+        if (!editor || !charCount) {
+            return;
+        }
+
+        let text = editor.innerText || "";
+        text = text.replace("내용을 입력하세요.", "").trim();
+
+        const count = text.length;
+        charCount.textContent = `글자수 ${count.toLocaleString()}자`;
+    }
+
+    function saveSelection() {
+        const selection = window.getSelection();
+
+        if (selection.rangeCount > 0 && editor && editor.contains(selection.anchorNode)) {
+            savedRange = selection.getRangeAt(0);
+        }
+    }
+
+    function restoreSelection() {
+        if (!editor) {
+            return;
+        }
+
+        editor.focus();
+
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+
+        if (savedRange) {
+            selection.addRange(savedRange);
+        }
+    }
+
     function formatDoc(command) {
         clearDefaultText();
         editor.focus();
         document.execCommand(command, false, null);
+        saveSelection();
         updateCharCount();
     }
 
@@ -308,6 +347,7 @@
         clearDefaultText();
         editor.focus();
         document.execCommand("formatBlock", false, tag);
+        saveSelection();
         updateCharCount();
     }
 
@@ -333,6 +373,7 @@
         span.appendChild(selectedText);
 
         range.insertNode(span);
+        saveSelection();
         updateCharCount();
     }
 
@@ -346,56 +387,113 @@
         clearDefaultText();
         editor.focus();
         document.execCommand("createLink", false, url);
+        saveSelection();
         updateCharCount();
     }
 
-    function insertImage(event) {
-        const file = event.target.files[0];
-
-        if (!file) {
+    function triggerEditorImageUpload() {
+        if (!imageInput) {
+            alert("본문 이미지 업로드 input이 없습니다.");
             return;
         }
 
-        const reader = new FileReader();
+        saveSelection();
+        imageInput.click();
+    }
 
-        reader.onload = function(e) {
-            clearDefaultText();
-            editor.focus();
+    function insertImageAtCursor(url) {
+        clearDefaultText();
+        restoreSelection();
 
-            const img = document.createElement("img");
-            img.src = e.target.result;
-            img.className = "editor-inserted-image";
+        const img = document.createElement("img");
+        img.src = url;
+        img.className = "editor-inserted-image";
+        img.style.maxWidth = "100%";
+        img.style.height = "auto";
+        img.alt = "본문 이미지";
 
-            const wrapper = document.createElement("div");
-            wrapper.className = "editor-image-wrap";
-            wrapper.appendChild(img);
+        const wrapper = document.createElement("div");
+        wrapper.className = "editor-image-wrap";
+        wrapper.appendChild(img);
 
-            insertNodeToEditor(wrapper);
-            updateCharCount();
-        };
+        insertNodeToEditor(wrapper);
+        saveSelection();
+        updateCharCount();
+    }
 
-        reader.readAsDataURL(file);
+    if (imageInput) {
+        imageInput.addEventListener("change", async function () {
+            const file = this.files[0];
+
+            if (!file) {
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("image", file);
+
+            try {
+                const response = await fetch("{% url 'editor_image_upload' %}", {
+                    method: "POST",
+                    headers: {
+                        "X-CSRFToken": getCookie("csrftoken")
+                    },
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (!response.ok || !data.success) {
+                    alert(data.error || "이미지 업로드 실패");
+                    return;
+                }
+
+                insertImageAtCursor(data.url);
+                imageInput.value = "";
+
+            } catch (error) {
+                alert("본문 이미지 업로드 중 오류가 발생했습니다. views.py와 urls.py의 editor_image_upload 연결을 확인해주세요.");
+                console.error(error);
+            }
+        });
     }
 
     function openLocationModal() {
+        if (!locationModal) {
+            return;
+        }
+
+        saveSelection();
+
         locationModal.classList.add("active");
 
-        locationInput.value = "";
+        if (locationInput) {
+            locationInput.value = "";
+        }
 
-        locationResultArea.innerHTML = `
-            <div class="location-empty-message">
-                검색어를 입력해주세요.
-            </div>
-        `;
+        if (locationResultArea) {
+            locationResultArea.innerHTML = `
+                <div class="location-empty-message">
+                    검색어를 입력해주세요.
+                </div>
+            `;
+        }
 
         setTimeout(function () {
-            locationInput.focus();
+            if (locationInput) {
+                locationInput.focus();
+            }
         }, 80);
     }
 
     function closeLocationModal() {
-        locationModal.classList.remove("active");
-        locationInput.value = "";
+        if (locationModal) {
+            locationModal.classList.remove("active");
+        }
+
+        if (locationInput) {
+            locationInput.value = "";
+        }
     }
 
     function handleLocationKeydown(event) {
@@ -410,67 +508,67 @@
     }
 
     function performLocationSearch() {
-    const keyword = locationInput.value.trim();
+        const keyword = locationInput ? locationInput.value.trim() : "";
 
-    if (!keyword) {
-        locationResultArea.innerHTML = `
-            <div class="location-empty-message">
-                검색어를 입력해주세요.
-            </div>
-        `;
-        return;
-    }
-
-    if (!window.kakao || !window.kakao.maps) {
-        locationResultArea.innerHTML = `
-            <div class="location-empty-message">
-                카카오 지도 API가 아직 로드되지 않았습니다.
-            </div>
-        `;
-        return;
-    }
-
-    locationResultArea.innerHTML = `
-        <div class="location-empty-message">
-            장소를 검색하는 중입니다.
-        </div>
-    `;
-
-    kakao.maps.load(function () {
-        if (!kakao.maps.services) {
+        if (!keyword) {
             locationResultArea.innerHTML = `
                 <div class="location-empty-message">
-                    카카오 장소 검색 서비스를 불러오지 못했습니다.
+                    검색어를 입력해주세요.
                 </div>
             `;
             return;
         }
 
-        const places = new kakao.maps.services.Places();
+        if (!window.kakao || !window.kakao.maps) {
+            locationResultArea.innerHTML = `
+                <div class="location-empty-message">
+                    카카오 지도 API가 아직 로드되지 않았습니다.
+                </div>
+            `;
+            return;
+        }
 
-        places.keywordSearch(keyword, function (data, status) {
-            if (status === kakao.maps.services.Status.OK) {
-                renderLocationResults(data);
-                return;
-            }
+        locationResultArea.innerHTML = `
+            <div class="location-empty-message">
+                장소를 검색하는 중입니다.
+            </div>
+        `;
 
-            if (status === kakao.maps.services.Status.ZERO_RESULT) {
+        kakao.maps.load(function () {
+            if (!kakao.maps.services) {
                 locationResultArea.innerHTML = `
                     <div class="location-empty-message">
-                        검색 결과가 없습니다.
+                        카카오 장소 검색 서비스를 불러오지 못했습니다.
                     </div>
                 `;
                 return;
             }
 
-            locationResultArea.innerHTML = `
-                <div class="location-empty-message">
-                    장소 검색 중 오류가 발생했습니다.
-                </div>
-            `;
+            const places = new kakao.maps.services.Places();
+
+            places.keywordSearch(keyword, function (data, status) {
+                if (status === kakao.maps.services.Status.OK) {
+                    renderLocationResults(data);
+                    return;
+                }
+
+                if (status === kakao.maps.services.Status.ZERO_RESULT) {
+                    locationResultArea.innerHTML = `
+                        <div class="location-empty-message">
+                            검색 결과가 없습니다.
+                        </div>
+                    `;
+                    return;
+                }
+
+                locationResultArea.innerHTML = `
+                    <div class="location-empty-message">
+                        장소 검색 중 오류가 발생했습니다.
+                    </div>
+                `;
+            });
         });
-    });
-}
+    }
 
     function renderLocationResults(results) {
         locationResultArea.innerHTML = "";
@@ -526,7 +624,7 @@
         `;
 
         clearDefaultText();
-        editor.focus();
+        restoreSelection();
         insertNodeToEditor(locationBox);
         updateCharCount();
         closeLocationModal();
@@ -566,10 +664,19 @@
 
             selection.removeAllRanges();
             selection.addRange(newRange);
+            savedRange = newRange;
         } else {
             editor.appendChild(beforeParagraph);
             editor.appendChild(node);
             editor.appendChild(afterParagraph);
+
+            const newRange = document.createRange();
+            newRange.setStart(afterParagraph, 0);
+            newRange.collapse(true);
+
+            selection.removeAllRanges();
+            selection.addRange(newRange);
+            savedRange = newRange;
         }
     }
 
@@ -582,6 +689,8 @@
     function openYoutubeModal() {
         const modal = document.getElementById("youtubeModal");
         const input = document.getElementById("youtubeUrlInput");
+
+        saveSelection();
 
         if (modal) {
             modal.style.display = "flex";
@@ -598,28 +707,28 @@
     }
 
     function closeYoutubeModal() {
-    const modal = document.getElementById("youtubeModal");
-    const input = document.getElementById("youtubeUrlInput");
-    const previewBox = document.getElementById("youtubePreviewBox");
+        const modal = document.getElementById("youtubeModal");
+        const input = document.getElementById("youtubeUrlInput");
+        const previewBox = document.getElementById("youtubePreviewBox");
 
-    if (modal) {
-        modal.style.display = "none";
+        if (modal) {
+            modal.style.display = "none";
+        }
+
+        if (input) {
+            input.value = "";
+        }
+
+        if (previewBox) {
+            previewBox.innerHTML = `
+                <div class="youtube-preview-empty">
+                    유튜브 주소를 입력하거나 로컬 동영상을 선택하면 미리보기가 표시됩니다.
+                </div>
+            `;
+        }
+
+        currentYoutubeEmbedUrl = "";
     }
-
-    if (input) {
-        input.value = "";
-    }
-
-    if (previewBox) {
-        previewBox.innerHTML = `
-            <div class="youtube-preview-empty">
-                유튜브 주소를 입력하거나 로컬 동영상을 선택하면 미리보기가 표시됩니다.
-            </div>
-        `;
-    }
-
-    currentYoutubeEmbedUrl = "";
-}
 
     function getYoutubeVideoId(url) {
         url = url.trim();
@@ -690,15 +799,9 @@
 
     function insertYoutubeVideo() {
         const input = document.getElementById("youtubeUrlInput");
-        const editorBox = document.getElementById("editor");
 
         if (!input) {
             alert("유튜브 주소 입력창을 찾을 수 없습니다.");
-            return;
-        }
-
-        if (!editorBox) {
-            alert("본문 에디터를 찾을 수 없습니다.");
             return;
         }
 
@@ -712,87 +815,73 @@
         const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
         const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 
-        if (editorBox.innerText.trim() === "내용을 입력하세요.") {
-            editorBox.innerHTML = "";
-        }
+        const videoCard = document.createElement("a");
+        videoCard.href = youtubeUrl;
+        videoCard.target = "_blank";
+        videoCard.rel = "noopener noreferrer";
+        videoCard.className = "editor-youtube-card";
+        videoCard.contentEditable = "false";
 
-        const videoCardHtml = `
-            <p><br></p>
+        videoCard.innerHTML = `
+            <img src="${thumbnailUrl}" alt="유튜브 동영상 썸네일">
 
-            <a href="${youtubeUrl}" target="_blank" rel="noopener noreferrer" class="editor-youtube-card" contenteditable="false">
-                <img src="${thumbnailUrl}" alt="유튜브 동영상 썸네일">
-
-                <div class="editor-youtube-card-overlay">
-                    <div class="editor-youtube-play-btn">▶</div>
-                    <strong>유튜브에서 영상 보기</strong>
-                    <span>클릭하면 새 창에서 재생됩니다.</span>
-                </div>
-            </a>
-
-            <p><br></p>
+            <div class="editor-youtube-card-overlay">
+                <div class="editor-youtube-play-btn">▶</div>
+                <strong>유튜브에서 영상 보기</strong>
+                <span>클릭하면 새 창에서 재생됩니다.</span>
+            </div>
         `;
 
-        editorBox.insertAdjacentHTML("beforeend", videoCardHtml);
-
+        clearDefaultText();
+        restoreSelection();
+        insertNodeToEditor(videoCard);
         updateCharCount();
         closeYoutubeModal();
-
-        setTimeout(function () {
-            editorBox.focus();
-        }, 100);
     }
 
     function insertSelectedVideo() {
-    const youtubeInput = document.getElementById("youtubeUrlInput");
-    const localVideoInput = document.getElementById("id_video_file");
+        const youtubeInput = document.getElementById("youtubeUrlInput");
+        const localVideoInput = document.getElementById("id_video_file");
 
-    const hasYoutubeUrl = youtubeInput && youtubeInput.value.trim();
-    const hasLocalVideo = localVideoInput && localVideoInput.files && localVideoInput.files.length > 0;
+        const hasYoutubeUrl = youtubeInput && youtubeInput.value.trim();
+        const hasLocalVideo = localVideoInput && localVideoInput.files && localVideoInput.files.length > 0;
 
-    if (hasYoutubeUrl) {
-        insertYoutubeVideo();
-        return;
+        if (hasYoutubeUrl) {
+            insertYoutubeVideo();
+            return;
+        }
+
+        if (hasLocalVideo) {
+            insertLocalVideoBlock();
+            return;
+        }
+
+        alert("유튜브 주소를 입력하거나 로컬 동영상을 선택해주세요.");
     }
 
-    if (hasLocalVideo) {
-        insertLocalVideoBlock();
-        return;
-    }
+    function insertLocalVideoBlock() {
+        const localVideoInput = document.getElementById("id_video_file");
 
-    alert("유튜브 주소를 입력하거나 로컬 동영상을 선택해주세요.");
-}
+        if (!localVideoInput || !localVideoInput.files || localVideoInput.files.length === 0) {
+            alert("로컬 동영상을 먼저 선택해주세요.");
+            return;
+        }
 
-function insertLocalVideoBlock() {
-    const editorBox = document.getElementById("editor");
-    const localVideoInput = document.getElementById("id_video_file");
+        const file = localVideoInput.files[0];
 
-    if (!editorBox) {
-        alert("본문 에디터를 찾을 수 없습니다.");
-        return;
-    }
+        if (!file.type.startsWith("video/")) {
+            alert("동영상 파일만 선택할 수 있습니다.");
+            return;
+        }
 
-    if (!localVideoInput || !localVideoInput.files || localVideoInput.files.length === 0) {
-        alert("로컬 동영상을 먼저 선택해주세요.");
-        return;
-    }
+        const tempVideoUrl = URL.createObjectURL(file);
 
-    const file = localVideoInput.files[0];
+        const videoBlock = document.createElement("div");
+        videoBlock.className = "editor-local-video-block";
+        videoBlock.contentEditable = "false";
+        videoBlock.dataset.localVideo = "true";
 
-    if (!file.type.startsWith("video/")) {
-        alert("동영상 파일만 선택할 수 있습니다.");
-        return;
-    }
-
-    if (editorBox.innerText.trim() === "내용을 입력하세요.") {
-        editorBox.innerHTML = "";
-    }
-
-    const tempVideoUrl = URL.createObjectURL(file);
-
-    const localVideoHtml = `
-        <p><br></p>
-
-        <div class="editor-local-video-block" contenteditable="false" data-local-video="true">
+        videoBlock.innerHTML = `
             <video controls playsinline preload="metadata">
                 <source src="${tempVideoUrl}" type="${file.type}">
                 현재 브라우저에서 이 동영상을 재생할 수 없습니다.
@@ -800,50 +889,69 @@ function insertLocalVideoBlock() {
             <div class="editor-local-video-notice">
                 로컬 동영상은 글 등록 후 서버에 저장됩니다.
             </div>
-        </div>
+        `;
 
-        <p><br></p>
-    `;
-
-    editorBox.insertAdjacentHTML("beforeend", localVideoHtml);
-
-    updateCharCount();
-    closeYoutubeModal();
-
-    setTimeout(function () {
-        editorBox.focus();
-    }, 100);
-}
-
-    function updateCharCount() {
-        if (!editor || !charCount) {
-            return;
-        }
-
-        let text = editor.innerText || "";
-        text = text.replace("내용을 입력하세요.", "").trim();
-
-        const count = text.length;
-        charCount.textContent = `글자수 ${count.toLocaleString()}자`;
+        clearDefaultText();
+        restoreSelection();
+        insertNodeToEditor(videoBlock);
+        updateCharCount();
+        closeYoutubeModal();
     }
 
-    editor.addEventListener("input", updateCharCount);
-    editor.addEventListener("keyup", updateCharCount);
-    editor.addEventListener("paste", function () {
-        setTimeout(updateCharCount, 50);
-    });
+    function getCookie(name) {
+        let cookieValue = null;
 
-    form.addEventListener("submit", function () {
-    const editorClone = editor.cloneNode(true);
+        if (document.cookie && document.cookie !== "") {
+            const cookies = document.cookie.split(";");
 
-    const localVideoTempBlocks = editorClone.querySelectorAll("[data-local-video='true']");
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
 
-    localVideoTempBlocks.forEach(function (block) {
-        block.remove();
-    });
+                if (cookie.substring(0, name.length + 1) === name + "=") {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
 
-    hiddenContent.value = editorClone.innerHTML;
-});
+        return cookieValue;
+    }
+
+    if (editor) {
+        editor.addEventListener("input", function () {
+            saveSelection();
+            updateCharCount();
+        });
+
+        editor.addEventListener("keyup", function () {
+            saveSelection();
+            updateCharCount();
+        });
+
+        editor.addEventListener("mouseup", saveSelection);
+        editor.addEventListener("touchend", saveSelection);
+
+        editor.addEventListener("paste", function () {
+            setTimeout(function () {
+                saveSelection();
+                updateCharCount();
+            }, 50);
+        });
+    }
+
+    if (form) {
+        form.addEventListener("submit", function () {
+            const editorClone = editor.cloneNode(true);
+
+            const localVideoTempBlocks = editorClone.querySelectorAll("[data-local-video='true']");
+
+            localVideoTempBlocks.forEach(function (block) {
+                block.remove();
+            });
+
+            hiddenContent.value = editorClone.innerHTML;
+        });
+    }
 
     const thumbnailInput = document.getElementById("id_thumbnail");
     const thumbnailTextInput = document.getElementById("id_thumbnail_text");
@@ -862,8 +970,10 @@ function insertLocalVideoBlock() {
             const reader = new FileReader();
 
             reader.onload = function (event) {
-                thumbnailPreviewImage.src = event.target.result;
-                thumbnailPreviewImage.style.display = "block";
+                if (thumbnailPreviewImage) {
+                    thumbnailPreviewImage.src = event.target.result;
+                    thumbnailPreviewImage.style.display = "block";
+                }
 
                 if (thumbnailPreviewEmpty) {
                     thumbnailPreviewEmpty.style.display = "none";
@@ -896,38 +1006,39 @@ function insertLocalVideoBlock() {
 
     const localVideoInput = document.getElementById("id_video_file");
 
-if (localVideoInput) {
-    localVideoInput.addEventListener("change", function () {
-        const file = localVideoInput.files[0];
-        const previewBox = document.getElementById("youtubePreviewBox");
-        const youtubeInput = document.getElementById("youtubeUrlInput");
+    if (localVideoInput) {
+        localVideoInput.addEventListener("change", function () {
+            const file = localVideoInput.files[0];
+            const previewBox = document.getElementById("youtubePreviewBox");
+            const youtubeInput = document.getElementById("youtubeUrlInput");
 
-        if (!file || !previewBox) {
-            return;
-        }
+            if (!file || !previewBox) {
+                return;
+            }
 
-        if (!file.type.startsWith("video/")) {
-            alert("동영상 파일만 선택할 수 있습니다.");
-            localVideoInput.value = "";
-            return;
-        }
+            if (!file.type.startsWith("video/")) {
+                alert("동영상 파일만 선택할 수 있습니다.");
+                localVideoInput.value = "";
+                return;
+            }
 
-        if (youtubeInput) {
-            youtubeInput.value = "";
-        }
+            if (youtubeInput) {
+                youtubeInput.value = "";
+            }
 
-        const videoUrl = URL.createObjectURL(file);
+            const videoUrl = URL.createObjectURL(file);
 
-        previewBox.innerHTML = `
-            <div class="local-video-preview-wrap">
-                <video controls playsinline preload="metadata">
-                    <source src="${videoUrl}" type="${file.type}">
-                    현재 브라우저에서 이 동영상을 재생할 수 없습니다.
-                </video>
-            </div>
-        `;
-    });
-}
+            previewBox.innerHTML = `
+                <div class="local-video-preview-wrap">
+                    <video controls playsinline preload="metadata">
+                        <source src="${videoUrl}" type="${file.type}">
+                        현재 브라우저에서 이 동영상을 재생할 수 없습니다.
+                    </video>
+                </div>
+            `;
+        });
+    }
+
     updateCharCount();
 </script>
 

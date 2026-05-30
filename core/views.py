@@ -9,6 +9,14 @@ import json
 from datetime import date
 from django.conf import settings
 from django.http import HttpResponse
+from django.http import JsonResponse
+from django.views.decorators.http import require_POST
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+
+import os
+import uuid
 
 
 from .models import Post
@@ -550,3 +558,51 @@ Allow: /
 Sitemap: https://www.chickenbananalab.com/sitemap.xml
 """
     return HttpResponse(content, content_type="text/plain")
+
+@login_required
+@require_POST
+def editor_image_upload(request):
+    image = request.FILES.get("image")
+
+    if not image:
+        return JsonResponse({
+            "success": False,
+            "error": "이미지 파일이 없습니다."
+        }, status=400)
+
+    allowed_types = [
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/gif",
+    ]
+
+    if image.content_type not in allowed_types:
+        return JsonResponse({
+            "success": False,
+            "error": "jpg, png, webp, gif 이미지만 업로드할 수 있습니다."
+        }, status=400)
+
+    max_size = 50 * 1024 * 1024
+
+    if image.size > max_size:
+        return JsonResponse({
+            "success": False,
+            "error": "이미지 용량은 최대 50MB까지 업로드할 수 있습니다."
+        }, status=400)
+
+    ext = os.path.splitext(image.name)[1].lower()
+
+    if ext not in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
+        ext = ".jpg"
+
+    filename = f"{uuid.uuid4().hex}{ext}"
+    save_path = f"editor/{filename}"
+
+    path = default_storage.save(save_path, ContentFile(image.read()))
+    image_url = default_storage.url(path)
+
+    return JsonResponse({
+        "success": True,
+        "url": image_url
+    })

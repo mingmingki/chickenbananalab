@@ -30,4 +30,5 @@ urlpatterns = [
     path("ai-keywords/recommend/", views.ai_keyword_recommend, name="ai_keyword_recommend"),
 
     path("signup/", views.signup, name="signup"),
+    path("upload/editor-image/", views.editor_image_upload, name="editor_image_upload"),
 ]
