@@ -1,23 +1,19 @@
-from django.shortcuts import render, redirect, get_object_or_404
-from django.http import Http404, JsonResponse
-from django.contrib.auth.forms import UserCreationForm
-from django.contrib.auth import login as auth_login
-from django.contrib.auth.decorators import user_passes_test
-from django.contrib import messages
-from django.db.models import Q, Count, Sum
 import json
-from datetime import date
-from django.conf import settings
-from django.http import HttpResponse
-from django.http import JsonResponse
-from django.views.decorators.http import require_POST
-from django.contrib.auth.decorators import login_required
-from django.core.files.storage import default_storage
-from django.core.files.base import ContentFile
-
 import os
 import uuid
+from datetime import date
 
+from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth import login as auth_login
+from django.contrib.auth.decorators import login_required, user_passes_test
+from django.contrib.auth.forms import UserCreationForm
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
+from django.db.models import Q, Count, Sum
+from django.http import Http404, HttpResponse, JsonResponse
+from django.shortcuts import render, redirect, get_object_or_404
+from django.views.decorators.http import require_POST
 
 from .models import Post
 from .forms import PostForm
@@ -29,6 +25,7 @@ from .ai_writer import (
     save_inline_image,
     replace_image_placeholders,
 )
+
 
 CATEGORY_PAGES = {
     "architecture": {
@@ -78,6 +75,21 @@ def admin_required(user):
     return user.is_authenticated and (user.is_staff or user.is_superuser)
 
 
+def editor_context(extra_context=None):
+    """
+    글쓰기/수정 템플릿에 공통으로 넘길 값.
+    카카오 JavaScript 키를 여기서 항상 넘긴다.
+    """
+    context = {
+        "kakao_javascript_key": settings.KAKAO_JAVASCRIPT_KEY,
+    }
+
+    if extra_context:
+        context.update(extra_context)
+
+    return context
+
+
 def home(request):
     posts = Post.objects.filter(is_published=True).order_by("-created_at")[:6]
 
@@ -93,9 +105,9 @@ def category_page(request, slug):
         raise Http404("존재하지 않는 페이지입니다.")
 
     posts = Post.objects.filter(
-    category=slug,
-    is_published=True
-).order_by("-created_at")[:15]
+        category=slug,
+        is_published=True,
+    ).order_by("-created_at")[:15]
 
     return render(request, "core/category.html", {
         "page": page,
@@ -130,9 +142,9 @@ def search(request):
             search_filter = search_filter | Q(category=category_slug)
 
         results = Post.objects.filter(
-    search_filter,
-    is_published=True
-).order_by("-created_at")
+            search_filter,
+            is_published=True,
+        ).order_by("-created_at")
 
     return render(request, "core/search.html", {
         "query": query,
@@ -143,11 +155,9 @@ def search(request):
 def post_detail(request, pk):
     post = get_object_or_404(Post, pk=pk)
 
-    # 비공개 초안은 관리자만 볼 수 있음
     if not post.is_published and not admin_required(request.user):
         raise Http404("존재하지 않는 글입니다.")
 
-    # 공개 글만 조회수 증가
     if post.is_published:
         post.views += 1
         post.save(update_fields=["views"])
@@ -167,17 +177,23 @@ def post_create(request):
         if form.is_valid():
             post = form.save()
             return redirect("post_detail", pk=post.pk)
+
+        messages.error(request, "입력 내용을 확인해주세요.")
+
     else:
         form = PostForm(initial={
             "category": initial_category,
         })
 
-    return render(request, "core/post_form.html", {
-        "form": form,
-        "mode": "create",
-        "post": None,
-        "kakao_javascript_key": settings.KAKAO_JAVASCRIPT_KEY,
-    })
+    return render(
+        request,
+        "core/post_form.html",
+        editor_context({
+            "form": form,
+            "mode": "create",
+            "post": None,
+        })
+    )
 
 
 @user_passes_test(admin_required)
@@ -190,15 +206,21 @@ def post_update(request, pk):
         if form.is_valid():
             post = form.save()
             return redirect("post_detail", pk=post.pk)
+
+        messages.error(request, "입력 내용을 확인해주세요.")
+
     else:
         form = PostForm(instance=post)
 
-    return render(request, "core/post_form.html", {
-        "form": form,
-        "mode": "update",
-        "post": post,
-        "kakao_javascript_key": settings.KAKAO_JAVASCRIPT_KEY,
-    })
+    return render(
+        request,
+        "core/post_form.html",
+        editor_context({
+            "form": form,
+            "mode": "update",
+            "post": post,
+        })
+    )
 
 
 @user_passes_test(admin_required)
@@ -211,6 +233,7 @@ def post_delete(request, pk):
         return redirect(category)
 
     return redirect("post_detail", pk=post.pk)
+
 
 @user_passes_test(admin_required)
 def post_publish(request, pk):
@@ -235,6 +258,7 @@ def post_unpublish(request, pk):
 
     return redirect("post_detail", pk=post.pk)
 
+
 def about(request):
     return render(request, "core/about.html")
 
@@ -256,23 +280,17 @@ def admin_dashboard(request):
         "draft_count": draft_count,
     })
 
+
 @user_passes_test(admin_required)
 def site_stats(request):
     total_posts = Post.objects.count()
     published_posts = Post.objects.filter(is_published=True).count()
     draft_posts = Post.objects.filter(is_published=False).count()
 
-    total_views = Post.objects.aggregate(
-        total=Sum("views")
-    )["total"] or 0
+    total_views = Post.objects.aggregate(total=Sum("views"))["total"] or 0
 
-    program_file_count = Post.objects.exclude(
-        program_file=""
-    ).count()
-
-    video_file_count = Post.objects.exclude(
-        video_file=""
-    ).count()
+    program_file_count = Post.objects.exclude(program_file="").count()
+    video_file_count = Post.objects.exclude(video_file="").count()
 
     category_stats = (
         Post.objects.values("category")
@@ -307,6 +325,7 @@ def site_stats(request):
         "recent_posts": recent_posts,
     })
 
+
 @user_passes_test(admin_required)
 def ai_post_generate(request):
     if request.method != "POST":
@@ -327,9 +346,7 @@ def ai_post_generate(request):
         str(keyword).strip()
         for keyword in selected_keywords
         if str(keyword).strip()
-    ]
-
-    selected_keywords = selected_keywords[:10]
+    ][:10]
 
     if selected_keywords:
         keywords = ", ".join(selected_keywords)
@@ -507,6 +524,7 @@ def ai_post_generate(request):
     messages.success(request, f"AI 글 {len(created_posts)}개를 생성했습니다.")
     return redirect("admin_dashboard")
 
+
 @user_passes_test(admin_required)
 def ai_keyword_recommend(request):
     if request.method != "POST":
@@ -536,6 +554,7 @@ def ai_keyword_recommend(request):
             "message": str(error),
         }, status=500)
 
+
 def signup(request):
     if request.method == "POST":
         form = UserCreationForm(request.POST)
@@ -544,12 +563,14 @@ def signup(request):
             user = form.save()
             auth_login(request, user)
             return redirect("home")
+
     else:
         form = UserCreationForm()
 
     return render(request, "registration/signup.html", {
         "form": form,
     })
+
 
 def robots_txt(request):
     content = """User-agent: *
@@ -559,6 +580,7 @@ Sitemap: https://www.chickenbananalab.com/sitemap.xml
 """
     return HttpResponse(content, content_type="text/plain")
 
+
 @login_required
 @require_POST
 def editor_image_upload(request):
@@ -567,7 +589,7 @@ def editor_image_upload(request):
     if not image:
         return JsonResponse({
             "success": False,
-            "error": "이미지 파일이 없습니다."
+            "error": "이미지 파일이 없습니다.",
         }, status=400)
 
     allowed_types = [
@@ -580,7 +602,7 @@ def editor_image_upload(request):
     if image.content_type not in allowed_types:
         return JsonResponse({
             "success": False,
-            "error": "jpg, png, webp, gif 이미지만 업로드할 수 있습니다."
+            "error": "jpg, png, webp, gif 이미지만 업로드할 수 있습니다.",
         }, status=400)
 
     max_size = 50 * 1024 * 1024
@@ -588,7 +610,7 @@ def editor_image_upload(request):
     if image.size > max_size:
         return JsonResponse({
             "success": False,
-            "error": "이미지 용량은 최대 50MB까지 업로드할 수 있습니다."
+            "error": "이미지 용량은 최대 50MB까지 업로드할 수 있습니다.",
         }, status=400)
 
     ext = os.path.splitext(image.name)[1].lower()
@@ -604,5 +626,5 @@ def editor_image_upload(request):
 
     return JsonResponse({
         "success": True,
-        "url": image_url
+        "url": image_url,
     })
