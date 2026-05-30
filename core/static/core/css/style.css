@@ -7805,3 +7805,64 @@ a {
         font-size: 10px !important;
     }
 }
+
+/* 위치 카드 최종 크기 축소 - 글쓰기/상세페이지 공통 */
+.editor-location-card,
+.post-content .editor-location-card,
+.post-detail-content .editor-location-card,
+.content-body .editor-location-card,
+.editor-body .editor-location-card,
+a.editor-location-card {
+    width: 420px !important;
+    max-width: 420px !important;
+    min-height: unset !important;
+
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+
+    padding: 14px 16px !important;
+    margin: 14px 0 !important;
+
+    border-radius: 14px !important;
+    box-sizing: border-box !important;
+}
+
+.editor-location-icon {
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+
+    border-radius: 10px !important;
+    font-size: 17px !important;
+}
+
+.editor-location-content strong {
+    font-size: 15px !important;
+    line-height: 1.3 !important;
+    margin-bottom: 4px !important;
+}
+
+.editor-location-content p {
+    font-size: 12px !important;
+    line-height: 1.4 !important;
+    margin: 0 0 4px 0 !important;
+}
+
+.editor-location-hint {
+    font-size: 11px !important;
+}
+
+/* 모바일에서는 화면에 맞게 */
+@media (max-width: 768px) {
+    .editor-location-card,
+    .post-content .editor-location-card,
+    .post-detail-content .editor-location-card,
+    .content-body .editor-location-card,
+    .editor-body .editor-location-card,
+    a.editor-location-card {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 12px 14px !important;
+    }
+}
