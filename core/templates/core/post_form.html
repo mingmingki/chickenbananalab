@@ -257,17 +257,20 @@
 </div>
 
 {% if kakao_javascript_key %}
-<script
-    src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={{ kakao_javascript_key }}&libraries=services&autoload=false"
-    onload="console.log('카카오 SDK 파일 다운로드 완료')"
-    onerror="console.error('카카오 SDK 파일 로드 실패')">
-</script>
 <script>
-    console.log("카카오 키 로드됨");
+    window.KAKAO_JAVASCRIPT_KEY = "{{ kakao_javascript_key }}";
+</script>
+
+<script
+    id="kakao-map-sdk"
+    src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={{ kakao_javascript_key }}&libraries=services&autoload=false"
+    onload="window.kakaoSdkFileLoaded = true; console.log('카카오 SDK 파일 다운로드 완료');"
+    onerror="window.kakaoSdkFileLoaded = false; console.error('카카오 SDK 파일 로드 실패');">
 </script>
 {% else %}
 <script>
-    console.error("카카오 키가 비어있음");
+    window.KAKAO_JAVASCRIPT_KEY = "";
+    console.error("카카오 JavaScript 키가 비어있음");
 </script>
 {% endif %}
 
@@ -507,22 +510,63 @@
         }
     }
 
-    function performLocationSearch() {
-        const keyword = locationInput ? locationInput.value.trim() : "";
+    function waitForKakaoReady(callback) {
+    let tryCount = 0;
+    const maxTryCount = 30;
 
-        if (!keyword) {
+    const timer = setInterval(function () {
+        tryCount += 1;
+
+        if (window.kakao && window.kakao.maps) {
+            clearInterval(timer);
+
+            kakao.maps.load(function () {
+                callback(true);
+            });
+
+            return;
+        }
+
+        if (tryCount >= maxTryCount) {
+            clearInterval(timer);
+            callback(false);
+        }
+    }, 100);
+}
+
+function performLocationSearch() {
+    const keyword = locationInput ? locationInput.value.trim() : "";
+
+    if (!keyword) {
+        locationResultArea.innerHTML = `
+            <div class="location-empty-message">
+                검색어를 입력해주세요.
+            </div>
+        `;
+        return;
+    }
+
+    locationResultArea.innerHTML = `
+        <div class="location-empty-message">
+            카카오 지도 API를 확인하는 중입니다.
+        </div>
+    `;
+
+    waitForKakaoReady(function (isReady) {
+        if (!isReady) {
             locationResultArea.innerHTML = `
                 <div class="location-empty-message">
-                    검색어를 입력해주세요.
+                    카카오 지도 API가 로드되지 않았습니다.<br>
+                    카카오 개발자센터의 Web 플랫폼 도메인 등록을 확인해주세요.
                 </div>
             `;
             return;
         }
 
-        if (!window.kakao || !window.kakao.maps) {
+        if (!kakao.maps.services) {
             locationResultArea.innerHTML = `
                 <div class="location-empty-message">
-                    카카오 지도 API가 아직 로드되지 않았습니다.
+                    카카오 장소 검색 서비스를 불러오지 못했습니다.
                 </div>
             `;
             return;
@@ -534,41 +578,31 @@
             </div>
         `;
 
-        kakao.maps.load(function () {
-            if (!kakao.maps.services) {
+        const places = new kakao.maps.services.Places();
+
+        places.keywordSearch(keyword, function (data, status) {
+            if (status === kakao.maps.services.Status.OK) {
+                renderLocationResults(data);
+                return;
+            }
+
+            if (status === kakao.maps.services.Status.ZERO_RESULT) {
                 locationResultArea.innerHTML = `
                     <div class="location-empty-message">
-                        카카오 장소 검색 서비스를 불러오지 못했습니다.
+                        검색 결과가 없습니다.
                     </div>
                 `;
                 return;
             }
 
-            const places = new kakao.maps.services.Places();
-
-            places.keywordSearch(keyword, function (data, status) {
-                if (status === kakao.maps.services.Status.OK) {
-                    renderLocationResults(data);
-                    return;
-                }
-
-                if (status === kakao.maps.services.Status.ZERO_RESULT) {
-                    locationResultArea.innerHTML = `
-                        <div class="location-empty-message">
-                            검색 결과가 없습니다.
-                        </div>
-                    `;
-                    return;
-                }
-
-                locationResultArea.innerHTML = `
-                    <div class="location-empty-message">
-                        장소 검색 중 오류가 발생했습니다.
-                    </div>
-                `;
-            });
+            locationResultArea.innerHTML = `
+                <div class="location-empty-message">
+                    장소 검색 중 오류가 발생했습니다.
+                </div>
+            `;
         });
-    }
+    });
+}
 
     function renderLocationResults(results) {
         locationResultArea.innerHTML = "";
