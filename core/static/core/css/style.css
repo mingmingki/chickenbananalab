@@ -7709,3 +7709,99 @@ a {
         color: #75ff9a !important;
     }
 }
+
+/* 글쓰기 에디터 - 위치 카드 크기 축소 */
+.editor-location-card {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+
+    width: auto !important;
+    max-width: 520px !important;
+    min-height: 0 !important;
+
+    padding: 12px 16px !important;
+    margin: 10px 0 !important;
+
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 14px !important;
+
+    text-decoration: none !important;
+    color: inherit !important;
+    box-sizing: border-box !important;
+}
+
+.editor-location-icon {
+    width: 34px !important;
+    height: 34px !important;
+    min-width: 34px !important;
+
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    background: #ffffff !important;
+    border-radius: 10px !important;
+    font-size: 18px !important;
+    line-height: 1 !important;
+}
+
+.editor-location-content {
+    display: block !important;
+    min-width: 0 !important;
+}
+
+.editor-location-content strong {
+    display: block !important;
+    margin-bottom: 3px !important;
+
+    color: #111827 !important;
+    font-size: 15px !important;
+    font-weight: 800 !important;
+    line-height: 1.3 !important;
+}
+
+.editor-location-content p {
+    margin: 0 0 3px 0 !important;
+
+    color: #64748b !important;
+    font-size: 12px !important;
+    line-height: 1.4 !important;
+}
+
+.editor-location-hint {
+    display: block !important;
+
+    color: #94a3b8 !important;
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+}
+
+@media (max-width: 768px) {
+    .editor-location-card {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 10px 12px !important;
+        gap: 8px !important;
+    }
+
+    .editor-location-icon {
+        width: 30px !important;
+        height: 30px !important;
+        min-width: 30px !important;
+        font-size: 16px !important;
+    }
+
+    .editor-location-content strong {
+        font-size: 14px !important;
+    }
+
+    .editor-location-content p {
+        font-size: 11px !important;
+    }
+
+    .editor-location-hint {
+        font-size: 10px !important;
+    }
+}
