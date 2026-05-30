@@ -6,8 +6,7 @@
     <title>{% block title %}ChickenBanana Lab{% endblock %}</title>
 
     <meta name="google-site-verification" content="FzAEL8HyKGF9vEqKeLLXLKLD9TtTXjh8sbQCjve7SUw" />
-
-    <meta name="naver-site-verification" content="naver-site-verification" content="2f3a0f01feafb2f03232a3fb88f5ae87bd3a1fce" />
+    <meta name="naver-site-verification" content="2f3a0f01feafb2f03232a3fb88f5ae87bd3a1fce" />
 
     <meta name="description" content="{% block meta_description %}ChickenBanana Lab은 건축, 부동산, 금융, 테크, 일상 정보를 다루는 콘텐츠 플랫폼입니다.{% endblock %}">
     <meta name="robots" content="index, follow">
@@ -19,112 +18,131 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <link rel="stylesheet" href="{% static 'core/css/style.css' %}">
+
     <style>
-    /* 모바일 계정 메뉴 강제 수정 */
-    .account-dropdown {
-        display: none;
-    }
-
-    .account-dropdown.active {
-        display: block;
-    }
-
-    @media (max-width: 768px) {
-        .site-header,
-        .container,
-        .header-inner,
-        .top-links,
-        .account-menu {
-            overflow: visible !important;
-        }
-
+        /* 계정 드롭다운 기본 */
         .account-dropdown {
-            display: none !important;
+            display: none;
         }
 
         .account-dropdown.active {
-            display: block !important;
-            position: fixed !important;
-
-            top: 210px !important;
-            left: 20px !important;
-            right: 20px !important;
-
-            width: auto !important;
-            min-width: 0 !important;
-            max-width: none !important;
-
-            background: #15171c !important;
-            border: 1px solid rgba(255,255,255,0.22) !important;
-            border-radius: 18px !important;
-            padding: 18px !important;
-
-            z-index: 9999999 !important;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.75) !important;
-
-            transform: none !important;
-            opacity: 1 !important;
-            visibility: visible !important;
+            display: block;
         }
 
-        .account-dropdown,
-        .account-dropdown * {
-            color: #ffffff !important;
-            opacity: 1 !important;
-            visibility: visible !important;
-            text-shadow: none !important;
-            box-sizing: border-box !important;
+        /* 모바일 계정 메뉴 강제 수정 */
+        @media (max-width: 768px) {
+            .site-header,
+            .container,
+            .header-inner,
+            .top-links,
+            .account-menu {
+                overflow: visible !important;
+            }
+
+            .account-dropdown {
+                display: none !important;
+            }
+
+            .account-dropdown.active {
+                display: block !important;
+                position: fixed !important;
+
+                top: 210px !important;
+                left: 20px !important;
+                right: 20px !important;
+
+                width: auto !important;
+                min-width: 0 !important;
+                max-width: none !important;
+
+                background: #15171c !important;
+                border: 1px solid rgba(255,255,255,0.22) !important;
+                border-radius: 18px !important;
+                padding: 18px !important;
+
+                z-index: 9999999 !important;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.75) !important;
+
+                transform: none !important;
+                opacity: 1 !important;
+                visibility: visible !important;
+            }
+
+            .account-dropdown,
+            .account-dropdown * {
+                color: #ffffff !important;
+                opacity: 1 !important;
+                visibility: visible !important;
+                text-shadow: none !important;
+                box-sizing: border-box !important;
+            }
+
+            .account-info {
+                display: block !important;
+                padding-bottom: 14px !important;
+                margin-bottom: 12px !important;
+                border-bottom: 1px solid rgba(255,255,255,0.16) !important;
+            }
+
+            .account-info strong {
+                display: block !important;
+                color: #ffffff !important;
+                font-size: 15px !important;
+                font-weight: 800 !important;
+                line-height: 1.5 !important;
+                word-break: break-all !important;
+            }
+
+            .account-info span {
+                display: block !important;
+                margin-top: 6px !important;
+                color: #82ff9e !important;
+                font-size: 13px !important;
+                font-weight: 700 !important;
+            }
+
+            .account-dropdown-link,
+            .account-logout-form button {
+                display: block !important;
+                width: 100% !important;
+                padding: 14px 12px !important;
+                margin: 4px 0 !important;
+
+                background: transparent !important;
+                border: 0 !important;
+                border-radius: 12px !important;
+
+                color: #ffffff !important;
+                font-size: 15px !important;
+                font-weight: 800 !important;
+                text-align: left !important;
+            }
+
+            .account-dropdown-link:hover,
+            .account-logout-form button:hover {
+                background: rgba(255,255,255,0.1) !important;
+                color: #82ff9e !important;
+            }
+
+            /* 모바일 팝업 열렸을 때 상단 P 프로필 버튼 숨김 */
+            body.modal-open .account-avatar-btn {
+                display: none !important;
+                opacity: 0 !important;
+                visibility: hidden !important;
+                pointer-events: none !important;
+            }
+
+            .site-modal.active {
+                z-index: 99999999 !important;
+            }
+
+            .site-modal.active .site-modal-card {
+                z-index: 100000000 !important;
+            }
         }
-
-        .account-info {
-            display: block !important;
-            padding-bottom: 14px !important;
-            margin-bottom: 12px !important;
-            border-bottom: 1px solid rgba(255,255,255,0.16) !important;
-        }
-
-        .account-info strong {
-            display: block !important;
-            color: #ffffff !important;
-            font-size: 15px !important;
-            font-weight: 800 !important;
-            line-height: 1.5 !important;
-            word-break: break-all !important;
-        }
-
-        .account-info span {
-            display: block !important;
-            margin-top: 6px !important;
-            color: #82ff9e !important;
-            font-size: 13px !important;
-            font-weight: 700 !important;
-        }
-
-        .account-dropdown-link,
-        .account-logout-form button {
-            display: block !important;
-            width: 100% !important;
-            padding: 14px 12px !important;
-            margin: 4px 0 !important;
-
-            background: transparent !important;
-            border: 0 !important;
-            border-radius: 12px !important;
-
-            color: #ffffff !important;
-            font-size: 15px !important;
-            font-weight: 800 !important;
-            text-align: left !important;
-        }
-
-        .account-dropdown-link:hover,
-        .account-logout-form button:hover {
-            background: rgba(255,255,255,0.1) !important;
-            color: #82ff9e !important;
-        }
-    }
-</style>
+    </style>
 </head>
+
 <body>
 
 <header class="site-header">
@@ -338,10 +356,10 @@
                     </a>
 
                     <a href="{% url 'site_stats' %}" class="manage-menu-item">
-    <div>📊</div>
-    <strong>사이트 통계</strong>
-    <p>글 수, 조회수, 인기글 현황을 확인합니다.</p>
-</a>
+                        <div>📊</div>
+                        <strong>사이트 통계</strong>
+                        <p>글 수, 조회수, 인기글 현황을 확인합니다.</p>
+                    </a>
                 </div>
 
                 <div class="site-modal-actions">
@@ -393,61 +411,61 @@
                         </div>
 
                         <div class="ai-form-group">
-    <label for="ai-image-count">본문 이미지 개수</label>
-    <select id="ai-image-count" name="image_count">
-        <option value="0">0장</option>
-        <option value="1">1장</option>
-        <option value="2" selected>2장</option>
-        <option value="3">3장</option>
-        <option value="4">4장</option>
-        <option value="5">5장</option>
-    </select>
-</div>
+                            <label for="ai-image-count">본문 이미지 개수</label>
+                            <select id="ai-image-count" name="image_count">
+                                <option value="0">0장</option>
+                                <option value="1">1장</option>
+                                <option value="2" selected>2장</option>
+                                <option value="3">3장</option>
+                                <option value="4">4장</option>
+                                <option value="5">5장</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div class="ai-form-group">
-    <div class="ai-keyword-label-row">
-        <label for="ai-keywords">주요 이슈 키워드</label>
+                        <div class="ai-keyword-label-row">
+                            <label for="ai-keywords">주요 이슈 키워드</label>
 
-        <button type="button" id="aiKeywordRecommendBtn" class="ai-keyword-recommend-btn">
-            오늘자 키워드 추천
-        </button>
-    </div>
+                            <button type="button" id="aiKeywordRecommendBtn" class="ai-keyword-recommend-btn">
+                                오늘자 키워드 추천
+                            </button>
+                        </div>
 
-    <input
-        id="ai-keywords"
-        name="keywords"
-        type="text"
-        placeholder="예: 금리 인하, 아파트 분양, 마감공사 하자, AI 자동화"
-    >
+                        <input
+                            id="ai-keywords"
+                            name="keywords"
+                            type="text"
+                            placeholder="예: 금리 인하, 아파트 분양, 마감공사 하자, AI 자동화"
+                        >
 
-    <input
-    type="hidden"
-    id="ai-selected-keywords"
-    name="selected_keywords"
-    value=""
->
+                        <input
+                            type="hidden"
+                            id="ai-selected-keywords"
+                            name="selected_keywords"
+                            value=""
+                        >
 
-<div id="aiSelectedKeywordSummary" class="ai-selected-keyword-summary" hidden>
-    선택한 키워드 <strong>0개</strong>
-</div>
+                        <div id="aiSelectedKeywordSummary" class="ai-selected-keyword-summary" hidden>
+                            선택한 키워드 <strong>0개</strong>
+                        </div>
 
-    <div id="aiKeywordRecommendBox" class="ai-keyword-recommend-box" hidden>
-    <div class="ai-keyword-recommend-head">
-        <div class="ai-keyword-head-left">
-            <span class="ai-keyword-mini-label">AI TREND PICK</span>
-            <strong>오늘 글감 추천</strong>
-            <p>선택한 카테고리에 맞는 키워드만 추천합니다. 원하는 키워드를 누르면 위 입력칸에 바로 들어갑니다.</p>
-        </div>
+                        <div id="aiKeywordRecommendBox" class="ai-keyword-recommend-box" hidden>
+                            <div class="ai-keyword-recommend-head">
+                                <div class="ai-keyword-head-left">
+                                    <span class="ai-keyword-mini-label">AI TREND PICK</span>
+                                    <strong>오늘 글감 추천</strong>
+                                    <p>선택한 카테고리에 맞는 키워드만 추천합니다. 원하는 키워드를 누르면 위 입력칸에 바로 들어갑니다.</p>
+                                </div>
 
-        <div class="ai-keyword-count-badge">
-            7개 추천
-        </div>
-    </div>
+                                <div class="ai-keyword-count-badge">
+                                    7개 추천
+                                </div>
+                            </div>
 
-    <div id="aiKeywordRecommendList" class="ai-keyword-recommend-list"></div>
-</div>
-</div>
+                            <div id="aiKeywordRecommendList" class="ai-keyword-recommend-list"></div>
+                        </div>
+                    </div>
 
                     <div class="ai-form-group">
                         <label for="ai-title-style">글 작성 방향</label>
@@ -498,8 +516,8 @@
                     <div class="site-modal-actions">
                         <button type="button" class="modal-light-btn" onclick="closeAiPostModal()">취소</button>
                         <button type="submit" class="modal-dark-btn">
-    AI 글 생성 시작
-</button>
+                            AI 글 생성 시작
+                        </button>
                     </div>
                 </form>
             </div>
@@ -526,6 +544,16 @@
         });
     }
 
+    function setModalBodyState() {
+        const hasActiveModal = document.querySelector(".site-modal.active");
+
+        if (hasActiveModal) {
+            document.body.classList.add("modal-open");
+        } else {
+            document.body.classList.remove("modal-open");
+        }
+    }
+
     function openAccountModal() {
         const modal = document.getElementById("accountModal");
         if (modal) {
@@ -535,6 +563,8 @@
         if (accountDropdown) {
             accountDropdown.classList.remove("active");
         }
+
+        setModalBodyState();
     }
 
     function closeAccountModal() {
@@ -542,6 +572,8 @@
         if (modal) {
             modal.classList.remove("active");
         }
+
+        setModalBodyState();
     }
 
     function openManageModal() {
@@ -553,6 +585,8 @@
         if (accountDropdown) {
             accountDropdown.classList.remove("active");
         }
+
+        setModalBodyState();
     }
 
     function closeManageModal() {
@@ -560,6 +594,8 @@
         if (modal) {
             modal.classList.remove("active");
         }
+
+        setModalBodyState();
     }
 
     function openAiPostModal() {
@@ -573,6 +609,8 @@
         if (aiPostModal) {
             aiPostModal.classList.add("active");
         }
+
+        setModalBodyState();
     }
 
     function closeAiPostModal() {
@@ -580,6 +618,8 @@
         if (modal) {
             modal.classList.remove("active");
         }
+
+        setModalBodyState();
     }
 
     document.addEventListener("keydown", function (event) {
@@ -590,166 +630,158 @@
         }
     });
 
-document.addEventListener("keydown", function (event) {
-        if (event.key === "Escape") {
-            closeAccountModal();
-            closeManageModal();
-            closeAiPostModal();
-        }
-    });
+    const aiKeywordRecommendBtn = document.getElementById("aiKeywordRecommendBtn");
+    const aiKeywordRecommendBox = document.getElementById("aiKeywordRecommendBox");
+    const aiKeywordRecommendList = document.getElementById("aiKeywordRecommendList");
+    const aiKeywordsInput = document.getElementById("ai-keywords");
+    const aiCategorySelect = document.getElementById("ai-category");
 
-const aiKeywordRecommendBtn = document.getElementById("aiKeywordRecommendBtn");
-const aiKeywordRecommendBox = document.getElementById("aiKeywordRecommendBox");
-const aiKeywordRecommendList = document.getElementById("aiKeywordRecommendList");
-const aiKeywordsInput = document.getElementById("ai-keywords");
-const aiCategorySelect = document.getElementById("ai-category");
-
-function getAiCsrfToken() {
-    const tokenInput = document.querySelector("#aiPostForm input[name='csrfmiddlewaretoken']");
-    return tokenInput ? tokenInput.value : "";
-}
-
-if (aiKeywordRecommendBtn && aiKeywordRecommendBox && aiKeywordRecommendList && aiKeywordsInput) {
-    aiKeywordRecommendBtn.addEventListener("click", function () {
-        aiKeywordRecommendBox.hidden = false;
-        aiKeywordRecommendList.innerHTML = `
-    <div class="ai-keyword-loading">
-        <div class="ai-keyword-loading-dots">
-            <span></span><span></span><span></span>
-        </div>
-        <strong>AI가 오늘 쓸 만한 키워드를 고르는 중입니다</strong>
-        <p>현재 선택한 카테고리에 맞춰 추천 키워드를 정리하고 있어요.</p>
-    </div>
-`;
-
-        aiKeywordRecommendBtn.disabled = true;
-        aiKeywordRecommendBtn.innerText = "추천 중...";
-
-        const formData = new FormData();
-        formData.append("category", aiCategorySelect ? aiCategorySelect.value : "all");
-
-const selectedInput = document.getElementById("ai-selected-keywords");
-const selectedSummary = document.getElementById("aiSelectedKeywordSummary");
-
-if (selectedInput) {
-    selectedInput.value = "";
-}
-
-if (selectedSummary) {
-    selectedSummary.hidden = true;
-    selectedSummary.innerHTML = `선택한 키워드 <strong>0개</strong>`;
-}
-
-if (aiKeywordsInput) {
-    aiKeywordsInput.value = "";
-}
-
-
-        fetch("{% url 'ai_keyword_recommend' %}", {
-            method: "POST",
-            headers: {
-                "X-CSRFToken": getAiCsrfToken(),
-            },
-            body: formData,
-        })
-            .then(function (response) {
-                return response.json();
-            })
-            .then(function (data) {
-                if (!data.ok) {
-                    throw new Error(data.message || "키워드 추천에 실패했습니다.");
-                }
-
-                aiKeywordRecommendList.innerHTML = "";
-
-                data.keywords.forEach(function (item) {
-                    const button = document.createElement("button");
-                    button.type = "button";
-                    button.className = "ai-keyword-chip";
-
-                    button.innerHTML = `
-    <div class="ai-keyword-chip-top">
-        <span class="ai-keyword-category">${item.category}</span>
-        <span class="ai-keyword-select-text">선택</span>
-    </div>
-
-    <strong>${item.keyword}</strong>
-    <p>${item.reason}</p>
-`;
-
-                    button.addEventListener("click", function () {
-    const selectedInput = document.getElementById("ai-selected-keywords");
-    const selectedSummary = document.getElementById("aiSelectedKeywordSummary");
-    const aiCountInput = document.getElementById("ai-count");
-
-    let selectedKeywords = [];
-
-    if (selectedInput && selectedInput.value) {
-        try {
-            selectedKeywords = JSON.parse(selectedInput.value);
-        } catch (e) {
-            selectedKeywords = [];
-        }
+    function getAiCsrfToken() {
+        const tokenInput = document.querySelector("#aiPostForm input[name='csrfmiddlewaretoken']");
+        return tokenInput ? tokenInput.value : "";
     }
 
-    const keyword = item.keyword;
-
-    if (selectedKeywords.includes(keyword)) {
-        selectedKeywords = selectedKeywords.filter(function (value) {
-            return value !== keyword;
-        });
-
-        button.classList.remove("selected");
-    } else {
-        selectedKeywords.push(keyword);
-        button.classList.add("selected");
-    }
-
-    if (selectedInput) {
-        selectedInput.value = JSON.stringify(selectedKeywords);
-    }
-
-    if (aiKeywordsInput) {
-        aiKeywordsInput.value = selectedKeywords.join(", ");
-        aiKeywordsInput.focus();
-    }
-
-    if (aiCountInput && selectedKeywords.length > 0) {
-        aiCountInput.value = selectedKeywords.length;
-    }
-
-    if (selectedSummary) {
-        if (selectedKeywords.length > 0) {
-            selectedSummary.hidden = false;
-            selectedSummary.innerHTML = `
-                선택한 키워드 <strong>${selectedKeywords.length}개</strong>
-                <span>선택한 키워드별로 글이 1개씩 생성됩니다.</span>
-            `;
-        } else {
-            selectedSummary.hidden = true;
-            selectedSummary.innerHTML = `선택한 키워드 <strong>0개</strong>`;
-        }
-    }
-});
-
-                    aiKeywordRecommendList.appendChild(button);
-                });
-            })
-            .catch(function (error) {
-                aiKeywordRecommendList.innerHTML = `
-                    <div class="ai-keyword-error">
-                        키워드 추천 중 오류가 발생했습니다.<br>
-                        ${error.message}
+    if (aiKeywordRecommendBtn && aiKeywordRecommendBox && aiKeywordRecommendList && aiKeywordsInput) {
+        aiKeywordRecommendBtn.addEventListener("click", function () {
+            aiKeywordRecommendBox.hidden = false;
+            aiKeywordRecommendList.innerHTML = `
+                <div class="ai-keyword-loading">
+                    <div class="ai-keyword-loading-dots">
+                        <span></span><span></span><span></span>
                     </div>
-                `;
+                    <strong>AI가 오늘 쓸 만한 키워드를 고르는 중입니다</strong>
+                    <p>현재 선택한 카테고리에 맞춰 추천 키워드를 정리하고 있어요.</p>
+                </div>
+            `;
+
+            aiKeywordRecommendBtn.disabled = true;
+            aiKeywordRecommendBtn.innerText = "추천 중...";
+
+            const formData = new FormData();
+            formData.append("category", aiCategorySelect ? aiCategorySelect.value : "all");
+
+            const selectedInput = document.getElementById("ai-selected-keywords");
+            const selectedSummary = document.getElementById("aiSelectedKeywordSummary");
+
+            if (selectedInput) {
+                selectedInput.value = "";
+            }
+
+            if (selectedSummary) {
+                selectedSummary.hidden = true;
+                selectedSummary.innerHTML = `선택한 키워드 <strong>0개</strong>`;
+            }
+
+            if (aiKeywordsInput) {
+                aiKeywordsInput.value = "";
+            }
+
+            fetch("{% url 'ai_keyword_recommend' %}", {
+                method: "POST",
+                headers: {
+                    "X-CSRFToken": getAiCsrfToken(),
+                },
+                body: formData,
             })
-            .finally(function () {
-                aiKeywordRecommendBtn.disabled = false;
-                aiKeywordRecommendBtn.innerText = "오늘자 키워드 추천";
-            });
-    });
-}
+                .then(function (response) {
+                    return response.json();
+                })
+                .then(function (data) {
+                    if (!data.ok) {
+                        throw new Error(data.message || "키워드 추천에 실패했습니다.");
+                    }
+
+                    aiKeywordRecommendList.innerHTML = "";
+
+                    data.keywords.forEach(function (item) {
+                        const button = document.createElement("button");
+                        button.type = "button";
+                        button.className = "ai-keyword-chip";
+
+                        button.innerHTML = `
+                            <div class="ai-keyword-chip-top">
+                                <span class="ai-keyword-category">${item.category}</span>
+                                <span class="ai-keyword-select-text">선택</span>
+                            </div>
+
+                            <strong>${item.keyword}</strong>
+                            <p>${item.reason}</p>
+                        `;
+
+                        button.addEventListener("click", function () {
+                            const selectedInput = document.getElementById("ai-selected-keywords");
+                            const selectedSummary = document.getElementById("aiSelectedKeywordSummary");
+                            const aiCountInput = document.getElementById("ai-count");
+
+                            let selectedKeywords = [];
+
+                            if (selectedInput && selectedInput.value) {
+                                try {
+                                    selectedKeywords = JSON.parse(selectedInput.value);
+                                } catch (e) {
+                                    selectedKeywords = [];
+                                }
+                            }
+
+                            const keyword = item.keyword;
+
+                            if (selectedKeywords.includes(keyword)) {
+                                selectedKeywords = selectedKeywords.filter(function (value) {
+                                    return value !== keyword;
+                                });
+
+                                button.classList.remove("selected");
+                            } else {
+                                selectedKeywords.push(keyword);
+                                button.classList.add("selected");
+                            }
+
+                            if (selectedInput) {
+                                selectedInput.value = JSON.stringify(selectedKeywords);
+                            }
+
+                            if (aiKeywordsInput) {
+                                aiKeywordsInput.value = selectedKeywords.join(", ");
+                                aiKeywordsInput.focus();
+                            }
+
+                            if (aiCountInput && selectedKeywords.length > 0) {
+                                aiCountInput.value = selectedKeywords.length;
+                            }
+
+                            if (selectedSummary) {
+                                if (selectedKeywords.length > 0) {
+                                    selectedSummary.hidden = false;
+                                    selectedSummary.innerHTML = `
+                                        선택한 키워드 <strong>${selectedKeywords.length}개</strong>
+                                        <span>선택한 키워드별로 글이 1개씩 생성됩니다.</span>
+                                    `;
+                                } else {
+                                    selectedSummary.hidden = true;
+                                    selectedSummary.innerHTML = `선택한 키워드 <strong>0개</strong>`;
+                                }
+                            }
+                        });
+
+                        aiKeywordRecommendList.appendChild(button);
+                    });
+                })
+                .catch(function (error) {
+                    aiKeywordRecommendList.innerHTML = `
+                        <div class="ai-keyword-error">
+                            키워드 추천 중 오류가 발생했습니다.<br>
+                            ${error.message}
+                        </div>
+                    `;
+                })
+                .finally(function () {
+                    aiKeywordRecommendBtn.disabled = false;
+                    aiKeywordRecommendBtn.innerText = "오늘자 키워드 추천";
+                });
+        });
+    }
 </script>
+
 <div id="aiLoadingOverlay" class="ai-loading-overlay" hidden>
     <div class="ai-loading-card">
         <div class="ai-loading-icon">
@@ -773,6 +805,7 @@ if (aiKeywordsInput) {
         </small>
     </div>
 </div>
+
 <script>
     document.addEventListener("DOMContentLoaded", function () {
         const aiPostForm = document.getElementById("aiPostForm");
@@ -794,5 +827,6 @@ if (aiKeywordsInput) {
         });
     });
 </script>
+
 </body>
 </html>
