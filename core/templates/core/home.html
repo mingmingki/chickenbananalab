@@ -177,98 +177,99 @@
 
 
 <!-- 시장 카드 영역 -->
-<section class="market-section">
+<section style="padding: 8px 0 32px;">
     <div class="container">
 
-        <div class="market-card-grid">
+        <div style="
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 16px;
+            margin-top: 4px;
+        ">
 
-            <!-- 국내 증시 -->
-            <div class="market-card">
-                <div class="market-name">KOSPI</div>
-                <div class="market-value">
+            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
+                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">KOSPI</div>
+                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
                     {{ market_data.domestic.kospi.value|default:"-" }}
                 </div>
-                <div class="market-change {{ market_data.domestic.kospi.direction|default:'flat' }}">
+                <div style="font-size:14px; font-weight:900; color:{% if market_data.domestic.kospi.direction == 'up' %}#dc2626{% elif market_data.domestic.kospi.direction == 'down' %}#2563eb{% else %}#64748b{% endif %};">
                     {{ market_data.domestic.kospi.change|default:"-" }}
                 </div>
             </div>
 
-            <div class="market-card">
-                <div class="market-name">KOSDAQ</div>
-                <div class="market-value">
+            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
+                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">KOSDAQ</div>
+                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
                     {{ market_data.domestic.kosdaq.value|default:"-" }}
                 </div>
-                <div class="market-change {{ market_data.domestic.kosdaq.direction|default:'flat' }}">
+                <div style="font-size:14px; font-weight:900; color:{% if market_data.domestic.kosdaq.direction == 'up' %}#dc2626{% elif market_data.domestic.kosdaq.direction == 'down' %}#2563eb{% else %}#64748b{% endif %};">
                     {{ market_data.domestic.kosdaq.change|default:"-" }}
                 </div>
             </div>
 
-            <!-- 미국 증시 -->
-            <div class="market-card">
-                <div class="market-name">NASDAQ</div>
-                <div class="market-value">
+            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
+                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">NASDAQ</div>
+                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
                     {{ market_data.domestic.nasdaq.value|default:"-" }}
                 </div>
-                <div class="market-change {{ market_data.domestic.nasdaq.direction|default:'flat' }}">
+                <div style="font-size:14px; font-weight:900; color:{% if market_data.domestic.nasdaq.direction == 'up' %}#dc2626{% elif market_data.domestic.nasdaq.direction == 'down' %}#2563eb{% else %}#64748b{% endif %};">
                     {{ market_data.domestic.nasdaq.change|default:"-" }}
                 </div>
             </div>
 
-            <div class="market-card">
-                <div class="market-name">S&amp;P 500</div>
-                <div class="market-value">
+            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
+                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">S&amp;P 500</div>
+                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
                     {{ market_data.domestic.sp500.value|default:"-" }}
                 </div>
-                <div class="market-change {{ market_data.domestic.sp500.direction|default:'flat' }}">
+                <div style="font-size:14px; font-weight:900; color:{% if market_data.domestic.sp500.direction == 'up' %}#dc2626{% elif market_data.domestic.sp500.direction == 'down' %}#2563eb{% else %}#64748b{% endif %};">
                     {{ market_data.domestic.sp500.change|default:"-" }}
                 </div>
             </div>
 
-            <div class="market-card">
-                <div class="market-name">DOW</div>
-                <div class="market-value">
+            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
+                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">DOW</div>
+                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
                     {{ market_data.domestic.dow.value|default:"-" }}
                 </div>
-                <div class="market-change {{ market_data.domestic.dow.direction|default:'flat' }}">
+                <div style="font-size:14px; font-weight:900; color:{% if market_data.domestic.dow.direction == 'up' %}#dc2626{% elif market_data.domestic.dow.direction == 'down' %}#2563eb{% else %}#64748b{% endif %};">
                     {{ market_data.domestic.dow.change|default:"-" }}
                 </div>
             </div>
 
-            <!-- 코인 -->
-            <div class="market-card">
-                <div class="market-name">BTC</div>
-                <div class="market-value">
+            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
+                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">BTC</div>
+                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
                     {{ market_data.coins.btc.value|default:"-" }}
                 </div>
-                <div class="market-change {{ market_data.coins.btc.direction|default:'flat' }}">
+                <div style="font-size:14px; font-weight:900; color:{% if market_data.coins.btc.direction == 'up' %}#dc2626{% elif market_data.coins.btc.direction == 'down' %}#2563eb{% else %}#64748b{% endif %};">
                     {{ market_data.coins.btc.change|default:"-" }}
                 </div>
             </div>
 
-            <div class="market-card">
-                <div class="market-name">ETH</div>
-                <div class="market-value">
+            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
+                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">ETH</div>
+                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
                     {{ market_data.coins.eth.value|default:"-" }}
                 </div>
-                <div class="market-change {{ market_data.coins.eth.direction|default:'flat' }}">
+                <div style="font-size:14px; font-weight:900; color:{% if market_data.coins.eth.direction == 'up' %}#dc2626{% elif market_data.coins.eth.direction == 'down' %}#2563eb{% else %}#64748b{% endif %};">
                     {{ market_data.coins.eth.change|default:"-" }}
                 </div>
             </div>
 
-            <!-- 환율 -->
-            <div class="market-card">
-                <div class="market-name">USD/KRW</div>
-                <div class="market-value">
+            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
+                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">USD/KRW</div>
+                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
                     {{ market_data.exchange.usd.value|default:"-" }}
                 </div>
-                <div class="market-change flat">
+                <div style="font-size:14px; font-weight:900; color:#64748b;">
                     {{ market_data.exchange.usd.change|default:"기준환율" }}
                 </div>
             </div>
 
         </div>
 
-        <div class="market-updated">
+        <div style="margin-top:10px; text-align:right; color:#94a3b8; font-size:13px; font-weight:500;">
             10분봉 기준 · 업데이트 {{ market_data.updated_at|default:"-" }}
         </div>
 
