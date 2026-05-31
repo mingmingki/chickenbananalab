@@ -2,7 +2,6 @@ import json
 import os
 import uuid
 from datetime import date
-from .naver_news import recommend_keywords_from_news
 
 from django.conf import settings
 from django.contrib import messages
@@ -19,6 +18,7 @@ from django.views.decorators.http import require_POST
 
 from .models import Post, UserProfile
 from .forms import PostForm, NicknameForm
+from .naver_news import recommend_keywords_from_news
 from .ai_writer import (
     generate_ai_post,
     generate_post_topics,
@@ -76,6 +76,7 @@ CATEGORY_PAGES = {
 def admin_required(user):
     return user.is_authenticated and (user.is_staff or user.is_superuser)
 
+
 def can_write_post(user):
     if not user.is_authenticated:
         return False
@@ -90,10 +91,6 @@ def can_write_post(user):
 
 
 def editor_context(extra_context=None):
-    """
-    글쓰기/수정 템플릿에 공통으로 넘길 값.
-    카카오 JavaScript 키를 여기서 항상 넘긴다.
-    """
     context = {
         "kakao_javascript_key": settings.KAKAO_JAVASCRIPT_KEY,
     }
@@ -588,6 +585,7 @@ def signup(request):
         "form": form,
     })
 
+
 @login_required
 def profile_setup(request):
     profile, created = UserProfile.objects.get_or_create(user=request.user)
@@ -656,6 +654,24 @@ def member_role_update(request, user_id):
     profile.save(update_fields=["is_sub_admin", "updated_at"])
 
     messages.success(request, "회원 권한이 변경되었습니다.")
+    return redirect("member_manage")
+
+
+@user_passes_test(admin_required)
+@require_POST
+def member_delete(request, user_id):
+    target_user = get_object_or_404(User, pk=user_id)
+
+    if target_user.is_superuser:
+        messages.error(request, "최고 관리자는 삭제할 수 없습니다.")
+        return redirect("member_manage")
+
+    if target_user == request.user:
+        messages.error(request, "현재 로그인한 본인 계정은 삭제할 수 없습니다.")
+        return redirect("member_manage")
+
+    target_user.delete()
+    messages.success(request, "회원이 삭제되었습니다.")
     return redirect("member_manage")
 
 
