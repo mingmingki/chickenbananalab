@@ -29,15 +29,30 @@
         </p>
 
         {% if post.location %}
-            <p class="post-location">
-                📍 {{ post.location }}
+            <div class="post-location-map-box">
+                <div class="post-location-title">
+                    <span>📍</span>
+                    <strong>{{ post.location }}</strong>
+                </div>
+
+                <iframe
+                    class="post-location-map-frame"
+                    src="https://www.google.com/maps?q={{ post.location|urlencode }}&output=embed"
+                    width="100%"
+                    height="280"
+                    style="border:0;"
+                    allowfullscreen=""
+                    loading="lazy"
+                    referrerpolicy="no-referrer-when-downgrade">
+                </iframe>
+
                 <a href="https://www.google.com/maps/search/?api=1&query={{ post.location|urlencode }}"
                    class="post-location-map-btn"
                    target="_blank"
                    rel="noopener noreferrer">
-                    지도 보기
+                    구글지도에서 크게 보기
                 </a>
-            </p>
+            </div>
         {% endif %}
 
         {% if user.is_staff or user.is_superuser %}
