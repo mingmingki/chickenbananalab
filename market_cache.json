@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-05-31 13:52:08",
+  "updated_at": "2026-05-31 18:15:53",
   "domestic": {
     "kospi": {
       "name": "KOSPI",
@@ -35,14 +35,14 @@
   "coins": {
     "btc": {
       "name": "BTC",
-      "value": "111,680,984원",
-      "change": "+1.10%",
+      "value": "111,230,021원",
+      "change": "+0.42%",
       "direction": "up"
     },
     "eth": {
       "name": "ETH",
-      "value": "3,060,774원",
-      "change": "+1.14%",
+      "value": "3,048,541원",
+      "change": "+0.42%",
       "direction": "up"
     }
   },

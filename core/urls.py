@@ -34,7 +34,10 @@ urlpatterns = [
     path("profile/update/", views.profile_update, name="profile_update"),
 
     path("dashboard/members/", views.member_manage, name="member_manage"),
-path("dashboard/members/<int:user_id>/role/", views.member_role_update, name="member_role_update"),
-path("dashboard/members/<int:user_id>/delete/", views.member_delete, name="member_delete"),
+    path("dashboard/members/<int:user_id>/role/", views.member_role_update, name="member_role_update"),
+    path("dashboard/members/<int:user_id>/delete/", views.member_delete, name="member_delete"),
     path("upload/editor-image/", views.editor_image_upload, name="editor_image_upload"),
+    path("terms/", views.terms, name="terms"),
+    path("privacy/", views.privacy, name="privacy"),
+
 ]

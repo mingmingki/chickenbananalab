@@ -731,3 +731,10 @@ def editor_image_upload(request):
         "success": True,
         "url": image_url,
     })
+
+def terms(request):
+    return render(request, "core/terms.html")
+
+
+def privacy(request):
+    return render(request, "core/privacy.html")

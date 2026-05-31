@@ -1,0 +1,430 @@
+{% extends "core/base.html" %}
+
+{% block title %}이용약관 | ChickenBanana Lab{% endblock %}
+
+{% block content %}
+
+<style>
+    .legal-wrap {
+        max-width: 1080px;
+        margin: 50px auto 80px;
+        padding: 0 28px;
+        color: #222;
+        line-height: 1.9;
+        font-family: inherit;
+    }
+
+    .legal-title {
+        font-size: 32px;
+        font-weight: 900;
+        letter-spacing: -1px;
+        color: #111827;
+        margin: 0 0 18px;
+        padding-bottom: 18px;
+        border-bottom: 2px solid #d1d5db;
+    }
+
+    .legal-intro {
+        margin: 28px 0 36px;
+        font-size: 15.5px;
+        color: #374151;
+        word-break: keep-all;
+    }
+
+    .legal-section {
+        margin-top: 34px;
+    }
+
+    .legal-section h2 {
+        font-size: 19px;
+        font-weight: 900;
+        color: #111827;
+        margin: 0 0 14px;
+        letter-spacing: -0.4px;
+    }
+
+    .legal-section p {
+        margin: 0 0 14px;
+        font-size: 15.5px;
+        color: #374151;
+        word-break: keep-all;
+    }
+
+    .legal-list {
+        margin: 10px 0 0;
+        padding-left: 0;
+        list-style: none;
+    }
+
+    .legal-list li {
+        margin: 8px 0;
+        padding-left: 18px;
+        position: relative;
+        font-size: 15.5px;
+        color: #374151;
+        word-break: keep-all;
+    }
+
+    .legal-list li::before {
+        content: "①";
+        position: absolute;
+        left: 0;
+        top: 0;
+        color: #111827;
+        font-weight: 700;
+    }
+
+    .legal-list li:nth-child(2)::before {
+        content: "②";
+    }
+
+    .legal-list li:nth-child(3)::before {
+        content: "③";
+    }
+
+    .legal-list li:nth-child(4)::before {
+        content: "④";
+    }
+
+    .legal-list li:nth-child(5)::before {
+        content: "⑤";
+    }
+
+    .legal-list li:nth-child(6)::before {
+        content: "⑥";
+    }
+
+    .legal-sub-list {
+        margin: 6px 0 16px 18px;
+        padding-left: 16px;
+    }
+
+    .legal-sub-list li {
+        margin: 5px 0;
+        font-size: 15px;
+        color: #4b5563;
+        word-break: keep-all;
+    }
+
+    .legal-info-box {
+        margin-top: 16px;
+        padding: 16px 18px;
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 4px;
+        font-size: 15px;
+        color: #374151;
+    }
+
+    .legal-date {
+        margin-top: 44px;
+        padding-top: 20px;
+        border-top: 1px solid #e5e7eb;
+        font-size: 15px;
+        color: #4b5563;
+    }
+
+    .legal-date strong {
+        color: #111827;
+    }
+
+    @media (max-width: 768px) {
+        .legal-wrap {
+            margin: 34px auto 60px;
+            padding: 0 20px;
+        }
+
+        .legal-title {
+            font-size: 27px;
+        }
+
+        .legal-section h2 {
+            font-size: 18px;
+        }
+
+        .legal-intro,
+        .legal-section p,
+        .legal-list li {
+            font-size: 15px;
+        }
+    }
+</style>
+
+<div class="legal-wrap">
+
+    <h1 class="legal-title">이용약관</h1>
+
+    <p class="legal-intro">
+        본 이용약관은 ChickenBanana Lab이 제공하는 웹사이트 및 관련 서비스의 이용과 관련하여
+        사이트와 이용자 간의 권리, 의무 및 책임사항, 서비스 이용 조건과 절차 등을 규정함을 목적으로 합니다.
+        이용자는 본 사이트를 이용함으로써 본 약관에 동의한 것으로 간주됩니다.
+    </p>
+
+    <div class="legal-section">
+        <h2>제 1 조(목적)</h2>
+        <p>
+            본 약관은 ChickenBanana Lab이 제공하는 건축, 부동산, 금융, 테크, 일상 관련 정보 제공 서비스 및
+            기타 부가 서비스의 이용 조건과 운영에 관한 기본적인 사항을 정하는 것을 목적으로 합니다.
+        </p>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 2 조(용어의 정의)</h2>
+        <p>
+            본 약관에서 사용하는 용어의 정의는 다음과 같습니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>
+                “사이트”란 ChickenBanana Lab이 콘텐츠 및 서비스를 제공하기 위해 운영하는 웹사이트를 말합니다.
+            </li>
+            <li>
+                “이용자”란 사이트에 접속하여 본 약관에 따라 서비스를 이용하는 회원 및 비회원을 말합니다.
+            </li>
+            <li>
+                “회원”이란 사이트에 계정을 등록하고 로그인 기능을 이용할 수 있는 이용자를 말합니다.
+            </li>
+            <li>
+                “콘텐츠”란 사이트에 게시된 글, 이미지, 자료, 파일, 링크, 댓글 등 모든 정보를 말합니다.
+            </li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 3 조(약관의 효력 및 변경)</h2>
+        <p>
+            본 약관은 사이트에 게시함으로써 효력이 발생합니다. ChickenBanana Lab은 필요한 경우 관련 법령을 위반하지 않는 범위에서
+            본 약관을 변경할 수 있습니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>
+                약관이 변경되는 경우 사이트 내 공지 또는 해당 페이지를 통해 변경 내용을 안내합니다.
+            </li>
+            <li>
+                변경된 약관의 시행일 이후에도 이용자가 서비스를 계속 이용하는 경우 변경된 약관에 동의한 것으로 봅니다.
+            </li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 4 조(서비스의 제공)</h2>
+        <p>
+            ChickenBanana Lab은 이용자에게 다음과 같은 서비스를 제공합니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>
+                건축, 부동산, 금융, 테크, 일상 관련 정보 콘텐츠 제공
+            </li>
+            <li>
+                게시글 열람, 검색, 카테고리별 콘텐츠 확인 기능
+            </li>
+            <li>
+                회원가입, 로그인, 게시글 작성 및 관리 기능
+            </li>
+            <li>
+                사이트 운영자가 추가로 제공하는 기타 서비스
+            </li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 5 조(서비스의 변경 및 중단)</h2>
+        <p>
+            ChickenBanana Lab은 사이트 운영상 필요하거나 기술적인 문제가 발생한 경우 서비스의 전부 또는 일부를 변경하거나
+            일시적으로 중단할 수 있습니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>
+                서버 점검, 장애 복구, 보안 점검 등 운영상 필요한 경우
+            </li>
+            <li>
+                천재지변, 통신 장애, 시스템 오류 등 불가피한 사유가 발생한 경우
+            </li>
+            <li>
+                서비스 개선 또는 운영 정책 변경이 필요한 경우
+            </li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 6 조(회원가입 및 계정 관리)</h2>
+        <p>
+            회원가입은 이용자가 사이트에서 정한 절차에 따라 계정을 생성함으로써 완료됩니다.
+            회원은 본인의 계정 정보를 안전하게 관리해야 하며, 계정 관리 소홀로 발생하는 문제에 대한 책임은 회원 본인에게 있습니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>
+                회원은 정확한 정보를 바탕으로 계정을 생성해야 합니다.
+            </li>
+            <li>
+                타인의 정보를 도용하거나 허위 정보를 입력해서는 안 됩니다.
+            </li>
+            <li>
+                계정이 부정하게 사용된 사실을 알게 된 경우 즉시 사이트 운영자에게 알려야 합니다.
+            </li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 7 조(이용자의 의무)</h2>
+        <p>
+            이용자는 서비스를 이용함에 있어 다음 행위를 해서는 안 됩니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>
+                타인의 개인정보, 계정 또는 권리를 침해하는 행위
+            </li>
+            <li>
+                허위 정보, 불법 정보, 명예훼손성 게시물, 음란물, 광고성 게시물을 게시하는 행위
+            </li>
+            <li>
+                사이트의 정상적인 운영을 방해하거나 서버에 무리를 주는 행위
+            </li>
+            <li>
+                저작권, 상표권 등 제3자의 지식재산권을 침해하는 행위
+            </li>
+            <li>
+                관련 법령 또는 공서양속에 반하는 행위
+            </li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 8 조(게시물의 관리)</h2>
+        <p>
+            ChickenBanana Lab은 이용자가 작성한 게시물이 관련 법령 또는 본 약관에 위반된다고 판단되는 경우
+            사전 통지 없이 해당 게시물을 삭제하거나 노출을 제한할 수 있습니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>
+                불법, 음란, 폭력, 혐오, 명예훼손성 내용이 포함된 경우
+            </li>
+            <li>
+                타인의 권리 또는 개인정보를 침해하는 경우
+            </li>
+            <li>
+                광고, 홍보, 스팸성 내용으로 판단되는 경우
+            </li>
+            <li>
+                사이트 운영 목적과 관련이 없거나 서비스 질서를 해치는 경우
+            </li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 9 조(콘텐츠의 저작권)</h2>
+        <p>
+            사이트에 게시된 콘텐츠의 저작권은 원칙적으로 해당 콘텐츠의 작성자 또는 정당한 권리자에게 있습니다.
+            ChickenBanana Lab이 직접 작성한 콘텐츠의 저작권은 ChickenBanana Lab에 귀속됩니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>
+                이용자는 사이트의 콘텐츠를 무단으로 복제, 배포, 수정, 판매하거나 상업적으로 이용해서는 안 됩니다.
+            </li>
+            <li>
+                콘텐츠를 인용하거나 공유하는 경우 출처를 명확히 표시해야 합니다.
+            </li>
+            <li>
+                이용자가 작성한 게시물로 인해 발생하는 법적 책임은 해당 작성자에게 있습니다.
+            </li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 10 조(정보 제공의 한계)</h2>
+        <p>
+            ChickenBanana Lab에 게시된 건축, 부동산, 금융, 테크, 일상 관련 콘텐츠는 일반적인 정보 제공을 목적으로 합니다.
+            사이트의 정보는 전문적인 법률, 세무, 투자, 부동산 계약, 의료, 기술 자문을 대체하지 않습니다.
+        </p>
+
+        <div class="legal-info-box">
+            투자, 부동산 거래, 세무 신고, 법률 판단 등 중요한 의사결정은 반드시 관련 전문가의 검토를 거쳐야 하며,
+            최종 판단과 책임은 이용자 본인에게 있습니다.
+        </div>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 11 조(광고 및 외부 링크)</h2>
+        <p>
+            ChickenBanana Lab은 광고 또는 외부 웹사이트 링크를 포함할 수 있습니다. 외부 사이트의 콘텐츠, 서비스, 개인정보 처리방침,
+            거래 등에 대해서는 해당 외부 사이트의 정책이 적용됩니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>
+                외부 링크를 통해 이동한 사이트에서 발생하는 문제에 대해서 ChickenBanana Lab은 책임을 지지 않습니다.
+            </li>
+            <li>
+                광고 상품 또는 서비스의 구매, 이용, 환불 등은 해당 광고주 또는 서비스 제공자의 정책에 따릅니다.
+            </li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 12 조(개인정보 보호)</h2>
+        <p>
+            ChickenBanana Lab은 이용자의 개인정보 보호를 중요하게 생각하며, 개인정보의 처리와 보호에 관한 사항은
+            별도의 개인정보처리방침에 따릅니다.
+        </p>
+
+        <div class="legal-info-box">
+            개인정보 처리에 관한 자세한 내용은 사이트 하단의 개인정보처리방침 페이지에서 확인할 수 있습니다.
+        </div>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 13 조(면책조항)</h2>
+        <p>
+            ChickenBanana Lab은 다음 각 호의 사유로 인해 발생한 손해에 대하여 책임을 지지 않습니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>
+                천재지변, 서버 장애, 통신 장애 등 불가항력적인 사유로 서비스를 제공할 수 없는 경우
+            </li>
+            <li>
+                이용자의 귀책 사유로 서비스 이용에 장애가 발생한 경우
+            </li>
+            <li>
+                이용자가 사이트에 게시된 정보를 바탕으로 직접 판단하거나 행동하여 손해가 발생한 경우
+            </li>
+            <li>
+                외부 링크, 광고, 제3자 서비스 이용 과정에서 문제가 발생한 경우
+            </li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 14 조(분쟁 해결 및 관할)</h2>
+        <p>
+            본 약관과 관련하여 분쟁이 발생한 경우 ChickenBanana Lab과 이용자는 원만한 해결을 위해 성실히 협의합니다.
+            협의로 해결되지 않는 분쟁은 관련 법령 및 관할 법원의 판단에 따릅니다.
+        </p>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 15 조(문의)</h2>
+        <p>
+            서비스 이용 및 약관과 관련한 문의사항은 아래 연락처로 문의할 수 있습니다.
+        </p>
+
+        <div class="legal-info-box">
+            <strong>ChickenBanana Lab 운영자</strong><br>
+            이메일: <a href="mailto:pminki3@gmail.com" style="color:#2563eb; text-decoration:none; font-weight:700;">pminki3@gmail.com</a>
+        </div>
+    </div>
+
+    <div class="legal-date">
+        <p><strong>시행일자:</strong> 2026년 05월 31일</p>
+    </div>
+
+</div>
+
+{% endblock %}

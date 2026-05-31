@@ -226,10 +226,58 @@
     {% endblock %}
 </main>
 
-<footer class="footer">
-    <div class="container footer-inner">
-        <p>© 2026 ChickenBanana Lab. All rights reserved.</p>
-        <p>건축 · 부동산 · 금융 · 테크 · 일상 통합 검색 플랫폼</p>
+<footer style="
+    margin-top:70px;
+    padding:28px 30px 26px;
+    border-top:1px solid #e5e7eb;
+    background:#ffffff;
+    color:#64748b;
+    font-size:14px;
+">
+    <div style="
+        max-width:1180px;
+        margin:0 auto;
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        gap:20px;
+        flex-wrap:wrap;
+    ">
+        <div>
+            © 2026 ChickenBanana Lab. All rights reserved.
+        </div>
+
+        <div>
+            건축 · 부동산 · 금융 · 테크 · 일상 통합 검색 플랫폼
+        </div>
+    </div>
+
+    <div style="
+        max-width:1180px;
+        margin:16px auto 0;
+        display:flex;
+        justify-content:flex-start;
+        align-items:center;
+        gap:18px;
+        flex-wrap:wrap;
+    ">
+        <a href="{% url 'terms' %}" style="
+            color:#64748b;
+            text-decoration:none;
+            font-size:13px;
+            font-weight:600;
+        ">
+            이용약관
+        </a>
+
+        <a href="{% url 'privacy' %}" style="
+            color:#64748b;
+            text-decoration:none;
+            font-size:13px;
+            font-weight:600;
+        ">
+            개인정보처리방침
+        </a>
     </div>
 </footer>
 

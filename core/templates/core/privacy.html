@@ -1,0 +1,351 @@
+{% extends "core/base.html" %}
+
+{% block title %}개인정보처리방침 | ChickenBanana Lab{% endblock %}
+
+{% block content %}
+
+<style>
+    .legal-wrap {
+        max-width: 1080px;
+        margin: 50px auto 80px;
+        padding: 0 28px;
+        color: #222;
+        line-height: 1.9;
+        font-family: inherit;
+    }
+
+    .legal-title {
+        font-size: 32px;
+        font-weight: 900;
+        letter-spacing: -1px;
+        color: #111827;
+        margin: 0 0 18px;
+        padding-bottom: 18px;
+        border-bottom: 2px solid #d1d5db;
+    }
+
+    .legal-intro {
+        margin: 28px 0 36px;
+        font-size: 15.5px;
+        color: #374151;
+        word-break: keep-all;
+    }
+
+    .legal-section {
+        margin-top: 34px;
+    }
+
+    .legal-section h2 {
+        font-size: 19px;
+        font-weight: 900;
+        color: #111827;
+        margin: 0 0 14px;
+        letter-spacing: -0.4px;
+    }
+
+    .legal-section p {
+        margin: 0 0 14px;
+        font-size: 15.5px;
+        color: #374151;
+        word-break: keep-all;
+    }
+
+    .legal-list {
+        margin: 10px 0 0;
+        padding-left: 0;
+        list-style: none;
+    }
+
+    .legal-list li {
+        margin: 8px 0;
+        padding-left: 18px;
+        position: relative;
+        font-size: 15.5px;
+        color: #374151;
+        word-break: keep-all;
+    }
+
+    .legal-list li::before {
+        content: "①";
+        position: absolute;
+        left: 0;
+        top: 0;
+        color: #111827;
+        font-weight: 700;
+    }
+
+    .legal-list li:nth-child(2)::before {
+        content: "②";
+    }
+
+    .legal-list li:nth-child(3)::before {
+        content: "③";
+    }
+
+    .legal-list li:nth-child(4)::before {
+        content: "④";
+    }
+
+    .legal-list li:nth-child(5)::before {
+        content: "⑤";
+    }
+
+    .legal-sub-list {
+        margin: 6px 0 16px 18px;
+        padding-left: 16px;
+    }
+
+    .legal-sub-list li {
+        margin: 5px 0;
+        font-size: 15px;
+        color: #4b5563;
+        word-break: keep-all;
+    }
+
+    .legal-info-box {
+        margin-top: 16px;
+        padding: 16px 18px;
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 4px;
+        font-size: 15px;
+        color: #374151;
+    }
+
+    .legal-date {
+        margin-top: 44px;
+        padding-top: 20px;
+        border-top: 1px solid #e5e7eb;
+        font-size: 15px;
+        color: #4b5563;
+    }
+
+    .legal-date strong {
+        color: #111827;
+    }
+
+    @media (max-width: 768px) {
+        .legal-wrap {
+            margin: 34px auto 60px;
+            padding: 0 20px;
+        }
+
+        .legal-title {
+            font-size: 27px;
+        }
+
+        .legal-section h2 {
+            font-size: 18px;
+        }
+
+        .legal-intro,
+        .legal-section p,
+        .legal-list li {
+            font-size: 15px;
+        }
+    }
+</style>
+
+<div class="legal-wrap">
+
+    <h1 class="legal-title">개인정보처리방침</h1>
+
+    <p class="legal-intro">
+        ChickenBanana Lab은 이용자의 개인정보를 중요하게 생각하며, 「개인정보 보호법」 등 관련 법령을 준수하고 있습니다.
+        본 개인정보처리방침은 ChickenBanana Lab이 제공하는 웹사이트 및 관련 서비스 이용 과정에서 수집되는 개인정보의 처리 목적,
+        보유 기간, 제3자 제공 여부, 이용자의 권리 및 개인정보 보호 조치에 관한 사항을 안내하기 위한 것입니다.
+    </p>
+
+    <div class="legal-section">
+        <h2>제 1 조(개인정보의 처리 목적)</h2>
+        <p>
+            ChickenBanana Lab은 다음의 목적을 위하여 개인정보를 처리합니다. 처리하고 있는 개인정보는 다음의 목적 이외의 용도로는
+            이용되지 않으며, 이용 목적이 변경되는 경우에는 관련 법령에 따라 별도의 동의를 받는 등 필요한 조치를 이행할 예정입니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>
+                홈페이지 회원 가입 및 관리
+                <ul class="legal-sub-list">
+                    <li>회원 가입 의사 확인, 회원제 서비스 제공에 따른 본인 식별 및 인증</li>
+                    <li>회원자격 유지 및 관리, 서비스 부정 이용 방지</li>
+                    <li>각종 고지, 통지, 문의 응대 등을 목적으로 개인정보를 처리합니다.</li>
+                </ul>
+            </li>
+
+            <li>
+                콘텐츠 및 서비스 제공
+                <ul class="legal-sub-list">
+                    <li>게시글 작성, 콘텐츠 제공, 검색 서비스 제공</li>
+                    <li>맞춤형 정보 제공, 서비스 개선 및 운영 관리</li>
+                    <li>서비스 이용 기록 분석을 통한 사이트 품질 개선</li>
+                </ul>
+            </li>
+
+            <li>
+                고충 처리 및 문의 응대
+                <ul class="legal-sub-list">
+                    <li>이용자의 문의사항 확인, 사실조사를 위한 연락 및 통지</li>
+                    <li>처리 결과 안내 및 분쟁 대응</li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 2 조(개인정보의 처리 및 보유기간)</h2>
+        <p>
+            ChickenBanana Lab은 법령에 따른 개인정보 보유·이용기간 또는 정보주체로부터 개인정보를 수집 시 동의받은 개인정보
+            보유·이용기간 내에서 개인정보를 처리하고 보유합니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>
+                회원 정보는 회원 탈퇴 시까지 보유하며, 탈퇴 요청이 있는 경우 지체 없이 파기합니다.
+            </li>
+            <li>
+                게시글, 댓글, 문의 내용 등 이용자가 작성한 콘텐츠는 서비스 운영 및 기록 보존을 위해 필요한 기간 동안 보관될 수 있습니다.
+            </li>
+            <li>
+                관계 법령에 따라 보관이 필요한 경우에는 해당 법령에서 정한 기간 동안 보관할 수 있습니다.
+            </li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 3 조(처리하는 개인정보 항목)</h2>
+        <p>
+            ChickenBanana Lab은 서비스 제공을 위해 다음과 같은 개인정보 항목을 처리할 수 있습니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>
+                회원가입 및 로그인 관련 정보
+                <ul class="legal-sub-list">
+                    <li>이름, 이메일 주소, 아이디, 비밀번호 등 계정 정보</li>
+                </ul>
+            </li>
+
+            <li>
+                서비스 이용 과정에서 자동으로 생성되는 정보
+                <ul class="legal-sub-list">
+                    <li>접속 IP, 쿠키, 방문 일시, 서비스 이용 기록, 브라우저 정보</li>
+                </ul>
+            </li>
+
+            <li>
+                이용자가 직접 작성하거나 등록하는 정보
+                <ul class="legal-sub-list">
+                    <li>게시글, 댓글, 문의 내용, 첨부 이미지 또는 파일 등</li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 4 조(개인정보의 제3자 제공)</h2>
+        <p>
+            ChickenBanana Lab은 이용자의 개인정보를 원칙적으로 외부에 제공하지 않습니다. 다만, 다음의 경우에는 예외적으로
+            개인정보를 제공할 수 있습니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>이용자가 사전에 동의한 경우</li>
+            <li>법령의 규정에 의거하거나, 수사기관 등 관계기관의 적법한 요청이 있는 경우</li>
+            <li>서비스 제공을 위해 필요한 범위 내에서 관련 법령에 따라 제공이 허용되는 경우</li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 5 조(쿠키의 사용)</h2>
+        <p>
+            ChickenBanana Lab은 이용자에게 보다 나은 서비스를 제공하기 위해 쿠키를 사용할 수 있습니다. 쿠키는 웹사이트가
+            이용자의 브라우저에 저장하는 작은 정보 파일입니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>로그인 상태 유지 및 이용자 환경 설정 저장</li>
+            <li>방문 통계 분석 및 서비스 이용 형태 파악</li>
+            <li>광고 서비스 제공 및 콘텐츠 품질 개선</li>
+        </ul>
+
+        <div class="legal-info-box">
+            이용자는 브라우저 설정을 통해 쿠키 저장을 거부하거나 삭제할 수 있습니다. 다만, 쿠키 저장을 거부할 경우
+            일부 서비스 이용에 제한이 발생할 수 있습니다.
+        </div>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 6 조(광고 및 제3자 서비스)</h2>
+        <p>
+            ChickenBanana Lab은 Google AdSense 등 제3자 광고 서비스를 사용할 수 있습니다. 광고 제공업체는 이용자의 관심사에
+            맞는 광고를 제공하기 위해 쿠키 또는 유사한 기술을 사용할 수 있습니다.
+        </p>
+
+        <p>
+            이용자는 브라우저 설정 또는 광고 설정 페이지를 통해 맞춤형 광고 수신 여부를 조정할 수 있습니다.
+        </p>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 7 조(개인정보의 파기 절차 및 방법)</h2>
+        <p>
+            ChickenBanana Lab은 개인정보 보유기간의 경과, 처리 목적 달성 등 개인정보가 불필요하게 되었을 때에는 지체 없이
+            해당 개인정보를 파기합니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>전자적 파일 형태의 정보는 복구 및 재생이 불가능한 방법으로 삭제합니다.</li>
+            <li>종이 문서에 기록된 개인정보는 분쇄하거나 소각하는 방법으로 파기합니다.</li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 8 조(정보주체의 권리와 행사 방법)</h2>
+        <p>
+            이용자는 언제든지 자신의 개인정보에 대해 열람, 정정, 삭제, 처리정지 요구 등의 권리를 행사할 수 있습니다.
+            관련 요청은 사이트 운영자에게 이메일 등을 통해 문의할 수 있습니다.
+        </p>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 9 조(개인정보 보호를 위한 조치)</h2>
+        <p>
+            ChickenBanana Lab은 개인정보의 안전성 확보를 위해 다음과 같은 조치를 취하고 있습니다.
+        </p>
+
+        <ul class="legal-list">
+            <li>개인정보 접근 권한의 제한 및 관리</li>
+            <li>비밀번호 등 주요 정보의 보호 조치</li>
+            <li>보안 프로그램 및 서버 접근 관리</li>
+            <li>개인정보 취급자에 대한 관리 및 교육</li>
+        </ul>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 10 조(개인정보 보호책임자 및 문의)</h2>
+        <p>
+            개인정보 처리와 관련한 문의, 불만 처리, 피해 구제 요청은 아래 연락처로 문의할 수 있습니다.
+        </p>
+
+        <div class="legal-info-box">
+            <strong>ChickenBanana Lab 운영자</strong><br>
+            이메일: <a href="mailto:pminki3@gmail.com" style="color:#2563eb; text-decoration:none; font-weight:700;">pminki3@gmail.com</a>
+        </div>
+    </div>
+
+    <div class="legal-section">
+        <h2>제 11 조(개인정보처리방침의 변경)</h2>
+        <p>
+            본 개인정보처리방침은 관련 법령, 사이트 운영 정책 또는 서비스 변경에 따라 수정될 수 있습니다.
+            변경 사항이 있는 경우 사이트 내 공지사항 또는 본 페이지를 통해 안내합니다.
+        </p>
+    </div>
+
+    <div class="legal-date">
+        <p><strong>시행일자:</strong> 2026년 05월 31일</p>
+    </div>
+
+</div>
+
+{% endblock %}
