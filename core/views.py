@@ -2,6 +2,7 @@ import json
 import os
 import uuid
 from datetime import date
+from .naver_news import recommend_keywords_from_news
 
 from django.conf import settings
 from django.contrib import messages
@@ -533,15 +534,10 @@ def ai_keyword_recommend(request):
             "message": "POST 요청만 가능합니다.",
         }, status=405)
 
-    category = request.POST.get("category", "all")
-    today = date.today().strftime("%Y-%m-%d")
+    category = request.POST.get("category", "tech")
 
     try:
-        keywords = recommend_today_keywords(
-            category=category,
-            today=today,
-            count=7,
-        )
+        keywords = recommend_keywords_from_news(category)
 
         return JsonResponse({
             "ok": True,
