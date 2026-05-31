@@ -1,5 +1,6 @@
 from django import forms
 from .models import Post, UserProfile
+from .models import Post, ExperienceVault
 
 
 class PostForm(forms.ModelForm):
@@ -95,3 +96,31 @@ class NicknameForm(forms.ModelForm):
             raise forms.ValidationError("닉네임은 2글자 이상 입력해주세요.")
 
         return nickname
+    
+class ExperienceVaultForm(forms.ModelForm):
+    class Meta:
+        model = ExperienceVault
+        fields = ["content", "is_active"]
+        widgets = {
+            "content": forms.Textarea(attrs={
+                "rows": 22,
+                "placeholder": (
+                    "여기에 경험을 막 적어두면 됩니다.\n\n"
+                    "예)\n"
+                    "아이폰은 12프로, 14프로, 15프로맥스 써봤다. "
+                    "15프로맥스는 카메라는 좋은데 무겁고 한 손 사용은 불편했다.\n\n"
+                    "다이나믹메이즈 인사동은 오라카이 인사동 주차장이 편했다. "
+                    "주말 대기 40분이라고 들었는데 실제로는 1시간 정도 걸렸다.\n\n"
+                    "건설현장에서 마감공사는 도면상 문제 없어 보여도 "
+                    "실제 시공하면 문틀, 몰딩, 타일, 가구 간섭이 자주 생긴다."
+                ),
+                "style": (
+                    "width:100%; min-height:520px; padding:18px; "
+                    "border:1px solid #d1d5db; border-radius:18px; "
+                    "font-size:15px; line-height:1.8; resize:vertical;"
+                )
+            }),
+            "is_active": forms.CheckboxInput(attrs={
+                "style": "width:18px; height:18px;"
+            }),
+        }    

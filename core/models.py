@@ -158,6 +158,18 @@ class Post(models.Model):
         if not self.tags:
             return []
         return [tag.strip() for tag in self.tags.split(",") if tag.strip()]
+    
+class ExperienceVault(models.Model):
+    content = models.TextField("경험창고 내용", blank=True)
+    is_active = models.BooleanField("AI 글 생성에 사용", default=True)
+    updated_at = models.DateTimeField("수정일", auto_now=True)
+
+    class Meta:
+        verbose_name = "경험창고"
+        verbose_name_plural = "경험창고"
+
+    def __str__(self):
+        return "경험창고"
 
 
 class UserProfile(models.Model):

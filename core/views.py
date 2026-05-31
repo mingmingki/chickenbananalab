@@ -1,6 +1,7 @@
 import json
 import os
 import uuid
+import traceback
 
 from django.conf import settings
 from django.contrib import messages
@@ -16,8 +17,8 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_POST
 
 from .market_data import get_market_data
-from .models import Post, UserProfile
-from .forms import PostForm, NicknameForm
+from .models import Post, UserProfile, ExperienceVault
+from .forms import PostForm, NicknameForm, ExperienceVaultForm
 from .naver_news import recommend_keywords_from_news
 from .ai_writer import (
     generate_ai_post,
@@ -219,6 +220,7 @@ def post_detail(request, pk):
         "post": post,
     })
 
+
 def post_detail_by_slug(request, slug):
     post = get_object_or_404(Post, slug=slug)
 
@@ -346,6 +348,29 @@ def admin_dashboard(request):
 
 
 @user_passes_test(admin_required)
+def experience_vault(request):
+    vault, created = ExperienceVault.objects.get_or_create(pk=1)
+
+    if request.method == "POST":
+        form = ExperienceVaultForm(request.POST, instance=vault)
+
+        if form.is_valid():
+            form.save()
+            messages.success(request, "경험창고가 저장되었습니다.")
+            return redirect("experience_vault")
+
+        messages.error(request, "경험창고 저장 중 오류가 발생했습니다. 입력 내용을 확인해주세요.")
+
+    else:
+        form = ExperienceVaultForm(instance=vault)
+
+    return render(request, "core/experience_vault.html", {
+        "form": form,
+        "vault": vault,
+    })
+
+
+@user_passes_test(admin_required)
 def site_stats(request):
     total_posts = Post.objects.count()
     published_posts = Post.objects.filter(is_published=True).count()
@@ -393,7 +418,7 @@ def site_stats(request):
 @user_passes_test(admin_required)
 def ai_post_generate(request):
     if request.method != "POST":
-        return redirect("home")
+        return redirect("admin_dashboard")
 
     category = request.POST.get("category", "tech")
     keywords = request.POST.get("keywords", "").strip()
@@ -418,6 +443,42 @@ def ai_post_generate(request):
     writing_style = request.POST.get("writing_style", "practical")
     extra_prompt = request.POST.get("extra_prompt", "").strip()
 
+    experience_vault_text = ""
+
+    try:
+        vault = ExperienceVault.objects.filter(pk=1, is_active=True).first()
+
+        if vault and vault.content.strip():
+            experience_vault_text = vault.content.strip()[-12000:]
+
+    except Exception:
+        experience_vault_text = ""
+
+    default_human_prompt = """
+너무 AI처럼 딱딱하게 정리하지 말고, 사람이 개인 블로그에 직접 정리하듯이 자연스럽게 써줘.
+글을 무조건 '핵심 기준 3가지', '체크리스트', 'FAQ' 같은 고정 구조로 만들지 말고, 글 흐름에 필요할 때만 넣어줘.
+확인되지 않은 수치, 순위, 비교, 완료율, 우위 표현은 단정하지 말고 조심스럽게 표현해줘.
+건축·부동산·건설 관련 주제는 현장 실무자 관점에서 해석을 넣어줘.
+금융·세금·건강·법률 관련 주제는 단정적인 조언을 피하고 참고용 정보라는 뉘앙스를 유지해줘.
+문장 길이를 다양하게 섞고, 같은 문장 끝 표현을 반복하지 말아줘.
+첫 문단은 너무 뻔한 '최근 ~가 주목받고 있습니다'로 시작하지 말고, 사람이 실제로 이슈를 보고 느낀 관점에서 시작해줘.
+이미지 설명 문구를 본문에 반복해서 넣지 말아줘.
+"""
+
+    if experience_vault_text:
+        default_human_prompt += f"""
+
+아래는 블로그 운영자가 직접 적어둔 경험창고 내용입니다.
+글 주제와 관련 있는 부분만 자연스럽게 참고하세요.
+관련 없는 내용은 억지로 넣지 마세요.
+내용을 그대로 복사하지 말고, 운영자의 경험과 관점이 묻어나게 재해석하세요.
+
+[경험창고]
+{experience_vault_text}
+"""
+
+    extra_prompt = f"{default_human_prompt}\n\n{extra_prompt}".strip()
+
     try:
         count = int(request.POST.get("count", 1))
     except ValueError:
@@ -437,8 +498,8 @@ def ai_post_generate(request):
     save_draft = request.POST.get("save_draft") == "on"
 
     if not keywords:
-        messages.error(request, "주요 이슈 키워드를 입력해주세요.")
-        return redirect("home")
+        messages.error(request, "주요 이슈 키워드를 입력해주세요. 직접 입력하거나 추천 키워드를 선택해주세요.")
+        return redirect("admin_dashboard")
 
     created_posts = []
 
@@ -506,21 +567,46 @@ def ai_post_generate(request):
 - 검색 의도: {topic_search_intent}
 - 추가 조건: {topic_extra_prompt}
 
-SEO 작성 규칙:
-- 제목은 검색자가 실제로 검색할 만한 문장으로 작성
-- 첫 문단에 핵심 키워드를 자연스럽게 포함
-- 본문에 h2, h3, p, ul, li, strong 태그 사용
-- 글 초반에 요약 문단 포함
-- 중간에 질문과 답변 형태의 FAQ 3개 이상 포함
-- 네이버와 구글 검색 모두 고려해서 과한 키워드 반복 금지
-- 허위 수치, 확인되지 않은 통계, 과장 표현 금지
-- 금융, 세금, 건강, 법률 주제는 단정하지 말고 주의 문구 포함
-- 결론과 한 줄 요약 포함
+글쓰기 톤:
+- 사람이 직접 블로그에 쓰는 것처럼 자연스럽게 작성
+- 너무 교과서식으로 정리하지 말고, 실제로 생각을 풀어내는 흐름으로 작성
+- 첫 문단은 “최근 ~가 주목받고 있습니다”처럼 뻔하게 시작하지 말 것
+- 문장 길이를 일부러 다양하게 섞을 것
+- 짧은 문장, 긴 문장, 설명 문장을 자연스럽게 섞을 것
+- “중요합니다”, “필요합니다”, “가능합니다” 같은 문장 끝 반복을 줄일 것
+- 너무 완벽하게 정리된 느낌보다 사람이 직접 판단하고 설명하는 느낌을 줄 것
+- 중간중간 “실무적으로 보면”, “현장에서는”, “개인적으로는”, “조금 더 현실적으로 보면” 같은 자연스러운 연결 문장을 사용할 것
+- 단, 과한 감탄사나 광고 문구는 사용하지 말 것
+
+내용 작성 규칙:
+- 핵심 키워드는 자연스럽게 포함하되 반복하지 말 것
+- 확인되지 않은 사실, 수치, 순위, 완료율, 비교 우위는 단정하지 말 것
+- 기사나 공식 자료 확인이 필요한 내용은 “보도에 따르면”, “업계에서는”, “확인된 자료 기준으로는”처럼 조심스럽게 표현
+- 실제 근거가 없는 경우 “~로 보입니다”, “~로 해석할 수 있습니다” 수준으로 작성
+- 건축, 부동산, 금융, 건강, 법률 주제는 단정적인 조언을 피하고 주의 문구 포함
+- 표, FAQ, 체크리스트는 매번 넣지 말고 글 흐름에 꼭 필요할 때만 사용
+- FAQ를 넣더라도 1~2개 정도만 자연스럽게 넣을 것
+- 소제목은 너무 딱딱한 보고서 제목보다 블로그식 문장형 제목으로 작성
+- 본문에는 h2, h3, p, ul, li, strong 태그를 사용할 수 있음
+- 이미지 설명 문구를 본문에 반복해서 넣지 말 것
+
+경험창고 활용 규칙:
+- 경험창고 내용은 글 주제와 관련 있을 때만 자연스럽게 반영
+- 관련 없는 경험은 절대 억지로 넣지 말 것
+- 경험창고 문장을 그대로 복사하지 말고 블로그 운영자의 관점처럼 재해석
+- 경험창고에 있는 회사명, 현장명, 금액, 민감한 내용은 구체적으로 노출하지 말고 일반화해서 표현
+
+사람 느낌을 살리는 방식:
+- 글 앞부분에 이 이슈를 왜 보게 됐는지 짧게 설명
+- 중간에는 단순 요약보다 “현장에서 보면 어떤 의미인지” 해석
+- 마지막은 뻔한 결론보다 독자가 가져갈 관점으로 마무리
+- 같은 표현을 반복하지 말고 문단마다 리듬을 다르게 구성
+- 너무 완성된 보고서처럼 쓰지 말고, 블로그 운영자가 직접 정리한 글처럼 작성
 
 중요:
 - 이 세부 주제에서 벗어나지 말 것
-- 같은 키워드의 다른 글과 내용이 겹치지 않게 작성할 것
-- 제목, 도입부, 표, 결론이 다른 글과 비슷하지 않게 작성할 것
+- 같은 키워드의 다른 글과 제목, 도입부, 결론 구조가 비슷하지 않게 작성할 것
+- 허위 정보나 확인되지 않은 비교 표현을 만들지 말 것
 """.strip()
 
             ai_data = generate_ai_post(
@@ -594,10 +680,11 @@ SEO 작성 규칙:
     except Exception as error:
         print("========== AI 글 생성 오류 ==========")
         print(error)
+        traceback.print_exc()
         print("===================================")
 
         messages.error(request, f"AI 글 생성 중 오류가 발생했습니다: {error}")
-        return redirect("home")
+        return redirect("admin_dashboard")
 
     if len(created_posts) == 1:
         return redirect("post_detail", pk=created_posts[0].pk)
