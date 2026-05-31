@@ -570,15 +570,22 @@ def signup(request):
 
         if form.is_valid():
             user = form.save()
+
             UserProfile.objects.get_or_create(user=user)
-            auth_login(request, user)
+
+            auth_login(
+                request,
+                user,
+                backend="django.contrib.auth.backends.ModelBackend"
+            )
+
             return redirect("profile_setup")
 
     else:
         form = UserCreationForm()
 
     return render(request, "core/signup.html", {
-    "form": form,
+        "form": form,
     })
 
 @login_required

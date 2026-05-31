@@ -24,6 +24,7 @@
                         <th style="padding:14px; text-align:left;">가입일</th>
                         <th style="padding:14px; text-align:left;">권한</th>
                         <th style="padding:14px; text-align:left;">부관리자</th>
+                        <th style="padding:14px; text-align:left;">삭제</th>
                     </tr>
                 </thead>
 
@@ -87,10 +88,32 @@
                                     </form>
                                 {% endif %}
                             </td>
+
+                            <td style="padding:14px;">
+                                {% if member.is_superuser %}
+                                    삭제 불가
+                                {% elif member.id == user.id %}
+                                    본인 계정
+                                {% else %}
+                                    <form
+                                        method="post"
+                                        action="{% url 'member_delete' member.id %}"
+                                        onsubmit="return confirm('정말 이 회원을 삭제하시겠습니까? 삭제 후 복구할 수 없습니다.');"
+                                    >
+                                        {% csrf_token %}
+                                        <button
+                                            type="submit"
+                                            style="padding:8px 12px; border:0; border-radius:10px; background:#dc2626; color:#fff; font-weight:800;"
+                                        >
+                                            삭제
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </td>
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="5" style="padding:30px; text-align:center;">
+                            <td colspan="6" style="padding:30px; text-align:center;">
                                 가입 회원이 없습니다.
                             </td>
                         </tr>
