@@ -14,6 +14,7 @@ from django.core.files.storage import default_storage
 from django.db.models import Q, Count, Sum
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
+from .market_data import get_market_data
 from django.views.decorators.http import require_POST
 
 from .models import Post, UserProfile
@@ -103,9 +104,11 @@ def editor_context(extra_context=None):
 
 def home(request):
     posts = Post.objects.filter(is_published=True).order_by("-created_at")[:6]
+    market_data = get_market_data()
 
     return render(request, "core/home.html", {
         "posts": posts,
+        "market_data": market_data,
     })
 
 

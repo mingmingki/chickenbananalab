@@ -3,14 +3,21 @@
 
 {% block content %}
 
+<!-- 검색창 + 카테고리 -->
 <section class="search-hero">
     <div class="container">
 
+        <!-- 검색창 -->
         <form class="main-search" action="{% url 'search' %}" method="get">
-            <input type="text" name="q" placeholder="검색어를 입력하세요. 예: 자동매매, 공사일보, 부동산, Django">
+            <input
+                type="text"
+                name="q"
+                placeholder="검색어를 입력하세요. 예: 자동매매, 공사일보, 부동산, Django"
+            >
             <button type="submit">⌕</button>
         </form>
 
+        <!-- 카테고리 버튼 -->
         <div class="icon-menu">
             <a href="{% url 'architecture' %}" class="icon-item">
                 <div class="icon-box architecture">🏠</div>
@@ -37,11 +44,115 @@
                 <span>일상</span>
             </a>
         </div>
+
     </div>
 </section>
 
-<section class="section">
+
+<!-- 시장 카드 영역 -->
+<section class="market-section">
     <div class="container">
+
+        <div class="market-card-grid">
+
+            <!-- 국내 증시 -->
+            <div class="market-card">
+                <div class="market-name">KOSPI</div>
+                <div class="market-value">
+                    {{ market_data.domestic.kospi.value|default:"-" }}
+                </div>
+                <div class="market-change {{ market_data.domestic.kospi.direction|default:'flat' }}">
+                    {{ market_data.domestic.kospi.change|default:"-" }}
+                </div>
+            </div>
+
+            <div class="market-card">
+                <div class="market-name">KOSDAQ</div>
+                <div class="market-value">
+                    {{ market_data.domestic.kosdaq.value|default:"-" }}
+                </div>
+                <div class="market-change {{ market_data.domestic.kosdaq.direction|default:'flat' }}">
+                    {{ market_data.domestic.kosdaq.change|default:"-" }}
+                </div>
+            </div>
+
+            <!-- 미국 증시 -->
+            <div class="market-card">
+                <div class="market-name">NASDAQ</div>
+                <div class="market-value">
+                    {{ market_data.domestic.nasdaq.value|default:"-" }}
+                </div>
+                <div class="market-change {{ market_data.domestic.nasdaq.direction|default:'flat' }}">
+                    {{ market_data.domestic.nasdaq.change|default:"-" }}
+                </div>
+            </div>
+
+            <div class="market-card">
+                <div class="market-name">S&amp;P 500</div>
+                <div class="market-value">
+                    {{ market_data.domestic.sp500.value|default:"-" }}
+                </div>
+                <div class="market-change {{ market_data.domestic.sp500.direction|default:'flat' }}">
+                    {{ market_data.domestic.sp500.change|default:"-" }}
+                </div>
+            </div>
+
+            <div class="market-card">
+                <div class="market-name">DOW</div>
+                <div class="market-value">
+                    {{ market_data.domestic.dow.value|default:"-" }}
+                </div>
+                <div class="market-change {{ market_data.domestic.dow.direction|default:'flat' }}">
+                    {{ market_data.domestic.dow.change|default:"-" }}
+                </div>
+            </div>
+
+            <!-- 코인 -->
+            <div class="market-card">
+                <div class="market-name">BTC</div>
+                <div class="market-value">
+                    {{ market_data.coins.btc.value|default:"-" }}
+                </div>
+                <div class="market-change {{ market_data.coins.btc.direction|default:'flat' }}">
+                    {{ market_data.coins.btc.change|default:"-" }}
+                </div>
+            </div>
+
+            <div class="market-card">
+                <div class="market-name">ETH</div>
+                <div class="market-value">
+                    {{ market_data.coins.eth.value|default:"-" }}
+                </div>
+                <div class="market-change {{ market_data.coins.eth.direction|default:'flat' }}">
+                    {{ market_data.coins.eth.change|default:"-" }}
+                </div>
+            </div>
+
+            <!-- 환율 -->
+            <div class="market-card">
+                <div class="market-name">USD/KRW</div>
+                <div class="market-value">
+                    {{ market_data.exchange.usd.value|default:"-" }}
+                </div>
+                <div class="market-change flat">
+                    {{ market_data.exchange.usd.change|default:"기준환율" }}
+                </div>
+            </div>
+
+        </div>
+
+        <div class="market-updated">
+    10분봉 기준 · 업데이트 {{ market_data.updated_at|default:"-" }}
+</div>
+
+    </div>
+</section>
+
+
+<!-- 최신글 -->
+<section class="section latest-section">
+    <div class="container">
+
         <div class="section-title title-row">
             <div>
                 <span>Latest Contents</span>
@@ -56,17 +167,18 @@
         <div class="thumbnail-grid">
             {% for post in posts %}
                 <a href="{% url 'post_detail' post.id %}" class="thumbnail-card">
-                    {% if post.thumbnail %}
-    <div class="thumbnail-image-box">
-        <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">
 
-        {% if post.thumbnail_text %}
-            <div class="thumbnail-text-overlay">
-                {{ post.thumbnail_text }}
-            </div>
-        {% endif %}
-    </div>
-{% else %}
+                    {% if post.thumbnail %}
+                        <div class="thumbnail-image-box">
+                            <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">
+
+                            {% if post.thumbnail_text %}
+                                <div class="thumbnail-text-overlay">
+                                    {{ post.thumbnail_text }}
+                                </div>
+                            {% endif %}
+                        </div>
+                    {% else %}
                         <div class="thumbnail-box category-{{ post.category }}">
                             <div class="thumbnail-icon">
                                 {% if post.category == "architecture" %}
@@ -91,6 +203,7 @@
                         <p>{{ post.content|striptags|truncatechars:90 }}</p>
                         <small>{{ post.created_at|date:"Y.m.d" }}</small>
                     </div>
+
                 </a>
             {% empty %}
                 <div class="empty-box full-empty">
@@ -104,16 +217,14 @@
             {% endfor %}
         </div>
 
-       <div style="width:100%; display:flex; justify-content:flex-end; align-items:center; gap:5px; margin-top:18px; padding-right:4px; background:none; border:none; box-shadow:none;">
-    <span id="plain-date-now" style="margin:0; padding:0; background:none; border:none; box-shadow:none; border-radius:0; color:#94a3b8; font-size:14px; font-weight:400; line-height:1;">
-        날짜 불러오는 중...
-    </span>
-    <span id="plain-time-now" style="margin:0; padding:0; background:none; border:none; box-shadow:none; border-radius:0; color:#94a3b8; font-size:14px; font-weight:400; line-height:1;">
-        시간 불러오는 중...
-    </span>
-</div>
+        <div class="plain-time-wrap">
+            <span id="plain-date-now">날짜 불러오는 중...</span>
+            <span id="plain-time-now">시간 불러오는 중...</span>
+        </div>
+
     </div>
 </section>
+
 
 <script>
     function updatePlainDateTime() {
