@@ -3,7 +3,7 @@
 {% block title %}{{ post.title }} - ChickenBanana Lab{% endblock %}
 
 {% block meta_description %}
-{{ post.meta_description|default:post.summary|default:post.content|striptags|truncatechars:150 }}
+{{ post.meta_description|default:post.summary|default:post.content|striptags|cut:"&nbsp;"|cut:"&amp;nbsp;"|truncatechars:150 }}
 {% endblock %}
 
 {% block og_title %}
@@ -11,7 +11,7 @@
 {% endblock %}
 
 {% block og_description %}
-{{ post.meta_description|default:post.summary|default:post.content|striptags|truncatechars:150 }}
+{{ post.meta_description|default:post.summary|default:post.content|striptags|cut:"&nbsp;"|cut:"&amp;nbsp;"|truncatechars:150 }}
 {% endblock %}
 
 {% block content %}
