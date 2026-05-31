@@ -6,8 +6,8 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("core", "0008_userprofile_is_sub_admin"),
-    ]
+    ("core", "0008_userprofile"),
+]
 
     operations = [
         migrations.AddField(
