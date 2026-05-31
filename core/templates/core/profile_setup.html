@@ -1,0 +1,35 @@
+{% extends "core/base.html" %}
+
+{% block title %}닉네임 설정 | ChickenBanana Lab{% endblock %}
+
+{% block content %}
+
+<section class="login-page">
+    <div class="login-card">
+        <div class="login-logo">
+            <div class="login-logo-circle">CB</div>
+            <h1>닉네임 설정</h1>
+            <p>ChickenBanana Lab에서 사용할 닉네임을 입력해주세요.</p>
+        </div>
+
+        <form method="post" class="login-form">
+            {% csrf_token %}
+
+            {% if form.errors %}
+                <div class="login-error">
+                    닉네임을 확인해주세요.
+                </div>
+            {% endif %}
+
+            <div class="login-field">
+                <label for="{{ form.nickname.id_for_label }}">닉네임</label>
+                {{ form.nickname }}
+                {{ form.nickname.errors }}
+            </div>
+
+            <button type="submit" class="login-submit">저장하고 시작하기</button>
+        </form>
+    </div>
+</section>
+
+{% endblock %}

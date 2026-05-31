@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth.models import User
 
 
 class Post(models.Model):
@@ -42,11 +43,11 @@ class Post(models.Model):
     )
 
     video_file = models.FileField(
-    upload_to="post_videos/",
-    blank=True,
-    null=True,
-    verbose_name="본문 동영상"
-)
+        upload_to="post_videos/",
+        blank=True,
+        null=True,
+        verbose_name="본문 동영상"
+    )
 
     program_file = models.FileField(
         upload_to="post_program_files/",
@@ -99,3 +100,44 @@ class Post(models.Model):
         if not self.tags:
             return []
         return [tag.strip() for tag in self.tags.split(",") if tag.strip()]
+
+
+class UserProfile(models.Model):
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="profile",
+        verbose_name="사용자"
+    )
+
+    nickname = models.CharField(
+        max_length=30,
+        blank=True,
+        verbose_name="닉네임"
+    )
+
+    is_sub_admin = models.BooleanField(
+        default=False,
+        verbose_name="부관리자 여부"
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="가입일"
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="수정일"
+    )
+
+    def __str__(self):
+        if self.nickname:
+            return self.nickname
+        return self.user.email or self.user.username
+
+    @property
+    def display_name(self):
+        if self.nickname:
+            return self.nickname
+        return self.user.email or self.user.username

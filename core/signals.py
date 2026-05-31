@@ -1,10 +1,22 @@
 from django.conf import settings
+from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
+from django.db.models.signals import post_save
 from django.dispatch import receiver
+
+from .models import UserProfile
+
+
+@receiver(post_save, sender=User)
+def create_user_profile(sender, instance, created, **kwargs):
+    if created:
+        UserProfile.objects.get_or_create(user=instance)
 
 
 @receiver(user_logged_in)
-def grant_admin_to_allowed_google_user(sender, request, user, **kwargs):
+def prepare_user_after_login(sender, request, user, **kwargs):
+    UserProfile.objects.get_or_create(user=user)
+
     allowed_emails = getattr(settings, "ADMIN_GOOGLE_EMAILS", [])
 
     user_email = (user.email or "").lower().strip()

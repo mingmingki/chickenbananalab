@@ -9,6 +9,7 @@ from django.contrib import messages
 from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.models import User
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db.models import Q, Count, Sum
@@ -16,8 +17,8 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_POST
 
-from .models import Post
-from .forms import PostForm
+from .models import Post, UserProfile
+from .forms import PostForm, NicknameForm
 from .ai_writer import (
     generate_ai_post,
     generate_post_topics,
@@ -74,6 +75,18 @@ CATEGORY_PAGES = {
 
 def admin_required(user):
     return user.is_authenticated and (user.is_staff or user.is_superuser)
+
+def can_write_post(user):
+    if not user.is_authenticated:
+        return False
+
+    if user.is_staff or user.is_superuser:
+        return True
+
+    try:
+        return user.profile.is_sub_admin
+    except UserProfile.DoesNotExist:
+        return False
 
 
 def editor_context(extra_context=None):
@@ -168,7 +181,7 @@ def post_detail(request, pk):
     })
 
 
-@user_passes_test(admin_required)
+@user_passes_test(can_write_post)
 def post_create(request):
     initial_category = request.GET.get("category", "")
 
@@ -557,8 +570,9 @@ def signup(request):
 
         if form.is_valid():
             user = form.save()
+            UserProfile.objects.get_or_create(user=user)
             auth_login(request, user)
-            return redirect("home")
+            return redirect("profile_setup")
 
     else:
         form = UserCreationForm()
@@ -566,6 +580,76 @@ def signup(request):
     return render(request, "registration/signup.html", {
         "form": form,
     })
+
+@login_required
+def profile_setup(request):
+    profile, created = UserProfile.objects.get_or_create(user=request.user)
+
+    if profile.nickname:
+        return redirect("home")
+
+    if request.method == "POST":
+        form = NicknameForm(request.POST, instance=profile)
+
+        if form.is_valid():
+            form.save()
+            messages.success(request, "닉네임이 저장되었습니다.")
+            return redirect("home")
+
+    else:
+        form = NicknameForm(instance=profile)
+
+    return render(request, "core/profile_setup.html", {
+        "form": form,
+        "profile": profile,
+    })
+
+
+@login_required
+@require_POST
+def profile_update(request):
+    profile, created = UserProfile.objects.get_or_create(user=request.user)
+    form = NicknameForm(request.POST, instance=profile)
+
+    if form.is_valid():
+        form.save()
+        messages.success(request, "닉네임이 변경되었습니다.")
+    else:
+        messages.error(request, "닉네임을 확인해주세요.")
+
+    next_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or "/"
+    return redirect(next_url)
+
+
+@user_passes_test(admin_required)
+def member_manage(request):
+    users = (
+        User.objects
+        .select_related("profile")
+        .order_by("-date_joined")
+    )
+
+    return render(request, "core/member_manage.html", {
+        "users": users,
+    })
+
+
+@user_passes_test(admin_required)
+@require_POST
+def member_role_update(request, user_id):
+    target_user = get_object_or_404(User, pk=user_id)
+
+    if target_user.is_superuser:
+        messages.error(request, "최고 관리자는 권한을 변경할 수 없습니다.")
+        return redirect("member_manage")
+
+    profile, created = UserProfile.objects.get_or_create(user=target_user)
+
+    profile.is_sub_admin = request.POST.get("is_sub_admin") == "on"
+    profile.save(update_fields=["is_sub_admin", "updated_at"])
+
+    messages.success(request, "회원 권한이 변경되었습니다.")
+    return redirect("member_manage")
 
 
 def robots_txt(request):

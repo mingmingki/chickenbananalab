@@ -1,5 +1,5 @@
 from django import forms
-from .models import Post
+from .models import Post, UserProfile
 
 
 class PostForm(forms.ModelForm):
@@ -66,3 +66,32 @@ class PostForm(forms.ModelForm):
 
         if not self.instance.pk:
             self.fields["is_published"].initial = True
+
+
+class NicknameForm(forms.ModelForm):
+    class Meta:
+        model = UserProfile
+        fields = ["nickname"]
+
+        widgets = {
+            "nickname": forms.TextInput(attrs={
+                "class": "form-input",
+                "placeholder": "사용할 닉네임을 입력하세요",
+                "maxlength": "30",
+            })
+        }
+
+        labels = {
+            "nickname": "닉네임",
+        }
+
+    def clean_nickname(self):
+        nickname = self.cleaned_data.get("nickname", "").strip()
+
+        if not nickname:
+            raise forms.ValidationError("닉네임을 입력해주세요.")
+
+        if len(nickname) < 2:
+            raise forms.ValidationError("닉네임은 2글자 이상 입력해주세요.")
+
+        return nickname

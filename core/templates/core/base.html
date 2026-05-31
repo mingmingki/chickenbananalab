@@ -161,14 +161,16 @@
             {% if user.is_authenticated %}
                 <div class="account-menu">
                     <button type="button" class="account-avatar-btn" id="accountMenuButton">
-                        {% if user.email %}
-                            {{ user.email|first|upper }}
-                        {% elif user.username %}
-                            {{ user.username|first|upper }}
-                        {% else %}
-                            U
-                        {% endif %}
-                    </button>
+    {% if user.profile.nickname %}
+        {{ user.profile.nickname|first|upper }}
+    {% elif user.email %}
+        {{ user.email|first|upper }}
+    {% elif user.username %}
+        {{ user.username|first|upper }}
+    {% else %}
+        U
+    {% endif %}
+</button>
 
                     <div class="account-dropdown" id="accountDropdown">
                         <div class="account-info">
@@ -206,8 +208,9 @@
                     </div>
                 </div>
             {% else %}
-                <a href="{% url 'login' %}" class="login-btn">Login</a>
-            {% endif %}
+    <a href="{% url 'signup' %}" class="signup-btn">회원가입</a>
+    <a href="{% url 'login' %}" class="login-btn">Login</a>
+{% endif %}
         </nav>
     </div>
 </header>
@@ -241,23 +244,27 @@
 
             <div class="account-profile-box">
                 <div class="account-profile-avatar">
-                    {% if user.email %}
-                        {{ user.email|first|upper }}
-                    {% elif user.username %}
-                        {{ user.username|first|upper }}
-                    {% else %}
-                        U
-                    {% endif %}
-                </div>
+    {% if user.profile.nickname %}
+        {{ user.profile.nickname|first|upper }}
+    {% elif user.email %}
+        {{ user.email|first|upper }}
+    {% elif user.username %}
+        {{ user.username|first|upper }}
+    {% else %}
+        U
+    {% endif %}
+</div>
 
                 <div>
                     <strong>
-                        {% if user.email %}
-                            {{ user.email }}
-                        {% else %}
-                            {{ user.username }}
-                        {% endif %}
-                    </strong>
+    {% if user.profile.nickname %}
+        {{ user.profile.nickname }}
+    {% elif user.email %}
+        {{ user.email }}
+    {% else %}
+        {{ user.username }}
+    {% endif %}
+</strong>
 
                     {% if user.is_staff %}
                         <p>관리자 권한이 있는 계정입니다.</p>
@@ -266,6 +273,24 @@
                     {% endif %}
                 </div>
             </div>
+
+<form method="post" action="{% url 'profile_update' %}" class="nickname-update-form">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.path }}">
+
+    <label>닉네임 변경</label>
+    <div style="display:flex; gap:8px; margin-top:8px;">
+        <input
+            type="text"
+            name="nickname"
+            value="{% if user.profile.nickname %}{{ user.profile.nickname }}{% endif %}"
+            placeholder="닉네임 입력"
+            maxlength="30"
+            style="flex:1; padding:12px 14px; border:1px solid #d1d5db; border-radius:12px;"
+        >
+        <button type="submit" class="modal-dark-btn">저장</button>
+    </div>
+</form>
 
             <div class="modal-info-list">
                 <div>
@@ -356,10 +381,16 @@
                     </a>
 
                     <a href="{% url 'site_stats' %}" class="manage-menu-item">
-                        <div>📊</div>
-                        <strong>사이트 통계</strong>
-                        <p>글 수, 조회수, 인기글 현황을 확인합니다.</p>
-                    </a>
+    <div>📊</div>
+    <strong>사이트 통계</strong>
+    <p>글 수, 조회수, 인기글 현황을 확인합니다.</p>
+</a>
+
+<a href="{% url 'member_manage' %}" class="manage-menu-item">
+    <div>👥</div>
+    <strong>회원 관리</strong>
+    <p>가입 회원과 부관리자 권한을 관리합니다.</p>
+</a>
                 </div>
 
                 <div class="site-modal-actions">

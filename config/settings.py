@@ -180,8 +180,11 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # ================================
 
 LOGIN_URL = "login"
-LOGIN_REDIRECT_URL = "/"
+LOGIN_REDIRECT_URL = "/profile/setup/"
 LOGOUT_REDIRECT_URL = "/"
+
+ACCOUNT_SIGNUP_REDIRECT_URL = "/profile/setup/"
+SOCIALACCOUNT_LOGIN_REDIRECT_URL = "/profile/setup/"
 
 
 # ================================

@@ -1,0 +1,104 @@
+{% extends "core/base.html" %}
+
+{% block title %}회원 관리 | ChickenBanana Lab{% endblock %}
+
+{% block content %}
+
+<section class="section">
+    <div class="container">
+        <div class="section-title title-row">
+            <div>
+                <span>Member Management</span>
+                <h2>회원 관리</h2>
+            </div>
+
+            <a href="{% url 'home' %}" class="list-btn">홈으로</a>
+        </div>
+
+        <div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; background:#fff; border-radius:18px; overflow:hidden; box-shadow:0 10px 30px rgba(15,23,42,0.08);">
+                <thead>
+                    <tr style="background:#f8fafc;">
+                        <th style="padding:14px; text-align:left;">닉네임</th>
+                        <th style="padding:14px; text-align:left;">이메일</th>
+                        <th style="padding:14px; text-align:left;">가입일</th>
+                        <th style="padding:14px; text-align:left;">권한</th>
+                        <th style="padding:14px; text-align:left;">부관리자</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for member in users %}
+                        <tr style="border-top:1px solid #e5e7eb;">
+                            <td style="padding:14px; font-weight:800;">
+                                {% if member.profile.nickname %}
+                                    {{ member.profile.nickname }}
+                                {% else %}
+                                    닉네임 없음
+                                {% endif %}
+                            </td>
+
+                            <td style="padding:14px;">
+                                {% if member.email %}
+                                    {{ member.email }}
+                                {% else %}
+                                    {{ member.username }}
+                                {% endif %}
+                            </td>
+
+                            <td style="padding:14px;">
+                                {{ member.date_joined|date:"Y.m.d H:i" }}
+                            </td>
+
+                            <td style="padding:14px;">
+                                {% if member.is_superuser %}
+                                    최고 관리자
+                                {% elif member.is_staff %}
+                                    관리자
+                                {% elif member.profile.is_sub_admin %}
+                                    부관리자
+                                {% else %}
+                                    일반회원
+                                {% endif %}
+                            </td>
+
+                            <td style="padding:14px;">
+                                {% if member.is_superuser %}
+                                    변경 불가
+                                {% else %}
+                                    <form method="post" action="{% url 'member_role_update' member.id %}">
+                                        {% csrf_token %}
+
+                                        <label style="display:flex; align-items:center; gap:8px;">
+                                            <input
+                                                type="checkbox"
+                                                name="is_sub_admin"
+                                                {% if member.profile.is_sub_admin %}checked{% endif %}
+                                            >
+                                            부관리자
+                                        </label>
+
+                                        <button
+                                            type="submit"
+                                            style="margin-top:8px; padding:8px 12px; border:0; border-radius:10px; background:#111827; color:#fff; font-weight:800;"
+                                        >
+                                            저장
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="5" style="padding:30px; text-align:center;">
+                                가입 회원이 없습니다.
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+{% endblock %}
