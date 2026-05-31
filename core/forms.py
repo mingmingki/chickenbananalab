@@ -1,6 +1,5 @@
 from django import forms
-from .models import Post, UserProfile
-from .models import Post, ExperienceVault
+from .models import Post, UserProfile, ExperienceVault
 
 
 class PostForm(forms.ModelForm):
@@ -29,6 +28,13 @@ class PostForm(forms.ModelForm):
                 "placeholder": "제목을 입력하세요"
             }),
 
+            # 대표 썸네일: 수정 화면에서 새 이미지를 선택하면 request.FILES로 넘어가도록
+            # 단순 FileInput으로 표시합니다. 기존 파일은 아래 post_form.html의 미리보기에서 확인합니다.
+            "thumbnail": forms.FileInput(attrs={
+                "class": "thumbnail-file-input",
+                "accept": "image/jpeg,image/png,image/webp,image/gif",
+            }),
+
             "thumbnail_text": forms.TextInput(attrs={
                 "class": "form-input",
                 "placeholder": "썸네일 중앙에 표시할 문구를 입력하세요"
@@ -45,11 +51,11 @@ class PostForm(forms.ModelForm):
                 "placeholder": "예: Django, 자동매매, 공사일보, 부동산"
             }),
 
-            "video_file": forms.ClearableFileInput(attrs={
+            "video_file": forms.FileInput(attrs={
                 "accept": "video/mp4,video/webm,video/ogg,video/quicktime",
             }),
 
-            "program_file": forms.ClearableFileInput(attrs={
+            "program_file": forms.FileInput(attrs={
                 "accept": ".zip,.rar,.7z,.exe,.msi,.dmg,.pkg,.apk,.py,.whl",
             }),
 
@@ -96,7 +102,8 @@ class NicknameForm(forms.ModelForm):
             raise forms.ValidationError("닉네임은 2글자 이상 입력해주세요.")
 
         return nickname
-    
+
+
 class ExperienceVaultForm(forms.ModelForm):
     class Meta:
         model = ExperienceVault
@@ -123,4 +130,4 @@ class ExperienceVaultForm(forms.ModelForm):
             "is_active": forms.CheckboxInput(attrs={
                 "style": "width:18px; height:18px;"
             }),
-        }    
+        }

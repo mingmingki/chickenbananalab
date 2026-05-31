@@ -137,6 +137,39 @@ def set_post_optional_seo_fields(post, ai_data):
         post.save(update_fields=update_fields)
 
 
+def normalize_html_spaces(value):
+    """
+    에디터에서 생기는 &nbsp; /   공백을 일반 공백으로 정리합니다.
+    카드 요약에 &nbsp;가 그대로 노출되는 문제를 예방합니다.
+    """
+    if not isinstance(value, str):
+        return value
+
+    targets = [
+        "&nbsp;",
+        "&amp;nbsp;",
+        "&#160;",
+        "&amp;#160;",
+        "\xa0",
+    ]
+
+    for target in targets:
+        value = value.replace(target, " ")
+
+    return value
+
+
+def delete_file_safely(file_name):
+    if not file_name:
+        return
+
+    try:
+        if default_storage.exists(file_name):
+            default_storage.delete(file_name)
+    except Exception:
+        pass
+
+
 def home(request):
     posts = Post.objects.filter(is_published=True).order_by("-created_at")[:6]
     market_data = get_market_data()
@@ -248,7 +281,10 @@ def post_create(request):
         form = PostForm(request.POST, request.FILES)
 
         if form.is_valid():
-            post = form.save()
+            post = form.save(commit=False)
+            post.content = normalize_html_spaces(post.content)
+            post.save()
+            form.save_m2m()
             return redirect("post_detail", pk=post.pk)
 
         messages.error(request, "입력 내용을 확인해주세요.")
@@ -273,11 +309,29 @@ def post_create(request):
 def post_update(request, pk):
     post = get_object_or_404(Post, pk=pk)
 
+    old_thumbnail_name = post.thumbnail.name if post.thumbnail else ""
+    old_program_file_name = post.program_file.name if post.program_file else ""
+    old_video_file_name = post.video_file.name if post.video_file else ""
+
     if request.method == "POST":
         form = PostForm(request.POST, request.FILES, instance=post)
 
         if form.is_valid():
-            post = form.save()
+            post = form.save(commit=False)
+            post.content = normalize_html_spaces(post.content)
+            post.save()
+            form.save_m2m()
+
+            # 새 파일로 교체된 경우 기존 파일을 정리합니다.
+            if request.FILES.get("thumbnail") and old_thumbnail_name != (post.thumbnail.name if post.thumbnail else ""):
+                delete_file_safely(old_thumbnail_name)
+
+            if request.FILES.get("program_file") and old_program_file_name != (post.program_file.name if post.program_file else ""):
+                delete_file_safely(old_program_file_name)
+
+            if request.FILES.get("video_file") and old_video_file_name != (post.video_file.name if post.video_file else ""):
+                delete_file_safely(old_video_file_name)
+
             return redirect("post_detail", pk=post.pk)
 
         messages.error(request, "입력 내용을 확인해주세요.")
@@ -778,6 +832,7 @@ def ai_post_generate(request):
                     })
 
             content = replace_image_placeholders(content, inline_image_blocks)
+            content = normalize_html_spaces(content)
 
             post = Post.objects.create(
                 category=category,

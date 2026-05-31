@@ -60,6 +60,10 @@
                 {% if post and post.thumbnail %}
                     <span class="current-file-text">현재 썸네일 있음</span>
                 {% endif %}
+
+                {% if form.thumbnail.errors %}
+                    <div class="form-error">{{ form.thumbnail.errors }}</div>
+                {% endif %}
             </div>
 
             <div class="editor-program-file-row">
@@ -84,7 +88,7 @@
 
             <div class="thumbnail-live-preview" id="thumbnailPreviewBox">
                 {% if post and post.thumbnail %}
-                    <img id="thumbnailPreviewImage" src="{{ post.thumbnail.url }}" alt="썸네일 미리보기">
+                    <img id="thumbnailPreviewImage" src="{{ post.thumbnail.url }}?v={{ post.updated_at|date:'U' }}" alt="썸네일 미리보기">
                 {% else %}
                     <img id="thumbnailPreviewImage" src="" alt="썸네일 미리보기" style="display:none;">
                 {% endif %}
