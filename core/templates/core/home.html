@@ -3,6 +3,133 @@
 
 {% block content %}
 
+<style>
+    /* ================================
+       Market Cards - Home Inline Fix
+    ================================ */
+
+    .market-section {
+        padding: 8px 0 32px;
+    }
+
+    .market-card-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 4px;
+    }
+
+    .market-card {
+        min-height: 138px;
+        padding: 22px 20px;
+        border-radius: 22px;
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .market-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 18px 38px rgba(15, 23, 42, 0.13);
+    }
+
+    .market-name {
+        font-size: 15px;
+        font-weight: 900;
+        color: #334155;
+        margin-bottom: 20px;
+        letter-spacing: 0.03em;
+    }
+
+    .market-value {
+        font-size: 24px;
+        font-weight: 900;
+        color: #111827;
+        line-height: 1.2;
+        margin-bottom: 10px;
+        word-break: keep-all;
+    }
+
+    .market-change {
+        font-size: 14px;
+        font-weight: 900;
+    }
+
+    .market-change.up {
+        color: #dc2626;
+    }
+
+    .market-change.down {
+        color: #2563eb;
+    }
+
+    .market-change.flat {
+        color: #64748b;
+    }
+
+    .market-updated {
+        margin-top: 10px;
+        text-align: right;
+        color: #94a3b8;
+        font-size: 13px;
+        font-weight: 500;
+    }
+
+    .latest-section {
+        padding-top: 16px;
+    }
+
+    .plain-time-wrap {
+        width: 100%;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 5px;
+        margin-top: 18px;
+        padding-right: 4px;
+        background: none;
+        border: none;
+        box-shadow: none;
+    }
+
+    .plain-time-wrap span {
+        margin: 0;
+        padding: 0;
+        background: none;
+        border: none;
+        box-shadow: none;
+        border-radius: 0;
+        color: #94a3b8;
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 1;
+    }
+
+    @media (max-width: 1100px) {
+        .market-card-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 720px) {
+        .market-card-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .market-value {
+            font-size: 21px;
+        }
+    }
+
+    @media (max-width: 460px) {
+        .market-card-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+
 <!-- 검색창 + 카테고리 -->
 <section class="search-hero">
     <div class="container">
@@ -142,8 +269,8 @@
         </div>
 
         <div class="market-updated">
-    10분봉 기준 · 업데이트 {{ market_data.updated_at|default:"-" }}
-</div>
+            10분봉 기준 · 업데이트 {{ market_data.updated_at|default:"-" }}
+        </div>
 
     </div>
 </section>
