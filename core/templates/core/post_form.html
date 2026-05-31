@@ -158,6 +158,16 @@
                 {% endif %}
             </div>
 
+            <div id="editorImageResizeToolbar" class="editor-image-resize-toolbar">
+    <button type="button" onclick="setSelectedImageWidth(25)">25%</button>
+    <button type="button" onclick="setSelectedImageWidth(33)">33%</button>
+    <button type="button" onclick="setSelectedImageWidth(50)">50%</button>
+    <button type="button" onclick="setSelectedImageWidth(75)">75%</button>
+    <button type="button" onclick="setSelectedImageWidth(100)">100%</button>
+    <button type="button" onclick="deleteSelectedImage()">삭제</button>
+    <span>모서리를 드래그해서 직접 조정</span>
+</div>
+
             <textarea name="content" id="id_content" style="display:none;"></textarea>
 
             <div class="editor-tags-row">
@@ -274,6 +284,117 @@
 </script>
 {% endif %}
 
+<style>
+    .editor-image-wrap {
+        display: inline-block;
+        position: relative;
+        max-width: 100%;
+        vertical-align: top;
+        margin: 8px 6px;
+        line-height: 0;
+        box-sizing: border-box;
+    }
+
+    .editor-image-wrap img {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        height: auto;
+        border-radius: 12px;
+        box-sizing: border-box;
+        user-select: none;
+        -webkit-user-drag: none;
+    }
+
+    .editor-image-wrap.selected {
+        outline: 2px solid #2563eb;
+        outline-offset: 4px;
+    }
+
+    .editor-image-resize-handle {
+        display: none;
+        position: absolute;
+        right: -8px;
+        bottom: -8px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #2563eb;
+        border: 2px solid #ffffff;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+        cursor: nwse-resize;
+        z-index: 20;
+    }
+
+    .editor-image-wrap.selected .editor-image-resize-handle {
+        display: block;
+    }
+
+    .editor-image-size-label {
+        display: none;
+        position: absolute;
+        left: 50%;
+        top: -38px;
+        transform: translateX(-50%);
+        background: #fff7cc;
+        color: #111827;
+        border: 1px solid #facc15;
+        border-radius: 4px;
+        padding: 5px 9px;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.18);
+        z-index: 21;
+        line-height: 1.2;
+    }
+
+    .editor-image-wrap.selected .editor-image-size-label,
+    .editor-image-wrap[data-resizing="true"] .editor-image-size-label {
+        display: block;
+    }
+
+    .editor-image-resize-toolbar {
+        display: none;
+        position: absolute;
+        z-index: 999999;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 10px;
+        background: #111827;
+        color: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.28);
+    }
+
+    .editor-image-resize-toolbar.active {
+        display: flex;
+    }
+
+    .editor-image-resize-toolbar button {
+        border: 0;
+        background: #ffffff;
+        color: #111827;
+        border-radius: 8px;
+        padding: 6px 9px;
+        font-size: 12px;
+        font-weight: 900;
+        cursor: pointer;
+    }
+
+    .editor-image-resize-toolbar button:hover {
+        background: #dbeafe;
+        color: #1d4ed8;
+    }
+
+    .editor-image-resize-toolbar span {
+        font-size: 12px;
+        font-weight: 700;
+        color: #d1d5db;
+        white-space: nowrap;
+    }
+</style>
+
 <script>
     const editor = document.getElementById("editor");
     const hiddenContent = document.getElementById("id_content");
@@ -281,6 +402,11 @@
     const charCount = document.getElementById("content-char-count");
 
     const imageInput = document.getElementById("editorImageInput");
+
+    const imageResizeToolbar = document.getElementById("editorImageResizeToolbar");
+
+    let selectedImageWrap = null;
+    let imageResizeState = null;
 
     const locationModal = document.getElementById("location-modal");
     const locationInput = document.getElementById("location-search-input");
@@ -405,24 +531,347 @@
     }
 
     function insertImageAtCursor(url) {
-        clearDefaultText();
-        restoreSelection();
+    clearDefaultText();
+    restoreSelection();
 
-        const img = document.createElement("img");
-        img.src = url;
-        img.className = "editor-inserted-image";
+    const img = document.createElement("img");
+    img.src = url;
+    img.className = "editor-inserted-image";
+    img.style.width = "100%";
+    img.style.maxWidth = "100%";
+    img.style.height = "auto";
+    img.alt = "본문 이미지";
+    img.draggable = false;
+
+    const wrapper = document.createElement("span");
+    wrapper.className = "editor-image-wrap";
+    wrapper.contentEditable = "false";
+    wrapper.style.display = "inline-block";
+    wrapper.style.position = "relative";
+    wrapper.style.width = "100%";
+    wrapper.style.maxWidth = "100%";
+    wrapper.style.verticalAlign = "top";
+    wrapper.style.margin = "8px 6px";
+    wrapper.appendChild(img);
+
+    addImageResizeTools(wrapper);
+    insertImageNodeToEditor(wrapper);
+    selectImageWrap(wrapper);
+
+    saveSelection();
+    updateCharCount();
+}
+
+function insertImageNodeToEditor(node) {
+    clearDefaultText();
+
+    const selection = window.getSelection();
+    const spacer = document.createTextNode("\u00A0");
+
+    if (selection.rangeCount > 0 && editor.contains(selection.anchorNode)) {
+        const range = selection.getRangeAt(0);
+
+        range.deleteContents();
+        range.insertNode(spacer);
+        range.insertNode(node);
+
+        const newRange = document.createRange();
+        newRange.setStartAfter(spacer);
+        newRange.collapse(true);
+
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+        savedRange = newRange;
+    } else {
+        editor.appendChild(node);
+        editor.appendChild(spacer);
+
+        const newRange = document.createRange();
+        newRange.setStartAfter(spacer);
+        newRange.collapse(true);
+
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+        savedRange = newRange;
+    }
+}
+
+function prepareEditorImages() {
+    if (!editor) {
+        return;
+    }
+
+    const images = editor.querySelectorAll("img");
+
+    images.forEach(function (img) {
+        if (img.closest(".editor-youtube-card") || img.closest(".thumbnail-live-preview")) {
+            return;
+        }
+
+        let wrapper = img.closest(".editor-image-wrap");
+
+        if (!wrapper) {
+            wrapper = document.createElement("span");
+            wrapper.className = "editor-image-wrap";
+
+            img.parentNode.insertBefore(wrapper, img);
+            wrapper.appendChild(img);
+        }
+
+        wrapper.contentEditable = "false";
+        wrapper.style.display = "inline-block";
+        wrapper.style.position = "relative";
+        wrapper.style.maxWidth = "100%";
+        wrapper.style.verticalAlign = "top";
+
+        if (!wrapper.style.width) {
+            wrapper.style.width = img.style.width && img.style.width !== "100%"
+                ? img.style.width
+                : "100%";
+        }
+
+        if (!wrapper.style.margin) {
+            wrapper.style.margin = "8px 6px";
+        }
+
+        img.classList.add("editor-inserted-image");
+        img.style.width = "100%";
         img.style.maxWidth = "100%";
         img.style.height = "auto";
-        img.alt = "본문 이미지";
+        img.draggable = false;
 
-        const wrapper = document.createElement("div");
-        wrapper.className = "editor-image-wrap";
-        wrapper.appendChild(img);
+        addImageResizeTools(wrapper);
+    });
+}
 
-        insertNodeToEditor(wrapper);
-        saveSelection();
-        updateCharCount();
+function addImageResizeTools(wrapper) {
+    if (!wrapper) {
+        return;
     }
+
+    if (!wrapper.querySelector(".editor-image-resize-handle")) {
+        const handle = document.createElement("span");
+        handle.className = "editor-image-resize-handle";
+        handle.contentEditable = "false";
+        wrapper.appendChild(handle);
+
+        handle.addEventListener("mousedown", startImageResize);
+        handle.addEventListener("touchstart", startImageResize, { passive: false });
+    }
+
+    if (!wrapper.querySelector(".editor-image-size-label")) {
+        const label = document.createElement("span");
+        label.className = "editor-image-size-label";
+        label.contentEditable = "false";
+        wrapper.appendChild(label);
+    }
+
+    updateImageSizeLabel(wrapper);
+}
+
+function selectImageWrap(wrapper) {
+    if (!wrapper) {
+        return;
+    }
+
+    if (selectedImageWrap && selectedImageWrap !== wrapper) {
+        selectedImageWrap.classList.remove("selected");
+    }
+
+    selectedImageWrap = wrapper;
+    selectedImageWrap.classList.add("selected");
+
+    updateImageSizeLabel(selectedImageWrap);
+    positionImageToolbar();
+}
+
+function clearSelectedImageWrap() {
+    if (selectedImageWrap) {
+        selectedImageWrap.classList.remove("selected");
+    }
+
+    selectedImageWrap = null;
+
+    if (imageResizeToolbar) {
+        imageResizeToolbar.classList.remove("active");
+        imageResizeToolbar.style.display = "none";
+    }
+}
+
+function positionImageToolbar() {
+    if (!selectedImageWrap || !imageResizeToolbar) {
+        return;
+    }
+
+    imageResizeToolbar.classList.add("active");
+    imageResizeToolbar.style.display = "flex";
+
+    const rect = selectedImageWrap.getBoundingClientRect();
+
+    let top = window.scrollY + rect.top - imageResizeToolbar.offsetHeight - 16;
+    let left = window.scrollX + rect.left;
+
+    if (top < window.scrollY + 10) {
+        top = window.scrollY + rect.bottom + 14;
+    }
+
+    imageResizeToolbar.style.top = `${top}px`;
+    imageResizeToolbar.style.left = `${left}px`;
+}
+
+function getPointerClientX(event) {
+    if (event.touches && event.touches.length > 0) {
+        return event.touches[0].clientX;
+    }
+
+    return event.clientX;
+}
+
+function startImageResize(event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const wrapper = event.target.closest(".editor-image-wrap");
+
+    if (!wrapper || !editor) {
+        return;
+    }
+
+    selectImageWrap(wrapper);
+
+    const editorRect = editor.getBoundingClientRect();
+    const wrapperRect = wrapper.getBoundingClientRect();
+
+    imageResizeState = {
+        wrapper: wrapper,
+        startX: getPointerClientX(event),
+        startWidth: wrapperRect.width,
+        editorWidth: editorRect.width,
+    };
+
+    wrapper.dataset.resizing = "true";
+
+    document.addEventListener("mousemove", moveImageResize);
+    document.addEventListener("mouseup", stopImageResize);
+    document.addEventListener("touchmove", moveImageResize, { passive: false });
+    document.addEventListener("touchend", stopImageResize);
+}
+
+function moveImageResize(event) {
+    if (!imageResizeState) {
+        return;
+    }
+
+    event.preventDefault();
+
+    const currentX = getPointerClientX(event);
+    const diffX = currentX - imageResizeState.startX;
+
+    let newWidthPx = imageResizeState.startWidth + diffX;
+    let newWidthPercent = (newWidthPx / imageResizeState.editorWidth) * 100;
+
+    newWidthPercent = Math.max(15, Math.min(100, newWidthPercent));
+
+    imageResizeState.wrapper.style.width = `${newWidthPercent.toFixed(2)}%`;
+
+    const img = imageResizeState.wrapper.querySelector("img");
+
+    if (img) {
+        img.style.width = "100%";
+        img.style.height = "auto";
+    }
+
+    updateImageSizeLabel(imageResizeState.wrapper);
+    positionImageToolbar();
+}
+
+function stopImageResize() {
+    if (imageResizeState && imageResizeState.wrapper) {
+        imageResizeState.wrapper.removeAttribute("data-resizing");
+        updateImageSizeLabel(imageResizeState.wrapper);
+    }
+
+    imageResizeState = null;
+
+    document.removeEventListener("mousemove", moveImageResize);
+    document.removeEventListener("mouseup", stopImageResize);
+    document.removeEventListener("touchmove", moveImageResize);
+    document.removeEventListener("touchend", stopImageResize);
+
+    updateCharCount();
+}
+
+function updateImageSizeLabel(wrapper) {
+    if (!wrapper) {
+        return;
+    }
+
+    const label = wrapper.querySelector(".editor-image-size-label");
+
+    if (!label) {
+        return;
+    }
+
+    const widthText = wrapper.style.width || "100%";
+    label.textContent = `너비 ${widthText}`;
+}
+
+function setSelectedImageWidth(percent) {
+    if (!selectedImageWrap) {
+        alert("크기를 조정할 사진을 먼저 클릭해주세요.");
+        return;
+    }
+
+    selectedImageWrap.style.width = `${percent}%`;
+
+    const img = selectedImageWrap.querySelector("img");
+
+    if (img) {
+        img.style.width = "100%";
+        img.style.height = "auto";
+    }
+
+    updateImageSizeLabel(selectedImageWrap);
+    positionImageToolbar();
+    updateCharCount();
+}
+
+function deleteSelectedImage() {
+    if (!selectedImageWrap) {
+        return;
+    }
+
+    const target = selectedImageWrap;
+    clearSelectedImageWrap();
+    target.remove();
+    updateCharCount();
+}
+
+function cleanEditorImagesForSave(editorClone) {
+    editorClone.querySelectorAll(".editor-image-resize-handle, .editor-image-size-label").forEach(function (element) {
+        element.remove();
+    });
+
+    editorClone.querySelectorAll(".editor-image-wrap").forEach(function (wrapper) {
+        wrapper.classList.remove("selected");
+        wrapper.removeAttribute("data-resizing");
+        wrapper.removeAttribute("contenteditable");
+
+        wrapper.style.display = "inline-block";
+        wrapper.style.position = "relative";
+        wrapper.style.maxWidth = "100%";
+        wrapper.style.verticalAlign = "top";
+
+        const img = wrapper.querySelector("img");
+
+        if (img) {
+            img.removeAttribute("draggable");
+            img.style.width = "100%";
+            img.style.maxWidth = "100%";
+            img.style.height = "auto";
+        }
+    });
+}
 
     if (imageInput) {
         imageInput.addEventListener("change", async function () {
@@ -952,6 +1401,19 @@ function performLocationSearch() {
     }
 
     if (editor) {
+        editor.addEventListener("click", function (event) {
+            const imageWrapper = event.target.closest(".editor-image-wrap");
+
+            if (imageWrapper && editor.contains(imageWrapper)) {
+                event.preventDefault();
+                event.stopPropagation();
+                selectImageWrap(imageWrapper);
+                return;
+            }
+
+            clearSelectedImageWrap();
+        });
+
         editor.addEventListener("input", function () {
             saveSelection();
             updateCharCount();
@@ -967,15 +1429,47 @@ function performLocationSearch() {
 
         editor.addEventListener("paste", function () {
             setTimeout(function () {
+                prepareEditorImages();
                 saveSelection();
                 updateCharCount();
             }, 50);
         });
     }
 
+    if (imageResizeToolbar) {
+        imageResizeToolbar.addEventListener("click", function (event) {
+            event.stopPropagation();
+        });
+    }
+
+    document.addEventListener("click", function (event) {
+        if (!editor) {
+            return;
+        }
+
+        const clickedInsideEditor = editor.contains(event.target);
+        const clickedToolbar = imageResizeToolbar && imageResizeToolbar.contains(event.target);
+
+        if (!clickedInsideEditor && !clickedToolbar) {
+            clearSelectedImageWrap();
+        }
+    });
+
+    window.addEventListener("resize", function () {
+        positionImageToolbar();
+    });
+
+    window.addEventListener("scroll", function () {
+        positionImageToolbar();
+    });
+
     if (form) {
         form.addEventListener("submit", function () {
+            prepareEditorImages();
+
             const editorClone = editor.cloneNode(true);
+
+            cleanEditorImagesForSave(editorClone);
 
             const localVideoTempBlocks = editorClone.querySelectorAll("[data-local-video='true']");
 
@@ -1073,6 +1567,7 @@ function performLocationSearch() {
         });
     }
 
+    prepareEditorImages();
     updateCharCount();
 </script>
 

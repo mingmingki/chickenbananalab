@@ -8249,3 +8249,114 @@ a.editor-location-card {
         grid-template-columns: 1fr;
     }
 }
+
+<style>
+    .editor-image-wrap {
+        display: inline-block;
+        position: relative;
+        max-width: 100%;
+        vertical-align: top;
+        margin: 8px 6px;
+        line-height: 0;
+        box-sizing: border-box;
+    }
+
+    .editor-image-wrap img {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        height: auto;
+        border-radius: 12px;
+        box-sizing: border-box;
+        user-select: none;
+        -webkit-user-drag: none;
+    }
+
+    .editor-image-wrap.selected {
+        outline: 2px solid #2563eb;
+        outline-offset: 4px;
+    }
+
+    .editor-image-resize-handle {
+        display: none;
+        position: absolute;
+        right: -8px;
+        bottom: -8px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #2563eb;
+        border: 2px solid #ffffff;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+        cursor: nwse-resize;
+        z-index: 20;
+    }
+
+    .editor-image-wrap.selected .editor-image-resize-handle {
+        display: block;
+    }
+
+    .editor-image-size-label {
+        display: none;
+        position: absolute;
+        left: 50%;
+        top: -38px;
+        transform: translateX(-50%);
+        background: #fff7cc;
+        color: #111827;
+        border: 1px solid #facc15;
+        border-radius: 4px;
+        padding: 5px 9px;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.18);
+        z-index: 21;
+        line-height: 1.2;
+    }
+
+    .editor-image-wrap.selected .editor-image-size-label,
+    .editor-image-wrap[data-resizing="true"] .editor-image-size-label {
+        display: block;
+    }
+
+    .editor-image-resize-toolbar {
+        display: none;
+        position: absolute;
+        z-index: 999999;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 10px;
+        background: #111827;
+        color: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.28);
+    }
+
+    .editor-image-resize-toolbar.active {
+        display: flex;
+    }
+
+    .editor-image-resize-toolbar button {
+        border: 0;
+        background: #ffffff;
+        color: #111827;
+        border-radius: 8px;
+        padding: 6px 9px;
+        font-size: 12px;
+        font-weight: 900;
+        cursor: pointer;
+    }
+
+    .editor-image-resize-toolbar button:hover {
+        background: #dbeafe;
+        color: #1d4ed8;
+    }
+
+    .editor-image-resize-toolbar span {
+        font-size: 12px;
+        font-weight: 700;
+        color: #d1d5db;
+        white-space: nowrap;
+    }
+</style>
