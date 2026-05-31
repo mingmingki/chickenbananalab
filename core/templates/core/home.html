@@ -177,99 +177,99 @@
 
 
 <!-- 시장 카드 영역 -->
-<section style="padding: 8px 0 32px;">
+<section style="padding: 8px 0 32px; overflow:hidden;">
     <div class="container">
 
         <div style="
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 16px;
+            gap: clamp(8px, 2vw, 16px);
             margin-top: 4px;
         ">
 
-            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
-                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">KOSPI</div>
-                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
+            <div style="min-width:0; min-height:clamp(66px, 15vw, 88px); padding:clamp(7px, 1.5vw, 12px); border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08); overflow:hidden;">
+                <div style="font-size:clamp(10px, 2.4vw, 15px); font-weight:900; color:#334155; margin-bottom:clamp(4px, 1vw, 7px); white-space:normal;">KOSPI</div>
+                <div style="font-size:clamp(13px, 3.4vw, 24px); font-weight:900; color:#111827; margin-bottom:10px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:clip;">
                     {{ market_data.domestic.kospi.value|default:"-" }}
                 </div>
-                <div style="font-size:14px; font-weight:900; color:{% if market_data.domestic.kospi.direction == 'up' %}#dc2626{% elif market_data.domestic.kospi.direction == 'down' %}#2563eb{% else %}#64748b{% endif %};">
+                <div style="font-size:clamp(10px, 2.8vw, 14px); font-weight:900; color:{% if market_data.domestic.kospi.direction == 'up' %}#dc2626{% elif market_data.domestic.kospi.direction == 'down' %}#2563eb{% else %}#64748b{% endif %}; white-space:nowrap;">
                     {{ market_data.domestic.kospi.change|default:"-" }}
                 </div>
             </div>
 
-            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
-                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">KOSDAQ</div>
-                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
+            <div style="min-width:0; min-height:clamp(66px, 15vw, 88px); padding:clamp(7px, 1.5vw, 12px); border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08); overflow:hidden;">
+                <div style="font-size:clamp(10px, 2.4vw, 15px); font-weight:900; color:#334155; margin-bottom:clamp(4px, 1vw, 7px); white-space:normal;">KOSDAQ</div>
+                <div style="font-size:clamp(13px, 3.4vw, 24px); font-weight:900; color:#111827; margin-bottom:10px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:clip;">
                     {{ market_data.domestic.kosdaq.value|default:"-" }}
                 </div>
-                <div style="font-size:14px; font-weight:900; color:{% if market_data.domestic.kosdaq.direction == 'up' %}#dc2626{% elif market_data.domestic.kosdaq.direction == 'down' %}#2563eb{% else %}#64748b{% endif %};">
+                <div style="font-size:clamp(10px, 2.8vw, 14px); font-weight:900; color:{% if market_data.domestic.kosdaq.direction == 'up' %}#dc2626{% elif market_data.domestic.kosdaq.direction == 'down' %}#2563eb{% else %}#64748b{% endif %}; white-space:nowrap;">
                     {{ market_data.domestic.kosdaq.change|default:"-" }}
                 </div>
             </div>
 
-            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
-                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">NASDAQ</div>
-                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
+            <div style="min-width:0; min-height:clamp(66px, 15vw, 88px); padding:clamp(7px, 1.5vw, 12px); border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08); overflow:hidden;">
+                <div style="font-size:clamp(10px, 2.4vw, 15px); font-weight:900; color:#334155; margin-bottom:clamp(4px, 1vw, 7px); white-space:normal;">NASDAQ</div>
+                <div style="font-size:clamp(13px, 3.4vw, 24px); font-weight:900; color:#111827; margin-bottom:10px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:clip;">
                     {{ market_data.domestic.nasdaq.value|default:"-" }}
                 </div>
-                <div style="font-size:14px; font-weight:900; color:{% if market_data.domestic.nasdaq.direction == 'up' %}#dc2626{% elif market_data.domestic.nasdaq.direction == 'down' %}#2563eb{% else %}#64748b{% endif %};">
+                <div style="font-size:clamp(10px, 2.8vw, 14px); font-weight:900; color:{% if market_data.domestic.nasdaq.direction == 'up' %}#dc2626{% elif market_data.domestic.nasdaq.direction == 'down' %}#2563eb{% else %}#64748b{% endif %}; white-space:nowrap;">
                     {{ market_data.domestic.nasdaq.change|default:"-" }}
                 </div>
             </div>
 
-            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
-                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">S&amp;P 500</div>
-                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
+            <div style="min-width:0; min-height:clamp(66px, 15vw, 88px); padding:clamp(7px, 1.5vw, 12px); border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08); overflow:hidden;">
+                <div style="font-size:clamp(10px, 2.4vw, 15px); font-weight:900; color:#334155; margin-bottom:clamp(4px, 1vw, 7px); white-space:normal;">S&amp;P 500</div>
+                <div style="font-size:clamp(13px, 3.4vw, 24px); font-weight:900; color:#111827; margin-bottom:10px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:clip;">
                     {{ market_data.domestic.sp500.value|default:"-" }}
                 </div>
-                <div style="font-size:14px; font-weight:900; color:{% if market_data.domestic.sp500.direction == 'up' %}#dc2626{% elif market_data.domestic.sp500.direction == 'down' %}#2563eb{% else %}#64748b{% endif %};">
+                <div style="font-size:clamp(10px, 2.8vw, 14px); font-weight:900; color:{% if market_data.domestic.sp500.direction == 'up' %}#dc2626{% elif market_data.domestic.sp500.direction == 'down' %}#2563eb{% else %}#64748b{% endif %}; white-space:nowrap;">
                     {{ market_data.domestic.sp500.change|default:"-" }}
                 </div>
             </div>
 
-            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
-                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">DOW</div>
-                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
+            <div style="min-width:0; min-height:clamp(66px, 15vw, 88px); padding:clamp(7px, 1.5vw, 12px); border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08); overflow:hidden;">
+                <div style="font-size:clamp(10px, 2.4vw, 15px); font-weight:900; color:#334155; margin-bottom:clamp(4px, 1vw, 7px); white-space:normal;">DOW</div>
+                <div style="font-size:clamp(13px, 3.4vw, 24px); font-weight:900; color:#111827; margin-bottom:10px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:clip;">
                     {{ market_data.domestic.dow.value|default:"-" }}
                 </div>
-                <div style="font-size:14px; font-weight:900; color:{% if market_data.domestic.dow.direction == 'up' %}#dc2626{% elif market_data.domestic.dow.direction == 'down' %}#2563eb{% else %}#64748b{% endif %};">
+                <div style="font-size:clamp(10px, 2.8vw, 14px); font-weight:900; color:{% if market_data.domestic.dow.direction == 'up' %}#dc2626{% elif market_data.domestic.dow.direction == 'down' %}#2563eb{% else %}#64748b{% endif %}; white-space:nowrap;">
                     {{ market_data.domestic.dow.change|default:"-" }}
                 </div>
             </div>
 
-            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
-                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">BTC</div>
-                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
+            <div style="min-width:0; min-height:clamp(66px, 15vw, 88px); padding:clamp(7px, 1.5vw, 12px); border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08); overflow:hidden;">
+                <div style="font-size:clamp(10px, 2.4vw, 15px); font-weight:900; color:#334155; margin-bottom:clamp(4px, 1vw, 7px); white-space:normal;">BTC</div>
+                <div style="font-size:clamp(13px, 3.4vw, 24px); font-weight:900; color:#111827; margin-bottom:10px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:clip;">
                     {{ market_data.coins.btc.value|default:"-" }}
                 </div>
-                <div style="font-size:14px; font-weight:900; color:{% if market_data.coins.btc.direction == 'up' %}#dc2626{% elif market_data.coins.btc.direction == 'down' %}#2563eb{% else %}#64748b{% endif %};">
+                <div style="font-size:clamp(10px, 2.8vw, 14px); font-weight:900; color:{% if market_data.coins.btc.direction == 'up' %}#dc2626{% elif market_data.coins.btc.direction == 'down' %}#2563eb{% else %}#64748b{% endif %}; white-space:nowrap;">
                     {{ market_data.coins.btc.change|default:"-" }}
                 </div>
             </div>
 
-            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
-                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">ETH</div>
-                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
+            <div style="min-width:0; min-height:clamp(66px, 15vw, 88px); padding:clamp(7px, 1.5vw, 12px); border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08); overflow:hidden;">
+                <div style="font-size:clamp(10px, 2.4vw, 15px); font-weight:900; color:#334155; margin-bottom:clamp(4px, 1vw, 7px); white-space:normal;">ETH</div>
+                <div style="font-size:clamp(13px, 3.4vw, 24px); font-weight:900; color:#111827; margin-bottom:10px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:clip;">
                     {{ market_data.coins.eth.value|default:"-" }}
                 </div>
-                <div style="font-size:14px; font-weight:900; color:{% if market_data.coins.eth.direction == 'up' %}#dc2626{% elif market_data.coins.eth.direction == 'down' %}#2563eb{% else %}#64748b{% endif %};">
+                <div style="font-size:clamp(10px, 2.8vw, 14px); font-weight:900; color:{% if market_data.coins.eth.direction == 'up' %}#dc2626{% elif market_data.coins.eth.direction == 'down' %}#2563eb{% else %}#64748b{% endif %}; white-space:nowrap;">
                     {{ market_data.coins.eth.change|default:"-" }}
                 </div>
             </div>
 
-            <div style="min-height:138px; padding:22px 20px; border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08);">
-                <div style="font-size:15px; font-weight:900; color:#334155; margin-bottom:20px;">USD/KRW</div>
-                <div style="font-size:24px; font-weight:900; color:#111827; margin-bottom:10px;">
+            <div style="min-width:0; min-height:clamp(66px, 15vw, 88px); padding:clamp(7px, 1.5vw, 12px); border-radius:22px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 12px 28px rgba(15,23,42,0.08); overflow:hidden;">
+                <div style="font-size:clamp(10px, 2.4vw, 15px); font-weight:900; color:#334155; margin-bottom:clamp(4px, 1vw, 7px); white-space:normal;">USD/KRW</div>
+                <div style="font-size:clamp(13px, 3.4vw, 24px); font-weight:900; color:#111827; margin-bottom:10px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:clip;">
                     {{ market_data.exchange.usd.value|default:"-" }}
                 </div>
-                <div style="font-size:14px; font-weight:900; color:#64748b;">
+                <div style="font-size:clamp(10px, 2.8vw, 14px); font-weight:900; color:#64748b; white-space:normal;">
                     {{ market_data.exchange.usd.change|default:"기준환율" }}
                 </div>
             </div>
 
         </div>
 
-        <div style="margin-top:10px; text-align:right; color:#94a3b8; font-size:13px; font-weight:500;">
+        <div style="margin-top:10px; text-align:right; color:#94a3b8; font-size:clamp(11px, 2.6vw, 13px); font-weight:500;">
             10분봉 기준 · 업데이트 {{ market_data.updated_at|default:"-" }}
         </div>
 
