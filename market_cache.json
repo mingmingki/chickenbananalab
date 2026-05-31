@@ -1,0 +1,57 @@
+{
+  "updated_at": "2026-05-31 13:52:08",
+  "domestic": {
+    "kospi": {
+      "name": "KOSPI",
+      "value": "8,434.60",
+      "change": "-0.24%",
+      "direction": "down"
+    },
+    "kosdaq": {
+      "name": "KOSDAQ",
+      "value": "1,072.34",
+      "change": "-0.07%",
+      "direction": "down"
+    },
+    "nasdaq": {
+      "name": "NASDAQ",
+      "value": "26,976.35",
+      "change": "-0.12%",
+      "direction": "down"
+    },
+    "sp500": {
+      "name": "S&P 500",
+      "value": "7,581.25",
+      "change": "-0.10%",
+      "direction": "down"
+    },
+    "dow": {
+      "name": "DOW",
+      "value": "51,032.45",
+      "change": "+0.01%",
+      "direction": "up"
+    }
+  },
+  "coins": {
+    "btc": {
+      "name": "BTC",
+      "value": "111,680,984원",
+      "change": "+1.10%",
+      "direction": "up"
+    },
+    "eth": {
+      "name": "ETH",
+      "value": "3,060,774원",
+      "change": "+1.14%",
+      "direction": "up"
+    }
+  },
+  "exchange": {
+    "usd": {
+      "name": "USD/KRW",
+      "value": "1,506원",
+      "change": "기준환율",
+      "direction": "flat"
+    }
+  }
+}
