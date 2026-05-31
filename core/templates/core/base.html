@@ -155,61 +155,69 @@
         </a>
 
         <nav class="top-links">
-            <a href="{% url 'home' %}">Home</a>
-            <a href="{% url 'contact' %}">Contact</a>
+    <a href="{% url 'home' %}">Home</a>
+    <a href="{% url 'contact' %}">Contact</a>
 
-            {% if user.is_authenticated %}
-                <div class="account-menu">
-                    <button type="button" class="account-avatar-btn" id="accountMenuButton">
-    {% if user.profile.nickname %}
-        {{ user.profile.nickname|first|upper }}
-    {% elif user.email %}
-        {{ user.email|first|upper }}
-    {% elif user.username %}
-        {{ user.username|first|upper }}
-    {% else %}
-        U
-    {% endif %}
-</button>
+    {% if user.is_authenticated %}
+        <div class="account-menu">
+            <button type="button" class="account-avatar-btn" id="accountMenuButton">
+                {% if user.profile.nickname %}
+                    {{ user.profile.nickname|first|upper }}
+                {% elif user.email %}
+                    {{ user.email|first|upper }}
+                {% elif user.username %}
+                    {{ user.username|first|upper }}
+                {% else %}
+                    U
+                {% endif %}
+            </button>
 
-                    <div class="account-dropdown" id="accountDropdown">
-                        <div class="account-info">
-                            <strong>
-                                {% if user.email %}
-                                    {{ user.email }}
-                                {% else %}
-                                    {{ user.username }}
-                                {% endif %}
-                            </strong>
-
-                            {% if user.is_staff %}
-                                <span>관리자 계정</span>
-                            {% else %}
-                                <span>일반 계정</span>
-                            {% endif %}
-                        </div>
-
-                        <button type="button" class="account-dropdown-link" onclick="openAccountModal()">
-                            계정관리
-                        </button>
-
-                        {% if user.is_staff %}
-                            <button type="button" class="account-dropdown-link" onclick="openManageModal()">
-                                홈페이지 관리
-                            </button>
+            <div class="account-dropdown" id="accountDropdown">
+                <div class="account-info">
+                    <strong>
+                        {% if user.profile.nickname %}
+                            {{ user.profile.nickname }}
+                        {% elif user.email %}
+                            {{ user.email }}
+                        {% else %}
+                            {{ user.username }}
                         {% endif %}
+                    </strong>
 
-                        <form method="post" action="{% url 'logout' %}" class="account-logout-form">
-                            {% csrf_token %}
-                            <button type="submit">
-                                로그아웃
-                            </button>
-                        </form>
-                    </div>
+                    {% if user.is_superuser %}
+                        <span>최고 관리자</span>
+                    {% elif user.is_staff %}
+                        <span>관리자 계정</span>
+                    {% elif user.profile.is_sub_admin %}
+                        <span>부관리자 계정</span>
+                    {% else %}
+                        <span>일반 계정</span>
+                    {% endif %}
                 </div>
-            <a href="{% url 'signup' %}">SIGNUP</a>
-<a href="{% url 'login' %}">LOGIN</a>
-        </nav>
+
+                <button type="button" class="account-dropdown-link" onclick="openAccountModal()">
+                    계정관리
+                </button>
+
+                {% if user.is_staff %}
+                    <button type="button" class="account-dropdown-link" onclick="openManageModal()">
+                        홈페이지 관리
+                    </button>
+                {% endif %}
+
+                <form method="post" action="{% url 'logout' %}" class="account-logout-form">
+                    {% csrf_token %}
+                    <button type="submit">
+                        로그아웃
+                    </button>
+                </form>
+            </div>
+        </div>
+    {% else %}
+        <a href="{% url 'signup' %}">SIGNUP</a>
+        <a href="{% url 'login' %}">LOGIN</a>
+    {% endif %}
+</nav>
     </div>
 </header>
 
