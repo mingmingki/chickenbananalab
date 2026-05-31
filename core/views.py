@@ -238,15 +238,12 @@ def post_update(request, pk):
 
 
 @user_passes_test(admin_required)
+@require_POST
 def post_delete(request, pk):
     post = get_object_or_404(Post, pk=pk)
-    category = post.category
-
-    if request.method == "POST":
-        post.delete()
-        return redirect(category)
-
-    return redirect("post_detail", pk=post.pk)
+    post.delete()
+    messages.success(request, "글이 삭제되었습니다.")
+    return redirect("admin_dashboard")
 
 
 @user_passes_test(admin_required)
