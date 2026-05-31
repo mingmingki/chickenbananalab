@@ -1,0 +1,214 @@
+{% extends "core/base.html" %}
+{% load socialaccount %}
+
+{% block title %}SIGNUP | ChickenBanana Lab{% endblock %}
+
+{% block content %}
+
+<section class="login-page">
+    <div class="login-card signup-card">
+
+        <div class="login-logo">
+            <div class="login-logo-circle">CB</div>
+            <h1>SIGNUP</h1>
+            <p>ChickenBanana Lab 계정을 만들고 다양한 기능을 이용해보세요.</p>
+        </div>
+
+        <a href="{% provider_login_url 'google' %}" class="google-signup-btn">
+            <span>G</span>
+            Google 계정으로 시작하기
+        </a>
+
+        <div class="signup-divider">
+            <span>또는 직접 가입하기</span>
+        </div>
+
+        <form method="post" class="login-form">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+                <div class="login-error">
+                    {% for error in form.non_field_errors %}
+                        <div>{{ error }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <div class="login-field">
+                <label for="{{ form.username.id_for_label }}">사용자 이름</label>
+                {{ form.username }}
+                {% if form.username.help_text %}
+                    <small class="field-help">{{ form.username.help_text }}</small>
+                {% endif %}
+                {% for error in form.username.errors %}
+                    <div class="field-error">{{ error }}</div>
+                {% endfor %}
+            </div>
+
+            <div class="login-field">
+                <label for="{{ form.password1.id_for_label }}">비밀번호</label>
+                {{ form.password1 }}
+                {% if form.password1.help_text %}
+                    <small class="field-help">{{ form.password1.help_text|safe }}</small>
+                {% endif %}
+                {% for error in form.password1.errors %}
+                    <div class="field-error">{{ error }}</div>
+                {% endfor %}
+            </div>
+
+            <div class="login-field">
+                <label for="{{ form.password2.id_for_label }}">비밀번호 확인</label>
+                {{ form.password2 }}
+                {% if form.password2.help_text %}
+                    <small class="field-help">{{ form.password2.help_text }}</small>
+                {% endif %}
+                {% for error in form.password2.errors %}
+                    <div class="field-error">{{ error }}</div>
+                {% endfor %}
+            </div>
+
+            <button type="submit" class="login-submit">회원가입 완료</button>
+        </form>
+
+        <div class="signup-bottom-text">
+            이미 계정이 있으신가요?
+            <a href="{% url 'login' %}">LOGIN</a>
+        </div>
+
+    </div>
+</section>
+
+<style>
+.signup-card {
+    max-width: 560px;
+}
+
+.google-signup-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 14px 18px;
+    border: 1px solid #d1d5db;
+    border-radius: 14px;
+    background: #ffffff;
+    color: #111827;
+    font-size: 15px;
+    font-weight: 800;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.google-signup-btn:hover {
+    border-color: #9ca3af;
+    background: #f9fafb;
+}
+
+.google-signup-btn span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    background: #f3f4f6;
+    font-weight: 900;
+    color: #111827;
+}
+
+.signup-divider {
+    position: relative;
+    margin: 22px 0 18px;
+    text-align: center;
+}
+
+.signup-divider::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    border-top: 1px solid #e5e7eb;
+    transform: translateY(-50%);
+}
+
+.signup-divider span {
+    position: relative;
+    z-index: 1;
+    display: inline-block;
+    padding: 0 12px;
+    background: #ffffff;
+    color: #6b7280;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.login-form .login-field {
+    margin-bottom: 18px;
+}
+
+.login-form .login-field label {
+    display: block;
+    margin-bottom: 8px;
+    color: #111827;
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.login-form .login-field input {
+    width: 100%;
+    padding: 14px 16px;
+    border: 1px solid #d1d5db;
+    border-radius: 14px;
+    font-size: 15px;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.login-form .login-field input:focus {
+    border-color: #111827;
+    box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.08);
+}
+
+.field-help {
+    display: block;
+    margin-top: 8px;
+    color: #6b7280;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.field-help ul {
+    margin: 8px 0 0 18px;
+    padding: 0;
+}
+
+.field-error {
+    margin-top: 6px;
+    color: #dc2626;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.signup-bottom-text {
+    margin-top: 18px;
+    text-align: center;
+    color: #6b7280;
+    font-size: 14px;
+}
+
+.signup-bottom-text a {
+    color: #111827;
+    font-weight: 800;
+    text-decoration: none;
+}
+
+.signup-bottom-text a:hover {
+    text-decoration: underline;
+}
+</style>
+
+{% endblock %}
