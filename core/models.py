@@ -211,3 +211,27 @@ class UserProfile(models.Model):
         if self.nickname:
             return self.nickname
         return self.user.email or self.user.username
+    
+class VisitLog(models.Model):
+    path = models.CharField(max_length=500)
+    method = models.CharField(max_length=10, default="GET")
+
+    visitor_key = models.CharField(max_length=64, db_index=True)
+    ip_hash = models.CharField(max_length=64, blank=True)
+    user_agent = models.TextField(blank=True)
+
+    referer = models.TextField(blank=True)
+    is_bot = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["visitor_key"]),
+            models.Index(fields=["path"]),
+        ]
+
+    def __str__(self):
+        return f"{self.created_at} / {self.path}"

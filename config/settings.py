@@ -64,6 +64,8 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
 
+    "core.middleware.VisitLogMiddleware",
+
     # django-allauth 필수 미들웨어
     "allauth.account.middleware.AccountMiddleware",
 

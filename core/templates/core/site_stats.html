@@ -11,7 +11,7 @@
             <div>
                 <span class="stats-label">STATISTICS</span>
                 <h1>사이트 통계</h1>
-                <p>글 수, 조회수, 카테고리별 현황을 한눈에 확인합니다.</p>
+                <p>글 수, 조회수, 카테고리별 현황과 방문자 추이를 한눈에 확인합니다.</p>
             </div>
 
             <a href="{% url 'admin_dashboard' %}" class="stats-back-btn">
@@ -54,6 +54,90 @@
                 <span>동영상 첨부 글</span>
                 <strong>{{ video_file_count }}</strong>
                 <p>영상 파일 포함</p>
+            </div>
+        </div>
+
+        <div class="stats-visitor-panel">
+            <div class="stats-visitor-head">
+                <div>
+                    <span class="stats-label">VISITOR ANALYTICS</span>
+                    <h2>일자별 방문 분석</h2>
+                    <p>{{ period_label }} 기준 방문수와 순방문자수를 확인합니다.</p>
+                </div>
+
+                <div class="stats-visitor-summary">
+                    <div>
+                        <span>오늘 방문수</span>
+                        <strong>{{ today_visits|default:0 }}</strong>
+                    </div>
+
+                    <div>
+                        <span>오늘 방문자</span>
+                        <strong>{{ today_visitors|default:0 }}</strong>
+                    </div>
+
+                    <div>
+                        <span>선택기간 방문수</span>
+                        <strong>{{ total_visits_30|default:0 }}</strong>
+                    </div>
+
+                    <div>
+                        <span>선택기간 방문자</span>
+                        <strong>{{ total_visitors_30|default:0 }}</strong>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stats-period-buttons">
+                {% for button in range_buttons %}
+                    <a
+                        href="?period={{ button.value }}"
+                        class="stats-period-btn {% if period == button.value %}active{% endif %}"
+                    >
+                        {{ button.label }}
+                    </a>
+                {% endfor %}
+            </div>
+
+            <div class="stats-chart-box">
+                <canvas id="visitChart"></canvas>
+            </div>
+        </div>
+
+        <div class="stats-panel stats-visit-table-panel">
+            <div class="stats-panel-head">
+                <div>
+                    <span>Daily Visits</span>
+                    <h2>일자별 방문수 목록</h2>
+                </div>
+            </div>
+
+            <div class="stats-table-wrap">
+                <table class="stats-table">
+                    <thead>
+                        <tr>
+                            <th>날짜</th>
+                            <th>방문수</th>
+                            <th>순방문자수</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        {% for row in daily_visit_rows %}
+                            <tr>
+                                <td>
+                                    <strong>{{ row.date|date:"Y.m.d" }}</strong>
+                                </td>
+                                <td>{{ row.visits }}</td>
+                                <td>{{ row.visitors }}</td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="3">아직 방문 기록이 없습니다.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
 
@@ -188,5 +272,230 @@
 
     </div>
 </section>
+
+<style>
+    .stats-visitor-panel {
+        margin-top: 28px;
+        margin-bottom: 28px;
+        padding: 28px;
+        border-radius: 28px;
+        background: #ffffff;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+    }
+
+    .stats-visitor-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        align-items: flex-start;
+        margin-bottom: 20px;
+    }
+
+    .stats-visitor-head h2 {
+        margin: 8px 0 8px;
+        font-size: 28px;
+        font-weight: 900;
+        color: #020617;
+    }
+
+    .stats-visitor-head p {
+        margin: 0;
+        color: #64748b;
+        font-weight: 600;
+    }
+
+    .stats-visitor-summary {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(110px, 1fr));
+        gap: 12px;
+        min-width: 560px;
+    }
+
+    .stats-visitor-summary div {
+        padding: 14px 16px;
+        border-radius: 18px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+    }
+
+    .stats-visitor-summary span {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 12px;
+        color: #64748b;
+        font-weight: 800;
+    }
+
+    .stats-visitor-summary strong {
+        display: block;
+        font-size: 24px;
+        color: #0f172a;
+        font-weight: 900;
+    }
+
+    .stats-period-buttons {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: 16px 0 24px;
+    }
+
+    .stats-period-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        padding: 0 16px;
+        border-radius: 999px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        color: #334155;
+        font-size: 14px;
+        font-weight: 900;
+        text-decoration: none;
+        transition: 0.2s ease;
+    }
+
+    .stats-period-btn:hover {
+        background: #e0f2fe;
+        border-color: #38bdf8;
+        color: #0369a1;
+    }
+
+    .stats-period-btn.active {
+        background: #2563eb;
+        border-color: #2563eb;
+        color: #ffffff;
+        box-shadow: 0 10px 22px rgba(37, 99, 235, 0.25);
+    }
+
+    .stats-chart-box {
+        position: relative;
+        width: 100%;
+        height: 360px;
+    }
+
+    .stats-visit-table-panel {
+        margin-bottom: 28px;
+    }
+
+    @media (max-width: 1024px) {
+        .stats-visitor-head {
+            flex-direction: column;
+        }
+
+        .stats-visitor-summary {
+            width: 100%;
+            min-width: 0;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 640px) {
+        .stats-visitor-panel {
+            padding: 22px;
+            border-radius: 24px;
+        }
+
+        .stats-visitor-head h2 {
+            font-size: 24px;
+        }
+
+        .stats-visitor-summary {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .stats-visitor-summary strong {
+            font-size: 22px;
+        }
+
+        .stats-chart-box {
+            height: 300px;
+        }
+
+        .stats-period-btn {
+            flex: 1;
+            min-width: calc(50% - 6px);
+        }
+    }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    const visitLabels = {{ visit_labels|default:"[]"|safe }};
+    const visitCounts = {{ visit_counts|default:"[]"|safe }};
+    const visitorCounts = {{ visitor_counts|default:"[]"|safe }};
+
+    const visitChartElement = document.getElementById("visitChart");
+
+    if (visitChartElement) {
+        new Chart(visitChartElement, {
+            type: "line",
+            data: {
+                labels: visitLabels,
+                datasets: [
+                    {
+                        label: "방문수",
+                        data: visitCounts,
+                        tension: 0.35,
+                        borderWidth: 3,
+                        pointRadius: 4,
+                        fill: false
+                    },
+                    {
+                        label: "순방문자수",
+                        data: visitorCounts,
+                        tension: 0.35,
+                        borderWidth: 3,
+                        pointRadius: 4,
+                        fill: false
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: "index",
+                    intersect: false
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        labels: {
+                            font: {
+                                weight: "bold"
+                            }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ": " + context.parsed.y + "명";
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            precision: 0
+                        }
+                    },
+                    x: {
+                        ticks: {
+                            maxRotation: 0,
+                            autoSkip: true,
+                            maxTicksLimit: 10
+                        }
+                    }
+                }
+            }
+        });
+    }
+</script>
 
 {% endblock %}

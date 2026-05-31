@@ -3,6 +3,8 @@ import os
 import uuid
 import traceback
 
+from datetime import timedelta
+
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login as auth_login
@@ -11,13 +13,15 @@ from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from django.db.models import Q, Count, Sum
+from django.db.models import Q, Count, Sum, Min
+from django.db.models.functions import TruncDate
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .market_data import get_market_data
-from .models import Post, UserProfile, ExperienceVault
+from .models import Post, UserProfile, ExperienceVault, VisitLog
 from .forms import PostForm, NicknameForm, ExperienceVaultForm
 from .naver_news import recommend_keywords_from_news
 from .ai_writer import (
@@ -402,6 +406,118 @@ def site_stats(request):
     top_posts = Post.objects.order_by("-views", "-created_at")[:10]
     recent_posts = Post.objects.order_by("-created_at")[:10]
 
+    # 방문자 통계 기간 선택
+    today = timezone.localdate()
+    period = request.GET.get("period", "30")
+
+    valid_periods = ["7", "30", "90", "all"]
+
+    if period not in valid_periods:
+        period = "30"
+
+    visit_base_qs = VisitLog.objects.filter(is_bot=False)
+
+    if period == "7":
+        start_date = today - timedelta(days=6)
+        period_label = "최근 7일"
+    elif period == "30":
+        start_date = today - timedelta(days=29)
+        period_label = "최근 30일"
+    elif period == "90":
+        start_date = today - timedelta(days=89)
+        period_label = "최근 90일"
+    else:
+        first_visit = visit_base_qs.aggregate(first=Min("created_at"))["first"]
+
+        if first_visit:
+            start_date = timezone.localtime(first_visit).date()
+        else:
+            start_date = today
+
+        period_label = "전체 기간"
+
+    daily_visit_qs = (
+        visit_base_qs
+        .filter(
+            created_at__date__gte=start_date,
+            created_at__date__lte=today,
+        )
+        .annotate(day=TruncDate("created_at"))
+        .values("day")
+        .annotate(
+            visits=Count("id"),
+            visitors=Count("visitor_key", distinct=True),
+        )
+        .order_by("day")
+    )
+
+    daily_map = {
+        item["day"]: {
+            "visits": item["visits"],
+            "visitors": item["visitors"],
+        }
+        for item in daily_visit_qs
+    }
+
+    visit_labels = []
+    visit_counts = []
+    visitor_counts = []
+    daily_visit_rows = []
+
+    total_days = (today - start_date).days + 1
+
+    for i in range(total_days):
+        day = start_date + timedelta(days=i)
+
+        visits = daily_map.get(day, {}).get("visits", 0)
+        visitors = daily_map.get(day, {}).get("visitors", 0)
+
+        visit_labels.append(day.strftime("%m.%d"))
+        visit_counts.append(visits)
+        visitor_counts.append(visitors)
+
+        daily_visit_rows.append({
+            "date": day,
+            "visits": visits,
+            "visitors": visitors,
+        })
+
+    daily_visit_rows.reverse()
+
+    today_visits = daily_map.get(today, {}).get("visits", 0)
+    today_visitors = daily_map.get(today, {}).get("visitors", 0)
+
+    total_visits_period = sum(visit_counts)
+    total_visitors_period = (
+        visit_base_qs
+        .filter(
+            created_at__date__gte=start_date,
+            created_at__date__lte=today,
+        )
+        .values("visitor_key")
+        .distinct()
+        .count()
+    )
+
+    range_buttons = [
+        {
+            "value": "7",
+            "label": "최근 7일",
+        },
+        {
+            "value": "30",
+            "label": "최근 30일",
+        },
+        {
+            "value": "90",
+            "label": "최근 90일",
+        },
+        {
+            "value": "all",
+            "label": "전체",
+        },
+    ]
+
     return render(request, "core/site_stats.html", {
         "total_posts": total_posts,
         "published_posts": published_posts,
@@ -412,6 +528,23 @@ def site_stats(request):
         "category_stats": category_stats_list,
         "top_posts": top_posts,
         "recent_posts": recent_posts,
+
+        # 방문자 그래프용 데이터
+        "visit_labels": json.dumps(visit_labels, ensure_ascii=False),
+        "visit_counts": json.dumps(visit_counts),
+        "visitor_counts": json.dumps(visitor_counts),
+
+        # 방문자 요약 데이터
+        "today_visits": today_visits,
+        "today_visitors": today_visitors,
+        "total_visits_30": total_visits_period,
+        "total_visitors_30": total_visitors_period,
+
+        # 기간 선택 / 표 데이터
+        "period": period,
+        "period_label": period_label,
+        "range_buttons": range_buttons,
+        "daily_visit_rows": daily_visit_rows,
     })
 
 
