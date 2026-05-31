@@ -28,17 +28,17 @@
     <div class="container">
         <div class="post-grid">
             {% for post in results %}
-            <a href="{% url 'post_detail' post.id %}" class="post-card">
-                <strong>{{ post.get_category_display }}</strong>
-                <h3>{{ post.title }}</h3>
-                <p>{{ post.content|striptags|truncatechars:90 }}</p>
-            </a>
+                <a href="{{ post.get_absolute_url }}" class="post-card">
+                    <strong>{{ post.get_category_display }}</strong>
+                    <h3>{{ post.title }}</h3>
+                    <p>{{ post.content|striptags|truncatechars:90 }}</p>
+                </a>
             {% empty %}
                 {% if query %}
-                <div class="empty-box">
-                    <h3>검색 결과가 없습니다.</h3>
-                    <p>다른 검색어로 다시 검색해보세요.</p>
-                </div>
+                    <div class="empty-box">
+                        <h3>검색 결과가 없습니다.</h3>
+                        <p>다른 검색어로 다시 검색해보세요.</p>
+                    </div>
                 {% endif %}
             {% endfor %}
         </div>

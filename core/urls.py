@@ -14,7 +14,13 @@ urlpatterns = [
     path("life/", views.category_page, {"slug": "life"}, name="life"),
 
     path("post/add/", views.post_create, name="post_create"),
+
+    # 기존 숫자 주소 유지
     path("post/<int:pk>/", views.post_detail, name="post_detail"),
+
+    # SEO용 한글 slug 주소
+    path("post/slug/<path:slug>/", views.post_detail_by_slug, name="post_detail_slug"),
+
     path("post/<int:pk>/edit/", views.post_update, name="post_update"),
     path("post/<int:pk>/delete/", views.post_delete, name="post_delete"),
     path("post/<int:pk>/publish/", views.post_publish, name="post_publish"),
@@ -36,8 +42,9 @@ urlpatterns = [
     path("dashboard/members/", views.member_manage, name="member_manage"),
     path("dashboard/members/<int:user_id>/role/", views.member_role_update, name="member_role_update"),
     path("dashboard/members/<int:user_id>/delete/", views.member_delete, name="member_delete"),
+
     path("upload/editor-image/", views.editor_image_upload, name="editor_image_upload"),
+
     path("terms/", views.terms, name="terms"),
     path("privacy/", views.privacy, name="privacy"),
-
 ]

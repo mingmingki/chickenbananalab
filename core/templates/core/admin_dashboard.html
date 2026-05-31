@@ -53,7 +53,7 @@
                             </span>
                         </div>
 
-                        <a href="{% url 'post_detail' post.pk %}" class="dashboard-post-title">
+                        <a href="{{ post.get_absolute_url }}" class="dashboard-post-title">
                             {{ post.title }}
                         </a>
 
@@ -65,7 +65,7 @@
                     </div>
 
                     <div class="dashboard-post-actions">
-                        <a href="{% url 'post_detail' post.pk %}" class="cancel-btn">
+                        <a href="{{ post.get_absolute_url }}" class="cancel-btn">
                             보기
                         </a>
 

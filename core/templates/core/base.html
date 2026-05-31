@@ -29,6 +29,136 @@
             display: block;
         }
 
+        /* AI 글 생성 로딩창 */
+        .ai-loading-overlay {
+            display: none !important;
+            position: fixed !important;
+            inset: 0 !important;
+            z-index: 2147483647 !important;
+            background: rgba(0, 0, 0, 0.72) !important;
+            backdrop-filter: blur(7px) !important;
+            -webkit-backdrop-filter: blur(7px) !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 24px !important;
+            box-sizing: border-box !important;
+        }
+
+        .ai-loading-overlay.show {
+            display: flex !important;
+        }
+
+        .ai-loading-card {
+            width: min(430px, 90vw) !important;
+            background: #ffffff !important;
+            color: #111827 !important;
+            border-radius: 24px !important;
+            padding: 34px 28px !important;
+            text-align: center !important;
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45) !important;
+            box-sizing: border-box !important;
+        }
+
+        .ai-loading-icon {
+            width: 68px !important;
+            height: 68px !important;
+            margin: 0 auto 22px !important;
+            border-radius: 20px !important;
+            background: linear-gradient(135deg, #4f46e5, #7c3aed) !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 6px !important;
+            animation: aiPulse 1.25s infinite ease-in-out !important;
+        }
+
+        .ai-loading-icon span {
+            width: 7px !important;
+            height: 7px !important;
+            border-radius: 50% !important;
+            background: #ffffff !important;
+            opacity: 0.9 !important;
+            animation: aiDot 1s infinite ease-in-out !important;
+        }
+
+        .ai-loading-icon span:nth-child(2) {
+            animation-delay: 0.15s !important;
+        }
+
+        .ai-loading-icon span:nth-child(3) {
+            animation-delay: 0.3s !important;
+        }
+
+        .ai-loading-card h2 {
+            margin: 0 0 14px !important;
+            font-size: 22px !important;
+            font-weight: 900 !important;
+            color: #111827 !important;
+        }
+
+        .ai-loading-card p {
+            margin: 0 !important;
+            color: #6b7280 !important;
+            font-size: 15px !important;
+            line-height: 1.7 !important;
+            font-weight: 700 !important;
+        }
+
+        .ai-loading-progress {
+            height: 8px !important;
+            background: #e5e7eb !important;
+            border-radius: 999px !important;
+            overflow: hidden !important;
+            margin: 24px 0 14px !important;
+        }
+
+        .ai-loading-progress div {
+            height: 100% !important;
+            width: 45% !important;
+            border-radius: 999px !important;
+            background: linear-gradient(90deg, #2563eb, #7c3aed) !important;
+            animation: aiLoadingMove 1.4s infinite ease-in-out !important;
+        }
+
+        .ai-loading-card small {
+            display: block !important;
+            color: #6b7280 !important;
+            font-size: 14px !important;
+            font-weight: 800 !important;
+        }
+
+        @keyframes aiLoadingMove {
+            0% {
+                transform: translateX(-120%);
+            }
+
+            100% {
+                transform: translateX(260%);
+            }
+        }
+
+        @keyframes aiPulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.08);
+            }
+        }
+
+        @keyframes aiDot {
+            0%, 100% {
+                transform: translateY(0);
+                opacity: 0.45;
+            }
+
+            50% {
+                transform: translateY(-5px);
+                opacity: 1;
+            }
+        }
+
         /* 모바일 계정 메뉴 강제 수정 */
         @media (max-width: 768px) {
             .site-header,
@@ -124,7 +254,6 @@
                 color: #82ff9e !important;
             }
 
-            /* 모바일 팝업 열렸을 때 상단 P 프로필 버튼 숨김 */
             body.modal-open .account-avatar-btn {
                 display: none !important;
                 opacity: 0 !important;
@@ -155,69 +284,69 @@
         </a>
 
         <nav class="top-links">
-    <a href="{% url 'home' %}">Home</a>
-    <a href="{% url 'contact' %}">Contact</a>
+            <a href="{% url 'home' %}">Home</a>
+            <a href="{% url 'contact' %}">Contact</a>
 
-    {% if user.is_authenticated %}
-        <div class="account-menu">
-            <button type="button" class="account-avatar-btn" id="accountMenuButton">
-                {% if user.profile.nickname %}
-                    {{ user.profile.nickname|first|upper }}
-                {% elif user.email %}
-                    {{ user.email|first|upper }}
-                {% elif user.username %}
-                    {{ user.username|first|upper }}
-                {% else %}
-                    U
-                {% endif %}
-            </button>
-
-            <div class="account-dropdown" id="accountDropdown">
-                <div class="account-info">
-                    <strong>
+            {% if user.is_authenticated %}
+                <div class="account-menu">
+                    <button type="button" class="account-avatar-btn" id="accountMenuButton">
                         {% if user.profile.nickname %}
-                            {{ user.profile.nickname }}
+                            {{ user.profile.nickname|first|upper }}
                         {% elif user.email %}
-                            {{ user.email }}
+                            {{ user.email|first|upper }}
+                        {% elif user.username %}
+                            {{ user.username|first|upper }}
                         {% else %}
-                            {{ user.username }}
+                            U
                         {% endif %}
-                    </strong>
+                    </button>
 
-                    {% if user.is_superuser %}
-                        <span>최고 관리자</span>
-                    {% elif user.is_staff %}
-                        <span>관리자 계정</span>
-                    {% elif user.profile.is_sub_admin %}
-                        <span>부관리자 계정</span>
-                    {% else %}
-                        <span>일반 계정</span>
-                    {% endif %}
+                    <div class="account-dropdown" id="accountDropdown">
+                        <div class="account-info">
+                            <strong>
+                                {% if user.profile.nickname %}
+                                    {{ user.profile.nickname }}
+                                {% elif user.email %}
+                                    {{ user.email }}
+                                {% else %}
+                                    {{ user.username }}
+                                {% endif %}
+                            </strong>
+
+                            {% if user.is_superuser %}
+                                <span>최고 관리자</span>
+                            {% elif user.is_staff %}
+                                <span>관리자 계정</span>
+                            {% elif user.profile.is_sub_admin %}
+                                <span>부관리자 계정</span>
+                            {% else %}
+                                <span>일반 계정</span>
+                            {% endif %}
+                        </div>
+
+                        <button type="button" class="account-dropdown-link" onclick="openAccountModal()">
+                            계정관리
+                        </button>
+
+                        {% if user.is_staff %}
+                            <button type="button" class="account-dropdown-link" onclick="openManageModal()">
+                                홈페이지 관리
+                            </button>
+                        {% endif %}
+
+                        <form method="post" action="{% url 'logout' %}" class="account-logout-form">
+                            {% csrf_token %}
+                            <button type="submit">
+                                로그아웃
+                            </button>
+                        </form>
+                    </div>
                 </div>
-
-                <button type="button" class="account-dropdown-link" onclick="openAccountModal()">
-                    계정관리
-                </button>
-
-                {% if user.is_staff %}
-                    <button type="button" class="account-dropdown-link" onclick="openManageModal()">
-                        홈페이지 관리
-                    </button>
-                {% endif %}
-
-                <form method="post" action="{% url 'logout' %}" class="account-logout-form">
-                    {% csrf_token %}
-                    <button type="submit">
-                        로그아웃
-                    </button>
-                </form>
-            </div>
-        </div>
-    {% else %}
-    <a href="/signup/">SIGNUP</a>
-    <a href="{% url 'login' %}">LOGIN</a>
-{% endif %}
-</nav>
+            {% else %}
+                <a href="/signup/">SIGNUP</a>
+                <a href="{% url 'login' %}">LOGIN</a>
+            {% endif %}
+        </nav>
     </div>
 </header>
 
@@ -282,7 +411,6 @@
 </footer>
 
 {% if user.is_authenticated %}
-    <!-- 계정관리 팝업 -->
     <div class="site-modal" id="accountModal">
         <div class="site-modal-backdrop" onclick="closeAccountModal()"></div>
 
@@ -298,27 +426,27 @@
 
             <div class="account-profile-box">
                 <div class="account-profile-avatar">
-    {% if user.profile.nickname %}
-        {{ user.profile.nickname|first|upper }}
-    {% elif user.email %}
-        {{ user.email|first|upper }}
-    {% elif user.username %}
-        {{ user.username|first|upper }}
-    {% else %}
-        U
-    {% endif %}
-</div>
+                    {% if user.profile.nickname %}
+                        {{ user.profile.nickname|first|upper }}
+                    {% elif user.email %}
+                        {{ user.email|first|upper }}
+                    {% elif user.username %}
+                        {{ user.username|first|upper }}
+                    {% else %}
+                        U
+                    {% endif %}
+                </div>
 
                 <div>
                     <strong>
-    {% if user.profile.nickname %}
-        {{ user.profile.nickname }}
-    {% elif user.email %}
-        {{ user.email }}
-    {% else %}
-        {{ user.username }}
-    {% endif %}
-</strong>
+                        {% if user.profile.nickname %}
+                            {{ user.profile.nickname }}
+                        {% elif user.email %}
+                            {{ user.email }}
+                        {% else %}
+                            {{ user.username }}
+                        {% endif %}
+                    </strong>
 
                     {% if user.is_staff %}
                         <p>관리자 권한이 있는 계정입니다.</p>
@@ -328,23 +456,23 @@
                 </div>
             </div>
 
-<form method="post" action="{% url 'profile_update' %}" class="nickname-update-form">
-    {% csrf_token %}
-    <input type="hidden" name="next" value="{{ request.path }}">
+            <form method="post" action="{% url 'profile_update' %}" class="nickname-update-form">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.path }}">
 
-    <label>닉네임 변경</label>
-    <div style="display:flex; gap:8px; margin-top:8px;">
-        <input
-            type="text"
-            name="nickname"
-            value="{% if user.profile.nickname %}{{ user.profile.nickname }}{% endif %}"
-            placeholder="닉네임 입력"
-            maxlength="30"
-            style="flex:1; padding:12px 14px; border:1px solid #d1d5db; border-radius:12px;"
-        >
-        <button type="submit" class="modal-dark-btn">저장</button>
-    </div>
-</form>
+                <label>닉네임 변경</label>
+                <div style="display:flex; gap:8px; margin-top:8px;">
+                    <input
+                        type="text"
+                        name="nickname"
+                        value="{% if user.profile.nickname %}{{ user.profile.nickname }}{% endif %}"
+                        placeholder="닉네임 입력"
+                        maxlength="30"
+                        style="flex:1; padding:12px 14px; border:1px solid #d1d5db; border-radius:12px;"
+                    >
+                    <button type="submit" class="modal-dark-btn">저장</button>
+                </div>
+            </form>
 
             <div class="modal-info-list">
                 <div>
@@ -389,7 +517,6 @@
     </div>
 
     {% if user.is_staff %}
-        <!-- 홈페이지 관리 팝업 -->
         <div class="site-modal" id="manageModal">
             <div class="site-modal-backdrop" onclick="closeManageModal()"></div>
 
@@ -435,16 +562,16 @@
                     </a>
 
                     <a href="{% url 'site_stats' %}" class="manage-menu-item">
-    <div>📊</div>
-    <strong>사이트 통계</strong>
-    <p>글 수, 조회수, 인기글 현황을 확인합니다.</p>
-</a>
+                        <div>📊</div>
+                        <strong>사이트 통계</strong>
+                        <p>글 수, 조회수, 인기글 현황을 확인합니다.</p>
+                    </a>
 
-<a href="{% url 'member_manage' %}" class="manage-menu-item">
-    <div>👥</div>
-    <strong>회원 관리</strong>
-    <p>가입 회원과 부관리자 권한을 관리합니다.</p>
-</a>
+                    <a href="{% url 'member_manage' %}" class="manage-menu-item">
+                        <div>👥</div>
+                        <strong>회원 관리</strong>
+                        <p>가입 회원과 부관리자 권한을 관리합니다.</p>
+                    </a>
                 </div>
 
                 <div class="site-modal-actions">
@@ -453,7 +580,6 @@
             </div>
         </div>
 
-        <!-- AI 자동글 생성 팝업 -->
         <div class="site-modal" id="aiPostModal">
             <div class="site-modal-backdrop" onclick="closeAiPostModal()"></div>
 
@@ -609,6 +735,31 @@
         </div>
     {% endif %}
 {% endif %}
+
+<div id="aiLoadingOverlay" class="ai-loading-overlay" hidden>
+    <div class="ai-loading-card">
+        <div class="ai-loading-icon">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+
+        <h2>AI가 열심히 일하는 중입니다</h2>
+
+        <p>
+            글을 작성하고 있습니다.<br>
+            이미지 생성이 포함되어 있으면 조금 더 오래 걸릴 수 있어요.
+        </p>
+
+        <div class="ai-loading-progress">
+            <div></div>
+        </div>
+
+        <small>
+            창을 닫지 말고 잠시만 기다려 주세요.
+        </small>
+    </div>
+</div>
 
 <script>
     const accountMenuButton = document.getElementById("accountMenuButton");
@@ -865,33 +1016,7 @@
                 });
         });
     }
-</script>
 
-<div id="aiLoadingOverlay" class="ai-loading-overlay" hidden>
-    <div class="ai-loading-card">
-        <div class="ai-loading-icon">
-            <span></span>
-            <span></span>
-            <span></span>
-        </div>
-
-        <h2>AI가 열심히 일하는 중입니다</h2>
-        <p>
-            글을 작성하고 있습니다.<br>
-            이미지 생성이 포함되어 있으면 조금 더 오래 걸릴 수 있어요.
-        </p>
-
-        <div class="ai-loading-progress">
-            <div></div>
-        </div>
-
-        <small>
-            창을 닫지 말고 잠시만 기다려 주세요.
-        </small>
-    </div>
-</div>
-
-<script>
     document.addEventListener("DOMContentLoaded", function () {
         const aiPostForm = document.getElementById("aiPostForm");
         const aiLoadingOverlay = document.getElementById("aiLoadingOverlay");
@@ -900,15 +1025,31 @@
             return;
         }
 
-        aiPostForm.addEventListener("submit", function () {
+        let aiSubmitting = false;
+
+        aiPostForm.addEventListener("submit", function (event) {
+            if (aiSubmitting) {
+                return;
+            }
+
+            event.preventDefault();
+
             aiLoadingOverlay.hidden = false;
             aiLoadingOverlay.classList.add("show");
+            aiLoadingOverlay.style.display = "flex";
+            document.body.style.overflow = "hidden";
 
             const submitButton = aiPostForm.querySelector("button[type='submit']");
+
             if (submitButton) {
                 submitButton.disabled = true;
                 submitButton.innerText = "AI 작성 중...";
             }
+
+            setTimeout(function () {
+                aiSubmitting = true;
+                aiPostForm.submit();
+            }, 250);
         });
     });
 </script>

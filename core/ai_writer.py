@@ -13,7 +13,7 @@ from openai import OpenAI
 load_dotenv(override=True)
 
 
-TEXT_MODEL = os.getenv("OPENAI_TEXT_MODEL", "gpt-5.5")
+TEXT_MODEL = os.getenv("OPENAI_TEXT_MODEL", "gpt-4.1-mini")
 IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
 IMAGE_QUALITY = os.getenv("OPENAI_IMAGE_QUALITY", "low")
 
@@ -37,10 +37,6 @@ def clamp_number(value, min_value, max_value, default):
 
 
 def extract_json(text):
-    """
-    AI 응답에서 JSON만 안전하게 추출.
-    모델이 실수로 ```json 코드블록을 붙이거나 앞뒤 설명을 붙여도 최대한 파싱.
-    """
     text = (text or "").strip()
 
     if text.startswith("```"):
@@ -63,6 +59,18 @@ def extract_json(text):
     return None
 
 
+def clean_text_for_meta(text, limit=150):
+    text = str(text or "")
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    if len(text) <= limit:
+        return text
+
+    return text[:limit].rstrip() + "..."
+
+
 def generate_ai_post(
     category,
     keywords,
@@ -73,15 +81,6 @@ def generate_ai_post(
     image_count=0,
     planned_title="",
 ):
-    """
-    AI 블로그 글 생성:
-    - 제목
-    - 썸네일 문구
-    - HTML 본문
-    - 태그
-    - 썸네일 이미지 프롬프트
-    - 본문 이미지 프롬프트 + 캡션
-    """
     image_count = clamp_number(image_count, 0, 5, 0)
 
     style_map = {
@@ -115,7 +114,9 @@ def generate_ai_post(
 {planned_title}
 
 작성 규칙:
-- 제목은 가능하면 세부 제목을 그대로 사용하거나 자연스럽게 다듬어라.
+- 제목은 가능하면 세부 제목을 그대로 사용하거나 검색 친화적으로 자연스럽게 다듬어라.
+- 제목은 25~45자 정도로 작성해라.
+- 제목 앞부분에 핵심 키워드가 자연스럽게 들어가게 작성해라.
 - 다른 주제로 벗어나지 마라.
 - 같은 키워드의 다른 글과 내용이 겹치지 않게 작성해라.
 """
@@ -142,8 +143,7 @@ caption 조건:
 - 사진 아래에 들어갈 짧은 설명
 - 20~45자 정도
 - '입니다', '합니다' 같은 종결어미 쓰지 않기
-- 검정 기사 문장 느낌보다 짧은 이미지 설명 느낌
-- 예: 서소문 고가차도 해체 공사 구간의 안전 펜스와 통제 동선
+- 짧은 이미지 설명 느낌
 """
     else:
         image_instruction = """
@@ -152,9 +152,8 @@ content_images는 빈 배열로 반환해라.
 """
 
     prompt = f"""
-너는 ChickenBanana Lab 블로그의 전문 콘텐츠 작성자다.
-
-아래 조건에 맞춰 블로그 글 초안을 작성해라.
+너는 ChickenBanana Lab 블로그의 한국어 SEO 전문 콘텐츠 작성자다.
+목표는 네이버와 구글 검색엔진이 이해하기 쉬우면서도, 실제 사람이 읽었을 때 도움이 되는 글을 작성하는 것이다.
 
 카테고리: {category_name}
 주요 키워드: {keywords}
@@ -163,36 +162,53 @@ content_images는 빈 배열로 반환해라.
 
 {planned_title_instruction}
 
-작성 조건:
+핵심 SEO 작성 원칙:
+- 제목은 검색자가 실제로 입력할 만한 롱테일 키워드 형태로 작성해라.
+- 첫 문단 150자 안에 핵심 키워드를 자연스럽게 포함해라.
+- 본문은 h2, h3, p, ul, li, table, blockquote, mark, span 태그를 적절히 사용해라.
+- 본문 최상단에 h1 태그는 절대 쓰지 마라.
+- 글 초반에 핵심 요약 박스를 넣어라.
+- 검색자가 궁금해할 질문과 답변을 FAQ 형태로 3개 이상 포함해라.
+- 글 마지막에는 자연스러운 마무리와 한 줄 요약을 넣어라.
+- 키워드를 억지로 반복하지 마라.
+- 같은 표현, 같은 문장 패턴, 같은 소제목 구조를 반복하지 마라.
+- 허위 수치, 확인되지 않은 통계, 실제 경험처럼 보이는 거짓 후기를 만들지 마라.
+- 금융, 세금, 건강, 법률 주제는 단정하지 말고 주의 문구를 넣어라.
+- 애드센스 승인에 불리할 수 있는 얇은 자동생성 글처럼 보이지 않게 작성해라.
+
+summary 작성 조건:
+- summary는 글 상단이나 목록에서 보여줄 수 있는 2~3문장 요약문으로 작성해라.
+- 핵심 키워드를 자연스럽게 포함해라.
+- 너무 광고 문구처럼 쓰지 마라.
+
+meta_description 작성 조건:
+- meta_description은 검색 결과에 표시될 수 있는 설명문이다.
+- 80~120자 정도로 작성해라.
+- 핵심 키워드를 자연스럽게 포함해라.
+- 클릭을 유도하되 과장하지 마라.
+- 문장 끝은 자연스럽게 마무리해라.
+
+본문 작성 조건:
 - 한국어로 작성
-- 제목은 검색과 클릭을 고려해서 작성
 - 본문은 HTML 형식으로 작성
 - 본문 최상단에 h1 태그는 쓰지 마라
+- 제목은 content 안에 반복하지 마라
+- script, iframe, style 태그는 절대 사용하지 마라
 - 과장된 허위 정보 금지
-- 확인되지 않은 내용은 단정하지 말고 '알려져 있습니다', '후기에서 언급됩니다', '확인이 필요합니다'처럼 신중하게 표현
+- 확인되지 않은 내용은 단정하지 말고 신중하게 표현
 - 애드센스 블로그에 어울리게 정보성으로 작성
 - 썸네일 이미지 프롬프트는 본문 content 안에 넣지 마라
 - 결과는 반드시 JSON 형식만 반환
 
 글 분량 판단 조건:
-- 글은 무조건 길게 쓰지 마라.
 - 주제가 간단한 생활정보, 맛집 위치, 메뉴 소개, 짧은 이슈라면 핵심만 담아 900~1,300자 정도로 작성해라.
-- 주제가 맛집/여행 소개형이면 위치, 메뉴, 방문 팁, 어울리는 사람 중심으로 1,100~1,600자 정도로 작성해라.
-- 주제가 비교, 분석, 교육, 사용법, 투자 리스크, 개발 방법, 건축 실무처럼 설명이 필요한 내용이면 1,500~2,500자 정도로 작성해라.
+- 맛집/여행 소개형이면 위치, 메뉴, 방문 팁, 어울리는 사람 중심으로 1,100~1,600자 정도로 작성해라.
+- 비교, 분석, 교육, 사용법, 투자 리스크, 개발 방법, 건축 실무처럼 설명이 필요한 내용이면 1,500~2,500자 정도로 작성해라.
 - 프로그램 사용법, 개발 튜토리얼, 자동매매 로직, 건축 실무 체크리스트처럼 단계 설명이 필요한 글은 충분히 길게 작성해라.
 - 독자가 이미 아는 일반론을 길게 늘리지 마라.
 - 같은 말을 반복해서 글자 수를 채우지 마라.
 - 짧은 글이어도 검색자가 궁금해하는 핵심 답변은 빠뜨리지 마라.
 - 긴 글은 소제목, 표, 리스트를 활용해서 읽기 쉽게 나눠라.
-
-분량 결정 기준:
-- 간단 정보형이면 짧고 명확하게 작성
-- 맛집/여행 소개형이면 중간 분량으로 작성
-- 비교/분석형이면 충분히 설명
-- 교육/가이드형이면 단계별로 자세히 작성
-- 프로그램 사용법/개발 글이면 따라 할 수 있게 길게 작성
-- 금융/코인 글이면 리스크, 조건, 예시, 주의점을 포함해서 중간 이상 분량으로 작성
-- 건축/시공 글이면 현장 실무 기준, 체크리스트, 비용·안전 포인트를 포함해서 충분히 작성
 
 작성 스타일:
 - 전체 톤은 사람이 직접 블로그에 쓰는 자연스러운 설명체로 작성해라.
@@ -201,38 +217,42 @@ content_images는 빈 배열로 반환해라.
 - 단, 반말은 쓰지 마라.
 - 독자에게 옆에서 알려주는 느낌으로 작성해라.
 - 첫 문단은 너무 딱딱한 Q&A보다 자연스러운 공감 문장으로 시작해라.
-- 예: 안면도 여행을 준비하다 보면 꽃게장이나 게국지 한 번쯤은 검색하게 됩니다.
-- 예: 방송에 나온 맛집을 찾는 분들이라면 이 식당 이름을 한 번쯤 보셨을 거예요.
-- "확인하세요", "권합니다", "달라질 수 있습니다", "방문 전 확인" 같은 표현은 글 전체에서 2~3번 이하로만 사용해라.
-- 같은 표현을 반복하지 마라.
 - 한 문단은 2~3줄 이내로 짧게 작성해라.
-- 맛집, 여행, 생활 정보 글에서는 너무 조심스러운 문장보다 실제 검색자가 궁금해할 내용을 먼저 알려줘라.
 - 직접 방문하지 않았는데 "제가 먹어봤는데", "직접 다녀왔는데", "제가 방문했을 때" 같은 허위 경험 표현은 절대 쓰지 마라.
 - 대신 "후기에서 많이 언급되는 포인트", "여행 동선상 보기 좋은 점", "메뉴를 고를 때 볼 부분"처럼 자연스럽게 써라.
 - 소제목은 딱딱한 질문형만 반복하지 말고 블로그식 문장으로 작성해라.
-- 예: 안면도 여행 중 한 끼로 보기 좋은 이유
-- 예: 꽃게장백반과 게국지, 이렇게 고르면 편합니다
-- 예: 가기 전에 이 정도만 체크하면 충분합니다
 - 표는 꼭 필요할 때만 1개 정도 사용해라.
-- 표를 너무 많이 넣지 마라.
 - 핵심 문장은 <mark class="yellow-highlight">강조문구</mark> 형태로 표시해라.
 - 중요한 장소, 메뉴, 금액, 시간, 키워드는 <span class="blue-point">강조문구</span> 형태로 강조해라.
 - 글 마지막은 딱딱한 결론보다 "이런 분들에게 어울립니다" 식으로 자연스럽게 정리해라.
 
+본문 구조 권장:
+- 도입 문단
+- 핵심 요약 박스
+- 주요 내용 h2
+- 세부 설명 h3
+- 필요하면 표 1개
+- 체크리스트
+- FAQ 3개 이상
+- 마무리
+- 한 줄 요약
+
+FAQ 작성 조건:
+- FAQ 소제목은 <h2>자주 묻는 질문</h2>로 작성해라.
+- 질문은 <h3> 태그로 작성해라.
+- 답변은 <p> 태그로 작성해라.
+- 실제 검색자가 물어볼 만한 질문으로 작성해라.
+- 너무 뻔한 질문만 넣지 마라.
+
 품질 강화 조건:
 - 이 글은 저품질 자동생성 글처럼 보이지 않아야 한다.
-- 단, AI 사용 사실을 숨기기 위해 거짓 경험이나 허위 정보를 만들지 마라.
 - 검색 결과에 이미 흔한 말만 반복하지 말고, 독자가 바로 활용할 수 있는 판단 기준을 넣어라.
 - 글마다 도입부, 소제목, 표 구조, 마무리 문장을 다르게 구성해라.
-- 같은 사이트의 다른 글과 비슷한 문장 패턴을 반복하지 마라.
 - "이번 글에서는", "정리해보겠습니다", "확인해보세요" 같은 흔한 AI식 문구를 피하라.
 - 독자가 실제로 궁금해할 만한 질문을 먼저 해결해라.
-- 본문 중간에는 "이 부분은 이렇게 보면 편합니다" 같은 사람 설명형 문장을 자연스럽게 넣어라.
 - 단순 정보 나열보다 선택 기준, 주의점, 실제 활용 상황을 포함해라.
-- 글 마지막에는 3줄 요약보다 "이런 경우라면 이렇게 보면 됩니다" 식으로 자연스럽게 마무리해라.
 - 문장 패턴을 다양하게 사용하고, 모든 문단을 같은 길이로 만들지 마라.
 - 너무 완벽하게 정돈된 기계식 글보다 사람이 편집한 듯 자연스러운 흐름으로 작성해라.
-- 직접 경험이 필요한 부분은 "직접 방문 후기", "실제 사용 후기"처럼 단정하지 말고 "후기에서 자주 보이는 부분"으로 표현해라.
 
 반복 금지 표현:
 - "방문 전 확인을 권합니다"를 반복하지 마라.
@@ -249,7 +269,6 @@ content_images는 빈 배열로 반환해라.
 - 맛집/여행/생활 정보 글은 정보 안내문이 아니라 여행자가 읽는 블로그 글처럼 작성해라.
 - 맛집 글은 메뉴 설명에 맛의 방향, 식사 상황, 누구와 가기 좋은지 등을 자연스럽게 넣어라.
 - 단, 실제 맛을 단정하지 마라.
-- "짭조름하게 밥과 먹기 좋은 메뉴", "여럿이 나눠 먹기 좋은 국물 메뉴"처럼 표현해라.
 - 위치 설명은 길게 쓰지 말고 여행 동선 관점으로 짧게 작성해라.
 - 영업시간, 휴무일, 가격 확인 문구는 마지막 체크리스트에서 한 번만 정리해라.
 - 금융/코인 글은 투자 권유처럼 쓰지 말고, 리스크와 확인 포인트를 함께 넣어라.
@@ -268,8 +287,6 @@ content_images는 빈 배열로 반환해라.
     </a>
 </p>
 
-- 예: 일송꽃게장백반 태안이라면 query=일송꽃게장백반+태안 형태로 작성해라.
-- 네이버지도, 카카오맵은 검색어만 안내하고, 실제 클릭 버튼은 구글지도 버튼으로 제공해라.
 - 같은 지도 링크를 여러 번 반복하지 마라.
 
 본문 HTML 조건:
@@ -292,7 +309,9 @@ content_images는 빈 배열로 반환해라.
 
 반환 형식:
 {{
-  "title": "글 제목",
+  "title": "검색 친화적인 글 제목",
+  "summary": "글 상단 또는 목록에 보여줄 2~3문장 요약",
+  "meta_description": "검색 결과에 표시하기 좋은 80~120자 설명문",
   "thumbnail_text": "썸네일에 넣을 짧은 문구",
   "content": "HTML 본문",
   "tags": "태그1,태그2,태그3,태그4,태그5",
@@ -319,6 +338,8 @@ content_images는 빈 배열로 반환해라.
     if not data:
         data = {
             "title": f"{keywords} 정리",
+            "summary": clean_text_for_meta(text, 180),
+            "meta_description": clean_text_for_meta(text, 120),
             "thumbnail_text": keywords[:30],
             "content": text,
             "tags": keywords if include_tags else "",
@@ -333,10 +354,23 @@ content_images는 빈 배열로 반환해라.
 
     content_images = content_images[:image_count]
 
+    title = str(data.get("title", f"{keywords} 정리"))[:200]
+    content = str(data.get("content", ""))
+    summary = str(data.get("summary", "")).strip()
+    meta_description = str(data.get("meta_description", "")).strip()
+
+    if not summary:
+        summary = clean_text_for_meta(content, 180)
+
+    if not meta_description:
+        meta_description = clean_text_for_meta(summary or content, 120)
+
     return {
-        "title": str(data.get("title", f"{keywords} 정리"))[:200],
+        "title": title,
+        "summary": summary[:300],
+        "meta_description": meta_description[:160],
         "thumbnail_text": str(data.get("thumbnail_text", keywords[:30]))[:100],
-        "content": str(data.get("content", "")),
+        "content": content,
         "tags": str(data.get("tags", "")) if include_tags else "",
         "thumbnail_prompt": str(data.get("thumbnail_prompt", "")) if make_thumbnail else "",
         "content_images": content_images,
@@ -351,10 +385,6 @@ def generate_post_topics(
     count=1,
     existing_titles=None,
 ):
-    """
-    여러 개의 글을 생성할 때 먼저 주제를 나눠주는 함수.
-    예: 코인 자동매매 5개 → 서로 다른 세부 주제 5개 생성
-    """
     count = clamp_number(count, 1, 10, 1)
 
     if count == 1:
@@ -391,7 +421,7 @@ def generate_post_topics(
     existing_title_text = "\n".join([f"- {title}" for title in existing_titles[:20]])
 
     prompt = f"""
-너는 ChickenBanana Lab 블로그의 콘텐츠 기획자다.
+너는 ChickenBanana Lab 블로그의 SEO 콘텐츠 기획자다.
 
 사용자가 하나의 큰 키워드로 여러 개의 글을 생성하려고 한다.
 같은 내용이 반복되지 않도록 서로 다른 세부 주제 {count}개를 기획해라.
@@ -410,7 +440,8 @@ def generate_post_topics(
 - 제목이 서로 비슷하면 안 된다.
 - 같은 문장 구조를 반복하지 마라.
 - 초보자용, 체크리스트, 비교, 리스크, 사례, 실전 방법, 주의점, 후기 분석, 방문 팁 등 관점을 나눠라.
-- 제목은 블로그 검색 유입에 적합하게 작성해라.
+- 제목은 네이버와 구글 검색 유입에 적합하게 작성해라.
+- 제목은 검색자가 실제로 입력할 만한 롱테일 키워드를 포함해라.
 - 너무 자극적이거나 허위성 있는 제목은 피하라.
 - 같은 결론을 반복하는 글을 만들지 마라.
 - 맛집/여행 주제라면 위치, 메뉴 선택, 후기 포인트, 방문 팁, 주변 코스처럼 관점을 나눠라.
@@ -423,28 +454,8 @@ def generate_post_topics(
 - 일부는 "~정리", 일부는 "~체크포인트", 일부는 "~보기 좋은 이유", 일부는 "~주의할 점"처럼 섞어라.
 - 제목이 서로 비슷한 문장 구조가 되지 않게 해라.
 - 같은 키워드를 제목 맨 앞에 반복하지 마라.
-- 사용자가 검색할 만한 자연스러운 롱테일 키워드를 섞어라.
+- 자연스러운 롱테일 키워드를 섞어라.
 - 너무 긴 제목은 피하고, 검색 결과에서 읽기 좋은 길이로 작성해라.
-
-분량 기획 조건:
-- 간단한 정보 주제는 짧게 끝낼 수 있는 글로 기획해라.
-- 분석, 교육, 사용법, 투자 리스크, 건축 실무 주제는 깊게 설명할 수 있는 글로 기획해라.
-- 같은 키워드라도 짧은 글과 긴 글이 섞이도록 관점을 다양화해라.
-
-좋은 예시:
-큰 키워드가 "코인 자동매매"라면:
-1. 코인 자동매매란 무엇인가?
-2. 자동매매 봇 만들 때 가장 먼저 확인할 것
-3. 이동평균선 기반 코인 자동매매 전략
-4. 거래소 API 키 보안 설정 방법
-5. 자동매매에서 손절 기준이 중요한 이유
-
-큰 키워드가 "태안 꽃게장백반"이라면:
-1. 태안 안면도에서 꽃게장백반을 찾을 때 볼 만한 식당
-2. 꽃게장백반과 게국지 메뉴 차이 쉽게 보기
-3. 안면도 여행 동선에 넣기 좋은 꽃게 요리 코스
-4. 방송 맛집 방문 전 체크하면 좋은 포인트
-5. 가족 여행에서 꽃게장백반집 고를 때 보는 기준
 
 반환은 반드시 JSON 형식만 사용해라.
 
@@ -534,15 +545,12 @@ def generate_post_topics(
 
     return topics[:count]
 
+
 def recommend_today_keywords(
     category="",
     today="",
     count=7,
 ):
-    """
-    AI 자동글 생성용 키워드 추천.
-    실시간 뉴스 크롤링이 아니라, 오늘 날짜 기준으로 블로그에 쓸 만한 주제를 추천.
-    """
     count = clamp_number(count, 3, 10, 7)
 
     category_map = {
@@ -659,11 +667,8 @@ def recommend_today_keywords(
 
     return results[:count]
 
+
 def generate_image_bytes(prompt, size="1024x1024"):
-    """
-    OpenAI 이미지 생성.
-    반환값: 이미지 bytes
-    """
     prompt = (prompt or "").strip()
 
     if not prompt:
@@ -690,9 +695,6 @@ def generate_image_bytes(prompt, size="1024x1024"):
 
 
 def make_generated_image_file(prompt, prefix="ai-image"):
-    """
-    Post.thumbnail.save()에 넣을 수 있는 파일 객체 생성.
-    """
     image_bytes = generate_image_bytes(prompt)
 
     if not image_bytes:
@@ -705,10 +707,6 @@ def make_generated_image_file(prompt, prefix="ai-image"):
 
 
 def save_inline_image(prompt, prefix="inline"):
-    """
-    본문 중간 이미지 생성 후 media/post_inline_images/에 저장.
-    반환값: 이미지 URL
-    """
     image_bytes = generate_image_bytes(prompt)
 
     if not image_bytes:
@@ -723,10 +721,6 @@ def save_inline_image(prompt, prefix="inline"):
 
 
 def build_inline_image_html(image_url, caption):
-    """
-    본문에 삽입할 이미지 HTML 생성.
-    캡션은 사진 아래 가운데 회색 글씨로 CSS 적용.
-    """
     safe_url = html.escape(image_url or "")
     safe_caption = html.escape(caption or "")
 
@@ -742,10 +736,6 @@ def build_inline_image_html(image_url, caption):
 
 
 def replace_image_placeholders(content, image_blocks):
-    """
-    content 안의 [[IMAGE_1]], [[IMAGE_2]] 같은 위치에 이미지 HTML 삽입.
-    만약 AI가 플레이스홀더를 빼먹으면 글 맨 아래에 이미지 추가.
-    """
     updated_content = content or ""
 
     for index, image_block in enumerate(image_blocks, start=1):

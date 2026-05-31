@@ -1,5 +1,9 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.urls import reverse
+from django.utils.text import slugify
+from django.utils.html import strip_tags
+import re
 
 
 class Post(models.Model):
@@ -20,6 +24,25 @@ class Post(models.Model):
     title = models.CharField(
         max_length=200,
         verbose_name="제목"
+    )
+
+    slug = models.SlugField(
+        max_length=220,
+        unique=False,
+        blank=True,
+        allow_unicode=True,
+        verbose_name="주소 슬러그"
+    )
+
+    summary = models.TextField(
+        blank=True,
+        verbose_name="요약"
+    )
+
+    meta_description = models.CharField(
+        max_length=160,
+        blank=True,
+        verbose_name="SEO 설명"
     )
 
     thumbnail = models.ImageField(
@@ -91,6 +114,41 @@ class Post(models.Model):
         auto_now=True,
         verbose_name="수정일"
     )
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base_slug = slugify(self.title, allow_unicode=True)[:180]
+
+            if not base_slug:
+                base_slug = f"post-{self.pk or 'new'}"
+
+            slug = base_slug
+            counter = 1
+
+            while Post.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base_slug}-{counter}"
+                counter += 1
+
+            self.slug = slug
+
+        if not self.summary:
+            plain_content = strip_tags(self.content or "")
+            plain_content = re.sub(r"\s+", " ", plain_content).strip()
+            self.summary = plain_content[:300]
+
+        if not self.meta_description:
+            source_text = self.summary or self.content or ""
+            plain_text = strip_tags(source_text)
+            plain_text = re.sub(r"\s+", " ", plain_text).strip()
+            self.meta_description = plain_text[:150]
+
+        super().save(*args, **kwargs)
+
+    def get_absolute_url(self):
+        if self.slug:
+            return reverse("post_detail_slug", kwargs={"slug": self.slug})
+
+        return reverse("post_detail", kwargs={"pk": self.pk})
 
     def __str__(self):
         return self.title

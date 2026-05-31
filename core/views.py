@@ -1,7 +1,6 @@
 import json
 import os
 import uuid
-from datetime import date
 
 from django.conf import settings
 from django.contrib import messages
@@ -14,9 +13,9 @@ from django.core.files.storage import default_storage
 from django.db.models import Q, Count, Sum
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
-from .market_data import get_market_data
 from django.views.decorators.http import require_POST
 
+from .market_data import get_market_data
 from .models import Post, UserProfile
 from .forms import PostForm, NicknameForm
 from .naver_news import recommend_keywords_from_news
@@ -102,6 +101,37 @@ def editor_context(extra_context=None):
     return context
 
 
+def get_post_field_names():
+    return [field.name for field in Post._meta.fields]
+
+
+def set_post_optional_seo_fields(post, ai_data):
+    """
+    Post 모델에 summary, meta_description, thumbnail_prompt 같은 필드가 있을 경우에만 저장.
+    아직 모델에 해당 필드가 없어도 에러 없이 지나가도록 처리.
+    """
+    post_field_names = get_post_field_names()
+    update_fields = []
+
+    if "summary" in post_field_names:
+        post.summary = ai_data.get("summary", "")
+        update_fields.append("summary")
+
+    if "meta_description" in post_field_names:
+        post.meta_description = ai_data.get("meta_description", "")
+        update_fields.append("meta_description")
+
+    if "thumbnail_prompt" in post_field_names:
+        post.thumbnail_prompt = ai_data.get("thumbnail_prompt", "")
+        update_fields.append("thumbnail_prompt")
+
+    if update_fields:
+        if "updated_at" in post_field_names:
+            update_fields.append("updated_at")
+
+        post.save(update_fields=update_fields)
+
+
 def home(request):
     posts = Post.objects.filter(is_published=True).order_by("-created_at")[:6]
     market_data = get_market_data()
@@ -149,11 +179,20 @@ def search(request):
         search_filter = (
             Q(title__icontains=query) |
             Q(content__icontains=query) |
-            Q(category__icontains=query)
+            Q(category__icontains=query) |
+            Q(tags__icontains=query)
         )
 
         if category_slug:
             search_filter = search_filter | Q(category=category_slug)
+
+        post_field_names = get_post_field_names()
+
+        if "summary" in post_field_names:
+            search_filter = search_filter | Q(summary__icontains=query)
+
+        if "meta_description" in post_field_names:
+            search_filter = search_filter | Q(meta_description__icontains=query)
 
         results = Post.objects.filter(
             search_filter,
@@ -168,6 +207,20 @@ def search(request):
 
 def post_detail(request, pk):
     post = get_object_or_404(Post, pk=pk)
+
+    if not post.is_published and not admin_required(request.user):
+        raise Http404("존재하지 않는 글입니다.")
+
+    if post.is_published:
+        post.views += 1
+        post.save(update_fields=["views"])
+
+    return render(request, "core/post_detail.html", {
+        "post": post,
+    })
+
+def post_detail_by_slug(request, slug):
+    post = get_object_or_404(Post, slug=slug)
 
     if not post.is_published and not admin_required(request.user):
         raise Http404("존재하지 않는 글입니다.")
@@ -453,6 +506,17 @@ def ai_post_generate(request):
 - 검색 의도: {topic_search_intent}
 - 추가 조건: {topic_extra_prompt}
 
+SEO 작성 규칙:
+- 제목은 검색자가 실제로 검색할 만한 문장으로 작성
+- 첫 문단에 핵심 키워드를 자연스럽게 포함
+- 본문에 h2, h3, p, ul, li, strong 태그 사용
+- 글 초반에 요약 문단 포함
+- 중간에 질문과 답변 형태의 FAQ 3개 이상 포함
+- 네이버와 구글 검색 모두 고려해서 과한 키워드 반복 금지
+- 허위 수치, 확인되지 않은 통계, 과장 표현 금지
+- 금융, 세금, 건강, 법률 주제는 단정하지 말고 주의 문구 포함
+- 결론과 한 줄 요약 포함
+
 중요:
 - 이 세부 주제에서 벗어나지 말 것
 - 같은 키워드의 다른 글과 내용이 겹치지 않게 작성할 것
@@ -505,6 +569,8 @@ def ai_post_generate(request):
                 is_published=not save_draft,
             )
 
+            set_post_optional_seo_fields(post, ai_data)
+
             thumbnail_prompt = (ai_data.get("thumbnail_prompt") or "").strip()
 
             if make_thumbnail and thumbnail_prompt:
@@ -526,6 +592,10 @@ def ai_post_generate(request):
             created_posts.append(post)
 
     except Exception as error:
+        print("========== AI 글 생성 오류 ==========")
+        print(error)
+        print("===================================")
+
         messages.error(request, f"AI 글 생성 중 오류가 발생했습니다: {error}")
         return redirect("home")
 
@@ -678,6 +748,8 @@ def member_delete(request, user_id):
 def robots_txt(request):
     content = """User-agent: *
 Allow: /
+Disallow: /admin/
+Disallow: /accounts/
 
 Sitemap: https://www.chickenbananalab.com/sitemap.xml
 """
@@ -731,6 +803,7 @@ def editor_image_upload(request):
         "success": True,
         "url": image_url,
     })
+
 
 def terms(request):
     return render(request, "core/terms.html")

@@ -3,7 +3,7 @@
 {% block title %}{{ post.title }} - ChickenBanana Lab{% endblock %}
 
 {% block meta_description %}
-{{ post.content|striptags|truncatechars:150 }}
+{{ post.meta_description|default:post.summary|default:post.content|striptags|truncatechars:150 }}
 {% endblock %}
 
 {% block og_title %}
@@ -11,11 +11,10 @@
 {% endblock %}
 
 {% block og_description %}
-{{ post.content|striptags|truncatechars:150 }}
+{{ post.meta_description|default:post.summary|default:post.content|striptags|truncatechars:150 }}
 {% endblock %}
 
 {% block content %}
-
 
 <section class="post-detail-hero">
     <div class="container post-detail-container">
@@ -30,16 +29,16 @@
         </p>
 
         {% if post.location %}
-    <p class="post-location">
-        📍 {{ post.location }}
-        <a href="https://www.google.com/maps/search/?api=1&query={{ post.location|urlencode }}"
-           class="post-location-map-btn"
-           target="_blank"
-           rel="noopener noreferrer">
-            지도 보기
-        </a>
-    </p>
-{% endif %}
+            <p class="post-location">
+                📍 {{ post.location }}
+                <a href="https://www.google.com/maps/search/?api=1&query={{ post.location|urlencode }}"
+                   class="post-location-map-btn"
+                   target="_blank"
+                   rel="noopener noreferrer">
+                    지도 보기
+                </a>
+            </p>
+        {% endif %}
 
         {% if user.is_staff or user.is_superuser %}
             <div class="post-admin-publish-box">
@@ -91,41 +90,41 @@
         {% endif %}
 
         <div class="post-content editor-output">
-    {{ post.content|safe }}
+            {{ post.content|safe }}
 
-    {% if post.video_file %}
-        <div class="post-local-video-block">
-            <video controls playsinline preload="metadata">
-                <source src="{{ post.video_file.url }}">
-                현재 브라우저에서 이 동영상을 재생할 수 없습니다.
-            </video>
+            {% if post.video_file %}
+                <div class="post-local-video-block">
+                    <video controls playsinline preload="metadata">
+                        <source src="{{ post.video_file.url }}">
+                        현재 브라우저에서 이 동영상을 재생할 수 없습니다.
+                    </video>
+                </div>
+            {% endif %}
+
+            {% if post.program_file %}
+                <div class="program-download-box">
+                    <div class="program-download-info">
+                        <span>Program Download</span>
+                        <strong>첨부 프로그램 다운로드</strong>
+                        <p>
+                            첨부된 프로그램 파일은 압축 해제 후 사용해주세요.
+                        </p>
+                    </div>
+
+                    <a href="{{ post.program_file.url }}" class="program-download-btn" download>
+                        프로그램 다운로드
+                    </a>
+                </div>
+            {% endif %}
+
+            {% if post.tag_list %}
+                <div class="post-tags">
+                    {% for tag in post.tag_list %}
+                        <span>#{{ tag }}</span>
+                    {% endfor %}
+                </div>
+            {% endif %}
         </div>
-    {% endif %}
-
-    {% if post.program_file %}
-        <div class="program-download-box">
-            <div class="program-download-info">
-                <span>Program Download</span>
-                <strong>첨부 프로그램 다운로드</strong>
-                <p>
-                    첨부된 프로그램 파일은 압축 해제 후 사용해주세요.
-                </p>
-            </div>
-
-            <a href="{{ post.program_file.url }}" class="program-download-btn" download>
-                프로그램 다운로드
-            </a>
-        </div>
-    {% endif %}
-
-    {% if post.tag_list %}
-        <div class="post-tags">
-            {% for tag in post.tag_list %}
-                <span>#{{ tag }}</span>
-            {% endfor %}
-        </div>
-    {% endif %}
-</div>
 
     </div>
 </section>

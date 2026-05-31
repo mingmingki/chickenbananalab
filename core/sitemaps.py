@@ -8,7 +8,18 @@ class StaticViewSitemap(Sitemap):
     changefreq = "weekly"
 
     def items(self):
-        return ["home", "contact"]
+        return [
+            "home",
+            "architecture",
+            "realestate",
+            "finance",
+            "tech",
+            "life",
+            "about",
+            "contact",
+            "terms",
+            "privacy",
+        ]
 
     def location(self, item):
         return reverse(item)
@@ -19,10 +30,10 @@ class PostSitemap(Sitemap):
     priority = 0.9
 
     def items(self):
-        return Post.objects.all().order_by("-created_at")
+        return Post.objects.filter(is_published=True).order_by("-updated_at", "-created_at")
 
     def lastmod(self, obj):
-        return obj.updated_at if hasattr(obj, "updated_at") else obj.created_at
+        return obj.updated_at
 
     def location(self, obj):
-        return reverse("post_detail", args=[obj.id])
+        return obj.get_absolute_url()

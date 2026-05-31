@@ -13,4 +13,6 @@ project_tree.txt
 .env.*
 
 .DS_Store
-Thumbs.db
+Thumbs.dbcurrent_code.txt
+market_cache.json
+current_code.txt

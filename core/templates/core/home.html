@@ -294,7 +294,7 @@
 
         <div class="thumbnail-grid">
             {% for post in posts %}
-                <a href="{% url 'post_detail' post.id %}" class="thumbnail-card">
+                <a href="{{ post.get_absolute_url }}" class="thumbnail-card">
 
                     {% if post.thumbnail %}
                         <div class="thumbnail-image-box">
