@@ -89,6 +89,20 @@ CATEGORY_PAGES = {
 def admin_required(user):
     return user.is_authenticated and (user.is_staff or user.is_superuser)
 
+def is_internal_user(user):
+    """
+    사이트 운영자/관리자/부관리자는 방문 통계와 글 조회수에서 제외합니다.
+    """
+    if not user.is_authenticated:
+        return False
+
+    if user.is_staff or user.is_superuser:
+        return True
+
+    try:
+        return user.profile.is_sub_admin
+    except UserProfile.DoesNotExist:
+        return False
 
 def can_write_post(user):
     if not user.is_authenticated:
@@ -257,7 +271,7 @@ def post_detail(request, pk):
     if not post.is_published and not admin_required(request.user):
         raise Http404("존재하지 않는 글입니다.")
 
-    if post.is_published:
+    if post.is_published and not is_internal_user(request.user):
         post.views += 1
         post.save(update_fields=["views"])
 
@@ -272,14 +286,13 @@ def post_detail_by_slug(request, slug):
     if not post.is_published and not admin_required(request.user):
         raise Http404("존재하지 않는 글입니다.")
 
-    if post.is_published:
+    if post.is_published and not is_internal_user(request.user):
         post.views += 1
         post.save(update_fields=["views"])
 
     return render(request, "core/post_detail.html", {
         "post": post,
     })
-
 
 @user_passes_test(can_write_post)
 def post_create(request):
