@@ -8388,3 +8388,75 @@ a.editor-location-card {
         height: 300px;
     }
 }
+
+/* ================================
+   홈 최근 등록된 글 4 x 4 최종 적용
+   - PC: 4열
+   - 홈 노출 개수는 views.py에서 16개로 제한
+================================ */
+
+.container {
+    width: min(1240px, calc(100% - 48px));
+}
+
+.post-grid,
+.home-post-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 22px !important;
+}
+
+.post-card,
+.thumbnail-card {
+    min-width: 0;
+}
+
+.post-card {
+    padding: 22px;
+}
+
+.post-card h3,
+.thumbnail-content h3 {
+    font-size: 20px;
+    line-height: 1.42;
+    word-break: keep-all;
+}
+
+.post-card p,
+.thumbnail-content p {
+    font-size: 15px;
+    line-height: 1.7;
+}
+
+.thumbnail-image-box {
+    height: 145px;
+}
+
+.thumbnail-content {
+    padding: 20px 22px;
+}
+
+@media (max-width: 1180px) {
+    .post-grid,
+    .home-post-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    }
+}
+
+@media (max-width: 860px) {
+    .post-grid,
+    .home-post-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+@media (max-width: 560px) {
+    .container {
+        width: min(100% - 24px, 1240px);
+    }
+
+    .post-grid,
+    .home-post-grid {
+        grid-template-columns: 1fr !important;
+    }
+}

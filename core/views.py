@@ -171,7 +171,7 @@ def delete_file_safely(file_name):
 
 
 def home(request):
-    posts = Post.objects.filter(is_published=True).order_by("-created_at")[:6]
+    posts = Post.objects.filter(is_published=True).order_by("-created_at")[:16]
     market_data = get_market_data()
 
     return render(request, "core/home.html", {
