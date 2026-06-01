@@ -3,7 +3,7 @@ import os
 import uuid
 import traceback
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.conf import settings
 from django.contrib import messages
@@ -13,6 +13,7 @@ from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from django.db import transaction
 from django.db.models import Q, Count, Sum, Min
 from django.db.models.functions import TruncDate
 from django.http import Http404, HttpResponse, JsonResponse
@@ -21,7 +22,14 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .market_data import get_market_data
-from .models import Post, UserProfile, ExperienceVault, VisitLog
+from .models import (
+    Post,
+    UserProfile,
+    ExperienceVault,
+    VisitLog,
+    AIAutoWriterSetting,
+    AIAutoKeywordQueue,
+)
 from .forms import PostForm, NicknameForm, ExperienceVaultForm
 from .naver_news import recommend_keywords_from_news
 from .ai_writer import (
@@ -32,7 +40,6 @@ from .ai_writer import (
     save_inline_image,
     replace_image_placeholders,
 )
-
 
 CATEGORY_PAGES = {
     "architecture": {
@@ -1088,3 +1095,215 @@ def terms(request):
 
 def privacy(request):
     return render(request, "core/privacy.html")
+
+AI_AUTO_CATEGORY_ORDER = [
+    ("architecture", "건축"),
+    ("realestate", "부동산"),
+    ("finance", "금융"),
+    ("tech", "테크"),
+    ("life", "일상"),
+]
+
+
+def get_enabled_ai_auto_categories(setting):
+    categories = []
+
+    if setting.use_architecture:
+        categories.append(("architecture", "건축"))
+
+    if setting.use_realestate:
+        categories.append(("realestate", "부동산"))
+
+    if setting.use_finance:
+        categories.append(("finance", "금융"))
+
+    if setting.use_tech:
+        categories.append(("tech", "테크"))
+
+    if setting.use_life:
+        categories.append(("life", "일상"))
+
+    return categories
+
+
+def refill_ai_auto_keyword_queue(setting):
+    """
+    기존 AI 자동글 생성 모달의 '오늘자 키워드 추천'과 동일한
+    recommend_keywords_from_news(category) 로직을 사용해서
+    시간별 자동글 대기열을 채운다.
+    """
+
+    try:
+        keyword_count = int(setting.keyword_count_per_category or 7)
+    except ValueError:
+        keyword_count = 7
+
+    keyword_count = max(1, min(keyword_count, 7))
+
+    enabled_categories = get_enabled_ai_auto_categories(setting)
+
+    if not enabled_categories:
+        raise ValueError("사용할 카테고리를 1개 이상 선택해주세요.")
+
+    recommended_by_category = {}
+
+    for category, category_label in enabled_categories:
+        # 기존 '오늘자 키워드 추천'과 같은 뉴스 기반 추천 함수 사용
+        raw_keywords = recommend_keywords_from_news(category)
+
+        cleaned_items = []
+        seen_keywords = set()
+
+        for item in raw_keywords:
+            if isinstance(item, dict):
+                keyword = str(item.get("keyword", "")).strip()
+                reason = str(item.get("reason", "")).strip()
+                item_category_label = str(item.get("category", "")).strip()
+            else:
+                keyword = str(item).strip()
+                reason = ""
+                item_category_label = category_label
+
+            if not keyword:
+                continue
+
+            keyword_key = keyword.replace(" ", "").lower()
+
+            if keyword_key in seen_keywords:
+                continue
+
+            cleaned_items.append({
+                "keyword": keyword,
+                "reason": reason,
+                "news_context": reason,
+                "category_label": item_category_label or category_label,
+            })
+
+            seen_keywords.add(keyword_key)
+
+            if len(cleaned_items) >= keyword_count:
+                break
+
+        recommended_by_category[category] = cleaned_items
+
+    with transaction.atomic():
+        # 아직 생성하지 않은 대기 키워드는 오늘자 뉴스 기반 키워드로 교체
+        AIAutoKeywordQueue.objects.filter(status="waiting").delete()
+
+        created_count = 0
+        order = 1
+
+        # 건축1 → 부동산1 → 금융1 → 테크1 → 일상1 순서로 저장
+        for keyword_index in range(keyword_count):
+            for category, category_label in enabled_categories:
+                category_items = recommended_by_category.get(category, [])
+
+                if keyword_index >= len(category_items):
+                    continue
+
+                item = category_items[keyword_index]
+
+                AIAutoKeywordQueue.objects.create(
+                    category=category,
+                    keyword=item["keyword"],
+                    reason=item.get("reason", ""),
+                    news_context=item.get("news_context", ""),
+                    status="waiting",
+                    order=order,
+                )
+
+                created_count += 1
+                order += 1
+
+    return created_count
+
+@user_passes_test(admin_required)
+def ai_auto_writer_manage(request):
+    setting = AIAutoWriterSetting.load()
+
+    if request.method == "POST":
+        action = request.POST.get("ai_auto_action", "save")
+
+        try:
+            interval_minutes = int(request.POST.get("interval_minutes", 30))
+        except ValueError:
+            interval_minutes = 30
+
+        if interval_minutes not in [10, 30, 60, 120]:
+            interval_minutes = 30
+
+        try:
+            keyword_count_per_category = int(request.POST.get("keyword_count_per_category", 7))
+        except ValueError:
+            keyword_count_per_category = 7
+
+        keyword_count_per_category = max(1, min(keyword_count_per_category, 7))
+
+        try:
+            daily_limit = int(request.POST.get("daily_limit", 30))
+        except ValueError:
+            daily_limit = 30
+
+        daily_limit = max(1, min(daily_limit, 144))
+
+        setting.interval_minutes = interval_minutes
+        setting.keyword_count_per_category = keyword_count_per_category
+        setting.daily_limit = daily_limit
+        setting.publish_immediately = bool(request.POST.get("publish_immediately"))
+
+        setting.use_architecture = bool(request.POST.get("use_architecture"))
+        setting.use_realestate = bool(request.POST.get("use_realestate"))
+        setting.use_finance = bool(request.POST.get("use_finance"))
+        setting.use_tech = bool(request.POST.get("use_tech"))
+        setting.use_life = bool(request.POST.get("use_life"))
+
+        if action == "keywords":
+            setting.save()
+
+            try:
+                created_count = refill_ai_auto_keyword_queue(setting)
+                messages.success(
+                    request,
+                    f"오늘의 추천키워드 {created_count}개를 대기열에 저장했습니다."
+                )
+            except Exception as error:
+                messages.error(
+                    request,
+                    f"오늘의 추천키워드 가져오기 중 오류가 발생했습니다: {error}"
+                )
+
+            return redirect("ai_auto_writer_manage")
+
+        if action == "start":
+            setting.is_enabled = True
+            setting.next_run_at = timezone.now() + timedelta(minutes=setting.interval_minutes)
+            setting.save()
+
+            messages.success(
+                request,
+                f"AI 자동글 생성을 시작했습니다. {setting.interval_minutes}분마다 1개씩 생성됩니다."
+            )
+
+            return redirect("ai_auto_writer_manage")
+
+        if action == "stop":
+            setting.is_enabled = False
+            setting.next_run_at = None
+            setting.save()
+
+            messages.success(request, "AI 자동글 생성을 중지했습니다.")
+            return redirect("ai_auto_writer_manage")
+
+        setting.save()
+        messages.success(request, "AI 자동글 생성 설정을 저장했습니다.")
+        return redirect("ai_auto_writer_manage")
+
+    context = {
+    "ai_auto_setting": setting,
+    "ai_auto_waiting_count": AIAutoKeywordQueue.objects.filter(status="waiting").count(),
+    "ai_auto_done_count": AIAutoKeywordQueue.objects.filter(status="done").count(),
+    "ai_auto_failed_count": AIAutoKeywordQueue.objects.filter(status="failed").count(),
+    "ai_auto_queue_items": AIAutoKeywordQueue.objects.filter(status="waiting").order_by("order", "created_at")[:50],
+}
+
+    return render(request, "core/ai_auto_writer_manage.html", context)

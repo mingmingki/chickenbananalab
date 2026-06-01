@@ -235,3 +235,174 @@ class VisitLog(models.Model):
 
     def __str__(self):
         return f"{self.created_at} / {self.path}"
+    
+# ================================
+# AI Auto Writer Models
+# ================================
+
+class AIAutoWriterSetting(models.Model):
+    INTERVAL_CHOICES = [
+        (10, "10분마다 1개"),
+        (30, "30분마다 1개"),
+        (60, "1시간마다 1개"),
+        (120, "2시간마다 1개"),
+    ]
+
+    is_enabled = models.BooleanField(
+        default=False,
+        verbose_name="자동 생성 실행 여부"
+    )
+
+    interval_minutes = models.PositiveIntegerField(
+        choices=INTERVAL_CHOICES,
+        default=30,
+        verbose_name="자동 생성 간격"
+    )
+
+    keyword_count_per_category = models.PositiveIntegerField(
+        default=7,
+        verbose_name="카테고리별 추천키워드 수"
+    )
+
+    publish_immediately = models.BooleanField(
+        default=True,
+        verbose_name="생성 후 바로 공개"
+    )
+
+    daily_limit = models.PositiveIntegerField(
+        default=30,
+        verbose_name="하루 최대 생성 글 수"
+    )
+
+    use_architecture = models.BooleanField(default=True, verbose_name="건축 사용")
+    use_realestate = models.BooleanField(default=True, verbose_name="부동산 사용")
+    use_finance = models.BooleanField(default=True, verbose_name="금융 사용")
+    use_tech = models.BooleanField(default=True, verbose_name="테크 사용")
+    use_life = models.BooleanField(default=True, verbose_name="일상 사용")
+
+    last_run_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="마지막 실행 시간"
+    )
+
+    next_run_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="다음 실행 예정 시간"
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="생성일"
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="수정일"
+    )
+
+    class Meta:
+        verbose_name = "AI 자동글 생성 설정"
+        verbose_name_plural = "AI 자동글 생성 설정"
+
+    def __str__(self):
+        status = "실행 중" if self.is_enabled else "중지"
+        return f"AI 자동글 생성 설정 - {status}"
+
+    @classmethod
+    def load(cls):
+        obj, created = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+class AIAutoKeywordQueue(models.Model):
+    CATEGORY_CHOICES = [
+        ("architecture", "건축"),
+        ("realestate", "부동산"),
+        ("finance", "금융"),
+        ("tech", "테크"),
+        ("life", "일상"),
+    ]
+
+    STATUS_CHOICES = [
+        ("waiting", "대기"),
+        ("processing", "생성 중"),
+        ("done", "완료"),
+        ("failed", "실패"),
+    ]
+
+    category = models.CharField(
+        max_length=30,
+        choices=CATEGORY_CHOICES,
+        verbose_name="카테고리"
+    )
+
+    keyword = models.CharField(
+        max_length=200,
+        verbose_name="추천키워드"
+    )
+
+    reason = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="추천 이유 / 관련 뉴스 요약"
+    )
+
+    news_context = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="뉴스 기반 참고 내용"
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="waiting",
+        verbose_name="상태"
+    )
+
+    order = models.PositiveIntegerField(
+        default=0,
+        verbose_name="생성 순서"
+    )
+
+    generated_post = models.ForeignKey(
+        "Post",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="ai_auto_keyword_items",
+        verbose_name="생성된 글"
+    )
+
+    error_message = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="오류 메시지"
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="대기열 등록일"
+    )
+
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="생성 시작 시간"
+    )
+
+    finished_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="생성 완료 시간"
+    )
+
+    class Meta:
+        verbose_name = "AI 자동글 키워드 대기열"
+        verbose_name_plural = "AI 자동글 키워드 대기열"
+        ordering = ["order", "created_at"]
+
+    def __str__(self):
+        return f"[{self.get_category_display()}] {self.keyword} - {self.get_status_display()}"
