@@ -626,15 +626,51 @@
                 </div>
 
                 <div class="ai-auto-option-row">
-                    <label class="ai-auto-option">
-                        <input
-                            type="checkbox"
-                            name="publish_immediately"
-                            {% if not ai_auto_setting or ai_auto_setting.publish_immediately %}checked{% endif %}
-                        >
-                        생성 후 바로 공개
-                    </label>
-                </div>
+    <label class="ai-auto-option">
+        <input
+            type="checkbox"
+            name="make_thumbnail"
+            {% if ai_auto_setting.make_thumbnail %}checked{% endif %}
+        >
+        대표 썸네일 이미지 자동 생성
+    </label>
+
+    <label class="ai-auto-option">
+        <span>본문 이미지</span>
+        <select name="image_count" style="
+            margin-left:8px;
+            padding:7px 10px;
+            border:1px solid #d1d5db;
+            border-radius:10px;
+            font-weight:800;
+        ">
+            <option value="0" {% if ai_auto_setting.image_count == 0 %}selected{% endif %}>0장</option>
+            <option value="1" {% if ai_auto_setting.image_count == 1 %}selected{% endif %}>1장</option>
+            <option value="2" {% if ai_auto_setting.image_count == 2 %}selected{% endif %}>2장</option>
+            <option value="3" {% if ai_auto_setting.image_count == 3 %}selected{% endif %}>3장</option>
+            <option value="4" {% if ai_auto_setting.image_count == 4 %}selected{% endif %}>4장</option>
+            <option value="5" {% if ai_auto_setting.image_count == 5 %}selected{% endif %}>5장</option>
+        </select>
+    </label>
+
+    <label class="ai-auto-option">
+        <input
+            type="checkbox"
+            name="save_draft"
+            {% if ai_auto_setting and not ai_auto_setting.publish_immediately %}checked{% endif %}
+        >
+        생성된 글은 비공개 초안으로 저장
+    </label>
+
+    <label class="ai-auto-option">
+        <input
+            type="checkbox"
+            name="include_tags"
+            {% if not ai_auto_setting or ai_auto_setting.include_tags %}checked{% endif %}
+        >
+        태그 자동 생성
+    </label>
+</div>
 
                 <div class="ai-auto-actions">
                     <button

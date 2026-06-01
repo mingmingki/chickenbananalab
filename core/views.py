@@ -5,6 +5,7 @@ import traceback
 
 from datetime import date, timedelta
 
+from curl_cffi import request
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login as auth_login
@@ -1249,13 +1250,27 @@ def ai_auto_writer_manage(request):
         setting.interval_minutes = interval_minutes
         setting.keyword_count_per_category = keyword_count_per_category
         setting.daily_limit = daily_limit
-        setting.publish_immediately = bool(request.POST.get("publish_immediately"))
-
+        setting.make_thumbnail = request.POST.get("make_thumbnail") == "on"
+        setting.include_tags = request.POST.get("include_tags") == "on"
+        save_draft = request.POST.get("save_draft") == "on"
+        setting.publish_immediately = not save_draft
         setting.use_architecture = bool(request.POST.get("use_architecture"))
         setting.use_realestate = bool(request.POST.get("use_realestate"))
         setting.use_finance = bool(request.POST.get("use_finance"))
         setting.use_tech = bool(request.POST.get("use_tech"))
         setting.use_life = bool(request.POST.get("use_life"))
+        setting.make_thumbnail = request.POST.get("make_thumbnail") == "on"
+        setting.include_tags = request.POST.get("include_tags") == "on"
+
+        save_draft = request.POST.get("save_draft") == "on"
+        setting.publish_immediately = not save_draft
+
+        try:
+            image_count = int(request.POST.get("image_count", 0))
+        except ValueError:
+            image_count = 0
+
+        setting.image_count = max(0, min(image_count, 5))
 
         if action == "keywords":
             setting.save()

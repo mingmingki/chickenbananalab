@@ -269,6 +269,21 @@ class AIAutoWriterSetting(models.Model):
         verbose_name="생성 후 바로 공개"
     )
 
+    make_thumbnail = models.BooleanField(
+        default=False,
+        verbose_name="대표 썸네일 이미지 자동 생성"
+    )
+
+    image_count = models.PositiveIntegerField(
+    default=0,
+    verbose_name="본문 이미지 개수"
+    )
+    
+    include_tags = models.BooleanField(
+        default=True,
+        verbose_name="태그 자동 생성"
+    )
+
     daily_limit = models.PositiveIntegerField(
         default=30,
         verbose_name="하루 최대 생성 글 수"
