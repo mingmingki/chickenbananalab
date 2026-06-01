@@ -1027,6 +1027,8 @@ Disallow: /admin/
 Disallow: /accounts/
 
 Sitemap: https://www.chickenbananalab.com/sitemap.xml
+
+DaumWebMasterTool:cd4a4e7da3d5aba2064ce10dd8a01c5bbac84b05c26920b56559c9c84f5c6c57:bQ6JPGlq9DdzxfuBfgOS7A==
 """
     return HttpResponse(content, content_type="text/plain")
 
