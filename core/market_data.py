@@ -9,6 +9,7 @@ from django.conf import settings
 
 CACHE_FILE = Path(settings.BASE_DIR) / "market_cache.json"
 CACHE_SECONDS = 600  # 10분 캐시
+CACHE_VERSION = "bithumb-coin-v1"
 
 
 def empty_item(name):
@@ -29,6 +30,7 @@ def direction(value):
             return "down"
     except Exception:
         pass
+
     return "flat"
 
 
@@ -124,48 +126,79 @@ def fetch_index_data():
     }
 
 
-def fetch_coin_data():
-    result = {
-        "btc": empty_item("BTC"),
-        "eth": empty_item("ETH"),
-    }
+def fetch_bithumb_coin(symbol, name):
+    """
+    빗썸 원화마켓 기준 코인 현재가 조회
+
+    사용 예:
+    BTC -> https://api.bithumb.com/public/ticker/BTC_KRW
+    ETH -> https://api.bithumb.com/public/ticker/ETH_KRW
+    """
+    item = empty_item(name)
 
     try:
-        url = "https://api.coingecko.com/api/v3/simple/price"
-        params = {
-            "ids": "bitcoin,ethereum",
-            "vs_currencies": "krw",
-            "include_24hr_change": "true",
+        url = f"https://api.bithumb.com/public/ticker/{symbol}_KRW"
+
+        headers = {
+            "accept": "application/json",
+            "User-Agent": "ChickenBananaLab/1.0",
         }
 
-        response = requests.get(url, params=params, timeout=8)
+        response = requests.get(url, headers=headers, timeout=8)
         response.raise_for_status()
-        data = response.json()
 
-        btc_price = data.get("bitcoin", {}).get("krw")
-        btc_change = data.get("bitcoin", {}).get("krw_24h_change")
+        payload = response.json()
 
-        eth_price = data.get("ethereum", {}).get("krw")
-        eth_change = data.get("ethereum", {}).get("krw_24h_change")
+        status = str(payload.get("status", ""))
 
-        result["btc"] = {
-            "name": "BTC",
-            "value": format_krw(btc_price),
-            "change": f"{float(btc_change):+.2f}%" if btc_change is not None else "-",
-            "direction": direction(btc_change),
-        }
+        if status != "0000":
+            print(f"[BITHUMB ERROR] {symbol}: status={status}, payload={payload}")
+            return item
 
-        result["eth"] = {
-            "name": "ETH",
-            "value": format_krw(eth_price),
-            "change": f"{float(eth_change):+.2f}%" if eth_change is not None else "-",
-            "direction": direction(eth_change),
+        data = payload.get("data", {})
+
+        closing_price = data.get("closing_price")
+        fluctate_rate_24h = data.get("fluctate_rate_24H")
+
+        change_text = "-"
+
+        if fluctate_rate_24h not in [None, ""]:
+            change_percent = float(fluctate_rate_24h)
+            change_text = f"{change_percent:+.2f}%"
+        else:
+            change_percent = 0
+
+            prev_closing_price = data.get("prev_closing_price")
+
+            if closing_price and prev_closing_price:
+                latest = float(closing_price)
+                prev = float(prev_closing_price)
+
+                if prev != 0:
+                    change_percent = ((latest - prev) / prev) * 100
+                    change_text = f"{change_percent:+.2f}%"
+
+        return {
+            "name": name,
+            "value": format_krw(closing_price),
+            "change": change_text,
+            "direction": direction(change_percent),
         }
 
     except Exception as e:
-        print(f"[COIN ERROR] {e}")
+        print(f"[BITHUMB COIN ERROR] {symbol}: {e}")
 
-    return result
+    return item
+
+
+def fetch_coin_data():
+    """
+    BTC / ETH를 빗썸 원화마켓 기준으로 표시
+    """
+    return {
+        "btc": fetch_bithumb_coin("BTC", "BTC"),
+        "eth": fetch_bithumb_coin("ETH", "ETH"),
+    }
 
 
 def fetch_exchange_data():
@@ -201,6 +234,7 @@ def fetch_exchange_data():
 
 def get_default_market_data():
     return {
+        "cache_version": CACHE_VERSION,
         "updated_at": "-",
         "domestic": {
             "kospi": empty_item("KOSPI"),
@@ -239,8 +273,10 @@ def get_market_data():
                 with open(CACHE_FILE, "r", encoding="utf-8") as f:
                     cached_data = json.load(f)
 
-                default_data = get_default_market_data()
-                return deep_merge(default_data, cached_data)
+                # 예전 CoinGecko 캐시가 남아 있으면 무시하고 새로 조회
+                if cached_data.get("cache_version") == CACHE_VERSION:
+                    default_data = get_default_market_data()
+                    return deep_merge(default_data, cached_data)
 
     except Exception as e:
         print(f"[CACHE READ ERROR] {e}")
