@@ -77,7 +77,110 @@
     }
 
     .latest-section {
-        padding-top: 16px;
+        padding-top: 12px;
+    }
+
+    /* ================================
+       Home Latest Posts 4 x 4 Grid
+       카드 높이 축소 버전
+    ================================ */
+
+    .home-latest-grid {
+        display: grid !important;
+        grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+        gap: 16px !important;
+        width: 100%;
+        align-items: stretch;
+    }
+
+    .home-latest-grid > * {
+        min-width: 0;
+    }
+
+    .home-latest-grid .thumbnail-card {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    /* 썸네일 이미지 높이 줄임 */
+    .home-latest-grid .thumbnail-image-box,
+    .home-latest-grid .thumbnail-box {
+        width: 100%;
+        aspect-ratio: 16 / 7.2 !important;
+        min-height: 0 !important;
+        overflow: hidden;
+    }
+
+    .home-latest-grid .thumbnail-image-box img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    /* 카드 본문 여백 줄임 */
+    .home-latest-grid .thumbnail-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 12px 14px !important;
+    }
+
+    .home-latest-grid .thumbnail-content strong {
+        font-size: 12px !important;
+        line-height: 1.2;
+        margin-bottom: 5px !important;
+    }
+
+    /* 제목 높이 줄임 */
+    .home-latest-grid .thumbnail-content h3 {
+        font-size: 16px !important;
+        line-height: 1.32 !important;
+        min-height: 2.55em !important;
+        max-height: 2.55em !important;
+        margin: 0 0 6px !important;
+        overflow: hidden;
+    }
+
+    /* 본문 높이 줄임 */
+    .home-latest-grid .thumbnail-content p {
+        flex: initial !important;
+        font-size: 13px !important;
+        line-height: 1.42 !important;
+        max-height: 2.85em !important;
+        margin: 0 0 8px !important;
+        overflow: hidden;
+    }
+
+    .home-latest-grid .thumbnail-content small {
+        margin-top: auto;
+        font-size: 12px !important;
+        line-height: 1.2;
+    }
+
+    /* 썸네일 없는 카드도 낮게 */
+    .home-latest-grid .thumbnail-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .home-latest-grid .thumbnail-icon {
+        font-size: 28px !important;
+        margin-bottom: 6px !important;
+    }
+
+    .home-latest-grid .thumbnail-box span {
+        font-size: 13px !important;
+    }
+
+    .home-latest-grid .full-empty {
+        grid-column: 1 / -1;
     }
 
     .plain-time-wrap {
@@ -110,6 +213,16 @@
         .market-card-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
         }
+
+        .home-latest-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        }
+    }
+
+    @media (max-width: 800px) {
+        .home-latest-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        }
     }
 
     @media (max-width: 720px) {
@@ -119,6 +232,24 @@
 
         .market-value {
             font-size: 21px;
+        }
+
+        .home-latest-grid .thumbnail-content {
+            padding: 11px 13px !important;
+        }
+
+        .home-latest-grid .thumbnail-content h3 {
+            font-size: 15px !important;
+        }
+
+        .home-latest-grid .thumbnail-content p {
+            font-size: 12.5px !important;
+        }
+    }
+
+    @media (max-width: 520px) {
+        .home-latest-grid {
+            grid-template-columns: 1fr !important;
         }
     }
 
@@ -292,8 +423,8 @@
             {% endif %}
         </div>
 
-        <div class="thumbnail-grid">
-            {% for post in posts %}
+        <div class="home-latest-grid">
+            {% for post in latest_posts|default:posts|slice:":16" %}
                 <a href="{{ post.get_absolute_url }}" class="thumbnail-card">
 
                     {% if post.thumbnail %}
@@ -328,7 +459,7 @@
                     <div class="thumbnail-content">
                         <strong>{{ post.get_category_display }}</strong>
                         <h3>{{ post.title }}</h3>
-                        <p>{{ post.content|striptags|cut:"&nbsp;"|cut:"&amp;nbsp;"|truncatechars:90 }}</p>
+                        <p>{{ post.content|striptags|cut:"&nbsp;"|cut:"&amp;nbsp;"|truncatechars:70 }}</p>
                         <small>{{ post.created_at|date:"Y.m.d" }}</small>
                     </div>
 
