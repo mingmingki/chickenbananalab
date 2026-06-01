@@ -424,7 +424,7 @@
         </div>
 
         <div class="home-latest-grid">
-            {% for post in latest_posts|default:posts|slice:":16" %}
+            {% for post in latest_posts|default:posts|slice:":32" %}
                 <a href="{{ post.get_absolute_url }}" class="thumbnail-card">
 
                     {% if post.thumbnail %}
