@@ -60,10 +60,6 @@
                 {% if post and post.thumbnail %}
                     <span class="current-file-text">현재 썸네일 있음</span>
                 {% endif %}
-
-                {% if form.thumbnail.errors %}
-                    <div class="form-error">{{ form.thumbnail.errors }}</div>
-                {% endif %}
             </div>
 
             <div class="editor-program-file-row">
@@ -88,7 +84,7 @@
 
             <div class="thumbnail-live-preview" id="thumbnailPreviewBox">
                 {% if post and post.thumbnail %}
-                    <img id="thumbnailPreviewImage" src="{{ post.thumbnail.url }}?v={{ post.updated_at|date:'U' }}" alt="썸네일 미리보기">
+                    <img id="thumbnailPreviewImage" src="{{ post.thumbnail.url }}" alt="썸네일 미리보기">
                 {% else %}
                     <img id="thumbnailPreviewImage" src="" alt="썸네일 미리보기" style="display:none;">
                 {% endif %}
@@ -131,6 +127,36 @@
                     <option value="22px">크게</option>
                     <option value="30px">아주 크게</option>
                 </select>
+
+                <select onchange="changeFontFamily(this.value)">
+                    <option value="">글꼴</option>
+                    <option value="'Noto Sans KR', sans-serif">기본</option>
+                    <option value="'Malgun Gothic', '맑은 고딕', sans-serif">맑은 고딕</option>
+                    <option value="'Nanum Gothic', sans-serif">나눔고딕</option>
+                    <option value="'Nanum Myeongjo', serif">나눔명조</option>
+                    <option value="Arial, sans-serif">Arial</option>
+                    <option value="Georgia, serif">Georgia</option>
+                    <option value="monospace">고정폭</option>
+                </select>
+
+                <select onchange="changeTextColor(this.value)">
+                    <option value="">글자색</option>
+                    <option value="#111827">검정</option>
+                    <option value="#374151">회색</option>
+                    <option value="#dc2626">빨강</option>
+                    <option value="#ea580c">주황</option>
+                    <option value="#16a34a">초록</option>
+                    <option value="#2563eb">파랑</option>
+                    <option value="#7c3aed">보라</option>
+                </select>
+
+                <input
+                    type="color"
+                    class="toolbar-color-input"
+                    title="직접 글자색 선택"
+                    value="#111827"
+                    onchange="changeTextColor(this.value)"
+                >
 
                 <span class="toolbar-divider"></span>
 
@@ -397,6 +423,56 @@
         color: #d1d5db;
         white-space: nowrap;
     }
+
+    .editor-toolbar .toolbar-color-input {
+        width: 38px;
+        height: 32px;
+        padding: 2px;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        background: #ffffff;
+        cursor: pointer;
+    }
+
+    /* 글쓰기 툴바 버튼 글자 깨짐 방지 */
+.editor-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    overflow-x: auto;
+}
+
+.editor-toolbar button,
+.editor-toolbar select,
+.editor-toolbar input[type="color"] {
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+    word-break: keep-all;
+    padding: 6px 8px;
+    height: 32px;
+    min-width: auto;
+    width: auto;
+}
+
+.editor-toolbar button {
+    flex: 0 0 auto;
+}
+
+.editor-toolbar select {
+    max-width: 115px;
+}
+
+.editor-toolbar input[type="color"] {
+    width: 34px;
+    padding: 2px;
+}
+
+.toolbar-divider {
+    height: 18px;
+    margin: 0 4px;
+}
 </style>
 
 <script>
@@ -404,6 +480,7 @@
     const hiddenContent = document.getElementById("id_content");
     const form = document.querySelector(".tistory-editor-form");
     const charCount = document.getElementById("content-char-count");
+    const editorToolbar = document.querySelector(".editor-toolbar");
 
     const imageInput = document.getElementById("editorImageInput");
 
@@ -418,6 +495,16 @@
 
     let savedRange = null;
     let currentYoutubeEmbedUrl = "";
+
+    if (editorToolbar) {
+        editorToolbar.addEventListener("mousedown", function () {
+            saveSelection();
+        });
+
+        editorToolbar.addEventListener("touchstart", function () {
+            saveSelection();
+        });
+    }
 
     function clearDefaultText() {
         if (!editor) {
@@ -484,30 +571,120 @@
         updateCharCount();
     }
 
-    function changeFontSize(size) {
-        if (!size) {
+    function ensureEditorSelection() {
+        if (!editor) {
+            return false;
+        }
+
+        const selection = window.getSelection();
+
+        if (
+            selection &&
+            selection.rangeCount > 0 &&
+            editor.contains(selection.anchorNode)
+        ) {
+            savedRange = selection.getRangeAt(0);
+            return true;
+        }
+
+        if (savedRange) {
+            restoreSelection();
+            return true;
+        }
+
+        editor.focus();
+
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        savedRange = range;
+
+        return true;
+    }
+
+    function placeStyledTypingMarker(range, styleName, styleValue) {
+        const selection = window.getSelection();
+
+        const marker = document.createElement("span");
+        marker.className = "editor-style-marker";
+        marker.style[styleName] = styleValue;
+        marker.appendChild(document.createTextNode("\u200B"));
+
+        range.insertNode(marker);
+
+        const newRange = document.createRange();
+        newRange.setStart(marker.firstChild, 1);
+        newRange.collapse(true);
+
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+
+        savedRange = newRange;
+    }
+
+    function applyInlineStyle(styleName, styleValue) {
+        if (!styleValue) {
             return;
         }
 
         clearDefaultText();
+
+        if (!ensureEditorSelection()) {
+            return;
+        }
+
         editor.focus();
 
         const selection = window.getSelection();
 
-        if (!selection.rangeCount) {
+        if (!selection || !selection.rangeCount) {
             return;
         }
 
         const range = selection.getRangeAt(0);
-        const selectedText = range.extractContents();
 
+        if (!editor.contains(range.commonAncestorContainer)) {
+            return;
+        }
+
+        if (selection.isCollapsed) {
+            placeStyledTypingMarker(range, styleName, styleValue);
+            updateCharCount();
+            return;
+        }
+
+        const selectedText = range.extractContents();
         const span = document.createElement("span");
-        span.style.fontSize = size;
+
+        span.style[styleName] = styleValue;
         span.appendChild(selectedText);
 
         range.insertNode(span);
-        saveSelection();
+
+        const newRange = document.createRange();
+        newRange.selectNodeContents(span);
+
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+
+        savedRange = newRange;
         updateCharCount();
+    }
+
+    function changeFontSize(size) {
+        applyInlineStyle("fontSize", size);
+    }
+
+    function changeFontFamily(fontFamily) {
+        applyInlineStyle("fontFamily", fontFamily);
+    }
+
+    function changeTextColor(color) {
+        applyInlineStyle("color", color);
     }
 
     function insertLink() {
@@ -873,6 +1050,22 @@ function cleanEditorImagesForSave(editorClone) {
             img.style.width = "100%";
             img.style.maxWidth = "100%";
             img.style.height = "auto";
+        }
+    });
+}
+
+function cleanEditorStyleMarkersForSave(editorClone) {
+    if (!editorClone) {
+        return;
+    }
+
+    editorClone.innerHTML = editorClone.innerHTML.replace(/\u200B/g, "");
+
+    editorClone.querySelectorAll(".editor-style-marker").forEach(function (marker) {
+        marker.classList.remove("editor-style-marker");
+
+        if (!marker.textContent.trim() && marker.children.length === 0) {
+            marker.remove();
         }
     });
 }
@@ -1474,6 +1667,7 @@ function performLocationSearch() {
             const editorClone = editor.cloneNode(true);
 
             cleanEditorImagesForSave(editorClone);
+            cleanEditorStyleMarkersForSave(editorClone);
 
             const localVideoTempBlocks = editorClone.querySelectorAll("[data-local-video='true']");
 
