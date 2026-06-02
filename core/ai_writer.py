@@ -17,8 +17,6 @@ load_dotenv(override=True)
 TEXT_MODEL = os.getenv("OPENAI_TEXT_MODEL", "gpt-4.1-mini")
 IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
 IMAGE_QUALITY = os.getenv("OPENAI_IMAGE_QUALITY", "low")
-WEB_SEARCH_ENABLED = os.getenv("OPENAI_WEB_SEARCH_ENABLED", "1").strip() != "0"
-WEB_SEARCH_CONTEXT_SIZE = os.getenv("OPENAI_WEB_SEARCH_CONTEXT_SIZE", "medium").strip() or "medium"
 
 
 BLOG_OPENING_GREETINGS = [
@@ -45,14 +43,14 @@ STYLE_WRITING_RULES = {
 - 일반 블로그보다 한 단계 깊은 전문 칼럼, 테크 리뷰, 시장 분석 글처럼 작성해라.
 - 출시일, 세대 변화, 스펙, 기술 구조, 성능 차이, 실사용 영향, 한계점을 구분해서 설명해라.
 - 확인된 사실과 예상, 루머, 추정을 명확히 나눠라.
-- 제품이나 기술 글에서는 가능한 경우가 아니라, 반드시 필요한 경우 실제 HTML 표를 사용해 핵심 스펙과 비교 포인트를 정리해라.
-- 제품명 2개 이상이 함께 들어간 비교 주제라면 반드시 본문 초반에 <table class="info-table"> 형식의 실제 스펙 비교표를 작성해라.
+- 제품명 2개 이상, "vs", "비교", "대체", "고민", "차이"가 들어간 주제는 반드시 제품 비교글로 작성해라.
+- 제품 비교글에서는 본문 초반에 반드시 <table class="info-table"> 형식의 실제 HTML 스펙 비교표를 작성해라.
+- 비교표는 이미지 설명, 캡션, "비교 표 이미지" 문장으로 대체하지 마라.
 - 비교표에는 가능한 경우 제품명, 제조사, 출시 시점, CPU/칩셋, GPU/그래픽, RAM/메모리, 저장공간, 디스플레이, 무게, 배터리, 포트, 운영체제, 가격대, 추천 대상을 포함해라.
-- "비교 표 이미지", "주요 사양 비교 표 이미지" 같은 이미지 설명 문장으로 표를 대체하지 마라.
+- 스펙이나 가격을 모르면 임의로 지어내지 말고 표 안에 "공식 확인 필요", "옵션별 상이", "판매처 확인 필요"처럼 표시해라.
 - 관련 없는 이전 세대나 경쟁 제품을 억지로 끌어오지 말고, 비교가 필요한 경우에만 간결하게 다뤄라.
 - "지금 사야 할까" 같은 범용 소비자 문구를 반복하지 말고, 사용 목적별 판단 기준을 제시해라.
-- 가격, 출시일, 수치가 확실하지 않으면 확정처럼 쓰지 말고 "예상", "가능성", "공식 확인 필요"로 표현해라.
-- 웹 검색으로 확인 가능한 공식 스펙과 가격 정보가 있으면 막연한 표현으로 피하지 말고 구체적으로 반영해라.
+- 가격, 출시일, 수치가 확실하지 않으면 확정처럼 쓰지 말고 "예상", "가능성", "확인 필요"로 표현해라.
 - 개발, 영상 편집, 디자인, 멀티 모니터, 업무용 환경처럼 실제 사용 시나리오를 포함해라.
 """,
     "experience": """
@@ -68,15 +66,14 @@ STYLE_WRITING_RULES = {
 - 제품 리뷰 전문 블로그처럼 작성하되, 제품명이 2개 이상 포함되면 반드시 제품 비교글로 작성해라.
 - 제품 비교글에서는 본문 초반에 반드시 <table class="info-table"> 형식의 실제 HTML 스펙 비교표를 넣어라.
 - 비교표는 이미지 설명이나 캡션으로 대체하지 마라.
-- 비교표에는 가능한 경우 아래 항목을 포함해라:
-  제품명, 제조사, 출시 시점, CPU/칩셋, GPU/그래픽, RAM/메모리, 저장공간, 디스플레이, 무게, 배터리, 포트, 운영체제, 가격대, 추천 대상.
+- "주요 사양 비교 표 이미지", "실제 크기와 디자인 비교 이미지" 같은 문장만 쓰고 넘어가지 마라.
+- 비교표에는 가능한 경우 아래 항목을 포함해라: 제품명, 제조사, 출시 시점, CPU/칩셋, GPU/그래픽, RAM/메모리, 저장공간, 디스플레이, 무게, 배터리, 포트, 운영체제, 가격대, 추천 대상.
 - 공식 제품명인지 불분명한 제품명은 확정 제품처럼 쓰지 말고 "제품명이 정확하지 않거나 공식 확인이 필요하다"고 먼저 짚어라.
-- 웹 검색으로 확인되는 공식 스펙과 가격이 있으면 표에 구체적으로 넣어라.
 - 스펙을 모르면 임의로 지어내지 마라.
 - 확인되지 않은 항목은 표 안에 "공식 확인 필요", "옵션별 상이", "판매처 확인 필요"처럼 표시해라.
 - 가격은 판매처, 옵션, 할인, 시점에 따라 달라질 수 있으므로 확정가처럼 단정하지 마라.
 - 사용자가 추가 요청사항에 제공한 가격, 판매처, 스펙 자료가 있으면 그 정보를 우선 반영해라.
-- 최신 가격 정보가 제공되지 않았고 웹 검색에서도 확인되지 않았다면 임의 금액을 만들지 말고 "현재 판매가는 판매처와 옵션에 따라 확인이 필요하다"고 표현해라.
+- 최신 가격 정보가 제공되지 않았다면 임의 금액을 만들지 말고 "현재 판매가는 판매처와 옵션에 따라 확인이 필요하다"고 표현해라.
 - 공식 스펙, 판매처 옵션, 사용자 후기성 장단점을 구분해서 작성해라.
 - 광고성 문구보다 실제 구매 판단에 도움이 되는 기준을 먼저 제시해라.
 - 이런 사람에게 추천, 이런 사람은 보류가 좋은 경우를 나눠서 마무리해라.
@@ -88,7 +85,6 @@ STYLE_WRITING_RULES = {
 - 확인된 사실과 전망을 구분하고, 과장된 확정 표현을 피하라.
 - 독자가 지금 확인해야 할 체크포인트와 앞으로 볼 변수를 정리해라.
 - 짧은 뉴스 요약이 아니라 블로그 독자가 이해하기 쉬운 맥락 설명을 포함해라.
-- 최신 이슈나 출시 정보는 웹 검색 결과를 우선 반영하고, 오래된 일반론으로 대체하지 마라.
 """,
     "checklist": """
 체크리스트형 작성 규칙:
@@ -101,7 +97,6 @@ STYLE_WRITING_RULES = {
 - 장점만 강조하지 말고 단점, 주의점, 맞는 사람과 맞지 않는 사람을 함께 정리해라.
 - 실제 경험이 없는 경우 직접 사용 후기처럼 꾸미지 말고, 공개 정보와 일반적인 판단 기준 중심으로 작성해라.
 - 제품, 장소, 서비스는 가격, 구성, 접근성, 사용성, 만족 포인트를 나눠 설명해라.
-- 제품명 2개 이상이 함께 들어가면 실제 HTML 비교표를 사용해 스펙과 가격 확인 포인트를 정리해라.
 """,
 }
 
@@ -285,346 +280,144 @@ def clean_text_for_meta(text, limit=150):
     return text[:limit].rstrip() + "..."
 
 
-def normalize_for_detection(*values):
-    return " ".join([str(value or "") for value in values]).lower()
+
+def normalize_text_for_detect(value):
+    return str(value or "").lower().replace(" ", "")
 
 
-def should_use_web_search(category, keywords, writing_style, extra_prompt="", planned_title=""):
-    """
-    최신 제품, 가격, 출시일, 스펙, 뉴스성 글은 모델 기억만으로 쓰면 품질이 떨어진다.
-    이런 경우 OpenAI Responses API의 web_search 도구를 사용한다.
-    """
-    if not WEB_SEARCH_ENABLED:
-        return False
-
-    text = normalize_for_detection(category, keywords, writing_style, extra_prompt, planned_title)
-
-    style_needs_web = writing_style in {
-        "expert",
-        "product_review",
-        "news_trend",
-        "trend",
-        "review",
-    }
-
-    web_keywords = [
-        "출시",
-        "출시일",
-        "스펙",
-        "사양",
-        "가격",
-        "금액",
-        "최신",
-        "신제품",
-        "리뷰",
-        "비교",
-        "대체",
-        "vs",
-        "맥북",
-        "macbook",
-        "아이폰",
-        "iphone",
-        "갤럭시",
-        "galaxy",
-        "xps",
-        "그램",
-        "노트북",
-        "모니터",
-        "cpu",
-        "gpu",
-        "ram",
-        "ssd",
-        "2025",
-        "2026",
+def looks_like_bad_generic_shopping_text(content):
+    text = str(content or "")
+    lowered = text.lower()
+    bad_words = [
+        "when shopping online for physical products",
+        "amazon",
+        "walmart",
+        "target",
+        "ebay",
+        "best buy",
+        "wayfair",
+        "beyondbracket",
     ]
-
-    return style_needs_web or any(word in text for word in web_keywords)
+    return sum(1 for word in bad_words if word in lowered) >= 2
 
 
 def is_product_comparison_topic(category, keywords, writing_style, extra_prompt="", planned_title=""):
-    text = normalize_for_detection(category, keywords, writing_style, extra_prompt, planned_title)
-
-    comparison_words = [
-        " vs ",
-        "vs",
-        "비교",
-        "대체",
-        "차이",
-        "고민",
-        "살펴볼",
-        "추천",
-        "어느",
-        "뭐가",
-        "무엇이",
-    ]
-
+    raw = f"{category} {keywords} {writing_style} {extra_prompt} {planned_title}"
+    compact = normalize_text_for_detect(raw)
+    comparison_words = ["vs", "비교", "차이", "대체", "고민", "둘중", "둘 중", "살까", "추천", "제품"]
     product_words = [
-        "xps",
-        "맥북",
-        "macbook",
-        "아이폰",
-        "iphone",
-        "갤럭시",
-        "galaxy",
-        "노트북",
-        "laptop",
-        "그램",
-        "gram",
-        "프로",
-        "air",
-        "neo",
-        "m5",
-        "m4",
-        "cpu",
-        "gpu",
-        "모니터",
-        "태블릿",
-        "ipad",
-        "워치",
+        "xps", "맥북", "macbook", "노트북", "아이폰", "iphone", "갤럭시", "galaxy",
+        "아이패드", "ipad", "맥미니", "macmini", "모니터", "키보드", "마우스", "가전",
+        "카메라", "gpu", "cpu", "그래픽카드", "건설장비", "장비"
     ]
-
-    return (
-        writing_style in {"expert", "product_review", "review"}
-        and any(word in text for word in comparison_words)
-        and any(word in text for word in product_words)
-    )
+    return any(word.replace(" ", "") in compact for word in comparison_words) and any(word.replace(" ", "") in compact for word in product_words)
 
 
-def guess_comparison_products(keywords, planned_title="", extra_prompt=""):
-    """
-    후처리용 보조 함수.
-    AI가 표를 누락했을 때 최소 비교표라도 넣기 위해 제품명을 추정한다.
-    정확한 스펙은 본문/웹검색 결과가 우선이며, 여기서는 표 구조 보장에 목적이 있다.
-    """
-    source = " ".join([str(keywords or ""), str(planned_title or ""), str(extra_prompt or "")])
+def extract_comparison_product_names(keywords, planned_title="", extra_prompt=""):
+    text = str(planned_title or keywords or extra_prompt or "제품 비교")
+    cleaned = re.sub(r"\s+", " ", text).strip()
 
+    known = []
     known_patterns = [
-        r"XPS\s*13",
-        r"Dell\s*XPS\s*13",
-        r"맥북\s*네오",
-        r"MacBook\s*Neo",
-        r"맥북\s*에어",
-        r"MacBook\s*Air",
-        r"맥북\s*프로",
-        r"MacBook\s*Pro",
-        r"아이폰\s*\d+\s*프로",
-        r"iPhone\s*\d+\s*Pro",
-        r"아이폰\s*\d+",
-        r"iPhone\s*\d+",
-        r"갤럭시\s*S\d+",
-        r"Galaxy\s*S\d+",
-        r"LG\s*그램",
-        r"그램",
+        (r"XPS\s*13", "XPS 13"),
+        (r"맥북\s*네오", "맥북 네오"),
+        (r"MacBook\s*Neo", "MacBook Neo"),
+        (r"맥북\s*에어", "맥북 에어"),
+        (r"MacBook\s*Air", "MacBook Air"),
+        (r"맥북\s*프로", "맥북 프로"),
+        (r"MacBook\s*Pro", "MacBook Pro"),
+        (r"맥미니", "맥미니"),
+        (r"Mac\s*mini", "Mac mini"),
     ]
+    for pattern, name in known_patterns:
+        if re.search(pattern, cleaned, flags=re.IGNORECASE) and name not in known:
+            known.append(name)
 
-    products = []
+    if len(known) >= 2:
+        return known[0], known[1]
 
-    for pattern in known_patterns:
-        for match in re.findall(pattern, source, flags=re.IGNORECASE):
-            cleaned = re.sub(r"\s+", " ", match).strip()
-            if cleaned and cleaned.lower() not in [p.lower() for p in products]:
-                products.append(cleaned)
+    separators = [" vs ", " VS ", "와 ", "과 ", "랑 ", "하고 ", "대비", "대체"]
+    for sep in separators:
+        if sep in cleaned:
+            parts = [p.strip(" ,/|:;·-_") for p in cleaned.split(sep, 1)]
+            if len(parts) == 2 and parts[0] and parts[1]:
+                a = parts[0][-40:].strip()
+                b = re.split(r"\s+(고민|비교|차이|추천|정리|살펴보기|가능|할까)", parts[1])[0].strip()
+                if a and b:
+                    return a, b
 
-    if len(products) >= 2:
-        return products[:2]
+    if len(known) == 1:
+        return known[0], "비교 제품"
 
-    # "A vs B" 형태 보조 추정
-    vs_match = re.search(r"(.+?)\s*(?:vs|VS|비교)\s*(.+)", source)
-    if vs_match:
-        left = re.sub(r"[으로와과을를은는,].*$", "", vs_match.group(1)).strip()
-        right = re.sub(r"[으로와과을를은는,].*$", "", vs_match.group(2)).strip()
-        if left and right:
-            return [left[:40], right[:40]]
-
-    # "A으로 B 대체" 형태 보조 추정
-    replace_match = re.search(r"(.+?)으로\s+(.+?)\s*(?:대체|고민|비교)", source)
-    if replace_match:
-        left = replace_match.group(1).strip()
-        right = replace_match.group(2).strip()
-        if left and right:
-            return [left[:40], right[:40]]
-
-    while len(products) < 2:
-        products.append("비교 제품 " + str(len(products) + 1))
-
-    return products[:2]
+    return "비교 제품 1", "비교 제품 2"
 
 
 def build_required_comparison_table(product_a, product_b):
-    safe_a = html.escape(product_a or "제품 A")
-    safe_b = html.escape(product_b or "제품 B")
-
+    product_a = html.escape(str(product_a or "비교 제품 1"))
+    product_b = html.escape(str(product_b or "비교 제품 2"))
+    rows = [
+        ("제조사", "공식 확인 필요", "공식 확인 필요"),
+        ("출시 시점", "공식 확인 필요", "공식 확인 필요"),
+        ("CPU/칩셋", "공식 확인 필요", "공식 확인 필요"),
+        ("GPU/그래픽", "공식 확인 필요", "공식 확인 필요"),
+        ("RAM/메모리", "옵션별 상이 또는 공식 확인 필요", "옵션별 상이 또는 공식 확인 필요"),
+        ("저장공간", "옵션별 상이 또는 공식 확인 필요", "옵션별 상이 또는 공식 확인 필요"),
+        ("디스플레이", "공식 확인 필요", "공식 확인 필요"),
+        ("무게", "공식 확인 필요", "공식 확인 필요"),
+        ("배터리", "공식 확인 필요", "공식 확인 필요"),
+        ("포트", "공식 확인 필요", "공식 확인 필요"),
+        ("운영체제", "공식 확인 필요", "공식 확인 필요"),
+        ("가격대", "판매처·옵션별 확인 필요", "판매처·옵션별 확인 필요"),
+        ("추천 대상", "본문 기준 확인", "본문 기준 확인"),
+    ]
+    body = "\n".join(
+        f"        <tr><td>{html.escape(item)}</td><td>{html.escape(a)}</td><td>{html.escape(b)}</td></tr>"
+        for item, a, b in rows
+    )
     return f"""
 <h2>주요 스펙 비교</h2>
 <table class="info-table">
     <thead>
         <tr>
             <th>항목</th>
-            <th>{safe_a}</th>
-            <th>{safe_b}</th>
+            <th>{product_a}</th>
+            <th>{product_b}</th>
         </tr>
     </thead>
     <tbody>
-        <tr>
-            <td>제조사</td>
-            <td>공식 확인 필요</td>
-            <td>공식 확인 필요</td>
-        </tr>
-        <tr>
-            <td>출시 시점</td>
-            <td>공식 확인 필요</td>
-            <td>공식 확인 필요</td>
-        </tr>
-        <tr>
-            <td>CPU/칩셋</td>
-            <td>공식 확인 필요</td>
-            <td>공식 확인 필요</td>
-        </tr>
-        <tr>
-            <td>GPU/그래픽</td>
-            <td>공식 확인 필요</td>
-            <td>공식 확인 필요</td>
-        </tr>
-        <tr>
-            <td>RAM/메모리</td>
-            <td>옵션별 상이 또는 공식 확인 필요</td>
-            <td>옵션별 상이 또는 공식 확인 필요</td>
-        </tr>
-        <tr>
-            <td>저장공간</td>
-            <td>옵션별 상이 또는 공식 확인 필요</td>
-            <td>옵션별 상이 또는 공식 확인 필요</td>
-        </tr>
-        <tr>
-            <td>디스플레이</td>
-            <td>공식 확인 필요</td>
-            <td>공식 확인 필요</td>
-        </tr>
-        <tr>
-            <td>무게</td>
-            <td>공식 확인 필요</td>
-            <td>공식 확인 필요</td>
-        </tr>
-        <tr>
-            <td>배터리</td>
-            <td>공식 확인 필요</td>
-            <td>공식 확인 필요</td>
-        </tr>
-        <tr>
-            <td>포트</td>
-            <td>공식 확인 필요</td>
-            <td>공식 확인 필요</td>
-        </tr>
-        <tr>
-            <td>운영체제</td>
-            <td>공식 확인 필요</td>
-            <td>공식 확인 필요</td>
-        </tr>
-        <tr>
-            <td>가격대</td>
-            <td>판매처·옵션별 확인 필요</td>
-            <td>판매처·옵션별 확인 필요</td>
-        </tr>
-        <tr>
-            <td>추천 대상</td>
-            <td>본문 기준 확인</td>
-            <td>본문 기준 확인</td>
-        </tr>
+{body}
     </tbody>
 </table>
 <p>위 표에서 확인되지 않은 항목은 임의로 단정하지 않고 공식 스펙과 판매처 정보를 기준으로 다시 확인하는 것이 좋습니다.</p>
-"""
+""".strip()
 
 
-def ensure_comparison_table(content, keywords, planned_title="", extra_prompt=""):
+def ensure_required_comparison_table(content, category, keywords, writing_style, extra_prompt="", planned_title=""):
     content = str(content or "")
-
-    if re.search(r"<table\b", content, flags=re.IGNORECASE):
+    if not is_product_comparison_topic(category, keywords, writing_style, extra_prompt, planned_title):
         return content
 
-    product_a, product_b = guess_comparison_products(keywords, planned_title, extra_prompt)
+    if '<table' in content.lower() and 'info-table' in content.lower():
+        return content
+
+    product_a, product_b = extract_comparison_product_names(keywords, planned_title, extra_prompt)
     table_html = build_required_comparison_table(product_a, product_b)
 
-    first_h2 = re.search(r"<h2\b[^>]*>", content, flags=re.IGNORECASE)
+    h2_match = re.search(r"<h2[^>]*>", content, flags=re.IGNORECASE)
+    if h2_match:
+        return content[:h2_match.start()] + table_html + "\n\n" + content[h2_match.start():]
 
-    if first_h2:
-        insert_at = first_h2.start()
-        return content[:insert_at] + table_html + "\n" + content[insert_at:]
-
-    return table_html + "\n" + content
+    return table_html + "\n\n" + content
 
 
-def build_web_search_instruction(use_web_search, comparison_required):
-    if not use_web_search:
-        return """
-웹 검색 사용 조건:
-- 이 글은 실시간 정보가 꼭 필요한 주제가 아니라면 모델이 아는 범위와 사용자가 제공한 정보만으로 작성한다.
-- 단, 출시일, 가격, 스펙처럼 시점이 중요한 정보는 확정적으로 단정하지 마라.
-"""
-
-    comparison_text = ""
-    if comparison_required:
-        comparison_text = """
-제품 비교 추가 조건:
-- 제품명 2개 이상이 포함된 비교 주제이므로, 본문 초반에 실제 HTML 스펙 비교표를 반드시 작성해라.
-- 비교표에는 CPU/칩셋, GPU/그래픽, 메모리, 저장공간, 디스플레이, 무게, 배터리, 포트, 운영체제, 가격대, 추천 대상을 넣어라.
-- 검색 결과로 확인한 공식 스펙은 표에 구체적으로 반영해라.
-- 확인되지 않은 항목만 "공식 확인 필요" 또는 "옵션별 상이"로 적어라.
-"""
-
-    return f"""
-웹 검색 사용 조건:
-- 이 글은 최신 제품 정보, 가격, 출시일, 스펙 확인이 중요한 주제다.
-- 작성 전에 반드시 웹 검색 결과를 바탕으로 공식 제조사 페이지, 공식 뉴스룸, 공식 스펙 페이지, 신뢰할 수 있는 IT 매체, 판매처 정보를 우선 확인해라.
-- 오래된 모델 지식이나 일반론만으로 작성하지 마라.
-- 검색 결과에서 확인되는 출시일, 가격, CPU/칩셋, 메모리, 저장공간, 디스플레이, 무게, 배터리, 포트, 운영체제는 가능한 한 구체적으로 작성해라.
-- 확인되지 않은 정보는 지어내지 말고 "공식 확인 필요", "판매처 확인 필요", "옵션별 상이"라고 표시해라.
-- 최신 가격은 판매처, 국가, 할인, 교육할인, 옵션에 따라 달라질 수 있음을 함께 설명해라.
-- 본문 말미에는 <h2>참고한 정보 출처</h2> 섹션을 만들고, 실제 확인한 출처 2~5개를 <ul><li><a href="URL" target="_blank" rel="noopener noreferrer">출처명</a></li></ul> 형식으로 넣어라.
-{comparison_text}
-"""
-
-
-def create_text_response(client, prompt, use_web_search=False, force_web_search=False):
-    """
-    OpenAI Responses API 호출.
-    최신 제품/가격/뉴스성 주제는 web_search 도구를 붙인다.
-    도구 호출 실패 시 서비스가 완전히 멈추지 않도록 일반 응답으로 한 번 더 시도한다.
-    """
-    if use_web_search and WEB_SEARCH_ENABLED:
-        tools = [
-            {
-                "type": "web_search",
-                "search_context_size": WEB_SEARCH_CONTEXT_SIZE,
-            }
-        ]
-
-        try:
-            return client.responses.create(
-                model=TEXT_MODEL,
-                tools=tools,
-                tool_choice="required" if force_web_search else "auto",
-                input=prompt,
-            )
-        except TypeError:
-            # 구버전 SDK 또는 일부 환경에서 web_search가 실패할 경우 preview로 재시도
-            try:
-                return client.responses.create(
-                    model=TEXT_MODEL,
-                    tools=[{"type": "web_search_preview"}],
-                    tool_choice="required" if force_web_search else "auto",
-                    input=prompt,
-                )
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-    return client.responses.create(
-        model=TEXT_MODEL,
-        input=prompt,
+def make_fallback_thumbnail_prompt(category, keywords, title=""):
+    title_text = str(title or keywords or "블로그 콘텐츠")[:80]
+    category_text = str(category or "blog")
+    return (
+        f"Korean blog thumbnail image for {category_text} article about {title_text}, "
+        "clean realistic editorial style, modern layout, enough empty space for Korean title text, "
+        "no logo, no watermark, no close-up human face, high quality"
     )
-
 
 
 def add_random_blog_greeting(content, probability=0.8):
@@ -699,13 +492,6 @@ def generate_ai_post(
     }
     style_rule_key = style_key_map.get(writing_style, writing_style)
     style_specific_rule = STYLE_WRITING_RULES.get(style_rule_key, STYLE_WRITING_RULES["natural"])
-    use_web_search = should_use_web_search(
-        category,
-        keywords,
-        style_rule_key,
-        extra_prompt,
-        planned_title,
-    )
     comparison_required = is_product_comparison_topic(
         category,
         keywords,
@@ -713,7 +499,6 @@ def generate_ai_post(
         extra_prompt,
         planned_title,
     )
-    web_search_instruction = build_web_search_instruction(use_web_search, comparison_required)
 
     human_opening_pattern = random.choice(HUMAN_OPENING_PATTERNS)
     human_structure_pattern = random.choice(HUMAN_STRUCTURE_PATTERNS)
@@ -769,6 +554,20 @@ caption 조건:
 content_images는 빈 배열로 반환해라.
 """
 
+    if comparison_required:
+        product_a, product_b = extract_comparison_product_names(keywords, planned_title, extra_prompt)
+        comparison_instruction = f"""
+제품 비교 강제 조건:
+- 이번 글은 {product_a}와 {product_b}를 비교하는 글로 작성해라.
+- 본문 초반에 반드시 실제 HTML 표를 작성해라.
+- 표는 반드시 <table class="info-table"> 태그를 사용해라.
+- 비교표는 이미지 설명이나 캡션으로 대체하지 마라.
+- 표 항목에는 CPU/칩셋, 메모리, 저장공간, 디스플레이, 무게, 배터리, 포트, 운영체제, 가격대를 포함해라.
+- 확인되지 않은 스펙은 임의 작성하지 말고 "공식 확인 필요", "옵션별 상이", "판매처 확인 필요"로 표시해라.
+"""
+    else:
+        comparison_instruction = ""
+
     prompt = f"""
 너는 ChickenBanana Lab 블로그의 한국어 SEO 전문 콘텐츠 작성자다.
 목표는 네이버와 구글 검색엔진이 이해하기 쉬우면서도, 실제 사람이 읽었을 때 도움이 되는 글을 작성하는 것이다.
@@ -778,10 +577,10 @@ content_images는 빈 배열로 반환해라.
 글 작성 방향: {style_name}
 추가 요청사항: {extra_prompt}
 
-{web_search_instruction}
-
 글쓰기 세부 지침:
 {style_specific_rule}
+
+{comparison_instruction}
 
 {planned_title_instruction}
 
@@ -825,6 +624,8 @@ meta_description 작성 조건:
 - 애드센스 블로그에 어울리게 정보성으로 작성
 - 썸네일 이미지 프롬프트는 본문 content 안에 넣지 마라
 - 결과는 반드시 JSON 형식만 반환
+- 영어 본문을 작성하지 마라. 반드시 한국어 본문을 작성해라.
+- Amazon, Walmart, Target, eBay, Best Buy, Wayfair 같은 일반 쇼핑몰 추천 문장을 넣지 마라.
 - 본문 첫머리에 "안녕하세요", "치킨바나나랩입니다" 같은 운영자 인사말을 직접 작성하지 마라. 인사말은 시스템이 후처리로 랜덤 삽입한다.
 
 글 분량 판단 조건:
@@ -933,8 +734,6 @@ FAQ 작성 조건:
 - script, iframe, style 태그는 절대 사용하지 마라.
 - 본문 최상단에 h1 태그는 쓰지 마라.
 - 표를 만들 때는 <table class="info-table"> 형태로 작성해라.
-- 제품 비교글에서 "비교 표 이미지", "주요 사양 비교 표 이미지" 같은 문장으로 표를 대체하지 마라.
-- 제품 비교글은 실제 HTML table을 반드시 작성해라.
 - 리스트가 필요한 경우 ul, li 태그를 사용해 읽기 쉽게 작성해라.
 - 링크는 target="_blank" rel="noopener noreferrer"를 사용해라.
 
@@ -968,25 +767,28 @@ FAQ 작성 조건:
 
     client = get_openai_client()
 
-    response = create_text_response(
-        client,
-        prompt,
-        use_web_search=use_web_search,
-        force_web_search=use_web_search,
+    response = client.responses.create(
+        model=TEXT_MODEL,
+        input=prompt,
     )
 
     text = response.output_text.strip()
     data = extract_json(text)
 
     if not data:
+        fallback_content = text
+
+        if looks_like_bad_generic_shopping_text(fallback_content):
+            fallback_content = "<h2>자료 확인이 필요한 주제입니다</h2><p>자동 글 생성 과정에서 주제와 맞지 않는 쇼핑몰 일반 정보가 감지되어 본문을 안전하게 대체했습니다. 이 주제는 제품명, 공식 스펙, 가격 자료를 추가 요청사항에 넣고 다시 생성하는 것이 좋습니다.</p>"
+
         data = {
             "title": f"{keywords} 정리",
-            "summary": clean_text_for_meta(text, 180),
-            "meta_description": clean_text_for_meta(text, 120),
+            "summary": clean_text_for_meta(fallback_content, 180),
+            "meta_description": clean_text_for_meta(fallback_content, 120),
             "thumbnail_text": keywords[:30],
-            "content": text,
+            "content": fallback_content,
             "tags": keywords if include_tags else "",
-            "thumbnail_prompt": "",
+            "thumbnail_prompt": make_fallback_thumbnail_prompt(category, keywords, f"{keywords} 정리"),
             "content_images": [],
         }
 
@@ -1000,14 +802,17 @@ FAQ 작성 조건:
     title = str(data.get("title", f"{keywords} 정리"))[:200]
     content = str(data.get("content", ""))
 
-    if comparison_required:
-        content = ensure_comparison_table(
-            content,
-            keywords,
-            planned_title=planned_title,
-            extra_prompt=extra_prompt,
-        )
+    if looks_like_bad_generic_shopping_text(content):
+        content = "<h2>자료 확인이 필요한 주제입니다</h2><p>자동 글 생성 과정에서 주제와 맞지 않는 쇼핑몰 일반 정보가 감지되어 본문을 안전하게 대체했습니다. 제품명, 공식 스펙, 가격 자료를 추가 요청사항에 넣고 다시 생성해 주세요.</p>"
 
+    content = ensure_required_comparison_table(
+        content,
+        category,
+        keywords,
+        style_rule_key,
+        extra_prompt,
+        planned_title,
+    )
     content = add_random_blog_greeting(content)
     summary = str(data.get("summary", "")).strip()
     meta_description = str(data.get("meta_description", "")).strip()
@@ -1025,7 +830,7 @@ FAQ 작성 조건:
         "thumbnail_text": str(data.get("thumbnail_text", keywords[:30]))[:100],
         "content": content,
         "tags": str(data.get("tags", "")) if include_tags else "",
-        "thumbnail_prompt": str(data.get("thumbnail_prompt", "")) if make_thumbnail else "",
+        "thumbnail_prompt": (str(data.get("thumbnail_prompt", "")).strip() or make_fallback_thumbnail_prompt(category, keywords, title)) if make_thumbnail else "",
         "content_images": content_images,
     }
 
