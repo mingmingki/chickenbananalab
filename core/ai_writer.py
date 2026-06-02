@@ -19,17 +19,6 @@ IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
 IMAGE_QUALITY = os.getenv("OPENAI_IMAGE_QUALITY", "low")
 
 
-BLOG_OPENING_GREETINGS = [
-    "안녕하세요. 치킨바나나랩입니다.",
-    "안녕하세요, 치킨바나나랩 운영자입니다.",
-    "안녕하세요 :) 치킨바나나랩입니다.",
-    "오늘도 치킨바나나랩에 방문해주셔서 감사합니다.",
-    "안녕하세요. 치킨바나나랩에서 정리해봤습니다.",
-    "궁금했던 부분, 치킨바나나랩에서 쉽게 풀어볼게요.",
-    "생각보다 헷갈리는 부분이라 치킨바나나랩에서 한번 정리해봤습니다.",
-    "처음 찾아보는 분들도 이해하기 쉽게 정리해볼게요.",
-]
-
 STYLE_WRITING_RULES = {
     "natural": """
 자연 설명형 작성 규칙:
@@ -420,30 +409,6 @@ def make_fallback_thumbnail_prompt(category, keywords, title=""):
     )
 
 
-def add_random_blog_greeting(content, probability=0.8):
-    """
-    글 첫단에 치킨바나나랩 인사말을 랜덤으로 붙인다.
-    모든 글이 같은 패턴으로 시작하지 않도록 기본 80% 확률로만 적용한다.
-    """
-    content = str(content or "")
-    stripped = content.lstrip()
-
-    if not stripped:
-        return content
-
-    first_part = re.sub(r"<[^>]+>", "", stripped[:160])
-
-    if "치킨바나나랩" in first_part or first_part.startswith("안녕하세요"):
-        return content
-
-    if random.random() >= probability:
-        return content
-
-    greeting = random.choice(BLOG_OPENING_GREETINGS)
-
-    return f"<p>{html.escape(greeting)}</p>\n" + content
-
-
 def generate_ai_post(
     category,
     keywords,
@@ -626,7 +591,7 @@ meta_description 작성 조건:
 - 결과는 반드시 JSON 형식만 반환
 - 영어 본문을 작성하지 마라. 반드시 한국어 본문을 작성해라.
 - Amazon, Walmart, Target, eBay, Best Buy, Wayfair 같은 일반 쇼핑몰 추천 문장을 넣지 마라.
-- 본문 첫머리에 "안녕하세요", "치킨바나나랩입니다" 같은 운영자 인사말을 직접 작성하지 마라. 인사말은 시스템이 후처리로 랜덤 삽입한다.
+- 본문 첫머리에 "안녕하세요", "치킨바나나랩입니다" 같은 운영자 인사말을 직접 작성하지 마라. 필요한 인사말은 사용자가 수동으로 추가한다.
 
 글 분량 판단 조건:
 - 주제가 간단한 생활정보, 맛집 위치, 메뉴 소개, 짧은 이슈라면 핵심만 담아 900~1,300자 정도로 작성해라.
@@ -813,7 +778,6 @@ FAQ 작성 조건:
         extra_prompt,
         planned_title,
     )
-    content = add_random_blog_greeting(content)
     summary = str(data.get("summary", "")).strip()
     meta_description = str(data.get("meta_description", "")).strip()
 
