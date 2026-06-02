@@ -19,6 +19,7 @@ TEXT_MODEL = os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-pro")
 IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
 IMAGE_ASPECT_RATIO = os.getenv("GEMINI_IMAGE_ASPECT_RATIO", "16:9")
 IMAGE_SIZE = os.getenv("GEMINI_IMAGE_SIZE", "2K")
+GEMINI_USE_GOOGLE_SEARCH = os.getenv("GEMINI_USE_GOOGLE_SEARCH", "true").strip().lower() not in ("0", "false", "no", "off")
 
 
 STYLE_WRITING_RULES = {
@@ -555,9 +556,20 @@ def _extract_image_bytes_from_gemini_response(response):
 
 def gemini_generate_text(prompt):
     client = get_gemini_client()
+
+    config = None
+    if GEMINI_USE_GOOGLE_SEARCH:
+        grounding_tool = types.Tool(
+            google_search=types.GoogleSearch()
+        )
+        config = types.GenerateContentConfig(
+            tools=[grounding_tool]
+        )
+
     response = client.models.generate_content(
         model=TEXT_MODEL,
         contents=prompt,
+        config=config,
     )
     return _extract_text_from_gemini_response(response)
 
@@ -689,6 +701,15 @@ content_images는 빈 배열로 반환해라.
 
 글쓰기 세부 지침:
 {style_specific_rule}
+
+최신 사실 확인 규칙:
+- 최신 제품, 출시일, 가격, 스펙, 뉴스, 정책, 일정, 금리, 코인, 주식, 법률, 세금처럼 시간이 지나면 바뀌는 정보는 반드시 최신 자료 기준으로 확인해라.
+- Google Search grounding을 사용할 수 있으면 공식 홈페이지, 제조사 뉴스룸, 공신력 있는 매체, 판매처 정보를 우선 확인해라.
+- 공식 출시된 제품을 루머로 쓰지 마라.
+- 루머와 공식 정보를 혼동하지 마라.
+- 공식 페이지나 제조사 발표가 확인되면 "루머", "예상", "가능성" 같은 표현을 남발하지 마라.
+- 검색 결과와 사용자가 추가 요청사항에 준 정보가 충돌하면 공식 출처를 우선하고, 불확실한 부분은 "확인 필요"로 표시해라.
+- MacBook Neo처럼 공식 제품 페이지 또는 제조사 뉴스룸에서 확인되는 제품은 공식 출시 제품 기준으로 작성해라.
 
 {comparison_instruction}
 
