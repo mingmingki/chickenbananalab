@@ -19,6 +19,78 @@ IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
 IMAGE_QUALITY = os.getenv("OPENAI_IMAGE_QUALITY", "low")
 
 
+BLOG_OPENING_GREETINGS = [
+    "안녕하세요. 치킨바나나랩입니다.",
+    "안녕하세요, 치킨바나나랩 운영자입니다.",
+    "안녕하세요 :) 치킨바나나랩입니다.",
+    "오늘도 치킨바나나랩에 방문해주셔서 감사합니다.",
+    "안녕하세요. 치킨바나나랩에서 정리해봤습니다.",
+    "궁금했던 부분, 치킨바나나랩에서 쉽게 풀어볼게요.",
+    "생각보다 헷갈리는 부분이라 치킨바나나랩에서 한번 정리해봤습니다.",
+    "처음 찾아보는 분들도 이해하기 쉽게 정리해볼게요.",
+]
+
+STYLE_WRITING_RULES = {
+    "natural": """
+자연 설명형 작성 규칙:
+- 가볍고 읽기 쉬운 블로그 설명체로 작성해라.
+- 처음 보는 독자도 바로 이해할 수 있게 용어를 쉽게 풀어라.
+- 정보 안내문처럼 딱딱하게 쓰지 말고, 사람이 정리한 생활형 콘텐츠처럼 작성해라.
+- 너무 깊은 분석보다 핵심 기준, 확인 순서, 주의할 점을 자연스럽게 정리해라.
+""",
+    "expert": """
+전문가 분석형 작성 규칙:
+- 일반 블로그보다 한 단계 깊은 전문 칼럼, 테크 리뷰, 시장 분석 글처럼 작성해라.
+- 출시일, 세대 변화, 스펙, 기술 구조, 성능 차이, 실사용 영향, 한계점을 구분해서 설명해라.
+- 확인된 사실과 예상, 루머, 추정을 명확히 나눠라.
+- 제품이나 기술 글에서는 가능한 경우 표를 사용해 핵심 스펙과 비교 포인트를 정리해라.
+- 관련 없는 이전 세대나 경쟁 제품을 억지로 끌어오지 말고, 비교가 필요한 경우에만 간결하게 다뤄라.
+- "지금 사야 할까" 같은 범용 소비자 문구를 반복하지 말고, 사용 목적별 판단 기준을 제시해라.
+- 가격, 출시일, 수치가 확실하지 않으면 확정처럼 쓰지 말고 "예상", "가능성", "확인 필요"로 표현해라.
+- 개발, 영상 편집, 디자인, 멀티 모니터, 업무용 환경처럼 실제 사용 시나리오를 포함해라.
+""",
+    "experience": """
+경험 기반형 작성 규칙:
+- 직접 겪은 사람이 정리한 듯한 현실적인 관점으로 작성해라.
+- 건축, 현장, 업무, 육아, 여행, 생활 노하우처럼 실제 판단에 도움이 되는 체크포인트를 넣어라.
+- 단, 실제로 경험하지 않은 내용을 "제가 직접 해보니"처럼 꾸미지 마라.
+- 후기에서 자주 보이는 부분, 선택할 때 많이 보는 기준, 놓치기 쉬운 부분을 중심으로 풀어라.
+- 너무 문서형으로 쓰지 말고, 옆에서 알려주는 자연스러운 설명체를 유지해라.
+""",
+    "product_review": """
+구매·리뷰형 작성 규칙:
+- 제품 리뷰 전문 블로그처럼 제품명, 제조사, 출시 시점, 주요 스펙, 가격대, 장점, 단점, 추천 대상을 정리해라.
+- 가격은 판매처, 옵션, 할인, 시점에 따라 달라질 수 있으므로 확정가처럼 단정하지 마라.
+- 사용자가 추가 요청사항에 제공한 가격, 판매처, 스펙 자료가 있으면 그 정보를 우선 반영해라.
+- 최신 가격 정보가 제공되지 않았다면 임의 금액을 만들지 말고 "현재 판매가는 판매처와 옵션에 따라 확인이 필요하다"고 표현해라.
+- 공식 스펙과 쇼핑몰 옵션, 사용자 후기성 장단점을 구분해서 작성해라.
+- 최소 1개 표를 사용해 스펙, 가격 확인 포인트, 비교 대상을 정리해라.
+- 광고성 문구보다 실제 구매 판단에 도움이 되는 기준을 먼저 제시해라.
+- 이런 사람에게 추천, 이런 사람은 보류가 좋은 경우를 나눠서 마무리해라.
+""",
+    "news_trend": """
+뉴스·트렌드형 작성 규칙:
+- 최근 이슈를 단순 전달하지 말고 왜 주목받는지, 누구에게 영향이 있는지 분석해라.
+- 날짜, 발표 시점, 적용 시점이 중요한 내용은 구체적인 시점을 명확히 적어라.
+- 확인된 사실과 전망을 구분하고, 과장된 확정 표현을 피하라.
+- 독자가 지금 확인해야 할 체크포인트와 앞으로 볼 변수를 정리해라.
+- 짧은 뉴스 요약이 아니라 블로그 독자가 이해하기 쉬운 맥락 설명을 포함해라.
+""",
+    "checklist": """
+체크리스트형 작성 규칙:
+- 독자가 바로 확인할 수 있는 순서와 항목 중심으로 작성해라.
+- 각 체크 항목은 이유와 확인 방법을 함께 설명해라.
+- 단순 목록만 나열하지 말고, 실수하기 쉬운 부분과 판단 기준을 넣어라.
+""",
+    "review": """
+리뷰형 작성 규칙:
+- 장점만 강조하지 말고 단점, 주의점, 맞는 사람과 맞지 않는 사람을 함께 정리해라.
+- 실제 경험이 없는 경우 직접 사용 후기처럼 꾸미지 말고, 공개 정보와 일반적인 판단 기준 중심으로 작성해라.
+- 제품, 장소, 서비스는 가격, 구성, 접근성, 사용성, 만족 포인트를 나눠 설명해라.
+""",
+}
+
+
 HUMAN_OPENING_PATTERNS = [
     "검색자가 이미 궁금해하는 상황을 먼저 짚고, 그다음 핵심 정보를 자연스럽게 설명하는 방식",
     "개인 블로그처럼 가볍게 문제 상황을 던진 뒤, 바로 실용적인 기준을 알려주는 방식",
@@ -198,6 +270,31 @@ def clean_text_for_meta(text, limit=150):
     return text[:limit].rstrip() + "..."
 
 
+
+def add_random_blog_greeting(content, probability=0.8):
+    """
+    글 첫단에 치킨바나나랩 인사말을 랜덤으로 붙인다.
+    모든 글이 같은 패턴으로 시작하지 않도록 기본 80% 확률로만 적용한다.
+    """
+    content = str(content or "")
+    stripped = content.lstrip()
+
+    if not stripped:
+        return content
+
+    first_part = re.sub(r"<[^>]+>", "", stripped[:160])
+
+    if "치킨바나나랩" in first_part or first_part.startswith("안녕하세요"):
+        return content
+
+    if random.random() >= probability:
+        return content
+
+    greeting = random.choice(BLOG_OPENING_GREETINGS)
+
+    return f"<p>{html.escape(greeting)}</p>\n" + content
+
+
 def generate_ai_post(
     category,
     keywords,
@@ -211,11 +308,18 @@ def generate_ai_post(
     image_count = clamp_number(image_count, 0, 5, 0)
 
     style_map = {
-        "practical": "실무자 관점으로 쉽게 정리",
-        "issue": "최신 이슈 분석형",
-        "guide": "초보자 가이드형",
+        "natural": "자연 설명형",
+        "expert": "전문가 분석형",
+        "experience": "경험 기반형",
+        "product_review": "구매·리뷰형",
+        "news_trend": "뉴스·트렌드형",
         "checklist": "체크리스트형",
-        "review": "리뷰/경험담형",
+        "review": "리뷰형",
+
+        # 기존 화면/DB 값 호환용
+        "practical": "경험 기반형",
+        "issue": "뉴스·트렌드형",
+        "guide": "자연 설명형",
     }
 
     category_map = {
@@ -227,7 +331,14 @@ def generate_ai_post(
     }
 
     category_name = category_map.get(category, category)
-    style_name = style_map.get(writing_style, "실무자 관점으로 쉽게 정리")
+    style_name = style_map.get(writing_style, "자연 설명형")
+    style_key_map = {
+        "practical": "experience",
+        "issue": "news_trend",
+        "guide": "natural",
+    }
+    style_rule_key = style_key_map.get(writing_style, writing_style)
+    style_specific_rule = STYLE_WRITING_RULES.get(style_rule_key, STYLE_WRITING_RULES["natural"])
 
     human_opening_pattern = random.choice(HUMAN_OPENING_PATTERNS)
     human_structure_pattern = random.choice(HUMAN_STRUCTURE_PATTERNS)
@@ -292,6 +403,9 @@ content_images는 빈 배열로 반환해라.
 글 작성 방향: {style_name}
 추가 요청사항: {extra_prompt}
 
+글쓰기 세부 지침:
+{style_specific_rule}
+
 {planned_title_instruction}
 
 핵심 SEO 작성 원칙:
@@ -334,6 +448,7 @@ meta_description 작성 조건:
 - 애드센스 블로그에 어울리게 정보성으로 작성
 - 썸네일 이미지 프롬프트는 본문 content 안에 넣지 마라
 - 결과는 반드시 JSON 형식만 반환
+- 본문 첫머리에 "안녕하세요", "치킨바나나랩입니다" 같은 운영자 인사말을 직접 작성하지 마라. 인사말은 시스템이 후처리로 랜덤 삽입한다.
 
 글 분량 판단 조건:
 - 주제가 간단한 생활정보, 맛집 위치, 메뉴 소개, 짧은 이슈라면 핵심만 담아 900~1,300자 정도로 작성해라.
@@ -503,6 +618,7 @@ FAQ 작성 조건:
 
     title = str(data.get("title", f"{keywords} 정리"))[:200]
     content = str(data.get("content", ""))
+    content = add_random_blog_greeting(content)
     summary = str(data.get("summary", "")).strip()
     meta_description = str(data.get("meta_description", "")).strip()
 
@@ -546,11 +662,18 @@ def generate_post_topics(
         ]
 
     style_map = {
-        "practical": "실무자 관점으로 쉽게 정리",
-        "issue": "최신 이슈 분석형",
-        "guide": "초보자 가이드형",
+        "natural": "자연 설명형",
+        "expert": "전문가 분석형",
+        "experience": "경험 기반형",
+        "product_review": "구매·리뷰형",
+        "news_trend": "뉴스·트렌드형",
         "checklist": "체크리스트형",
-        "review": "리뷰/경험담형",
+        "review": "리뷰형",
+
+        # 기존 화면/DB 값 호환용
+        "practical": "경험 기반형",
+        "issue": "뉴스·트렌드형",
+        "guide": "자연 설명형",
     }
 
     category_map = {
@@ -562,7 +685,7 @@ def generate_post_topics(
     }
 
     category_name = category_map.get(category, "전체")
-    style_name = style_map.get(writing_style, "실무자 관점으로 쉽게 정리")
+    style_name = style_map.get(writing_style, "자연 설명형")
 
     existing_titles = existing_titles or []
     existing_title_text = "\n".join([f"- {title}" for title in existing_titles[:20]])
@@ -800,7 +923,7 @@ def recommend_today_keywords(
         {"keyword": "코인 API 키 보안 설정 방법", "category": "금융", "reason": "실전 사용자가 검색하기 좋은 주제"},
         {"keyword": "Django 블로그 만들기 초보 가이드", "category": "테크", "reason": "개발 과정 콘텐츠로 확장 가능"},
         {"keyword": "AI 자동 글쓰기 블로그 운영 방법", "category": "테크", "reason": "사이트 방향과 맞는 주제"},
-        {"keyword": "건설현장 안전관리 체크리스트", "category": "건축", "reason": "실무형 검색 유입 가능"},
+        {"keyword": "건설현장 안전관리 체크리스트", "category": "건축", "reason": "전문 정보형 검색 유입 가능"},
         {"keyword": "아파트 하자보수 체크포인트", "category": "건축", "reason": "생활형 건축 콘텐츠"},
         {"keyword": "부동산 전세 계약 전 확인사항", "category": "부동산", "reason": "검색 수요가 꾸준한 주제"},
         {"keyword": "아이폰 맥북 연동 사용법", "category": "테크", "reason": "테크 생활형 콘텐츠"},
