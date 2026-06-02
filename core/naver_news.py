@@ -1,13 +1,13 @@
 import json
 import re
-import urllib.parse
-import urllib.request
+import requests
 from html import unescape
 from django.conf import settings
 
 
 CATEGORY_SEARCH_WORDS = {
     "architecture": [
+        "건축",
         "건설 현장",
         "아파트 하자",
         "재건축",
@@ -18,6 +18,7 @@ CATEGORY_SEARCH_WORDS = {
         "건설 안전",
     ],
     "realestate": [
+        "부동산",
         "부동산 정책",
         "아파트 분양",
         "청약",
@@ -64,22 +65,35 @@ CATEGORY_LABELS = {
     "life": "일상",
 }
 
+CATEGORY_ALIASES = {
+    "all": "tech",
+    "건축": "architecture",
+    "부동산": "realestate",
+    "금융": "finance",
+    "테크": "tech",
+    "일상": "life",
+    "생활": "life",
+}
 
-# 너무 일반적이라 키워드로 쓰면 어색한 단어
 BAD_KEYWORDS = {
     "있다", "없다", "한다", "했다", "됐다", "된다", "위해", "통해", "대한", "관련",
     "오늘", "내일", "올해", "내년", "지난", "이번", "최근", "최신", "속보", "단독",
     "종합", "기자", "뉴스", "사진", "영상", "오전", "오후", "가능", "확인",
     "함께", "우리", "사회", "문화", "기억", "회장", "후보", "국힘", "민주",
-    "선거", "대선", "정치", "국회", "대표", "대통령",
+    "선거", "대선", "정치", "국회", "대표", "대통령", "제공", "무단", "전재",
 }
+
+
+def normalize_category(category):
+    category = (category or "tech").strip()
+    return CATEGORY_ALIASES.get(category, category)
 
 
 def clean_html(text):
     if not text:
         return ""
 
-    text = unescape(text)
+    text = unescape(str(text))
     text = re.sub(r"<[^>]+>", "", text)
     text = text.replace("&quot;", '"').replace("&amp;", "&")
     text = re.sub(r"\s+", " ", text)
@@ -89,7 +103,6 @@ def clean_html(text):
 def clean_title(title):
     title = clean_html(title)
 
-    # 언론사식 괄호, 따옴표, 특수기호 정리
     title = re.sub(r"\[[^\]]+\]", "", title)
     title = re.sub(r"\([^)]*\)", "", title)
     title = title.replace("...", " ")
@@ -113,23 +126,24 @@ def fetch_naver_news(query, display=10):
     if not client_id or not client_secret:
         raise RuntimeError("NAVER_CLIENT_ID 또는 NAVER_CLIENT_SECRET 설정이 비어 있습니다.")
 
-    encoded_query = urllib.parse.quote(query)
-    url = (
-        "https://openapi.naver.com/v1/search/news.json"
-        f"?query={encoded_query}"
-        f"&display={display}"
-        "&start=1"
-        "&sort=date"
-    )
+    url = "https://openapi.naver.com/v1/search/news.json"
 
-    request = urllib.request.Request(url)
-    request.add_header("X-Naver-Client-Id", client_id)
-    request.add_header("X-Naver-Client-Secret", client_secret)
+    headers = {
+        "X-Naver-Client-Id": client_id,
+        "X-Naver-Client-Secret": client_secret,
+    }
 
-    with urllib.request.urlopen(request, timeout=10) as response:
-        body = response.read().decode("utf-8")
-        data = json.loads(body)
+    params = {
+        "query": query,
+        "display": display,
+        "start": 1,
+        "sort": "date",
+    }
 
+    response = requests.get(url, headers=headers, params=params, timeout=10)
+    response.raise_for_status()
+
+    data = response.json()
     results = []
 
     for item in data.get("items", []):
@@ -145,42 +159,35 @@ def fetch_naver_news(query, display=10):
             "description": description,
             "link": link,
             "query": query,
+            "pubDate": item.get("pubDate", ""),
         })
 
     return results
 
 
 def is_bad_title(title, category):
+    title = title or ""
     compact = title.replace(" ", "")
 
-    # 너무 정치/선거 뉴스가 건축 카테고리에 섞이는 것 방지
     if category in ["architecture", "realestate", "life"]:
         political_words = ["대선", "선거", "후보", "국힘", "민주", "대통령", "국회", "정당"]
         if any(word in compact for word in political_words):
             return True
 
-    # 너무 짧거나 의미 없는 제목 제거
-    if len(title) < 8:
+    if len(title) < 6:
         return True
 
     return False
 
 
 def make_blog_keyword(title, query):
-    """
-    뉴스 제목을 블로그 글감 키워드처럼 짧게 압축
-    """
-
     title = clean_title(title)
 
-    # 콜론, 쉼표, 물음표 뒤쪽은 과감히 제거
     title = re.split(r"[:?！!]", title)[0].strip()
-
-    # 긴 제목은 앞쪽 핵심만 사용
     words = title.split()
 
-    # 불필요한 단어 제거
     filtered = []
+
     for word in words:
         clean_word = re.sub(r"[^가-힣A-Za-z0-9]", "", word)
 
@@ -198,59 +205,66 @@ def make_blog_keyword(title, query):
     if not filtered:
         return query
 
-    # 검색어가 제목에 있으면 검색어 주변 단어를 우선 사용
-    keyword_words = []
+    keyword = " ".join(filtered[:4]).strip()
 
-    for word in filtered:
-        keyword_words.append(word)
+    if len(keyword) > 28:
+        keyword = keyword[:28].strip()
 
-        if len(keyword_words) >= 4:
-            break
-
-    keyword = " ".join(keyword_words).strip()
-
-    # 너무 길면 자르기
-    if len(keyword) > 24:
-        keyword = keyword[:24].strip()
-
-    # 그래도 너무 짧으면 검색어 보강
-    if len(keyword) < 4:
+    if len(keyword) < 3:
         keyword = query
 
     return keyword
 
 
 def score_news_item(item, category):
-    title = item["title"]
+    title = item.get("title", "")
     description = item.get("description", "")
     query = item.get("query", "")
 
+    title_compact = title.replace(" ", "")
+    desc_compact = description.replace(" ", "")
+
     score = 0
 
-    # 검색어가 제목에 직접 들어가면 가산점
-    if query and query.replace(" ", "") in title.replace(" ", ""):
+    if query and query.replace(" ", "") in title_compact:
         score += 5
 
-    # 카테고리별 핵심 단어 가산점
     category_words = CATEGORY_SEARCH_WORDS.get(category, [])
+
     for word in category_words:
-        if word.replace(" ", "") in title.replace(" ", ""):
+        word_compact = word.replace(" ", "")
+
+        if word_compact in title_compact:
             score += 3
 
-    # 설명까지 포함하면 약간 가산점
-    for word in category_words:
-        if word.replace(" ", "") in description.replace(" ", ""):
+        if word_compact in desc_compact:
             score += 1
 
-    # 제목이 너무 길면 감점
-    if len(title) > 55:
+    if len(title) > 60:
         score -= 1
 
     return score
 
 
+def make_default_recommendations(category, search_words, reason):
+    category_label = CATEGORY_LABELS.get(category, "테크")
+
+    recommendations = []
+
+    for word in search_words[:7]:
+        recommendations.append({
+            "category": category_label,
+            "keyword": word,
+            "reason": reason,
+        })
+
+    return recommendations
+
+
 def recommend_keywords_from_news(category):
-    if category == "all":
+    category = normalize_category(category)
+
+    if category not in CATEGORY_SEARCH_WORDS:
         category = "tech"
 
     search_words = CATEGORY_SEARCH_WORDS.get(category, CATEGORY_SEARCH_WORDS["tech"])
@@ -258,35 +272,41 @@ def recommend_keywords_from_news(category):
 
     all_news = []
     seen_titles = set()
+    errors = []
 
     for query in search_words:
         try:
-            news_items = fetch_naver_news(query, display=8)
-        except Exception:
+            news_items = fetch_naver_news(query, display=10)
+        except Exception as e:
+            errors.append(f"{query}: {e}")
             continue
 
         for item in news_items:
-            title_key = re.sub(r"\s+", "", item["title"].lower())
+            title = item.get("title", "")
+            title_key = re.sub(r"\s+", "", title.lower())
+
+            if not title_key:
+                continue
 
             if title_key in seen_titles:
                 continue
 
-            if is_bad_title(item["title"], category):
+            if is_bad_title(title, category):
                 continue
 
             seen_titles.add(title_key)
             all_news.append(item)
 
     if not all_news:
-        return [
-            {
-                "category": category_label,
-                "keyword": search_words[0],
-                "reason": "오늘 뉴스 결과가 부족해 카테고리 기본 키워드를 추천했습니다.",
-            }
-        ]
+        if errors:
+            print("[NAVER_KEYWORD_ERROR]", " / ".join(errors[:5]))
 
-    # 점수 높은 뉴스 우선 정렬
+        return make_default_recommendations(
+            category,
+            search_words,
+            "네이버 뉴스 결과를 불러오지 못해 카테고리 기본 키워드를 추천했습니다.",
+        )
+
     all_news.sort(key=lambda item: score_news_item(item, category), reverse=True)
 
     recommendations = []
@@ -296,14 +316,15 @@ def recommend_keywords_from_news(category):
         if len(recommendations) >= 7:
             break
 
-        keyword = make_blog_keyword(item["title"], item.get("query", ""))
-
+        keyword = make_blog_keyword(item.get("title", ""), item.get("query", ""))
         keyword_key = keyword.replace(" ", "").lower()
+
+        if not keyword:
+            continue
 
         if keyword_key in used_keywords:
             continue
 
-        # 단어 하나짜리 이상한 키워드 방지
         if keyword in BAD_KEYWORDS:
             continue
 
@@ -315,17 +336,19 @@ def recommend_keywords_from_news(category):
         recommendations.append({
             "category": category_label,
             "keyword": keyword,
-            "reason": f"관련 뉴스: {item['title'][:48]}...",
+            "reason": f"관련 뉴스: {item.get('title', '')[:48]}...",
         })
 
-    # 부족하면 검색어 기반으로 보충
     for word in search_words:
         if len(recommendations) >= 7:
             break
 
         word_key = word.replace(" ", "").lower()
+
         if word_key in used_keywords:
             continue
+
+        used_keywords.add(word_key)
 
         recommendations.append({
             "category": category_label,
