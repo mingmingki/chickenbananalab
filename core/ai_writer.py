@@ -306,11 +306,22 @@ Visual style:
 - premium blog article feel
 - simple and well-organized composition
 - soft lighting and subtle shadows
-- clean background with enough empty space for Korean title text overlay
+- clean background with enough empty space for future title overlay
 - mobile-friendly visual readability
 - professional online magazine article image mood
+- image must contain visuals only, with no text rendered inside
 
 Strict negative rules:
+- absolutely no text inside the image
+- no Korean text
+- no English text
+- no letters
+- no numbers
+- no typography
+- no title
+- no subtitle
+- no caption
+- no slogan
 - no watermark
 - no logo
 - no brand logo imitation
@@ -318,7 +329,6 @@ Strict negative rules:
 - no excessive decorative elements
 - no fake UI screenshot
 - no distorted text
-- no large text embedded inside the image
 - no close-up human face
 - no copyrighted media screenshot
 """.strip()
@@ -522,7 +532,8 @@ def make_fallback_thumbnail_prompt(category, keywords, title=""):
     category_text = str(category or "blog")
     return (
         f"Korean blog thumbnail image for {category_text} article about {title_text}, "
-        "clean realistic editorial style, modern layout, enough empty space for Korean title text, "
+        "clean realistic editorial style, modern layout, enough empty space for future title overlay, "
+        "absolutely no text inside the image, no Korean text, no English text, no letters, no numbers, "
         "no logo, no watermark, no close-up human face, high quality"
     )
 
@@ -619,7 +630,8 @@ def generate_ai_post(
 본문 이미지 prompt 조건:
 - 실제 블로그 본문 중간에 들어갈 기사형·리뷰형 정보성 이미지 느낌
 - 제품, 장소, 상황, 장비 등 핵심 대상을 명확하게 보여주는 이미지로 작성
-- 과도한 텍스트, 로고, 워터마크 금지
+- 이미지 안에 글자, 한글, 영어, 숫자, 제목, 자막, 문구를 절대 넣지 마라.
+- 로고, 워터마크 금지
 - 주제와 카테고리에 맞는 현실적이고 깔끔한 이미지
 - 한국의 전문 블로그 기사 이미지처럼 단정하고 보기 좋게 작성
 - 배경은 너무 복잡하지 않게 하고, 핵심 피사체가 잘 보이게 구성
@@ -663,6 +675,11 @@ content_images는 빈 배열로 반환해라.
 주요 키워드: {keywords}
 글 작성 방향: {style_name}
 추가 요청사항: {extra_prompt}
+
+중요 자료 반영 규칙:
+- 사용자가 추가 요청사항에 제품 스펙, 가격, 출시일, 장단점, 출처 메모를 제공하면 그 내용을 최우선으로 반영해라.
+- 추가 요청사항에 제공된 구체 정보와 충돌하는 추정 내용을 임의로 쓰지 마라.
+- 제공된 스펙 자료가 있으면 비교표의 "공식 확인 필요"를 남발하지 말고 제공된 값을 표에 반영해라.
 
 글쓰기 세부 지침:
 {style_specific_rule}
@@ -829,11 +846,12 @@ FAQ 작성 조건:
 - 한국의 전문 블로그 또는 테크/리뷰 기사 썸네일처럼 깔끔하고 고급스럽게 작성해라.
 - 글 제목과 주제가 한눈에 느껴져야 한다.
 - 핵심 오브젝트가 명확하게 보이게 작성해라.
-- 텍스트를 나중에 얹기 좋은 여백을 포함해라.
+- 텍스트를 나중에 사이트에서 따로 얹기 좋은 여백을 포함해라.
+- 단, 이미지 자체 안에는 글자, 한글, 영어, 숫자, 제목, 자막, 문구를 절대 넣지 마라.
 - 배경은 복잡하지 않게 하고, 전체 구도는 단정하게 구성해라.
 - 모바일 목록 화면에서도 알아보기 쉬운 단순하고 선명한 구도로 작성해라.
 - 로고, 워터마크, 실제 인물 얼굴 클로즈업은 피하라.
-- 과한 장식, 과도한 텍스트, 복잡한 콜라주 스타일은 피하라.
+- 과한 장식, 텍스트가 들어간 디자인, 복잡한 콜라주 스타일은 피하라.
 - 실제 방송 화면, 방송사 로고, 자막, 포털 리뷰 사진처럼 보이는 이미지를 요청하지 마라.
 
 {image_instruction}
@@ -935,17 +953,15 @@ FAQ 작성 조건:
     if not meta_description:
         meta_description = clean_text_for_meta(summary or content, 120)
 
-    raw_thumbnail_prompt = str(data.get("thumbnail_prompt", "")).strip()
-
     if make_thumbnail:
+        # 이미지 안에 글자가 들어가는 문제를 막기 위해
+        # AI가 반환한 원본 thumbnail_prompt는 사용하지 않고,
+        # 사이트 공통 썸네일 프롬프트만 사용한다.
         thumbnail_prompt = build_better_thumbnail_prompt(
             title=title,
             keywords=keywords,
             category=category,
         )
-
-        if raw_thumbnail_prompt:
-            thumbnail_prompt = f"{raw_thumbnail_prompt}\n\nEnhanced editorial style instructions:\n{thumbnail_prompt}"
     else:
         thumbnail_prompt = ""
 
