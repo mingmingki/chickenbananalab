@@ -241,22 +241,31 @@ def clamp_number(value, min_value, max_value, default):
 def extract_json(text):
     text = (text or "").strip()
 
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
-        text = re.sub(r"```$", "", text).strip()
+    if not text:
+        return None
+
+    text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"```$", "", text).strip()
 
     try:
-        return json.loads(text)
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data
     except json.JSONDecodeError:
         pass
 
-    match = re.search(r"\{.*\}", text, re.DOTALL)
+    decoder = json.JSONDecoder()
 
-    if match:
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+
         try:
-            return json.loads(match.group(0))
+            data, _ = decoder.raw_decode(text[index:])
+            if isinstance(data, dict):
+                return data
         except json.JSONDecodeError:
-            pass
+            continue
 
     return None
 
@@ -271,6 +280,276 @@ def clean_text_for_meta(text, limit=150):
         return text
 
     return text[:limit].rstrip() + "..."
+
+
+
+def strip_code_fences(value):
+    value = str(value or "").strip()
+    value = re.sub(r"^```(?:html|json)?", "", value, flags=re.IGNORECASE).strip()
+    value = re.sub(r"```$", "", value).strip()
+    return value
+
+
+def recover_content_from_json_string(content):
+    content = strip_code_fences(content)
+    nested = extract_json(content)
+
+    if isinstance(nested, dict) and nested.get("content"):
+        return str(nested.get("content", ""))
+
+    return content
+
+
+def has_real_html(content):
+    return bool(re.search(
+        r"</?(h2|h3|p|ul|ol|li|table|thead|tbody|tr|th|td|blockquote|mark|span|a|div|img)\b",
+        str(content or ""),
+        flags=re.IGNORECASE,
+    ))
+
+
+def split_table_row(line):
+    line = str(line or "").strip()
+
+    if "\t" in line:
+        cells = [cell.strip() for cell in line.split("\t")]
+        return [cell for cell in cells if cell]
+
+    if "|" in line:
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        cells = [cell for cell in cells if cell and not re.fullmatch(r"[-:\s]+", cell)]
+        if len(cells) >= 2:
+            return cells
+
+    return []
+
+
+def build_html_table_from_rows(rows):
+    if not rows:
+        return ""
+
+    header = rows[0]
+    body_rows = rows[1:]
+
+    col_count = max(len(row) for row in rows)
+    header = header + [""] * (col_count - len(header))
+
+    html_lines = [
+        '<table class="info-table">',
+        "    <thead>",
+        "        <tr>",
+    ]
+
+    for cell in header:
+        html_lines.append(f"            <th>{html.escape(cell)}</th>")
+
+    html_lines += [
+        "        </tr>",
+        "    </thead>",
+        "    <tbody>",
+    ]
+
+    for row in body_rows:
+        row = row + [""] * (col_count - len(row))
+        html_lines.append("        <tr>")
+        for cell in row:
+            html_lines.append(f"            <td>{html.escape(cell)}</td>")
+        html_lines.append("        </tr>")
+
+    html_lines += [
+        "    </tbody>",
+        "</table>",
+    ]
+
+    return "\n".join(html_lines)
+
+
+def looks_like_heading(line):
+    line = str(line or "").strip()
+
+    if not line:
+        return False
+
+    if len(line) > 55:
+        return False
+
+    if line.startswith(("-", "•", "*", "Q.", "Q:")):
+        return False
+
+    if line.endswith((".", "요.", "다.", "까?", "나요?", "죠?", "니다.", "습니다.")):
+        return False
+
+    heading_keywords = [
+        "정리", "비교", "차이", "포인트", "체크", "질문", "FAQ",
+        "장점", "단점", "스펙", "가격", "출시일", "성능", "구성",
+        "주의", "방법", "대상", "어울립니다", "핵심", "요약",
+    ]
+
+    return any(keyword in line for keyword in heading_keywords)
+
+
+def convert_plain_text_to_html(content, title=""):
+    content = strip_code_fences(content)
+    content = html.unescape(str(content or ""))
+
+    # JSON 문자열 안에 들어온 \\n이 그대로 보이는 경우 보정
+    content = content.replace("\\r\\n", "\n").replace("\\n", "\n")
+    content = re.sub(r"\r\n?", "\n", content)
+
+    raw_lines = [line.strip() for line in content.split("\n")]
+    lines = []
+    title_compact = normalize_text_for_detect(title)
+
+    for line in raw_lines:
+        if not line:
+            continue
+
+        line = re.sub(r"^\s*#+\s*", "", line).strip()
+
+        if not line:
+            continue
+
+        # 본문 첫 줄에 제목이 중복으로 들어오는 경우 제거
+        if title_compact and normalize_text_for_detect(line) == title_compact:
+            continue
+
+        # JSON 잔여물 방지
+        if line in ("{", "}", "[", "]"):
+            continue
+
+        lines.append(line)
+
+    if not lines:
+        return ""
+
+    blocks = []
+    index = 0
+
+    while index < len(lines):
+        line = lines[index]
+
+        # Markdown 또는 탭 기반 표 변환
+        table_rows = []
+        check_index = index
+
+        while check_index < len(lines):
+            cells = split_table_row(lines[check_index])
+            if len(cells) < 2:
+                break
+
+            # markdown separator row는 제외
+            if all(re.fullmatch(r"[-:\s]+", cell) for cell in cells):
+                check_index += 1
+                continue
+
+            table_rows.append(cells)
+            check_index += 1
+
+        if len(table_rows) >= 2:
+            blocks.append(build_html_table_from_rows(table_rows))
+            index = check_index
+            continue
+
+        # bullet list 변환
+        if re.match(r"^[-*•]\s+", line):
+            items = []
+            while index < len(lines) and re.match(r"^[-*•]\s+", lines[index]):
+                item = re.sub(r"^[-*•]\s+", "", lines[index]).strip()
+                if item:
+                    items.append(item)
+                index += 1
+
+            if items:
+                blocks.append("<ul>\n" + "\n".join(f"    <li>{html.escape(item)}</li>" for item in items) + "\n</ul>")
+            continue
+
+        # FAQ 질문
+        if re.match(r"^(Q\.|Q:|문\.|질문)", line, flags=re.IGNORECASE):
+            clean_question = re.sub(r"^(Q\.|Q:|문\.|질문)\s*", "", line, flags=re.IGNORECASE).strip()
+            blocks.append(f"<h3>{html.escape(clean_question)}</h3>")
+            index += 1
+            continue
+
+        # h2 변환
+        if "자주 묻는 질문" in line or looks_like_heading(line):
+            blocks.append(f"<h2>{html.escape(line)}</h2>")
+            index += 1
+            continue
+
+        # 일반 문단
+        paragraph_lines = [line]
+        index += 1
+
+        while index < len(lines):
+            next_line = lines[index]
+
+            if split_table_row(next_line) or re.match(r"^[-*•]\s+", next_line) or looks_like_heading(next_line) or re.match(r"^(Q\.|Q:|문\.|질문)", next_line, flags=re.IGNORECASE):
+                break
+
+            paragraph_lines.append(next_line)
+            index += 1
+
+        paragraph_text = " ".join(paragraph_lines).strip()
+        if paragraph_text:
+            blocks.append(f"<p>{html.escape(paragraph_text)}</p>")
+
+    return "\n\n".join(blocks)
+
+
+def remove_leading_duplicate_title(content, title=""):
+    content = str(content or "").strip()
+    title = str(title or "").strip()
+
+    if not content or not title:
+        return content
+
+    escaped_title = re.escape(title)
+
+    patterns = [
+        rf"^\s*<p>\s*{escaped_title}\s*</p>\s*",
+        rf"^\s*<h2>\s*{escaped_title}\s*</h2>\s*",
+        rf"^\s*<h3>\s*{escaped_title}\s*</h3>\s*",
+        rf"^\s*{escaped_title}\s*",
+    ]
+
+    for pattern in patterns:
+        content = re.sub(pattern, "", content, flags=re.IGNORECASE).strip()
+
+    return content
+
+
+def repair_ai_content_html(content, title=""):
+    content = recover_content_from_json_string(content)
+    content = strip_code_fences(content)
+    content = html.unescape(str(content or "")).strip()
+
+    if not content:
+        return ""
+
+    # JSON 원문이 content에 들어간 경우 한 번 더 회수
+    nested = extract_json(content)
+    if isinstance(nested, dict) and nested.get("content"):
+        content = str(nested.get("content", ""))
+
+    content = strip_code_fences(content)
+
+    if not has_real_html(content):
+        content = convert_plain_text_to_html(content, title=title)
+    else:
+        # HTML은 있지만 줄바꿈 표가 섞인 경우 최소 정리
+        content = content.replace("\\r\\n", "\n").replace("\\n", "\n")
+        content = re.sub(r"\r\n?", "\n", content)
+        content = re.sub(r"\n{3,}", "\n\n", content).strip()
+
+    content = remove_leading_duplicate_title(content, title=title)
+    content = re.sub(r"<h1\b[^>]*>.*?</h1>", "", content, flags=re.IGNORECASE | re.DOTALL)
+    content = re.sub(r"<script\b[^>]*>.*?</script>", "", content, flags=re.IGNORECASE | re.DOTALL)
+    content = re.sub(r"<style\b[^>]*>.*?</style>", "", content, flags=re.IGNORECASE | re.DOTALL)
+    content = re.sub(r"<iframe\b[^>]*>.*?</iframe>", "", content, flags=re.IGNORECASE | re.DOTALL)
+    content = re.sub(r"\n{3,}", "\n\n", content).strip()
+
+    return content
+
 
 
 def normalize_text_for_detect(value):
@@ -837,7 +1116,7 @@ FAQ 작성 조건:
   "summary": "글 상단 또는 목록에 보여줄 2~3문장 요약",
   "meta_description": "검색 결과에 표시하기 좋은 80~120자 설명문",
   "thumbnail_text": "썸네일에 넣을 짧은 문구",
-  "content": "HTML 본문",
+  "content": "반드시 <h2>, <p>, <ul>, <li>, <table class='info-table'> 같은 HTML 태그가 포함된 HTML 본문 문자열. 일반 텍스트, Markdown, 탭 표 금지.",
   "tags": "태그1,태그2,태그3,태그4,태그5",
   "thumbnail_prompt": "대표 썸네일 이미지 생성용 프롬프트",
   "content_images": [
@@ -847,6 +1126,12 @@ FAQ 작성 조건:
     }}
   ]
 }}
+
+중요:
+- JSON 바깥에 설명, 코드블록, ```json, 해시태그를 절대 붙이지 마라.
+- content 값에는 반드시 실제 HTML 태그를 넣어라.
+- 표는 탭이나 Markdown 표가 아니라 반드시 <table class="info-table">로 작성해라.
+- 제목을 content 맨 앞에 다시 반복하지 마라.
 """
 
     text = gemini_generate_text(prompt)
@@ -858,14 +1143,17 @@ FAQ 작성 조건:
         if looks_like_bad_generic_shopping_text(fallback_content):
             fallback_content = "<h2>자료 확인이 필요한 주제입니다</h2><p>자동 글 생성 과정에서 주제와 맞지 않는 일반 쇼핑몰 정보가 감지되어 본문을 안전하게 대체했습니다. 이 주제는 제품명, 공식 스펙, 가격 자료를 추가 요청사항에 넣고 다시 생성하는 것이 좋습니다.</p>"
 
+        fallback_title = f"{keywords} 정리"
+        fallback_content = repair_ai_content_html(fallback_content, title=fallback_title)
+
         data = {
-            "title": f"{keywords} 정리",
+            "title": fallback_title,
             "summary": clean_text_for_meta(fallback_content, 180),
             "meta_description": clean_text_for_meta(fallback_content, 120),
             "thumbnail_text": keywords[:30],
             "content": fallback_content,
             "tags": keywords if include_tags else "",
-            "thumbnail_prompt": make_fallback_thumbnail_prompt(category, keywords, f"{keywords} 정리"),
+            "thumbnail_prompt": make_fallback_thumbnail_prompt(category, keywords, fallback_title),
             "content_images": [],
         }
 
@@ -891,10 +1179,12 @@ FAQ 작성 조건:
 
     title = str(data.get("title", f"{keywords} 정리"))[:200]
     content = str(data.get("content", ""))
+    content = repair_ai_content_html(content, title=title)
 
     if looks_like_bad_generic_shopping_text(content):
         content = "<h2>자료 확인이 필요한 주제입니다</h2><p>자동 글 생성 과정에서 주제와 맞지 않는 일반 쇼핑몰 정보가 감지되어 본문을 안전하게 대체했습니다. 제품명, 공식 스펙, 가격 자료를 추가 요청사항에 넣고 다시 생성해 주세요.</p>"
 
+    content = repair_ai_content_html(content, title=title)
     content = ensure_required_comparison_table(content, category, keywords, style_rule_key, extra_prompt, planned_title)
     summary = str(data.get("summary", "")).strip()
     meta_description = str(data.get("meta_description", "")).strip()
