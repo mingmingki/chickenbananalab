@@ -1,16 +1,228 @@
 {% extends "core/base.html" %}
-{% block title %}About | ChickenBanana Lab{% endblock %}
+{% load static %}
+
+{% block title %}소개 - ChickenBanana Lab{% endblock %}
+
+{% block meta_description %}
+ChickenBanana Lab은 건축, 부동산, 금융, 테크, 생활 정보를 쉽게 정리하는 개인 콘텐츠 플랫폼입니다.
+{% endblock %}
+
+{% block og_title %}
+소개 - ChickenBanana Lab
+{% endblock %}
+
+{% block og_description %}
+건축, 부동산, 금융, 테크, 생활 정보를 실무자 관점과 일상 경험을 바탕으로 정리하는 ChickenBanana Lab입니다.
+{% endblock %}
 
 {% block content %}
-  <h1>About</h1>
-  <p>
-    ChickenBanana Lab은 건설·제조·사무 전반의 반복 업무를 자동화하고,
-    데이터 기반 의사결정을 돕는 소프트웨어를 만듭니다.
-  </p>
 
-  <div class="grid">
-    <div class="card"><b>Fast Delivery</b><p>짧은 주기로 MVP → 개선 반복</p></div>
-    <div class="card"><b>Practical</b><p>현장에서 바로 쓰이는 기능 우선</p></div>
-    <div class="card"><b>Reliable</b><p>운영/배포/로그까지 포함</p></div>
-  </div>
+<style>
+    .about-page {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 72px 20px 90px;
+    }
+
+    .about-hero {
+        text-align: center;
+        margin-bottom: 46px;
+    }
+
+    .about-badge {
+        display: inline-block;
+        padding: 8px 18px;
+        border-radius: 999px;
+        background: #eef2ff;
+        color: #4f46e5;
+        font-size: 13px;
+        font-weight: 900;
+        letter-spacing: 1.5px;
+        margin-bottom: 16px;
+    }
+
+    .about-hero h1 {
+        font-size: 42px;
+        font-weight: 950;
+        color: #0f172a;
+        margin: 0 0 16px;
+    }
+
+    .about-hero p {
+        max-width: 760px;
+        margin: 0 auto;
+        color: #64748b;
+        font-size: 17px;
+        line-height: 1.8;
+    }
+
+    .about-section {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 28px;
+        padding: 36px 38px;
+        margin-bottom: 28px;
+        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.07);
+    }
+
+    .about-section h2 {
+        margin: 0 0 16px;
+        font-size: 26px;
+        font-weight: 950;
+        color: #111827;
+    }
+
+    .about-section p {
+        margin: 0;
+        color: #4b5563;
+        font-size: 16px;
+        line-height: 1.85;
+    }
+
+    .about-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 22px;
+        margin: 32px 0;
+    }
+
+    .about-card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 24px;
+        padding: 30px 28px;
+        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.07);
+    }
+
+    .about-card-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 18px;
+        background: #f8fafc;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 27px;
+        margin-bottom: 18px;
+    }
+
+    .about-card h3 {
+        margin: 0 0 10px;
+        font-size: 21px;
+        font-weight: 900;
+        color: #111827;
+    }
+
+    .about-card p {
+        margin: 0;
+        color: #6b7280;
+        line-height: 1.7;
+        font-size: 15px;
+    }
+
+    .about-notice {
+        padding: 28px 32px;
+        border-radius: 24px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        color: #475569;
+        line-height: 1.8;
+        font-size: 15px;
+    }
+
+    .about-notice strong {
+        display: block;
+        color: #0f172a;
+        font-size: 18px;
+        margin-bottom: 8px;
+    }
+
+    @media (max-width: 900px) {
+        .about-page {
+            padding: 50px 16px 70px;
+        }
+
+        .about-hero h1 {
+            font-size: 32px;
+        }
+
+        .about-section {
+            padding: 28px 24px;
+        }
+
+        .about-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+<section class="about-page">
+
+    <div class="about-hero">
+        <div class="about-badge">ABOUT</div>
+
+        <h1>ChickenBanana Lab 소개</h1>
+
+        <p>
+            ChickenBanana Lab은 건축, 부동산, 금융, 테크, 생활 정보를 정리하는 개인 콘텐츠 플랫폼입니다.
+            실무 경험과 일상에서 얻은 관심사를 바탕으로, 복잡한 정보를 조금 더 쉽게 이해할 수 있도록 콘텐츠를 작성합니다.
+        </p>
+    </div>
+
+    <div class="about-section">
+        <h2>사이트 운영 방향</h2>
+
+        <p>
+            ChickenBanana Lab은 단순한 뉴스 요약보다 실제 생활과 업무에 도움이 되는 정보를 지향합니다.
+            건축과 부동산은 실무자의 관점에서, 금융과 테크는 일반 이용자가 이해하기 쉬운 관점에서,
+            생활 콘텐츠는 직접 경험과 활용성을 중심으로 정리합니다.
+        </p>
+    </div>
+
+    <div class="about-grid">
+
+        <div class="about-card">
+            <div class="about-card-icon">🏠</div>
+            <h3>건축 · 부동산</h3>
+            <p>
+                건설 실무, 현장 이슈, 부동산 제도, 청약, 실거래가 등 생활과 업무에 연결되는 정보를 정리합니다.
+            </p>
+        </div>
+
+        <div class="about-card">
+            <div class="about-card-icon">💹</div>
+            <h3>금융 · 경제</h3>
+            <p>
+                금리, 주식, 환율, 경제 이슈를 일반 독자가 이해하기 쉬운 방식으로 풀어봅니다.
+            </p>
+        </div>
+
+        <div class="about-card">
+            <div class="about-card-icon">💻</div>
+            <h3>테크 · 생활</h3>
+            <p>
+                AI, 소프트웨어, 디지털 도구, 가족 일상과 생활 정보를 실용적인 관점에서 다룹니다.
+            </p>
+        </div>
+
+    </div>
+
+    <div class="about-section">
+        <h2>콘텐츠 작성 기준</h2>
+
+        <p>
+            ChickenBanana Lab의 콘텐츠는 방문자가 검색을 통해 들어왔을 때 필요한 정보를 빠르게 파악할 수 있도록 구성합니다.
+            제목, 요약, 본문 흐름을 명확하게 정리하고, 과장된 표현보다는 참고할 수 있는 정보와 주의점을 함께 전달하는 것을 목표로 합니다.
+        </p>
+    </div>
+
+    <div class="about-notice">
+        <strong>정보 이용 안내</strong>
+        ChickenBanana Lab의 글은 일반적인 정보 제공을 목적으로 작성됩니다.
+        금융, 부동산, 법률, 세무 등 중요한 판단이 필요한 사안은 실제 상황에 따라 달라질 수 있으므로,
+        최종 결정 전 관련 기관 또는 전문가의 확인을 권장합니다.
+    </div>
+
+</section>
+
 {% endblock %}

@@ -1,6 +1,20 @@
 {% extends "core/base.html" %}
 {% load static %}
 
+{% block title %}문의하기 - ChickenBanana Lab{% endblock %}
+
+{% block meta_description %}
+ChickenBanana Lab 문의 페이지입니다. 건축, 부동산, 금융, 테크, 생활 정보 콘텐츠 제안과 오류 수정 요청, 광고 및 제휴 문의를 받습니다.
+{% endblock %}
+
+{% block og_title %}
+문의하기 - ChickenBanana Lab
+{% endblock %}
+
+{% block og_description %}
+건축, 부동산, 금융, 테크, 생활 정보 콘텐츠 제안과 광고 및 제휴 문의를 받습니다.
+{% endblock %}
+
 {% block content %}
 
 <style>
@@ -35,7 +49,7 @@
     }
 
     .contact-hero p {
-        max-width: 650px;
+        max-width: 720px;
         margin: 0 auto;
         color: #64748b;
         font-size: 17px;
@@ -173,9 +187,12 @@
 
     <div class="contact-hero">
         <div class="contact-badge">CONTACT</div>
-        <h1>치킨바나나랩에 문의하기</h1>
+
+        <h1>ChickenBanana Lab 문의하기</h1>
+
         <p>
-            광고, 제휴, 콘텐츠 요청, 맛집 제보, 기술 문의가 있다면 아래 연락처로 편하게 문의해주세요.
+            ChickenBanana Lab은 건축, 부동산, 금융, 테크, 생활 정보를 다루는 개인 콘텐츠 플랫폼입니다.
+            콘텐츠 제안, 오류 수정 요청, 광고 및 제휴 문의는 아래 이메일로 연락해주세요.
         </p>
     </div>
 
@@ -184,21 +201,27 @@
         <div class="contact-card">
             <div class="contact-icon">📩</div>
             <h3>이메일 문의</h3>
-            <p>가장 빠르게 확인할 수 있는 공식 문의 채널입니다.</p>
+            <p>
+                사이트 운영, 콘텐츠 수정 요청, 일반 문의를 가장 빠르게 확인할 수 있는 공식 문의 채널입니다.
+            </p>
             <a href="mailto:pminki3@gmail.com">pminki3@gmail.com</a>
         </div>
 
         <div class="contact-card">
             <div class="contact-icon">📝</div>
             <h3>콘텐츠 제안</h3>
-            <p>방송 맛집, 생활정보, 테크, 금융, 이슈 콘텐츠 제안을 받습니다.</p>
-            <span>ChickenBanana Lab</span>
+            <p>
+                건축 실무, 부동산 생활 정보, 금융 이슈, 테크 활용법, 가족 일상 콘텐츠와 관련된 제안을 받습니다.
+            </p>
+            <span>Content Proposal</span>
         </div>
 
         <div class="contact-card">
             <div class="contact-icon">🤝</div>
             <h3>광고 · 제휴</h3>
-            <p>사이트 노출, 브랜드 소개, 리뷰 콘텐츠 관련 문의가 가능합니다.</p>
+            <p>
+                사이트 노출, 브랜드 소개, 리뷰 콘텐츠, 협업 제안 등 비즈니스 관련 문의가 가능합니다.
+            </p>
             <span>Business Inquiry</span>
         </div>
 
@@ -207,9 +230,10 @@
     <div class="contact-bottom">
         <div>
             <h2>문의 전 확인해주세요</h2>
+
             <p>
                 빠른 확인을 위해 메일 제목에 문의 목적을 함께 적어주세요.
-                예: 광고 문의, 맛집 제보, 콘텐츠 수정 요청, 제휴 문의
+                예: 콘텐츠 수정 요청, 광고 문의, 제휴 문의, 오류 신고, 콘텐츠 제안
             </p>
         </div>
 
