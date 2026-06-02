@@ -44,6 +44,10 @@ STYLE_WRITING_RULES = {
 - 출시일, 세대 변화, 스펙, 기술 구조, 성능 차이, 실사용 영향, 한계점을 구분해서 설명해라.
 - 확인된 사실과 예상, 루머, 추정을 명확히 나눠라.
 - 제품이나 기술 글에서는 가능한 경우 표를 사용해 핵심 스펙과 비교 포인트를 정리해라.
+- 제품명 2개 이상이 함께 들어간 비교 주제라면 반드시 CPU/칩셋, 메모리, 저장공간, 디스플레이, 무게, 배터리, 포트, 운영체제, 가격대 중심의 실제 HTML 비교표를 작성해라.
+- 비교표는 "비교표 이미지", "주요 사양 비교 표 이미지" 같은 이미지 설명이나 캡션으로 대체하지 마라.
+- 공식 제품명인지 불분명한 항목은 확정 제품처럼 쓰지 말고 "공식 확인 필요"로 표시해라.
+- 스펙을 모르면 임의로 지어내지 말고 표 안에 "공식 확인 필요", "옵션별 상이", "판매처 확인 필요"처럼 표시해라.
 - 관련 없는 이전 세대나 경쟁 제품을 억지로 끌어오지 말고, 비교가 필요한 경우에만 간결하게 다뤄라.
 - "지금 사야 할까" 같은 범용 소비자 문구를 반복하지 말고, 사용 목적별 판단 기준을 제시해라.
 - 가격, 출시일, 수치가 확실하지 않으면 확정처럼 쓰지 말고 "예상", "가능성", "확인 필요"로 표현해라.
@@ -59,12 +63,18 @@ STYLE_WRITING_RULES = {
 """,
     "product_review": """
 구매·리뷰형 작성 규칙:
-- 제품 리뷰 전문 블로그처럼 제품명, 제조사, 출시 시점, 주요 스펙, 가격대, 장점, 단점, 추천 대상을 정리해라.
+- 제품 리뷰 전문 블로그처럼 작성하되, 제품명이 2개 이상 포함되면 반드시 제품 비교글로 작성해라.
+- 제품 비교글에서는 본문 초반에 반드시 <table class="info-table"> 형식의 실제 HTML 스펙 비교표를 넣어라.
+- 비교표는 이미지 설명, 캡션, "비교표 이미지" 문장으로 대체하지 마라.
+- 비교표에는 가능한 경우 아래 항목을 포함해라:
+  제품명, 제조사, 출시 시점, CPU/칩셋, GPU/그래픽, RAM/메모리, 저장공간, 디스플레이, 무게, 배터리, 포트, 운영체제, 가격대, 추천 대상.
+- 공식 제품명인지 불분명한 제품명은 확정 제품처럼 쓰지 말고 "제품명이 정확하지 않거나 공식 확인이 필요하다"고 먼저 짚어라.
+- 스펙을 모르면 임의로 지어내지 마라.
+- 확인되지 않은 항목은 표 안에 "공식 확인 필요", "옵션별 상이", "판매처 확인 필요"처럼 표시해라.
 - 가격은 판매처, 옵션, 할인, 시점에 따라 달라질 수 있으므로 확정가처럼 단정하지 마라.
 - 사용자가 추가 요청사항에 제공한 가격, 판매처, 스펙 자료가 있으면 그 정보를 우선 반영해라.
 - 최신 가격 정보가 제공되지 않았다면 임의 금액을 만들지 말고 "현재 판매가는 판매처와 옵션에 따라 확인이 필요하다"고 표현해라.
 - 공식 스펙과 쇼핑몰 옵션, 사용자 후기성 장단점을 구분해서 작성해라.
-- 최소 1개 표를 사용해 스펙, 가격 확인 포인트, 비교 대상을 정리해라.
 - 광고성 문구보다 실제 구매 판단에 도움이 되는 기준을 먼저 제시해라.
 - 이런 사람에게 추천, 이런 사람은 보류가 좋은 경우를 나눠서 마무리해라.
 """,
@@ -295,6 +305,237 @@ def add_random_blog_greeting(content, probability=0.8):
     return f"<p>{html.escape(greeting)}</p>\n" + content
 
 
+def normalize_product_name(name):
+    name = re.sub(r"\s+", " ", str(name or "")).strip()
+    name = re.sub(r"^(?:그리고|또는|혹은|와|과|랑|으로)\s+", "", name)
+    name = re.sub(r"\s*(?:출시일|스펙|가격|추천|비교|고민|대체|차이|살펴볼\s*점들?).*$", "", name).strip()
+    name = name.strip(" ,./|·:-_")
+    return name[:40] if name else ""
+
+
+def extract_product_names_for_comparison(keywords="", planned_title="", extra_prompt=""):
+    """
+    제품 비교 주제에서 제품명 2개를 최대한 추출한다.
+    정확히 못 잡으면 제품 A/B로 대체해서라도 비교표가 빠지지 않게 한다.
+    """
+    text = " ".join([str(planned_title or ""), str(keywords or ""), str(extra_prompt or "")])
+    text = re.sub(r"\s+", " ", text).strip()
+
+    patterns = [
+        r"(?P<a>[A-Za-z0-9가-힣\s\-\+\./]+?)\s*(?:vs|VS|Vs|v\.s\.|대\s*비)\s*(?P<b>[A-Za-z0-9가-힣\s\-\+\./]+?)(?:\s|,|$)",
+        r"(?P<a>[A-Za-z0-9가-힣\s\-\+\./]+?)으로\s+(?P<b>[A-Za-z0-9가-힣\s\-\+\./]+?)\s*(?:고민|대체|비교|차이)",
+        r"(?P<a>[A-Za-z0-9가-힣\s\-\+\./]+?)와\s+(?P<b>[A-Za-z0-9가-힣\s\-\+\./]+?)\s*(?:비교|차이|고민)",
+        r"(?P<a>[A-Za-z0-9가-힣\s\-\+\./]+?)과\s+(?P<b>[A-Za-z0-9가-힣\s\-\+\./]+?)\s*(?:비교|차이|고민)",
+        r"(?P<a>[A-Za-z0-9가-힣\s\-\+\./]+?)랑\s+(?P<b>[A-Za-z0-9가-힣\s\-\+\./]+?)\s*(?:비교|차이|고민)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if not match:
+            continue
+
+        product_a = normalize_product_name(match.group("a"))
+        product_b = normalize_product_name(match.group("b"))
+
+        if product_a and product_b and product_a != product_b:
+            return product_a, product_b
+
+    return "제품 A", "제품 B"
+
+
+def looks_like_product_comparison_topic(keywords="", planned_title="", extra_prompt="", writing_style=""):
+    """
+    구매·리뷰형/전문가 분석형에서 제품 비교 의도가 보이면 실제 HTML 비교표를 강제한다.
+    """
+    style_key_map = {
+        "practical": "experience",
+        "issue": "news_trend",
+        "guide": "natural",
+        "trend": "news_trend",
+        "natural_blog": "natural",
+    }
+    style_rule_key = style_key_map.get(writing_style, writing_style)
+
+    if style_rule_key not in {"expert", "product_review", "review"}:
+        return False
+
+    text = " ".join([str(planned_title or ""), str(keywords or ""), str(extra_prompt or "")])
+    text = text.lower()
+
+    compare_words = [
+        " vs ",
+        "vs",
+        "비교",
+        "대체",
+        "고민",
+        "차이",
+        "추천",
+        "살까",
+        "어떤",
+    ]
+
+    product_words = [
+        "xps",
+        "맥북",
+        "macbook",
+        "노트북",
+        "아이폰",
+        "iphone",
+        "갤럭시",
+        "galaxy",
+        "아이패드",
+        "ipad",
+        "맥미니",
+        "mac mini",
+        "모니터",
+        "키보드",
+        "마우스",
+        "가전",
+        "제품",
+        "모델",
+    ]
+
+    return any(word in text for word in compare_words) and any(word in text for word in product_words)
+
+
+def build_fallback_comparison_table(product_a, product_b):
+    product_a = html.escape(product_a or "제품 A")
+    product_b = html.escape(product_b or "제품 B")
+
+    return f"""
+<h2>주요 스펙 비교표</h2>
+<p>제품 비교 글에서는 먼저 스펙을 한눈에 보는 게 중요합니다. 아래 표는 확인 가능한 항목과 추가 확인이 필요한 항목을 나눠 정리한 기준표입니다.</p>
+<table class="info-table">
+    <thead>
+        <tr>
+            <th>항목</th>
+            <th>{product_a}</th>
+            <th>{product_b}</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>공식 제품명</td>
+            <td>공식 확인 필요</td>
+            <td>공식 확인 필요</td>
+        </tr>
+        <tr>
+            <td>제조사</td>
+            <td>공식 확인 필요</td>
+            <td>공식 확인 필요</td>
+        </tr>
+        <tr>
+            <td>CPU/칩셋</td>
+            <td>모델·옵션별 상이</td>
+            <td>공식 확인 필요</td>
+        </tr>
+        <tr>
+            <td>GPU/그래픽</td>
+            <td>모델·옵션별 상이</td>
+            <td>공식 확인 필요</td>
+        </tr>
+        <tr>
+            <td>RAM/메모리</td>
+            <td>옵션별 상이</td>
+            <td>옵션별 상이 또는 공식 확인 필요</td>
+        </tr>
+        <tr>
+            <td>저장공간</td>
+            <td>옵션별 상이</td>
+            <td>옵션별 상이 또는 공식 확인 필요</td>
+        </tr>
+        <tr>
+            <td>디스플레이</td>
+            <td>세대·옵션별 상이</td>
+            <td>공식 확인 필요</td>
+        </tr>
+        <tr>
+            <td>무게</td>
+            <td>세대·옵션별 상이</td>
+            <td>공식 확인 필요</td>
+        </tr>
+        <tr>
+            <td>배터리</td>
+            <td>사용 환경별 차이 큼</td>
+            <td>사용 환경별 차이 큼 또는 공식 확인 필요</td>
+        </tr>
+        <tr>
+            <td>포트</td>
+            <td>세대·옵션별 상이</td>
+            <td>공식 확인 필요</td>
+        </tr>
+        <tr>
+            <td>운영체제</td>
+            <td>Windows 계열</td>
+            <td>macOS 계열 여부 공식 확인 필요</td>
+        </tr>
+        <tr>
+            <td>가격대</td>
+            <td>판매처·옵션·할인에 따라 변동</td>
+            <td>공식 가격 또는 판매처 확인 필요</td>
+        </tr>
+        <tr>
+            <td>추천 대상</td>
+            <td>윈도우 프로그램, 범용 업무, 옵션 선택을 중시하는 사용자</td>
+            <td>애플 생태계, macOS 최적화, 연동성을 중시하는 사용자</td>
+        </tr>
+    </tbody>
+</table>
+"""
+
+
+def ensure_product_comparison_table(content, keywords="", planned_title="", extra_prompt="", writing_style=""):
+    """
+    제품 비교 주제인데 AI가 표를 빠뜨린 경우, 최소 비교표를 후처리로 삽입한다.
+    스펙은 임의로 지어내지 않고 '공식 확인 필요/옵션별 상이'로 표시한다.
+    """
+    content = str(content or "")
+
+    if not looks_like_product_comparison_topic(keywords, planned_title, extra_prompt, writing_style):
+        return content
+
+    if re.search(r"<table\b", content, flags=re.IGNORECASE):
+        return content
+
+    product_a, product_b = extract_product_names_for_comparison(keywords, planned_title, extra_prompt)
+    table_html = build_fallback_comparison_table(product_a, product_b)
+
+    first_paragraph_match = re.search(r"</p>", content, flags=re.IGNORECASE)
+
+    if first_paragraph_match:
+        insert_at = first_paragraph_match.end()
+        return content[:insert_at] + "\n" + table_html + "\n" + content[insert_at:]
+
+    return table_html + "\n" + content
+
+
+def remove_leading_repeated_title(content, title):
+    """
+    상세 페이지에서 제목이 이미 따로 표시되므로 본문 맨 앞의 동일 제목 반복을 제거한다.
+    """
+    content = str(content or "")
+    title = str(title or "").strip()
+
+    if not content or not title:
+        return content
+
+    escaped_title = re.escape(title)
+
+    patterns = [
+        rf"^\s*<h2[^>]*>\s*{escaped_title}\s*</h2>\s*",
+        rf"^\s*<h3[^>]*>\s*{escaped_title}\s*</h3>\s*",
+        rf"^\s*<p[^>]*>\s*{escaped_title}\s*</p>\s*",
+        rf"^\s*{escaped_title}\s*",
+    ]
+
+    for pattern in patterns:
+        updated = re.sub(pattern, "", content, count=1, flags=re.IGNORECASE)
+        if updated != content:
+            return updated
+
+    return content
+
+
 def generate_ai_post(
     category,
     keywords,
@@ -398,6 +639,18 @@ caption 조건:
 content_images는 빈 배열로 반환해라.
 """
 
+    product_comparison_force_rule = """
+제품 비교 강화 지침:
+- 주요 키워드, 세부 제목, 추가 요청사항에 제품명이 2개 이상 보이거나 "vs", "비교", "대체", "고민", "차이"가 포함되면 반드시 제품 비교글로 작성해라.
+- 제품 비교글은 본문 초반에 반드시 <table class="info-table"> 형식의 실제 HTML 스펙 비교표를 넣어라.
+- 표는 이미지 설명, 캡션, "주요 사양 비교 표 이미지" 같은 문장으로 대체하지 마라.
+- 비교표에는 가능한 범위에서 제품명, 제조사, 출시 시점, CPU/칩셋, GPU/그래픽, RAM/메모리, 저장공간, 디스플레이, 무게, 배터리, 포트, 운영체제, 가격대, 추천 대상을 넣어라.
+- 확실하지 않은 스펙은 임의로 채우지 말고 "공식 확인 필요", "옵션별 상이", "판매처 확인 필요"라고 표기해라.
+- 공식 제품인지 불분명한 제품명은 실제 출시 제품처럼 단정하지 말고, 본문 초반에 공식 확인이 필요한 명칭이라고 짚어라.
+- 최신 가격 정보가 제공되지 않은 경우 임의 가격을 만들지 말고 판매처, 옵션, 할인 시점에 따라 확인이 필요하다고 써라.
+- 제품 비교표 뒤에는 실제 사용 목적별 판단 기준을 설명해라.
+"""
+
     prompt = f"""
 너는 ChickenBanana Lab 블로그의 한국어 SEO 전문 콘텐츠 작성자다.
 목표는 네이버와 구글 검색엔진이 이해하기 쉬우면서도, 실제 사람이 읽었을 때 도움이 되는 글을 작성하는 것이다.
@@ -409,6 +662,8 @@ content_images는 빈 배열로 반환해라.
 
 글쓰기 세부 지침:
 {style_specific_rule}
+
+{product_comparison_force_rule}
 
 {planned_title_instruction}
 
@@ -622,6 +877,14 @@ FAQ 작성 조건:
 
     title = str(data.get("title", f"{keywords} 정리"))[:200]
     content = str(data.get("content", ""))
+    content = remove_leading_repeated_title(content, title)
+    content = ensure_product_comparison_table(
+        content=content,
+        keywords=keywords,
+        planned_title=planned_title,
+        extra_prompt=extra_prompt,
+        writing_style=writing_style,
+    )
     content = add_random_blog_greeting(content)
     summary = str(data.get("summary", "")).strip()
     meta_description = str(data.get("meta_description", "")).strip()
