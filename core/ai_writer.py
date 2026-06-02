@@ -9,14 +9,16 @@ import random
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from dotenv import load_dotenv
-from openai import OpenAI
+from google import genai
+from google.genai import types
 
 load_dotenv(override=True)
 
 
-TEXT_MODEL = os.getenv("OPENAI_TEXT_MODEL", "gpt-4.1-mini")
-IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
-IMAGE_QUALITY = os.getenv("OPENAI_IMAGE_QUALITY", "high")
+TEXT_MODEL = os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-pro")
+IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
+IMAGE_ASPECT_RATIO = os.getenv("GEMINI_IMAGE_ASPECT_RATIO", "16:9")
+IMAGE_SIZE = os.getenv("GEMINI_IMAGE_SIZE", "2K")
 
 
 STYLE_WRITING_RULES = {
@@ -41,6 +43,7 @@ STYLE_WRITING_RULES = {
 - "지금 사야 할까" 같은 범용 소비자 문구를 반복하지 말고, 사용 목적별 판단 기준을 제시해라.
 - 가격, 출시일, 수치가 확실하지 않으면 확정처럼 쓰지 말고 "예상", "가능성", "확인 필요"로 표현해라.
 - 개발, 영상 편집, 디자인, 멀티 모니터, 업무용 환경처럼 실제 사용 시나리오를 포함해라.
+- 사용자가 추가 요청사항에 스펙, 출시일, 가격 정보를 준 경우 그 정보를 최우선으로 반영해라.
 """,
     "experience": """
 경험 기반형 작성 규칙:
@@ -216,13 +219,13 @@ HUMAN_DETAIL_RULES = """
 """
 
 
-def get_openai_client():
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+def get_gemini_client():
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
 
     if not api_key:
-        raise ValueError("OPENAI_API_KEY가 .env 파일에 없습니다.")
+        raise ValueError("GEMINI_API_KEY가 .env 파일에 없습니다.")
 
-    return OpenAI(api_key=api_key)
+    return genai.Client(api_key=api_key)
 
 
 def clamp_number(value, min_value, max_value, default):
@@ -267,135 +270,6 @@ def clean_text_for_meta(text, limit=150):
         return text
 
     return text[:limit].rstrip() + "..."
-
-
-
-def build_better_thumbnail_prompt(title, keywords, category):
-    """
-    썸네일 이미지를 일반 AI 그림이 아니라 전문 블로그/기사형 커버 이미지처럼 만들기 위한 보정 프롬프트.
-    실제 텍스트는 이미지 안에 직접 넣지 않고, 사이트에서 나중에 얹기 좋은 여백을 확보하는 방향으로 유도한다.
-    """
-    category = str(category or "").strip()
-    title = str(title or "").strip()
-    keywords = str(keywords or "").strip()
-
-    category_style_map = {
-        "tech": "modern editorial tech blog thumbnail style, clean and premium, device-focused composition, cool neutral tones, refined product review mood",
-        "finance": "professional finance editorial style, clean and trustworthy, simple chart or money concept, deep blue and green accents, premium information design mood",
-        "architecture": "modern architecture editorial style, clean composition, building, blueprint, construction detail or drawing concept, gray and warm orange accents",
-        "realestate": "clean real estate editorial style, apartment, housing, contract or city concept, neat and professional layout",
-        "life": "bright lifestyle editorial style, warm and clean, friendly and natural composition, realistic daily life mood",
-    }
-
-    category_style = category_style_map.get(
-        category,
-        "clean professional editorial blog thumbnail style, premium article cover mood",
-    )
-
-    return f"""
-Create a high-quality Korean professional blog thumbnail image.
-
-Topic title: {title}
-Core keywords: {keywords}
-
-Visual style:
-- {category_style}
-- clean editorial cover image
-- visually strong main subject
-- realistic or polished editorial illustration style
-- premium blog article feel
-- simple and well-organized composition
-- soft lighting and subtle shadows
-- clean background with enough empty space for future title overlay
-- mobile-friendly visual readability
-- professional online magazine article image mood
-- image must contain visuals only, with no text rendered inside
-
-Strict negative rules:
-- absolutely no text inside the image
-- no Korean text
-- no English text
-- no letters
-- no numbers
-- no typography
-- no title
-- no subtitle
-- no caption
-- no slogan
-- no watermark
-- no logo
-- no brand logo imitation
-- no messy collage
-- no excessive decorative elements
-- no fake UI screenshot
-- no distorted text
-- no close-up human face
-- no copyrighted media screenshot
-""".strip()
-
-
-def build_better_content_image_prompt(base_prompt, category):
-    """
-    본문 이미지를 썸네일처럼 과하게 만들지 않고, 기사 중간에 들어가는 참고 이미지처럼 보정한다.
-    """
-    base_prompt = str(base_prompt or "").strip()
-    category = str(category or "").strip()
-
-    category_style_map = {
-        "tech": "editorial tech article image, realistic product-focused composition, clean white or light gray background, modern and premium, review article mood",
-        "finance": "editorial finance article image, simple and professional, concept-driven visual, clean layout, trustworthy information mood",
-        "architecture": "editorial architecture article image, realistic and clean, drawing, site, building or construction equipment oriented composition",
-        "realestate": "editorial property article image, housing, interior, city or contract concept, clean and realistic composition",
-        "life": "editorial lifestyle article image, natural and clean, warm but neat composition, realistic daily life mood",
-    }
-
-    category_style = category_style_map.get(
-        category,
-        "clean editorial article image, professional and realistic",
-    )
-
-    if not base_prompt:
-        base_prompt = "Create a clean editorial article image related to the topic."
-
-    return f"""
-{base_prompt}
-
-Visual direction:
-- {category_style}
-- Korean professional blog article image
-- one clear subject or clean comparison composition
-- realistic or polished editorial illustration style
-- simple background
-- neat spacing
-- soft shadow
-- rounded and refined composition feel
-- no watermark
-- no logo
-- no brand logo imitation
-- no excessive text
-- no fake screenshot
-- no cluttered layout
-- no close-up human face
-""".strip()
-
-
-def build_better_image_caption(caption, category):
-    caption = str(caption or "").strip()
-
-    if caption:
-        return caption[:80]
-
-    default_map = {
-        "tech": "제품 특징을 보여주는 참고 이미지",
-        "finance": "핵심 내용을 이해하기 위한 참고 이미지",
-        "architecture": "현장·도면 개념을 돕는 참고 이미지",
-        "realestate": "주요 포인트를 보여주는 참고 이미지",
-        "life": "내용 이해를 돕는 참고 이미지",
-    }
-
-    return default_map.get(category, "본문 이해를 돕는 참고 이미지")
-
-
 
 
 def normalize_text_for_detect(value):
@@ -527,15 +401,165 @@ def ensure_required_comparison_table(content, category, keywords, writing_style,
     return table_html + "\n\n" + content
 
 
+def build_better_thumbnail_prompt(title, keywords, category):
+    category = str(category or "").strip()
+    title = str(title or "").strip()
+    keywords = str(keywords or "").strip()
+
+    category_style_map = {
+        "tech": "modern editorial tech blog thumbnail style, clean and premium, device-focused composition, cool neutral tones",
+        "finance": "professional finance editorial style, clean and trustworthy, simple chart or money concept, deep blue and green accents",
+        "architecture": "modern architecture editorial style, clean composition, building or drawing concept, gray and warm orange accents",
+        "realestate": "clean real estate editorial style, apartment or housing concept, neat and professional layout",
+        "life": "bright lifestyle editorial style, warm and clean, friendly and natural composition",
+    }
+
+    category_style = category_style_map.get(category, "clean professional editorial blog thumbnail style")
+
+    return f"""
+Create a high-quality Korean blog thumbnail image.
+
+Topic title: {title}
+Core keywords: {keywords}
+
+Style:
+- {category_style}
+- clean editorial cover image
+- visually strong main subject
+- realistic or polished editorial illustration style
+- premium blog article feel
+- simple and well-organized composition
+- soft lighting and subtle shadows
+- background should be clean and uncluttered
+- leave enough empty space for title text overlay later
+- mobile-friendly visual readability
+- no watermark
+- no logo
+- no text
+- no letters
+- no Korean text
+- no English text
+- no numbers
+- no typography
+- no title inside image
+- no messy collage
+- no excessive decorative elements
+- no fake UI screenshot
+""".strip()
+
+
+def build_better_content_image_prompt(base_prompt, category):
+    base_prompt = str(base_prompt or "").strip()
+    category = str(category or "").strip()
+
+    category_style_map = {
+        "tech": "editorial tech article image, realistic product-focused composition, clean white or light gray background, modern and premium",
+        "finance": "editorial finance article image, simple and professional, concept-driven visual, clean layout",
+        "architecture": "editorial architecture article image, realistic and clean, drawing/site/building-oriented composition",
+        "realestate": "editorial property article image, housing/interior/building concept, clean and realistic",
+        "life": "editorial lifestyle article image, natural and clean, warm but neat composition",
+    }
+
+    category_style = category_style_map.get(category, "clean editorial article image, professional and realistic")
+
+    if not base_prompt:
+        base_prompt = "Create a clean editorial article image related to the topic."
+
+    return f"""
+{base_prompt}
+
+Visual direction:
+- {category_style}
+- Korean professional blog article image
+- one clear subject or a clean comparison composition
+- realistic or polished editorial illustration style
+- simple background
+- neat spacing
+- soft shadow
+- no watermark
+- no logo
+- no text
+- no letters
+- no Korean text
+- no English text
+- no numbers
+- no typography
+- no fake screenshot
+- no cluttered layout
+""".strip()
+
+
+def build_better_image_caption(caption, category):
+    caption = str(caption or "").strip()
+
+    if caption:
+        return caption
+
+    default_map = {
+        "tech": "제품 특징을 보여주는 참고 이미지",
+        "finance": "핵심 내용을 이해하기 위한 참고 이미지",
+        "architecture": "현장·도면 개념을 돕는 참고 이미지",
+        "realestate": "주요 포인트를 보여주는 참고 이미지",
+        "life": "내용 이해를 돕는 참고 이미지",
+    }
+
+    return default_map.get(category, "본문 이해를 돕는 참고 이미지")
+
+
 def make_fallback_thumbnail_prompt(category, keywords, title=""):
-    title_text = str(title or keywords or "블로그 콘텐츠")[:80]
-    category_text = str(category or "blog")
-    return (
-        f"Korean blog thumbnail image for {category_text} article about {title_text}, "
-        "clean realistic editorial style, modern layout, enough empty space for future title overlay, "
-        "absolutely no text inside the image, no Korean text, no English text, no letters, no numbers, "
-        "no logo, no watermark, no close-up human face, high quality"
+    return build_better_thumbnail_prompt(title=title or keywords or "블로그 콘텐츠", keywords=keywords, category=category)
+
+
+def _extract_text_from_gemini_response(response):
+    text = getattr(response, "text", None)
+    if text:
+        return str(text).strip()
+
+    pieces = []
+    for candidate in getattr(response, "candidates", []) or []:
+        content = getattr(candidate, "content", None)
+        for part in getattr(content, "parts", []) or []:
+            part_text = getattr(part, "text", None)
+            if part_text:
+                pieces.append(str(part_text))
+
+    return "\n".join(piece for piece in pieces if piece).strip()
+
+
+def _extract_image_bytes_from_gemini_response(response):
+    for candidate in getattr(response, "candidates", []) or []:
+        content = getattr(candidate, "content", None)
+        for part in getattr(content, "parts", []) or []:
+            inline_data = getattr(part, "inline_data", None)
+            if inline_data is not None:
+                data = getattr(inline_data, "data", None)
+                if isinstance(data, bytes):
+                    return data
+                if isinstance(data, str) and data:
+                    try:
+                        return base64.b64decode(data)
+                    except Exception:
+                        pass
+
+            data = getattr(part, "data", None)
+            if isinstance(data, bytes):
+                return data
+            if isinstance(data, str) and data:
+                try:
+                    return base64.b64decode(data)
+                except Exception:
+                    pass
+
+    return None
+
+
+def gemini_generate_text(prompt):
+    client = get_gemini_client()
+    response = client.models.generate_content(
+        model=TEXT_MODEL,
+        contents=prompt,
     )
+    return _extract_text_from_gemini_response(response)
 
 
 def generate_ai_post(
@@ -560,8 +584,6 @@ def generate_ai_post(
         "checklist": "체크리스트형",
         "review": "리뷰형",
         "natural_blog": "자연 설명형",
-
-        # 기존 화면/DB 값 호환용
         "practical": "경험 기반형",
         "issue": "뉴스·트렌드형",
         "guide": "자연 설명형",
@@ -586,20 +608,13 @@ def generate_ai_post(
     }
     style_rule_key = style_key_map.get(writing_style, writing_style)
     style_specific_rule = STYLE_WRITING_RULES.get(style_rule_key, STYLE_WRITING_RULES["natural"])
-    comparison_required = is_product_comparison_topic(
-        category,
-        keywords,
-        style_rule_key,
-        extra_prompt,
-        planned_title,
-    )
+    comparison_required = is_product_comparison_topic(category, keywords, style_rule_key, extra_prompt, planned_title)
 
     human_opening_pattern = random.choice(HUMAN_OPENING_PATTERNS)
     human_structure_pattern = random.choice(HUMAN_STRUCTURE_PATTERNS)
     category_voice_rule = CATEGORY_VOICE_RULES.get(category, "")
 
     planned_title = (planned_title or "").strip()
-
     planned_title_instruction = ""
 
     if planned_title:
@@ -620,7 +635,6 @@ def generate_ai_post(
 
     if image_count > 0:
         placeholders = ", ".join([f"[[IMAGE_{i}]]" for i in range(1, image_count + 1)])
-
         image_instruction = f"""
 본문 중간에 이미지가 들어갈 자연스러운 위치를 골라 아래 플레이스홀더를 정확히 한 번씩 넣어라.
 플레이스홀더: {placeholders}
@@ -629,17 +643,14 @@ def generate_ai_post(
 
 본문 이미지 prompt 조건:
 - 실제 블로그 본문 중간에 들어갈 기사형·리뷰형 정보성 이미지 느낌
-- 제품, 장소, 상황, 장비 등 핵심 대상을 명확하게 보여주는 이미지로 작성
-- 이미지 안에 글자, 한글, 영어, 숫자, 제목, 자막, 문구를 절대 넣지 마라.
-- 로고, 워터마크 금지
+- 제품, 장소, 상황 등 핵심 대상을 명확하게 보여주는 이미지로 작성
+- 과도한 텍스트, 로고, 워터마크 금지
 - 주제와 카테고리에 맞는 현실적이고 깔끔한 이미지
 - 한국의 전문 블로그 기사 이미지처럼 단정하고 보기 좋게 작성
 - 배경은 너무 복잡하지 않게 하고, 핵심 피사체가 잘 보이게 구성
-- 제품 리뷰나 테크 글은 흰색 또는 밝은 회색 배경의 에디토리얼 제품 이미지 느낌으로 작성
-- 건축/장비 글은 현장, 장비, 도면, 기술 협업을 단정한 기사 이미지처럼 표현
 - 인물 얼굴 클로즈업은 피하고, 상황이나 장소가 느껴지는 이미지로 작성
 - 방송 화면 캡쳐, 방송사 로고, 자막, 특정 매체 화면처럼 보이게 만들지 마라.
-- 저작권 문제가 생길 수 있는 실제 방송 장면, 포털 리뷰 사진, 특정 브랜드 이미지를 묘사하지 마라.
+- 이미지 안에 글자를 넣지 마라. 한글, 영어, 숫자, 타이포그래피를 넣지 마라.
 
 caption 조건:
 - 사진 아래에 들어갈 짧은 설명
@@ -676,11 +687,6 @@ content_images는 빈 배열로 반환해라.
 글 작성 방향: {style_name}
 추가 요청사항: {extra_prompt}
 
-중요 자료 반영 규칙:
-- 사용자가 추가 요청사항에 제품 스펙, 가격, 출시일, 장단점, 출처 메모를 제공하면 그 내용을 최우선으로 반영해라.
-- 추가 요청사항에 제공된 구체 정보와 충돌하는 추정 내용을 임의로 쓰지 마라.
-- 제공된 스펙 자료가 있으면 비교표의 "공식 확인 필요"를 남발하지 말고 제공된 값을 표에 반영해라.
-
 글쓰기 세부 지침:
 {style_specific_rule}
 
@@ -702,6 +708,7 @@ content_images는 빈 배열로 반환해라.
 - 허위 수치, 확인되지 않은 통계, 실제 경험처럼 보이는 거짓 후기를 만들지 마라.
 - 금융, 세금, 건강, 법률 주제는 단정하지 말고 주의 문구를 넣어라.
 - 애드센스 승인에 불리할 수 있는 얇은 자동생성 글처럼 보이지 않게 작성해라.
+- 추가 요청사항에 제품 스펙, 출시일, 가격, 공식 정보가 들어 있으면 그 내용을 최우선으로 반영해라.
 
 summary 작성 조건:
 - summary는 글 상단이나 목록에서 보여줄 수 있는 2~3문장 요약문으로 작성해라.
@@ -769,14 +776,6 @@ meta_description 작성 조건:
 - 중요한 장소, 메뉴, 금액, 시간, 키워드는 <span class="blue-point">강조문구</span> 형태로 강조해라.
 - 글 마지막은 딱딱한 결론보다 "이런 분들에게 어울립니다" 식으로 자연스럽게 정리해라.
 
-본문 구조 권장:
-- 도입 문단은 짧고 자연스럽게 작성
-- 글마다 요약, 표, 체크리스트, FAQ 위치를 다르게 배치
-- FAQ는 포함하되, 본문과 똑같은 내용을 반복하지 않기
-- 표는 꼭 비교가 필요한 경우에만 사용
-- 마무리는 딱딱한 결론보다 독자가 다음 행동을 판단할 수 있게 정리
-- 한 줄 요약은 자연스럽게 끝에 붙이되, 매번 같은 표현을 쓰지 않기
-
 FAQ 작성 조건:
 - FAQ 소제목은 <h2>자주 묻는 질문</h2>로 작성해라.
 - 질문은 <h3> 태그로 작성해라.
@@ -785,52 +784,9 @@ FAQ 작성 조건:
 - 너무 뻔한 질문만 넣지 마라.
 - 본문에서 이미 말한 내용을 그대로 복붙하지 마라.
 
-품질 강화 조건:
-- 이 글은 저품질 자동생성 글처럼 보이지 않아야 한다.
-- 검색 결과에 이미 흔한 말만 반복하지 말고, 독자가 바로 활용할 수 있는 판단 기준을 넣어라.
-- 글마다 도입부, 소제목, 표 구조, 마무리 문장을 다르게 구성해라.
-- "이번 글에서는", "정리해보겠습니다", "확인해보세요" 같은 흔한 AI식 문구를 피하라.
-- 독자가 실제로 궁금해할 만한 질문을 먼저 해결해라.
-- 단순 정보 나열보다 선택 기준, 주의점, 실제 활용 상황을 포함해라.
-- 문장 패턴을 다양하게 사용하고, 모든 문단을 같은 길이로 만들지 마라.
-- 너무 완벽하게 정돈된 기계식 글보다 사람이 편집한 듯 자연스러운 흐름으로 작성해라.
-- 검색 키워드와 관련 없는 내용을 억지로 늘리지 마라.
-- 독자가 글을 읽고 바로 판단하거나 행동할 수 있는 정보를 남겨라.
-
-반복 금지 표현:
-- "방문 전 확인을 권합니다"를 반복하지 마라.
-- "달라질 수 있습니다"를 반복하지 마라.
-- "지도 앱에서 확인"을 여러 번 반복하지 마라.
-- "중심으로 정리했습니다"를 반복하지 마라.
-- "좋습니다"만 계속 반복하지 마라.
-- 모든 소제목을 "~일까요?"로 끝내지 마라.
-- "이번 글에서는", "정리해보겠습니다" 같은 AI식 도입문을 반복하지 마라.
-- "결론적으로", "요약하면", "정리하면"을 글마다 반복하지 마라.
-- "꼭 확인해보세요"를 남발하지 마라.
-- "먼저", "다음으로", "마지막으로"만 반복해서 글을 전개하지 마라.
-
-카테고리별 세부 작성 조건:
-- 맛집/여행/생활 정보 글은 정보 안내문이 아니라 여행자가 읽는 블로그 글처럼 작성해라.
-- 맛집 글은 메뉴 설명에 맛의 방향, 식사 상황, 누구와 가기 좋은지 등을 자연스럽게 넣어라.
-- 단, 실제 맛을 단정하지 마라.
-- 위치 설명은 길게 쓰지 말고 여행 동선 관점으로 짧게 작성해라.
-- 영업시간, 휴무일, 가격 확인 문구는 마지막 체크리스트에서 한 번만 정리해라.
-- 금융/코인 글은 투자 권유처럼 쓰지 말고, 리스크와 확인 포인트를 함께 넣어라.
-- 건축/시공 글은 현장 실무자가 읽기 쉽게 공정, 안전, 비용, 체크포인트 중심으로 작성해라.
-- 테크/프로그램 글은 초보자가 따라올 수 있게 용어를 쉽게 풀어라.
-- 프로그램 다운로드가 필요한 글은 설치 전 주의사항, 사용 환경, 압축 해제, 보안 안내를 자연스럽게 넣어라.
-
 지도/장소 링크 작성 조건:
 - 식당, 여행지, 장소 링크가 필요할 때 URL 주소를 본문에 그대로 노출하지 마라.
 - 구글지도 링크는 반드시 a 태그 버튼 형태로 작성해라.
-- 형식은 아래처럼 작성해라.
-
-<p class="map-link-wrap">
-    <a href="https://www.google.com/maps/search/?api=1&query=장소명+지역명" class="map-link-btn" target="_blank" rel="noopener noreferrer">
-        구글지도에서 보기
-    </a>
-</p>
-
 - 같은 지도 링크를 여러 번 반복하지 마라.
 
 본문 HTML 조건:
@@ -846,13 +802,11 @@ FAQ 작성 조건:
 - 한국의 전문 블로그 또는 테크/리뷰 기사 썸네일처럼 깔끔하고 고급스럽게 작성해라.
 - 글 제목과 주제가 한눈에 느껴져야 한다.
 - 핵심 오브젝트가 명확하게 보이게 작성해라.
-- 텍스트를 나중에 사이트에서 따로 얹기 좋은 여백을 포함해라.
-- 단, 이미지 자체 안에는 글자, 한글, 영어, 숫자, 제목, 자막, 문구를 절대 넣지 마라.
+- 텍스트를 나중에 얹기 좋은 여백을 포함해라.
 - 배경은 복잡하지 않게 하고, 전체 구도는 단정하게 구성해라.
-- 모바일 목록 화면에서도 알아보기 쉬운 단순하고 선명한 구도로 작성해라.
 - 로고, 워터마크, 실제 인물 얼굴 클로즈업은 피하라.
-- 과한 장식, 텍스트가 들어간 디자인, 복잡한 콜라주 스타일은 피하라.
-- 실제 방송 화면, 방송사 로고, 자막, 포털 리뷰 사진처럼 보이는 이미지를 요청하지 마라.
+- 과한 장식, 과도한 텍스트, 복잡한 콜라주 스타일은 피하라.
+- 이미지 안에 글자를 넣지 마라. 한글, 영어, 숫자, 타이포그래피를 금지한다.
 
 {image_instruction}
 
@@ -874,21 +828,14 @@ FAQ 작성 조건:
 }}
 """
 
-    client = get_openai_client()
-
-    response = client.responses.create(
-        model=TEXT_MODEL,
-        input=prompt,
-    )
-
-    text = response.output_text.strip()
+    text = gemini_generate_text(prompt)
     data = extract_json(text)
 
     if not data:
         fallback_content = text
 
         if looks_like_bad_generic_shopping_text(fallback_content):
-            fallback_content = "<h2>자료 확인이 필요한 주제입니다</h2><p>자동 글 생성 과정에서 주제와 맞지 않는 쇼핑몰 일반 정보가 감지되어 본문을 안전하게 대체했습니다. 이 주제는 제품명, 공식 스펙, 가격 자료를 추가 요청사항에 넣고 다시 생성하는 것이 좋습니다.</p>"
+            fallback_content = "<h2>자료 확인이 필요한 주제입니다</h2><p>자동 글 생성 과정에서 주제와 맞지 않는 일반 쇼핑몰 정보가 감지되어 본문을 안전하게 대체했습니다. 이 주제는 제품명, 공식 스펙, 가격 자료를 추가 요청사항에 넣고 다시 생성하는 것이 좋습니다.</p>"
 
         data = {
             "title": f"{keywords} 정리",
@@ -902,26 +849,17 @@ FAQ 작성 조건:
         }
 
     content_images = data.get("content_images", [])
-
     if not isinstance(content_images, list):
         content_images = []
-
     content_images = content_images[:image_count]
 
     refined_content_images = []
-
     for image_item in content_images:
         if not isinstance(image_item, dict):
             continue
 
-        refined_prompt = build_better_content_image_prompt(
-            image_item.get("prompt", ""),
-            category,
-        )
-        refined_caption = build_better_image_caption(
-            image_item.get("caption", ""),
-            category,
-        )
+        refined_prompt = build_better_content_image_prompt(image_item.get("prompt", ""), category)
+        refined_caption = build_better_image_caption(image_item.get("caption", ""), category)
 
         refined_content_images.append({
             "prompt": refined_prompt,
@@ -934,34 +872,19 @@ FAQ 작성 조건:
     content = str(data.get("content", ""))
 
     if looks_like_bad_generic_shopping_text(content):
-        content = "<h2>자료 확인이 필요한 주제입니다</h2><p>자동 글 생성 과정에서 주제와 맞지 않는 쇼핑몰 일반 정보가 감지되어 본문을 안전하게 대체했습니다. 제품명, 공식 스펙, 가격 자료를 추가 요청사항에 넣고 다시 생성해 주세요.</p>"
+        content = "<h2>자료 확인이 필요한 주제입니다</h2><p>자동 글 생성 과정에서 주제와 맞지 않는 일반 쇼핑몰 정보가 감지되어 본문을 안전하게 대체했습니다. 제품명, 공식 스펙, 가격 자료를 추가 요청사항에 넣고 다시 생성해 주세요.</p>"
 
-    content = ensure_required_comparison_table(
-        content,
-        category,
-        keywords,
-        style_rule_key,
-        extra_prompt,
-        planned_title,
-    )
+    content = ensure_required_comparison_table(content, category, keywords, style_rule_key, extra_prompt, planned_title)
     summary = str(data.get("summary", "")).strip()
     meta_description = str(data.get("meta_description", "")).strip()
 
     if not summary:
         summary = clean_text_for_meta(content, 180)
-
     if not meta_description:
         meta_description = clean_text_for_meta(summary or content, 120)
 
     if make_thumbnail:
-        # 이미지 안에 글자가 들어가는 문제를 막기 위해
-        # AI가 반환한 원본 thumbnail_prompt는 사용하지 않고,
-        # 사이트 공통 썸네일 프롬프트만 사용한다.
-        thumbnail_prompt = build_better_thumbnail_prompt(
-            title=title,
-            keywords=keywords,
-            category=category,
-        )
+        thumbnail_prompt = build_better_thumbnail_prompt(title=title, keywords=keywords, category=category)
     else:
         thumbnail_prompt = ""
 
@@ -977,26 +900,17 @@ FAQ 작성 조건:
     }
 
 
-def generate_post_topics(
-    category,
-    keywords,
-    writing_style,
-    extra_prompt="",
-    count=1,
-    existing_titles=None,
-):
+def generate_post_topics(category, keywords, writing_style, extra_prompt="", count=1, existing_titles=None):
     count = clamp_number(count, 1, 10, 1)
 
     if count == 1:
-        return [
-            {
-                "title": keywords,
-                "keywords": keywords,
-                "angle": extra_prompt,
-                "search_intent": "정보 탐색",
-                "extra_prompt": extra_prompt,
-            }
-        ]
+        return [{
+            "title": keywords,
+            "keywords": keywords,
+            "angle": extra_prompt,
+            "search_intent": "정보 탐색",
+            "extra_prompt": extra_prompt,
+        }]
 
     style_map = {
         "natural": "자연 설명형",
@@ -1008,8 +922,6 @@ def generate_post_topics(
         "checklist": "체크리스트형",
         "review": "리뷰형",
         "natural_blog": "자연 설명형",
-
-        # 기존 화면/DB 값 호환용
         "practical": "경험 기반형",
         "issue": "뉴스·트렌드형",
         "guide": "자연 설명형",
@@ -1041,7 +953,7 @@ def generate_post_topics(
 추가 요청사항: {extra_prompt}
 
 이미 작성된 비슷한 제목:
-{existing_title_text if existing_title_text else "- 없음"}
+{existing_title_text if existing_title_text else '- 없음'}
 
 기획 조건:
 - 총 {count}개의 주제를 만들어라.
@@ -1053,18 +965,7 @@ def generate_post_topics(
 - 제목은 검색자가 실제로 입력할 만한 롱테일 키워드를 포함해라.
 - 너무 자극적이거나 허위성 있는 제목은 피하라.
 - 같은 결론을 반복하는 글을 만들지 마라.
-- 맛집/여행 주제라면 위치, 메뉴 선택, 후기 포인트, 방문 팁, 주변 코스처럼 관점을 나눠라.
-- 금융/코인 주제라면 개념, 리스크, 전략, 보안, 체크리스트처럼 관점을 나눠라.
-- 건축/시공 주제라면 공정, 안전, 비용, 현장 체크, 사례 분석처럼 관점을 나눠라.
-- 프로그램/개발 주제라면 설치, 사용법, 오류 해결, 기능 비교, 보안 주의점처럼 관점을 나눠라.
-
-제목 다양화 조건:
-- 모든 제목을 질문형으로 만들지 마라.
-- 일부는 "~정리", 일부는 "~체크포인트", 일부는 "~보기 좋은 이유", 일부는 "~주의할 점"처럼 섞어라.
 - 제목이 서로 비슷한 문장 구조가 되지 않게 해라.
-- 같은 키워드를 제목 맨 앞에 반복하지 마라.
-- 자연스러운 롱테일 키워드를 섞어라.
-- 너무 긴 제목은 피하고, 검색 결과에서 읽기 좋은 길이로 작성해라.
 - 사람 블로그 제목처럼 자연스럽게 읽혀야 한다.
 
 반환은 반드시 JSON 형식만 사용해라.
@@ -1083,41 +984,28 @@ def generate_post_topics(
 }}
 """
 
-    client = get_openai_client()
-
-    response = client.responses.create(
-        model=TEXT_MODEL,
-        input=prompt,
-    )
-
-    text = response.output_text.strip()
+    text = gemini_generate_text(prompt)
     data = extract_json(text)
-
     topics = []
 
     if data and isinstance(data.get("topics"), list):
         for item in data.get("topics", []):
             if not isinstance(item, dict):
                 continue
-
             title = str(item.get("title", "")).strip()
             topic_keywords = str(item.get("keywords", "")).strip()
             angle = str(item.get("angle", "")).strip()
             search_intent = str(item.get("search_intent", "")).strip()
             item_extra_prompt = str(item.get("extra_prompt", "")).strip()
-
             if not title:
                 continue
-
-            topics.append(
-                {
-                    "title": title[:200],
-                    "keywords": topic_keywords or title,
-                    "angle": angle,
-                    "search_intent": search_intent,
-                    "extra_prompt": item_extra_prompt,
-                }
-            )
+            topics.append({
+                "title": title[:200],
+                "keywords": topic_keywords or title,
+                "angle": angle,
+                "search_intent": search_intent,
+                "extra_prompt": item_extra_prompt,
+            })
 
     fallback_angles = [
         "기초 개념을 쉽게 정리",
@@ -1134,33 +1022,24 @@ def generate_post_topics(
 
     used_titles = {topic["title"] for topic in topics}
     index = 0
-
     while len(topics) < count:
         angle = fallback_angles[index % len(fallback_angles)]
         title = f"{keywords} {angle}"
-
         if title not in used_titles:
-            topics.append(
-                {
-                    "title": title[:200],
-                    "keywords": f"{keywords}, {angle}",
-                    "angle": angle,
-                    "search_intent": "정보 탐색",
-                    "extra_prompt": angle,
-                }
-            )
+            topics.append({
+                "title": title[:200],
+                "keywords": f"{keywords}, {angle}",
+                "angle": angle,
+                "search_intent": "정보 탐색",
+                "extra_prompt": angle,
+            })
             used_titles.add(title)
-
         index += 1
 
     return topics[:count]
 
 
-def recommend_today_keywords(
-    category="",
-    today="",
-    count=7,
-):
+def recommend_today_keywords(category="", today="", count=7):
     count = clamp_number(count, 3, 10, 7)
 
     category_map = {
@@ -1192,11 +1071,6 @@ def recommend_today_keywords(
 
 중요:
 - 추천 카테고리가 "전체"가 아니라면 반드시 해당 카테고리 키워드만 추천해라.
-- 추천 카테고리가 "건축"이면 건축/시공/하자/안전/공정/건설 이슈만 추천해라.
-- 추천 카테고리가 "부동산"이면 부동산/전세/매매/청약/분양/정책 관련 키워드만 추천해라.
-- 추천 카테고리가 "금융"이면 금융/코인/주식/자동매매/리스크/경제 관련 키워드만 추천해라.
-- 추천 카테고리가 "테크"이면 AI/프로그램/앱/개발/기기/사용법 관련 키워드만 추천해라.
-- 추천 카테고리가 "일상"이면 생활정보/육아/맛집/여행/지원금/후기 관련 키워드만 추천해라.
 - 다른 카테고리 키워드를 섞지 마라.
 
 추천 조건:
@@ -1204,10 +1078,6 @@ def recommend_today_keywords(
 - 너무 추상적인 키워드 금지
 - 블로그 글 제목으로 확장 가능한 키워드
 - 뉴스/이슈형, 정보형, 생활형 키워드를 적절히 섞기
-- 금융/코인 키워드는 투자 권유가 아니라 정보/리스크/체크포인트 중심
-- 맛집/방송/생활 키워드는 자연스러운 검색어 형태
-- 건축/시공 키워드는 안전, 비용, 공정, 이슈 중심
-- 테크 키워드는 사용법, 비교, 오류 해결, 프로그램, AI 중심
 - 비슷한 키워드를 반복하지 마라.
 - 선정적이거나 위험한 키워드는 제외
 - 실제 최신 사실을 단정하지 말고, 글감으로 쓸 만한 검색 키워드 형태로 추천
@@ -1227,30 +1097,19 @@ def recommend_today_keywords(
 }}
 """
 
-    client = get_openai_client()
-
-    response = client.responses.create(
-        model=TEXT_MODEL,
-        input=prompt,
-    )
-
-    text = response.output_text.strip()
+    text = gemini_generate_text(prompt)
     data = extract_json(text)
-
     results = []
 
     if data and isinstance(data.get("keywords"), list):
         for item in data.get("keywords", []):
             if not isinstance(item, dict):
                 continue
-
             keyword = str(item.get("keyword", "")).strip()
             item_category = str(item.get("category", "")).strip()
             reason = str(item.get("reason", "")).strip()
-
             if not keyword:
                 continue
-
             results.append({
                 "keyword": keyword[:120],
                 "category": item_category[:20] or "추천",
@@ -1271,7 +1130,6 @@ def recommend_today_keywords(
     ]
 
     index = 0
-
     while len(results) < count:
         results.append(fallback_keywords[index % len(fallback_keywords)])
         index += 1
@@ -1281,33 +1139,28 @@ def recommend_today_keywords(
 
 def generate_image_bytes(prompt, size="1024x1024"):
     prompt = (prompt or "").strip()
-
     if not prompt:
         return None
 
-    client = get_openai_client()
+    client = get_gemini_client()
 
-    response = client.images.generate(
+    response = client.models.generate_content(
         model=IMAGE_MODEL,
-        prompt=prompt,
-        size=size,
-        quality=IMAGE_QUALITY,
+        contents=[prompt],
+        config=types.GenerateContentConfig(
+            response_modalities=["Image"],
+            image_config=types.ImageConfig(
+                aspect_ratio=IMAGE_ASPECT_RATIO,
+                image_size=IMAGE_SIZE,
+            ),
+        ),
     )
 
-    if not response.data:
-        return None
-
-    b64_image = response.data[0].b64_json
-
-    if not b64_image:
-        return None
-
-    return base64.b64decode(b64_image)
+    return _extract_image_bytes_from_gemini_response(response)
 
 
 def make_generated_image_file(prompt, prefix="ai-image"):
     image_bytes = generate_image_bytes(prompt)
-
     if not image_bytes:
         return None, None
 
@@ -1319,15 +1172,12 @@ def make_generated_image_file(prompt, prefix="ai-image"):
 
 def save_inline_image(prompt, prefix="inline"):
     image_bytes = generate_image_bytes(prompt)
-
     if not image_bytes:
         return ""
 
     safe_prefix = re.sub(r"[^a-zA-Z0-9_-]", "-", prefix)
     filename = f"post_inline_images/{safe_prefix}-{uuid.uuid4().hex}.png"
-
     saved_path = default_storage.save(filename, ContentFile(image_bytes))
-
     return default_storage.url(saved_path)
 
 
