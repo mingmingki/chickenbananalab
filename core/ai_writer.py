@@ -16,7 +16,7 @@ load_dotenv(override=True)
 
 TEXT_MODEL = os.getenv("OPENAI_TEXT_MODEL", "gpt-4.1-mini")
 IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
-IMAGE_QUALITY = os.getenv("OPENAI_IMAGE_QUALITY", "low")
+IMAGE_QUALITY = os.getenv("OPENAI_IMAGE_QUALITY", "high")
 
 
 STYLE_WRITING_RULES = {
@@ -270,6 +270,124 @@ def clean_text_for_meta(text, limit=150):
 
 
 
+def build_better_thumbnail_prompt(title, keywords, category):
+    """
+    썸네일 이미지를 일반 AI 그림이 아니라 전문 블로그/기사형 커버 이미지처럼 만들기 위한 보정 프롬프트.
+    실제 텍스트는 이미지 안에 직접 넣지 않고, 사이트에서 나중에 얹기 좋은 여백을 확보하는 방향으로 유도한다.
+    """
+    category = str(category or "").strip()
+    title = str(title or "").strip()
+    keywords = str(keywords or "").strip()
+
+    category_style_map = {
+        "tech": "modern editorial tech blog thumbnail style, clean and premium, device-focused composition, cool neutral tones, refined product review mood",
+        "finance": "professional finance editorial style, clean and trustworthy, simple chart or money concept, deep blue and green accents, premium information design mood",
+        "architecture": "modern architecture editorial style, clean composition, building, blueprint, construction detail or drawing concept, gray and warm orange accents",
+        "realestate": "clean real estate editorial style, apartment, housing, contract or city concept, neat and professional layout",
+        "life": "bright lifestyle editorial style, warm and clean, friendly and natural composition, realistic daily life mood",
+    }
+
+    category_style = category_style_map.get(
+        category,
+        "clean professional editorial blog thumbnail style, premium article cover mood",
+    )
+
+    return f"""
+Create a high-quality Korean professional blog thumbnail image.
+
+Topic title: {title}
+Core keywords: {keywords}
+
+Visual style:
+- {category_style}
+- clean editorial cover image
+- visually strong main subject
+- realistic or polished editorial illustration style
+- premium blog article feel
+- simple and well-organized composition
+- soft lighting and subtle shadows
+- clean background with enough empty space for Korean title text overlay
+- mobile-friendly visual readability
+- professional online magazine article image mood
+
+Strict negative rules:
+- no watermark
+- no logo
+- no brand logo imitation
+- no messy collage
+- no excessive decorative elements
+- no fake UI screenshot
+- no distorted text
+- no large text embedded inside the image
+- no close-up human face
+- no copyrighted media screenshot
+""".strip()
+
+
+def build_better_content_image_prompt(base_prompt, category):
+    """
+    본문 이미지를 썸네일처럼 과하게 만들지 않고, 기사 중간에 들어가는 참고 이미지처럼 보정한다.
+    """
+    base_prompt = str(base_prompt or "").strip()
+    category = str(category or "").strip()
+
+    category_style_map = {
+        "tech": "editorial tech article image, realistic product-focused composition, clean white or light gray background, modern and premium, review article mood",
+        "finance": "editorial finance article image, simple and professional, concept-driven visual, clean layout, trustworthy information mood",
+        "architecture": "editorial architecture article image, realistic and clean, drawing, site, building or construction equipment oriented composition",
+        "realestate": "editorial property article image, housing, interior, city or contract concept, clean and realistic composition",
+        "life": "editorial lifestyle article image, natural and clean, warm but neat composition, realistic daily life mood",
+    }
+
+    category_style = category_style_map.get(
+        category,
+        "clean editorial article image, professional and realistic",
+    )
+
+    if not base_prompt:
+        base_prompt = "Create a clean editorial article image related to the topic."
+
+    return f"""
+{base_prompt}
+
+Visual direction:
+- {category_style}
+- Korean professional blog article image
+- one clear subject or clean comparison composition
+- realistic or polished editorial illustration style
+- simple background
+- neat spacing
+- soft shadow
+- rounded and refined composition feel
+- no watermark
+- no logo
+- no brand logo imitation
+- no excessive text
+- no fake screenshot
+- no cluttered layout
+- no close-up human face
+""".strip()
+
+
+def build_better_image_caption(caption, category):
+    caption = str(caption or "").strip()
+
+    if caption:
+        return caption[:80]
+
+    default_map = {
+        "tech": "제품 특징을 보여주는 참고 이미지",
+        "finance": "핵심 내용을 이해하기 위한 참고 이미지",
+        "architecture": "현장·도면 개념을 돕는 참고 이미지",
+        "realestate": "주요 포인트를 보여주는 참고 이미지",
+        "life": "내용 이해를 돕는 참고 이미지",
+    }
+
+    return default_map.get(category, "본문 이해를 돕는 참고 이미지")
+
+
+
+
 def normalize_text_for_detect(value):
     return str(value or "").lower().replace(" ", "")
 
@@ -499,10 +617,14 @@ def generate_ai_post(
 그리고 content_images 배열에는 이미지 {image_count}장에 대한 prompt와 caption을 작성해라.
 
 본문 이미지 prompt 조건:
-- 실제 블로그 본문 중간에 들어갈 정보성 이미지 느낌
+- 실제 블로그 본문 중간에 들어갈 기사형·리뷰형 정보성 이미지 느낌
+- 제품, 장소, 상황, 장비 등 핵심 대상을 명확하게 보여주는 이미지로 작성
 - 과도한 텍스트, 로고, 워터마크 금지
 - 주제와 카테고리에 맞는 현실적이고 깔끔한 이미지
-- 한국 블로그 콘텐츠에 어울리는 이미지
+- 한국의 전문 블로그 기사 이미지처럼 단정하고 보기 좋게 작성
+- 배경은 너무 복잡하지 않게 하고, 핵심 피사체가 잘 보이게 구성
+- 제품 리뷰나 테크 글은 흰색 또는 밝은 회색 배경의 에디토리얼 제품 이미지 느낌으로 작성
+- 건축/장비 글은 현장, 장비, 도면, 기술 협업을 단정한 기사 이미지처럼 표현
 - 인물 얼굴 클로즈업은 피하고, 상황이나 장소가 느껴지는 이미지로 작성
 - 방송 화면 캡쳐, 방송사 로고, 자막, 특정 매체 화면처럼 보이게 만들지 마라.
 - 저작권 문제가 생길 수 있는 실제 방송 장면, 포털 리뷰 사진, 특정 브랜드 이미지를 묘사하지 마라.
@@ -704,10 +826,14 @@ FAQ 작성 조건:
 
 썸네일 이미지 prompt 조건:
 - 대표 썸네일로 쓸 수 있는 이미지 프롬프트를 작성해라.
+- 한국의 전문 블로그 또는 테크/리뷰 기사 썸네일처럼 깔끔하고 고급스럽게 작성해라.
 - 글 제목과 주제가 한눈에 느껴져야 한다.
-- 텍스트를 넣기 좋은 여백을 포함해라.
+- 핵심 오브젝트가 명확하게 보이게 작성해라.
+- 텍스트를 나중에 얹기 좋은 여백을 포함해라.
+- 배경은 복잡하지 않게 하고, 전체 구도는 단정하게 구성해라.
+- 모바일 목록 화면에서도 알아보기 쉬운 단순하고 선명한 구도로 작성해라.
 - 로고, 워터마크, 실제 인물 얼굴 클로즈업은 피하라.
-- 한국 블로그 썸네일에 어울리게 현실적이고 깔끔하게 작성해라.
+- 과한 장식, 과도한 텍스트, 복잡한 콜라주 스타일은 피하라.
 - 실제 방송 화면, 방송사 로고, 자막, 포털 리뷰 사진처럼 보이는 이미지를 요청하지 마라.
 
 {image_instruction}
@@ -764,6 +890,28 @@ FAQ 작성 조건:
 
     content_images = content_images[:image_count]
 
+    refined_content_images = []
+
+    for image_item in content_images:
+        if not isinstance(image_item, dict):
+            continue
+
+        refined_prompt = build_better_content_image_prompt(
+            image_item.get("prompt", ""),
+            category,
+        )
+        refined_caption = build_better_image_caption(
+            image_item.get("caption", ""),
+            category,
+        )
+
+        refined_content_images.append({
+            "prompt": refined_prompt,
+            "caption": refined_caption,
+        })
+
+    content_images = refined_content_images
+
     title = str(data.get("title", f"{keywords} 정리"))[:200]
     content = str(data.get("content", ""))
 
@@ -787,6 +935,20 @@ FAQ 작성 조건:
     if not meta_description:
         meta_description = clean_text_for_meta(summary or content, 120)
 
+    raw_thumbnail_prompt = str(data.get("thumbnail_prompt", "")).strip()
+
+    if make_thumbnail:
+        thumbnail_prompt = build_better_thumbnail_prompt(
+            title=title,
+            keywords=keywords,
+            category=category,
+        )
+
+        if raw_thumbnail_prompt:
+            thumbnail_prompt = f"{raw_thumbnail_prompt}\n\nEnhanced editorial style instructions:\n{thumbnail_prompt}"
+    else:
+        thumbnail_prompt = ""
+
     return {
         "title": title,
         "summary": summary[:300],
@@ -794,7 +956,7 @@ FAQ 작성 조건:
         "thumbnail_text": str(data.get("thumbnail_text", keywords[:30]))[:100],
         "content": content,
         "tags": str(data.get("tags", "")) if include_tags else "",
-        "thumbnail_prompt": (str(data.get("thumbnail_prompt", "")).strip() or make_fallback_thumbnail_prompt(category, keywords, title)) if make_thumbnail else "",
+        "thumbnail_prompt": thumbnail_prompt,
         "content_images": content_images,
     }
 
