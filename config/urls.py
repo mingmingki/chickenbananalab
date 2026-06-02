@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import HttpResponse
 
 from django.contrib.sitemaps.views import sitemap
 from core.sitemaps import StaticViewSitemap, PostSitemap
@@ -14,8 +15,16 @@ sitemaps = {
 }
 
 
+def ads_txt(request):
+    content = "google.com, pub-7026110887847114, DIRECT, f08c47fec0942fa0\n"
+    return HttpResponse(content, content_type="text/plain")
+
+
 urlpatterns = [
     path("admin/", admin.site.urls),
+
+    # AdSense ads.txt
+    path("ads.txt", ads_txt, name="ads_txt"),
 
     # sitemap / robots
     path(
