@@ -313,8 +313,10 @@ def generate_ai_post(
         "experience": "경험 기반형",
         "product_review": "구매·리뷰형",
         "news_trend": "뉴스·트렌드형",
+        "trend": "뉴스·트렌드형",
         "checklist": "체크리스트형",
         "review": "리뷰형",
+        "natural_blog": "자연 설명형",
 
         # 기존 화면/DB 값 호환용
         "practical": "경험 기반형",
@@ -336,6 +338,8 @@ def generate_ai_post(
         "practical": "experience",
         "issue": "news_trend",
         "guide": "natural",
+        "trend": "news_trend",
+        "natural_blog": "natural",
     }
     style_rule_key = style_key_map.get(writing_style, writing_style)
     style_specific_rule = STYLE_WRITING_RULES.get(style_rule_key, STYLE_WRITING_RULES["natural"])
@@ -667,8 +671,10 @@ def generate_post_topics(
         "experience": "경험 기반형",
         "product_review": "구매·리뷰형",
         "news_trend": "뉴스·트렌드형",
+        "trend": "뉴스·트렌드형",
         "checklist": "체크리스트형",
         "review": "리뷰형",
+        "natural_blog": "자연 설명형",
 
         # 기존 화면/DB 값 호환용
         "practical": "경험 기반형",
