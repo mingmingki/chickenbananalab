@@ -75,6 +75,9 @@ CATEGORY_ALIASES = {
     "생활": "life",
 }
 
+RECOMMENDATION_LIMIT = 10
+
+
 BAD_KEYWORDS = {
     "있다", "없다", "한다", "했다", "됐다", "된다", "위해", "통해", "대한", "관련",
     "오늘", "내일", "올해", "내년", "지난", "이번", "최근", "최신", "속보", "단독",
@@ -352,7 +355,7 @@ def make_default_recommendations(category, search_words, reason):
 
     recommendations = []
 
-    for word in search_words[:7]:
+    for word in search_words[:RECOMMENDATION_LIMIT]:
         recommendations.append({
             "category": category_label,
             "keyword": word,
@@ -414,7 +417,7 @@ def recommend_keywords_from_news(category):
     used_keywords = set()
 
     for item in all_news:
-        if len(recommendations) >= 7:
+        if len(recommendations) >= RECOMMENDATION_LIMIT:
             break
 
         keyword = make_blog_keyword(
@@ -446,7 +449,7 @@ def recommend_keywords_from_news(category):
         })
 
     for word in search_words:
-        if len(recommendations) >= 7:
+        if len(recommendations) >= RECOMMENDATION_LIMIT:
             break
 
         word_key = word.replace(" ", "").lower()
@@ -462,4 +465,4 @@ def recommend_keywords_from_news(category):
             "reason": "오늘 카테고리 뉴스 흐름을 기준으로 추천한 글감입니다.",
         })
 
-    return recommendations[:7]
+    return recommendations[:RECOMMENDATION_LIMIT]
