@@ -640,6 +640,31 @@ def repair_ai_content_html(content, title=""):
 
 
 
+
+def plain_text_length_from_html(content):
+    """
+    HTML 태그를 제거한 실제 본문 글자 수를 계산합니다.
+    Gemini가 빈 응답이나 짧은 오류 문구를 반환했을 때 저장 단계로 넘어가지 않게 합니다.
+    """
+    text = html.unescape(str(content or ""))
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = text.replace("&nbsp;", " ").replace("\xa0", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    return len(text)
+
+
+def validate_ai_content_or_raise(content, context="AI 본문", min_length=500):
+    content = str(content or "").strip()
+    plain_length = plain_text_length_from_html(content)
+
+    if plain_length < min_length:
+        raise ValueError(
+            f"{context} 생성 실패: 본문이 비어 있거나 너무 짧습니다. "
+            f"본문 글자수={plain_length}자, 최소 기준={min_length}자"
+        )
+
+    return content
+
 def normalize_text_for_detect(value):
     return str(value or "").lower().replace(" ", "")
 
@@ -1283,6 +1308,11 @@ FAQ 작성 조건:
 
     content = repair_ai_content_html(content, title=title)
     content = ensure_required_comparison_table(content, category, keywords, style_rule_key, extra_prompt, planned_title)
+    content = validate_ai_content_or_raise(
+        content,
+        context=f"{title} 본문",
+        min_length=500,
+    )
     summary = str(data.get("summary", "")).strip()
     meta_description = str(data.get("meta_description", "")).strip()
 
@@ -1434,6 +1464,11 @@ Return JSON only in this exact format:
 
     content = str(data.get("content", "")).strip()
     content = repair_ai_content_html(content, title=title)
+    content = validate_ai_content_or_raise(
+        content,
+        context=f"{title} 영어 본문",
+        min_length=500,
+    )
 
     summary = str(data.get("summary", "")).strip()
     meta_description = str(data.get("meta_description", "")).strip()

@@ -20,6 +20,7 @@ from django.db.models.functions import TruncDate
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
+from django.utils.html import strip_tags
 from django.views.decorators.http import require_POST
 from django.utils.text import slugify
 
@@ -204,6 +205,38 @@ def normalize_html_spaces(value):
         value = value.replace(target, " ")
 
     return value
+
+
+
+
+def get_plain_text_length(value):
+    """
+    HTML 태그와 특수 공백을 제거한 실제 본문 글자 수를 계산합니다.
+    자동글이 제목/썸네일만 저장되고 content가 비는 문제를 방지하기 위한 검증용입니다.
+    """
+    text = normalize_html_spaces(value or "")
+    text = strip_tags(text)
+    text = text.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    text = " ".join(text.split())
+    return len(text)
+
+
+def validate_generated_content_or_raise(content, title="", min_length=500):
+    """
+    AI 자동글 저장 직전 최종 본문을 검증합니다.
+    본문이 비었거나 지나치게 짧으면 Post를 저장하지 않고 에러로 중단합니다.
+    """
+    content = normalize_html_spaces(content or "").strip()
+    plain_length = get_plain_text_length(content)
+
+    if plain_length < min_length:
+        short_title = str(title or "제목 없음").strip()[:80]
+        raise ValueError(
+            f"AI 글 생성 실패: 본문이 비어 있거나 너무 짧아 저장하지 않았습니다. "
+            f"제목='{short_title}', 본문 글자수={plain_length}자, 최소 기준={min_length}자"
+        )
+
+    return content
 
 
 def delete_file_safely(file_name):
@@ -492,6 +525,11 @@ def post_translate_english(request, pk):
 
         english_content = str(english_data.get("content", "")).strip()
         english_content = normalize_html_spaces(english_content)
+        english_content = validate_generated_content_or_raise(
+            english_content,
+            title=english_title,
+            min_length=500,
+        )
 
         english_tags = str(english_data.get("tags") or "").strip()
 
@@ -1012,6 +1050,11 @@ def ai_post_generate(request):
 
             content = replace_image_placeholders(content, inline_image_blocks)
             content = normalize_html_spaces(content)
+            content = validate_generated_content_or_raise(
+                content,
+                title=ai_data.get("title", topic_title),
+                min_length=500,
+            )
 
             post = Post.objects.create(
                 category=category,
@@ -1057,8 +1100,13 @@ def ai_post_generate(request):
                     source_title=post.title,
                 )
 
-                english_content = normalize_html_spaces(english_ai_data.get("content", ""))
                 english_title = english_ai_data.get("title", f"{post.title} English Version")
+                english_content = normalize_html_spaces(english_ai_data.get("content", ""))
+                english_content = validate_generated_content_or_raise(
+                    english_content,
+                    title=english_title,
+                    min_length=500,
+                )
 
                 english_create_kwargs = {
                     "category": category,

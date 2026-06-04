@@ -1,9 +1,13 @@
 import hashlib
 
 from django.conf import settings
-from django.utils import timezone
 
 from .models import VisitLog
+
+try:
+    from .telegram_alerts import notify_site_visit
+except Exception:
+    notify_site_visit = None
 
 
 BOT_KEYWORDS = [
@@ -29,6 +33,33 @@ EXCLUDE_PATH_PREFIXES = [
 ]
 
 
+def get_client_ip(request):
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
+
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+
+    return request.META.get("REMOTE_ADDR", "")
+
+
+def is_bot_request(request):
+    user_agent = request.META.get("HTTP_USER_AGENT", "").lower()
+    return any(keyword in user_agent for keyword in BOT_KEYWORDS)
+
+
+def is_internal_user(user):
+    if not getattr(user, "is_authenticated", False):
+        return False
+
+    if getattr(user, "is_staff", False) or getattr(user, "is_superuser", False):
+        return True
+
+    try:
+        return bool(user.profile.is_sub_admin)
+    except Exception:
+        return False
+
+
 class VisitLogMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -41,55 +72,65 @@ class VisitLogMiddleware:
         except Exception:
             pass
 
+        try:
+            if notify_site_visit and self.should_track(request, response) and not is_bot_request(request):
+                notify_site_visit(request)
+        except Exception:
+            pass
+
         return response
 
-    def save_visit_log(self, request, response):
+    def should_track(self, request, response):
         if request.method != "GET":
-            return
+            return False
 
         if response.status_code >= 400:
-            return
+            return False
 
         path = request.path or ""
 
         for prefix in EXCLUDE_PATH_PREFIXES:
             if path.startswith(prefix):
-                return
+                return False
 
-        if hasattr(request, "user") and request.user.is_authenticated and request.user.is_staff:
+        if is_internal_user(getattr(request, "user", None)):
+            return False
+
+        return True
+
+    def save_visit_log(self, request, response):
+        if not self.should_track(request, response):
             return
 
+        path = request.path or ""
         user_agent = request.META.get("HTTP_USER_AGENT", "")
-        user_agent_lower = user_agent.lower()
-
-        is_bot = any(keyword in user_agent_lower for keyword in BOT_KEYWORDS)
-
-        ip = self.get_client_ip(request)
-
-        ip_hash = self.hash_value(ip)
-        visitor_key = self.hash_value(f"{ip}|{user_agent}")
-
         referer = request.META.get("HTTP_REFERER", "")
+        ip_address = get_client_ip(request)
+        is_bot = is_bot_request(request)
 
-        VisitLog.objects.create(
-            path=path,
-            method=request.method,
-            visitor_key=visitor_key,
-            ip_hash=ip_hash,
-            user_agent=user_agent[:1000],
-            referer=referer[:1000],
-            is_bot=is_bot,
-        )
+        visitor_source = f"{ip_address}|{user_agent}|{settings.SECRET_KEY}"
+        visitor_key = hashlib.sha256(visitor_source.encode("utf-8")).hexdigest()
 
-    def get_client_ip(self, request):
-        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+        field_names = {field.name for field in VisitLog._meta.fields}
 
-        if x_forwarded_for:
-            return x_forwarded_for.split(",")[0].strip()
+        data = {}
 
-        return request.META.get("REMOTE_ADDR", "")
+        if "path" in field_names:
+            data["path"] = path
 
-    def hash_value(self, value):
-        secret = getattr(settings, "SECRET_KEY", "")
-        raw = f"{secret}|{value}".encode("utf-8")
-        return hashlib.sha256(raw).hexdigest()
+        if "user_agent" in field_names:
+            data["user_agent"] = user_agent[:500]
+
+        if "ip_address" in field_names:
+            data["ip_address"] = ip_address
+
+        if "referer" in field_names:
+            data["referer"] = referer[:500]
+
+        if "visitor_key" in field_names:
+            data["visitor_key"] = visitor_key
+
+        if "is_bot" in field_names:
+            data["is_bot"] = is_bot
+
+        VisitLog.objects.create(**data)
