@@ -97,6 +97,31 @@
                                 삭제
                             </button>
                         </form>
+
+                        <form
+                            method="post"
+                            action="{% url 'post_translate_english' post.pk %}"
+                            onsubmit="return showEnglishTranslateLoading(this);"
+                            style="display:inline;"
+                        >
+                            {% csrf_token %}
+                            <button
+                                type="submit"
+                                style="
+                                    padding: 10px 16px;
+                                    border: 0;
+                                    border-radius: 12px;
+                                    background: #2563eb;
+                                    color: #ffffff;
+                                    font-weight: 800;
+                                    cursor: pointer;
+                                    font-size: 14px;
+                                    line-height: 1;
+                                "
+                            >
+                                영어자동번역
+                            </button>
+                        </form>
                     </div>
 
                 </div>
@@ -109,5 +134,104 @@
 
     </div>
 </section>
+
+<div id="englishTranslateOverlay" style="
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(15, 23, 42, 0.72);
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+">
+    <div style="
+        width: min(420px, 92vw);
+        background: #ffffff;
+        border-radius: 24px;
+        padding: 34px 28px;
+        text-align: center;
+        box-shadow: 0 24px 80px rgba(0,0,0,0.28);
+    ">
+        <div class="english-loading-spinner"></div>
+
+        <h2 style="
+            margin: 18px 0 10px;
+            font-size: 24px;
+            font-weight: 900;
+            color: #111827;
+        ">
+            영어 글을 번역하고 있습니다
+        </h2>
+
+        <p style="
+            margin: 0;
+            font-size: 15px;
+            line-height: 1.7;
+            color: #4b5563;
+            font-weight: 600;
+        ">
+            기존 글의 사진, 태그, 썸네일을 유지한 상태로<br>
+            해외 검색용 영어 초안을 생성하는 중입니다.
+        </p>
+
+        <p style="
+            margin-top: 16px;
+            font-size: 13px;
+            color: #9ca3af;
+        ">
+            완료되면 영어 초안 수정 화면으로 이동합니다.
+        </p>
+    </div>
+</div>
+
+<style>
+    .english-loading-spinner {
+        width: 54px;
+        height: 54px;
+        margin: 0 auto;
+        border: 6px solid #e5e7eb;
+        border-top-color: #2563eb;
+        border-radius: 999px;
+        animation: englishSpin 0.9s linear infinite;
+    }
+
+    @keyframes englishSpin {
+        from {
+            transform: rotate(0deg);
+        }
+
+        to {
+            transform: rotate(360deg);
+        }
+    }
+</style>
+
+<script>
+    function showEnglishTranslateLoading(form) {
+        const confirmed = confirm('이 글을 영어로 자동번역해서 비공개 초안으로 만들까요?');
+
+        if (!confirmed) {
+            return false;
+        }
+
+        const overlay = document.getElementById('englishTranslateOverlay');
+
+        if (overlay) {
+            overlay.style.display = 'flex';
+        }
+
+        const submitButton = form.querySelector('button[type="submit"]');
+
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.innerText = '번역중...';
+            submitButton.style.opacity = '0.75';
+            submitButton.style.cursor = 'not-allowed';
+        }
+
+        return true;
+    }
+</script>
 
 {% endblock %}

@@ -21,6 +21,7 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_POST
+from django.utils.text import slugify
 
 from .market_data import get_market_data
 from .models import (
@@ -404,6 +405,124 @@ def post_unpublish(request, pk):
 
     return redirect("post_detail", pk=post.pk)
 
+def make_unique_english_slug(title, source_pk=None):
+    """
+    영어 제목을 검색 친화적인 slug 주소로 변환합니다.
+    예: /post/slug/en-macbook-neo-price-release-date/
+    """
+    base_slug = slugify(str(title or ""), allow_unicode=False).strip("-")
+
+    if not base_slug:
+        base_slug = f"english-post-{source_pk or uuid.uuid4().hex[:8]}"
+
+    base_slug = f"en-{base_slug}"[:180].strip("-")
+    slug = base_slug
+    number = 2
+
+    while Post.objects.filter(slug=slug).exists():
+        slug = f"{base_slug}-{number}"[:200].strip("-")
+        number += 1
+
+    return slug
+
+
+@user_passes_test(admin_required)
+@require_POST
+def post_translate_english(request, pk):
+    """
+    기존 한국어 글을 영어 글로 자동 번역합니다.
+    - 영어 글은 항상 비공개 초안
+    - 썸네일 사진 / 본문 이미지 / 첨부 파일 / 위치 정보는 기존 글과 동일
+    - 태그는 기존 글과 동일
+    - 주소는 영어 SEO slug로 생성
+    """
+    source_post = get_object_or_404(Post, pk=pk)
+    post_field_names = get_post_field_names()
+
+    try:
+        korean_ai_data = {
+            "title": source_post.title,
+            "summary": getattr(source_post, "summary", ""),
+            "meta_description": getattr(source_post, "meta_description", ""),
+            "thumbnail_text": getattr(source_post, "thumbnail_text", ""),
+            "tags": getattr(source_post, "tags", ""),
+            "content": getattr(source_post, "content", ""),
+        }
+
+        english_data = generate_english_ai_post(
+            category=source_post.category,
+            korean_ai_data=korean_ai_data,
+            korean_final_content=source_post.content,
+            source_keywords=source_post.tags or source_post.title,
+            source_title=source_post.title,
+        )
+
+        english_title = str(english_data.get("title", "")).strip()
+        if not english_title:
+            english_title = f"{source_post.title} English Guide"
+
+        english_content = str(english_data.get("content", "")).strip()
+        english_content = normalize_html_spaces(english_content)
+
+        with transaction.atomic():
+            english_post = Post(
+                category=source_post.category,
+                title=english_title[:200],
+                content=english_content,
+                is_published=False,
+                tags=source_post.tags or "",
+            )
+
+            # 썸네일 문구는 해외 독자용 영어 문구 사용
+            if "thumbnail_text" in post_field_names:
+                english_post.thumbnail_text = str(
+                    english_data.get("thumbnail_text", "")
+                ).strip()[:100]
+
+            # 썸네일 사진은 기존 글과 동일
+            if "thumbnail" in post_field_names and getattr(source_post, "thumbnail", None):
+                english_post.thumbnail = source_post.thumbnail.name
+
+            # 본문 대표 사진이 있으면 동일
+            if "content_image" in post_field_names and getattr(source_post, "content_image", None):
+                english_post.content_image = source_post.content_image.name
+
+            # 위치 정보 동일
+            if "location" in post_field_names:
+                english_post.location = getattr(source_post, "location", "")
+
+            # 동영상/프로그램 파일도 있으면 동일하게 연결
+            if "video_file" in post_field_names and getattr(source_post, "video_file", None):
+                english_post.video_file = source_post.video_file.name
+
+            if "program_file" in post_field_names and getattr(source_post, "program_file", None):
+                english_post.program_file = source_post.program_file.name
+
+            # 영어 SEO 주소 생성
+            if "slug" in post_field_names:
+                english_post.slug = make_unique_english_slug(
+                    english_title,
+                    source_pk=source_post.pk,
+                )
+
+            english_post.save()
+
+            # summary / meta_description / thumbnail_prompt 등이 있으면 저장
+            set_post_optional_seo_fields(english_post, {
+                "summary": english_data.get("summary", ""),
+                "meta_description": english_data.get("meta_description", ""),
+                "thumbnail_prompt": english_data.get("thumbnail_prompt", ""),
+            })
+
+        messages.success(
+            request,
+            f"영어 자동번역 초안이 생성되었습니다: {english_post.title}"
+        )
+        return redirect("post_update", pk=english_post.pk)
+
+    except Exception as error:
+        messages.error(request, f"영어 자동번역 중 오류가 발생했습니다: {error}")
+        return redirect("admin_dashboard")
 
 def about(request):
     return render(request, "core/about.html")

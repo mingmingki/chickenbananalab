@@ -25,7 +25,7 @@ urlpatterns = [
     path("post/<int:pk>/delete/", views.post_delete, name="post_delete"),
     path("post/<int:pk>/publish/", views.post_publish, name="post_publish"),
     path("post/<int:pk>/unpublish/", views.post_unpublish, name="post_unpublish"),
-
+    path("post/<int:pk>/translate-en/", views.post_translate_english, name="post_translate_english"),
     path("about/", views.about, name="about"),
     path("contact/", views.contact, name="contact"),
 
