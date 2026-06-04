@@ -63,14 +63,20 @@
 
 <section class="post-detail-hero">
     <div class="container post-detail-container">
-        <span class="category-badge">{{ post.get_category_display }}</span>
+        <span class="category-badge">{{ category_label }}</span>
 
         <h1>{{ post.title }}</h1>
 
         <p class="post-meta">
-            등록일 {{ post.created_at|date:"Y.m.d H:i" }}
-            · 수정일 {{ post.updated_at|date:"Y.m.d H:i" }}
-            · 조회수 {{ post.views|default:0 }}
+            {% if is_english %}
+                Published {{ post.created_at|date:"Y.m.d H:i" }}
+                · Updated {{ post.updated_at|date:"Y.m.d H:i" }}
+                · Views {{ post.views|default:0 }}
+            {% else %}
+                등록일 {{ post.created_at|date:"Y.m.d H:i" }}
+                · 수정일 {{ post.updated_at|date:"Y.m.d H:i" }}
+                · 조회수 {{ post.views|default:0 }}
+            {% endif %}
         </p>
 
         {% if post.location %}
@@ -95,7 +101,7 @@
                    class="post-location-map-btn"
                    target="_blank"
                    rel="noopener noreferrer">
-                    구글지도에서 크게 보기
+                    {% if is_english %}View larger map on Google Maps{% else %}구글지도에서 크게 보기{% endif %}
                 </a>
             </div>
         {% endif %}
@@ -103,21 +109,25 @@
         {% if user.is_staff or user.is_superuser %}
             <div class="post-admin-publish-box">
                 {% if post.is_published %}
-                    <span class="publish-status-badge published">공개중</span>
+                    <span class="publish-status-badge published">
+                        {% if is_english %}Published{% else %}공개중{% endif %}
+                    </span>
 
                     <form method="post" action="{% url 'post_unpublish' post.pk %}">
                         {% csrf_token %}
                         <button type="submit" class="draft-action-btn">
-                            비공개로 전환
+                            {% if is_english %}Switch to draft{% else %}비공개로 전환{% endif %}
                         </button>
                     </form>
                 {% else %}
-                    <span class="publish-status-badge draft">비공개 초안</span>
+                    <span class="publish-status-badge draft">
+                        {% if is_english %}Private draft{% else %}비공개 초안{% endif %}
+                    </span>
 
                     <form method="post" action="{% url 'post_publish' post.pk %}">
                         {% csrf_token %}
                         <button type="submit" class="publish-action-btn">
-                            공개하기
+                            {% if is_english %}Publish{% else %}공개하기{% endif %}
                         </button>
                     </form>
                 {% endif %}
@@ -125,10 +135,14 @@
         {% endif %}
 
         <div class="detail-actions">
-            <a href="{% url post.category %}" class="cancel-btn">목록으로</a>
+            <a href="{% url post.category %}" class="cancel-btn">
+                {% if is_english %}Back to list{% else %}목록으로{% endif %}
+            </a>
 
             {% if user.is_authenticated and user.is_staff %}
-                <a href="{% url 'post_update' post.pk %}" class="save-btn">수정하기</a>
+                <a href="{% url 'post_update' post.pk %}" class="save-btn">
+                    {% if is_english %}Edit{% else %}수정하기{% endif %}
+                </a>
             {% endif %}
         </div>
     </div>
@@ -156,7 +170,11 @@
                 <div class="post-local-video-block">
                     <video controls playsinline preload="metadata">
                         <source src="{{ post.video_file.url }}">
-                        현재 브라우저에서 이 동영상을 재생할 수 없습니다.
+                        {% if is_english %}
+                            Your browser does not support this video.
+                        {% else %}
+                            현재 브라우저에서 이 동영상을 재생할 수 없습니다.
+                        {% endif %}
                     </video>
                 </div>
             {% endif %}
@@ -165,31 +183,51 @@
                 <div class="program-download-box">
                     <div class="program-download-info">
                         <span>Program Download</span>
-                        <strong>첨부 프로그램 다운로드</strong>
-                        <p>
-                            첨부된 프로그램 파일은 압축 해제 후 사용해주세요.
-                        </p>
+
+                        {% if is_english %}
+                            <strong>Download attached program</strong>
+                            <p>
+                                Please unzip the attached program file before using it.
+                            </p>
+                        {% else %}
+                            <strong>첨부 프로그램 다운로드</strong>
+                            <p>
+                                첨부된 프로그램 파일은 압축 해제 후 사용해주세요.
+                            </p>
+                        {% endif %}
                     </div>
 
                     <a href="{{ post.program_file.url }}" class="program-download-btn" download>
-                        프로그램 다운로드
+                        {% if is_english %}Download program{% else %}프로그램 다운로드{% endif %}
                     </a>
                 </div>
             {% endif %}
 
             {% if post.category == "finance" %}
                 <div class="post-content-notice finance">
-                    <strong>금융 정보 이용 안내</strong>
-                    본 글은 일반적인 정보 제공을 목적으로 작성되었으며, 특정 종목이나 금융상품에 대한 투자 권유 또는 수익 보장을 의미하지 않습니다.
-                    투자 판단과 그에 따른 책임은 이용자 본인에게 있으며, 중요한 의사결정 전에는 관련 공시, 공식 자료 또는 전문가의 확인을 권장합니다.
+                    {% if is_english %}
+                        <strong>Financial Information Notice</strong>
+                        This article is provided for general informational purposes only. It does not constitute investment advice, a recommendation to buy or sell any financial product, or a guarantee of returns.
+                        Investment decisions and their consequences are the reader's own responsibility. Before making important decisions, please check official disclosures, verified sources, or consult a qualified professional.
+                    {% else %}
+                        <strong>금융 정보 이용 안내</strong>
+                        본 글은 일반적인 정보 제공을 목적으로 작성되었으며, 특정 종목이나 금융상품에 대한 투자 권유 또는 수익 보장을 의미하지 않습니다.
+                        투자 판단과 그에 따른 책임은 이용자 본인에게 있으며, 중요한 의사결정 전에는 관련 공시, 공식 자료 또는 전문가의 확인을 권장합니다.
+                    {% endif %}
                 </div>
             {% endif %}
 
             {% if post.category == "realestate" %}
                 <div class="post-content-notice realestate">
-                    <strong>부동산 정보 이용 안내</strong>
-                    본 글은 일반적인 정보 제공을 목적으로 작성되었으며, 실제 계약, 세무, 법률, 대출, 청약 판단은 개인 상황과 시점에 따라 달라질 수 있습니다.
-                    중요한 의사결정 전에는 관련 기관, 공식 자료 또는 전문가 상담을 통해 확인하시기 바랍니다.
+                    {% if is_english %}
+                        <strong>Real Estate Information Notice</strong>
+                        This article is provided for general informational purposes only. Actual contracts, taxes, legal matters, loans, and subscription decisions may vary depending on each person's situation and timing.
+                        Before making important decisions, please verify the information with relevant institutions, official sources, or a qualified professional.
+                    {% else %}
+                        <strong>부동산 정보 이용 안내</strong>
+                        본 글은 일반적인 정보 제공을 목적으로 작성되었으며, 실제 계약, 세무, 법률, 대출, 청약 판단은 개인 상황과 시점에 따라 달라질 수 있습니다.
+                        중요한 의사결정 전에는 관련 기관, 공식 자료 또는 전문가 상담을 통해 확인하시기 바랍니다.
+                    {% endif %}
                 </div>
             {% endif %}
 
@@ -202,7 +240,9 @@
             {% endif %}
 
             <div class="adfit-ad-box">
-                <div class="adfit-label">광고</div>
+                <div class="adfit-label">
+                    {% if is_english %}Ad{% else %}광고{% endif %}
+                </div>
 
                 <ins class="kakao_ad_area" style="display:none;"
                      data-ad-unit="DAN-Q0kw0y5QFMRFMDUx"

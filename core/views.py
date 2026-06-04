@@ -88,6 +88,27 @@ CATEGORY_PAGES = {
 }
 
 
+def get_post_detail_context(post):
+    """
+    영어 글(slug가 en-으로 시작하는 글)은 상세페이지 UI 문구를 영어로 표시합니다.
+    """
+    slug_value = str(getattr(post, "slug", "") or "")
+    is_english = slug_value.startswith("en-")
+
+    category_page = CATEGORY_PAGES.get(post.category, {})
+
+    if is_english:
+        category_label = category_page.get("label") or post.category
+    else:
+        category_label = post.get_category_display()
+
+    return {
+        "post": post,
+        "is_english": is_english,
+        "category_label": category_label,
+    }
+
+
 def admin_required(user):
     return user.is_authenticated and (user.is_staff or user.is_superuser)
 
@@ -277,9 +298,11 @@ def post_detail(request, pk):
         post.views += 1
         post.save(update_fields=["views"])
 
-    return render(request, "core/post_detail.html", {
-        "post": post,
-    })
+    return render(
+        request,
+        "core/post_detail.html",
+        get_post_detail_context(post),
+    )
 
 
 def post_detail_by_slug(request, slug):
@@ -292,9 +315,11 @@ def post_detail_by_slug(request, slug):
         post.views += 1
         post.save(update_fields=["views"])
 
-    return render(request, "core/post_detail.html", {
-        "post": post,
-    })
+    return render(
+        request,
+        "core/post_detail.html",
+        get_post_detail_context(post),
+    )
 
 @user_passes_test(can_write_post)
 def post_create(request):
@@ -1029,15 +1054,24 @@ def ai_post_generate(request):
                 )
 
                 english_content = normalize_html_spaces(english_ai_data.get("content", ""))
+                english_title = english_ai_data.get("title", f"{post.title} English Version")
 
-                english_post = Post.objects.create(
-                    category=category,
-                    title=english_ai_data.get("title", f"{post.title} English Version"),
-                    thumbnail_text=english_ai_data.get("thumbnail_text", ""),
-                    content=english_content,
-                    tags=english_ai_data.get("tags", ""),
-                    is_published=not save_draft,
-                )
+                english_create_kwargs = {
+                    "category": category,
+                    "title": english_title,
+                    "thumbnail_text": english_ai_data.get("thumbnail_text", ""),
+                    "content": english_content,
+                    "tags": english_ai_data.get("tags", ""),
+                    "is_published": not save_draft,
+                }
+
+                if "slug" in get_post_field_names():
+                    english_create_kwargs["slug"] = make_unique_english_slug(
+                        english_title,
+                        source_pk=post.pk,
+                    )
+
+                english_post = Post.objects.create(**english_create_kwargs)
 
                 set_post_optional_seo_fields(english_post, english_ai_data)
 
