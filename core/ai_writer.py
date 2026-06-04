@@ -5,6 +5,7 @@ import html
 import uuid
 import base64
 import random
+from datetime import date
 
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
@@ -217,7 +218,94 @@ HUMAN_DETAIL_RULES = """
 - 글이 길어질 경우 중간에 읽는 사람이 숨을 고를 수 있는 짧은 문단을 넣어라.
 - 실제 경험을 하지 않은 경우 '제가 직접 해보니', '제가 가보니', '먹어보니' 같은 표현은 쓰지 마라.
 - 대신 '후기에서 자주 보이는 부분', '선택할 때 많이 보는 기준', '처음 확인할 부분'처럼 자연스럽게 표현해라.
+
 """
+
+
+def build_current_fact_check_rules(keywords="", planned_title="", extra_prompt="", language="ko"):
+    """
+    자동글 생성 전에 최신성/공식 출시 여부를 강하게 확인하도록 하는 공통 규칙.
+    특히 제품·스펙·가격·출시일 글에서 키워드에 '루머'가 있어도 공식 자료가 있으면
+    공식 출시 제품 기준으로 정정하도록 만든다.
+    """
+    today_text = date.today().isoformat()
+    topic_text = f"{keywords} {planned_title} {extra_prompt}".lower().replace(" ", "")
+
+    is_apple_topic = any(word in topic_text for word in [
+        "macbook", "맥북", "apple", "애플", "iphone", "아이폰", "ipad", "아이패드", "macmini", "맥미니"
+    ])
+
+    is_macbook_neo_topic = any(word in topic_text for word in [
+        "macbookneo", "맥북네오", "599달러맥북", "$599macbook"
+    ])
+
+    if language == "en":
+        base_rules = f"""
+Current factuality rules:
+- Today's date for this generation: {today_text}.
+- For products, release dates, prices, specifications, news, policies, schedules, interest rates, stocks, crypto, law, tax, health, and other time-sensitive topics, verify the current state first.
+- If official manufacturer pages, newsroom posts, exchange filings, government pages, or highly reliable media confirm a product/event/policy, treat it as confirmed. Do not keep calling it a rumor just because the source Korean title contains "rumor", "expected", or "possibility".
+- If the original Korean draft conflicts with official/current sources, correct the English version using the official/current information.
+- Do not invent specs, release dates, prices, rankings, market share, or performance numbers. If a detail cannot be verified, write "official confirmation needed" or "varies by configuration".
+- For comparisons, never default to an old model just because it is familiar. Use the latest official model generation unless the user explicitly requests a specific older model.
+""".strip()
+
+        apple_rules = """
+Apple/MacBook-specific rules:
+- For Apple topics, check Apple product pages, Apple Newsroom, and Apple comparison/spec pages first.
+- For MacBook Neo topics, if Apple official pages or Apple Newsroom confirm the product, write it as an officially launched product, not as a rumor.
+- For MacBook Neo comparisons, compare it with the latest official MacBook Air generation shown by Apple, unless the topic explicitly says MacBook Air M4, M3, or another specific generation.
+- If the topic explicitly says MacBook Air M4, compare with MacBook Air M4. If the topic says only "MacBook Air" or "latest MacBook Air", use the newest official generation shown by Apple.
+- Do not compare MacBook Neo with MacBook Air M2 by default. M2/M3 should appear only when the user specifically asks for that generation or historical context.
+- If official Apple pages show MacBook Air M5, use M5 as the latest reference. If not, use the newest official generation currently confirmed.
+""".strip()
+    else:
+        base_rules = f"""
+최신 사실 확인 규칙:
+- 이 글을 작성하는 기준 날짜는 {today_text}이다.
+- 최신 제품, 출시일, 가격, 스펙, 뉴스, 정책, 일정, 금리, 코인, 주식, 법률, 세금처럼 시간이 지나면 바뀌는 정보는 반드시 현재 기준으로 먼저 확인해라.
+- 공식 홈페이지, 제조사 뉴스룸, 공식 비교/스펙 페이지, 정부·공공기관, 거래소 공시, 신뢰도 높은 주요 매체를 우선 확인해라.
+- 키워드나 세부 제목에 "루머", "예상", "가능성"이라는 단어가 들어 있어도 공식 자료에서 출시·발표·적용이 확인되면 반드시 공식 출시/공식 발표 기준으로 정정해라.
+- 공식 출시된 제품이나 공식 발표된 내용을 계속 루머처럼 쓰지 마라.
+- 루머와 공식 정보를 혼동하지 마라. 공식 자료가 확인되면 "루머", "예상", "가능성" 같은 표현을 남발하지 마라.
+- 검색 결과와 사용자가 추가 요청사항에 준 정보가 충돌하면 공식 출처를 우선하고, 불확실한 부분은 "공식 확인 필요", "옵션별 상이", "판매처 확인 필요"처럼 표시해라.
+- 스펙, 가격, 출시일, 순위, 시장점유율, 성능 수치, 배터리 시간, 할인 금액은 절대 지어내지 마라.
+- 제품 비교를 할 때 익숙하다는 이유로 오래된 모델을 기본 비교 대상으로 잡지 마라. 사용자가 특정 구형 모델을 지정하지 않았다면 공식 페이지에서 확인되는 최신 세대를 기준으로 비교해라.
+""".strip()
+
+        apple_rules = """
+Apple/MacBook 전용 검증 규칙:
+- Apple 관련 글은 Apple 공식 제품 페이지, Apple Newsroom, Apple 공식 비교/스펙 페이지를 최우선 기준으로 확인해라.
+- MacBook Neo 관련 글은 Apple 공식 MacBook Neo 페이지와 Apple Newsroom에서 제품 존재 여부를 먼저 확인해라.
+- Apple 공식 페이지 또는 Apple Newsroom에서 MacBook Neo가 확인되면 절대 루머라고 쓰지 말고, 공식 출시 제품 기준으로 작성해라.
+- MacBook Neo가 공식 확인되는 경우에는 A18 Pro, 시작가, 교육 할인가, 출시/주문 가능 시점, 디스플레이, 배터리, 포트 같은 항목을 공식 페이지 기준으로만 정리해라.
+- MacBook Neo 비교 글에서는 사용자가 특정 세대를 지정하지 않았다면 Apple 공식 비교 페이지에 표시되는 최신 MacBook Air 세대와 비교해라.
+- 사용자가 "맥북에어 M4"를 명시하면 MacBook Air M4와 비교하고, "최신 맥북에어"라고만 쓰면 현재 공식 최신 세대와 비교해라.
+- MacBook Neo를 MacBook Air M2와 기본 비교하지 마라. M2/M3는 사용자가 직접 지정했거나 역사적 맥락이 필요할 때만 언급해라.
+- Apple 공식 비교 페이지에서 MacBook Air M5가 확인되면 최신 기준 비교 대상은 M5다. 확인되지 않으면 현재 공식으로 확인되는 가장 최신 세대를 사용해라.
+- Dell XPS 13, 갤럭시북, 크롬북 등 경쟁 제품을 다룰 때도 제조사 공식 페이지와 신뢰도 높은 기사 기준으로만 가격과 스펙을 작성해라.
+""".strip()
+
+    if is_apple_topic or is_macbook_neo_topic:
+        return base_rules + "\n" + apple_rules
+
+    return base_rules
+
+
+def build_macbook_comparison_guard(keywords="", planned_title="", extra_prompt=""):
+    topic_text = f"{keywords} {planned_title} {extra_prompt}".lower().replace(" ", "")
+
+    if not any(word in topic_text for word in ["macbookneo", "맥북네오", "599달러맥북", "$599macbook", "맥북", "macbook"]):
+        return ""
+
+    return """
+Apple/MacBook 비교 보정 조건:
+- MacBook Neo가 주제에 포함되면 먼저 공식 출시 제품인지 확인하고, 공식 확인 시 "루머" 중심 글로 쓰지 마라.
+- MacBook Neo와 비교할 대상은 오래된 MacBook Air M2가 아니라, 사용자가 지정한 세대 또는 Apple 공식 비교 페이지의 최신 MacBook Air 세대다.
+- 사용자가 "맥북에어 M4"를 명시하면 M4와 비교한다.
+- 사용자가 특정 세대를 명시하지 않았다면 최신 MacBook Air를 기준으로 비교한다.
+- 표를 만들 경우 제품명, 칩, 메모리, 저장공간, 디스플레이, 배터리, 포트, 무게, 가격대, 추천 사용자를 포함하되 공식 확인되지 않은 항목은 확인 필요로 표시한다.
+""".strip()
 
 
 def get_gemini_client():
@@ -969,6 +1057,22 @@ content_images는 빈 배열로 반환해라.
     else:
         comparison_instruction = ""
 
+    macbook_guard = build_macbook_comparison_guard(
+        keywords=keywords,
+        planned_title=planned_title,
+        extra_prompt=extra_prompt,
+    )
+
+    if macbook_guard:
+        comparison_instruction = (comparison_instruction + "\n\n" + macbook_guard).strip()
+
+    current_fact_check_rules = build_current_fact_check_rules(
+        keywords=keywords,
+        planned_title=planned_title,
+        extra_prompt=extra_prompt,
+        language="ko",
+    )
+
     prompt = f"""
 너는 ChickenBanana Lab 블로그의 한국어 SEO 전문 콘텐츠 작성자다.
 목표는 네이버와 구글 검색엔진이 이해하기 쉬우면서도, 실제 사람이 읽었을 때 도움이 되는 글을 작성하는 것이다.
@@ -981,14 +1085,7 @@ content_images는 빈 배열로 반환해라.
 글쓰기 세부 지침:
 {style_specific_rule}
 
-최신 사실 확인 규칙:
-- 최신 제품, 출시일, 가격, 스펙, 뉴스, 정책, 일정, 금리, 코인, 주식, 법률, 세금처럼 시간이 지나면 바뀌는 정보는 반드시 최신 자료 기준으로 확인해라.
-- Google Search grounding을 사용할 수 있으면 공식 홈페이지, 제조사 뉴스룸, 공신력 있는 매체, 판매처 정보를 우선 확인해라.
-- 공식 출시된 제품을 루머로 쓰지 마라.
-- 루머와 공식 정보를 혼동하지 마라.
-- 공식 페이지나 제조사 발표가 확인되면 "루머", "예상", "가능성" 같은 표현을 남발하지 마라.
-- 검색 결과와 사용자가 추가 요청사항에 준 정보가 충돌하면 공식 출처를 우선하고, 불확실한 부분은 "확인 필요"로 표시해라.
-- MacBook Neo처럼 공식 제품 페이지 또는 제조사 뉴스룸에서 확인되는 제품은 공식 출시 제품 기준으로 작성해라.
+{current_fact_check_rules}
 
 {comparison_instruction}
 
@@ -1243,6 +1340,13 @@ def generate_english_ai_post(
     korean_tags = str(korean_ai_data.get("tags", "")).strip()
     korean_content = str(korean_final_content or korean_ai_data.get("content", "")).strip()
 
+    current_fact_check_rules = build_current_fact_check_rules(
+        keywords=source_keywords,
+        planned_title=korean_title,
+        extra_prompt=korean_content[:3000],
+        language="en",
+    )
+
     prompt = f"""
 You are an English SEO blog editor for ChickenBanana Lab.
 Create an English version of the Korean blog post below.
@@ -1250,6 +1354,8 @@ Create an English version of the Korean blog post below.
 Category: {category_name}
 Original keywords: {source_keywords}
 Original Korean title: {korean_title}
+
+{current_fact_check_rules}
 
 Important goal:
 - Create a separate English article for Google search users outside Korea.
@@ -1416,6 +1522,12 @@ def generate_post_topics(category, keywords, writing_style, extra_prompt="", cou
 큰 키워드: {keywords}
 글 작성 방향: {style_name}
 추가 요청사항: {extra_prompt}
+
+주제 기획 전 최신성 확인:
+- 키워드에 루머, 예상, 가능성이 들어 있어도 공식 출시/공식 발표가 확인되는 주제면 루머성 제목으로 기획하지 마라.
+- 제품 비교 주제는 오래된 모델을 기본값으로 쓰지 말고 현재 공식 최신 세대 또는 사용자가 명시한 세대를 기준으로 기획해라.
+- Apple/MacBook 주제는 Apple 공식 제품 페이지, Newsroom, 비교/스펙 페이지 기준으로 확인한 뒤 기획해라.
+- MacBook Neo가 공식 확인되는 경우 "루머"가 아니라 공식 출시 제품 기준의 분석/비교 글로 기획해라.
 
 이미 작성된 비슷한 제목:
 {existing_title_text if existing_title_text else '- 없음'}
