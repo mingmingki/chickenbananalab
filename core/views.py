@@ -433,7 +433,7 @@ def post_translate_english(request, pk):
     기존 한국어 글을 영어 글로 자동 번역합니다.
     - 영어 글은 항상 비공개 초안
     - 썸네일 사진 / 본문 이미지 / 첨부 파일 / 위치 정보는 기존 글과 동일
-    - 태그는 기존 글과 동일
+    - 태그는 영어 SEO 태그로 자동 번역
     - 주소는 영어 SEO slug로 생성
     """
     source_post = get_object_or_404(Post, pk=pk)
@@ -464,13 +464,20 @@ def post_translate_english(request, pk):
         english_content = str(english_data.get("content", "")).strip()
         english_content = normalize_html_spaces(english_content)
 
+        english_tags = str(english_data.get("tags") or "").strip()
+
+        # 영어 태그가 비어 있으면 한국어 태그를 그대로 쓰지 않고,
+        # 해외 검색용 기본 영어 태그로 안전하게 저장합니다.
+        if not english_tags:
+            english_tags = "English guide,ChickenBanana Lab"
+
         with transaction.atomic():
             english_post = Post(
                 category=source_post.category,
                 title=english_title[:200],
                 content=english_content,
                 is_published=False,
-                tags=source_post.tags or "",
+                tags=english_tags,
             )
 
             # 썸네일 문구는 해외 독자용 영어 문구 사용
