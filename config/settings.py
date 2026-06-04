@@ -26,13 +26,29 @@ ALLOWED_HOSTS = [
 
 
 # ================================
-# 카카오 지도 API
+# 카카오 지도 API / 네이버 API
 # ================================
 
 KAKAO_JAVASCRIPT_KEY = os.getenv("KAKAO_JAVASCRIPT_KEY", "")
 
 NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID", "")
 NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET", "")
+
+
+# ================================
+# 텔레그램 알림
+# 실제 토큰/채팅ID는 .env에만 넣고,
+# settings.py에서는 읽어오기만 함
+# ================================
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
+TELEGRAM_NOTIFY_VISIT = os.getenv("TELEGRAM_NOTIFY_VISIT", "1") == "1"
+TELEGRAM_NOTIFY_POST_VIEW = os.getenv("TELEGRAM_NOTIFY_POST_VIEW", "1") == "1"
+TELEGRAM_NOTIFY_SIGNUP = os.getenv("TELEGRAM_NOTIFY_SIGNUP", "1") == "1"
+
+
 # ================================
 # 앱 설정
 # ================================
