@@ -232,3 +232,13 @@ SOCIALACCOUNT_PROVIDERS = {
 ADMIN_GOOGLE_EMAILS = [
     "pminki3@gmail.com",
 ]
+# ================================
+# 텔레그램 알림
+# ================================
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
+TELEGRAM_NOTIFY_VISIT = os.getenv("TELEGRAM_NOTIFY_VISIT", "1") == "1"
+TELEGRAM_NOTIFY_POST_VIEW = os.getenv("TELEGRAM_NOTIFY_POST_VIEW", "1") == "1"
+TELEGRAM_NOTIFY_SIGNUP = os.getenv("TELEGRAM_NOTIFY_SIGNUP", "1") == "1"

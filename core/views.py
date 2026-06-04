@@ -44,6 +44,8 @@ from .ai_writer import (
     replace_image_placeholders,
 )
 
+from .telegram_alerts import notify_post_view, notify_signup
+
 CATEGORY_PAGES = {
     "architecture": {
         "title": "건축",
@@ -297,6 +299,7 @@ def post_detail(request, pk):
     if post.is_published and not is_internal_user(request.user):
         post.views += 1
         post.save(update_fields=["views"])
+        notify_post_view(request, post)
 
     return render(
         request,
@@ -314,6 +317,7 @@ def post_detail_by_slug(request, slug):
     if post.is_published and not is_internal_user(request.user):
         post.views += 1
         post.save(update_fields=["views"])
+        notify_post_view(request, post)
 
     return render(
         request,
@@ -1148,6 +1152,8 @@ def signup(request):
             user = form.save()
 
             UserProfile.objects.get_or_create(user=user)
+
+            notify_signup(request, user)
 
             auth_login(
                 request,
