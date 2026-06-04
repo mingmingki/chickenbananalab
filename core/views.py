@@ -35,6 +35,7 @@ from .forms import PostForm, NicknameForm, ExperienceVaultForm
 from .naver_news import recommend_keywords_from_news
 from .ai_writer import (
     generate_ai_post,
+    generate_english_ai_post,
     generate_post_topics,
     recommend_today_keywords,
     make_generated_image_file,
@@ -704,12 +705,14 @@ def ai_post_generate(request):
     make_thumbnail = request.POST.get("make_thumbnail") == "on"
     include_tags = request.POST.get("include_tags") == "on"
     save_draft = request.POST.get("save_draft") == "on"
+    make_english_version = request.POST.get("make_english_version") == "on"
 
     if not keywords:
         messages.error(request, "주요 이슈 키워드를 입력해주세요. 직접 입력하거나 추천 키워드를 선택해주세요.")
         return redirect("admin_dashboard")
 
     created_posts = []
+    created_index_urls = []
 
     try:
         first_keyword = keywords.split()[0] if keywords.split() else keywords
@@ -885,6 +888,40 @@ def ai_post_generate(request):
                     pass
 
             created_posts.append(post)
+            created_index_urls.append(f"한글: {request.build_absolute_uri(post.get_absolute_url())}")
+
+            if make_english_version:
+                english_source_data = dict(ai_data)
+                english_source_data["content"] = content
+
+                english_ai_data = generate_english_ai_post(
+                    category=category,
+                    korean_ai_data=english_source_data,
+                    korean_final_content=content,
+                    source_keywords=topic_keywords,
+                    source_title=post.title,
+                )
+
+                english_content = normalize_html_spaces(english_ai_data.get("content", ""))
+
+                english_post = Post.objects.create(
+                    category=category,
+                    title=english_ai_data.get("title", f"{post.title} English Version"),
+                    thumbnail_text=english_ai_data.get("thumbnail_text", ""),
+                    content=english_content,
+                    tags=english_ai_data.get("tags", ""),
+                    is_published=not save_draft,
+                )
+
+                set_post_optional_seo_fields(english_post, english_ai_data)
+
+                # 영어 글은 한글 글과 같은 대표 썸네일 파일을 사용합니다.
+                if post.thumbnail:
+                    english_post.thumbnail = post.thumbnail
+                    english_post.save(update_fields=["thumbnail", "updated_at"])
+
+                created_posts.append(english_post)
+                created_index_urls.append(f"영어: {request.build_absolute_uri(english_post.get_absolute_url())}")
 
     except Exception as error:
         print("========== AI 글 생성 오류 ==========")
@@ -895,10 +932,26 @@ def ai_post_generate(request):
         messages.error(request, f"AI 글 생성 중 오류가 발생했습니다: {error}")
         return redirect("admin_dashboard")
 
+    if make_english_version:
+        index_url_text = " | ".join(created_index_urls)
+        messages.success(
+            request,
+            f"AI 글 {len(created_posts)}개를 생성했습니다. 구글 서치콘솔 색인요청 주소: {index_url_text}"
+        )
+        return redirect("admin_dashboard")
+
     if len(created_posts) == 1:
         return redirect("post_detail", pk=created_posts[0].pk)
 
-    messages.success(request, f"AI 글 {len(created_posts)}개를 생성했습니다.")
+    if created_index_urls:
+        index_url_text = " | ".join(created_index_urls)
+        messages.success(
+            request,
+            f"AI 글 {len(created_posts)}개를 생성했습니다. 색인요청 주소: {index_url_text}"
+        )
+    else:
+        messages.success(request, f"AI 글 {len(created_posts)}개를 생성했습니다.")
+
     return redirect("admin_dashboard")
 
 

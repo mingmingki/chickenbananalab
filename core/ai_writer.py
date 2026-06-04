@@ -1211,6 +1211,160 @@ FAQ 작성 조건:
     }
 
 
+def generate_english_ai_post(
+    category,
+    korean_ai_data,
+    korean_final_content="",
+    source_keywords="",
+    source_title="",
+):
+    """
+    이미 생성된 한국어 글 데이터를 기준으로 영어 버전 글 데이터를 생성합니다.
+    한글 글 1개당 영어 글 1개를 별도 Post로 저장하기 위한 데이터만 반환합니다.
+    """
+    korean_ai_data = korean_ai_data or {}
+
+    category_map = {
+        "architecture": "Architecture / Construction",
+        "realestate": "Real Estate",
+        "finance": "Finance",
+        "tech": "Technology",
+        "life": "Lifestyle",
+    }
+
+    category_name = category_map.get(category, str(category or "General"))
+    source_title = str(source_title or korean_ai_data.get("title", "")).strip()
+    source_keywords = str(source_keywords or "").strip()
+
+    korean_title = str(korean_ai_data.get("title", source_title)).strip()
+    korean_summary = str(korean_ai_data.get("summary", "")).strip()
+    korean_meta_description = str(korean_ai_data.get("meta_description", "")).strip()
+    korean_thumbnail_text = str(korean_ai_data.get("thumbnail_text", "")).strip()
+    korean_tags = str(korean_ai_data.get("tags", "")).strip()
+    korean_content = str(korean_final_content or korean_ai_data.get("content", "")).strip()
+
+    prompt = f"""
+You are an English SEO blog editor for ChickenBanana Lab.
+Create an English version of the Korean blog post below.
+
+Category: {category_name}
+Original keywords: {source_keywords}
+Original Korean title: {korean_title}
+
+Important goal:
+- Create a separate English article for Google search users outside Korea.
+- Keep the same meaning, facts, caution level, structure, and practical angle as the Korean article.
+- Do not add unverified facts, numbers, rankings, dates, prices, laws, tax rules, medical claims, or investment advice.
+- If the Korean article is cautious, the English article must also be cautious.
+- Use natural English, not stiff machine translation.
+- Make the title search-friendly in English.
+
+HTML rules:
+- Return the content as HTML.
+- Preserve useful HTML structure such as h2, h3, p, ul, li, table, blockquote, mark, span, a, div, img.
+- Do not use h1, script, iframe, or style tags.
+- Preserve URLs, image src values, class names, target attributes, and rel attributes exactly.
+- If there are image caption texts, translate only the visible caption text, not the URL or class name.
+- Do not include Markdown code fences.
+
+SEO rules:
+- summary: 2 to 3 natural English sentences.
+- meta_description: 80 to 150 English characters if possible.
+- tags: 4 to 7 English comma-separated tags.
+- thumbnail_text: short English phrase suitable for a thumbnail.
+- thumbnail_prompt: English image-generation prompt matching the English article. Do not include text inside the image.
+
+Original Korean data:
+Title:
+{korean_title}
+
+Summary:
+{korean_summary}
+
+Meta description:
+{korean_meta_description}
+
+Thumbnail text:
+{korean_thumbnail_text}
+
+Tags:
+{korean_tags}
+
+Content HTML:
+{korean_content}
+
+Return JSON only in this exact format:
+{{
+  "title": "English SEO title",
+  "summary": "English summary",
+  "meta_description": "English meta description",
+  "thumbnail_text": "Short English thumbnail phrase",
+  "content": "English HTML content",
+  "tags": "tag1,tag2,tag3,tag4,tag5",
+  "thumbnail_prompt": "English thumbnail image prompt",
+  "content_images": []
+}}
+""".strip()
+
+    text = gemini_generate_text(prompt)
+    data = extract_json(text)
+
+    if not data:
+        fallback_title = f"{source_title or source_keywords or 'Blog Post'} English Guide"[:200]
+        fallback_content = repair_ai_content_html(text or korean_content, title=fallback_title)
+        data = {
+            "title": fallback_title,
+            "summary": clean_text_for_meta(fallback_content, 180),
+            "meta_description": clean_text_for_meta(fallback_content, 120),
+            "thumbnail_text": "English Guide",
+            "content": fallback_content,
+            "tags": "English guide,ChickenBanana Lab",
+            "thumbnail_prompt": make_fallback_thumbnail_prompt(category, source_keywords or fallback_title, fallback_title),
+            "content_images": [],
+        }
+
+    title = str(data.get("title", "")).strip() or f"{source_title or source_keywords or 'Blog Post'} English Guide"
+    title = title[:200]
+
+    content = str(data.get("content", "")).strip()
+    content = repair_ai_content_html(content, title=title)
+
+    summary = str(data.get("summary", "")).strip()
+    meta_description = str(data.get("meta_description", "")).strip()
+
+    if not summary:
+        summary = clean_text_for_meta(content, 180)
+
+    if not meta_description:
+        meta_description = clean_text_for_meta(summary or content, 120)
+
+    thumbnail_text = str(data.get("thumbnail_text", "")).strip() or "English Guide"
+    tags = str(data.get("tags", "")).strip()
+
+    if not tags:
+        tags = "English guide,ChickenBanana Lab"
+
+    thumbnail_prompt = str(data.get("thumbnail_prompt", "")).strip()
+
+    if not thumbnail_prompt:
+        thumbnail_prompt = build_better_thumbnail_prompt(
+            title=title,
+            keywords=source_keywords or title,
+            category=category,
+        )
+
+    return {
+        "title": title,
+        "summary": summary[:300],
+        "meta_description": meta_description[:160],
+        "thumbnail_text": thumbnail_text[:100],
+        "content": content,
+        "tags": tags,
+        "thumbnail_prompt": thumbnail_prompt,
+        "content_images": [],
+    }
+
+
 def generate_post_topics(category, keywords, writing_style, extra_prompt="", count=1, existing_titles=None):
     count = clamp_number(count, 1, 10, 1)
 

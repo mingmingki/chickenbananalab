@@ -8460,3 +8460,49 @@ a.editor-location-card {
         grid-template-columns: 1fr !important;
     }
 }
+
+/* 상세페이지 버튼 전체 가운데 정렬 */
+.detail-actions .save-btn,
+.detail-actions a.save-btn,
+a.save-btn {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+}
+
+
+/* ================================
+   AI 자동글 생성 - 영어버전 옵션
+================================ */
+
+.ai-option-box .ai-english-option {
+    align-items: flex-start;
+    padding: 12px 13px;
+    border-radius: 16px;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+}
+
+.ai-option-box .ai-english-option input {
+    margin-top: 3px;
+    flex-shrink: 0;
+}
+
+.ai-option-box .ai-english-option span {
+    display: grid;
+    gap: 4px;
+}
+
+.ai-option-box .ai-english-option strong {
+    color: #111827;
+    font-size: 13px;
+    font-weight: 950;
+}
+
+.ai-option-box .ai-english-option small {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.45;
+}

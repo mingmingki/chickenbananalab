@@ -653,13 +653,22 @@
                             <input type="checkbox" name="include_tags" checked>
                             태그 자동 생성
                         </label>
+
+                        <label class="ai-english-option">
+                            <input type="checkbox" id="ai-make-english-version" name="make_english_version">
+                            <span>
+                                <strong>영어버전 자동글도 같이 생성</strong>
+                                <small>한글 글 1개마다 영어 글 1개를 추가로 만들고, 구글 색인요청용 주소를 안내합니다.</small>
+                            </span>
+                        </label>
                     </div>
 
                     <div class="ai-preview-box">
                         <span>생성 예시</span>
                         <p>
                             건축 / 글 1개 / 키워드: 마감공사 하자<br>
-                            → “아파트 마감공사 하자를 줄이는 현장 체크포인트 7가지” 초안 생성
+                            → 한글 글 1개 생성<br>
+                            → 영어버전 체크 시 영어 글 1개 추가 생성 + 색인요청 주소 표시
                         </p>
                     </div>
 
@@ -1092,6 +1101,16 @@
             overlay.hidden = false;
             overlay.className = "content-writing-overlay";
             overlay.style.display = "flex";
+
+            const englishCheckbox = document.getElementById("ai-make-english-version");
+            const useEnglishVersion = englishCheckbox && englishCheckbox.checked;
+            const overlayTitle = useEnglishVersion
+                ? "한글·영어 콘텐츠를 작성하고 있습니다"
+                : "콘텐츠를 작성하고 있습니다";
+            const overlayDescription = useEnglishVersion
+                ? "입력한 조건으로 한글 글을 먼저 만들고, 같은 주제의 영어버전 글을 이어서 생성합니다.<br>완료 후 구글 색인요청용 주소가 표시됩니다."
+                : "입력한 조건에 맞춰 글을 생성하고 있습니다.<br>이미지 생성이 포함된 경우 시간이 조금 더 걸릴 수 있습니다.";
+
             overlay.innerHTML = `
                 <div class="content-writing-card">
                     <div class="content-writing-icon">
@@ -1100,11 +1119,10 @@
                         <span></span>
                     </div>
 
-                    <h2>콘텐츠를 작성하고 있습니다</h2>
+                    <h2>${overlayTitle}</h2>
 
                     <p>
-                        입력한 조건에 맞춰 글을 생성하고 있습니다.<br>
-                        이미지 생성이 포함된 경우 시간이 조금 더 걸릴 수 있습니다.
+                        ${overlayDescription}
                     </p>
 
                     <div class="content-writing-progress">
@@ -1147,8 +1165,9 @@
             const submitButton = aiPostForm.querySelector("button[type='submit']");
 
             if (submitButton) {
+                const englishCheckbox = document.getElementById("ai-make-english-version");
                 submitButton.disabled = true;
-                submitButton.innerText = "작성 중...";
+                submitButton.innerText = englishCheckbox && englishCheckbox.checked ? "한글·영어 작성 중..." : "작성 중...";
             }
 
             setTimeout(function () {
