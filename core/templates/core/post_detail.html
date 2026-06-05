@@ -1,6 +1,180 @@
 {% extends "core/base.html" %}
 
-{% block title %}{{ post.title }} - ChickenBanana Lab{% endblock %}
+{% block title %}{{ post.title }} - ChickenBanana Lab
+<style>
+    /* LOCATION_CARD_RUNTIME_FIX */
+    @media (max-width: 768px) {
+        .post-content .editor-location-card,
+        .editor-output .editor-location-card,
+        .post-content a[href*="maps"],
+        .editor-output a[href*="maps"] {
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 10px 0 14px !important;
+            padding: 10px !important;
+            border-radius: 14px !important;
+            box-sizing: border-box !important;
+            overflow: hidden !important;
+            display: flex !important;
+            align-items: flex-start !important;
+            gap: 8px !important;
+        }
+
+        .post-content .editor-location-icon,
+        .editor-output .editor-location-icon {
+            width: 32px !important;
+            height: 32px !important;
+            min-width: 32px !important;
+            flex: 0 0 32px !important;
+            border-radius: 11px !important;
+            font-size: 17px !important;
+            line-height: 1 !important;
+        }
+
+        .post-content .editor-location-content,
+        .editor-output .editor-location-content {
+            min-width: 0 !important;
+            flex: 1 1 auto !important;
+        }
+
+        .post-content .editor-location-content strong,
+        .editor-output .editor-location-content strong {
+            font-size: 14px !important;
+            line-height: 1.3 !important;
+            margin: 0 0 3px !important;
+        }
+
+        .post-content .editor-location-content p,
+        .editor-output .editor-location-content p {
+            font-size: 11px !important;
+            line-height: 1.4 !important;
+            margin: 0 0 3px !important;
+            padding: 0 !important;
+        }
+
+        .post-content .editor-location-hint,
+        .editor-output .editor-location-hint {
+            font-size: 10px !important;
+            line-height: 1.3 !important;
+        }
+    }
+</style>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const output = document.querySelector(".editor-output");
+    if (!output) return;
+
+    function isBlankNode(el) {
+        if (!el) return false;
+        if (el.querySelector("img, video, iframe, a, .editor-location-card")) return false;
+        const txt = (el.textContent || "").replace(/\u00a0/g, "").trim();
+        return txt === "";
+    }
+
+    // 빈 p/div 제거
+    output.querySelectorAll("p, div").forEach(function (el) {
+        if (isBlankNode(el)) {
+            el.remove();
+        }
+    });
+
+    // 위치카드 찾기: 클래스가 있거나, 구글지도 링크인 경우
+    const cards = output.querySelectorAll(
+        ".editor-location-card, a[href*='google.com/maps'], a[href*='maps/search'], a[href*='maps?q=']"
+    );
+
+    cards.forEach(function (card) {
+        const text = (card.textContent || "").trim();
+        const href = card.getAttribute("href") || "";
+
+        if (
+            !card.classList.contains("editor-location-card") &&
+            !href.includes("maps") &&
+            !text.includes("위치")
+        ) {
+            return;
+        }
+
+        card.classList.add("editor-location-card");
+
+        // p 태그 안에 위치카드가 들어간 경우 밖으로 빼기
+        const parent = card.parentElement;
+        if (parent && parent.tagName === "P") {
+            parent.parentNode.insertBefore(card, parent);
+            if (isBlankNode(parent)) {
+                parent.remove();
+            }
+        }
+
+        // 위치카드 직전/직후 빈 문단 제거
+        let prev = card.previousElementSibling;
+        while (prev && isBlankNode(prev)) {
+            const target = prev;
+            prev = prev.previousElementSibling;
+            target.remove();
+        }
+
+        let next = card.nextElementSibling;
+        while (next && isBlankNode(next)) {
+            const target = next;
+            next = next.nextElementSibling;
+            target.remove();
+        }
+
+        function applyMobileFix() {
+            if (window.innerWidth > 768) return;
+
+            card.style.setProperty("width", "100%", "important");
+            card.style.setProperty("max-width", "100%", "important");
+            card.style.setProperty("display", "flex", "important");
+            card.style.setProperty("align-items", "flex-start", "important");
+            card.style.setProperty("gap", "8px", "important");
+            card.style.setProperty("margin", "10px 0 14px", "important");
+            card.style.setProperty("padding", "10px", "important");
+            card.style.setProperty("border-radius", "14px", "important");
+            card.style.setProperty("box-sizing", "border-box", "important");
+            card.style.setProperty("overflow", "hidden", "important");
+
+            const icon = card.querySelector(".editor-location-icon");
+            if (icon) {
+                icon.style.setProperty("width", "32px", "important");
+                icon.style.setProperty("height", "32px", "important");
+                icon.style.setProperty("min-width", "32px", "important");
+                icon.style.setProperty("flex", "0 0 32px", "important");
+                icon.style.setProperty("font-size", "17px", "important");
+            }
+
+            const content = card.querySelector(".editor-location-content");
+            if (content) {
+                content.style.setProperty("min-width", "0", "important");
+                content.style.setProperty("flex", "1 1 auto", "important");
+            }
+
+            card.querySelectorAll(".editor-location-content strong").forEach(function (el) {
+                el.style.setProperty("font-size", "14px", "important");
+                el.style.setProperty("line-height", "1.3", "important");
+            });
+
+            card.querySelectorAll(".editor-location-content p").forEach(function (el) {
+                el.style.setProperty("font-size", "11px", "important");
+                el.style.setProperty("line-height", "1.4", "important");
+                el.style.setProperty("margin", "0 0 3px", "important");
+            });
+
+            card.querySelectorAll(".editor-location-hint").forEach(function (el) {
+                el.style.setProperty("font-size", "10px", "important");
+                el.style.setProperty("line-height", "1.3", "important");
+            });
+        }
+
+        applyMobileFix();
+        window.addEventListener("resize", applyMobileFix);
+    });
+});
+</script>
+
+{% endblock %}
 
 {% block meta_description %}
 {{ post.meta_description|default:post.summary|default:post.content|striptags|cut:"&nbsp;"|cut:"&amp;nbsp;"|truncatechars:150 }}
@@ -59,6 +233,133 @@
         text-align: center;
         line-height: 1;
     }
+
+    /* =========================================================
+       INLINE MOBILE DETAIL FINAL FIX
+       - 수정하기 버튼 가운데 정렬
+       - 본문 위치 카드 모바일 축소
+    ========================================================= */
+
+    .post-detail-hero .detail-actions {
+        width: 100% !important;
+    }
+
+    .post-detail-hero .detail-actions .cancel-btn,
+    .post-detail-hero .detail-actions .save-btn,
+    .post-detail-hero .detail-actions a {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center !important;
+        box-sizing: border-box !important;
+    }
+
+    .post-content .editor-location-card,
+    .editor-output .editor-location-card,
+    a.editor-location-card,
+    div.editor-location-card {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+    }
+
+    .post-content .editor-location-content,
+    .editor-output .editor-location-content,
+    .editor-location-content {
+        min-width: 0 !important;
+        flex: 1 1 auto !important;
+    }
+
+    .post-content .editor-location-content strong,
+    .post-content .editor-location-content p,
+    .post-content .editor-location-hint,
+    .editor-output .editor-location-content strong,
+    .editor-output .editor-location-content p,
+    .editor-output .editor-location-hint {
+        word-break: keep-all !important;
+        overflow-wrap: anywhere !important;
+    }
+
+    @media (max-width: 768px) {
+        .post-detail-hero .detail-actions {
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 12px !important;
+            width: 100% !important;
+            margin-top: 22px !important;
+        }
+
+        .post-detail-hero .detail-actions .cancel-btn,
+        .post-detail-hero .detail-actions .save-btn,
+        .post-detail-hero .detail-actions a {
+            width: 100% !important;
+            min-height: 54px !important;
+            padding: 0 18px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            text-align: center !important;
+            line-height: 1.2 !important;
+            white-space: normal !important;
+        }
+
+        .post-content .editor-location-card,
+        .editor-output .editor-location-card,
+        a.editor-location-card,
+        div.editor-location-card {
+            display: flex !important;
+            align-items: flex-start !important;
+            gap: 8px !important;
+
+            width: 100% !important;
+            max-width: 100% !important;
+
+            margin: 12px 0 16px !important;
+            padding: 10px !important;
+
+            border-radius: 14px !important;
+            box-sizing: border-box !important;
+            overflow: hidden !important;
+        }
+
+        .post-content .editor-location-icon,
+        .editor-output .editor-location-icon,
+        .editor-location-icon {
+            width: 32px !important;
+            height: 32px !important;
+            min-width: 32px !important;
+            flex: 0 0 32px !important;
+
+            border-radius: 11px !important;
+            font-size: 17px !important;
+            line-height: 1 !important;
+        }
+
+        .post-content .editor-location-content strong,
+        .editor-output .editor-location-content strong,
+        .editor-location-content strong {
+            margin-bottom: 3px !important;
+            font-size: 14px !important;
+            line-height: 1.3 !important;
+        }
+
+        .post-content .editor-location-content p,
+        .editor-output .editor-location-content p,
+        .editor-location-content p {
+            margin: 0 0 3px !important;
+            font-size: 11px !important;
+            line-height: 1.4 !important;
+        }
+
+        .post-content .editor-location-hint,
+        .editor-output .editor-location-hint,
+        .editor-location-hint {
+            font-size: 10px !important;
+            line-height: 1.3 !important;
+        }
+    }
+
 </style>
 
 <section class="post-detail-hero">

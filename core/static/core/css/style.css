@@ -8506,3 +8506,254 @@ a.save-btn {
     font-weight: 700;
     line-height: 1.45;
 }
+
+/* =========================================================
+   REAL MOBILE FIX - post detail final
+   - 수정하기/목록으로 버튼 글자 가운데 정렬
+   - 본문 안 위치 카드 모바일 축소
+========================================================= */
+
+/* 목록으로 / 수정하기 버튼 글자 가운데 정렬 */
+.detail-actions .cancel-btn,
+.detail-actions .save-btn,
+.post-detail-hero .detail-actions .cancel-btn,
+.post-detail-hero .detail-actions .save-btn {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+}
+
+/* 본문 안 위치 카드 기본 안정화 */
+.editor-location-card,
+.editor-output .editor-location-card,
+.post-content .editor-location-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+}
+
+.editor-location-content,
+.editor-output .editor-location-content,
+.post-content .editor-location-content {
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+}
+
+.editor-location-content strong,
+.editor-location-content p,
+.editor-location-hint {
+    word-break: keep-all !important;
+    overflow-wrap: anywhere !important;
+}
+
+/* 빈 둥근 박스 제거 */
+.editor-output p:empty,
+.post-content p:empty {
+    display: none !important;
+}
+
+@media (max-width: 768px) {
+    .detail-actions,
+    .post-detail-hero .detail-actions {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 14px !important;
+        width: 100% !important;
+    }
+
+    .detail-actions .cancel-btn,
+    .detail-actions .save-btn,
+    .post-detail-hero .detail-actions .cancel-btn,
+    .post-detail-hero .detail-actions .save-btn {
+        width: 100% !important;
+        min-height: 56px !important;
+        padding: 0 18px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center !important;
+        box-sizing: border-box !important;
+        line-height: 1.2 !important;
+    }
+
+    .editor-location-card,
+    .editor-output .editor-location-card,
+    .post-content .editor-location-card {
+        display: flex !important;
+        align-items: flex-start !important;
+        gap: 10px !important;
+
+        width: 100% !important;
+        max-width: 100% !important;
+
+        margin: 14px 0 18px !important;
+        padding: 12px !important;
+
+        border-radius: 16px !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+    }
+
+    .editor-location-icon,
+    .editor-output .editor-location-icon,
+    .post-content .editor-location-icon {
+        width: 36px !important;
+        height: 36px !important;
+        min-width: 36px !important;
+        flex: 0 0 36px !important;
+
+        border-radius: 12px !important;
+        font-size: 18px !important;
+        line-height: 1 !important;
+    }
+
+    .editor-location-content strong,
+    .editor-output .editor-location-content strong,
+    .post-content .editor-location-content strong {
+        margin-bottom: 4px !important;
+        font-size: 15px !important;
+        line-height: 1.35 !important;
+    }
+
+    .editor-location-content p,
+    .editor-output .editor-location-content p,
+    .post-content .editor-location-content p {
+        margin: 0 0 4px !important;
+        font-size: 12px !important;
+        line-height: 1.45 !important;
+    }
+
+    .editor-location-hint,
+    .editor-output .editor-location-hint,
+    .post-content .editor-location-hint {
+        font-size: 11px !important;
+        line-height: 1.35 !important;
+    }
+}
+
+
+/* =========================================================
+   DESKTOP INSERTED LOCATION CARD MOBILE FIX
+   - PC에서 넣은 위치박스가 p 태그/빈 줄에 감싸져 깨지는 문제 보정
+========================================================= */
+
+/* 위치카드를 감싼 p 태그 여백 제거 */
+.post-content p:has(.editor-location-card),
+.editor-output p:has(.editor-location-card) {
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: normal !important;
+}
+
+/* 위치카드 내부에 생긴 빈 p/br 제거 */
+.editor-location-card p:empty,
+.editor-location-card p:has(br:only-child),
+.editor-output p:empty,
+.post-content p:empty {
+    display: none !important;
+}
+
+/* PC에서 들어간 위치카드도 강제로 모바일에 맞춤 */
+.post-content .editor-location-card,
+.editor-output .editor-location-card,
+.post-content a.editor-location-card,
+.editor-output a.editor-location-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    display: flex !important;
+    align-items: flex-start !important;
+    text-decoration: none !important;
+}
+
+.post-content .editor-location-content,
+.editor-output .editor-location-content {
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+}
+
+.post-content .editor-location-content strong,
+.post-content .editor-location-content p,
+.post-content .editor-location-hint,
+.editor-output .editor-location-content strong,
+.editor-output .editor-location-content p,
+.editor-output .editor-location-hint {
+    max-width: 100% !important;
+    word-break: keep-all !important;
+    overflow-wrap: anywhere !important;
+}
+
+@media (max-width: 768px) {
+    .post-content p:has(.editor-location-card),
+    .editor-output p:has(.editor-location-card) {
+        margin: 0 !important;
+        padding: 0 !important;
+        line-height: normal !important;
+    }
+
+    .post-content .editor-location-card,
+    .editor-output .editor-location-card,
+    .post-content a.editor-location-card,
+    .editor-output a.editor-location-card {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: flex-start !important;
+        gap: 8px !important;
+
+        width: 100% !important;
+        max-width: 100% !important;
+
+        margin: 12px 0 16px !important;
+        padding: 10px !important;
+
+        border-radius: 14px !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+    }
+
+    .post-content .editor-location-icon,
+    .editor-output .editor-location-icon {
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        flex: 0 0 32px !important;
+
+        border-radius: 11px !important;
+        font-size: 17px !important;
+        line-height: 1 !important;
+    }
+
+    .post-content .editor-location-content,
+    .editor-output .editor-location-content {
+        min-width: 0 !important;
+        flex: 1 1 auto !important;
+    }
+
+    .post-content .editor-location-content strong,
+    .editor-output .editor-location-content strong {
+        display: block !important;
+        margin: 0 0 3px !important;
+        font-size: 14px !important;
+        line-height: 1.3 !important;
+    }
+
+    .post-content .editor-location-content p,
+    .editor-output .editor-location-content p {
+        display: block !important;
+        margin: 0 0 3px !important;
+        padding: 0 !important;
+        font-size: 11px !important;
+        line-height: 1.4 !important;
+    }
+
+    .post-content .editor-location-hint,
+    .editor-output .editor-location-hint {
+        display: block !important;
+        font-size: 10px !important;
+        line-height: 1.3 !important;
+    }
+}
+
