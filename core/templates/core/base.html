@@ -1178,5 +1178,98 @@
     });
 </script>
 
+
+
+
+<!-- IP_CHECKER_WIDGET_START -->
+<style>
+.cbl-ip-box{max-width:860px!important;margin:34px auto!important;padding:26px!important;border:1px solid #dbe3ef!important;border-radius:28px!important;background:#fff!important;box-shadow:0 18px 45px rgba(15,23,42,.1)!important}
+.cbl-ip-grid{display:grid!important;grid-template-columns:1fr!important;gap:22px!important}
+.cbl-ip-left,.cbl-ip-right{padding:22px!important;border:1px solid #e5e7eb!important;border-radius:22px!important;background:#f8fafc!important}
+.cbl-ip-title{margin:0 0 12px!important;font-size:30px!important;font-weight:900!important;color:#111827!important}
+.cbl-ip-desc{margin:0 0 22px!important;font-size:16px!important;line-height:1.7!important;color:#374151!important}
+.cbl-ip-form{display:flex!important;gap:10px!important}
+.cbl-ip-input{flex:1!important;height:58px!important;padding:0 18px!important;border:1px solid #cbd5e1!important;border-radius:16px!important;background:#fff!important;font-size:20px!important;font-weight:900!important;color:#111827!important}
+.cbl-ip-btn{height:58px!important;min-width:132px!important;border:0!important;border-radius:16px!important;background:#16a34a!important;color:#fff!important;font-size:17px!important;font-weight:900!important;cursor:pointer!important;box-shadow:0 14px 26px rgba(22,163,74,.28)!important}
+.cbl-ip-btn:disabled{opacity:.65!important;cursor:wait!important}
+.cbl-ip-status{margin-top:16px!important;padding:14px 16px!important;border-radius:16px!important;background:#fff!important;border:1px dashed #cbd5e1!important;color:#64748b!important;font-size:14px!important;font-weight:800!important}
+.cbl-ip-status.err{background:#fff7ed!important;border-color:#fed7aa!important;color:#c2410c!important}
+.cbl-ip-status.ok{background:#f0fdf4!important;border-color:#bbf7d0!important;color:#15803d!important}
+.cbl-ip-right h4{margin:0 0 14px!important;font-size:20px!important;font-weight:900!important;color:#111827!important}
+.cbl-ip-table{width:100%!important;border-collapse:collapse!important;overflow:hidden!important;border-radius:18px!important;background:#fff!important}
+.cbl-ip-table th,.cbl-ip-table td{padding:13px 14px!important;border:1px solid #e5e7eb!important;text-align:left!important;font-size:14px!important}
+.cbl-ip-table th{width:105px!important;background:#f8fafc!important;color:#64748b!important;font-weight:900!important}
+.cbl-ip-table td{color:#111827!important;font-weight:900!important;word-break:break-word!important}
+.cbl-ip-note{margin:14px 0 0!important;font-size:13px!important;line-height:1.6!important;color:#64748b!important;font-weight:700!important}
+@media(max-width:760px){.cbl-ip-grid{grid-template-columns:1fr!important}.cbl-ip-form{flex-direction:column!important}.cbl-ip-input,.cbl-ip-btn{width:100%!important}.cbl-ip-box{padding:18px!important}.cbl-ip-title{font-size:25px!important}}
+</style>
+<script>
+(function(){
+const TOKEN="[IP_CHECKER]";
+function esc(v){return String(v??"-").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
+function widget(){
+ const el=document.createElement("section");
+ el.className="cbl-ip-box";
+ el.innerHTML=`<div class="cbl-ip-grid">
+ <div class="cbl-ip-left">
+  <h3 class="cbl-ip-title">IP 주소 조회</h3>
+  <p class="cbl-ip-desc">IP 주소를 입력하면 국가, 도시, 통신사 등 대략적인 접속 정보를 확인할 수 있습니다.</p>
+  <div class="cbl-ip-form"><input class="cbl-ip-input" placeholder="예: 8.8.8.8" autocomplete="off"><button class="cbl-ip-btn" type="button">조회하기</button></div>
+  <div class="cbl-ip-status">조회할 IP 주소를 입력한 뒤 조회하기 버튼을 눌러주세요.</div>
+ </div>
+ <div class="cbl-ip-right">
+  <h4>조회 결과</h4>
+  <table class="cbl-ip-table"><tbody>
+   <tr><th>IP 주소</th><td data-f="ip">-</td></tr>
+   <tr><th>국가</th><td data-f="country">-</td></tr>
+   <tr><th>지역</th><td data-f="region">-</td></tr>
+   <tr><th>도시</th><td data-f="city">-</td></tr>
+   <tr><th>통신사</th><td data-f="isp">-</td></tr>
+   <tr><th>시간대</th><td data-f="timezone">-</td></tr>
+   <tr><th>위치</th><td data-f="location">-</td></tr>
+  </tbody></table>
+  <p class="cbl-ip-note">※ IP 위치 정보는 실제 주소가 아니라 통신망 기준의 대략적인 정보입니다.</p>
+ </div></div>`;
+ return el;
+}
+function replace(){
+ const w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+ const arr=[];
+ while(w.nextNode()) if(w.currentNode.nodeValue.includes(TOKEN)) arr.push(w.currentNode);
+ arr.forEach(n=>{
+  const frag=document.createDocumentFragment();
+  n.nodeValue.split(TOKEN).forEach((part,i)=>{
+   if(part) frag.appendChild(document.createTextNode(part));
+   if(i<n.nodeValue.split(TOKEN).length-1) frag.appendChild(widget());
+  });
+  n.parentNode.replaceChild(frag,n);
+ });
+}
+function set(el,f,v){el.querySelector(`[data-f="${f}"]`).innerHTML=esc(v||"-");}
+function status(el,msg,cls){const s=el.querySelector(".cbl-ip-status");s.className="cbl-ip-status "+(cls||"");s.textContent=msg;}
+async function lookup(el){
+ const ip=el.querySelector(".cbl-ip-input").value.trim();
+ const btn=el.querySelector(".cbl-ip-btn");
+ if(!ip){status(el,"조회할 IP 주소를 입력해주세요.","err");return;}
+ btn.disabled=true;btn.textContent="조회 중...";status(el,"IP 정보를 조회하고 있습니다.","");
+ try{
+  const r=await fetch("/tools/ip-lookup/?ip="+encodeURIComponent(ip),{cache:"no-store"});
+  const d=await r.json();
+  if(!r.ok||!d.ok) throw new Error(d.error||"조회 실패");
+  set(el,"ip",d.ip);set(el,"country",d.country);set(el,"region",d.region);set(el,"city",d.city);set(el,"isp",d.isp);set(el,"timezone",d.timezone);
+  set(el,"location",(d.latitude&&d.longitude)?`${d.latitude}, ${d.longitude}`:"-");
+  status(el,"조회가 완료되었습니다.","ok");
+ }catch(e){status(el,e.message||"조회에 실패했습니다.","err");}
+ finally{btn.disabled=false;btn.textContent="조회하기";}
+}
+document.addEventListener("click",e=>{const b=e.target.closest(".cbl-ip-btn");if(b)lookup(b.closest(".cbl-ip-box"));});
+document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.classList.contains("cbl-ip-input")){e.preventDefault();lookup(e.target.closest(".cbl-ip-box"));}});
+if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",replace);else replace();
+})();
+</script>
+<!-- IP_CHECKER_WIDGET_END -->
+
+
+
 </body>
 </html>

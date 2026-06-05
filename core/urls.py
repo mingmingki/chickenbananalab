@@ -1,8 +1,10 @@
+from .ip_tools import ip_lookup_api
 from django.urls import path
 from . import views
 
 
 urlpatterns = [
+    path("tools/ip-lookup/", ip_lookup_api, name="ip_lookup_api"),
     path("", views.home, name="home"),
     path("experience-vault/", views.experience_vault, name="experience_vault"),
     path("search/", views.search, name="search"),

@@ -9094,3 +9094,202 @@ form select[id*="generate"] {
     background-size: 6px 6px, 6px 6px !important;
     background-repeat: no-repeat !important;
 }
+
+
+
+/* IP_CHECKER_WIDGET_START */
+.ip-checker-widget {
+    width: 100%;
+    max-width: 760px;
+    margin: 28px auto;
+    padding: 24px;
+    border: 1px solid #dbe3ef;
+    border-radius: 24px;
+    background: #ffffff;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+    color: #111827 !important;
+    box-sizing: border-box;
+}
+
+.ip-checker-widget * {
+    box-sizing: border-box;
+    color: inherit;
+}
+
+.ip-checker-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 18px;
+}
+
+.ip-checker-kicker {
+    margin: 0 0 6px 0 !important;
+    font-size: 12px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.08em;
+    color: #16a34a !important;
+}
+
+.ip-checker-head h3 {
+    margin: 0 0 8px 0 !important;
+    font-size: 24px !important;
+    line-height: 1.25 !important;
+    font-weight: 900 !important;
+    color: #0f172a !important;
+}
+
+.ip-checker-head p {
+    margin: 0 !important;
+    font-size: 15px !important;
+    line-height: 1.65 !important;
+    color: #4b5563 !important;
+}
+
+.ip-checker-form {
+    display: flex;
+    gap: 10px;
+    padding: 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    background: #f8fafc;
+}
+
+.ip-checker-input {
+    flex: 1;
+    min-width: 0;
+    height: 48px;
+    padding: 0 16px;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: #111827 !important;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.ip-checker-input::placeholder {
+    color: #9ca3af !important;
+    font-weight: 600;
+}
+
+.ip-checker-button {
+    height: 48px;
+    padding: 0 22px;
+    border: 0;
+    border-radius: 14px;
+    background: #16a34a;
+    color: #ffffff !important;
+    font-size: 15px;
+    font-weight: 900;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    box-shadow: 0 10px 20px rgba(22, 163, 74, 0.22);
+}
+
+.ip-checker-button:hover {
+    transform: translateY(-1px);
+    background: #15803d;
+    box-shadow: 0 14px 26px rgba(22, 163, 74, 0.28);
+}
+
+.ip-checker-button:disabled {
+    cursor: wait;
+    opacity: 0.75;
+    transform: none;
+}
+
+.ip-checker-result {
+    margin-top: 16px;
+}
+
+.ip-checker-empty,
+.ip-checker-loading,
+.ip-checker-error {
+    padding: 16px;
+    border-radius: 16px;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    color: #64748b !important;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.ip-checker-error {
+    background: #fff7ed;
+    border-color: #fed7aa;
+    color: #c2410c !important;
+}
+
+.ip-checker-result-card {
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    background: #ffffff;
+}
+
+.ip-checker-result-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 13px 16px;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.ip-checker-result-row span {
+    color: #64748b !important;
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.ip-checker-result-row strong {
+    color: #0f172a !important;
+    font-size: 14px;
+    font-weight: 900;
+    text-align: right;
+    word-break: break-word;
+}
+
+.ip-checker-note {
+    margin: 0 !important;
+    padding: 14px 16px;
+    background: #f8fafc;
+    color: #64748b !important;
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+    font-weight: 700;
+}
+
+@media (max-width: 640px) {
+    .ip-checker-widget {
+        margin: 22px auto;
+        padding: 18px;
+        border-radius: 20px;
+    }
+
+    .ip-checker-head h3 {
+        font-size: 21px !important;
+    }
+
+    .ip-checker-form {
+        flex-direction: column;
+    }
+
+    .ip-checker-input,
+    .ip-checker-button {
+        width: 100%;
+    }
+
+    .ip-checker-result-row {
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .ip-checker-result-row strong {
+        text-align: left;
+    }
+}
+/* IP_CHECKER_WIDGET_END */
+
