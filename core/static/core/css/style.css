@@ -8941,77 +8941,156 @@ a.save-btn {
     }
 }
 
-/* ================================
-   AI 자동생성 설정 입력창 높이 통일
-   - 자동생성 간격 select와 추천키워드 수 input 높이 맞춤
-================================ */
-.ai-form-grid,
-.ai-post-form .ai-form-grid,
-.site-modal-card .ai-form-grid,
-.manage-modal-card .ai-form-grid,
-.ai-post-modal-card .ai-form-grid {
-    align-items: end !important;
-}
-
-.ai-form-group input,
-.ai-form-group select,
-.ai-form-group input[type="number"],
-.ai-form-group input[type="text"],
-.ai-post-form .ai-form-group input,
-.ai-post-form .ai-form-group select,
-.site-modal-card .ai-form-group input,
-.site-modal-card .ai-form-group select,
-.manage-modal-card .ai-form-group input,
-.manage-modal-card .ai-form-group select,
-.ai-post-modal-card .ai-form-group input,
-.ai-post-modal-card .ai-form-group select {
+/* =========================================================
+   AI 자동생성 설정 select/input 높이 강제 보정 v2
+   - 자동 생성 간격(select)과 카테고리별 추천키워드 수(number) 높이 통일
+   - Safari/Chrome 기본 select UI 차이 방지
+========================================================= */
+:is(
+    .site-modal-card,
+    .manage-modal-card,
+    .ai-post-modal-card,
+    .ai-post-form,
+    .ai-form-grid,
+    .ai-form-group,
+    .dashboard-card,
+    .admin-card,
+    .setting-card,
+    .settings-card,
+    .manage-card,
+    .manage-section,
+    .auto-post-setting,
+    .auto-generate-setting,
+    .auto-generate-form,
+    .auto-write-form
+) :is(select, input[type="number"], input[type="text"]) {
     width: 100% !important;
     height: 44px !important;
     min-height: 44px !important;
-    padding: 0 14px !important;
+    max-height: 44px !important;
+    padding: 0 42px 0 14px !important;
     border: 1px solid #d1d5db !important;
-    border-radius: 8px !important;
+    border-radius: 12px !important;
     background-color: #ffffff !important;
     color: #111827 !important;
     font-size: 14px !important;
+    font-weight: 700 !important;
     font-family: inherit !important;
     line-height: 44px !important;
     box-sizing: border-box !important;
     vertical-align: middle !important;
 }
 
-.ai-form-group select,
-.ai-post-form .ai-form-group select,
-.site-modal-card .ai-form-group select,
-.manage-modal-card .ai-form-group select,
-.ai-post-modal-card .ai-form-group select {
+:is(
+    .site-modal-card,
+    .manage-modal-card,
+    .ai-post-modal-card,
+    .ai-post-form,
+    .ai-form-grid,
+    .ai-form-group,
+    .dashboard-card,
+    .admin-card,
+    .setting-card,
+    .settings-card,
+    .manage-card,
+    .manage-section,
+    .auto-post-setting,
+    .auto-generate-setting,
+    .auto-generate-form,
+    .auto-write-form
+) select {
     display: block !important;
-    appearance: auto !important;
-    -webkit-appearance: menulist !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    background-image:
+        linear-gradient(45deg, transparent 50%, #64748b 50%),
+        linear-gradient(135deg, #64748b 50%, transparent 50%) !important;
+    background-position:
+        calc(100% - 18px) 19px,
+        calc(100% - 12px) 19px !important;
+    background-size: 6px 6px, 6px 6px !important;
+    background-repeat: no-repeat !important;
 }
 
-.ai-form-group input:focus,
-.ai-form-group select:focus,
-.ai-post-form .ai-form-group input:focus,
-.ai-post-form .ai-form-group select:focus,
-.site-modal-card .ai-form-group input:focus,
-.site-modal-card .ai-form-group select:focus,
-.manage-modal-card .ai-form-group input:focus,
-.manage-modal-card .ai-form-group select:focus,
-.ai-post-modal-card .ai-form-group input:focus,
-.ai-post-modal-card .ai-form-group select:focus {
+:is(
+    .site-modal-card,
+    .manage-modal-card,
+    .ai-post-modal-card,
+    .ai-post-form,
+    .ai-form-grid,
+    .ai-form-group,
+    .dashboard-card,
+    .admin-card,
+    .setting-card,
+    .settings-card,
+    .manage-card,
+    .manage-section,
+    .auto-post-setting,
+    .auto-generate-setting,
+    .auto-generate-form,
+    .auto-write-form
+) input[type="number"] {
+    padding-right: 14px !important;
+}
+
+:is(
+    .site-modal-card,
+    .manage-modal-card,
+    .ai-post-modal-card,
+    .ai-post-form,
+    .ai-form-grid,
+    .ai-form-group,
+    .dashboard-card,
+    .admin-card,
+    .setting-card,
+    .settings-card,
+    .manage-card,
+    .manage-section,
+    .auto-post-setting,
+    .auto-generate-setting,
+    .auto-generate-form,
+    .auto-write-form
+) :is(select, input[type="number"], input[type="text"]):focus {
     border-color: #22c55e !important;
     box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.12) !important;
     outline: none !important;
 }
 
-@media (max-width: 720px) {
-    .ai-form-grid,
-    .ai-post-form .ai-form-grid,
-    .site-modal-card .ai-form-grid,
-    .manage-modal-card .ai-form-grid,
-    .ai-post-modal-card .ai-form-grid {
-        grid-template-columns: 1fr !important;
-    }
+/* 위 선택자가 실제 화면 클래스와 안 맞는 경우까지 잡는 최후 보정 */
+form select[name*="interval"],
+form select[id*="interval"],
+form select[name*="auto"],
+form select[id*="auto"],
+form select[name*="generate"],
+form select[id*="generate"],
+form input[type="number"][name*="keyword"],
+form input[type="number"][id*="keyword"],
+form input[type="number"][name*="count"],
+form input[type="number"][id*="count"] {
+    height: 44px !important;
+    min-height: 44px !important;
+    max-height: 44px !important;
+    border-radius: 12px !important;
+    box-sizing: border-box !important;
+    line-height: 44px !important;
 }
 
+form select[name*="interval"],
+form select[id*="interval"],
+form select[name*="auto"],
+form select[id*="auto"],
+form select[name*="generate"],
+form select[id*="generate"] {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    padding: 0 42px 0 14px !important;
+    background-color: #ffffff !important;
+    background-image:
+        linear-gradient(45deg, transparent 50%, #64748b 50%),
+        linear-gradient(135deg, #64748b 50%, transparent 50%) !important;
+    background-position:
+        calc(100% - 18px) 19px,
+        calc(100% - 12px) 19px !important;
+    background-size: 6px 6px, 6px 6px !important;
+    background-repeat: no-repeat !important;
+}
