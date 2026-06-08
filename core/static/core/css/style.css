@@ -9472,3 +9472,58 @@ a[href*="generate-shorts"]:hover,
     flex-wrap: wrap !important;
 }
 
+
+/* 관리자 글 목록 - 쇼츠 영상 제작 버튼을 영어자동번역 버튼 크기로 보정 */
+.dashboard-btn-shorts,
+button.dashboard-btn-shorts,
+form button.dashboard-btn-shorts {
+    min-width: 112px !important;
+    height: 44px !important;
+    padding: 0 18px !important;
+    border-radius: 14px !important;
+    border: 0 !important;
+    background: linear-gradient(135deg, #ec4899, #8b5cf6) !important;
+    color: #ffffff !important;
+    font-size: 14px !important;
+    font-weight: 800 !important;
+    line-height: 44px !important;
+    letter-spacing: -0.03em !important;
+    white-space: nowrap !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    box-sizing: border-box !important;
+    cursor: pointer !important;
+    text-decoration: none !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+}
+
+.dashboard-btn-shorts:hover,
+button.dashboard-btn-shorts:hover,
+form button.dashboard-btn-shorts:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+}
+
+/* 쇼츠 버튼 form이 버튼 크기를 줄이지 않도록 보정 */
+form:has(.dashboard-btn-shorts) {
+    display: inline-flex !important;
+    align-items: center !important;
+    margin: 0 !important;
+}
+
+/* 관리자 글목록 버튼 한 줄 정렬 */
+.admin-post-actions,
+.post-manage-actions,
+.manage-post-actions,
+.post-actions,
+.dashboard-post-actions,
+.manage-actions {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    flex-wrap: wrap !important;
+}
+

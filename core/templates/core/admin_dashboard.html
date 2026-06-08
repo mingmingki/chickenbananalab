@@ -101,7 +101,7 @@
 <div class="shorts-action-box">
     <form method="post" action="{% url 'post_generate_shorts' post.id %}" class="shorts-inline-form">
         {% csrf_token %}
-        <button type="submit" class="manage-btn shorts-make-btn" onclick="return confirm('이 글로 쇼츠 영상을 제작할까요? 제작 중에는 잠시 시간이 걸릴 수 있습니다.');">
+        <button type="submit" onclick="return confirm('이 글로 쇼츠 영상을 제작할까요? 제작 중에는 잠시 시간이 걸릴 수 있습니다.');" class="dashboard-btn dashboard-btn-shorts">
             쇼츠 영상 제작
         </button>
     </form>
