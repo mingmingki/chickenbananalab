@@ -1039,7 +1039,11 @@ def ai_post_generate(request):
                         prompt=image_prompt,
                         prefix=f"{category}-{index}-{image_index}",
                     )
-                except Exception:
+                except Exception as error:
+                    print("========== 본문 이미지 생성 실패 ==========")
+                    print(error)
+                    traceback.print_exc()
+                    print("========================================")
                     image_url = ""
 
                 if image_url:
@@ -1082,8 +1086,11 @@ def ai_post_generate(request):
                             thumbnail_file,
                             save=True,
                         )
-                except Exception:
-                    pass
+                except Exception as error:
+                    print("========== 썸네일 이미지 생성 실패 ==========")
+                    print(error)
+                    traceback.print_exc()
+                    print("==========================================")
 
             created_posts.append(post)
             created_index_urls.append(f"한글: {request.build_absolute_uri(post.get_absolute_url())}")
@@ -1602,3 +1609,67 @@ def ai_auto_writer_manage(request):
 }
 
     return render(request, "core/ai_auto_writer_manage.html", context)
+from .shorts_maker import make_shorts_for_post
+
+def shorts_admin_required(user):
+    return user.is_authenticated and user.is_staff
+
+
+@user_passes_test(shorts_admin_required)
+def post_generate_shorts(request, post_id):
+    post = get_object_or_404(Post, pk=post_id)
+
+    if request.method != "POST":
+        return redirect("/dashboard/")
+
+    try:
+        post.shorts_status = "processing"
+        post.shorts_error = ""
+        post.save(update_fields=["shorts_status", "shorts_error"])
+
+        result = make_shorts_for_post(post)
+
+        if isinstance(result, dict):
+            video_path = result.get("video") or ""
+            cover_path = result.get("cover") or ""
+        else:
+            video_path = str(result) if result else ""
+            cover_path = ""
+
+        if not video_path:
+            raise RuntimeError("생성된 쇼츠 영상 경로가 비어 있습니다.")
+
+        post.shorts_video.name = video_path
+
+        update_fields = [
+            "shorts_video",
+            "shorts_status",
+            "shorts_error",
+            "shorts_created_at",
+        ]
+
+        if hasattr(post, "shorts_cover") and cover_path:
+            post.shorts_cover.name = cover_path
+            update_fields.append("shorts_cover")
+
+        post.shorts_status = "done"
+        post.shorts_error = ""
+        post.shorts_created_at = timezone.now()
+        post.save(update_fields=update_fields)
+
+        messages.success(request, "쇼츠 영상 생성이 완료되었습니다.")
+
+    except Exception as e:
+        post.shorts_status = "failed"
+
+        try:
+            err_msg = str(e)
+        except Exception:
+            err_msg = repr(e)
+
+        post.shorts_error = err_msg[:2000]
+        post.save(update_fields=["shorts_status", "shorts_error"])
+
+        messages.error(request, f"쇼츠 영상 생성 실패: {err_msg[:300]}")
+
+    return redirect("/dashboard/")
