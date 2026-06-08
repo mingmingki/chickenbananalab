@@ -66,11 +66,19 @@ class Post(models.Model):
     )
 
     video_file = models.FileField(
+
         upload_to="post_videos/",
         blank=True,
         null=True,
         verbose_name="본문 동영상"
     )
+
+    # 쇼츠 자동 생성 결과
+    shorts_video = models.FileField(upload_to="shorts/", blank=True, null=True)
+    shorts_cover = models.ImageField(upload_to="shorts_covers/", blank=True, null=True)
+    shorts_status = models.CharField(max_length=20, default="none", blank=True)
+    shorts_error = models.TextField(blank=True, default="")
+    shorts_created_at = models.DateTimeField(blank=True, null=True)
 
     program_file = models.FileField(
         upload_to="post_program_files/",

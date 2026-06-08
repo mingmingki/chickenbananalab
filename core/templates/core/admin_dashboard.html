@@ -98,6 +98,30 @@
                             </button>
                         </form>
 
+<div class="shorts-action-box">
+    <form method="post" action="{% url 'post_generate_shorts' post.id %}" class="shorts-inline-form">
+        {% csrf_token %}
+        <button type="submit" class="manage-btn shorts-make-btn" onclick="return confirm('이 글로 쇼츠 영상을 제작할까요? 제작 중에는 잠시 시간이 걸릴 수 있습니다.');">
+            쇼츠 영상 제작
+        </button>
+    </form>
+
+    {% if post.shorts_video %}
+        <a href="{{ post.shorts_video.url }}" class="manage-btn shorts-download-btn" download>
+            쇼츠 다운로드
+        </a>
+    {% endif %}
+
+    {% if post.shorts_status == "processing" %}
+        <span class="shorts-status">제작중</span>
+    {% elif post.shorts_status == "failed" %}
+        <span class="shorts-status shorts-failed">실패</span>
+    {% elif post.shorts_status == "done" %}
+        <span class="shorts-status shorts-done">완료</span>
+    {% endif %}
+</div>
+
+
                         <form
                             method="post"
                             action="{% url 'post_translate_english' post.pk %}"

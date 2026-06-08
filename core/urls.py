@@ -50,5 +50,5 @@ urlpatterns = [
     path("terms/", views.terms, name="terms"),
     path("privacy/", views.privacy, name="privacy"),
     path("dashboard/ai-auto-writer/", views.ai_auto_writer_manage, name="ai_auto_writer_manage"),
-    
+    path("post/<int:post_id>/generate-shorts/", views.post_generate_shorts, name="post_generate_shorts"),
 ]
