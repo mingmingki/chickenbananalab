@@ -1,0 +1,228 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block title %}미니 CapCut 쇼츠 편집기{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{% static 'core/css/mini_capcut_editor.css' %}?v=text_style_panel_top_2">
+
+{% csrf_token %}
+{{ initial_state|json_script:"mini-capcut-initial-state" }}
+{{ editor_meta|json_script:"mini-capcut-editor-meta" }}
+
+<div class="mc-wrap">
+    <div class="mc-topbar">
+        <div>
+            <div class="mc-title">🎬ChickenBananaCut</div>
+            {% if post %}
+                <div class="mc-subtitle">연결 글: {{ post.title }}</div>
+            {% else %}
+                <div class="mc-subtitle">최근 글을 선택하거나 새 편집 프로젝트를 시작하세요.</div>
+            {% endif %}
+        </div>
+
+        <div class="mc-actions">
+            <button type="button" class="mc-btn mc-btn-ghost" id="mcPlaySelectedBtn">미리보기</button>
+            <button type="button" class="mc-btn mc-btn-ghost" id="mcSaveBtn">프로젝트 저장</button>
+            <button type="button" class="mc-btn mc-btn-primary" id="mcExportBtn">영상 저장</button>
+        </div>
+    </div>
+
+    {% if not post %}
+    <div class="mc-picker">
+        <h2>쇼츠로 만들 글 선택</h2>
+        <div class="mc-post-grid">
+            {% for p in posts %}
+                <a class="mc-post-card"
+                   href="{% url 'mini_capcut_editor' p.id %}"
+                   onclick="window.open(this.href, 'miniCapcutEditor', 'width=1380,height=900,scrollbars=yes,resizable=yes'); return false;">
+                    <strong>{{ p.title }}</strong>
+                    <span>{{ p.created_at|date:"Y.m.d H:i" }}</span>
+                    <em>쇼츠영상제작 열기</em>
+                </a>
+            {% empty %}
+                <div class="mc-empty">아직 글이 없습니다.</div>
+            {% endfor %}
+        </div>
+
+        {% if projects %}
+        <h2 class="mc-section-title">최근 저장 프로젝트</h2>
+        <div class="mc-project-list">
+            {% for pr in projects %}
+                <div class="mc-project-card">
+                    <strong>{{ pr.title }}</strong>
+                    <span>{{ pr.updated_at|date:"Y.m.d H:i" }}</span>
+                    {% if pr.post %}
+                        <a href="{% url 'mini_capcut_editor' pr.post.id %}"
+                           onclick="window.open(this.href, 'miniCapcutEditor', 'width=1380,height=900,scrollbars=yes,resizable=yes'); return false;">
+                           다시 열기
+                        </a>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="mc-editor">
+        <aside id="mcAssets" class="mc-panel mc-left">
+            <div class="mc-panel-title">자료</div>
+
+            <label class="mc-upload">
+                <input id="mcAssetInput" type="file" multiple accept="video/*,image/*,audio/*">
+                <span>영상 / 사진 / 음성 업로드</span>
+            </label>
+
+            <div class="mc-mini-help">
+                업로드 후 자료를 클릭하면 타임라인에 추가됩니다.
+            </div>
+
+            <div id="mcAssetList" class="mc-asset-list"></div>
+
+            <div class="mc-panel-title mc-gap">텍스트 / 음성</div>
+
+            <button type="button" class="mc-btn mc-btn-full" id="mcAddTextBtn">텍스트 클립 추가</button>
+
+            <textarea id="mcTtsText" class="mc-textarea" placeholder="여기에 글을 쓰면 음성으로 미리 들을 수 있습니다."></textarea>
+
+            <div class="mc-row">
+                <button type="button" class="mc-btn mc-btn-ghost" id="mcSpeakBtn">음성 미리듣기</button>
+                <button type="button" class="mc-btn mc-btn-ghost" id="mcAddVoiceBtn">음성 클립 추가</button>
+            </div>
+        </aside>
+
+        <main class="mc-center">
+            <div class="mc-preview-shell">
+                <div class="mc-preview-stage" id="mcPreviewStage">
+                    <video id="mcPreviewVideo" class="mc-preview-media" playsinline></video>
+                    <img id="mcPreviewImage" class="mc-preview-media" alt="">
+                    <div id="mcPreviewText" class="mc-preview-text"></div>
+                    <div id="mcPreviewPlaceholder" class="mc-preview-placeholder">
+                        타임라인 클립을 선택하세요
+                    </div>
+                </div>
+
+                <div class="mc-preview-controls">
+                    <button type="button" class="mc-preview-play" id="mcTimelinePlayBtn">▶</button>
+                    <button type="button" class="mc-preview-stop" id="mcTimelineStopBtn">■</button>
+                    <span id="mcPreviewTimeText">00:00.0 / 00:00.0</span>
+                </div>
+            </div>
+<div class="mc-timeline-shell">
+                <div class="mc-timeline-head">
+                    <strong>타임라인</strong>
+                    <span>이미지/영상은 드래그해서 넣고, 재생바를 움직이면 해당 장면이 미리보기됩니다.</span>
+                </div>
+
+                <div class="mc-timeline-controls">
+                    <button type="button" class="mc-tool-btn" id="mcAddTrackAboveBtn">위 트랙 추가</button>
+                    <button type="button" class="mc-tool-btn" id="mcAddTrackBelowBtn">아래 트랙 추가</button>
+                    <div class="mc-time-display">
+                        재생 위치 <strong id="mcCurrentTime">00:00.0</strong>
+                    </div>
+                </div>
+
+                
+                <div class="mc-toolbar mc-toolbar-in-timeline">
+                <button type="button" class="mc-tool-btn" id="mcSplitBtn">분할</button>
+                <button type="button" class="mc-tool-btn" id="mcDeleteLeftBtn">왼쪽 삭제</button>
+                <button type="button" class="mc-tool-btn" id="mcDeleteRightBtn">오른쪽 삭제</button>
+                <button type="button" class="mc-tool-btn" id="mcMuteTrackBtn">트랙 음소거</button>
+                <button type="button" class="mc-tool-btn" id="mcCutBtn">잘라내기</button>
+                <button type="button" class="mc-tool-btn" id="mcCopyBtn">복사</button>
+                <button type="button" class="mc-tool-btn" id="mcPasteBtn">붙여넣기</button>
+                <button type="button" class="mc-tool-btn mc-danger" id="mcDeleteBtn">삭제</button>
+            </div>
+
+                <div id="mcTimeline" class="mc-timeline"></div>
+
+            </div>
+        </main>
+
+        <aside class="mc-panel mc-right">
+            <div class="mc-panel-title">속성</div>
+
+            <div id="mcNoSelection" class="mc-no-selection">
+                선택된 클립이 없습니다.
+            </div>
+
+            <div id="mcProps" class="mc-props">
+                <label>
+                    클립 이름
+                    <input id="mcPropName" type="text" class="mc-input">
+                </label>
+
+                <div class="mc-two">
+                    <label>
+                        시작초
+                        <input id="mcPropStart" type="number" min="0" step="0.1" class="mc-input">
+                    </label>
+                    <label>
+                        길이초
+                        <input id="mcPropDuration" type="number" min="0.3" step="0.1" class="mc-input">
+                    </label>
+                </div>
+
+                <label>
+                    속도
+                    <select id="mcPropSpeed" class="mc-input">
+                        <option value="0.5">0.5x 느리게</option>
+                        <option value="0.75">0.75x</option>
+                        <option value="1">1x 기본</option>
+                        <option value="1.25">1.25x</option>
+                        <option value="1.5">1.5x 빠르게</option>
+                        <option value="2">2x 빠르게</option>
+                    </select>
+                </label>
+
+                <label>
+                    볼륨
+                    <input id="mcPropVolume" type="range" min="0" max="1" step="0.05">
+                </label>
+
+                <label>
+                    전환 효과
+                    <select id="mcPropTransition" class="mc-input">
+                        <option value="none">없음</option>
+                        <option value="fade">페이드</option>
+                        <option value="slide">슬라이드</option>
+                        <option value="zoom">줌인</option>
+                        <option value="flash">플래시</option>
+                    </select>
+                </label>
+
+                <label id="mcTextPropBox">
+                    텍스트 내용
+                    <textarea id="mcPropText" class="mc-textarea"></textarea>
+                </label>
+
+                <div class="mc-mini-help">
+                    지금은 편집 데이터 저장 중심입니다. 다음 단계에서 이 값을 기준으로 MP4 렌더링을 붙입니다.
+                </div>
+            </div>
+        </aside>
+    </div>
+</div>
+
+<div id="mcContextMenu" class="mc-context-menu">
+    <button data-action="copy">복사</button>
+    <button data-action="cut">잘라내기</button>
+    <button data-action="paste">뒤에 붙여넣기</button>
+    <button data-action="delete">삭제</button>
+    <hr>
+    <button data-action="speed:0.5">속도 0.5x</button>
+    <button data-action="speed:1">속도 1x</button>
+    <button data-action="speed:1.5">속도 1.5x</button>
+    <button data-action="speed:2">속도 2x</button>
+</div>
+
+<script>
+window.MINI_CAPCUT_URLS = {
+    upload: "{% url 'mini_capcut_upload' %}",
+    save: "{% url 'mini_capcut_save' %}",
+    export: "{% url 'mini_capcut_export' %}"
+};
+</script>
+<script src="{% static 'core/js/mini_capcut_editor.js' %}?v=text_style_panel_top_2"></script>
+{% endblock %}

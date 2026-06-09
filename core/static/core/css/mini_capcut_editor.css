@@ -1,0 +1,2204 @@
+
+.mc-wrap {
+    max-width: 1500px;
+    margin: 0 auto;
+    padding: 22px;
+    color: #111827;
+}
+
+.mc-topbar {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: center;
+    padding: 18px 20px;
+    border: 1px solid #e5e7eb;
+    border-radius: 20px;
+    background: linear-gradient(135deg, #111827, #1f2937);
+    color: white;
+    box-shadow: 0 14px 35px rgba(15, 23, 42, 0.18);
+}
+
+.mc-title {
+    font-size: 24px;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+}
+
+.mc-subtitle {
+    margin-top: 6px;
+    color: #d1d5db;
+    font-size: 14px;
+}
+
+.mc-actions,
+.mc-row,
+.mc-toolbar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.mc-btn,
+.mc-tool-btn {
+    border: 0;
+    border-radius: 12px;
+    padding: 10px 14px;
+    font-weight: 800;
+    cursor: pointer;
+    background: #f3f4f6;
+    color: #111827;
+    transition: transform 0.12s ease, opacity 0.12s ease, box-shadow 0.12s ease;
+}
+
+.mc-btn:hover,
+.mc-tool-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(0,0,0,0.12);
+}
+
+.mc-btn-primary {
+    background: #2563eb;
+    color: white;
+}
+
+.mc-btn-ghost {
+    background: rgba(255,255,255,0.14);
+    color: white;
+    border: 1px solid rgba(255,255,255,0.22);
+}
+
+.mc-btn-full {
+    width: 100%;
+    background: #111827;
+    color: white;
+}
+
+.mc-danger {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.mc-picker {
+    margin-top: 18px;
+    padding: 20px;
+    border: 1px solid #e5e7eb;
+    border-radius: 20px;
+    background: white;
+}
+
+.mc-picker h2,
+.mc-section-title {
+    font-size: 18px;
+    margin: 0 0 14px;
+}
+
+.mc-post-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.mc-post-card,
+.mc-project-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    text-decoration: none;
+    color: #111827;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 14px;
+    background: #f9fafb;
+}
+
+.mc-post-card strong {
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.mc-post-card span,
+.mc-project-card span {
+    color: #6b7280;
+    font-size: 12px;
+}
+
+.mc-post-card em,
+.mc-project-card a {
+    color: #2563eb;
+    font-style: normal;
+    font-weight: 900;
+    font-size: 13px;
+}
+
+.mc-project-list {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.mc-editor {
+    margin-top: 18px;
+    display: grid;
+    grid-template-columns: 280px minmax(420px, 1fr) 300px;
+    gap: 14px;
+    min-height: 720px;
+}
+
+.mc-panel,
+.mc-center {
+    border: 1px solid #e5e7eb;
+    border-radius: 20px;
+    background: white;
+    overflow: hidden;
+}
+
+.mc-panel {
+    padding: 16px;
+}
+
+.mc-panel-title {
+    font-size: 15px;
+    font-weight: 900;
+    margin-bottom: 12px;
+}
+
+.mc-gap {
+    margin-top: 22px;
+}
+
+.mc-upload {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 86px;
+    border: 2px dashed #cbd5e1;
+    border-radius: 16px;
+    background: #f8fafc;
+    cursor: pointer;
+    text-align: center;
+    font-weight: 900;
+    color: #334155;
+}
+
+.mc-upload input {
+    display: none;
+}
+
+.mc-mini-help {
+    font-size: 12px;
+    color: #6b7280;
+    line-height: 1.5;
+    margin: 10px 0;
+}
+
+.mc-asset-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 280px;
+    overflow: auto;
+}
+
+.mc-asset-item {
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    padding: 10px;
+    background: #f9fafb;
+    cursor: pointer;
+}
+
+.mc-asset-item strong {
+    display: block;
+    font-size: 13px;
+    line-height: 1.35;
+    word-break: break-all;
+}
+
+.mc-asset-item span {
+    display: inline-flex;
+    margin-top: 5px;
+    font-size: 11px;
+    color: white;
+    background: #111827;
+    border-radius: 999px;
+    padding: 3px 8px;
+}
+
+.mc-textarea,
+.mc-input {
+    width: 100%;
+    border: 1px solid #d1d5db;
+    border-radius: 12px;
+    padding: 10px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+.mc-textarea {
+    min-height: 96px;
+    resize: vertical;
+}
+
+.mc-preview-shell {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 22px;
+    background:
+        radial-gradient(circle at top, rgba(37,99,235,0.10), transparent 35%),
+        #0f172a;
+}
+
+.mc-preview-stage {
+    position: relative;
+    width: 360px;
+    aspect-ratio: 9 / 16;
+    border-radius: 28px;
+    overflow: hidden;
+    background: #020617;
+    box-shadow: 0 22px 55px rgba(0,0,0,0.35);
+}
+
+.mc-preview-media {
+    display: none;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.mc-preview-text {
+    position: absolute;
+    left: 18px;
+    right: 18px;
+    bottom: 90px;
+    display: none;
+    color: white;
+    font-size: 30px;
+    font-weight: 1000;
+    line-height: 1.2;
+    text-align: center;
+    text-shadow: 0 3px 12px rgba(0,0,0,0.9);
+    white-space: pre-wrap;
+}
+
+.mc-preview-placeholder {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: #94a3b8;
+    font-weight: 900;
+}
+
+.mc-toolbar {
+    padding: 12px 16px;
+    border-top: 1px solid #111827;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f9fafb;
+}
+
+.mc-timeline-shell {
+    padding: 16px;
+}
+
+.mc-timeline-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.mc-timeline-head span {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.mc-timeline {
+    min-height: 170px;
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+    overflow-x: auto;
+    padding: 14px;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    background: repeating-linear-gradient(
+        90deg,
+        #f8fafc,
+        #f8fafc 48px,
+        #eef2ff 49px,
+        #f8fafc 50px
+    );
+}
+
+.mc-clip {
+    min-width: 132px;
+    max-width: 132px;
+    border: 2px solid transparent;
+    border-radius: 14px;
+    padding: 10px;
+    background: #111827;
+    color: white;
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+}
+
+.mc-clip.selected {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 4px rgba(96,165,250,0.25);
+}
+
+.mc-clip strong {
+    display: block;
+    font-size: 13px;
+    line-height: 1.3;
+    height: 34px;
+    overflow: hidden;
+}
+
+.mc-clip span {
+    display: block;
+    margin-top: 8px;
+    font-size: 11px;
+    color: #cbd5e1;
+}
+
+.mc-clip em {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    font-style: normal;
+    font-size: 11px;
+    background: rgba(255,255,255,0.16);
+    border-radius: 999px;
+    padding: 3px 7px;
+}
+
+.mc-no-selection {
+    padding: 18px;
+    border-radius: 16px;
+    background: #f9fafb;
+    color: #6b7280;
+    text-align: center;
+    font-weight: 800;
+}
+
+.mc-props {
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.mc-props label {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 900;
+    color: #374151;
+}
+
+.mc-two {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.mc-context-menu {
+    position: fixed;
+    z-index: 99999;
+    display: none;
+    min-width: 170px;
+    padding: 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    background: white;
+    box-shadow: 0 18px 42px rgba(0,0,0,0.18);
+}
+
+.mc-context-menu button {
+    display: block;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    padding: 9px 10px;
+    border-radius: 10px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.mc-context-menu button:hover {
+    background: #f3f4f6;
+}
+
+.mc-context-menu hr {
+    border: 0;
+    border-top: 1px solid #e5e7eb;
+    margin: 6px 0;
+}
+
+.mc-empty {
+    color: #6b7280;
+    padding: 14px;
+}
+
+@media (max-width: 1200px) {
+    .mc-editor {
+        grid-template-columns: 1fr;
+    }
+
+    .mc-post-grid,
+    .mc-project-list {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 720px) {
+    .mc-wrap {
+        padding: 12px;
+    }
+
+    .mc-topbar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .mc-post-grid,
+    .mc-project-list {
+        grid-template-columns: 1fr;
+    }
+
+    .mc-preview-stage {
+        width: min(330px, 100%);
+    }
+}
+
+
+/* 쇼츠 제작 / 수정 버튼 */
+.mc-shorts-btn-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: auto;
+}
+
+.mc-shorts-btn {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    flex: 1;
+    min-height: 34px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.mc-shorts-make {
+    background: #eff6ff;
+    color: #2563eb;
+    border: 1px solid #bfdbfe;
+}
+
+.mc-shorts-edit {
+    background: #111827;
+    color: #ffffff;
+    border: 1px solid #111827;
+}
+
+.mc-shorts-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(0,0,0,0.10);
+}
+
+@media (max-width: 720px) {
+    .mc-shorts-btn-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .mc-shorts-btn {
+        width: 100%;
+    }
+}
+
+
+/* ============================================================
+   Mini CapCut timeline drag/drop v2
+   ============================================================ */
+
+.mc-timeline-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.mc-time-display {
+    margin-left: auto;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.mc-time-display strong {
+    color: #0f172a;
+}
+
+.mc-timeline {
+    display: block !important;
+    position: relative;
+    min-height: 280px;
+    max-height: 420px;
+    overflow: auto;
+    padding: 0 !important;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    background: #0f172a !important;
+}
+
+.mc-timeline-inner {
+    position: relative;
+    min-height: 100%;
+    background:
+        repeating-linear-gradient(
+            90deg,
+            rgba(255,255,255,0.03),
+            rgba(255,255,255,0.03) 89px,
+            rgba(255,255,255,0.09) 90px
+        ),
+        #111827;
+}
+
+.mc-ruler-row,
+.mc-track-row {
+    display: grid;
+    grid-template-columns: 96px 1fr;
+}
+
+.mc-ruler-row {
+    height: 32px;
+    position: sticky;
+    top: 0;
+    z-index: 6;
+    background: #020617;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+}
+
+.mc-track-row {
+    min-height: 74px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.mc-track-label {
+    position: sticky;
+    left: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    background: #020617;
+    color: #cbd5e1;
+    font-size: 12px;
+    font-weight: 900;
+    border-right: 1px solid rgba(255,255,255,0.12);
+    text-align: center;
+}
+
+.mc-track-lane,
+.mc-ruler-lane {
+    position: relative;
+    min-height: 74px;
+}
+
+.mc-ruler-lane {
+    min-height: 32px;
+}
+
+.mc-track-lane.drag-over {
+    background: rgba(37, 99, 235, 0.20);
+    outline: 2px dashed rgba(96, 165, 250, 0.75);
+    outline-offset: -4px;
+}
+
+.mc-ruler-mark {
+    position: absolute;
+    top: 0;
+    width: 1px;
+    height: 32px;
+    background: rgba(255,255,255,0.16);
+}
+
+.mc-ruler-mark.major {
+    background: rgba(255,255,255,0.35);
+}
+
+.mc-ruler-mark span {
+    position: absolute;
+    top: 8px;
+    left: 4px;
+    color: #94a3b8;
+    font-size: 10px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.mc-playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #22d3ee;
+    z-index: 20;
+    cursor: ew-resize;
+    box-shadow: 0 0 12px rgba(34,211,238,0.8);
+}
+
+.mc-playhead::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -7px;
+    width: 16px;
+    height: 16px;
+    background: #22d3ee;
+    clip-path: polygon(50% 100%, 0 0, 100% 0);
+}
+
+.mc-clip {
+    position: absolute !important;
+    top: 10px;
+    height: 50px;
+    min-width: 0 !important;
+    max-width: none !important;
+    border: 2px solid transparent;
+    border-radius: 12px;
+    padding: 8px;
+    box-sizing: border-box;
+    overflow: hidden;
+    background: linear-gradient(135deg, #1d4ed8, #0f172a);
+    color: white;
+    cursor: grab;
+    user-select: none;
+}
+
+.mc-clip:active {
+    cursor: grabbing;
+}
+
+.mc-clip.selected {
+    border-color: #22d3ee !important;
+    box-shadow: 0 0 0 4px rgba(34,211,238,0.25);
+}
+
+.mc-clip strong {
+    display: block;
+    height: 18px !important;
+    font-size: 12px;
+    line-height: 1.25;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.mc-clip span {
+    display: block;
+    margin-top: 4px !important;
+    font-size: 10px;
+    color: #dbeafe;
+}
+
+.mc-clip em {
+    position: absolute;
+    right: 6px;
+    bottom: 5px;
+    font-style: normal;
+    font-size: 10px;
+    background: rgba(255,255,255,0.16);
+    border-radius: 999px;
+    padding: 2px 6px;
+}
+
+.mc-clip-image {
+    background: linear-gradient(135deg, #0f766e, #0f172a);
+}
+
+.mc-clip-video {
+    background: linear-gradient(135deg, #2563eb, #0f172a);
+}
+
+.mc-clip-text {
+    background: linear-gradient(135deg, #9333ea, #0f172a);
+}
+
+.mc-clip-audio,
+.mc-clip-voice {
+    background: linear-gradient(135deg, #f97316, #0f172a);
+}
+
+.mc-asset-item {
+    cursor: grab;
+}
+
+.mc-asset-item:active {
+    cursor: grabbing;
+}
+
+.mc-asset-item.dragging {
+    opacity: 0.55;
+}
+
+@media (max-width: 720px) {
+    .mc-time-display {
+        margin-left: 0;
+        width: 100%;
+        text-align: center;
+    }
+
+    .mc-ruler-row,
+    .mc-track-row {
+        grid-template-columns: 76px 1fr;
+    }
+
+    .mc-track-label {
+        font-size: 11px;
+    }
+}
+
+
+/* ============================================================
+   Mini CapCut playback / zoom / full-width timeline
+   ============================================================ */
+
+.mc-center {
+    min-width: 0;
+}
+
+.mc-preview-shell {
+    flex-direction: column;
+    gap: 14px;
+}
+
+.mc-preview-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    color: #cbd5e1;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.mc-preview-play,
+.mc-preview-stop {
+    width: 42px;
+    height: 34px;
+    border: 0;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 900;
+}
+
+.mc-preview-play {
+    background: #22d3ee;
+    color: #020617;
+}
+
+.mc-preview-stop {
+    background: #334155;
+    color: white;
+}
+
+.mc-preview-play.is-playing {
+    background: #f97316;
+    color: white;
+}
+
+.mc-editor > .mc-timeline-shell {
+    grid-column: 1 / -1;
+}
+
+.mc-timeline-shell.mc-wide-timeline {
+    margin-top: 0;
+    border: 1px solid #e5e7eb;
+    border-radius: 20px;
+    background: white;
+    overflow: hidden;
+}
+
+.mc-timeline-shell.mc-wide-timeline .mc-timeline {
+    max-height: 520px;
+    min-height: 330px;
+    width: 100%;
+}
+
+.mc-timeline-zoom-help {
+    margin-left: 8px;
+    padding: 7px 10px;
+    border-radius: 999px;
+    background: #ecfeff;
+    color: #0369a1;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.mc-track-add-mini {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin-left: 6px;
+    border-radius: 999px;
+    background: rgba(34, 211, 238, 0.18);
+    color: #67e8f9;
+    font-size: 13px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.mc-track-add-mini:hover {
+    background: rgba(34, 211, 238, 0.35);
+}
+
+.mc-playhead.is-playing {
+    background: #f97316;
+    box-shadow: 0 0 14px rgba(249,115,22,0.9);
+}
+
+.mc-playhead.is-playing::before {
+    background: #f97316;
+}
+
+.mc-clip {
+    touch-action: none;
+}
+
+.mc-timeline {
+    scrollbar-width: thin;
+}
+
+@media (max-width: 1200px) {
+    .mc-editor > .mc-timeline-shell {
+        grid-column: 1 / -1;
+    }
+}
+
+
+/* ============================================================
+   Mini CapCut professional timeline smooth patch
+   ============================================================ */
+
+.mc-center {
+    min-width: 0;
+}
+
+.mc-preview-shell {
+    flex-direction: column;
+    gap: 14px;
+}
+
+.mc-preview-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    color: #cbd5e1;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.mc-preview-play,
+.mc-preview-stop {
+    width: 42px;
+    height: 34px;
+    border: 0;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 900;
+}
+
+.mc-preview-play {
+    background: #22d3ee;
+    color: #020617;
+}
+
+.mc-preview-stop {
+    background: #334155;
+    color: white;
+}
+
+.mc-preview-play.is-playing {
+    background: #f97316;
+    color: white;
+}
+
+.mc-editor > .mc-timeline-shell {
+    grid-column: 1 / -1;
+}
+
+.mc-timeline-shell.mc-wide-timeline {
+    margin-top: 0;
+    border: 1px solid #e5e7eb;
+    border-radius: 20px;
+    background: white;
+    overflow: hidden;
+}
+
+.mc-timeline-shell.mc-wide-timeline .mc-timeline {
+    max-height: 560px;
+    min-height: 360px;
+    width: 100%;
+}
+
+.mc-timeline-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.mc-time-display {
+    margin-left: auto;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.mc-time-display strong {
+    color: #0f172a;
+}
+
+.mc-timeline {
+    display: block !important;
+    position: relative;
+    overflow: auto;
+    padding: 0 !important;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    background: #0f172a !important;
+    scrollbar-width: thin;
+}
+
+.mc-timeline-inner {
+    position: relative;
+    min-height: 100%;
+    background:
+        repeating-linear-gradient(
+            90deg,
+            rgba(255,255,255,0.03),
+            rgba(255,255,255,0.03) 89px,
+            rgba(255,255,255,0.09) 90px
+        ),
+        #111827;
+}
+
+.mc-ruler-row,
+.mc-track-row {
+    display: grid;
+    grid-template-columns: 116px 1fr;
+}
+
+.mc-ruler-row {
+    height: 32px;
+    position: sticky;
+    top: 0;
+    z-index: 6;
+    background: #020617;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+}
+
+.mc-track-row {
+    min-height: 74px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.mc-track-row.is-muted .mc-track-lane {
+    background: rgba(148, 163, 184, 0.08);
+}
+
+.mc-track-row.is-locked .mc-track-lane {
+    background: rgba(248, 113, 113, 0.09);
+}
+
+.mc-track-row.is-hidden .mc-track-lane {
+    opacity: 0.35;
+}
+
+.mc-track-label {
+    position: sticky;
+    left: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px;
+    background: #020617;
+    color: #cbd5e1;
+    font-size: 12px;
+    font-weight: 900;
+    border-right: 1px solid rgba(255,255,255,0.12);
+    text-align: center;
+}
+
+.mc-track-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mc-track-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+}
+
+.mc-track-actions button,
+.mc-track-add-mini {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 21px;
+    height: 21px;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.10);
+    color: #cbd5e1;
+    font-size: 11px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.mc-track-actions button.is-on {
+    background: #22d3ee;
+    color: #020617;
+}
+
+.mc-track-add-mini {
+    background: rgba(34, 211, 238, 0.18);
+    color: #67e8f9;
+}
+
+.mc-track-actions button:hover,
+.mc-track-add-mini:hover {
+    background: rgba(34,211,238,0.35);
+}
+
+.mc-track-lane,
+.mc-ruler-lane {
+    position: relative;
+    min-height: 74px;
+}
+
+.mc-ruler-lane {
+    min-height: 32px;
+}
+
+.mc-track-lane.drag-over {
+    background: rgba(37, 99, 235, 0.20);
+    outline: 2px dashed rgba(96, 165, 250, 0.75);
+    outline-offset: -4px;
+}
+
+.mc-ruler-mark {
+    position: absolute;
+    top: 0;
+    width: 1px;
+    height: 32px;
+    background: rgba(255,255,255,0.16);
+}
+
+.mc-ruler-mark.major {
+    background: rgba(255,255,255,0.35);
+}
+
+.mc-ruler-mark span {
+    position: absolute;
+    top: 8px;
+    left: 4px;
+    color: #94a3b8;
+    font-size: 10px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.mc-playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #22d3ee;
+    z-index: 20;
+    cursor: ew-resize;
+    box-shadow: 0 0 12px rgba(34,211,238,0.8);
+}
+
+.mc-playhead::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -7px;
+    width: 16px;
+    height: 16px;
+    background: #22d3ee;
+    clip-path: polygon(50% 100%, 0 0, 100% 0);
+}
+
+.mc-playhead.is-playing {
+    background: #f97316;
+    box-shadow: 0 0 14px rgba(249,115,22,0.9);
+}
+
+.mc-playhead.is-playing::before {
+    background: #f97316;
+}
+
+.mc-clip {
+    position: absolute !important;
+    top: 10px;
+    height: 50px;
+    min-width: 0 !important;
+    max-width: none !important;
+    border: 2px solid transparent;
+    border-radius: 12px;
+    padding: 8px;
+    box-sizing: border-box;
+    overflow: hidden;
+    background: linear-gradient(135deg, #1d4ed8, #0f172a);
+    color: white;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+    will-change: transform;
+}
+
+.mc-clip:active {
+    cursor: grabbing;
+}
+
+.mc-clip.is-dragging {
+    opacity: 0.86;
+    z-index: 30;
+    box-shadow: 0 16px 32px rgba(0,0,0,0.34);
+}
+
+.mc-clip.selected {
+    border-color: #22d3ee !important;
+    box-shadow: 0 0 0 4px rgba(34,211,238,0.25);
+}
+
+.mc-clip strong {
+    display: block;
+    height: 18px !important;
+    font-size: 12px;
+    line-height: 1.25;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.mc-clip span {
+    display: block;
+    margin-top: 4px !important;
+    font-size: 10px;
+    color: #dbeafe;
+}
+
+.mc-clip em {
+    position: absolute;
+    right: 6px;
+    bottom: 5px;
+    font-style: normal;
+    font-size: 10px;
+    background: rgba(255,255,255,0.16);
+    border-radius: 999px;
+    padding: 2px 6px;
+}
+
+.mc-clip-image {
+    background: linear-gradient(135deg, #0f766e, #0f172a);
+}
+
+.mc-clip-video {
+    background: linear-gradient(135deg, #2563eb, #0f172a);
+}
+
+.mc-clip-text {
+    background: linear-gradient(135deg, #9333ea, #0f172a);
+}
+
+.mc-clip-audio,
+.mc-clip-voice {
+    background: linear-gradient(135deg, #f97316, #0f172a);
+}
+
+.mc-preview-text {
+    display: none;
+    position: absolute;
+    left: 18px;
+    right: 18px;
+    bottom: 76px;
+    z-index: 5;
+}
+
+.mc-preview-text-line {
+    margin-top: 8px;
+    color: white;
+    font-size: 28px;
+    font-weight: 1000;
+    line-height: 1.22;
+    text-align: center;
+    text-shadow: 0 3px 12px rgba(0,0,0,0.9);
+    white-space: pre-wrap;
+}
+
+.mc-asset-item {
+    cursor: grab;
+}
+
+.mc-asset-item:active {
+    cursor: grabbing;
+}
+
+.mc-asset-item.dragging {
+    opacity: 0.55;
+}
+
+@media (max-width: 720px) {
+    .mc-ruler-row,
+    .mc-track-row {
+        grid-template-columns: 86px 1fr;
+    }
+
+    .mc-track-label {
+        font-size: 11px;
+    }
+
+    .mc-time-display {
+        margin-left: 0;
+        width: 100%;
+        text-align: center;
+    }
+}
+
+
+/* ============================================================
+   Mini CapCut safe timeline toolbar
+   ============================================================ */
+
+.mc-toolbar.mc-toolbar-in-timeline {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 0 10px;
+    margin: 0 0 8px;
+    border: 0;
+    border-top: 1px solid #e5e7eb;
+    border-bottom: 1px solid #e5e7eb;
+    background: #ffffff;
+    scrollbar-width: thin;
+}
+
+.mc-toolbar.mc-toolbar-in-timeline .mc-tool-btn {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding: 8px 13px;
+    border-radius: 11px;
+    border: 1px solid #d1d5db;
+    background: #f9fafb;
+    color: #111827;
+    font-size: 13px;
+    font-weight: 900;
+    white-space: nowrap;
+    box-shadow: none;
+}
+
+.mc-toolbar.mc-toolbar-in-timeline .mc-tool-btn:hover {
+    background: #eff6ff;
+    border-color: #93c5fd;
+    transform: translateY(-1px);
+}
+
+.mc-toolbar.mc-toolbar-in-timeline .mc-danger {
+    background: #fee2e2;
+    border-color: #fecaca;
+    color: #b91c1c;
+}
+
+.mc-toolbar.mc-toolbar-in-timeline .mc-danger:hover {
+    background: #fecaca;
+    color: #991b1b;
+}
+
+.mc-timeline-shell.mc-wide-timeline {
+    width: 100%;
+}
+
+.mc-timeline-shell.mc-wide-timeline .mc-timeline {
+    width: 100%;
+}
+
+/* Mini CapCut timeline buttons one-row fix */
+.mc-timeline-shell {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+}
+
+.mc-timeline-head {
+    flex: 0 0 100% !important;
+}
+
+.mc-timeline-controls,
+.mc-toolbar.mc-toolbar-in-timeline {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 8px !important;
+
+    width: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 8px 0 !important;
+
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+
+    flex-wrap: nowrap !important;
+    overflow: visible !important;
+}
+
+.mc-timeline-controls {
+    flex: 0 0 auto !important;
+    padding-left: 12px !important;
+    padding-right: 0 !important;
+}
+
+.mc-toolbar.mc-toolbar-in-timeline {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 12px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+}
+
+.mc-timeline-controls button,
+.mc-toolbar.mc-toolbar-in-timeline button,
+.mc-toolbar.mc-toolbar-in-timeline .mc-tool-btn {
+    flex: 0 0 auto !important;
+    height: 34px !important;
+    min-height: 34px !important;
+    padding: 0 12px !important;
+
+    border: 1px solid rgba(255, 255, 255, 0.16) !important;
+    border-radius: 8px !important;
+
+    background: #252833 !important;
+    color: #f5f6fa !important;
+
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    line-height: 34px !important;
+
+    white-space: nowrap !important;
+    cursor: pointer !important;
+}
+
+.mc-timeline-controls button:hover,
+.mc-toolbar.mc-toolbar-in-timeline button:hover,
+.mc-toolbar.mc-toolbar-in-timeline .mc-tool-btn:hover {
+    background: #343847 !important;
+    border-color: rgba(255, 255, 255, 0.28) !important;
+}
+
+.mc-toolbar.mc-toolbar-in-timeline .mc-danger {
+    background: #3a2328 !important;
+    border-color: rgba(255, 80, 100, 0.35) !important;
+    color: #ff9aa8 !important;
+}
+
+.mc-timeline {
+    flex: 0 0 100% !important;
+}
+
+/* Mini CapCut timeline toolbar final layout
+   왼쪽: 버튼들 / 오른쪽: 재생 위치 */
+   .mc-timeline-shell {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    column-gap: 8px !important;
+    row-gap: 8px !important;
+}
+
+/* 제목 줄은 한 줄 전체 사용 */
+.mc-timeline-head {
+    order: 1 !important;
+    flex: 0 0 100% !important;
+}
+
+/* 기존 두 버튼 그룹 껍데기는 없앤 것처럼 처리 */
+.mc-timeline-controls,
+.mc-toolbar.mc-toolbar-in-timeline {
+    display: contents !important;
+}
+
+/* 위 트랙/아래 트랙 버튼 */
+.mc-timeline-controls button {
+    order: 2 !important;
+}
+
+/* 분할/삭제/음소거/잘라내기/복사/붙여넣기 버튼 */
+.mc-toolbar.mc-toolbar-in-timeline .mc-tool-btn,
+.mc-toolbar.mc-toolbar-in-timeline button {
+    order: 3 !important;
+}
+
+/* 재생 위치는 맨 오른쪽 끝 */
+.mc-time-display {
+    order: 4 !important;
+    margin-left: auto !important;
+    margin-right: 12px !important;
+
+    height: 34px !important;
+    min-height: 34px !important;
+    padding: 0 14px !important;
+
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    border-radius: 10px !important;
+    background: #eef2f7 !important;
+    color: #111827 !important;
+
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    white-space: nowrap !important;
+}
+
+/* 버튼 디자인 통일 */
+.mc-timeline-controls button,
+.mc-toolbar.mc-toolbar-in-timeline .mc-tool-btn,
+.mc-toolbar.mc-toolbar-in-timeline button {
+    flex: 0 0 auto !important;
+    height: 34px !important;
+    min-height: 34px !important;
+    padding: 0 12px !important;
+
+    border: 1px solid rgba(255, 255, 255, 0.16) !important;
+    border-radius: 8px !important;
+
+    background: #252833 !important;
+    color: #f5f6fa !important;
+
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    line-height: 34px !important;
+
+    white-space: nowrap !important;
+    cursor: pointer !important;
+}
+
+/* 삭제 버튼 */
+.mc-toolbar.mc-toolbar-in-timeline .mc-danger {
+    background: #5a1f2c !important;
+    border-color: rgba(255, 80, 100, 0.35) !important;
+    color: #fff !important;
+}
+
+/* 타임라인 본체는 버튼 줄 아래 전체 폭 */
+.mc-timeline {
+    order: 5 !important;
+    flex: 0 0 100% !important;
+}
+
+
+/* MINI CAPCUT PATCH - SCALE PREVIEW SLOT */
+
+.mc-preview-size-control,
+#mcPreviewSizeRange,
+#mcPreviewTimelineSplitter {
+    display: none !important;
+}
+
+/* 메인화면/타임라인 접점 바 */
+#mcMainTimelineFullSplitter {
+    grid-column: 1 / -1 !important;
+    flex: 0 0 100% !important;
+    width: 100% !important;
+    height: 18px !important;
+    min-height: 18px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    clear: both !important;
+    box-sizing: border-box !important;
+    cursor: row-resize !important;
+    user-select: none !important;
+    z-index: 80 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: linear-gradient(to bottom, rgba(15,23,42,0.03), rgba(15,23,42,0.11)) !important;
+    border-top: 1px solid rgba(15,23,42,0.10) !important;
+    border-bottom: 1px solid rgba(15,23,42,0.14) !important;
+}
+
+#mcMainTimelineFullSplitter::before {
+    content: "" !important;
+    display: block !important;
+    width: 128px !important;
+    height: 5px !important;
+    border-radius: 999px !important;
+    background: rgba(100,116,139,0.65) !important;
+}
+
+#mcMainTimelineFullSplitter:hover::before,
+body.mc-main-timeline-dragging #mcMainTimelineFullSplitter::before {
+    background: rgba(34,211,238,0.95) !important;
+}
+
+body.mc-main-timeline-dragging {
+    cursor: row-resize !important;
+    user-select: none !important;
+}
+
+/* 위쪽 전체 영역 */
+.mc-top-pane-resized-by-splitter {
+    height: var(--mc-top-pane-height, auto) !important;
+    min-height: 180px !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+}
+
+/* 가운데 메인화면 패널 */
+.mc-center-preview-pane-slot-by-splitter {
+    height: var(--mc-top-pane-height, auto) !important;
+    min-height: 180px !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-end !important;
+    align-items: stretch !important;
+    box-sizing: border-box !important;
+}
+
+/* 영상 stage */
+.mc-preview-stage-slot-host {
+    flex: 0 1 auto !important;
+    min-height: 0 !important;
+    display: flex !important;
+    align-items: flex-end !important;
+    justify-content: center !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+}
+
+/* 핵심: stage 안 전체 내용을 감싼 wrapper 전체를 scale */
+.mc-preview-scale-slot {
+    transform-origin: center bottom !important;
+    will-change: transform !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+/* 플레이/정지 버튼은 항상 보이게 */
+.mc-preview-controls-slot-by-splitter {
+    flex: 0 0 auto !important;
+    min-height: 46px !important;
+    position: relative !important;
+    z-index: 20 !important;
+    overflow: visible !important;
+    box-sizing: border-box !important;
+}
+
+/* 타임라인 영역 */
+.mc-timeline-shell.mc-timeline-pane-resized-by-splitter {
+    height: var(--mc-timeline-pane-height, auto) !important;
+    min-height: 170px !important;
+    max-height: 80vh !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+}
+
+.mc-timeline-shell.mc-timeline-pane-resized-by-splitter .mc-timeline {
+    height: calc(var(--mc-timeline-pane-height, 300px) - 96px) !important;
+    min-height: 90px !important;
+    overflow: auto !important;
+}
+
+/* 트랙명 숨김 */
+.mc-track-name,
+.mc-track-title,
+.mc-lane-name,
+.mc-lane-title,
+.mc-track-label-text {
+    display: none !important;
+}
+
+.mc-track-label,
+.mc-lane-label {
+    font-size: 0 !important;
+}
+
+.mc-track-label button,
+.mc-track-label span,
+.mc-track-label i,
+.mc-track-label svg,
+.mc-track-actions,
+.mc-track-actions *,
+.mc-lane-label button,
+.mc-lane-label span,
+.mc-lane-label i,
+.mc-lane-label svg,
+.mc-lane-actions,
+.mc-lane-actions * {
+    font-size: 13px !important;
+    line-height: 1 !important;
+}
+
+.mc-time-display {
+    margin-left: auto !important;
+}
+
+
+/* MINI CAPCUT PATCH - REMOVE PREVIEW ROUND BOX */
+
+/*
+   라운드 미리보기 박스 제거.
+   기존 상하 드래그 조절 기능은 유지하고,
+   안쪽 둥근 박스/그림자/프레임 효과만 없앰.
+*/
+
+/* 미리보기 stage 안쪽 라운드/그림자 제거 */
+.mc-preview-stage-slot-host *,
+.mc-preview-stage-round-by-splitter *,
+.mc-preview-stage-follow-by-splitter *,
+.mc-preview-stage-fit-by-splitter *,
+.mc-preview-stage-slot-host,
+.mc-preview-stage-round-by-splitter,
+.mc-preview-stage-follow-by-splitter,
+.mc-preview-stage-fit-by-splitter {
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+/* wrapper가 따로 놀지 않게 정리 */
+.mc-preview-scale-slot,
+.mc-preview-visual-round-by-splitter,
+.mc-preview-visual-follow-by-splitter,
+.mc-preview-visual-scale-by-splitter {
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+/* 실제 영상/이미지는 비율 유지 */
+.mc-preview-stage-slot-host video,
+.mc-preview-stage-slot-host img,
+.mc-preview-stage-slot-host canvas,
+.mc-preview-stage-round-by-splitter video,
+.mc-preview-stage-round-by-splitter img,
+.mc-preview-stage-round-by-splitter canvas,
+.mc-preview-stage-follow-by-splitter video,
+.mc-preview-stage-follow-by-splitter img,
+.mc-preview-stage-follow-by-splitter canvas,
+.mc-preview-stage-fit-by-splitter video,
+.mc-preview-stage-fit-by-splitter img,
+.mc-preview-stage-fit-by-splitter canvas {
+    border-radius: 0 !important;
+    object-fit: contain !important;
+}
+
+/* 검은 휴대폰/카드처럼 보이는 외곽 배경 제거 */
+.mc-preview-scale-slot > *,
+.mc-preview-visual-round-by-splitter,
+.mc-preview-visual-follow-by-splitter,
+.mc-preview-visual-scale-by-splitter {
+    background-clip: border-box !important;
+}
+
+/* 미리보기 영역은 가운데 정렬 + 잘림 방지 */
+.mc-preview-stage-slot-host,
+.mc-preview-stage-round-by-splitter,
+.mc-preview-stage-follow-by-splitter,
+.mc-preview-stage-fit-by-splitter {
+    overflow: hidden !important;
+    align-items: flex-end !important;
+    justify-content: center !important;
+}
+
+/* 플레이/멈춤 버튼이 가려지지 않도록 유지 */
+.mc-preview-controls-slot-by-splitter,
+.mc-preview-controls-round-by-splitter,
+.mc-preview-controls-follow-by-splitter,
+.mc-preview-controls-keep-visible {
+    min-height: 46px !important;
+    flex: 0 0 auto !important;
+    position: relative !important;
+    z-index: 30 !important;
+    overflow: visible !important;
+}
+
+
+/* MINI CAPCUT PATCH - REMOVE CENTER BLACK LAYER */
+
+/*
+   가운데 검은색 레이어 제거
+   - 메인 미리보기 중앙의 검은 wrapper/background 제거
+   - 실제 콘텐츠(이미지/텍스트)는 유지
+*/
+
+/* 미리보기 관련 바깥 wrapper 배경 제거 */
+.mc-preview-stage-slot-host,
+.mc-preview-stage-round-by-splitter,
+.mc-preview-stage-follow-by-splitter,
+.mc-preview-stage-fit-by-splitter,
+.mc-preview-scale-slot,
+.mc-preview-visual-round-by-splitter,
+.mc-preview-visual-follow-by-splitter,
+.mc-preview-visual-scale-by-splitter {
+    background: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+}
+
+/* stage 바로 아래 첫 래퍼들도 배경 제거 */
+.mc-preview-stage-slot-host > *,
+.mc-preview-stage-round-by-splitter > *,
+.mc-preview-stage-follow-by-splitter > *,
+.mc-preview-stage-fit-by-splitter > * {
+    background-color: transparent !important;
+    box-shadow: none !important;
+}
+
+/* 너무 큰 검은 박스처럼 보이는 프리뷰 래퍼 제거용 */
+.mc-center-preview-pane-slot-by-splitter .mc-preview-scale-slot,
+.mc-center-preview-pane-round-by-splitter .mc-preview-scale-slot,
+.mc-center-preview-pane-follow-by-splitter .mc-preview-scale-slot {
+    background: transparent !important;
+    background-color: transparent !important;
+}
+
+/* 영상/이미지 자체는 유지 */
+.mc-preview-stage-slot-host video,
+.mc-preview-stage-slot-host img,
+.mc-preview-stage-slot-host canvas,
+.mc-preview-stage-round-by-splitter video,
+.mc-preview-stage-round-by-splitter img,
+.mc-preview-stage-round-by-splitter canvas,
+.mc-preview-stage-follow-by-splitter video,
+.mc-preview-stage-follow-by-splitter img,
+.mc-preview-stage-follow-by-splitter canvas,
+.mc-preview-stage-fit-by-splitter video,
+.mc-preview-stage-fit-by-splitter img,
+.mc-preview-stage-fit-by-splitter canvas {
+    background: transparent !important;
+}
+
+/* 혹시 폰/mockup 같은 중앙 검은 프레임이 있으면 제거 */
+[class*="phone"],
+[class*="mockup"],
+[class*="device-frame"],
+[class*="preview-frame"] {
+    box-shadow: none !important;
+}
+
+[class*="phone"]:not(video):not(img):not(canvas),
+[class*="mockup"]:not(video):not(img):not(canvas),
+[class*="device-frame"]:not(video):not(img):not(canvas),
+[class*="preview-frame"]:not(video):not(img):not(canvas) {
+    background: transparent !important;
+    background-color: transparent !important;
+}
+
+
+/* MINI CAPCUT PATCH - TTS VOICE STEP 1 */
+
+.mc-tts-panel {
+    margin-top: 10px !important;
+    padding: 10px !important;
+    border: 1px solid rgba(15, 23, 42, 0.10) !important;
+    border-radius: 14px !important;
+    background: #f8fafc !important;
+}
+
+.mc-tts-panel-title {
+    font-size: 13px !important;
+    font-weight: 900 !important;
+    color: #111827 !important;
+    margin-bottom: 8px !important;
+}
+
+.mc-tts-row {
+    display: flex !important;
+    gap: 8px !important;
+    align-items: center !important;
+    margin-top: 8px !important;
+}
+
+.mc-tts-row select,
+.mc-tts-row input {
+    flex: 1 1 auto !important;
+    height: 34px !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 10px !important;
+    padding: 0 10px !important;
+    font-size: 12px !important;
+    background: #fff !important;
+    color: #111827 !important;
+}
+
+.mc-tts-btn {
+    flex: 1 1 0 !important;
+    height: 36px !important;
+    border: 0 !important;
+    border-radius: 12px !important;
+    background: #111827 !important;
+    color: #fff !important;
+    font-size: 12px !important;
+    font-weight: 900 !important;
+    cursor: pointer !important;
+}
+
+.mc-tts-btn:hover {
+    opacity: 0.88 !important;
+}
+
+.mc-tts-btn.mc-tts-blue {
+    background: #2563eb !important;
+}
+
+.mc-tts-btn.mc-tts-red {
+    background: #9f1239 !important;
+}
+
+.mc-tts-help {
+    margin-top: 7px !important;
+    font-size: 11px !important;
+    color: #64748b !important;
+    line-height: 1.35 !important;
+}
+
+.mc-tts-clip-badge {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    padding: 2px 7px !important;
+    border-radius: 999px !important;
+    background: rgba(34, 211, 238, 0.16) !important;
+    color: #67e8f9 !important;
+    font-size: 11px !important;
+    font-weight: 900 !important;
+}
+
+
+/* MINI CAPCUT PATCH - KOREAN MALE TTS PRESETS */
+
+.mc-tts-male-preset-box {
+    margin-top: 8px !important;
+}
+
+.mc-tts-male-preset-box select {
+    width: 100% !important;
+    height: 36px !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 10px !important;
+    padding: 0 10px !important;
+    font-size: 12px !important;
+    font-weight: 800 !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+}
+
+.mc-tts-male-chip-row {
+    display: flex !important;
+    gap: 6px !important;
+    margin-top: 7px !important;
+}
+
+.mc-tts-male-chip {
+    flex: 1 1 0 !important;
+    height: 30px !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: #e0f2fe !important;
+    color: #075985 !important;
+    font-size: 11px !important;
+    font-weight: 900 !important;
+    cursor: pointer !important;
+}
+
+.mc-tts-male-chip:hover {
+    background: #bae6fd !important;
+}
+
+
+/* MINI CAPCUT PATCH - AUTO TRANSITION + TOP TRACK PRIORITY */
+
+/* 자동 전환 표시 */
+.mc-auto-transition-badge {
+    position: absolute !important;
+    top: 6px !important;
+    right: 8px !important;
+    z-index: 20 !important;
+
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    height: 20px !important;
+    padding: 0 7px !important;
+    border-radius: 999px !important;
+
+    background: rgba(34, 211, 238, 0.22) !important;
+    border: 1px solid rgba(34, 211, 238, 0.55) !important;
+    color: #e0faff !important;
+
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    pointer-events: none !important;
+}
+
+/* 위쪽 트랙 우선순위 표시용 */
+.mc-top-priority-clip {
+    position: relative !important;
+    z-index: var(--mc-clip-z, 1) !important;
+}
+
+/* 전환이 들어간 클립은 테두리 살짝 표시 */
+.mc-auto-transition-clip {
+    box-shadow:
+        inset 0 0 0 1px rgba(34, 211, 238, 0.45),
+        0 0 0 1px rgba(34, 211, 238, 0.14) !important;
+}
+
+/* 속성 패널 전환효과 셀렉트가 이상해도 기본값 느낌으로 보이게 */
+select[id*="transition"],
+select[name*="transition"],
+select[class*="transition"] {
+    min-height: 34px !important;
+}
+
+/* CBL_SIMPLE_SIDE_SCROLL_START */
+/* 미니캡컷: 자료/속성 패널 단순 스크롤 */
+.mc-editor {
+    min-height: 0 !important;
+}
+
+#mcAssets,
+.mc-right {
+    max-height: calc(100vh - 132px) !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    overscroll-behavior: contain !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-gutter: stable !important;
+}
+
+#mcAssets::-webkit-scrollbar,
+.mc-right::-webkit-scrollbar {
+    width: 8px;
+}
+
+#mcAssets::-webkit-scrollbar-track,
+.mc-right::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.08);
+    border-radius: 999px;
+}
+
+#mcAssets::-webkit-scrollbar-thumb,
+.mc-right::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.58);
+    border-radius: 999px;
+}
+
+#mcAssets::-webkit-scrollbar-thumb:hover,
+.mc-right::-webkit-scrollbar-thumb:hover {
+    background: rgba(100, 116, 139, 0.85);
+}
+
+/* 속성 내부 박스는 부모 .mc-right가 스크롤 담당 */
+#mcProps {
+    max-height: none !important;
+    height: auto !important;
+    overflow: visible !important;
+}
+/* CBL_SIMPLE_SIDE_SCROLL_END */
+
+
+
+/* ===== mini capcut text style panel runtime ===== */
+.mc-text-edit-wrap{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 178px;
+    gap:10px;
+    align-items:stretch;
+    width:100%;
+}
+
+.mc-text-edit-wrap textarea{
+    width:100%;
+    min-height:96px;
+}
+
+.mc-text-style-panel{
+    border:1px solid #e5e7eb;
+    border-radius:12px;
+    padding:10px;
+    background:#f8fafc;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+}
+
+.mc-style-row{
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+}
+
+.mc-style-row label{
+    font-size:11px;
+    font-weight:800;
+    color:#475569;
+}
+
+.mc-style-row input,
+.mc-style-row select{
+    width:100%;
+    height:31px;
+    border:1px solid #d1d5db;
+    border-radius:8px;
+    padding:0 8px;
+    font-size:12px;
+    background:#fff;
+    box-sizing:border-box;
+}
+
+.mc-style-row input[type="color"]{
+    padding:3px;
+}
+
+.mc-style-inline{
+    display:flex;
+    gap:5px;
+}
+
+.mc-style-btn{
+    flex:1;
+    height:30px;
+    border:1px solid #d1d5db;
+    border-radius:8px;
+    background:#fff;
+    cursor:pointer;
+    font-size:12px;
+    font-weight:900;
+}
+
+.mc-style-btn.active{
+    background:#111827;
+    color:#fff;
+    border-color:#111827;
+}
+
+@media(max-width:520px){
+    .mc-text-edit-wrap{
+        grid-template-columns:1fr;
+    }
+}
+
+
+/* ===== text style panel top layout fix ===== */
+.mc-text-edit-wrap{
+    display:flex !important;
+    flex-direction:column !important;
+    gap:10px !important;
+    width:100% !important;
+}
+
+.mc-text-edit-wrap textarea{
+    width:100% !important;
+    min-height:120px !important;
+    box-sizing:border-box !important;
+}
+
+.mc-text-style-panel{
+    order:-1 !important;
+    display:grid !important;
+    grid-template-columns:1fr 1fr !important;
+    gap:8px !important;
+    padding:10px !important;
+    border-radius:12px !important;
+    background:#f8fafc !important;
+}
+
+.mc-text-style-panel .mc-style-row{
+    min-width:0 !important;
+}
+
+.mc-text-style-panel .mc-style-row:nth-child(2){
+    grid-column:1 / -1 !important;
+}
+
+.mc-text-style-panel .mc-style-row:nth-child(4){
+    grid-column:1 / -1 !important;
+}
+
+.mc-text-style-panel label{
+    font-size:11px !important;
+    margin-bottom:2px !important;
+}
+
+.mc-text-style-panel input,
+.mc-text-style-panel select{
+    height:32px !important;
+    font-size:12px !important;
+}
+
+.mc-text-style-panel .mc-style-inline{
+    display:grid !important;
+    grid-template-columns:1fr 1fr 1fr !important;
+    gap:6px !important;
+}
+
+.mc-text-style-panel .mc-style-btn{
+    height:32px !important;
+}
+
+
+
+/* ===== text default color black safe fix ===== */
+.mc-text-style-panel input[type="color"]{
+    background:#ffffff;
+}
