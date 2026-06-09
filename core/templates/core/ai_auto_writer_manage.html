@@ -1,6 +1,271 @@
 {% extends "core/base.html" %}
 
-{% block title %}AI 자동글 생성 관리 | ChickenBanana Lab{% endblock %}
+{% block title %}AI 자동글 생성 관리 | ChickenBanana Lab
+<!-- CBL_AI_AUTO_WRITER_MULTILANG_UI_PATCH_START -->
+<style>
+    .cbl-auto-lang-panel {
+        margin-top: 20px;
+        padding: 20px;
+        border: 1px solid #e5e7eb;
+        border-radius: 22px;
+        background: #ffffff;
+    }
+
+    .cbl-auto-lang-title {
+        font-size: 15px;
+        font-weight: 900;
+        color: #111827;
+        margin-bottom: 12px;
+    }
+
+    .cbl-auto-lang-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    .cbl-auto-lang-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 46px;
+        padding: 12px 14px;
+        border: 1px solid #e5e7eb;
+        border-radius: 16px;
+        background: #f8fafc;
+        color: #111827;
+        font-weight: 850;
+        cursor: pointer;
+    }
+
+    .cbl-auto-lang-item input {
+        width: 18px;
+        height: 18px;
+    }
+
+    .cbl-auto-total-box {
+        margin-top: 14px;
+        padding: 15px 16px;
+        border-radius: 16px;
+        background: #0f172a;
+        color: #ffffff;
+        font-weight: 900;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .cbl-auto-total-box strong {
+        color: #86efac;
+        font-size: 20px;
+    }
+
+    .cbl-auto-note {
+        margin-top: 10px;
+        font-size: 13px;
+        line-height: 1.6;
+        color: #64748b;
+        font-weight: 700;
+    }
+
+    @media (max-width: 640px) {
+        .cbl-auto-lang-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .cbl-auto-total-box {
+            align-items: flex-start;
+            flex-direction: column;
+        }
+    }
+</style>
+
+<script>
+(function () {
+    function ready(fn) {
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", fn);
+        } else {
+            fn();
+        }
+    }
+
+    ready(function () {
+        const forms = Array.from(document.querySelectorAll("form"));
+        const form = forms.find(function (f) {
+            return f.querySelector('[name="interval_minutes"]') ||
+                   f.querySelector('[name="keyword_count_per_category"]') ||
+                   f.querySelector('[name="ai_auto_action"]');
+        });
+
+        if (!form) {
+            return;
+        }
+
+        // 기존 생성 예시 박스 숨김
+        Array.from(document.querySelectorAll("div, section, article")).forEach(function (el) {
+            const text = (el.innerText || "").trim();
+
+            if (
+                text.includes("생성 예시") ||
+                (
+                    text.includes("영어버전 자동글도 같이 생성") &&
+                    text.length < 500
+                )
+            ) {
+                el.style.display = "none";
+            }
+        });
+
+        // 영어버전 자동글도 같이 생성 문구/체크박스 숨김
+        Array.from(document.querySelectorAll("label, div, p")).forEach(function (el) {
+            const text = (el.innerText || "").trim();
+
+            if (text.includes("영어버전 자동글도 같이 생성")) {
+                const root = el.closest("label") || el;
+                root.style.display = "none";
+            }
+        });
+
+        // 언어 패널 이미 있으면 중복 생성 방지
+        if (!document.getElementById("cblAutoLangPanel")) {
+            const panel = document.createElement("div");
+            panel.id = "cblAutoLangPanel";
+            panel.className = "cbl-auto-lang-panel";
+
+            panel.innerHTML = `
+                <div class="cbl-auto-lang-title">생성 언어</div>
+
+                <div class="cbl-auto-lang-grid">
+                    <label class="cbl-auto-lang-item">
+                        <input type="checkbox" name="target_languages" value="ko" checked>
+                        한국어로 생성
+                    </label>
+
+                    <label class="cbl-auto-lang-item">
+                        <input type="checkbox" name="target_languages" value="en">
+                        영어로 생성
+                    </label>
+
+                    <label class="cbl-auto-lang-item">
+                        <input type="checkbox" name="target_languages" value="zh">
+                        중국어로 생성
+                    </label>
+
+                    <label class="cbl-auto-lang-item">
+                        <input type="checkbox" name="target_languages" value="ar">
+                        아랍어로 생성
+                    </label>
+
+                    <label class="cbl-auto-lang-item">
+                        <input type="checkbox" name="target_languages" value="ja">
+                        일본어로 생성
+                    </label>
+                </div>
+
+                <div class="cbl-auto-total-box">
+                    <span>오늘자 키워드 생성 시 총 대기열 예상</span>
+                    <strong id="cblAutoTotalCount">0개</strong>
+                </div>
+
+                <div class="cbl-auto-note">
+                    계산 방식: 선택 카테고리 수 × 카테고리별 추천키워드 수 × 선택 언어 수
+                </div>
+            `;
+
+            const submitArea = form.querySelector('button[type="submit"]');
+            const insertTarget = submitArea ? submitArea.closest("div") || submitArea : null;
+
+            if (insertTarget) {
+                insertTarget.insertAdjacentElement("beforebegin", panel);
+            } else {
+                form.appendChild(panel);
+            }
+        }
+
+        function getCategoryCount() {
+            const categoryNames = [
+                "use_architecture",
+                "use_realestate",
+                "use_finance",
+                "use_tech",
+                "use_life"
+            ];
+
+            let count = 0;
+
+            categoryNames.forEach(function (name) {
+                const input = form.querySelector('[name="' + name + '"]');
+                if (input && input.checked) {
+                    count += 1;
+                }
+            });
+
+            return count || 1;
+        }
+
+        function getKeywordCountPerCategory() {
+            const input = form.querySelector('[name="keyword_count_per_category"]');
+
+            if (!input) {
+                return 1;
+            }
+
+            const value = parseInt(input.value || "1", 10);
+
+            if (isNaN(value) || value < 1) {
+                return 1;
+            }
+
+            return value;
+        }
+
+        function getLanguageCount() {
+            return form.querySelectorAll('[name="target_languages"]:checked').length || 0;
+        }
+
+        function updateTotal() {
+            const totalEl = document.getElementById("cblAutoTotalCount");
+
+            if (!totalEl) {
+                return;
+            }
+
+            const total = getCategoryCount() * getKeywordCountPerCategory() * getLanguageCount();
+
+            totalEl.textContent = total + "개";
+        }
+
+        form.querySelectorAll("input, select").forEach(function (el) {
+            el.addEventListener("change", updateTotal);
+            el.addEventListener("input", updateTotal);
+        });
+
+        document.querySelectorAll('[name="target_languages"]').forEach(function (el) {
+            el.addEventListener("change", updateTotal);
+        });
+
+        form.addEventListener("submit", function (event) {
+            const langCount = getLanguageCount();
+
+            if (langCount < 1) {
+                event.preventDefault();
+                alert("생성 언어를 1개 이상 선택해주세요.");
+                return false;
+            }
+
+            return true;
+        });
+
+        updateTotal();
+    });
+})();
+</script>
+<!-- CBL_AI_AUTO_WRITER_MULTILANG_UI_PATCH_END -->
+
+
+{% endblock %}
 
 {% block content %}
 
@@ -786,5 +1051,270 @@
 
     </div>
 </section>
+
+
+<!-- CBL_AI_AUTO_WRITER_MULTILANG_UI_PATCH_START -->
+<style>
+    .cbl-auto-lang-panel {
+        margin-top: 20px;
+        padding: 20px;
+        border: 1px solid #e5e7eb;
+        border-radius: 22px;
+        background: #ffffff;
+    }
+
+    .cbl-auto-lang-title {
+        font-size: 15px;
+        font-weight: 900;
+        color: #111827;
+        margin-bottom: 12px;
+    }
+
+    .cbl-auto-lang-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    .cbl-auto-lang-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 46px;
+        padding: 12px 14px;
+        border: 1px solid #e5e7eb;
+        border-radius: 16px;
+        background: #f8fafc;
+        color: #111827;
+        font-weight: 850;
+        cursor: pointer;
+    }
+
+    .cbl-auto-lang-item input {
+        width: 18px;
+        height: 18px;
+    }
+
+    .cbl-auto-total-box {
+        margin-top: 14px;
+        padding: 15px 16px;
+        border-radius: 16px;
+        background: #0f172a;
+        color: #ffffff;
+        font-weight: 900;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .cbl-auto-total-box strong {
+        color: #86efac;
+        font-size: 20px;
+    }
+
+    .cbl-auto-note {
+        margin-top: 10px;
+        font-size: 13px;
+        line-height: 1.6;
+        color: #64748b;
+        font-weight: 700;
+    }
+
+    @media (max-width: 640px) {
+        .cbl-auto-lang-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .cbl-auto-total-box {
+            align-items: flex-start;
+            flex-direction: column;
+        }
+    }
+</style>
+
+<script>
+(function () {
+    function ready(fn) {
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", fn);
+        } else {
+            fn();
+        }
+    }
+
+    ready(function () {
+        const forms = Array.from(document.querySelectorAll("form"));
+        const form = forms.find(function (f) {
+            return f.querySelector('[name="interval_minutes"]') ||
+                   f.querySelector('[name="keyword_count_per_category"]') ||
+                   f.querySelector('[name="ai_auto_action"]');
+        });
+
+        if (!form) {
+            return;
+        }
+
+        // 기존 생성 예시 박스 숨김
+        Array.from(document.querySelectorAll("div, section, article")).forEach(function (el) {
+            const text = (el.innerText || "").trim();
+
+            if (
+                text.includes("생성 예시") ||
+                (
+                    text.includes("영어버전 자동글도 같이 생성") &&
+                    text.length < 500
+                )
+            ) {
+                el.style.display = "none";
+            }
+        });
+
+        // 영어버전 자동글도 같이 생성 문구/체크박스 숨김
+        Array.from(document.querySelectorAll("label, div, p")).forEach(function (el) {
+            const text = (el.innerText || "").trim();
+
+            if (text.includes("영어버전 자동글도 같이 생성")) {
+                const root = el.closest("label") || el;
+                root.style.display = "none";
+            }
+        });
+
+        // 언어 패널 이미 있으면 중복 생성 방지
+        if (!document.getElementById("cblAutoLangPanel")) {
+            const panel = document.createElement("div");
+            panel.id = "cblAutoLangPanel";
+            panel.className = "cbl-auto-lang-panel";
+
+            panel.innerHTML = `
+                <div class="cbl-auto-lang-title">생성 언어</div>
+
+                <div class="cbl-auto-lang-grid">
+                    <label class="cbl-auto-lang-item">
+                        <input type="checkbox" name="target_languages" value="ko" checked>
+                        한국어로 생성
+                    </label>
+
+                    <label class="cbl-auto-lang-item">
+                        <input type="checkbox" name="target_languages" value="en">
+                        영어로 생성
+                    </label>
+
+                    <label class="cbl-auto-lang-item">
+                        <input type="checkbox" name="target_languages" value="zh">
+                        중국어로 생성
+                    </label>
+
+                    <label class="cbl-auto-lang-item">
+                        <input type="checkbox" name="target_languages" value="ar">
+                        아랍어로 생성
+                    </label>
+
+                    <label class="cbl-auto-lang-item">
+                        <input type="checkbox" name="target_languages" value="ja">
+                        일본어로 생성
+                    </label>
+                </div>
+
+                <div class="cbl-auto-total-box">
+                    <span>오늘자 키워드 생성 시 총 대기열 예상</span>
+                    <strong id="cblAutoTotalCount">0개</strong>
+                </div>
+
+                <div class="cbl-auto-note">
+                    계산 방식: 선택 카테고리 수 × 카테고리별 추천키워드 수 × 선택 언어 수
+                </div>
+            `;
+
+            const submitArea = form.querySelector('button[type="submit"]');
+            const insertTarget = submitArea ? submitArea.closest("div") || submitArea : null;
+
+            if (insertTarget) {
+                insertTarget.insertAdjacentElement("beforebegin", panel);
+            } else {
+                form.appendChild(panel);
+            }
+        }
+
+        function getCategoryCount() {
+            const categoryNames = [
+                "use_architecture",
+                "use_realestate",
+                "use_finance",
+                "use_tech",
+                "use_life"
+            ];
+
+            let count = 0;
+
+            categoryNames.forEach(function (name) {
+                const input = form.querySelector('[name="' + name + '"]');
+                if (input && input.checked) {
+                    count += 1;
+                }
+            });
+
+            return count || 1;
+        }
+
+        function getKeywordCountPerCategory() {
+            const input = form.querySelector('[name="keyword_count_per_category"]');
+
+            if (!input) {
+                return 1;
+            }
+
+            const value = parseInt(input.value || "1", 10);
+
+            if (isNaN(value) || value < 1) {
+                return 1;
+            }
+
+            return value;
+        }
+
+        function getLanguageCount() {
+            return form.querySelectorAll('[name="target_languages"]:checked').length || 0;
+        }
+
+        function updateTotal() {
+            const totalEl = document.getElementById("cblAutoTotalCount");
+
+            if (!totalEl) {
+                return;
+            }
+
+            const total = getCategoryCount() * getKeywordCountPerCategory() * getLanguageCount();
+
+            totalEl.textContent = total + "개";
+        }
+
+        form.querySelectorAll("input, select").forEach(function (el) {
+            el.addEventListener("change", updateTotal);
+            el.addEventListener("input", updateTotal);
+        });
+
+        document.querySelectorAll('[name="target_languages"]').forEach(function (el) {
+            el.addEventListener("change", updateTotal);
+        });
+
+        form.addEventListener("submit", function (event) {
+            const langCount = getLanguageCount();
+
+            if (langCount < 1) {
+                event.preventDefault();
+                alert("생성 언어를 1개 이상 선택해주세요.");
+                return false;
+            }
+
+            return true;
+        });
+
+        updateTotal();
+    });
+})();
+</script>
+<!-- CBL_AI_AUTO_WRITER_MULTILANG_UI_PATCH_END -->
+
 
 {% endblock %}

@@ -8460,3 +8460,959 @@ a.editor-location-card {
         grid-template-columns: 1fr !important;
     }
 }
+
+/* 상세페이지 버튼 전체 가운데 정렬 */
+.detail-actions .save-btn,
+.detail-actions a.save-btn,
+a.save-btn {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+}
+
+
+/* ================================
+   AI 자동글 생성 - 영어버전 옵션
+================================ */
+
+.ai-option-box .ai-english-option {
+    align-items: flex-start;
+    padding: 12px 13px;
+    border-radius: 16px;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+}
+
+.ai-option-box .ai-english-option input {
+    margin-top: 3px;
+    flex-shrink: 0;
+}
+
+.ai-option-box .ai-english-option span {
+    display: grid;
+    gap: 4px;
+}
+
+.ai-option-box .ai-english-option strong {
+    color: #111827;
+    font-size: 13px;
+    font-weight: 950;
+}
+
+.ai-option-box .ai-english-option small {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.45;
+}
+
+/* =========================================================
+   FINAL FIX - 2026-06-05
+   - 상세페이지 수정하기 버튼 가운데 정렬
+   - 상세페이지 위치 지도 박스 모바일 축소
+   - 홈/목록 썸네일 레이아웃 안정화
+   ※ 이미지 404 자체는 CSS 문제가 아니며 media 파일/URL 확인 필요
+========================================================= */
+
+.post-detail-hero .detail-actions {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    margin-top: 28px !important;
+}
+
+.post-detail-hero .detail-actions .cancel-btn,
+.post-detail-hero .detail-actions .save-btn,
+.post-detail-hero .detail-actions a.save-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    box-sizing: border-box !important;
+}
+
+.post-detail-hero .post-location-map-box {
+    max-width: 760px;
+    margin-top: 24px;
+    padding: 18px;
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    background: #ffffff;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.post-detail-hero .post-location-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    font-size: 16px;
+    line-height: 1.5;
+    color: #0f172a;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+}
+
+.post-detail-hero .post-location-title strong {
+    min-width: 0;
+    font-weight: 800;
+}
+
+.post-detail-hero .post-location-map-frame {
+    display: block;
+    width: 100%;
+    height: 280px;
+    border: 0;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #f1f5f9;
+}
+
+.post-detail-hero .post-location-map-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 14px;
+    padding: 9px 14px;
+    border-radius: 999px;
+    background: #111827;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.thumbnail-image-box,
+.post-main-image-wrap,
+.post-content-image-wrap,
+.thumbnail-detail-wrap {
+    overflow: hidden;
+}
+
+.thumbnail-image-box img,
+.post-main-image,
+.post-content-image,
+.editor-output img {
+    max-width: 100%;
+    display: block;
+}
+
+.thumbnail-image-box img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.post-main-image,
+.post-content-image {
+    width: 100%;
+    height: auto;
+}
+
+@media (max-width: 768px) {
+    .post-detail-hero .post-location-map-box {
+        margin-top: 16px !important;
+        padding: 10px !important;
+        border-radius: 14px !important;
+    }
+
+    .post-detail-hero .post-location-title {
+        margin-bottom: 8px !important;
+        gap: 6px !important;
+        font-size: 13px !important;
+        line-height: 1.4 !important;
+    }
+
+    .post-detail-hero .post-location-title span {
+        font-size: 14px !important;
+    }
+
+    .post-detail-hero .post-location-title strong {
+        font-size: 13px !important;
+        line-height: 1.4 !important;
+        word-break: keep-all !important;
+        overflow-wrap: anywhere !important;
+    }
+
+    .post-detail-hero .post-location-map-frame {
+        height: 145px !important;
+        border-radius: 12px !important;
+    }
+
+    .post-detail-hero .post-location-map-btn {
+        width: 100% !important;
+        min-height: 36px !important;
+        margin-top: 8px !important;
+        padding: 0 12px !important;
+        font-size: 12px !important;
+        line-height: 1.2 !important;
+        text-align: center !important;
+    }
+
+    .post-detail-hero .detail-actions {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 12px !important;
+        margin-top: 22px !important;
+    }
+
+    .post-detail-hero .detail-actions .cancel-btn,
+    .post-detail-hero .detail-actions .save-btn,
+    .post-detail-hero .detail-actions a.save-btn {
+        width: 100% !important;
+        min-height: 56px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center !important;
+    }
+
+    .thumbnail-image-box {
+        height: 140px !important;
+    }
+}
+
+/* =========================================================
+   Post detail mobile fix
+   - 수정하기/목록으로 버튼 글자 가운데 정렬
+   - 모바일 위치 지도 박스 축소 및 깨짐 방지
+========================================================= */
+
+/* 상세페이지 버튼 공통 가운데 정렬 */
+.post-detail-hero .detail-actions .cancel-btn,
+.post-detail-hero .detail-actions .save-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+}
+
+/* 상세페이지 위치 지도 박스 기본 안정화 */
+.post-detail-hero .post-location-map-box {
+    width: 100%;
+    max-width: 760px;
+    margin: 28px auto 22px;
+    padding: 18px;
+    border-radius: 22px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: rgba(255, 255, 255, 0.04);
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.post-detail-hero .post-location-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    color: inherit;
+    line-height: 1.45;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+}
+
+.post-detail-hero .post-location-title strong {
+    min-width: 0;
+}
+
+.post-detail-hero .post-location-map-frame {
+    display: block;
+    width: 100%;
+    height: 240px;
+    border: 0;
+    border-radius: 16px;
+    overflow: hidden;
+}
+
+.post-detail-hero .post-location-map-btn {
+    width: 100%;
+    min-height: 44px;
+    margin-top: 12px;
+    padding: 0 16px;
+    border-radius: 999px;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    box-sizing: border-box;
+    font-size: 14px;
+    font-weight: 800;
+}
+
+/* 모바일 상세페이지 전용 */
+@media (max-width: 768px) {
+    .post-detail-hero .detail-actions {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 14px !important;
+        width: 100% !important;
+        margin-top: 24px !important;
+    }
+
+    .post-detail-hero .detail-actions .cancel-btn,
+    .post-detail-hero .detail-actions .save-btn {
+        width: 100% !important;
+        min-height: 56px !important;
+        padding: 0 18px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center !important;
+        box-sizing: border-box !important;
+        line-height: 1.2 !important;
+    }
+
+    .post-detail-hero .post-location-map-box {
+        margin: 18px 0 18px !important;
+        padding: 10px !important;
+        border-radius: 16px !important;
+        max-width: none !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+    }
+
+    .post-detail-hero .post-location-title {
+        margin-bottom: 8px !important;
+        gap: 6px !important;
+        font-size: 13px !important;
+        line-height: 1.35 !important;
+    }
+
+    .post-detail-hero .post-location-title span {
+        font-size: 14px !important;
+        line-height: 1 !important;
+    }
+
+    .post-detail-hero .post-location-title strong {
+        font-size: 13px !important;
+        line-height: 1.35 !important;
+        word-break: keep-all !important;
+        overflow-wrap: anywhere !important;
+    }
+
+    .post-detail-hero .post-location-map-frame {
+        height: 135px !important;
+        border-radius: 12px !important;
+    }
+
+    .post-detail-hero .post-location-map-btn {
+        min-height: 36px !important;
+        margin-top: 8px !important;
+        padding: 0 12px !important;
+        font-size: 12px !important;
+        line-height: 1.2 !important;
+        border-radius: 999px !important;
+    }
+}
+
+/* =========================================================
+   REAL MOBILE FIX - post detail
+   1) 상세페이지 수정하기 버튼 가운데 정렬
+   2) 본문 안 위치 카드 모바일 깨짐 방지
+========================================================= */
+
+/* 수정하기 / 목록으로 버튼 가운데 정렬 */
+.post-detail-hero .detail-actions {
+    width: 100%;
+}
+
+.post-detail-hero .detail-actions .cancel-btn,
+.post-detail-hero .detail-actions .save-btn,
+.post-detail-hero .detail-actions a {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+}
+
+/* 본문 안 위치 카드 기본 안정화 */
+.editor-output .editor-location-card {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.editor-output .editor-location-icon {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.editor-output .editor-location-content {
+    min-width: 0;
+    flex: 1;
+}
+
+.editor-output .editor-location-content strong,
+.editor-output .editor-location-content p,
+.editor-output .editor-location-hint {
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+}
+
+/* 본문 안 빈 줄이 둥근 박스처럼 보이는 현상 방지 */
+.editor-output p:empty {
+    display: none !important;
+}
+
+/* 모바일 상세페이지 전용 */
+@media (max-width: 768px) {
+    .post-detail-hero .detail-actions {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 14px !important;
+        width: 100% !important;
+        margin-top: 24px !important;
+    }
+
+    .post-detail-hero .detail-actions .cancel-btn,
+    .post-detail-hero .detail-actions .save-btn,
+    .post-detail-hero .detail-actions a {
+        width: 100% !important;
+        min-height: 56px !important;
+        padding: 0 18px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center !important;
+        box-sizing: border-box !important;
+        line-height: 1.2 !important;
+    }
+
+    .post-detail-hero .detail-actions .save-btn {
+        padding-left: 18px !important;
+        padding-right: 18px !important;
+    }
+
+    /* 본문 위치 카드 모바일 축소 */
+    .editor-output .editor-location-card {
+        display: flex !important;
+        align-items: flex-start !important;
+        gap: 10px !important;
+
+        width: 100% !important;
+        max-width: 100% !important;
+
+        margin: 18px 0 22px !important;
+        padding: 14px 14px !important;
+
+        border-radius: 16px !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+    }
+
+    .editor-output .editor-location-icon {
+        width: 38px !important;
+        height: 38px !important;
+        min-width: 38px !important;
+        flex: 0 0 38px !important;
+
+        border-radius: 13px !important;
+        font-size: 19px !important;
+        line-height: 1 !important;
+    }
+
+    .editor-output .editor-location-content {
+        min-width: 0 !important;
+        flex: 1 1 auto !important;
+    }
+
+    .editor-output .editor-location-content strong {
+        margin-bottom: 4px !important;
+        font-size: 16px !important;
+        line-height: 1.35 !important;
+    }
+
+    .editor-output .editor-location-content p {
+        margin: 0 0 5px !important;
+        font-size: 13px !important;
+        line-height: 1.45 !important;
+        word-break: keep-all !important;
+        overflow-wrap: anywhere !important;
+    }
+
+    .editor-output .editor-location-hint {
+        font-size: 12px !important;
+        line-height: 1.35 !important;
+    }
+}
+
+/* =========================================================
+   AI 자동생성 설정 select/input 높이 강제 보정 v2
+   - 자동 생성 간격(select)과 카테고리별 추천키워드 수(number) 높이 통일
+   - Safari/Chrome 기본 select UI 차이 방지
+========================================================= */
+:is(
+    .site-modal-card,
+    .manage-modal-card,
+    .ai-post-modal-card,
+    .ai-post-form,
+    .ai-form-grid,
+    .ai-form-group,
+    .dashboard-card,
+    .admin-card,
+    .setting-card,
+    .settings-card,
+    .manage-card,
+    .manage-section,
+    .auto-post-setting,
+    .auto-generate-setting,
+    .auto-generate-form,
+    .auto-write-form
+) :is(select, input[type="number"], input[type="text"]) {
+    width: 100% !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    max-height: 44px !important;
+    padding: 0 42px 0 14px !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 12px !important;
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    font-family: inherit !important;
+    line-height: 44px !important;
+    box-sizing: border-box !important;
+    vertical-align: middle !important;
+}
+
+:is(
+    .site-modal-card,
+    .manage-modal-card,
+    .ai-post-modal-card,
+    .ai-post-form,
+    .ai-form-grid,
+    .ai-form-group,
+    .dashboard-card,
+    .admin-card,
+    .setting-card,
+    .settings-card,
+    .manage-card,
+    .manage-section,
+    .auto-post-setting,
+    .auto-generate-setting,
+    .auto-generate-form,
+    .auto-write-form
+) select {
+    display: block !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    background-image:
+        linear-gradient(45deg, transparent 50%, #64748b 50%),
+        linear-gradient(135deg, #64748b 50%, transparent 50%) !important;
+    background-position:
+        calc(100% - 18px) 19px,
+        calc(100% - 12px) 19px !important;
+    background-size: 6px 6px, 6px 6px !important;
+    background-repeat: no-repeat !important;
+}
+
+:is(
+    .site-modal-card,
+    .manage-modal-card,
+    .ai-post-modal-card,
+    .ai-post-form,
+    .ai-form-grid,
+    .ai-form-group,
+    .dashboard-card,
+    .admin-card,
+    .setting-card,
+    .settings-card,
+    .manage-card,
+    .manage-section,
+    .auto-post-setting,
+    .auto-generate-setting,
+    .auto-generate-form,
+    .auto-write-form
+) input[type="number"] {
+    padding-right: 14px !important;
+}
+
+:is(
+    .site-modal-card,
+    .manage-modal-card,
+    .ai-post-modal-card,
+    .ai-post-form,
+    .ai-form-grid,
+    .ai-form-group,
+    .dashboard-card,
+    .admin-card,
+    .setting-card,
+    .settings-card,
+    .manage-card,
+    .manage-section,
+    .auto-post-setting,
+    .auto-generate-setting,
+    .auto-generate-form,
+    .auto-write-form
+) :is(select, input[type="number"], input[type="text"]):focus {
+    border-color: #22c55e !important;
+    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.12) !important;
+    outline: none !important;
+}
+
+/* 위 선택자가 실제 화면 클래스와 안 맞는 경우까지 잡는 최후 보정 */
+form select[name*="interval"],
+form select[id*="interval"],
+form select[name*="auto"],
+form select[id*="auto"],
+form select[name*="generate"],
+form select[id*="generate"],
+form input[type="number"][name*="keyword"],
+form input[type="number"][id*="keyword"],
+form input[type="number"][name*="count"],
+form input[type="number"][id*="count"] {
+    height: 44px !important;
+    min-height: 44px !important;
+    max-height: 44px !important;
+    border-radius: 12px !important;
+    box-sizing: border-box !important;
+    line-height: 44px !important;
+}
+
+form select[name*="interval"],
+form select[id*="interval"],
+form select[name*="auto"],
+form select[id*="auto"],
+form select[name*="generate"],
+form select[id*="generate"] {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    padding: 0 42px 0 14px !important;
+    background-color: #ffffff !important;
+    background-image:
+        linear-gradient(45deg, transparent 50%, #64748b 50%),
+        linear-gradient(135deg, #64748b 50%, transparent 50%) !important;
+    background-position:
+        calc(100% - 18px) 19px,
+        calc(100% - 12px) 19px !important;
+    background-size: 6px 6px, 6px 6px !important;
+    background-repeat: no-repeat !important;
+}
+
+
+
+/* IP_CHECKER_WIDGET_START */
+.ip-checker-widget {
+    width: 100%;
+    max-width: 760px;
+    margin: 28px auto;
+    padding: 24px;
+    border: 1px solid #dbe3ef;
+    border-radius: 24px;
+    background: #ffffff;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+    color: #111827 !important;
+    box-sizing: border-box;
+}
+
+.ip-checker-widget * {
+    box-sizing: border-box;
+    color: inherit;
+}
+
+.ip-checker-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 18px;
+}
+
+.ip-checker-kicker {
+    margin: 0 0 6px 0 !important;
+    font-size: 12px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.08em;
+    color: #16a34a !important;
+}
+
+.ip-checker-head h3 {
+    margin: 0 0 8px 0 !important;
+    font-size: 24px !important;
+    line-height: 1.25 !important;
+    font-weight: 900 !important;
+    color: #0f172a !important;
+}
+
+.ip-checker-head p {
+    margin: 0 !important;
+    font-size: 15px !important;
+    line-height: 1.65 !important;
+    color: #4b5563 !important;
+}
+
+.ip-checker-form {
+    display: flex;
+    gap: 10px;
+    padding: 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    background: #f8fafc;
+}
+
+.ip-checker-input {
+    flex: 1;
+    min-width: 0;
+    height: 48px;
+    padding: 0 16px;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: #111827 !important;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.ip-checker-input::placeholder {
+    color: #9ca3af !important;
+    font-weight: 600;
+}
+
+.ip-checker-button {
+    height: 48px;
+    padding: 0 22px;
+    border: 0;
+    border-radius: 14px;
+    background: #16a34a;
+    color: #ffffff !important;
+    font-size: 15px;
+    font-weight: 900;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    box-shadow: 0 10px 20px rgba(22, 163, 74, 0.22);
+}
+
+.ip-checker-button:hover {
+    transform: translateY(-1px);
+    background: #15803d;
+    box-shadow: 0 14px 26px rgba(22, 163, 74, 0.28);
+}
+
+.ip-checker-button:disabled {
+    cursor: wait;
+    opacity: 0.75;
+    transform: none;
+}
+
+.ip-checker-result {
+    margin-top: 16px;
+}
+
+.ip-checker-empty,
+.ip-checker-loading,
+.ip-checker-error {
+    padding: 16px;
+    border-radius: 16px;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    color: #64748b !important;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.ip-checker-error {
+    background: #fff7ed;
+    border-color: #fed7aa;
+    color: #c2410c !important;
+}
+
+.ip-checker-result-card {
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    background: #ffffff;
+}
+
+.ip-checker-result-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 13px 16px;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.ip-checker-result-row span {
+    color: #64748b !important;
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.ip-checker-result-row strong {
+    color: #0f172a !important;
+    font-size: 14px;
+    font-weight: 900;
+    text-align: right;
+    word-break: break-word;
+}
+
+.ip-checker-note {
+    margin: 0 !important;
+    padding: 14px 16px;
+    background: #f8fafc;
+    color: #64748b !important;
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+    font-weight: 700;
+}
+
+@media (max-width: 640px) {
+    .ip-checker-widget {
+        margin: 22px auto;
+        padding: 18px;
+        border-radius: 20px;
+    }
+
+    .ip-checker-head h3 {
+        font-size: 21px !important;
+    }
+
+    .ip-checker-form {
+        flex-direction: column;
+    }
+
+    .ip-checker-input,
+    .ip-checker-button {
+        width: 100%;
+    }
+
+    .ip-checker-result-row {
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .ip-checker-result-row strong {
+        text-align: left;
+    }
+}
+/* IP_CHECKER_WIDGET_END */
+
+
+/* Shorts auto maker */
+.shorts-action-box {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin: 2px;
+}
+
+.shorts-inline-form {
+    display: inline-block;
+    margin: 2px;
+}
+
+.shorts-make-btn {
+    background: linear-gradient(135deg, #ff3b7f, #7c3cff);
+    color: #fff !important;
+    border: none;
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    margin: 2px;
+}
+
+.shorts-make-btn:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.shorts-download-btn {
+    background: #111827;
+    color: #fff !important;
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-weight: 700;
+    text-decoration: none;
+    display: inline-block;
+    margin: 2px;
+}
+
+.shorts-status {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: #e5e7eb;
+    color: #111827;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.shorts-done {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.shorts-failed {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+
+.shorts-cover-btn {
+    background: #f59e0b;
+    color: #fff !important;
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-weight: 700;
+    text-decoration: none;
+    display: inline-block;
+    margin: 2px;
+}
+
+
+/* 글 목록 관리 - 쇼츠 영상 제작 버튼 정리 */
+a[href*="generate-shorts"],
+button[formaction*="generate-shorts"],
+.shorts-generate-btn,
+.btn-shorts,
+.shorts-btn {
+    min-width: 118px !important;
+    height: 44px !important;
+    padding: 0 18px !important;
+    border-radius: 14px !important;
+    border: none !important;
+    background: linear-gradient(135deg, #ec4899, #8b5cf6) !important;
+    color: #ffffff !important;
+    font-size: 14px !important;
+    font-weight: 800 !important;
+    line-height: 44px !important;
+    text-align: center !important;
+    text-decoration: none !important;
+    white-space: nowrap !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-sizing: border-box !important;
+}
+
+a[href*="generate-shorts"]:hover,
+button[formaction*="generate-shorts"]:hover,
+.shorts-generate-btn:hover,
+.btn-shorts:hover,
+.shorts-btn:hover {
+    filter: brightness(1.05);
+    transform: translateY(-1px);
+}
+
+/* 글 목록 버튼 줄 간격 정리 */
+.admin-post-actions,
+.post-manage-actions,
+.manage-post-actions,
+.post-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
