@@ -968,7 +968,60 @@ def _gemini_generate_text_once(prompt):
 
 
 
-def gemini_generate_text(prompt, *args, **kwargs):
+
+# CBL_AI_TEXT_RETRY_START
+def gemini_generate_text(*args, **kwargs):
+    """
+    Gemini 텍스트 생성 자동 재시도 래퍼.
+    503 UNAVAILABLE, timeout, 429, 500 계열처럼 일시적인 오류는 잠깐 기다렸다가 재시도한다.
+    """
+    import random
+    import time
+
+    max_retries = int(kwargs.pop("max_retries", 3))
+    base_delay = float(kwargs.pop("retry_base_delay", 2.0))
+
+    retry_words = (
+        "503",
+        "UNAVAILABLE",
+        "TIMEOUT",
+        "TIMED OUT",
+        "DEADLINE_EXCEEDED",
+        "429",
+        "RESOURCE_EXHAUSTED",
+        "500",
+        "INTERNAL",
+        "502",
+        "504",
+    )
+
+    last_error = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            if attempt > 1:
+                print(f"[AI 자동재시도] Gemini 텍스트 생성 재시도 {attempt}/{max_retries}")
+            return _gemini_generate_text_once(*args, **kwargs)
+
+        except Exception as e:
+            last_error = e
+            msg = f"{type(e).__name__}: {e}"
+            upper_msg = msg.upper()
+            is_retryable = any(word in upper_msg for word in retry_words)
+
+            if (not is_retryable) or attempt >= max_retries:
+                print("========== Gemini 텍스트 생성 최종 실패 ==========")
+                print(msg)
+                raise last_error
+
+            delay = base_delay * (2 ** (attempt - 1)) + random.uniform(0.3, 1.2)
+            print("========== Gemini 텍스트 생성 일시 오류 ==========")
+            print(f"[AI 자동재시도] {attempt}/{max_retries} 실패: {msg}")
+            print(f"[AI 자동재시도] {delay:.1f}초 후 다시 시도합니다.")
+            time.sleep(delay)
+# CBL_AI_TEXT_RETRY_END
+
+def _gemini_generate_text_once(prompt, *args, **kwargs):
     """
     Gemini API가 503 UNAVAILABLE / timeout 으로 튕길 때 자동 재시도하는 래퍼.
     기존 실제 호출 함수는 _gemini_generate_text_once 로 보존한다.
