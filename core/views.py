@@ -1937,3 +1937,425 @@ def mini_capcut_export(request):
             "message": "1차 버전은 프로젝트 저장까지 완료됩니다. 다음 단계에서 MP4 렌더링을 연결합니다.",
         }
     )
+
+
+# ===== CBL_MULTILANG_AI_GENERATE_PATCH_START =====
+# 다국어 자동글 생성 패치
+# - 기존 ai_post_generate 함수를 삭제하지 않고 여기서 같은 이름으로 다시 정의하여 덮어씁니다.
+# - DB 마이그레이션 없이 작동합니다.
+# - 나중에 Post.language 필드를 추가하면 자동으로 저장되도록 안전 처리했습니다.
+
+CBL_TARGET_LANGUAGE_LABELS = {
+    "ko": "한국어",
+    "en": "영어",
+    "zh": "중국어",
+    "ar": "아랍어",
+    "ja": "일본어",
+}
+
+CBL_TARGET_LANGUAGE_NAMES = {
+    "ko": "Korean",
+    "en": "English",
+    "zh": "Simplified Chinese",
+    "ar": "Modern Standard Arabic",
+    "ja": "Japanese",
+}
+
+
+def cbl_get_selected_languages(request):
+    allowed = ["ko", "en", "zh", "ar", "ja"]
+
+    selected = [
+        lang.strip()
+        for lang in request.POST.getlist("target_languages")
+        if lang.strip() in allowed
+    ]
+
+    if not selected:
+        selected = ["ko"]
+
+    # 중복 제거, 순서 유지
+    result = []
+    for lang in selected:
+        if lang not in result:
+            result.append(lang)
+
+    return result
+
+
+def cbl_split_keywords_from_request(request):
+    keyword_list = []
+
+    # 새 UI: keywords[] 여러 개
+    for value in request.POST.getlist("keywords[]"):
+        value = str(value or "").strip()
+        if value:
+            keyword_list.append(value)
+
+    # 일부 브라우저/템플릿에서 name="keywords"로 들어오는 경우
+    if not keyword_list:
+        raw_keywords = str(request.POST.get("keywords", "") or "").strip()
+
+        if raw_keywords:
+            # 줄바꿈 우선, 없으면 쉼표 기준 분리
+            raw_keywords = raw_keywords.replace("\r", "\n")
+            pieces = []
+
+            for line in raw_keywords.split("\n"):
+                if "," in line:
+                    pieces.extend(line.split(","))
+                else:
+                    pieces.append(line)
+
+            keyword_list = [piece.strip() for piece in pieces if piece.strip()]
+
+    # 기존 오늘자 키워드 추천: selected_keywords JSON
+    selected_keywords_raw = str(request.POST.get("selected_keywords", "") or "").strip()
+
+    if selected_keywords_raw:
+        try:
+            selected_keywords = json.loads(selected_keywords_raw)
+        except json.JSONDecodeError:
+            selected_keywords = []
+
+        if isinstance(selected_keywords, list):
+            selected_cleaned = [
+                str(keyword).strip()
+                for keyword in selected_keywords
+                if str(keyword).strip()
+            ]
+
+            if selected_cleaned:
+                keyword_list = selected_cleaned
+
+    # 중복 제거, 최대 20개
+    result = []
+    seen = set()
+
+    for keyword in keyword_list:
+        key = keyword.replace(" ", "").lower()
+
+        if not key or key in seen:
+            continue
+
+        result.append(keyword)
+        seen.add(key)
+
+        if len(result) >= 20:
+            break
+
+    return result
+
+
+def cbl_build_language_prompt(language, keyword, base_extra_prompt):
+    language_name = CBL_TARGET_LANGUAGE_NAMES.get(language, "Korean")
+
+    if language == "ko":
+        lang_rule = """
+이번 글은 한국어로 작성하세요.
+
+언어 규칙:
+- 제목, 요약, 본문, FAQ, 태그를 모두 자연스러운 한국어로 작성하세요.
+- 한국 독자가 검색해서 읽는 블로그 글처럼 작성하세요.
+- 본문 최상단에 h1 태그는 절대 사용하지 마세요.
+""".strip()
+
+    elif language == "en":
+        lang_rule = """
+Write the entire article in natural English for international readers.
+
+Language rules:
+- Title, summary, meta description, body, FAQ, and tags must be written in English.
+- Use clear and beginner-friendly English.
+- Start with a direct answer within the first two paragraphs.
+- Use H2 and H3 headings.
+- Add practical examples where useful.
+- Do not mention that the article was written by AI.
+- Do not use Korean except for proper nouns that need Korean context.
+- Never use an h1 tag at the top of the body.
+""".strip()
+
+    elif language == "zh":
+        lang_rule = """
+请用简体中文撰写整篇文章，面向海外读者。
+
+语言规则：
+- 标题、摘要、SEO说明、正文、FAQ和标签都必须使用简体中文。
+- 语言要自然、清晰，适合初学者阅读。
+- 前两段要直接回答搜索者的问题。
+- 使用 h2、h3、p、ul、li 等 HTML 标签。
+- 不要说明文章由 AI 生成。
+- 正文最上方绝对不要使用 h1 标签。
+""".strip()
+
+    elif language == "ar":
+        lang_rule = """
+اكتب المقال بالكامل باللغة العربية الفصحى الحديثة للقراء العرب.
+
+قواعد اللغة:
+- يجب أن يكون العنوان والملخص ووصف SEO والمحتوى والأسئلة الشائعة والوسوم باللغة العربية.
+- استخدم أسلوبًا واضحًا ومفيدًا ومناسبًا للمبتدئين.
+- ابدأ بإجابة مباشرة خلال أول فقرتين.
+- استخدم عناوين h2 و h3 عند الحاجة.
+- أضف أمثلة عملية عند الحاجة.
+- لا تذكر أن المقال تمت كتابته بواسطة الذكاء الاصطناعي.
+- لا تستخدم اللغة الكورية إلا عند الحاجة لأسماء الأماكن أو المصطلحات.
+- لا تستخدم وسم h1 في أعلى المحتوى.
+""".strip()
+
+    elif language == "ja":
+        lang_rule = """
+この記事全体を自然な日本語で作成してください。
+
+言語ルール:
+- タイトル、要約、SEO説明、本文、FAQ、タグはすべて日本語で書いてください。
+- 初心者にもわかりやすい自然な文章にしてください。
+- 最初の2段落で検索者の疑問に直接答えてください。
+- 必要に応じて h2、h3、p、ul、li タグを使ってください。
+- AIが作成した文章であることは書かないでください。
+- 本文の最上部に h1 タグは絶対に使わないでください。
+""".strip()
+
+    else:
+        lang_rule = f"Write the entire article in {language_name}."
+
+    return f"""
+{lang_rule}
+
+이번 생성 대상 키워드:
+{keyword}
+
+추가 요청사항:
+{base_extra_prompt}
+""".strip()
+
+
+def cbl_make_unique_language_slug(title, language):
+    if language == "ko":
+        return ""
+
+    base_slug = slugify(str(title or ""), allow_unicode=False).strip("-")
+
+    if not base_slug:
+        base_slug = f"{language}-post-{uuid.uuid4().hex[:10]}"
+
+    base_slug = f"{language}-{base_slug}"[:180].strip("-")
+    slug = base_slug
+    number = 2
+
+    while Post.objects.filter(slug=slug).exists():
+        slug = f"{base_slug}-{number}"[:200].strip("-")
+        number += 1
+
+    return slug
+
+
+@user_passes_test(admin_required)
+def ai_post_generate(request):
+    if request.method != "POST":
+        return redirect("admin_dashboard")
+
+    category = request.POST.get("category", "tech")
+    writing_style = request.POST.get("writing_style", "practical")
+    extra_prompt_input = request.POST.get("extra_prompt", "").strip()
+
+    keyword_list = cbl_split_keywords_from_request(request)
+    target_languages = cbl_get_selected_languages(request)
+
+    if not keyword_list:
+        messages.error(request, "주요 이슈 키워드를 1개 이상 입력해주세요.")
+        return redirect("admin_dashboard")
+
+    total_count = len(keyword_list) * len(target_languages)
+
+    if total_count > 30:
+        messages.error(
+            request,
+            f"한 번에 생성할 글이 너무 많습니다. 현재 {total_count}개입니다. 30개 이하로 줄여주세요."
+        )
+        return redirect("admin_dashboard")
+
+    try:
+        image_count = int(request.POST.get("image_count", 0))
+    except ValueError:
+        image_count = 0
+
+    image_count = max(0, min(image_count, 5))
+
+    make_thumbnail = request.POST.get("make_thumbnail") == "on"
+    include_tags = request.POST.get("include_tags") == "on"
+    save_draft = request.POST.get("save_draft") == "on"
+
+    experience_vault_text = ""
+
+    try:
+        vault = ExperienceVault.objects.filter(pk=1, is_active=True).first()
+
+        if vault and vault.content.strip():
+            experience_vault_text = vault.content.strip()[-12000:]
+
+    except Exception:
+        experience_vault_text = ""
+
+    default_human_prompt = """
+너무 AI처럼 딱딱하게 정리하지 말고, 사람이 개인 블로그에 직접 정리하듯이 자연스럽게 써줘.
+확인되지 않은 수치, 순위, 비교, 완료율, 우위 표현은 단정하지 말고 조심스럽게 표현해줘.
+건축·부동산·건설 관련 주제는 현장 실무자 관점에서 해석을 넣어줘.
+금융·세금·건강·법률 관련 주제는 단정적인 조언을 피하고 참고용 정보라는 뉘앙스를 유지해줘.
+문장 길이를 다양하게 섞고, 같은 문장 끝 표현을 반복하지 말아줘.
+본문에는 h2, h3, p, ul, li, strong 태그를 사용할 수 있음.
+본문 최상단에 h1 태그는 절대 사용하지 말 것.
+이미지 설명 문구를 본문에 반복해서 넣지 말 것.
+""".strip()
+
+    if experience_vault_text:
+        default_human_prompt += f"""
+
+아래는 블로그 운영자가 직접 적어둔 경험창고 내용입니다.
+글 주제와 관련 있는 부분만 자연스럽게 참고하세요.
+관련 없는 내용은 억지로 넣지 마세요.
+내용을 그대로 복사하지 말고, 운영자의 경험과 관점이 묻어나게 재해석하세요.
+
+[경험창고]
+{experience_vault_text}
+"""
+
+    base_extra_prompt = f"{default_human_prompt}\n\n{extra_prompt_input}".strip()
+
+    created_posts = []
+    created_index_urls = []
+
+    try:
+        for keyword_index, keyword in enumerate(keyword_list, start=1):
+            for language in target_languages:
+                language_label = CBL_TARGET_LANGUAGE_LABELS.get(language, language)
+                language_prompt = cbl_build_language_prompt(
+                    language=language,
+                    keyword=keyword,
+                    base_extra_prompt=base_extra_prompt,
+                )
+
+                ai_data = generate_ai_post(
+                    category=category,
+                    keywords=keyword,
+                    writing_style=writing_style,
+                    extra_prompt=language_prompt,
+                    include_tags=include_tags,
+                    make_thumbnail=make_thumbnail,
+                    image_count=image_count,
+                    planned_title=keyword,
+                )
+
+                content = ai_data.get("content", "")
+                inline_image_blocks = []
+
+                for image_index, image_data in enumerate(ai_data.get("content_images", []), start=1):
+                    image_prompt = (image_data.get("prompt") or "").strip()
+                    caption = (image_data.get("caption") or "").strip()
+
+                    if not image_prompt:
+                        continue
+
+                    try:
+                        image_url = save_inline_image(
+                            prompt=image_prompt,
+                            prefix=f"{category}-{language}-{keyword_index}-{image_index}",
+                        )
+                    except Exception as error:
+                        print("========== 본문 이미지 생성 실패 ==========")
+                        print(error)
+                        traceback.print_exc()
+                        print("========================================")
+                        image_url = ""
+
+                    if image_url:
+                        inline_image_blocks.append({
+                            "url": image_url,
+                            "caption": caption,
+                        })
+
+                content = replace_image_placeholders(content, inline_image_blocks)
+                content = normalize_html_spaces(content)
+                content = validate_generated_content_or_raise(
+                    content,
+                    title=ai_data.get("title", keyword),
+                    min_length=500,
+                )
+
+                post_create_kwargs = {
+                    "category": category,
+                    "title": ai_data.get("title", keyword),
+                    "thumbnail_text": ai_data.get("thumbnail_text", ""),
+                    "content": content,
+                    "tags": ai_data.get("tags", "") if include_tags else "",
+                    "is_published": not save_draft,
+                }
+
+                post_field_names = get_post_field_names()
+
+                # 추후 Post.language 필드를 추가하면 자동 저장됨
+                if "language" in post_field_names:
+                    post_create_kwargs["language"] = language
+
+                if language != "ko" and "slug" in post_field_names:
+                    language_slug = cbl_make_unique_language_slug(
+                        ai_data.get("title", keyword),
+                        language,
+                    )
+
+                    if language_slug:
+                        post_create_kwargs["slug"] = language_slug
+
+                post = Post.objects.create(**post_create_kwargs)
+                set_post_optional_seo_fields(post, ai_data)
+
+                thumbnail_prompt = (ai_data.get("thumbnail_prompt") or "").strip()
+
+                if make_thumbnail and thumbnail_prompt:
+                    try:
+                        thumbnail_filename, thumbnail_file = make_generated_image_file(
+                            prompt=thumbnail_prompt,
+                            prefix=f"thumbnail-{language}-{post.pk}",
+                        )
+
+                        if thumbnail_filename and thumbnail_file:
+                            post.thumbnail.save(
+                                thumbnail_filename,
+                                thumbnail_file,
+                                save=True,
+                            )
+                    except Exception as error:
+                        print("========== 썸네일 이미지 생성 실패 ==========")
+                        print(error)
+                        traceback.print_exc()
+                        print("==========================================")
+
+                created_posts.append(post)
+                created_index_urls.append(
+                    f"{language_label}: {request.build_absolute_uri(post.get_absolute_url())}"
+                )
+
+    except Exception as error:
+        print("========== AI 다국어 글 생성 오류 ==========")
+        print(error)
+        traceback.print_exc()
+        print("=========================================")
+
+        messages.error(request, f"AI 글 생성 중 오류가 발생했습니다: {error}")
+        # CBL_AJAX_AI_ERROR_PATCH
+        if request.headers.get("X-CBL-Sequential-AI") == "1" or request.POST.get("cbl_sequential_generate") == "1":
+            return JsonResponse({"ok": False, "error": str(locals().get("e", "AI 글 생성 오류"))}, status=500)
+        return redirect("admin_dashboard")
+
+    if len(created_posts) == 1:
+        return redirect("post_detail", pk=created_posts[0].pk)
+
+    index_url_text = " | ".join(created_index_urls)
+    messages.success(
+        request,
+        f"AI 글 {len(created_posts)}개를 생성했습니다. 색인요청 주소: {index_url_text}"
+    )
+
+    return redirect("admin_dashboard")
+# ===== CBL_MULTILANG_AI_GENERATE_PATCH_END =====
+
