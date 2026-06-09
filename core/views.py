@@ -1673,3 +1673,267 @@ def post_generate_shorts(request, post_id):
         messages.error(request, f"쇼츠 영상 생성 실패: {err_msg[:300]}")
 
     return redirect("/dashboard/")
+
+
+# ============================================================
+# CBL_MINI_CAPCUT_V1
+# 미니 CapCut 스타일 쇼츠 편집기
+# ============================================================
+def _mini_capcut_admin_required(user):
+    return user.is_authenticated and (user.is_staff or user.is_superuser)
+
+def _mini_capcut_seed_state_from_post_short_video(post):
+    """
+    기존 쇼츠 영상 파일이 있으면 미니 CapCut 편집기에
+    영상 1개짜리 프로젝트로 자동 불러오기 위한 초기 데이터.
+    실제 필드명이 달라도 short/video/render/output/generated 계열 FileField를 자동 탐색한다.
+    """
+    candidates = []
+
+    for field in getattr(post, "_meta").fields:
+        name = getattr(field, "name", "")
+        lower = name.lower()
+        value = getattr(post, name, None)
+
+        if not value:
+            continue
+
+        try:
+            url = value.url
+        except Exception:
+            continue
+
+        if not url:
+            continue
+
+        score = 0
+
+        if "short" in lower:
+            score += 100
+        if "render" in lower or "output" in lower or "generated" in lower:
+            score += 60
+        if "video" in lower:
+            score += 30
+
+        if score <= 0:
+            continue
+
+        candidates.append((score, name, url))
+
+    if not candidates:
+        return {}
+
+    candidates.sort(reverse=True)
+    _, field_name, url = candidates[0]
+
+    asset_id = uuid.uuid4().hex
+    clip_id = uuid.uuid4().hex
+
+    return {
+        "assets": [
+            {
+                "id": asset_id,
+                "name": "기존 쇼츠 영상",
+                "url": url,
+                "type": "video",
+                "sourceField": field_name,
+            }
+        ],
+        "clips": [
+            {
+                "id": clip_id,
+                "assetId": asset_id,
+                "type": "video",
+                "name": "기존 쇼츠 영상",
+                "url": url,
+                "start": 0,
+                "duration": 15,
+                "speed": 1,
+                "volume": 1,
+                "transition": "none",
+                "text": "",
+            }
+        ],
+        "selectedClipId": clip_id,
+    }
+
+
+
+from django.contrib.auth.decorators import login_required, user_passes_test
+from django.views.decorators.http import require_POST
+from django.http import JsonResponse
+from django.shortcuts import render, get_object_or_404
+from django.conf import settings
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+from django.utils import timezone
+import json
+import uuid
+import os
+
+
+@login_required
+@user_passes_test(_mini_capcut_admin_required)
+def mini_capcut_home(request):
+    from .models import Post, MiniCapcutProject
+    from django.db.models import Exists, OuterRef, Subquery
+
+    latest_project = MiniCapcutProject.objects.filter(post=OuterRef("pk")).order_by("-updated_at")
+
+    posts = (
+        Post.objects
+        .annotate(
+            has_mini_capcut_project=Exists(latest_project),
+            latest_mini_capcut_project_id=Subquery(latest_project.values("id")[:1]),
+        )
+        .order_by("-created_at")[:80]
+    )
+
+    projects = MiniCapcutProject.objects.select_related("post").order_by("-updated_at")[:30]
+
+    return render(
+        request,
+        "core/mini_capcut_editor.html",
+        {
+            "post": None,
+            "project": None,
+            "posts": posts,
+            "projects": projects,
+            "initial_state": {},
+            "editor_meta": {
+                "postId": None,
+                "projectId": None,
+            },
+        },
+    )
+
+
+@login_required
+@user_passes_test(_mini_capcut_admin_required)
+def mini_capcut_editor(request, post_id):
+    from .models import Post, MiniCapcutProject
+
+    post = get_object_or_404(Post, id=post_id)
+    project = MiniCapcutProject.objects.filter(post=post).order_by("-updated_at").first()
+
+    if project and isinstance(project.data, dict):
+        initial_state = project.data
+    else:
+        initial_state = _mini_capcut_seed_state_from_post_short_video(post)
+
+    return render(
+        request,
+        "core/mini_capcut_editor.html",
+        {
+            "post": post,
+            "project": project,
+            "posts": None,
+            "projects": None,
+            "initial_state": initial_state,
+            "editor_meta": {
+                "postId": post.id,
+                "projectId": project.id if project else None,
+            },
+        },
+    )
+
+
+@login_required
+@user_passes_test(_mini_capcut_admin_required)
+@require_POST
+def mini_capcut_upload(request):
+    allowed_exts = {
+        ".mp4", ".mov", ".m4v", ".webm",
+        ".jpg", ".jpeg", ".png", ".webp", ".gif",
+        ".mp3", ".wav", ".m4a", ".aac", ".ogg",
+    }
+
+    uploaded = []
+    today = timezone.now().strftime("%Y%m%d")
+
+    for f in request.FILES.getlist("files"):
+        original_name = f.name
+        ext = os.path.splitext(original_name)[1].lower()
+
+        if ext not in allowed_exts:
+            continue
+
+        content_type = getattr(f, "content_type", "") or ""
+
+        if content_type.startswith("video/") or ext in [".mp4", ".mov", ".m4v", ".webm"]:
+            asset_type = "video"
+        elif content_type.startswith("audio/") or ext in [".mp3", ".wav", ".m4a", ".aac", ".ogg"]:
+            asset_type = "audio"
+        else:
+            asset_type = "image"
+
+        safe_name = f"{uuid.uuid4().hex}{ext}"
+        rel_path = f"mini_capcut/{today}/{safe_name}"
+        saved_path = default_storage.save(rel_path, ContentFile(f.read()))
+
+        uploaded.append(
+            {
+                "id": uuid.uuid4().hex,
+                "name": original_name,
+                "url": settings.MEDIA_URL + saved_path,
+                "type": asset_type,
+                "size": f.size,
+            }
+        )
+
+    return JsonResponse({"ok": True, "files": uploaded})
+
+
+@login_required
+@user_passes_test(_mini_capcut_admin_required)
+@require_POST
+def mini_capcut_save(request):
+    from .models import Post, MiniCapcutProject
+
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return JsonResponse({"ok": False, "error": "잘못된 저장 데이터입니다."}, status=400)
+
+    post_id = payload.get("post_id")
+    project_id = payload.get("project_id")
+    title = payload.get("title") or "미니 CapCut 프로젝트"
+    data = payload.get("data") or {}
+
+    post = None
+    if post_id:
+        post = get_object_or_404(Post, id=post_id)
+
+    if project_id:
+        project = get_object_or_404(MiniCapcutProject, id=project_id)
+    else:
+        project = MiniCapcutProject(post=post)
+
+    project.post = post
+    project.title = title
+    project.data = data
+    project.save()
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "project_id": project.id,
+            "message": "프로젝트가 저장되었습니다.",
+        }
+    )
+
+
+@login_required
+@user_passes_test(_mini_capcut_admin_required)
+@require_POST
+def mini_capcut_export(request):
+    """
+    1차 버전에서는 편집 프로젝트 저장까지만 담당.
+    다음 단계에서 ffmpeg 기반 MP4 렌더링을 이 함수에 연결한다.
+    """
+    return JsonResponse(
+        {
+            "ok": True,
+            "message": "1차 버전은 프로젝트 저장까지 완료됩니다. 다음 단계에서 MP4 렌더링을 연결합니다.",
+        }
+    )

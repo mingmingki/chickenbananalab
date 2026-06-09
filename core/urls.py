@@ -4,6 +4,12 @@ from . import views
 
 
 urlpatterns = [
+    path("mini-capcut/", views.mini_capcut_home, name="mini_capcut_home"),
+    path("mini-capcut/post/<int:post_id>/", views.mini_capcut_editor, name="mini_capcut_editor"),
+    path("mini-capcut/upload/", views.mini_capcut_upload, name="mini_capcut_upload"),
+    path("mini-capcut/save/", views.mini_capcut_save, name="mini_capcut_save"),
+    path("mini-capcut/export/", views.mini_capcut_export, name="mini_capcut_export"),
+
     path("tools/ip-lookup/", ip_lookup_api, name="ip_lookup_api"),
     path("", views.home, name="home"),
     path("experience-vault/", views.experience_vault, name="experience_vault"),

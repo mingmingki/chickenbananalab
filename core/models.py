@@ -429,3 +429,28 @@ class AIAutoKeywordQueue(models.Model):
 
     def __str__(self):
         return f"[{self.get_category_display()}] {self.keyword} - {self.get_status_display()}"
+
+
+# ==============================
+# Mini CapCut editor project
+# ==============================
+class MiniCapcutProject(models.Model):
+    post = models.ForeignKey(
+        "Post",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="mini_capcut_projects",
+        verbose_name="연결 글",
+    )
+    title = models.CharField(max_length=200, blank=True, default="", verbose_name="프로젝트명")
+    data = models.JSONField(default=dict, blank=True, verbose_name="편집 데이터")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일")
+
+    class Meta:
+        verbose_name = "미니 CapCut 프로젝트"
+        verbose_name_plural = "미니 CapCut 프로젝트"
+
+    def __str__(self):
+        return self.title or f"MiniCapcutProject #{self.pk}"
