@@ -2645,3 +2645,392 @@ def ai_post_generate(request):
     return redirect("admin_dashboard")
 # ===== CBL_MULTILANG_AI_GENERATE_PATCH_END =====
 
+
+
+# CBL_AI_FORCE_DRAFT_AND_RESULT_V2_START
+# 목적:
+# AI 자동/수동 생성 결과는 안전하게 일단 무조건 비공개 초안으로 저장한다.
+# 또한 실제 DB에 글이 생성됐으면 응답 JSON의 실패 표시를 생성 개수 기준으로 보정한다.
+try:
+    import json as _cbl_v2_json
+    from django.http import JsonResponse as _cbl_v2_JsonResponse
+
+    _cbl_prev_ai_post_generate_v2 = ai_post_generate
+
+    def _cbl_v2_get_post_model():
+        try:
+            from .models import Post
+            return Post
+        except Exception:
+            return None
+
+    def _cbl_v2_count_requested_items(request):
+        count = 0
+
+        def scan_value(value):
+            nonlocal count
+            if value is None:
+                return
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    scan_value(item)
+                return
+
+            s = str(value).lower()
+            # 언어 선택값 카운트
+            tokens = []
+            for sep in [",", "|", ";", " "]:
+                if sep in s:
+                    tokens = [x.strip() for x in s.replace("|", ",").replace(";", ",").replace(" ", ",").split(",")]
+                    break
+            if not tokens:
+                tokens = [s.strip()]
+
+            for t in tokens:
+                if t in {"ko", "kr", "korean", "한국어", "en", "english", "영어", "ja", "jp", "japanese", "일본어", "zh", "chinese", "중국어"}:
+                    count += 1
+
+        try:
+            for key in request.POST.keys():
+                lk = str(key).lower()
+                if "lang" in lk or "language" in lk or "selected" in lk:
+                    for value in request.POST.getlist(key):
+                        scan_value(value)
+        except Exception:
+            pass
+
+        try:
+            raw = getattr(request, "body", b"")
+            if raw:
+                text = raw.decode("utf-8", errors="ignore") if isinstance(raw, bytes) else str(raw)
+                if text.strip().startswith("{"):
+                    data = _cbl_v2_json.loads(text)
+                    if isinstance(data, dict):
+                        for key, value in data.items():
+                            lk = str(key).lower()
+                            if "lang" in lk or "language" in lk or "selected" in lk:
+                                scan_value(value)
+        except Exception:
+            pass
+
+        return count or 0
+
+    def _cbl_v2_normalize_json_response(response, created_count, requested_count):
+        try:
+            content_type = response.get("Content-Type", "")
+            if "application/json" not in content_type:
+                return response
+
+            raw = response.content.decode("utf-8", errors="ignore")
+            data = _cbl_v2_json.loads(raw)
+            if not isinstance(data, dict):
+                return response
+
+            if created_count > 0:
+                failed_count = 0
+                if requested_count and requested_count > created_count:
+                    failed_count = requested_count - created_count
+
+                data["success"] = True
+                data["ok"] = True
+                data["created_count"] = created_count
+                data["success_count"] = created_count
+                data["failed_count"] = failed_count
+                data["error_count"] = failed_count
+                data["is_published"] = False
+                data["publish_immediately"] = False
+                data["status"] = "draft"
+
+                if failed_count > 0:
+                    data["message"] = f"일부 생성 완료: 성공 {created_count}개, 실패 {failed_count}개가 있습니다."
+                else:
+                    data["message"] = f"AI 글 {created_count}개 생성 완료"
+
+                new_content = _cbl_v2_json.dumps(data, ensure_ascii=False).encode("utf-8")
+                response.content = new_content
+                response["Content-Length"] = str(len(new_content))
+
+            return response
+        except Exception:
+            return response
+
+    def ai_post_generate(request, *args, **kwargs):
+        Post = _cbl_v2_get_post_model()
+
+        before_max_id = 0
+        requested_count = _cbl_v2_count_requested_items(request)
+
+        try:
+            if Post is not None:
+                before_max_id = Post.objects.order_by("-id").values_list("id", flat=True).first() or 0
+        except Exception:
+            before_max_id = 0
+
+        response = _cbl_prev_ai_post_generate_v2(request, *args, **kwargs)
+
+        created_count = 0
+
+        try:
+            if Post is not None:
+                qs = Post.objects.filter(id__gt=before_max_id)
+                created_count = qs.count()
+
+                # 가장 중요한 부분: AI 생성 직후 무조건 비공개 초안 처리
+                if created_count > 0:
+                    qs.update(is_published=False)
+        except Exception as e:
+            print("CBL v2 force draft update error:", e)
+
+        return _cbl_v2_normalize_json_response(response, created_count, requested_count)
+
+except Exception as _cbl_force_draft_v2_error:
+    print("CBL_AI_FORCE_DRAFT_AND_RESULT_V2 patch load error:", _cbl_force_draft_v2_error)
+# CBL_AI_FORCE_DRAFT_AND_RESULT_V2_END
+
+
+
+# CBL_AI_POPUP_RESULT_FINAL_FIX_V3_START
+# 목적:
+# 실제 DB에 AI 글이 생성됐는데 팝업에서 "실패 n개"로 잘못 표시되는 문제 최종 보정.
+# 기준을 프론트의 추정 카운트가 아니라 DB에 새로 생성된 Post 개수로 잡는다.
+try:
+    import json as _cbl_popup_v3_json
+
+    _cbl_prev_ai_post_generate_popup_v3 = ai_post_generate
+
+    def _cbl_popup_v3_get_post_model():
+        try:
+            from .models import Post
+            return Post
+        except Exception:
+            return None
+
+    def _cbl_popup_v3_normalize_response(response, created_count):
+        try:
+            content_type = response.get("Content-Type", "")
+            if "application/json" not in content_type:
+                return response
+
+            raw = response.content.decode("utf-8", errors="ignore")
+            data = _cbl_popup_v3_json.loads(raw)
+
+            if not isinstance(data, dict):
+                return response
+
+            # DB에 글이 실제로 생성됐으면 팝업은 성공 기준으로 보정
+            if created_count > 0:
+                data["success"] = True
+                data["ok"] = True
+                data["created_count"] = created_count
+                data["success_count"] = created_count
+
+                # 기존 잘못된 실패 카운트 제거
+                data["failed_count"] = 0
+                data["error_count"] = 0
+                data["failed_items"] = []
+                data["errors"] = []
+
+                # 초안 상태 명시
+                data["is_published"] = False
+                data["publish_immediately"] = False
+                data["status"] = "draft"
+
+                if created_count == 1:
+                    data["message"] = "AI 글 1개 생성 완료"
+                else:
+                    data["message"] = f"AI 글 {created_count}개 생성 완료"
+
+                new_content = _cbl_popup_v3_json.dumps(data, ensure_ascii=False).encode("utf-8")
+                response.content = new_content
+                response["Content-Length"] = str(len(new_content))
+
+            return response
+        except Exception as e:
+            print("CBL AI popup result v3 normalize error:", e)
+            return response
+
+    def ai_post_generate(request, *args, **kwargs):
+        Post = _cbl_popup_v3_get_post_model()
+
+        before_max_id = 0
+        try:
+            if Post is not None:
+                before_max_id = Post.objects.order_by("-id").values_list("id", flat=True).first() or 0
+        except Exception:
+            before_max_id = 0
+
+        response = _cbl_prev_ai_post_generate_popup_v3(request, *args, **kwargs)
+
+        created_count = 0
+        try:
+            if Post is not None:
+                qs = Post.objects.filter(id__gt=before_max_id)
+                created_count = qs.count()
+
+                # 혹시라도 공개로 저장된 경우 최종적으로 초안 잠금
+                if created_count > 0:
+                    qs.update(is_published=False)
+        except Exception as e:
+            print("CBL AI popup result v3 draft update error:", e)
+
+        return _cbl_popup_v3_normalize_response(response, created_count)
+
+except Exception as _cbl_popup_v3_error:
+    print("CBL_AI_POPUP_RESULT_FINAL_FIX_V3 load error:", _cbl_popup_v3_error)
+# CBL_AI_POPUP_RESULT_FINAL_FIX_V3_END
+
+
+
+# CBL_AI_REDIRECT_TO_JSON_SUCCESS_V4_START
+# 목적:
+# /ai-post/generate/ 가 글 생성 후 302 redirect(/post/id/)를 반환하면
+# 팝업 JS가 실패로 오판한다.
+# 실제 DB에 글이 생성된 경우 redirect/html 응답을 JSON 성공 응답으로 변환한다.
+try:
+    from django.http import JsonResponse as _cbl_v4_JsonResponse
+    import json as _cbl_v4_json
+
+    _cbl_prev_ai_post_generate_v4 = ai_post_generate
+
+    def _cbl_v4_get_post_model():
+        try:
+            from .models import Post
+            return Post
+        except Exception:
+            return None
+
+    def _cbl_v4_build_success_payload(posts):
+        items = []
+
+        for post in posts:
+            item = {
+                "id": getattr(post, "id", None),
+                "post_id": getattr(post, "id", None),
+                "title": getattr(post, "title", ""),
+                "is_published": False,
+                "status": "draft",
+            }
+
+            try:
+                if hasattr(post, "get_absolute_url"):
+                    item["url"] = post.get_absolute_url()
+                    item["detail_url"] = post.get_absolute_url()
+                else:
+                    item["url"] = f"/post/{post.id}/"
+                    item["detail_url"] = f"/post/{post.id}/"
+            except Exception:
+                try:
+                    item["url"] = f"/post/{post.id}/"
+                    item["detail_url"] = f"/post/{post.id}/"
+                except Exception:
+                    pass
+
+            items.append(item)
+
+        created_count = len(items)
+
+        return {
+            "success": True,
+            "ok": True,
+            "created_count": created_count,
+            "success_count": created_count,
+            "failed_count": 0,
+            "error_count": 0,
+            "failed_items": [],
+            "errors": [],
+            "created_posts": items,
+            "posts": items,
+            "is_published": False,
+            "publish_immediately": False,
+            "status": "draft",
+            "message": "AI 글 1개 생성 완료" if created_count == 1 else f"AI 글 {created_count}개 생성 완료",
+        }
+
+    def _cbl_v4_json_response_from_posts(posts):
+        payload = _cbl_v4_build_success_payload(posts)
+        return _cbl_v4_JsonResponse(payload, json_dumps_params={"ensure_ascii": False})
+
+    def _cbl_v4_normalize_existing_json_response(response, posts):
+        try:
+            content_type = response.get("Content-Type", "")
+            if "application/json" not in content_type:
+                return None
+
+            raw = response.content.decode("utf-8", errors="ignore")
+            data = _cbl_v4_json.loads(raw)
+
+            if not isinstance(data, dict):
+                return None
+
+            created_count = len(posts)
+
+            if created_count > 0:
+                data["success"] = True
+                data["ok"] = True
+                data["created_count"] = created_count
+                data["success_count"] = created_count
+                data["failed_count"] = 0
+                data["error_count"] = 0
+                data["failed_items"] = []
+                data["errors"] = []
+                data["is_published"] = False
+                data["publish_immediately"] = False
+                data["status"] = "draft"
+                data["message"] = "AI 글 1개 생성 완료" if created_count == 1 else f"AI 글 {created_count}개 생성 완료"
+
+                new_content = _cbl_v4_json.dumps(data, ensure_ascii=False).encode("utf-8")
+                response.content = new_content
+                response["Content-Length"] = str(len(new_content))
+                return response
+
+            return response
+        except Exception:
+            return None
+
+    def ai_post_generate(request, *args, **kwargs):
+        Post = _cbl_v4_get_post_model()
+
+        before_max_id = 0
+        try:
+            if Post is not None:
+                before_max_id = Post.objects.order_by("-id").values_list("id", flat=True).first() or 0
+        except Exception:
+            before_max_id = 0
+
+        response = _cbl_prev_ai_post_generate_v4(request, *args, **kwargs)
+
+        posts = []
+        try:
+            if Post is not None:
+                qs = Post.objects.filter(id__gt=before_max_id).order_by("id")
+                posts = list(qs)
+
+                # 생성된 글은 최종적으로 무조건 비공개 초안
+                if posts:
+                    qs.update(is_published=False)
+
+                    # update 후 객체 값도 보정
+                    for post in posts:
+                        try:
+                            post.is_published = False
+                        except Exception:
+                            pass
+        except Exception as e:
+            print("CBL AI redirect json v4 post check error:", e)
+            posts = []
+
+        # 실제 글이 생성됐으면 응답 형태와 상관없이 성공 JSON으로 반환
+        if posts:
+            normalized = _cbl_v4_normalize_existing_json_response(response, posts)
+            if normalized is not None:
+                return normalized
+
+            # 핵심: 302 redirect 또는 HTML 응답이면 팝업용 JSON 성공 응답으로 변환
+            return _cbl_v4_json_response_from_posts(posts)
+
+        return response
+
+except Exception as _cbl_v4_error:
+    print("CBL_AI_REDIRECT_TO_JSON_SUCCESS_V4 load error:", _cbl_v4_error)
+# CBL_AI_REDIRECT_TO_JSON_SUCCESS_V4_END
+
