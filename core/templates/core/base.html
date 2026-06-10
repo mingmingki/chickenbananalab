@@ -1769,6 +1769,14 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
     if(window.__CBL_AI_SEQ_SIMPLE__) return;
     window.__CBL_AI_SEQ_SIMPLE__ = true;
 
+    const __cblAiSeqPath = window.location.pathname || "";
+
+    // AI 순차 생성 스크립트는 자동글 생성 화면 전용.
+    // 글 작성/수정 화면에서는 수정저장 submit을 절대 가로채지 않는다.
+    if (/\/post\/\d+\/edit\/?$/.test(__cblAiSeqPath) || __cblAiSeqPath.includes("/post/add")) {
+        return;
+    }
+
     const $ = (s, r=document) => r.querySelector(s);
     const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
 
