@@ -1885,3 +1885,5 @@ def replace_image_placeholders(content, image_blocks):
     updated_content = re.sub(r"\[\[IMAGE_\d+\]\]", "", updated_content)
 
     return updated_content
+
+
