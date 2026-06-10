@@ -1021,48 +1021,6 @@ def gemini_generate_text(*args, **kwargs):
             time.sleep(delay)
 # CBL_AI_TEXT_RETRY_END
 
-def _gemini_generate_text_once(prompt, *args, **kwargs):
-    """
-    Gemini API가 503 UNAVAILABLE / timeout 으로 튕길 때 자동 재시도하는 래퍼.
-    기존 실제 호출 함수는 _gemini_generate_text_once 로 보존한다.
-    """
-    import time
-    import random
-
-    retry_keywords = (
-        "503",
-        "UNAVAILABLE",
-        "timed out",
-        "timeout",
-        "temporarily unavailable",
-        "Please try again",
-    )
-
-    last_error = None
-
-    for attempt in range(1, 5):
-        try:
-            return _gemini_generate_text_once(prompt, *args, **kwargs)
-        except Exception as e:
-            msg = str(e)
-            is_retryable = any(k.lower() in msg.lower() for k in retry_keywords)
-
-            if not is_retryable:
-                raise
-
-            last_error = e
-
-            if attempt >= 4:
-                break
-
-            wait = min(2 * attempt + random.random(), 8)
-            print(f"[Gemini retry] {attempt}/4 실패, {wait:.1f}초 후 재시도: {msg}")
-            time.sleep(wait)
-
-    raise RuntimeError(
-        "Gemini 응답 지연으로 글 생성에 실패했습니다. "
-        "잠시 후 다시 시도하거나, 이미지/다국어 생성 옵션을 줄여서 다시 실행하세요."
-    ) from last_error
 def generate_ai_post(
     category,
     keywords,

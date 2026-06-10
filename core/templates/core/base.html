@@ -1495,16 +1495,8 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
             영어로 생성
           </label>
           <label class="cbl-force-lang-item">
-            <input type="checkbox" name="target_languages" value="zh">
-            중국어로 생성
-          </label>
-          <label class="cbl-force-lang-item">
             <input type="checkbox" name="target_languages" value="ar">
             아랍어로 생성
-          </label>
-          <label class="cbl-force-lang-item">
-            <input type="checkbox" name="target_languages" value="ja">
-            일본어로 생성
           </label>
         </div>
         <div class="cbl-force-total">
@@ -1934,6 +1926,14 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 
     function ensurePanel(form){
         if(!form || form.querySelector("[data-cbl-ai-seq-options]")) return;
+
+        const currentPath = window.location.pathname || "";
+
+        // 글 작성/수정 화면에는 AI 순차 생성 옵션 박스를 붙이지 않는다.
+        // 이 옵션은 자동글 생성 화면 전용이다.
+        if (/\/post\/\d+\/edit\/?$/.test(currentPath) || currentPath.includes("/post/add")) {
+            return;
+        }
 
         const panel = document.createElement("div");
         panel.className = "cbl-ai-seq-options";
