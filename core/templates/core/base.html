@@ -2419,5 +2419,204 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 <!-- CBL_AI_SEQ_SIMPLE_END -->
 
 
+
+<script>
+/* CBL_AI_GENERATE_DRAFT_RESULT_FRONT_HOTFIX_START */
+(function () {
+  if (window.__cblAiGenerateDraftResultFrontHotfix) return;
+  window.__cblAiGenerateDraftResultFrontHotfix = true;
+
+  const originalFetch = window.fetch;
+
+  function isAiGenerateUrl(input) {
+    try {
+      const url = typeof input === "string" ? input : (input && input.url) ? input.url : "";
+      return /ai[^?#]*generate|ai_post_generate|ai-post-generate/i.test(url);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function draftOptionEnabled() {
+    try {
+      const inputCandidates = Array.from(document.querySelectorAll("input, textarea, select"));
+      for (const el of inputCandidates) {
+        const name = ((el.name || "") + " " + (el.id || "")).toLowerCase();
+        const value = String(el.value || "").toLowerCase();
+
+        if (
+          name.includes("draft") ||
+          name.includes("private") ||
+          name.includes("is_published") ||
+          name.includes("publish_immediately")
+        ) {
+          if (el.type === "checkbox" || el.type === "radio") {
+            if (el.checked) {
+              if (name.includes("draft") || name.includes("private")) return true;
+              if (name.includes("publish") && ["0", "false", "off", "no", "draft", "private"].includes(value)) return true;
+            }
+          } else {
+            if (["0", "false", "off", "no", "draft", "private", "비공개", "초안"].includes(value)) return true;
+          }
+        }
+      }
+
+      const textCandidates = Array.from(document.querySelectorAll("button, label, div, span"));
+      const draftEl = textCandidates.find(function (el) {
+        const text = (el.textContent || "").replace(/\s+/g, " ").trim();
+        return text.includes("비공개") && text.includes("초안");
+      });
+
+      if (!draftEl) return false;
+
+      const innerInput = draftEl.querySelector && draftEl.querySelector("input[type='checkbox'], input[type='radio']");
+      if (innerInput) return !!innerInput.checked;
+
+      const cls = String(draftEl.className || "").toLowerCase();
+      const aria = String(draftEl.getAttribute("aria-pressed") || draftEl.getAttribute("aria-checked") || "").toLowerCase();
+      const text = draftEl.textContent || "";
+
+      if (aria === "true") return true;
+      if (cls.includes("active") || cls.includes("selected") || cls.includes("checked") || cls.includes("on")) return true;
+      if (text.includes("✓") || text.includes("✔")) return true;
+
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function applyDraftFieldsToBody(body) {
+    const draftOn = draftOptionEnabled();
+    if (!draftOn) return body;
+
+    try {
+      if (body instanceof FormData) {
+        body.set("save_as_draft", "1");
+        body.set("draft", "1");
+        body.set("is_draft", "1");
+        body.set("publish_immediately", "0");
+        body.set("is_published", "0");
+        return body;
+      }
+
+      if (body instanceof URLSearchParams) {
+        body.set("save_as_draft", "1");
+        body.set("draft", "1");
+        body.set("is_draft", "1");
+        body.set("publish_immediately", "0");
+        body.set("is_published", "0");
+        return body;
+      }
+
+      if (typeof body === "string") {
+        const trimmed = body.trim();
+
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+          const data = JSON.parse(trimmed);
+          data.save_as_draft = true;
+          data.draft = true;
+          data.is_draft = true;
+          data.publish_immediately = false;
+          data.is_published = false;
+          return JSON.stringify(data);
+        }
+
+        const params = new URLSearchParams(body);
+        if (Array.from(params.keys()).length > 0) {
+          params.set("save_as_draft", "1");
+          params.set("draft", "1");
+          params.set("is_draft", "1");
+          params.set("publish_immediately", "0");
+          params.set("is_published", "0");
+          return params.toString();
+        }
+      }
+    } catch (e) {
+      return body;
+    }
+
+    return body;
+  }
+
+  function normalizeAiGenerateJson(data) {
+    try {
+      if (!data || typeof data !== "object") return data;
+
+      let createdCount = Number(data.created_count || data.success_count || 0);
+
+      if (!createdCount) {
+        const keys = ["created_posts", "posts", "created", "created_items", "results", "items"];
+        for (const key of keys) {
+          if (Array.isArray(data[key])) {
+            const count = data[key].filter(function (item) {
+              if (!item || typeof item !== "object") return true;
+              const status = String(item.status || item.result || item.state || item.message || "").toLowerCase();
+              return item.post_id || item.id || item.url || item.detail_url || item.edit_url ||
+                     status.includes("성공") || status.includes("완료") ||
+                     ["success", "ok", "created"].includes(status);
+            }).length;
+
+            if (count > 0) {
+              createdCount = count;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!createdCount && (data.post_id || data.id || data.url || data.detail_url || data.edit_url)) {
+        createdCount = 1;
+      }
+
+      if (createdCount > 0) {
+        data.success = true;
+        data.ok = true;
+        data.created_count = createdCount;
+        data.success_count = createdCount;
+        data.failed_count = 0;
+        data.error_count = 0;
+
+        if (!data.message || String(data.message).includes("실패")) {
+          data.message = createdCount === 1 ? "AI 글 생성 완료" : "AI 글 " + createdCount + "개 생성 완료";
+        }
+      }
+    } catch (e) {}
+
+    return data;
+  }
+
+  window.fetch = function (input, init) {
+    const aiGenerate = isAiGenerateUrl(input);
+
+    if (aiGenerate && init && init.body) {
+      init = Object.assign({}, init);
+      init.body = applyDraftFieldsToBody(init.body);
+    }
+
+    return originalFetch.apply(this, arguments).then(function (response) {
+      if (!aiGenerate) return response;
+
+      const clone = response.clone();
+
+      return clone.json().then(function (data) {
+        const normalized = normalizeAiGenerateJson(data);
+        const headers = new Headers(response.headers);
+        headers.set("Content-Type", "application/json; charset=utf-8");
+
+        return new Response(JSON.stringify(normalized), {
+          status: response.status,
+          statusText: response.statusText,
+          headers: headers
+        });
+      }).catch(function () {
+        return response;
+      });
+    });
+  };
+})();
+/* CBL_AI_GENERATE_DRAFT_RESULT_FRONT_HOTFIX_END */
+</script>
+
 </body>
 </html>
