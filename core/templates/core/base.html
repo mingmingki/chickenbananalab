@@ -1271,6 +1271,7 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 <!-- IP_CHECKER_WIDGET_END -->
 
 
+
 <!-- CBL_FORCE_AI_MODAL_MULTILANG_PATCH_START -->
 <style>
 .cbl-force-keyword-wrap{margin-top:10px}
@@ -1306,12 +1307,73 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 
 <script>
 (function(){
+  if(window.__CBL_FORCE_AI_MODAL_MULTILANG_PATCH_SAFE__) return;
+  window.__CBL_FORCE_AI_MODAL_MULTILANG_PATCH_SAFE__ = true;
+
   function ready(fn){
     if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",fn);}
     else{fn();}
   }
 
-  function txt(el){return (el && el.innerText ? el.innerText : "").trim();}
+  function txt(el){
+    return (el && (el.innerText || el.textContent) ? (el.innerText || el.textContent) : "").trim();
+  }
+
+  function norm(v){
+    return String(v || "").replace(/\s+/g, " ").trim().toLowerCase();
+  }
+
+  function isBlockedPath(){
+    const path = window.location.pathname || "";
+    return /\/post\/\d+\/edit\/?$/.test(path) || path.includes("/post/add");
+  }
+
+  function isRealAiGenerateForm(form){
+    if(!form || isBlockedPath()) return false;
+
+    const action = norm(form.getAttribute("action") || form.action || "");
+    const html = norm(form.outerHTML || "");
+    const text = norm(form.innerText || form.textContent || "");
+
+    const hasCoreFields =
+      form.querySelector('[name="keywords"]') &&
+      form.querySelector('[name="category"]') &&
+      form.querySelector('[name="writing_style"]');
+
+    if(!hasCoreFields) return false;
+
+    if(action.includes("ai-post/generate") || action.includes("ai_post_generate")) return true;
+    if(html.includes("ai-post/generate") || html.includes("ai_post_generate")) return true;
+    if(form.id === "ai-post-form") return true;
+    if(form.querySelector("#ai-keywords") || form.querySelector("#ai-selected-keywords")) return true;
+
+    return (
+      text.includes("자동글") ||
+      text.includes("ai 글") ||
+      text.includes("주요 이슈 키워드")
+    );
+  }
+
+  function visibleScore(form){
+    if(!form) return 0;
+    return (form.offsetWidth || 0) + (form.offsetHeight || 0) + form.getClientRects().length;
+  }
+
+  function cleanupAiGeneratedDuplicates(form){
+    if(!form) return;
+
+    Array.from(form.querySelectorAll("#cblForceKeywordWrap, .cbl-force-keyword-wrap"))
+      .slice(1)
+      .forEach(function(el){ el.remove(); });
+
+    Array.from(form.querySelectorAll("#cblForceLangPanel, .cbl-force-lang-panel"))
+      .slice(1)
+      .forEach(function(el){ el.remove(); });
+
+    Array.from(form.querySelectorAll("[data-cbl-ai-seq-options], .cbl-ai-seq-options"))
+      .slice(1)
+      .forEach(function(el){ el.remove(); });
+  }
 
   function hideOldBlocks(scope){
     Array.from(scope.querySelectorAll("label, div, section, article, p")).forEach(function(el){
@@ -1347,20 +1409,44 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
     }
   }
 
-  function findAiForm(){
-    const forms = Array.from(document.querySelectorAll("form"));
+  function isVisibleAiForm(form){
+    return !!(form && (form.offsetWidth || form.offsetHeight || form.getClientRects().length));
+  }
 
-    return forms.find(function(form){
-      return (
-        form.querySelector('[name="keywords"]') &&
-        form.querySelector('[name="category"]') &&
-        form.querySelector('[name="writing_style"]')
-      );
-    });
+  function cleanupDuplicateAiFormBlocks(form){
+    if(!form) return;
+
+    Array.from(form.querySelectorAll("#cblForceKeywordWrap, .cbl-force-keyword-wrap"))
+      .slice(1)
+      .forEach(function(el){ el.remove(); });
+
+    Array.from(form.querySelectorAll("#cblForceLangPanel, .cbl-force-lang-panel"))
+      .slice(1)
+      .forEach(function(el){ el.remove(); });
+
+    Array.from(form.querySelectorAll("[data-cbl-ai-seq-options], .cbl-ai-seq-options"))
+      .slice(1)
+      .forEach(function(el){ el.remove(); });
+  }
+
+  function findAiForm(){
+    const forms = Array.from(document.querySelectorAll("form"))
+      .filter(isRealAiGenerateForm)
+      .sort(function(a,b){ return visibleScore(b) - visibleScore(a); });
+
+    return forms[0] || null;
   }
 
   function patchAiForm(form){
-    if(!form || form.dataset.cblForcePatched === "1") return;
+    if(!form || !isRealAiGenerateForm(form)) return;
+
+    cleanupAiGeneratedDuplicates(form);
+
+    if(form.dataset.cblForcePatched === "1"){
+      cleanupAiGeneratedDuplicates(form);
+      return;
+    }
+
     form.dataset.cblForcePatched = "1";
 
     hideOldBlocks(form);
@@ -1368,7 +1454,18 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
     const oldKeyword = form.querySelector('[name="keywords"]');
     const selectedKeywords = form.querySelector('[name="selected_keywords"]');
 
-    if(oldKeyword && !form.querySelector("#cblForceKeywordWrap")){
+    const hasExistingKeywordRows = !!(
+      form.querySelector("#cblForceKeywordWrap") ||
+      form.querySelector(".cbl-force-keyword-wrap") ||
+      form.querySelector('input[name="keywords[]"]')
+    );
+
+    if(oldKeyword && hasExistingKeywordRows){
+      oldKeyword.style.display = "none";
+      oldKeyword.removeAttribute("required");
+    }
+
+    if(oldKeyword && !hasExistingKeywordRows){
       const wrap = document.createElement("div");
       wrap.id = "cblForceKeywordWrap";
       wrap.className = "cbl-force-keyword-wrap";
@@ -1453,6 +1550,8 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
       let lastOld = oldKeyword.value || "";
 
       setInterval(function(){
+        if(!document.body.contains(form)) return;
+
         if(selectedKeywords && selectedKeywords.value !== lastSelected){
           lastSelected = selectedKeywords.value;
           try{
@@ -1478,7 +1577,13 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
       }, 400);
     }
 
-    if(!form.querySelector("#cblForceLangPanel")){
+    const hasExistingLanguageControls = !!(
+      form.querySelector("#cblForceLangPanel") ||
+      form.querySelector(".cbl-force-lang-panel") ||
+      form.querySelector('input[name="target_languages"]')
+    );
+
+    if(!hasExistingLanguageControls){
       const panel = document.createElement("div");
       panel.id = "cblForceLangPanel";
       panel.className = "cbl-force-lang-panel";
@@ -1549,6 +1654,8 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
     }
 
     form.addEventListener("submit", function(event){
+      if(!isRealAiGenerateForm(form)) return true;
+
       const inputs = Array.from(form.querySelectorAll('input[name="keywords[]"]'));
       const keywords = inputs.map(function(input){return String(input.value || "").trim();}).filter(Boolean);
 
@@ -1572,6 +1679,7 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
     });
 
     updateTotal();
+    cleanupAiGeneratedDuplicates(form);
   }
 
   ready(function(){
@@ -1581,11 +1689,17 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
       patchAiForm(findAiForm());
     });
 
-    observer.observe(document.body, {childList:true, subtree:true});
+    observer.observe(document.body, {
+      childList:true,
+      subtree:true,
+      attributes:true,
+      attributeFilter:["class","style"]
+    });
   });
 })();
 </script>
 <!-- CBL_FORCE_AI_MODAL_MULTILANG_PATCH_END -->
+
 
 <!-- CBL_AI_SEQ_SIMPLE_START -->
 <style>
@@ -1813,28 +1927,51 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
     }
 
     function isAiForm(form){
+        const path = window.location.pathname || "";
+
+        if (/\/post\/\d+\/edit\/?$/.test(path) || path.includes("/post/add")) {
+            return false;
+        }
+
         const action = norm(form.getAttribute("action") || form.action || "");
         const text = norm(form.innerText || form.textContent || "");
         const html = norm(form.outerHTML || "");
+
+        const hasCoreFields =
+            form.querySelector('[name="keywords"]') &&
+            form.querySelector('[name="category"]') &&
+            form.querySelector('[name="writing_style"]');
+
+        if(!hasCoreFields) return false;
 
         if(action.includes("/ai-post/generate")) return true;
         if(action.includes("ai-post/generate")) return true;
         if(html.includes("ai_post_generate")) return true;
         if(html.includes("ai-post/generate")) return true;
+        if(form.id === "ai-post-form") return true;
+        if(form.querySelector("#ai-keywords") || form.querySelector("#ai-selected-keywords")) return true;
 
-        const hasAiWords = text.includes("ai") && (text.includes("글") || text.includes("생성"));
-        const hasUsefulField =
-            form.querySelector('[name="category"]') ||
-            form.querySelector('[name="extra_prompt"]') ||
-            form.querySelector('[name="writing_style"]') ||
-            form.querySelector('[name="keyword"]') ||
-            form.querySelector('[name="planned_title"]');
-
-        return !!(hasAiWords && hasUsefulField);
+        return (
+            text.includes("자동글") ||
+            text.includes("ai 글") ||
+            text.includes("주요 이슈 키워드")
+        );
     }
 
     function getAiForms(){
-        return $$("form").filter(isAiForm);
+        const forms = $$("form").filter(isAiForm);
+
+        forms.forEach(form => {
+            $$("[data-cbl-ai-seq-options], .cbl-ai-seq-options", form)
+                .slice(1)
+                .forEach(el => el.remove());
+        });
+
+        const visible = forms.filter(form => {
+            return !!(form.offsetWidth || form.offsetHeight || form.getClientRects().length);
+        });
+
+        return visible.length ? [visible[0]] : forms.slice(0, 1);
     }
 
     function langKind(el){
@@ -2271,10 +2408,16 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
     }
 
     const observer = new MutationObserver(bind);
-    observer.observe(document.documentElement,{childList:true,subtree:true});
+    observer.observe(document.documentElement,{
+        childList:true,
+        subtree:true,
+        attributes:true,
+        attributeFilter:["class","style"]
+    });
 })();
 </script>
 <!-- CBL_AI_SEQ_SIMPLE_END -->
+
 
 </body>
 </html>
