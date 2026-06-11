@@ -1,7 +1,183 @@
 {% extends "core/base.html" %}
+{% load home_latest %}
 {% block title %}ChickenBanana Lab{% endblock %}
 
 {% block content %}
+<!-- CBL_MARKET_8COL_COMPACT_START -->
+<style>
+/* PC: 마켓 카드 1행 8열 압축 */
+@media (min-width: 1025px) {
+    .market-grid,
+    .market-cards,
+    .market-card-grid,
+    .market-summary-grid,
+    .market-index-grid,
+    .home-market-grid,
+    .home-market-cards,
+    .market-section .grid,
+    .market-section-grid {
+        display: grid !important;
+        grid-template-columns: repeat(8, minmax(0, 1fr)) !important;
+        gap: 10px !important;
+        align-items: stretch !important;
+    }
+
+    .market-card,
+    .market-item,
+    .market-box,
+    .market-tile,
+    .home-market-card,
+    .market-summary-card {
+        min-height: 72px !important;
+        height: 72px !important;
+        padding: 10px 12px !important;
+        border-radius: 14px !important;
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05) !important;
+    }
+
+    .market-card h3,
+    .market-card h4,
+    .market-card .market-name,
+    .market-card .market-title,
+    .market-card .label,
+    .market-item h3,
+    .market-item h4,
+    .market-box h3,
+    .market-box h4,
+    .home-market-card h3,
+    .home-market-card h4 {
+        margin: 0 0 4px !important;
+        font-size: 12px !important;
+        line-height: 1.15 !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.02em !important;
+    }
+
+    .market-card .market-price,
+    .market-card .market-value,
+    .market-card .price,
+    .market-card .value,
+    .market-card strong,
+    .market-item .market-price,
+    .market-item .market-value,
+    .market-box .market-price,
+    .market-box .market-value,
+    .home-market-card .market-price,
+    .home-market-card .market-value {
+        font-size: 20px !important;
+        line-height: 1.05 !important;
+        font-weight: 900 !important;
+        letter-spacing: -0.055em !important;
+        white-space: nowrap !important;
+    }
+
+    .market-card .market-change,
+    .market-card .change,
+    .market-card .rate,
+    .market-card .percent,
+    .market-item .market-change,
+    .market-box .market-change,
+    .home-market-card .market-change {
+        margin-top: 5px !important;
+        font-size: 12px !important;
+        line-height: 1.1 !important;
+        font-weight: 800 !important;
+        white-space: nowrap !important;
+    }
+
+    .market-card small,
+    .market-card span,
+    .market-item small,
+    .market-item span,
+    .market-box small,
+    .market-box span,
+    .home-market-card small,
+    .home-market-card span {
+        font-size: 11px !important;
+        line-height: 1.15 !important;
+    }
+
+    .market-updated,
+    .market-update-time,
+    .market-caption,
+    .market-time,
+    .home-market-updated {
+        margin-top: 8px !important;
+        font-size: 11px !important;
+        text-align: right !important;
+    }
+}
+
+/* 태블릿: 4열 유지 */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .market-grid,
+    .market-cards,
+    .market-card-grid,
+    .market-summary-grid,
+    .market-index-grid,
+    .home-market-grid,
+    .home-market-cards,
+    .market-section .grid,
+    .market-section-grid {
+        display: grid !important;
+        grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+        gap: 10px !important;
+    }
+
+    .market-card,
+    .market-item,
+    .market-box,
+    .market-tile,
+    .home-market-card,
+    .market-summary-card {
+        min-height: 72px !important;
+        height: 72px !important;
+        padding: 10px 12px !important;
+    }
+}
+
+/* 모바일: 2열로 유지 */
+@media (max-width: 768px) {
+    .market-grid,
+    .market-cards,
+    .market-card-grid,
+    .market-summary-grid,
+    .market-index-grid,
+    .home-market-grid,
+    .home-market-cards,
+    .market-section .grid,
+    .market-section-grid {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 9px !important;
+    }
+
+    .market-card,
+    .market-item,
+    .market-box,
+    .market-tile,
+    .home-market-card,
+    .market-summary-card {
+        min-height: 68px !important;
+        height: 68px !important;
+        padding: 9px 10px !important;
+        border-radius: 13px !important;
+    }
+
+    .market-card .market-price,
+    .market-card .market-value,
+    .market-card .price,
+    .market-card .value,
+    .market-card strong,
+    .home-market-card .market-price,
+    .home-market-card .market-value {
+        font-size: 18px !important;
+    }
+}
+</style>
+<!-- CBL_MARKET_8COL_COMPACT_END -->
+
+
 
 <style>
     /* ================================
@@ -409,80 +585,270 @@
 
 
 <!-- 최신글 -->
-<section class="section latest-section">
-    <div class="container">
+<!-- CBL_HOME_CATEGORY_LAYOUT_CSS_START -->
+<style>
+.home-category-latest-section {
+    max-width: 1240px;
+    margin: 54px auto 34px;
+    padding: 0 20px;
+}
 
-        <div class="section-title title-row">
-            <div>
-                <span>Latest Contents</span>
-                <h2>최근 등록된 글</h2>
-            </div>
+.home-category-latest-section .home-section-kicker {
+    margin: 0 0 4px;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.18em;
+    color: #16a34a;
+}
 
-            {% if user.is_authenticated and user.is_staff %}
-                <a href="{% url 'post_create' %}" class="write-btn">글 올리기</a>
-            {% endif %}
+.home-category-latest-section .home-section-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 22px;
+}
+
+.home-category-latest-section .home-section-head h2 {
+    margin: 0;
+    font-size: 30px;
+    font-weight: 900;
+    letter-spacing: -0.055em;
+    color: #111827;
+}
+
+.home-category-latest-section .home-section-head p {
+    margin: 6px 0 0;
+    font-size: 14px;
+    color: #6b7280;
+}
+
+.home-category-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.home-category-box {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    padding: 16px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+}
+
+.home-category-box.is-wide {
+    grid-column: 1 / -1;
+}
+
+.home-category-box-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.home-category-box-head h3 {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 900;
+    letter-spacing: -0.04em;
+    color: #111827;
+}
+
+.home-category-box-head a {
+    font-size: 13px;
+    font-weight: 800;
+    color: #2563eb;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.home-category-post-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.home-category-post-item {
+    display: grid;
+    grid-template-columns: 86px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    text-decoration: none;
+    padding: 8px;
+    border-radius: 14px;
+}
+
+.home-category-post-item:hover {
+    background: #f8fafc;
+}
+
+.home-category-thumb {
+    width: 86px;
+    height: 58px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #f1f5f9;
+}
+
+.home-category-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.home-category-thumb-empty {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 900;
+    color: #94a3b8;
+    background: linear-gradient(135deg, #f8fafc, #e5e7eb);
+}
+
+.home-category-post-text {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.home-category-post-text strong {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 15px;
+    line-height: 1.35;
+    font-weight: 900;
+    color: #111827;
+    letter-spacing: -0.035em;
+}
+
+.home-category-post-text span {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 13px;
+    line-height: 1.35;
+    color: #6b7280;
+}
+
+.home-category-empty {
+    padding: 18px 8px;
+    font-size: 14px;
+    color: #9ca3af;
+}
+
+@media (max-width: 768px) {
+    .home-category-latest-section {
+        margin: 34px auto 28px;
+        padding: 0 14px;
+    }
+
+    .home-category-latest-section .home-section-head {
+        display: block;
+        margin-bottom: 16px;
+    }
+
+    .home-category-latest-section .home-section-head h2 {
+        font-size: 25px;
+    }
+
+    .home-category-grid {
+        grid-template-columns: 1fr;
+        gap: 14px;
+    }
+
+    .home-category-box.is-wide {
+        grid-column: auto;
+    }
+
+    .home-category-box {
+        border-radius: 16px;
+        padding: 14px;
+    }
+
+    .home-category-post-item {
+        grid-template-columns: 78px minmax(0, 1fr);
+        gap: 10px;
+        padding: 7px;
+    }
+
+    .home-category-thumb {
+        width: 78px;
+        height: 54px;
+    }
+
+    .home-category-post-text strong {
+        font-size: 14px;
+    }
+
+    .home-category-post-text span {
+        font-size: 12px;
+    }
+}
+</style>
+<!-- CBL_HOME_CATEGORY_LAYOUT_CSS_END -->
+<!-- CBL_HOME_CATEGORY_LAYOUT_START -->
+{% get_home_category_sections as home_category_sections %}
+<section class="home-category-latest-section">
+    <div class="home-section-head">
+        <div>
+            <p class="home-section-kicker">LATEST CONTENTS</p>
+            <h2>최근 등록된 글</h2>
+            <p>카테고리별로 새로 올라온 글을 확인해보세요.</p>
         </div>
+    </div>
 
-        <div class="home-latest-grid">
-            {% for post in latest_posts|default:posts|slice:":32" %}
-                <a href="{{ post.get_absolute_url }}" class="thumbnail-card">
+    <div class="home-category-grid">
+        {% for section in home_category_sections %}
+            <div class="home-category-box {% if section.wide %}is-wide{% endif %}">
+                <div class="home-category-box-head">
+                    <h3>{{ section.title }}</h3>
+                    <a href="/{{ section.slug }}/">더보기</a>
+                </div>
 
-                    {% if post.thumbnail %}
-                        <div class="thumbnail-image-box">
-                            <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">
-
-                            {% if post.thumbnail_text %}
-                                <div class="thumbnail-text-overlay">
-                                    {{ post.thumbnail_text }}
-                                </div>
-                            {% endif %}
-                        </div>
-                    {% else %}
-                        <div class="thumbnail-box category-{{ post.category }}">
-                            <div class="thumbnail-icon">
-                                {% if post.category == "architecture" %}
-                                    🏠
-                                {% elif post.category == "realestate" %}
-                                    🏢
-                                {% elif post.category == "finance" %}
-                                    💹
-                                {% elif post.category == "tech" %}
-                                    💻
-                                {% elif post.category == "life" %}
-                                    ☕
+                <div class="home-category-post-list">
+                    {% for post in section.posts %}
+                        <a class="home-category-post-item" href="/post/{{ post.id }}/">
+                            <div class="home-category-thumb">
+                                {% if post.thumbnail %}
+                                    <img src="{{ post.thumbnail.url }}" alt="{{ post.title|striptags }}">
+                                {% elif post.content_image %}
+                                    <img src="{{ post.content_image.url }}" alt="{{ post.title|striptags }}">
+                                {% else %}
+                                    <div class="home-category-thumb-empty">CBL</div>
                                 {% endif %}
                             </div>
-                            <span>{{ post.get_category_display }}</span>
-                        </div>
-                    {% endif %}
 
-                    <div class="thumbnail-content">
-                        <strong>{{ post.get_category_display }}</strong>
-                        <h3>{{ post.title }}</h3>
-                        <p>{{ post.content|striptags|cut:"&nbsp;"|cut:"&amp;nbsp;"|truncatechars:70 }}</p>
-                        <small>{{ post.created_at|date:"Y.m.d" }}</small>
-                    </div>
-
-                </a>
-            {% empty %}
-                <div class="empty-box full-empty">
-                    <h3>아직 등록된 글이 없습니다.</h3>
-                    <p>첫 번째 글을 등록해보세요.</p>
-
-                    {% if user.is_authenticated and user.is_staff %}
-                        <a href="{% url 'post_create' %}" class="write-btn empty-write">글 올리기</a>
-                    {% endif %}
+                            <div class="home-category-post-text">
+                                <strong>{{ post.title|striptags }}</strong>
+                                {% if post.summary %}
+                                    <span>{{ post.summary|striptags|truncatechars:58 }}</span>
+                                {% elif post.meta_description %}
+                                    <span>{{ post.meta_description|striptags|truncatechars:58 }}</span>
+                                {% endif %}
+                            </div>
+                        </a>
+                    {% empty %}
+                        <div class="home-category-empty">아직 등록된 글이 없습니다.</div>
+                    {% endfor %}
                 </div>
-            {% endfor %}
-        </div>
-
-        <div class="plain-time-wrap">
-            <span id="plain-date-now">날짜 불러오는 중...</span>
-            <span id="plain-time-now">시간 불러오는 중...</span>
-        </div>
-
+            </div>
+        {% endfor %}
     </div>
 </section>
+<!-- CBL_HOME_CATEGORY_LAYOUT_END -->
 
 
 <script>
