@@ -17,6 +17,7 @@ load_dotenv(override=True)
 
 
 TEXT_MODEL = os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-pro")
+RECENT_ISSUE_MODEL = os.getenv("GEMINI_RECENT_ISSUE_MODEL", "gemini-2.5-flash-lite")
 IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
 IMAGE_ASPECT_RATIO = os.getenv("GEMINI_IMAGE_ASPECT_RATIO", "16:9")
 IMAGE_SIZE = os.getenv("GEMINI_IMAGE_SIZE", "2K")
@@ -112,8 +113,8 @@ HUMAN_STRUCTURE_PATTERNS = [
 - 바로 핵심 요약
 - 사람들이 가장 헷갈리는 부분
 - 체크리스트
-- FAQ
-- 마무리
+- 필요한 경우 마지막 확인 사항
+- 실용적인 정리
 """,
     """
 이번 글 구조는 아래 흐름을 우선 사용해라.
@@ -131,8 +132,8 @@ HUMAN_STRUCTURE_PATTERNS = [
 - 실제로 봐야 할 기준
 - 표 또는 리스트
 - 놓치기 쉬운 부분
-- FAQ
-- 마무리
+- 필요한 경우 마지막 확인 사항
+- 실용적인 정리
 """,
     """
 이번 글 구조는 아래 흐름을 우선 사용해라.
@@ -141,7 +142,7 @@ HUMAN_STRUCTURE_PATTERNS = [
 - 세부 설명
 - 실수하기 쉬운 부분
 - 마지막 체크리스트
-- 자연스러운 마무리
+- 글 주제에 맞는 실용적인 끝맺음
 """,
     """
 이번 글 구조는 아래 흐름을 우선 사용해라.
@@ -149,7 +150,7 @@ HUMAN_STRUCTURE_PATTERNS = [
 - 상황별로 다르게 봐야 할 부분
 - 실제 확인 순서
 - 주의할 점
-- FAQ
+- 필요한 경우 헷갈리는 부분 보충
 - 짧은 정리
 """,
 ]
@@ -946,6 +947,27 @@ def _extract_image_bytes_from_gemini_response(response):
     return None
 
 
+
+def _gemini_generate_text_once_with_model(prompt, model_name):
+    client = get_gemini_client()
+
+    config = None
+    if GEMINI_USE_GOOGLE_SEARCH:
+        grounding_tool = types.Tool(
+            google_search=types.GoogleSearch()
+        )
+        config = types.GenerateContentConfig(
+            tools=[grounding_tool]
+        )
+
+    response = client.models.generate_content(
+        model=model_name or TEXT_MODEL,
+        contents=prompt,
+        config=config,
+    )
+    return _extract_text_from_gemini_response(response)
+
+
 def _gemini_generate_text_once(prompt):
     client = get_gemini_client()
 
@@ -1550,6 +1572,84 @@ def cbl_enhance_article_prompt(prompt, writing_style=None, category=None, title=
 
 
 
+
+# CBL_RECENT_ISSUE_PRESEARCH_START
+def build_recent_issue_context(category="", keywords="", planned_title="", language="ko"):
+    """
+    글 작성 전에 주제와 관련된 최근 이슈를 짧게 검색해서 본문 프롬프트에 넣기 위한 함수.
+    실제 확인 가능한 이슈만 사용하고, 없으면 억지로 만들지 않는다.
+    """
+    topic = " ".join([
+        str(category or "").strip(),
+        str(keywords or "").strip(),
+        str(planned_title or "").strip(),
+    ]).strip()
+
+    if not topic:
+        return ""
+
+    lang = str(language or "ko").lower().strip()
+
+    if lang.startswith("en"):
+        prompt = f"""
+Search recent web/news issues related to this blog topic.
+
+Topic:
+{topic}
+
+Task:
+- Find only clearly verifiable recent issues, news, incidents, policy changes, security incidents, company announcements, or public discussions related to the topic.
+- Prefer the last 30 to 90 days.
+- If there is no directly relevant recent issue, say "NO_RELEVANT_RECENT_ISSUE".
+- Do not invent names, dates, damage amounts, victim counts, celebrities, companies, or institutions.
+- If a person/company/institution is mentioned, it must be from a clearly verifiable source.
+- Summarize in 3 to 5 short bullet points.
+- Include source name and date when possible.
+- Write in Korean if the final blog language is Korean, otherwise English.
+
+Important:
+This is only background context for writing a blog post. Do not write the blog post yet.
+"""
+    else:
+        prompt = f"""
+아래 블로그 주제와 관련된 최근 웹/뉴스 이슈를 먼저 검색해서 정리해라.
+
+주제:
+{topic}
+
+작업:
+- 최근 30~90일 사이에 이 주제와 직접 관련 있는 뉴스, 보안 사고, 개인정보 이슈, 기업 발표, 기관 공지, 정책 변화, 사회적 논의가 있는지 확인해라.
+- 직접 관련 있는 최근 이슈가 없으면 "NO_RELEVANT_RECENT_ISSUE"라고만 써라.
+- 연예인, 기관, 기업, 피해 규모, 날짜, 사건명은 절대 지어내지 마라.
+- 실명이나 기관명을 쓰려면 검색으로 확인 가능한 경우에만 써라.
+- 가능한 경우 출처명과 날짜를 함께 적어라.
+- 3~5개 짧은 bullet로만 정리해라.
+- 블로그 본문을 쓰지 말고, 참고용 최근 이슈만 정리해라.
+
+주의:
+이 결과는 본문 작성 참고자료다.
+확실하지 않은 내용은 "확인 필요"라고 표시하거나 제외해라.
+"""
+
+    try:
+        result = _gemini_generate_text_once_with_model(prompt, RECENT_ISSUE_MODEL)
+    except Exception as e:
+        print("========== 최근 이슈 검색 실패 ==========")
+        print(e)
+        return ""
+
+    result = str(result or "").strip()
+
+    if not result:
+        return ""
+
+    if "NO_RELEVANT_RECENT_ISSUE" in result:
+        return ""
+
+    # 너무 긴 검색 결과는 본문 프롬프트를 오염시키지 않도록 제한
+    return result[:1500]
+# CBL_RECENT_ISSUE_PRESEARCH_END
+
 def generate_ai_post(
     category,
     keywords,
@@ -1601,6 +1701,33 @@ def generate_ai_post(
     human_opening_pattern = random.choice(HUMAN_OPENING_PATTERNS)
     human_structure_pattern = random.choice(HUMAN_STRUCTURE_PATTERNS)
     category_voice_rule = CATEGORY_VOICE_RULES.get(category, "")
+
+    recent_issue_context = build_recent_issue_context(
+        category=category,
+        keywords=keywords,
+        planned_title=planned_title,
+        language="ko",
+    )
+
+    recent_issue_instruction = ""
+    if recent_issue_context:
+        recent_issue_instruction = f"""
+최근 이슈 참고자료:
+{recent_issue_context}
+
+최근 이슈 반영 규칙:
+- 위 최근 이슈가 글 주제와 자연스럽게 연결될 때만 본문에 1~3문장 정도로 짧게 반영해라.
+- 억지로 뉴스 기사처럼 쓰지 마라.
+- 출처와 사실관계가 불명확한 내용은 본문에 쓰지 마라.
+- 기관명, 기업명, 연예인명, 피해 규모, 날짜는 참고자료에 명확히 있을 때만 사용해라.
+- 최근 이슈가 글 흐름을 방해하면 도입부 대신 중간 예시로 짧게 넣어라.
+"""
+    else:
+        recent_issue_instruction = """
+최근 이슈 참고자료:
+- 이 주제와 직접 연결되는 확실한 최근 이슈가 확인되지 않았으므로, 특정 사건·기관명·연예인명은 임의로 쓰지 마라.
+- 대신 독자가 실제로 겪을 수 있는 일반적인 상황 중심으로 설명해라.
+"""
 
     planned_title = (planned_title or "").strip()
     planned_title_instruction = ""
@@ -1707,10 +1834,16 @@ content_images는 빈 배열로 반환해라.
 - 본문 최상단에 h1 태그는 절대 쓰지 마라.
 - 핵심 요약은 필요할 때만 글 초반 또는 중간에 자연스럽게 넣어라.
 - 모든 글에 똑같은 요약 박스를 반복하지 마라.
-- 검색자가 궁금해할 질문과 답변을 FAQ 형태로 3개 이상 포함해라.
+- FAQ는 필수가 아니다. 글 흐름상 자연스러울 때만 포함해라.
+- FAQ가 필요 없는 주제라면 작성하지 마라.
+- FAQ를 작성할 경우 2~4개 사이로 구성하되, 모든 글에 반복하지 마라.
 - 글 마지막에는 자연스러운 마무리와 한 줄 요약을 넣어라.
 - 키워드를 억지로 반복하지 마라.
 - 같은 표현, 같은 문장 패턴, 같은 소제목 구조를 반복하지 마라.
+- 도입부에서 "오늘은", "이번 글에서는", "함께 알아보겠습니다", "알아보는 시간을 가져볼게요"를 쓰지 마라.
+- 마무리에서 "마무리하며", "지금까지", "현명한 웹 생활", "도움이 되었기를 바랍니다"를 쓰지 마라.
+- 자연설명형일수록 FAQ를 기본값으로 넣지 말고, 글 흐름에 필요할 때만 선택적으로 넣어라.
+- 캐시, 쿠키, HTTPS, DNS처럼 비슷한 테크 주제는 도입 방식과 H2 흐름을 서로 다르게 작성해라.
 - 허위 수치, 확인되지 않은 통계, 실제 경험처럼 보이는 거짓 후기를 만들지 마라.
 - 금융, 세금, 건강, 법률 주제는 단정하지 말고 주의 문구를 넣어라.
 - 애드센스 승인에 불리할 수 있는 얇은 자동생성 글처럼 보이지 않게 작성해라.
@@ -1762,6 +1895,8 @@ meta_description 작성 조건:
 
 {category_voice_rule}
 
+{recent_issue_instruction}
+
 {ANTI_AI_WRITING_RULES}
 
 {HUMAN_DETAIL_RULES}
@@ -1783,12 +1918,12 @@ meta_description 작성 조건:
 - 글 마지막은 딱딱한 결론보다 "이런 분들에게 어울립니다" 식으로 자연스럽게 정리해라.
 
 FAQ 작성 조건:
-- FAQ 소제목은 <h2>자주 묻는 질문</h2>로 작성해라.
-- 질문은 <h3> 태그로 작성해라.
-- 답변은 <p> 태그로 작성해라.
-- 실제 검색자가 물어볼 만한 질문으로 작성해라.
-- 너무 뻔한 질문만 넣지 마라.
-- 본문에서 이미 말한 내용을 그대로 복붙하지 마라.
+- FAQ는 선택 사항이다.
+- 글 흐름상 필요하지 않으면 FAQ 섹션을 작성하지 마라.
+- FAQ를 작성하더라도 제목을 항상 <h2>자주 묻는 질문</h2>로 고정하지 마라.
+- 필요하면 <h2>헷갈리기 쉬운 부분</h2>, <h2>마지막으로 확인할 점</h2>, <h2>실수하기 쉬운 부분</h2>처럼 주제에 맞게 바꿔라.
+- 질문은 <h3> 태그로 작성해도 되지만, Q1/A1 형식을 고정으로 쓰지 마라.
+- 본문에서 이미 말한 내용을 그대로 반복하지 마라.
 
 지도/장소 링크 작성 조건:
 - 식당, 여행지, 장소 링크가 필요할 때 URL 주소를 본문에 그대로 노출하지 마라.
@@ -1891,6 +2026,7 @@ FAQ 작성 조건:
         content = "<h2>자료 확인이 필요한 주제입니다</h2><p>자동 글 생성 과정에서 주제와 맞지 않는 일반 쇼핑몰 정보가 감지되어 본문을 안전하게 대체했습니다. 제품명, 공식 스펙, 가격 자료를 추가 요청사항에 넣고 다시 생성해 주세요.</p>"
 
     content = repair_ai_content_html(content, title=title)
+    content = cbl_polish_article_after_generate(content)
     content = ensure_required_comparison_table(content, category, keywords, style_rule_key, extra_prompt, planned_title)
     content = validate_ai_content_or_raise(
         content,
@@ -2438,4 +2574,302 @@ def replace_image_placeholders(content, image_blocks):
 
     return updated_content
 
+# CBL_TITLE_THUMBNAIL_BLOGIFY_START
+_CBL_TITLE_THUMBNAIL_BLOGIFY_RULE = """
+[키워드 기반 제목/썸네일 강화 규칙]
+
+사용자가 입력한 키워드나 주제는 그대로 제목으로 복사하지 말고, 사람이 쓴 블로그 제목처럼 자연스럽게 재가공한다.
+
+제목 작성 규칙:
+- 입력 키워드는 소재일 뿐, 최종 제목은 블로그 글 제목처럼 다시 만든다.
+- 제목은 검색 유입과 클릭 욕구를 함께 고려한다.
+- 너무 딱딱한 사전식 제목을 피한다.
+- 같은 카테고리의 글과 제목 구조가 반복되지 않게 한다.
+- 제목에 HTML 태그를 절대 넣지 않는다.
+- <span>, <b>, <strong>, <br>, class= 같은 코드를 제목에 포함하지 않는다.
+- 제목은 너무 짧은 단어형으로 끝내지 말고, 독자가 얻을 내용을 드러낸다.
+- 단, 과장형 낚시 제목은 피한다.
+- "완벽정리", "총정리", "A to Z", "끝판왕" 같은 표현을 반복 남발하지 않는다.
+- 제목 끝에 물음표를 매번 붙이지 않는다.
+- 질문형, 설명형, 문제해결형, 비교형, 체크리스트형 제목을 자연스럽게 섞는다.
+
+좋은 제목 방향 예시:
+- 캐시란 무엇인가 → 캐시를 삭제하라는 말, 정확히 어떤 뜻일까?
+- 쿠키란 무엇인가 → 웹사이트가 나를 기억하는 이유, 쿠키의 역할 쉽게 이해하기
+- HTTPS는 왜 중요할까 → 개인정보 입력 전 주소창을 확인해야 하는 이유
+- 공인 IP 사설 IP 차이 → 집 와이파이에서 공인 IP와 사설 IP가 나뉘는 이유
+- DNS란 무엇인가 → 사이트 주소가 IP 주소로 바뀌는 과정, DNS 쉽게 이해하기
+- 404 오류 → 404 Not Found가 뜨는 이유와 먼저 확인할 것들
+
+썸네일 문구 작성 규칙:
+- 썸네일 문구는 제목을 그대로 복사하지 않는다.
+- 썸네일 문구는 짧고 강하게 작성한다.
+- 한글 기준 8~18자 정도를 우선한다.
+- 너무 긴 문장형 썸네일을 피한다.
+- 썸네일에는 HTML 태그를 절대 넣지 않는다.
+- 썸네일에는 해시태그를 넣지 않는다.
+- 썸네일 문구는 핵심 문제, 궁금증, 차이를 한눈에 보여준다.
+- 같은 표현을 반복하지 않는다.
+
+썸네일 문구 예시:
+- 캐시 삭제, 왜 필요할까
+- 쿠키가 나를 기억하는 법
+- HTTPS 확인법
+- 안전하지 않음 경고
+- 공용 와이파이 주의
+- DNS 쉽게 이해하기
+- 404 오류 원인
+- IP 주소 차이
+
+썸네일 이미지 방향:
+- 매번 비슷한 노트북, 자물쇠, 방패 이미지만 반복하지 않는다.
+- 글 주제에 맞는 구체적인 장면을 만든다.
+- 인터넷/테크 글이라도 주제별로 시각 요소를 다르게 한다.
+- 캐시 글은 임시 저장함, 오래된 파일, 브라우저 화면 갱신 같은 느낌을 사용한다.
+- 쿠키 글은 로그인 유지, 장바구니, 웹사이트가 기억하는 정보 흐름을 사용한다.
+- HTTPS 글은 주소창, 자물쇠, 암호화된 데이터 흐름을 사용한다.
+- DNS 글은 도메인 주소가 IP 주소로 연결되는 흐름을 사용한다.
+- 공용 와이파이 글은 카페, 공항, 휴대폰, 위험한 네트워크 신호를 사용한다.
+- 이미지 안에 긴 글자를 넣지 않는다.
+- 썸네일 텍스트는 별도의 thumbnail_text 필드로 처리한다.
+
+최종 출력 주의:
+- title 필드에는 순수 제목만 넣는다.
+- thumbnail_text 필드에는 짧은 썸네일 문구만 넣는다.
+- title, subtitle, thumbnail_text 어디에도 HTML 태그를 넣지 않는다.
+- 입력 키워드가 짧거나 딱딱해도 최종 결과는 블로그 제목처럼 자연스럽게 바꾼다.
+"""
+
+try:
+    _cbl_prev_adsense_structure_instruction_for_title_thumb = cbl_adsense_structure_instruction
+
+    def cbl_adsense_structure_instruction(*args, **kwargs):
+        txt = _cbl_prev_adsense_structure_instruction_for_title_thumb(*args, **kwargs)
+
+        input_title = kwargs.get("title", "")
+        category = kwargs.get("category", "")
+        language = kwargs.get("language", "")
+
+        txt += f"""
+
+[입력 키워드 기반 제목/썸네일 재가공 지시]
+입력 키워드/주제: {input_title}
+카테고리: {category}
+언어: {language}
+
+{_CBL_TITLE_THUMBNAIL_BLOGIFY_RULE}
+
+[강제 지시]
+입력 키워드를 그대로 제목으로 쓰지 말고, 검색용 블로그 제목으로 자연스럽게 바꾼다.
+썸네일 문구도 제목 복사가 아니라 짧은 클릭용 문구로 따로 만든다.
+제목과 썸네일 문구에는 HTML 태그를 절대 넣지 않는다.
+"""
+        return txt
+
+except NameError:
+    pass
+# CBL_TITLE_THUMBNAIL_BLOGIFY_END
+
+# CBL_FINAL_NATURAL_WRAPPER_START
+import random as _cbl_final_natural_random
+
+_CBL_FINAL_NATURAL_PATTERNS = [
+    "실제 상황 관찰형: 사용자가 겪는 구체적인 장면에서 시작 → 원인 설명 → 개념 연결 → 확인 기준 → 짧은 정리",
+    "문제 해결형: 불편 상황 제시 → 가능한 원인 분리 → 먼저 확인할 것 → 해결 순서 → 재발 방지",
+    "오해 정리형: 흔한 오해 제시 → 맞는 부분과 틀린 부분 구분 → 실제 의미 → 판단 기준",
+    "비교 설명형: 비슷한 개념 비교 → 실제 차이 → 사용 상황 → 선택 기준 → 주의점",
+    "운영자 관점형: 블로그/웹사이트 운영 중 생기는 문제 → 기술 개념 → 관리 포인트 → 실수 방지",
+    "생활 팁형: 바로 써먹을 수 있는 상황 → 체크 항목 → 하면 안 되는 행동 → 마지막 점검",
+    "짧은 사례형: 가상의 사용자 사례 → 왜 문제가 생겼는지 설명 → 비슷한 상황에서 확인할 점",
+    "초보자 비유형: 쉬운 비유 → 기본 개념 → 실제 인터넷 상황 → 주의할 점",
+    "체크리스트형: 먼저 확인할 항목 → 항목별 이유 → 위험한 경우 → 마지막 기준",
+    "원인 분석형: 증상 → 원인 후보 → 가능성 높은 순서 → 사용자가 할 수 있는 조치",
+    "실수 방지형: 자주 하는 실수 → 왜 문제가 되는지 → 올바른 사용법 → 피해야 할 상황",
+    "운영 체크형: 사이트 운영자가 놓치는 지점 → 설정 확인 → 관리 주기 → 문제 발생 시 대응",
+    "일상 대화형: 실제 대화처럼 시작 → 용어를 천천히 풀어 설명 → 마지막에 현실적인 기준",
+    "단계 설명형: 첫 번째 확인 → 두 번째 확인 → 예외 상황 → 최종 판단",
+    "반박형: 흔한 주장 제시 → 왜 완전히 맞지 않은지 → 실제로 봐야 할 기준",
+    "상황별 선택형: 집/회사/카페/모바일 등 상황 구분 → 각 상황별 판단 기준",
+    "위험 신호형: 위험한 징후 먼저 제시 → 원인 설명 → 피해야 할 행동 → 안전한 대안",
+    "관리 습관형: 평소에는 괜찮은 기능 → 문제가 되는 순간 → 관리 방법 → 적정 주기",
+    "짧은 요약 선제형: 핵심 3줄 요약 → 자세한 설명 → 예외 → 체크 기준",
+    "경험 기반 설명형: 사용자가 흔히 겪는 불편함 → 그 뒤의 기술 원리 → 현실적인 해결법",
+]
+
+_CBL_FINAL_FAQ_POLICIES = [
+    "FAQ를 작성하지 않는다.",
+    "FAQ를 작성하지 않는다.",
+    "FAQ를 작성하지 않는다.",
+    "FAQ를 작성하지 않는다.",
+    "본문 후반에 짧은 질문 2개만 자연스럽게 포함한다.",
+    "마지막에 FAQ 2개만 포함한다.",
+    "마지막에 FAQ 3개만 포함한다.",
+    "FAQ 대신 '마지막으로 확인할 점' 섹션으로 끝낸다.",
+]
+
+_CBL_FINAL_NATURAL_RULE = """
+[자연설명형 인간형 글쓰기 강제 규칙]
+
+자연설명형이라고 해서 같은 글 구조를 반복하지 않는다.
+사람이 직접 쓴 블로그 글처럼 도입, 소제목, 본문 리듬, 끝맺음을 매번 다르게 만든다.
+
+절대 반복 금지 구조:
+- 생활 예시 → 정의 → 역할 → 종류 → 관리 방법 → 자주 묻는 질문 → 마무리
+- 문제 제기 → 핵심 요약 → 이유 나열 → 주의사항 → FAQ → 결론
+- 정의 → 중요성 → 장점 → 주의사항 → FAQ → 마무리
+
+도입부 금지:
+- 오늘은
+- 이번 글에서는
+- 함께 알아보겠습니다
+- 알아보겠습니다
+- 많은 분들이 헷갈려 합니다
+- 다들 한 번쯤 경험해 보셨을 거예요
+
+본문 금지:
+- 주요 역할은 다음과 같아요
+- 다음과 같아요
+- 몇 가지 이유
+- 꼭 기억해 주세요
+- 작은 조력자
+- 현명한 선택
+- 쾌적한 디지털 환경
+
+마무리 금지:
+- 마무리하며
+- 결론적으로
+- 오늘 내용을 참고하셔서
+- 안전하고 즐거운 온라인 생활
+- 꾸준히 관리해보시면 좋겠습니다
+
+FAQ 규칙:
+- FAQ는 필수가 아니다.
+- 필요 없으면 쓰지 않는다.
+- FAQ를 쓰더라도 2~4개만 작성한다.
+- 모든 글에 "자주 묻는 질문"이라는 제목을 반복하지 않는다.
+- 필요하면 "헷갈리기 쉬운 부분", "마지막으로 확인할 점", "실수하기 쉬운 부분"처럼 자연스럽게 바꾼다.
+
+H2 규칙:
+- H2를 모두 질문형으로 쓰지 않는다.
+- 질문형 H2는 전체 H2의 절반 이하로 제한한다.
+- 설명형, 상황형, 비교형, 체크리스트형, 문제 해결형 제목을 섞는다.
+- "왜 중요할까요?", "무엇일까요?", "어떻게 해야 할까요?" 패턴을 반복하지 않는다.
+
+이미지/캡션 규칙:
+- 이미지 설명 문장을 본문에 2번 이상 반복하지 않는다.
+- 같은 캡션을 연속 출력하지 않는다.
+- 이미지 설명은 짧게 1회만 넣는다.
+
+마지막 문장은 과장된 응원 문구가 아니라, 글 주제에 맞는 실용적인 판단 기준으로 끝낸다.
+"""
+
+try:
+    _cbl_final_prev_structure_instruction = cbl_adsense_structure_instruction
+
+    def cbl_adsense_structure_instruction(*args, **kwargs):
+        txt = _cbl_final_prev_structure_instruction(*args, **kwargs)
+
+        writing_style = str(kwargs.get("writing_style", "") or "")
+        if not writing_style:
+            for a in args:
+                if isinstance(a, str) and ("자연" in a or "설명" in a):
+                    writing_style = a
+                    break
+
+        is_natural = ("자연" in writing_style and "설명" in writing_style)
+
+        if is_natural:
+            pattern = _cbl_final_natural_random.choice(_CBL_FINAL_NATURAL_PATTERNS)
+            faq_policy = _cbl_final_natural_random.choice(_CBL_FINAL_FAQ_POLICIES)
+
+            txt += f"""
+
+[이번 자연설명형 글의 추가 랜덤 전개 방식]
+{pattern}
+
+[이번 글의 FAQ 처리 방식]
+{faq_policy}
+
+{_CBL_FINAL_NATURAL_RULE}
+
+[최종 강제 지시]
+위 자연설명형 규칙을 최우선으로 따른다.
+입력 키워드가 같거나 비슷해도 도입, H2 구성, FAQ 여부, 마무리 방식을 매번 다르게 작성한다.
+"오늘은", "함께 알아보겠습니다", "자주 묻는 질문", "마무리하며"를 습관적으로 반복하지 않는다.
+FAQ가 필요 없으면 쓰지 않는다.
+"""
+        return txt
+
+except NameError:
+    pass
+# CBL_FINAL_NATURAL_WRAPPER_END
+
+# CBL_FINAL_POLISH_NO_AI_ENDING_START
+def cbl_polish_article_after_generate(content):
+    """
+    AI식 도입/마무리 표현과 이미지 캡션 중복을 후처리로 정리한다.
+    """
+    import re
+
+    content = str(content or "").strip()
+    if not content:
+        return content
+
+    # 너무 AI스러운 마무리 문장 제거
+    bad_ending_patterns = [
+        r"<p>\s*이 글이.*?도움이 되기를 바랍니다\.?\s*</p>",
+        r"<p>\s*여러분의.*?디지털 라이프.*?도움이 되었으면 좋겠습니다\.?\s*</p>",
+        r"<p>\s*오늘 알아본.*?도움이 되었기를 바랍니다\.?\s*</p>",
+        r"<p>\s*현명한.*?생활.*?바랍니다\.?\s*</p>",
+        r"<p>\s*쾌적한.*?환경.*?유지.*?바랍니다\.?\s*</p>",
+    ]
+
+    for pattern in bad_ending_patterns:
+        content = re.sub(pattern, "", content, flags=re.IGNORECASE | re.DOTALL).strip()
+
+    # 문단 안의 금지 도입 표현 완화
+    replacements = {
+        "오늘은 우리가": "여기서는",
+        "오늘은 이": "이",
+        "오늘은": "",
+        "함께 알아보겠습니다": "정리해보겠습니다",
+        "알아보는 시간을 가져볼게요": "살펴보겠습니다",
+        "다들 있으시죠?": "경험해본 적이 있을 수 있습니다.",
+        "더욱 빠르고 쾌적하게": "더 빠르게",
+        "친절하게 설명해 드리려 합니다": "간단히 정리합니다",
+        "디지털 라이프": "사용 환경",
+    }
+
+    for old, new in replacements.items():
+        content = content.replace(old, new)
+
+    # 같은 짧은 캡션/문장이 연속 2번 반복되는 경우 1개만 남김
+    content = re.sub(
+        r"(<p class=\"ai-inline-image-caption\">([^<]{5,80})</p>\s*)\1+",
+        r"\1",
+        content,
+        flags=re.IGNORECASE
+    )
+
+    # 일반 텍스트/문단으로 같은 줄이 연속 반복되는 경우 제거
+    lines = content.splitlines()
+    cleaned = []
+    prev_plain = None
+
+    for line in lines:
+        plain = re.sub(r"<[^>]+>", "", line).strip()
+        plain = re.sub(r"\s+", " ", plain)
+
+        if plain and prev_plain and plain == prev_plain and 5 <= len(plain) <= 80:
+            continue
+
+        cleaned.append(line)
+        if plain:
+            prev_plain = plain
+
+    content = "\n".join(cleaned)
+    content = re.sub(r"\n{3,}", "\n\n", content).strip()
+
+    return content
+# CBL_FINAL_POLISH_NO_AI_ENDING_END
 
