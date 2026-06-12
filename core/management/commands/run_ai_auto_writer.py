@@ -19,6 +19,15 @@ from core.models import (
 )
 
 
+# CBL_AUTO_WRITER_CATEGORY_STYLE_START
+def cbl_auto_writing_style_by_category(category):
+    """
+    시간별 자동글은 전부 자연설명형으로 고정한다.
+    """
+    return "natural"
+# CBL_AUTO_WRITER_CATEGORY_STYLE_END
+
+
 def get_post_field_names():
     return [field.name for field in Post._meta.fields]
 
@@ -417,10 +426,12 @@ class Command(BaseCommand):
         try:
             extra_prompt = build_auto_extra_prompt(queue_item)
 
+            auto_writing_style = cbl_auto_writing_style_by_category(queue_item.category)
+
             ai_data = generate_ai_post(
                 category=queue_item.category,
                 keywords=queue_item.keyword,
-                writing_style="issue",
+                writing_style=auto_writing_style,
                 extra_prompt=extra_prompt,
                 include_tags=include_tags,
                 make_thumbnail=make_thumbnail,

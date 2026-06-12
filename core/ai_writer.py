@@ -30,7 +30,7 @@ STYLE_WRITING_RULES = {
 - 가볍고 읽기 쉬운 블로그 설명체로 작성해라.
 - 처음 보는 독자도 바로 이해할 수 있게 용어를 쉽게 풀어라.
 - 정보 안내문처럼 딱딱하게 쓰지 말고, 사람이 정리한 생활형 콘텐츠처럼 작성해라.
-- 너무 깊은 분석보다 핵심 기준, 확인 순서, 주의할 점을 자연스럽게 정리해라.
+- 너무 깊은 분석보다 먼저 볼 기준, 확인 순서, 주의할 점을 자연스럽게 정리해라.
 """,
     "expert": """
 전문가 분석형 작성 규칙:
@@ -51,7 +51,7 @@ STYLE_WRITING_RULES = {
     "experience": """
 경험 기반형 작성 규칙:
 - 직접 겪은 사람이 정리한 듯한 현실적인 관점으로 작성해라.
-- 건축, 현장, 업무, 육아, 여행, 생활 노하우처럼 실제 판단에 도움이 되는 체크포인트를 넣어라.
+- 건축, 현장, 업무, 육아, 여행, 생활 노하우처럼 실제 판단에 도움이 되는 확인 기준을 넣어라.
 - 단, 실제로 경험하지 않은 내용을 "제가 직접 해보니"처럼 꾸미지 마라.
 - 후기에서 자주 보이는 부분, 선택할 때 많이 보는 기준, 놓치기 쉬운 부분을 중심으로 풀어라.
 - 너무 문서형으로 쓰지 말고, 옆에서 알려주는 자연스러운 설명체를 유지해라.
@@ -78,13 +78,13 @@ STYLE_WRITING_RULES = {
 - 최근 이슈를 단순 전달하지 말고 왜 주목받는지, 누구에게 영향이 있는지 분석해라.
 - 날짜, 발표 시점, 적용 시점이 중요한 내용은 구체적인 시점을 명확히 적어라.
 - 확인된 사실과 전망을 구분하고, 과장된 확정 표현을 피하라.
-- 독자가 지금 확인해야 할 체크포인트와 앞으로 볼 변수를 정리해라.
-- 짧은 뉴스 요약이 아니라 블로그 독자가 이해하기 쉬운 맥락 설명을 포함해라.
+- 독자가 지금 눈여겨볼 변화와 앞으로 달라질 수 있는 부분을 본문 흐름 안에서 자연스럽게 설명해라.
+- 짧은 뉴스식 나열이 아니라 블로그 독자가 이해하기 쉬운 맥락 설명을 포함해라.
 """,
     "checklist": """
-체크리스트형 작성 규칙:
-- 독자가 바로 확인할 수 있는 순서와 항목 중심으로 작성해라.
-- 각 체크 항목은 이유와 확인 방법을 함께 설명해라.
+확인기준형 작성 규칙:
+- 독자가 바로 이해할 수 있도록 확인 순서와 판단 기준을 자연스럽게 풀어라.
+- 각 확인 항목은 이유와 확인 방법을 함께 설명해라.
 - 단순 목록만 나열하지 말고, 실수하기 쉬운 부분과 판단 기준을 넣어라.
 """,
     "review": """
@@ -97,11 +97,11 @@ STYLE_WRITING_RULES = {
 
 
 HUMAN_OPENING_PATTERNS = [
-    "검색자가 이미 궁금해하는 상황을 먼저 짚고, 그다음 핵심 정보를 자연스럽게 설명하는 방식",
+    "검색자가 이미 궁금해하는 상황을 먼저 짚고, 그다음 필요한 정보를 자연스럽게 설명하는 방식",
     "개인 블로그처럼 가볍게 문제 상황을 던진 뒤, 바로 실용적인 기준을 알려주는 방식",
     "처음부터 정의를 내리지 말고, 사람들이 헷갈리는 지점부터 풀어가는 방식",
     "정보를 나열하기보다 실제로 선택하거나 판단해야 하는 상황을 먼저 보여주는 방식",
-    "짧은 공감 문장으로 시작한 뒤, 바로 체크포인트로 이어가는 방식",
+    "짧은 공감 문장으로 시작한 뒤, 바로 확인 기준로 이어가는 방식",
     "검색자가 겪을 만한 작은 불편이나 의문을 먼저 꺼내고, 그걸 풀어주는 방식",
     "딱딱한 설명보다 실제 검색자가 머릿속으로 떠올리는 질문에서 출발하는 방식",
 ]
@@ -110,45 +110,45 @@ HUMAN_STRUCTURE_PATTERNS = [
     """
 이번 글 구조는 아래 흐름을 우선 사용해라.
 - 짧은 도입
-- 바로 핵심 요약
+- 독자가 먼저 알아야 할 흐름을 자연스럽게 설명
 - 사람들이 가장 헷갈리는 부분
-- 체크리스트
+- 본문 흐름 안에서 확인 기준을 자연스럽게 풀어쓰기
 - 필요한 경우 마지막 확인 사항
-- 실용적인 정리
+- 글 전체 흐름을 자연스럽게 연결
 """,
     """
 이번 글 구조는 아래 흐름을 우선 사용해라.
 - 검색자가 궁금해할 질문으로 시작
-- 핵심 답변 먼저 제시
+- 먼저 답부터 자연스럽게 제시
 - 세부 설명
 - 주의할 점
-- 이런 사람에게 맞는지 정리
-- 한 줄 요약
+- 어떤 상황에서 참고할 만한지 설명
+- 읽고 나서 확인할 부분
 """,
     """
 이번 글 구조는 아래 흐름을 우선 사용해라.
 - 상황 설명
 - 왜 중요한지
-- 실제로 봐야 할 기준
+- 실제로 판단할 때 봐야 할 부분
 - 표 또는 리스트
 - 놓치기 쉬운 부분
 - 필요한 경우 마지막 확인 사항
-- 실용적인 정리
+- 글 전체 흐름을 자연스럽게 연결
 """,
     """
 이번 글 구조는 아래 흐름을 우선 사용해라.
 - 짧은 문제 제기
-- 핵심 기준 3가지
+- 상황을 가르는 기준을 자연스럽게 설명
 - 세부 설명
 - 실수하기 쉬운 부분
-- 마지막 체크리스트
+- 마지막에 놓치기 쉬운 부분 정리
 - 글 주제에 맞는 실용적인 끝맺음
 """,
     """
 이번 글 구조는 아래 흐름을 우선 사용해라.
-- 독자가 궁금해할 핵심부터 답변
+- 독자가 먼저 궁금해할 부분부터 풀어쓰기
 - 상황별로 다르게 봐야 할 부분
-- 실제 확인 순서
+- 실제로 확인하는 흐름
 - 주의할 점
 - 필요한 경우 헷갈리는 부분 보충
 - 짧은 정리
@@ -158,23 +158,23 @@ HUMAN_STRUCTURE_PATTERNS = [
 CATEGORY_VOICE_RULES = {
     "architecture": """
 건축 글 말투:
-- 현장 실무자가 후배에게 알려주는 느낌으로 작성해라.
+- 건축 분야를 처음 보는 독자도 이해할 수 있게 실제 확인 기준 중심으로 작성해라.
 - 공정, 하자, 비용, 안전, 시공성 기준을 자연스럽게 포함해라.
-- 너무 이론적으로 쓰지 말고 실제 현장에서 확인할 만한 기준을 넣어라.
-- 도면, 시공, 원가, 공정, 품질 관점이 필요한 경우 자연스럽게 섞어라.
+- 너무 이론적으로 쓰지 말고 실제로 확인할 수 있는 기준을 넣어라.
+- 도면, 시공, 비용, 일정, 품질처럼 필요한 관점은 주제에 맞게 자연스럽게 섞어라.
 """,
     "realestate": """
 부동산 글 말투:
 - 계약 전 확인사항을 알려주는 생활형 블로그 느낌으로 작성해라.
 - 단정적인 투자 조언은 피하고, 확인 순서와 리스크 중심으로 작성해라.
 - 초보자가 헷갈리는 용어는 쉽게 풀어라.
-- 매수, 전세, 청약, 분양 글은 실제 행동 전 체크해야 할 항목을 중심으로 작성해라.
+- 매수, 전세, 청약, 분양 글은 실제 행동 전 확인해야 할 항목을 중심으로 작성해라.
 """,
     "finance": """
 금융 글 말투:
 - 투자 권유처럼 보이지 않게 작성해라.
 - 상승과 하락을 단정하지 말고 시나리오와 리스크를 같이 설명해라.
-- 초보자가 감정적으로 매수하지 않도록 체크포인트 중심으로 작성해라.
+- 초보자가 감정적으로 매수하지 않도록 확인 기준 중심으로 작성해라.
 - 코인, 주식, 금리, 환율 글은 리스크 고지와 확인 기준을 반드시 포함해라.
 """,
     "tech": """
@@ -211,7 +211,7 @@ AI 글처럼 보이지 않기 위한 추가 규칙:
 HUMAN_DETAIL_RULES = """
 사람이 직접 편집한 글처럼 보이기 위한 세부 조건:
 - 단순 정의보다 '어떤 상황에서 이 정보가 필요한지'를 먼저 설명해라.
-- 독자가 바로 사용할 수 있는 판단 기준, 순서, 체크포인트를 넣어라.
+- 독자가 바로 사용할 수 있는 판단 기준, 순서, 확인 기준을 넣어라.
 - 너무 뻔한 일반론은 줄이고, 실제로 헷갈릴 만한 부분을 풀어라.
 - 문단 중간에 자연스러운 전환 문장을 넣어라.
 - 목록을 만들 때 모든 항목 길이를 똑같이 맞추지 마라.
@@ -469,9 +469,9 @@ def looks_like_heading(line):
         return False
 
     heading_keywords = [
-        "정리", "비교", "차이", "포인트", "체크", "질문", "FAQ",
+        "정리", "비교", "차이", "질문", "FAQ",
         "장점", "단점", "스펙", "가격", "출시일", "성능", "구성",
-        "주의", "방법", "대상", "어울립니다", "핵심", "요약",
+        "주의", "방법", "대상", "어울립니다",
     ]
 
     return any(keyword in line for keyword in heading_keywords)
@@ -818,14 +818,14 @@ Core keywords: {keywords}
 
 Style:
 - {category_style}
-- clean editorial cover image
+- scroll-stopping editorial cover image
 - visually strong main subject
 - realistic or polished editorial illustration style
 - premium blog article feel
-- simple and well-organized composition
-- soft lighting and subtle shadows
-- background should be clean and uncluttered
-- leave enough empty space for title text overlay later
+- bold composition with strong contrast and clear tension
+- cinematic lighting, stronger contrast, dramatic but not messy
+- background should be clear but visually gripping, not plain or empty
+- leave a strong dark or bright text-safe area for bold Korean title overlay later
 - mobile-friendly visual readability
 - no watermark
 - no logo
@@ -836,8 +836,8 @@ Style:
 - no numbers
 - no typography
 - no title inside image
-- no messy collage
-- no excessive decorative elements
+- no messy collage, but allow dramatic editorial tension
+- no bland stock-image feeling
 - no fake UI screenshot
 """.strip()
 
@@ -891,9 +891,9 @@ def build_better_image_caption(caption, category):
 
     default_map = {
         "tech": "제품 특징을 보여주는 참고 이미지",
-        "finance": "핵심 내용을 이해하기 위한 참고 이미지",
+        "finance": "중요한 내용을 이해하기 위한 참고 이미지",
         "architecture": "현장·도면 개념을 돕는 참고 이미지",
-        "realestate": "주요 포인트를 보여주는 참고 이미지",
+        "realestate": "중요하게 볼 부분을 보여주는 참고 이미지",
         "life": "내용 이해를 돕는 참고 이미지",
     }
 
@@ -1076,12 +1076,12 @@ def cbl_adsense_structure_instruction(
             [
                 "일상에서 실제로 마주치는 상황으로 시작",
                 "그 상황에서 독자가 헷갈리는 지점 설명",
-                "핵심 개념을 쉬운 말로 정리",
+                "중요한 개념을 쉬운 말로 풀어쓰기",
                 "작동 원리 또는 판단 기준 설명",
                 "대표적인 예시 2~3개 제시",
                 "주의할 점과 자주 하는 착각 정리",
                 "실제로 확인하거나 적용하는 방법",
-                "마무리 요약",
+                "마무리",
             ],
         ),
         (
@@ -1093,8 +1093,8 @@ def cbl_adsense_structure_instruction(
                 "비슷한 개념과 비교",
                 "실제 사례로 차이 설명",
                 "알아두면 좋은 예외 상황",
-                "초보자가 확인해야 할 체크포인트",
-                "마무리 정리",
+                "초보자가 확인해야 할 확인 기준",
+                "마지막으로 확인할 부분",
             ],
         ),
         (
@@ -1119,7 +1119,7 @@ def cbl_adsense_structure_instruction(
                 "각각의 장단점 또는 역할 설명",
                 "어떤 상황에서 무엇을 선택해야 하는지 설명",
                 "실제 예시로 다시 풀어쓰기",
-                "초보자가 기억할 핵심 정리",
+                "처음 보는 사람이 기억할 부분",
                 "마무리",
             ],
         ),
@@ -1132,8 +1132,8 @@ def cbl_adsense_structure_instruction(
                 "중간 단계에서 중요한 판단 기준 설명",
                 "마지막 단계에서 확인해야 할 부분",
                 "중간에 생길 수 있는 변수 설명",
-                "실무 또는 일상에서 활용하는 팁",
-                "마무리 요약",
+                "실제로 활용할 수 있는 팁",
+                "마무리",
             ],
         ),
         (
@@ -1142,7 +1142,7 @@ def cbl_adsense_structure_instruction(
                 "주제가 중요해진 배경 설명",
                 "예전 방식이나 기존 인식 소개",
                 "현재 왜 다시 주목받는지 설명",
-                "핵심 개념을 독자 눈높이에 맞게 정리",
+                "중요한 개념을 독자 눈높이에 맞게 정리",
                 "관련 사례 또는 적용 장면 제시",
                 "장점뿐 아니라 한계도 함께 설명",
                 "앞으로 확인하면 좋은 부분",
@@ -1158,7 +1158,7 @@ def cbl_adsense_structure_instruction(
                 "세부 개념을 순서대로 풀어쓰기",
                 "실제 상황에 대입한 예시",
                 "잘못 이해하기 쉬운 부분 정리",
-                "짧은 체크리스트",
+                "짧은 확인 기준",
                 "마무리",
             ],
         ),
@@ -1167,12 +1167,12 @@ def cbl_adsense_structure_instruction(
             [
                 "실제로 겪을 법한 장면으로 도입",
                 "처음에는 잘 보이지 않는 문제 설명",
-                "핵심 기준을 자연스럽게 제시",
+                "먼저 봐야 할 기준을 자연스럽게 제시",
                 "관련 개념을 순차적으로 연결",
                 "상황별로 달라지는 부분 설명",
                 "주의해야 할 실수 또는 리스크",
                 "현실적인 활용 팁",
-                "마무리 정리",
+                "마지막으로 확인할 부분",
             ],
         ),
         (
@@ -1197,7 +1197,7 @@ def cbl_adsense_structure_instruction(
                 "좋은 경우와 피해야 할 경우 비교",
                 "실제 예시로 기준 적용",
                 "초보자가 놓치기 쉬운 부분",
-                "간단한 판단 순서 정리",
+                "간단히 판단하는 순서",
                 "마무리",
             ],
         ),
@@ -1205,7 +1205,7 @@ def cbl_adsense_structure_instruction(
             "사례 확장형",
             [
                 "대표 사례 하나로 글 시작",
-                "사례 안에 숨어 있는 핵심 문제 설명",
+                "사례 안에서 놓치기 쉬운 문제 설명",
                 "관련 개념을 자연스럽게 소개",
                 "비슷한 사례를 추가로 연결",
                 "공통적으로 확인해야 할 기준 정리",
@@ -1228,13 +1228,13 @@ def cbl_adsense_structure_instruction(
             ],
         ),
         (
-            "체크포인트 중심형",
+            "확인 기준 중심형",
             [
                 "먼저 확인해야 할 상황 제시",
-                "첫 번째 체크포인트 설명",
-                "두 번째 체크포인트 설명",
-                "세 번째 체크포인트 설명",
-                "체크 결과에 따른 판단 방법",
+                "첫 번째 확인 기준 설명",
+                "두 번째 확인 기준 설명",
+                "세 번째 확인 기준 설명",
+                "확인 결과에 따른 판단 방법",
                 "실수하기 쉬운 예외 상황",
                 "마지막으로 점검할 부분",
                 "마무리",
@@ -1245,11 +1245,11 @@ def cbl_adsense_structure_instruction(
             [
                 "혼동하기 쉬운 개념들을 먼저 제시",
                 "같아 보이는 이유 설명",
-                "핵심 차이를 한 문장으로 정리",
+                "가장 큰 차이를 한 문장으로 풀어쓰기",
                 "차이가 실제로 영향을 주는 부분 설명",
                 "상황별 예시 비교",
                 "선택 또는 판단 기준 제시",
-                "기억하기 쉬운 정리",
+                "기억해두면 좋은 부분",
                 "마무리",
             ],
         ),
@@ -1271,11 +1271,11 @@ def cbl_adsense_structure_instruction(
             [
                 "겉으로 보이는 현상 설명",
                 "그 뒤에서 작동하는 원리 소개",
-                "핵심 요소를 나누어 설명",
+                "중요한 요소를 나누어 설명",
                 "요소들이 서로 연결되는 방식 설명",
                 "실제 상황에 적용한 예시",
                 "원리를 알면 좋은 이유",
-                "초보자용 요약",
+                "처음 보는 사람이 기억할 부분",
                 "마무리",
             ],
         ),
@@ -1288,7 +1288,7 @@ def cbl_adsense_structure_instruction(
                 "각 선택지의 장단점 정리",
                 "초보자에게 적합한 판단 방법",
                 "피해야 할 선택 패턴",
-                "최종 선택 전 체크리스트",
+                "최종 선택 전 볼 부분",
                 "마무리",
             ],
         ),
@@ -1298,7 +1298,7 @@ def cbl_adsense_structure_instruction(
                 "과거에는 어떻게 이해했는지 설명",
                 "최근 달라진 환경이나 기준 소개",
                 "변화가 생긴 이유 설명",
-                "현재 기준에서 봐야 할 핵심 정리",
+                "현재 기준에서 봐야 할 부분 정리",
                 "실제 생활이나 업무에 미치는 영향",
                 "앞으로 확인해야 할 변화",
                 "독자가 적용할 수 있는 부분",
@@ -1313,7 +1313,7 @@ def cbl_adsense_structure_instruction(
                 "반대로 주의해야 할 부분 설명",
                 "장점이 잘 드러나는 상황",
                 "단점이 문제가 되는 상황",
-                "균형 있게 판단하는 기준",
+                "한쪽으로 치우치지 않고 보는 기준",
                 "실제 적용 전 확인할 점",
                 "마무리",
             ],
@@ -1333,17 +1333,23 @@ def cbl_adsense_structure_instruction(
         ),
     ]
 
+    # CBL_NATURAL_50_FLOWS_EXTEND_START
+    natural_flows.extend(
+[('빠른결론 시작형', ['독자가 가장 궁금해할 결론을 짧게 먼저 제시', '왜 그렇게 볼 수 있는지 배경 설명', '본문에서 다룰 기준을 자연스럽게 연결', '상황별로 달라지는 부분 설명', '놓치기 쉬운 변수 정리', '실제로 확인할 부분 안내', '마무리']), ('경고신호 해석형', ['먼저 눈에 띄는 위험 신호 또는 변화 제시', '그 신호가 왜 생겼는지 설명', '독자가 오해하기 쉬운 부분 구분', '영향을 받을 수 있는 대상 설명', '당장 확인할 수 있는 기준 제시', '과도한 해석을 피해야 하는 이유', '마무리']), ('원인분해형', ['겉으로 보이는 현상 설명', '첫 번째 원인 정리', '두 번째 원인 정리', '여러 원인이 연결되는 방식 설명', '실제 결과로 이어지는 흐름 설명', '앞으로 달라질 수 있는 변수', '마무리']), ('영향범위형', ['이번 주제가 영향을 주는 범위부터 제시', '직접 영향을 받는 부분 설명', '간접적으로 연결되는 부분 설명', '독자가 체감할 수 있는 변화 정리', '주의해서 봐야 할 예외 상황', '현실적인 대응 기준', '마무리']), ('독자상황별형', ['독자가 처한 상황이 다를 수 있음을 먼저 설명', '초보자가 볼 부분 정리', '이미 알고 있는 사람이 볼 부분 정리', '실제 선택을 앞둔 사람이 볼 부분 정리', '공통적으로 놓치기 쉬운 부분', '상황별 판단 기준', '마무리']), ('전후비교형', ['이전에는 어떻게 받아들여졌는지 설명', '지금 달라진 부분 제시', '달라진 이유 설명', '변화가 실제로 미치는 영향', '예전 기준으로 보면 위험한 부분', '현재 기준에서 확인할 점', '마무리']), ('숫자읽기형', ['숫자나 지표가 먼저 눈에 띄는 상황 제시', '그 숫자의 기본 의미 설명', '숫자만 보고 오해하기 쉬운 부분', '비교해서 봐야 할 기준 설명', '실제 생활이나 시장에 연결되는 의미', '다음에 확인할 지표', '마무리']), ('사례로 푸는형', ['대표 사례 하나를 먼저 제시', '그 사례에서 중요한 부분 설명', '비슷한 상황으로 확장', '공통적으로 봐야 할 기준 정리', '다르게 해석해야 하는 경우', '독자가 적용할 수 있는 방법', '마무리']), ('현실상황형', ['책상 위 설명보다 실제 상황을 먼저 묘사', '실제 상황에서 먼저 보이는 문제 설명', '이론과 현실이 달라지는 부분', '확인할 때 봐야 하는 기준', '초보자가 놓치기 쉬운 부분', '현실적인 정리', '마무리']), ('초반판단형', ['처음 볼 때 바로 판단하면 위험한 이유 설명', '먼저 구분해야 할 기준 제시', '기준별로 달라지는 해석', '자주 하는 착각 정리', '실제로 확인할 순서', '마지막에 다시 볼 부분', '마무리']), ('실전적용형', ['개념보다 실제 적용 상황으로 시작', '적용 전에 알아야 할 조건 설명', '적용 과정에서 생기는 변수', '결과를 확인하는 방법', '실수했을 때 보완할 부분', '다음 단계로 이어지는 팁', '마무리']), ('리스크완화형', ['불안 요소를 먼저 제시', '그 불안이 실제 리스크인지 구분', '리스크가 커지는 조건 설명', '리스크를 줄이는 확인 방법', '과하게 걱정하지 않아도 되는 부분', '마지막 판단 기준', '마무리']), ('흐름추적형', ['처음 변화가 시작된 지점 설명', '중간에 달라진 흐름 정리', '현재 상황 설명', '앞으로 이어질 수 있는 방향', '흐름 중간에 확인할 변수', '독자가 놓치지 말아야 할 부분', '마무리']), ('선택실패방지형', ['잘못 선택하기 쉬운 상황 제시', '선택 전에 구분해야 할 부분', '좋아 보이지만 조심할 부분', '반대로 의외로 괜찮은 부분', '최종 선택 전 확인 기준', '실패를 줄이는 현실적인 방법', '마무리']), ('시장반응형', ['시장이 먼저 반응한 부분 제시', '반응이 나온 배경 설명', '과장된 해석과 실제 의미 구분', '관련된 사람들에게 미치는 영향', '앞으로 확인할 움직임', '독자가 가져갈 관점', '마무리']), ('업데이트변화형', ['새롭게 바뀐 부분 먼저 제시', '이전과 비교해 달라진 점 설명', '변경된 이유 또는 배경 설명', '사용자나 독자가 체감할 변화', '주의해야 할 조건', '다음 변화 가능성', '마무리']), ('장면전환형', ['익숙한 장면으로 시작', '그 장면에서 다른 관점으로 전환', '숨은 문제 또는 기준 설명', '실제 사례로 다시 연결', '판단 기준 정리', '마지막 확인 사항', '마무리']), ('기준우선형', ['정보보다 기준이 먼저 필요한 이유 설명', '가장 중요한 기준 제시', '보조 기준 설명', '기준끼리 충돌할 때 보는 방법', '실제 사례에 적용', '초보자가 기억할 부분', '마무리']), ('질문해소형', ['독자가 가질 만한 대표 의문 제시', '의문이 생기는 배경 설명', '답을 바로 단정하지 않고 조건 구분', '상황별 해석 설명', '자주 헷갈리는 부분 보완', '마지막 판단 기준', '마무리']), ('단계압축형', ['전체 흐름을 짧게 먼저 보여주기', '첫 단계에서 확인할 부분', '중간 단계에서 달라지는 부분', '마지막 단계에서 주의할 부분', '단계 사이의 연결 설명', '실제로 적용할 때의 팁', '마무리']), ('생활비유형', ['어려운 개념을 생활 속 비유로 시작', '비유가 설명하는 중심 개념 정리', '비유만으로는 부족한 부분 보완', '실제 상황에 다시 적용', '오해하기 쉬운 부분 설명', '짧은 정리', '마무리']), ('처음접근형', ['처음 접하는 사람이 막히는 이유 설명', '가장 먼저 알아야 할 배경 정리', '용어를 쉬운 말로 풀어쓰기', '전체 흐름 연결', '실제로 확인하는 방법', '다음에 보면 좋은 부분', '마무리']), ('불안요인해소형', ['독자가 불안해할 만한 부분 제시', '불안이 커지는 이유 설명', '사실과 추정을 구분', '실제로 확인 가능한 기준 안내', '지나친 걱정을 줄이는 해석', '상황이 바뀔 수 있는 변수', '마무리']), ('중심변수형', ['이번 주제에서 가장 큰 변수 제시', '그 변수가 중요한 이유 설명', '변수가 움직일 때 달라지는 부분', '관련된 보조 변수 정리', '실제 판단에 적용하는 방법', '앞으로 볼 부분', '마무리']), ('요즘흐름형', ['최근 분위기나 흐름으로 시작', '왜 그런 흐름이 생겼는지 설명', '흐름이 강해지는 조건', '반대로 약해질 수 있는 조건', '독자가 현실적으로 볼 부분', '과장된 해석을 피하는 방법', '마무리']), ('체감변화형', ['독자가 실제로 체감할 수 있는 변화부터 설명', '그 변화의 원인 정리', '체감은 크지만 실제 영향은 제한적인 부분', '작아 보여도 중요한 부분', '확인할 기준', '앞으로 달라질 수 있는 점', '마무리']), ('비교판단형', ['비교가 필요한 상황 제시', '비슷해 보이는 이유 설명', '판단을 가르는 기준 정리', '각각의 장단점 설명', '상황별로 더 맞는 선택', '주의할 예외', '마무리']), ('실수복구형', ['이미 실수했을 수 있는 상황 제시', '먼저 확인해야 할 부분', '되돌릴 수 있는 부분과 어려운 부분 구분', '다시 점검하는 순서', '같은 실수를 줄이는 방법', '다음 단계 안내', '마무리']), ('맥락먼저형', ['개별 정보보다 큰 맥락 먼저 설명', '맥락 안에서 이번 주제 위치 설명', '세부 내용으로 내려가기', '독자가 헷갈릴 만한 부분 정리', '현실적인 의미 해석', '마지막으로 볼 부분', '마무리']), ('마무리관점형', ['주제의 현재 분위기 설명', '중간에 꼭 봐야 할 기준 정리', '독자 입장에서 생길 수 있는 고민 설명', '무리하게 단정하면 안 되는 부분', '현실적으로 가져갈 관점', '다음에 확인할 변화', '마무리'])]
+    )
+    # CBL_NATURAL_50_FLOWS_EXTEND_END
+
     expert_flows = [
         (
             "기준 분석형",
             [
                 "주제의 정의와 적용 범위",
-                "핵심 판단 기준",
+                "먼저 볼 판단 기준",
                 "작동 구조 또는 시장 구조 분석",
-                "주요 지표와 해석 방법",
-                "실무 적용 사례",
-                "리스크와 한계",
-                "종합 판단",
+                "중요하게 볼 지표와 해석 방법",
+                "실제 적용 사례",
+                "주의할 점과 한계",
+                "전체적으로 볼 부분",
             ],
         ),
         (
@@ -1359,14 +1365,14 @@ def cbl_adsense_structure_instruction(
             ],
         ),
         (
-            "체크리스트형",
+            "확인기준형",
             [
-                "검토해야 할 핵심 항목",
+                "먼저 검토할 항목",
                 "항목별 판단 기준",
-                "우선순위가 높은 요소",
-                "실무에서 자주 놓치는 부분",
+                "먼저 봐야 할 요소",
+                "자주 놓치기 쉬운 부분",
                 "사례 기반 해석",
-                "최종 점검 포인트",
+                "마지막으로 확인할 부분",
                 "마무리",
             ],
         ),
@@ -1390,12 +1396,12 @@ def cbl_adsense_structure_instruction(
             "장단점 균형형",
             [
                 "전체적인 특징",
-                "핵심 장점",
+                "좋게 볼 수 있는 부분",
                 "실제 사용 시 편한 부분",
                 "단점 또는 불편한 부분",
                 "가격·시간·효율 관점 비교",
                 "주의할 점",
-                "최종 평가",
+                "선택 전에 볼 부분",
             ],
         ),
     ]
@@ -1417,7 +1423,7 @@ def cbl_adsense_structure_instruction(
             "확장 설명형",
             [
                 "배경 설명",
-                "핵심 개념",
+                "중요한 개념",
                 "세부 요소",
                 "사례",
                 "비교 또는 차이점",
@@ -1501,6 +1507,85 @@ def cbl_adsense_structure_instruction(
             "문단은 너무 짧게 끊지 말고 의미 단위로 구성한다.",
         ])
 
+
+    # CBL_NATURAL_ENDING_VARIATION_START
+    # 자연설명형은 마지막 단계가 매번 "마무리"로 반복되지 않게 하되,
+    # 랜덤 길이 조정 때문에 글 흐름이 중간에서 끊기지 않도록 끝맺음 단계를 항상 보강한다.
+    natural_ending_variants = [
+        "독자가 가져갈 관점 정리",
+        "다음에 확인하면 좋은 부분",
+        "현실적으로 봐야 할 기준",
+        "오늘 기준으로 볼 핵심",
+        "놓치지 말아야 할 부분",
+        "실제로 적용할 때 볼 부분",
+        "처음 보는 사람이 기억할 부분",
+        "상황별로 다시 확인할 부분",
+        "과하게 해석하지 말아야 할 부분",
+        "다음 판단으로 이어지는 부분",
+        "글 전체 흐름을 자연스럽게 연결",
+        "독자 입장에서 남는 질문 정리",
+        "실제 선택 전에 볼 부분",
+        "조금 더 현실적으로 볼 부분",
+        "앞으로 달라질 수 있는 변수",
+        "기억해두면 좋은 기준",
+        "무리하게 단정하지 않고 볼 부분",
+        "다음 단계로 이어지는 팁",
+        "현실적인 판단 기준",
+        "끝에서 한 번 더 볼 기준",
+        "읽고 나서 바로 확인할 부분",
+        "초보자가 특히 놓치기 쉬운 부분",
+        "전체 흐름을 다시 연결",
+        "상황을 나눠 다시 보기",
+        "주의할 점을 자연스럽게 짚기",
+        "앞으로 지켜볼 변화",
+        "실제로 써먹을 수 있는 기준",
+        "독자가 바로 확인할 부분",
+        "글을 읽은 뒤 남겨둘 관점",
+        "지금 기준에서 무리 없이 볼 부분",
+    ]
+
+    if is_natural and selected_flow:
+        selected_flow = list(selected_flow)
+        last_text = str(selected_flow[-1] or "").strip()
+
+        generic_end_words = [
+            "마무리",
+            "마지막으로 확인할 부분",
+            "마지막으로 확인할 부분",
+            "짧은 정리",
+            "선택 전에 볼 부분",
+            "전체적으로 볼 부분",
+            "결론",
+        ]
+
+        ending_like_words = [
+            "관점", "기준", "확인할 부분", "볼 부분", "변수", "팁",
+            "다시 연결", "지켜볼 변화", "남겨둘 관점", "판단 포인트",
+        ]
+
+        # 기존 마지막이 너무 뻔하면 교체
+        if last_text in generic_end_words or last_text.startswith("마무리"):
+            selected_flow[-1] = _random.choice(natural_ending_variants)
+
+        # 랜덤 절단 때문에 끝맺음 없이 끊기는 경우, 자연스러운 마지막 단계를 추가
+        elif not any(word in last_text for word in ending_like_words):
+            if len(selected_flow) < 8:
+                selected_flow.append(_random.choice(natural_ending_variants))
+            else:
+                selected_flow[-1] = _random.choice(natural_ending_variants)
+
+        # "정리"가 너무 자주 보이면 일부 표현 완화
+        selected_flow = [
+            str(x)
+            .replace("마무리", "끝부분")
+            .replace("마지막으로 확인할 부분", "끝부분에서 볼 기준")
+            .replace("마지막으로 확인할 부분", "끝부분에서 볼 기준")
+            .replace("초보자용 요약", "처음 보는 사람이 기억할 부분")
+            for x in selected_flow
+        ]
+    # CBL_NATURAL_ENDING_VARIATION_END
+
+
     flow_text = "\n".join(f"{i+1}. {x}" for i, x in enumerate(selected_flow))
 
     lang_rule = ""
@@ -1522,7 +1607,9 @@ def cbl_adsense_structure_instruction(
 이번 글에서 반드시 반영할 H2 전개 순서:
 {flow_text}
 
-글쓰기 세부 지시:
+글쓰기 세부 지시:\n- H2/H3 소제목은 '항목: 설명' 형식을 쓰지 마라.
+- H2/H3 소제목은 '1. 벽체와 천장: ...'처럼 숫자와 콜론으로 시작하지 마라.
+- 소제목은 '벽체와 천장은 균열과 누수 흔적을 먼저 본다'처럼 자연스러운 문장형으로 작성해라.
 - {lang_rule}
 - {intro_rule}
 - {question_rule}
@@ -1650,6 +1737,44 @@ This is only background context for writing a blog post. Do not write the blog p
     return result[:1500]
 # CBL_RECENT_ISSUE_PRESEARCH_END
 
+
+def cbl_strengthen_thumbnail_text(raw_text="", title="", keywords="", category=""):
+    raw_text = str(raw_text or "").strip()
+    title_text = f"{title} {keywords}".strip()
+
+    bland_words = [
+        "시장 동향", "경제", "정리", "가이드", "확인", "분석",
+        "주요 내용", "알아보기", "이해하기", "기본 정보"
+    ]
+
+    too_bland = (not raw_text) or len(raw_text) > 18 or any(word in raw_text for word in bland_words)
+
+    if not too_bland:
+        return raw_text[:18]
+
+    compact = title_text.replace(" ", "").upper()
+
+    if "ECB" in compact or "금리" in title_text or "긴축" in title_text:
+        return "금리 충격 온다"
+    if "분양" in title_text or "미분양" in title_text:
+        return "분양시장 경고등"
+    if "재건축" in title_text or "아파트" in title_text:
+        return "집값 변수 터졌다"
+    if "코인" in title_text or "비트코인" in title_text or "리플" in title_text:
+        return "코인시장 흔들린다"
+    if category == "tech":
+        return "이 기능 놓치면 손해"
+    if category == "architecture":
+        return "건축 확인 기준"
+    if category == "realestate":
+        return "부동산 경고등"
+    if category == "finance":
+        return "시장 흔들 변수"
+    if category == "life":
+        return "방문 전 볼 것"
+
+    return (raw_text or keywords or title)[:18]
+
 def generate_ai_post(
     category,
     keywords,
@@ -1669,7 +1794,7 @@ def generate_ai_post(
         "product_review": "구매·리뷰형",
         "news_trend": "뉴스·트렌드형",
         "trend": "뉴스·트렌드형",
-        "checklist": "체크리스트형",
+        "checklist": "확인기준형",
         "review": "리뷰형",
         "natural_blog": "자연 설명형",
         "practical": "경험 기반형",
@@ -1827,17 +1952,17 @@ content_images는 빈 배열로 반환해라.
 
 {planned_title_instruction}
 
-핵심 SEO 작성 원칙:
+검색 친화 작성 기준:
 - 제목은 검색자가 실제로 입력할 만한 롱테일 키워드 형태로 작성해라.
-- 첫 문단 150자 안에 핵심 키워드를 자연스럽게 포함해라.
+- 첫 문단 150자 안에 주요 키워드를 자연스럽게 포함해라.
 - 본문은 h2, h3, p, ul, li, table, blockquote, mark, span 태그를 적절히 사용해라.
 - 본문 최상단에 h1 태그는 절대 쓰지 마라.
-- 핵심 요약은 필요할 때만 글 초반 또는 중간에 자연스럽게 넣어라.
+- 소제목에 고정 요약형 표현을 쓰지 말고, 필요한 내용은 본문 첫 부분에서 자연스럽게 설명해라.
 - 모든 글에 똑같은 요약 박스를 반복하지 마라.
 - FAQ는 필수가 아니다. 글 흐름상 자연스러울 때만 포함해라.
 - FAQ가 필요 없는 주제라면 작성하지 마라.
 - FAQ를 작성할 경우 2~4개 사이로 구성하되, 모든 글에 반복하지 마라.
-- 글 마지막에는 자연스러운 마무리와 한 줄 요약을 넣어라.
+- 글 마지막에는 고정 요약 형식 없이, 독자가 다음에 무엇을 보면 좋을지 자연스럽게 마무리해라.
 - 키워드를 억지로 반복하지 마라.
 - 같은 표현, 같은 문장 패턴, 같은 소제목 구조를 반복하지 마라.
 - 도입부에서 "오늘은", "이번 글에서는", "함께 알아보겠습니다", "알아보는 시간을 가져볼게요"를 쓰지 마라.
@@ -1877,12 +2002,16 @@ meta_description 작성 조건:
 - 영어 본문을 작성하지 마라. 반드시 한국어 본문을 작성해라.
 - Amazon, Walmart, Target, eBay, Best Buy, Wayfair 같은 일반 쇼핑몰 추천 문장을 넣지 마라.
 - 본문 첫머리에 "안녕하세요", "치킨바나나랩입니다" 같은 운영자 인사말을 직접 작성하지 마라. 필요한 인사말은 사용자가 수동으로 추가한다.
+- 본문 어디에도 작성 주체, 자동 작성 여부, 시스템 생성 여부, 블로그 운영 시스템 출처를 드러내는 문구를 넣지 마라.
+- H2/H3 소제목에 고정 요약형, 목록 강제형, 마지막 정리형 문구를 반복해서 쓰지 마라.
+- 표나 목록이 꼭 필요한 글이 아니면 무리하게 항목 나열 형식으로 만들지 마라.
+- 독자를 끌어야 하는 이슈성 글은 도입부에서 너무 안전한 설명보다 변화, 충격, 논란, 손해 가능성, 시장 반응 중 하나를 먼저 잡아라.
 
 글 분량 판단 조건:
 - 주제가 간단한 생활정보, 맛집 위치, 메뉴 소개, 짧은 이슈라면 핵심만 담아 900~1,300자 정도로 작성해라.
 - 맛집/여행 소개형이면 위치, 메뉴, 방문 팁, 어울리는 사람 중심으로 1,100~1,600자 정도로 작성해라.
 - 비교, 분석, 교육, 사용법, 투자 리스크, 개발 방법, 건축 실무처럼 설명이 필요한 내용이면 1,500~2,500자 정도로 작성해라.
-- 프로그램 사용법, 개발 튜토리얼, 자동매매 로직, 건축 실무 체크리스트처럼 단계 설명이 필요한 글은 충분히 길게 작성해라.
+- 프로그램 사용법, 개발 튜토리얼, 자동매매 로직, 건축 실무 점검 기준처럼 단계 설명이 필요한 글은 충분히 길게 작성해라.
 - 독자가 이미 아는 일반론을 길게 늘리지 마라.
 - 같은 말을 반복해서 글자 수를 채우지 마라.
 - 짧은 글이어도 검색자가 궁금해하는 핵심 답변은 빠뜨리지 마라.
@@ -1914,8 +2043,8 @@ meta_description 작성 조건:
 - 소제목은 딱딱한 질문형만 반복하지 말고 블로그식 문장으로 작성해라.
 - 표는 꼭 필요할 때만 1개 정도 사용해라.
 - 핵심 문장은 <mark class="yellow-highlight">강조문구</mark> 형태로 표시해라.
-- 중요한 장소, 메뉴, 금액, 시간, 키워드는 <span class="blue-point">강조문구</span> 형태로 강조해라.
-- 글 마지막은 딱딱한 결론보다 "이런 분들에게 어울립니다" 식으로 자연스럽게 정리해라.
+- 중요한 장소, 메뉴, 금액, 시간, 키워드는 필요한 경우에만 <span class="blue-point">강조문구</span> 형태로 강조해라.
+- 글 마지막은 딱딱한 결론이나 고정 요약 형식 없이, 주제에 맞는 현실적인 판단 기준으로 끝내라.
 
 FAQ 작성 조건:
 - FAQ는 선택 사항이다.
@@ -1982,7 +2111,7 @@ FAQ 작성 조건:
         fallback_content = text
 
         if looks_like_bad_generic_shopping_text(fallback_content):
-            fallback_content = "<h2>자료 확인이 필요한 주제입니다</h2><p>자동 글 생성 과정에서 주제와 맞지 않는 일반 쇼핑몰 정보가 감지되어 본문을 안전하게 대체했습니다. 이 주제는 제품명, 공식 스펙, 가격 자료를 추가 요청사항에 넣고 다시 생성하는 것이 좋습니다.</p>"
+            fallback_content = "<h2>자료 확인이 필요한 주제입니다</h2><p>자료 확인 과정에서 주제와 맞지 않는 일반 쇼핑몰 정보가 감지되어 본문을 안전하게 대체했습니다. 이 주제는 제품명, 공식 스펙, 가격 자료를 추가 요청사항에 넣고 다시 생성하는 것이 좋습니다.</p>"
 
         fallback_title = f"{keywords} 정리"
         fallback_content = repair_ai_content_html(fallback_content, title=fallback_title)
@@ -2023,7 +2152,7 @@ FAQ 작성 조건:
     content = repair_ai_content_html(content, title=title)
 
     if looks_like_bad_generic_shopping_text(content):
-        content = "<h2>자료 확인이 필요한 주제입니다</h2><p>자동 글 생성 과정에서 주제와 맞지 않는 일반 쇼핑몰 정보가 감지되어 본문을 안전하게 대체했습니다. 제품명, 공식 스펙, 가격 자료를 추가 요청사항에 넣고 다시 생성해 주세요.</p>"
+        content = "<h2>자료 확인이 필요한 주제입니다</h2><p>자료 확인 과정에서 주제와 맞지 않는 일반 쇼핑몰 정보가 감지되어 본문을 안전하게 대체했습니다. 제품명, 공식 스펙, 가격 자료를 추가 요청사항에 넣고 다시 생성해 주세요.</p>"
 
     content = repair_ai_content_html(content, title=title)
     content = cbl_polish_article_after_generate(content)
@@ -2050,7 +2179,7 @@ FAQ 작성 조건:
         "title": title,
         "summary": summary[:300],
         "meta_description": meta_description[:160],
-        "thumbnail_text": str(data.get("thumbnail_text", keywords[:30]))[:100],
+        "thumbnail_text": cbl_strengthen_thumbnail_text(data.get("thumbnail_text", ""), title=title, keywords=keywords, category=category),
         "content": content,
         "tags": str(data.get("tags", "")) if include_tags else "",
         "thumbnail_prompt": thumbnail_prompt,
@@ -2268,7 +2397,7 @@ def generate_post_topics(category, keywords, writing_style, extra_prompt="", cou
         "product_review": "구매·리뷰형",
         "news_trend": "뉴스·트렌드형",
         "trend": "뉴스·트렌드형",
-        "checklist": "체크리스트형",
+        "checklist": "확인기준형",
         "review": "리뷰형",
         "natural_blog": "자연 설명형",
         "practical": "경험 기반형",
@@ -2315,7 +2444,7 @@ def generate_post_topics(category, keywords, writing_style, extra_prompt="", cou
 - 각 글은 검색 의도가 서로 달라야 한다.
 - 제목이 서로 비슷하면 안 된다.
 - 같은 문장 구조를 반복하지 마라.
-- 초보자용, 체크리스트, 비교, 리스크, 사례, 실전 방법, 주의점, 후기 분석, 방문 팁 등 관점을 나눠라.
+- 초보자용, 확인 기준, 비교, 리스크, 사례, 실전 방법, 주의점, 후기 분석, 방문 팁 등 관점을 나눠라.
 - 제목은 네이버와 구글 검색 유입에 적합하게 작성해라.
 - 제목은 검색자가 실제로 입력할 만한 롱테일 키워드를 포함해라.
 - 너무 자극적이거나 허위성 있는 제목은 피하라.
@@ -2366,7 +2495,7 @@ def generate_post_topics(category, keywords, writing_style, extra_prompt="", cou
         "기초 개념을 쉽게 정리",
         "주의할 점과 리스크 정리",
         "실전 적용 방법 정리",
-        "체크리스트 형태로 정리",
+        "확인 기준을 자연스럽게 정리",
         "비교와 차이점 중심으로 정리",
         "초보자가 자주 실수하는 부분 정리",
         "최근 이슈와 연결해서 정리",
@@ -2476,12 +2605,12 @@ def recommend_today_keywords(category="", today="", count=7):
         {"keyword": "코인 API 키 보안 설정 방법", "category": "금융", "reason": "실전 사용자가 검색하기 좋은 주제"},
         {"keyword": "Django 블로그 만들기 초보 가이드", "category": "테크", "reason": "개발 과정 콘텐츠로 확장 가능"},
         {"keyword": "AI 자동 글쓰기 블로그 운영 방법", "category": "테크", "reason": "사이트 방향과 맞는 주제"},
-        {"keyword": "건설현장 안전관리 체크리스트", "category": "건축", "reason": "전문 정보형 검색 유입 가능"},
-        {"keyword": "아파트 하자보수 체크포인트", "category": "건축", "reason": "생활형 건축 콘텐츠"},
+        {"keyword": "건설현장 안전관리 점검 기준", "category": "건축", "reason": "전문 정보형 검색 유입 가능"},
+        {"keyword": "아파트 하자보수 확인 기준", "category": "건축", "reason": "생활형 건축 콘텐츠"},
         {"keyword": "부동산 전세 계약 전 확인사항", "category": "부동산", "reason": "검색 수요가 꾸준한 주제"},
         {"keyword": "아이폰 맥북 연동 사용법", "category": "테크", "reason": "테크 생활형 콘텐츠"},
         {"keyword": "육아휴직 급여 신청 방법", "category": "일상", "reason": "생활 정보형 검색 주제"},
-        {"keyword": "방송 맛집 방문 전 체크할 점", "category": "일상", "reason": "맛집 글 확장 가능"},
+        {"keyword": "방송 맛집 방문 전 확인할 점", "category": "일상", "reason": "맛집 글 확장 가능"},
     ]
 
     index = 0
@@ -2591,7 +2720,7 @@ _CBL_TITLE_THUMBNAIL_BLOGIFY_RULE = """
 - 단, 과장형 낚시 제목은 피한다.
 - "완벽정리", "총정리", "A to Z", "끝판왕" 같은 표현을 반복 남발하지 않는다.
 - 제목 끝에 물음표를 매번 붙이지 않는다.
-- 질문형, 설명형, 문제해결형, 비교형, 체크리스트형 제목을 자연스럽게 섞는다.
+- 질문형, 설명형, 문제해결형, 비교형, 확인기준형 제목을 자연스럽게 섞는다.
 
 좋은 제목 방향 예시:
 - 캐시란 무엇인가 → 캐시를 삭제하라는 말, 정확히 어떤 뜻일까?
@@ -2604,6 +2733,9 @@ _CBL_TITLE_THUMBNAIL_BLOGIFY_RULE = """
 썸네일 문구 작성 규칙:
 - 썸네일 문구는 제목을 그대로 복사하지 않는다.
 - 썸네일 문구는 짧고 강하게 작성한다.
+- 썸네일 문구는 얌전한 설명보다 클릭 이유가 보여야 한다.
+- 예: "분양시장 경고등", "ECB 긴축 충격", "대구 분양 빨간불", "집값보다 무서운 것", "지금 놓치면 손해"
+- 단, 허위 사실이나 과장된 단정은 금지한다.
 - 한글 기준 8~18자 정도를 우선한다.
 - 너무 긴 문장형 썸네일을 피한다.
 - 썸네일에는 HTML 태그를 절대 넣지 않는다.
@@ -2679,10 +2811,10 @@ _CBL_FINAL_NATURAL_PATTERNS = [
     "오해 정리형: 흔한 오해 제시 → 맞는 부분과 틀린 부분 구분 → 실제 의미 → 판단 기준",
     "비교 설명형: 비슷한 개념 비교 → 실제 차이 → 사용 상황 → 선택 기준 → 주의점",
     "운영자 관점형: 블로그/웹사이트 운영 중 생기는 문제 → 기술 개념 → 관리 포인트 → 실수 방지",
-    "생활 팁형: 바로 써먹을 수 있는 상황 → 체크 항목 → 하면 안 되는 행동 → 마지막 점검",
+    "생활 팁형: 바로 써먹을 수 있는 상황 → 확인 항목 → 하면 안 되는 행동 → 마지막 점검",
     "짧은 사례형: 가상의 사용자 사례 → 왜 문제가 생겼는지 설명 → 비슷한 상황에서 확인할 점",
     "초보자 비유형: 쉬운 비유 → 기본 개념 → 실제 인터넷 상황 → 주의할 점",
-    "체크리스트형: 먼저 확인할 항목 → 항목별 이유 → 위험한 경우 → 마지막 기준",
+    "확인기준형: 먼저 확인할 항목 → 항목별 이유 → 위험한 경우 → 마지막 기준",
     "원인 분석형: 증상 → 원인 후보 → 가능성 높은 순서 → 사용자가 할 수 있는 조치",
     "실수 방지형: 자주 하는 실수 → 왜 문제가 되는지 → 올바른 사용법 → 피해야 할 상황",
     "운영 체크형: 사이트 운영자가 놓치는 지점 → 설정 확인 → 관리 주기 → 문제 발생 시 대응",
@@ -2715,7 +2847,7 @@ _CBL_FINAL_NATURAL_RULE = """
 
 절대 반복 금지 구조:
 - 생활 예시 → 정의 → 역할 → 종류 → 관리 방법 → 자주 묻는 질문 → 마무리
-- 문제 제기 → 핵심 요약 → 이유 나열 → 주의사항 → FAQ → 결론
+- 문제 제기 → 고정 요약 → 이유 나열 → 주의사항 → FAQ → 결론
 - 정의 → 중요성 → 장점 → 주의사항 → FAQ → 마무리
 
 도입부 금지:
@@ -2752,7 +2884,7 @@ FAQ 규칙:
 H2 규칙:
 - H2를 모두 질문형으로 쓰지 않는다.
 - 질문형 H2는 전체 H2의 절반 이하로 제한한다.
-- 설명형, 상황형, 비교형, 체크리스트형, 문제 해결형 제목을 섞는다.
+- 설명형, 상황형, 비교형, 확인기준형, 문제 해결형 제목을 섞는다.
 - "왜 중요할까요?", "무엇일까요?", "어떻게 해야 할까요?" 패턴을 반복하지 않는다.
 
 이미지/캡션 규칙:
@@ -2815,6 +2947,63 @@ def cbl_polish_article_after_generate(content):
     if not content:
         return content
 
+    # 작성 출처/자동글 고백 문구는 무조건 제거
+    auto_disclosure_patterns = [
+        r"<p>\\s*.*?" + "자동" + "글" + r".*?</p>",
+        r"<p>\\s*.*?" + "시스템에서 작성" + r".*?</p>",
+        r".*?" + "AI" + r"\\s*" + "자동" + "글" + r".*?(?:\\.|다\\.)",
+        r"<p>\s*이 글은\s*ChickenBanana\s*Lab.*?자동.*?</p>",
+        r"<p>\s*ChickenBanana\s*Lab.*?자동글.*?</p>",
+        r"<p>\s*.*?시간별\s*AI\s*자동글\s*생성\s*시스템.*?</p>",
+        r"<p>\s*.*?AI\s*자동글.*?작성.*?</p>",
+        r"<p>\s*.*?자동\s*생성\s*시스템.*?</p>",
+        r"이 글은\s*ChickenBanana\s*Lab.*?자동.*?(?:\.|다\.)",
+        r"ChickenBanana\s*Lab의\s*시간별\s*AI\s*자동글\s*생성\s*시스템에서\s*작성하는\s*글입니다\.?",
+    ]
+    for pattern in auto_disclosure_patterns:
+        content = re.sub(pattern, "", content, flags=re.IGNORECASE | re.DOTALL).strip()
+
+    # 너무 기계적인 소제목은 자연스러운 표현으로 치환
+    heading_replacements = {
+        "핵심" + " 요약": "먼저 흐름부터 보면",
+        "핵심" + " 요약:": "먼저 흐름부터 보면",
+        "지금 확인해야 할 " + "확인 기준": "지금 눈여겨볼 부분",
+        "체크" + "리스트": "놓치기 쉬운 부분",
+        "마지막 " + "체크리스트": "마지막에 볼 부분",
+        "글 전체 흐름을 자연스럽게 연결": "글 전체 흐름을 자연스럽게 연결",
+        "ChickenBanana Lab의 " + "한 줄 요약": "짧게 정리하면",
+        "한 줄" + " 요약": "짧게 정리하면",
+    }
+    for old, new in heading_replacements.items():
+        content = content.replace(f"<h2>{old}</h2>", f"<h2>{new}</h2>")
+        content = content.replace(f"<h3>{old}</h3>", f"<h3>{new}</h3>")
+
+
+    # 고정형 AI 소제목을 더 넓게 치환
+    bad_heading_patterns = [
+        (r"핵심\s*요약.*?", "먼저 흐름부터 보면"),
+        (r"한\s*줄\s*요약.*?", "짧게 정리하면"),
+        (r"체크\s*리스트.*?", "놓치기 쉬운 부분"),
+        (r"지금\s*확인해야\s*할\s*체크\s*포인트.*?", "지금 눈여겨볼 부분"),
+        (r"실용적인\s*정리.*?", "글 전체 흐름을 자연스럽게 연결"),
+        (r"마지막\s*체크\s*리스트.*?", "마지막에 볼 부분"),
+        (r"ChickenBanana\s*Lab.*?요약.*?", "짧게 정리하면"),
+    ]
+
+    for pattern, replacement in bad_heading_patterns:
+        content = re.sub(
+            rf"<h([23])>\s*{pattern}\s*</h\1>",
+            lambda m: f"<h{m.group(1)}>{replacement}</h{m.group(1)}>",
+            content,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+
+    # 본문 문장으로 새어 나온 작성 출처 표현도 제거
+    content = re.sub(r"ChickenBanana\s*Lab.*?(자동|시스템|작성).*?(?:\.|다\.)", "", content, flags=re.IGNORECASE | re.DOTALL)
+    content = re.sub(r".*?AI\s*자동\s*글.*?(?:\.|다\.)", "", content, flags=re.IGNORECASE | re.DOTALL)
+    content = re.sub(r".*?자동\s*생성\s*시스템.*?(?:\.|다\.)", "", content, flags=re.IGNORECASE | re.DOTALL)
+
+
     # 너무 AI스러운 마무리 문장 제거
     bad_ending_patterns = [
         r"<p>\s*이 글이.*?도움이 되기를 바랍니다\.?\s*</p>",
@@ -2872,4 +3061,337 @@ def cbl_polish_article_after_generate(content):
 
     return content
 # CBL_FINAL_POLISH_NO_AI_ENDING_END
+
+
+# CBL_REMOVE_FAKE_FIELD_PERSONA_START
+def cbl_remove_fake_field_persona_phrases(content):
+    """
+    건축 글에서 AI가 억지 전문가/현장 실무자 페르소나를 흉내 내는 표현을 제거한다.
+    """
+    import re
+
+    content = str(content or "")
+
+    replacements = {
+        "현장에서 일하는 사람으로서,": "",
+        "현장에서의 경험을 바탕으로 말씀드리자면,": "",
+        "현장에서 자주 문제가 되는": "실제로 자주 확인되는",
+        "현장에서 놓치지 말아야 할": "놓치기 쉬운",
+        "현장에서 보면": "실제로 보면",
+        "현장에서는": "실제 상황에서는",
+        "실무적으로 보면": "조금 더 현실적으로 보면",
+        "현장 실무자": "실제 사용자",
+        "현장실무자": "실제 사용자",
+        "실무팀": "담당자",
+        "끝으로 보면:": "",
+        "끝으로 보면": "",
+        "알려드리려고 해요": "정리해볼게요",
+        "이번 글에서는": "아래에서는",
+    }
+
+    for old, new in replacements.items():
+        content = content.replace(old, new)
+
+    # H2/H3에 붙은 어색한 끝맺음 접두어 제거
+    def clean_heading(match):
+        tag = match.group(1)
+        body = match.group(2).strip()
+        body = re.sub(r"^끝으로\s*보면\s*[:：]?\s*", "", body).strip()
+        body = re.sub(r"^글\s*전체\s*흐름을\s*자연스럽게\s*연결\s*[:：]?\s*", "", body).strip()
+        if not body:
+            body = "실제로 확인할 부분"
+        return f"<{tag}>{body}</{tag}>"
+
+    content = re.sub(
+        r"<(h2|h3)>\s*(.*?)\s*</\1>",
+        clean_heading,
+        content,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    # 같은 캡션/짧은 문장이 연속으로 두 번 나오는 경우 1회만 남김
+    content = re.sub(
+        r"(^|\n)([^<\n][^\n]{5,90})\n\2(\n|$)",
+        r"\1\2\3",
+        content,
+        flags=re.MULTILINE,
+    )
+
+    content = re.sub(r"\n{3,}", "\n\n", content).strip()
+    return content
+
+
+try:
+    _cbl_prev_polish_fake_persona = cbl_polish_article_after_generate
+
+    def cbl_polish_article_after_generate(content):
+        content = _cbl_prev_polish_fake_persona(content)
+        return cbl_remove_fake_field_persona_phrases(content)
+
+except NameError:
+    def cbl_polish_article_after_generate(content):
+        return cbl_remove_fake_field_persona_phrases(content)
+# CBL_REMOVE_FAKE_FIELD_PERSONA_END
+
+
+# CBL_SMOOTH_COLON_HEADINGS_START
+def cbl_smooth_colon_headings(content):
+    """
+    AI가 만든 '1. 항목: 설명' 형태의 소제목을
+    블로그식 자연 문장형 소제목으로 바꾼다.
+    """
+    import re
+
+    content = str(content or "")
+
+    def has_batchim(word):
+        word = str(word or "").strip()
+        if not word:
+            return False
+
+        ch = word[-1]
+        code = ord(ch)
+
+        # 한글 음절 범위
+        if 0xAC00 <= code <= 0xD7A3:
+            return (code - 0xAC00) % 28 != 0
+
+        # 숫자/영문은 자연스럽게 '은'보다 '는' 쪽이 덜 어색
+        return False
+
+    def smooth_body(body):
+        body = str(body or "").strip()
+
+        # 앞 번호 제거: 1. / 1) / ① 비슷한 형태 최소 제거
+        body = re.sub(r"^\s*\d+\s*[\.\)]\s*", "", body).strip()
+
+        if ":" not in body and "：" not in body:
+            return body
+
+        parts = re.split(r"\s*[:：]\s*", body, maxsplit=1)
+
+        if len(parts) != 2:
+            return body.replace(":", " ").replace("：", " ").strip()
+
+        left, right = parts[0].strip(), parts[1].strip()
+
+        if not left or not right:
+            return (left + " " + right).strip()
+
+        # 오른쪽 끝 문장부호 정리
+        right = right.rstrip(" .。?？!！").strip()
+
+        particle = "은" if has_batchim(left) else "는"
+
+        # "~인지, ~는지"처럼 확인형이면 끝에 확인한다를 붙임
+        if ("는지" in right or "인지" in right) and not any(v in right for v in ["확인", "살펴", "본다", "찾"]):
+            right = right + " 확인한다"
+
+        # "~흔적을 찾아라" 같은 명령형은 너무 세서 부드럽게
+        right = right.replace("찾아라", "먼저 본다")
+        right = right.replace("살펴라", "살펴본다")
+        right = right.replace("확인!", "확인한다")
+
+        return f"{left}{particle} {right}".strip()
+
+    def repl(match):
+        tag = match.group(1)
+        body = match.group(2)
+
+        new_body = smooth_body(body)
+
+        return f"<{tag}>{new_body}</{tag}>"
+
+    # HTML 소제목 처리
+    content = re.sub(
+        r"<(h2|h3)>\s*(.*?)\s*</\1>",
+        repl,
+        content,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    # 혹시 일반 텍스트 줄로 남은 경우도 최소 처리
+    lines = []
+    for line in content.splitlines():
+        stripped = line.strip()
+
+        if re.match(r"^\d+\s*[\.\)]\s*[^:：]{1,40}\s*[:：]\s*.+", stripped):
+            line = smooth_body(stripped)
+        elif re.match(r"^[^<]{1,40}\s*[:：]\s*.+", stripped) and not stripped.startswith(("http:", "https:")):
+            # 너무 긴 문단은 건드리지 않고, 짧은 소제목 후보만 처리
+            if len(stripped) <= 80:
+                line = smooth_body(stripped)
+
+        lines.append(line)
+
+    content = "\n".join(lines)
+    content = re.sub(r"\n{3,}", "\n\n", content).strip()
+    return content
+
+
+try:
+    _cbl_prev_polish_colon_headings = cbl_polish_article_after_generate
+
+    def cbl_polish_article_after_generate(content):
+        content = _cbl_prev_polish_colon_headings(content)
+        return cbl_smooth_colon_headings(content)
+
+except NameError:
+    def cbl_polish_article_after_generate(content):
+        return cbl_smooth_colon_headings(content)
+# CBL_SMOOTH_COLON_HEADINGS_END
+
+
+# CBL_SMOOTH_AI_POINT_HEADINGS_START
+def cbl_smooth_ai_point_headings(content):
+    """
+    '핵심포인트', '한 번 더 볼 부분', '주요 포인트'처럼 AI/보고서 느낌이 강한
+    소제목 표현을 블로그식 자연 문장으로 바꾼다.
+    """
+    import re
+
+    content = str(content or "")
+
+    heading_map = [
+        (r"^\s*핵심\s*포인트\s*[:：]?\s*$", "중요하게 볼 부분"),
+        (r"^\s*핵심포인트\s*[:：]?\s*$", "중요하게 볼 부분"),
+        (r"^\s*주요\s*포인트\s*[:：]?\s*$", "중요하게 볼 부분"),
+        (r"^\s*중요\s*포인트\s*[:：]?\s*$", "중요하게 볼 부분"),
+        (r"^\s*체크\s*포인트\s*[:：]?\s*$", "확인할 부분"),
+        (r"^\s*최종\s*점검\s*포인트\s*[:：]?\s*$", "마지막으로 확인할 부분"),
+        (r"^\s*핵심\s*정리\s*[:：]?\s*$", "한 번 더 볼 부분"),
+        (r"^\s*핵심\s*기준\s*[:：]?\s*$", "먼저 볼 기준"),
+        (r"^\s*핵심\s*내용\s*[:：]?\s*$", "중요하게 볼 내용"),
+        (r"^\s*핵심\s*요소\s*[:：]?\s*$", "먼저 볼 요소"),
+    ]
+
+    def clean_heading_text(body):
+        body = str(body or "").strip()
+        body = re.sub(r"^\s*\d+\s*[\.\)]\s*", "", body).strip()
+
+        for pattern, replacement in heading_map:
+            if re.search(pattern, body, flags=re.IGNORECASE):
+                return replacement
+
+        # '핵심포인트: 내용' / '핵심 포인트 - 내용' 류
+        body = re.sub(r"^\s*핵심\s*포인트\s*[:：\-–]\s*", "", body, flags=re.IGNORECASE).strip()
+        body = re.sub(r"^\s*핵심포인트\s*[:：\-–]\s*", "", body, flags=re.IGNORECASE).strip()
+        body = re.sub(r"^\s*주요\s*포인트\s*[:：\-–]\s*", "", body, flags=re.IGNORECASE).strip()
+        body = re.sub(r"^\s*체크\s*포인트\s*[:：\-–]\s*", "", body, flags=re.IGNORECASE).strip()
+
+        # 소제목 안에 남은 표현 완화
+        body = body.replace("핵심 포인트", "중요하게 볼 부분")
+        body = body.replace("핵심포인트", "중요하게 볼 부분")
+        body = body.replace("주요 포인트", "중요하게 볼 부분")
+        body = body.replace("체크포인트", "확인할 부분")
+        body = body.replace("한 번 더 볼 부분", "한 번 더 볼 부분")
+        body = body.replace("먼저 볼 기준", "먼저 볼 기준")
+        body = body.replace("최종 점검 포인트", "마지막으로 확인할 부분")
+        body = body.replace("판단 포인트", "판단 기준")
+
+        return body.strip() or "중요하게 볼 부분"
+
+    def repl(match):
+        tag = match.group(1)
+        body = match.group(2)
+        new_body = clean_heading_text(body)
+        return f"<{tag}>{new_body}</{tag}>"
+
+    content = re.sub(
+        r"<(h2|h3)>\s*(.*?)\s*</\1>",
+        repl,
+        content,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    return content
+
+
+try:
+    _cbl_prev_polish_point_headings = cbl_polish_article_after_generate
+
+    def cbl_polish_article_after_generate(content):
+        content = _cbl_prev_polish_point_headings(content)
+        return cbl_smooth_ai_point_headings(content)
+
+except NameError:
+    def cbl_polish_article_after_generate(content):
+        return cbl_smooth_ai_point_headings(content)
+# CBL_SMOOTH_AI_POINT_HEADINGS_END
+
+
+# CBL_FINAL_AI_SMELL_POLISH_START
+def cbl_final_ai_smell_polish(content):
+    """
+    생성 후에도 남을 수 있는 AI식 표현, 보고서식 표현, 조사 오류를 한 번 더 정리한다.
+    """
+    import re
+
+    content = str(content or "")
+
+    replacements = {
+        "확인 기준를": "확인 기준을",
+        "중요하게 볼 부분를": "중요하게 볼 부분을",
+
+        "핵심 포인트": "중요하게 볼 부분",
+        "핵심포인트": "중요하게 볼 부분",
+        "주요 포인트": "중요하게 볼 부분",
+        "체크포인트": "확인할 부분",
+        "핵심 정리": "한 번 더 볼 부분",
+        "핵심 기준": "먼저 볼 기준",
+        "핵심 개념": "중요한 개념",
+        "핵심 요소": "중요한 요소",
+        "핵심 내용": "중요한 내용",
+
+        "결론적으로": "전체적으로 보면",
+        "종합해보면": "전체적으로 보면",
+        "마무리하자면": "마지막으로 보면",
+        "최종적으로": "마지막으로 보면",
+
+        "현장감각형": "현실상황형",
+        "현장에서 먼저 보이는 문제": "실제 상황에서 먼저 보이는 문제",
+        "실무자가 확인하는 기준": "확인할 때 봐야 하는 기준",
+        "실무에서 자주 놓치는 부분": "자주 놓치기 쉬운 부분",
+        "실무 적용 사례": "실제 적용 사례",
+    }
+
+    for old, new in replacements.items():
+        content = content.replace(old, new)
+
+    # 소제목이 너무 보고서식이면 완화
+    def clean_heading(match):
+        tag = match.group(1)
+        body = match.group(2).strip()
+
+        body = re.sub(r"^\s*\d+\s*[\.\)]\s*", "", body).strip()
+        body = body.replace("핵심", "중요한")
+        body = body.replace("포인트", "부분")
+        body = body.replace("체크", "확인")
+        body = body.replace("최종", "마지막")
+
+        body = re.sub(r"\s{2,}", " ", body).strip()
+        return f"<{tag}>{body}</{tag}>"
+
+    content = re.sub(
+        r"<(h2|h3)>\s*(.*?)\s*</\1>",
+        clean_heading,
+        content,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    content = re.sub(r"\n{3,}", "\n\n", content).strip()
+    return content
+
+
+try:
+    _cbl_prev_polish_final_ai_smell = cbl_polish_article_after_generate
+
+    def cbl_polish_article_after_generate(content):
+        content = _cbl_prev_polish_final_ai_smell(content)
+        return cbl_final_ai_smell_polish(content)
+
+except NameError:
+    def cbl_polish_article_after_generate(content):
+        return cbl_final_ai_smell_polish(content)
+# CBL_FINAL_AI_SMELL_POLISH_END
 
