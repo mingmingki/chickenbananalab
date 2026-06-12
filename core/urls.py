@@ -24,7 +24,7 @@ urlpatterns = [
     path("post/add/", views.post_create, name="post_create"),
 
     # 기존 숫자 주소 유지
-    path("post/<int:pk>/", views.post_detail, name="post_detail"),
+    path("post/<int:pk>/", views.post_detail_redirect, name="post_detail"),
 
     # SEO용 한글 slug 주소
     path("post/slug/<path:slug>/", views.post_detail_by_slug, name="post_detail_slug"),

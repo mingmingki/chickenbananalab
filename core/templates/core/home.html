@@ -929,7 +929,7 @@ section[style*="padding: 8px 0 32px"] .container > div[style*="grid-template-col
 
                 <div class="home-category-post-list">
                     {% for post in section.posts %}
-                        <a class="home-category-post-item" href="/post/{{ post.id }}/">
+                        <a class="home-category-post-item" href="/post/slug/{{ post.slug }}/">
                             <div class="home-category-thumb">
                                 {% if post.thumbnail %}
                                     <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">

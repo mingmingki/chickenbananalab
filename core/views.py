@@ -3034,3 +3034,18 @@ except Exception as _cbl_v4_error:
     print("CBL_AI_REDIRECT_TO_JSON_SUCCESS_V4 load error:", _cbl_v4_error)
 # CBL_AI_REDIRECT_TO_JSON_SUCCESS_V4_END
 
+
+# CBL_POST_DETAIL_REDIRECT_START
+def post_detail_redirect(request, pk=None, post_id=None, id=None):
+    from django.shortcuts import get_object_or_404, redirect
+    from core.models import Post
+
+    post_pk = pk or post_id or id
+    post = get_object_or_404(Post, pk=post_pk)
+
+    if getattr(post, "slug", None):
+        return redirect("post_detail_slug", slug=post.slug, permanent=True)
+
+    return post_detail(request, post.pk)
+# CBL_POST_DETAIL_REDIRECT_END
+

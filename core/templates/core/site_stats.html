@@ -189,7 +189,7 @@
 
                 <div class="stats-rank-list">
                     {% for post in top_posts %}
-                        <a href="{% url 'post_detail' post.pk %}" class="stats-rank-item">
+                        <a href="{% url 'post_detail_slug' post.slug %}" class="stats-rank-item">
                             <div class="stats-rank-number">
                                 {{ forloop.counter }}
                             </div>
@@ -242,7 +242,7 @@
                                 <span>{{ post.get_category_display }}</span>
                             </div>
 
-                            <a href="{% url 'post_detail' post.pk %}">
+                            <a href="{% url 'post_detail_slug' post.slug %}">
                                 {{ post.title }}
                             </a>
 
@@ -253,7 +253,7 @@
                         </div>
 
                         <div class="stats-recent-actions">
-                            <a href="{% url 'post_detail' post.pk %}" class="stats-small-btn light">
+                            <a href="{% url 'post_detail_slug' post.slug %}" class="stats-small-btn light">
                                 보기
                             </a>
 
