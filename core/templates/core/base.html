@@ -4138,5 +4138,471 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 </script>
 <!-- CBL_TODAY_KEYWORD_FULL_FIX_END -->
 
+
+<!-- CBL_AUTO_KEYWORD_CATEGORY_LOCK_START -->
+<script>
+(function(){
+    const CBL_CATEGORY_MAP = {
+        "건축": "architecture",
+        "건설": "architecture",
+        "architecture": "architecture",
+
+        "부동산": "realestate",
+        "realestate": "realestate",
+        "real_estate": "realestate",
+
+        "금융": "finance",
+        "경제": "finance",
+        "finance": "finance",
+
+        "테크": "tech",
+        "기술": "tech",
+        "IT": "tech",
+        "it": "tech",
+        "tech": "tech",
+
+        "일상": "life",
+        "라이프": "life",
+        "life": "life"
+    };
+
+    const CBL_VALID_CATEGORIES = new Set(["architecture", "realestate", "finance", "tech", "life"]);
+
+    function cblNorm(v){
+        return String(v || "").replace(/\s+/g, " ").trim();
+    }
+
+    function cblCategorySlug(v){
+        const key = cblNorm(v);
+        const slug = CBL_CATEGORY_MAP[key] || key;
+        return CBL_VALID_CATEGORIES.has(slug) ? slug : "";
+    }
+
+    function cblIsImageCount(v){
+        const s = cblNorm(v);
+        return /^-?\d+\s*(장)?$/.test(s);
+    }
+
+    function cblIsCategoryValue(v){
+        return !!cblCategorySlug(v);
+    }
+
+    function cblClosestRow(el){
+        return (
+            el.closest("[data-cbl-auto-row]") ||
+            el.closest(".cbl-auto-keyword-row") ||
+            el.closest(".cbl-ai-auto-keyword-row") ||
+            el.closest(".cbl-keyword-row") ||
+            el.closest(".keyword-row") ||
+            el.closest(".auto-keyword-row") ||
+            el.closest("tr") ||
+            el.parentElement
+        );
+    }
+
+    function cblCollectKeywordCategoryMap(){
+        const map = new Map();
+
+        const inputs = Array.from(document.querySelectorAll("input, select, textarea"));
+
+        const keywordInputs = inputs.filter(el => {
+            const name = cblNorm(el.getAttribute("name")).toLowerCase();
+            const placeholder = cblNorm(el.getAttribute("placeholder"));
+            const value = cblNorm(el.value);
+
+            if (!value) return false;
+            if (cblIsCategoryValue(value)) return false;
+            if (cblIsImageCount(value)) return false;
+            if (el.type === "hidden") return false;
+            if (el.type === "button" || el.type === "submit") return false;
+
+            return (
+                name.includes("keyword") ||
+                placeholder.includes("키워드") ||
+                value.length >= 3
+            );
+        });
+
+        keywordInputs.forEach(keywordEl => {
+            const keyword = cblNorm(keywordEl.value);
+            if (!keyword || cblIsCategoryValue(keyword) || cblIsImageCount(keyword)) return;
+
+            const row = cblClosestRow(keywordEl);
+            if (!row) return;
+
+            const rowFields = Array.from(row.querySelectorAll("input, select, textarea"));
+            let category = "";
+
+            for (const field of rowFields) {
+                if (field === keywordEl) continue;
+
+                const value = cblNorm(field.value);
+                const slug = cblCategorySlug(value);
+                if (slug) {
+                    category = slug;
+                    break;
+                }
+
+                const dataCategory = cblCategorySlug(field.dataset.category || field.dataset.slug || "");
+                if (dataCategory) {
+                    category = dataCategory;
+                    break;
+                }
+            }
+
+            const rowDataCategory = cblCategorySlug(row.dataset.category || row.dataset.slug || "");
+            if (!category && rowDataCategory) category = rowDataCategory;
+
+            if (category) {
+                map.set(keyword, category);
+            }
+        });
+
+        return map;
+    }
+
+    function cblFindCategoryForFormData(fd){
+        const map = cblCollectKeywordCategoryMap();
+        if (!map.size) return "";
+
+        const keys = [
+            "keyword",
+            "keywords",
+            "keyword_input",
+            "title",
+            "post_title",
+            "auto_keywords[]",
+            "auto_keywords",
+            "keywords[]"
+        ];
+
+        for (const key of keys) {
+            const values = fd.getAll(key);
+            for (const value of values) {
+                const keyword = cblNorm(value);
+                if (map.has(keyword)) return map.get(keyword);
+            }
+        }
+
+        for (const value of fd.values()) {
+            const keyword = cblNorm(value);
+            if (map.has(keyword)) return map.get(keyword);
+        }
+
+        return "";
+    }
+
+    function cblForceCategoryOnFormData(fd){
+        if (!(fd instanceof FormData)) return fd;
+
+        const forced = cblFindCategoryForFormData(fd);
+        if (!forced) return fd;
+
+        [
+            "category",
+            "post_category",
+            "post_category_slug",
+            "selected_category",
+            "ai_category",
+            "auto_category",
+            "cbl_force_category"
+        ].forEach(name => {
+            try { fd.set(name, forced); } catch(e) {}
+        });
+
+        return fd;
+    }
+
+    function cblSyncVisibleRowsIntoHiddenInputs(form){
+        if (!form) return;
+
+        form.querySelectorAll(".cbl-category-lock-hidden").forEach(el => el.remove());
+
+        const map = cblCollectKeywordCategoryMap();
+
+        for (const [keyword, category] of map.entries()) {
+            const hCat = document.createElement("input");
+            hCat.type = "hidden";
+            hCat.name = "auto_categories[]";
+            hCat.value = category;
+            hCat.className = "cbl-category-lock-hidden";
+
+            const hKey = document.createElement("input");
+            hKey.type = "hidden";
+            hKey.name = "auto_keywords[]";
+            hKey.value = keyword;
+            hKey.className = "cbl-category-lock-hidden";
+
+            form.appendChild(hCat);
+            form.appendChild(hKey);
+        }
+    }
+
+    document.addEventListener("submit", function(e){
+        const form = e.target;
+        if (!(form instanceof HTMLFormElement)) return;
+
+        const action = String(form.getAttribute("action") || "");
+        const isAiGenerate = action.includes("/ai-post/generate") || location.pathname.includes("/ai-post");
+
+        cblSyncVisibleRowsIntoHiddenInputs(form);
+
+        if (isAiGenerate) {
+            const fd = new FormData(form);
+            const forced = cblFindCategoryForFormData(fd);
+            if (forced) {
+                let hidden = form.querySelector('input[name="cbl_force_category"]');
+                if (!hidden) {
+                    hidden = document.createElement("input");
+                    hidden.type = "hidden";
+                    hidden.name = "cbl_force_category";
+                    hidden.className = "cbl-category-lock-hidden";
+                    form.appendChild(hidden);
+                }
+                hidden.value = forced;
+            }
+        }
+    }, true);
+
+    if (window.fetch) {
+        const originalFetch = window.fetch;
+        window.fetch = function(input, init){
+            try {
+                if (init && init.body instanceof FormData) {
+                    init.body = cblForceCategoryOnFormData(init.body);
+                }
+            } catch(e) {}
+            return originalFetch.apply(this, arguments);
+        };
+    }
+
+    if (window.XMLHttpRequest) {
+        const originalOpen = XMLHttpRequest.prototype.open;
+        const originalSend = XMLHttpRequest.prototype.send;
+
+        XMLHttpRequest.prototype.open = function(method, url){
+            this._cblUrl = String(url || "");
+            return originalOpen.apply(this, arguments);
+        };
+
+        XMLHttpRequest.prototype.send = function(body){
+            try {
+                if (body instanceof FormData) {
+                    body = cblForceCategoryOnFormData(body);
+                }
+            } catch(e) {}
+            return originalSend.call(this, body);
+        };
+    }
+
+    window.cblCollectKeywordCategoryMap = cblCollectKeywordCategoryMap;
+})();
+</script>
+<!-- CBL_AUTO_KEYWORD_CATEGORY_LOCK_END -->
+
+
+<!-- CBL_AI_ROW_PAYLOAD_LOCK_START -->
+<script>
+(function () {
+    if (window.__CBL_AI_ROW_PAYLOAD_LOCK__) return;
+    window.__CBL_AI_ROW_PAYLOAD_LOCK__ = true;
+
+    const CATEGORY_MAP = {
+        "건축": "architecture",
+        "건설": "architecture",
+        "architecture": "architecture",
+
+        "부동산": "realestate",
+        "realestate": "realestate",
+        "real_estate": "realestate",
+
+        "금융": "finance",
+        "경제": "finance",
+        "finance": "finance",
+
+        "테크": "tech",
+        "기술": "tech",
+        "IT": "tech",
+        "it": "tech",
+        "tech": "tech",
+
+        "일상": "life",
+        "라이프": "life",
+        "life": "life"
+    };
+
+    const VALID = new Set(["architecture", "realestate", "finance", "tech", "life"]);
+
+    function clean(v) {
+        return String(v || "").replace(/\s+/g, " ").trim();
+    }
+
+    function normCategory(v) {
+        const s = clean(v);
+        const slug = CATEGORY_MAP[s] || s;
+        return VALID.has(slug) ? slug : "tech";
+    }
+
+    function collectRows(form) {
+        const rows = Array.from(form.querySelectorAll(".cbl-force-top-row"));
+        const items = [];
+
+        rows.forEach(function (row) {
+            const categoryEl = row.querySelector(".cbl-row-category");
+            const imageEl = row.querySelector(".cbl-row-image-count");
+            const keywordEl = row.querySelector(".cbl-row-keyword");
+
+            const keyword = clean(keywordEl ? keywordEl.value : "");
+
+            if (!keyword) return;
+
+            items.push({
+                category: normCategory(categoryEl ? categoryEl.value : ""),
+                image_count: clean(imageEl ? imageEl.value : "0").replace("장", "") || "0",
+                keyword: keyword
+            });
+        });
+
+        // 구형 구조 fallback
+        if (!items.length) {
+            const categoryEl = form.querySelector("#ai-category, select[name='category']");
+            const imageEl = form.querySelector("#ai-image-count, select[name='image_count']");
+            const keywordEl = form.querySelector("#ai-keywords, input[name='keywords']");
+
+            const raw = clean(keywordEl ? keywordEl.value : "");
+            const parts = raw
+                ? raw.split(",").map(function (v) { return clean(v); }).filter(Boolean)
+                : [];
+
+            parts.forEach(function (keyword) {
+                items.push({
+                    category: normCategory(categoryEl ? categoryEl.value : ""),
+                    image_count: clean(imageEl ? imageEl.value : "0").replace("장", "") || "0",
+                    keyword: keyword
+                });
+            });
+        }
+
+        return items;
+    }
+
+    function setHidden(form, name, value) {
+        let el = form.querySelector('input[name="' + name + '"]');
+
+        if (!el) {
+            el = document.createElement("input");
+            el.type = "hidden";
+            el.name = name;
+            el.className = "cbl-ai-row-payload-hidden";
+            form.appendChild(el);
+        }
+
+        el.value = value;
+        return el;
+    }
+
+    function syncPayload(form) {
+        if (!form || form.id !== "aiPostForm") return;
+
+        const items = collectRows(form);
+
+        form.querySelectorAll(".cbl-ai-row-array-hidden").forEach(function (el) {
+            el.remove();
+        });
+
+        setHidden(form, "cbl_keyword_rows", JSON.stringify(items));
+        setHidden(form, "selected_keywords", JSON.stringify(items.map(function (item) {
+            return item.keyword;
+        })));
+
+        const countEl = form.querySelector("#ai-count, input[name='count']");
+        if (countEl) {
+            countEl.value = Math.max(items.length, 1);
+        }
+
+        const first = items[0];
+
+        if (first) {
+            const categoryEl = form.querySelector("#ai-category, select[name='category'], input[name='category']");
+            const imageEl = form.querySelector("#ai-image-count, select[name='image_count'], input[name='image_count']");
+            const keywordEl = form.querySelector("#ai-keywords, input[name='keywords']");
+
+            if (categoryEl) categoryEl.value = first.category;
+            if (imageEl) imageEl.value = first.image_count;
+            if (keywordEl) keywordEl.value = first.keyword;
+
+            setHidden(form, "category", first.category);
+            setHidden(form, "image_count", first.image_count);
+            setHidden(form, "keywords", first.keyword);
+        }
+
+        items.forEach(function (item) {
+            const hKeyword = document.createElement("input");
+            hKeyword.type = "hidden";
+            hKeyword.name = "cbl_row_keywords[]";
+            hKeyword.value = item.keyword;
+            hKeyword.className = "cbl-ai-row-array-hidden";
+            form.appendChild(hKeyword);
+
+            const hCategory = document.createElement("input");
+            hCategory.type = "hidden";
+            hCategory.name = "cbl_row_categories[]";
+            hCategory.value = item.category;
+            hCategory.className = "cbl-ai-row-array-hidden";
+            form.appendChild(hCategory);
+
+            const hImage = document.createElement("input");
+            hImage.type = "hidden";
+            hImage.name = "cbl_row_image_counts[]";
+            hImage.value = item.image_count;
+            hImage.className = "cbl-ai-row-array-hidden";
+            form.appendChild(hImage);
+        });
+
+        console.log("[CBL] AI row payload synced:", items);
+    }
+
+    document.addEventListener("input", function (e) {
+        const form = document.getElementById("aiPostForm");
+        if (!form) return;
+
+        if (
+            e.target &&
+            (
+                e.target.classList.contains("cbl-row-category") ||
+                e.target.classList.contains("cbl-row-image-count") ||
+                e.target.classList.contains("cbl-row-keyword")
+            )
+        ) {
+            syncPayload(form);
+        }
+    }, true);
+
+    document.addEventListener("click", function () {
+        const form = document.getElementById("aiPostForm");
+        if (!form) return;
+        setTimeout(function () {
+            syncPayload(form);
+        }, 50);
+    }, true);
+
+    document.addEventListener("submit", function (e) {
+        const form = e.target;
+        if (!form || form.id !== "aiPostForm") return;
+        syncPayload(form);
+    }, true);
+
+    document.addEventListener("DOMContentLoaded", function () {
+        const form = document.getElementById("aiPostForm");
+        if (!form) return;
+
+        syncPayload(form);
+        setTimeout(function () { syncPayload(form); }, 300);
+        setTimeout(function () { syncPayload(form); }, 800);
+    });
+})();
+</script>
+<!-- CBL_AI_ROW_PAYLOAD_LOCK_END -->
+
 </body>
 </html>

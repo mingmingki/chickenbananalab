@@ -1423,6 +1423,90 @@ def _cbl_ai_normalize_response(response, db_created_count=0, force_draft=False):
 
 
 def ai_post_generate(request, *args, **kwargs):
+    # CBL_FORCE_SELECTED_CATEGORY_FOR_AI_POST_START
+    try:
+        if getattr(request, "method", "").upper() == "POST":
+            _cbl_category_alias = {
+                "건축": "architecture",
+                "건설": "architecture",
+                "architecture": "architecture",
+
+                "부동산": "realestate",
+                "realestate": "realestate",
+                "real_estate": "realestate",
+
+                "금융": "finance",
+                "경제": "finance",
+                "finance": "finance",
+
+                "테크": "tech",
+                "기술": "tech",
+                "IT": "tech",
+                "it": "tech",
+                "tech": "tech",
+
+                "일상": "life",
+                "라이프": "life",
+                "life": "life",
+            }
+            _cbl_valid_categories = {"architecture", "realestate", "finance", "tech", "life"}
+
+            _cbl_post = request.POST.copy()
+
+            _cbl_force_category = (
+                _cbl_post.get("cbl_force_category")
+                or _cbl_post.get("auto_category")
+                or _cbl_post.get("selected_category")
+                or _cbl_post.get("post_category")
+                or ""
+            )
+
+            if not _cbl_force_category:
+                _cbl_keywords = (
+                    _cbl_post.getlist("auto_keywords[]")
+                    or _cbl_post.getlist("auto_keywords")
+                    or _cbl_post.getlist("keywords[]")
+                    or _cbl_post.getlist("keywords")
+                )
+                _cbl_categories = (
+                    _cbl_post.getlist("auto_categories[]")
+                    or _cbl_post.getlist("auto_categories")
+                    or _cbl_post.getlist("categories[]")
+                    or _cbl_post.getlist("categories")
+                )
+                _cbl_current_keyword = (
+                    _cbl_post.get("keyword")
+                    or _cbl_post.get("title")
+                    or _cbl_post.get("post_title")
+                    or ""
+                ).strip()
+
+                if _cbl_current_keyword and _cbl_keywords and _cbl_categories:
+                    for _idx, _kw in enumerate(_cbl_keywords):
+                        if str(_kw).strip() == _cbl_current_keyword and _idx < len(_cbl_categories):
+                            _cbl_force_category = _cbl_categories[_idx]
+                            break
+
+            _cbl_force_category = _cbl_category_alias.get(
+                str(_cbl_force_category).strip(),
+                str(_cbl_force_category).strip()
+            )
+
+            if _cbl_force_category in _cbl_valid_categories:
+                for _name in (
+                    "category",
+                    "post_category",
+                    "post_category_slug",
+                    "selected_category",
+                    "ai_category",
+                    "auto_category",
+                    "cbl_locked_category",
+                ):
+                    _cbl_post[_name] = _cbl_force_category
+                request.POST = _cbl_post
+    except Exception as _cbl_category_lock_error:
+        print("CBL category lock skipped:", _cbl_category_lock_error)
+    # CBL_FORCE_SELECTED_CATEGORY_FOR_AI_POST_END
     force_draft = _cbl_ai_force_draft_requested(request)
 
     before_max_id = 0
@@ -3048,4 +3132,474 @@ def post_detail_redirect(request, pk=None, post_id=None, id=None):
 
     return post_detail(request, post.pk)
 # CBL_POST_DETAIL_REDIRECT_END
+
+
+# CBL_AI_KEYWORD_RECOMMEND_CATEGORY_LOCK_VIEW_START
+try:
+    _cbl_prev_ai_keyword_recommend = ai_keyword_recommend
+
+    def _cbl_read_keyword_request_payload(request):
+        import json
+        data = {}
+
+        try:
+            if request.body:
+                data = json.loads(request.body.decode("utf-8"))
+        except Exception:
+            data = {}
+
+        return data if isinstance(data, dict) else {}
+
+    def _cbl_detect_keyword_category(request, payload=None):
+        payload = payload or {}
+
+        candidates = [
+            payload.get("category"),
+            payload.get("selected_category"),
+            payload.get("ai_category"),
+            payload.get("post_category"),
+            request.POST.get("category"),
+            request.POST.get("selected_category"),
+            request.GET.get("category"),
+            request.GET.get("selected_category"),
+        ]
+
+        for c in candidates:
+            if c:
+                return str(c).strip()
+
+        return ""
+
+    def _cbl_keyword_text_from_item(item):
+        if isinstance(item, dict):
+            return (
+                item.get("keyword")
+                or item.get("title")
+                or item.get("text")
+                or item.get("name")
+                or ""
+            )
+        return str(item or "")
+
+    def _cbl_keyword_category_from_item(item, fallback_category=""):
+        if isinstance(item, dict):
+            return (
+                item.get("category")
+                or item.get("category_slug")
+                or item.get("post_category")
+                or item.get("selected_category")
+                or fallback_category
+                or ""
+            )
+        return fallback_category or ""
+
+    def _cbl_filter_keyword_items(items, fallback_category="", limit=7):
+        from core.ai_writer import (
+            cbl_filter_today_keywords_by_category,
+            cbl_today_keyword_category_profile,
+        )
+
+        if not isinstance(items, list):
+            return items
+
+        # dict 리스트: [{"category": "...", "keyword": "..."}] 구조 대응
+        if items and isinstance(items[0], dict):
+            cleaned = []
+            counters = {}
+
+            for item in items:
+                category = _cbl_keyword_category_from_item(item, fallback_category)
+                keyword = _cbl_keyword_text_from_item(item)
+
+                if not keyword:
+                    continue
+
+                filtered = cbl_filter_today_keywords_by_category(
+                    category,
+                    [keyword],
+                    1,
+                )
+
+                if not filtered:
+                    continue
+
+                key = str(category or fallback_category or "").strip()
+                counters[key] = counters.get(key, 0) + 1
+
+                new_item = dict(item)
+                if "keyword" in new_item:
+                    new_item["keyword"] = filtered[0]
+                elif "title" in new_item:
+                    new_item["title"] = filtered[0]
+                elif "text" in new_item:
+                    new_item["text"] = filtered[0]
+                else:
+                    new_item["keyword"] = filtered[0]
+
+                cleaned.append(new_item)
+
+            return cleaned
+
+        # 문자열 리스트 구조 대응
+        filtered = cbl_filter_today_keywords_by_category(
+            fallback_category,
+            items,
+            limit,
+        )
+
+        # 너무 적게 남으면 안전 예시 키워드로 보충
+        if fallback_category and len(filtered) < limit:
+            try:
+                profile = cbl_today_keyword_category_profile(fallback_category)
+                for ex in profile.get("examples", []):
+                    if ex not in filtered:
+                        filtered.append(ex)
+                    if len(filtered) >= limit:
+                        break
+            except Exception:
+                pass
+
+        return filtered[:limit]
+
+    def _cbl_filter_keyword_response_data(data, request_category=""):
+        if not isinstance(data, dict):
+            return data
+
+        # 가장 흔한 응답 키들 대응
+        for key in ["keywords", "recommended_keywords", "items", "results"]:
+            if key in data and isinstance(data[key], list):
+                data[key] = _cbl_filter_keyword_items(
+                    data[key],
+                    fallback_category=request_category,
+                    limit=7,
+                )
+
+        # 카테고리별 dict 응답 대응
+        # 예: {"architecture": [...], "tech": [...]}
+        category_keys = [
+            "architecture", "realestate", "finance", "tech", "life",
+            "건축", "부동산", "금융", "테크", "일상",
+        ]
+
+        for key in category_keys:
+            if key in data and isinstance(data[key], list):
+                data[key] = _cbl_filter_keyword_items(
+                    data[key],
+                    fallback_category=key,
+                    limit=7,
+                )
+
+        # nested 구조 대응
+        # 예: {"data": {"keywords": [...]}}
+        if isinstance(data.get("data"), dict):
+            data["data"] = _cbl_filter_keyword_response_data(
+                data["data"],
+                request_category=request_category,
+            )
+
+        return data
+
+    def ai_keyword_recommend(request, *args, **kwargs):
+        import json
+        from django.http import JsonResponse
+
+        payload = _cbl_read_keyword_request_payload(request)
+        request_category = _cbl_detect_keyword_category(request, payload)
+
+        response = _cbl_prev_ai_keyword_recommend(request, *args, **kwargs)
+
+        try:
+            content_type = response.get("Content-Type", "")
+        except Exception:
+            content_type = ""
+
+        if "application/json" not in content_type:
+            return response
+
+        try:
+            data = json.loads(response.content.decode("utf-8"))
+        except Exception:
+            return response
+
+        data = _cbl_filter_keyword_response_data(
+            data,
+            request_category=request_category,
+        )
+
+        return JsonResponse(
+            data,
+            status=getattr(response, "status_code", 200),
+            safe=isinstance(data, dict),
+            json_dumps_params={"ensure_ascii": False},
+        )
+
+except NameError:
+    pass
+# CBL_AI_KEYWORD_RECOMMEND_CATEGORY_LOCK_VIEW_END
+
+
+
+# CBL_AI_ROW_CATEGORY_GENERATE_START
+# 목적:
+# 자동글 생성 모달에서 여러 행을 선택했을 때
+# 각 행의 category / keyword / image_count를 따로 적용해 글을 생성한다.
+try:
+    import json as _cbl_row_json
+    from django.http import JsonResponse as _cbl_row_JsonResponse
+
+    _cbl_prev_ai_post_generate_row_category = ai_post_generate
+
+    def _cbl_row_normalize_category(value):
+        value = str(value or "").strip()
+
+        alias = {
+            "건축": "architecture",
+            "건설": "architecture",
+            "architecture": "architecture",
+
+            "부동산": "realestate",
+            "realestate": "realestate",
+            "real_estate": "realestate",
+
+            "금융": "finance",
+            "경제": "finance",
+            "finance": "finance",
+
+            "테크": "tech",
+            "기술": "tech",
+            "IT": "tech",
+            "it": "tech",
+            "tech": "tech",
+
+            "일상": "life",
+            "라이프": "life",
+            "life": "life",
+        }
+
+        value = alias.get(value, value)
+
+        if value not in {"architecture", "realestate", "finance", "tech", "life"}:
+            value = "tech"
+
+        return value
+
+    def _cbl_row_clean_image_count(value):
+        try:
+            value = str(value or "0").replace("장", "").strip()
+            value = int(value)
+        except Exception:
+            value = 0
+
+        return str(max(0, min(value, 5)))
+
+    def _cbl_parse_keyword_rows(request):
+        rows = []
+
+        raw = str(request.POST.get("cbl_keyword_rows", "") or "").strip()
+
+        if raw:
+            try:
+                parsed = _cbl_row_json.loads(raw)
+            except Exception:
+                parsed = []
+
+            if isinstance(parsed, list):
+                for item in parsed:
+                    if not isinstance(item, dict):
+                        continue
+
+                    keyword = str(item.get("keyword", "") or "").strip()
+                    if not keyword:
+                        continue
+
+                    rows.append({
+                        "keyword": keyword,
+                        "category": _cbl_row_normalize_category(item.get("category")),
+                        "image_count": _cbl_row_clean_image_count(item.get("image_count")),
+                    })
+
+        if not rows:
+            keywords = request.POST.getlist("cbl_row_keywords[]")
+            categories = request.POST.getlist("cbl_row_categories[]")
+            image_counts = request.POST.getlist("cbl_row_image_counts[]")
+
+            for idx, keyword in enumerate(keywords):
+                keyword = str(keyword or "").strip()
+                if not keyword:
+                    continue
+
+                rows.append({
+                    "keyword": keyword,
+                    "category": _cbl_row_normalize_category(categories[idx] if idx < len(categories) else request.POST.get("category")),
+                    "image_count": _cbl_row_clean_image_count(image_counts[idx] if idx < len(image_counts) else request.POST.get("image_count")),
+                })
+
+        # 중복 제거
+        result = []
+        seen = set()
+
+        for row in rows:
+            key = row["keyword"].replace(" ", "").lower()
+            if not key or key in seen:
+                continue
+
+            result.append(row)
+            seen.add(key)
+
+            if len(result) >= 20:
+                break
+
+        return result
+
+    def _cbl_get_post_model_for_rows():
+        try:
+            from .models import Post
+            return Post
+        except Exception:
+            return None
+
+    def _cbl_success_response_for_row_posts(posts):
+        items = []
+
+        for post in posts:
+            url = ""
+
+            try:
+                url = post.get_absolute_url()
+            except Exception:
+                url = f"/post/{getattr(post, 'id', '')}/"
+
+            items.append({
+                "id": getattr(post, "id", None),
+                "post_id": getattr(post, "id", None),
+                "title": getattr(post, "title", ""),
+                "category": getattr(post, "category", ""),
+                "url": url,
+                "detail_url": url,
+                "is_published": False,
+                "status": "draft",
+            })
+
+        return _cbl_row_JsonResponse({
+            "success": True,
+            "ok": True,
+            "created_count": len(items),
+            "success_count": len(items),
+            "failed_count": 0,
+            "error_count": 0,
+            "created_posts": items,
+            "posts": items,
+            "is_published": False,
+            "publish_immediately": False,
+            "status": "draft",
+            "message": "AI 글 1개 생성 완료" if len(items) == 1 else f"AI 글 {len(items)}개 생성 완료",
+        }, json_dumps_params={"ensure_ascii": False})
+
+    def ai_post_generate(request, *args, **kwargs):
+        if getattr(request, "method", "").upper() != "POST":
+            return _cbl_prev_ai_post_generate_row_category(request, *args, **kwargs)
+
+        rows = _cbl_parse_keyword_rows(request)
+
+        # 행별 payload가 없으면 기존 로직 그대로 사용
+        if not rows:
+            return _cbl_prev_ai_post_generate_row_category(request, *args, **kwargs)
+
+        Post = _cbl_get_post_model_for_rows()
+
+        before_max_id = 0
+        try:
+            if Post is not None:
+                before_max_id = Post.objects.order_by("-id").values_list("id", flat=True).first() or 0
+        except Exception:
+            before_max_id = 0
+
+        original_post = request.POST
+
+        try:
+            # 핵심:
+            # 기존 ai_post_generate는 category를 1번만 읽고 모든 키워드에 적용한다.
+            # 그래서 여기서 행별로 POST를 바꿔서 기존 생성 함수를 1번씩 호출한다.
+            for row in rows:
+                qd = original_post.copy()
+
+                qd["category"] = row["category"]
+                qd["post_category"] = row["category"]
+                qd["selected_category"] = row["category"]
+                qd["ai_category"] = row["category"]
+                qd["cbl_force_category"] = row["category"]
+
+                qd["keywords"] = row["keyword"]
+                qd["selected_keywords"] = _cbl_row_json.dumps([row["keyword"]], ensure_ascii=False)
+                qd["count"] = "1"
+                qd["image_count"] = row["image_count"]
+
+                # 행별 생성 중에는 전체 행 JSON을 비워서 재분기 방지
+                qd["cbl_keyword_rows"] = ""
+
+                request.POST = qd
+                _cbl_prev_ai_post_generate_row_category(request, *args, **kwargs)
+
+        except Exception as error:
+            request.POST = original_post
+            print("CBL row category generate error:", error)
+
+            return _cbl_row_JsonResponse({
+                "success": False,
+                "ok": False,
+                "error": str(error),
+                "message": f"AI 글 생성 중 오류가 발생했습니다: {error}",
+            }, status=500, json_dumps_params={"ensure_ascii": False})
+
+        finally:
+            request.POST = original_post
+
+        posts = []
+
+        try:
+            if Post is not None:
+                qs = Post.objects.filter(id__gt=before_max_id).order_by("id")
+                posts = list(qs)
+
+                if posts:
+                    qs.update(is_published=False)
+
+                    # 안전장치: 생성된 순서대로 행 카테고리를 다시 한 번 고정
+                    # 한국어만 생성하면 posts 개수 == rows 개수
+                    # 영어까지 생성하면 한 행당 여러 글이 생길 수 있으므로 keyword 순서 기반으로 최대한 보정
+                    row_index = 0
+
+                    for post in posts:
+                        if row_index >= len(rows):
+                            row_index = len(rows) - 1
+
+                        target_category = rows[row_index]["category"]
+
+                        try:
+                            post.category = target_category
+                            post.is_published = False
+                            post.save(update_fields=["category", "is_published", "updated_at"])
+                        except Exception:
+                            try:
+                                post.category = target_category
+                                post.is_published = False
+                                post.save(update_fields=["category", "is_published"])
+                            except Exception:
+                                pass
+
+                        # 영어버전 등 언어가 여러 개면 제목 기준이 완벽하지 않을 수 있어서,
+                        # 기본은 생성 순서대로 진행한다.
+                        row_index += 1
+
+        except Exception as error:
+            print("CBL row category post fix error:", error)
+
+        if posts:
+            return _cbl_success_response_for_row_posts(posts)
+
+        return _cbl_prev_ai_post_generate_row_category(request, *args, **kwargs)
+
+except Exception as _cbl_row_category_generate_load_error:
+    print("CBL_AI_ROW_CATEGORY_GENERATE load error:", _cbl_row_category_generate_load_error)
+# CBL_AI_ROW_CATEGORY_GENERATE_END
 

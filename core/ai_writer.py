@@ -3395,3 +3395,845 @@ except NameError:
         return cbl_final_ai_smell_polish(content)
 # CBL_FINAL_AI_SMELL_POLISH_END
 
+
+# CBL_FACT_GUARD_FOR_AUTO_NEWS_START
+def cbl_auto_news_fact_guard_instruction(title="", category="", language="ko"):
+    """
+    시간별 자동글/뉴스성 키워드용 사실성 안전장치.
+    검색 근거 없이 미래 제품, 기업 계약, 주가, 실적, 공급망 이슈를 확정적으로 쓰지 않도록 제한한다.
+    """
+    return f"""
+[사실성 안전 규칙 - 반드시 준수]
+
+이 글은 검색 근거 없이 작성될 수 있으므로 아래 규칙을 최우선으로 따른다.
+
+1. 최신 뉴스, 주식, 기업 실적, 공급 계약, 출시 예정 제품, 공급망, 루머성 주제는 확정 사실처럼 쓰지 않는다.
+2. 출처가 없는 경우 다음 표현을 금지한다:
+   - 확정됐다
+   - 체결했다
+   - 공급한다
+   - 독점 공급한다
+   - 주가가 강세다
+   - 흑자 전환에 성공했다
+   - 몇 조 원을 투자한다
+   - 특정 연도/모델에 적용된다
+3. 삼성SDI, 삼성디스플레이, 삼성전자, LG디스플레이, LG에너지솔루션처럼 계열사명이 비슷한 기업은 절대 섞어 쓰지 않는다.
+   - 삼성SDI: 배터리/전자재료 중심
+   - 삼성디스플레이: 디스플레이 패널 중심
+   - LG디스플레이: 디스플레이 패널 중심
+   - LG에너지솔루션: 배터리 중심
+4. 확인되지 않은 미래 아이폰, 폴더블 아이폰, OLED 공급, 배터리 공급, AI 기능, 가격, 출시일은 '전망', '관측', '가능성' 수준으로만 표현한다.
+5. 사실 확인이 어려운 경우 글의 방향을 다음처럼 바꾼다:
+   - "확정된 소식"이 아니라 "시장 관전 포인트"
+   - "수혜 확정"이 아니라 "기대 요인과 리스크"
+   - "공급 계약"이 아니라 "관련 가능성이 거론되는 이유"
+6. 특정 수치, 계약 기간, 금액, 출시 연도, 공급 물량은 공식 근거가 없는 한 쓰지 않는다.
+7. 같은 내용을 반복해서 두 번 설명하지 않는다.
+8. 글의 카테고리와 주제가 맞지 않으면 카테고리에 맞는 방향으로 재구성한다.
+   예: 건축 카테고리에서 아이폰/디스플레이/배터리 주제가 들어오면 건축 글로 억지 작성하지 말고, '카테고리 불일치'로 판단해 일반 기술 설명형으로 낮춘다.
+9. 투자 판단처럼 보이는 문장을 쓰지 않는다.
+10. 최종 문체는 단정형보다 신중한 설명형을 사용한다.
+"""
+try:
+    _cbl_prev_adsense_structure_instruction_fact_guard = cbl_adsense_structure_instruction
+
+    def cbl_adsense_structure_instruction(*args, **kwargs):
+        base = _cbl_prev_adsense_structure_instruction_fact_guard(*args, **kwargs)
+
+        title = kwargs.get("title", "")
+        category = kwargs.get("category", "")
+        language = kwargs.get("language", "ko")
+
+        try:
+            if len(args) >= 3:
+                title = args[2]
+            if len(args) >= 2:
+                category = args[1]
+            if len(args) >= 4:
+                language = args[3]
+        except Exception:
+            pass
+
+        guard = cbl_auto_news_fact_guard_instruction(
+            title=title,
+            category=category,
+            language=language,
+        )
+
+        return str(base) + "\n\n" + guard
+
+except NameError:
+    pass
+# CBL_FACT_GUARD_FOR_AUTO_NEWS_END
+
+# CBL_AUTO_FACT_FINAL_GUARD_START
+import re as _cbl_fact_re
+
+def cbl_sentence_split_for_fact_guard(text):
+    if not text:
+        return []
+    parts = _cbl_fact_re.split(r'(?<=[.!?。！？다요죠음함됨임]|[.!?])\s+', str(text))
+    return [p.strip() for p in parts if p and p.strip()]
+
+def cbl_fix_company_confusion_sentence(sentence):
+    """
+    삼성SDI/삼성디스플레이/LG디스플레이/LG에너지솔루션 혼동 방지.
+    삼성SDI가 OLED/패널/디스플레이를 공급하는 식의 문장은 위험하므로 자동 완화.
+    """
+    s = sentence
+
+    has_sdi = "삼성SDI" in s or "Samsung SDI" in s
+    display_words = ["디스플레이", "OLED", "패널", "폴더블", "화면"]
+    battery_words = ["배터리", "전지", "에너지저장", "ESS"]
+
+    if has_sdi and any(w in s for w in display_words) and not any(w in s for w in battery_words):
+        s = s.replace("삼성SDI", "삼성디스플레이")
+        s = s.replace("Samsung SDI", "Samsung Display")
+
+    # LG디스플레이가 배터리를 공급한다고 쓰는 오류 방지
+    if "LG디스플레이" in s and any(w in s for w in battery_words) and not any(w in s for w in display_words):
+        s = s.replace("LG디스플레이", "LG에너지솔루션")
+
+    return s
+
+def cbl_soften_unverified_claim_sentence(sentence):
+    """
+    최신 뉴스/기업/주식/공급망 글에서 출처 없이 확정 표현을 쓰지 않도록 완화.
+    """
+    s = sentence
+
+    risky_exact_patterns = [
+        (r"독점\s*공급(한다|할\s*예정이다|하기로\s*했다|계약을\s*체결했다)", "독점 공급 가능성이 거론된다"),
+        (r"계약을\s*체결했다", "계약 가능성이 거론된다"),
+        (r"예비\s*합의에\s*도달했다", "예비 합의 가능성이 거론된다"),
+        (r"공급하기로\s*했다", "공급 가능성이 거론된다"),
+        (r"적용된다", "적용될 가능성이 거론된다"),
+        (r"출시된다", "출시될 가능성이 거론된다"),
+        (r"확정됐다", "확정 여부는 추가 확인이 필요하다"),
+        (r"성공했다", "개선 흐름을 보였다는 해석이 있다"),
+        (r"주가가\s*강세다", "시장 관심이 커졌다는 해석이 있다"),
+        (r"주가\s*강세", "시장 관심 확대"),
+        (r"흑자\s*전환에\s*성공", "실적 개선 가능성"),
+        (r"사재기", "선제적 물량 확보 움직임"),
+    ]
+
+    for pat, repl in risky_exact_patterns:
+        s = _cbl_fact_re.sub(pat, repl, s)
+
+    # 과도하게 구체적인 미래 아이폰 모델 단정 완화
+    s = _cbl_fact_re.sub(
+        r"(아이폰\s*(18|19|20|21)\s*(시리즈|프로|프로\s*맥스|모델)?)",
+        r"\1로 거론되는 차세대 모델",
+        s,
+    )
+
+    # 금액 단정 완화
+    s = _cbl_fact_re.sub(
+        r"약\s*([0-9,.]+)\s*(조|억)\s*원\s*규모의\s*투자를\s*진행하고\s*있",
+        r"대규모 투자를 검토하거나 진행 중인 것으로 거론되",
+        s,
+    )
+
+    # 공급량/점유율/출하량 단정 완화
+    s = _cbl_fact_re.sub(
+        r"패널\s*출하량의\s*상당\s*부분을\s*담당했다",
+        "패널 공급에서 주요 역할을 한 것으로 알려졌다",
+        s,
+    )
+
+    return s
+
+def cbl_remove_repeated_lines_and_captions(text):
+    """
+    이미지 캡션 반복, 같은 문장 반복을 완화.
+    """
+    if not text:
+        return text
+
+    lines = str(text).splitlines()
+    cleaned = []
+    prev_norm = ""
+
+    for line in lines:
+        raw = line.rstrip()
+        norm = _cbl_fact_re.sub(r"\s+", "", raw)
+
+        # 바로 전 줄과 완전히 같은 캡션/문장 제거
+        if norm and norm == prev_norm:
+            continue
+
+        cleaned.append(raw)
+        prev_norm = norm
+
+    return "\n".join(cleaned)
+
+def cbl_auto_fact_final_guard(content):
+    """
+    자동글 최종 사실성 필터.
+    완벽한 팩트체크가 아니라, 루머성 단정/회사명 혼동/반복 문장 방지용 안전망.
+    """
+    if not content:
+        return content
+
+    text = str(content)
+    text = cbl_remove_repeated_lines_and_captions(text)
+
+    news_risk_words = [
+        "아이폰", "애플", "삼성SDI", "삼성디스플레이", "LG디스플레이",
+        "LG에너지솔루션", "주가", "실적", "공급", "계약", "출시",
+        "투자", "배터리", "OLED", "패널", "폴더블", "AI 반도체",
+        "TSMC", "인텔", "D램"
+    ]
+
+    if not any(w in text for w in news_risk_words):
+        return text
+
+    sentences = cbl_sentence_split_for_fact_guard(text)
+    fixed_sentences = []
+
+    for sent in sentences:
+        s = cbl_fix_company_confusion_sentence(sent)
+        s = cbl_soften_unverified_claim_sentence(s)
+        fixed_sentences.append(s)
+
+    fixed = " ".join(fixed_sentences)
+
+    # 과도한 공백 정리
+    fixed = _cbl_fact_re.sub(r"\n{3,}", "\n\n", fixed)
+    fixed = _cbl_fact_re.sub(r"[ \t]{2,}", " ", fixed)
+
+    return fixed.strip()
+
+try:
+    _cbl_prev_polish_auto_fact_final_guard = cbl_polish_article_after_generate
+
+    def cbl_polish_article_after_generate(content):
+        content = _cbl_prev_polish_auto_fact_final_guard(content)
+        content = cbl_auto_fact_final_guard(content)
+        return content
+
+except NameError:
+    pass
+# CBL_AUTO_FACT_FINAL_GUARD_END
+
+# CBL_AUTO_PUBLIC_SAFE_STRUCTURE_START
+def cbl_auto_public_safe_structure_instruction(title="", category="", language="ko"):
+    """
+    시간별 자동글을 무조건 공개 가능한 구조로 만들기 위한 기본 지침.
+    최신뉴스 단정형이 아니라, 검증 부담이 낮은 설명형/가이드형/관전포인트형으로 유도한다.
+    """
+    title = str(title or "")
+    category = str(category or "")
+
+    return f"""
+[시간별 자동글 공개 안전 구조]
+
+이 글은 자동으로 공개될 수 있는 글이므로, 최신뉴스 단정형으로 작성하지 않는다.
+검색 근거 없이 특정 기업의 계약, 공급, 실적, 주가, 출시일, 투자금액, 미래 제품 적용 여부를 사실처럼 단정하지 않는다.
+
+글의 기본 방향은 아래 중 하나로 잡는다.
+
+1. 개념 설명형
+- 특정 이슈를 직접 보도하지 말고, 그 이슈를 이해하는 데 필요한 배경 개념을 설명한다.
+- 예: "아이폰 효과가 부품사에 미치는 영향" → "스마트폰 신제품이 부품사에 영향을 주는 구조"
+
+2. 관전 포인트형
+- 확정 사실처럼 쓰지 말고, 시장에서 볼 수 있는 쟁점과 변수를 정리한다.
+- 예: "수혜 확정"이 아니라 "기대 요인과 확인해야 할 변수"
+
+3. 비교 이해형
+- 회사별 역할을 비교하되, 계열사명과 사업영역을 정확히 구분한다.
+- 삼성SDI는 배터리/전자재료 중심, 삼성디스플레이는 디스플레이 중심으로 구분한다.
+- LG디스플레이는 디스플레이 중심, LG에너지솔루션은 배터리 중심으로 구분한다.
+
+4. 초보자 가이드형
+- 뉴스처럼 쓰지 말고, 독자가 개념을 이해하도록 쉽게 설명한다.
+- 주가, 투자 판단, 계약 확정 표현은 피한다.
+
+5. 리스크 체크형
+- 긍정적인 기대만 쓰지 말고, 공급망 다변화, 기술 난도, 수익성, 검증 필요성을 함께 설명한다.
+
+금지하는 글 구조:
+- "A 기업이 B를 독점 공급한다" 식의 확정 기사형
+- "주가가 강세다", "수혜가 확실하다" 식의 투자 유도형
+- "아이폰 18/20에 적용된다" 식의 미래 제품 단정형
+- 출처 없는 금액, 계약 기간, 출시일, 공급 물량 단정
+- 같은 내용을 앞뒤에서 반복하는 중복 본문
+
+권장 H2 구조:
+1. 이 주제가 주목받는 이유
+2. 먼저 구분해야 할 핵심 개념
+3. 관련 기업 또는 기술의 역할 차이
+4. 기대 요인과 조심해야 할 부분
+5. 앞으로 확인해야 할 관전 포인트
+6. 일반 독자가 이해하면 좋은 정리
+7. 마무리
+
+문체:
+- 단정형보다 신중한 설명형을 사용한다.
+- "확정됐다" 대신 "가능성이 거론된다", "관심이 커지고 있다", "확인할 필요가 있다"처럼 쓴다.
+- 하지만 문장이 지나치게 겁먹은 느낌이 들지 않게 자연스럽게 쓴다.
+
+현재 글 제목 참고: {title}
+현재 카테고리 참고: {category}
+"""
+
+try:
+    _cbl_prev_adsense_structure_instruction_public_safe = cbl_adsense_structure_instruction
+
+    def cbl_adsense_structure_instruction(*args, **kwargs):
+        base = _cbl_prev_adsense_structure_instruction_public_safe(*args, **kwargs)
+
+        title = kwargs.get("title", "")
+        category = kwargs.get("category", "")
+        language = kwargs.get("language", "ko")
+
+        try:
+            if len(args) >= 2:
+                category = args[1]
+            if len(args) >= 3:
+                title = args[2]
+            if len(args) >= 4:
+                language = args[3]
+        except Exception:
+            pass
+
+        safe = cbl_auto_public_safe_structure_instruction(
+            title=title,
+            category=category,
+            language=language,
+        )
+
+        return str(base) + "\n\n" + safe
+
+except NameError:
+    pass
+# CBL_AUTO_PUBLIC_SAFE_STRUCTURE_END
+
+# CBL_AUTO_CATEGORY_KEYWORD_GUARD_START
+def cbl_guess_keyword_category(keyword):
+    """
+    자동글 키워드가 어느 카테고리에 가까운지 단순 판정.
+    완벽한 AI 분류가 아니라, 명백한 카테고리 오류를 막기 위한 1차 안전장치.
+    """
+    k = str(keyword or "").lower()
+
+    groups = {
+        "architecture": [
+            "건축", "건설", "시공", "현장", "공사", "도면", "구조", "철근", "콘크리트",
+            "bim", "revit", "레빗", "dynamo", "다이나모", "거푸집", "마감", "설계",
+            "안전", "품질", "공정", "물량", "수량산출", "인테리어", "리모델링"
+        ],
+        "realestate": [
+            "부동산", "아파트", "분양", "청약", "전세", "월세", "매매", "실거래가",
+            "재건축", "재개발", "입주", "전월세", "집값", "토지", "상가"
+        ],
+        "finance": [
+            "금리", "환율", "주식", "증시", "코스피", "코스닥", "나스닥", "비트코인",
+            "이더리움", "리플", "etf", "채권", "대출", "물가", "인플레이션", "경제"
+        ],
+        "tech": [
+            "ai", "인공지능", "아이폰", "갤럭시", "애플", "삼성전자", "반도체",
+            "배터리", "oled", "디스플레이", "스마트폰", "소프트웨어", "앱", "클라우드",
+            "보안", "개발", "파이썬", "장고", "django", "챗gpt", "gemini"
+        ],
+        "life": [
+            "생활", "육아", "건강", "음식", "여행", "청소", "정리", "가전", "리뷰",
+            "일상", "교육", "공부", "병원", "운동"
+        ],
+    }
+
+    scores = {}
+    for cat, words in groups.items():
+        scores[cat] = sum(1 for w in words if w.lower() in k)
+
+    best = max(scores, key=scores.get)
+    if scores[best] <= 0:
+        return ""
+
+    return best
+
+def cbl_category_matches_keyword(category, keyword):
+    """
+    카테고리와 키워드가 명백히 다르면 False.
+    """
+    cat = str(category or "").lower()
+    guessed = cbl_guess_keyword_category(keyword)
+
+    aliases = {
+        "건축": "architecture",
+        "architecture": "architecture",
+        "realestate": "realestate",
+        "부동산": "realestate",
+        "finance": "finance",
+        "금융": "finance",
+        "tech": "tech",
+        "테크": "tech",
+        "life": "life",
+        "일상": "life",
+    }
+
+    normalized = aliases.get(cat, cat)
+
+    if not guessed:
+        return True
+
+    return normalized == guessed
+
+def cbl_auto_category_keyword_warning(category, keyword):
+    guessed = cbl_guess_keyword_category(keyword)
+    if not guessed:
+        return ""
+
+    if cbl_category_matches_keyword(category, keyword):
+        return ""
+
+    return f"카테고리 불일치 감지: category={category}, keyword={keyword}, guessed={guessed}"
+# CBL_AUTO_CATEGORY_KEYWORD_GUARD_END
+
+# CBL_TODAY_KEYWORD_CATEGORY_LOCK_START
+def cbl_today_keyword_category_profile(category=""):
+    """
+    오늘자 키워드 추천용 카테고리 고정 프로필.
+    자동글 공개화를 위해 카테고리와 맞지 않는 최신뉴스/루머성 키워드를 줄인다.
+    """
+    cat = str(category or "").lower().strip()
+
+    aliases = {
+        "건축": "architecture",
+        "architecture": "architecture",
+        "realestate": "realestate",
+        "부동산": "realestate",
+        "finance": "finance",
+        "금융": "finance",
+        "tech": "tech",
+        "테크": "tech",
+        "life": "life",
+        "일상": "life",
+    }
+
+    cat = aliases.get(cat, cat)
+
+    profiles = {
+        "architecture": {
+            "name": "건축",
+            "allow": [
+                "건축", "건설", "시공", "공정관리", "품질관리", "안전관리", "도면검토",
+                "구조검토", "철근", "콘크리트", "거푸집", "마감공사", "물량산출",
+                "BIM", "Revit", "레빗", "Dynamo", "다이나모", "수량산출", "현장관리"
+            ],
+            "block": [
+                "아이폰", "애플", "갤럭시", "삼성SDI", "LG디스플레이", "주가", "코스피",
+                "비트코인", "환율", "금리", "맛집", "육아", "건강"
+            ],
+            "examples": [
+                "레빗에서 물량산출을 자동화할 때 주의할 점",
+                "다이나모를 활용한 거푸집 모델링 기본 구조",
+                "건설 현장에서 도면 검토가 중요한 이유",
+                "BIM 수량산출이 실행예산에 미치는 영향",
+                "콘크리트 타설 전 현장 체크리스트"
+            ],
+        },
+        "realestate": {
+            "name": "부동산",
+            "allow": [
+                "부동산", "아파트", "분양", "청약", "전세", "월세", "매매", "실거래가",
+                "재건축", "재개발", "입주", "대출", "주택", "상가", "토지"
+            ],
+            "block": [
+                "아이폰", "애플", "BIM", "레빗", "다이나모", "반도체", "배터리"
+            ],
+            "examples": [
+                "아파트 실거래가를 볼 때 확인해야 할 기준",
+                "청약 전 분양가를 비교하는 방법",
+                "전세 계약 전 확인해야 할 기본 사항",
+                "재건축과 재개발의 차이를 쉽게 이해하기",
+                "입주 물량이 지역 집값에 미치는 영향"
+            ],
+        },
+        "finance": {
+            "name": "금융",
+            "allow": [
+                "금리", "환율", "코스피", "코스닥", "나스닥", "주식", "ETF", "채권",
+                "비트코인", "이더리움", "리플", "물가", "인플레이션", "경제지표", "대출"
+            ],
+            "block": [
+                "건축", "레빗", "다이나모", "아이폰 루머", "맛집", "육아"
+            ],
+            "examples": [
+                "금리 인하 기대가 시장에 미치는 영향",
+                "환율이 수입 물가에 영향을 주는 구조",
+                "ETF와 개별 주식의 차이",
+                "비트코인 가격 변동을 볼 때 확인할 지표",
+                "물가 지표가 기준금리에 중요한 이유"
+            ],
+        },
+        "tech": {
+            "name": "테크",
+            "allow": [
+                "AI", "인공지능", "아이폰", "갤럭시", "애플", "삼성전자", "반도체",
+                "배터리", "OLED", "디스플레이", "스마트폰", "앱", "보안", "클라우드",
+                "소프트웨어", "파이썬", "장고", "Django", "ChatGPT", "Gemini"
+            ],
+            "block": [
+                "청약", "전세", "실거래가", "콘크리트", "철근", "맛집", "육아"
+            ],
+            "examples": [
+                "스마트폰 신제품이 부품사에 영향을 주는 구조",
+                "OLED 디스플레이가 스마트폰 품질에 중요한 이유",
+                "AI 기능이 배터리 사용 시간에 미치는 영향",
+                "반도체 공급망을 이해할 때 알아야 할 기본 개념",
+                "앱 보안에서 개인정보 보호가 중요한 이유"
+            ],
+        },
+        "life": {
+            "name": "일상",
+            "allow": [
+                "생활", "육아", "건강", "음식", "청소", "정리", "가전", "교육",
+                "공부", "운동", "병원", "여행", "리뷰"
+            ],
+            "block": [
+                "주가", "코스피", "아이폰 공급", "BIM", "레빗", "청약"
+            ],
+            "examples": [
+                "아이 열이 날 때 집에서 먼저 확인할 것",
+                "전자레인지 사용 전 확인해야 할 용기 표시",
+                "집안 정리를 쉽게 시작하는 방법",
+                "가전제품 구매 전 확인해야 할 기본 기준",
+                "초등학생 생활 습관을 잡는 작은 방법"
+            ],
+        },
+    }
+
+    return profiles.get(cat, profiles["life"])
+
+
+def cbl_today_keyword_prompt_guard(category="", count=7):
+    """
+    오늘자 키워드 추천 프롬프트에 붙일 카테고리 고정 지침.
+    """
+    profile = cbl_today_keyword_category_profile(category)
+    allow = ", ".join(profile["allow"])
+    block = ", ".join(profile["block"])
+    examples = "\n".join([f"- {x}" for x in profile["examples"]])
+
+    return f"""
+[오늘자 키워드 추천 카테고리 고정 규칙]
+
+현재 카테고리: {profile["name"]}
+
+반드시 이 카테고리에 맞는 키워드만 추천한다.
+추천 개수는 {count}개다.
+
+허용 주제:
+{allow}
+
+금지 주제:
+{block}
+
+중요:
+1. 최신뉴스 루머성 키워드를 그대로 쓰지 않는다.
+2. 특정 기업의 계약, 공급, 주가, 실적, 출시일을 단정하는 키워드는 피한다.
+3. 자동 공개 글로 써도 안전한 설명형 키워드를 추천한다.
+4. 제목처럼 너무 길게 쓰지 말고, 블로그 글 주제로 확장 가능한 키워드로 작성한다.
+5. 카테고리와 맞지 않으면 절대 추천하지 않는다.
+
+좋은 예시:
+{examples}
+"""
+
+
+def cbl_filter_today_keywords_by_category(category="", keywords=None, limit=7):
+    """
+    오늘자 키워드 추천 결과를 카테고리 기준으로 한 번 더 필터링.
+    """
+    if keywords is None:
+        return []
+
+    profile = cbl_today_keyword_category_profile(category)
+    allow = [str(x).lower() for x in profile["allow"]]
+    block = [str(x).lower() for x in profile["block"]]
+
+    cleaned = []
+    seen = set()
+
+    for kw in keywords:
+        k = str(kw or "").strip()
+        if not k:
+            continue
+
+        lk = k.lower()
+
+        if any(b in lk for b in block):
+            continue
+
+        # 허용 키워드가 하나라도 들어가면 통과
+        if allow and not any(a.lower() in lk for a in allow):
+            continue
+
+        norm = lk.replace(" ", "")
+        if norm in seen:
+            continue
+
+        seen.add(norm)
+        cleaned.append(k)
+
+        if len(cleaned) >= int(limit or 7):
+            break
+
+    return cleaned
+# CBL_TODAY_KEYWORD_CATEGORY_LOCK_END
+
+
+
+# CBL_HUMAN_VISUAL_POLISH_START
+# AI 자동글 본문에 제한된 랜덤 시각 강조를 적용합니다.
+# - 글 단위 테마 1개
+# - 포인트 글자색 1개
+# - 하이라이트 색 1개
+# - strong 일부에 포인트 색상
+# - p 문장 일부에 형광펜 효과
+try:
+    import re as _cbl_visual_re
+    import random as _cbl_visual_random
+
+    _cbl_prev_human_visual_polish = cbl_polish_article_after_generate
+
+    _CBL_VISUAL_THEMES = [
+        {
+            "theme": "cbl-human-theme-blue",
+            "point": "cbl-point-blue",
+            "highlight": "cbl-highlight-yellow",
+        },
+        {
+            "theme": "cbl-human-theme-teal",
+            "point": "cbl-point-teal",
+            "highlight": "cbl-highlight-green",
+        },
+        {
+            "theme": "cbl-human-theme-violet",
+            "point": "cbl-point-violet",
+            "highlight": "cbl-highlight-pink",
+        },
+        {
+            "theme": "cbl-human-theme-amber",
+            "point": "cbl-point-amber",
+            "highlight": "cbl-highlight-sky",
+        },
+    ]
+
+    def _cbl_visual_has_marker(content):
+        return "cbl-ai-human-style" in str(content or "")
+
+    def _cbl_visual_add_class_to_open_tag(tag, class_names):
+        tag = str(tag or "")
+        class_names = str(class_names or "").strip()
+
+        if not tag or not class_names:
+            return tag
+
+        if "class=" in tag:
+            return _cbl_visual_re.sub(
+                r'class=(["\'])(.*?)\1',
+                lambda m: f'class={m.group(1)}{m.group(2)} {class_names}{m.group(1)}',
+                tag,
+                count=1,
+                flags=_cbl_visual_re.I,
+            )
+
+        if tag.endswith(">"):
+            return tag[:-1] + f' class="{class_names}">'
+
+        return tag
+
+    def _cbl_visual_style_strong_tags(content, rng, point_class):
+        matches = list(_cbl_visual_re.finditer(
+            r"<strong(?![^>]*cbl-ai-point)([^>]*)>",
+            content,
+            flags=_cbl_visual_re.I,
+        ))
+
+        if not matches:
+            return content
+
+        total = len(matches)
+
+        if total <= 2:
+            target_count = total
+        else:
+            target_count = min(6, max(2, total // 2))
+
+        chosen_indexes = set(rng.sample(range(total), target_count))
+
+        for idx, match in reversed(list(enumerate(matches))):
+            if idx not in chosen_indexes:
+                continue
+
+            old_tag = match.group(0)
+            new_tag = _cbl_visual_add_class_to_open_tag(
+                old_tag,
+                f"cbl-ai-point {point_class}",
+            )
+
+            content = content[:match.start()] + new_tag + content[match.end():]
+
+        return content
+
+    def _cbl_visual_find_sentences(inner_html):
+        # 태그를 건드리지 않기 위해, 태그가 섞이지 않은 짧은 문장 후보만 잡습니다.
+        candidates = []
+
+        sentence_pattern = _cbl_visual_re.compile(
+            r"([^<>]{18,120}?(?:다|요|죠|니다|습니다|합니다|됩니다|있습니다|없습니다|해요|예요|이에요|입니다)[.!?]?)"
+        )
+
+        for m in sentence_pattern.finditer(inner_html):
+            sentence = " ".join(str(m.group(1) or "").split())
+
+            if not sentence:
+                continue
+
+            if "<" in sentence or ">" in sentence:
+                continue
+
+            if len(sentence) < 18 or len(sentence) > 120:
+                continue
+
+            if "이미지" in sentence and "생성" in sentence:
+                continue
+
+            if "cbl-" in sentence:
+                continue
+
+            candidates.append(sentence)
+
+        return candidates
+
+    def _cbl_visual_add_highlights(content, rng, highlight_class):
+        if "cbl-ai-highlight" in content:
+            return content
+
+        p_matches = list(_cbl_visual_re.finditer(
+            r"(<p[^>]*>)(.*?)(</p>)",
+            content,
+            flags=_cbl_visual_re.I | _cbl_visual_re.S,
+        ))
+
+        if not p_matches:
+            return content
+
+        candidates = []
+
+        for p_idx, match in enumerate(p_matches):
+            inner = match.group(2)
+
+            plain = _cbl_visual_re.sub(r"<[^>]+>", "", inner)
+            plain = " ".join(plain.split())
+
+            if len(plain) < 70:
+                continue
+
+            if "cbl-ai-highlight" in inner:
+                continue
+
+            sentences = _cbl_visual_find_sentences(inner)
+
+            if not sentences:
+                continue
+
+            candidates.append({
+                "p_idx": p_idx,
+                "match": match,
+                "sentence": rng.choice(sentences),
+            })
+
+        if not candidates:
+            return content
+
+        rng.shuffle(candidates)
+
+        target_count = rng.randint(1, min(3, len(candidates)))
+        selected = []
+        used_p = set()
+
+        for item in candidates:
+            if item["p_idx"] in used_p:
+                continue
+
+            selected.append(item)
+            used_p.add(item["p_idx"])
+
+            if len(selected) >= target_count:
+                break
+
+        for item in sorted(selected, key=lambda x: x["match"].start(), reverse=True):
+            match = item["match"]
+            opening = match.group(1)
+            inner = match.group(2)
+            closing = match.group(3)
+            sentence = item["sentence"]
+
+            marked = (
+                f'<span class="cbl-ai-highlight {highlight_class}">'
+                f'{sentence}'
+                f'</span>'
+            )
+
+            new_inner = inner.replace(sentence, marked, 1)
+            new_block = opening + new_inner + closing
+
+            content = content[:match.start()] + new_block + content[match.end():]
+
+        return content
+
+    def _cbl_visual_wrap_content(content, theme_class):
+        content = str(content or "").strip()
+
+        if not content:
+            return content
+
+        if _cbl_visual_has_marker(content):
+            return content
+
+        return f'<div class="cbl-ai-human-style {theme_class}">\n{content}\n</div>'
+
+    def _cbl_apply_human_visual_polish(content):
+        content = str(content or "").strip()
+
+        if not content:
+            return content
+
+        if _cbl_visual_has_marker(content):
+            return content
+
+        rng = _cbl_visual_random.SystemRandom()
+        theme = rng.choice(_CBL_VISUAL_THEMES)
+
+        content = _cbl_visual_style_strong_tags(
+            content,
+            rng,
+            theme["point"],
+        )
+
+        content = _cbl_visual_add_highlights(
+            content,
+            rng,
+            theme["highlight"],
+        )
+
+        content = _cbl_visual_wrap_content(
+            content,
+            theme["theme"],
+        )
+
+        return content
+
+    def cbl_polish_article_after_generate(content):
+        content = _cbl_prev_human_visual_polish(content)
+        content = _cbl_apply_human_visual_polish(content)
+        return content
+
+except Exception as _cbl_human_visual_polish_error:
+    print("CBL_HUMAN_VISUAL_POLISH load error:", _cbl_human_visual_polish_error)
+# CBL_HUMAN_VISUAL_POLISH_END
+
