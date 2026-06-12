@@ -530,91 +530,14 @@
 
                     <button type="button" onclick="closeAiPostModal()">×</button>
                 </div>
-
-                <div class="ai-post-intro">
-                    <strong>자동 글쓰기 초안 생성</strong>
-                    <p>
-                        카테고리와 주요 키워드를 입력하면 입력한 조건에 맞춰 블로그 초안을 생성하고,
-                        자동으로 글 목록에 저장합니다.
-                    </p>
-                </div>
-
-                <form id="aiPostForm" class="ai-post-form" method="post" action="{% url 'ai_post_generate' %}">
+<form id="aiPostForm" class="ai-post-form" method="post" action="{% url 'ai_post_generate' %}">
                     {% csrf_token %}
+                    
+                    
 
-                    <div class="ai-form-grid">
-                        <div class="ai-form-group">
-                            <label for="ai-category">자동글 카테고리</label>
-                            <select id="ai-category" name="category">
-                                <option value="architecture">건축</option>
-                                <option value="realestate">부동산</option>
-                                <option value="finance">금융</option>
-                                <option value="tech">테크</option>
-                                <option value="life">일상</option>
-                            </select>
-                        </div>
 
-                        <div class="ai-form-group">
-                            <label for="ai-count">생성할 글 개수</label>
-                            <input id="ai-count" name="count" type="number" min="1" max="10" value="1">
-                        </div>
 
-                        <div class="ai-form-group">
-                            <label for="ai-image-count">본문 이미지 개수</label>
-                            <select id="ai-image-count" name="image_count">
-                                <option value="0" selected>0장</option>
-                                <option value="1">1장</option>
-                                <option value="2">2장</option>
-                                <option value="3">3장</option>
-                                <option value="4">4장</option>
-                                <option value="5">5장</option>
-                            </select>
-                        </div>
-                    </div>
 
-                    <div class="ai-form-group">
-                        <div class="ai-keyword-label-row">
-                            <label for="ai-keywords">주요 이슈 키워드</label>
-
-                            <button type="button" id="aiKeywordRecommendBtn" class="ai-keyword-recommend-btn">
-                                오늘자 키워드 추천
-                            </button>
-                        </div>
-
-                        <input
-                            id="ai-keywords"
-                            name="keywords"
-                            type="text"
-                            placeholder="예: 금리 인하, 아파트 분양, 마감공사 하자, 자동화"
-                        >
-
-                        <input
-                            type="hidden"
-                            id="ai-selected-keywords"
-                            name="selected_keywords"
-                            value=""
-                        >
-
-                        <div id="aiSelectedKeywordSummary" class="ai-selected-keyword-summary" hidden>
-                            선택한 키워드 <strong>0개</strong>
-                        </div>
-
-                        <div id="aiKeywordRecommendBox" class="ai-keyword-recommend-box" hidden>
-                            <div class="ai-keyword-recommend-head">
-                                <div class="ai-keyword-head-left">
-                                    <span class="ai-keyword-mini-label">TREND PICK</span>
-                                    <strong>오늘 글감 추천</strong>
-                                    <p>선택한 카테고리에 맞는 키워드만 추천합니다. 원하는 키워드를 누르면 위 입력칸에 바로 들어갑니다.</p>
-                                </div>
-
-                                <div class="ai-keyword-count-badge">
-                                    10개 추천
-                                </div>
-                            </div>
-
-                            <div id="aiKeywordRecommendList" class="ai-keyword-recommend-list"></div>
-                        </div>
-                    </div>
 
                     <div class="ai-form-group">
                         <label for="ai-title-style">글 작성 방향</label>
@@ -637,6 +560,31 @@
                             placeholder="예: 제목은 자극적이지 않게, 본문은 1500자 이상, 표나 목록 포함, SEO 설명 포함"
                         ></textarea>
                     </div>
+
+                    <div id="cblTodayKeywordBox" class="cbl-today-keyword-box">
+                        <button type="button" id="aiKeywordRecommendBtn" class="ai-keyword-recommend-btn">
+                            ✨ 오늘자 키워드 추천
+                        </button>
+
+                        <div id="aiKeywordRecommendBox" class="ai-keyword-recommend-box" hidden>
+                            <div class="ai-keyword-recommend-head">
+                                <div class="ai-keyword-head-left">
+                                    <span class="ai-keyword-mini-label">TREND PICK</span>
+                                    <strong>추천 키워드 리스트</strong>
+                                    <p>추천 키워드를 누르면 위 키워드 입력칸에 자동으로 추가됩니다.</p>
+                                </div>
+
+                                <div class="ai-keyword-count-badge">
+                                    10개 추천
+                                </div>
+                            </div>
+
+                            <div id="aiKeywordRecommendList" class="ai-keyword-recommend-list"></div>
+                        </div>
+                    </div>
+
+
+
 
                     <div class="ai-option-box">
                         <label>
@@ -2617,6 +2565,1578 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 })();
 /* CBL_AI_GENERATE_DRAFT_RESULT_FRONT_HOTFIX_END */
 </script>
+
+
+<!-- CBL_AI_KEYWORD_ROW_UI_START -->
+<style>
+.cbl-kw-row-panel{
+    margin-top:12px;
+}
+.cbl-kw-head,
+.cbl-kw-row{
+    display:grid;
+    grid-template-columns: 1.05fr .75fr 2.2fr auto auto;
+    gap:10px;
+    align-items:center;
+}
+.cbl-kw-head{
+    font-size:13px;
+    font-weight:800;
+    color:#111827;
+    margin:8px 0 8px;
+}
+.cbl-kw-row{
+    margin-bottom:10px;
+}
+.cbl-kw-row select,
+.cbl-kw-row input{
+    width:100%;
+    height:44px;
+    border:1px solid #d5dce8;
+    border-radius:12px;
+    padding:0 14px;
+    font-size:14px;
+    background:#fff;
+    color:#111827;
+    box-sizing:border-box;
+}
+.cbl-kw-row button{
+    height:44px;
+    min-width:48px;
+    border:0;
+    border-radius:13px;
+    font-weight:800;
+    cursor:pointer;
+}
+.cbl-kw-del{
+    background:#edf2f7;
+    color:#334155;
+}
+.cbl-kw-add{
+    background:linear-gradient(135deg,#6366f1,#8b5cf6);
+    color:#fff;
+}
+.cbl-reco-wrap{
+    margin-top:18px;
+    display:none;
+}
+.cbl-reco-wrap.is-open{
+    display:block;
+}
+.cbl-reco-grid{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:14px;
+}
+.cbl-reco-card{
+    border:1px solid #e0e7f2;
+    border-radius:18px;
+    padding:14px;
+    background:#fff;
+    box-shadow:0 10px 25px rgba(15,23,42,.05);
+}
+.cbl-reco-card h4{
+    margin:0 0 10px;
+    font-size:14px;
+    font-weight:900;
+    color:#111827;
+}
+.cbl-reco-list{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+}
+.cbl-reco-chip{
+    border:1px solid #dbe4f0;
+    background:#f8fafc;
+    border-radius:999px;
+    padding:8px 11px;
+    font-size:13px;
+    font-weight:700;
+    color:#334155;
+    cursor:pointer;
+    transition:.15s;
+}
+.cbl-reco-chip:hover{
+    background:#6d5dfc;
+    border-color:#6d5dfc;
+    color:#fff;
+}
+.cbl-reco-loading{
+    padding:12px 0;
+    color:#64748b;
+    font-size:14px;
+    font-weight:700;
+}
+@media(max-width:760px){
+    .cbl-kw-head{
+        display:none;
+    }
+    .cbl-kw-row{
+        grid-template-columns:1fr 1fr;
+    }
+    .cbl-kw-row input{
+        grid-column:1 / -1;
+    }
+    .cbl-reco-grid{
+        grid-template-columns:1fr;
+    }
+}
+</style>
+
+<script>
+(function(){
+    const CATS = [
+        ["architecture", "건축"],
+        ["realestate", "부동산"],
+        ["finance", "금융"],
+        ["tech", "테크"],
+        ["life", "일상"]
+    ];
+
+    const RECO_GROUPS = [
+        ["architecture", "건축"],
+        ["realestate", "부동산"],
+        ["finance", "금융"],
+        ["tech", "테크"],
+        ["life", "일상"],
+        ["auto", "시간별 자동글"]
+    ];
+
+    function csrfToken(){
+        const el = document.querySelector('[name=csrfmiddlewaretoken]');
+        return el ? el.value : "";
+    }
+
+    function findByText(text){
+        return Array.from(document.querySelectorAll("label,div,span,h1,h2,h3,h4,p,strong,button"))
+            .find(el => (el.textContent || "").trim().includes(text));
+    }
+
+    function nearestFieldBlock(el){
+        if(!el) return null;
+        return el.closest(".form-group,.field,.cbl-form-group,.cbl-field,.mb-3,.mb-4,div") || el.parentElement;
+    }
+
+    function optionHtml(selected){
+        return CATS.map(([v,t]) => `<option value="${v}" ${v===selected ? "selected" : ""}>${t}</option>`).join("");
+    }
+
+    function imageOptionHtml(selected){
+        let html = "";
+        for(let i=0;i<=5;i++){
+            html += `<option value="${i}" ${String(i)===String(selected) ? "selected" : ""}>${i}장</option>`;
+        }
+        return html;
+    }
+
+    function getDefaultCategory(){
+        const old = document.querySelector('select[name="category"], select#category, #id_category');
+        return old && old.value ? old.value : "architecture";
+    }
+
+    function getDefaultImageCount(){
+        const old = document.querySelector('select[name="image_count"], select#image_count, #id_image_count');
+        return old && old.value !== undefined ? old.value : "0";
+    }
+
+    function rowTemplate(category, imageCount, keyword){
+        return `
+        <div class="cbl-kw-row">
+            <select class="cbl-row-category" name="keyword_categories">${optionHtml(category || getDefaultCategory())}</select>
+            <select class="cbl-row-image-count" name="keyword_image_counts">${imageOptionHtml(imageCount ?? getDefaultImageCount())}</select>
+            <input class="cbl-row-keyword" name="keywords" value="${escapeHtml(keyword || "")}" placeholder="예: 자동화, BIM, 공사일보, 부동산 정책">
+            <button type="button" class="cbl-kw-del">삭제</button>
+            <button type="button" class="cbl-kw-add">추가</button>
+        </div>`;
+    }
+
+    function escapeHtml(s){
+        return String(s || "")
+            .replaceAll("&","&amp;")
+            .replaceAll("<","&lt;")
+            .replaceAll(">","&gt;")
+            .replaceAll('"',"&quot;");
+    }
+
+    function addRow(panel, category, imageCount, keyword){
+        const body = panel.querySelector(".cbl-kw-body");
+        body.insertAdjacentHTML("beforeend", rowTemplate(category, imageCount, keyword));
+        const last = body.querySelector(".cbl-kw-row:last-child .cbl-row-keyword");
+        if(last && !keyword) last.focus();
+    }
+
+    function buildKeywordRows(){
+        const oldKeywordInput = document.querySelector('input[name="keywords"], input[name="keyword"], input[placeholder*="금리"], input[placeholder*="자동화"]');
+        if(!oldKeywordInput) return null;
+
+        const form = oldKeywordInput.closest("form");
+        if(!form) return null;
+
+        if(form.querySelector(".cbl-kw-row-panel")) return form.querySelector(".cbl-kw-row-panel");
+
+        const keywordBlock = nearestFieldBlock(oldKeywordInput);
+        const panel = document.createElement("div");
+        panel.className = "cbl-kw-row-panel";
+        panel.innerHTML = `
+            <div class="cbl-kw-head">
+                <div>자동글 카테고리</div>
+                <div>본문 이미지 개수</div>
+                <div>주요 이슈 키워드</div>
+                <div></div>
+                <div></div>
+            </div>
+            <div class="cbl-kw-body"></div>
+        `;
+
+        const firstKeyword = oldKeywordInput.value || "";
+        panel.querySelector(".cbl-kw-body").insertAdjacentHTML(
+            "beforeend",
+            rowTemplate(getDefaultCategory(), getDefaultImageCount(), firstKeyword)
+        );
+
+        if(keywordBlock){
+            keywordBlock.innerHTML = "";
+            keywordBlock.appendChild(panel);
+        }
+
+        const catLabel = findByText("자동글 카테고리");
+        const imgLabel = findByText("본문 이미지 개수");
+        [catLabel, imgLabel].forEach(label => {
+            const block = nearestFieldBlock(label);
+            if(block && !block.querySelector(".cbl-kw-row-panel")){
+                block.style.display = "none";
+            }
+        });
+
+        panel.addEventListener("click", function(e){
+            if(e.target.classList.contains("cbl-kw-add")){
+                addRow(panel, getDefaultCategory(), getDefaultImageCount(), "");
+            }
+            if(e.target.classList.contains("cbl-kw-del")){
+                const rows = panel.querySelectorAll(".cbl-kw-row");
+                if(rows.length <= 1){
+                    const input = e.target.closest(".cbl-kw-row").querySelector(".cbl-row-keyword");
+                    if(input) input.value = "";
+                    return;
+                }
+                e.target.closest(".cbl-kw-row").remove();
+            }
+        });
+
+        form.addEventListener("submit", function(){
+            const rows = Array.from(panel.querySelectorAll(".cbl-kw-row"));
+            rows.forEach(row => {
+                const kw = row.querySelector(".cbl-row-keyword");
+                if(kw && !kw.value.trim()){
+                    row.remove();
+                }
+            });
+
+            const firstRow = panel.querySelector(".cbl-kw-row");
+            if(firstRow){
+                const oldCat = document.querySelector('select[name="category"], select#category, #id_category');
+                const oldImg = document.querySelector('select[name="image_count"], select#image_count, #id_image_count');
+                if(oldCat) oldCat.value = firstRow.querySelector(".cbl-row-category").value;
+                if(oldImg) oldImg.value = firstRow.querySelector(".cbl-row-image-count").value;
+            }
+        }, true);
+
+        return panel;
+    }
+
+    async function fetchKeywords(category){
+        const fd = new FormData();
+        fd.append("category", category === "auto" ? "architecture" : category);
+        fd.append("count", "7");
+        fd.append("keyword_count", "7");
+        fd.append("limit", "7");
+
+        const res = await fetch("/ai-keywords/recommend/", {
+            method:"POST",
+            headers: {"X-CSRFToken": csrfToken()},
+            body: fd
+        });
+
+        const data = await res.json();
+        let arr = [];
+
+        if(Array.isArray(data)) arr = data;
+        else if(Array.isArray(data.keywords)) arr = data.keywords;
+        else if(Array.isArray(data.recommended_keywords)) arr = data.recommended_keywords;
+        else if(Array.isArray(data.items)) arr = data.items;
+        else if(typeof data.keywords === "string") arr = data.keywords.split(/\n|,/);
+
+        arr = arr.map(x => {
+            if(typeof x === "string") return x.trim();
+            return String(x.keyword || x.title || x.name || "").trim();
+        }).filter(Boolean);
+
+        return [...new Set(arr)].slice(0,7);
+    }
+
+    function buildRecommendArea(form, panel){
+        const oldBtn = Array.from(document.querySelectorAll("button,a"))
+            .find(el => (el.textContent || "").includes("오늘자 키워드 추천"));
+        if(!oldBtn || form.querySelector(".cbl-reco-wrap")) return;
+
+        const wrap = document.createElement("div");
+        wrap.className = "cbl-reco-wrap";
+        wrap.innerHTML = `
+            <div class="cbl-reco-loading">추천 키워드를 불러오는 중입니다.</div>
+            <div class="cbl-reco-grid"></div>
+        `;
+
+        oldBtn.insertAdjacentElement("afterend", wrap);
+
+        oldBtn.addEventListener("click", async function(e){
+            e.preventDefault();
+            e.stopImmediatePropagation();
+
+            wrap.classList.add("is-open");
+            const loading = wrap.querySelector(".cbl-reco-loading");
+            const grid = wrap.querySelector(".cbl-reco-grid");
+            loading.style.display = "block";
+            grid.innerHTML = "";
+
+            for(const [category, title] of RECO_GROUPS){
+                const card = document.createElement("div");
+                card.className = "cbl-reco-card";
+                card.innerHTML = `<h4>${title}</h4><div class="cbl-reco-list"><span class="cbl-reco-loading">불러오는 중...</span></div>`;
+                grid.appendChild(card);
+
+                try{
+                    const keywords = await fetchKeywords(category);
+                    const list = card.querySelector(".cbl-reco-list");
+                    list.innerHTML = "";
+
+                    if(!keywords.length){
+                        list.innerHTML = `<span class="cbl-reco-loading">추천 없음</span>`;
+                        continue;
+                    }
+
+                    keywords.forEach(kw => {
+                        const chip = document.createElement("button");
+                        chip.type = "button";
+                        chip.className = "cbl-reco-chip";
+                        chip.textContent = kw;
+                        chip.addEventListener("click", function(){
+                            const realCategory = category === "auto" ? getDefaultCategory() : category;
+                            addRow(panel, realCategory, getDefaultImageCount(), kw);
+                        });
+                        list.appendChild(chip);
+                    });
+                }catch(err){
+                    card.querySelector(".cbl-reco-list").innerHTML = `<span class="cbl-reco-loading">불러오기 실패</span>`;
+                }
+            }
+
+            loading.style.display = "none";
+        }, true);
+    }
+
+    function init(){
+        const panel = buildKeywordRows();
+        if(!panel) return;
+        const form = panel.closest("form");
+        if(form) buildRecommendArea(form, panel);
+    }
+
+    document.addEventListener("DOMContentLoaded", init);
+    setTimeout(init, 500);
+})();
+</script>
+<!-- CBL_AI_KEYWORD_ROW_UI_END -->
+
+
+<!-- CBL_HIDE_TOP_AI_CATEGORY_IMAGE_START -->
+<style>
+    .cbl-hide-top-ai-category-image {
+        display: none !important;
+    }
+</style>
+
+<script>
+(function () {
+    if (window.__CBL_HIDE_TOP_AI_CATEGORY_IMAGE__) return;
+    window.__CBL_HIDE_TOP_AI_CATEGORY_IMAGE__ = true;
+
+    function ready(fn) {
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", fn);
+        } else {
+            fn();
+        }
+    }
+
+    function hideTopCategoryImageFields() {
+        const modalForm = document.getElementById("aiPostForm");
+        if (!modalForm) return;
+
+        const category = modalForm.querySelector("#ai-category");
+        const imageCount = modalForm.querySelector("#ai-image-count");
+
+        if (!category && !imageCount) return;
+
+        const categoryRoot = category
+            ? category.closest(".ai-form-group")
+            : null;
+
+        const imageRoot = imageCount
+            ? imageCount.closest(".ai-form-group")
+            : null;
+
+        if (categoryRoot) {
+            categoryRoot.classList.add("cbl-hide-top-ai-category-image");
+        }
+
+        if (imageRoot) {
+            imageRoot.classList.add("cbl-hide-top-ai-category-image");
+        }
+
+        const topGrid = modalForm.querySelector(".ai-form-grid");
+
+        if (topGrid) {
+            const visibleChildren = Array.from(topGrid.children).filter(function (child) {
+                return !child.classList.contains("cbl-hide-top-ai-category-image");
+            });
+
+            if (visibleChildren.length === 0) {
+                topGrid.classList.add("cbl-hide-top-ai-category-image");
+            }
+        }
+    }
+
+    ready(function () {
+        hideTopCategoryImageFields();
+        setTimeout(hideTopCategoryImageFields, 300);
+        setTimeout(hideTopCategoryImageFields, 800);
+    });
+})();
+</script>
+<!-- CBL_HIDE_TOP_AI_CATEGORY_IMAGE_END -->
+
+
+
+
+
+
+<!-- CBL_FIX_AI_KEYWORD_ROW_WIDTH_START -->
+<style>
+/* 자동글 생성 모달 - 주요 이슈 키워드 입력줄 폭 정렬 */
+#aiPostForm .cbl-ai-keyword-rows-panel,
+#aiPostForm #cblAiKeywordRowsPanel,
+#aiPostForm .cbl-force-keyword-wrap,
+#aiPostForm .cbl-multi-keyword-box {
+    width: 100% !important;
+    margin-top: 12px !important;
+}
+
+/* 헤더와 입력줄을 같은 그리드 폭으로 고정 */
+#aiPostForm .cbl-ai-keyword-head,
+#aiPostForm .cbl-ai-keyword-row {
+    display: grid !important;
+    grid-template-columns: 110px 86px minmax(0, 1fr) 50px 50px !important;
+    gap: 10px !important;
+    align-items: center !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+/* 혹시 다른 패치 클래스가 살아있을 때도 같이 보정 */
+#aiPostForm .cbl-kw-head,
+#aiPostForm .cbl-kw-row {
+    display: grid !important;
+    grid-template-columns: 110px 86px minmax(0, 1fr) 50px 50px !important;
+    gap: 10px !important;
+    align-items: center !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+#aiPostForm .cbl-ai-keyword-head,
+#aiPostForm .cbl-kw-head {
+    margin-bottom: 8px !important;
+    font-size: 13px !important;
+    font-weight: 950 !important;
+    color: #111827 !important;
+}
+
+#aiPostForm .cbl-ai-keyword-head > div,
+#aiPostForm .cbl-kw-head > div {
+    text-align: left !important;
+    white-space: nowrap !important;
+}
+
+/* 셀 내부 요소 */
+#aiPostForm .cbl-ai-keyword-row select,
+#aiPostForm .cbl-ai-keyword-row input,
+#aiPostForm .cbl-kw-row select,
+#aiPostForm .cbl-kw-row input {
+    width: 100% !important;
+    height: 44px !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    border: 1px solid #d7dde8 !important;
+    border-radius: 13px !important;
+    padding: 0 14px !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    font-size: 14px !important;
+    font-weight: 850 !important;
+}
+
+#aiPostForm .cbl-ai-keyword-row select,
+#aiPostForm .cbl-kw-row select {
+    text-align: center !important;
+    text-align-last: center !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+}
+
+#aiPostForm .cbl-ai-keyword-row input,
+#aiPostForm .cbl-kw-row input {
+    text-align: left !important;
+}
+
+/* 삭제 / 추가 버튼 */
+#aiPostForm .cbl-ai-keyword-row button,
+#aiPostForm .cbl-kw-row button {
+    width: 50px !important;
+    min-width: 50px !important;
+    height: 44px !important;
+    padding: 0 !important;
+    border-radius: 13px !important;
+    font-size: 13px !important;
+    font-weight: 950 !important;
+    box-sizing: border-box !important;
+}
+
+/* 입력줄 전체가 모달 폭 안에서 꽉 차게 */
+#aiPostForm .cbl-ai-keyword-body,
+#aiPostForm .cbl-kw-body {
+    width: 100% !important;
+}
+
+/* 모바일 */
+@media (max-width: 760px) {
+    #aiPostForm .cbl-ai-keyword-head,
+    #aiPostForm .cbl-kw-head {
+        display: none !important;
+    }
+
+    #aiPostForm .cbl-ai-keyword-row,
+    #aiPostForm .cbl-kw-row {
+        grid-template-columns: 1fr 1fr !important;
+    }
+
+    #aiPostForm .cbl-ai-keyword-row input,
+    #aiPostForm .cbl-kw-row input {
+        grid-column: 1 / -1 !important;
+    }
+
+    #aiPostForm .cbl-ai-keyword-row button,
+    #aiPostForm .cbl-kw-row button {
+        width: 100% !important;
+    }
+}
+</style>
+<!-- CBL_FIX_AI_KEYWORD_ROW_WIDTH_END -->
+
+
+
+
+
+
+
+
+
+
+<!-- CBL_HARD_RENDER_TOP_KEYWORD_ROW_START -->
+<style>
+    #aiPostModal .ai-post-intro {
+        display: none !important;
+    }
+
+    #aiPostForm .cbl-force-top-row-panel {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        margin: 0 0 22px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        background: transparent !important;
+    }
+
+    #aiPostForm .cbl-force-top-row-head,
+    #aiPostForm .cbl-force-top-row {
+        display: grid !important;
+        grid-template-columns: 110px 110px minmax(0, 1fr) 58px 58px !important;
+        gap: 10px !important;
+        align-items: center !important;
+        width: 100% !important;
+    }
+
+    #aiPostForm .cbl-force-top-row-head {
+        margin-bottom: 8px !important;
+        color: #111827 !important;
+        font-size: 13px !important;
+        font-weight: 950 !important;
+    }
+
+    #aiPostForm .cbl-force-top-row select,
+    #aiPostForm .cbl-force-top-row input[type="text"] {
+        display: block !important;
+        width: 100% !important;
+        height: 44px !important;
+        min-height: 44px !important;
+        max-height: 44px !important;
+        padding: 0 14px !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 12px !important;
+        background-color: #ffffff !important;
+        color: #111827 !important;
+        font-size: 14px !important;
+        font-weight: 800 !important;
+        font-family: inherit !important;
+        box-sizing: border-box !important;
+    }
+
+    #aiPostForm .cbl-force-top-row button {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 58px !important;
+        height: 44px !important;
+        border: 0 !important;
+        border-radius: 12px !important;
+        font-size: 13px !important;
+        font-weight: 950 !important;
+        cursor: pointer !important;
+    }
+
+    #aiPostForm .cbl-force-del {
+        background: #eef2f7 !important;
+        color: #334155 !important;
+    }
+
+    #aiPostForm .cbl-force-add {
+        background: #7c3aed !important;
+        color: #ffffff !important;
+    }
+
+    #cblTodayKeywordBox {
+        display: block !important;
+        margin: 22px 0 22px !important;
+        padding: 20px !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 24px !important;
+        background: #ffffff !important;
+        box-shadow: 0 14px 36px rgba(15, 23, 42, 0.06) !important;
+    }
+
+    #cblTodayKeywordBox #aiKeywordRecommendBtn {
+        margin: 0 0 14px !important;
+    }
+
+    #cblTodayKeywordBox #aiKeywordRecommendBox {
+        margin-top: 14px !important;
+    }
+
+    @media (max-width: 760px) {
+        #aiPostForm .cbl-force-top-row-head {
+            display: none !important;
+        }
+
+        #aiPostForm .cbl-force-top-row {
+            grid-template-columns: 1fr 86px !important;
+        }
+
+        #aiPostForm .cbl-force-top-row select,
+        #aiPostForm .cbl-force-top-row input[type="text"] {
+            grid-column: 1 / -1 !important;
+        }
+
+        #aiPostForm .cbl-force-top-row button {
+            width: 100% !important;
+        }
+    }
+</style>
+
+<script>
+(function () {
+    if (window.__CBL_HARD_RENDER_TOP_KEYWORD_ROW__) return;
+    window.__CBL_HARD_RENDER_TOP_KEYWORD_ROW__ = true;
+
+    function ready(fn) {
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", fn);
+        } else {
+            fn();
+        }
+    }
+
+    function makeCategorySelect() {
+        const el = document.createElement("select");
+        el.id = "ai-category";
+        el.name = "category";
+        el.innerHTML = `
+            <option value="architecture">건축</option>
+            <option value="realestate">부동산</option>
+            <option value="finance">금융</option>
+            <option value="tech">테크</option>
+            <option value="life">일상</option>
+        `;
+        return el;
+    }
+
+    function makeImageSelect() {
+        const el = document.createElement("select");
+        el.id = "ai-image-count";
+        el.name = "image_count";
+        el.innerHTML = `
+            <option value="0" selected>0장</option>
+            <option value="1">1장</option>
+            <option value="2">2장</option>
+            <option value="3">3장</option>
+            <option value="4">4장</option>
+            <option value="5">5장</option>
+        `;
+        return el;
+    }
+
+    function makeKeywordInput() {
+        const el = document.createElement("input");
+        el.id = "ai-keywords";
+        el.name = "keywords";
+        el.type = "text";
+        el.placeholder = "예: 자동화, BIM, 공사일보, 부동산 정책";
+        return el;
+    }
+
+    function makeHidden(id, name, value) {
+        const el = document.createElement("input");
+        el.id = id;
+        el.name = name;
+        el.type = "hidden";
+        el.value = value || "";
+        return el;
+    }
+
+    function nearestBlock(el) {
+        if (!el) return null;
+        return el.closest(".ai-form-group") || el.closest(".ai-form-grid") || el.parentElement;
+    }
+
+    function findWritingGroup(form) {
+        const el = form.querySelector("#ai-title-style");
+        return nearestBlock(el);
+    }
+
+    function findExtraGroup(form) {
+        const el = form.querySelector("#ai-extra");
+        return nearestBlock(el);
+    }
+
+    function hideEmptyOldBlocks(form, panel, todayBox) {
+        Array.from(form.querySelectorAll(".ai-form-grid, .ai-form-group")).forEach(function (block) {
+            if (panel && panel.contains(block)) return;
+            if (todayBox && todayBox.contains(block)) return;
+            if (block.querySelector("#ai-title-style")) return;
+            if (block.querySelector("#ai-extra")) return;
+            if (block.querySelector(".ai-option-box")) return;
+
+            const text = (block.innerText || "").replace(/\s+/g, "");
+
+            if (
+                text.includes("자동글카테고리") ||
+                text.includes("생성할글개수") ||
+                text.includes("본문이미지개수") ||
+                text.includes("주요이슈키워드") ||
+                text === ""
+            ) {
+                block.style.display = "none";
+            }
+        });
+    }
+
+    function mountTopRow() {
+        const form = document.getElementById("aiPostForm");
+        if (!form) return;
+
+        const intro = form.parentElement ? form.parentElement.querySelector(".ai-post-intro") : null;
+        if (intro) intro.remove();
+
+        let category = document.getElementById("ai-category") || form.querySelector('select[name="category"]') || makeCategorySelect();
+        let image = document.getElementById("ai-image-count") || form.querySelector('select[name="image_count"]') || makeImageSelect();
+        let keyword = document.getElementById("ai-keywords") || form.querySelector('input[name="keywords"]') || makeKeywordInput();
+        let count = document.getElementById("ai-count") || form.querySelector('input[name="count"]') || makeHidden("ai-count", "count", "1");
+        let selected = document.getElementById("ai-selected-keywords") || makeHidden("ai-selected-keywords", "selected_keywords", "");
+
+        category.id = "ai-category";
+        category.name = "category";
+
+        image.id = "ai-image-count";
+        image.name = "image_count";
+
+        keyword.id = "ai-keywords";
+        keyword.name = "keywords";
+        keyword.type = "text";
+        keyword.placeholder = "예: 자동화, BIM, 공사일보, 부동산 정책";
+
+        count.id = "ai-count";
+        count.name = "count";
+        count.type = "hidden";
+
+        selected.id = "ai-selected-keywords";
+        selected.name = "selected_keywords";
+        selected.type = "hidden";
+
+        let panel = document.getElementById("cblForceTopRowPanel");
+
+        if (!panel) {
+            panel = document.createElement("div");
+            panel.id = "cblForceTopRowPanel";
+            panel.className = "cbl-force-top-row-panel";
+            panel.innerHTML = `
+                <div class="cbl-force-top-row-head">
+                    <div>자동글 카테고리</div>
+                    <div>본문 이미지 개수</div>
+                    <div>키워드 입력</div>
+                    <div>삭제</div>
+                    <div>추가</div>
+                </div>
+                <div class="cbl-force-top-row"></div>
+            `;
+        }
+
+        const row = panel.querySelector(".cbl-force-top-row");
+
+        row.innerHTML = "";
+        row.appendChild(category);
+        row.appendChild(image);
+        row.appendChild(keyword);
+
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "cbl-force-del";
+        del.textContent = "삭제";
+
+        const add = document.createElement("button");
+        add.type = "button";
+        add.className = "cbl-force-add";
+        add.textContent = "추가";
+
+        row.appendChild(del);
+        row.appendChild(add);
+
+        panel.appendChild(count);
+        panel.appendChild(selected);
+
+        const writingGroup = findWritingGroup(form);
+        if (writingGroup) {
+            writingGroup.insertAdjacentElement("beforebegin", panel);
+        } else {
+            const csrf = form.querySelector('input[name="csrfmiddlewaretoken"]');
+            if (csrf) {
+                csrf.insertAdjacentElement("afterend", panel);
+            } else {
+                form.prepend(panel);
+            }
+        }
+
+        const extraGroup = findExtraGroup(form);
+
+        let todayBox = document.getElementById("cblTodayKeywordBox");
+
+        if (!todayBox) {
+            todayBox = document.createElement("div");
+            todayBox.id = "cblTodayKeywordBox";
+        }
+
+        let btn = document.getElementById("aiKeywordRecommendBtn");
+        let recoBox = document.getElementById("aiKeywordRecommendBox");
+
+        if (!btn) {
+            btn = document.createElement("button");
+            btn.type = "button";
+            btn.id = "aiKeywordRecommendBtn";
+            btn.className = "ai-keyword-recommend-btn";
+            btn.textContent = "오늘자 키워드 추천";
+        }
+
+        if (!recoBox) {
+            recoBox = document.createElement("div");
+            recoBox.id = "aiKeywordRecommendBox";
+            recoBox.className = "ai-keyword-recommend-box";
+            recoBox.hidden = true;
+            recoBox.innerHTML = `
+                <div class="ai-keyword-recommend-head">
+                    <div class="ai-keyword-head-left">
+                        <span class="ai-keyword-mini-label">TREND PICK</span>
+                        <strong>추천 키워드 리스트</strong>
+                        <p>추천 키워드를 누르면 위 키워드 입력칸에 자동으로 추가됩니다.</p>
+                    </div>
+                    <div class="ai-keyword-count-badge">10개 추천</div>
+                </div>
+                <div id="aiKeywordRecommendList" class="ai-keyword-recommend-list"></div>
+            `;
+        }
+
+        if (!todayBox.contains(btn)) todayBox.appendChild(btn);
+        if (!todayBox.contains(recoBox)) todayBox.appendChild(recoBox);
+
+        if (extraGroup) {
+            extraGroup.insertAdjacentElement("afterend", todayBox);
+        }
+
+        hideEmptyOldBlocks(form, panel, todayBox);
+
+        del.onclick = function () {
+            keyword.value = "";
+            selected.value = "";
+            count.value = "1";
+            keyword.focus();
+        };
+
+        add.onclick = function () {
+            keyword.focus();
+        };
+
+        function syncCount() {
+            const arr = String(keyword.value || "")
+                .split(",")
+                .map(function (v) { return v.trim(); })
+                .filter(Boolean);
+
+            count.value = String(Math.max(arr.length, 1));
+            selected.value = arr.length ? JSON.stringify(arr) : "";
+        }
+
+        keyword.addEventListener("input", syncCount);
+        form.addEventListener("submit", syncCount);
+        syncCount();
+    }
+
+    ready(function () {
+        mountTopRow();
+        setTimeout(mountTopRow, 200);
+        setTimeout(mountTopRow, 700);
+        setTimeout(mountTopRow, 1500);
+    });
+})();
+</script>
+<!-- CBL_HARD_RENDER_TOP_KEYWORD_ROW_END -->
+
+
+
+
+
+
+
+
+
+
+<!-- CBL_TODAY_KEYWORD_FULL_FIX_START -->
+<style>
+    #cblForceTopRowPanel .cbl-force-top-row-body {
+        display: grid !important;
+        gap: 10px !important;
+    }
+
+    #cblForceTopRowPanel .cbl-force-top-row {
+        display: grid !important;
+        grid-template-columns: 110px 110px minmax(0, 1fr) 58px 58px !important;
+        gap: 10px !important;
+        align-items: center !important;
+        width: 100% !important;
+    }
+
+    #cblForceTopRowPanel .cbl-force-top-row select,
+    #cblForceTopRowPanel .cbl-force-top-row input[type="text"] {
+        display: block !important;
+        width: 100% !important;
+        height: 44px !important;
+        padding: 0 14px !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 12px !important;
+        background: #ffffff !important;
+        color: #111827 !important;
+        font-size: 14px !important;
+        font-weight: 800 !important;
+        box-sizing: border-box !important;
+    }
+
+    #cblForceTopRowPanel .cbl-force-top-row button {
+        width: 58px !important;
+        height: 44px !important;
+        border: 0 !important;
+        border-radius: 12px !important;
+        font-size: 13px !important;
+        font-weight: 950 !important;
+        cursor: pointer !important;
+    }
+
+    #cblForceTopRowPanel .cbl-force-del {
+        background: #eef2f7 !important;
+        color: #334155 !important;
+    }
+
+    #cblForceTopRowPanel .cbl-force-add {
+        background: #7c3aed !important;
+        color: #ffffff !important;
+    }
+
+    #aiKeywordRecommendBox[hidden] {
+        display: none !important;
+    }
+
+    #aiKeywordRecommendList {
+        display: grid !important;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        gap: 14px !important;
+    }
+
+    #aiKeywordRecommendList .ai-keyword-chip {
+        display: block !important;
+        width: 100% !important;
+        padding: 14px !important;
+        border: 1px solid #dbe4f0 !important;
+        border-radius: 20px !important;
+        background: #ffffff !important;
+        color: #111827 !important;
+        text-align: left !important;
+        cursor: pointer !important;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05) !important;
+    }
+
+    #aiKeywordRecommendList .ai-keyword-chip.selected {
+        border-color: #7c3aed !important;
+        background: #f3edff !important;
+        box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.16) !important;
+    }
+
+    #aiKeywordRecommendList .ai-keyword-chip strong {
+        display: block !important;
+        margin: 8px 0 6px !important;
+        font-size: 14px !important;
+        font-weight: 950 !important;
+        line-height: 1.35 !important;
+    }
+
+    #aiKeywordRecommendList .ai-keyword-chip p {
+        margin: 0 !important;
+        color: #64748b !important;
+        font-size: 12px !important;
+        font-weight: 700 !important;
+        line-height: 1.45 !important;
+    }
+
+    #aiKeywordRecommendList .ai-keyword-chip-top {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 8px !important;
+    }
+
+    #aiKeywordRecommendList .ai-keyword-category {
+        color: #334155 !important;
+        font-size: 12px !important;
+        font-weight: 950 !important;
+    }
+
+    #aiKeywordRecommendList .ai-keyword-select-text {
+        color: #7c3aed !important;
+        font-size: 12px !important;
+        font-weight: 950 !important;
+    }
+
+    @media (max-width: 760px) {
+        #cblForceTopRowPanel .cbl-force-top-row {
+            grid-template-columns: 1fr 86px !important;
+        }
+
+        #cblForceTopRowPanel .cbl-force-top-row select,
+        #cblForceTopRowPanel .cbl-force-top-row input[type="text"] {
+            grid-column: 1 / -1 !important;
+        }
+
+        #cblForceTopRowPanel .cbl-force-top-row button {
+            width: 100% !important;
+        }
+
+        #aiKeywordRecommendList {
+            grid-template-columns: 1fr !important;
+        }
+    }
+</style>
+
+<script>
+(function () {
+    if (window.__CBL_TODAY_KEYWORD_FULL_FIX__) return;
+    window.__CBL_TODAY_KEYWORD_FULL_FIX__ = true;
+
+    const CATEGORIES = [
+        { value: "architecture", label: "건축" },
+        { value: "realestate", label: "부동산" },
+        { value: "finance", label: "금융" },
+        { value: "tech", label: "테크" },
+        { value: "life", label: "일상" }
+    ];
+
+    const CATEGORY_TO_VALUE = {
+        "건축": "architecture",
+        "부동산": "realestate",
+        "금융": "finance",
+        "테크": "tech",
+        "일상": "life",
+        "architecture": "architecture",
+        "realestate": "realestate",
+        "finance": "finance",
+        "tech": "tech",
+        "life": "life"
+    };
+
+    const CATEGORY_TO_LABEL = {
+        "architecture": "건축",
+        "realestate": "부동산",
+        "finance": "금융",
+        "tech": "테크",
+        "life": "일상"
+    };
+
+    function clean(value) {
+        return String(value || "").replace(/\s+/g, " ").trim();
+    }
+
+    function csrfToken() {
+        const tokenInput = document.querySelector("#aiPostForm input[name='csrfmiddlewaretoken']");
+        return tokenInput ? tokenInput.value : "";
+    }
+
+    function getPanel() {
+        return document.getElementById("cblForceTopRowPanel");
+    }
+
+    function ensureBody() {
+        const panel = getPanel();
+        if (!panel) return null;
+
+        let body = panel.querySelector(".cbl-force-top-row-body");
+
+        if (!body) {
+            body = document.createElement("div");
+            body.className = "cbl-force-top-row-body";
+
+            const firstRow = panel.querySelector(".cbl-force-top-row");
+            const hiddenStart = panel.querySelector("input[type='hidden']");
+
+            if (firstRow) {
+                firstRow.insertAdjacentElement("beforebegin", body);
+                body.appendChild(firstRow);
+            } else if (hiddenStart) {
+                hiddenStart.insertAdjacentElement("beforebegin", body);
+            } else {
+                panel.appendChild(body);
+            }
+        }
+
+        return body;
+    }
+
+    function categoryOptions(selected) {
+        selected = CATEGORY_TO_VALUE[selected] || selected || "architecture";
+
+        return CATEGORIES.map(function (item) {
+            return `<option value="${item.value}" ${item.value === selected ? "selected" : ""}>${item.label}</option>`;
+        }).join("");
+    }
+
+    function imageOptions(selected) {
+        selected = String(selected || "0");
+
+        return ["0", "1", "2", "3", "4", "5"].map(function (value) {
+            return `<option value="${value}" ${value === selected ? "selected" : ""}>${value}장</option>`;
+        }).join("");
+    }
+
+    function escapeHtml(value) {
+        return clean(value)
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+    }
+
+    function rowHtml(data) {
+        data = data || {};
+
+        return `
+            <div class="cbl-force-top-row" data-keyword="${escapeHtml(data.keyword || "")}">
+                <select class="cbl-row-category">${categoryOptions(data.category || "architecture")}</select>
+                <select class="cbl-row-image-count">${imageOptions(data.image_count || "0")}</select>
+                <input class="cbl-row-keyword" type="text" value="${escapeHtml(data.keyword || "")}" placeholder="예: 자동화, BIM, 공사일보, 부동산 정책">
+                <button type="button" class="cbl-force-del">삭제</button>
+                <button type="button" class="cbl-force-add">추가</button>
+            </div>
+        `;
+    }
+
+    function rows() {
+        const body = ensureBody();
+        return body ? Array.from(body.querySelectorAll(".cbl-force-top-row")) : [];
+    }
+
+    function rowData() {
+        return rows().map(function (row) {
+            const category = row.querySelector(".cbl-row-category");
+            const image = row.querySelector(".cbl-row-image-count");
+            const keyword = row.querySelector(".cbl-row-keyword");
+
+            return {
+                category: category ? category.value : "architecture",
+                image_count: image ? image.value : "0",
+                keyword: keyword ? clean(keyword.value) : ""
+            };
+        }).filter(function (item) {
+            return item.keyword;
+        });
+    }
+
+    function currentImageCount() {
+        const first = rows()[0];
+        const image = first ? first.querySelector(".cbl-row-image-count") : null;
+        return image ? image.value : "0";
+    }
+
+    function renderRows(items) {
+        const body = ensureBody();
+        if (!body) return;
+
+        if (!items.length) {
+            items = [{ category: "architecture", image_count: "0", keyword: "" }];
+        }
+
+        body.innerHTML = items.map(rowHtml).join("");
+        syncForm();
+    }
+
+    function addKeyword(data) {
+        const items = rowData();
+
+        if (items.some(function (item) { return item.keyword === data.keyword; })) {
+            renderRows(items.filter(function (item) { return item.keyword !== data.keyword; }));
+            return;
+        }
+
+        items.push(data);
+        renderRows(items);
+    }
+
+    function syncForm() {
+        const form = document.getElementById("aiPostForm");
+        if (!form) return;
+
+        const allRows = rows();
+        const items = rowData();
+        const keywords = items.map(function (item) { return item.keyword; });
+
+        allRows.forEach(function (row, index) {
+            const category = row.querySelector(".cbl-row-category");
+            const image = row.querySelector(".cbl-row-image-count");
+            const keyword = row.querySelector(".cbl-row-keyword");
+
+            [category, image, keyword].forEach(function (el) {
+                if (!el) return;
+                el.removeAttribute("id");
+                el.removeAttribute("name");
+            });
+
+            if (index === 0) {
+                if (category) {
+                    category.id = "ai-category";
+                    category.name = "category";
+                }
+
+                if (image) {
+                    image.id = "ai-image-count";
+                    image.name = "image_count";
+                }
+
+                if (keyword) {
+                    keyword.id = "ai-keywords";
+                    keyword.name = "keywords";
+                }
+            }
+        });
+
+        let countInput = document.getElementById("ai-count");
+        if (!countInput) {
+            countInput = document.createElement("input");
+            countInput.type = "hidden";
+            countInput.id = "ai-count";
+            countInput.name = "count";
+            form.appendChild(countInput);
+        }
+
+        let selectedInput = document.getElementById("ai-selected-keywords");
+        if (!selectedInput) {
+            selectedInput = document.createElement("input");
+            selectedInput.type = "hidden";
+            selectedInput.id = "ai-selected-keywords";
+            selectedInput.name = "selected_keywords";
+            form.appendChild(selectedInput);
+        }
+
+        countInput.value = Math.max(keywords.length, 1);
+        selectedInput.value = keywords.length ? JSON.stringify(keywords) : "";
+
+        document.querySelectorAll("#aiKeywordRecommendList .ai-keyword-chip").forEach(function (chip) {
+            const keyword = clean(chip.dataset.keyword);
+
+            if (keyword && keywords.includes(keyword)) {
+                chip.classList.add("selected");
+
+                const txt = chip.querySelector(".ai-keyword-select-text");
+                if (txt) txt.textContent = "선택됨";
+            } else {
+                chip.classList.remove("selected");
+
+                const txt = chip.querySelector(".ai-keyword-select-text");
+                if (txt) txt.textContent = "선택";
+            }
+        });
+    }
+
+    function normalizeKeywords(data, fallbackCategory) {
+        const raw = Array.isArray(data.keywords) ? data.keywords : [];
+
+        return raw.map(function (item) {
+            if (typeof item === "string") {
+                return {
+                    category: fallbackCategory.label,
+                    categoryValue: fallbackCategory.value,
+                    keyword: clean(item),
+                    reason: ""
+                };
+            }
+
+            return {
+                category: fallbackCategory.label,
+                categoryValue: fallbackCategory.value,
+                keyword: clean(item.keyword || item.title || item.text || ""),
+                reason: clean(item.reason || item.description || "")
+            };
+        }).filter(function (item) {
+            return item.keyword;
+        }).slice(0, 5);
+    }
+
+    function renderRecommendList(items) {
+        const list = document.getElementById("aiKeywordRecommendList");
+        const badge = document.querySelector("#aiKeywordRecommendBox .ai-keyword-count-badge");
+
+        if (!list) return;
+
+        list.innerHTML = "";
+
+        if (badge) {
+            badge.textContent = `${items.length}개 추천`;
+        }
+
+        items.forEach(function (item) {
+            const categoryValue = CATEGORY_TO_VALUE[item.categoryValue] || item.categoryValue || "architecture";
+            const btn = document.createElement("button");
+
+            btn.type = "button";
+            btn.className = "ai-keyword-chip";
+            btn.dataset.keyword = item.keyword;
+            btn.dataset.category = categoryValue;
+
+            btn.innerHTML = `
+                <div class="ai-keyword-chip-top">
+                    <span class="ai-keyword-category">${escapeHtml(CATEGORY_TO_LABEL[categoryValue] || item.category)}</span>
+                    <span class="ai-keyword-select-text">선택</span>
+                </div>
+                <strong>${escapeHtml(item.keyword)}</strong>
+                <p>${escapeHtml(item.reason || "추천 키워드")}</p>
+            `;
+
+            list.appendChild(btn);
+        });
+
+        syncForm();
+    }
+
+    async function fetchCategoryKeywords(category) {
+        const fd = new FormData();
+        fd.append("category", category.value);
+
+        const res = await fetch("{% url 'ai_keyword_recommend' %}", {
+            method: "POST",
+            headers: {
+                "X-CSRFToken": csrfToken()
+            },
+            body: fd
+        });
+
+        const data = await res.json();
+
+        if (!data.ok) {
+            throw new Error(data.message || `${category.label} 키워드 추천 실패`);
+        }
+
+        return normalizeKeywords(data, category);
+    }
+
+    async function loadTodayKeywords() {
+        const box = document.getElementById("aiKeywordRecommendBox");
+        const list = document.getElementById("aiKeywordRecommendList");
+        const btn = document.getElementById("aiKeywordRecommendBtn");
+
+        if (!box || !list || !btn) return;
+
+        box.hidden = false;
+        list.innerHTML = `
+            <div style="grid-column:1/-1;padding:18px;border-radius:18px;background:#f8fafc;font-weight:900;color:#334155;">
+                건축 · 부동산 · 금융 · 테크 · 일상 키워드를 5개씩 불러오는 중...
+            </div>
+        `;
+
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "추천 중...";
+
+        try {
+            const results = await Promise.allSettled(
+                CATEGORIES.map(function (category) {
+                    return fetchCategoryKeywords(category);
+                })
+            );
+
+            const items = results.flatMap(function (result) {
+                return result.status === "fulfilled" ? result.value : [];
+            });
+
+            if (!items.length) {
+                throw new Error("추천 키워드를 불러오지 못했습니다.");
+            }
+
+            renderRecommendList(items);
+        } catch (err) {
+            list.innerHTML = `
+                <div style="grid-column:1/-1;padding:18px;border-radius:18px;background:#fee2e2;color:#991b1b;font-weight:900;">
+                    ${escapeHtml(err.message || "키워드 추천에 실패했습니다.")}
+                </div>
+            `;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalText || "✨ 오늘자 키워드 추천";
+        }
+    }
+
+    document.addEventListener("click", function (event) {
+        const recommendBtn = event.target.closest("#aiKeywordRecommendBtn");
+
+        if (recommendBtn) {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            loadTodayKeywords();
+            return;
+        }
+
+        const chip = event.target.closest("#aiKeywordRecommendList .ai-keyword-chip");
+
+        if (chip) {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+
+            addKeyword({
+                category: chip.dataset.category || "architecture",
+                image_count: currentImageCount(),
+                keyword: clean(chip.dataset.keyword)
+            });
+
+            return;
+        }
+
+        const addBtn = event.target.closest("#cblForceTopRowPanel .cbl-force-add");
+
+        if (addBtn) {
+            event.preventDefault();
+
+            const items = rowData();
+            items.push({
+                category: "architecture",
+                image_count: currentImageCount(),
+                keyword: ""
+            });
+
+            renderRows(items);
+            return;
+        }
+
+        const delBtn = event.target.closest("#cblForceTopRowPanel .cbl-force-del");
+
+        if (delBtn) {
+            event.preventDefault();
+
+            const row = delBtn.closest(".cbl-force-top-row");
+            if (!row) return;
+
+            const allRows = rows();
+
+            if (allRows.length <= 1) {
+                const input = row.querySelector(".cbl-row-keyword");
+                if (input) input.value = "";
+            } else {
+                row.remove();
+            }
+
+            syncForm();
+        }
+    }, true);
+
+    document.addEventListener("input", function (event) {
+        if (event.target.closest("#cblForceTopRowPanel")) {
+            syncForm();
+        }
+    }, true);
+
+    document.addEventListener("change", function (event) {
+        if (event.target.closest("#cblForceTopRowPanel")) {
+            syncForm();
+        }
+    }, true);
+
+    document.addEventListener("submit", function (event) {
+        if (event.target && event.target.id === "aiPostForm") {
+            syncForm();
+        }
+    }, true);
+
+    function boot() {
+        ensureBody();
+        syncForm();
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", function () {
+            setTimeout(boot, 50);
+            setTimeout(boot, 400);
+            setTimeout(boot, 1000);
+        });
+    } else {
+        setTimeout(boot, 50);
+        setTimeout(boot, 400);
+        setTimeout(boot, 1000);
+    }
+})();
+</script>
+<!-- CBL_TODAY_KEYWORD_FULL_FIX_END -->
 
 </body>
 </html>
