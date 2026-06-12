@@ -16,3 +16,10 @@ project_tree.txt
 Thumbs.dbcurrent_code.txt
 market_cache.json
 current_code.txt
+
+# local backup files
+*.bak.*
+*_backup/
+_restore_backup/
+_server_restore_backup/
+ai_auto_writer.log
