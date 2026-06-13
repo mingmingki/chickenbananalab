@@ -258,3 +258,25 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 TELEGRAM_NOTIFY_VISIT = os.getenv("TELEGRAM_NOTIFY_VISIT", "1") == "1"
 TELEGRAM_NOTIFY_POST_VIEW = os.getenv("TELEGRAM_NOTIFY_POST_VIEW", "1") == "1"
 TELEGRAM_NOTIFY_SIGNUP = os.getenv("TELEGRAM_NOTIFY_SIGNUP", "1") == "1"
+
+# CBL_EXTERNAL_API_SHARED_CACHE_START
+_CBL_EXTERNAL_API_CACHE_DIR = BASE_DIR / ".django_cache" / "external_api"
+
+if "CACHES" not in globals():
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "cbl-default-cache",
+        }
+    }
+
+CACHES["external_api"] = {
+    "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+    "LOCATION": str(_CBL_EXTERNAL_API_CACHE_DIR),
+    "TIMEOUT": 300,
+    "OPTIONS": {
+        "MAX_ENTRIES": 1000,
+        "CULL_FREQUENCY": 3,
+    },
+}
+# CBL_EXTERNAL_API_SHARED_CACHE_END

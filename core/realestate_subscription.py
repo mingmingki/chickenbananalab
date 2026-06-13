@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 
 import requests
 
-from django.core.cache import cache
+from django.core.cache import caches
 from django.utils import timezone
 
 
@@ -16,7 +16,10 @@ APPLYHOME_APT_API_URL = (
     "ApplyhomeInfoDetailSvc/v1/getAPTLttotPblancDetail"
 )
 
+CACHE_ALIAS = "external_api"
 CACHE_SECONDS = 30 * 60
+LAST_GOOD_SECONDS = 60 * 60 * 24
+REFRESH_LOCK_SECONDS = 90
 
 
 def _parse_date(value):
@@ -176,21 +179,59 @@ def _normalize_item(row):
 
 
 def get_latest_subscription_items(limit=8):
-    cache_key = f"cbl:applyhome:apt:v1:{limit}"
-    cached = cache.get(cache_key)
+    cache = caches[CACHE_ALIAS]
 
-    if cached is not None:
-        return cached
+    cache_key = f"cbl:applyhome:apt:v2:{limit}"
+    last_good_key = f"cbl:applyhome:apt:last-good:v2:{limit}"
+    refresh_lock_key = f"cbl:applyhome:apt:refresh-lock:v2:{limit}"
+
+    cached = cache.get(cache_key)
+    if isinstance(cached, dict):
+        result = dict(cached)
+        result["cached"] = True
+        result["stale"] = False
+        return result
+
+    has_lock = cache.add(
+        refresh_lock_key,
+        timezone.now().isoformat(),
+        REFRESH_LOCK_SECONDS,
+    )
+
+    if not has_lock:
+        last_good = cache.get(last_good_key)
+        if isinstance(last_good, dict):
+            result = dict(last_good)
+            result["cached"] = True
+            result["stale"] = True
+            result["error"] = ""
+            result["message"] = "갱신 중이어서 마지막 정상 청약정보를 표시합니다."
+            return result
 
     service_key = os.getenv("DATA_GO_KR_SERVICE_KEY", "").strip().strip('"').strip("'")
 
     if not service_key:
+        if has_lock:
+            cache.delete(refresh_lock_key)
+
+        last_good = cache.get(last_good_key)
+        if isinstance(last_good, dict):
+            result = dict(last_good)
+            result["cached"] = True
+            result["stale"] = True
+            result["error"] = ""
+            result["message"] = "인증키를 확인하는 동안 마지막 정상 청약정보를 표시합니다."
+            return result
+
         logger.warning("DATA_GO_KR_SERVICE_KEY가 설정되지 않았습니다.")
         return {
             "items": [],
             "error": "청약 정보를 준비 중입니다.",
+            "message": "",
             "updated_at": "",
             "total_count": 0,
+            "cached": False,
+            "stale": False,
         }
 
     params = {
@@ -231,7 +272,18 @@ def get_latest_subscription_items(limit=8):
         cutoff = timezone.localdate() - timedelta(days=7)
 
         recent_rows = []
+        seen_ids = set()
+
         for row in rows:
+            house_manage_no = str(row.get("HOUSE_MANAGE_NO") or "").strip()
+            pblanc_no = str(row.get("PBLANC_NO") or "").strip()
+            unique_id = f"{house_manage_no}:{pblanc_no}"
+
+            if unique_id != ":":
+                if unique_id in seen_ids:
+                    continue
+                seen_ids.add(unique_id)
+
             reception_end = _parse_date(row.get("RCEPT_ENDDE"))
 
             if reception_end is None or reception_end >= cutoff:
@@ -243,19 +295,40 @@ def get_latest_subscription_items(limit=8):
         result = {
             "items": items,
             "error": "",
+            "message": "최신 청약정보입니다.",
             "updated_at": timezone.localtime().strftime("%m.%d %H:%M"),
             "total_count": payload.get("totalCount") or 0,
+            "cached": False,
+            "stale": False,
         }
 
         cache.set(cache_key, result, CACHE_SECONDS)
+        cache.set(last_good_key, result, LAST_GOOD_SECONDS)
         return result
 
     except Exception:
         logger.exception("청약홈 분양정보 API 호출 실패")
 
+        last_good = cache.get(last_good_key)
+        if isinstance(last_good, dict):
+            result = dict(last_good)
+            result["cached"] = True
+            result["stale"] = True
+            result["error"] = ""
+            result["message"] = "공공데이터 연결이 지연되어 마지막 정상 청약정보를 표시합니다."
+            return result
+
         return {
             "items": [],
             "error": "청약 정보를 잠시 불러오지 못했습니다.",
+            "message": "",
             "updated_at": "",
             "total_count": 0,
+            "cached": False,
+            "stale": False,
         }
+
+    finally:
+        if has_lock:
+            cache.delete(refresh_lock_key)
+
