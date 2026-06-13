@@ -4068,14 +4068,48 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
         if (addBtn) {
             event.preventDefault();
 
-            const items = rowData();
+            /*
+             * 추가 버튼에서는 빈 키워드 행도 보존해야 한다.
+             * 기존 rowData()는 빈 키워드를 제거하므로 직접 전체 행을 읽는다.
+             */
+            const items = rows().map(function (row) {
+                const category = row.querySelector(".cbl-row-category");
+                const image = row.querySelector(".cbl-row-image-count");
+                const keyword = row.querySelector(".cbl-row-keyword");
+
+                return {
+                    category: category ? category.value : "architecture",
+                    image_count: image ? image.value : "0",
+                    keyword: keyword ? clean(keyword.value) : ""
+                };
+            });
+
+            const sourceRow = addBtn.closest(".cbl-force-top-row");
+            const sourceCategory = sourceRow
+                ? sourceRow.querySelector(".cbl-row-category")
+                : null;
+            const sourceImage = sourceRow
+                ? sourceRow.querySelector(".cbl-row-image-count")
+                : null;
+
             items.push({
-                category: "architecture",
-                image_count: currentImageCount(),
+                category: sourceCategory ? sourceCategory.value : "architecture",
+                image_count: sourceImage ? sourceImage.value : currentImageCount(),
                 keyword: ""
             });
 
             renderRows(items);
+
+            const updatedRows = rows();
+            const newRow = updatedRows[updatedRows.length - 1];
+            const newInput = newRow
+                ? newRow.querySelector(".cbl-row-keyword")
+                : null;
+
+            if (newInput) {
+                newInput.focus();
+            }
+
             return;
         }
 

@@ -9668,3 +9668,192 @@ form:has(.dashboard-btn-shorts) {
 }
 /* CBL_HUMAN_VISUAL_STYLE_END */
 
+/* CBL_THUMBNAIL_VISUAL_VARIETY_START */
+
+/*
+ * 글 번호를 기준으로 썸네일 문구 박스의 색과 위치를 바꾼다.
+ * 동일한 글은 홈/카테고리/상세 페이지에서 같은 스타일을 유지한다.
+ */
+
+.thumbnail-text-overlay[class*="thumb-style-"],
+.thumbnail-detail-text-overlay[class*="thumb-style-"] {
+    display: inline-block !important;
+    width: auto !important;
+    max-width: min(74%, 760px) !important;
+    height: auto !important;
+
+    border-radius: 13px !important;
+    line-height: 1.28 !important;
+    letter-spacing: -0.035em !important;
+    word-break: keep-all !important;
+
+    backdrop-filter: blur(5px) !important;
+    -webkit-backdrop-filter: blur(5px) !important;
+}
+
+.thumbnail-text-overlay[class*="thumb-style-"] {
+    padding: 9px 15px !important;
+    font-size: clamp(14px, 1.35vw, 18px) !important;
+    font-weight: 850 !important;
+}
+
+.thumbnail-detail-text-overlay[class*="thumb-style-"] {
+    padding: 13px 22px !important;
+    font-size: clamp(21px, 3vw, 38px) !important;
+    font-weight: 900 !important;
+}
+
+
+/* 1. 작은 검은색 중앙 박스 */
+.thumbnail-text-overlay.thumb-style-dark-center,
+.thumbnail-detail-text-overlay.thumb-style-dark-center {
+    left: 50% !important;
+    right: auto !important;
+    top: 52% !important;
+    bottom: auto !important;
+
+    transform: translate(-50%, -50%) !important;
+
+    background: rgba(15, 23, 42, 0.77) !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(255, 255, 255, 0.10) !important;
+
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.24) !important;
+}
+
+
+/* 2. 흰색 좌측 상단 카드 */
+.thumbnail-text-overlay.thumb-style-light-left,
+.thumbnail-detail-text-overlay.thumb-style-light-left {
+    left: 6% !important;
+    right: auto !important;
+    top: 13% !important;
+    bottom: auto !important;
+
+    transform: none !important;
+
+    background: rgba(255, 255, 255, 0.90) !important;
+    color: #111827 !important;
+    border: 1px solid rgba(15, 23, 42, 0.12) !important;
+
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.16) !important;
+}
+
+
+/* 3. 검은색 좌측 하단 배너 */
+.thumbnail-text-overlay.thumb-style-dark-bottom,
+.thumbnail-detail-text-overlay.thumb-style-dark-bottom {
+    left: 6% !important;
+    right: auto !important;
+    top: auto !important;
+    bottom: 8% !important;
+
+    transform: none !important;
+
+    background: rgba(17, 24, 39, 0.82) !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(255, 255, 255, 0.09) !important;
+
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.25) !important;
+}
+
+
+/* 4. 흰색 하단 중앙 카드 */
+.thumbnail-text-overlay.thumb-style-light-bottom,
+.thumbnail-detail-text-overlay.thumb-style-light-bottom {
+    left: 50% !important;
+    right: auto !important;
+    top: auto !important;
+    bottom: 8% !important;
+
+    transform: translateX(-50%) !important;
+
+    background: rgba(255, 255, 255, 0.91) !important;
+    color: #0f172a !important;
+    border: 1px solid rgba(15, 23, 42, 0.12) !important;
+
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.17) !important;
+}
+
+
+/* 5. 밝은 우측 상단 카드 */
+.thumbnail-text-overlay.thumb-style-outline-right,
+.thumbnail-detail-text-overlay.thumb-style-outline-right {
+    left: auto !important;
+    right: 6% !important;
+    top: 13% !important;
+    bottom: auto !important;
+
+    transform: none !important;
+
+    background: rgba(248, 250, 252, 0.88) !important;
+    color: #111827 !important;
+    border: 1px solid rgba(255, 255, 255, 0.72) !important;
+
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18) !important;
+}
+
+
+@media (max-width: 640px) {
+    .thumbnail-text-overlay[class*="thumb-style-"] {
+        max-width: 78% !important;
+        padding: 7px 11px !important;
+        font-size: 14px !important;
+        border-radius: 11px !important;
+    }
+
+    .thumbnail-detail-text-overlay[class*="thumb-style-"] {
+        max-width: 78% !important;
+        padding: 10px 15px !important;
+        font-size: clamp(19px, 6vw, 26px) !important;
+        border-radius: 12px !important;
+    }
+
+    .thumbnail-text-overlay.thumb-style-light-left,
+    .thumbnail-detail-text-overlay.thumb-style-light-left,
+    .thumbnail-text-overlay.thumb-style-dark-bottom,
+    .thumbnail-detail-text-overlay.thumb-style-dark-bottom {
+        left: 5% !important;
+    }
+
+    .thumbnail-text-overlay.thumb-style-outline-right,
+    .thumbnail-detail-text-overlay.thumb-style-outline-right {
+        right: 5% !important;
+    }
+}
+
+/* CBL_THUMBNAIL_VISUAL_VARIETY_END */
+
+/* CBL_THUMBNAIL_CENTER_POSITION_START */
+
+/*
+ * 썸네일 박스의 색상과 모양은 기존 스타일을 유지하고,
+ * 위치만 모든 화면에서 정중앙으로 통일한다.
+ */
+.thumbnail-text-overlay[class*="thumb-style-"],
+.thumbnail-detail-text-overlay[class*="thumb-style-"] {
+    left: 50% !important;
+    right: auto !important;
+    top: 50% !important;
+    bottom: auto !important;
+
+    transform: translate(-50%, -50%) !important;
+
+    text-align: center !important;
+    margin: 0 !important;
+}
+
+/* 모바일에서도 동일하게 중앙 고정 */
+@media (max-width: 640px) {
+    .thumbnail-text-overlay[class*="thumb-style-"],
+    .thumbnail-detail-text-overlay[class*="thumb-style-"] {
+        left: 50% !important;
+        right: auto !important;
+        top: 50% !important;
+        bottom: auto !important;
+
+        transform: translate(-50%, -50%) !important;
+    }
+}
+
+/* CBL_THUMBNAIL_CENTER_POSITION_END */

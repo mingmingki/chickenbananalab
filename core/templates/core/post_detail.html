@@ -457,7 +457,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}" class="post-main-image">
 
                 {% if post.thumbnail_text %}
-                    <div class="thumbnail-detail-text-overlay">
+                    <div class="thumbnail-detail-text-overlay {% if post.pk|divisibleby:'5' %}thumb-style-light-left{% elif post.pk|divisibleby:'4' %}thumb-style-dark-bottom{% elif post.pk|divisibleby:'3' %}thumb-style-light-bottom{% elif post.pk|divisibleby:'2' %}thumb-style-outline-right{% else %}thumb-style-dark-center{% endif %}">
                         {{ post.thumbnail_text }}
                     </div>
                 {% endif %}

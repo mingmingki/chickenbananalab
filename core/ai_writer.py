@@ -4237,3 +4237,540 @@ except Exception as _cbl_human_visual_polish_error:
     print("CBL_HUMAN_VISUAL_POLISH load error:", _cbl_human_visual_polish_error)
 # CBL_HUMAN_VISUAL_POLISH_END
 
+# CBL_THUMBNAIL_TOPIC_VARIETY_START
+#
+# 썸네일 최종 보정
+# - 글 제목과 무관한 범용 문구 차단
+# - 제목의 실제 사건/제품/기술을 썸네일 배경에 반영
+# - 이미지 자체에는 글자를 넣지 않고 사이트 오버레이를 사용
+#
+
+import random as _cbl_thumb_random
+import re as _cbl_thumb_re
+
+
+_CBL_THUMBNAIL_GENERIC_PHRASES = (
+    "이 기능 놓치면 손해",
+    "놓치면 손해",
+    "모르면 손해",
+    "무조건 봐야",
+    "꼭 봐야",
+    "무조건 알아야",
+    "핵심 정보",
+    "주요 정보",
+    "필수 정보",
+    "건축 확인 기준",
+    "확인 기준",
+    "필수 체크",
+    "체크 포인트",
+    "완벽 정리",
+    "한눈에 정리",
+    "핵심 포인트",
+    "주요 포인트",
+    "꼭 알아둘 내용",
+)
+
+
+_CBL_THUMBNAIL_STOPWORDS = {
+    "건축",
+    "건설",
+    "현장",
+    "부동산",
+    "금융",
+    "테크",
+    "기술",
+    "일상",
+    "관련",
+    "대한",
+    "위한",
+    "통한",
+    "그리고",
+    "우리가",
+    "알아야",
+    "알아볼",
+    "알아보기",
+    "정리",
+    "분석",
+    "가이드",
+    "정보",
+    "핵심",
+    "주요",
+    "중요",
+    "확인",
+    "기준",
+    "방법",
+    "영향",
+    "전망",
+    "이유",
+    "최신",
+    "이것",
+    "어떻게",
+    "무엇",
+    "있을까",
+    "될까",
+    "필요할까",
+    "guide",
+    "review",
+    "news",
+    "information",
+}
+
+
+_CBL_THUMBNAIL_CATEGORY_LABELS = {
+    "architecture": "건축",
+    "realestate": "부동산",
+    "finance": "금융",
+    "tech": "테크",
+    "life": "일상",
+}
+
+
+def _cbl_thumb_clean(value):
+    value = str(value or "")
+    value = _cbl_thumb_re.sub(r"<[^>]+>", " ", value)
+    value = _cbl_thumb_re.sub(r"\s+", " ", value)
+    return value.strip()
+
+
+def _cbl_thumb_significant_tokens(title, category=""):
+    title = _cbl_thumb_clean(title)
+
+    raw_tokens = _cbl_thumb_re.findall(
+        r"[가-힣A-Za-z0-9][가-힣A-Za-z0-9+#.\-]*",
+        title,
+    )
+
+    category_label = _CBL_THUMBNAIL_CATEGORY_LABELS.get(
+        str(category or "").strip(),
+        "",
+    )
+
+    excluded = set(_CBL_THUMBNAIL_STOPWORDS)
+
+    if category_label:
+        excluded.add(category_label)
+
+    result = []
+    seen = set()
+
+    for token in raw_tokens:
+        token = token.strip(" ._-")
+        token_lower = token.lower()
+
+        if len(token) < 2:
+            continue
+
+        if token in excluded or token_lower in excluded:
+            continue
+
+        if token_lower in seen:
+            continue
+
+        seen.add(token_lower)
+        result.append(token)
+
+    return result[:10]
+
+
+def _cbl_thumb_existing_text_is_valid(
+    thumbnail_text,
+    title,
+    category="",
+):
+    thumbnail_text = _cbl_thumb_clean(thumbnail_text)
+
+    if not 4 <= len(thumbnail_text) <= 24:
+        return False
+
+    if any(
+        phrase in thumbnail_text
+        for phrase in _CBL_THUMBNAIL_GENERIC_PHRASES
+    ):
+        return False
+
+    meaningful_tokens = _cbl_thumb_significant_tokens(
+        title,
+        category,
+    )
+
+    if not meaningful_tokens:
+        return False
+
+    thumbnail_lower = thumbnail_text.lower()
+
+    return any(
+        token.lower() in thumbnail_lower
+        for token in meaningful_tokens
+    )
+
+
+def _cbl_thumb_shorten_words(words, max_length=22):
+    selected = []
+
+    for word in words:
+        test = " ".join(selected + [word]).strip()
+
+        if len(test) > max_length:
+            break
+
+        selected.append(word)
+
+    return " ".join(selected).strip()
+
+
+def cbl_make_topic_thumbnail_text(
+    title,
+    ai_text="",
+    category="",
+):
+    """
+    AI가 만든 썸네일 문구가 제목의 실제 핵심어를 포함하면 유지한다.
+    범용 문구이거나 제목과 무관하면 제목에서 새 문구를 만든다.
+    """
+
+    title = _cbl_thumb_clean(title)
+    ai_text = _cbl_thumb_clean(ai_text)
+
+    if _cbl_thumb_existing_text_is_valid(
+        ai_text,
+        title,
+        category,
+    ):
+        return ai_text[:24]
+
+    # 쉼표 앞부분은 대부분 제목의 핵심 주제이다.
+    # 예:
+    # 레미콘 노조 휴업, 건설 현장에 미치는 영향...
+    # -> 레미콘 노조 휴업
+    first_clause = _cbl_thumb_re.split(
+        r"[,，|:/]|\s+[–—-]\s+",
+        title,
+        maxsplit=1,
+    )[0].strip()
+
+    first_clause = _cbl_thumb_re.sub(
+        r"^[\[\(【][^\]\)】]+[\]\)】]\s*",
+        "",
+        first_clause,
+    ).strip()
+
+    first_clause = first_clause.strip(
+        " \t\r\n,，.!?？:：|/–—-"
+    )
+
+    if (
+        5 <= len(first_clause) <= 22
+        and not any(
+            phrase in first_clause
+            for phrase in _CBL_THUMBNAIL_GENERIC_PHRASES
+        )
+    ):
+        return first_clause
+
+    tokens = _cbl_thumb_significant_tokens(
+        title,
+        category,
+    )
+
+    candidate = _cbl_thumb_shorten_words(
+        tokens[:4],
+        max_length=22,
+    )
+
+    if len(candidate) >= 4:
+        return candidate
+
+    category_label = _CBL_THUMBNAIL_CATEGORY_LABELS.get(
+        str(category or "").strip(),
+        "주요 내용",
+    )
+
+    fallback = first_clause or title or category_label
+    fallback = fallback[:22].strip()
+
+    return fallback or category_label
+
+
+def _cbl_thumb_scene_direction(
+    title,
+    keywords="",
+    category="",
+):
+    source = " ".join([
+        _cbl_thumb_clean(title),
+        _cbl_thumb_clean(keywords),
+    ])
+
+    source_lower = source.lower()
+
+    if "레미콘" in source:
+        if any(
+            word in source
+            for word in (
+                "노조",
+                "휴업",
+                "파업",
+                "중단",
+                "차질",
+                "공급 부족",
+            )
+        ):
+            return (
+                "Show ready-mix concrete mixer trucks parked and inactive "
+                "near a real construction site, a paused concrete pour, "
+                "idle pumping equipment, and a believable sense of work "
+                "being delayed. The mixer trucks must be clearly visible. "
+                "Do not replace them with ordinary cargo trucks."
+            )
+
+        return (
+            "Show an actual ready-mix concrete mixer truck and a realistic "
+            "concrete placement scene at a construction site. The rotating "
+            "mixer drum, concrete pump, and fresh concrete work should be "
+            "visually identifiable."
+        )
+
+    if any(
+        word in source
+        for word in ("파업", "휴업", "공급 차질", "생산 중단")
+    ):
+        return (
+            "Show the specific industry operation paused or inactive, with "
+            "idle vehicles or equipment and a realistic editorial-news mood. "
+            "The cause and affected operation should be visually understandable "
+            "without relying on written signs."
+        )
+
+    if any(
+        word in source_lower
+        for word in ("dynamo", "revit", "bim")
+    ) or any(
+        word in source
+        for word in ("다이나모", "레빗", "수량산출")
+    ):
+        return (
+            "Show a construction or design professional working with a "
+            "realistic BIM building model and node-based automation workflow "
+            "on a computer monitor. Do not show readable software labels or "
+            "fake interface text."
+        )
+
+    if any(
+        word in source_lower
+        for word in ("iphone", "smartphone")
+    ) or any(
+        word in source
+        for word in ("아이폰", "스마트폰")
+    ):
+        return (
+            "Show the exact smartphone-related action or component described "
+            "by the title in a realistic everyday setting. Avoid generic "
+            "futuristic holograms and vague technology montages."
+        )
+
+    if any(
+        word in source
+        for word in ("아파트", "전세", "매매", "분양", "재건축")
+    ):
+        return (
+            "Show a realistic Korean residential property or neighborhood "
+            "directly related to the title, photographed like an editorial "
+            "real-estate feature. Avoid generic luxury skyscraper imagery."
+        )
+
+    if category == "architecture":
+        return (
+            "Show a real construction site, material, machine, process, or "
+            "building component specifically mentioned in the title. Do not "
+            "use a generic construction skyline when a more specific subject "
+            "is available."
+        )
+
+    if category == "realestate":
+        return (
+            "Show the specific housing, property, contract, neighborhood, or "
+            "market situation described by the title in a realistic Korean "
+            "context."
+        )
+
+    if category == "finance":
+        return (
+            "Show the specific company, asset, market event, or economic "
+            "situation described by the title. Avoid generic floating charts "
+            "and meaningless currency symbols."
+        )
+
+    if category == "tech":
+        return (
+            "Show the actual device, software task, component, or technology "
+            "described by the title in believable use. Avoid generic neon "
+            "circuits and science-fiction imagery."
+        )
+
+    return (
+        "Show a realistic scene that directly represents the central nouns "
+        "and event in the article title, rather than a broad category image."
+    )
+
+
+def cbl_build_topic_thumbnail_prompt(
+    title,
+    keywords="",
+    category="",
+    summary="",
+):
+    title = _cbl_thumb_clean(title)
+    keywords = _cbl_thumb_clean(keywords)
+    summary = _cbl_thumb_clean(summary)[:420]
+
+    important_tokens = _cbl_thumb_significant_tokens(
+        title,
+        category,
+    )
+
+    scene_direction = _cbl_thumb_scene_direction(
+        title,
+        keywords,
+        category,
+    )
+
+    visual_style = _cbl_thumb_random.choice([
+        (
+            "realistic documentary editorial photography, natural daylight, "
+            "restrained contrast, believable materials and proportions"
+        ),
+        (
+            "clean magazine editorial photograph, realistic lighting, "
+            "subtle depth of field, calm and professional composition"
+        ),
+        (
+            "natural field-report photograph, slightly imperfect real-world "
+            "lighting, authentic equipment and working environment"
+        ),
+        (
+            "wide editorial scene with a clear main subject, realistic "
+            "weather and surroundings, no artificial cinematic spectacle"
+        ),
+        (
+            "close editorial composition focused on the title's main object "
+            "or event, realistic texture and practical context"
+        ),
+    ])
+
+    token_text = ", ".join(important_tokens) or title
+
+    return f"""
+Create a realistic 16:9 editorial blog-thumbnail BACKGROUND image.
+
+Exact article title:
+"{title}"
+
+Input keywords:
+"{keywords or title}"
+
+Article context:
+"{summary or title}"
+
+Specific subject tokens that must be visually represented:
+{token_text}
+
+Required scene:
+{scene_direction}
+
+Visual treatment:
+{visual_style}
+
+Critical requirements:
+- Match the specific subject and event in the title, not merely the broad category.
+- The principal object, company, device, vehicle, material, or event from the title must be recognizable.
+- Use a believable Korean or neutral real-world context when appropriate.
+- Keep the composition readable when a small compact headline box is placed over it.
+- Prefer one coherent editorial photograph over a collage.
+- Avoid glossy AI stock-art appearance.
+- Avoid exaggerated storm clouds unless the real topic specifically requires them.
+- Avoid random construction cranes when the title concerns a different specific object.
+- Avoid generic businesspeople posing for the camera.
+- Avoid futuristic holograms, floating charts, fantasy lighting, and surreal objects.
+- Do not render any text, Korean letters, English letters, numbers, captions, signs, logos, or watermarks inside the image.
+- Background image only. The website adds the headline separately.
+""".strip()
+
+
+if (
+    "generate_ai_post" in globals()
+    and not globals().get(
+        "_CBL_THUMBNAIL_TOPIC_VARIETY_WRAPPED",
+        False,
+    )
+):
+    _cbl_thumbnail_previous_generate_ai_post = generate_ai_post
+
+    def generate_ai_post(*args, **kwargs):
+        result = _cbl_thumbnail_previous_generate_ai_post(
+            *args,
+            **kwargs,
+        )
+
+        if not isinstance(result, dict):
+            return result
+
+        category = kwargs.get(
+            "category",
+            args[0] if len(args) > 0 else "",
+        )
+
+        keywords = kwargs.get(
+            "keywords",
+            args[1] if len(args) > 1 else "",
+        )
+
+        make_thumbnail = kwargs.get(
+            "make_thumbnail",
+            args[5] if len(args) > 5 else True,
+        )
+
+        planned_title = kwargs.get(
+            "planned_title",
+            args[7] if len(args) > 7 else "",
+        )
+
+        final_title = _cbl_thumb_clean(
+            result.get("title")
+            or planned_title
+            or keywords
+        )
+
+        old_thumbnail_text = result.get(
+            "thumbnail_text",
+            "",
+        )
+
+        result["thumbnail_text"] = (
+            cbl_make_topic_thumbnail_text(
+                title=final_title,
+                ai_text=old_thumbnail_text,
+                category=category,
+            )
+        )
+
+        if make_thumbnail:
+            result["thumbnail_prompt"] = (
+                cbl_build_topic_thumbnail_prompt(
+                    title=final_title,
+                    keywords=keywords,
+                    category=category,
+                    summary=(
+                        result.get("summary")
+                        or result.get("meta_description")
+                        or ""
+                    ),
+                )
+            )
+        else:
+            result["thumbnail_prompt"] = ""
+
+        return result
+
+    _CBL_THUMBNAIL_TOPIC_VARIETY_WRAPPED = True
+
+# CBL_THUMBNAIL_TOPIC_VARIETY_END
