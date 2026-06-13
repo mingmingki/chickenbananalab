@@ -167,6 +167,65 @@ class Post(models.Model):
             return []
         return [tag.strip() for tag in self.tags.split(",") if tag.strip()]
     
+
+# =========================================================
+# Post comments
+# =========================================================
+class Comment(models.Model):
+    post = models.ForeignKey(
+        Post,
+        on_delete=models.CASCADE,
+        related_name="comments",
+        verbose_name="글",
+    )
+
+    author = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="post_comments",
+        verbose_name="작성자",
+    )
+
+    content = models.TextField(
+        max_length=1000,
+        verbose_name="댓글 내용",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="작성일",
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="수정일",
+    )
+
+    class Meta:
+        ordering = ["created_at"]
+        verbose_name = "댓글"
+        verbose_name_plural = "댓글"
+
+    @property
+    def author_name(self):
+        """
+        회원 프로필 닉네임을 우선 표시합니다.
+        프로필이나 닉네임이 없을 때만 아이디를 표시합니다.
+        """
+        try:
+            nickname = (self.author.profile.nickname or "").strip()
+        except Exception:
+            nickname = ""
+
+        if nickname:
+            return nickname
+
+        return self.author.username or "회원"
+
+    def __str__(self):
+        return f"{self.author_name}: {self.content[:30]}"
+
+
 class ExperienceVault(models.Model):
     content = models.TextField("경험창고 내용", blank=True)
     is_active = models.BooleanField("AI 글 생성에 사용", default=True)

@@ -29,6 +29,17 @@ urlpatterns = [
     # SEO용 한글 slug 주소
     path("post/slug/<path:slug>/", views.post_detail_by_slug, name="post_detail_slug"),
 
+    path(
+        "post/<int:pk>/comments/add/",
+        views.comment_create,
+        name="comment_create",
+    ),
+    path(
+        "comments/<int:comment_id>/delete/",
+        views.comment_delete,
+        name="comment_delete",
+    ),
+
     path("post/<int:pk>/edit/", views.post_update, name="post_update"),
     path("post/<int:pk>/delete/", views.post_delete, name="post_delete"),
     path("post/<int:pk>/publish/", views.post_publish, name="post_publish"),

@@ -27,13 +27,14 @@ from django.utils.text import slugify
 from .market_data import get_market_data
 from .models import (
     Post,
+    Comment,
     UserProfile,
     ExperienceVault,
     VisitLog,
     AIAutoWriterSetting,
     AIAutoKeywordQueue,
 )
-from .forms import PostForm, NicknameForm, ExperienceVaultForm
+from .forms import PostForm, CommentForm, NicknameForm, ExperienceVaultForm
 from .naver_news import recommend_keywords_from_news
 from .ai_writer import (
     generate_ai_post,
@@ -109,6 +110,10 @@ def get_post_detail_context(post):
         "post": post,
         "is_english": is_english,
         "category_label": category_label,
+        "comments": post.comments.select_related(
+            "author",
+            "author__profile",
+        ).all(),
     }
 
 
@@ -357,6 +362,63 @@ def post_detail_by_slug(request, slug):
         "core/post_detail.html",
         get_post_detail_context(post),
     )
+
+
+@login_required
+@require_POST
+def comment_create(request, pk):
+    post = get_object_or_404(Post, pk=pk)
+
+    if not post.is_published and not admin_required(request.user):
+        raise Http404("존재하지 않는 글입니다.")
+
+    form = CommentForm(request.POST)
+
+    if form.is_valid():
+        comment = form.save(commit=False)
+        comment.post = post
+        comment.author = request.user
+        comment.save()
+
+        messages.success(request, "댓글이 등록되었습니다.")
+    else:
+        error_message = "댓글 내용을 확인해주세요."
+
+        if form.errors:
+            first_errors = next(iter(form.errors.values()), None)
+            if first_errors:
+                error_message = str(first_errors[0])
+
+        messages.error(request, error_message)
+
+    return redirect(f"{post.get_absolute_url()}#comments")
+
+
+@login_required
+@require_POST
+def comment_delete(request, comment_id):
+    comment = get_object_or_404(
+        Comment.objects.select_related("post", "author"),
+        pk=comment_id,
+    )
+
+    post = comment.post
+
+    can_delete = (
+        comment.author_id == request.user.id
+        or request.user.is_staff
+        or request.user.is_superuser
+    )
+
+    if not can_delete:
+        messages.error(request, "본인이 작성한 댓글만 삭제할 수 있습니다.")
+        return redirect(f"{post.get_absolute_url()}#comments")
+
+    comment.delete()
+    messages.success(request, "댓글이 삭제되었습니다.")
+
+    return redirect(f"{post.get_absolute_url()}#comments")
+
 
 @user_passes_test(can_write_post)
 def post_create(request):

@@ -1,5 +1,5 @@
 from django import forms
-from .models import Post, UserProfile, ExperienceVault
+from .models import Post, Comment, UserProfile, ExperienceVault
 
 
 class PostForm(forms.ModelForm):
@@ -73,6 +73,37 @@ class PostForm(forms.ModelForm):
 
         if not self.instance.pk:
             self.fields["is_published"].initial = True
+
+
+
+class CommentForm(forms.ModelForm):
+    class Meta:
+        model = Comment
+        fields = ["content"]
+
+        widgets = {
+            "content": forms.Textarea(attrs={
+                "class": "comment-textarea",
+                "placeholder": "댓글을 입력해주세요.",
+                "maxlength": "1000",
+                "rows": "4",
+            }),
+        }
+
+        labels = {
+            "content": "",
+        }
+
+    def clean_content(self):
+        content = (self.cleaned_data.get("content") or "").strip()
+
+        if not content:
+            raise forms.ValidationError("댓글 내용을 입력해주세요.")
+
+        if len(content) > 1000:
+            raise forms.ValidationError("댓글은 1,000자 이하로 작성해주세요.")
+
+        return content
 
 
 class NicknameForm(forms.ModelForm):
