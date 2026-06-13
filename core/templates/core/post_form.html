@@ -158,6 +158,23 @@
                     onchange="changeTextColor(this.value)"
                 >
 
+                <!-- CBL_EDITOR_HIGHLIGHT_START -->
+                <select
+                    id="editorHighlightColor"
+                    title="하이라이트 색상"
+                    onchange="changeHighlightColor(this.value); this.value='';" onpointerdown="cblCaptureHighlightRange()">
+                    <option value="">하이라이트</option>
+                    <option value="#fff59d">노랑</option>
+                    <option value="#fde68a">진한 노랑</option>
+                    <option value="#fbcfe8">분홍</option>
+                    <option value="#bbf7d0">초록</option>
+                    <option value="#bfdbfe">파랑</option>
+                    <option value="#ddd6fe">보라</option>
+                    <option value="clear">하이라이트 해제</option>
+                </select>
+                <!-- CBL_EDITOR_HIGHLIGHT_END -->
+
+
                 <span class="toolbar-divider"></span>
 
                 <button type="button" onclick="formatDoc('justifyLeft')">왼쪽</button>
@@ -551,7 +568,252 @@
         }
     }
 
-    function formatDoc(command) {
+    // CBL_EDITOR_HIGHLIGHT_JS_START
+    let cblHighlightRange = null;
+
+    function cblNodeInsideEditor(node) {
+        if (!node || !editor) {
+            return false;
+        }
+
+        const element = node.nodeType === Node.ELEMENT_NODE
+            ? node
+            : node.parentElement;
+
+        return element === editor || Boolean(element && editor.contains(element));
+    }
+
+    function cblCaptureHighlightRange() {
+        if (!editor) {
+            return;
+        }
+
+        const selection = window.getSelection();
+
+        if (
+            !selection
+            || selection.rangeCount === 0
+            || selection.isCollapsed
+            || !cblNodeInsideEditor(selection.anchorNode)
+            || !cblNodeInsideEditor(selection.focusNode)
+        ) {
+            return;
+        }
+
+        cblHighlightRange = selection.getRangeAt(0).cloneRange();
+    }
+
+    function cblRestoreHighlightRange() {
+        if (!cblHighlightRange) {
+            return null;
+        }
+
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+
+        try {
+            selection.addRange(cblHighlightRange);
+        } catch (error) {
+            cblHighlightRange = null;
+            return null;
+        }
+
+        return cblHighlightRange;
+    }
+
+    function cblIsHighlightClass(className) {
+        const value = String(className || "").toLowerCase();
+
+        return (
+            value === "cbl-ai-highlight"
+            || value.startsWith("cbl-highlight-")
+            || value.includes("highlight")
+        );
+    }
+
+    function cblUnwrapNode(node) {
+        if (!node || !node.parentNode) {
+            return;
+        }
+
+        const parent = node.parentNode;
+
+        while (node.firstChild) {
+            parent.insertBefore(node.firstChild, node);
+        }
+
+        parent.removeChild(node);
+    }
+
+    function cblCleanHighlightMarkup(fragment) {
+        if (!fragment) {
+            return fragment;
+        }
+
+        const elements = Array.from(
+            fragment.querySelectorAll(
+                "mark, span, [class*='highlight'], [style*='background']"
+            )
+        ).reverse();
+
+        elements.forEach((element) => {
+            Array.from(element.classList || []).forEach((className) => {
+                if (cblIsHighlightClass(className)) {
+                    element.classList.remove(className);
+                }
+            });
+
+            element.style.removeProperty("background");
+            element.style.removeProperty("background-color");
+            element.style.removeProperty("background-image");
+            element.style.removeProperty("box-shadow");
+
+            if (!element.getAttribute("style")) {
+                element.removeAttribute("style");
+            }
+
+            if (!element.getAttribute("class")) {
+                element.removeAttribute("class");
+            }
+
+            const tagName = String(element.tagName || "").toLowerCase();
+            const hasMeaningfulAttributes = element.attributes.length > 0;
+
+            if (
+                tagName === "mark"
+                || (tagName === "span" && !hasMeaningfulAttributes)
+            ) {
+                cblUnwrapNode(element);
+            }
+        });
+
+        return fragment;
+    }
+
+    function cblBuildHighlightWrapper(color) {
+        const span = document.createElement("span");
+        span.className = "cbl-ai-highlight cbl-highlight-manual";
+
+        // 기존 CSS 그라데이션이나 클래스 색상보다 항상 우선하도록 저장
+        span.style.setProperty("background", color, "important");
+        span.style.setProperty("background-color", color, "important");
+
+        return span;
+    }
+
+    function cblSelectInsertedNode(node) {
+        if (!node) {
+            return;
+        }
+
+        const selection = window.getSelection();
+        const range = document.createRange();
+
+        try {
+            range.selectNodeContents(node);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            cblHighlightRange = range.cloneRange();
+        } catch (error) {
+            cblHighlightRange = null;
+        }
+    }
+
+    function cblNotifyEditorChanged() {
+        if (!editor) {
+            return;
+        }
+
+        editor.dispatchEvent(new Event("input", { bubbles: true }));
+
+        if (typeof updateCharCount === "function") {
+            updateCharCount();
+        }
+
+        if (typeof saveSelection === "function") {
+            saveSelection();
+        }
+    }
+
+    function changeHighlightColor(color) {
+        if (!color || !editor) {
+            return;
+        }
+
+        if (typeof clearDefaultText === "function") {
+            clearDefaultText();
+        }
+
+        const range = cblRestoreHighlightRange();
+
+        if (!range || range.collapsed) {
+            alert("하이라이트를 바꿀 문장을 먼저 드래그해주세요.");
+            return;
+        }
+
+        /*
+         * 핵심 동작:
+         * 1. 선택한 부분을 기존 강조 태그째 추출
+         * 2. 기존 하이라이트 클래스·배경색만 제거
+         * 3. 새 색상을 한 번에 다시 적용
+         *
+         * 따라서 '기존 강조 해제 → 다시 선택 → 새 색 적용' 과정이 필요 없습니다.
+         */
+        const selectedFragment = range.extractContents();
+        cblCleanHighlightMarkup(selectedFragment);
+
+        let insertedNode = null;
+
+        if (color === "clear") {
+            insertedNode = document.createElement("span");
+            insertedNode.appendChild(selectedFragment);
+            range.insertNode(insertedNode);
+
+            const firstChild = insertedNode.firstChild;
+            const lastChild = insertedNode.lastChild;
+            const parent = insertedNode.parentNode;
+
+            while (insertedNode.firstChild) {
+                parent.insertBefore(insertedNode.firstChild, insertedNode);
+            }
+
+            parent.removeChild(insertedNode);
+            parent.normalize();
+
+            if (firstChild && lastChild) {
+                const selection = window.getSelection();
+                const cleanRange = document.createRange();
+
+                try {
+                    cleanRange.setStartBefore(firstChild);
+                    cleanRange.setEndAfter(lastChild);
+                    selection.removeAllRanges();
+                    selection.addRange(cleanRange);
+                    cblHighlightRange = cleanRange.cloneRange();
+                } catch (error) {
+                    cblHighlightRange = null;
+                }
+            }
+        } else {
+            const wrapper = cblBuildHighlightWrapper(color);
+            wrapper.appendChild(selectedFragment);
+            range.insertNode(wrapper);
+            insertedNode = wrapper;
+            cblSelectInsertedNode(wrapper);
+        }
+
+        editor.normalize();
+        cblNotifyEditorChanged();
+    }
+
+    if (editor) {
+        editor.addEventListener("mouseup", cblCaptureHighlightRange);
+        editor.addEventListener("keyup", cblCaptureHighlightRange);
+        editor.addEventListener("touchend", cblCaptureHighlightRange);
+    }
+    // CBL_EDITOR_HIGHLIGHT_JS_END
+
+function formatDoc(command) {
         clearDefaultText();
         editor.focus();
         document.execCommand(command, false, null);
