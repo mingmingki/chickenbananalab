@@ -654,7 +654,7 @@ def plain_text_length_from_html(content):
     return len(text)
 
 
-def validate_ai_content_or_raise(content, context="AI 본문", min_length=500):
+def validate_ai_content_or_raise(content, context="AI 본문", min_length=200):
     content = str(content or "").strip()
     plain_length = plain_text_length_from_html(content)
 
@@ -2315,7 +2315,7 @@ Return JSON only in this exact format:
     content = repair_ai_content_html(content, title=title)
     # CBL_SERVER_EN_EMPTY_CONTENT_GUARD_START
     # 영어 본문 생성이 0자/짧음이면 검증 전에 안전 대체본문을 직접 채운다.
-    if len(str(content or "").strip()) < 500:
+    if len(str(content or "").strip()) < 200:
         print("========== 영어 본문 0자/짧음 서버 직접 대체본문 생성 ==========")
         print("title:", title)
         _safe_title = str(title or source_title or source_keywords or "English Guide").strip()
@@ -4919,7 +4919,7 @@ def _cbl_generate_title_thumbnail_pair(
         current_thumbnail_text,
         40,
     )
-    summary = _cbl_headline_clean_text(summary, 500)
+    summary = _cbl_headline_clean_text(summary, 200)
     category = _cbl_headline_clean_text(category, 30)
 
     if not keywords and not current_title:
