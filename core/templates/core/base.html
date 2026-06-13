@@ -4135,9 +4135,21 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
     }, true);
 
     document.addEventListener("input", function (event) {
-        if (event.target.closest("#cblForceTopRowPanel")) {
-            syncForm();
+        if (!event.target.closest("#cblForceTopRowPanel")) {
+            return;
         }
+
+        /*
+         * 키워드 입력 중에는 syncForm()이 id/name/hidden 값을 다시 쓰면서
+         * 다른 MutationObserver와 충돌해 끝 공백이 사라질 수 있다.
+         * 키워드는 change/submit 시 최종 동기화하고,
+         * 카테고리·이미지 개수만 입력 즉시 동기화한다.
+         */
+        if (event.target.classList.contains("cbl-row-keyword")) {
+            return;
+        }
+
+        syncForm();
     }, true);
 
     document.addEventListener("change", function (event) {
@@ -4563,7 +4575,11 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 
             if (categoryEl) categoryEl.value = first.category;
             if (imageEl) imageEl.value = first.image_count;
-            if (keywordEl) keywordEl.value = first.keyword;
+
+            /*
+             * 사용자가 입력 중인 키워드 값은 절대 다시 쓰지 않는다.
+             * first.keyword는 trim된 값이라 입력 직후의 끝 공백을 지워버린다.
+             */
 
             setHidden(form, "category", first.category);
             setHidden(form, "image_count", first.image_count);
@@ -4598,15 +4614,29 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 
     document.addEventListener("input", function (e) {
         const form = document.getElementById("aiPostForm");
-        if (!form) return;
+        if (!form || !e.target) return;
+
+        /*
+         * 카테고리와 이미지 개수는 즉시 동기화한다.
+         * 키워드는 타이핑 중 동기화하면 trim된 값이 다시 입력창에 반영되어
+         * 스페이스와 한글 조합 입력이 깨질 수 있으므로 제외한다.
+         */
+        if (
+            e.target.classList.contains("cbl-row-category") ||
+            e.target.classList.contains("cbl-row-image-count")
+        ) {
+            syncPayload(form);
+        }
+    }, true);
+
+    document.addEventListener("change", function (e) {
+        const form = document.getElementById("aiPostForm");
+        if (!form || !e.target) return;
 
         if (
-            e.target &&
-            (
-                e.target.classList.contains("cbl-row-category") ||
-                e.target.classList.contains("cbl-row-image-count") ||
-                e.target.classList.contains("cbl-row-keyword")
-            )
+            e.target.classList.contains("cbl-row-category") ||
+            e.target.classList.contains("cbl-row-image-count") ||
+            e.target.classList.contains("cbl-row-keyword")
         ) {
             syncPayload(form);
         }
