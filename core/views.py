@@ -25,6 +25,7 @@ from django.views.decorators.http import require_POST
 from django.utils.text import slugify
 
 from .market_data import get_market_data
+from .realestate_subscription import get_latest_subscription_items
 from .models import (
     Post,
     Comment,
@@ -276,10 +277,24 @@ def category_page(request, slug):
         is_published=True,
     ).order_by("-created_at")[:15]
 
+    subscription_data = {
+        "items": [],
+        "error": "",
+        "updated_at": "",
+        "total_count": 0,
+    }
+
+    if slug == "realestate":
+        subscription_data = get_latest_subscription_items(limit=30)
+
     return render(request, "core/category.html", {
         "page": page,
         "slug": slug,
         "posts": posts,
+        "subscription_items": subscription_data["items"],
+        "subscription_error": subscription_data["error"],
+        "subscription_updated_at": subscription_data["updated_at"],
+        "subscription_total_count": subscription_data["total_count"],
     })
 
 

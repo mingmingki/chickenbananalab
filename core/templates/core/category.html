@@ -3,6 +3,114 @@
 
 {% block content %}
 
+<!-- CBL_ALL_CATEGORY_COMPACT_HERO_START -->
+<style>
+    /*
+     * 건축·부동산·금융·테크·일상 공통
+     * 이모티콘 + 카테고리명 + 설명 한 줄 배치
+     */
+    .category-hero {
+        padding-top: 26px !important;
+        padding-bottom: 22px !important;
+    }
+
+    .category-hero .category-title {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        flex-wrap: nowrap !important;
+
+        width: min(1120px, calc(100% - 32px));
+        margin: 0 auto 18px !important;
+        gap: 12px !important;
+        text-align: left !important;
+    }
+
+    /* ARCHITECTURE, REAL ESTATE, FINANCE, TECH, DAILY 숨김 */
+    .category-hero .category-title > p {
+        display: none !important;
+    }
+
+    .category-hero .category-big-icon {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+
+        flex: 0 0 52px !important;
+        width: 52px !important;
+        height: 52px !important;
+        min-width: 52px !important;
+
+        margin: 0 !important;
+        border-radius: 16px !important;
+        font-size: 28px !important;
+        line-height: 1 !important;
+    }
+
+    .category-hero .category-title h1 {
+        flex: 0 0 auto !important;
+
+        margin: 0 !important;
+        font-size: 34px !important;
+        line-height: 1 !important;
+        letter-spacing: -0.04em !important;
+        white-space: nowrap !important;
+    }
+
+    .category-hero .category-title > span {
+        display: block !important;
+        min-width: 0 !important;
+        margin: 0 !important;
+
+        color: #64748b !important;
+        font-size: 16px !important;
+        line-height: 1.4 !important;
+
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+
+    .category-hero .sub-search {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+    }
+
+    @media (max-width: 700px) {
+        .category-hero {
+            padding-top: 16px !important;
+            padding-bottom: 16px !important;
+        }
+
+        .category-hero .category-title {
+            width: calc(100% - 24px);
+            gap: 7px !important;
+            margin-bottom: 13px !important;
+        }
+
+        .category-hero .category-big-icon {
+            flex-basis: 38px !important;
+            width: 38px !important;
+            height: 38px !important;
+            min-width: 38px !important;
+
+            border-radius: 11px !important;
+            font-size: 21px !important;
+        }
+
+        .category-hero .category-title h1 {
+            font-size: 23px !important;
+        }
+
+        .category-hero .category-title > span {
+            font-size: 11px !important;
+        }
+    }
+</style>
+<!-- CBL_ALL_CATEGORY_COMPACT_HERO_END -->
+
+
+
 <section class="category-hero category-{{ page.theme }}">
     <div class="container">
         <div class="category-title">
@@ -18,6 +126,742 @@
         </form>
     </div>
 </section>
+
+
+{% if slug == "realestate" %}
+<!-- CBL_REALESTATE_SUBSCRIPTION_BOARD_START -->
+<style>
+.cbl-subscription-board {
+    max-width: 1180px;
+    margin: 4px auto 26px;
+    padding: 0 18px;
+    box-sizing: border-box;
+}
+
+.cbl-subscription-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 12px;
+}
+
+.cbl-subscription-title {
+    margin: 0;
+    color: #111827;
+    font-size: 22px;
+    font-weight: 900;
+    line-height: 1.2;
+    letter-spacing: -0.04em;
+}
+
+.cbl-subscription-description {
+    margin: 5px 0 0;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.cbl-subscription-source {
+    flex-shrink: 0;
+    color: #94a3b8;
+    font-size: 11px;
+    line-height: 1.5;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.cbl-subscription-table-wrap {
+    max-height: 350px;
+    overflow-x: auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    background: #ffffff;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
+}
+
+.cbl-subscription-table-wrap::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+}
+
+.cbl-subscription-table-wrap::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: #cbd5e1;
+    background-clip: padding-box;
+}
+
+.cbl-subscription-table-wrap::-webkit-scrollbar-track {
+    background: #f8fafc;
+}
+
+
+.cbl-subscription-table {
+    width: 100%;
+    min-width: 980px;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.cbl-subscription-table th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    padding: 11px 10px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 800;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.cbl-subscription-table td {
+    padding: 12px 10px;
+    border-bottom: 1px solid #f1f5f9;
+    color: #334155;
+    font-size: 12px;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.cbl-subscription-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.cbl-subscription-table tbody tr:hover {
+    background: #fafcff;
+}
+
+.cbl-subscription-table .col-status {
+    width: 76px;
+}
+
+.cbl-subscription-table .col-house {
+    width: 34%;
+    text-align: left;
+}
+
+.cbl-subscription-table .col-region {
+    width: 70px;
+}
+
+.cbl-subscription-table .col-count {
+    width: 78px;
+}
+
+.cbl-subscription-table .col-date {
+    width: 92px;
+}
+
+.cbl-subscription-table .col-link {
+    width: 80px;
+}
+
+.cbl-subscription-status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 56px;
+    min-height: 26px;
+    padding: 0 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.cbl-subscription-status.open {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.cbl-subscription-status.upcoming {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.cbl-subscription-status.notice {
+    background: #fef3c7;
+    color: #a16207;
+}
+
+.cbl-subscription-status.closed {
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+.cbl-subscription-name {
+    display: block;
+    overflow: hidden;
+    color: #111827;
+    font-size: 13px;
+    font-weight: 900;
+    line-height: 1.35;
+    text-decoration: none;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cbl-subscription-name:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.cbl-subscription-address {
+    display: block;
+    margin-top: 4px;
+    overflow: hidden;
+    color: #94a3b8;
+    font-size: 10px;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cbl-subscription-count {
+    color: #111827;
+    font-weight: 850;
+}
+
+.cbl-subscription-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+    padding: 0 9px;
+    border: 1px solid #dbe2ea;
+    border-radius: 9px;
+    color: #334155;
+    font-size: 10px;
+    font-weight: 850;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.cbl-subscription-link:hover {
+    border-color: #94a3b8;
+    background: #f8fafc;
+}
+
+.cbl-subscription-empty {
+    padding: 24px 18px;
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    background: #ffffff;
+    color: #64748b;
+    font-size: 13px;
+    text-align: center;
+}
+
+.cbl-subscription-notice {
+    margin: 9px 2px 0;
+    color: #94a3b8;
+    font-size: 10px;
+    line-height: 1.5;
+}
+
+@media (max-width: 700px) {
+    .cbl-subscription-board {
+        margin-top: 0;
+        margin-bottom: 20px;
+        padding: 0 12px;
+    }
+
+    .cbl-subscription-head {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .cbl-subscription-title {
+        font-size: 18px;
+    }
+
+    .cbl-subscription-source {
+        text-align: left;
+    }
+
+    .cbl-subscription-table-wrap {
+        max-height: 330px;
+        border-radius: 14px;
+    }
+}
+</style>
+
+<section class="cbl-subscription-board">
+    <div class="cbl-subscription-head">
+        <div>
+            <h2 class="cbl-subscription-title">🏠 최신 청약 일정</h2>
+            <p class="cbl-subscription-description">
+                아파트 모집공고와 특별공급·1순위·2순위 일정을 확인하세요.
+            </p>
+        </div>
+
+        <div class="cbl-subscription-source">
+            한국부동산원 청약홈
+            {% if subscription_updated_at %}
+                · {{ subscription_updated_at }} 기준
+            {% endif %}
+        </div>
+    </div>
+
+    {% if subscription_items %}
+        <div class="cbl-subscription-table-wrap">
+            <table class="cbl-subscription-table">
+                <thead>
+                    <tr>
+                        <th class="col-status">상태</th>
+                        <th class="col-house">주택명·공급위치</th>
+                        <th class="col-region">지역</th>
+                        <th class="col-count">공급세대</th>
+                        <th class="col-date">특별공급</th>
+                        <th class="col-date">1순위</th>
+                        <th class="col-date">2순위</th>
+                        <th class="col-date">당첨발표</th>
+                        <th class="col-link">공고</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for item in subscription_items %}
+                        <tr>
+                            <td>
+                                <span class="cbl-subscription-status {{ item.status_code }}">
+                                    {{ item.status }}
+                                </span>
+                            </td>
+
+                            <td class="col-house">
+                                {% if item.url %}
+                                    <a
+                                        class="cbl-subscription-name"
+                                        href="{{ item.url }}"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        {{ item.name }}
+                                    </a>
+                                {% else %}
+                                    <span class="cbl-subscription-name">
+                                        {{ item.name }}
+                                    </span>
+                                {% endif %}
+
+                                <span class="cbl-subscription-address">
+                                    {{ item.address }}
+                                </span>
+                            </td>
+
+                            <td>{{ item.region }}</td>
+
+                            <td>
+                                <span class="cbl-subscription-count">
+                                    {{ item.supply_count }}
+                                </span>
+                            </td>
+
+                            <td>{{ item.special }}</td>
+                            <td>{{ item.rank1 }}</td>
+                            <td>{{ item.rank2 }}</td>
+                            <td>{{ item.winner }}</td>
+
+                            <td>
+                                {% if item.url %}
+                                    <a
+                                        class="cbl-subscription-link"
+                                        href="{{ item.url }}"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        보기 ↗
+                                    </a>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <p class="cbl-subscription-notice">
+            청약 일정과 공급 내용은 변경될 수 있으므로 신청 전 청약홈 모집공고를 확인하세요.
+        </p>
+    {% else %}
+        <div class="cbl-subscription-empty">
+            {{ subscription_error|default:"현재 표시할 청약정보가 없습니다." }}
+        </div>
+    {% endif %}
+</section>
+<!-- CBL_REALESTATE_SUBSCRIPTION_BOARD_END -->
+{% endif %}
+
+{% if slug == "finance" %}
+<!-- CBL_CRYPTO_EXCHANGE_BOARD_START -->
+<style>
+.cbl-crypto-board {
+    max-width: 1180px;
+    margin: 4px auto 24px;
+    padding: 0 18px;
+    box-sizing: border-box;
+}
+
+.cbl-crypto-board-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.cbl-crypto-board-title {
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.15;
+    font-weight: 900;
+    letter-spacing: -0.04em;
+    color: #111827;
+}
+
+.cbl-crypto-board-subtitle {
+    margin: 5px 0 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #64748b;
+}
+
+.cbl-crypto-board-status {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: #94a3b8;
+    white-space: nowrap;
+}
+
+.cbl-crypto-exchange-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.cbl-crypto-exchange-card {
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    background: #ffffff;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
+}
+
+.cbl-crypto-exchange-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 13px 15px 11px;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.cbl-crypto-exchange-name {
+    font-size: 15px;
+    font-weight: 900;
+    color: #111827;
+}
+
+.cbl-crypto-exchange-quote {
+    padding: 4px 7px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    font-size: 10px;
+    font-weight: 800;
+    color: #64748b;
+}
+
+.cbl-crypto-rows {
+    padding: 3px 12px 7px;
+}
+
+.cbl-crypto-row {
+    display: grid;
+    grid-template-columns: minmax(88px, 1fr) minmax(92px, auto) 68px;
+    align-items: center;
+    gap: 8px;
+    min-height: 43px;
+    border-bottom: 1px solid #f8fafc;
+}
+
+.cbl-crypto-row:last-child {
+    border-bottom: 0;
+}
+
+.cbl-crypto-coin {
+    min-width: 0;
+}
+
+.cbl-crypto-symbol {
+    display: block;
+    font-size: 12px;
+    line-height: 1.1;
+    font-weight: 900;
+    color: #111827;
+}
+
+.cbl-crypto-name {
+    display: block;
+    margin-top: 3px;
+    overflow: hidden;
+    font-size: 10px;
+    line-height: 1.1;
+    color: #94a3b8;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cbl-crypto-price {
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 850;
+    color: #1f2937;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cbl-crypto-change {
+    font-size: 11px;
+    font-weight: 900;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.cbl-crypto-change.up {
+    color: #dc2626;
+}
+
+.cbl-crypto-change.down {
+    color: #2563eb;
+}
+
+.cbl-crypto-change.flat {
+    color: #64748b;
+}
+
+.cbl-crypto-exchange-error,
+.cbl-crypto-loading {
+    display: flex;
+    min-height: 262px;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    color: #94a3b8;
+    font-size: 12px;
+    line-height: 1.5;
+    text-align: center;
+}
+
+.cbl-crypto-loading::before {
+    width: 16px;
+    height: 16px;
+    margin-right: 8px;
+    border: 2px solid #e5e7eb;
+    border-top-color: #64748b;
+    border-radius: 50%;
+    content: "";
+    animation: cblCryptoSpin 0.8s linear infinite;
+}
+
+@keyframes cblCryptoSpin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.cbl-crypto-board-note {
+    margin: 8px 2px 0;
+    font-size: 10px;
+    line-height: 1.4;
+    color: #9ca3af;
+    text-align: right;
+}
+
+@media (max-width: 760px) {
+    .cbl-crypto-board {
+        margin-top: 2px;
+        margin-bottom: 20px;
+        padding: 0 14px;
+    }
+
+    .cbl-crypto-board-head {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .cbl-crypto-board-title {
+        font-size: 20px;
+    }
+
+    .cbl-crypto-exchange-grid {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .cbl-crypto-exchange-error,
+    .cbl-crypto-loading {
+        min-height: 130px;
+    }
+
+    .cbl-crypto-row {
+        grid-template-columns: minmax(90px, 1fr) minmax(100px, auto) 72px;
+    }
+}
+</style>
+
+<section class="cbl-crypto-board" aria-labelledby="cblCryptoBoardTitle">
+    <div class="cbl-crypto-board-head">
+        <div>
+            <h2 class="cbl-crypto-board-title" id="cblCryptoBoardTitle">거래소별 코인 시세</h2>
+            <p class="cbl-crypto-board-subtitle">BTC · ETH · XRP · TRX · SOL · DOGE 현재가와 24시간 등락률</p>
+        </div>
+        <div class="cbl-crypto-board-status" id="cblCryptoBoardStatus">시세 불러오는 중...</div>
+    </div>
+
+    <div class="cbl-crypto-exchange-grid" id="cblCryptoExchangeGrid" aria-live="polite">
+        <div class="cbl-crypto-exchange-card"><div class="cbl-crypto-loading">바이낸스 불러오는 중</div></div>
+        <div class="cbl-crypto-exchange-card"><div class="cbl-crypto-loading">OKX 불러오는 중</div></div>
+        <div class="cbl-crypto-exchange-card"><div class="cbl-crypto-loading">업비트 불러오는 중</div></div>
+    </div>
+
+    <p class="cbl-crypto-board-note">공개 시세 API 기준 · 서버에서 30초 동안 캐시 · 투자 판단용이 아닌 참고 정보</p>
+</section>
+
+<script>
+(function () {
+    const apiUrl = "{% url 'crypto_market_api' %}";
+    const grid = document.getElementById("cblCryptoExchangeGrid");
+    const status = document.getElementById("cblCryptoBoardStatus");
+    let loading = false;
+
+    function escapeHtml(value) {
+        return String(value == null ? "" : value)
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+    }
+
+    function renderExchange(exchange) {
+        const name = escapeHtml(exchange.name || "거래소");
+        const quote = escapeHtml(exchange.quote || "");
+
+        if (!exchange.ok) {
+            const error = escapeHtml(exchange.error || "시세를 불러오지 못했습니다.");
+
+            return `
+                <article class="cbl-crypto-exchange-card">
+                    <div class="cbl-crypto-exchange-head">
+                        <strong class="cbl-crypto-exchange-name">${name}</strong>
+                        <span class="cbl-crypto-exchange-quote">${quote}</span>
+                    </div>
+                    <div class="cbl-crypto-exchange-error">${error}<br>다른 거래소 시세는 정상적으로 표시됩니다.</div>
+                </article>
+            `;
+        }
+
+        const rows = (exchange.coins || []).map(function (coin) {
+            const direction = ["up", "down", "flat"].includes(coin.direction)
+                ? coin.direction
+                : "flat";
+
+            return `
+                <div class="cbl-crypto-row">
+                    <div class="cbl-crypto-coin">
+                        <span class="cbl-crypto-symbol">${escapeHtml(coin.symbol || "-")}</span>
+                        <span class="cbl-crypto-name">${escapeHtml(coin.name || "")}</span>
+                    </div>
+                    <div class="cbl-crypto-price">${escapeHtml(coin.price || "-")}</div>
+                    <div class="cbl-crypto-change ${direction}">${escapeHtml(coin.change || "-")}</div>
+                </div>
+            `;
+        }).join("");
+
+        return `
+            <article class="cbl-crypto-exchange-card">
+                <div class="cbl-crypto-exchange-head">
+                    <strong class="cbl-crypto-exchange-name">${name}</strong>
+                    <span class="cbl-crypto-exchange-quote">${quote}</span>
+                </div>
+                <div class="cbl-crypto-rows">${rows}</div>
+            </article>
+        `;
+    }
+
+    async function loadCryptoMarket(initialLoad) {
+        if (loading || !grid || !status) {
+            return;
+        }
+
+        loading = true;
+
+        if (!initialLoad) {
+            status.textContent = "시세 업데이트 중...";
+        }
+
+        try {
+            const response = await fetch(apiUrl, {
+                method: "GET",
+                headers: {
+                    "Accept": "application/json"
+                },
+                cache: "no-store"
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            const exchanges = Array.isArray(data.exchanges) ? data.exchanges : [];
+
+            if (!exchanges.length) {
+                throw new Error("표시할 시세가 없습니다.");
+            }
+
+            grid.innerHTML = exchanges.map(renderExchange).join("");
+            status.textContent = data.updated_at
+                ? `업데이트 ${data.updated_at}`
+                : "업데이트 완료";
+
+        } catch (error) {
+            const message = escapeHtml(error && error.message ? error.message : "시세 요청 실패");
+
+            grid.innerHTML = `
+                <div class="cbl-crypto-exchange-card" style="grid-column:1/-1;">
+                    <div class="cbl-crypto-exchange-error">
+                        전체 시세를 불러오지 못했습니다.<br>${message}
+                    </div>
+                </div>
+            `;
+            status.textContent = "시세 연결 오류";
+        } finally {
+            loading = false;
+        }
+    }
+
+    loadCryptoMarket(true);
+    window.setInterval(function () {
+        loadCryptoMarket(false);
+    }, 30000);
+})();
+</script>
+<!-- CBL_CRYPTO_EXCHANGE_BOARD_END -->
+{% endif %}
 
 <section class="section" id="post-list">
     <div class="container">

@@ -1,9 +1,11 @@
 from .ip_tools import ip_lookup_api
 from django.urls import path
 from . import views
+from .crypto_market import crypto_market_api
 
 
 urlpatterns = [
+    path("api/crypto-market/", crypto_market_api, name="crypto_market_api"),
     path("mini-capcut/", views.mini_capcut_home, name="mini_capcut_home"),
     path("mini-capcut/post/<int:post_id>/", views.mini_capcut_editor, name="mini_capcut_editor"),
     path("mini-capcut/upload/", views.mini_capcut_upload, name="mini_capcut_upload"),
