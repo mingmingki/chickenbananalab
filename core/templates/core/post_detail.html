@@ -58,6 +58,172 @@
             line-height: 1.3 !important;
         }
     }
+
+/* CBL_POST_COPY_BUTTONS_CSS_START */
+.cbl-copy-action-btn {
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    font-family: inherit;
+
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    min-width: 98px !important;
+    height: 46px !important;
+    min-height: 46px !important;
+    padding: 0 22px !important;
+
+    border: none !important;
+    border-radius: 999px !important;
+    background: #16a34a !important;
+    color: #ffffff !important;
+
+    font-size: 14px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+
+    box-sizing: border-box !important;
+    white-space: nowrap !important;
+}
+
+.cbl-copy-action-btn:disabled {
+    cursor: wait;
+    opacity: 0.72;
+}
+
+.cbl-copy-action-btn.cbl-copy-success {
+    background: #15803d;
+    border-color: #15803d;
+    color: #fff;
+}
+
+.cbl-copy-action-btn.cbl-copy-failed {
+    background: #b91c1c;
+    border-color: #b91c1c;
+    color: #fff;
+}
+
+@media (max-width: 640px) {
+    .detail-actions {
+        flex-wrap: wrap;
+    }
+
+    .detail-actions .cbl-copy-action-btn {
+        flex: 1 1 auto;
+        min-width: 110px;
+    }
+}
+
+/* 관리자 액션 버튼 크기 완전 통일 */
+.post-detail-hero .detail-actions > .save-btn,
+.post-detail-hero .detail-actions > .cbl-copy-action-btn {
+    min-width: 98px !important;
+    height: 46px !important;
+    min-height: 46px !important;
+    padding: 0 22px !important;
+
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    border-radius: 999px !important;
+    font-size: 14px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+    box-sizing: border-box !important;
+}
+
+
+/* 관리자 상세 버튼 최종 크기 통일 */
+.post-detail-hero .detail-actions > .cancel-btn,
+.post-detail-hero .detail-actions > .save-btn,
+.post-detail-hero .detail-actions > .cbl-copy-action-btn {
+    width: 112px !important;
+    min-width: 112px !important;
+    height: 46px !important;
+    min-height: 46px !important;
+    padding: 0 12px !important;
+
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    border-radius: 999px !important;
+    font-family: inherit !important;
+    font-size: 16px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    box-sizing: border-box !important;
+}
+
+.post-detail-hero .detail-actions > .cbl-copy-action-btn {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    border: none !important;
+    background: #16a34a !important;
+    color: #ffffff !important;
+}
+
+@media (max-width: 768px) {
+    .post-detail-hero .detail-actions > .cancel-btn,
+    .post-detail-hero .detail-actions > .save-btn,
+    .post-detail-hero .detail-actions > .cbl-copy-action-btn {
+        width: 100% !important;
+        min-width: 0 !important;
+        height: 54px !important;
+        min-height: 54px !important;
+    }
+}
+
+
+/* CBL_COPY_BUTTON_STYLE_REAL_FIX */
+.post-detail-hero .detail-actions button.save-btn.cbl-copy-action-btn {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+
+    width: auto !important;
+    min-width: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+
+    padding: 13px 22px !important;
+    border: none !important;
+    border-radius: 999px !important;
+
+    background: #16a34a !important;
+    color: #ffffff !important;
+
+    font-family: inherit !important;
+    font-size: inherit !important;
+    font-style: normal !important;
+    font-weight: 900 !important;
+    line-height: normal !important;
+    letter-spacing: normal !important;
+
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    box-sizing: border-box !important;
+    white-space: nowrap !important;
+    cursor: pointer !important;
+}
+
+@media (max-width: 768px) {
+    .post-detail-hero .detail-actions button.save-btn.cbl-copy-action-btn {
+        width: 100% !important;
+        min-height: 54px !important;
+        padding: 0 18px !important;
+        line-height: 1.2 !important;
+    }
+}
+
+/* CBL_POST_COPY_BUTTONS_CSS_END */
+
 </style>
 
 <script>
@@ -360,6 +526,37 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
+    /* CBL_COPY_BUTTON_ACTUAL_FIX */
+    .post-detail-hero .detail-actions > .cancel-btn,
+    .post-detail-hero .detail-actions > .save-btn,
+    .post-detail-hero .detail-actions > button.cbl-copy-action-btn {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+
+        min-height: 46px !important;
+        padding: 0 22px !important;
+        border-radius: 999px !important;
+
+        font-family: inherit !important;
+        font-size: 16px !important;
+        font-weight: 900 !important;
+        line-height: 1 !important;
+
+        box-sizing: border-box !important;
+        white-space: nowrap !important;
+    }
+
+    .post-detail-hero .detail-actions > button.cbl-copy-action-btn {
+        appearance: none !important;
+        -webkit-appearance: none !important;
+        border: none !important;
+        background: #16a34a !important;
+        color: #ffffff !important;
+        cursor: pointer !important;
+    }
+
+
 </style>
 
 <section class="post-detail-hero">
@@ -445,6 +642,26 @@ document.addEventListener("DOMContentLoaded", function () {
                     {% if is_english %}Edit{% else %}수정하기{% endif %}
                 </a>
             {% endif %}
+
+            {# CBL_POST_COPY_BUTTONS_START #}
+            {% if user.is_authenticated and user.is_staff %}
+                <button
+                    type="button"
+                    id="cbl-copy-body-btn"
+                    class="save-btn cbl-copy-action-btn">
+                    {% if is_english %}Copy body{% else %}본문 복사{% endif %}
+                </button>
+
+                {% if post.thumbnail %}
+                    <button
+                        type="button"
+                        id="cbl-copy-thumbnail-btn"
+                        class="save-btn cbl-copy-action-btn">
+                        {% if is_english %}Copy thumbnail{% else %}썸네일 복사{% endif %}
+                    </button>
+                {% endif %}
+            {% endif %}
+            {# CBL_POST_COPY_BUTTONS_END #}
         </div>
     </div>
 </section>
@@ -894,5 +1111,729 @@ document.addEventListener("DOMContentLoaded", function () {
 
     </div>
 </section>
+
+
+<script>
+/* CBL_POST_COPY_BUTTONS_SCRIPT_START */
+document.addEventListener("DOMContentLoaded", function () {
+    const bodyButton = document.getElementById("cbl-copy-body-btn");
+    const thumbnailButton = document.getElementById("cbl-copy-thumbnail-btn");
+
+    function setButtonState(button, message, stateClass) {
+        if (!button) return;
+
+        const originalText =
+            button.dataset.originalText || button.textContent.trim();
+
+        button.dataset.originalText = originalText;
+        button.textContent = message;
+        button.classList.remove("cbl-copy-success", "cbl-copy-failed");
+
+        if (stateClass) {
+            button.classList.add(stateClass);
+        }
+
+        window.setTimeout(function () {
+            button.textContent = originalText;
+            button.classList.remove("cbl-copy-success", "cbl-copy-failed");
+            button.disabled = false;
+        }, 1800);
+    }
+
+    function copyComputedStyles(sourceRoot, clonedRoot) {
+        const sourceNodes = [sourceRoot, ...sourceRoot.querySelectorAll("*")];
+        const clonedNodes = [clonedRoot, ...clonedRoot.querySelectorAll("*")];
+
+        const properties = [
+            "display",
+            "font-family",
+            "font-size",
+            "font-weight",
+            "font-style",
+            "line-height",
+            "letter-spacing",
+            "text-align",
+            "text-decoration",
+            "text-transform",
+            "color",
+            "background-color",
+            "border",
+            "border-top",
+            "border-right",
+            "border-bottom",
+            "border-left",
+            "border-radius",
+            "padding",
+            "padding-top",
+            "padding-right",
+            "padding-bottom",
+            "padding-left",
+            "margin",
+            "margin-top",
+            "margin-right",
+            "margin-bottom",
+            "margin-left",
+            "width",
+            "max-width",
+            "min-height",
+            "box-sizing",
+            "white-space",
+            "word-break",
+            "overflow-wrap",
+            "list-style-position"
+        ];
+
+        sourceNodes.forEach(function (sourceNode, index) {
+            const clonedNode = clonedNodes[index];
+            if (!clonedNode || !(sourceNode instanceof Element)) return;
+
+            const computed = window.getComputedStyle(sourceNode);
+
+            properties.forEach(function (property) {
+                const value = computed.getPropertyValue(property);
+                if (value) {
+                    clonedNode.style.setProperty(property, value);
+                }
+            });
+
+            if (clonedNode.tagName === "IMG") {
+                const absoluteUrl = new URL(
+                    sourceNode.currentSrc || sourceNode.src,
+                    window.location.href
+                ).href;
+
+                clonedNode.setAttribute("src", absoluteUrl);
+                clonedNode.style.maxWidth = "100%";
+                clonedNode.style.height = "auto";
+            }
+
+            if (clonedNode.tagName === "A") {
+                const href = sourceNode.getAttribute("href");
+                if (href) {
+                    clonedNode.setAttribute(
+                        "href",
+                        new URL(href, window.location.href).href
+                    );
+                }
+            }
+        });
+    }
+
+    function createBodyCopyContainer() {
+        const content = document.querySelector(".post-content.editor-output");
+        if (!content) {
+            throw new Error("본문 영역을 찾지 못했습니다.");
+        }
+
+        const wrapper = document.createElement("div");
+        wrapper.setAttribute("data-cbl-copy", "post-body");
+        wrapper.style.fontFamily =
+            window.getComputedStyle(content).fontFamily ||
+            '-apple-system, BlinkMacSystemFont, "Noto Sans KR", sans-serif';
+        wrapper.style.fontSize = "16px";
+        wrapper.style.lineHeight = "1.8";
+        wrapper.style.color = "#222";
+        wrapper.style.backgroundColor = "#fff";
+        wrapper.style.maxWidth = "860px";
+        wrapper.style.margin = "0 auto";
+
+        const title = document.createElement("h1");
+        title.textContent = "{{ post.title|escapejs }}";
+        title.style.fontSize = "30px";
+        title.style.fontWeight = "800";
+        title.style.lineHeight = "1.35";
+        title.style.margin = "0 0 28px";
+        title.style.color = "#111";
+
+        const clonedContent = content.cloneNode(true);
+        clonedContent.removeAttribute("class");
+        clonedContent.removeAttribute("id");
+
+        copyComputedStyles(content, clonedContent);
+
+        clonedContent
+            .querySelectorAll("script, style, iframe, button, form")
+            .forEach(function (element) {
+                element.remove();
+            });
+
+        wrapper.appendChild(title);
+        wrapper.appendChild(clonedContent);
+
+        return wrapper;
+    }
+
+    async function writeHtmlToClipboard(html, plainText) {
+        if (
+            navigator.clipboard &&
+            navigator.clipboard.write &&
+            window.ClipboardItem
+        ) {
+            const item = new ClipboardItem({
+                "text/html": new Blob([html], {
+                    type: "text/html;charset=utf-8"
+                }),
+                "text/plain": new Blob([plainText], {
+                    type: "text/plain;charset=utf-8"
+                })
+            });
+
+            await navigator.clipboard.write([item]);
+            return;
+        }
+
+        const holder = document.createElement("div");
+        holder.contentEditable = "true";
+        holder.style.position = "fixed";
+        holder.style.left = "-99999px";
+        holder.style.top = "0";
+        holder.innerHTML = html;
+
+        document.body.appendChild(holder);
+
+        const range = document.createRange();
+        range.selectNodeContents(holder);
+
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        const copied = document.execCommand("copy");
+
+        selection.removeAllRanges();
+        holder.remove();
+
+        if (!copied) {
+            throw new Error("브라우저가 복사를 허용하지 않았습니다.");
+        }
+    }
+
+    if (bodyButton) {
+        bodyButton.addEventListener("click", async function () {
+            bodyButton.disabled = true;
+
+            try {
+                const wrapper = createBodyCopyContainer();
+                const html =
+                    '<div style="background:#fff;color:#222;">' +
+                    wrapper.outerHTML +
+                    "</div>";
+
+                const plainText = wrapper.innerText.trim();
+
+                await writeHtmlToClipboard(html, plainText);
+
+                setButtonState(
+                    bodyButton,
+                    "복사 완료",
+                    "cbl-copy-success"
+                );
+            } catch (error) {
+                console.error("본문 복사 실패:", error);
+                setButtonState(
+                    bodyButton,
+                    "복사 실패",
+                    "cbl-copy-failed"
+                );
+            }
+        });
+    }
+
+    function roundedRectanglePath(context, x, y, width, height, radius) {
+        const r = Math.max(
+            0,
+            Math.min(radius, width / 2, height / 2)
+        );
+
+        context.beginPath();
+        context.moveTo(x + r, y);
+        context.lineTo(x + width - r, y);
+        context.quadraticCurveTo(x + width, y, x + width, y + r);
+        context.lineTo(x + width, y + height - r);
+        context.quadraticCurveTo(
+            x + width,
+            y + height,
+            x + width - r,
+            y + height
+        );
+        context.lineTo(x + r, y + height);
+        context.quadraticCurveTo(x, y + height, x, y + height - r);
+        context.lineTo(x, y + r);
+        context.quadraticCurveTo(x, y, x + r, y);
+        context.closePath();
+    }
+
+    function wrapCanvasText(context, text, maxWidth) {
+        const words = String(text).trim().split(/\s+/);
+        const lines = [];
+        let currentLine = "";
+
+        words.forEach(function (word) {
+            const candidate = currentLine
+                ? currentLine + " " + word
+                : word;
+
+            if (
+                currentLine &&
+                context.measureText(candidate).width > maxWidth
+            ) {
+                lines.push(currentLine);
+                currentLine = word;
+            } else {
+                currentLine = candidate;
+            }
+        });
+
+        if (currentLine) {
+            lines.push(currentLine);
+        }
+
+        return lines.length ? lines : [String(text)];
+    }
+
+    function getRenderedThumbnailLines(element) {
+        const lines = [];
+        const walker = document.createTreeWalker(
+            element,
+            NodeFilter.SHOW_TEXT
+        );
+
+        let textNode;
+
+        while ((textNode = walker.nextNode())) {
+            const raw = textNode.nodeValue || "";
+
+            if (!raw.trim()) {
+                continue;
+            }
+
+            let first = 0;
+            let last = raw.length;
+
+            while (first < last && /\s/.test(raw[first])) {
+                first += 1;
+            }
+
+            while (last > first && /\s/.test(raw[last - 1])) {
+                last -= 1;
+            }
+
+            let currentLine = null;
+
+            for (let index = first; index < last; index += 1) {
+                const character = raw[index];
+
+                if (character === "\n" || character === "\r") {
+                    continue;
+                }
+
+                const range = document.createRange();
+                range.setStart(textNode, index);
+                range.setEnd(textNode, index + 1);
+
+                const rects = range.getClientRects();
+
+                if (!rects.length) {
+                    continue;
+                }
+
+                const rect = rects[0];
+
+                if (
+                    !currentLine ||
+                    Math.abs(rect.top - currentLine.top) > 2
+                ) {
+                    currentLine = {
+                        text: character,
+                        left: rect.left,
+                        right: rect.right,
+                        top: rect.top,
+                        bottom: rect.bottom
+                    };
+
+                    lines.push(currentLine);
+                } else {
+                    currentLine.text += character;
+                    currentLine.left = Math.min(
+                        currentLine.left,
+                        rect.left
+                    );
+                    currentLine.right = Math.max(
+                        currentLine.right,
+                        rect.right
+                    );
+                    currentLine.top = Math.min(
+                        currentLine.top,
+                        rect.top
+                    );
+                    currentLine.bottom = Math.max(
+                        currentLine.bottom,
+                        rect.bottom
+                    );
+                }
+            }
+        }
+
+        return lines
+            .map(function (line) {
+                return {
+                    ...line,
+                    text: line.text.trim()
+                };
+            })
+            .filter(function (line) {
+                return line.text;
+            });
+    }
+
+    async function createThumbnailBlob() {
+        const wrap = document.querySelector(
+            ".thumbnail-detail-wrap"
+        );
+
+        const image = wrap &&
+            wrap.querySelector(".post-main-image");
+
+        if (!wrap || !image) {
+            throw new Error("썸네일 이미지를 찾지 못했습니다.");
+        }
+
+        if (document.fonts && document.fonts.ready) {
+            await document.fonts.ready;
+        }
+
+        if (!image.complete || !image.naturalWidth) {
+            await new Promise(function (resolve, reject) {
+                image.addEventListener("load", resolve, {
+                    once: true
+                });
+
+                image.addEventListener("error", function () {
+                    reject(
+                        new Error(
+                            "썸네일 원본 이미지를 불러오지 못했습니다."
+                        )
+                    );
+                }, {
+                    once: true
+                });
+            });
+        }
+
+        if (!image.naturalWidth || !image.naturalHeight) {
+            throw new Error("썸네일 원본 크기를 확인하지 못했습니다.");
+        }
+
+        const imageRect = image.getBoundingClientRect();
+
+        if (!imageRect.width || !imageRect.height) {
+            throw new Error("화면의 썸네일 크기를 확인하지 못했습니다.");
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+
+        const context = canvas.getContext("2d");
+
+        if (!context) {
+            throw new Error("Canvas를 생성하지 못했습니다.");
+        }
+
+        const scaleX = canvas.width / imageRect.width;
+        const scaleY = canvas.height / imageRect.height;
+        const scale = Math.min(scaleX, scaleY);
+
+        const wrapStyle = window.getComputedStyle(wrap);
+        const wrapRadius =
+            (parseFloat(wrapStyle.borderRadius) || 0) * scale;
+
+        context.save();
+
+        roundedRectanglePath(
+            context,
+            0,
+            0,
+            canvas.width,
+            canvas.height,
+            wrapRadius
+        );
+
+        context.clip();
+        context.drawImage(
+            image,
+            0,
+            0,
+            canvas.width,
+            canvas.height
+        );
+
+        context.restore();
+
+        const overlay = wrap.querySelector(
+            ".thumbnail-detail-text-overlay"
+        );
+
+        if (overlay && overlay.textContent.trim()) {
+            const overlayRect = overlay.getBoundingClientRect();
+            const computed = window.getComputedStyle(overlay);
+
+            const x =
+                (overlayRect.left - imageRect.left) * scaleX;
+            const y =
+                (overlayRect.top - imageRect.top) * scaleY;
+            const width = overlayRect.width * scaleX;
+            const height = overlayRect.height * scaleY;
+
+            const radius =
+                (parseFloat(computed.borderRadius) || 0) * scale;
+
+            /*
+             * 화면의 backdrop-filter와 비슷하게
+             * 문구 박스 안쪽 배경만 약하게 흐리게 처리
+             */
+            const backdrop =
+                computed.backdropFilter ||
+                computed.webkitBackdropFilter ||
+                "";
+
+            const blurMatch = backdrop.match(
+                /blur\(([\d.]+)px\)/
+            );
+
+            if (blurMatch) {
+                const blurAmount =
+                    parseFloat(blurMatch[1]) * scale;
+
+                const blurCanvas =
+                    document.createElement("canvas");
+
+                blurCanvas.width = canvas.width;
+                blurCanvas.height = canvas.height;
+
+                const blurContext =
+                    blurCanvas.getContext("2d");
+
+                if (blurContext) {
+                    blurContext.filter =
+                        "blur(" + blurAmount + "px)";
+
+                    blurContext.drawImage(
+                        image,
+                        0,
+                        0,
+                        canvas.width,
+                        canvas.height
+                    );
+
+                    context.save();
+
+                    roundedRectanglePath(
+                        context,
+                        x,
+                        y,
+                        width,
+                        height,
+                        radius
+                    );
+
+                    context.clip();
+                    context.drawImage(blurCanvas, 0, 0);
+                    context.restore();
+                }
+            }
+
+            context.save();
+
+            context.shadowColor =
+                "rgba(15, 23, 42, 0.24)";
+            context.shadowBlur = 18 * scale;
+            context.shadowOffsetX = 0;
+            context.shadowOffsetY = 8 * scale;
+
+            roundedRectanglePath(
+                context,
+                x,
+                y,
+                width,
+                height,
+                radius
+            );
+
+            context.fillStyle =
+                computed.backgroundColor ||
+                "rgba(17, 24, 39, 0.78)";
+
+            context.fill();
+            context.restore();
+
+            const borderWidth =
+                (parseFloat(computed.borderTopWidth) || 0) *
+                scale;
+
+            if (
+                borderWidth > 0 &&
+                computed.borderTopStyle !== "none"
+            ) {
+                context.save();
+
+                roundedRectanglePath(
+                    context,
+                    x + borderWidth / 2,
+                    y + borderWidth / 2,
+                    width - borderWidth,
+                    height - borderWidth,
+                    Math.max(0, radius - borderWidth / 2)
+                );
+
+                context.strokeStyle =
+                    computed.borderTopColor;
+                context.lineWidth = borderWidth;
+                context.stroke();
+
+                context.restore();
+            }
+
+            const fontSizeCss =
+                parseFloat(computed.fontSize) || 38;
+
+            const fontSize = fontSizeCss * scaleY;
+            const fontStyle =
+                computed.fontStyle || "normal";
+            const fontWeight =
+                computed.fontWeight || "900";
+            const fontFamily =
+                computed.fontFamily ||
+                '-apple-system, BlinkMacSystemFont, "Noto Sans KR", sans-serif';
+
+            context.font =
+                fontStyle + " " +
+                fontWeight + " " +
+                fontSize + "px " +
+                fontFamily;
+
+            context.fillStyle =
+                computed.color || "#ffffff";
+
+            context.textAlign = "left";
+            context.textBaseline = "alphabetic";
+            context.textRendering = "optimizeLegibility";
+
+            if ("letterSpacing" in context) {
+                context.letterSpacing =
+                    computed.letterSpacing || "0px";
+            }
+
+            const renderedLines =
+                getRenderedThumbnailLines(overlay);
+
+            if (!renderedLines.length) {
+                throw new Error(
+                    "썸네일 문구의 줄 위치를 읽지 못했습니다."
+                );
+            }
+
+            renderedLines.forEach(function (line) {
+                const lineX =
+                    (line.left - imageRect.left) * scaleX;
+
+                const lineY =
+                    (line.top - imageRect.top) * scaleY;
+
+                const lineWidth =
+                    Math.max(
+                        1,
+                        (line.right - line.left) * scaleX
+                    );
+
+                const lineHeight =
+                    Math.max(
+                        fontSize,
+                        (line.bottom - line.top) * scaleY
+                    );
+
+                const metrics =
+                    context.measureText(line.text);
+
+                const ascent =
+                    metrics.actualBoundingBoxAscent ||
+                    fontSize * 0.78;
+
+                const descent =
+                    metrics.actualBoundingBoxDescent ||
+                    fontSize * 0.22;
+
+                const glyphHeight = ascent + descent;
+
+                const baseline =
+                    lineY +
+                    Math.max(0, (lineHeight - glyphHeight) / 2) +
+                    ascent;
+
+                context.fillText(
+                    line.text,
+                    lineX,
+                    baseline,
+                    lineWidth
+                );
+            });
+        }
+
+        return await new Promise(function (resolve, reject) {
+            canvas.toBlob(function (blob) {
+                if (blob) {
+                    resolve(blob);
+                    return;
+                }
+
+                reject(
+                    new Error("썸네일 PNG 생성에 실패했습니다.")
+                );
+            }, "image/png");
+        });
+    }
+
+    if (thumbnailButton) {
+        thumbnailButton.addEventListener("click", async function () {
+            thumbnailButton.disabled = true;
+
+            try {
+                if (
+                    !navigator.clipboard ||
+                    !navigator.clipboard.write ||
+                    !window.ClipboardItem
+                ) {
+                    throw new Error(
+                        "이 브라우저는 이미지 클립보드 복사를 지원하지 않습니다."
+                    );
+                }
+
+                const pngPromise = createThumbnailBlob();
+
+                await navigator.clipboard.write([
+                    new ClipboardItem({
+                        "image/png": pngPromise
+                    })
+                ]);
+
+                setButtonState(
+                    thumbnailButton,
+                    "복사 완료",
+                    "cbl-copy-success"
+                );
+            } catch (error) {
+                console.error("썸네일 복사 실패:", error);
+                setButtonState(
+                    thumbnailButton,
+                    "복사 실패",
+                    "cbl-copy-failed"
+                );
+            }
+        });
+    }
+});
+/* CBL_POST_COPY_BUTTONS_SCRIPT_END */
+</script>
+
 
 {% endblock %}
