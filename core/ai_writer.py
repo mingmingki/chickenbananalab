@@ -4774,3 +4774,285 @@ if (
     _CBL_THUMBNAIL_TOPIC_VARIETY_WRAPPED = True
 
 # CBL_THUMBNAIL_TOPIC_VARIETY_END
+
+# CBL_CLICKWORTHY_TITLE_THUMBNAIL_ONLY_START
+#
+# 본문/하이라이트/소제목/태그는 건드리지 않고,
+# 최종 반환 직전에 제목과 썸네일 문구만 별도의 저비용 모델로 다듬는다.
+#
+# 환경변수로 끌 수 있음:
+# CBL_HEADLINE_REWRITE_ENABLED=false
+# 모델 변경 가능:
+# GEMINI_HEADLINE_MODEL=gemini-2.5-flash-lite
+#
+
+_CBL_HEADLINE_REWRITE_ENABLED = os.getenv(
+    "CBL_HEADLINE_REWRITE_ENABLED",
+    "true",
+).strip().lower() not in ("0", "false", "no", "off")
+
+_CBL_HEADLINE_MODEL = os.getenv(
+    "GEMINI_HEADLINE_MODEL",
+    RECENT_ISSUE_MODEL,
+).strip() or RECENT_ISSUE_MODEL
+
+_CBL_HEADLINE_WEAK_ENDINGS = (
+    " 정리",
+    " 총정리",
+    " 알아보기",
+    " 완벽 가이드",
+    " 완벽정리",
+    " 핵심 정리",
+)
+
+_CBL_HEADLINE_BANNED_PHRASES = (
+    "무조건",
+    "충격",
+    "대박",
+    "소름",
+    "끝판왕",
+    "모르면 손해",
+    "놓치면 손해",
+    "지금 당장",
+    "폭락 확정",
+    "급등 확정",
+)
+
+_CBL_THUMBNAIL_WEAK_PHRASES = (
+    "주요 내용",
+    "핵심 정보",
+    "완벽 정리",
+    "한눈에 정리",
+    "이 기능 놓치면 손해",
+    "시장 흔들 변수",
+    "건축 확인 기준",
+    "방문 전 볼 것",
+)
+
+
+def _cbl_headline_clean_text(value, max_length):
+    value = str(value or "")
+    value = re.sub(r"<[^>]+>", " ", value)
+    value = html.unescape(value)
+    value = value.replace("\\n", " ")
+    value = re.sub(r"^[\s\"'`]+|[\s\"'`]+$", "", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    value = re.sub(r"^[\-–—:：|]+|[\-–—:：|]+$", "", value).strip()
+    return value[:max_length].strip()
+
+
+def _cbl_compact_text(value):
+    return re.sub(r"[^0-9A-Za-z가-힣]+", "", str(value or "")).lower()
+
+
+def _cbl_title_is_usable(title, keywords=""):
+    title = _cbl_headline_clean_text(title, 90)
+    keywords = _cbl_headline_clean_text(keywords, 90)
+
+    if not 12 <= len(title) <= 75:
+        return False
+
+    if any(phrase in title for phrase in _CBL_HEADLINE_BANNED_PHRASES):
+        return False
+
+    compact_title = _cbl_compact_text(title)
+    compact_keywords = _cbl_compact_text(keywords)
+
+    if compact_keywords and compact_title in {
+        compact_keywords,
+        compact_keywords + "정리",
+        compact_keywords + "총정리",
+        compact_keywords + "알아보기",
+    }:
+        return False
+
+    if any(title.endswith(ending) for ending in _CBL_HEADLINE_WEAK_ENDINGS):
+        return False
+
+    # 핵심 키워드가 완전히 사라진 엉뚱한 제목 방지
+    keyword_tokens = re.findall(r"[0-9A-Za-z가-힣+#.\-]{2,}", keywords)
+    if keyword_tokens and not any(
+        _cbl_compact_text(token) in compact_title
+        for token in keyword_tokens[:6]
+    ):
+        return False
+
+    return True
+
+
+def _cbl_thumbnail_text_is_usable(thumbnail_text, title=""):
+    thumbnail_text = _cbl_headline_clean_text(thumbnail_text, 30)
+    title = _cbl_headline_clean_text(title, 90)
+
+    if not 5 <= len(thumbnail_text) <= 22:
+        return False
+
+    if any(phrase in thumbnail_text for phrase in _CBL_HEADLINE_BANNED_PHRASES):
+        return False
+
+    if any(phrase in thumbnail_text for phrase in _CBL_THUMBNAIL_WEAK_PHRASES):
+        return False
+
+    if _cbl_compact_text(thumbnail_text) == _cbl_compact_text(title):
+        return False
+
+    return True
+
+
+def _cbl_generate_title_thumbnail_pair(
+    keywords="",
+    current_title="",
+    current_thumbnail_text="",
+    summary="",
+    category="",
+):
+    """
+    본문은 다시 생성하지 않고 제목과 썸네일 문구만 한 번 다듬는다.
+    실패하거나 결과가 기준에 미달하면 기존 값을 그대로 유지한다.
+    """
+    if not _CBL_HEADLINE_REWRITE_ENABLED:
+        return None
+
+    keywords = _cbl_headline_clean_text(keywords, 120)
+    current_title = _cbl_headline_clean_text(current_title, 120)
+    current_thumbnail_text = _cbl_headline_clean_text(
+        current_thumbnail_text,
+        40,
+    )
+    summary = _cbl_headline_clean_text(summary, 500)
+    category = _cbl_headline_clean_text(category, 30)
+
+    if not keywords and not current_title:
+        return None
+
+    prompt = f"""
+너는 한국어 블로그의 제목과 썸네일 카피만 다듬는 헤드라인 편집자다.
+본문은 이미 완성되어 있으므로 절대 다시 쓰거나 요약하지 마라.
+아래 정보만 보고 최종 title과 thumbnail_text 두 필드만 만들어라.
+
+카테고리: {category or '미지정'}
+입력 키워드: {keywords or current_title}
+현재 제목: {current_title or keywords}
+현재 썸네일 문구: {current_thumbnail_text}
+본문 요약: {summary}
+
+제목 작성 규칙:
+- 핵심 키워드를 자연스럽게 포함한다.
+- 검색 유입과 클릭 이유가 동시에 보이게 한다.
+- 독자가 얻는 정보, 해결되는 문제, 비교 기준 또는 궁금증 중 하나를 분명히 드러낸다.
+- 28~55자 정도를 우선하되, 억지로 늘이지 않는다.
+- 키워드를 붙여 쓴 뒤 '정리', '총정리', '알아보기'만 덧붙이는 제목은 금지한다.
+- '충격', '대박', '무조건', '모르면 손해', '놓치면 손해' 같은 과장형 낚시 문구는 금지한다.
+- 확인되지 않은 사실, 수치, 가격, 전망을 새로 만들지 않는다.
+- HTML, 따옴표, 해시태그를 넣지 않는다.
+- 제목 후보를 내부적으로 여러 개 비교한 뒤 가장 자연스럽고 구체적인 하나만 반환한다.
+
+썸네일 문구 작성 규칙:
+- 제목을 그대로 줄이거나 복사하지 않는다.
+- 7~16자 정도의 짧은 문구를 우선한다.
+- 핵심 대상이나 독자가 궁금해할 차이·문제·결과가 한눈에 보이게 한다.
+- '주요 내용', '핵심 정보', '완벽 정리', '이 기능 놓치면 손해', '시장 흔들 변수' 같은 범용 문구는 금지한다.
+- 과장하거나 공포를 조장하지 않는다.
+- HTML, 따옴표, 해시태그를 넣지 않는다.
+
+반드시 아래 JSON 객체만 반환해라.
+{{
+  "title": "최종 블로그 제목",
+  "thumbnail_text": "최종 썸네일 문구"
+}}
+""".strip()
+
+    try:
+        client = get_gemini_client()
+        response = client.models.generate_content(
+            model=_CBL_HEADLINE_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.85,
+                max_output_tokens=300,
+            ),
+        )
+        response_text = _extract_text_from_gemini_response(response)
+        data = extract_json(response_text)
+    except Exception as error:
+        print("CBL title/thumbnail rewrite skipped:", error)
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    title = _cbl_headline_clean_text(data.get("title"), 90)
+    thumbnail_text = _cbl_headline_clean_text(
+        data.get("thumbnail_text"),
+        30,
+    )
+
+    if not _cbl_title_is_usable(title, keywords=keywords):
+        return None
+
+    if not _cbl_thumbnail_text_is_usable(
+        thumbnail_text,
+        title=title,
+    ):
+        return None
+
+    return {
+        "title": title,
+        "thumbnail_text": thumbnail_text,
+    }
+
+
+if (
+    "generate_ai_post" in globals()
+    and not globals().get(
+        "_CBL_CLICKWORTHY_TITLE_THUMBNAIL_ONLY_WRAPPED",
+        False,
+    )
+):
+    _cbl_previous_generate_ai_post_for_headline = generate_ai_post
+
+    def generate_ai_post(*args, **kwargs):
+        result = _cbl_previous_generate_ai_post_for_headline(
+            *args,
+            **kwargs,
+        )
+
+        if not isinstance(result, dict):
+            return result
+
+        category = kwargs.get(
+            "category",
+            args[0] if len(args) > 0 else "",
+        )
+        keywords = kwargs.get(
+            "keywords",
+            args[1] if len(args) > 1 else "",
+        )
+
+        pair = _cbl_generate_title_thumbnail_pair(
+            keywords=keywords,
+            current_title=result.get("title", ""),
+            current_thumbnail_text=result.get(
+                "thumbnail_text",
+                "",
+            ),
+            summary=(
+                result.get("summary")
+                or result.get("meta_description")
+                or ""
+            ),
+            category=category,
+        )
+
+        if pair:
+            # 중요: 본문, 하이라이트, 소제목, 태그, 이미지에는 손대지 않는다.
+            result["title"] = pair["title"]
+            result["thumbnail_text"] = pair["thumbnail_text"]
+
+        return result
+
+    _CBL_CLICKWORTHY_TITLE_THUMBNAIL_ONLY_WRAPPED = True
+
+# CBL_CLICKWORTHY_TITLE_THUMBNAIL_ONLY_END
+
