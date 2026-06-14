@@ -155,6 +155,913 @@
             }
         }
     </style>
+
+<!-- CBL_FIXED_TOOL_CARDS_STYLE_START -->
+<style>
+  .cbl-fixed-tools {
+    position: fixed;
+    top: 50%;
+    right: 18px;
+    z-index: 1200;
+    display: flex;
+    width: 220px;
+    max-height: calc(100vh - 40px);
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    transform: translateY(-50%);
+    scrollbar-width: thin;
+  }
+
+  .cbl-fixed-tool-card {
+    display: block;
+    width: 100%;
+    padding: 15px 16px;
+    border: 1px solid #dfe5e1;
+    border-radius: 13px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 6px 20px rgba(16, 24, 40, 0.08);
+    color: #161b18;
+    text-align: left;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    transition:
+      transform 0.18s ease,
+      border-color 0.18s ease,
+      box-shadow 0.18s ease;
+  }
+
+  .cbl-fixed-tool-card:hover,
+  .cbl-fixed-tool-card:focus-visible {
+    border-color: #41a86b;
+    box-shadow: 0 9px 26px rgba(16, 24, 40, 0.13);
+    outline: none;
+    transform: translateY(-2px);
+  }
+
+  .cbl-fixed-tool-title,
+  .cbl-fixed-tool-description {
+    display: block;
+  }
+
+  .cbl-fixed-tool-title {
+    font-size: 15px;
+    font-weight: 750;
+    line-height: 1.35;
+    letter-spacing: -0.02em;
+  }
+
+  .cbl-fixed-tool-description {
+    margin-top: 5px;
+    color: #69736d;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .cbl-tool-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 2500;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 22px;
+  }
+
+  .cbl-tool-modal.is-open {
+    display: flex;
+  }
+
+  .cbl-tool-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(12, 18, 14, 0.56);
+    backdrop-filter: blur(3px);
+  }
+
+  .cbl-tool-modal-dialog {
+    position: relative;
+    z-index: 1;
+    width: min(680px, 100%);
+    max-height: calc(100vh - 44px);
+    overflow-y: auto;
+    border: 1px solid #e1e7e3;
+    border-radius: 18px;
+    background: #ffffff;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.24);
+  }
+
+  .cbl-tool-modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 21px 22px 17px;
+    border-bottom: 1px solid #edf0ee;
+  }
+
+  .cbl-tool-modal-title {
+    margin: 0;
+    color: #151a17;
+    font-size: 21px;
+    font-weight: 780;
+    line-height: 1.3;
+    letter-spacing: -0.03em;
+  }
+
+  .cbl-tool-modal-description {
+    margin: 7px 0 0;
+    color: #6b756f;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .cbl-tool-modal-close {
+    flex: 0 0 auto;
+    width: 36px;
+    height: 36px;
+    border: 1px solid #dfe5e1;
+    border-radius: 10px;
+    background: #ffffff;
+    color: #333b36;
+    font-size: 23px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .cbl-tool-modal-close:hover,
+  .cbl-tool-modal-close:focus-visible {
+    border-color: #8fa097;
+    background: #f6f8f7;
+    outline: none;
+  }
+
+  .cbl-tool-modal-body {
+    padding: 22px;
+  }
+
+  .cbl-quantity-drop-zone {
+    display: block;
+    min-height: 220px;
+    border: 2px dashed #bdc9c1;
+    border-radius: 16px;
+    background: #f8faf9;
+    cursor: pointer;
+    transition:
+      border-color 0.18s ease,
+      background 0.18s ease;
+  }
+
+  .cbl-quantity-drop-zone:hover,
+  .cbl-quantity-drop-zone:focus-within,
+  .cbl-quantity-drop-zone.is-dragover {
+    border-color: #41a86b;
+    background: #f0faf4;
+  }
+
+  .cbl-quantity-drop-inner {
+    min-height: 220px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 28px;
+    text-align: center;
+  }
+
+  .cbl-quantity-drop-title {
+    color: #18201b;
+    font-size: 17px;
+    font-weight: 760;
+    line-height: 1.4;
+  }
+
+  .cbl-quantity-drop-guide {
+    margin-top: 9px;
+    color: #69736d;
+    font-size: 13px;
+    line-height: 1.65;
+  }
+
+  .cbl-quantity-file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .cbl-quantity-file-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  .cbl-quantity-file-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 11px 12px;
+    border: 1px solid #e1e7e3;
+    border-radius: 10px;
+    background: #ffffff;
+    color: #303832;
+    font-size: 13px;
+  }
+
+  .cbl-quantity-file-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cbl-quantity-file-meta {
+    flex: 0 0 auto;
+    color: #7b857f;
+    font-size: 12px;
+  }
+
+  .cbl-quantity-checks {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .cbl-quantity-check {
+    padding: 12px 13px;
+    border: 1px solid #e1e7e3;
+    border-radius: 11px;
+    background: #f8faf9;
+  }
+
+  .cbl-quantity-check-label {
+    display: block;
+    color: #69736d;
+    font-size: 12px;
+  }
+
+  .cbl-quantity-check-status {
+    display: block;
+    margin-top: 5px;
+    font-size: 14px;
+    font-weight: 750;
+  }
+
+  .cbl-quantity-check-status.is-ready {
+    color: #21844a;
+  }
+
+  .cbl-quantity-check-status.is-missing {
+    color: #c23d3d;
+  }
+
+  .cbl-quantity-check-status.is-pending {
+    color: #9a6b0a;
+  }
+
+  .cbl-tool-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 9px;
+    padding-top: 18px;
+  }
+
+  .cbl-tool-button {
+    min-height: 42px;
+    padding: 10px 16px;
+    border: 1px solid #d7dfda;
+    border-radius: 10px;
+    background: #ffffff;
+    color: #2b332e;
+    font-size: 14px;
+    font-weight: 720;
+    cursor: pointer;
+  }
+
+  .cbl-tool-button-primary {
+    border-color: #2d9257;
+    background: #2d9257;
+    color: #ffffff;
+  }
+
+  .cbl-tool-button:disabled {
+    border-color: #dfe5e1;
+    background: #e9eeeb;
+    color: #9aa49e;
+    cursor: not-allowed;
+  }
+
+  .cbl-program-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .cbl-program-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 15px 16px;
+    border: 1px solid #e1e7e3;
+    border-radius: 12px;
+    background: #f9fbfa;
+  }
+
+  .cbl-program-item-title {
+    color: #202722;
+    font-size: 15px;
+    font-weight: 750;
+  }
+
+  .cbl-program-item-description {
+    margin-top: 4px;
+    color: #737d77;
+    font-size: 12px;
+  }
+
+  .cbl-program-status {
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    border: 1px solid #d9e0dc;
+    border-radius: 9px;
+    background: #ffffff;
+    color: #737d77;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  body.cbl-modal-open {
+    overflow: hidden;
+  }
+
+  @media (max-width: 1180px) {
+    .cbl-fixed-tools {
+      right: 10px;
+      width: 190px;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .cbl-fixed-tools {
+      top: auto;
+      right: 10px;
+      bottom: 10px;
+      left: 10px;
+      width: auto;
+      max-height: none;
+      flex-direction: row;
+      gap: 8px;
+      overflow: visible;
+      transform: none;
+    }
+
+    .cbl-fixed-tool-card {
+      min-width: 0;
+      padding: 11px 12px;
+      text-align: center;
+    }
+
+    .cbl-fixed-tool-title {
+      font-size: 13px;
+    }
+
+    .cbl-fixed-tool-description {
+      display: none;
+    }
+
+    .cbl-tool-modal {
+      align-items: flex-end;
+      padding: 10px;
+    }
+
+    .cbl-tool-modal-dialog {
+      max-height: calc(100vh - 20px);
+      border-radius: 17px;
+    }
+
+    .cbl-tool-modal-header,
+    .cbl-tool-modal-body {
+      padding-right: 17px;
+      padding-left: 17px;
+    }
+
+    .cbl-quantity-checks {
+      grid-template-columns: 1fr;
+    }
+
+    .cbl-tool-modal-actions {
+      flex-direction: column-reverse;
+    }
+
+    .cbl-tool-button {
+      width: 100%;
+    }
+  }
+</style>
+
+
+
+<!-- CBL_FIXED_TOOL_CARDS_STYLE_END -->
+
+
+
+
+
+
+
+
+
+
+
+<!-- CBL_FIXED_TOOL_CARD_DESIGN_START -->
+<style>
+  .cbl-fixed-tools {
+    width: 154px !important;
+    gap: 12px !important;
+  }
+
+  .cbl-fixed-tool-card {
+    position: relative !important;
+    min-height: 116px !important;
+    padding: 14px 13px 13px 15px !important;
+    overflow: hidden !important;
+    border: 1px solid #dce4df !important;
+    border-left-width: 4px !important;
+    border-radius: 15px !important;
+    background: #ffffff !important;
+    box-shadow: 0 8px 24px rgba(22, 32, 26, 0.09) !important;
+    text-align: left !important;
+    transition:
+      transform 0.18s ease,
+      border-color 0.18s ease,
+      box-shadow 0.18s ease !important;
+  }
+
+  .cbl-fixed-tool-card::after {
+    content: "";
+    position: absolute;
+    right: -24px;
+    bottom: -28px;
+    width: 84px;
+    height: 84px;
+    border-radius: 50%;
+    opacity: 0.65;
+    pointer-events: none;
+  }
+
+  .cbl-fixed-tool-card--quantity {
+    border-left-color: #26a65b !important;
+    background:
+      linear-gradient(145deg, #ffffff 0%, #f4fbf7 100%) !important;
+  }
+
+  .cbl-fixed-tool-card--quantity::after {
+    background: rgba(38, 166, 91, 0.10);
+  }
+
+  .cbl-fixed-tool-card--program {
+    border-left-color: #17233a !important;
+    background:
+      linear-gradient(145deg, #ffffff 0%, #f5f7fb 100%) !important;
+  }
+
+  .cbl-fixed-tool-card--program::after {
+    background: rgba(23, 35, 58, 0.08);
+  }
+
+  .cbl-fixed-tool-card:hover,
+  .cbl-fixed-tool-card:focus-visible {
+    transform: translateY(-3px) !important;
+    box-shadow: 0 13px 30px rgba(22, 32, 26, 0.14) !important;
+    outline: none !important;
+  }
+
+  .cbl-fixed-tool-card--quantity:hover,
+  .cbl-fixed-tool-card--quantity:focus-visible {
+    border-color: #26a65b !important;
+  }
+
+  .cbl-fixed-tool-card--program:hover,
+  .cbl-fixed-tool-card--program:focus-visible {
+    border-color: #17233a !important;
+  }
+
+  .cbl-tool-card-kicker,
+  .cbl-tool-card-title,
+  .cbl-tool-card-description,
+  .cbl-tool-card-action {
+    position: relative;
+    z-index: 1;
+    display: block;
+  }
+
+  .cbl-tool-card-kicker {
+    margin-bottom: 7px;
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 1.25;
+    letter-spacing: 0.08em;
+  }
+
+  .cbl-fixed-tool-card--quantity .cbl-tool-card-kicker {
+    color: #218c4d;
+  }
+
+  .cbl-fixed-tool-card--program .cbl-tool-card-kicker {
+    color: #33415c;
+  }
+
+  .cbl-tool-card-title {
+    color: #161c18;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1.38;
+    letter-spacing: -0.03em;
+    word-break: keep-all;
+  }
+
+  .cbl-tool-card-description {
+    margin-top: 6px;
+    color: #707a74;
+    font-size: 10px;
+    line-height: 1.45;
+    word-break: keep-all;
+  }
+
+  .cbl-tool-card-action {
+    margin-top: 10px;
+    color: #26312a;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1.2;
+  }
+
+  .cbl-fixed-tool-card--quantity .cbl-tool-card-action {
+    color: #218c4d;
+  }
+
+  .cbl-fixed-tool-card--program .cbl-tool-card-action {
+    color: #263650;
+  }
+
+  @media (max-width: 1439px) {
+    body {
+      padding-right: 176px !important;
+    }
+  }
+
+  @media (max-width: 760px) {
+    body {
+      padding-right: 116px !important;
+    }
+
+    .cbl-fixed-tools {
+      right: 6px !important;
+      width: 104px !important;
+      gap: 8px !important;
+    }
+
+    .cbl-fixed-tool-card {
+      min-height: 102px !important;
+      padding: 11px 8px 10px 10px !important;
+      align-items: flex-start !important;
+      text-align: left !important;
+    }
+
+    .cbl-tool-card-kicker {
+      margin-bottom: 5px;
+      font-size: 7px;
+      letter-spacing: 0.05em;
+    }
+
+    .cbl-tool-card-title {
+      font-size: 11px;
+      line-height: 1.38;
+      text-align: left !important;
+    }
+
+    .cbl-tool-card-description {
+      margin-top: 5px;
+      font-size: 8px;
+      line-height: 1.4;
+    }
+
+    .cbl-tool-card-action {
+      margin-top: 7px;
+      font-size: 8px;
+    }
+  }
+
+  @media (max-width: 390px) {
+    body {
+      padding-right: 104px !important;
+    }
+
+    .cbl-fixed-tools {
+      right: 5px !important;
+      width: 94px !important;
+    }
+
+    .cbl-fixed-tool-card {
+      min-height: 98px !important;
+      padding-right: 7px !important;
+      padding-left: 9px !important;
+    }
+
+    .cbl-tool-card-description {
+      display: none;
+    }
+  }
+</style>
+<!-- CBL_FIXED_TOOL_CARD_DESIGN_END -->
+
+
+<!-- CBL_FIXED_TOOLS_CONTENT_ANCHOR_START -->
+<style>
+  /*
+   * 기본 위치:
+   * 화면 오른쪽 끝을 따라다니지 않고 시세창 오른쪽에 고정합니다.
+   * 창이 충분히 넓을 때는 화면 폭이 변해도 본문 기준 위치를 유지합니다.
+   */
+  .cbl-fixed-tools {
+    position: fixed !important;
+    top: var(--cbl-tools-top, 300px) !important;
+    right: auto !important;
+    bottom: auto !important;
+    left: var(--cbl-tools-left, calc(50% + 590px)) !important;
+    z-index: 1200 !important;
+
+    width: 154px !important;
+    max-height: var(--cbl-tools-max-height, calc(100vh - 320px)) !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    transform: none !important;
+    visibility: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+
+  .cbl-fixed-tools.cbl-position-ready {
+    visibility: visible;
+  }
+
+  /*
+   * 오른쪽 공간이 부족해지는 순간에만 본문을 왼쪽으로 밀어
+   * 세로 도구 레일 공간을 확보합니다.
+   */
+  body.cbl-tools-inset {
+    box-sizing: border-box !important;
+    padding-right: 176px !important;
+  }
+
+  /*
+   * 작은 화면에서도 하단형으로 바뀌지 않고 오른쪽 세로형을 유지합니다.
+   */
+  @media (max-width: 760px) {
+    body.cbl-tools-inset {
+      padding-right: 116px !important;
+      padding-bottom: 0 !important;
+    }
+
+    .cbl-fixed-tools {
+      width: 104px !important;
+      gap: 8px !important;
+    }
+  }
+
+  @media (max-width: 390px) {
+    body.cbl-tools-inset {
+      padding-right: 104px !important;
+    }
+
+    .cbl-fixed-tools {
+      width: 94px !important;
+    }
+  }
+</style>
+
+<script>
+(function () {
+  "use strict";
+
+  var insetActive = false;
+  var insetReleaseWidth = 0;
+
+  function findMarketAnchor() {
+    var selectors = [
+      ".cbl-market-v2",
+      ".cbl-market-grid",
+      ".cbl-market-board",
+      ".market-board",
+      ".market-grid",
+      "[data-market-board]"
+    ];
+
+    for (var i = 0; i < selectors.length; i += 1) {
+      var direct = document.querySelector(selectors[i]);
+      if (direct) return direct;
+    }
+
+    /*
+     * 시세창 클래스가 달라도 주요 종목 문구가 들어간 가장 작은 영역을 찾습니다.
+     */
+    var nodes = document.querySelectorAll("div, section");
+    var best = null;
+    var bestArea = Infinity;
+
+    for (var j = 0; j < nodes.length; j += 1) {
+      var node = nodes[j];
+      var text = (node.textContent || "").replace(/\s+/g, " ").trim();
+
+      if (
+        text.indexOf("KOSPI") === -1 ||
+        text.indexOf("BTC") === -1 ||
+        text.indexOf("USD/KRW") === -1
+      ) {
+        continue;
+      }
+
+      var rect = node.getBoundingClientRect();
+      var area = rect.width * rect.height;
+
+      if (
+        rect.width >= 250 &&
+        rect.height >= 60 &&
+        rect.height <= 430 &&
+        area < bestArea
+      ) {
+        best = node;
+        bestArea = area;
+      }
+    }
+
+    return best;
+  }
+
+  function getHeaderBottom() {
+    var header = document.querySelector("header");
+    if (!header) return 12;
+
+    var rect = header.getBoundingClientRect();
+    return Math.max(12, rect.bottom + 10);
+  }
+
+  function railWidthForViewport() {
+    if (window.innerWidth <= 390) return 94;
+    if (window.innerWidth <= 760) return 104;
+    return 154;
+  }
+
+  function insetSpaceForViewport() {
+    if (window.innerWidth <= 390) return 104;
+    if (window.innerWidth <= 760) return 116;
+    return 176;
+  }
+
+  function applyInset(active) {
+    insetActive = active;
+    document.body.classList.toggle("cbl-tools-inset", active);
+  }
+
+  function positionTools() {
+    var tools = document.querySelector(".cbl-fixed-tools");
+    if (!tools) return;
+
+    var market = findMarketAnchor();
+    var headerBottom = getHeaderBottom();
+    var railWidth = railWidthForViewport();
+    var edgeGap = window.innerWidth <= 760 ? 6 : 10;
+    var marketGap = 12;
+
+    var desiredLeft = window.innerWidth - railWidth - edgeGap;
+    var marketTop = headerBottom;
+    var marketBottom = headerBottom;
+
+    if (market) {
+      var marketRect = market.getBoundingClientRect();
+      desiredLeft = marketRect.right + marketGap;
+      marketTop = marketRect.top;
+      marketBottom = marketRect.bottom;
+    }
+
+    var maximumLeft = window.innerWidth - railWidth - edgeGap;
+    var needsInset = desiredLeft > maximumLeft;
+
+    /*
+     * 경계에서 창 크기를 조금 바꿀 때 레이아웃이 좌우로 떨리지 않도록
+     * 36px의 해제 여유를 둡니다.
+     */
+    if (!insetActive && needsInset) {
+      insetReleaseWidth =
+        window.innerWidth + (desiredLeft - maximumLeft) + 36;
+      applyInset(true);
+
+      /*
+       * 본문이 밀린 뒤 시세창 위치가 바뀌므로 다음 프레임에서 다시 계산합니다.
+       */
+      window.requestAnimationFrame(positionTools);
+      return;
+    }
+
+    if (
+      insetActive &&
+      window.innerWidth > insetReleaseWidth
+    ) {
+      applyInset(false);
+      window.requestAnimationFrame(positionTools);
+      return;
+    }
+
+    if (insetActive) {
+      /*
+       * 공간이 부족할 때만 오른쪽 안쪽으로 들어옵니다.
+       * 평소에는 시세창 오른쪽의 같은 위치에 가만히 있습니다.
+       */
+      desiredLeft = window.innerWidth - railWidth - edgeGap;
+    } else {
+      desiredLeft = Math.min(desiredLeft, maximumLeft);
+    }
+
+    var top;
+    if (market && marketBottom > headerBottom) {
+      top = marketTop;
+    } else {
+      top = headerBottom;
+    }
+
+    var maxHeight = Math.max(
+      150,
+      window.innerHeight - Math.max(headerBottom, top) - 10
+    );
+
+    tools.style.setProperty(
+      "--cbl-tools-left",
+      Math.round(Math.max(edgeGap, desiredLeft)) + "px"
+    );
+    tools.style.setProperty(
+      "--cbl-tools-top",
+      Math.round(top) + "px"
+    );
+    tools.style.setProperty(
+      "--cbl-tools-max-height",
+      Math.round(maxHeight) + "px"
+    );
+    tools.classList.add("cbl-position-ready");
+  }
+
+  var ticking = false;
+
+  function schedulePosition() {
+    if (ticking) return;
+
+    ticking = true;
+    window.requestAnimationFrame(function () {
+      positionTools();
+      ticking = false;
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", schedulePosition);
+  window.addEventListener("load", schedulePosition);
+  window.addEventListener("resize", schedulePosition);
+  window.addEventListener("scroll", schedulePosition, { passive: true });
+})();
+</script>
+<!-- CBL_FIXED_TOOLS_CONTENT_ANCHOR_END -->
+
+
+<!-- CBL_QUANTITY_READY_NOTICE_STYLE_START -->
+<style>
+  .cbl-quantity-ready-notice {
+    margin-bottom: 16px;
+    padding: 13px 14px;
+    border: 1px solid #cfe8d8;
+    border-radius: 12px;
+    background: #f3fbf6;
+    color: #24633c;
+    font-size: 14px;
+    font-weight: 750;
+    line-height: 1.5;
+    text-align: center;
+  }
+
+  .cbl-quantity-ready-notice small {
+    display: block;
+    margin-top: 4px;
+    color: #688073;
+    font-size: 12px;
+    font-weight: 500;
+  }
+</style>
+<!-- CBL_QUANTITY_READY_NOTICE_STYLE_END -->
+
 </head>
 
 <body>
@@ -4685,6 +5592,421 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 <!-- CBL_AI_ROW_PAYLOAD_LOCK_END -->
 <!-- CBL_ADSENSE_ADMIN_AI_BLOCKS_GUARD_END -->
 {% endif %}
+
+
+<!-- CBL_FIXED_TOOL_CARDS_HTML_START -->
+<div class="cbl-fixed-tools" aria-label="빠른 기능">
+  <button
+    type="button"
+    class="cbl-fixed-tool-card cbl-fixed-tool-card--quantity"
+    data-cbl-modal-open="cblQuantityTakeoffModal"
+    aria-haspopup="dialog"
+  >
+    <span class="cbl-tool-card-kicker">STRUCTURE TAKEOFF</span>
+    <span class="cbl-tool-card-title">수량산출 자동화</span>
+    <span class="cbl-tool-card-description">CAD·PDF 구조도면 분석</span>
+    <span class="cbl-tool-card-action">분석 시작&nbsp; →</span>
+</button>
+
+  <button
+    type="button"
+    class="cbl-fixed-tool-card cbl-fixed-tool-card--program"
+    data-cbl-modal-open="cblProgramDownloadModal"
+    aria-haspopup="dialog"
+  >
+    <span class="cbl-tool-card-kicker">CBL PROGRAMS</span>
+    <span class="cbl-tool-card-title">치킨바나나랩 프로그램</span>
+    <span class="cbl-tool-card-description">실용적 프로그램 모음</span>
+    <span class="cbl-tool-card-action">프로그램 보기&nbsp; →</span>
+</button>
+</div>
+
+<div
+  id="cblQuantityTakeoffModal"
+  class="cbl-tool-modal"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="cblQuantityTakeoffTitle"
+  aria-hidden="true"
+>
+  <div class="cbl-tool-modal-backdrop" data-cbl-modal-close></div>
+
+  <div class="cbl-tool-modal-dialog" tabindex="-1">
+    <header class="cbl-tool-modal-header">
+      <div>
+        <h2 id="cblQuantityTakeoffTitle" class="cbl-tool-modal-title">
+          수량산출 자동화 시스템
+        </h2>
+        <p class="cbl-tool-modal-description">
+          프로젝트 CAD와 PDF를 업로드해 주세요.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        class="cbl-tool-modal-close"
+        data-cbl-modal-close
+        aria-label="닫기"
+      >×</button>
+    </header>
+
+    <div class="cbl-tool-modal-body">
+
+<!-- CBL_QUANTITY_READY_NOTICE_START -->
+<div class="cbl-quantity-ready-notice">
+  서비스 준비 중입니다.
+  <small>구조 수량산출 자동화 기능을 개발하고 있습니다.</small>
+</div>
+<!-- CBL_QUANTITY_READY_NOTICE_END -->
+
+      <label
+        id="cblQuantityDropZone"
+        class="cbl-quantity-drop-zone"
+        for="cblQuantityFileInput"
+      >
+        <span class="cbl-quantity-drop-inner">
+          <span class="cbl-quantity-drop-title">
+            파일을 여기에 드래그하세요
+          </span>
+          <span class="cbl-quantity-drop-guide">
+            클릭해서 직접 선택할 수도 있습니다.<br>
+            지원 형식: DWG, DXF, PDF, ZIP
+          </span>
+        </span>
+
+        <input
+          id="cblQuantityFileInput"
+          class="cbl-quantity-file-input"
+          type="file"
+          accept=".dwg,.dxf,.pdf,.zip"
+          multiple
+        >
+      </label>
+
+      <div
+        id="cblQuantityFileList"
+        class="cbl-quantity-file-list"
+        aria-live="polite"
+      ></div>
+
+      <div class="cbl-quantity-checks">
+        <div class="cbl-quantity-check">
+          <span class="cbl-quantity-check-label">CAD 파일</span>
+          <span
+            id="cblCadStatus"
+            class="cbl-quantity-check-status is-missing"
+          >확인되지 않음</span>
+        </div>
+
+        <div class="cbl-quantity-check">
+          <span class="cbl-quantity-check-label">PDF 파일</span>
+          <span
+            id="cblPdfStatus"
+            class="cbl-quantity-check-status is-missing"
+          >확인되지 않음</span>
+        </div>
+      </div>
+
+      <div class="cbl-tool-modal-actions">
+        <button
+          type="button"
+          class="cbl-tool-button"
+          data-cbl-modal-close
+        >취소</button>
+
+        <button
+          id="cblQuantityNextButton"
+          type="button"
+          class="cbl-tool-button cbl-tool-button-primary"
+          disabled
+        >다음 단계</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div
+  id="cblProgramDownloadModal"
+  class="cbl-tool-modal"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="cblProgramDownloadTitle"
+  aria-hidden="true"
+>
+  <div class="cbl-tool-modal-backdrop" data-cbl-modal-close></div>
+
+  <div class="cbl-tool-modal-dialog" tabindex="-1">
+    <header class="cbl-tool-modal-header">
+      <div>
+        <h2 id="cblProgramDownloadTitle" class="cbl-tool-modal-title">
+          치킨바나나랩 프로그램 리스트
+        </h2>
+        <p class="cbl-tool-modal-description">
+          치킨바나나랩에서 제공하는 프로그램 목록입니다.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        class="cbl-tool-modal-close"
+        data-cbl-modal-close
+        aria-label="닫기"
+      >×</button>
+    </header>
+
+    <div class="cbl-tool-modal-body">
+      
+<!-- CBL_PROGRAM_LIST_START -->
+<div class="cbl-program-list">
+  <div class="cbl-program-item">
+    <div>
+      <div class="cbl-program-item-title">ChickenBananaLabCut</div>
+      <div class="cbl-program-item-description">
+        영상 편집 프로그램
+      </div>
+    </div>
+    <span class="cbl-program-status">준비 중</span>
+  </div>
+
+  <div class="cbl-program-item">
+    <div>
+      <div class="cbl-program-item-title">ChickenBananaLabPDF</div>
+      <div class="cbl-program-item-description">
+        PDF 뷰어 프로그램
+      </div>
+    </div>
+    <span class="cbl-program-status">준비 중</span>
+  </div>
+
+  <div class="cbl-program-item">
+    <div>
+      <div class="cbl-program-item-title">ChickenBananaLabSS</div>
+      <div class="cbl-program-item-description">
+        화면 캡처·녹화 프로그램
+      </div>
+    </div>
+    <span class="cbl-program-status">준비 중</span>
+  </div>
+
+  <div class="cbl-program-item">
+    <div>
+      <div class="cbl-program-item-title">ChickenBananaLabZIP</div>
+      <div class="cbl-program-item-description">
+        압축파일 생성·해제 프로그램
+      </div>
+    </div>
+    <span class="cbl-program-status">준비 중</span>
+  </div>
+
+  <div class="cbl-program-item">
+    <div>
+      <div class="cbl-program-item-title">ChickenBananaLabViewer</div>
+      <div class="cbl-program-item-description">
+        AutoCAD 파일 뷰어
+      </div>
+    </div>
+    <span class="cbl-program-status">준비 중</span>
+  </div>
+</div>
+<!-- CBL_PROGRAM_LIST_END -->
+
+    </div>
+  </div>
+  </div>
+</div>
+<!-- CBL_FIXED_TOOL_CARDS_HTML_END -->
+
+
+<!-- CBL_FIXED_TOOL_CARDS_SCRIPT_START -->
+<script>
+(function () {
+  "use strict";
+
+  var activeModal = null;
+  var lastFocusedElement = null;
+
+  function openModal(modalId) {
+    var modal = document.getElementById(modalId);
+    if (!modal) return;
+
+    lastFocusedElement = document.activeElement;
+    activeModal = modal;
+
+    modal.classList.add("is-open");
+    modal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("cbl-modal-open");
+
+    var dialog = modal.querySelector(".cbl-tool-modal-dialog");
+    if (dialog) {
+      window.setTimeout(function () {
+        dialog.focus();
+      }, 0);
+    }
+  }
+
+  function closeModal(modal) {
+    var target = modal || activeModal;
+    if (!target) return;
+
+    target.classList.remove("is-open");
+    target.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("cbl-modal-open");
+
+    activeModal = null;
+
+    if (lastFocusedElement && typeof lastFocusedElement.focus === "function") {
+      lastFocusedElement.focus();
+    }
+  }
+
+  document.addEventListener("click", function (event) {
+    var openButton = event.target.closest("[data-cbl-modal-open]");
+    if (openButton) {
+      openModal(openButton.getAttribute("data-cbl-modal-open"));
+      return;
+    }
+
+    var closeButton = event.target.closest("[data-cbl-modal-close]");
+    if (closeButton) {
+      closeModal(closeButton.closest(".cbl-tool-modal"));
+    }
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && activeModal) {
+      closeModal(activeModal);
+    }
+  });
+
+  var fileInput = document.getElementById("cblQuantityFileInput");
+  var dropZone = document.getElementById("cblQuantityDropZone");
+  var fileList = document.getElementById("cblQuantityFileList");
+  var cadStatus = document.getElementById("cblCadStatus");
+  var pdfStatus = document.getElementById("cblPdfStatus");
+  var nextButton = document.getElementById("cblQuantityNextButton");
+
+  function fileExtension(fileName) {
+    var parts = String(fileName || "").toLowerCase().split(".");
+    return parts.length > 1 ? parts.pop() : "";
+  }
+
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
+    if (bytes < 1024 * 1024) {
+      return Math.max(1, Math.round(bytes / 1024)) + " KB";
+    }
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  function setStatus(element, text, state) {
+    if (!element) return;
+
+    element.textContent = text;
+    element.classList.remove("is-ready", "is-missing", "is-pending");
+    element.classList.add(state);
+  }
+
+  function renderSelectedFiles(files) {
+    if (!fileList || !cadStatus || !pdfStatus || !nextButton) return;
+
+    var selectedFiles = Array.from(files || []);
+    var hasCad = false;
+    var hasPdf = false;
+    var hasZip = false;
+
+    fileList.innerHTML = "";
+
+    selectedFiles.forEach(function (file) {
+      var ext = fileExtension(file.name);
+
+      if (ext === "dwg" || ext === "dxf") hasCad = true;
+      if (ext === "pdf") hasPdf = true;
+      if (ext === "zip") hasZip = true;
+
+      var item = document.createElement("div");
+      item.className = "cbl-quantity-file-item";
+
+      var name = document.createElement("span");
+      name.className = "cbl-quantity-file-name";
+      name.textContent = file.name;
+
+      var meta = document.createElement("span");
+      meta.className = "cbl-quantity-file-meta";
+      meta.textContent = formatBytes(file.size);
+
+      item.appendChild(name);
+      item.appendChild(meta);
+      fileList.appendChild(item);
+    });
+
+    if (hasCad) {
+      setStatus(cadStatus, "확인됨", "is-ready");
+    } else if (hasZip) {
+      setStatus(cadStatus, "ZIP 내부 확인 필요", "is-pending");
+    } else {
+      setStatus(cadStatus, "확인되지 않음", "is-missing");
+    }
+
+    if (hasPdf) {
+      setStatus(pdfStatus, "확인됨", "is-ready");
+    } else if (hasZip) {
+      setStatus(pdfStatus, "ZIP 내부 확인 필요", "is-pending");
+    } else {
+      setStatus(pdfStatus, "확인되지 않음", "is-missing");
+    }
+
+    nextButton.disabled = !(hasCad && hasPdf);
+  }
+
+  if (fileInput && dropZone) {
+    fileInput.addEventListener("change", function () {
+      renderSelectedFiles(fileInput.files);
+    });
+
+    ["dragenter", "dragover"].forEach(function (eventName) {
+      dropZone.addEventListener(eventName, function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        dropZone.classList.add("is-dragover");
+      });
+    });
+
+    ["dragleave", "drop"].forEach(function (eventName) {
+      dropZone.addEventListener(eventName, function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        dropZone.classList.remove("is-dragover");
+      });
+    });
+
+    dropZone.addEventListener("drop", function (event) {
+      var droppedFiles = event.dataTransfer && event.dataTransfer.files;
+      if (!droppedFiles || !droppedFiles.length) return;
+
+      try {
+        var transfer = new DataTransfer();
+        Array.from(droppedFiles).forEach(function (file) {
+          transfer.items.add(file);
+        });
+        fileInput.files = transfer.files;
+      } catch (error) {
+        // 일부 브라우저는 file input 재할당을 제한할 수 있습니다.
+      }
+
+      renderSelectedFiles(droppedFiles);
+    });
+  }
+
+  if (nextButton) {
+    nextButton.addEventListener("click", function () {
+      window.alert(
+        "CAD와 PDF가 모두 확인되었습니다. 다음 작업에서 서버 업로드와 도면 목록 검사를 연결합니다."
+      );
+    });
+  }
+})();
+</script>
+<!-- CBL_FIXED_TOOL_CARDS_SCRIPT_END -->
 
 </body>
 </html>

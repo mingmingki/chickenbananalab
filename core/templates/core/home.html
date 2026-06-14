@@ -986,4 +986,74 @@ section[style*="padding: 8px 0 32px"] .container > div[style*="grid-template-col
     updatePlainDateTime();
     setInterval(updatePlainDateTime, 1000);
 </script>
+
+<!-- CBL_MOBILE_CATEGORY_ONE_LINE_START -->
+<style>
+    /*
+     * 모바일 홈 카테고리 메뉴
+     * 건축 · 부동산 · 금융 · 테크 · 일상을 한 줄로 고정
+     */
+    @media (max-width: 600px) {
+        .search-hero .icon-menu {
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 18px auto 0 !important;
+            padding: 0 2px !important;
+
+            display: grid !important;
+            grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+            align-items: start !important;
+            justify-content: stretch !important;
+            column-gap: 4px !important;
+            row-gap: 0 !important;
+
+            flex-wrap: nowrap !important;
+            overflow: visible !important;
+        }
+
+        .search-hero .icon-menu .icon-item {
+            width: auto !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            text-align: center !important;
+        }
+
+        .search-hero .icon-menu .icon-box {
+            width: 46px !important;
+            height: 46px !important;
+            margin: 0 auto 6px !important;
+            border-radius: 15px !important;
+            font-size: 22px !important;
+        }
+
+        .search-hero .icon-menu .icon-item span {
+            display: block !important;
+            width: 100% !important;
+            font-size: 13px !important;
+            line-height: 1.2 !important;
+            white-space: nowrap !important;
+        }
+    }
+
+    @media (max-width: 390px) {
+        .search-hero .icon-menu {
+            column-gap: 2px !important;
+        }
+
+        .search-hero .icon-menu .icon-box {
+            width: 43px !important;
+            height: 43px !important;
+            border-radius: 14px !important;
+            font-size: 21px !important;
+        }
+
+        .search-hero .icon-menu .icon-item span {
+            font-size: 12px !important;
+        }
+    }
+</style>
+<!-- CBL_MOBILE_CATEGORY_ONE_LINE_END -->
+
 {% endblock %}
