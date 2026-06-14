@@ -853,6 +853,68 @@
   }
 </style>
 <!-- CBL_PUBLIC_SERVICE_LAUNCHER_STYLE_END -->
+<!-- CBL_PUBLIC_SERVICE_GUEST_CLICK_FIX_STYLE_START -->
+<style>
+  /*
+   * 비로그인 모바일 화면에서 공개 서비스 카드 위를
+   * 다른 레이어가 덮어 클릭이 막히는 문제를 방지합니다.
+   */
+  .cbl-public-service-slot {
+    position: relative !important;
+    z-index: 2147480000 !important;
+    isolation: isolate !important;
+    pointer-events: auto !important;
+  }
+
+  .cbl-public-service-launcher {
+    z-index: 2147480000 !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+
+  .cbl-public-service-card,
+  .cbl-public-service-card *,
+  .cbl-fixed-tool-card,
+  .cbl-fixed-tool-card * {
+    pointer-events: auto !important;
+  }
+
+  .cbl-public-service-card,
+  .cbl-fixed-tool-card {
+    position: relative !important;
+    z-index: 2 !important;
+    cursor: pointer !important;
+    touch-action: manipulation !important;
+    -webkit-tap-highlight-color: rgba(0, 0, 0, 0.06) !important;
+  }
+
+  /*
+   * 공개 카드가 여는 모달은 인증 화면 구조와 무관하게
+   * 항상 최상단에 표시합니다.
+   */
+  .cbl-tool-modal.is-open {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    z-index: 2147483000 !important;
+  }
+
+  .cbl-tool-modal.is-open .cbl-tool-modal-backdrop,
+  .cbl-tool-modal.is-open .cbl-tool-modal-dialog {
+    pointer-events: auto !important;
+  }
+
+  @media (max-width: 760px) {
+    .cbl-public-service-slot > .cbl-public-service-launcher {
+      position: relative !important;
+      z-index: 2147480000 !important;
+      pointer-events: auto !important;
+    }
+  }
+</style>
+<!-- CBL_PUBLIC_SERVICE_GUEST_CLICK_FIX_STYLE_END -->
 </head>
 
 <body>
@@ -3080,8 +3142,8 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 
 
 
-<script>
 {% if user.is_authenticated and user.is_staff %}
+<script>
 <!-- CBL_ADSENSE_ADMIN_AI_BLOCKS_GUARD_START -->
 /* CBL_AI_GENERATE_DRAFT_RESULT_FRONT_HOTFIX_START */
 (function () {
@@ -5609,7 +5671,6 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 
     </div>
   </div>
-  </div>
 </div>
 <!-- CBL_FIXED_TOOL_CARDS_HTML_END -->
 
@@ -6259,5 +6320,190 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 </script>
 <!-- CBL_PUBLIC_LAUNCHER_DELAYED_STICKY_END -->
 
+<!-- CBL_PUBLIC_SERVICE_GUEST_CLICK_FIX_SCRIPT_START -->
+<script>
+(function () {
+  "use strict";
+
+  if (window.__CBL_PUBLIC_SERVICE_GUEST_CLICK_FIX__) return;
+  window.__CBL_PUBLIC_SERVICE_GUEST_CLICK_FIX__ = true;
+
+  var lastFocusedElement = null;
+  var activeModal = null;
+
+  function normalizePublicCards() {
+    var cards = document.querySelectorAll(
+      ".cbl-public-service-card, .cbl-fixed-tool-card"
+    );
+
+    for (var i = 0; i < cards.length; i += 1) {
+      var card = cards[i];
+
+      card.hidden = false;
+      card.removeAttribute("hidden");
+      card.removeAttribute("disabled");
+      card.removeAttribute("aria-hidden");
+      card.setAttribute("aria-disabled", "false");
+      card.style.setProperty("pointer-events", "auto", "important");
+      card.style.setProperty("cursor", "pointer", "important");
+      card.style.setProperty("touch-action", "manipulation", "important");
+    }
+
+    var launcher = document.querySelector(".cbl-public-service-launcher");
+    if (launcher) {
+      launcher.hidden = false;
+      launcher.removeAttribute("hidden");
+      launcher.removeAttribute("aria-hidden");
+      launcher.style.setProperty("pointer-events", "auto", "important");
+    }
+  }
+
+  function openPublicModal(modalId, trigger) {
+    var modal = document.getElementById(modalId);
+    if (!modal) return false;
+
+    lastFocusedElement = trigger || document.activeElement;
+    activeModal = modal;
+
+    /*
+     * 로그인 조건이나 기존 부모 레이아웃의 영향을 받지 않도록
+     * 실제 모달을 body 직속으로 이동합니다.
+     */
+    if (modal.parentNode !== document.body) {
+      document.body.appendChild(modal);
+    }
+
+    modal.hidden = false;
+    modal.removeAttribute("hidden");
+    modal.classList.add("is-open");
+    modal.setAttribute("aria-hidden", "false");
+    modal.style.setProperty("display", "flex", "important");
+    modal.style.setProperty("visibility", "visible", "important");
+    modal.style.setProperty("opacity", "1", "important");
+    modal.style.setProperty("pointer-events", "auto", "important");
+    modal.style.setProperty("z-index", "2147483000", "important");
+
+    document.body.classList.add("cbl-modal-open");
+
+    var dialog = modal.querySelector(".cbl-tool-modal-dialog");
+    if (dialog) {
+      window.setTimeout(function () {
+        try {
+          dialog.focus({ preventScroll: true });
+        } catch (error) {
+          dialog.focus();
+        }
+      }, 0);
+    }
+
+    return true;
+  }
+
+  function closePublicModal(modal) {
+    var target = modal || activeModal;
+    if (!target) return;
+
+    target.classList.remove("is-open");
+    target.setAttribute("aria-hidden", "true");
+    target.style.removeProperty("display");
+    target.style.removeProperty("visibility");
+    target.style.removeProperty("opacity");
+    target.style.removeProperty("pointer-events");
+    target.style.removeProperty("z-index");
+
+    document.body.classList.remove("cbl-modal-open");
+    activeModal = null;
+
+    if (
+      lastFocusedElement &&
+      typeof lastFocusedElement.focus === "function"
+    ) {
+      try {
+        lastFocusedElement.focus({ preventScroll: true });
+      } catch (error) {
+        lastFocusedElement.focus();
+      }
+    }
+  }
+
+  /*
+   * 카드 자체에 연결된 기존 이벤트에 의존하지 않습니다.
+   * 문서 캡처 단계에서 공개 카드 클릭을 직접 처리하므로
+   * 로그인/비로그인 DOM 차이가 있어도 동일하게 동작합니다.
+   */
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    if (!target || typeof target.closest !== "function") return;
+
+    var opener = target.closest(
+      "[data-public-modal-target], [data-cbl-modal-open]"
+    );
+
+    if (opener) {
+      var modalId =
+        opener.getAttribute("data-public-modal-target") ||
+        opener.getAttribute("data-cbl-modal-open");
+
+      if (modalId && document.getElementById(modalId)) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        openPublicModal(modalId, opener);
+      }
+      return;
+    }
+
+    var closer = target.closest("[data-cbl-modal-close]");
+    if (closer) {
+      var modal = closer.closest(".cbl-tool-modal");
+
+      if (modal) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        closePublicModal(modal);
+      }
+    }
+  }, true);
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && activeModal) {
+      event.preventDefault();
+      closePublicModal(activeModal);
+    }
+  }, true);
+
+  function init() {
+    normalizePublicCards();
+
+    /*
+     * 공개 런처가 JavaScript로 뒤늦게 생성되므로 계속 감시해
+     * 생성 즉시 클릭 가능 상태를 보장합니다.
+     */
+    var observer = new MutationObserver(function () {
+      normalizePublicCards();
+    });
+
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true
+    });
+
+    window.setTimeout(function () {
+      observer.disconnect();
+    }, 10000);
+
+    window.addEventListener("pageshow", normalizePublicCards);
+    window.addEventListener("orientationchange", normalizePublicCards);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init, { once: true });
+  } else {
+    init();
+  }
+})();
+</script>
+<!-- CBL_PUBLIC_SERVICE_GUEST_CLICK_FIX_SCRIPT_END -->
 </body>
 </html>
