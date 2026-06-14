@@ -13,7 +13,9 @@
     <meta name="naver-site-verification" content="2f3a0f01feafb2f03232a3fb88f5ae87bd3a1fce" />
 
     <meta name="description" content="{% block meta_description %}ChickenBanana Lab은 건축, 부동산, 금융, 테크, 일상 정보를 다루는 콘텐츠 플랫폼입니다.{% endblock %}">
+    {% block robots %}
     <meta name="robots" content="index, follow">
+{% endblock %}
 
     <meta property="og:title" content="{% block og_title %}ChickenBanana Lab{% endblock %}">
     <meta property="og:description" content="{% block og_description %}건축, 부동산, 금융, 테크, 일상 정보를 다루는 ChickenBanana Lab입니다.{% endblock %}">
@@ -683,6 +685,13 @@
         setModalBodyState();
     }
 
+    document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+            closeAccountModal();
+        }
+    });
+
+{% if user.is_authenticated and user.is_staff %}
     function openManageModal() {
         const modal = document.getElementById("manageModal");
         if (modal) {
@@ -731,7 +740,6 @@
 
     document.addEventListener("keydown", function (event) {
         if (event.key === "Escape") {
-            closeAccountModal();
             closeManageModal();
             closeAiPostModal();
         }
@@ -1124,6 +1132,8 @@
             }, 300);
         });
     });
+
+{% endif %}
 </script>
 
 
@@ -1220,6 +1230,7 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 
 
 
+{% if user.is_authenticated and user.is_staff %}
 <!-- CBL_FORCE_AI_MODAL_MULTILANG_PATCH_START -->
 <style>
 .cbl-force-keyword-wrap{margin-top:10px}
@@ -1647,8 +1658,10 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 })();
 </script>
 <!-- CBL_FORCE_AI_MODAL_MULTILANG_PATCH_END -->
+{% endif %}
 
 
+{% if user.is_authenticated and user.is_staff %}
 <!-- CBL_AI_SEQ_SIMPLE_START -->
 <style>
 .cbl-ai-seq-options{
@@ -2365,10 +2378,13 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 })();
 </script>
 <!-- CBL_AI_SEQ_SIMPLE_END -->
+{% endif %}
 
 
 
 <script>
+{% if user.is_authenticated and user.is_staff %}
+<!-- CBL_ADSENSE_ADMIN_AI_BLOCKS_GUARD_START -->
 /* CBL_AI_GENERATE_DRAFT_RESULT_FRONT_HOTFIX_START */
 (function () {
   if (window.__cblAiGenerateDraftResultFrontHotfix) return;
@@ -4667,6 +4683,8 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 })();
 </script>
 <!-- CBL_AI_ROW_PAYLOAD_LOCK_END -->
+<!-- CBL_ADSENSE_ADMIN_AI_BLOCKS_GUARD_END -->
+{% endif %}
 
 </body>
 </html>

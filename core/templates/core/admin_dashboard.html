@@ -1,5 +1,9 @@
 {% extends "core/base.html" %}
 
+{% block robots %}
+    <meta name="robots" content="noindex, nofollow">
+{% endblock %}
+
 {% block title %}글 목록 관리 | ChickenBanana Lab
 <!-- CBL_MULTILANG_AI_UI_PATCH_START -->
 <style>

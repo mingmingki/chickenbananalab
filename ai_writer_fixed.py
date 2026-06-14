@@ -327,37 +327,143 @@ def clamp_number(value, min_value, max_value, default):
     return max(min_value, min(number, max_value))
 
 
-def extract_json(text):
-    text = (text or "").strip()
+_AI_PAYLOAD_KEYS = (
+    "title",
+    "summary",
+    "meta_description",
+    "thumbnail_text",
+    "content",
+    "tags",
+    "thumbnail_prompt",
+    "content_images",
+    "prompt",
+    "caption",
+)
 
+
+def _strip_ai_code_fences(text):
+    text = str(text or "").strip()
+    text = re.sub(r"^```(?:json|javascript|js|html)?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*```$", "", text).strip()
+    return text
+
+
+def _escape_literal_controls_inside_json_strings(text):
+    """JSON 문자열 내부의 실제 줄바꿈/탭을 안전한 이스케이프로 바꿉니다."""
+    result = []
+    in_string = False
+    escaped = False
+
+    for char in str(text or ""):
+        if in_string:
+            if escaped:
+                result.append(char)
+                escaped = False
+                continue
+
+            if char == "\\":
+                result.append(char)
+                escaped = True
+                continue
+
+            if char == '"':
+                result.append(char)
+                in_string = False
+                continue
+
+            if char == "\n":
+                result.append("\\n")
+                continue
+
+            if char == "\r":
+                result.append("\\r")
+                continue
+
+            if char == "\t":
+                result.append("\\t")
+                continue
+
+            result.append(char)
+            continue
+
+        result.append(char)
+        if char == '"':
+            in_string = True
+
+    return "".join(result)
+
+
+def _repair_common_ai_json_mistakes(text):
+    """
+    Gemini가 가끔 만드는 아래 형태를 로컬에서 복구합니다.
+    예: { "title"는 "제목", "thumbnail_text"는 "문구" }
+    """
+    repaired = _strip_ai_code_fences(text)
+    repaired = repaired.lstrip("\ufeff")
+
+    key_group = "|".join(re.escape(key) for key in _AI_PAYLOAD_KEYS)
+
+    # 스마트 따옴표 또는 따옴표 없는 알려진 키를 정상 JSON 키로 통일합니다.
+    repaired = re.sub(
+        rf'([{{,]\s*)["“”]?({key_group})["“”]?\s*(?:는|은|이|가)\s*',
+        lambda m: f'{m.group(1)}"{m.group(2)}": ',
+        repaired,
+        flags=re.IGNORECASE,
+    )
+    repaired = re.sub(
+        rf'([{{,]\s*)["“”]?({key_group})["“”]?\s*(?:=|：|:)\s*',
+        lambda m: f'{m.group(1)}"{m.group(2)}": ',
+        repaired,
+        flags=re.IGNORECASE,
+    )
+
+    repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
+    repaired = _escape_literal_controls_inside_json_strings(repaired)
+    return repaired.strip()
+
+
+def _try_decode_json_object(text):
+    text = str(text or "").strip()
     if not text:
         return None
-
-    text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
-    text = re.sub(r"```$", "", text).strip()
 
     try:
         data = json.loads(text)
         if isinstance(data, dict):
             return data
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError, ValueError):
         pass
 
     decoder = json.JSONDecoder()
-
     for index, char in enumerate(text):
         if char != "{":
             continue
-
         try:
             data, _ = decoder.raw_decode(text[index:])
             if isinstance(data, dict):
                 return data
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError, ValueError):
             continue
 
     return None
 
+
+def extract_json(text):
+    """정상 JSON과 Gemini의 흔한 한국어 조사 혼입 JSON을 모두 처리합니다."""
+    original = _strip_ai_code_fences(text)
+    if not original:
+        return None
+
+    data = _try_decode_json_object(original)
+    if isinstance(data, dict):
+        return data
+
+    repaired = _repair_common_ai_json_mistakes(original)
+    data = _try_decode_json_object(repaired)
+    if isinstance(data, dict):
+        return data
+
+    return None
 
 def clean_text_for_meta(text, limit=150):
     text = str(text or "")
@@ -654,7 +760,7 @@ def plain_text_length_from_html(content):
     return len(text)
 
 
-def validate_ai_content_or_raise(content, context="AI 본문", min_length=200):
+def validate_ai_content_or_raise(content, context="AI 본문", min_length=500):
     content = str(content or "").strip()
     plain_length = plain_text_length_from_html(content)
 
@@ -1738,42 +1844,255 @@ This is only background context for writing a blog post. Do not write the blog p
 # CBL_RECENT_ISSUE_PRESEARCH_END
 
 
+def _cbl_clean_ai_field(value):
+    value = html.unescape(str(value or ""))
+    value = re.sub(r"<[^>]+>", " ", value)
+    value = re.sub(r"^\s*(?:title|제목)\s*[:：-]\s*", "", value, flags=re.IGNORECASE)
+    value = value.strip().strip('"\'“”‘’`')
+    value = re.sub(r"\s+", " ", value).strip()
+    return value
+
+
+def _cbl_bad_title(title, keywords=""):
+    title = _cbl_clean_ai_field(title)
+    keyword_text = _cbl_clean_ai_field(keywords)
+
+    if not 10 <= len(title) <= 90:
+        return True
+
+    if re.search(r'"?(?:summary|meta_description|thumbnail_text|content|tags|thumbnail_prompt)"?\s*(?::|는|은)', title, flags=re.IGNORECASE):
+        return True
+
+    compact = re.sub(r"\s+", "", title).lower()
+    keyword_compact = re.sub(r"[\s,|/#]+", "", keyword_text).lower()
+
+    if keyword_compact and compact in {
+        keyword_compact,
+        keyword_compact + "정리",
+        keyword_compact + "총정리",
+        keyword_compact + "알아보기",
+    }:
+        return True
+
+    if re.search(r"(?:^|\s)(정리|총정리|알아보기)$", title) and len(title) < 32:
+        return True
+
+    if " " not in title and len(re.findall(r"[가-힣]", title)) >= 9:
+        return True
+
+    return False
+
+
+def cbl_finalize_title(raw_title="", keywords="", planned_title="", category=""):
+    for candidate in (raw_title, planned_title):
+        candidate = _cbl_clean_ai_field(candidate)
+        candidate = re.sub(r"\s*[:：]\s*", ", ", candidate)
+        candidate = re.sub(r"\s*,\s*,+", ", ", candidate)
+        candidate = candidate.strip(" ,.-")
+
+        if candidate and not _cbl_bad_title(candidate, keywords=keywords):
+            return candidate[:90]
+
+    raise ValueError(
+        "AI 제목 생성 실패: 자연스러운 제목을 확인할 수 없어 글을 저장하지 않았습니다. "
+        "키워드 뒤에 '정리'를 붙이는 임시 제목은 더 이상 사용하지 않습니다."
+    )
+
+
+def _cbl_thumbnail_topic_tokens(title):
+    tokens = re.findall(r"[가-힣A-Za-z0-9+#.]+", _cbl_clean_ai_field(title))
+    stopwords = {
+        "정리", "총정리", "알아보기", "방법", "이유", "가이드", "핵심", "주요",
+        "현명하게", "쉽게", "제대로", "완벽", "최신", "비교", "분석", "확인",
+        "하는", "위한", "대한", "어떻게", "무엇", "있을까", "될까",
+    }
+    result = []
+    seen = set()
+    for token in tokens:
+        token_lower = token.lower()
+        if len(token) < 2 or token in stopwords or token_lower in seen:
+            continue
+        seen.add(token_lower)
+        result.append(token)
+    return result
+
+
 def cbl_strengthen_thumbnail_text(raw_text="", title="", keywords="", category=""):
-    raw_text = str(raw_text or "").strip()
-    title_text = f"{title} {keywords}".strip()
+    """과장형 문구 대신 주제와 직접 연결되는 8~22자 썸네일 문구를 만듭니다."""
+    raw_text = _cbl_clean_ai_field(raw_text)
+    title = _cbl_clean_ai_field(title)
+    compact_raw = re.sub(r"\s+", "", raw_text).lower()
+    compact_title = re.sub(r"\s+", "", title).lower()
 
-    bland_words = [
-        "시장 동향", "경제", "정리", "가이드", "확인", "분석",
-        "주요 내용", "알아보기", "이해하기", "기본 정보"
-    ]
+    blocked_phrases = (
+        "이 기능 놓치면 손해", "놓치면 손해", "모르면 손해", "무조건 봐야",
+        "꼭 봐야", "시장 흔들 변수", "집값 변수 터졌다", "코인시장 흔들린다",
+        "금리 충격 온다", "경고등", "핵심 정보", "주요 내용",
+    )
 
-    too_bland = (not raw_text) or len(raw_text) > 18 or any(word in raw_text for word in bland_words)
+    raw_is_valid = (
+        5 <= len(raw_text) <= 24
+        and compact_raw != compact_title
+        and not any(phrase in raw_text for phrase in blocked_phrases)
+        and not re.search(r'"?(?:title|thumbnail_text|content|tags)"?\s*(?::|는|은)', raw_text, flags=re.IGNORECASE)
+        and not (" " not in raw_text and len(re.findall(r"[가-힣]", raw_text)) >= 10)
+    )
 
-    if not too_bland:
-        return raw_text[:18]
+    if raw_is_valid:
+        return raw_text
 
-    compact = title_text.replace(" ", "").upper()
+    source = f"{title} {keywords}"
+    tokens = _cbl_thumbnail_topic_tokens(title)
 
-    if "ECB" in compact or "금리" in title_text or "긴축" in title_text:
-        return "금리 충격 온다"
-    if "분양" in title_text or "미분양" in title_text:
-        return "분양시장 경고등"
-    if "재건축" in title_text or "아파트" in title_text:
-        return "집값 변수 터졌다"
-    if "코인" in title_text or "비트코인" in title_text or "리플" in title_text:
-        return "코인시장 흔들린다"
-    if category == "tech":
-        return "이 기능 놓치면 손해"
-    if category == "architecture":
-        return "건축 확인 기준"
-    if category == "realestate":
-        return "부동산 경고등"
-    if category == "finance":
-        return "시장 흔들 변수"
-    if category == "life":
-        return "방문 전 볼 것"
+    if ("클라우드" in source or "cloud" in source.lower()) and any(word in source for word in ("비용", "요금", "절약", "최적화")):
+        return "클라우드 비용 절약법"
+    if "서버" in source and any(word in source for word in ("비용", "요금", "절약")):
+        return "서버 비용 줄이는 법"
+    if "비교" in source and len(tokens) >= 2:
+        return f"{tokens[0]} {tokens[1]} 비교"[:22]
+    if any(word in source for word in ("절약", "최적화", "줄이는")) and tokens:
+        return f"{tokens[0]} 절약 가이드"[:22]
+    if len(tokens) >= 2:
+        return f"{tokens[0]} {tokens[1]} 가이드"[:22]
+    if tokens:
+        return f"{tokens[0]} 핵심 가이드"[:22]
 
-    return (raw_text or keywords or title)[:18]
+    raise ValueError("썸네일 문구 생성 실패: 제목과 연결되는 문구를 만들 수 없습니다.")
+
+
+_CBL_TAG_CATEGORY_LABELS = {
+    "architecture": "건축",
+    "realestate": "부동산",
+    "finance": "금융",
+    "tech": "테크",
+    "life": "일상",
+}
+
+
+def _cbl_split_tag_values(raw_tags):
+    if isinstance(raw_tags, (list, tuple, set)):
+        values = list(raw_tags)
+    else:
+        raw = str(raw_tags or "")
+        raw = raw.replace("\n", ",")
+        values = re.split(r"[,;|\n]+|(?=#)", raw)
+
+    result = []
+    for value in values:
+        value = _cbl_clean_ai_field(value)
+        value = value.lstrip("#").strip(" ,.;|/")
+        value = re.sub(r"\s+", " ", value)
+        if 2 <= len(value) <= 28:
+            result.append(value)
+    return result
+
+
+def cbl_normalize_tags(raw_tags="", title="", keywords="", category="", min_tags=6, max_tags=8):
+    """AI 태그가 하나뿐이거나 깨져도 6~8개의 관련 태그로 로컬 보정합니다."""
+    candidates = []
+    candidates.extend(_cbl_split_tag_values(raw_tags))
+    candidates.extend(_cbl_split_tag_values(keywords))
+
+    clean_title = _cbl_clean_ai_field(title)
+    first_clause = re.split(r"[,，:：|/]", clean_title, maxsplit=1)[0].strip()
+    if 4 <= len(first_clause) <= 28:
+        candidates.append(first_clause)
+
+    title_tokens = re.findall(r"[가-힣A-Za-z0-9+#.]+", clean_title)
+    token_stopwords = {
+        "정리", "총정리", "알아보기", "방법", "이유", "가이드", "현명하게",
+        "쉽게", "제대로", "완벽", "최신", "하는", "위한", "대한", "어떻게",
+    }
+    meaningful = [token for token in title_tokens if len(token) >= 2 and token not in token_stopwords]
+
+    candidates.extend(meaningful[:5])
+    for index in range(min(4, max(0, len(meaningful) - 1))):
+        pair = f"{meaningful[index]} {meaningful[index + 1]}"
+        if len(pair) <= 24:
+            candidates.append(pair)
+
+    category_key = str(category or "").strip()
+    category_label = _CBL_TAG_CATEGORY_LABELS.get(category_key)
+    if category_label:
+        candidates.append(category_label)
+
+    category_defaults = {
+        "architecture": ["건축 실무", "건설 정보", "시공 관리"],
+        "realestate": ["부동산 정보", "주거 정보", "계약 확인"],
+        "finance": ["금융 정보", "시장 분석", "투자 리스크"],
+        "tech": ["기술 정보", "IT 가이드", "디지털 활용"],
+        "life": ["생활 정보", "생활 가이드", "실용 정보"],
+    }
+    candidates.extend(category_defaults.get(category_key, []))
+
+    cleaned = []
+    seen = set()
+    for candidate in candidates:
+        candidate = _cbl_clean_ai_field(candidate).lstrip("#").strip(" ,.;|/")
+        if not 2 <= len(candidate) <= 28:
+            continue
+        if candidate in {"정리", "정보", "방법", "가이드", "최신"}:
+            continue
+        norm = re.sub(r"[\s_\-]+", "", candidate).lower()
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        cleaned.append(candidate)
+        if len(cleaned) >= max_tags:
+            break
+
+    if len(cleaned) < min_tags:
+        for size in (2, 3):
+            for index in range(0, max(0, len(meaningful) - size + 1)):
+                phrase = " ".join(meaningful[index:index + size])
+                norm = re.sub(r"[\s_\-]+", "", phrase).lower()
+                if 3 <= len(phrase) <= 28 and norm not in seen:
+                    seen.add(norm)
+                    cleaned.append(phrase)
+                    if len(cleaned) >= min_tags:
+                        break
+            if len(cleaned) >= min_tags:
+                break
+
+    if len(cleaned) < min_tags:
+        raise ValueError(
+            f"자동 태그 생성 실패: 관련 태그가 {len(cleaned)}개뿐이라 글을 저장하지 않았습니다."
+        )
+
+    return ",".join(cleaned[:max_tags])
+
+
+def cbl_remove_forced_highlights(content):
+    """AI가 임의로 넣은 노란 형광펜·색상 강조를 제거합니다."""
+    content = str(content or "")
+    content = re.sub(r"<mark\b[^>]*>(.*?)</mark>", r"\1", content, flags=re.IGNORECASE | re.DOTALL)
+    content = re.sub(
+        r"""<span\b[^>]*class=["'][^"']*(?:yellow-highlight|blue-point|cbl-ai-highlight|cbl-point-|cbl-highlight-)[^"']*["'][^>]*>(.*?)</span>""",
+        r"\1",
+        content,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    content = re.sub(
+        r"""<div\b[^>]*class=["'][^"']*cbl-ai-human-style[^"']*["'][^>]*>\s*(.*?)\s*</div>\s*$""",
+        r"\1",
+        content,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return content.strip()
+
+
+def cbl_validate_no_payload_leak(content):
+    plain = html.unescape(re.sub(r"<[^>]+>", " ", str(content or "")))
+    sample = re.sub(r"\s+", " ", plain).strip()[:2000]
+    if re.search(
+        r'"?(?:title|summary|meta_description|thumbnail_text|thumbnail_prompt|content_images|tags)"?\s*(?::|는|은)',
+        sample,
+        flags=re.IGNORECASE,
+    ):
+        raise ValueError(
+            "AI 응답 구조가 본문에 섞인 것이 감지되어 글을 저장하지 않았습니다."
+        )
+    return content
 
 def generate_ai_post(
     category,
@@ -1954,6 +2273,10 @@ content_images는 빈 배열로 반환해라.
 
 검색 친화 작성 기준:
 - 제목은 검색자가 실제로 입력할 만한 롱테일 키워드 형태로 작성해라.
+- 제목은 25~55자 정도로 쓰고, 한국어 띄어쓰기를 정확히 적용해라.
+- 키워드를 공백 없이 그대로 붙인 제목을 만들지 마라.
+- 제목 끝에 '정리', '총정리', '알아보기'만 기계적으로 붙이지 마라.
+- 제목은 핵심 주제와 독자가 얻는 구체적인 정보를 함께 보여줘야 한다.
 - 첫 문단 150자 안에 주요 키워드를 자연스럽게 포함해라.
 - 본문은 h2, h3, p, ul, li, table, blockquote, mark, span 태그를 적절히 사용해라.
 - 본문 최상단에 h1 태그는 절대 쓰지 마라.
@@ -2042,8 +2365,9 @@ meta_description 작성 조건:
 - 대신 "후기에서 많이 언급되는 포인트", "여행 동선상 보기 좋은 점", "메뉴를 고를 때 볼 부분"처럼 자연스럽게 써라.
 - 소제목은 딱딱한 질문형만 반복하지 말고 블로그식 문장으로 작성해라.
 - 표는 꼭 필요할 때만 1개 정도 사용해라.
-- 핵심 문장은 <mark class="yellow-highlight">강조문구</mark> 형태로 표시해라.
-- 중요한 장소, 메뉴, 금액, 시간, 키워드는 필요한 경우에만 <span class="blue-point">강조문구</span> 형태로 강조해라.
+- 노란 형광펜, 배경색, 임의 색상 강조를 사용하지 마라.
+- mark 태그와 yellow-highlight, blue-point 같은 강조 클래스를 사용하지 마라.
+- 정말 필요한 핵심 용어만 strong 태그로 제한적으로 강조하고, 한 문단 전체를 굵게 만들지 마라.
 - 글 마지막은 딱딱한 결론이나 고정 요약 형식 없이, 주제에 맞는 현실적인 판단 기준으로 끝내라.
 
 FAQ 작성 조건:
@@ -2085,9 +2409,9 @@ FAQ 작성 조건:
   "title": "검색 친화적인 글 제목",
   "summary": "글 상단 또는 목록에 보여줄 2~3문장 요약",
   "meta_description": "검색 결과에 표시하기 좋은 80~120자 설명문",
-  "thumbnail_text": "썸네일에 넣을 짧은 문구",
+  "thumbnail_text": "제목과 겹치지 않는 8~18자의 주제형 썸네일 문구",
   "content": "반드시 <h2>, <p>, <ul>, <li>, <table class='info-table'> 같은 HTML 태그가 포함된 HTML 본문 문자열. 일반 텍스트, Markdown, 탭 표 금지.",
-  "tags": "태그1,태그2,태그3,태그4,태그5",
+  "tags": "서로 다른 관련 태그 6~8개를 쉼표로 구분",
   "thumbnail_prompt": "대표 썸네일 이미지 생성용 프롬프트",
   "content_images": [
     {{
@@ -2102,30 +2426,21 @@ FAQ 작성 조건:
 - content 값에는 반드시 실제 HTML 태그를 넣어라.
 - 표는 탭이나 Markdown 표가 아니라 반드시 <table class="info-table">로 작성해라.
 - 제목을 content 맨 앞에 다시 반복하지 마라.
+- thumbnail_text는 제목 전체를 복사하지 말고, 핵심 주제와 효용이 드러나는 8~18자 문구로 작성해라.
+- thumbnail_text에 '놓치면 손해', '무조건 봐야', '경고등' 같은 과장형 문구를 쓰지 마라.
+- tags는 반드시 6~8개를 작성하고 쉼표로 구분해라. # 기호는 붙이지 마라.
+- tags 하나에 모든 키워드를 공백 없이 합치지 마라.
 """
 
     text = gemini_generate_text(prompt)
     data = extract_json(text)
 
     if not data:
-        fallback_content = text
-
-        if looks_like_bad_generic_shopping_text(fallback_content):
-            fallback_content = "<h2>자료 확인이 필요한 주제입니다</h2><p>자료 확인 과정에서 주제와 맞지 않는 일반 쇼핑몰 정보가 감지되어 본문을 안전하게 대체했습니다. 이 주제는 제품명, 공식 스펙, 가격 자료를 추가 요청사항에 넣고 다시 생성하는 것이 좋습니다.</p>"
-
-        fallback_title = f"{keywords} 정리"
-        fallback_content = repair_ai_content_html(fallback_content, title=fallback_title)
-
-        data = {
-            "title": fallback_title,
-            "summary": clean_text_for_meta(fallback_content, 180),
-            "meta_description": clean_text_for_meta(fallback_content, 120),
-            "thumbnail_text": keywords[:30],
-            "content": fallback_content,
-            "tags": keywords if include_tags else "",
-            "thumbnail_prompt": make_fallback_thumbnail_prompt(category, keywords, fallback_title),
-            "content_images": [],
-        }
+        preview = re.sub(r"\s+", " ", str(text or "")).strip()[:300]
+        raise ValueError(
+            "AI 응답 JSON 파싱 실패: 잘못된 원문을 본문으로 저장하지 않았습니다. "
+            f"응답 시작 부분={preview}"
+        )
 
     content_images = data.get("content_images", [])
     if not isinstance(content_images, list):
@@ -2147,7 +2462,12 @@ FAQ 작성 조건:
 
     content_images = refined_content_images
 
-    title = str(data.get("title", f"{keywords} 정리"))[:200]
+    title = cbl_finalize_title(
+        raw_title=data.get("title", ""),
+        keywords=keywords,
+        planned_title=planned_title,
+        category=category,
+    )
     content = str(data.get("content", ""))
     content = repair_ai_content_html(content, title=title)
 
@@ -2156,11 +2476,13 @@ FAQ 작성 조건:
 
     content = repair_ai_content_html(content, title=title)
     content = cbl_polish_article_after_generate(content)
+    content = cbl_remove_forced_highlights(content)
+    content = cbl_validate_no_payload_leak(content)
     content = ensure_required_comparison_table(content, category, keywords, style_rule_key, extra_prompt, planned_title)
     content = validate_ai_content_or_raise(
         content,
         context=f"{title} 본문",
-        min_length=200,
+        min_length=500,
     )
     summary = str(data.get("summary", "")).strip()
     meta_description = str(data.get("meta_description", "")).strip()
@@ -2181,7 +2503,12 @@ FAQ 작성 조건:
         "meta_description": meta_description[:160],
         "thumbnail_text": cbl_strengthen_thumbnail_text(data.get("thumbnail_text", ""), title=title, keywords=keywords, category=category),
         "content": content,
-        "tags": str(data.get("tags", "")) if include_tags else "",
+        "tags": cbl_normalize_tags(
+            raw_tags=data.get("tags", ""),
+            title=title,
+            keywords=keywords,
+            category=category,
+        ) if include_tags else "",
         "thumbnail_prompt": thumbnail_prompt,
         "content_images": content_images,
     }
@@ -2227,8 +2554,8 @@ def generate_english_ai_post(
     )
 
     prompt = f"""
-You are a senior English-language SEO editor for ChickenBanana Lab.
-Rewrite and localize the Korean source article for international English-speaking readers.
+You are an English SEO blog editor for ChickenBanana Lab.
+Create an English version of the Korean blog post below.
 
 Category: {category_name}
 Original keywords: {source_keywords}
@@ -2236,27 +2563,13 @@ Original Korean title: {korean_title}
 
 {current_fact_check_rules}
 
-English localization and editorial adaptation rules:
-- Do not translate the Korean article sentence by sentence.
-- Rewrite the complete article so it reads as though it was originally written in English by an experienced human editor.
-- Preserve the source article's core meaning, verified facts, technical terminology, caution level, examples, and practical value.
-- You may reorganize sentence order, paragraph boundaries, transitions, headings, and list wording when this improves natural English readability.
-- Preserve approximately the same level of useful information. Do not remove substantive sections merely to make the article shorter.
-- Replace Korean-style conversational openings, rhetorical questions, repeated explanations, and formulaic conclusions with natural English editorial prose.
-- Avoid literal translations of Korean expressions, sentence endings, and heading structures.
-- Use clear and specific H2 and H3 headings. Rewrite headings naturally instead of translating them word for word.
-- Remove accidental duplicate sentences, duplicated image captions, and repeated descriptions. Keep each caption only once.
-- Avoid generic AI-style or promotional expressions such as "Let's delve into," "poised to revolutionize," "in today's rapidly changing world," "it is worth noting," and repetitive "This allows..." constructions.
-- Do not begin every section with the same sentence pattern.
-- Vary sentence length and transitions while keeping the writing professional, accessible, and concise.
-- Use natural international English suitable for readers in the United States, Europe, and other English-speaking markets.
-- Preserve established product names, software names, technical terms, acronyms, organizations, standards, and proper nouns accurately.
-- When Korean institutions, regulations, or policies appear, provide only the minimum context needed for an international reader.
-- Do not invent explanations, statistics, dates, prices, rankings, laws, policies, technical capabilities, or examples.
-- If a statement is uncertain, conditional, or time-sensitive in the Korean source, retain that caution in the English version.
-- Create a natural, search-friendly English title rather than translating the Korean title literally.
-- Rewrite the summary, meta description, tags, and thumbnail text independently for English search users.
-- The final output must contain English only, except for proper nouns or unavoidable source terms.
+Important goal:
+- Create a separate English article for Google search users outside Korea.
+- Keep the same meaning, facts, caution level, structure, and practical angle as the Korean article.
+- Do not add unverified facts, numbers, rankings, dates, prices, laws, tax rules, medical claims, or investment advice.
+- If the Korean article is cautious, the English article must also be cautious.
+- Use natural English, not stiff machine translation.
+- Make the title search-friendly in English.
 
 HTML rules:
 - Return the content as HTML.
@@ -2329,7 +2642,7 @@ Return JSON only in this exact format:
     content = repair_ai_content_html(content, title=title)
     # CBL_SERVER_EN_EMPTY_CONTENT_GUARD_START
     # 영어 본문 생성이 0자/짧음이면 검증 전에 안전 대체본문을 직접 채운다.
-    if len(str(content or "").strip()) < 200:
+    if len(str(content or "").strip()) < 500:
         print("========== 영어 본문 0자/짧음 서버 직접 대체본문 생성 ==========")
         print("title:", title)
         _safe_title = str(title or source_title or source_keywords or "English Guide").strip()
@@ -2353,7 +2666,7 @@ Return JSON only in this exact format:
     content = validate_ai_content_or_raise(
         content,
         context=f"{title} 영어 본문",
-        min_length=200,
+        min_length=500,
     )
 
     summary = str(data.get("summary", "")).strip()
@@ -4244,7 +4557,7 @@ try:
 
     def cbl_polish_article_after_generate(content):
         content = _cbl_prev_human_visual_polish(content)
-        content = _cbl_apply_human_visual_polish(content)
+        # 자동 형광펜·랜덤 색상 강조는 가독성을 해쳐 적용하지 않습니다.
         return content
 
 except Exception as _cbl_human_visual_polish_error:
@@ -4437,73 +4750,29 @@ def cbl_make_topic_thumbnail_text(
     ai_text="",
     category="",
 ):
-    """
-    AI가 만든 썸네일 문구가 제목의 실제 핵심어를 포함하면 유지한다.
-    범용 문구이거나 제목과 무관하면 제목에서 새 문구를 만든다.
-    """
-
+    """제목 복사본이 아닌, 주제와 연결된 짧은 썸네일 문구를 반환합니다."""
     title = _cbl_thumb_clean(title)
     ai_text = _cbl_thumb_clean(ai_text)
 
-    if _cbl_thumb_existing_text_is_valid(
-        ai_text,
-        title,
-        category,
-    ):
-        return ai_text[:24]
+    if _cbl_thumb_existing_text_is_valid(ai_text, title, category):
+        if re.sub(r"\s+", "", ai_text).lower() != re.sub(r"\s+", "", title).lower():
+            return ai_text[:24]
 
-    # 쉼표 앞부분은 대부분 제목의 핵심 주제이다.
-    # 예:
-    # 레미콘 노조 휴업, 건설 현장에 미치는 영향...
-    # -> 레미콘 노조 휴업
-    first_clause = _cbl_thumb_re.split(
-        r"[,，|:/]|\s+[–—-]\s+",
-        title,
-        maxsplit=1,
-    )[0].strip()
-
-    first_clause = _cbl_thumb_re.sub(
-        r"^[\[\(【][^\]\)】]+[\]\)】]\s*",
-        "",
-        first_clause,
-    ).strip()
-
-    first_clause = first_clause.strip(
-        " \t\r\n,，.!?？:：|/–—-"
+    candidate = cbl_strengthen_thumbnail_text(
+        raw_text=ai_text,
+        title=title,
+        keywords="",
+        category=category,
     )
 
-    if (
-        5 <= len(first_clause) <= 22
-        and not any(
-            phrase in first_clause
-            for phrase in _CBL_THUMBNAIL_GENERIC_PHRASES
-        )
-    ):
-        return first_clause
+    if re.sub(r"\s+", "", candidate).lower() == re.sub(r"\s+", "", title).lower():
+        tokens = _cbl_thumb_significant_tokens(title, category)
+        if len(tokens) >= 2:
+            candidate = f"{tokens[0]} {tokens[1]} 가이드"[:22]
+        elif tokens:
+            candidate = f"{tokens[0]} 핵심 가이드"[:22]
 
-    tokens = _cbl_thumb_significant_tokens(
-        title,
-        category,
-    )
-
-    candidate = _cbl_thumb_shorten_words(
-        tokens[:4],
-        max_length=22,
-    )
-
-    if len(candidate) >= 4:
-        return candidate
-
-    category_label = _CBL_THUMBNAIL_CATEGORY_LABELS.get(
-        str(category or "").strip(),
-        "주요 내용",
-    )
-
-    fallback = first_clause or title or category_label
-    fallback = fallback[:22].strip()
-
-    return fallback or category_label
-
+    return candidate[:24]
 
 def _cbl_thumb_scene_direction(
     title,
@@ -4553,6 +4822,22 @@ def _cbl_thumb_scene_direction(
             "idle vehicles or equipment and a realistic editorial-news mood. "
             "The cause and affected operation should be visually understandable "
             "without relying on written signs."
+        )
+
+    if (
+        any(word in source_lower for word in ("cloud", "server", "finops"))
+        or any(word in source for word in ("클라우드", "서버", "핀옵스"))
+    ) and (
+        any(word in source_lower for word in ("cost", "price", "optimization", "saving"))
+        or any(word in source for word in ("비용", "요금", "절약", "최적화", "비교"))
+    ):
+        return (
+            "Show a clear cloud-infrastructure cost-optimization concept: "
+            "recognizable server racks or cloud-computing nodes, three distinct "
+            "service clusters being compared, and a visual reduction in resource "
+            "usage or operating cost using clean descending blocks or a balance "
+            "metaphor. No people, no office workers, no readable dashboards, no "
+            "logos, no company branding, and no text or numbers."
         )
 
     if any(
@@ -4788,285 +5073,3 @@ if (
     _CBL_THUMBNAIL_TOPIC_VARIETY_WRAPPED = True
 
 # CBL_THUMBNAIL_TOPIC_VARIETY_END
-
-# CBL_CLICKWORTHY_TITLE_THUMBNAIL_ONLY_START
-#
-# 본문/하이라이트/소제목/태그는 건드리지 않고,
-# 최종 반환 직전에 제목과 썸네일 문구만 별도의 저비용 모델로 다듬는다.
-#
-# 환경변수로 끌 수 있음:
-# CBL_HEADLINE_REWRITE_ENABLED=false
-# 모델 변경 가능:
-# GEMINI_HEADLINE_MODEL=gemini-2.5-flash-lite
-#
-
-_CBL_HEADLINE_REWRITE_ENABLED = os.getenv(
-    "CBL_HEADLINE_REWRITE_ENABLED",
-    "true",
-).strip().lower() not in ("0", "false", "no", "off")
-
-_CBL_HEADLINE_MODEL = os.getenv(
-    "GEMINI_HEADLINE_MODEL",
-    RECENT_ISSUE_MODEL,
-).strip() or RECENT_ISSUE_MODEL
-
-_CBL_HEADLINE_WEAK_ENDINGS = (
-    " 정리",
-    " 총정리",
-    " 알아보기",
-    " 완벽 가이드",
-    " 완벽정리",
-    " 핵심 정리",
-)
-
-_CBL_HEADLINE_BANNED_PHRASES = (
-    "무조건",
-    "충격",
-    "대박",
-    "소름",
-    "끝판왕",
-    "모르면 손해",
-    "놓치면 손해",
-    "지금 당장",
-    "폭락 확정",
-    "급등 확정",
-)
-
-_CBL_THUMBNAIL_WEAK_PHRASES = (
-    "주요 내용",
-    "핵심 정보",
-    "완벽 정리",
-    "한눈에 정리",
-    "이 기능 놓치면 손해",
-    "시장 흔들 변수",
-    "건축 확인 기준",
-    "방문 전 볼 것",
-)
-
-
-def _cbl_headline_clean_text(value, max_length):
-    value = str(value or "")
-    value = re.sub(r"<[^>]+>", " ", value)
-    value = html.unescape(value)
-    value = value.replace("\\n", " ")
-    value = re.sub(r"^[\s\"'`]+|[\s\"'`]+$", "", value)
-    value = re.sub(r"\s+", " ", value).strip()
-    value = re.sub(r"^[\-–—:：|]+|[\-–—:：|]+$", "", value).strip()
-    return value[:max_length].strip()
-
-
-def _cbl_compact_text(value):
-    return re.sub(r"[^0-9A-Za-z가-힣]+", "", str(value or "")).lower()
-
-
-def _cbl_title_is_usable(title, keywords=""):
-    title = _cbl_headline_clean_text(title, 90)
-    keywords = _cbl_headline_clean_text(keywords, 90)
-
-    if not 12 <= len(title) <= 75:
-        return False
-
-    if any(phrase in title for phrase in _CBL_HEADLINE_BANNED_PHRASES):
-        return False
-
-    compact_title = _cbl_compact_text(title)
-    compact_keywords = _cbl_compact_text(keywords)
-
-    if compact_keywords and compact_title in {
-        compact_keywords,
-        compact_keywords + "정리",
-        compact_keywords + "총정리",
-        compact_keywords + "알아보기",
-    }:
-        return False
-
-    if any(title.endswith(ending) for ending in _CBL_HEADLINE_WEAK_ENDINGS):
-        return False
-
-    # 핵심 키워드가 완전히 사라진 엉뚱한 제목 방지
-    keyword_tokens = re.findall(r"[0-9A-Za-z가-힣+#.\-]{2,}", keywords)
-    if keyword_tokens and not any(
-        _cbl_compact_text(token) in compact_title
-        for token in keyword_tokens[:6]
-    ):
-        return False
-
-    return True
-
-
-def _cbl_thumbnail_text_is_usable(thumbnail_text, title=""):
-    thumbnail_text = _cbl_headline_clean_text(thumbnail_text, 30)
-    title = _cbl_headline_clean_text(title, 90)
-
-    if not 5 <= len(thumbnail_text) <= 22:
-        return False
-
-    if any(phrase in thumbnail_text for phrase in _CBL_HEADLINE_BANNED_PHRASES):
-        return False
-
-    if any(phrase in thumbnail_text for phrase in _CBL_THUMBNAIL_WEAK_PHRASES):
-        return False
-
-    if _cbl_compact_text(thumbnail_text) == _cbl_compact_text(title):
-        return False
-
-    return True
-
-
-def _cbl_generate_title_thumbnail_pair(
-    keywords="",
-    current_title="",
-    current_thumbnail_text="",
-    summary="",
-    category="",
-):
-    """
-    본문은 다시 생성하지 않고 제목과 썸네일 문구만 한 번 다듬는다.
-    실패하거나 결과가 기준에 미달하면 기존 값을 그대로 유지한다.
-    """
-    if not _CBL_HEADLINE_REWRITE_ENABLED:
-        return None
-
-    keywords = _cbl_headline_clean_text(keywords, 120)
-    current_title = _cbl_headline_clean_text(current_title, 120)
-    current_thumbnail_text = _cbl_headline_clean_text(
-        current_thumbnail_text,
-        40,
-    )
-    summary = _cbl_headline_clean_text(summary, 200)
-    category = _cbl_headline_clean_text(category, 30)
-
-    if not keywords and not current_title:
-        return None
-
-    prompt = f"""
-너는 한국어 블로그의 제목과 썸네일 카피만 다듬는 헤드라인 편집자다.
-본문은 이미 완성되어 있으므로 절대 다시 쓰거나 요약하지 마라.
-아래 정보만 보고 최종 title과 thumbnail_text 두 필드만 만들어라.
-
-카테고리: {category or '미지정'}
-입력 키워드: {keywords or current_title}
-현재 제목: {current_title or keywords}
-현재 썸네일 문구: {current_thumbnail_text}
-본문 요약: {summary}
-
-제목 작성 규칙:
-- 핵심 키워드를 자연스럽게 포함한다.
-- 검색 유입과 클릭 이유가 동시에 보이게 한다.
-- 독자가 얻는 정보, 해결되는 문제, 비교 기준 또는 궁금증 중 하나를 분명히 드러낸다.
-- 28~55자 정도를 우선하되, 억지로 늘이지 않는다.
-- 키워드를 붙여 쓴 뒤 '정리', '총정리', '알아보기'만 덧붙이는 제목은 금지한다.
-- '충격', '대박', '무조건', '모르면 손해', '놓치면 손해' 같은 과장형 낚시 문구는 금지한다.
-- 확인되지 않은 사실, 수치, 가격, 전망을 새로 만들지 않는다.
-- HTML, 따옴표, 해시태그를 넣지 않는다.
-- 제목 후보를 내부적으로 여러 개 비교한 뒤 가장 자연스럽고 구체적인 하나만 반환한다.
-
-썸네일 문구 작성 규칙:
-- 제목을 그대로 줄이거나 복사하지 않는다.
-- 7~16자 정도의 짧은 문구를 우선한다.
-- 핵심 대상이나 독자가 궁금해할 차이·문제·결과가 한눈에 보이게 한다.
-- '주요 내용', '핵심 정보', '완벽 정리', '이 기능 놓치면 손해', '시장 흔들 변수' 같은 범용 문구는 금지한다.
-- 과장하거나 공포를 조장하지 않는다.
-- HTML, 따옴표, 해시태그를 넣지 않는다.
-
-반드시 아래 JSON 객체만 반환해라.
-{{
-  "title": "최종 블로그 제목",
-  "thumbnail_text": "최종 썸네일 문구"
-}}
-""".strip()
-
-    try:
-        client = get_gemini_client()
-        response = client.models.generate_content(
-            model=_CBL_HEADLINE_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.85,
-                max_output_tokens=300,
-            ),
-        )
-        response_text = _extract_text_from_gemini_response(response)
-        data = extract_json(response_text)
-    except Exception as error:
-        print("CBL title/thumbnail rewrite skipped:", error)
-        return None
-
-    if not isinstance(data, dict):
-        return None
-
-    title = _cbl_headline_clean_text(data.get("title"), 90)
-    thumbnail_text = _cbl_headline_clean_text(
-        data.get("thumbnail_text"),
-        30,
-    )
-
-    if not _cbl_title_is_usable(title, keywords=keywords):
-        return None
-
-    if not _cbl_thumbnail_text_is_usable(
-        thumbnail_text,
-        title=title,
-    ):
-        return None
-
-    return {
-        "title": title,
-        "thumbnail_text": thumbnail_text,
-    }
-
-
-if (
-    "generate_ai_post" in globals()
-    and not globals().get(
-        "_CBL_CLICKWORTHY_TITLE_THUMBNAIL_ONLY_WRAPPED",
-        False,
-    )
-):
-    _cbl_previous_generate_ai_post_for_headline = generate_ai_post
-
-    def generate_ai_post(*args, **kwargs):
-        result = _cbl_previous_generate_ai_post_for_headline(
-            *args,
-            **kwargs,
-        )
-
-        if not isinstance(result, dict):
-            return result
-
-        category = kwargs.get(
-            "category",
-            args[0] if len(args) > 0 else "",
-        )
-        keywords = kwargs.get(
-            "keywords",
-            args[1] if len(args) > 1 else "",
-        )
-
-        pair = _cbl_generate_title_thumbnail_pair(
-            keywords=keywords,
-            current_title=result.get("title", ""),
-            current_thumbnail_text=result.get(
-                "thumbnail_text",
-                "",
-            ),
-            summary=(
-                result.get("summary")
-                or result.get("meta_description")
-                or ""
-            ),
-            category=category,
-        )
-
-        if pair:
-            # 중요: 본문, 하이라이트, 소제목, 태그, 이미지에는 손대지 않는다.
-            result["title"] = pair["title"]
-            result["thumbnail_text"] = pair["thumbnail_text"]
-
-        return result
-
-    _CBL_CLICKWORTHY_TITLE_THUMBNAIL_ONLY_WRAPPED = True
-
-# CBL_CLICKWORTHY_TITLE_THUMBNAIL_ONLY_END
-

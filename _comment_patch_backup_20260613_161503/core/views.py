@@ -25,17 +25,15 @@ from django.views.decorators.http import require_POST
 from django.utils.text import slugify
 
 from .market_data import get_market_data
-from .realestate_subscription import get_latest_subscription_items
 from .models import (
     Post,
-    Comment,
     UserProfile,
     ExperienceVault,
     VisitLog,
     AIAutoWriterSetting,
     AIAutoKeywordQueue,
 )
-from .forms import PostForm, CommentForm, NicknameForm, ExperienceVaultForm
+from .forms import PostForm, NicknameForm, ExperienceVaultForm
 from .naver_news import recommend_keywords_from_news
 from .ai_writer import (
     generate_ai_post,
@@ -111,10 +109,6 @@ def get_post_detail_context(post):
         "post": post,
         "is_english": is_english,
         "category_label": category_label,
-        "comments": post.comments.select_related(
-            "author",
-            "author__profile",
-        ).all(),
     }
 
 
@@ -227,7 +221,7 @@ def get_plain_text_length(value):
     return len(text)
 
 
-def validate_generated_content_or_raise(content, title="", min_length=200):
+def validate_generated_content_or_raise(content, title="", min_length=500):
     """
     AI 자동글 저장 직전 최종 본문을 검증합니다.
     본문이 비었거나 지나치게 짧으면 Post를 저장하지 않고 에러로 중단합니다.
@@ -277,24 +271,10 @@ def category_page(request, slug):
         is_published=True,
     ).order_by("-created_at")[:15]
 
-    subscription_data = {
-        "items": [],
-        "error": "",
-        "updated_at": "",
-        "total_count": 0,
-    }
-
-    if slug == "realestate":
-        subscription_data = get_latest_subscription_items(limit=30)
-
     return render(request, "core/category.html", {
         "page": page,
         "slug": slug,
         "posts": posts,
-        "subscription_items": subscription_data["items"],
-        "subscription_error": subscription_data["error"],
-        "subscription_updated_at": subscription_data["updated_at"],
-        "subscription_total_count": subscription_data["total_count"],
     })
 
 
@@ -377,63 +357,6 @@ def post_detail_by_slug(request, slug):
         "core/post_detail.html",
         get_post_detail_context(post),
     )
-
-
-@login_required
-@require_POST
-def comment_create(request, pk):
-    post = get_object_or_404(Post, pk=pk)
-
-    if not post.is_published and not admin_required(request.user):
-        raise Http404("존재하지 않는 글입니다.")
-
-    form = CommentForm(request.POST)
-
-    if form.is_valid():
-        comment = form.save(commit=False)
-        comment.post = post
-        comment.author = request.user
-        comment.save()
-
-        messages.success(request, "댓글이 등록되었습니다.")
-    else:
-        error_message = "댓글 내용을 확인해주세요."
-
-        if form.errors:
-            first_errors = next(iter(form.errors.values()), None)
-            if first_errors:
-                error_message = str(first_errors[0])
-
-        messages.error(request, error_message)
-
-    return redirect(f"{post.get_absolute_url()}#comments")
-
-
-@login_required
-@require_POST
-def comment_delete(request, comment_id):
-    comment = get_object_or_404(
-        Comment.objects.select_related("post", "author"),
-        pk=comment_id,
-    )
-
-    post = comment.post
-
-    can_delete = (
-        comment.author_id == request.user.id
-        or request.user.is_staff
-        or request.user.is_superuser
-    )
-
-    if not can_delete:
-        messages.error(request, "본인이 작성한 댓글만 삭제할 수 있습니다.")
-        return redirect(f"{post.get_absolute_url()}#comments")
-
-    comment.delete()
-    messages.success(request, "댓글이 삭제되었습니다.")
-
-    return redirect(f"{post.get_absolute_url()}#comments")
-
 
 @user_passes_test(can_write_post)
 def post_create(request):
@@ -605,7 +528,7 @@ def post_translate_english(request, pk):
         english_content = validate_generated_content_or_raise(
             english_content,
             title=english_title,
-            min_length=200,
+            min_length=500,
         )
 
         english_tags = str(english_data.get("tags") or "").strip()
@@ -1134,7 +1057,7 @@ def _cbl_original_ai_post_generate(request):
             content = validate_generated_content_or_raise(
                 content,
                 title=ai_data.get("title", topic_title),
-                min_length=200,
+                min_length=500,
             )
 
             post = Post.objects.create(
@@ -1189,7 +1112,7 @@ def _cbl_original_ai_post_generate(request):
                 english_content = validate_generated_content_or_raise(
                     english_content,
                     title=english_title,
-                    min_length=200,
+                    min_length=500,
                 )
 
                 english_create_kwargs = {
@@ -2726,7 +2649,7 @@ def ai_post_generate(request):
                 content = validate_generated_content_or_raise(
                     content,
                     title=ai_data.get("title", keyword),
-                    min_length=200,
+                    min_length=500,
                 )
 
                 post_create_kwargs = {
@@ -3679,48 +3602,4 @@ try:
 except Exception as _cbl_row_category_generate_load_error:
     print("CBL_AI_ROW_CATEGORY_GENERATE load error:", _cbl_row_category_generate_load_error)
 # CBL_AI_ROW_CATEGORY_GENERATE_END
-
-# CBL_ENGLISH_LOCALIZATION_PROMPT_PATCH_START
-# 영어 선택 시 직역이 아닌 영어권 독자용 현지화 재작성 지시를 추가한다.
-_cbl_build_language_prompt_before_localization = cbl_build_language_prompt
-
-
-def cbl_build_language_prompt(*args, **kwargs):
-    prompt = _cbl_build_language_prompt_before_localization(
-        *args,
-        **kwargs,
-    )
-
-    language = kwargs.get("language")
-
-    if language is None and args:
-        language = args[0]
-
-    if str(language or "").strip().lower() != "en":
-        return prompt
-
-    localization_rules = """
-[English localization and editorial adaptation rules]
-
-- Write for international English-speaking readers.
-- Do not use literal or sentence-by-sentence translation.
-- Preserve verified facts, figures, dates, names, URLs, warnings, and conclusions.
-- Never invent statistics, prices, legal rules, rankings, or other factual claims.
-- Create a distinct English title rather than translating the Korean title word for word.
-- Rewrite the introduction using a different but relevant opening angle.
-- Vary sentence structure and paragraph flow naturally.
-- Reorganize H2 and H3 sections when that improves clarity.
-- Do not mechanically copy the original paragraph and heading order.
-- Explain Korea-specific terms briefly when overseas readers may not understand them.
-- Adapt examples only when the underlying facts remain unchanged.
-- Keep technical terms, brands, companies, products, and proper nouns accurate.
-- Write a fresh English summary, meta description, thumbnail phrase, and SEO tags.
-- Avoid repetitive AI-style phrases and generic introductions.
-- The result should feel independently edited for English readers.
-""".strip()
-
-    return f"{prompt}\n\n{localization_rules}"
-
-
-# CBL_ENGLISH_LOCALIZATION_PROMPT_PATCH_END
 

@@ -654,7 +654,7 @@ def plain_text_length_from_html(content):
     return len(text)
 
 
-def validate_ai_content_or_raise(content, context="AI 본문", min_length=200):
+def validate_ai_content_or_raise(content, context="AI 본문", min_length=500):
     content = str(content or "").strip()
     plain_length = plain_text_length_from_html(content)
 
@@ -2160,7 +2160,7 @@ FAQ 작성 조건:
     content = validate_ai_content_or_raise(
         content,
         context=f"{title} 본문",
-        min_length=200,
+        min_length=500,
     )
     summary = str(data.get("summary", "")).strip()
     meta_description = str(data.get("meta_description", "")).strip()
@@ -2227,8 +2227,8 @@ def generate_english_ai_post(
     )
 
     prompt = f"""
-You are a senior English-language SEO editor for ChickenBanana Lab.
-Rewrite and localize the Korean source article for international English-speaking readers.
+You are an English SEO blog editor for ChickenBanana Lab.
+Create an English version of the Korean blog post below.
 
 Category: {category_name}
 Original keywords: {source_keywords}
@@ -2236,27 +2236,13 @@ Original Korean title: {korean_title}
 
 {current_fact_check_rules}
 
-English localization and editorial adaptation rules:
-- Do not translate the Korean article sentence by sentence.
-- Rewrite the complete article so it reads as though it was originally written in English by an experienced human editor.
-- Preserve the source article's core meaning, verified facts, technical terminology, caution level, examples, and practical value.
-- You may reorganize sentence order, paragraph boundaries, transitions, headings, and list wording when this improves natural English readability.
-- Preserve approximately the same level of useful information. Do not remove substantive sections merely to make the article shorter.
-- Replace Korean-style conversational openings, rhetorical questions, repeated explanations, and formulaic conclusions with natural English editorial prose.
-- Avoid literal translations of Korean expressions, sentence endings, and heading structures.
-- Use clear and specific H2 and H3 headings. Rewrite headings naturally instead of translating them word for word.
-- Remove accidental duplicate sentences, duplicated image captions, and repeated descriptions. Keep each caption only once.
-- Avoid generic AI-style or promotional expressions such as "Let's delve into," "poised to revolutionize," "in today's rapidly changing world," "it is worth noting," and repetitive "This allows..." constructions.
-- Do not begin every section with the same sentence pattern.
-- Vary sentence length and transitions while keeping the writing professional, accessible, and concise.
-- Use natural international English suitable for readers in the United States, Europe, and other English-speaking markets.
-- Preserve established product names, software names, technical terms, acronyms, organizations, standards, and proper nouns accurately.
-- When Korean institutions, regulations, or policies appear, provide only the minimum context needed for an international reader.
-- Do not invent explanations, statistics, dates, prices, rankings, laws, policies, technical capabilities, or examples.
-- If a statement is uncertain, conditional, or time-sensitive in the Korean source, retain that caution in the English version.
-- Create a natural, search-friendly English title rather than translating the Korean title literally.
-- Rewrite the summary, meta description, tags, and thumbnail text independently for English search users.
-- The final output must contain English only, except for proper nouns or unavoidable source terms.
+Important goal:
+- Create a separate English article for Google search users outside Korea.
+- Keep the same meaning, facts, caution level, structure, and practical angle as the Korean article.
+- Do not add unverified facts, numbers, rankings, dates, prices, laws, tax rules, medical claims, or investment advice.
+- If the Korean article is cautious, the English article must also be cautious.
+- Use natural English, not stiff machine translation.
+- Make the title search-friendly in English.
 
 HTML rules:
 - Return the content as HTML.
@@ -2329,7 +2315,7 @@ Return JSON only in this exact format:
     content = repair_ai_content_html(content, title=title)
     # CBL_SERVER_EN_EMPTY_CONTENT_GUARD_START
     # 영어 본문 생성이 0자/짧음이면 검증 전에 안전 대체본문을 직접 채운다.
-    if len(str(content or "").strip()) < 200:
+    if len(str(content or "").strip()) < 500:
         print("========== 영어 본문 0자/짧음 서버 직접 대체본문 생성 ==========")
         print("title:", title)
         _safe_title = str(title or source_title or source_keywords or "English Guide").strip()
@@ -2353,7 +2339,7 @@ Return JSON only in this exact format:
     content = validate_ai_content_or_raise(
         content,
         context=f"{title} 영어 본문",
-        min_length=200,
+        min_length=500,
     )
 
     summary = str(data.get("summary", "")).strip()
@@ -4933,7 +4919,7 @@ def _cbl_generate_title_thumbnail_pair(
         current_thumbnail_text,
         40,
     )
-    summary = _cbl_headline_clean_text(summary, 200)
+    summary = _cbl_headline_clean_text(summary, 500)
     category = _cbl_headline_clean_text(category, 30)
 
     if not keywords and not current_title:
