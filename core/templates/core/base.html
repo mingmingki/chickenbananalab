@@ -1062,6 +1062,120 @@
 </style>
 <!-- CBL_QUANTITY_READY_NOTICE_STYLE_END -->
 
+
+<!-- CBL_MOBILE_TOOLS_UNDER_CATEGORIES_STYLE_START -->
+<style>
+  /*
+   * PC에서는 기존 오른쪽 세로 박스 배치를 그대로 유지합니다.
+   * 모바일 홈에서만 카테고리 아이콘 아래에 2열로 배치합니다.
+   */
+  @media (max-width: 760px) {
+    body.cbl-tools-under-categories {
+      padding-right: 0 !important;
+      padding-bottom: 0 !important;
+    }
+
+    .cbl-mobile-tools-slot {
+      width: 100%;
+      max-width: 100%;
+      margin: 16px auto 0;
+    }
+
+    .cbl-mobile-tools-slot .cbl-fixed-tools {
+      position: static !important;
+      inset: auto !important;
+      top: auto !important;
+      right: auto !important;
+      bottom: auto !important;
+      left: auto !important;
+
+      z-index: auto !important;
+      display: grid !important;
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+      width: 100% !important;
+      max-width: none !important;
+      max-height: none !important;
+      gap: 10px !important;
+      margin: 0 !important;
+      padding: 0 !important;
+
+      overflow: visible !important;
+      visibility: visible !important;
+      transform: none !important;
+    }
+
+    .cbl-mobile-tools-slot .cbl-fixed-tool-card {
+      width: 100% !important;
+      min-width: 0 !important;
+      min-height: 112px !important;
+      margin: 0 !important;
+      padding: 13px 12px 12px 14px !important;
+
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: flex-start !important;
+      justify-content: center !important;
+
+      border-radius: 15px !important;
+      text-align: left !important;
+    }
+
+    .cbl-mobile-tools-slot .cbl-tool-card-kicker {
+      margin-bottom: 6px !important;
+      font-size: 8px !important;
+      line-height: 1.2 !important;
+      letter-spacing: 0.06em !important;
+      white-space: nowrap !important;
+    }
+
+    .cbl-mobile-tools-slot .cbl-tool-card-title {
+      font-size: 14px !important;
+      line-height: 1.35 !important;
+      text-align: left !important;
+      word-break: keep-all !important;
+    }
+
+    .cbl-mobile-tools-slot .cbl-tool-card-description {
+      display: block !important;
+      margin-top: 5px !important;
+      font-size: 9px !important;
+      line-height: 1.4 !important;
+      word-break: keep-all !important;
+    }
+
+    .cbl-mobile-tools-slot .cbl-tool-card-action {
+      margin-top: 8px !important;
+      font-size: 9px !important;
+      line-height: 1.2 !important;
+      white-space: nowrap !important;
+    }
+  }
+
+  @media (max-width: 390px) {
+    .cbl-mobile-tools-slot {
+      margin-top: 14px;
+    }
+
+    .cbl-mobile-tools-slot .cbl-fixed-tools {
+      gap: 8px !important;
+    }
+
+    .cbl-mobile-tools-slot .cbl-fixed-tool-card {
+      min-height: 106px !important;
+      padding: 12px 10px 11px 12px !important;
+    }
+
+    .cbl-mobile-tools-slot .cbl-tool-card-title {
+      font-size: 13px !important;
+    }
+
+    .cbl-mobile-tools-slot .cbl-tool-card-description {
+      font-size: 8px !important;
+    }
+  }
+</style>
+<!-- CBL_MOBILE_TOOLS_UNDER_CATEGORIES_STYLE_END -->
+
 </head>
 
 <body>
@@ -6007,6 +6121,115 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 })();
 </script>
 <!-- CBL_FIXED_TOOL_CARDS_SCRIPT_END -->
+
+
+<!-- CBL_MOBILE_TOOLS_UNDER_CATEGORIES_SCRIPT_START -->
+<script>
+(function () {
+  "use strict";
+
+  var tools = null;
+  var originalParent = null;
+  var originalNextSibling = null;
+  var mobileQuery = window.matchMedia("(max-width: 760px)");
+
+  function findCategoryMenu() {
+    return document.querySelector(
+      ".search-hero .icon-menu, .home-search-area .icon-menu, .icon-menu"
+    );
+  }
+
+  function createSlotAfter(menu) {
+    var existing = document.querySelector(".cbl-mobile-tools-slot");
+    if (existing) return existing;
+
+    var slot = document.createElement("div");
+    slot.className = "cbl-mobile-tools-slot";
+    slot.setAttribute("aria-label", "빠른 기능");
+
+    menu.insertAdjacentElement("afterend", slot);
+    return slot;
+  }
+
+  function restoreOriginalPosition() {
+    if (!tools || !originalParent) return;
+
+    if (
+      originalNextSibling &&
+      originalNextSibling.parentNode === originalParent
+    ) {
+      originalParent.insertBefore(tools, originalNextSibling);
+    } else {
+      originalParent.appendChild(tools);
+    }
+
+    var slot = document.querySelector(".cbl-mobile-tools-slot");
+    if (slot) slot.remove();
+
+    document.body.classList.remove("cbl-tools-under-categories");
+  }
+
+  function applyResponsivePosition() {
+    tools = tools || document.querySelector(".cbl-fixed-tools");
+    if (!tools) return;
+
+    if (!originalParent) {
+      originalParent = tools.parentNode;
+      originalNextSibling = tools.nextSibling;
+    }
+
+    var menu = findCategoryMenu();
+
+    /*
+     * 홈 모바일에서만:
+     * 건축·부동산·금융·테크·일상 바로 아래에 박스 2개를 배치합니다.
+     */
+    if (mobileQuery.matches && menu) {
+      var slot = createSlotAfter(menu);
+
+      if (tools.parentNode !== slot) {
+        slot.appendChild(tools);
+      }
+
+      document.body.classList.add("cbl-tools-under-categories");
+      tools.classList.add("cbl-position-ready");
+      return;
+    }
+
+    /*
+     * PC 또는 카테고리 메뉴가 없는 페이지에서는
+     * 기존 base.html 위치와 오른쪽 세로 레이아웃을 유지합니다.
+     */
+    restoreOriginalPosition();
+  }
+
+  function init() {
+    tools = document.querySelector(".cbl-fixed-tools");
+    if (!tools) return;
+
+    originalParent = tools.parentNode;
+    originalNextSibling = tools.nextSibling;
+
+    applyResponsivePosition();
+
+    if (typeof mobileQuery.addEventListener === "function") {
+      mobileQuery.addEventListener("change", applyResponsivePosition);
+    } else if (typeof mobileQuery.addListener === "function") {
+      mobileQuery.addListener(applyResponsivePosition);
+    }
+
+    window.addEventListener("resize", applyResponsivePosition);
+    window.addEventListener("orientationchange", applyResponsivePosition);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init, { once: true });
+  } else {
+    init();
+  }
+})();
+</script>
+<!-- CBL_MOBILE_TOOLS_UNDER_CATEGORIES_SCRIPT_END -->
 
 </body>
 </html>
