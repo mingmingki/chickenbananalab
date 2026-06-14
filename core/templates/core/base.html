@@ -915,9 +915,171 @@
   }
 </style>
 <!-- CBL_PUBLIC_SERVICE_GUEST_CLICK_FIX_STYLE_END -->
+<!-- CBL_POST_PUBLIC_SERVICE_TOP_STYLE_START -->
+<style>
+  /* 홈과 개별 글 외의 페이지에서는 숨김 */
+  body.cbl-public-launcher-hidden
+  .cbl-public-service-launcher {
+    display: none !important;
+  }
+
+  /*
+   * 계정관리·홈페이지 관리 팝업이 열렸을 때는
+   * 공개 서비스 박스가 팝업 위를 가리지 않게 숨깁니다.
+   */
+  body.modal-open
+  .cbl-public-service-launcher {
+    display: none !important;
+  }
+
+  /*
+   * 개별 글에서는 고정형이 아니라
+   * main의 첫 번째 콘텐츠로 표시합니다.
+   */
+  body.cbl-public-launcher-post,
+  body.cbl-public-launcher-post.cbl-tools-inset,
+  body.cbl-public-launcher-post.cbl-public-launcher-home,
+  body.cbl-public-launcher-post.cbl-public-launcher-mobile {
+    box-sizing: border-box !important;
+    padding-right: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  body.cbl-public-launcher-post
+  #cblPostPublicServiceSlot {
+    box-sizing: border-box !important;
+    position: relative !important;
+    width: min(1180px, calc(100% - 40px)) !important;
+    max-width: 1180px !important;
+    margin: 18px auto 24px !important;
+    padding: 0 !important;
+  }
+
+  body.cbl-public-launcher-post
+  #cblPostPublicServiceSlot
+  > .cbl-public-service-launcher {
+    position: static !important;
+    inset: auto !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    left: auto !important;
+
+    display: grid !important;
+    width: 100% !important;
+    max-width: none !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+    transform: none !important;
+  }
+
+  body.cbl-public-launcher-post
+  #cblPostPublicServiceSlot
+  .cbl-public-service-card {
+    width: 100% !important;
+    min-height: 112px !important;
+  }
+
+  @media (max-width: 760px) {
+    body.cbl-public-launcher-post
+    #cblPostPublicServiceSlot {
+      width: calc(100% - 24px) !important;
+      margin: 14px auto 20px !important;
+    }
+
+    body.cbl-public-launcher-post
+    #cblPostPublicServiceSlot
+    > .cbl-public-service-launcher {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+      gap: 8px !important;
+    }
+
+    body.cbl-public-launcher-post
+    #cblPostPublicServiceSlot
+    .cbl-public-service-card {
+      min-height: 106px !important;
+      padding: 12px 10px 11px 12px !important;
+    }
+
+    body.cbl-public-launcher-post
+    #cblPostPublicServiceSlot
+    .cbl-public-service-title {
+      font-size: 13px !important;
+    }
+
+    body.cbl-public-launcher-post
+    #cblPostPublicServiceSlot
+    .cbl-public-service-description {
+      font-size: 8px !important;
+    }
+  }
+</style>
+<!-- CBL_POST_PUBLIC_SERVICE_TOP_STYLE_END -->
+<!-- CBL_ACCOUNT_MENU_LAYER_FIX_START -->
+<style>
+  /*
+   * 공개 서비스 박스는 일반 콘텐츠보다 약간 위에만 배치합니다.
+   * 기존 2147480000 값 때문에 관리자 메뉴를 덮던 문제를 수정합니다.
+   */
+  .cbl-public-service-slot {
+    z-index: 1200 !important;
+    isolation: auto !important;
+  }
+
+  .cbl-public-service-launcher,
+  .cbl-public-service-slot > .cbl-public-service-launcher {
+    z-index: 1300 !important;
+  }
+
+  /*
+   * 헤더와 계정 메뉴는 공개 서비스 박스보다 위에 표시합니다.
+   */
+  .site-header {
+    z-index: 10000 !important;
+    overflow: visible !important;
+  }
+
+  .header-inner,
+  .top-links,
+  .account-menu {
+    position: relative !important;
+    z-index: 11000 !important;
+    overflow: visible !important;
+  }
+
+  .account-dropdown.active {
+    z-index: 12000 !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+
+  /*
+   * 계정관리·홈페이지 관리 전체 모달은
+   * 헤더와 드롭다운보다 더 위에 표시합니다.
+   */
+  .site-modal.active {
+    z-index: 99999999 !important;
+  }
+
+  .site-modal.active .site-modal-card {
+    z-index: 100000000 !important;
+  }
+
+  /*
+   * 서비스 자체 팝업은 모든 화면 요소보다 위에 유지합니다.
+   */
+  .cbl-tool-modal.is-open {
+    z-index: 2147483000 !important;
+  }
+</style>
+<!-- CBL_ACCOUNT_MENU_LAYER_FIX_END -->
 </head>
 
-<body>
+<body data-cbl-url-name="{{ request.resolver_match.url_name|default:'' }}">
 
 <header class="site-header">
     <div class="container header-inner">
@@ -6087,8 +6249,156 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
     });
   }
 
+  function cblCurrentPageType() {
+    var body = document.body;
+    var pageName = body
+      ? String(body.getAttribute("data-cbl-url-name") || "")
+      : "";
+
+    var path = String(window.location.pathname || "/");
+
+    if (pageName === "home" || path === "/") {
+      return "home";
+    }
+
+    /*
+     * Django URL 이름을 우선 사용합니다.
+     * 경로 검사는 보조 수단입니다.
+     */
+    if (
+      pageName === "post_detail" ||
+      pageName === "post_detail_slug" ||
+      pageName.indexOf("post_detail") === 0 ||
+      /^\/(?:[a-z]{2}\/)?post\/\d+\/?$/.test(path) ||
+      /^\/(?:[a-z]{2}\/)?post\/slug\/[^/?#]+\/?$/.test(path)
+    ) {
+      return "post";
+    }
+
+    return "hidden";
+  }
+
+  function clearPublicLauncherPosition() {
+    if (!launcher) return;
+
+    launcher.style.removeProperty("position");
+    launcher.style.removeProperty("top");
+    launcher.style.removeProperty("right");
+    launcher.style.removeProperty("bottom");
+    launcher.style.removeProperty("left");
+    launcher.style.removeProperty("inset");
+    launcher.style.removeProperty("transform");
+
+    launcher.style.removeProperty(
+      "--cbl-public-launcher-top"
+    );
+
+    launcher.style.removeProperty(
+      "--cbl-public-launcher-left"
+    );
+  }
+
+  function applyPostDetail() {
+    var main = document.querySelector("main");
+
+    document.body.classList.remove(
+      "cbl-tools-inset",
+      "cbl-public-launcher-home",
+      "cbl-public-launcher-mobile",
+      "cbl-public-launcher-hidden"
+    );
+
+    document.body.classList.add(
+      "cbl-public-launcher-post"
+    );
+
+    if (!main) {
+      document.body.appendChild(launcher);
+      return;
+    }
+
+    var slot = document.getElementById(
+      "cblPostPublicServiceSlot"
+    );
+
+    if (!slot) {
+      slot = document.querySelector(
+        ".cbl-public-service-slot"
+      );
+    }
+
+    if (!slot) {
+      slot = document.createElement("div");
+      slot.className = "cbl-public-service-slot";
+    }
+
+    slot.id = "cblPostPublicServiceSlot";
+
+    /*
+     * <main>의 첫 번째 요소로 넣습니다.
+     * 따라서 글 제목·본문·댓글보다 항상 위에 표시됩니다.
+     */
+    if (
+      slot.parentNode !== main ||
+      main.firstElementChild !== slot
+    ) {
+      main.insertBefore(slot, main.firstChild);
+    }
+
+    if (launcher.parentNode !== slot) {
+      slot.appendChild(launcher);
+    }
+
+    clearPublicLauncherPosition();
+  }
+
+  function hidePublicLauncher() {
+    document.body.classList.remove(
+      "cbl-tools-inset",
+      "cbl-public-launcher-home",
+      "cbl-public-launcher-mobile",
+      "cbl-public-launcher-post"
+    );
+
+    document.body.classList.add(
+      "cbl-public-launcher-hidden"
+    );
+
+    var slot = document.querySelector(
+      ".cbl-public-service-slot"
+    );
+
+    if (launcher.parentNode !== document.body) {
+      document.body.appendChild(launcher);
+    }
+
+    if (slot && !slot.children.length) {
+      slot.remove();
+    }
+  }
+
   function applyLayout() {
     launcher = launcher || createLauncher();
+
+    var pageType = cblCurrentPageType();
+
+    if (pageType === "post") {
+      applyPostDetail();
+      return;
+    }
+
+    if (pageType === "hidden") {
+      hidePublicLauncher();
+      return;
+    }
+
+    /*
+     * 홈은 기존 시세창 옆·모바일 상단 배치를 유지합니다.
+     */
+    document.body.classList.remove(
+      "cbl-public-launcher-hidden",
+      "cbl-public-launcher-post"
+    );
 
     if (mobileQuery.matches) {
       applyMobile();
