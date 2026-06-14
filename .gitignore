@@ -23,3 +23,30 @@ current_code.txt
 _restore_backup/
 _server_restore_backup/
 ai_auto_writer.log
+# Local Django cache and generated static output
+/.django_cache/
+/staticfiles/
+*.djcache
+# Local restore and patch backups
+/_comment_patch_backup_*/
+/_restore_backup/
+/_server_restore_backup/
+*.server_before_pull_*
+# One-time local patch utilities
+/add_editor_highlight.py
+/ai_writer_fixed.py
+/ai_writer_restore_before_recent_fix.py
+/ai_writer_title_thumbnail_only.py
+/cbl_api_cache_safety_patch.sh
+/cbl_api_cache_safety_patch_v2.sh
+/cbl_comment_structure.txt
+/cbl_crypto_market_patch.sh
+/cbl_crypto_market_structure.txt
+/cbl_keyword_space_final_fix.sh
+/cbl_keyword_space_fix_patch.sh
+/cbl_realestate_subscription_cache_patch_v3.sh
+/fix_existing_ai_highlight.py
+/fix_highlight_v2.py
+/fix_highlight_v3_one_click.py
+# Local logs
+/ai_auto_writer.log
