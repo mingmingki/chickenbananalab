@@ -2938,16 +2938,170 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
         return 1;
     }
 
+    function getSequentialVisibleRows(form){
+        const selectors = [
+            "#cblForceTopRowPanel .cbl-force-top-row",
+            ".cbl-force-top-row",
+            ".cbl-kw-row",
+            ".cbl-ai-keyword-row"
+        ];
+
+        let rowElements = [];
+
+        for(const selector of selectors){
+            rowElements = Array.from(
+                form.querySelectorAll(selector)
+            );
+
+            if(rowElements.length){
+                break;
+            }
+        }
+
+        const rows = [];
+
+        rowElements.forEach(function(row){
+            const categoryEl = row.querySelector(
+                "#ai-category, " +
+                ".cbl-row-category, " +
+                "select[name='keyword_categories'], " +
+                "select[name='category']"
+            );
+
+            const imageEl = row.querySelector(
+                "#ai-image-count, " +
+                ".cbl-row-image-count, " +
+                "select[name='keyword_image_counts'], " +
+                "select[name='image_count']"
+            );
+
+            const keywordEl = row.querySelector(
+                "#ai-keywords, " +
+                ".cbl-row-keyword, " +
+                "input[name='keywords'], " +
+                "input[name='keyword']"
+            );
+
+            const keyword = String(
+                keywordEl ? keywordEl.value : ""
+            ).trim();
+
+            if(!keyword){
+                return;
+            }
+
+            const category = String(
+                categoryEl ? categoryEl.value : "architecture"
+            ).trim() || "architecture";
+
+            let imageCount = parseInt(
+                String(imageEl ? imageEl.value : "0")
+                    .replace("장", "")
+                    .trim(),
+                10
+            );
+
+            if(!Number.isFinite(imageCount)){
+                imageCount = 0;
+            }
+
+            imageCount = Math.max(
+                0,
+                Math.min(imageCount, 5)
+            );
+
+            rows.push({
+                category: category,
+                image_count: String(imageCount),
+                keyword: keyword
+            });
+        });
+
+        /*
+         * 화면 행을 못 찾았을 때만 기존 입력값을 사용합니다.
+         */
+        if(!rows.length){
+            const categoryEl = form.querySelector(
+                "#ai-category, select[name='category']"
+            );
+
+            const imageEl = form.querySelector(
+                "#ai-image-count, select[name='image_count']"
+            );
+
+            const keywordEl = form.querySelector(
+                "#ai-keywords, input[name='keywords']"
+            );
+
+            const keyword = String(
+                keywordEl ? keywordEl.value : ""
+            ).trim();
+
+            if(keyword){
+                rows.push({
+                    category: String(
+                        categoryEl
+                            ? categoryEl.value
+                            : "architecture"
+                    ).trim() || "architecture",
+
+                    image_count: String(
+                        Math.max(
+                            0,
+                            Math.min(
+                                parseInt(
+                                    imageEl
+                                        ? imageEl.value
+                                        : "0",
+                                    10
+                                ) || 0,
+                                5
+                            )
+                        )
+                    ),
+
+                    keyword: keyword
+                });
+            }
+        }
+
+        return rows;
+    }
+
     function buildJobs(form){
-        const count = getPostCount(form);
+        const rows = getSequentialVisibleRows(form);
         const langs = getSelectedLanguages(form);
         const jobs = [];
 
-        for(let i = 0; i < count; i++){
-            for(const lang of langs){
-                jobs.push({lang});
-            }
+        rows.forEach(function(row){
+            langs.forEach(function(lang){
+                jobs.push({
+                    lang: lang,
+                    category: row.category,
+                    image_count: row.image_count,
+                    keyword: row.keyword
+                });
+            });
+        });
+
+        /*
+         * 안전장치: 행이 전혀 없더라도 기존 방식으로 1개는 생성합니다.
+         */
+        if(!jobs.length){
+            langs.forEach(function(lang){
+                jobs.push({
+                    lang: lang,
+                    category: "architecture",
+                    image_count: "0",
+                    keyword: ""
+                });
+            });
         }
+
+        console.log(
+            "[CBL SEQUENTIAL JOBS]",
+            jobs
+        );
 
         return jobs;
     }
@@ -3143,6 +3297,102 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 
         applyCommonOptions(form,fd);
         applyLanguage(form,fd,job.lang);
+
+        /*
+         * 중요:
+         * 순차 생성 작업에 저장된 화면 행값을 최종 요청에 직접 넣습니다.
+         * 숨겨진 기본값 tech / 0이 다시 사용되지 않게 합니다.
+         */
+        const finalCategory = String(
+            job.category || "architecture"
+        ).trim();
+
+        const finalImageCount = String(
+            Math.max(
+                0,
+                Math.min(
+                    parseInt(job.image_count || "0", 10) || 0,
+                    5
+                )
+            )
+        );
+
+        const finalKeyword = String(
+            job.keyword || ""
+        ).trim();
+
+        fd.set("category", finalCategory);
+        fd.set("post_category", finalCategory);
+        fd.set("selected_category", finalCategory);
+        fd.set("ai_category", finalCategory);
+        fd.set("cbl_force_category", finalCategory);
+
+        fd.set("image_count", finalImageCount);
+        fd.set("keywords", finalKeyword);
+        fd.set(
+            "selected_keywords",
+            JSON.stringify([finalKeyword])
+        );
+        fd.set("count", "1");
+
+        /*
+         * 서버 행별 처리에도 현재 작업 한 행만 전달합니다.
+         */
+        const currentRow = [{
+            category: finalCategory,
+            image_count: finalImageCount,
+            keyword: finalKeyword
+        }];
+
+        fd.set(
+            "cbl_keyword_rows",
+            JSON.stringify(currentRow)
+        );
+
+        fd.delete("cbl_row_keywords[]");
+        fd.delete("cbl_row_categories[]");
+        fd.delete("cbl_row_image_counts[]");
+
+        fd.append(
+            "cbl_row_keywords[]",
+            finalKeyword
+        );
+        fd.append(
+            "cbl_row_categories[]",
+            finalCategory
+        );
+        fd.append(
+            "cbl_row_image_counts[]",
+            finalImageCount
+        );
+
+        /*
+         * 행에서 0장을 선택하면 이미지 관련 체크값도 끕니다.
+         * 1장 이상이면 이미지 생성을 켭니다.
+         */
+        const useContentImage =
+            parseInt(finalImageCount, 10) > 0;
+
+        setBool(
+            fd,
+            "make_content_image",
+            useContentImage
+        );
+        setBool(
+            fd,
+            "generate_content_image",
+            useContentImage
+        );
+
+        console.log(
+            "[CBL SEQUENTIAL REQUEST]",
+            {
+                category: finalCategory,
+                image_count: finalImageCount,
+                keyword: finalKeyword,
+                lang: job.lang
+            }
+        );
 
         fd.set("cbl_seq_index",String(index));
         fd.set("cbl_seq_total",String(total));
@@ -5432,9 +5682,15 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
         const items = [];
 
         rows.forEach(function (row) {
-            const categoryEl = row.querySelector(".cbl-row-category");
-            const imageEl = row.querySelector(".cbl-row-image-count");
-            const keywordEl = row.querySelector(".cbl-row-keyword");
+            const categoryEl = row.querySelector(
+                "#ai-category, .cbl-row-category, select[name='category'], select[name='keyword_categories']"
+            );
+            const imageEl = row.querySelector(
+                "#ai-image-count, .cbl-row-image-count, select[name='image_count'], select[name='keyword_image_counts']"
+            );
+            const keywordEl = row.querySelector(
+                "#ai-keywords, .cbl-row-keyword, input[name='keywords'], input[name='keyword']"
+            );
 
             const keyword = clean(keywordEl ? keywordEl.value : "");
 
@@ -7115,5 +7371,567 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 })();
 </script>
 <!-- CBL_PUBLIC_SERVICE_GUEST_CLICK_FIX_SCRIPT_END -->
+
+<!-- CBL_AI_SINGLE_VISIBLE_SOURCE_START -->
+<script>
+(function () {
+    if (window.__CBL_AI_SINGLE_VISIBLE_SOURCE__) return;
+    window.__CBL_AI_SINGLE_VISIBLE_SOURCE__ = true;
+
+    const VALID_CATEGORIES = new Set([
+        "architecture",
+        "realestate",
+        "finance",
+        "tech",
+        "life"
+    ]);
+
+    const CATEGORY_MAP = {
+        "건축": "architecture",
+        "건설": "architecture",
+        "architecture": "architecture",
+
+        "부동산": "realestate",
+        "realestate": "realestate",
+        "real_estate": "realestate",
+
+        "금융": "finance",
+        "경제": "finance",
+        "finance": "finance",
+
+        "테크": "tech",
+        "기술": "tech",
+        "IT": "tech",
+        "it": "tech",
+        "tech": "tech",
+
+        "일상": "life",
+        "라이프": "life",
+        "life": "life"
+    };
+
+    let lastVisibleRows = [];
+
+    function clean(value) {
+        return String(value == null ? "" : value)
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    function normalizeCategory(value) {
+        const source = clean(value);
+        const result = CATEGORY_MAP[source] || source;
+
+        return VALID_CATEGORIES.has(result)
+            ? result
+            : "architecture";
+    }
+
+    function normalizeImageCount(value) {
+        let number = parseInt(
+            clean(value).replace("장", ""),
+            10
+        );
+
+        if (!Number.isFinite(number)) {
+            number = 0;
+        }
+
+        return String(Math.max(0, Math.min(number, 5)));
+    }
+
+    function isVisible(element) {
+        if (!element) return false;
+
+        const style = window.getComputedStyle(element);
+
+        if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            style.opacity === "0"
+        ) {
+            return false;
+        }
+
+        const rect = element.getBoundingClientRect();
+
+        return rect.width > 0 && rect.height > 0;
+    }
+
+    function readRow(row) {
+        if (!row) return null;
+
+        const categoryEl =
+            row.querySelector(".cbl-row-category") ||
+            row.querySelector("#ai-category") ||
+            row.querySelector('select[name="category"]');
+
+        const imageEl =
+            row.querySelector(".cbl-row-image-count") ||
+            row.querySelector("#ai-image-count") ||
+            row.querySelector('select[name="image_count"]');
+
+        const keywordEl =
+            row.querySelector(".cbl-row-keyword") ||
+            row.querySelector("#ai-keywords") ||
+            row.querySelector('input[name="keywords"]');
+
+        const keyword = clean(
+            keywordEl ? keywordEl.value : ""
+        );
+
+        if (!keyword) return null;
+
+        return {
+            category: normalizeCategory(
+                categoryEl ? categoryEl.value : "architecture"
+            ),
+            image_count: normalizeImageCount(
+                imageEl ? imageEl.value : "0"
+            ),
+            keyword: keyword
+        };
+    }
+
+    function getAllRows() {
+        return Array.from(
+            document.querySelectorAll(
+                ".cbl-force-top-row"
+            )
+        );
+    }
+
+    function getVisibleRows() {
+        const rows = getAllRows()
+            .filter(isVisible)
+            .map(readRow)
+            .filter(Boolean);
+
+        if (rows.length) {
+            return rows;
+        }
+
+        return [];
+    }
+
+    function getCurrentRows() {
+        const visibleRows = getVisibleRows();
+
+        if (visibleRows.length) {
+            lastVisibleRows = visibleRows;
+            return visibleRows;
+        }
+
+        if (lastVisibleRows.length) {
+            return lastVisibleRows;
+        }
+
+        return [];
+    }
+
+    function setControlValue(control, value) {
+        if (!control) return;
+
+        control.value = value;
+
+        control.dispatchEvent(
+            new Event("input", {
+                bubbles: true
+            })
+        );
+
+        control.dispatchEvent(
+            new Event("change", {
+                bubbles: true
+            })
+        );
+    }
+
+    /*
+     * 화면에 보이지 않는 복제 행도 보이는 행과 동일한 값으로 통일한다.
+     * 어떤 기존 스크립트가 어느 행을 읽더라도 같은 값이 나오게 만든다.
+     */
+    function synchronizeAllDuplicateRows(rows) {
+        const allRows = getAllRows();
+
+        allRows.forEach(function (row, index) {
+            const source =
+                rows[index] ||
+                rows[rows.length - 1];
+
+            if (!source) return;
+
+            const categoryEl =
+                row.querySelector(".cbl-row-category") ||
+                row.querySelector("#ai-category") ||
+                row.querySelector('select[name="category"]');
+
+            const imageEl =
+                row.querySelector(".cbl-row-image-count") ||
+                row.querySelector("#ai-image-count") ||
+                row.querySelector('select[name="image_count"]');
+
+            const keywordEl =
+                row.querySelector(".cbl-row-keyword") ||
+                row.querySelector("#ai-keywords") ||
+                row.querySelector('input[name="keywords"]');
+
+            if (
+                categoryEl &&
+                categoryEl.value !== source.category
+            ) {
+                setControlValue(
+                    categoryEl,
+                    source.category
+                );
+            }
+
+            if (
+                imageEl &&
+                String(imageEl.value) !==
+                    source.image_count
+            ) {
+                setControlValue(
+                    imageEl,
+                    source.image_count
+                );
+            }
+
+            if (
+                keywordEl &&
+                clean(keywordEl.value) !==
+                    source.keyword
+            ) {
+                keywordEl.value = source.keyword;
+            }
+        });
+    }
+
+    function ensureHidden(form, name, value) {
+        let input = form.querySelector(
+            'input.cbl-single-source-hidden[name="' +
+            name +
+            '"]'
+        );
+
+        if (!input) {
+            input = document.createElement("input");
+            input.type = "hidden";
+            input.name = name;
+            input.className =
+                "cbl-single-source-hidden";
+            form.appendChild(input);
+        }
+
+        input.value = value;
+    }
+
+    function synchronizeForm() {
+        const form =
+            document.getElementById("aiPostForm");
+
+        if (!form) return [];
+
+        const rows = getCurrentRows();
+
+        if (!rows.length) return [];
+
+        synchronizeAllDuplicateRows(rows);
+
+        const first = rows[0];
+
+        [
+            "category",
+            "post_category",
+            "selected_category",
+            "ai_category",
+            "cbl_force_category"
+        ].forEach(function (name) {
+            ensureHidden(
+                form,
+                name,
+                first.category
+            );
+        });
+
+        ensureHidden(
+            form,
+            "image_count",
+            first.image_count
+        );
+
+        ensureHidden(
+            form,
+            "keywords",
+            first.keyword
+        );
+
+        ensureHidden(
+            form,
+            "count",
+            String(rows.length)
+        );
+
+        ensureHidden(
+            form,
+            "selected_keywords",
+            JSON.stringify(
+                rows.map(function (row) {
+                    return row.keyword;
+                })
+            )
+        );
+
+        ensureHidden(
+            form,
+            "cbl_keyword_rows",
+            JSON.stringify(rows)
+        );
+
+        console.log(
+            "[CBL VISIBLE ROW SOURCE]",
+            rows
+        );
+
+        return rows;
+    }
+
+    function applyRowsToFormData(fd) {
+        if (!(fd instanceof FormData)) {
+            return fd;
+        }
+
+        const rows = synchronizeForm();
+
+        if (!rows.length) return fd;
+
+        const first = rows[0];
+
+        [
+            "category",
+            "post_category",
+            "selected_category",
+            "ai_category",
+            "cbl_force_category"
+        ].forEach(function (name) {
+            fd.set(name, first.category);
+        });
+
+        fd.set(
+            "image_count",
+            first.image_count
+        );
+
+        fd.set(
+            "keywords",
+            first.keyword
+        );
+
+        fd.set(
+            "count",
+            String(rows.length)
+        );
+
+        fd.set(
+            "selected_keywords",
+            JSON.stringify(
+                rows.map(function (row) {
+                    return row.keyword;
+                })
+            )
+        );
+
+        fd.set(
+            "cbl_keyword_rows",
+            JSON.stringify(rows)
+        );
+
+        fd.delete("cbl_row_categories[]");
+        fd.delete("cbl_row_image_counts[]");
+        fd.delete("cbl_row_keywords[]");
+
+        rows.forEach(function (row) {
+            fd.append(
+                "cbl_row_categories[]",
+                row.category
+            );
+
+            fd.append(
+                "cbl_row_image_counts[]",
+                row.image_count
+            );
+
+            fd.append(
+                "cbl_row_keywords[]",
+                row.keyword
+            );
+        });
+
+        return fd;
+    }
+
+    /*
+     * 사용자가 셀렉트를 바꾼 바로 그 순간 값을 저장한다.
+     */
+    document.addEventListener(
+        "change",
+        function (event) {
+            if (
+                event.target &&
+                event.target.closest &&
+                event.target.closest(
+                    ".cbl-force-top-row"
+                )
+            ) {
+                const rows = getVisibleRows();
+
+                if (rows.length) {
+                    lastVisibleRows = rows;
+                }
+            }
+        },
+        true
+    );
+
+    document.addEventListener(
+        "input",
+        function (event) {
+            if (
+                event.target &&
+                event.target.classList &&
+                event.target.classList.contains(
+                    "cbl-row-keyword"
+                )
+            ) {
+                const rows = getVisibleRows();
+
+                if (rows.length) {
+                    lastVisibleRows = rows;
+                }
+            }
+        },
+        true
+    );
+
+    /*
+     * 다른 클릭 처리보다 먼저, 화면값을 모든 복제 행에 반영한다.
+     */
+    window.addEventListener(
+        "pointerdown",
+        function (event) {
+            const form =
+                document.getElementById("aiPostForm");
+
+            if (!form) return;
+
+            const clickedGenerate =
+                event.target &&
+                event.target.closest &&
+                (
+                    event.target.closest(
+                        '#aiPostForm button[type="submit"]'
+                    ) ||
+                    event.target.closest(
+                        "#aiPostGenerateBtn"
+                    ) ||
+                    event.target.closest(
+                        ".cbl-ai-generate-btn"
+                    )
+                );
+
+            if (clickedGenerate) {
+                synchronizeForm();
+            }
+        },
+        true
+    );
+
+    window.addEventListener(
+        "submit",
+        function (event) {
+            if (
+                event.target &&
+                event.target.id === "aiPostForm"
+            ) {
+                synchronizeForm();
+            }
+        },
+        true
+    );
+
+    /*
+     * FormData 생성 자체를 보정한다.
+     * 순차 생성 코드가 new FormData(form)을 실행하는 순간 확정값을 넣는다.
+     */
+    const NativeFormData = window.FormData;
+
+    function CBLFormData(form, submitter) {
+        let instance;
+
+        if (arguments.length >= 2) {
+            instance = new NativeFormData(
+                form,
+                submitter
+            );
+        } else if (arguments.length === 1) {
+            instance = new NativeFormData(form);
+        } else {
+            instance = new NativeFormData();
+        }
+
+        try {
+            if (
+                form &&
+                form.id === "aiPostForm"
+            ) {
+                applyRowsToFormData(instance);
+            }
+        } catch (error) {
+            console.error(
+                "[CBL FormData sync error]",
+                error
+            );
+        }
+
+        return instance;
+    }
+
+    CBLFormData.prototype =
+        NativeFormData.prototype;
+
+    Object.setPrototypeOf(
+        CBLFormData,
+        NativeFormData
+    );
+
+    window.FormData = CBLFormData;
+
+    /*
+     * 모달이 열린 뒤 현재 보이는 행값을 미리 기억한다.
+     */
+    function boot() {
+        const rows = getVisibleRows();
+
+        if (rows.length) {
+            lastVisibleRows = rows;
+        }
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener(
+            "DOMContentLoaded",
+            function () {
+                setTimeout(boot, 300);
+                setTimeout(boot, 1000);
+            }
+        );
+    } else {
+        setTimeout(boot, 300);
+        setTimeout(boot, 1000);
+    }
+})();
+</script>
+<!-- CBL_AI_SINGLE_VISIBLE_SOURCE_END -->
+
 </body>
 </html>
