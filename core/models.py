@@ -513,3 +513,61 @@ class MiniCapcutProject(models.Model):
 
     def __str__(self):
         return self.title or f"MiniCapcutProject #{self.pk}"
+
+
+
+# CBL_PROGRAM_DOWNLOAD_MODEL_START
+class ProgramDownload(models.Model):
+    PLATFORM_MAC = "mac"
+    PLATFORM_WINDOWS = "windows"
+
+    slug = models.SlugField(
+        max_length=80,
+        unique=True,
+        verbose_name="프로그램 식별자",
+    )
+
+    name = models.CharField(
+        max_length=120,
+        verbose_name="프로그램명",
+    )
+
+    description = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        verbose_name="설명",
+    )
+
+    mac_file = models.FileField(
+        upload_to="program_downloads/mac/",
+        blank=True,
+        null=True,
+        verbose_name="Mac용 파일",
+    )
+
+    windows_file = models.FileField(
+        upload_to="program_downloads/windows/",
+        blank=True,
+        null=True,
+        verbose_name="Windows용 파일",
+    )
+
+    order = models.PositiveIntegerField(
+        default=0,
+        verbose_name="표시 순서",
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="수정일",
+    )
+
+    class Meta:
+        ordering = ["order", "id"]
+        verbose_name = "프로그램 다운로드"
+        verbose_name_plural = "프로그램 다운로드"
+
+    def __str__(self):
+        return self.name
+# CBL_PROGRAM_DOWNLOAD_MODEL_END

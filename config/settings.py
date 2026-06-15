@@ -177,8 +177,8 @@ MEDIA_ROOT = BASE_DIR / "media"
 # 업로드 용량 제한
 # ================================
 
-DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024
-FILE_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = 500 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 500 * 1024 * 1024
 
 FILE_UPLOAD_HANDLERS = [
     "django.core.files.uploadhandler.MemoryFileUploadHandler",

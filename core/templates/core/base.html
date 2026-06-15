@@ -603,6 +603,147 @@
 
 
 
+
+<!-- CBL_PROGRAM_DOWNLOAD_MANAGE_STYLE_START -->
+<style>
+  .cbl-program-loading,
+  .cbl-program-error {
+    padding: 18px;
+    border: 1px solid #e1e7e3;
+    border-radius: 12px;
+    background: #f9fbfa;
+    color: #68736c;
+    font-size: 13px;
+    text-align: center;
+  }
+
+  .cbl-program-item {
+    align-items: flex-start;
+  }
+
+  .cbl-program-info {
+    min-width: 0;
+    flex: 1 1 auto;
+    padding-top: 2px;
+  }
+
+  .cbl-program-platforms {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(112px, 1fr));
+    gap: 8px;
+  }
+
+  .cbl-program-platform {
+    display: grid;
+    gap: 6px;
+  }
+
+  .cbl-program-download,
+  .cbl-program-status,
+  .cbl-program-admin-upload,
+  .cbl-program-admin-delete {
+    box-sizing: border-box;
+    display: inline-flex;
+    min-height: 34px;
+    align-items: center;
+    justify-content: center;
+    padding: 7px 10px;
+    border-radius: 9px;
+    font-size: 12px;
+    font-weight: 750;
+    line-height: 1.2;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .cbl-program-status {
+    border: 1px solid #d9e0dc;
+    background: #ffffff;
+    color: #737d77;
+  }
+
+  .cbl-program-download {
+    border: 1px solid #263650;
+    background: #263650;
+    color: #ffffff;
+  }
+
+  .cbl-program-download:hover,
+  .cbl-program-download:focus-visible {
+    background: #17233a;
+    color: #ffffff;
+    outline: none;
+  }
+
+  .cbl-program-admin-actions {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 5px;
+  }
+
+  .cbl-program-admin-upload,
+  .cbl-program-admin-delete {
+    min-height: 30px;
+    border: 1px solid #d9e0dc;
+    background: #ffffff;
+    cursor: pointer;
+  }
+
+  .cbl-program-admin-upload {
+    color: #2c5f43;
+  }
+
+  .cbl-program-admin-delete {
+    color: #b42318;
+  }
+
+  .cbl-program-admin-upload:hover {
+    border-color: #51a775;
+    background: #f0faf4;
+  }
+
+  .cbl-program-admin-delete:hover {
+    border-color: #e3a29d;
+    background: #fff5f4;
+  }
+
+  .cbl-program-admin-delete:disabled {
+    color: #a2aaa5;
+    cursor: not-allowed;
+  }
+
+  .cbl-program-file-name {
+    max-width: 112px;
+    overflow: hidden;
+    color: #78827c;
+    font-size: 10px;
+    line-height: 1.3;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 620px) {
+    .cbl-program-item {
+      display: grid;
+      gap: 13px;
+    }
+
+    .cbl-program-platforms {
+      width: 100%;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .cbl-program-download,
+    .cbl-program-status,
+    .cbl-program-admin-upload {
+      width: 100%;
+    }
+  }
+</style>
+<!-- CBL_PROGRAM_DOWNLOAD_MANAGE_STYLE_END -->
+
 <!-- CBL_FIXED_TOOL_CARDS_STYLE_END -->
 
 <!-- CBL_PUBLIC_SERVICE_LAUNCHER_STYLE_START -->
@@ -6334,55 +6475,15 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
     <div class="cbl-tool-modal-body">
       
 <!-- CBL_PROGRAM_LIST_START -->
-<div class="cbl-program-list">
-  <div class="cbl-program-item">
-    <div>
-      <div class="cbl-program-item-title">ChickenBananaLabCut</div>
-      <div class="cbl-program-item-description">
-        영상 편집 프로그램
-      </div>
-    </div>
-    <span class="cbl-program-status">준비 중</span>
-  </div>
-
-  <div class="cbl-program-item">
-    <div>
-      <div class="cbl-program-item-title">ChickenBananaLabPDF</div>
-      <div class="cbl-program-item-description">
-        PDF 뷰어 프로그램
-      </div>
-    </div>
-    <span class="cbl-program-status">준비 중</span>
-  </div>
-
-  <div class="cbl-program-item">
-    <div>
-      <div class="cbl-program-item-title">ChickenBananaLabSS</div>
-      <div class="cbl-program-item-description">
-        화면 캡처·녹화 프로그램
-      </div>
-    </div>
-    <span class="cbl-program-status">준비 중</span>
-  </div>
-
-  <div class="cbl-program-item">
-    <div>
-      <div class="cbl-program-item-title">ChickenBananaLabZIP</div>
-      <div class="cbl-program-item-description">
-        압축파일 생성·해제 프로그램
-      </div>
-    </div>
-    <span class="cbl-program-status">준비 중</span>
-  </div>
-
-  <div class="cbl-program-item">
-    <div>
-      <div class="cbl-program-item-title">ChickenBananaLabViewer</div>
-      <div class="cbl-program-item-description">
-        AutoCAD 파일 뷰어
-      </div>
-    </div>
-    <span class="cbl-program-status">준비 중</span>
+<div
+  id="cblProgramList"
+  class="cbl-program-list"
+  data-status-url="{% url 'program_download_status' %}"
+  data-upload-template="/api/program-downloads/__SLUG__/__PLATFORM__/upload/"
+  data-delete-template="/api/program-downloads/__SLUG__/__PLATFORM__/delete/"
+>
+  <div class="cbl-program-loading">
+    프로그램 목록을 불러오는 중입니다.
   </div>
 </div>
 <!-- CBL_PROGRAM_LIST_END -->
@@ -6391,6 +6492,307 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
   </div>
 </div>
 <!-- CBL_FIXED_TOOL_CARDS_HTML_END -->
+
+
+<!-- CBL_PROGRAM_DOWNLOAD_MANAGE_SCRIPT_START -->
+<script>
+(function () {
+  "use strict";
+
+  function getCookie(name) {
+    var cookieValue = null;
+
+    if (document.cookie) {
+      document.cookie.split(";").some(function (cookie) {
+        cookie = cookie.trim();
+
+        if (cookie.substring(0, name.length + 1) === name + "=") {
+          cookieValue = decodeURIComponent(
+            cookie.substring(name.length + 1)
+          );
+          return true;
+        }
+
+        return false;
+      });
+    }
+
+    return cookieValue;
+  }
+
+  function escapeHtml(value) {
+    return String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function makeUrl(template, slug, platform) {
+    return template
+      .replace("__SLUG__", encodeURIComponent(slug))
+      .replace("__PLATFORM__", encodeURIComponent(platform));
+  }
+
+  function platformLabel(platform) {
+    return platform === "mac" ? "Mac" : "Windows";
+  }
+
+  function renderPlatform(program, platform, fileData, isStaff) {
+    var label = platformLabel(platform);
+    var downloadHtml = "";
+
+    if (fileData && fileData.ready) {
+      downloadHtml = `
+        <a
+          class="cbl-program-download"
+          href="${escapeHtml(fileData.url)}"
+          download
+        >${label}용</a>
+        <div
+          class="cbl-program-file-name"
+          title="${escapeHtml(fileData.filename)}"
+        >${escapeHtml(fileData.filename)}</div>
+      `;
+    } else {
+      downloadHtml = `
+        <span class="cbl-program-status">${label} 준비 중</span>
+      `;
+    }
+
+    var adminHtml = "";
+
+    if (isStaff) {
+      adminHtml = `
+        <div class="cbl-program-admin-actions">
+          <button
+            type="button"
+            class="cbl-program-admin-upload"
+            data-program-upload
+            data-slug="${escapeHtml(program.slug)}"
+            data-platform="${platform}"
+          >${fileData && fileData.ready ? "교체" : "업로드"}</button>
+
+          <button
+            type="button"
+            class="cbl-program-admin-delete"
+            data-program-delete
+            data-slug="${escapeHtml(program.slug)}"
+            data-platform="${platform}"
+            ${fileData && fileData.ready ? "" : "disabled"}
+          >삭제</button>
+        </div>
+
+        <input
+          type="file"
+          hidden
+          data-program-file-input
+          data-slug="${escapeHtml(program.slug)}"
+          data-platform="${platform}"
+          accept="${platform === "mac" ? ".dmg,.pkg,.zip" : ".exe,.msi,.zip"}"
+        >
+      `;
+    }
+
+    return `
+      <div class="cbl-program-platform">
+        ${downloadHtml}
+        ${adminHtml}
+      </div>
+    `;
+  }
+
+  function renderPrograms(container, data) {
+    if (!data.programs || !data.programs.length) {
+      container.innerHTML = `
+        <div class="cbl-program-error">
+          등록된 프로그램이 없습니다.
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = data.programs.map(function (program) {
+      return `
+        <div class="cbl-program-item">
+          <div class="cbl-program-info">
+            <div class="cbl-program-item-title">
+              ${escapeHtml(program.name)}
+            </div>
+            <div class="cbl-program-item-description">
+              ${escapeHtml(program.description)}
+            </div>
+          </div>
+
+          <div class="cbl-program-platforms">
+            ${renderPlatform(program, "mac", program.mac, data.is_staff)}
+            ${renderPlatform(program, "windows", program.windows, data.is_staff)}
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function readJsonResponse(response) {
+    return response.json().catch(function () {
+      return {
+        ok: false,
+        message: "서버 응답을 확인할 수 없습니다.",
+      };
+    }).then(function (data) {
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message || "요청 처리에 실패했습니다.");
+      }
+
+      return data;
+    });
+  }
+
+  function initializeProgramDownloads() {
+    var container = document.getElementById("cblProgramList");
+
+    if (!container) {
+      return;
+    }
+
+    var statusUrl = container.dataset.statusUrl;
+    var uploadTemplate = container.dataset.uploadTemplate;
+    var deleteTemplate = container.dataset.deleteTemplate;
+
+    function loadPrograms() {
+      fetch(statusUrl, {
+        credentials: "same-origin",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+        },
+      })
+        .then(readJsonResponse)
+        .then(function (data) {
+          renderPrograms(container, data);
+        })
+        .catch(function (error) {
+          container.innerHTML = `
+            <div class="cbl-program-error">
+              ${escapeHtml(error.message)}
+            </div>
+          `;
+        });
+    }
+
+    container.addEventListener("click", function (event) {
+      var uploadButton = event.target.closest("[data-program-upload]");
+
+      if (uploadButton) {
+        var slug = uploadButton.dataset.slug;
+        var platform = uploadButton.dataset.platform;
+
+        var input = container.querySelector(
+          '[data-program-file-input][data-slug="' +
+          CSS.escape(slug) +
+          '"][data-platform="' +
+          CSS.escape(platform) +
+          '"]'
+        );
+
+        if (input) {
+          input.click();
+        }
+
+        return;
+      }
+
+      var deleteButton = event.target.closest("[data-program-delete]");
+
+      if (!deleteButton || deleteButton.disabled) {
+        return;
+      }
+
+      var deleteSlug = deleteButton.dataset.slug;
+      var deletePlatform = deleteButton.dataset.platform;
+      var deleteLabel = platformLabel(deletePlatform);
+
+      if (!window.confirm(deleteLabel + "용 파일을 삭제할까요?")) {
+        return;
+      }
+
+      deleteButton.disabled = true;
+      deleteButton.textContent = "삭제 중";
+
+      fetch(
+        makeUrl(deleteTemplate, deleteSlug, deletePlatform),
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "X-CSRFToken": getCookie("csrftoken") || "",
+            "X-Requested-With": "XMLHttpRequest",
+          },
+        }
+      )
+        .then(readJsonResponse)
+        .then(function (data) {
+          window.alert(data.message);
+          loadPrograms();
+        })
+        .catch(function (error) {
+          window.alert(error.message);
+          loadPrograms();
+        });
+    });
+
+    container.addEventListener("change", function (event) {
+      var input = event.target.closest("[data-program-file-input]");
+
+      if (!input || !input.files || !input.files.length) {
+        return;
+      }
+
+      var slug = input.dataset.slug;
+      var platform = input.dataset.platform;
+      var file = input.files[0];
+      var formData = new FormData();
+
+      formData.append("file", file);
+
+      fetch(
+        makeUrl(uploadTemplate, slug, platform),
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "X-CSRFToken": getCookie("csrftoken") || "",
+            "X-Requested-With": "XMLHttpRequest",
+          },
+          body: formData,
+        }
+      )
+        .then(readJsonResponse)
+        .then(function (data) {
+          window.alert(data.message);
+          input.value = "";
+          loadPrograms();
+        })
+        .catch(function (error) {
+          window.alert(error.message);
+          input.value = "";
+        });
+    });
+
+    loadPrograms();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener(
+      "DOMContentLoaded",
+      initializeProgramDownloads
+    );
+  } else {
+    initializeProgramDownloads();
+  }
+})();
+</script>
+<!-- CBL_PROGRAM_DOWNLOAD_MANAGE_SCRIPT_END -->
 
 <!-- CBL_FIXED_TOOL_CARDS_SCRIPT_START -->
 <script>

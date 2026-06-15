@@ -1,10 +1,26 @@
 from .ip_tools import ip_lookup_api
 from django.urls import path
 from . import views
+from . import program_downloads
 from .crypto_market import crypto_market_api
 
 
 urlpatterns = [
+    path(
+        "api/program-downloads/status/",
+        program_downloads.program_download_status,
+        name="program_download_status",
+    ),
+    path(
+        "api/program-downloads/<slug:slug>/<str:platform>/upload/",
+        program_downloads.program_download_upload,
+        name="program_download_upload",
+    ),
+    path(
+        "api/program-downloads/<slug:slug>/<str:platform>/delete/",
+        program_downloads.program_download_delete,
+        name="program_download_delete",
+    ),
     path("api/crypto-market/", crypto_market_api, name="crypto_market_api"),
     path("mini-capcut/", views.mini_capcut_home, name="mini_capcut_home"),
     path("mini-capcut/post/<int:post_id>/", views.mini_capcut_editor, name="mini_capcut_editor"),
