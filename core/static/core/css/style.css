@@ -9857,3 +9857,49 @@ form:has(.dashboard-btn-shorts) {
 }
 
 /* CBL_THUMBNAIL_CENTER_POSITION_END */
+
+
+/* CBL_RANDOM_PARAGRAPH_BOX_STYLE_START */
+
+/* 자동글 중간 강조 문단 박스 */
+.cbl-ai-human-style p.cbl-ai-emphasis-box {
+    position: relative;
+    margin: 1.55em 0 !important;
+    padding: 1.15em 1.25em 1.15em 1.35em;
+
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-left: 5px solid var(--cbl-point-color, #f59e0b);
+    border-radius: 18px;
+
+    background: var(--cbl-soft-bg, #fffbeb);
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.055);
+
+    color: inherit;
+    line-height: 1.86;
+}
+
+.cbl-ai-human-style p.cbl-ai-emphasis-box::before {
+    content: "";
+    position: absolute;
+    top: 14px;
+    right: 16px;
+
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+
+    background: var(--cbl-point-color, #f59e0b);
+    opacity: 0.55;
+}
+
+@media (max-width: 768px) {
+    .cbl-ai-human-style p.cbl-ai-emphasis-box {
+        margin: 1.35em 0 !important;
+        padding: 1em 1.05em 1em 1.15em;
+        border-left-width: 4px;
+        border-radius: 15px;
+        line-height: 1.8;
+    }
+}
+
+/* CBL_RANDOM_PARAGRAPH_BOX_STYLE_END */

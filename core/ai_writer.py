@@ -5070,3 +5070,130 @@ if (
 
 # CBL_CLICKWORTHY_TITLE_THUMBNAIL_ONLY_END
 
+
+# CBL_RANDOM_PARAGRAPH_BOX_START
+# 자동 생성 본문의 일반 문단 1~2개를 강조 박스로 표시합니다.
+try:
+    import html as _cbl_box_html
+    import random as _cbl_box_random
+    import re as _cbl_box_re
+
+    _cbl_prev_random_paragraph_box = cbl_polish_article_after_generate
+
+    def _cbl_box_plain_text(value):
+        value = _cbl_box_re.sub(
+            r"<[^>]+>",
+            " ",
+            str(value or ""),
+            flags=_cbl_box_re.I | _cbl_box_re.S,
+        )
+        value = _cbl_box_html.unescape(value)
+        return _cbl_box_re.sub(r"\s+", " ", value).strip()
+
+    def _cbl_add_box_class(opening_tag):
+        if "cbl-ai-emphasis-box" in opening_tag:
+            return opening_tag
+
+        class_match = _cbl_box_re.search(
+            r'class=(["\'])(.*?)\1',
+            opening_tag,
+            flags=_cbl_box_re.I | _cbl_box_re.S,
+        )
+
+        if class_match:
+            quote = class_match.group(1)
+            old_classes = class_match.group(2).strip()
+            new_classes = f"{old_classes} cbl-ai-emphasis-box".strip()
+
+            return (
+                opening_tag[:class_match.start()]
+                + f"class={quote}{new_classes}{quote}"
+                + opening_tag[class_match.end():]
+            )
+
+        return opening_tag[:-1] + ' class="cbl-ai-emphasis-box">'
+
+    def _cbl_apply_random_paragraph_boxes(content):
+        content = str(content or "").strip()
+
+        if not content or "cbl-ai-emphasis-box" in content:
+            return content
+
+        pattern = _cbl_box_re.compile(
+            r"(<p\b[^>]*>)(.*?)(</p>)",
+            flags=_cbl_box_re.I | _cbl_box_re.S,
+        )
+
+        candidates = []
+
+        for position, match in enumerate(pattern.finditer(content)):
+            opening = match.group(1)
+            inner = match.group(2)
+            plain = _cbl_box_plain_text(inner)
+            lowered = (opening + inner).lower()
+
+            # 첫 문단은 도입부이므로 제외
+            if position == 0:
+                continue
+
+            # 박스로 보기 적당한 길이의 문단만 선택
+            if len(plain) < 55 or len(plain) > 260:
+                continue
+
+            blocked_tokens = (
+                "<img",
+                "<table",
+                "<pre",
+                "<code",
+                "<iframe",
+                "<video",
+                "editor-location-card",
+                "cbl-ai-emphasis-box",
+                "cbl-info-box",
+                "cbl-warning-box",
+            )
+
+            if any(token in lowered for token in blocked_tokens):
+                continue
+
+            candidates.append(match)
+
+        if not candidates:
+            return content
+
+        rng = _cbl_box_random.SystemRandom()
+        rng.shuffle(candidates)
+
+        # 후보가 충분하면 1~2개, 적으면 1개
+        box_count = 1
+        if len(candidates) >= 5:
+            box_count = rng.randint(1, 2)
+
+        selected = sorted(
+            candidates[:box_count],
+            key=lambda match: match.start(),
+            reverse=True,
+        )
+
+        for match in selected:
+            opening = _cbl_add_box_class(match.group(1))
+            replacement = opening + match.group(2) + match.group(3)
+
+            content = (
+                content[:match.start()]
+                + replacement
+                + content[match.end():]
+            )
+
+        return content
+
+    def cbl_polish_article_after_generate(content):
+        content = _cbl_prev_random_paragraph_box(content)
+        return _cbl_apply_random_paragraph_boxes(content)
+
+except Exception as _cbl_random_paragraph_box_error:
+    print(
+        "CBL_RANDOM_PARAGRAPH_BOX load error:",
+        _cbl_random_paragraph_box_error,
+    )
+# CBL_RANDOM_PARAGRAPH_BOX_END
