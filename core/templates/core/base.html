@@ -1580,6 +1580,162 @@
   }
 </style>
 <!-- CBL_ACCOUNT_MENU_LAYER_FIX_END -->
+<!-- CBL_PROGRAM_MODAL_MOBILE_SCROLL_FIX_START -->
+<style>
+  /* 프로그램 다운로드 팝업이 화면보다 커져도 내부에서 스크롤되도록 수정 */
+  #cblProgramDownloadModal {
+    align-items: center;
+    padding: 16px;
+  }
+
+  #cblProgramDownloadModal .cbl-tool-modal-dialog {
+    width: min(1240px, 100%);
+    max-height: calc(100vh - 32px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #cblProgramDownloadModal .cbl-tool-modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  @media (max-width: 760px) {
+    #cblProgramDownloadModal {
+      align-items: flex-end !important;
+      padding: 10px !important;
+    }
+
+    #cblProgramDownloadModal .cbl-tool-modal-dialog {
+      width: 100% !important;
+      max-height: calc(100vh - 20px) !important;
+      border-radius: 20px !important;
+    }
+
+    #cblProgramDownloadModal .cbl-tool-modal-header {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: rgba(255,255,255,0.98);
+      backdrop-filter: blur(8px);
+    }
+
+    #cblProgramDownloadModal .cbl-tool-modal-body {
+      padding: 14px 14px 18px !important;
+    }
+
+    #cblProgramDownloadModal .cbl-program-list {
+      gap: 12px !important;
+    }
+
+    #cblProgramDownloadModal .cbl-program-item {
+      padding: 14px !important;
+      gap: 14px !important;
+    }
+
+    #cblProgramDownloadModal .cbl-program-main {
+      align-items: flex-start !important;
+    }
+
+    #cblProgramDownloadModal .cbl-program-platforms {
+      grid-template-columns: 1fr !important;
+      gap: 10px !important;
+    }
+  }
+</style>
+<!-- CBL_PROGRAM_MODAL_MOBILE_SCROLL_FIX_END -->
+
+
+
+<!-- CBL_PROGRAM_LOGO_V2_STYLE_START -->
+<style>
+  #cblProgramDownloadModal .cbl-program-app-icon-top {
+    height: 78px !important;
+    padding: 8px !important;
+    overflow: hidden !important;
+    background: #ffffff !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  #cblProgramDownloadModal .cbl-program-app-icon-top img {
+    position: static !important;
+    width: 64px !important;
+    height: 64px !important;
+    max-width: 64px !important;
+    object-fit: contain !important;
+    transform: none !important;
+    margin: 0 !important;
+  }
+
+  @media (max-width: 760px) {
+    #cblProgramDownloadModal .cbl-program-app-icon-top {
+      height: 60px !important;
+      padding: 7px !important;
+    }
+
+    #cblProgramDownloadModal .cbl-program-app-icon-top img {
+      width: 48px !important;
+      height: 48px !important;
+      max-width: 48px !important;
+    }
+  }
+</style>
+<!-- CBL_PROGRAM_LOGO_V2_STYLE_END -->
+
+<!-- CBL_PROGRAM_LOGO_ZOOM_HIDE_TEXT_START -->
+<style>
+  /* 프로그램 아이콘 로고를 확대해서 하단 글자를 잘라냄 */
+  #cblProgramDownloadModal .cbl-program-app-icon {
+    overflow: hidden !important;
+  }
+
+  #cblProgramDownloadModal .cbl-program-app-icon-top {
+    position: relative !important;
+    height: 74px !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    background: #ffffff !important;
+    display: block !important;
+  }
+
+  #cblProgramDownloadModal .cbl-program-app-icon-top img {
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    width: 92px !important;
+    height: 92px !important;
+    max-width: none !important;
+    object-fit: contain !important;
+    transform: translate(-50%, -46%) !important;
+    margin: 0 !important;
+  }
+
+  #cblProgramDownloadModal .cbl-program-app-icon-bottom {
+    position: relative !important;
+    z-index: 2 !important;
+    margin-top: 0 !important;
+  }
+
+  @media (max-width: 760px) {
+    #cblProgramDownloadModal .cbl-program-app-icon-top {
+      height: 58px !important;
+    }
+
+    #cblProgramDownloadModal .cbl-program-app-icon-top img {
+      width: 72px !important;
+      height: 72px !important;
+      transform: translate(-50%, -45%) !important;
+    }
+  }
+</style>
+<!-- CBL_PROGRAM_LOGO_ZOOM_HIDE_TEXT_END -->
+
 </head>
 
 <body data-cbl-url-name="{{ request.resolver_match.url_name|default:'' }}">
@@ -6843,6 +6999,7 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
   data-status-url="{% url 'program_download_status' %}"
   data-upload-template="/api/program-downloads/__SLUG__/__PLATFORM__/upload/"
   data-delete-template="/api/program-downloads/__SLUG__/__PLATFORM__/delete/"
+  data-logo-url="{% static 'core/images/cbl_program_icon_logo_v2.png' %}"
 >
   <div class="cbl-program-loading">
     프로그램 목록을 불러오는 중입니다.
