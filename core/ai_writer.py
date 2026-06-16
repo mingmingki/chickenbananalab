@@ -5197,3 +5197,1097 @@ except Exception as _cbl_random_paragraph_box_error:
         _cbl_random_paragraph_box_error,
     )
 # CBL_RANDOM_PARAGRAPH_BOX_END
+# CBL_FINAL_IMAGE_AND_FACTCHECK_START
+#
+# 최종 공통 안전장치
+# 1. 썸네일·본문 이미지에 문자/숫자/로고/워터마크 생성 금지
+# 2. 한국어·영어 자동글 생성 후 Google 검색 기반 사실 검토
+# 3. 검토 실패 시 원문을 조용히 저장하지 않고 생성을 중단
+#
+
+import json as _cbl_fact_json
+import os as _cbl_fact_os
+import re as _cbl_fact_re
+
+
+_CBL_IMAGE_NO_TEXT_RULE = """
+ABSOLUTE IMAGE REQUIREMENT:
+
+Create an image-only editorial photograph or realistic illustration.
+
+There must be absolutely no visible writing or typography anywhere
+inside the generated image.
+
+Do not generate:
+- Korean, English, Chinese, Japanese, Arabic, or any other letters
+- words, sentences, captions, headings, subtitles, labels, or hashtags
+- numbers, dates, prices, percentages, measurements, or symbols
+- logos, brand names, trademarks, watermarks, signatures, or credits
+- text on signs, banners, posters, screens, phones, computers, books,
+  newspapers, documents, charts, clothing, product packages, vehicles,
+  buildings, menus, nameplates, road signs, or backgrounds
+- garbled pseudo-text or unreadable AI-generated lettering
+
+Objects that normally contain writing must be:
+- completely blank,
+- turned away from the camera,
+- cropped out,
+- blurred beyond recognition,
+- or replaced with plain unmarked surfaces.
+
+Never place the article title, keyword, category, thumbnail phrase,
+caption, logo, or any decorative text inside the image.
+
+The final result must contain visual imagery only.
+""".strip()
+
+
+if (
+    "generate_image_bytes" in globals()
+    and not globals().get("_cbl_image_no_text_wrapper_applied")
+):
+    _cbl_original_generate_image_bytes = generate_image_bytes
+
+    def generate_image_bytes(prompt, size="1024x1024", *args, **kwargs):
+        base_prompt = str(prompt or "").strip()
+
+        safe_prompt = (
+            base_prompt
+            + "\n\n"
+            + _CBL_IMAGE_NO_TEXT_RULE
+        ).strip()
+
+        return _cbl_original_generate_image_bytes(
+            safe_prompt,
+            size=size,
+            *args,
+            **kwargs,
+        )
+
+    _cbl_image_no_text_wrapper_applied = True
+
+
+def _cbl_factcheck_extract_json(raw):
+    """Gemini 응답에서 JSON 객체를 안전하게 추출한다."""
+    if isinstance(raw, dict):
+        return raw
+
+    value = str(raw or "").strip()
+
+    if not value:
+        raise ValueError("팩트체크 응답이 비어 있습니다.")
+
+    value = _cbl_fact_re.sub(
+        r"^\s*```(?:json)?\s*",
+        "",
+        value,
+        flags=_cbl_fact_re.I,
+    )
+    value = _cbl_fact_re.sub(
+        r"\s*```\s*$",
+        "",
+        value,
+    ).strip()
+
+    try:
+        data = _cbl_fact_json.loads(value)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    start = value.find("{")
+    end = value.rfind("}")
+
+    if start >= 0 and end > start:
+        candidate = value[start:end + 1]
+
+        try:
+            data = _cbl_fact_json.loads(candidate)
+            if isinstance(data, dict):
+                return data
+        except Exception as exc:
+            raise ValueError(
+                f"팩트체크 JSON 해석 실패: {exc}"
+            ) from exc
+
+    raise ValueError("팩트체크 결과에서 JSON 객체를 찾지 못했습니다.")
+
+
+def _cbl_factcheck_clean_status(value):
+    status = str(value or "").strip().upper()
+
+    aliases = {
+        "PASS": "PASS",
+        "OK": "PASS",
+        "APPROVED": "PASS",
+        "CORRECTED": "CORRECTED",
+        "FIXED": "CORRECTED",
+        "REVISED": "CORRECTED",
+        "BLOCK": "BLOCK",
+        "REJECT": "BLOCK",
+        "REJECTED": "BLOCK",
+        "FAIL": "BLOCK",
+    }
+
+    return aliases.get(status, status)
+
+
+def _cbl_force_grounded_factcheck(prompt):
+    """
+    가능하면 Gemini Google Search 도구를 강제로 사용한다.
+    검색 도구 생성이 불가능한 환경에서는 기존 Gemini 호출을 사용한다.
+    """
+    try:
+        client = get_gemini_client()
+
+        grounding_tool = types.Tool(
+            google_search=types.GoogleSearch()
+        )
+
+        config = types.GenerateContentConfig(
+            tools=[grounding_tool],
+            temperature=0.1,
+        )
+
+        response = client.models.generate_content(
+            model=TEXT_MODEL,
+            contents=prompt,
+            config=config,
+        )
+
+        return _extract_text_from_gemini_response(response)
+
+    except Exception as grounded_error:
+        # 검색 도구 호출 자체가 지원되지 않는 경우에만
+        # 기존 공통 호출기로 한 번 더 시도한다.
+        try:
+            return gemini_generate_text(
+                prompt,
+                max_retries=2,
+                retry_base_delay=1.5,
+            )
+        except Exception:
+            raise grounded_error
+
+
+def _cbl_build_factcheck_prompt(result, language="ko"):
+    title = str(result.get("title", "") or "").strip()
+    summary = str(result.get("summary", "") or "").strip()
+    meta_description = str(
+        result.get("meta_description", "") or ""
+    ).strip()
+    content = str(result.get("content", "") or "").strip()
+    tags = str(result.get("tags", "") or "").strip()
+
+    # 지나치게 긴 입력으로 검토 결과가 잘리는 것을 방지한다.
+    content_for_review = content[:30000]
+
+    if str(language or "ko").lower().startswith("en"):
+        instruction = """
+You are the final fact-checking editor for a public English blog.
+
+Use Google Search and reliable current sources to review the draft.
+Official government, public institution, broadcaster, company,
+university, research organization, court, and primary-source pages
+take priority.
+
+Mandatory rules:
+1. Do not preserve rumors, gossip, anonymous claims, speculation,
+   unverified community posts, fabricated anecdotes, or clickbait.
+2. Verify names, dates, locations, prices, amounts, percentages,
+   statistics, schedules, eligibility rules, policy details,
+   product specifications, and legal or financial claims.
+3. Distinguish clearly between:
+   - confirmed facts,
+   - announced plans,
+   - proposals under discussion,
+   - estimates or forecasts,
+   - allegations or disputed claims.
+4. Never describe an announced, proposed, scheduled, expected, or
+   planned event as already completed.
+5. Remove any claim that cannot be verified reliably.
+6. Do not invent sources, quotations, interviews, personal experience,
+   restaurant visits, product use, field experience, or eyewitness
+   accounts.
+7. Do not add fake precision merely to make the article sound credible.
+8. Correct the article directly instead of merely listing problems.
+9. Preserve valid HTML structure and the original article's useful
+   length and subject.
+10. Never insert citations, source URLs, markdown code fences, or a
+    separate fact-check report into the article body.
+11. If the central topic itself is false, misleading, or unsupported
+    and cannot be repaired safely, return BLOCK.
+12. Return JSON only.
+
+Allowed status:
+- PASS: no meaningful factual correction was necessary.
+- CORRECTED: unsupported or inaccurate claims were removed or fixed.
+- BLOCK: the article cannot be made reliable without inventing facts.
+"""
+    else:
+        instruction = """
+너는 공개 블로그에 게시될 글을 마지막으로 검수하는 팩트체크 편집자다.
+
+Google 검색을 사용해 현재 확인 가능한 신뢰도 높은 자료와 대조하라.
+정부, 공공기관, 지자체, 법원, 공식 방송사, 기업 공식 발표,
+대학, 연구기관, 원문 보도자료 등 1차 출처를 우선하라.
+
+반드시 지킬 규칙:
+1. 루머, 찌라시, 익명 제보, 커뮤니티 추측, 목격담,
+   확인되지 않은 SNS 주장과 자극적인 소문을 사실처럼 쓰지 마라.
+2. 인물명, 기관명, 지역명, 날짜, 시간, 금액, 비율, 통계,
+   지원 대상, 신청 조건, 방송 일정, 정책 내용, 제품 사양,
+   법률·금융 관련 수치를 다시 확인하라.
+3. 다음 상태를 명확히 구분하라.
+   - 이미 확인된 사실
+   - 공식 발표된 예정 사항
+   - 검토·논의·추진 중인 사안
+   - 전망·예측·추정
+   - 의혹·주장·논란
+4. 예정·계획·추진·검토·제안 단계의 일을 완료된 사실처럼
+   표현하지 마라.
+5. 신뢰할 수 있는 출처로 확인되지 않는 구체적인 내용은
+   과감하게 삭제하라.
+6. 존재하지 않는 출처, 인터뷰, 인용문, 체험담, 방문 경험,
+   사용 경험, 현장 경험을 새로 만들어내지 마라.
+7. 그럴듯하게 보이기 위한 가짜 날짜, 금액, 통계, 인물,
+   장소, 사례를 추가하지 마라.
+8. 오류 목록만 작성하지 말고 본문을 직접 안전하게 수정하라.
+9. 올바른 HTML 구조와 글의 핵심 주제 및 유용한 설명은
+   가능한 한 유지하라.
+10. 수정된 글 안에는 출처 URL, 각주, 팩트체크 보고서,
+    마크다운 코드블록을 새로 넣지 마라.
+11. 글의 핵심 주제 자체가 허위이거나 검증 불가능해 안전하게
+    수정할 수 없다면 BLOCK을 반환하라.
+12. 반드시 JSON 객체만 반환하라.
+
+허용 상태:
+- PASS: 의미 있는 사실 수정이 필요하지 않음
+- CORRECTED: 부정확하거나 확인되지 않은 내용을 수정·삭제함
+- BLOCK: 글의 핵심을 신뢰할 수 있게 고칠 수 없음
+"""
+
+    return f"""
+{instruction}
+
+검토 대상 언어:
+{language}
+
+검토 대상 JSON:
+{{
+  "title": {_cbl_fact_json.dumps(title, ensure_ascii=False)},
+  "summary": {_cbl_fact_json.dumps(summary, ensure_ascii=False)},
+  "meta_description": {_cbl_fact_json.dumps(meta_description, ensure_ascii=False)},
+  "tags": {_cbl_fact_json.dumps(tags, ensure_ascii=False)},
+  "content": {_cbl_fact_json.dumps(content_for_review, ensure_ascii=False)}
+}}
+
+다음 구조의 JSON만 반환하라:
+{{
+  "status": "PASS 또는 CORRECTED 또는 BLOCK",
+  "reason": "검토 결과를 한두 문장으로 설명",
+  "title": "검토 완료 제목",
+  "summary": "검토 완료 요약",
+  "meta_description": "검토 완료 메타 설명",
+  "tags": "검토 완료 태그",
+  "content": "검토 완료 HTML 본문"
+}}
+""".strip()
+
+
+def _cbl_review_generated_post(result, language="ko"):
+    """
+    생성된 글을 검색 기반으로 재검토한다.
+
+    기본값은 fail-closed이다.
+    검토 API가 실패하거나 BLOCK이면 글 생성을 중단한다.
+
+    긴급하게 기존 방식으로 되돌려야 할 때만 환경변수:
+    CBL_FACTCHECK_FAIL_CLOSED=0
+    """
+    if not isinstance(result, dict):
+        raise ValueError("팩트체크 대상 생성 결과가 dict가 아닙니다.")
+
+    original_content = str(
+        result.get("content", "") or ""
+    ).strip()
+
+    if not original_content:
+        raise ValueError("팩트체크할 본문이 비어 있습니다.")
+
+    fail_closed = str(
+        _cbl_fact_os.getenv(
+            "CBL_FACTCHECK_FAIL_CLOSED",
+            "1",
+        )
+    ).strip().lower() not in {
+        "0", "false", "no", "off"
+    }
+
+    try:
+        prompt = _cbl_build_factcheck_prompt(
+            result,
+            language=language,
+        )
+
+        raw = _cbl_force_grounded_factcheck(prompt)
+        checked = _cbl_factcheck_extract_json(raw)
+
+        status = _cbl_factcheck_clean_status(
+            checked.get("status")
+        )
+        reason = str(
+            checked.get("reason", "") or ""
+        ).strip()
+
+        if status == "BLOCK":
+            raise ValueError(
+                "팩트체크 차단: "
+                + (reason or "핵심 내용의 사실성을 확인할 수 없습니다.")
+            )
+
+        if status not in {"PASS", "CORRECTED"}:
+            raise ValueError(
+                f"알 수 없는 팩트체크 상태: {status or 'EMPTY'}"
+            )
+
+        corrected_content = str(
+            checked.get("content", "") or ""
+        ).strip()
+
+        if len(
+            _cbl_fact_re.sub(
+                r"<[^>]+>",
+                " ",
+                corrected_content,
+            ).strip()
+        ) < 200:
+            raise ValueError(
+                "팩트체크 후 본문이 지나치게 짧거나 비어 있습니다."
+            )
+
+        reviewed = dict(result)
+
+        for key in (
+            "title",
+            "summary",
+            "meta_description",
+            "tags",
+            "content",
+        ):
+            value = checked.get(key)
+
+            if isinstance(value, str) and value.strip():
+                reviewed[key] = value.strip()
+
+        reviewed["_factcheck_status"] = status
+        reviewed["_factcheck_reason"] = reason
+
+        return reviewed
+
+    except Exception:
+        if fail_closed:
+            raise
+
+        # 명시적으로 fail-open을 설정한 경우에만 원본 사용
+        fallback = dict(result)
+        fallback["_factcheck_status"] = "SKIPPED"
+        fallback["_factcheck_reason"] = (
+            "팩트체크 호출 실패로 원본 사용"
+        )
+        return fallback
+
+
+if (
+    "generate_ai_post" in globals()
+    and not globals().get("_cbl_factcheck_ko_wrapper_applied")
+):
+    _cbl_original_generate_ai_post_for_factcheck = generate_ai_post
+
+    def generate_ai_post(*args, **kwargs):
+        generated = _cbl_original_generate_ai_post_for_factcheck(
+            *args,
+            **kwargs,
+        )
+
+        return _cbl_review_generated_post(
+            generated,
+            language="ko",
+        )
+
+    _cbl_factcheck_ko_wrapper_applied = True
+
+
+if (
+    "generate_english_ai_post" in globals()
+    and not globals().get("_cbl_factcheck_en_wrapper_applied")
+):
+    _cbl_original_generate_english_for_factcheck = (
+        generate_english_ai_post
+    )
+
+    def generate_english_ai_post(*args, **kwargs):
+        generated = _cbl_original_generate_english_for_factcheck(
+            *args,
+            **kwargs,
+        )
+
+        return _cbl_review_generated_post(
+            generated,
+            language="en",
+        )
+
+    _cbl_factcheck_en_wrapper_applied = True
+
+# CBL_FINAL_IMAGE_AND_FACTCHECK_END
+
+# CBL_STRICT_SEARCH_FACTCHECK_V2_START
+#
+# 검색 근거가 실제로 존재하는 경우에만 팩트체크를 인정한다.
+# 1차: 초안의 핵심 주장 검증 및 직접 수정
+# 2차: 수정본 재검증
+# 검색 실패, 근거 없음, 허위 핵심 주장 잔존 시 글 저장 차단
+#
+
+def _cbl_strict_grounded_generate(prompt):
+    client = get_gemini_client()
+
+    grounding_tool = types.Tool(
+        google_search=types.GoogleSearch()
+    )
+
+    config = types.GenerateContentConfig(
+        tools=[grounding_tool],
+        temperature=0.0,
+    )
+
+    response = client.models.generate_content(
+        model=TEXT_MODEL,
+        contents=prompt,
+        config=config,
+    )
+
+    text = _extract_text_from_gemini_response(response)
+
+    if not text:
+        raise ValueError(
+            "Google 검색 팩트체크 응답이 비어 있습니다."
+        )
+
+    candidates = getattr(response, "candidates", None) or []
+
+    if not candidates:
+        raise ValueError(
+            "Google 검색 팩트체크 후보 응답이 없습니다."
+        )
+
+    grounding_metadata = getattr(
+        candidates[0],
+        "grounding_metadata",
+        None,
+    )
+
+    grounding_chunks = []
+
+    if grounding_metadata is not None:
+        grounding_chunks = (
+            getattr(
+                grounding_metadata,
+                "grounding_chunks",
+                None,
+            )
+            or []
+        )
+
+    if not grounding_chunks:
+        raise ValueError(
+            "Google 검색 근거가 확인되지 않아 글 생성을 중단합니다."
+        )
+
+    source_urls = []
+
+    for chunk in grounding_chunks:
+        web_data = getattr(chunk, "web", None)
+
+        if web_data is None:
+            continue
+
+        uri = str(
+            getattr(web_data, "uri", "") or ""
+        ).strip()
+
+        title = str(
+            getattr(web_data, "title", "") or ""
+        ).strip()
+
+        if uri:
+            source_urls.append({
+                "title": title,
+                "url": uri,
+            })
+
+    if not source_urls:
+        raise ValueError(
+            "검색 출처 URL을 확인할 수 없어 글 생성을 중단합니다."
+        )
+
+    return text, source_urls
+
+
+def _cbl_build_strict_review_prompt(result, language="ko"):
+    title = str(result.get("title", "") or "").strip()
+    summary = str(result.get("summary", "") or "").strip()
+    meta_description = str(
+        result.get("meta_description", "") or ""
+    ).strip()
+    tags = str(result.get("tags", "") or "").strip()
+    content = str(result.get("content", "") or "").strip()
+
+    language_name = (
+        "English"
+        if str(language).lower().startswith("en")
+        else "Korean"
+    )
+
+    return f"""
+You are a strict fact-checking editor.
+
+The draft language is {language_name}.
+Today's date is {date.today().isoformat()}.
+
+You must use Google Search results provided by the system.
+
+Review every concrete factual claim in the draft, especially:
+
+- acquisitions, mergers, IPOs and investments
+- company announcements and corporate relationships
+- dates, schedules and completion dates
+- prices, valuations, revenue and ARR
+- percentages, rankings and statistics
+- names of companies, people, products and institutions
+- government support programs and eligibility
+- broadcast dates and program schedules
+- product releases and specifications
+- legal, financial, medical and policy claims
+
+Mandatory rules:
+
+1. Extract the central claims first.
+2. Verify each central claim using reliable current sources.
+3. Official sources and primary sources have priority.
+4. For major corporate or news claims, require either:
+   - one direct official source, or
+   - two independent reputable news sources.
+5. Search snippets alone are not sufficient when the original source
+   cannot support the claim.
+6. Never treat a future plan, rumor, proposal, estimate or allegation
+   as a completed fact.
+7. Never invent a source, quotation, date, price, revenue figure,
+   acquisition, IPO, product, person or event.
+8. If a claim is unsupported, remove it from the article.
+9. If a claim is false, replace it with the verified fact.
+10. Correct the article itself. Do not merely explain the errors.
+11. Preserve useful HTML structure.
+12. Do not place source URLs or a fact-check report inside the article.
+13. A central claim may not remain in the corrected article unless its
+    verdict is VERIFIED.
+14. If the central premise cannot be verified, return BLOCK.
+15. Return JSON only.
+
+Claim verdicts:
+
+- VERIFIED: supported by reliable current evidence
+- UNSUPPORTED: insufficient reliable evidence
+- FALSE: contradicted by reliable evidence
+- OPINION: analysis, prediction or interpretation rather than fact
+
+Draft:
+
+{{
+  "title": {_cbl_fact_json.dumps(title, ensure_ascii=False)},
+  "summary": {_cbl_fact_json.dumps(summary, ensure_ascii=False)},
+  "meta_description": {_cbl_fact_json.dumps(meta_description, ensure_ascii=False)},
+  "tags": {_cbl_fact_json.dumps(tags, ensure_ascii=False)},
+  "content": {_cbl_fact_json.dumps(content[:30000], ensure_ascii=False)}
+}}
+
+Return exactly this JSON structure:
+
+{{
+  "status": "PASS or CORRECTED or BLOCK",
+  "reason": "brief explanation",
+  "claims": [
+    {{
+      "claim": "concrete claim from the draft",
+      "importance": "CENTRAL or SECONDARY",
+      "verdict": "VERIFIED or UNSUPPORTED or FALSE or OPINION",
+      "correction": "verified correction or empty string"
+    }}
+  ],
+  "title": "verified title",
+  "summary": "verified summary",
+  "meta_description": "verified meta description",
+  "tags": "verified tags",
+  "content": "fully corrected HTML article"
+}}
+""".strip()
+
+
+def _cbl_build_strict_recheck_prompt(reviewed, claims):
+    title = str(reviewed.get("title", "") or "").strip()
+    summary = str(reviewed.get("summary", "") or "").strip()
+    content = str(reviewed.get("content", "") or "").strip()
+
+    return f"""
+You are the second and final fact-checking gate.
+
+Use Google Search again and independently verify the corrected article.
+
+Today's date is {date.today().isoformat()}.
+
+The first review produced these claim records:
+
+{_cbl_fact_json.dumps(claims, ensure_ascii=False)}
+
+Corrected article:
+
+{{
+  "title": {_cbl_fact_json.dumps(title, ensure_ascii=False)},
+  "summary": {_cbl_fact_json.dumps(summary, ensure_ascii=False)},
+  "content": {_cbl_fact_json.dumps(content[:30000], ensure_ascii=False)}
+}}
+
+Final gate rules:
+
+1. Check whether any FALSE or UNSUPPORTED central claim still appears.
+2. Check whether the article contains a major factual claim not listed
+   in the first claim review.
+3. Check company acquisitions, IPOs, valuations, dates, revenue,
+   schedules, policies and numerical claims especially carefully.
+4. Do not approve a claim merely because it sounds plausible.
+5. Any central factual claim must be supported by an official source
+   or at least two independent reputable sources.
+6. Predictions and interpretations must be clearly expressed as such.
+7. If any material unsupported or false statement remains, return BLOCK.
+8. Return JSON only.
+
+Return:
+
+{{
+  "status": "PASS or BLOCK",
+  "reason": "brief final result",
+  "remaining_problems": [
+    "remaining unsupported or false claim"
+  ]
+}}
+""".strip()
+
+
+def _cbl_strict_validate_claims(claims):
+    if not isinstance(claims, list) or not claims:
+        raise ValueError(
+            "팩트체크에서 검증된 주장 목록을 받지 못했습니다."
+        )
+
+    central_count = 0
+    verified_central_count = 0
+    blocked_claims = []
+
+    for item in claims:
+        if not isinstance(item, dict):
+            continue
+
+        importance = str(
+            item.get("importance", "")
+        ).strip().upper()
+
+        verdict = str(
+            item.get("verdict", "")
+        ).strip().upper()
+
+        claim = str(
+            item.get("claim", "")
+        ).strip()
+
+        if importance == "CENTRAL":
+            central_count += 1
+
+            if verdict == "VERIFIED":
+                verified_central_count += 1
+
+            elif verdict in {"FALSE", "UNSUPPORTED"}:
+                blocked_claims.append(claim)
+
+    if central_count < 1:
+        raise ValueError(
+            "글의 핵심 주장에 대한 검증 결과가 없습니다."
+        )
+
+    if verified_central_count < 1:
+        raise ValueError(
+            "검증된 핵심 주장이 없어 글 생성을 차단합니다."
+        )
+
+    return blocked_claims
+
+
+def _cbl_review_generated_post(result, language="ko"):
+    if not isinstance(result, dict):
+        raise ValueError(
+            "팩트체크 대상 결과가 dict 형식이 아닙니다."
+        )
+
+    original_content = str(
+        result.get("content", "") or ""
+    ).strip()
+
+    if not original_content:
+        raise ValueError(
+            "팩트체크 대상 본문이 비어 있습니다."
+        )
+
+    # 1차 검색 기반 검증 및 직접 수정
+    first_prompt = _cbl_build_strict_review_prompt(
+        result,
+        language=language,
+    )
+
+    first_raw, first_sources = _cbl_strict_grounded_generate(
+        first_prompt
+    )
+
+    checked = _cbl_factcheck_extract_json(first_raw)
+
+    status = _cbl_factcheck_clean_status(
+        checked.get("status")
+    )
+
+    reason = str(
+        checked.get("reason", "") or ""
+    ).strip()
+
+    if status == "BLOCK":
+        raise ValueError(
+            "1차 팩트체크 차단: "
+            + (
+                reason
+                or "글의 핵심 사실을 검증할 수 없습니다."
+            )
+        )
+
+    if status not in {"PASS", "CORRECTED"}:
+        raise ValueError(
+            f"잘못된 1차 팩트체크 상태: {status or 'EMPTY'}"
+        )
+
+    claims = checked.get("claims")
+    blocked_claims = _cbl_strict_validate_claims(claims)
+
+    reviewed = dict(result)
+
+    for key in (
+        "title",
+        "summary",
+        "meta_description",
+        "tags",
+        "content",
+    ):
+        value = checked.get(key)
+
+        if isinstance(value, str) and value.strip():
+            reviewed[key] = value.strip()
+
+    corrected_content = repair_ai_content_html(
+        reviewed.get("content", ""),
+        title=reviewed.get("title", ""),
+    )
+
+    validate_ai_content_or_raise(
+        corrected_content,
+        context="팩트체크 수정 본문",
+        min_length=200,
+    )
+
+    reviewed["content"] = corrected_content
+
+    # 1차 판정에서 거짓·미확인 핵심 주장이 발견됐는데
+    # 수정 결과가 원문과 사실상 동일하면 수정 실패로 차단
+    if blocked_claims:
+        original_plain = re.sub(
+            r"\s+",
+            " ",
+            re.sub(
+                r"<[^>]+>",
+                " ",
+                original_content,
+            ),
+        ).strip()
+
+        corrected_plain = re.sub(
+            r"\s+",
+            " ",
+            re.sub(
+                r"<[^>]+>",
+                " ",
+                corrected_content,
+            ),
+        ).strip()
+
+        if original_plain == corrected_plain:
+            raise ValueError(
+                "허위·미확인 핵심 주장이 발견됐지만 "
+                "본문이 실제로 수정되지 않았습니다."
+            )
+
+    # 2차 독립 검색 재검증
+    second_prompt = _cbl_build_strict_recheck_prompt(
+        reviewed,
+        claims,
+    )
+
+    second_raw, second_sources = _cbl_strict_grounded_generate(
+        second_prompt
+    )
+
+    second_checked = _cbl_factcheck_extract_json(second_raw)
+
+    second_status = _cbl_factcheck_clean_status(
+        second_checked.get("status")
+    )
+
+    second_reason = str(
+        second_checked.get("reason", "") or ""
+    ).strip()
+
+    remaining_problems = (
+        second_checked.get("remaining_problems")
+        or []
+    )
+
+    if second_status != "PASS":
+        problem_text = ""
+
+        if isinstance(remaining_problems, list):
+            problem_text = "; ".join(
+                str(item).strip()
+                for item in remaining_problems
+                if str(item).strip()
+            )
+
+        raise ValueError(
+            "2차 팩트체크 차단: "
+            + (
+                problem_text
+                or second_reason
+                or "수정본에 검증되지 않은 내용이 남아 있습니다."
+            )
+        )
+
+    reviewed["_factcheck_status"] = status
+    reviewed["_factcheck_reason"] = reason
+    reviewed["_factcheck_claims"] = claims
+    reviewed["_factcheck_source_count"] = (
+        len(first_sources) + len(second_sources)
+    )
+
+    print(
+        "[팩트체크 완료] "
+        f"1차={status}, "
+        f"1차 출처={len(first_sources)}개, "
+        f"2차 출처={len(second_sources)}개"
+    )
+
+    return reviewed
+
+
+# 기존 generate_ai_post 래퍼는 호출 시 전역의
+# _cbl_review_generated_post를 조회하므로 위 V2 함수가 적용된다.
+
+# CBL_STRICT_SEARCH_FACTCHECK_V2_END
+
+# CBL_NAVER_FACTCHECK_V24_START
+# 생성 후 네이버 뉴스 검색 결과로 팩트체크한다.
+# grounding_chunks가 없다는 이유만으로 정상 글 생성을 중단하지 않는다.
+
+import html as _cblfc24_html
+import json as _cblfc24_json
+import re as _cblfc24_re
+from urllib.parse import quote as _cblfc24_quote
+from urllib.request import Request as _cblfc24_Request
+from urllib.request import urlopen as _cblfc24_urlopen
+
+from django.conf import settings as _cblfc24_settings
+
+
+def _cblfc24_clean(value):
+    value = _cblfc24_html.unescape(str(value or ""))
+    value = _cblfc24_re.sub(r"<[^>]+>", " ", value)
+    return _cblfc24_re.sub(r"\s+", " ", value).strip()
+
+
+def _cblfc24_search(query):
+    client_id = str(getattr(_cblfc24_settings, "NAVER_CLIENT_ID", "") or "").strip()
+    client_secret = str(getattr(_cblfc24_settings, "NAVER_CLIENT_SECRET", "") or "").strip()
+    if not client_id or not client_secret:
+        raise RuntimeError("NAVER_CLIENT_ID 또는 NAVER_CLIENT_SECRET 설정이 비어 있습니다.")
+
+    url = (
+        "https://openapi.naver.com/v1/search/news.json"
+        f"?query={_cblfc24_quote(_cblfc24_clean(query)[:180])}&display=20&start=1&sort=date"
+    )
+    request = _cblfc24_Request(url, headers={
+        "X-Naver-Client-Id": client_id,
+        "X-Naver-Client-Secret": client_secret,
+        "User-Agent": "ChickenBananaLab/1.0",
+    })
+    with _cblfc24_urlopen(request, timeout=12) as response:
+        data = _cblfc24_json.loads(response.read().decode("utf-8", errors="replace"))
+
+    results = []
+    seen = set()
+    for item in data.get("items", []) or []:
+        title = _cblfc24_clean(item.get("title"))
+        description = _cblfc24_clean(item.get("description"))
+        source_url = str(item.get("originallink") or item.get("link") or "").strip()
+        key = _cblfc24_re.sub(r"[\W_]+", "", title.lower())
+        if not title or not source_url or not key or key in seen:
+            continue
+        seen.add(key)
+        results.append({
+            "title": title[:220],
+            "description": description[:500],
+            "url": source_url,
+            "pub_date": str(item.get("pubDate") or ""),
+        })
+        if len(results) >= 12:
+            break
+    return results
+
+
+def _cblfc24_json_object(raw):
+    raw = str(raw or "").strip()
+    raw = _cblfc24_re.sub(r"^```(?:json)?\s*", "", raw, flags=_cblfc24_re.I)
+    raw = _cblfc24_re.sub(r"\s*```$", "", raw)
+    first, last = raw.find("{"), raw.rfind("}")
+    if first >= 0 and last > first:
+        raw = raw[first:last + 1]
+    return _cblfc24_json.loads(raw)
+
+
+def _cblfc24_review_required(result, reason, sources=None):
+    reviewed = dict(result)
+    reviewed["_factcheck_status"] = "REVIEW_REQUIRED"
+    reviewed["_factcheck_reason"] = str(reason or "")[:500]
+    reviewed["_factcheck_sources"] = list(sources or [])[:12]
+    return reviewed
+
+
+def _cbl_review_generated_post(result, language="ko", fail_closed=False):
+    if not isinstance(result, dict):
+        raise ValueError("팩트체크할 생성 결과가 올바르지 않습니다.")
+
+    title = _cblfc24_clean(result.get("title"))
+    content = str(result.get("content") or "").strip()
+    if not title or not content:
+        return _cblfc24_review_required(result, "제목 또는 본문이 비어 있어 자동 팩트체크를 완료하지 못했습니다.")
+
+    try:
+        sources = _cblfc24_search(title)
+    except Exception as error:
+        print("[NAVER_FACTCHECK_V24_SEARCH_ERROR]", type(error).__name__, error)
+        if fail_closed:
+            raise
+        return _cblfc24_review_required(result, f"네이버 뉴스 검색 실패: {type(error).__name__}")
+
+    source_urls = [item["url"] for item in sources]
+    if not sources:
+        return _cblfc24_review_required(result, "네이버 뉴스에서 관련 근거 기사를 찾지 못했습니다.")
+
+    evidence = "\n\n".join(
+        f"[{i}] {item['title']}\n발행일: {item['pub_date']}\n요약: {item['description']}\nURL: {item['url']}"
+        for i, item in enumerate(sources, 1)
+    )
+    language_name = "English" if str(language).lower().startswith("en") else "Korean"
+
+    prompt = f"""
+You are a strict news fact-checking editor.
+Today's date: {date.today().isoformat()}
+Output article language: {language_name}
+
+Use only the supplied Naver News titles, dates and snippets as evidence.
+Do not claim that you opened the URLs.
+
+Rules:
+1. Verify the central premise, names, dates, amounts, percentages, schedules, policy details, product releases and corporate relationships.
+2. VERIFIED requires two matching independent news results or one clearly official/primary-source result.
+3. Plans, forecasts, rumors and proposals must not be written as completed facts.
+4. Remove unsupported precise numbers and quotations.
+5. Correct the draft directly while preserving useful HTML.
+6. Do not insert source links or a fact-check report in the article body.
+7. Return BLOCK only when the central premise is contradicted or clearly unsupported.
+8. Return JSON only.
+
+JSON schema:
+{{
+  "status": "VERIFIED or CORRECTED or BLOCK",
+  "reason": "brief Korean explanation",
+  "title": "checked title",
+  "summary": "checked summary",
+  "meta_description": "checked meta description",
+  "tags": "checked tags",
+  "content": "checked HTML content"
+}}
+
+DRAFT TITLE:
+{result.get('title', '')}
+
+DRAFT SUMMARY:
+{result.get('summary', '')}
+
+DRAFT META DESCRIPTION:
+{result.get('meta_description', '')}
+
+DRAFT TAGS:
+{result.get('tags', '')}
+
+DRAFT CONTENT:
+{content}
+
+NAVER NEWS EVIDENCE:
+{evidence}
+""".strip()
+
+    try:
+        client = get_gemini_client()
+        response = client.models.generate_content(
+            model=RECENT_ISSUE_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=0.0),
+        )
+        checked = _cblfc24_json_object(_extract_text_from_gemini_response(response))
+    except Exception as error:
+        print("[NAVER_FACTCHECK_V24_AI_ERROR]", type(error).__name__, error)
+        if fail_closed:
+            raise
+        return _cblfc24_review_required(result, f"팩트체크 판정 실패: {type(error).__name__}", source_urls)
+
+    status = str(checked.get("status") or "").strip().upper()
+    reason = str(checked.get("reason") or "").strip()
+    if status == "BLOCK":
+        raise ValueError("네이버 뉴스 팩트체크에서 핵심 전제를 확인하지 못했습니다. " + (reason or "기사 근거가 부족합니다."))
+    if status not in {"VERIFIED", "CORRECTED"}:
+        return _cblfc24_review_required(result, reason or "팩트체크 상태를 해석하지 못했습니다.", source_urls)
+
+    reviewed = dict(result)
+    for key in ("title", "summary", "meta_description", "tags", "content"):
+        value = checked.get(key)
+        if isinstance(value, str) and value.strip():
+            reviewed[key] = value.strip()
+    reviewed["_factcheck_status"] = status
+    reviewed["_factcheck_reason"] = reason
+    reviewed["_factcheck_sources"] = source_urls[:12]
+    print("[NAVER_FACTCHECK_V24_SUCCESS]", f"status={status}", f"sources={len(source_urls)}", f"title={title[:60]}")
+    return reviewed
+
+# CBL_NAVER_FACTCHECK_V24_END

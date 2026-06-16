@@ -17,6 +17,7 @@ from core.models import (
     AIAutoWriterSetting,
     AIAutoKeywordQueue,
 )
+from core.naver_news import recommend_keywords_from_news
 
 
 # CBL_AUTO_WRITER_CATEGORY_STYLE_START
@@ -199,7 +200,7 @@ def save_ai_data_to_post(ai_data, queue_item, setting):
     """
     make_thumbnail = bool(getattr(setting, "make_thumbnail", False))
     include_tags = bool(getattr(setting, "include_tags", True))
-    publish_immediately = bool(getattr(setting, "publish_immediately", True))
+    publish_immediately = False  # 시간별 자동글은 항상 비공개 초안
 
     content = ai_data.get("content", "")
     inline_image_blocks = []
@@ -263,6 +264,182 @@ def save_ai_data_to_post(ai_data, queue_item, setting):
     return post
 
 
+
+# CBL_AUTO_NAVER_QUEUE_V25_START
+AUTO_NAVER_CATEGORY_ORDER = [
+    ("architecture", "건축"),
+    ("realestate", "부동산"),
+    ("finance", "금융"),
+    ("tech", "테크"),
+    ("life", "일상"),
+]
+
+
+def get_enabled_auto_news_categories(setting):
+    enabled = []
+
+    for category, label in AUTO_NAVER_CATEGORY_ORDER:
+        field_name = f"use_{category}"
+
+        if bool(getattr(setting, field_name, False)):
+            enabled.append((category, label))
+
+    return enabled
+
+
+def _normalize_auto_keyword(value):
+    return "".join(str(value or "").lower().split())
+
+
+def refill_auto_queue_from_today_news(setting):
+    # 오늘자 추천 화면과 동일한 네이버 추천 결과로
+    # 시간별 자동작성 대기열을 채웁니다.
+    keyword_count = safe_int(
+        getattr(setting, "keyword_count_per_category", 5),
+        default=5,
+        min_value=1,
+        max_value=5,
+    )
+
+    enabled_categories = get_enabled_auto_news_categories(setting)
+
+    if not enabled_categories:
+        raise ValueError(
+            "시간별 자동작성에 사용할 카테고리가 선택되지 않았습니다."
+        )
+
+    queue_fields = get_queue_field_names()
+    existing_qs = AIAutoKeywordQueue.objects.all()
+
+    if "created_at" in queue_fields:
+        existing_qs = existing_qs.filter(
+            created_at__date=timezone.localdate(),
+        )
+
+    existing_keys = {
+        _normalize_auto_keyword(keyword)
+        for keyword in existing_qs.values_list(
+            "keyword",
+            flat=True,
+        )
+        if _normalize_auto_keyword(keyword)
+    }
+
+    recommended_by_category = {}
+    global_seen = set(existing_keys)
+
+    for category, category_label in enabled_categories:
+        raw_items = recommend_keywords_from_news(category) or []
+        category_items = []
+
+        for item in raw_items:
+            if isinstance(item, dict):
+                keyword = str(
+                    item.get("keyword", "") or ""
+                ).strip()
+                reason = str(
+                    item.get("reason", "") or ""
+                ).strip()
+                source_url = str(
+                    item.get("source_url", "") or ""
+                ).strip()
+            else:
+                keyword = str(item or "").strip()
+                reason = ""
+                source_url = ""
+
+            key = _normalize_auto_keyword(keyword)
+
+            if not keyword or not key or key in global_seen:
+                continue
+
+            news_context_parts = [
+                part
+                for part in (reason, source_url)
+                if part
+            ]
+
+            category_items.append({
+                "keyword": keyword,
+                "reason": reason,
+                "news_context": "\n".join(
+                    news_context_parts
+                ),
+            })
+            global_seen.add(key)
+
+            if len(category_items) >= keyword_count:
+                break
+
+        recommended_by_category[category] = category_items
+
+    last_order = (
+        AIAutoKeywordQueue.objects
+        .order_by("-order")
+        .values_list("order", flat=True)
+        .first()
+        or 0
+    )
+    next_order = int(last_order) + 1
+    created_count = 0
+
+    with transaction.atomic():
+        for keyword_index in range(keyword_count):
+            for category, _category_label in enabled_categories:
+                items = recommended_by_category.get(
+                    category,
+                    [],
+                )
+
+                if keyword_index >= len(items):
+                    continue
+
+                item = items[keyword_index]
+
+                AIAutoKeywordQueue.objects.create(
+                    category=category,
+                    keyword=item["keyword"],
+                    reason=item.get("reason", ""),
+                    news_context=item.get(
+                        "news_context",
+                        "",
+                    ),
+                    status="waiting",
+                    order=next_order,
+                )
+
+                created_count += 1
+                next_order += 1
+
+    return created_count
+
+
+def ensure_today_auto_keyword_queue(setting):
+    # 오늘 waiting 키워드가 있으면 유지합니다.
+    # 대기열이 비었거나 전날 키워드만 남았으면
+    # 오늘 네이버 추천으로 자동 교체합니다.
+    queue_fields = get_queue_field_names()
+    waiting_qs = AIAutoKeywordQueue.objects.filter(
+        status="waiting",
+    )
+
+    if "created_at" in queue_fields:
+        today_waiting_exists = waiting_qs.filter(
+            created_at__date=timezone.localdate(),
+        ).exists()
+
+        if today_waiting_exists:
+            return 0
+
+        waiting_qs.delete()
+
+    elif waiting_qs.exists():
+        return 0
+
+    return refill_auto_queue_from_today_news(setting)
+# CBL_AUTO_NAVER_QUEUE_V25_END
+
+
 def recover_stale_processing_items():
     """
     서버 재시작이나 오류로 processing 상태에 오래 남은 항목을 다시 waiting으로 복구합니다.
@@ -320,7 +497,7 @@ class Command(BaseCommand):
 
         make_thumbnail = bool(getattr(setting, "make_thumbnail", False))
         include_tags = bool(getattr(setting, "include_tags", True))
-        publish_immediately = bool(getattr(setting, "publish_immediately", True))
+        publish_immediately = False  # 시간별 자동글은 항상 비공개 초안
 
         image_count = safe_int(
             getattr(setting, "image_count", 0),
@@ -366,6 +543,27 @@ class Command(BaseCommand):
             )
             return
 
+        try:
+            created_count = ensure_today_auto_keyword_queue(
+                setting
+            )
+
+            if created_count:
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f"오늘자 네이버 추천키워드 {created_count}개를 "
+                        "시간별 자동작성 대기열에 자동 저장했습니다."
+                    )
+                )
+        except Exception as queue_error:
+            self.stdout.write(
+                self.style.ERROR(
+                    "오늘자 네이버 추천키워드 자동 보충 실패: "
+                    f"{type(queue_error).__name__}: "
+                    f"{queue_error}"
+                )
+            )
+
         with transaction.atomic():
             queue_item = (
                 AIAutoKeywordQueue.objects
@@ -387,7 +585,7 @@ class Command(BaseCommand):
 
                 self.stdout.write(
                     self.style.WARNING(
-                        "대기 중인 키워드가 없습니다. 먼저 '오늘의 추천키워드 가져오기'를 실행해주세요."
+                        "오늘자 추천키워드를 자동으로 확인했지만 새로 사용할 키워드가 없습니다."
                     )
                 )
                 return
@@ -437,6 +635,32 @@ class Command(BaseCommand):
                 make_thumbnail=make_thumbnail,
                 image_count=image_count,
                 planned_title=queue_item.keyword,
+            )
+
+            factcheck_status = str(
+                ai_data.get(
+                    "_factcheck_status",
+                    "UNKNOWN",
+                )
+                or "UNKNOWN"
+            ).strip()
+
+            factcheck_reason = str(
+                ai_data.get(
+                    "_factcheck_reason",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            self.stdout.write(
+                "[자동글 팩트체크] "
+                f"status={factcheck_status}"
+                + (
+                    f" / reason={factcheck_reason[:200]}"
+                    if factcheck_reason
+                    else ""
+                )
             )
 
             post = save_ai_data_to_post(

@@ -3724,4 +3724,324 @@ def cbl_build_language_prompt(*args, **kwargs):
 
 # CBL_ENGLISH_LOCALIZATION_PROMPT_PATCH_END
 
+# CBL_KEYWORD_RESPONSE_FILTER_V8_START
+#
+# naver_news.py에서 이미 카테고리 분류·안전 보정을 마친
+# dict 추천 결과를 views.py에서 다시 과도하게 삭제하지 않는다.
+#
+# 유지:
+# - 기존 JSON 구조
+# - 기존 카드 레이아웃
+# - 카테고리별 최대 7개
+#
+# 제거:
+# - 동일 키워드 중복
+# - 명백한 타 카테고리 금지 주제
+# - 빈 키워드
+#
 
+def _cbl_filter_keyword_items(
+    items,
+    fallback_category="",
+    limit=7,
+):
+    from core.ai_writer import (
+        cbl_filter_today_keywords_by_category,
+        cbl_today_keyword_category_profile,
+    )
+
+    if not isinstance(items, list):
+        return items
+
+    try:
+        limit = max(1, min(int(limit or 7), 7))
+    except (TypeError, ValueError):
+        limit = 7
+
+    # naver_news.py가 반환하는 dict 리스트
+    if items and isinstance(items[0], dict):
+        cleaned = []
+        counters = {}
+        seen = set()
+
+        category_alias = {
+            "건축": "architecture",
+            "건설": "architecture",
+            "architecture": "architecture",
+
+            "부동산": "realestate",
+            "realestate": "realestate",
+
+            "금융": "finance",
+            "경제": "finance",
+            "finance": "finance",
+
+            "테크": "tech",
+            "기술": "tech",
+            "IT": "tech",
+            "it": "tech",
+            "tech": "tech",
+
+            "일상": "life",
+            "생활": "life",
+            "life": "life",
+        }
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+
+            category_raw = _cbl_keyword_category_from_item(
+                item,
+                fallback_category,
+            )
+
+            category = category_alias.get(
+                str(category_raw or "").strip(),
+                str(category_raw or fallback_category or "").strip(),
+            )
+
+            keyword = str(
+                _cbl_keyword_text_from_item(item) or ""
+            ).strip()
+
+            if not keyword:
+                continue
+
+            category_key = category or str(
+                fallback_category or ""
+            ).strip()
+
+            if counters.get(category_key, 0) >= limit:
+                continue
+
+            normalized = "".join(
+                keyword.lower().split()
+            )
+
+            duplicate_key = (
+                category_key,
+                normalized,
+            )
+
+            if duplicate_key in seen:
+                continue
+
+            # 명백한 금지 주제만 검사한다.
+            # 허용 단어가 반드시 들어가야 한다는 조건은 적용하지 않는다.
+            try:
+                profile = cbl_today_keyword_category_profile(
+                    category_key
+                )
+
+                blocked_words = [
+                    str(word or "").lower()
+                    for word in profile.get("block", [])
+                    if str(word or "").strip()
+                ]
+
+                keyword_lower = keyword.lower()
+
+                if any(
+                    blocked in keyword_lower
+                    for blocked in blocked_words
+                ):
+                    continue
+
+            except Exception:
+                pass
+
+            new_item = dict(item)
+
+            if "keyword" in new_item:
+                new_item["keyword"] = keyword
+            elif "title" in new_item:
+                new_item["title"] = keyword
+            elif "text" in new_item:
+                new_item["text"] = keyword
+            else:
+                new_item["keyword"] = keyword
+
+            # 카테고리 누락 시 복원
+            if not new_item.get("category") and category_key:
+                new_item["category"] = category_key
+
+            cleaned.append(new_item)
+            seen.add(duplicate_key)
+            counters[category_key] = (
+                counters.get(category_key, 0) + 1
+            )
+
+        print(
+            "[TODAY_KEYWORD_RESPONSE_V8]",
+            f"input={len(items)}",
+            f"output={len(cleaned)}",
+            f"categories={counters}",
+        )
+
+        return cleaned
+
+    # 문자열 리스트는 기존 엄격 필터 유지
+    filtered = cbl_filter_today_keywords_by_category(
+        fallback_category,
+        items,
+        limit,
+    )
+
+    if fallback_category and len(filtered) < limit:
+        try:
+            profile = cbl_today_keyword_category_profile(
+                fallback_category
+            )
+
+            for example in profile.get("examples", []):
+                example = str(example or "").strip()
+
+                if not example:
+                    continue
+
+                if example in filtered:
+                    continue
+
+                filtered.append(example)
+
+                if len(filtered) >= limit:
+                    break
+
+        except Exception:
+            pass
+
+    return filtered[:limit]
+
+
+# CBL_KEYWORD_RESPONSE_FILTER_V8_END
+
+# CBL_DISABLE_GENERIC_KEYWORD_FALLBACK_V21_START
+
+def _cbl_v21_remove_generic_keyword_fallback(items):
+    cleaned = []
+
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+
+        reason = str(item.get("reason", "") or "").strip()
+
+        if reason == "추천 키워드":
+            continue
+
+        cleaned.append(item)
+
+    return cleaned
+
+# CBL_DISABLE_GENERIC_KEYWORD_FALLBACK_V21_END
+
+# CBL_FINAL_KEYWORD_ENDPOINT_V22_START
+
+@user_passes_test(admin_required)
+def ai_keyword_recommend(request):
+    if request.method != "POST":
+        return JsonResponse({
+            "ok": False,
+            "keywords": [],
+            "message": "POST 요청만 가능합니다.",
+        }, status=405)
+
+    requested_category = str(
+        request.POST.get("category", "all") or "all"
+    ).strip()
+
+    categories = [
+        "architecture",
+        "realestate",
+        "finance",
+        "tech",
+        "life",
+    ]
+
+    try:
+        if requested_category == "all":
+            raw_items = []
+
+            for category in categories:
+                raw_items.extend(
+                    recommend_keywords_from_news(category)
+                )
+        else:
+            raw_items = recommend_keywords_from_news(
+                requested_category
+            )
+
+        cleaned = []
+        seen = set()
+
+        for item in raw_items or []:
+            if not isinstance(item, dict):
+                continue
+
+            keyword = str(
+                item.get("keyword", "") or ""
+            ).strip()
+
+            reason = str(
+                item.get("reason", "") or ""
+            ).strip()
+
+            category_label = str(
+                item.get("category", "") or ""
+            ).strip()
+
+            if not keyword or not reason:
+                continue
+
+            if reason == "추천 키워드":
+                continue
+
+            key = keyword.replace(" ", "").lower()
+
+            if not key or key in seen:
+                continue
+
+            cleaned.append({
+                "category": category_label,
+                "keyword": keyword,
+                "reason": reason,
+            })
+
+            seen.add(key)
+
+        if not cleaned:
+            return JsonResponse({
+                "ok": False,
+                "keywords": [],
+                "message": (
+                    "최신 키워드 검색에 실패했습니다. "
+                    "잠시 후 다시 시도해주세요."
+                ),
+            }, status=503)
+
+        print(
+            "[KEYWORD_V22_ENDPOINT]",
+            f"category={requested_category}",
+            f"items={len(cleaned)}",
+        )
+
+        return JsonResponse({
+            "ok": True,
+            "keywords": cleaned,
+        })
+
+    except Exception as error:
+        print(
+            "[KEYWORD_V22_ENDPOINT_ERROR]",
+            f"error={type(error).__name__}: {error}",
+        )
+
+        return JsonResponse({
+            "ok": False,
+            "keywords": [],
+            "message": "최신 키워드 검색 중 오류가 발생했습니다.",
+        }, status=500)
+
+
+# CBL_FINAL_KEYWORD_ENDPOINT_V22_END
