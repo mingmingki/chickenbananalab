@@ -1,3 +1,4 @@
+import json
 import traceback
 from datetime import datetime, time, timedelta
 
@@ -150,11 +151,27 @@ def build_experience_vault_text():
 
 def build_auto_extra_prompt(queue_item):
     """
-    대기열 키워드와 관련 뉴스 내용을 자동글 생성 프롬프트에 넣습니다.
+    대기열 키워드와 추천 원문 정보를 자동글 생성 및
+    생성 후 팩트체크 프롬프트에 함께 전달합니다.
     """
     reason = (getattr(queue_item, "reason", "") or "").strip()
     news_context = (getattr(queue_item, "news_context", "") or "").strip()
     experience_vault_text = build_experience_vault_text()
+
+    source_context = "\n".join(
+        value
+        for value in (reason, news_context)
+        if value
+    ).strip()
+
+    if not source_context:
+        source_context = "관련 뉴스 요약 없음"
+
+    fallback_source_json = json.dumps({
+        "source_title": queue_item.keyword,
+        "keyword": queue_item.keyword,
+        "reason": reason,
+    }, ensure_ascii=False)
 
     extra_prompt = f"""
 이 글은 ChickenBanana Lab의 시간별 AI 자동글 생성 시스템에서 작성하는 글입니다.
@@ -163,7 +180,12 @@ def build_auto_extra_prompt(queue_item):
 {queue_item.keyword}
 
 관련 뉴스 / 추천 이유:
-{reason or news_context or "관련 뉴스 요약 없음"}
+{source_context}
+
+아래 내부 메타데이터는 팩트체크 전용이며 본문에 절대 출력하지 마세요.
+[CBL_FACTCHECK_SOURCE_CONTEXT]
+{news_context or fallback_source_json}
+[/CBL_FACTCHECK_SOURCE_CONTEXT]
 
 작성 방향:
 - 위 키워드와 관련 뉴스 흐름을 중심으로 작성
@@ -191,7 +213,6 @@ def build_auto_extra_prompt(queue_item):
 """
 
     return extra_prompt
-
 
 def save_ai_data_to_post(ai_data, queue_item, setting):
     """
@@ -343,27 +364,39 @@ def refill_auto_queue_from_today_news(setting):
                 source_url = str(
                     item.get("source_url", "") or ""
                 ).strip()
+                source = str(
+                    item.get("source", "") or ""
+                ).strip()
+                published_at = str(
+                    item.get("published_at", "") or ""
+                ).strip()
             else:
                 keyword = str(item or "").strip()
                 reason = ""
                 source_url = ""
+                source = ""
+                published_at = ""
 
             key = _normalize_auto_keyword(keyword)
 
             if not keyword or not key or key in global_seen:
                 continue
 
-            news_context_parts = [
-                part
-                for part in (reason, source_url)
-                if part
-            ]
+            source_payload = {
+                "source_title": keyword,
+                "keyword": keyword,
+                "reason": reason,
+                "source_url": source_url,
+                "source": source,
+                "published_at": published_at,
+            }
 
             category_items.append({
                 "keyword": keyword,
                 "reason": reason,
-                "news_context": "\n".join(
-                    news_context_parts
+                "news_context": json.dumps(
+                    source_payload,
+                    ensure_ascii=False,
                 ),
             })
             global_seen.add(key)

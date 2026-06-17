@@ -6291,3 +6291,685 @@ NAVER NEWS EVIDENCE:
     return reviewed
 
 # CBL_NAVER_FACTCHECK_V24_END
+
+# CBL_FACTCHECK_CORRECTION_FIRST_V25_START
+#
+# 네이버 뉴스 팩트체크 V25
+# - 원본 추천 제목(planned_title) 우선 검색
+# - 생성 제목과 핵심어를 추가 검색
+# - 근거 부족은 BLOCK이 아니라 REVIEW_REQUIRED
+# - 일부 수치·날짜 오류는 직접 수정 후 CORRECTED
+# - 공식 자료와 명백한 충돌 또는 허구 사건만 BLOCK
+# - 이미지 캡션/연속 문단 중복 제거
+#
+
+import contextvars as _cblfc25_contextvars
+import time as _cblfc25_time
+
+_CBLFC25_CALL_CONTEXT = _cblfc25_contextvars.ContextVar(
+    "cbl_factcheck_call_context",
+    default={},
+)
+
+
+def _cblfc25_plain_key(value):
+    value = _cblfc24_clean(value).lower()
+    return _cblfc24_re.sub(r"[\W_]+", "", value)
+
+
+def _cblfc25_remove_duplicate_blocks(content):
+    """
+    동일한 캡션이나 문단이 연속으로 반복될 때 첫 번째만 남긴다.
+    이미지 삽입 전·후 어느 단계에서도 사용할 수 있다.
+    """
+    content = str(content or "")
+    if not content:
+        return content
+
+    lines = content.splitlines()
+    cleaned_lines = []
+    previous_key = ""
+
+    for line in lines:
+        stripped = line.strip()
+        key = _cblfc25_plain_key(stripped)
+
+        if (
+            stripped
+            and key
+            and key == previous_key
+            and not stripped.startswith(("<img", "<div"))
+        ):
+            continue
+
+        cleaned_lines.append(line)
+
+        if stripped:
+            previous_key = key
+        else:
+            previous_key = ""
+
+    content = "\n".join(cleaned_lines)
+
+    block_pattern = _cblfc24_re.compile(
+        r"<(?P<tag>p|figcaption)\b[^>]*>.*?</(?P=tag)>",
+        flags=_cblfc24_re.IGNORECASE | _cblfc24_re.DOTALL,
+    )
+
+    output = []
+    last_end = 0
+    previous_block_key = ""
+
+    for match in block_pattern.finditer(content):
+        between = content[last_end:match.start()]
+        block = match.group(0)
+        visible = _cblfc24_re.sub(r"<[^>]+>", " ", block)
+        block_key = _cblfc25_plain_key(visible)
+        is_adjacent = not between.strip()
+
+        if (
+            block_key
+            and block_key == previous_block_key
+            and is_adjacent
+        ):
+            output.append(between)
+        else:
+            output.append(between)
+            output.append(block)
+            previous_block_key = block_key
+
+        last_end = match.end()
+
+    output.append(content[last_end:])
+    content = "".join(output)
+
+    return _cblfc24_re.sub(r"\n{3,}", "\n\n", content).strip()
+
+
+def _cblfc25_extract_source_context(extra_prompt):
+    extra_prompt = str(extra_prompt or "")
+    source_data = {}
+
+    match = _cblfc24_re.search(
+        r"\[CBL_FACTCHECK_SOURCE_CONTEXT\]\s*(.*?)\s*"
+        r"\[/CBL_FACTCHECK_SOURCE_CONTEXT\]",
+        extra_prompt,
+        flags=_cblfc24_re.IGNORECASE | _cblfc24_re.DOTALL,
+    )
+
+    if match:
+        raw = match.group(1).strip()
+
+        try:
+            parsed = _cblfc24_json.loads(raw)
+            if isinstance(parsed, dict):
+                source_data.update(parsed)
+        except Exception:
+            source_data["raw_context"] = raw[:2000]
+
+    urls = _cblfc24_re.findall(
+        r"https?://[^\s<>\]\"']+",
+        extra_prompt,
+        flags=_cblfc24_re.IGNORECASE,
+    )
+
+    if urls and not source_data.get("source_url"):
+        source_data["source_url"] = urls[0].rstrip(".,;)")
+
+    return source_data
+
+
+def _cblfc25_get_context():
+    context = _CBLFC25_CALL_CONTEXT.get() or {}
+    if not isinstance(context, dict):
+        return {}
+    return context
+
+
+def _cblfc25_core_query(*values):
+    text = " ".join(str(value or "") for value in values)
+    text = _cblfc24_re.sub(r"\[[^\]]+\]", " ", text)
+    text = _cblfc24_re.sub(r"[^\w가-힣A-Za-z0-9]+", " ", text)
+
+    stopwords = {
+        "왜", "무엇", "어떻게", "정리", "알아보기", "전망",
+        "관련", "대해", "대한", "이번", "오늘", "최근", "현재",
+        "앞두고", "보는", "보일까", "이유", "핵심", "시장",
+    }
+
+    tokens = []
+    seen = set()
+
+    for token in text.split():
+        normalized = token.lower().strip()
+
+        if len(normalized) < 2:
+            continue
+
+        if normalized in stopwords or normalized in seen:
+            continue
+
+        seen.add(normalized)
+        tokens.append(token)
+
+        if len(tokens) >= 9:
+            break
+
+    return " ".join(tokens)
+
+
+def _cblfc25_build_queries(result, context, source_data):
+    generated_title = _cblfc24_clean(result.get("title"))
+    planned_title = _cblfc24_clean(
+        source_data.get("source_title")
+        or context.get("planned_title")
+    )
+    keywords = _cblfc24_clean(
+        source_data.get("keyword")
+        or context.get("keywords")
+    )
+
+    candidates = [
+        planned_title,
+        keywords if keywords != planned_title else "",
+        generated_title if generated_title != planned_title else "",
+        _cblfc25_core_query(
+            planned_title,
+            generated_title,
+            keywords,
+        ),
+    ]
+
+    queries = []
+    seen = set()
+
+    for query in candidates:
+        query = _cblfc24_clean(query)[:180]
+        key = _cblfc25_plain_key(query)
+
+        if not query or not key or key in seen:
+            continue
+
+        seen.add(key)
+        queries.append(query)
+
+        if len(queries) >= 3:
+            break
+
+    return queries
+
+
+def _cblfc25_search_many(queries, source_data=None):
+    merged = []
+    seen_urls = set()
+    errors = []
+
+    for index, query in enumerate(queries):
+        try:
+            items = _cblfc24_search(query)
+        except Exception as error:
+            errors.append(
+                f"{query}: {type(error).__name__}: {error}"
+            )
+            continue
+
+        for item in items:
+            url = str(item.get("url") or "").strip()
+            title = _cblfc24_clean(item.get("title"))
+            key = url or _cblfc25_plain_key(title)
+
+            if not key or key in seen_urls:
+                continue
+
+            seen_urls.add(key)
+            copied = dict(item)
+            copied["matched_query"] = query
+            merged.append(copied)
+
+            if len(merged) >= 18:
+                break
+
+        if len(merged) >= 18:
+            break
+
+        if index < len(queries) - 1:
+            _cblfc25_time.sleep(0.45)
+
+    source_data = source_data or {}
+    source_url = str(
+        source_data.get("source_url") or ""
+    ).strip()
+    source_title = _cblfc24_clean(
+        source_data.get("source_title")
+        or source_data.get("keyword")
+    )
+
+    if source_url and source_url not in seen_urls:
+        merged.insert(0, {
+            "title": source_title or "추천 단계 원문 기사",
+            "description": (
+                str(source_data.get("reason") or "").strip()
+                or "추천 단계에서 전달된 원문 기사 URL"
+            ),
+            "url": source_url,
+            "pub_date": str(
+                source_data.get("published_at") or ""
+            ),
+            "matched_query": "추천 원문",
+        })
+
+    return merged[:18], errors
+
+
+def _cblfc25_apply_checked_fields(result, checked):
+    reviewed = dict(result)
+
+    for key in (
+        "title",
+        "summary",
+        "meta_description",
+        "tags",
+        "content",
+    ):
+        value = checked.get(key)
+
+        if isinstance(value, str) and value.strip():
+            reviewed[key] = value.strip()
+
+    reviewed["content"] = _cblfc25_remove_duplicate_blocks(
+        reviewed.get("content", "")
+    )
+
+    return reviewed
+
+
+def _cblfc25_review_required(
+    result,
+    reason,
+    sources=None,
+    queries=None,
+):
+    reviewed = dict(result)
+    reviewed["content"] = _cblfc25_remove_duplicate_blocks(
+        reviewed.get("content", "")
+    )
+    reviewed["_factcheck_status"] = "REVIEW_REQUIRED"
+    reviewed["_factcheck_reason"] = str(reason or "")[:1000]
+    reviewed["_factcheck_sources"] = list(sources or [])[:18]
+    reviewed["_factcheck_queries"] = list(queries or [])[:3]
+    return reviewed
+
+
+def _cbl_review_generated_post(
+    result,
+    language="ko",
+    fail_closed=False,
+):
+    if not isinstance(result, dict):
+        raise ValueError(
+            "팩트체크할 생성 결과가 올바르지 않습니다."
+        )
+
+    title = _cblfc24_clean(result.get("title"))
+    content = str(result.get("content") or "").strip()
+
+    if not title or not content:
+        return _cblfc25_review_required(
+            result,
+            "제목 또는 본문이 비어 있어 자동 팩트체크를 완료하지 못했습니다.",
+        )
+
+    context = _cblfc25_get_context()
+    extra_prompt = str(context.get("extra_prompt") or "")
+    source_data = _cblfc25_extract_source_context(
+        extra_prompt
+    )
+
+    if not source_data.get("source_title"):
+        source_data["source_title"] = (
+            context.get("planned_title")
+            or context.get("keywords")
+            or ""
+        )
+
+    if not source_data.get("keyword"):
+        source_data["keyword"] = (
+            context.get("keywords")
+            or context.get("planned_title")
+            or ""
+        )
+
+    queries = _cblfc25_build_queries(
+        result,
+        context,
+        source_data,
+    )
+
+    try:
+        sources, search_errors = _cblfc25_search_many(
+            queries,
+            source_data=source_data,
+        )
+    except Exception as error:
+        if fail_closed:
+            raise
+
+        return _cblfc25_review_required(
+            result,
+            (
+                "네이버 뉴스 다중 검색 실패: "
+                f"{type(error).__name__}: {error}"
+            ),
+            queries=queries,
+        )
+
+    source_urls = [
+        str(item.get("url") or "").strip()
+        for item in sources
+        if str(item.get("url") or "").strip()
+    ]
+
+    if not sources:
+        error_text = "; ".join(search_errors[:3])
+
+        return _cblfc25_review_required(
+            result,
+            (
+                "관련 기사 근거가 충분하지 않아 차단하지 않고 "
+                "비공개 검토 초안으로 저장합니다."
+                + (f" 검색 오류: {error_text}" if error_text else "")
+            ),
+            queries=queries,
+        )
+
+    evidence = "\n\n".join(
+        "\n".join([
+            f"[{index}] {item.get('title', '')}",
+            f"검색어: {item.get('matched_query', '')}",
+            f"발행일: {item.get('pub_date', '')}",
+            f"요약: {item.get('description', '')}",
+            f"URL: {item.get('url', '')}",
+        ])
+        for index, item in enumerate(sources, 1)
+    )
+
+    language_name = (
+        "English"
+        if str(language).lower().startswith("en")
+        else "Korean"
+    )
+
+    prompt = f"""
+You are a correction-first news fact-checking editor.
+
+Today's date: {date.today().isoformat()}
+Output article language: {language_name}
+
+Use only the supplied Naver News titles, dates and snippets as evidence.
+URLs are identifiers. Do not claim that you opened a URL.
+
+Core policy:
+- Insufficient evidence is NOT proof that a claim is false.
+- Prefer correcting or softening individual details over discarding
+  the entire article.
+- Return BLOCK only for a clearly false central premise.
+
+Decision rules:
+
+1. VERIFIED
+   - The central premise is supported by one clearly official or
+     primary-source result, or by at least two independent matching
+     reliable news results.
+2. CORRECTED
+   - The central premise is usable, but a date, number, quotation,
+     role, schedule, policy detail or wording needs correction.
+   - Correct or remove the unsupported detail directly.
+3. REVIEW_REQUIRED
+   - Evidence is incomplete, search results are ambiguous, only one
+     non-official result exists, or the article cannot be fully checked.
+   - Do not use BLOCK merely because evidence is limited.
+4. BLOCK
+   - Use only when the central premise is directly contradicted by an
+     official source, contradicted by at least two independent reliable
+     results, or describes a fabricated person, entity or event.
+   - For BLOCK, block_basis must be one of:
+     OFFICIAL_CONTRADICTION,
+     MULTIPLE_RELIABLE_CONTRADICTIONS,
+     FABRICATED_ENTITY_OR_EVENT.
+   - For BLOCK, contradiction_evidence must identify the conflicting
+     supplied evidence. Otherwise use REVIEW_REQUIRED.
+
+Editing rules:
+- Preserve useful HTML.
+- Remove or soften unsupported precise numbers and quotations.
+- Distinguish plans, forecasts and rumors from completed facts.
+- Do not add source links or a fact-check report inside the article.
+- Remove repeated image captions or repeated consecutive paragraphs.
+- Return one JSON object only.
+
+Required JSON:
+{{
+  "status": "VERIFIED or CORRECTED or REVIEW_REQUIRED or BLOCK",
+  "reason": "brief Korean explanation",
+  "block_basis": "",
+  "contradiction_evidence": [],
+  "title": "checked title",
+  "summary": "checked summary",
+  "meta_description": "checked meta description",
+  "tags": "checked tags",
+  "content": "checked HTML content"
+}}
+
+ORIGINAL RECOMMENDATION CONTEXT:
+{_cblfc24_json.dumps(source_data, ensure_ascii=False)}
+
+SEARCH QUERIES:
+{_cblfc24_json.dumps(queries, ensure_ascii=False)}
+
+DRAFT TITLE:
+{result.get('title', '')}
+
+DRAFT SUMMARY:
+{result.get('summary', '')}
+
+DRAFT META DESCRIPTION:
+{result.get('meta_description', '')}
+
+DRAFT TAGS:
+{result.get('tags', '')}
+
+DRAFT CONTENT:
+{content}
+
+NAVER NEWS EVIDENCE:
+{evidence}
+""".strip()
+
+    try:
+        client = get_gemini_client()
+        response = client.models.generate_content(
+            model=RECENT_ISSUE_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.0,
+            ),
+        )
+        checked = _cblfc24_json_object(
+            _extract_text_from_gemini_response(
+                response
+            )
+        )
+    except Exception as error:
+        if fail_closed:
+            raise
+
+        return _cblfc25_review_required(
+            result,
+            (
+                "팩트체크 판정 호출에 실패하여 "
+                "비공개 검토 초안으로 저장합니다: "
+                f"{type(error).__name__}"
+            ),
+            sources=source_urls,
+            queries=queries,
+        )
+
+    status = str(
+        checked.get("status") or ""
+    ).strip().upper()
+    reason = str(
+        checked.get("reason") or ""
+    ).strip()
+
+    reviewed = _cblfc25_apply_checked_fields(
+        result,
+        checked,
+    )
+
+    if status == "BLOCK":
+        block_basis = str(
+            checked.get("block_basis") or ""
+        ).strip().upper()
+        contradiction_evidence = (
+            checked.get("contradiction_evidence")
+            or []
+        )
+
+        allowed_block_basis = {
+            "OFFICIAL_CONTRADICTION",
+            "MULTIPLE_RELIABLE_CONTRADICTIONS",
+            "FABRICATED_ENTITY_OR_EVENT",
+        }
+
+        has_contradiction = bool(
+            contradiction_evidence
+            if isinstance(
+                contradiction_evidence,
+                (list, tuple, dict),
+            )
+            else str(contradiction_evidence).strip()
+        )
+
+        if (
+            block_basis in allowed_block_basis
+            and has_contradiction
+        ):
+            raise ValueError(
+                "네이버 뉴스 팩트체크에서 핵심 전제가 "
+                "명백히 사실과 충돌하여 차단했습니다. "
+                + (
+                    reason
+                    or block_basis
+                )
+            )
+
+        return _cblfc25_review_required(
+            reviewed,
+            (
+                "AI가 BLOCK을 제안했지만 명시적인 공식 반증 또는 "
+                "복수 반증 근거가 없어 REVIEW_REQUIRED로 전환했습니다. "
+                + (reason or "")
+            ),
+            sources=source_urls,
+            queries=queries,
+        )
+
+    if status == "REVIEW_REQUIRED":
+        return _cblfc25_review_required(
+            reviewed,
+            (
+                reason
+                or "근거가 충분하지 않아 관리자 검토가 필요합니다."
+            ),
+            sources=source_urls,
+            queries=queries,
+        )
+
+    if status not in {"VERIFIED", "CORRECTED"}:
+        return _cblfc25_review_required(
+            reviewed,
+            (
+                reason
+                or "팩트체크 상태를 해석하지 못했습니다."
+            ),
+            sources=source_urls,
+            queries=queries,
+        )
+
+    reviewed["_factcheck_status"] = status
+    reviewed["_factcheck_reason"] = reason
+    reviewed["_factcheck_sources"] = source_urls[:18]
+    reviewed["_factcheck_queries"] = queries[:3]
+
+    print(
+        "[NAVER_FACTCHECK_V25_SUCCESS]",
+        f"status={status}",
+        f"sources={len(source_urls)}",
+        f"queries={len(queries)}",
+        f"title={title[:60]}",
+    )
+
+    return reviewed
+
+
+if "replace_image_placeholders" in globals():
+    _cblfc25_previous_replace_image_placeholders = (
+        replace_image_placeholders
+    )
+
+    def replace_image_placeholders(content, image_blocks):
+        replaced = (
+            _cblfc25_previous_replace_image_placeholders(
+                content,
+                image_blocks,
+            )
+        )
+        return _cblfc25_remove_duplicate_blocks(
+            replaced
+        )
+
+
+if (
+    "generate_ai_post" in globals()
+    and not globals().get(
+        "_CBL_FACTCHECK_CONTEXT_V25_WRAPPED",
+        False,
+    )
+):
+    _cblfc25_previous_generate_ai_post = generate_ai_post
+
+    def generate_ai_post(*args, **kwargs):
+        context = {
+            "category": kwargs.get(
+                "category",
+                args[0] if len(args) > 0 else "",
+            ),
+            "keywords": kwargs.get(
+                "keywords",
+                args[1] if len(args) > 1 else "",
+            ),
+            "extra_prompt": kwargs.get(
+                "extra_prompt",
+                args[3] if len(args) > 3 else "",
+            ),
+            "planned_title": kwargs.get(
+                "planned_title",
+                args[7] if len(args) > 7 else "",
+            ),
+        }
+
+        token = _CBLFC25_CALL_CONTEXT.set(
+            context
+        )
+
+        try:
+            return _cblfc25_previous_generate_ai_post(
+                *args,
+                **kwargs,
+            )
+        finally:
+            _CBLFC25_CALL_CONTEXT.reset(token)
+
+    _CBL_FACTCHECK_CONTEXT_V25_WRAPPED = True
+
+# CBL_FACTCHECK_CORRECTION_FIRST_V25_END

@@ -1894,10 +1894,16 @@ def refill_ai_auto_keyword_queue(setting):
                 keyword = str(item.get("keyword", "")).strip()
                 reason = str(item.get("reason", "")).strip()
                 item_category_label = str(item.get("category", "")).strip()
+                source_url = str(item.get("source_url", "") or "").strip()
+                source = str(item.get("source", "") or "").strip()
+                published_at = str(item.get("published_at", "") or "").strip()
             else:
                 keyword = str(item).strip()
                 reason = ""
                 item_category_label = category_label
+                source_url = ""
+                source = ""
+                published_at = ""
 
             if not keyword:
                 continue
@@ -1907,10 +1913,22 @@ def refill_ai_auto_keyword_queue(setting):
             if keyword_key in seen_keywords:
                 continue
 
+            source_payload = {
+                "source_title": keyword,
+                "keyword": keyword,
+                "reason": reason,
+                "source_url": source_url,
+                "source": source,
+                "published_at": published_at,
+            }
+
             cleaned_items.append({
                 "keyword": keyword,
                 "reason": reason,
-                "news_context": reason,
+                "news_context": json.dumps(
+                    source_payload,
+                    ensure_ascii=False,
+                ),
                 "category_label": item_category_label or category_label,
             })
 
