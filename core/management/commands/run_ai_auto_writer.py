@@ -19,6 +19,7 @@ from core.models import (
     AIAutoKeywordQueue,
 )
 from core.naver_news import recommend_keywords_from_news
+from core.keyword_dedupe import unpack_recommendation, is_duplicate_candidate, build_news_context
 
 
 # CBL_AUTO_WRITER_CATEGORY_STYLE_START
@@ -313,137 +314,49 @@ def _normalize_auto_keyword(value):
 
 
 def refill_auto_queue_from_today_news(setting):
-    # 오늘자 추천 화면과 동일한 네이버 추천 결과로
-    # 시간별 자동작성 대기열을 채웁니다.
-    keyword_count = safe_int(
-        getattr(setting, "keyword_count_per_category", 5),
-        default=5,
-        min_value=1,
-        max_value=5,
-    )
-
+    """기존 대기열·완료 글과 카테고리 전체를 비교해 중복 없는 키워드만 저장합니다."""
+    keyword_count = safe_int(getattr(setting, "keyword_count_per_category", 5), default=5, min_value=1, max_value=5)
     enabled_categories = get_enabled_auto_news_categories(setting)
-
     if not enabled_categories:
-        raise ValueError(
-            "시간별 자동작성에 사용할 카테고리가 선택되지 않았습니다."
-        )
+        raise ValueError("시간별 자동작성에 사용할 카테고리가 선택되지 않았습니다.")
 
-    queue_fields = get_queue_field_names()
-    existing_qs = AIAutoKeywordQueue.objects.all()
-
-    if "created_at" in queue_fields:
-        existing_qs = existing_qs.filter(
-            created_at__date=timezone.localdate(),
-        )
-
-    existing_keys = {
-        _normalize_auto_keyword(keyword)
-        for keyword in existing_qs.values_list(
-            "keyword",
-            flat=True,
-        )
-        if _normalize_auto_keyword(keyword)
-    }
+    globally_accepted = []
+    for queue_item in AIAutoKeywordQueue.objects.all().only("keyword", "news_context"):
+        source_url = ""
+        try:
+            source_url = json.loads(queue_item.news_context or "{}").get("source_url", "")
+        except Exception:
+            pass
+        globally_accepted.append({"keyword": queue_item.keyword, "source_url": source_url})
+    for title in Post.objects.order_by("-created_at").values_list("title", flat=True)[:300]:
+        globally_accepted.append({"keyword": title, "source_url": ""})
 
     recommended_by_category = {}
-    global_seen = set(existing_keys)
-
     for category, category_label in enabled_categories:
-        raw_items = recommend_keywords_from_news(category) or []
         category_items = []
-
-        for item in raw_items:
-            if isinstance(item, dict):
-                keyword = str(
-                    item.get("keyword", "") or ""
-                ).strip()
-                reason = str(
-                    item.get("reason", "") or ""
-                ).strip()
-                source_url = str(
-                    item.get("source_url", "") or ""
-                ).strip()
-                source = str(
-                    item.get("source", "") or ""
-                ).strip()
-                published_at = str(
-                    item.get("published_at", "") or ""
-                ).strip()
-            else:
-                keyword = str(item or "").strip()
-                reason = ""
-                source_url = ""
-                source = ""
-                published_at = ""
-
-            key = _normalize_auto_keyword(keyword)
-
-            if not keyword or not key or key in global_seen:
+        for raw_item in recommend_keywords_from_news(category) or []:
+            candidate = unpack_recommendation(raw_item, category_label)
+            if not candidate["keyword"] or is_duplicate_candidate(candidate, globally_accepted):
                 continue
-
-            source_payload = {
-                "source_title": keyword,
-                "keyword": keyword,
-                "reason": reason,
-                "source_url": source_url,
-                "source": source,
-                "published_at": published_at,
-            }
-
-            category_items.append({
-                "keyword": keyword,
-                "reason": reason,
-                "news_context": json.dumps(
-                    source_payload,
-                    ensure_ascii=False,
-                ),
-            })
-            global_seen.add(key)
-
+            candidate["news_context"] = build_news_context(candidate)
+            category_items.append(candidate)
+            globally_accepted.append(candidate)
             if len(category_items) >= keyword_count:
                 break
-
         recommended_by_category[category] = category_items
 
-    last_order = (
-        AIAutoKeywordQueue.objects
-        .order_by("-order")
-        .values_list("order", flat=True)
-        .first()
-        or 0
-    )
-    next_order = int(last_order) + 1
+    next_order = int(AIAutoKeywordQueue.objects.order_by("-order").values_list("order", flat=True).first() or 0) + 1
     created_count = 0
-
     with transaction.atomic():
         for keyword_index in range(keyword_count):
-            for category, _category_label in enabled_categories:
-                items = recommended_by_category.get(
-                    category,
-                    [],
-                )
-
+            for category, _label in enabled_categories:
+                items = recommended_by_category.get(category, [])
                 if keyword_index >= len(items):
                     continue
-
                 item = items[keyword_index]
-
-                AIAutoKeywordQueue.objects.create(
-                    category=category,
-                    keyword=item["keyword"],
-                    reason=item.get("reason", ""),
-                    news_context=item.get(
-                        "news_context",
-                        "",
-                    ),
-                    status="waiting",
-                    order=next_order,
-                )
-
+                AIAutoKeywordQueue.objects.create(category=category, keyword=item["keyword"], reason=item.get("reason", ""), news_context=item.get("news_context", ""), status="waiting", order=next_order)
                 created_count += 1
                 next_order += 1
-
     return created_count
 
 

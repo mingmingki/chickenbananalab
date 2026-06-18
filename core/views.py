@@ -37,6 +37,7 @@ from .models import (
 )
 from .forms import PostForm, CommentForm, NicknameForm, ExperienceVaultForm
 from .naver_news import recommend_keywords_from_news
+from .keyword_dedupe import unpack_recommendation, is_duplicate_candidate, build_news_context
 from .ai_writer import (
     generate_ai_post,
     generate_english_ai_post,
@@ -1862,114 +1863,44 @@ def get_enabled_ai_auto_categories(setting):
 
 
 def refill_ai_auto_keyword_queue(setting):
-    """
-    기존 AI 자동글 생성 모달의 '오늘자 키워드 추천'과 동일한
-    recommend_keywords_from_news(category) 로직을 사용해서
-    시간별 자동글 대기열을 채운다.
-    """
-
+    """오늘 뉴스 추천을 카테고리 전체 기준으로 중복 제거해 대기열에 저장합니다."""
     try:
-        keyword_count = int(setting.keyword_count_per_category or 7)
-    except ValueError:
-        keyword_count = 7
-
-    keyword_count = max(1, min(keyword_count, 7))
-
+        keyword_count = int(setting.keyword_count_per_category or 5)
+    except (TypeError, ValueError):
+        keyword_count = 5
+    keyword_count = max(1, min(keyword_count, 5))
     enabled_categories = get_enabled_ai_auto_categories(setting)
-
     if not enabled_categories:
         raise ValueError("사용할 카테고리를 1개 이상 선택해주세요.")
 
     recommended_by_category = {}
-
+    globally_accepted = []
     for category, category_label in enabled_categories:
-        # 기존 '오늘자 키워드 추천'과 같은 뉴스 기반 추천 함수 사용
-        raw_keywords = recommend_keywords_from_news(category)
-
-        cleaned_items = []
-        seen_keywords = set()
-
-        for item in raw_keywords:
-            if isinstance(item, dict):
-                keyword = str(item.get("keyword", "")).strip()
-                reason = str(item.get("reason", "")).strip()
-                item_category_label = str(item.get("category", "")).strip()
-                source_url = str(item.get("source_url", "") or "").strip()
-                source = str(item.get("source", "") or "").strip()
-                published_at = str(item.get("published_at", "") or "").strip()
-            else:
-                keyword = str(item).strip()
-                reason = ""
-                item_category_label = category_label
-                source_url = ""
-                source = ""
-                published_at = ""
-
-            if not keyword:
+        category_items = []
+        for raw_item in recommend_keywords_from_news(category) or []:
+            candidate = unpack_recommendation(raw_item, category_label)
+            if not candidate["keyword"] or is_duplicate_candidate(candidate, globally_accepted):
                 continue
-
-            keyword_key = keyword.replace(" ", "").lower()
-
-            if keyword_key in seen_keywords:
-                continue
-
-            source_payload = {
-                "source_title": keyword,
-                "keyword": keyword,
-                "reason": reason,
-                "source_url": source_url,
-                "source": source,
-                "published_at": published_at,
-            }
-
-            cleaned_items.append({
-                "keyword": keyword,
-                "reason": reason,
-                "news_context": json.dumps(
-                    source_payload,
-                    ensure_ascii=False,
-                ),
-                "category_label": item_category_label or category_label,
-            })
-
-            seen_keywords.add(keyword_key)
-
-            if len(cleaned_items) >= keyword_count:
+            candidate["news_context"] = build_news_context(candidate)
+            category_items.append(candidate)
+            globally_accepted.append(candidate)
+            if len(category_items) >= keyword_count:
                 break
-
-        recommended_by_category[category] = cleaned_items
+        recommended_by_category[category] = category_items
 
     with transaction.atomic():
-        # 아직 생성하지 않은 대기 키워드는 오늘자 뉴스 기반 키워드로 교체
         AIAutoKeywordQueue.objects.filter(status="waiting").delete()
-
-        created_count = 0
-        order = 1
-
-        # 건축1 → 부동산1 → 금융1 → 테크1 → 일상1 순서로 저장
+        created_count, order = 0, 1
         for keyword_index in range(keyword_count):
-            for category, category_label in enabled_categories:
-                category_items = recommended_by_category.get(category, [])
-
-                if keyword_index >= len(category_items):
+            for category, _label in enabled_categories:
+                items = recommended_by_category.get(category, [])
+                if keyword_index >= len(items):
                     continue
-
-                item = category_items[keyword_index]
-
-                AIAutoKeywordQueue.objects.create(
-                    category=category,
-                    keyword=item["keyword"],
-                    reason=item.get("reason", ""),
-                    news_context=item.get("news_context", ""),
-                    status="waiting",
-                    order=order,
-                )
-
+                item = items[keyword_index]
+                AIAutoKeywordQueue.objects.create(category=category, keyword=item["keyword"], reason=item.get("reason", ""), news_context=item.get("news_context", ""), status="waiting", order=order)
                 created_count += 1
                 order += 1
-
     return created_count
-
 @user_passes_test(admin_required)
 def ai_auto_writer_manage(request):
     setting = AIAutoWriterSetting.load()
@@ -4063,3 +3994,106 @@ def ai_keyword_recommend(request):
 
 
 # CBL_FINAL_KEYWORD_ENDPOINT_V22_END
+
+
+# CBL_MANUAL_TODAY_KEYWORD_DEDUPE_V26_1_START
+@user_passes_test(admin_required)
+def ai_keyword_recommend(request):
+    """
+    자동글 작성 화면의 '오늘자 키워드 추천' 최종 엔드포인트.
+
+    - 카테고리 전체에서 동일 URL 제거
+    - 제목 문구가 조금 다른 유사 키워드 제거
+    - 최근 작성 글과 유사한 키워드 재추천 방지
+    - 기존 응답 필드 유지
+    """
+    from core.keyword_dedupe import (
+        unpack_recommendation,
+        is_duplicate_candidate,
+    )
+
+    if request.method != "POST":
+        return JsonResponse({
+            "ok": False,
+            "keywords": [],
+            "message": "POST 요청만 가능합니다.",
+        }, status=405)
+
+    requested_category = str(
+        request.POST.get("category", "all") or "all"
+    ).strip()
+
+    categories = [
+        "architecture",
+        "realestate",
+        "finance",
+        "tech",
+        "life",
+    ]
+
+    if requested_category != "all":
+        categories = [requested_category]
+
+    accepted = []
+
+    # 최근 생성 글과 비슷한 키워드는 추천 목록에서 제외한다.
+    for title in (
+        Post.objects
+        .order_by("-created_at")
+        .values_list("title", flat=True)[:300]
+    ):
+        accepted.append({
+            "keyword": str(title or "").strip(),
+            "source_url": "",
+        })
+
+    cleaned = []
+
+    try:
+        for category in categories:
+            raw_items = recommend_keywords_from_news(category) or []
+
+            for raw_item in raw_items:
+                candidate = unpack_recommendation(raw_item)
+
+                if not candidate.get("keyword"):
+                    continue
+
+                if is_duplicate_candidate(candidate, accepted):
+                    continue
+
+                item = dict(raw_item) if isinstance(raw_item, dict) else {}
+                item["keyword"] = candidate["keyword"]
+                item["reason"] = candidate.get("reason", "")
+                item["source_url"] = candidate.get("source_url", "")
+                item["source"] = candidate.get("source", "")
+                item["published_at"] = candidate.get("published_at", "")
+
+                if not item.get("category"):
+                    item["category"] = candidate.get("category_label", "")
+
+                cleaned.append(item)
+                accepted.append(candidate)
+
+        if not cleaned:
+            return JsonResponse({
+                "ok": False,
+                "keywords": [],
+                "message": (
+                    "중복 항목과 최근 작성 글을 제외한 뒤 "
+                    "새 추천키워드가 남지 않았습니다."
+                ),
+            }, status=503)
+
+        return JsonResponse({
+            "ok": True,
+            "keywords": cleaned,
+        })
+
+    except Exception as error:
+        return JsonResponse({
+            "ok": False,
+            "keywords": [],
+            "message": str(error),
+        }, status=500)
+# CBL_MANUAL_TODAY_KEYWORD_DEDUPE_V26_1_END
