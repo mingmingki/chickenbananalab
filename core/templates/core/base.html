@@ -742,56 +742,70 @@
     align-items: center;
     gap: 24px;
   }
-
   .cbl-program-app-icon {
-    --app-accent: #0f9f78;
+    --app-accent: #41a88d;
     position: relative;
-    flex: 0 0 104px;
-    width: 104px;
-    height: 112px;
+    flex: 0 0 108px;
+    width: 108px;
+    height: 116px;
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
     border: 1px solid rgba(203, 213, 225, 0.95);
     border-radius: 25px;
     background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
     box-shadow:
       0 14px 28px rgba(15, 23, 42, 0.14),
-      inset 0 1px 0 rgba(255,255,255,0.95);
+      inset 0 1px 0 rgba(255, 255, 255, 0.95);
   }
 
-  .cbl-program-app-icon::before {
-    content: "";
-    position: absolute;
-    inset: 5px 8px 32px;
-    border-radius: 18px 18px 12px 12px;
-    background: url("{% static 'core/images/logo.png' %}") center / contain no-repeat;
-  }
-
-  .cbl-program-app-label {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    min-height: 35px;
+  .cbl-program-app-icon-top {
+    flex: 1 1 auto;
+    min-height: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 5px 8px 6px;
+    padding: 10px 10px 8px;
+    overflow: hidden;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  }
+
+  .cbl-program-app-icon-top img {
+    display: block;
+    width: 68px;
+    height: 68px;
+    max-width: 68px;
+    max-height: 68px;
+    object-fit: contain;
+  }
+
+  .cbl-program-app-icon-bottom {
+    flex: 0 0 auto;
+  }
+
+  .cbl-program-app-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+    padding: 5px 8px 7px;
     border-radius: 0 0 24px 24px;
-    background: linear-gradient(135deg, color-mix(in srgb, var(--app-accent) 82%, white 18%), var(--app-accent));
+    background: var(--app-accent);
     color: #ffffff;
     font-size: 22px;
     font-weight: 950;
     line-height: 1;
     letter-spacing: -0.025em;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.18);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.24);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24);
   }
 
-  .cbl-program-app-icon--cut  { --app-accent: #6937d1; }
-  .cbl-program-app-icon--pdf  { --app-accent: #d91f2b; }
-  .cbl-program-app-icon--ss   { --app-accent: #15935e; }
-  .cbl-program-app-icon--zip  { --app-accent: #099a83; }
-  .cbl-program-app-icon--view { --app-accent: #f4a700; }
+  .cbl-program-app-icon--cut  { --app-accent: #6b45df; }
+  .cbl-program-app-icon--pdf  { --app-accent: #d83b34; }
+  .cbl-program-app-icon--ss   { --app-accent: #43a15f; }
+  .cbl-program-app-icon--zip  { --app-accent: #41a88d; }
+  .cbl-program-app-icon--view { --app-accent: #f0b319; }
+
 
   .cbl-program-info {
     min-width: 0;
@@ -1048,7 +1062,6 @@
     .cbl-program-main {
       gap: 15px;
     }
-
     .cbl-program-app-icon {
       flex-basis: 76px;
       width: 76px;
@@ -1056,8 +1069,15 @@
       border-radius: 20px;
     }
 
-    .cbl-program-app-icon::before {
-      inset: 4px 6px 26px;
+    .cbl-program-app-icon-top {
+      padding: 7px 6px 5px;
+    }
+
+    .cbl-program-app-icon-top img {
+      width: 46px;
+      height: 46px;
+      max-width: 46px;
+      max-height: 46px;
     }
 
     .cbl-program-app-label {
@@ -1065,6 +1085,7 @@
       border-radius: 0 0 19px 19px;
       font-size: 16px;
     }
+
 
     .cbl-program-item-title {
       font-size: 17px;
@@ -1651,90 +1672,9 @@
 
 
 
-<!-- CBL_PROGRAM_LOGO_V2_STYLE_START -->
-<style>
-  #cblProgramDownloadModal .cbl-program-app-icon-top {
-    height: 78px !important;
-    padding: 8px !important;
-    overflow: hidden !important;
-    background: #ffffff !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-  }
 
-  #cblProgramDownloadModal .cbl-program-app-icon-top img {
-    position: static !important;
-    width: 64px !important;
-    height: 64px !important;
-    max-width: 64px !important;
-    object-fit: contain !important;
-    transform: none !important;
-    margin: 0 !important;
-  }
 
-  @media (max-width: 760px) {
-    #cblProgramDownloadModal .cbl-program-app-icon-top {
-      height: 60px !important;
-      padding: 7px !important;
-    }
 
-    #cblProgramDownloadModal .cbl-program-app-icon-top img {
-      width: 48px !important;
-      height: 48px !important;
-      max-width: 48px !important;
-    }
-  }
-</style>
-<!-- CBL_PROGRAM_LOGO_V2_STYLE_END -->
-
-<!-- CBL_PROGRAM_LOGO_ZOOM_HIDE_TEXT_START -->
-<style>
-  /* 프로그램 아이콘 로고를 확대해서 하단 글자를 잘라냄 */
-  #cblProgramDownloadModal .cbl-program-app-icon {
-    overflow: hidden !important;
-  }
-
-  #cblProgramDownloadModal .cbl-program-app-icon-top {
-    position: relative !important;
-    height: 74px !important;
-    padding: 0 !important;
-    overflow: hidden !important;
-    background: #ffffff !important;
-    display: block !important;
-  }
-
-  #cblProgramDownloadModal .cbl-program-app-icon-top img {
-    position: absolute !important;
-    left: 50% !important;
-    top: 50% !important;
-    width: 92px !important;
-    height: 92px !important;
-    max-width: none !important;
-    object-fit: contain !important;
-    transform: translate(-50%, -46%) !important;
-    margin: 0 !important;
-  }
-
-  #cblProgramDownloadModal .cbl-program-app-icon-bottom {
-    position: relative !important;
-    z-index: 2 !important;
-    margin-top: 0 !important;
-  }
-
-  @media (max-width: 760px) {
-    #cblProgramDownloadModal .cbl-program-app-icon-top {
-      height: 58px !important;
-    }
-
-    #cblProgramDownloadModal .cbl-program-app-icon-top img {
-      width: 72px !important;
-      height: 72px !important;
-      transform: translate(-50%, -45%) !important;
-    }
-  }
-</style>
-<!-- CBL_PROGRAM_LOGO_ZOOM_HIDE_TEXT_END -->
 
 </head>
 
@@ -6999,7 +6939,7 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
   data-status-url="{% url 'program_download_status' %}"
   data-upload-template="/api/program-downloads/__SLUG__/__PLATFORM__/upload/"
   data-delete-template="/api/program-downloads/__SLUG__/__PLATFORM__/delete/"
-  data-logo-url="{% static 'core/images/cbl_program_icon_logo_v2.png' %}"
+  data-logo-url="{% static 'core/images/cbl_program_icon_logo_v3.png' %}?v=3"
 >
   <div class="cbl-program-loading">
     프로그램 목록을 불러오는 중입니다.
@@ -7164,6 +7104,8 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
       return;
     }
 
+    var logoUrl = container.dataset.logoUrl || "";
+
     container.innerHTML = data.programs.map(function (program) {
       var icon = iconMeta(program);
 
@@ -7174,7 +7116,13 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
               class="cbl-program-app-icon cbl-program-app-icon--${icon.key}"
               aria-hidden="true"
             >
-              <span class="cbl-program-app-label">${icon.label}</span>
+              <div class="cbl-program-app-icon-top">
+                <img src="${escapeHtml(logoUrl)}" alt="">
+              </div>
+
+              <div class="cbl-program-app-icon-bottom">
+                <span class="cbl-program-app-label">${icon.label}</span>
+              </div>
             </div>
 
             <div class="cbl-program-info">
