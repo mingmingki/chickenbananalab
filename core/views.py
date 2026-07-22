@@ -629,6 +629,12 @@ def category_page(request, slug):
         portal_video_fallback = portal_fallback_all.filter(portal_video_q).distinct()
 
         portal_recent_posts = portal_fill(portal_base, portal_fallback, 5)
+
+        # 키워드로 보충된 기존 글도 현재 포털의 카테고리 배지로 표시합니다.
+        # 메모리의 표시값만 바꾸므로 DB에 저장된 기존 카테고리는 유지됩니다.
+        for portal_recent_post in portal_recent_posts:
+            portal_recent_post.category = slug
+
         portal_main_posts = portal_fill(
             portal_base.filter(portal_keyword_q(*portal_cfg["main_keywords"])).distinct(),
             portal_fallback.filter(portal_keyword_q(*portal_cfg["main_keywords"])).distinct(),
