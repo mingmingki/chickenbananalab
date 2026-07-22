@@ -49,7 +49,7 @@ MAX_FILE_SIZE = 500 * 1024 * 1024
 
 
 def _is_staff(user):
-    return bool(user.is_authenticated and user.is_staff)
+    return bool(user.is_authenticated and (user.is_staff or user.is_superuser))
 
 
 def _ensure_programs():
@@ -69,7 +69,6 @@ def _ensure_programs():
 
         for field in ("name", "description", "order"):
             value = definition[field]
-
             if getattr(program, field) != value:
                 setattr(program, field, value)
                 changed = True
@@ -82,10 +81,13 @@ def _ensure_programs():
     return programs
 
 
-def _file_payload(file_field):
+def _file_payload(file_field, is_public=False):
     if not file_field:
         return {
+            "has_file": False,
             "ready": False,
+            "is_public": False,
+            "can_download": False,
             "url": "",
             "filename": "",
         }
@@ -95,11 +97,25 @@ def _file_payload(file_field):
     except ValueError:
         url = ""
 
+    has_file = bool(url)
+    is_public = bool(is_public and has_file)
+
     return {
-        "ready": bool(url),
+        "has_file": has_file,
+        "ready": has_file,
+        "is_public": is_public,
+        "can_download": bool(has_file and is_public),
         "url": url,
         "filename": Path(file_field.name).name,
     }
+
+
+def _public_attr(platform):
+    return "mac_is_public" if platform == "mac" else "windows_is_public"
+
+
+def _file_attr(platform):
+    return "mac_file" if platform == "mac" else "windows_file"
 
 
 @require_GET
@@ -114,8 +130,14 @@ def program_download_status(request):
                 "slug": program.slug,
                 "name": program.name,
                 "description": program.description,
-                "mac": _file_payload(program.mac_file),
-                "windows": _file_payload(program.windows_file),
+                "mac": _file_payload(
+                    program.mac_file,
+                    getattr(program, "mac_is_public", False),
+                ),
+                "windows": _file_payload(
+                    program.windows_file,
+                    getattr(program, "windows_is_public", False),
+                ),
             }
             for program in programs
         ],
@@ -155,7 +177,6 @@ def program_download_upload(request, slug, platform):
 
     if extension not in ALLOWED_EXTENSIONS[platform]:
         allowed_text = ", ".join(sorted(ALLOWED_EXTENSIONS[platform]))
-
         return JsonResponse({
             "ok": False,
             "message": f"허용되지 않는 파일입니다. 지원 형식: {allowed_text}",
@@ -167,21 +188,75 @@ def program_download_upload(request, slug, platform):
             "message": "파일 크기는 최대 500MB까지 업로드할 수 있습니다.",
         }, status=400)
 
-    field_name = "mac_file" if platform == "mac" else "windows_file"
+    field_name = _file_attr(platform)
+    public_field_name = _public_attr(platform)
     old_file = getattr(program, field_name)
 
     if old_file:
         old_file.delete(save=False)
 
     setattr(program, field_name, uploaded_file)
-    program.save(update_fields=[field_name, "updated_at"])
+
+    update_fields = [field_name, "updated_at"]
+    if hasattr(program, public_field_name):
+        # 업로드 직후에는 자동 공개하지 않습니다. 관리자가 별도로 '공개'를 눌러야 합니다.
+        setattr(program, public_field_name, False)
+        update_fields.insert(1, public_field_name)
+
+    program.save(update_fields=update_fields)
 
     saved_file = getattr(program, field_name)
+    is_public = getattr(program, public_field_name, False)
 
     return JsonResponse({
         "ok": True,
-        "message": f"{program.name} {platform}용 파일을 업로드했습니다.",
-        "file": _file_payload(saved_file),
+        "message": f"{program.name} {platform}용 파일을 업로드했습니다. 공개하려면 '공개' 버튼을 눌러 주세요.",
+        "file": _file_payload(saved_file, is_public),
+    })
+
+
+@require_POST
+@user_passes_test(_is_staff)
+def program_download_publish(request, slug, platform):
+    if platform not in ALLOWED_EXTENSIONS:
+        return JsonResponse({
+            "ok": False,
+            "message": "지원하지 않는 운영체제입니다.",
+        }, status=400)
+
+    program = ProgramDownload.objects.filter(slug=slug).first()
+
+    if not program:
+        return JsonResponse({
+            "ok": False,
+            "message": "프로그램 정보를 찾을 수 없습니다.",
+        }, status=404)
+
+    field_name = _file_attr(platform)
+    public_field_name = _public_attr(platform)
+    target_file = getattr(program, field_name)
+
+    if not target_file:
+        return JsonResponse({
+            "ok": False,
+            "message": "파일이 없어서 공개할 수 없습니다.",
+        }, status=400)
+
+    action = request.POST.get("action", "public")
+    is_public = action == "public"
+
+    if not hasattr(program, public_field_name):
+        return JsonResponse({
+            "ok": False,
+            "message": "공개/비공개 필드가 아직 적용되지 않았습니다. makemigrations와 migrate를 실행해 주세요.",
+        }, status=400)
+
+    setattr(program, public_field_name, is_public)
+    program.save(update_fields=[public_field_name, "updated_at"])
+
+    return JsonResponse({
+        "ok": True,
+        "message": f"{program.name} {platform}용 파일을 {'공개' if is_public else '비공개'} 처리했습니다.",
     })
 
 
@@ -202,13 +277,20 @@ def program_download_delete(request, slug, platform):
             "message": "프로그램 정보를 찾을 수 없습니다.",
         }, status=404)
 
-    field_name = "mac_file" if platform == "mac" else "windows_file"
+    field_name = _file_attr(platform)
+    public_field_name = _public_attr(platform)
     target_file = getattr(program, field_name)
 
     if target_file:
         target_file.delete(save=False)
         setattr(program, field_name, None)
-        program.save(update_fields=[field_name, "updated_at"])
+
+    update_fields = [field_name, "updated_at"]
+    if hasattr(program, public_field_name):
+        setattr(program, public_field_name, False)
+        update_fields.insert(1, public_field_name)
+
+    program.save(update_fields=update_fields)
 
     return JsonResponse({
         "ok": True,

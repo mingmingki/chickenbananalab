@@ -1,0 +1,562 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block title %}커뮤니티 | ChickenBanana Lab{% endblock %}
+{% block meta_description %}ChickenBanana Lab 커뮤니티입니다. 질문, 오류 제보, 프로그램 요청, 자주하는 질문을 확인하고 문의할 수 있습니다.{% endblock %}
+
+{% block content %}
+<style>
+  .cbl-community-page {
+    width: min(1960px, calc(100% - 36px));
+    max-width: none;
+    margin: 0 auto;
+    padding: 26px 0 44px;
+    box-sizing: border-box;
+  }
+
+  .cbl-community-head {
+    position: relative;
+    margin-bottom: 22px;
+    padding: 28px 28px 26px;
+    border: 1px solid #dfe8e7;
+    border-radius: 28px;
+    background:
+      radial-gradient(circle at 88% 16%, rgba(0, 156, 151, .08), transparent 22%),
+      linear-gradient(180deg, #fff, #f9fbfb);
+    box-shadow: 0 14px 38px rgba(15, 23, 42, .055);
+  }
+
+  .cbl-community-head h1 {
+    margin: 0 0 14px;
+    color: #111827;
+    font-size: 30px;
+    font-weight: 950;
+    letter-spacing: -0.055em;
+  }
+
+  .cbl-community-guide {
+    margin: 0;
+    padding-left: 18px;
+    color: #4b5563;
+    font-size: 14px;
+    line-height: 1.75;
+    letter-spacing: -0.03em;
+  }
+
+  .cbl-community-guide strong {
+    color: #111827;
+    font-weight: 900;
+  }
+
+  .cbl-ask-open {
+    position: absolute;
+    right: 28px;
+    top: 28px;
+    height: 42px;
+    padding: 0 18px;
+    border: 1.5px solid #2563eb;
+    border-radius: 4px;
+    background: #fff;
+    color: #2563eb;
+    font-size: 14px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .cbl-community-tabs {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    margin: 18px 0 0;
+    border-bottom: 1px solid #e5e7eb;
+    overflow-x: auto;
+  }
+
+  .cbl-community-tabs a {
+    display: inline-flex;
+    align-items: center;
+    height: 42px;
+    color: #6b7280;
+    font-size: 14px;
+    font-weight: 850;
+    text-decoration: none;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+  }
+
+  .cbl-community-tabs a.is-active {
+    color: #111827;
+    border-bottom-color: #111827;
+  }
+
+  .cbl-community-search {
+    margin: 20px 0 22px;
+    padding: 10px;
+    background: #555;
+  }
+
+  .cbl-community-search form {
+    display: flex;
+    background: #fff;
+    height: 54px;
+  }
+
+  .cbl-community-search input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    padding: 0 18px;
+    color: #111827;
+    font-size: 15px;
+    outline: none;
+  }
+
+  .cbl-community-search input::placeholder {
+    color: #a0a8b0;
+  }
+
+  .cbl-community-search button {
+    width: 64px;
+    border: 0;
+    background: #fff;
+    color: #2563eb;
+    font-size: 28px;
+    cursor: pointer;
+  }
+
+  .cbl-community-messages {
+    margin-bottom: 14px;
+  }
+
+  .cbl-community-message {
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(0, 156, 151, .08);
+    color: #006d69;
+    font-size: 14px;
+    font-weight: 800;
+  }
+
+  .cbl-qna-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    border-top: 1px solid #edf2f2;
+  }
+
+  .cbl-qna-item {
+    border-bottom: 1px solid #edf2f2;
+    padding: 0;
+  }
+
+  .cbl-qna-question {
+    display: grid;
+    grid-template-columns: 78px minmax(0, 1fr) 170px;
+    gap: 14px;
+    align-items: start;
+    padding: 22px 10px 20px;
+  }
+
+  .cbl-qna-answer {
+    display: grid;
+    grid-template-columns: 78px minmax(0, 1fr) 170px;
+    gap: 14px;
+    align-items: start;
+    padding: 22px 10px 22px;
+    background: #fafafa;
+  }
+
+  .cbl-qna-type {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 24px;
+    background: #777;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .cbl-qna-type.is-answer {
+    background: #2563eb;
+  }
+
+  .cbl-qna-category {
+    margin-bottom: 5px;
+    color: #858b93;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .cbl-qna-title {
+    color: #111827;
+    font-size: 15px;
+    font-weight: 900;
+    line-height: 1.5;
+    letter-spacing: -0.03em;
+  }
+
+  .cbl-qna-body {
+    margin-top: 8px;
+    color: #374151;
+    font-size: 14px;
+    line-height: 1.7;
+    letter-spacing: -0.03em;
+  }
+
+  .cbl-qna-by {
+    color: #111827;
+    font-size: 14px;
+    font-weight: 900;
+  }
+
+  .cbl-qna-by small {
+    color: #6b7280;
+    font-weight: 700;
+  }
+
+  .cbl-qna-date {
+    color: #8a949b;
+    font-size: 13px;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .cbl-qna-empty {
+    padding: 56px 20px;
+    text-align: center;
+    color: #6b7280;
+    font-size: 15px;
+    font-weight: 800;
+    border: 1px dashed #dfe8e7;
+    border-radius: 18px;
+    background: #fff;
+  }
+
+  .cbl-ask-modal[hidden] {
+    display: none !important;
+  }
+
+  .cbl-ask-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: grid;
+    place-items: center;
+    padding: 18px;
+  }
+
+  .cbl-ask-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, .48);
+    backdrop-filter: blur(8px);
+  }
+
+  .cbl-ask-dialog {
+    position: relative;
+    width: min(640px, 100%);
+    max-height: calc(100vh - 36px);
+    overflow: auto;
+    border-radius: 24px;
+    border: 1px solid rgba(255,255,255,.75);
+    background: #fff;
+    box-shadow: 0 30px 90px rgba(15, 23, 42, .3);
+  }
+
+  .cbl-ask-dialog-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 22px 24px 16px;
+    border-bottom: 1px solid #edf2f2;
+  }
+
+  .cbl-ask-dialog-head h2 {
+    margin: 0;
+    color: #111827;
+    font-size: 24px;
+    font-weight: 950;
+    letter-spacing: -0.05em;
+  }
+
+  .cbl-ask-dialog-head p {
+    margin: 6px 0 0;
+    color: #6b7280;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .cbl-ask-close {
+    width: 34px;
+    height: 34px;
+    border: 1px solid #dfe8e7;
+    border-radius: 999px;
+    background: #fff;
+    color: #111827;
+    font-size: 22px;
+    cursor: pointer;
+  }
+
+  .cbl-ask-form {
+    padding: 20px 24px 24px;
+  }
+
+  .cbl-form-row {
+    margin-bottom: 14px;
+  }
+
+  .cbl-form-row label {
+    display: block;
+    margin-bottom: 7px;
+    color: #111827;
+    font-size: 13px;
+    font-weight: 900;
+  }
+
+  .cbl-form-row input,
+  .cbl-form-row select,
+  .cbl-form-row textarea {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #d9e3ea;
+    border-radius: 12px;
+    background: #fff;
+    padding: 12px 13px;
+    color: #111827;
+    font-size: 14px;
+    outline: none;
+  }
+
+  .cbl-form-row textarea {
+    min-height: 150px;
+    resize: vertical;
+    line-height: 1.55;
+  }
+
+  .cbl-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .cbl-form-submit {
+    width: 100%;
+    height: 48px;
+    border: 0;
+    border-radius: 12px;
+    background: #111827;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 950;
+    cursor: pointer;
+  }
+
+  @media (max-width: 820px) {
+    .cbl-community-page {
+      width: min(100% - 18px, 720px);
+      padding: 18px 0 34px;
+    }
+
+    .cbl-community-head {
+      padding: 22px 18px;
+      border-radius: 22px;
+    }
+
+    .cbl-ask-open {
+      position: static;
+      margin-bottom: 16px;
+      width: 100%;
+    }
+
+    .cbl-community-head h1 {
+      font-size: 26px;
+    }
+
+    .cbl-qna-question,
+    .cbl-qna-answer {
+      grid-template-columns: 54px minmax(0, 1fr);
+      gap: 10px;
+      padding: 18px 4px;
+    }
+
+    .cbl-qna-date {
+      grid-column: 2;
+      text-align: left;
+      font-size: 12px;
+    }
+
+    .cbl-form-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<main class="cbl-community-page">
+  <section class="cbl-community-head">
+    <button type="button" class="cbl-ask-open" data-cbl-ask-open>문의하기</button>
+
+    <h1>커뮤니티</h1>
+
+    <ul class="cbl-community-guide">
+      <li>건설 실무, BIM, 프로그램 사용 중 궁금한 내용을 남길 수 있습니다.</li>
+      <li><strong>질문/답변, 오류 제보, 프로그램 요청, 자주하는 질문</strong>을 이곳에서 정리합니다.</li>
+      <li>답변은 확인 후 순차적으로 등록됩니다.</li>
+      <li>개인정보나 민감한 정보는 문의 내용에 남기지 마세요.</li>
+    </ul>
+
+    <nav class="cbl-community-tabs" aria-label="커뮤니티 분류">
+      <a href="{% url 'community' %}" class="{% if active_category == 'all' or not active_category %}is-active{% endif %}">전체</a>
+      <a href="{% url 'community' %}?category=question" class="{% if active_category == 'question' %}is-active{% endif %}">질문/답변</a>
+      <a href="{% url 'community' %}?category=error" class="{% if active_category == 'error' %}is-active{% endif %}">오류 제보</a>
+      <a href="{% url 'community' %}?category=request" class="{% if active_category == 'request' %}is-active{% endif %}">프로그램 요청</a>
+      <a href="{% url 'community' %}?category=faq" class="{% if active_category == 'faq' %}is-active{% endif %}">자주하는 질문</a>
+    </nav>
+  </section>
+
+  {% if messages %}
+    <div class="cbl-community-messages">
+      {% for message in messages %}
+        <div class="cbl-community-message">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <section class="cbl-community-search">
+    <form method="get" action="{% url 'community' %}">
+      {% if active_category and active_category != 'all' %}
+        <input type="hidden" name="category" value="{{ active_category }}">
+      {% endif %}
+      <input type="search" name="q" value="{{ keyword }}" placeholder="궁금한 내용을 단어나 키워드로 검색하세요.">
+      <button type="submit" aria-label="검색">⌕</button>
+    </form>
+  </section>
+
+  <section class="cbl-qna-list" aria-label="질문 답변 목록">
+    {% for q in questions %}
+      <article class="cbl-qna-item">
+        <div class="cbl-qna-question">
+          <div><span class="cbl-qna-type">질문</span></div>
+          <div>
+            <div class="cbl-qna-category">{{ q.get_category_display }} | {{ q.author_name }}</div>
+            <div class="cbl-qna-title">{{ q.title }}</div>
+            <div class="cbl-qna-body">{{ q.body|linebreaksbr }}</div>
+          </div>
+          <div class="cbl-qna-date">{{ q.created_at|date:"Y/m/d H:i:s" }}</div>
+        </div>
+
+        <div class="cbl-qna-answer">
+          <div><span class="cbl-qna-type is-answer">답변</span></div>
+          <div>
+            <div class="cbl-qna-by">by ChickenBananaLab <small>AI</small></div>
+            <div class="cbl-qna-body">
+              {% if q.answer %}
+                {{ q.answer|linebreaksbr }}
+              {% else %}
+                문의가 등록되었습니다. 확인 후 답변을 추가하겠습니다.
+              {% endif %}
+            </div>
+          </div>
+          <div class="cbl-qna-date">
+            {% if q.answered_at %}
+              {{ q.answered_at|date:"Y/m/d H:i:s" }}
+            {% else %}
+              답변 준비중
+            {% endif %}
+          </div>
+        </div>
+      </article>
+    {% empty %}
+      <div class="cbl-qna-empty">
+        아직 등록된 문의가 없습니다. 오른쪽 상단의 문의하기 버튼으로 첫 질문을 남길 수 있습니다.
+      </div>
+    {% endfor %}
+  </section>
+</main>
+
+<div class="cbl-ask-modal" data-cbl-ask-modal hidden>
+  <div class="cbl-ask-backdrop" data-cbl-ask-close></div>
+  <div class="cbl-ask-dialog" role="dialog" aria-modal="true" aria-labelledby="cblAskTitle">
+    <div class="cbl-ask-dialog-head">
+      <div>
+        <h2 id="cblAskTitle">문의하기</h2>
+        <p>질문, 오류 제보, 프로그램 요청을 남겨주세요.</p>
+      </div>
+      <button type="button" class="cbl-ask-close" data-cbl-ask-close aria-label="닫기">×</button>
+    </div>
+
+    <form method="post" action="{% url 'community' %}" class="cbl-ask-form">
+      {% csrf_token %}
+
+      <div class="cbl-form-row">
+        <label for="cblAskCategory">문의 분류</label>
+        <select id="cblAskCategory" name="category">
+          <option value="question">질문/답변</option>
+          <option value="error">오류 제보</option>
+          <option value="request">프로그램 요청</option>
+          <option value="faq">자주하는 질문</option>
+        </select>
+      </div>
+
+      <div class="cbl-form-row">
+        <label for="cblAskTitleInput">제목</label>
+        <input id="cblAskTitleInput" name="title" type="text" required placeholder="문의 제목을 입력하세요.">
+      </div>
+
+      <div class="cbl-form-row">
+        <label for="cblAskBody">문의 내용</label>
+        <textarea id="cblAskBody" name="body" required placeholder="내용을 자세히 입력하세요."></textarea>
+      </div>
+
+      <div class="cbl-form-grid">
+        <div class="cbl-form-row">
+          <label for="cblAskName">작성자</label>
+          <input id="cblAskName" name="author_name" type="text" placeholder="익명">
+        </div>
+
+        <div class="cbl-form-row">
+          <label for="cblAskContact">연락처/이메일 선택</label>
+          <input id="cblAskContact" name="contact" type="text" placeholder="비공개 관리용">
+        </div>
+      </div>
+
+      <button type="submit" class="cbl-form-submit">문의 등록하기</button>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  const modal = document.querySelector('[data-cbl-ask-modal]');
+  const openBtn = document.querySelector('[data-cbl-ask-open]');
+  const closeEls = document.querySelectorAll('[data-cbl-ask-close]');
+
+  if (!modal || !openBtn) return;
+
+  function openModal() {
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+    const first = modal.querySelector('input, textarea, select, button');
+    if (first) setTimeout(() => first.focus(), 50);
+  }
+
+  function closeModal() {
+    modal.hidden = true;
+    document.body.style.overflow = '';
+  }
+
+  openBtn.addEventListener('click', openModal);
+  closeEls.forEach(el => el.addEventListener('click', closeModal));
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !modal.hidden) closeModal();
+  });
+
+  if (window.location.hash === '#ask') {
+    openModal();
+  }
+})();
+</script>
+{% endblock %}

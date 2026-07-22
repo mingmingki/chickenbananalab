@@ -179,6 +179,7 @@
         function getCategoryCount() {
             const categoryNames = [
                 "use_architecture",
+                "use_construction_tech",
                 "use_realestate",
                 "use_finance",
                 "use_tech",
@@ -838,46 +839,73 @@
                         <label class="ai-auto-check">
                             <input
                                 type="checkbox"
-                                name="use_architecture"
+                                name="use_construction_work"
                                 {% if not ai_auto_setting or ai_auto_setting.use_architecture %}checked{% endif %}
                             >
-                            건축
+                            건설실무
                         </label>
 
                         <label class="ai-auto-check">
                             <input
                                 type="checkbox"
-                                name="use_realestate"
+                                name="use_construction_tech"
+                                {% if not ai_auto_setting or ai_auto_setting.use_construction_tech %}checked{% endif %}
+                            >
+                            건설기술
+                        </label>
+
+                        <label class="ai-auto-check">
+                            <input
+                                type="checkbox"
+                                name="use_construction_real"
                                 {% if not ai_auto_setting or ai_auto_setting.use_realestate %}checked{% endif %}
                             >
-                            부동산
+                            건설부동산
                         </label>
 
                         <label class="ai-auto-check">
                             <input
                                 type="checkbox"
-                                name="use_finance"
-                                {% if not ai_auto_setting or ai_auto_setting.use_finance %}checked{% endif %}
+                                name="use_bim"
+                                {% if not ai_auto_setting or ai_auto_setting.use_bim %}checked{% endif %}
                             >
-                            금융
+                            REVIT/BIM
                         </label>
 
                         <label class="ai-auto-check">
                             <input
                                 type="checkbox"
-                                name="use_tech"
-                                {% if not ai_auto_setting or ai_auto_setting.use_tech %}checked{% endif %}
+                                name="use_dynamo_automation"
+                                {% if not ai_auto_setting or ai_auto_setting.use_dynamo_automation %}checked{% endif %}
                             >
-                            테크
+                            Dynamo/자동화
                         </label>
 
                         <label class="ai-auto-check">
                             <input
                                 type="checkbox"
-                                name="use_life"
-                                {% if not ai_auto_setting or ai_auto_setting.use_life %}checked{% endif %}
+                                name="use_four_d_five_d"
+                                {% if not ai_auto_setting or ai_auto_setting.use_four_d_five_d %}checked{% endif %}
                             >
-                            일상
+                            4D/5D
+                        </label>
+
+                        <label class="ai-auto-check">
+                            <input
+                                type="checkbox"
+                                name="use_program"
+                                {% if not ai_auto_setting or ai_auto_setting.use_program %}checked{% endif %}
+                            >
+                            업무용 프로그램
+                        </label>
+
+                        <label class="ai-auto-check">
+                            <input
+                                type="checkbox"
+                                name="use_tool_recommend"
+                                {% if not ai_auto_setting or ai_auto_setting.use_tool_recommend %}checked{% endif %}
+                            >
+                            툴소개/툴추천
                         </label>
                     </div>
                 </div>
@@ -1223,6 +1251,7 @@
         function getCategoryCount() {
             const categoryNames = [
                 "use_architecture",
+                "use_construction_tech",
                 "use_realestate",
                 "use_finance",
                 "use_tech",
@@ -1299,6 +1328,10 @@
 })();
 </script>
 <!-- CBL_AI_AUTO_WRITER_MULTILANG_UI_PATCH_END -->
+
+
+
+
 
 
 

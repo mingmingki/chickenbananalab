@@ -1,0 +1,13 @@
+{% load static %}
+{# 사용법: {% include "core/partials/_bot_msg.html" with text="메시지" %} #}
+<div class="msg-row left">
+  <div class="av bot">
+    <img src="{% static 'core/images/cbl_program_icon_logo_v3.png' %}" alt="CBL"
+         onerror="this.style.display='none'" />
+  </div>
+  <div class="bubble-wrap">
+    <div class="sender-name">CBL 봇</div>
+    <div class="bubble bot">{{ text|safe }}</div>
+  </div>
+  <div class="msg-time">{{ time|default:"" }}</div>
+</div>

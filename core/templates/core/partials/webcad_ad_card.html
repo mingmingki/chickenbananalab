@@ -1,0 +1,376 @@
+{% load static %}
+<!-- CBL_WEBCAD_CARD_V4_START -->
+<style>
+  .cbl-webcad-card-v4 {
+    --cad-ink: #0f172a;
+    --cad-text: #475569;
+    --cad-line: rgba(148, 163, 184, .28);
+    --cad-teal: #0f9f8d;
+    --cad-blue: #5b8cff;
+    position: relative;
+    isolation: isolate;
+    width: 100%;
+    height: 100%;
+    min-height: 230px;
+    overflow: hidden;
+    border: 1px solid var(--cad-line);
+    border-radius: 30px;
+    background:
+      radial-gradient(circle at 78% 76%, rgba(15, 159, 141, .08), transparent 28%),
+      radial-gradient(circle at 22% 22%, rgba(91, 140, 255, .08), transparent 24%),
+      linear-gradient(135deg, #ffffff 0%, #fbfdff 100%);
+    box-shadow: 0 18px 42px rgba(15, 23, 42, .07);
+    box-sizing: border-box;
+  }
+
+  .cbl-webcad-card-v4 * { box-sizing: border-box; }
+
+  .cbl-webcad-card-v4-inner {
+    position: relative;
+    z-index: 2;
+    min-height: inherit;
+    display: grid;
+    grid-template-columns: 82px minmax(0, 1fr);
+    gap: 24px;
+    align-items: center;
+    padding: 30px 34px;
+  }
+
+  .cbl-webcad-card-v4-icon {
+    width: 72px;
+    height: 72px;
+    display: grid;
+    place-items: center;
+    border-radius: 22px;
+    background: linear-gradient(135deg, #6583ff 0%, #55c3ff 100%);
+    color: #fff;
+    font-size: 23px;
+    font-weight: 1000;
+    letter-spacing: -.04em;
+    box-shadow: 0 16px 34px rgba(91, 140, 255, .24);
+  }
+
+  .cbl-webcad-card-v4-copy {
+    min-width: 0;
+  }
+
+  .cbl-webcad-card-v4-copy h2 {
+    margin: 0;
+    color: var(--cad-ink);
+    font-size: clamp(25px, 2.1vw, 34px);
+    line-height: 1.04;
+    font-weight: 1000;
+    letter-spacing: -.065em;
+    word-break: keep-all;
+  }
+
+  .cbl-webcad-card-v4-copy p {
+    margin: 18px 0 0;
+    max-width: 360px;
+    color: var(--cad-text);
+    font-size: 15px;
+    line-height: 1.72;
+    font-weight: 760;
+    letter-spacing: -.035em;
+    word-break: keep-all;
+  }
+
+  .cbl-webcad-start-btn.cbl-webcad-card-v4-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: auto;
+    min-width: 148px;
+    height: 46px;
+    margin-top: 22px;
+    padding: 0 26px;
+    border: 1px solid rgba(15, 159, 141, .28);
+    border-radius: 15px;
+    background: rgba(255, 255, 255, .82);
+    color: var(--cad-teal);
+    font-size: 15px;
+    font-weight: 950;
+    letter-spacing: -.045em;
+    cursor: pointer;
+    box-shadow: none;
+    white-space: nowrap;
+    appearance: none;
+  }
+
+  .cbl-webcad-start-btn.cbl-webcad-card-v4-btn:hover {
+    background: var(--cad-teal);
+    color: #fff;
+    transform: translateY(-1px);
+  }
+
+  .cbl-webcad-card-v4-btn span {
+    font-size: 23px;
+    line-height: 1;
+  }
+
+  .cbl-webcad-card-v4-ghost {
+    position: absolute;
+    right: -18px;
+    bottom: -16px;
+    width: 255px;
+    height: 132px;
+    opacity: .58;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .cbl-webcad-card-v4-window,
+  .cbl-webcad-card-v4-window2 {
+    position: absolute;
+    border: 1px solid #e5eef4;
+    border-radius: 18px;
+    background: rgba(255,255,255,.65);
+  }
+
+  .cbl-webcad-card-v4-window {
+    right: 36px;
+    bottom: 14px;
+    width: 130px;
+    height: 88px;
+  }
+
+  .cbl-webcad-card-v4-window2 {
+    right: 126px;
+    bottom: -2px;
+    width: 122px;
+    height: 72px;
+  }
+
+  .cbl-webcad-card-v4-dot {
+    position: absolute;
+    top: 14px;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #fed7aa;
+  }
+  .cbl-webcad-card-v4-dot:nth-child(1) { left: 15px; }
+  .cbl-webcad-card-v4-dot:nth-child(2) { left: 31px; background: #fde68a; }
+  .cbl-webcad-card-v4-dot:nth-child(3) { left: 47px; background: #bbf7d0; }
+
+  .cbl-webcad-card-v4-line {
+    position: absolute;
+    left: 20px;
+    height: 9px;
+    border-radius: 999px;
+    background: #edf2f7;
+  }
+  .cbl-webcad-card-v4-line.l1 { top: 38px; width: 82px; }
+  .cbl-webcad-card-v4-line.l2 { top: 57px; width: 104px; }
+  .cbl-webcad-card-v4-line.l3 { top: 76px; width: 62px; }
+
+  @media (max-width: 1100px) {
+    .cbl-webcad-card-v4-inner {
+      grid-template-columns: 70px minmax(0, 1fr);
+      gap: 18px;
+      padding: 26px 28px;
+    }
+    .cbl-webcad-card-v4-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 20px;
+      font-size: 21px;
+    }
+    .cbl-webcad-card-v4-copy p { max-width: 300px; }
+  }
+
+  @media (max-width: 768px) {
+    .cbl-webcad-card-v4 {
+      min-height: 0 !important;
+      height: auto !important;
+      border-radius: 28px !important;
+      overflow: hidden !important;
+    }
+    .cbl-webcad-card-v4-inner {
+      min-height: 0 !important;
+      display: grid !important;
+      grid-template-columns: 76px minmax(0, 1fr) !important;
+      align-items: start !important;
+      gap: 16px !important;
+      padding: 24px 22px !important;
+    }
+    .cbl-webcad-card-v4-icon {
+      width: 66px !important;
+      height: 66px !important;
+      border-radius: 21px !important;
+      font-size: 22px !important;
+    }
+    .cbl-webcad-card-v4-copy h2 {
+      font-size: 28px !important;
+      line-height: 1.08 !important;
+      letter-spacing: -.07em !important;
+    }
+    .cbl-webcad-card-v4-copy p {
+      margin-top: 12px !important;
+      max-width: none !important;
+      font-size: 16px !important;
+      line-height: 1.55 !important;
+    }
+    .cbl-webcad-start-btn.cbl-webcad-card-v4-btn {
+      width: 100% !important;
+      min-width: 0 !important;
+      height: 52px !important;
+      margin-top: 18px !important;
+      border-radius: 18px !important;
+      font-size: 18px !important;
+    }
+    .cbl-webcad-card-v4-ghost {
+      width: 170px !important;
+      height: 86px !important;
+      right: -44px !important;
+      bottom: -32px !important;
+      opacity: .25 !important;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .cbl-webcad-card-v4-inner {
+      grid-template-columns: 62px minmax(0, 1fr) !important;
+      gap: 14px !important;
+      padding: 22px 18px !important;
+    }
+    .cbl-webcad-card-v4-icon {
+      width: 56px !important;
+      height: 56px !important;
+      border-radius: 18px !important;
+      font-size: 19px !important;
+    }
+    .cbl-webcad-card-v4-copy h2 { font-size: 24px !important; }
+    .cbl-webcad-card-v4-copy p { font-size: 14px !important; }
+    .cbl-webcad-start-btn.cbl-webcad-card-v4-btn {
+      height: 48px !important;
+      font-size: 16px !important;
+    }
+  }
+</style>
+
+<article class="cbl-webcad-card-v4" aria-label="ChickenBananaCAD">
+  <div class="cbl-webcad-card-v4-inner">
+    <div class="cbl-webcad-card-v4-icon">CAD</div>
+    <div class="cbl-webcad-card-v4-copy">
+      <h2>ChickenBananaCAD</h2>
+      <p>웹에서 바로 도면을 열고,<br class="cbl-webcad-br"> 레이어·치수·저장까지 작업합니다.</p>
+      <button type="button" class="cbl-webcad-start-btn cbl-webcad-card-v4-btn" onclick="if (window.cblOpenBetaGate) { return cblOpenBetaGate('cad'); } window.open('/static/core/tools/CBLCAD_VER2.html', '_blank', 'noopener'); return false;">
+        시작하기 <span aria-hidden="true">→</span>
+      </button>
+    </div>
+  </div>
+  <div class="cbl-webcad-card-v4-ghost" aria-hidden="true">
+    <div class="cbl-webcad-card-v4-window">
+      <i class="cbl-webcad-card-v4-dot"></i><i class="cbl-webcad-card-v4-dot"></i><i class="cbl-webcad-card-v4-dot"></i>
+      <i class="cbl-webcad-card-v4-line l1"></i><i class="cbl-webcad-card-v4-line l2"></i><i class="cbl-webcad-card-v4-line l3"></i>
+    </div>
+    <div class="cbl-webcad-card-v4-window2">
+      <i class="cbl-webcad-card-v4-dot"></i><i class="cbl-webcad-card-v4-dot"></i><i class="cbl-webcad-card-v4-dot"></i>
+      <i class="cbl-webcad-card-v4-line l1"></i><i class="cbl-webcad-card-v4-line l2"></i>
+    </div>
+  </div>
+</article>
+<!-- CBL_WEBCAD_CARD_V4_END -->
+
+<!-- CBL_CAD_HOME_START_AUTOVERSION_V1_START -->
+<script>
+(function(){
+  var TAG = "CBL_CAD_HOME_START_AUTOVERSION_V1";
+
+  if (window.__CBL_CAD_HOME_START_AUTOVERSION_V1__) return;
+  window.__CBL_CAD_HOME_START_AUTOVERSION_V1__ = true;
+
+  function cblCadUrl(){
+    return "/static/core/tools/CBLCAD_VER2.html?v=" + Date.now();
+  }
+
+  function isCadStartElement(el){
+    if (!el) return false;
+
+    var id = el.id || "";
+    var cls = el.className || "";
+    var href = el.getAttribute && (el.getAttribute("href") || "");
+    var data = el.getAttribute && (el.getAttribute("data-cad-url") || "");
+    var onclick = el.getAttribute && (el.getAttribute("onclick") || "");
+    var text = (el.innerText || el.textContent || "").trim();
+
+    if (id === "cblWebcadStartBtn") return true;
+    if (String(cls).indexOf("cbl-webcad-start-btn") >= 0) return true;
+    if (href.indexOf("CBLCAD_VER2.html") >= 0) return true;
+    if (data.indexOf("CBLCAD_VER2.html") >= 0) return true;
+    if (onclick.indexOf("CBLCAD_VER2.html") >= 0) return true;
+
+    var card = el.closest && el.closest("article, section, div, a");
+    var cardText = card ? (card.innerText || card.textContent || "") : "";
+    if (text.indexOf("시작하기") >= 0 && cardText.indexOf("ChickenBananaCAD") >= 0) return true;
+
+    return false;
+  }
+
+  function patchOne(el){
+    if (!el || el.__cblCadHomeStartAutoVersionPatched) return;
+    if (!isCadStartElement(el)) return;
+
+    el.__cblCadHomeStartAutoVersionPatched = true;
+    el.setAttribute("data-cblcad-start-autoversion", "1");
+
+    try {
+      if (el.tagName && el.tagName.toLowerCase() === "a") {
+        el.setAttribute("href", cblCadUrl());
+        el.setAttribute("target", "_blank");
+      }
+      el.setAttribute("data-cad-url", cblCadUrl());
+    } catch(e) {}
+
+    el.addEventListener("click", function(e){
+      var url = cblCadUrl();
+
+      try {
+        if (el.tagName && el.tagName.toLowerCase() === "a") {
+          el.setAttribute("href", url);
+        }
+        el.setAttribute("data-cad-url", url);
+      } catch(err) {}
+
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+
+      window.open(url, "_blank");
+      return false;
+    }, true);
+  }
+
+  function bind(){
+    var selectors = [
+      "#cblWebcadStartBtn",
+      ".cbl-webcad-start-btn",
+      "[data-cad-url*='CBLCAD_VER2.html']",
+      "a[href*='CBLCAD_VER2.html']",
+      "button[onclick*='CBLCAD_VER2.html']",
+      "a",
+      "button"
+    ];
+
+    document.querySelectorAll(selectors.join(",")).forEach(function(el){
+      patchOne(el);
+    });
+
+    console.log("✅ " + TAG + " bound");
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bind);
+  } else {
+    bind();
+  }
+
+  setTimeout(bind, 500);
+  setTimeout(bind, 1500);
+  setTimeout(bind, 3000);
+})();
+</script>
+<!-- CBL_CAD_HOME_START_AUTOVERSION_V1_END -->
+

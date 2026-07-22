@@ -6305,6 +6305,7 @@ NAVER NEWS EVIDENCE:
 
 import contextvars as _cblfc25_contextvars
 import time as _cblfc25_time
+from .cbl_category_policy import CBL_AI_CATEGORY_GUIDE, CBL_CATEGORY_LABELS
 
 _CBLFC25_CALL_CONTEXT = _cblfc25_contextvars.ContextVar(
     "cbl_factcheck_call_context",
@@ -6973,3 +6974,200 @@ if (
     _CBL_FACTCHECK_CONTEXT_V25_WRAPPED = True
 
 # CBL_FACTCHECK_CORRECTION_FIRST_V25_END
+
+
+# CBL_AI_CATEGORY_GUIDE_PATCH_START
+def cbl_get_category_writing_focus(category):
+    guide = CBL_AI_CATEGORY_GUIDE.get(category, {})
+    if not guide:
+        return ""
+    return (
+        f"카테고리: {guide.get('label', category)}\n"
+        f"작성 방향: {guide.get('writing_focus', '')}\n"
+        f"핵심 키워드: {', '.join(guide.get('keywords', []))}"
+    )
+# CBL_AI_CATEGORY_GUIDE_PATCH_END
+
+
+# CBL_TODAY_KEYWORD_NEW_PROFILE_START
+# 오늘자 추천키워드 AI 필터 기준을 신규 8개 카테고리로 교체
+def cbl_today_keyword_category_profile(category=""):
+    cat = str(category or "").lower().strip()
+
+    aliases = {
+        "건축": "construction_work",
+        "architecture": "construction_work",
+        "건설실무": "construction_work",
+        "construction_work": "construction_work",
+
+        "건설기술": "construction_tech",
+        "construction_tech": "construction_tech",
+        "테크": "construction_tech",
+        "tech": "construction_tech",
+
+        "부동산": "construction_real",
+        "realestate": "construction_real",
+        "건설부동산": "construction_real",
+        "construction_real": "construction_real",
+
+        "bim": "bim",
+        "BIM": "bim",
+        "revit/bim": "bim",
+        "REVIT/BIM": "bim",
+
+        "dynamo": "dynamo_automation",
+        "다이나모": "dynamo_automation",
+        "dynamo_automation": "dynamo_automation",
+
+        "4d": "four_d_five_d",
+        "5d": "four_d_five_d",
+        "4d/5d": "four_d_five_d",
+        "four_d_five_d": "four_d_five_d",
+
+        "program": "program",
+        "프로그램": "program",
+        "업무용 프로그램": "program",
+
+        "tool_recommend": "tool_recommend",
+        "툴추천": "tool_recommend",
+        "추천툴": "tool_recommend",
+        "툴소개/툴추천": "tool_recommend",
+
+        "finance": "construction_real",
+        "금융": "construction_real",
+        "life": "tool_recommend",
+        "일상": "tool_recommend",
+    }
+
+    cat = aliases.get(cat, cat)
+
+    common_block = [
+        "정치", "대선", "국회", "연예", "스포츠", "사건사고",
+        "주가 급등", "비트코인 급등", "아이돌", "맛집", "육아"
+    ]
+
+    profiles = {
+        "construction_work": {
+            "name": "건설실무",
+            "allow": [
+                "건설", "현장", "시공", "공정", "품질", "안전", "하자", "자재",
+                "공사일보", "도면검토", "물량산출", "실행예산", "원가", "협력업체"
+            ],
+            "block": common_block + ["아이폰", "반도체", "코스피", "환율"],
+            "examples": [
+                "건설 현장에서 공정관리를 할 때 확인할 기본 항목",
+                "시공 전 도면검토가 중요한 이유",
+                "하자보수를 줄이기 위한 현장 체크리스트",
+                "공사일보를 실무에 맞게 작성하는 방법",
+                "물량산출 오류를 줄이는 기본 흐름"
+            ],
+        },
+        "construction_tech": {
+            "name": "건설기술",
+            "allow": [
+                "스마트건설", "건설 AI", "건설 로봇", "드론", "모듈러",
+                "프리콘", "디지털트윈", "스마트 안전", "현장 자동화", "신공법"
+            ],
+            "block": common_block + ["맛집", "육아", "청약"],
+            "examples": [
+                "스마트건설 기술이 현장관리에 쓰이는 방식",
+                "건설 드론을 활용할 때 확인할 점",
+                "건설 로봇이 현장 생산성에 미치는 영향",
+                "프리콘 단계에서 기술 검토가 중요한 이유",
+                "디지털트윈이 건설 현장에 적용되는 구조"
+            ],
+        },
+        "construction_real": {
+            "name": "건설부동산",
+            "allow": [
+                "분양", "청약", "재건축", "재개발", "공사비", "분양가",
+                "건설사", "부동산 정책", "주택공급", "입주", "전세", "아파트"
+            ],
+            "block": common_block + ["레빗", "다이나모", "Python"],
+            "examples": [
+                "공사비 상승이 분양가에 미치는 영향",
+                "청약 전 분양가를 비교하는 기준",
+                "재건축 사업에서 공사비가 중요한 이유",
+                "입주 물량이 지역 부동산 시장에 미치는 영향",
+                "건설사 분양 일정을 볼 때 확인할 점"
+            ],
+        },
+        "bim": {
+            "name": "REVIT/BIM",
+            "allow": [
+                "Revit", "REVIT", "레빗", "BIM", "모델링", "패밀리",
+                "템플릿", "BIM 협업", "물량산출", "도면검토", "간섭검토"
+            ],
+            "block": common_block + ["청약", "전세", "맛집"],
+            "examples": [
+                "Revit 모델링을 시작할 때 먼저 정리할 기준",
+                "BIM 협업에서 템플릿이 중요한 이유",
+                "Revit 패밀리 작성 전 확인해야 할 구조",
+                "BIM 물량산출을 실무에 적용하는 흐름",
+                "도면검토와 BIM 모델 검토의 차이"
+            ],
+        },
+        "dynamo_automation": {
+            "name": "Dynamo/자동화",
+            "allow": [
+                "Dynamo", "다이나모", "자동화", "노드", "파라미터",
+                "Excel", "엑셀", "Python", "반복작업", "Revit 자동화", "BIM 자동화"
+            ],
+            "block": common_block + ["청약", "전세", "주가"],
+            "examples": [
+                "Dynamo로 파라미터를 자동 입력하는 기본 흐름",
+                "Revit 반복작업을 자동화할 때 주의할 점",
+                "Dynamo와 Python을 같이 쓰는 이유",
+                "엑셀 데이터를 Dynamo에 연결하는 방법",
+                "다이나모 노드 구조를 쉽게 이해하는 방법"
+            ],
+        },
+        "four_d_five_d": {
+            "name": "4D/5D",
+            "allow": [
+                "4D", "5D", "Navisworks", "공정 시뮬레이션", "공정 연동",
+                "수량 연동", "원가 연동", "5D BIM", "공정관리", "원가관리"
+            ],
+            "block": common_block + ["아이폰", "맛집", "육아"],
+            "examples": [
+                "4D BIM 공정 시뮬레이션을 쓰는 이유",
+                "5D BIM에서 수량과 원가를 연결하는 흐름",
+                "Navisworks로 공정을 검토할 때 확인할 점",
+                "공정표와 BIM 모델을 연결하는 기본 구조",
+                "5D 원가관리에서 물량 기준이 중요한 이유"
+            ],
+        },
+        "program": {
+            "name": "업무용 프로그램",
+            "allow": [
+                "업무용 프로그램", "프로그램", "앱", "PDF", "ZIP", "파일관리",
+                "화면녹화", "문서 자동화", "설치", "사용법", "업무 자동화"
+            ],
+            "block": common_block + ["청약", "전세", "주가"],
+            "examples": [
+                "업무용 프로그램을 고를 때 확인할 기준",
+                "PDF 작업을 빠르게 처리하는 프로그램 활용법",
+                "파일 압축 프로그램을 업무에 맞게 쓰는 방법",
+                "화면녹화 프로그램이 업무 공유에 필요한 이유",
+                "문서 작업을 자동화하면 좋은 업무 유형"
+            ],
+        },
+        "tool_recommend": {
+            "name": "툴소개/툴추천",
+            "allow": [
+                "AI 도구", "생산성 도구", "툴", "추천툴", "무료 툴",
+                "유료 툴", "업무 효율", "자동화 도구", "협업툴", "PDF 툴"
+            ],
+            "block": common_block + ["청약", "전세", "코스피"],
+            "examples": [
+                "업무 효율을 높이는 AI 도구 추천",
+                "무료 생산성 도구를 고를 때 확인할 기준",
+                "PDF 작업에 유용한 툴 비교",
+                "협업툴을 선택할 때 보는 기능",
+                "반복 업무를 줄이는 자동화 도구 활용법"
+            ],
+        },
+    }
+
+    return profiles.get(cat, profiles["construction_work"])
+# CBL_TODAY_KEYWORD_NEW_PROFILE_END

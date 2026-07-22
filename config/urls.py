@@ -1,3 +1,4 @@
+from core import views as core_views
 from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
@@ -21,6 +22,17 @@ def ads_txt(request):
 
 
 urlpatterns = [
+    # CBL CAD DWG BEST DXF URLS V1 START
+    # 기존 프론트가 /api/cblcad/dwg-to-dxf/ 를 호출하면 이 새 백엔드가 먼저 잡는다.
+    path("api/cblcad/dwg-to-dxf/", core_views.cblcad_dwg_to_best_dxf_api, name="cblcad_dwg_to_dxf_best_v1"),
+    # 직접 테스트용 별도 엔드포인트
+    path("api/cblcad/dwg-to-best-dxf/", core_views.cblcad_dwg_to_best_dxf_api, name="cblcad_dwg_to_best_dxf_v1"),
+    # CBL CAD DWG BEST DXF URLS V1 END
+
+    path("cblcad/", core_views.cblcad_direct_view, name="cblcad_direct"),
+
+    path("tools/cad/", core_views.webcad_tool, name="webcad_tool"),
+
     path("admin/", admin.site.urls),
 
     # AdSense ads.txt

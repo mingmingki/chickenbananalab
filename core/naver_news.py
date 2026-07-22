@@ -1608,3 +1608,877 @@ def recommend_keywords_from_news(category):
 
 
 # CBL_NAVER_ONLY_KEYWORDS_V24_END
+
+
+# CBL_CONSTRUCTION_NAVER_CATEGORY_PATCH_START
+# 건설 세부 카테고리 추천키워드 지원
+try:
+    CATEGORY_SEARCH_WORDS.update({
+        "construction_work": [
+            "건설 실무", "건설 현장", "시공", "공정관리", "적산", "수량산출",
+            "원가관리", "공사비", "견적", "계약 클레임", "품질관리", "건설 안전",
+        ],
+        "construction_tech": [
+            "건설기술", "스마트건설", "BIM", "건설 AI", "건설 자동화",
+            "레빗", "다이나모", "드론 측량", "건설로봇", "모듈러 건축", "OSC",
+        ],
+        "construction_real": [
+            "건설 부동산", "아파트 분양", "청약", "재건축", "재개발", "정비사업",
+            "분양가", "공사비", "부동산 정책", "오피스텔 분양", "주택 시장",
+        ],
+    })
+    CATEGORY_LABELS.update({
+        "construction_work": "건설실무",
+        "construction_tech": "건설기술",
+        "construction_real": "건설부동산",
+    })
+    CATEGORY_ALIASES.update({
+        "건설": "construction_work",
+        "건축": "construction_work",
+        "건설실무": "construction_work",
+        "시공": "construction_work",
+        "건설기술": "construction_tech",
+        "BIM": "construction_tech",
+        "bim": "construction_tech",
+        "건설부동산": "construction_real",
+        "건설 부동산": "construction_real",
+        "부동산": "construction_real",
+        "construction_work": "construction_work",
+        "construction_tech": "construction_tech",
+        "construction_real": "construction_real",
+    })
+    if "CATEGORY_CORE_WORDS" in globals():
+        CATEGORY_CORE_WORDS.update({
+            "construction_work": ["건설", "시공", "공정", "공사비"],
+            "construction_tech": ["건설기술", "BIM", "스마트건설", "AI"],
+            "construction_real": ["분양", "청약", "재건축", "부동산"],
+        })
+except Exception as _cbl_construction_naver_error:
+    print("CBL construction naver category patch skipped:", _cbl_construction_naver_error)
+# CBL_CONSTRUCTION_NAVER_CATEGORY_PATCH_END
+
+
+# CBL_TODAY_KEYWORD_NEW_CATEGORY_SOURCE_START
+# 오늘자 추천키워드 실제 검색 기준을 신규 8개 카테고리로 교체
+CATEGORY_SEARCH_WORDS = {
+    "construction_work": [
+        "건설 현장",
+        "시공관리",
+        "공정관리",
+        "품질관리",
+        "안전관리",
+        "하자보수",
+        "건설자재",
+        "공사일보",
+        "도면검토",
+        "물량산출",
+    ],
+    "construction_tech": [
+        "스마트건설",
+        "건설 AI",
+        "건설 로봇",
+        "드론 측량",
+        "모듈러 건축",
+        "프리콘",
+        "건설 자동화",
+        "디지털트윈 건설",
+        "스마트 안전",
+    ],
+    "construction_real": [
+        "아파트 분양",
+        "청약",
+        "재건축",
+        "재개발",
+        "공사비",
+        "분양가",
+        "부동산 정책",
+        "건설사 분양",
+        "주택 공급",
+    ],
+    "bim": [
+        "Revit BIM",
+        "레빗 BIM",
+        "BIM 모델링",
+        "BIM 협업",
+        "BIM 물량산출",
+        "Revit 패밀리",
+        "BIM 도면검토",
+        "BIM 템플릿",
+    ],
+    "dynamo_automation": [
+        "Dynamo Revit",
+        "다이나모 자동화",
+        "Dynamo Python",
+        "Revit Dynamo",
+        "파라미터 자동화",
+        "엑셀 연동 자동화",
+        "BIM 자동화",
+        "반복작업 자동화",
+    ],
+    "four_d_five_d": [
+        "4D BIM",
+        "5D BIM",
+        "Navisworks",
+        "공정 시뮬레이션",
+        "BIM 원가",
+        "공정 수량 연동",
+        "5D 원가관리",
+        "BIM 공정관리",
+    ],
+    "program": [
+        "업무용 프로그램",
+        "PDF 프로그램",
+        "ZIP 프로그램",
+        "파일 관리 프로그램",
+        "화면 녹화 프로그램",
+        "문서 자동화 프로그램",
+        "업무 자동화 프로그램",
+    ],
+    "tool_recommend": [
+        "AI 도구",
+        "생산성 도구",
+        "업무 자동화 툴",
+        "무료 툴 추천",
+        "PDF 툴 추천",
+        "협업툴 추천",
+        "개발툴 추천",
+        "업무 효율 툴",
+    ],
+}
+
+CATEGORY_LABELS = {
+    "construction_work": "건설실무",
+    "construction_tech": "건설기술",
+    "construction_real": "건설부동산",
+    "bim": "REVIT/BIM",
+    "dynamo_automation": "Dynamo/자동화",
+    "four_d_five_d": "4D/5D",
+    "program": "업무용 프로그램",
+    "tool_recommend": "툴소개/툴추천",
+}
+
+CATEGORY_ALIASES = {
+    "all": "construction_work",
+
+    "건축": "construction_work",
+    "architecture": "construction_work",
+    "건설실무": "construction_work",
+    "construction_work": "construction_work",
+
+    "건설기술": "construction_tech",
+    "construction_tech": "construction_tech",
+    "테크": "construction_tech",
+    "tech": "construction_tech",
+
+    "부동산": "construction_real",
+    "realestate": "construction_real",
+    "건설부동산": "construction_real",
+    "construction_real": "construction_real",
+
+    "BIM": "bim",
+    "REVIT/BIM": "bim",
+    "bim": "bim",
+
+    "Dynamo": "dynamo_automation",
+    "Dynamo/자동화": "dynamo_automation",
+    "다이나모": "dynamo_automation",
+    "dynamo_automation": "dynamo_automation",
+
+    "4D/5D": "four_d_five_d",
+    "4D": "four_d_five_d",
+    "5D": "four_d_five_d",
+    "four_d_five_d": "four_d_five_d",
+
+    "프로그램": "program",
+    "업무용 프로그램": "program",
+    "program": "program",
+
+    "툴소개/툴추천": "tool_recommend",
+    "툴추천": "tool_recommend",
+    "추천툴": "tool_recommend",
+    "tool_recommend": "tool_recommend",
+
+    # 예전 값이 들어와도 오류 안 나게 임시 연결
+    "금융": "construction_real",
+    "finance": "construction_real",
+    "일상": "tool_recommend",
+    "life": "tool_recommend",
+}
+
+def normalize_category(category):
+    category = (category or "construction_work").strip()
+    return CATEGORY_ALIASES.get(category, category)
+# CBL_TODAY_KEYWORD_NEW_CATEGORY_SOURCE_END
+
+
+
+# CBL_TODAY_KEYWORD_V25_NO_EMPTY_START
+# 신규 8개 카테고리 추천키워드 보강
+# - V24 제목 필터가 새 카테고리를 전부 탈락시키는 문제 수정
+# - 네이버 결과가 0개여도 503이 아니라 기본 글감 반환
+
+CBL_TODAY_CATEGORY_LABELS_V25 = {
+    "construction_work": "건설실무",
+    "construction_tech": "건설기술",
+    "construction_real": "건설부동산",
+    "bim": "REVIT/BIM",
+    "dynamo_automation": "Dynamo/자동화",
+    "four_d_five_d": "4D/5D",
+    "program": "업무용 프로그램",
+    "tool_recommend": "툴소개/툴추천",
+}
+
+CBL_TODAY_CATEGORY_ALIASES_V25 = {
+    "all": "construction_work",
+
+    "건축": "construction_work",
+    "건설": "construction_work",
+    "건설실무": "construction_work",
+    "architecture": "construction_work",
+    "construction_work": "construction_work",
+
+    "건설기술": "construction_tech",
+    "construction_tech": "construction_tech",
+    "테크": "construction_tech",
+    "tech": "construction_tech",
+
+    "부동산": "construction_real",
+    "건설부동산": "construction_real",
+    "realestate": "construction_real",
+    "construction_real": "construction_real",
+
+    "BIM": "bim",
+    "REVIT/BIM": "bim",
+    "revit/bim": "bim",
+    "bim": "bim",
+
+    "Dynamo": "dynamo_automation",
+    "Dynamo/자동화": "dynamo_automation",
+    "다이나모": "dynamo_automation",
+    "dynamo_automation": "dynamo_automation",
+
+    "4D/5D": "four_d_five_d",
+    "4D": "four_d_five_d",
+    "5D": "four_d_five_d",
+    "four_d_five_d": "four_d_five_d",
+
+    "프로그램": "program",
+    "업무용 프로그램": "program",
+    "program": "program",
+
+    "툴소개/툴추천": "tool_recommend",
+    "툴추천": "tool_recommend",
+    "추천툴": "tool_recommend",
+    "tool_recommend": "tool_recommend",
+
+    # 예전 값 임시 연결
+    "금융": "construction_real",
+    "finance": "construction_real",
+    "일상": "tool_recommend",
+    "life": "tool_recommend",
+}
+
+CBL_TODAY_SEARCH_WORDS_V25 = {
+    "construction_work": [
+        "건설 현장", "시공관리", "공정관리", "품질관리", "안전관리",
+        "하자보수", "건설자재", "공사일보", "도면검토", "물량산출",
+        "실행예산", "원가관리", "공사비",
+    ],
+    "construction_tech": [
+        "스마트건설", "건설 AI", "건설 로봇", "드론 측량", "모듈러 건축",
+        "프리콘", "건설 자동화", "디지털트윈 건설", "스마트 안전", "신공법",
+    ],
+    "construction_real": [
+        "아파트 분양", "청약", "재건축", "재개발", "공사비", "분양가",
+        "부동산 정책", "건설사 분양", "주택 공급", "입주 물량",
+    ],
+    "bim": [
+        "Revit BIM", "레빗 BIM", "BIM 모델링", "BIM 협업", "BIM 물량산출",
+        "Revit 패밀리", "BIM 도면검토", "BIM 템플릿", "간섭검토",
+    ],
+    "dynamo_automation": [
+        "Dynamo Revit", "다이나모 자동화", "Dynamo Python", "Revit Dynamo",
+        "파라미터 자동화", "엑셀 연동 자동화", "BIM 자동화", "반복작업 자동화",
+    ],
+    "four_d_five_d": [
+        "4D BIM", "5D BIM", "Navisworks", "공정 시뮬레이션",
+        "BIM 원가", "공정 수량 연동", "5D 원가관리", "BIM 공정관리",
+    ],
+    "program": [
+        "업무용 프로그램", "PDF 프로그램", "ZIP 프로그램", "파일 관리 프로그램",
+        "화면 녹화 프로그램", "문서 자동화 프로그램", "업무 자동화 프로그램",
+    ],
+    "tool_recommend": [
+        "AI 도구", "생산성 도구", "업무 자동화 툴", "무료 툴 추천",
+        "PDF 툴 추천", "협업툴 추천", "개발툴 추천", "업무 효율 툴",
+    ],
+}
+
+CBL_TODAY_CORE_WORDS_V25 = {
+    "construction_work": ["건설 현장", "시공관리", "공정관리", "공사비", "도면검토"],
+    "construction_tech": ["스마트건설", "건설 AI", "건설 로봇", "건설 자동화", "드론 측량"],
+    "construction_real": ["아파트 분양", "청약", "재건축", "공사비", "부동산 정책"],
+    "bim": ["Revit BIM", "레빗 BIM", "BIM 모델링", "BIM 물량산출", "BIM 도면검토"],
+    "dynamo_automation": ["Dynamo Revit", "다이나모 자동화", "Dynamo Python", "파라미터 자동화", "BIM 자동화"],
+    "four_d_five_d": ["4D BIM", "5D BIM", "Navisworks", "공정 시뮬레이션", "5D 원가관리"],
+    "program": ["업무용 프로그램", "PDF 프로그램", "ZIP 프로그램", "문서 자동화 프로그램", "업무 자동화 프로그램"],
+    "tool_recommend": ["AI 도구", "생산성 도구", "업무 자동화 툴", "무료 툴 추천", "업무 효율 툴"],
+}
+
+CBL_TODAY_FALLBACK_KEYWORDS_V25 = {
+    "construction_work": [
+        "건설 현장 공정관리 체크리스트",
+        "시공 전 도면검토가 중요한 이유",
+        "물량산출 오류를 줄이는 기본 흐름",
+        "공사일보 작성 시 꼭 확인할 항목",
+        "하자보수를 줄이는 현장 품질관리 방법",
+        "건설 안전관리 실무 체크포인트",
+        "공사비 검토 전에 확인해야 할 자료",
+        "협력업체와 공정 협의할 때 필요한 기준",
+    ],
+    "construction_tech": [
+        "스마트건설 기술이 현장관리에 쓰이는 방식",
+        "건설 AI가 바꾸는 현장 업무 흐름",
+        "드론 측량을 건설 현장에 적용하는 방법",
+        "건설 로봇 도입 전에 확인할 점",
+        "모듈러 건축과 기존 시공 방식의 차이",
+        "디지털트윈이 건설 현장에 필요한 이유",
+        "스마트 안전 기술의 현장 적용 사례",
+        "프리콘 단계에서 기술검토가 중요한 이유",
+    ],
+    "construction_real": [
+        "공사비 상승이 분양가에 미치는 영향",
+        "청약 전 분양가를 비교하는 기준",
+        "재건축 사업에서 공사비가 중요한 이유",
+        "입주 물량이 지역 부동산 시장에 미치는 영향",
+        "건설사 분양 일정을 볼 때 확인할 점",
+        "부동산 정책이 건설 현장에 미치는 영향",
+        "재개발 사업에서 시공사 선정이 중요한 이유",
+        "아파트 분양 공고에서 확인해야 할 항목",
+    ],
+    "bim": [
+        "Revit 모델링을 시작할 때 먼저 정리할 기준",
+        "BIM 협업에서 템플릿이 중요한 이유",
+        "Revit 패밀리 작성 전 확인해야 할 구조",
+        "BIM 물량산출을 실무에 적용하는 흐름",
+        "도면검토와 BIM 모델 검토의 차이",
+        "Revit 프로젝트 템플릿을 정리하는 방법",
+        "BIM 간섭검토에서 자주 놓치는 부분",
+        "BIM 모델 품질을 높이는 기본 기준",
+    ],
+    "dynamo_automation": [
+        "Dynamo로 파라미터를 자동 입력하는 기본 흐름",
+        "Revit 반복작업을 자동화할 때 주의할 점",
+        "Dynamo와 Python을 같이 쓰는 이유",
+        "엑셀 데이터를 Dynamo에 연결하는 방법",
+        "다이나모 노드 구조를 쉽게 이해하는 방법",
+        "BIM 자동화에서 가장 먼저 자동화할 업무",
+        "Dynamo 그래프를 정리하는 실무 기준",
+        "파라미터 자동화가 물량산출에 필요한 이유",
+    ],
+    "four_d_five_d": [
+        "4D BIM 공정 시뮬레이션을 쓰는 이유",
+        "5D BIM에서 수량과 원가를 연결하는 흐름",
+        "Navisworks로 공정을 검토할 때 확인할 점",
+        "공정표와 BIM 모델을 연결하는 기본 구조",
+        "5D 원가관리에서 물량 기준이 중요한 이유",
+        "4D 시뮬레이션 적용 전에 준비할 자료",
+        "공정과 수량을 연결할 때 생기는 실무 문제",
+        "BIM 공정관리와 일반 공정관리의 차이",
+    ],
+    "program": [
+        "업무용 프로그램을 고를 때 확인할 기준",
+        "PDF 작업을 빠르게 처리하는 프로그램 활용법",
+        "파일 압축 프로그램을 업무에 맞게 쓰는 방법",
+        "화면녹화 프로그램이 업무 공유에 필요한 이유",
+        "문서 작업을 자동화하면 좋은 업무 유형",
+        "업무용 프로그램 설치 전 확인할 항목",
+        "파일 관리 프로그램이 필요한 업무 상황",
+        "업무 자동화 프로그램을 만들 때 필요한 기능",
+    ],
+    "tool_recommend": [
+        "업무 효율을 높이는 AI 도구 추천",
+        "무료 생산성 도구를 고를 때 확인할 기준",
+        "PDF 작업에 유용한 툴 비교",
+        "협업툴을 선택할 때 보는 기능",
+        "반복 업무를 줄이는 자동화 도구 활용법",
+        "개발자가 아니어도 쓸 수 있는 업무 자동화 툴",
+        "무료 툴과 유료 툴을 비교하는 기준",
+        "업무 효율을 높이는 추천툴 정리",
+    ],
+}
+
+def _cbl_today_normalize_category_v25(category):
+    category = str(category or "construction_work").strip()
+    lowered = category.lower()
+    return CBL_TODAY_CATEGORY_ALIASES_V25.get(
+        category,
+        CBL_TODAY_CATEGORY_ALIASES_V25.get(lowered, category if category in CBL_TODAY_CATEGORY_LABELS_V25 else "construction_work")
+    )
+
+try:
+    CATEGORY_SEARCH_WORDS.update(CBL_TODAY_SEARCH_WORDS_V25)
+except Exception:
+    CATEGORY_SEARCH_WORDS = dict(CBL_TODAY_SEARCH_WORDS_V25)
+
+try:
+    CATEGORY_CORE_WORDS.update(CBL_TODAY_CORE_WORDS_V25)
+except Exception:
+    CATEGORY_CORE_WORDS = dict(CBL_TODAY_CORE_WORDS_V25)
+
+try:
+    CATEGORY_LABELS.update(CBL_TODAY_CATEGORY_LABELS_V25)
+except Exception:
+    CATEGORY_LABELS = dict(CBL_TODAY_CATEGORY_LABELS_V25)
+
+try:
+    CATEGORY_ALIASES.update(CBL_TODAY_CATEGORY_ALIASES_V25)
+except Exception:
+    CATEGORY_ALIASES = dict(CBL_TODAY_CATEGORY_ALIASES_V25)
+
+try:
+    _CBL_V24_LABELS.update(CBL_TODAY_CATEGORY_LABELS_V25)
+except Exception:
+    pass
+
+try:
+    _CBL_V24_TITLE_REQUIRED.update(CBL_TODAY_SEARCH_WORDS_V25)
+except Exception:
+    _CBL_V24_TITLE_REQUIRED = dict(CBL_TODAY_SEARCH_WORDS_V25)
+
+# 기존 normalize_category도 새 기준으로 교체
+def normalize_category(category):
+    return _cbl_today_normalize_category_v25(category)
+
+# V24 필터 완화: 제목뿐 아니라 description까지 보고 새 카테고리도 통과
+def _cbl_v24_is_category_match(category, title, description=""):
+    category = _cbl_today_normalize_category_v25(category)
+
+    cleaner = globals().get("_cbl_v24_clean", lambda value: str(value or ""))
+    normalized_title = cleaner(title).lower()
+    normalized_text = (cleaner(title) + " " + cleaner(description)).lower()
+
+    if not normalized_title:
+        return False
+
+    hard_block = globals().get("_CBL_V24_HARD_BLOCK", [])
+    if any(str(blocked).lower() in normalized_title for blocked in hard_block):
+        return False
+
+    required = globals().get("_CBL_V24_TITLE_REQUIRED", {}).get(category, [])
+    if not required:
+        required = CBL_TODAY_SEARCH_WORDS_V25.get(category, [])
+
+    if not required:
+        return True
+
+    return any(str(keyword).lower() in normalized_text for keyword in required if keyword)
+
+try:
+    _CBL_V25_ORIGINAL_RECOMMEND = recommend_keywords_from_news
+except Exception:
+    _CBL_V25_ORIGINAL_RECOMMEND = None
+
+def _cbl_v25_normalize_items(items, category):
+    category = _cbl_today_normalize_category_v25(category)
+    label = CBL_TODAY_CATEGORY_LABELS_V25.get(category, category)
+
+    normalized = []
+
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+
+        keyword = str(item.get("keyword") or "").strip()
+        if not keyword:
+            continue
+
+        copied = dict(item)
+        copied["category"] = label
+        copied["category_slug"] = category
+        copied.setdefault("reason", "네이버 뉴스 기반 추천 키워드입니다.")
+        copied.setdefault("source", "")
+        copied.setdefault("source_url", "")
+        normalized.append(copied)
+
+    return normalized
+
+def _cbl_v25_fallback_recommendations(category):
+    category = _cbl_today_normalize_category_v25(category)
+    label = CBL_TODAY_CATEGORY_LABELS_V25.get(category, category)
+
+    limit = int(globals().get("_CBL_V24_LIMIT", 5) or 5)
+    words = CBL_TODAY_FALLBACK_KEYWORDS_V25.get(
+        category,
+        CBL_TODAY_FALLBACK_KEYWORDS_V25["construction_work"],
+    )
+
+    published_at = ""
+    try:
+        published_at = _cbl_v24_timezone.localtime().isoformat()
+    except Exception:
+        pass
+
+    result = []
+
+    for keyword in words[:limit]:
+        result.append({
+            "category": label,
+            "category_slug": category,
+            "keyword": keyword,
+            "reason": "기본 추천 글감 · 바로 생성 가능",
+            "source": "CBL 기본추천",
+            "source_url": "",
+            "published_at": published_at,
+        })
+
+    return result
+
+def recommend_keywords_from_news(category):
+    category = _cbl_today_normalize_category_v25(category)
+
+    if _CBL_V25_ORIGINAL_RECOMMEND:
+        try:
+            result = _CBL_V25_ORIGINAL_RECOMMEND(category)
+            result = _cbl_v25_normalize_items(result, category)
+
+            if result:
+                return result[:int(globals().get("_CBL_V24_LIMIT", 5) or 5)]
+
+        except Exception as error:
+            print(
+                "[NAVER_V25_RECOMMEND_ERROR]",
+                f"category={category}",
+                f"error={type(error).__name__}: {error}",
+            )
+
+    fallback = _cbl_v25_fallback_recommendations(category)
+
+    try:
+        cache = globals().get("_cbl_v24_cache")
+        if cache:
+            cache.set(
+                f"cbl:naver-keywords:v24_2:{category}",
+                fallback,
+                5 * 60,
+            )
+    except Exception:
+        pass
+
+    print(
+        "[NAVER_V25_FALLBACK]",
+        f"category={category}",
+        f"items={len(fallback)}",
+    )
+
+    return fallback
+# CBL_TODAY_KEYWORD_V25_NO_EMPTY_END
+
+
+
+
+
+
+# CBL_TODAY_KEYWORD_V26_STRICT_FILTER_START
+# 오늘자 추천키워드 V26
+# - 드론/공정/AI 같은 단어 하나만 보고 엉뚱한 뉴스가 들어오는 문제 방지
+# - 카테고리별 핵심 문맥이 없으면 뉴스 추천에서 제외
+# - 부족한 수량은 카테고리 기본 글감으로 채움
+
+CBL_TODAY_SEARCH_WORDS_V26 = {
+    "construction_work": [
+        "건설 현장 안전",
+        "건설 현장 시공",
+        "건설 공정관리",
+        "건설 도면검토",
+        "건설 물량산출",
+        "공사비 건설",
+        "건설 품질관리",
+    ],
+    "construction_tech": [
+        "스마트건설",
+        "건설 로봇",
+        "건설현장 AI",
+        "건설 드론",
+        "BIM 스마트건설",
+        "건설 디지털트윈",
+        "모듈러 건축",
+    ],
+    "construction_real": [
+        "아파트 분양",
+        "청약 분양",
+        "재건축 공사비",
+        "재개발 정비사업",
+        "부동산 주택공급",
+        "건설사 분양",
+        "분양가 공사비",
+    ],
+    "bim": [
+        "Revit BIM",
+        "레빗 BIM",
+        "BIM 물량산출",
+        "BIM 도면검토",
+        "BIM 모델링",
+        "Revit 패밀리",
+        "설계도서 3D BIM",
+    ],
+    "dynamo_automation": [
+        "Dynamo Revit",
+        "다이나모 자동화",
+        "Dynamo Python",
+        "Revit Dynamo 자동화",
+        "BIM 자동화 Dynamo",
+        "Revit 파라미터 자동화",
+    ],
+    "four_d_five_d": [
+        "4D BIM",
+        "5D BIM",
+        "Navisworks BIM",
+        "BIM 공정관리",
+        "BIM 원가관리",
+        "BIM 공정 시뮬레이션",
+        "5D 원가관리",
+    ],
+    "program": [
+        "업무용 프로그램",
+        "PDF 프로그램",
+        "ZIP 프로그램",
+        "문서 자동화 프로그램",
+        "파일 관리 프로그램",
+        "화면 녹화 프로그램",
+        "업무 자동화 프로그램",
+    ],
+    "tool_recommend": [
+        "AI 도구 추천",
+        "생산성 도구 추천",
+        "업무 자동화 툴",
+        "무료 툴 추천",
+        "PDF 툴 추천",
+        "협업툴 추천",
+        "업무 효율 툴",
+    ],
+}
+
+try:
+    CATEGORY_SEARCH_WORDS.update(CBL_TODAY_SEARCH_WORDS_V26)
+except Exception:
+    CATEGORY_SEARCH_WORDS = dict(CBL_TODAY_SEARCH_WORDS_V26)
+
+try:
+    CATEGORY_CORE_WORDS.update({
+        k: v[:5] for k, v in CBL_TODAY_SEARCH_WORDS_V26.items()
+    })
+except Exception:
+    CATEGORY_CORE_WORDS = {k: v[:5] for k, v in CBL_TODAY_SEARCH_WORDS_V26.items()}
+
+
+def _cbl_v26_text(value):
+    return str(value or "").replace("<b>", "").replace("</b>", "").strip()
+
+
+def _cbl_v26_has_any(text, words):
+    text = _cbl_v26_text(text).lower()
+    return any(str(w).lower() in text for w in words)
+
+
+def _cbl_v26_has_all_groups(text, groups):
+    text = _cbl_v26_text(text).lower()
+    for group in groups:
+        if not any(str(w).lower() in text for w in group):
+            return False
+    return True
+
+
+def _cbl_v26_is_blocked(text):
+    text = _cbl_v26_text(text).lower()
+
+    blocked_words = [
+        "된장", "맛집", "레시피", "아이돌", "유퀴즈", "허남준",
+        "연예", "가수", "배우", "영화", "드라마",
+        "증권 뉴스브리핑", "gam", "ibm", "재테크", "비트코인",
+        "웰다잉", "작가의집", "출간", "인재 양성코스",
+        "정유 공정", "원유 정제", "바이오", "정기대의원회",
+    ]
+
+    return any(w in text for w in blocked_words)
+
+
+def _cbl_v26_is_good_news_item(category, item):
+    category = _cbl_today_normalize_category_v25(category)
+
+    title = _cbl_v26_text(item.get("keyword") or item.get("title") or "")
+    desc = _cbl_v26_text(item.get("description") or item.get("reason") or "")
+    source = _cbl_v26_text(item.get("source") or "")
+
+    # 기본추천은 항상 통과
+    if "CBL 기본추천" in source or "기본 글감" in desc:
+        return True
+
+    text = f"{title} {desc}"
+
+    if not title:
+        return False
+
+    if _cbl_v26_is_blocked(text):
+        return False
+
+    if category == "construction_work":
+        return _cbl_v26_has_any(text, [
+            "건설", "공사", "시공", "현장", "안전", "공정관리", "품질관리",
+            "하자", "자재", "도면", "물량", "철도공단", "건설노동자",
+        ])
+
+    if category == "construction_tech":
+        return _cbl_v26_has_all_groups(text, [
+            ["건설", "현장", "시공", "건축", "토목", "국토교통", "스마트건설"],
+            ["AI", "인공지능", "로봇", "드론", "BIM", "디지털트윈", "모듈러", "자동화", "스마트", "기술"],
+        ])
+
+    if category == "construction_real":
+        return _cbl_v26_has_any(text, [
+            "분양", "청약", "재건축", "재개발", "정비사업", "부동산",
+            "아파트", "주택", "입주", "공사비", "분양가", "건설사", "뉴스테이",
+        ])
+
+    if category == "bim":
+        return _cbl_v26_has_any(text, [
+            "BIM", "Revit", "레빗", "설계도서", "2D", "3D", "MEP",
+            "배관", "물량 산출", "물량산출", "도면", "모델링", "간섭검토",
+        ])
+
+    if category == "dynamo_automation":
+        return _cbl_v26_has_any(text, [
+            "Dynamo", "다이나모", "Revit Dynamo", "Dynamo Python",
+            "파라미터 자동화", "BIM 자동화",
+        ])
+
+    if category == "four_d_five_d":
+        return _cbl_v26_has_any(text, [
+            "4D BIM", "5D BIM", "Navisworks", "나비스웍스",
+            "BIM 공정", "BIM 원가", "5D 원가", "공정 시뮬레이션",
+        ])
+
+    if category == "program":
+        return _cbl_v26_has_any(text, [
+            "업무용 프로그램", "PDF 프로그램", "ZIP 프로그램",
+            "파일 관리 프로그램", "화면 녹화 프로그램", "문서 자동화 프로그램",
+            "업무 자동화 프로그램", "소프트웨어", "앱",
+        ])
+
+    if category == "tool_recommend":
+        return _cbl_v26_has_any(text, [
+            "AI 도구", "생산성 도구", "업무 자동화 툴", "무료 툴",
+            "PDF 툴", "협업툴", "업무 효율 툴", "추천툴", "툴 추천",
+        ])
+
+    return False
+
+
+try:
+    _CBL_V26_ORIGINAL_RECOMMEND = recommend_keywords_from_news
+except Exception:
+    _CBL_V26_ORIGINAL_RECOMMEND = None
+
+
+def _cbl_v26_make_fallback_item(category, keyword):
+    category = _cbl_today_normalize_category_v25(category)
+    label = CBL_TODAY_CATEGORY_LABELS_V25.get(category, category)
+
+    published_at = ""
+    try:
+        published_at = _cbl_v24_timezone.localtime().isoformat()
+    except Exception:
+        pass
+
+    return {
+        "category": label,
+        "category_slug": category,
+        "keyword": keyword,
+        "reason": "기본 추천 글감 · 바로 생성 가능",
+        "source": "CBL 기본추천",
+        "source_url": "",
+        "published_at": published_at,
+    }
+
+
+def _cbl_v26_fill_with_fallback(category, items, limit):
+    category = _cbl_today_normalize_category_v25(category)
+
+    result = []
+    seen = set()
+
+    for item in items or []:
+        keyword = _cbl_v26_text(item.get("keyword") or "")
+        if not keyword:
+            continue
+
+        key = keyword.replace(" ", "").lower()
+        if key in seen:
+            continue
+
+        seen.add(key)
+        result.append(item)
+
+        if len(result) >= limit:
+            return result[:limit]
+
+    fallback_words = CBL_TODAY_FALLBACK_KEYWORDS_V25.get(
+        category,
+        CBL_TODAY_FALLBACK_KEYWORDS_V25["construction_work"],
+    )
+
+    for keyword in fallback_words:
+        key = keyword.replace(" ", "").lower()
+        if key in seen:
+            continue
+
+        seen.add(key)
+        result.append(_cbl_v26_make_fallback_item(category, keyword))
+
+        if len(result) >= limit:
+            break
+
+    return result[:limit]
+
+
+def recommend_keywords_from_news(category):
+    category = _cbl_today_normalize_category_v25(category)
+    limit = int(globals().get("_CBL_V24_LIMIT", 5) or 5)
+
+    raw_items = []
+
+    if _CBL_V26_ORIGINAL_RECOMMEND:
+        try:
+            raw_items = _CBL_V26_ORIGINAL_RECOMMEND(category) or []
+        except Exception as error:
+            print(
+                "[NAVER_V26_RECOMMEND_ERROR]",
+                f"category={category}",
+                f"error={type(error).__name__}: {error}",
+            )
+            raw_items = []
+
+    filtered = []
+
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+
+        if _cbl_v26_is_good_news_item(category, item):
+            copied = dict(item)
+            copied["category_slug"] = category
+            copied["category"] = CBL_TODAY_CATEGORY_LABELS_V25.get(category, category)
+            filtered.append(copied)
+
+    final_items = _cbl_v26_fill_with_fallback(category, filtered, limit)
+
+    print(
+        "[NAVER_V26_STRICT]",
+        f"category={category}",
+        f"raw={len(raw_items)}",
+        f"filtered={len(filtered)}",
+        f"final={len(final_items)}",
+    )
+
+    return final_items
+# CBL_TODAY_KEYWORD_V26_STRICT_FILTER_END

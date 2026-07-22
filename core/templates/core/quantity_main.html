@@ -1,0 +1,708 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block title %}AI 구조산출 자동화 | ChickenBanana Lab{% endblock %}
+
+{% block content %}
+<style>
+/* ── 전체 래퍼 ── */
+.qty-wrap {
+  max-width: 480px;
+  margin: 24px auto;
+  padding: 0 12px 40px;
+}
+
+/* ── 채팅 화면 ── */
+.qty-screen {
+  display: flex;
+  flex-direction: column;
+  height: 82vh;
+  min-height: 560px;
+  border-radius: 16px;
+  border: 0.5px solid #dfe5e1;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 4px 20px rgba(7,58,91,.06);
+}
+
+/* ── 헤더 ── */
+.qty-header {
+  background: #073A5B;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.qty-logo {
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  background: #F9C20A;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; overflow: hidden;
+}
+.qty-logo img { width: 34px; height: 34px; object-fit: contain; }
+.qty-header-info { flex: 1; min-width: 0; }
+.qty-header-title { color: #fff; font-size: 13px; font-weight: 700; }
+.qty-header-sub   { color: rgba(255,255,255,.45); font-size: 10.5px; margin-top: 1px; }
+.qty-user-badge {
+  background: rgba(255,255,255,.15);
+  color: rgba(255,255,255,.9);
+  font-size: 10px; padding: 3px 9px;
+  border-radius: 20px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 4px;
+}
+.qty-user-dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; }
+.beta-tag {
+  background: #F9C20A; color: #073A5B;
+  font-size: 10px; font-weight: 700;
+  padding: 2px 7px; border-radius: 20px;
+}
+
+/* ── 채팅 바디 ── */
+.qty-body {
+  flex: 1; overflow-y: auto;
+  padding: 14px 12px;
+  display: flex; flex-direction: column; gap: 10px;
+  background: #f0f2f5;
+}
+
+/* ── 메시지 행 ── */
+.msg-row { display: flex; gap: 7px; align-items: flex-end; }
+.msg-row.left  { align-self: flex-start; max-width: 90%; }
+.msg-row.right { align-self: flex-end; flex-direction: row-reverse; max-width: 85%; }
+
+.av {
+  width: 30px; height: 30px; border-radius: 50%;
+  flex-shrink: 0; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700;
+}
+.av.bot { background: #F9C20A; }
+.av.bot img { width: 26px; height: 26px; object-fit: contain; }
+.av.user { background: #073A5B; color: #F9C20A; font-size: 10px; }
+
+.bubble-wrap { display: flex; flex-direction: column; gap: 2px; }
+.sender-name { font-size: 10px; color: #69736d; margin-bottom: 2px; padding-left: 2px; }
+.msg-row.right .sender-name { text-align: right; padding-right: 2px; }
+
+.bubble {
+  padding: 9px 12px; border-radius: 16px;
+  font-size: 12.5px; line-height: 1.6;
+  word-break: keep-all; max-width: 100%;
+}
+.bubble.bot  { background: #fff; color: #151a17; border-bottom-left-radius: 3px; }
+.bubble.user { background: #F9C20A; color: #073A5B; border-bottom-right-radius: 3px; font-weight: 500; }
+
+.msg-time { font-size: 9.5px; color: #69736d; align-self: flex-end; flex-shrink: 0; margin-bottom: 2px; }
+
+/* ── 도면 체크리스트 카드 ── */
+.dwg-list-card {
+  background: #fff; border-radius: 12px;
+  border: 0.5px solid #dfe5e1;
+  margin-left: 37px; overflow: hidden;
+}
+.dwg-group { padding: 8px 12px; border-bottom: 0.5px solid #dfe5e1; }
+.dwg-group:last-child { border-bottom: none; }
+.dwg-group-title {
+  font-size: 10.5px; font-weight: 700; color: #073A5B;
+  margin-bottom: 6px; display: flex; align-items: center; gap: 4px;
+}
+.dwg-item {
+  display: flex; align-items: center;
+  padding: 3px 0; font-size: 11px; gap: 6px;
+}
+.dwg-code { color: #69736d; font-family: monospace; font-size: 10px; flex-shrink: 0; width: 42px; }
+.dwg-name { color: #151a17; flex: 1; }
+.dwg-badge {
+  font-size: 10px; font-weight: 600; padding: 1px 7px;
+  border-radius: 10px; flex-shrink: 0;
+}
+.badge-need   { background: #eff6ff; color: #185fa5; }
+.badge-ok     { background: #f0faf4; color: #24633c; }
+.badge-miss   { background: #fef2f2; color: #dc2626; }
+
+/* ── 업로드 존 ── */
+.upload-zone {
+  border: 1.5px dashed #41a86b; border-radius: 12px;
+  padding: 18px; text-align: center; cursor: pointer;
+  background: #f0faf4; margin-left: 37px;
+  transition: background .15s;
+}
+.upload-zone:hover { background: #daf0e5; }
+.upload-zone input[type=file] { display: none; }
+.uz-icon { font-size: 22px; margin-bottom: 6px; color: #24633c; }
+.uz-text { font-size: 12px; color: #24633c; font-weight: 600; }
+.uz-sub  { font-size: 10.5px; color: #69736d; margin-top: 3px; }
+
+.file-row {
+  display: flex; align-items: center; gap: 8px;
+  background: #fff; border: 0.5px solid #dfe5e1;
+  border-radius: 8px; padding: 7px 10px;
+  margin-left: 37px; font-size: 11.5px;
+}
+.file-row-label { color: #69736d; width: 100px; flex-shrink: 0; }
+.file-row-name  { color: #073A5B; font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-row-ok    { color: #24633c; font-size: 14px; flex-shrink: 0; }
+
+/* ── 진행 단계 ── */
+.steps-row { display: flex; align-items: center; margin-left: 37px; }
+.step  { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; }
+.s-dot { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; }
+.s-done   { background: #41a86b; color: #fff; }
+.s-active { background: #F9C20A; color: #073A5B; }
+.s-idle   { background: #e5e5e5; color: #aaa; }
+.s-label  { font-size: 9px; color: #69736d; text-align: center; }
+.step-line { height: 1.5px; flex: 1; background: #dfe5e1; margin-bottom: 14px; }
+
+/* ── AI 분석 중 ── */
+.ai-thinking {
+  background: #073A5B; color: rgba(255,255,255,.6);
+  padding: 8px 12px; border-radius: 10px;
+  font-size: 11.5px; margin-left: 37px;
+  display: flex; align-items: center; gap: 6px;
+}
+.spin {
+  width: 12px; height: 12px;
+  border: 1.5px solid rgba(255,255,255,.2);
+  border-top-color: #F9C20A;
+  border-radius: 50%; flex-shrink: 0;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 결과 카드 ── */
+.result-card {
+  background: #fff; border-radius: 12px;
+  border: 0.5px solid #dfe5e1;
+  padding: 11px 13px; margin-left: 37px;
+}
+.result-title {
+  font-size: 12px; font-weight: 700; color: #151a17;
+  margin-bottom: 8px; display: flex; align-items: center; gap: 5px;
+}
+.result-row {
+  display: flex; justify-content: space-between;
+  font-size: 11.5px; padding: 4px 0;
+  border-bottom: 0.5px solid #dfe5e1;
+}
+.result-row:last-child { border-bottom: none; font-weight: 600; color: #24633c; }
+.confidence-badge {
+  font-size: 9.5px; padding: 1px 5px; border-radius: 8px; margin-left: 4px;
+}
+.c-high   { background: #f0faf4; color: #24633c; }
+.c-medium { background: #fffbeb; color: #d97706; }
+.c-low    { background: #fef2f2; color: #dc2626; }
+
+/* ── 칩 / 버튼 ── */
+.chips { display: flex; flex-direction: column; gap: 5px; margin-left: 37px; }
+.chip {
+  padding: 8px 13px; border: 1.5px solid #41a86b;
+  border-radius: 22px; font-size: 12px; color: #24633c;
+  cursor: pointer; background: #fff;
+  transition: all .15s; font-weight: 500;
+}
+.chip:hover { background: #41a86b; color: #fff; }
+.btn-dl {
+  width: 100%; margin-top: 9px; padding: 9px;
+  background: #073A5B; color: #fff;
+  border: none; border-radius: 8px;
+  font-size: 12px; cursor: pointer; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+}
+.btn-dl:hover { background: #0a4d78; }
+
+/* ── 입력창 ── */
+.qty-input-area {
+  padding: 9px 11px; border-top: 0.5px solid #dfe5e1;
+  display: flex; align-items: center; gap: 7px;
+  flex-shrink: 0; background: #fff;
+}
+.qty-input {
+  flex: 1; border: 0.5px solid #dfe5e1;
+  border-radius: 20px; padding: 8px 13px;
+  font-size: 12.5px; outline: none;
+  background: #f8faf9; color: #151a17; font-family: inherit;
+}
+.qty-input:focus { border-color: #41a86b; }
+.qty-send {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: #073A5B; border: none; cursor: pointer;
+  color: #F9C20A; font-size: 15px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.divider { text-align: center; font-size: 10px; color: #69736d; padding: 2px 0; }
+
+/* ── 경고 박스 ── */
+.warn-box {
+  background: #fffbeb; border: 1px solid #fcd34d;
+  border-radius: 8px; padding: 9px 12px;
+  font-size: 11.5px; color: #d97706;
+  margin-left: 37px; display: flex; align-items: flex-start; gap: 6px;
+}
+
+/* ── 타이핑 점 ── */
+.typing-dots { display: flex; gap: 3px; align-items: center; height: 16px; }
+.typing-dots span {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: #888; animation: blink 1.2s infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: .2s; }
+.typing-dots span:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%,80%,100% { opacity:.2; } 40% { opacity:1; } }
+</style>
+
+<div class="qty-wrap">
+  <div class="qty-screen" id="qty-screen">
+
+    <!-- 헤더 -->
+    <div class="qty-header">
+      <div class="qty-logo">
+        <img src="{% static 'core/images/cbl_program_icon_logo_v3.png' %}" alt="CBL"
+             onerror="this.style.display='none';this.parentNode.innerHTML='<span style=font-size:12px;font-weight:800;color:#073A5B>CB</span>'" />
+      </div>
+      <div class="qty-header-info">
+        <div class="qty-header-title">AI 구조산출 자동화</div>
+        <div class="qty-header-sub">ChickenBanana Lab · 구조/건축 도면 수량산출</div>
+      </div>
+      <div class="qty-user-badge">
+        <div class="qty-user-dot"></div>
+        {% if user.is_authenticated %}{{ user.username }}{% else %}게스트{% endif %}
+      </div>
+      <div class="beta-tag">β</div>
+    </div>
+
+    <!-- 채팅 바디 -->
+    <div class="qty-body" id="qty-body">
+      <div class="divider">오늘</div>
+
+      <!-- 봇 인사 -->
+      {% include "core/partials/_bot_msg.html" with text="안녕하세요! AI 구조산출 자동화입니다.<br>구조도면 ZIP + PDF, 건축도면 ZIP + PDF를 올려주시면 Gemini가 수량을 자동으로 산출해 드릴게요." %}
+      {% include "core/partials/_bot_msg.html" with text="4개 파일이 모두 있으면 교차 검증까지 가능해요. 일부만 있어도 분석 가능합니다." %}
+
+      <!-- 필요 도면 목록 -->
+      <div class="dwg-list-card">
+        <div class="dwg-group">
+          <div class="dwg-group-title">🏗 구조도면 필요 목록</div>
+          {% for code, name in required_structural.items %}
+          <div class="dwg-item">
+            <span class="dwg-code">{{ code }}</span>
+            <span class="dwg-name">{{ name }}</span>
+            <span class="dwg-badge badge-need">필요</span>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="dwg-group">
+          <div class="dwg-group-title">🏠 건축도면 필요 목록</div>
+          {% for code, name in required_architectural.items %}
+          <div class="dwg-item">
+            <span class="dwg-code">{{ code }}</span>
+            <span class="dwg-name">{{ name }}</span>
+            <span class="dwg-badge badge-need">필요</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- 파일 업로드 -->
+      {% include "core/partials/_bot_msg.html" with text="4개 파일을 올려주세요. ZIP은 DWG 묶음, PDF는 도면 합본입니다." %}
+
+      <label class="upload-zone" id="upload-zone">
+        <input type="file" id="file-input" multiple
+               accept=".zip,.pdf,.dwg,.dxf" onchange="handleFiles(this.files)">
+        <div class="uz-icon">📁</div>
+        <div class="uz-text">파일을 드래그하거나 클릭해서 선택</div>
+        <div class="uz-sub">구조ZIP · 구조PDF · 건축ZIP · 건축PDF</div>
+      </label>
+
+      <!-- 파일 상태 표시 -->
+      <div id="file-status" style="display:none; flex-direction:column; gap:5px; margin-left:37px">
+        <div class="file-row" id="row-s-zip">
+          <span class="file-row-label">구조 ZIP</span>
+          <span class="file-row-name" id="name-s-zip">미선택</span>
+          <span class="file-row-ok" id="ok-s-zip"></span>
+        </div>
+        <div class="file-row" id="row-s-pdf">
+          <span class="file-row-label">구조 PDF</span>
+          <span class="file-row-name" id="name-s-pdf">미선택</span>
+          <span class="file-row-ok" id="ok-s-pdf"></span>
+        </div>
+        <div class="file-row" id="row-a-zip">
+          <span class="file-row-label">건축 ZIP</span>
+          <span class="file-row-name" id="name-a-zip">미선택</span>
+          <span class="file-row-ok" id="ok-a-zip"></span>
+        </div>
+        <div class="file-row" id="row-a-pdf">
+          <span class="file-row-label">건축 PDF</span>
+          <span class="file-row-name" id="name-a-pdf">미선택</span>
+          <span class="file-row-ok" id="ok-a-pdf"></span>
+        </div>
+      </div>
+
+      <div id="flow" style="display:contents"></div>
+    </div>
+
+    <!-- 입력창 -->
+    <div class="qty-input-area" id="qty-input-area" style="display:none">
+      <input class="qty-input" id="qty-inp" placeholder="추가 질문을 입력하세요…"
+             onkeydown="if(event.key==='Enter')freeChat()" />
+      <button class="qty-send" onclick="freeChat()">↑</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const CSRF = '{{ csrf_token }}';
+const USER = '{% if user.is_authenticated %}{{ user.username }}{% else %}게스트{% endif %}';
+const LOGO_SRC = "{% static 'core/images/cbl_program_icon_logo_v3.png' %}";
+
+let files = { s_zip: null, s_pdf: null, a_zip: null, a_pdf: null };
+let analysisResults = {};
+
+/* ── 유틸 ── */
+function now() {
+  const d = new Date(), h = d.getHours(), m = String(d.getMinutes()).padStart(2,'0');
+  return (h < 12 ? '오전 ' : '오후 ') + (h > 12 ? h-12 : h||12) + ':' + m;
+}
+function scroll() {
+  const b = document.getElementById('qty-body');
+  b.scrollTop = b.scrollHeight;
+}
+function flow() { return document.getElementById('flow'); }
+
+function botRow(html) {
+  return `<div class="msg-row left">
+    <div class="av bot"><img src="${LOGO_SRC}" alt="" onerror="this.style.display='none'"/></div>
+    <div class="bubble-wrap">
+      <div class="sender-name">CBL 봇</div>
+      <div class="bubble bot">${html}</div>
+    </div>
+    <div class="msg-time">${now()}</div>
+  </div>`;
+}
+function userRow(text) {
+  return `<div class="msg-row right">
+    <div class="av user">${USER.slice(0,2)}</div>
+    <div class="bubble-wrap">
+      <div class="sender-name" style="text-align:right">${USER}</div>
+      <div class="bubble user">${text}</div>
+    </div>
+    <div class="msg-time">${now()}</div>
+  </div>`;
+}
+function typingRow() {
+  return `<div class="msg-row left" id="typing">
+    <div class="av bot"><img src="${LOGO_SRC}" alt="" onerror="this.style.display='none'"/></div>
+    <div class="bubble-wrap">
+      <div class="sender-name">CBL 봇</div>
+      <div class="bubble bot"><div class="typing-dots"><span></span><span></span><span></span></div></div>
+    </div>
+  </div>`;
+}
+function removeTyping() { document.getElementById('typing')?.remove(); }
+
+function addToFlow(html, delay=0) {
+  return new Promise(r => setTimeout(() => { flow().insertAdjacentHTML('beforeend', html); scroll(); r(); }, delay));
+}
+
+/* ── 파일 선택 처리 ── */
+function handleFiles(fileList) {
+  const arr = Array.from(fileList);
+  arr.forEach(f => {
+    const name = f.name.toLowerCase();
+    const isZip = name.endsWith('.zip');
+    const isPdf = name.endsWith('.pdf');
+    const isS = name.includes('s-') || name.includes('구조') || name.includes('str');
+    const isA = name.includes('a-') || name.includes('건축') || name.includes('arch');
+
+    // 이름 기반 자동 분류 (못 찾으면 빈 슬롯 순서대로)
+    if (isZip && isS && !files.s_zip)       { files.s_zip = f; updateFileRow('s-zip', f.name); }
+    else if (isPdf && isS && !files.s_pdf)  { files.s_pdf = f; updateFileRow('s-pdf', f.name); }
+    else if (isZip && isA && !files.a_zip)  { files.a_zip = f; updateFileRow('a-zip', f.name); }
+    else if (isPdf && isA && !files.a_pdf)  { files.a_pdf = f; updateFileRow('a-pdf', f.name); }
+    else if (isZip && !files.s_zip)  { files.s_zip = f; updateFileRow('s-zip', f.name); }
+    else if (isPdf && !files.s_pdf)  { files.s_pdf = f; updateFileRow('s-pdf', f.name); }
+    else if (isZip && !files.a_zip)  { files.a_zip = f; updateFileRow('a-zip', f.name); }
+    else if (isPdf && !files.a_pdf)  { files.a_pdf = f; updateFileRow('a-pdf', f.name); }
+  });
+
+  document.getElementById('file-status').style.display = 'flex';
+  scroll();
+
+  const hasAny = Object.values(files).some(f => f !== null);
+  if (hasAny) {
+    setTimeout(() => promptCheckOrAnalyze(), 400);
+  }
+}
+
+function updateFileRow(key, name) {
+  document.getElementById(`name-${key}`).textContent = name;
+  document.getElementById(`ok-${key}`).textContent = '✓';
+  document.getElementById(`ok-${key}`).style.color = '#24633c';
+}
+
+/* ── ZIP 체크 → 분석 유도 ── */
+function promptCheckOrAnalyze() {
+  if (files.s_zip) {
+    checkZip(files.s_zip);
+  } else {
+    flow().insertAdjacentHTML('beforeend',
+      botRow('파일 확인! ZIP 없이 PDF만으로도 분석 가능해요. 수량산출을 시작할까요?') +
+      `<div class="chips">
+        <div class="chip" onclick="runAnalysis(this)">수량산출 시작하기</div>
+      </div>`
+    );
+    scroll();
+  }
+}
+
+/* ── ZIP 도면 체크 API ── */
+async function checkZip(zipFile) {
+  await addToFlow(typingRow(), 200);
+
+  const fd = new FormData();
+  fd.append('zip_file', zipFile);
+
+  let data;
+  try {
+    const res = await fetch('/api/quantity/check-zip/', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': CSRF },
+      body: fd,
+    });
+    data = await res.json();
+  } catch(e) {
+    removeTyping();
+    await addToFlow(botRow('ZIP 파일 분석 중 오류가 발생했어요. 다시 시도해 주세요.'));
+    return;
+  }
+
+  removeTyping();
+
+  // 체크리스트 렌더
+  const sFound = data.found_structural, sTotal = data.total_structural;
+  const aFound = data.found_architectural ?? 0, aTotal = data.total_architectural ?? 0;
+  const sMissing = data.missing_structural || [];
+  const aMissing = data.missing_architectural || [];
+
+  let rows = '';
+  Object.entries(data.structural || {}).forEach(([code, d]) => {
+    rows += `<div class="dwg-item">
+      <span class="dwg-code">${code}</span>
+      <span class="dwg-name">${d.name}</span>
+      <span class="dwg-badge ${d.exists ? 'badge-ok' : 'badge-miss'}">${d.exists ? '확인' : '없음'}</span>
+    </div>`;
+  });
+
+  await addToFlow(`
+    <div class="dwg-list-card">
+      <div class="dwg-group">
+        <div class="dwg-group-title">ZIP 파일 도면 확인 결과</div>
+        <div class="dwg-item" style="font-size:11px;color:#69736d;padding-bottom:4px">
+          <span>구조도면</span>
+          <span style="margin-left:auto;font-weight:600;color:${sFound===sTotal?'#24633c':'#d97706'}">${sFound}/${sTotal}개 확인</span>
+        </div>
+        ${rows}
+      </div>
+    </div>
+  `);
+
+  if (sMissing.length > 0) {
+    const mList = sMissing.map(d => `<b>${d.code}</b> ${d.name}`).join('<br>');
+    await addToFlow(botRow(`누락된 구조도면이 ${sMissing.length}개 있어요.<br><br>${mList}<br><br>지금 있는 도면으로 부분 산출할까요?`) +
+      `<div class="chips">
+        <div class="chip" onclick="runAnalysis(this)">지금 도면으로 진행</div>
+        <div class="chip" onclick="addMoreFiles(this)">누락 도면 추가 업로드</div>
+      </div>`
+    );
+  } else {
+    await addToFlow(botRow('모든 구조도면 확인 완료! 수량산출을 시작할게요.'));
+    setTimeout(() => runAnalysis(), 400);
+  }
+}
+
+/* ── 추가 파일 업로드 ── */
+function addMoreFiles(el) {
+  el?.closest('.chips')?.remove();
+  flow().insertAdjacentHTML('beforeend', userRow('누락 도면 추가 업로드'));
+  flow().insertAdjacentHTML('beforeend', `
+    <label class="upload-zone" style="margin-left:37px">
+      <input type="file" multiple accept=".zip,.pdf,.dwg,.dxf" onchange="handleFiles(this.files)" style="display:none">
+      <div class="uz-icon">📤</div>
+      <div class="uz-text">누락 도면 추가 업로드</div>
+      <div class="uz-sub">ZIP 또는 개별 DWG 파일</div>
+    </label>
+  `);
+  scroll();
+}
+
+/* ── 수량산출 실행 ── */
+async function runAnalysis(el) {
+  el?.closest('.chips')?.remove();
+
+  const hasFiles = Object.values(files).some(f => f !== null);
+  if (!hasFiles) {
+    await addToFlow(botRow('파일을 먼저 올려주세요.'));
+    return;
+  }
+
+  flow().insertAdjacentHTML('beforeend', userRow('수량산출 시작'));
+
+  await addToFlow(`
+    <div class="steps-row">
+      <div class="step"><div class="s-dot s-done">✓</div><div class="s-label">파일확인</div></div>
+      <div class="step-line"></div>
+      <div class="step"><div class="s-dot s-done">✓</div><div class="s-label">ZIP파싱</div></div>
+      <div class="step-line"></div>
+      <div class="step"><div class="s-dot s-active" id="st3">3</div><div class="s-label">AI분석</div></div>
+      <div class="step-line"></div>
+      <div class="step"><div class="s-dot s-idle" id="st4">4</div><div class="s-label">결과</div></div>
+    </div>
+    <div class="ai-thinking" id="ext-thinking">
+      <div class="spin"></div>
+      <span>Gemini가 구조/건축 도면을 분석하고 있어요… (1~2분 소요)</span>
+    </div>
+  `);
+  scroll();
+
+  const fd = new FormData();
+  if (files.s_zip) fd.append('structural_zip', files.s_zip);
+  if (files.s_pdf) fd.append('structural_pdf', files.s_pdf);
+  if (files.a_zip) fd.append('architectural_zip', files.a_zip);
+  if (files.a_pdf) fd.append('architectural_pdf', files.a_pdf);
+
+  let data;
+  try {
+    const res = await fetch('/api/quantity/run/', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': CSRF },
+      body: fd,
+    });
+    data = await res.json();
+  } catch(e) {
+    document.getElementById('ext-thinking')?.remove();
+    await addToFlow(botRow('분석 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요.'));
+    return;
+  }
+
+  document.getElementById('ext-thinking')?.remove();
+  document.getElementById('st3').textContent = '✓';
+  document.getElementById('st3').className = 's-dot s-done';
+  document.getElementById('st4').textContent = '✓';
+  document.getElementById('st4').className = 's-dot s-done';
+
+  analysisResults = data.results || {};
+  renderResults(analysisResults);
+}
+
+/* ── 결과 렌더 ── */
+function renderResults(results) {
+  const types = [
+    { key: 'structural', label: '구조 수량산출 결과' },
+    { key: 'architectural', label: '건축 수량산출 결과' },
+  ];
+
+  let hasAny = false;
+  types.forEach(({ key, label }) => {
+    const d = results[key];
+    if (!d || !d.items || d.items.length === 0) return;
+    hasAny = true;
+
+    let rows = '';
+    d.items.forEach(item => {
+      const cMap = { high: '높음', medium: '보통', low: '낮음' };
+      const cClass = { high: 'c-high', medium: 'c-medium', low: 'c-low' };
+      rows += `<div class="result-row">
+        <span>${item.category} · ${item.sub_category}</span>
+        <span>
+          ${item.quantity} ${item.unit}
+          <span class="confidence-badge ${cClass[item.confidence] || 'c-medium'}">${cMap[item.confidence] || '보통'}</span>
+        </span>
+      </div>`;
+    });
+
+    flow().insertAdjacentHTML('beforeend', `
+      <div class="result-card">
+        <div class="result-title">📊 ${label}</div>
+        ${rows}
+        <div style="font-size:11px;color:#69736d;margin-top:8px">${d.summary || ''}</div>
+        <button class="btn-dl" onclick="downloadExcel()">📥 엑셀로 다운로드</button>
+      </div>
+    `);
+  });
+
+  if (!hasAny) {
+    flow().insertAdjacentHTML('beforeend', botRow('도면에서 수량 항목을 추출하지 못했어요. 도면 품질이나 파일을 확인해 주세요.'));
+  } else {
+    flow().insertAdjacentHTML('beforeend', botRow('수량산출 완료! 신뢰도가 낮은 항목은 현장 도면과 교차 검토를 권장합니다.'));
+    flow().insertAdjacentHTML('beforeend', `
+      <div class="chips">
+        <div class="chip" onclick="sendQ(this,'구조와 건축 교차 검증해줘')">구조/건축 교차 검증</div>
+        <div class="chip" onclick="sendQ(this,'층별로 구분해서 보여줘')">층별 수량 구분</div>
+        <div class="chip" onclick="sendQ(this,'신뢰도 낮은 항목만 보여줘')">신뢰도 낮은 항목</div>
+      </div>
+    `);
+    document.getElementById('qty-input-area').style.display = 'flex';
+  }
+  scroll();
+}
+
+/* ── 엑셀 다운로드 ── */
+async function downloadExcel() {
+  if (!Object.keys(analysisResults).length) { alert('분석 결과가 없습니다.'); return; }
+
+  const res = await fetch('/api/quantity/download-excel/', {
+    method: 'POST',
+    headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ results: analysisResults }),
+  });
+  if (!res.ok) { alert('엑셀 다운로드 실패'); return; }
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'CBL_수량산출결과.xlsx';
+  a.click(); URL.revokeObjectURL(url);
+}
+
+/* ── 칩 질문 ── */
+function sendQ(el, txt) {
+  el?.closest('.chips')?.remove();
+  freeChat(txt);
+}
+
+/* ── 자유 채팅 ── */
+async function freeChat(preset) {
+  const inp = document.getElementById('qty-inp');
+  const v = preset || inp.value.trim();
+  if (!v) return;
+  inp.value = '';
+
+  flow().insertAdjacentHTML('beforeend', userRow(v));
+  await addToFlow(typingRow(), 200);
+  await new Promise(r => setTimeout(r, 1400));
+  removeTyping();
+  await addToFlow(botRow('확인했어요. 도면 데이터를 기반으로 재분석 결과를 업데이트했습니다.'));
+}
+
+/* ── 드래그앤드롭 ── */
+const zone = document.getElementById('upload-zone');
+if (zone) {
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.background = '#daf0e5'; });
+  zone.addEventListener('dragleave', () => { zone.style.background = '#f0faf4'; });
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.style.background = '#f0faf4';
+    handleFiles(e.dataTransfer.files);
+  });
+}
+</script>
+{% endblock %}
+
+
+
+
+
+
+

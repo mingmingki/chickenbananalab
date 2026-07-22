@@ -1,5 +1,7 @@
 from django import forms
 from .models import Post, Comment, UserProfile, ExperienceVault
+from .cbl_category_policy import CBL_PUBLIC_CATEGORY_CHOICES
+from django import forms as cbl_django_forms
 
 
 class PostForm(forms.ModelForm):
@@ -70,6 +72,31 @@ class PostForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        # CBL_CONSTRUCTION_POSTFORM_CHOICES_START
+        self.fields["category"].choices = [
+            ("construction_work", "건설실무"),
+            ("construction_tech", "건설기술"),
+            ("bim", "BIM"),
+            ("construction_real", "건설부동산"),
+            ("finance", "금융"),
+            ("tech", "테크"),
+            ("program", "프로그램"),
+            ("life", "일상"),
+        ]
+
+        legacy_initial = self.initial.get("category") or getattr(self.instance, "category", "")
+        # CBL_BTP_POSTFORM_INIT_ALIAS_START
+        if legacy_initial == "architecture":
+            self.initial["category"] = "construction_work"
+        elif legacy_initial == "realestate":
+            self.initial["category"] = "construction_real"
+        elif legacy_initial == "bim":
+            self.initial["category"] = "bim"
+        elif legacy_initial == "program":
+            self.initial["category"] = "program"
+        # CBL_BTP_POSTFORM_INIT_ALIAS_END
+        # CBL_CONSTRUCTION_POSTFORM_CHOICES_END
 
         if not self.instance.pk:
             self.fields["is_published"].initial = True
@@ -162,3 +189,66 @@ class ExperienceVaultForm(forms.ModelForm):
                 "style": "width:18px; height:18px;"
             }),
         }
+
+
+# CBL_PUBLIC_CATEGORY_FORM_CHOICES_START
+# 글 올리기 / 자동글 관련 폼에서 새 카테고리 8개만 노출
+for _cbl_form_name in [
+    "PostForm",
+    "PostCreateForm",
+    "PostUpdateForm",
+    "AIAutoWriterSettingForm",
+    "AIAutoWriterForm",
+    "AIKeywordForm",
+]:
+    try:
+        _cbl_form = globals().get(_cbl_form_name)
+        if not _cbl_form:
+            continue
+        for _field_name in ["category", "categories", "target_category"]:
+            if _field_name in _cbl_form.base_fields:
+                _cbl_form.base_fields[_field_name].choices = CBL_PUBLIC_CATEGORY_CHOICES
+    except Exception:
+        pass
+# CBL_PUBLIC_CATEGORY_FORM_CHOICES_END
+
+
+# CBL_POST_ADD_CATEGORY_FORCE_START
+# 글 올리기/수정 폼의 category 선택지를 신규 8개 카테고리로 강제
+def _cbl_force_public_category_choices_on_instance(_form):
+    _choices = [("", "카테고리를 선택하세요")] + list(CBL_PUBLIC_CATEGORY_CHOICES)
+
+    for _field_name in ["category", "target_category"]:
+        if hasattr(_form, "fields") and _field_name in _form.fields:
+            _form.fields[_field_name].choices = _choices
+
+def _cbl_patch_form_category_choices():
+    for _name, _cls in list(globals().items()):
+        try:
+            if not isinstance(_cls, type):
+                continue
+            if not issubclass(_cls, cbl_django_forms.BaseForm):
+                continue
+            if getattr(_cls, "_cbl_post_add_category_patched", False):
+                continue
+
+            # base_fields도 즉시 변경
+            for _field_name in ["category", "target_category"]:
+                if hasattr(_cls, "base_fields") and _field_name in _cls.base_fields:
+                    _cls.base_fields[_field_name].choices = [("", "카테고리를 선택하세요")] + list(CBL_PUBLIC_CATEGORY_CHOICES)
+
+            _old_init = _cls.__init__
+
+            def _make_init(__old_init):
+                def __init__(self, *args, **kwargs):
+                    __old_init(self, *args, **kwargs)
+                    _cbl_force_public_category_choices_on_instance(self)
+                return __init__
+
+            _cls.__init__ = _make_init(_old_init)
+            _cls._cbl_post_add_category_patched = True
+        except Exception:
+            pass
+
+_cbl_patch_form_category_choices()
+# CBL_POST_ADD_CATEGORY_FORCE_END

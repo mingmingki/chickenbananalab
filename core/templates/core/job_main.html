@@ -1,0 +1,714 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block title %}AI건설 구인구직 | ChickenBanana Lab{% endblock %}
+
+{% block content %}
+<style>
+.job-wrap {
+  max-width: 480px;
+  margin: 24px auto;
+  padding: 0 12px 40px;
+}
+.job-screen {
+  display: flex;
+  flex-direction: column;
+  height: 82vh;
+  min-height: 560px;
+  border-radius: 16px;
+  border: 0.5px solid #dfe5e1;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 4px 20px rgba(7,58,91,.06);
+}
+
+/* ── 헤더 ── */
+.job-header {
+  background: #073A5B;
+  padding: 12px 14px;
+  display: flex; align-items: center; gap: 10px;
+  flex-shrink: 0;
+}
+.job-logo {
+  width: 38px; height: 38px; border-radius: 10px;
+  background: #F9C20A;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; overflow: hidden;
+}
+.job-logo img { width: 34px; height: 34px; object-fit: contain; }
+.job-logo.missing::after { content: "CBL"; font-size: 12px; font-weight: 800; color: #073A5B; }
+.job-header-info { flex: 1; min-width: 0; }
+.job-header-title { color: #fff; font-size: 13px; font-weight: 700; }
+.job-header-sub   { color: rgba(255,255,255,.45); font-size: 10.5px; margin-top: 1px; }
+.job-user-badge {
+  background: rgba(255,255,255,.15); color: rgba(255,255,255,.9);
+  font-size: 10px; padding: 3px 9px; border-radius: 20px;
+  display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+}
+.job-user-dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; }
+
+/* ── 채팅 바디 ── */
+.job-body {
+  flex: 1; overflow-y: auto;
+  padding: 14px 12px;
+  display: flex; flex-direction: column; gap: 10px;
+  background: #f0f2f5;
+}
+
+/* ── 메시지 행 ── */
+.msg-row { display: flex; gap: 7px; align-items: flex-end; }
+.msg-row.left  { align-self: flex-start; max-width: 90%; }
+.msg-row.right { align-self: flex-end; flex-direction: row; max-width: 85%; }
+
+.av {
+  width: 30px; height: 30px; border-radius: 50%;
+  flex-shrink: 0; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700;
+}
+.av.bot  { background: #F9C20A; }
+.av.bot img { width: 26px; height: 26px; object-fit: contain; }
+.av.user { background: #073A5B; color: #F9C20A; }
+
+.bubble-wrap { display: flex; flex-direction: column; gap: 2px; }
+.sender-name {
+  font-size: 10px; color: #69736d;
+  margin-bottom: 2px; padding-left: 2px;
+}
+.msg-row.right .sender-name { text-align: right; padding-right: 2px; }
+
+.bubble {
+  padding: 9px 12px; border-radius: 16px;
+  font-size: 12.5px; line-height: 1.6;
+  word-break: keep-all; max-width: 100%;
+}
+.bubble.bot  { background: #fff; color: #151a17; border-bottom-left-radius: 3px; }
+.bubble.user { background: #F9C20A; color: #073A5B; border-bottom-right-radius: 3px; font-weight: 500; }
+
+.msg-time {
+  font-size: 9.5px; color: #69736d;
+  align-self: flex-end; flex-shrink: 0; margin-bottom: 2px;
+}
+
+/* ── 선택 칩 ── */
+.chips { display: flex; flex-direction: column; gap: 5px; padding-left: 37px; }
+.chip {
+  padding: 9px 14px;
+  border: 1.5px solid #41a86b; border-radius: 22px;
+  font-size: 12px; color: #24633c;
+  cursor: pointer; background: #fff;
+  transition: all .15s; font-weight: 500;
+}
+.chip:hover { background: #41a86b; color: #fff; }
+.chip.selected { background: #41a86b; color: #fff; pointer-events: none; }
+.chip.navy {
+  border-color: #073A5B; color: #073A5B;
+}
+.chip.navy:hover { background: #073A5B; color: #fff; }
+
+/* ── 프로필 카드 ── */
+.profile-card {
+  background: #fff; border-radius: 12px;
+  border: 0.5px solid #dfe5e1;
+  padding: 11px 13px; margin-left: 37px;
+}
+.pc-row {
+  display: flex; justify-content: space-between;
+  font-size: 12px; padding: 4px 0;
+  border-bottom: 0.5px solid #dfe5e1;
+}
+.pc-row:last-child { border-bottom: none; }
+.pc-label { color: #69736d; }
+.pc-val   { font-weight: 500; color: #151a17; }
+
+/* ── 면접 질문 카드 ── */
+.int-card {
+  background: #073A5B; border-radius: 12px;
+  padding: 13px; margin-left: 37px; color: #fff;
+}
+.int-meta {
+  font-size: 10px; color: rgba(255,255,255,.5);
+  margin-bottom: 6px;
+  display: flex; align-items: center; gap: 5px;
+}
+.rec-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #f87171; flex-shrink: 0;
+  animation: pulse 1s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.2} }
+.int-q { font-size: 13px; font-weight: 500; line-height: 1.55; }
+.timer-row { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.timer-bar { flex: 1; height: 3px; background: rgba(255,255,255,.15); border-radius: 2px; overflow: hidden; }
+.timer-fill { height: 100%; background: #F9C20A; border-radius: 2px; width: 0%; transition: width .8s linear; }
+.timer-txt  { font-size: 10px; color: rgba(255,255,255,.4); flex-shrink: 0; }
+
+/* ── 답변 입력 ── */
+.ans-row {
+  display: flex; gap: 6px; align-items: flex-end;
+  padding-left: 37px;
+}
+.ans-row textarea {
+  flex: 1; border: 1.5px solid #dfe5e1; border-radius: 12px;
+  padding: 8px 11px; font-size: 12px; font-family: inherit;
+  resize: none; outline: none; background: #fff; color: #151a17;
+  min-height: 42px; max-height: 100px;
+}
+.ans-row textarea:focus { border-color: #41a86b; }
+.ans-send {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: #F9C20A; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: #073A5B; font-size: 16px; font-weight: 700; flex-shrink: 0;
+}
+
+/* ── 보고서 카드 ── */
+.report-card {
+  background: #fff; border-radius: 12px;
+  border: 0.5px solid #dfe5e1;
+  padding: 12px 13px; margin-left: 37px;
+}
+.rpt-title {
+  font-size: 12px; font-weight: 700; color: #151a17;
+  margin-bottom: 8px; display: flex; align-items: center; gap: 5px;
+}
+.rpt-row {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; padding: 4px 0;
+  border-bottom: 0.5px solid #dfe5e1;
+}
+.rpt-row:last-child { border-bottom: none; }
+.stars { color: #F9C20A; font-size: 13px; letter-spacing: -1px; }
+.empty-s { color: #e0e0e0; }
+.grade-badge {
+  font-size: 22px; font-weight: 700;
+  padding: 4px 16px; border-radius: 8px;
+  background: #f0faf4; color: #24633c;
+  display: inline-block; margin-bottom: 8px;
+}
+.tag-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tag {
+  font-size: 10px; padding: 2px 8px; border-radius: 20px;
+  background: #eff6ff; color: #185fa5; font-weight: 500;
+}
+.btn-pdf {
+  width: 100%; margin-top: 9px; padding: 9px;
+  background: #073A5B; color: #fff;
+  border: none; border-radius: 8px;
+  font-size: 12px; cursor: pointer; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+}
+.btn-pdf:hover { background: #0a4d78; }
+
+/* ── 입력창 ── */
+.job-input-area {
+  padding: 9px 11px; border-top: 0.5px solid #dfe5e1;
+  display: flex; align-items: center; gap: 7px;
+  flex-shrink: 0; background: #fff;
+}
+.job-input {
+  flex: 1; border: 0.5px solid #dfe5e1; border-radius: 20px;
+  padding: 8px 13px; font-size: 12.5px; outline: none;
+  background: #f8faf9; color: #151a17; font-family: inherit;
+}
+.job-input:focus { border-color: #41a86b; }
+.job-send {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: #073A5B; border: none; cursor: pointer;
+  color: #F9C20A; font-size: 15px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ── 기타 ── */
+.divider { text-align: center; font-size: 10px; color: #69736d; padding: 2px 0; }
+.typing-dots { display: flex; gap: 3px; align-items: center; height: 16px; }
+.typing-dots span {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: #888; animation: blink 1.2s infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: .2s; }
+.typing-dots span:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%,80%,100%{opacity:.2} 40%{opacity:1} }
+</style>
+
+<div class="job-wrap">
+<div class="job-screen" id="job-screen">
+
+  <!-- 헤더 -->
+  <div class="job-header">
+    <div class="job-logo">
+      <img src="{% static 'core/images/cbl_program_icon_logo_v3.png' %}" alt="CBL"
+           onerror="this.style.display='none';this.parentNode.classList.add('missing')" />
+    </div>
+    <div class="job-header-info">
+      <div class="job-header-title">AI건설 구인구직</div>
+      <div class="job-header-sub">ChickenBanana Lab · Construction</div>
+    </div>
+    <div class="job-user-badge">
+      <div class="job-user-dot"></div>
+      {% if user.is_authenticated %}{{ user.username }}{% else %}게스트{% endif %}
+    </div>
+  </div>
+
+  <!-- 채팅 바디 -->
+  <div class="job-body" id="job-body">
+    <div class="divider">오늘</div>
+
+    <!-- 인사 -->
+    <div class="msg-row left">
+      <div class="av bot"><img src="{% static 'core/images/cbl_program_icon_logo_v3.png' %}" alt=""
+           onerror="this.style.display='none'" /></div>
+      <div class="bubble-wrap">
+        <div class="sender-name">CBL 봇</div>
+        <div class="bubble bot">안녕하세요! AI건설 구인구직입니다.<br>집에서 편하게 면접보고, 직무에 맞는 분을 빠르게 찾아드릴게요.</div>
+      </div>
+      <div class="msg-time" id="time-0"></div>
+    </div>
+
+    <div class="msg-row left">
+      <div class="av bot"><img src="{% static 'core/images/cbl_program_icon_logo_v3.png' %}" alt=""
+           onerror="this.style.display='none'" /></div>
+      <div class="bubble-wrap">
+        <div class="sender-name">CBL 봇</div>
+        <div class="bubble bot">어떤 역할로 오셨나요?</div>
+      </div>
+      <div class="msg-time" id="time-1"></div>
+    </div>
+
+    <div class="chips" id="role-chips">
+      <div class="chip" onclick="selectRole(this,'job')">👤 구직자 — 일 구하기</div>
+      <div class="chip" onclick="selectRole(this,'hire')">🏗️ 구인자 — 사람 찾기</div>
+    </div>
+
+    <div id="flow" style="display:contents"></div>
+  </div>
+
+  <!-- 하단 입력창 (면접 후 활성화) -->
+  <div class="job-input-area" id="job-input-area" style="display:none">
+    <input class="job-input" id="job-inp" placeholder="추가 질문을 입력하세요…"
+           onkeydown="if(event.key==='Enter')freeChat()" />
+    <button class="job-send" onclick="freeChat()">↑</button>
+  </div>
+
+</div>
+</div>
+
+<script>
+const CSRF   = '{{ csrf_token }}';
+const USER   = '{% if user.is_authenticated %}{{ user.username }}{% else %}게스트{% endif %}';
+const LOGO   = "{% static 'core/images/cbl_program_icon_logo_v3.png' %}";
+
+/* ── 상태 ── */
+let state = {
+  career: '',
+  field: '',
+  profile: {},
+  questions: [],
+  answers: [],
+  qIdx: 0,
+  timerInterval: null,
+  timerSec: 0,
+};
+
+/* ── 시간 표시 ── */
+function nowStr() {
+  const d = new Date(), h = d.getHours(), m = String(d.getMinutes()).padStart(2,'0');
+  return (h < 12 ? '오전 ' : '오후 ') + (h > 12 ? h-12 : h||12) + ':' + m;
+}
+document.getElementById('time-0').textContent = nowStr();
+document.getElementById('time-1').textContent = nowStr();
+
+/* ── DOM 유틸 ── */
+const flow = () => document.getElementById('flow');
+const body = () => document.getElementById('job-body');
+function scroll() { const b = body(); b.scrollTop = b.scrollHeight; }
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, ch => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[ch]));
+}
+function nl2br(v) { return esc(v).replace(/\n/g, '<br>'); }
+
+function botRow(html) {
+  return `<div class="msg-row left">
+    <div class="av bot"><img src="${LOGO}" alt="" onerror="this.style.display='none'"/></div>
+    <div class="bubble-wrap">
+      <div class="sender-name">CBL 봇</div>
+      <div class="bubble bot">${html}</div>
+    </div>
+    <div class="msg-time">${nowStr()}</div>
+  </div>`;
+}
+function userRow(text) {
+  return `<div class="msg-row right">
+    <div class="bubble-wrap">
+      <div class="sender-name" style="text-align:right">${esc(USER)}</div>
+      <div class="bubble user">${nl2br(text)}</div>
+    </div>
+    <div class="msg-time">${nowStr()}</div>
+  </div>`;
+}
+function typingRow() {
+  return `<div class="msg-row left" id="typing">
+    <div class="av bot"><img src="${LOGO}" alt="" onerror="this.style.display='none'"/></div>
+    <div class="bubble-wrap">
+      <div class="sender-name">CBL 봇</div>
+      <div class="bubble bot"><div class="typing-dots"><span></span><span></span><span></span></div></div>
+    </div>
+  </div>`;
+}
+function removeTyping() { document.getElementById('typing')?.remove(); }
+
+function addFlow(html, delay=0) {
+  return new Promise(r => setTimeout(() => { flow().insertAdjacentHTML('beforeend', html); scroll(); r(); }, delay));
+}
+async function botSay(html, delay=350) {
+  await addFlow(typingRow(), 100);
+  await new Promise(r => setTimeout(r, delay + Math.random()*200));
+  removeTyping();
+  await addFlow(botRow(html));
+}
+
+/* ────────────────────────────────────────────
+   STEP 1. 역할 선택
+─────────────────────────────────────────────*/
+async function selectRole(el, role) {
+  document.getElementById('role-chips').style.display = 'none';
+  flow().insertAdjacentHTML('beforeend', userRow(el.textContent.trim()));
+
+  if (role === 'hire') {
+    await botSay('구인자 모드는 현재 베타 준비 중이에요. 우선 채용 조건 정리 흐름부터 붙일 수 있게 준비해둘게요.');
+    await botSay('지금은 구직자 AI 면접 기능부터 먼저 테스트해 주세요.');
+    return;
+  }
+  await botSay('반갑습니다! 건설 분야 경력이 어떻게 되세요?');
+  await addFlow(`<div class="chips" id="career-chips">
+    <div class="chip" onclick="selectCareer(this,'신입')">신입 (0~2년)</div>
+    <div class="chip" onclick="selectCareer(this,'중견')">중견 (3~7년)</div>
+    <div class="chip" onclick="selectCareer(this,'시니어')">시니어 (8년+)</div>
+  </div>`);
+}
+
+/* ────────────────────────────────────────────
+   STEP 2. 경력 선택
+─────────────────────────────────────────────*/
+async function selectCareer(el, career) {
+  state.career = career;
+  document.getElementById('career-chips').style.display = 'none';
+  flow().insertAdjacentHTML('beforeend', userRow(el.textContent.trim()));
+
+  await botSay('주 직무 분야를 선택해 주세요.');
+  await addFlow(`<div class="chips" id="field-chips">
+    <div class="chip" onclick="selectField(this,'공사')">공사</div>
+    <div class="chip" onclick="selectField(this,'공무')">공무</div>
+    <div class="chip" onclick="selectField(this,'견적/예산')">견적/예산</div>
+    <div class="chip" onclick="selectField(this,'BIM')">설계·BIM</div>
+  </div>`);
+}
+
+/* ────────────────────────────────────────────
+   STEP 3. 직무 선택
+─────────────────────────────────────────────*/
+async function selectField(el, field) {
+  state.field = field;
+  document.getElementById('field-chips').style.display = 'none';
+  flow().insertAdjacentHTML('beforeend', userRow(el.textContent.trim()));
+
+  await botSay(`${state.career} / ${el.textContent.trim()} 확인했어요 ✅<br>이름과 희망 지역을 입력해 주세요.<br><span style="font-size:11px;opacity:.7">(예: 홍길동 / 서울·경기)</span>`);
+
+  // 이름+지역 입력창 활성화
+  showInputBar('이름 / 희망 지역 입력…', 'profile');
+}
+
+/* ────────────────────────────────────────────
+   STEP 4. 프로필 입력
+─────────────────────────────────────────────*/
+async function handleProfileInput(val) {
+  flow().insertAdjacentHTML('beforeend', userRow(val));
+
+  const parts = val.split('/').map(s => s.trim());
+  state.profile = {
+    name: parts[0] || val,
+    region: parts[1] || '',
+    career: state.career,
+    field: state.field,
+  };
+
+  await botSay('프로필 확인!');
+  await addFlow(`<div class="profile-card">
+    <div class="pc-row"><span class="pc-label">경력</span><span class="pc-val">${state.career}</span></div>
+    <div class="pc-row"><span class="pc-label">직무</span><span class="pc-val">${state.field}</span></div>
+    <div class="pc-row"><span class="pc-label">이름</span><span class="pc-val">${esc(state.profile.name)}</span></div>
+    <div class="pc-row"><span class="pc-label">희망지역</span><span class="pc-val">${esc(state.profile.region || '미입력')}</span></div>
+  </div>`);
+
+  // 질문 가져오기
+  await fetchQuestions();
+}
+
+/* ────────────────────────────────────────────
+   STEP 5. 면접 질문 API 호출
+─────────────────────────────────────────────*/
+async function fetchQuestions() {
+  await addFlow(`<div class="msg-row left" id="q-loading">
+    <div class="av bot"><img src="${LOGO}" alt="" onerror="this.style.display='none'"/></div>
+    <div class="bubble-wrap">
+      <div class="sender-name">CBL 봇</div>
+      <div class="bubble bot"><div class="typing-dots"><span></span><span></span><span></span></div></div>
+    </div>
+  </div>`, 300);
+
+  const res = await fetch('/api/job/questions/', {
+    method: 'POST',
+    headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ career: state.career, field: state.field }),
+  });
+  const data = await res.json();
+  document.getElementById('q-loading')?.remove();
+
+  state.questions = data.questions || [];
+  state.qIdx = 0;
+  state.answers = [];
+
+  hideInputBar();
+  await botSay(`AI 면접을 시작할게요! 집에서 편하게 답해 주세요.<br>${state.career} / ${data.field} 기준 실무 질문 ${data.total}개입니다.`);
+  await addFlow(`<div class="chips">
+    <div class="chip navy" onclick="startInterview(this)">🎙️ 면접 시작하기</div>
+  </div>`);
+}
+
+/* ────────────────────────────────────────────
+   STEP 6. 면접 시작
+─────────────────────────────────────────────*/
+async function startInterview(el) {
+  el.closest('.chips').style.display = 'none';
+  flow().insertAdjacentHTML('beforeend', userRow('면접 시작하기'));
+  await showQuestion(0);
+}
+
+async function showQuestion(idx) {
+  if (idx >= state.questions.length) {
+    await endInterview();
+    return;
+  }
+  const q = state.questions[idx];
+  const total = state.questions.length;
+
+  await addFlow(`
+    <div class="int-card" id="int-card-${idx}">
+      <div class="int-meta">
+        <span class="rec-dot"></span>
+        질문 ${idx+1} / ${total} · ${state.field}
+      </div>
+      <div class="int-q">${q}</div>
+      <div class="timer-row">
+        <span class="timer-txt">답변 중</span>
+        <div class="timer-bar"><div class="timer-fill" id="tbar-${idx}"></div></div>
+        <span class="timer-txt" id="tsec-${idx}">60초</span>
+      </div>
+    </div>
+    <div class="ans-row" id="ans-row-${idx}">
+      <textarea id="ans-${idx}" placeholder="답변을 입력하세요…" rows="2"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();submitAnswer(${idx})}"></textarea>
+      <button class="ans-send" onclick="submitAnswer(${idx})">↑</button>
+    </div>
+  `, 300);
+
+  startTimer(idx, 60);
+  document.getElementById(`ans-${idx}`)?.focus();
+}
+
+/* ── 타이머 ── */
+function startTimer(idx, sec) {
+  clearInterval(state.timerInterval);
+  let remain = sec;
+  state.timerSec = sec;
+
+  state.timerInterval = setInterval(() => {
+    remain--;
+    const pct = Math.round(((sec - remain) / sec) * 100);
+    const tbar = document.getElementById(`tbar-${idx}`);
+    const tsec = document.getElementById(`tsec-${idx}`);
+    if (tbar) tbar.style.width = pct + '%';
+    if (tsec) tsec.textContent = remain + '초';
+
+    if (remain <= 0) {
+      clearInterval(state.timerInterval);
+      autoNext(idx);
+    }
+  }, 1000);
+}
+
+/* ── 답변 제출 ── */
+async function submitAnswer(idx) {
+  clearInterval(state.timerInterval);
+
+  const ansEl = document.getElementById(`ans-${idx}`);
+  const answer = ansEl?.value.trim() || '';
+  const elapsed = state.timerSec - parseInt(document.getElementById(`tsec-${idx}`)?.textContent || '0');
+
+  document.getElementById(`ans-row-${idx}`)?.remove();
+
+  if (answer) {
+    flow().insertAdjacentHTML('beforeend', userRow(answer));
+    scroll();
+  }
+
+  // 서버에 저장
+  await saveAnswer(idx, state.questions[idx], answer, elapsed);
+
+  state.qIdx = idx + 1;
+  await showQuestion(state.qIdx);
+}
+
+async function autoNext(idx) {
+  document.getElementById(`ans-row-${idx}`)?.remove();
+  flow().insertAdjacentHTML('beforeend', userRow('(시간 초과)'));
+  scroll();
+
+  await saveAnswer(idx, state.questions[idx], '', 60);
+  state.qIdx = idx + 1;
+  await showQuestion(state.qIdx);
+}
+
+async function saveAnswer(idx, question, answer, duration) {
+  try {
+    await fetch('/api/job/save-answer/', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ q_index: idx, question, answer, duration }),
+    });
+  } catch(e) { /* 네트워크 오류 무시 */ }
+  state.answers.push({ q_index: idx, question, answer, duration });
+}
+
+/* ────────────────────────────────────────────
+   STEP 7. 면접 종료 + OpenAI 분석
+─────────────────────────────────────────────*/
+async function endInterview() {
+  await botSay('면접 완료! OpenAI가 답변을 분석하고 있어요 ✨');
+  await addFlow(`<div class="msg-row left">
+    <div class="av bot"><img src="${LOGO}" alt="" onerror="this.style.display='none'"/></div>
+    <div class="bubble-wrap">
+      <div class="sender-name">CBL 봇</div>
+      <div class="bubble bot" style="display:flex;align-items:center;gap:8px">
+        <div style="width:12px;height:12px;border:1.5px solid rgba(255,255,255,.2);border-top-color:#F9C20A;border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0"></div>
+        <span>AI 보고서 생성 중… (30초~1분 소요)</span>
+      </div>
+    </div>
+  </div>
+  <style>@keyframes spin{to{transform:rotate(360deg)}}</style>`, 300);
+
+  let result = {};
+  try {
+    const res = await fetch('/api/job/analyze/', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile: state.profile, answers: state.answers }),
+    });
+    const data = await res.json();
+    result = data.result || {};
+  } catch(e) {
+    result = { grade: 'B', scores: {}, summary: '분석 중 오류', strengths: [], fit_jobs: [] };
+  }
+
+  // 로딩 행 제거
+  document.querySelector('.job-body .msg-row.left:last-of-type')?.remove();
+
+  renderReport(result);
+}
+
+/* ────────────────────────────────────────────
+   보고서 렌더링
+─────────────────────────────────────────────*/
+function renderReport(r) {
+  const scores = r.scores || {};
+  const scoreMap = {
+    expertise:       '전문 지식',
+    field_response:  '실무 대응력',
+    problem_solving: '문제 해결력',
+    communication:   '커뮤니케이션',
+    growth_potential:'성장 가능성',
+  };
+
+  let scoreRows = '';
+  Object.entries(scoreMap).forEach(([key, label]) => {
+    const sc = scores[key] || 3;
+    const stars = '★'.repeat(sc) + '<span class="empty-s">' + '★'.repeat(5-sc) + '</span>';
+    scoreRows += `<div class="rpt-row"><span>${label}</span><span class="stars">${stars}</span></div>`;
+  });
+
+  const gradeColors = {S:'#24633c',A:'#1a5276',B:'#d97706',C:'#dc2626',D:'#888'};
+  const grade = r.grade || 'B';
+  const gradeColor = gradeColors[grade] || '#073A5B';
+
+  const fitTags = (r.fit_jobs || []).map(j => `<span class="tag">${esc(j)}</span>`).join('');
+  const strengths = (r.strengths || []).map(s => `<li style="font-size:11.5px;color:#151a17;margin-bottom:2px">${esc(s)}</li>`).join('');
+
+  flow().insertAdjacentHTML('beforeend', `
+    <div class="report-card">
+      <div class="rpt-title">📋 AI 면접 분석 보고서</div>
+      <div style="margin-bottom:10px">
+        <span class="grade-badge" style="color:${gradeColor}">${grade}등급</span>
+        <div style="font-size:11.5px;color:#151a17;line-height:1.6;margin-top:4px">${esc(r.summary || '')}</div>
+      </div>
+      ${scoreRows}
+      <div style="margin-top:10px">
+        <div style="font-size:10.5px;font-weight:600;color:#073A5B;margin-bottom:4px">강점</div>
+        <ul style="list-style:none;padding:0">${strengths}</ul>
+      </div>
+      <div style="margin-top:8px">
+        <div style="font-size:10.5px;font-weight:600;color:#073A5B;margin-bottom:4px">추천 직무</div>
+        <div class="tag-list">${fitTags}</div>
+      </div>
+      <button class="btn-pdf" onclick="downloadPDF()">📄 PDF 보고서 다운로드</button>
+    </div>
+  `);
+
+  flow().insertAdjacentHTML('beforeend',
+    botRow('보고서 완성! PDF로 저장하거나 기업에 직접 제출할 수 있어요.')
+  );
+
+  showInputBar('추가 질문을 입력하세요…', 'free');
+  scroll();
+}
+
+/* ── PDF 다운로드 ── */
+function downloadPDF() {
+  window.open('/api/job/download-report/', '_blank');
+}
+
+/* ── 입력창 제어 ── */
+let inputMode = '';
+function showInputBar(ph, mode) {
+  inputMode = mode;
+  const bar = document.getElementById('job-input-area');
+  bar.style.display = 'flex';
+  const inp = document.getElementById('job-inp');
+  inp.placeholder = ph;
+  inp.focus();
+}
+function hideInputBar() {
+  document.getElementById('job-input-area').style.display = 'none';
+}
+
+/* ── 자유 입력 처리 ── */
+async function freeChat() {
+  const inp = document.getElementById('job-inp');
+  const v = inp.value.trim();
+  if (!v) return;
+  inp.value = '';
+
+  if (inputMode === 'profile') {
+    hideInputBar();
+    await handleProfileInput(v);
+    return;
+  }
+
+  // 자유 대화
+  flow().insertAdjacentHTML('beforeend', userRow(v));
+  scroll();
+  await botSay('확인했어요. 추가 궁금한 점이 있으시면 언제든 말씀해 주세요.');
+}
+</script>
+{% endblock %}

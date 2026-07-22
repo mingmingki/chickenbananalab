@@ -7,3 +7,6 @@ class CoreConfig(AppConfig):
 
     def ready(self):
         import core.signals
+        from core.gemini_usage import install_gemini_usage_tracking
+
+        install_gemini_usage_tracking()

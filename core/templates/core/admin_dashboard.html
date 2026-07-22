@@ -445,7 +445,7 @@
     <a href="{% url 'mini_capcut_home' %}"
        onclick="window.open(this.href, 'miniCapcutEditor', 'width=1380,height=900,scrollbars=yes,resizable=yes'); return false;"
        style="display:inline-flex; align-items:center; gap:8px; padding:12px 16px; border-radius:14px; background:#111827; color:white; text-decoration:none; font-weight:900;">
-       🎬 미니 CapCut 열기
+       🎬 치킨바나나컷 열기
     </a>
 </div>
 
@@ -460,7 +460,7 @@
                 <p>등록된 글의 공개 상태를 확인하고 수정하거나 삭제할 수 있습니다.</p>
             </div>
 
-            <a href="{% url 'post_create' %}" class="save-btn">
+            <a data-cbl-write-admin-only-v2="1" {% if not user.is_staff %}style="display:none !important;" aria-hidden="true" tabindex="-1"{% endif %} href="{% url 'post_create' %}" class="save-btn"> <!-- CBL_WRITE_LINK_ADMIN_ONLY_V2 -->
                 새 글 작성
             </a>
         </div>

@@ -4,16 +4,11 @@ from django.urls import reverse
 from django.utils.text import slugify
 from django.utils.html import strip_tags
 import re
+from .cbl_category_policy import CBL_MODEL_CATEGORY_CHOICES
 
 
 class Post(models.Model):
-    CATEGORY_CHOICES = [
-        ("architecture", "건축"),
-        ("realestate", "부동산"),
-        ("finance", "금융"),
-        ("tech", "테크"),
-        ("life", "일상"),
-    ]
+    CATEGORY_CHOICES = CBL_MODEL_CATEGORY_CHOICES
 
     category = models.CharField(
         max_length=20,
@@ -356,11 +351,20 @@ class AIAutoWriterSetting(models.Model):
         verbose_name="하루 최대 생성 글 수"
     )
 
-    use_architecture = models.BooleanField(default=True, verbose_name="건축 사용")
-    use_realestate = models.BooleanField(default=True, verbose_name="부동산 사용")
+    use_architecture = models.BooleanField(default=True, verbose_name="건설실무 사용")
+    use_construction_tech = models.BooleanField(default=True, verbose_name="건설기술 사용")
+    use_realestate = models.BooleanField(default=True, verbose_name="건설부동산 사용")
     use_finance = models.BooleanField(default=True, verbose_name="금융 사용")
     use_tech = models.BooleanField(default=True, verbose_name="테크 사용")
     use_life = models.BooleanField(default=True, verbose_name="일상 사용")
+
+    # CBL_AI_AUTO_NEW_CATEGORY_FIELDS_START
+    use_bim = models.BooleanField(default=True, verbose_name="REVIT/BIM 사용")
+    use_dynamo_automation = models.BooleanField(default=True, verbose_name="Dynamo/자동화 사용")
+    use_four_d_five_d = models.BooleanField(default=True, verbose_name="4D/5D 사용")
+    use_program = models.BooleanField(default=True, verbose_name="업무용 프로그램 사용")
+    use_tool_recommend = models.BooleanField(default=True, verbose_name="툴소개/툴추천 사용")
+    # CBL_AI_AUTO_NEW_CATEGORY_FIELDS_END
 
     last_run_at = models.DateTimeField(
         null=True,
@@ -400,6 +404,16 @@ class AIAutoWriterSetting(models.Model):
 
 class AIAutoKeywordQueue(models.Model):
     CATEGORY_CHOICES = [
+        ("construction_work", "건설실무"),
+        ("construction_tech", "건설기술"),
+        ("construction_real", "건설부동산"),
+        ("bim", "REVIT/BIM"),
+        ("dynamo_automation", "Dynamo/자동화"),
+        ("four_d_five_d", "4D/5D"),
+        ("program", "업무용 프로그램"),
+        ("tool_recommend", "툴소개/툴추천"),
+
+        # 기존 글/대기열 호환용
         ("architecture", "건축"),
         ("realestate", "부동산"),
         ("finance", "금융"),
@@ -553,6 +567,16 @@ class ProgramDownload(models.Model):
         verbose_name="Windows용 파일",
     )
 
+    mac_is_public = models.BooleanField(
+        default=False,
+        verbose_name="Mac 공개",
+    )
+
+    windows_is_public = models.BooleanField(
+        default=False,
+        verbose_name="Windows 공개",
+    )
+
     order = models.PositiveIntegerField(
         default=0,
         verbose_name="표시 순서",
@@ -571,3 +595,139 @@ class ProgramDownload(models.Model):
     def __str__(self):
         return self.name
 # CBL_PROGRAM_DOWNLOAD_MODEL_END
+
+
+
+# CBL_HOME_PROGRAM_DOWNLOAD_MODEL_START
+class HomeProgramDownload(models.Model):
+    title = models.CharField(max_length=120, verbose_name="표시명")
+    badge = models.CharField(max_length=20, blank=True, default="", verbose_name="짧은 라벨")
+    description = models.CharField(max_length=200, blank=True, default="", verbose_name="설명")
+    file = models.FileField(upload_to="home_programs/", blank=True, null=True, verbose_name="다운로드 파일")
+    is_public = models.BooleanField(default=False, verbose_name="공개 여부")
+    order = models.PositiveIntegerField(default=0, verbose_name="표시 순서")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="등록일")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일")
+
+    class Meta:
+        ordering = ["order", "id"]
+        verbose_name = "홈 인기 프로그램"
+        verbose_name_plural = "홈 인기 프로그램"
+
+    def __str__(self):
+        return self.title
+# CBL_HOME_PROGRAM_DOWNLOAD_MODEL_END
+
+class CalendarEvent(models.Model):
+    title = models.CharField("일정명", max_length=120)
+    event_date = models.DateField("시작 날짜")
+    end_date = models.DateField("종료 날짜", blank=True, null=True)
+    start_time = models.TimeField("시작 시간", blank=True, null=True)
+    end_time = models.TimeField("종료 시간", blank=True, null=True)
+    category = models.CharField(
+        "분류",
+        max_length=30,
+        blank=True,
+        default="일정",
+        help_text="예: 업데이트, 강의, 배포, 공지, 개인일정"
+    )
+    description = models.TextField("설명", blank=True)
+    link_url = models.URLField("연결 링크", blank=True)
+    is_public = models.BooleanField("공개", default=True)
+    is_important = models.BooleanField("중요 일정", default=False)
+    is_all_day = models.BooleanField("온종일", default=False)
+    event_color = models.CharField("이벤트 바 색상", max_length=7, default="#2f9e97")
+    created_at = models.DateTimeField("등록일", auto_now_add=True)
+    updated_at = models.DateTimeField("수정일", auto_now=True)
+
+    class Meta:
+        verbose_name = "주요 일정"
+        verbose_name_plural = "주요 일정"
+        ordering = ["event_date", "start_time", "id"]
+
+    def __str__(self):
+        return f"{self.event_date} - {self.title}"
+
+
+class CommunityQuestion(models.Model):
+    CATEGORY_CHOICES = [
+        ("question", "질문/답변"),
+        ("error", "오류 제보"),
+        ("request", "프로그램 요청"),
+        ("faq", "자주하는 질문"),
+    ]
+
+    category = models.CharField("분류", max_length=30, choices=CATEGORY_CHOICES, default="question")
+    title = models.CharField("제목", max_length=200)
+    body = models.TextField("문의 내용")
+    author_name = models.CharField("작성자", max_length=40, blank=True, default="익명")
+    contact = models.CharField("연락처/이메일", max_length=120, blank=True)
+    answer = models.TextField("답변", blank=True)
+    is_public = models.BooleanField("공개 여부", default=True)
+    created_at = models.DateTimeField("등록일", auto_now_add=True)
+    answered_at = models.DateTimeField("답변일", blank=True, null=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "커뮤니티 문의"
+        verbose_name_plural = "커뮤니티 문의"
+
+    def save(self, *args, **kwargs):
+        if self.answer and not self.answered_at:
+            from django.utils import timezone
+            self.answered_at = timezone.now()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"[{self.get_category_display()}] {self.title}"
+
+class GeminiUsageLog(models.Model):
+    """One row per Gemini API attempt. Prompts and responses are not stored."""
+
+    FEATURE_CHOICES = [
+        ("quantity_structural", "AI 수량산출 · 구조 부재"),
+        ("quantity_architectural", "AI 수량산출 · 건축도면"),
+        ("quantity_elevation", "AI 수량산출 · 입면/단면"),
+        ("ai_post_body", "AI 글 · 본문 생성"),
+        ("ai_recent_issue", "AI 글 · 최근 이슈 검색"),
+        ("ai_headline", "AI 글 · 제목/썸네일 문구"),
+        ("ai_factcheck", "AI 글 · 팩트체크"),
+        ("ai_translation", "AI 글 · 번역/다국어"),
+        ("ai_topic_planning", "AI 글 · 주제 기획"),
+        ("ai_keyword_recommendation", "AI 글 · 키워드 추천"),
+        ("ai_image", "AI 이미지 생성"),
+        ("naver_keyword_search", "오늘의 키워드 · Gemini 검색"),
+        ("other", "기타 Gemini 호출"),
+    ]
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="호출 시각")
+    feature = models.CharField(max_length=60, choices=FEATURE_CHOICES, default="other", db_index=True, verbose_name="기능")
+    model = models.CharField(max_length=160, blank=True, db_index=True, verbose_name="모델")
+    prompt_tokens = models.PositiveBigIntegerField(default=0, verbose_name="입력 토큰")
+    output_tokens = models.PositiveBigIntegerField(default=0, verbose_name="출력 토큰")
+    total_tokens = models.PositiveBigIntegerField(default=0, db_index=True, verbose_name="전체 토큰")
+    cached_tokens = models.PositiveBigIntegerField(default=0, verbose_name="캐시 토큰")
+    thoughts_tokens = models.PositiveBigIntegerField(default=0, verbose_name="생각 토큰")
+    tool_tokens = models.PositiveBigIntegerField(default=0, verbose_name="도구 토큰")
+    input_characters = models.PositiveBigIntegerField(default=0, verbose_name="입력 문자 수")
+    image_inputs = models.PositiveIntegerField(default=0, verbose_name="입력 이미지 수")
+    duration_ms = models.PositiveIntegerField(default=0, verbose_name="소요시간(ms)")
+    is_success = models.BooleanField(default=True, db_index=True, verbose_name="성공")
+    error_type = models.CharField(max_length=120, blank=True, verbose_name="오류 종류")
+    error_message = models.TextField(blank=True, verbose_name="오류 내용")
+    callsite = models.CharField(max_length=240, blank=True, verbose_name="호출 위치")
+    batch_index = models.PositiveIntegerField(blank=True, null=True, verbose_name="현재 배치")
+    batch_total = models.PositiveIntegerField(blank=True, null=True, verbose_name="전체 배치")
+    metadata = models.JSONField(default=dict, blank=True, verbose_name="추가 정보")
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["feature", "created_at"], name="gem_usage_feat_time"),
+            models.Index(fields=["model", "created_at"], name="gem_usage_model_time"),
+        ]
+        verbose_name = "Gemini 사용량"
+        verbose_name_plural = "Gemini 사용량"
+
+    def __str__(self):
+        return f"{self.get_feature_display()} · {self.model} · {self.total_tokens:,} tokens"

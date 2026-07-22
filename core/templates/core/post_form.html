@@ -2031,4 +2031,60 @@ function performLocationSearch() {
     updateCharCount();
 </script>
 
+
+<!-- CBL_POST_ADD_CATEGORY_SELECT_FORCE_START -->
+<script>
+(function () {
+  function applyPostCategoryChoices() {
+    var path = window.location.pathname || "";
+
+    if (!(/^\/post\/add\/?$/.test(path) || /^\/post\/\d+\/edit\/?$/.test(path))) {
+      return;
+    }
+
+    var choices = [
+      ["construction_work", "건설실무"],
+      ["construction_tech", "건설기술"],
+      ["construction_real", "건설부동산"],
+      ["bim", "REVIT/BIM"],
+      ["dynamo_automation", "Dynamo/자동화"],
+      ["four_d_five_d", "4D/5D"],
+      ["program", "업무용 프로그램"],
+      ["tool_recommend", "툴소개/툴추천"]
+    ];
+
+    var selects = Array.prototype.slice.call(document.querySelectorAll(
+      'select[name="category"], select#id_category, select[name="target_category"], select#id_target_category'
+    ));
+
+    selects.forEach(function (select) {
+      var current = select.value;
+      var html = '<option value="">카테고리를 선택하세요</option>';
+
+      choices.forEach(function (item) {
+        var value = item[0];
+        var label = item[1];
+        var selected = current === value ? ' selected' : '';
+        html += '<option value="' + value + '"' + selected + '>' + label + '</option>';
+      });
+
+      select.innerHTML = html;
+
+      if (!choices.some(function (item) { return item[0] === current; })) {
+        select.value = "";
+      }
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", applyPostCategoryChoices);
+  } else {
+    applyPostCategoryChoices();
+  }
+
+  window.addEventListener("load", applyPostCategoryChoices);
+})();
+</script>
+<!-- CBL_POST_ADD_CATEGORY_SELECT_FORCE_END -->
+
 {% endblock %}

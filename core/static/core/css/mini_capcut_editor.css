@@ -532,7 +532,7 @@
 
 
 /* ============================================================
-   Mini CapCut timeline drag/drop v2
+   ChickenBananaCut timeline drag/drop v2
    ============================================================ */
 
 .mc-timeline-controls {
@@ -780,7 +780,7 @@
 
 
 /* ============================================================
-   Mini CapCut playback / zoom / full-width timeline
+   ChickenBananaCut playback / zoom / full-width timeline
    ============================================================ */
 
 .mc-center {
@@ -901,7 +901,7 @@
 
 
 /* ============================================================
-   Mini CapCut professional timeline smooth patch
+   ChickenBananaCut professional timeline smooth patch
    ============================================================ */
 
 .mc-center {
@@ -1306,7 +1306,7 @@
 
 
 /* ============================================================
-   Mini CapCut safe timeline toolbar
+   ChickenBananaCut safe timeline toolbar
    ============================================================ */
 
 .mc-toolbar.mc-toolbar-in-timeline {
@@ -1364,7 +1364,7 @@
     width: 100%;
 }
 
-/* Mini CapCut timeline buttons one-row fix */
+/* ChickenBananaCut timeline buttons one-row fix */
 .mc-timeline-shell {
     display: flex !important;
     flex-wrap: wrap !important;
@@ -1450,7 +1450,7 @@
     flex: 0 0 100% !important;
 }
 
-/* Mini CapCut timeline toolbar final layout
+/* ChickenBananaCut timeline toolbar final layout
    왼쪽: 버튼들 / 오른쪽: 재생 위치 */
    .mc-timeline-shell {
     display: flex !important;

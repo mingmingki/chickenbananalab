@@ -1279,7 +1279,7 @@
     }
 
     async function saveProject(showAlert = true) {
-        const title = document.querySelector(".mc-title")?.textContent?.trim() || "미니 CapCut 프로젝트";
+        const title = document.querySelector(".mc-title")?.textContent?.trim() || "치킨바나나컷 프로젝트";
 
         const payload = {
             post_id: meta.postId,

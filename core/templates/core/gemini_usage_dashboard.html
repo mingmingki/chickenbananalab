@@ -1,0 +1,63 @@
+{% extends "core/base.html" %}
+
+{% block robots %}<meta name="robots" content="noindex, nofollow">{% endblock %}
+{% block title %}Gemini 사용량 | ChickenBanana Lab{% endblock %}
+
+{% block content %}
+<style>
+  .gu-wrap{max-width:1240px;margin:36px auto 80px;padding:0 20px;color:#15221e}
+  .gu-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-end;margin-bottom:22px}
+  .gu-head h1{font-size:30px;line-height:1.2;margin:0 0 7px;font-weight:900;letter-spacing:-1px}
+  .gu-head p{margin:0;color:#64748b;font-size:14px}
+  .gu-back{display:inline-flex;text-decoration:none;background:#eef3f1;color:#263b34;border-radius:12px;padding:10px 14px;font-weight:800}
+  .gu-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px}
+  .gu-card,.gu-panel{background:#fff;border:1px solid #e2e8e5;border-radius:20px;box-shadow:0 10px 30px rgba(23,46,37,.06)}
+  .gu-card{padding:19px}.gu-card small{display:block;color:#718078;font-weight:800;margin-bottom:8px}.gu-card strong{font-size:25px;letter-spacing:-.5px}.gu-card span{font-size:12px;color:#809087;margin-left:5px}
+  .gu-filter{display:flex;flex-wrap:wrap;gap:10px;align-items:end;padding:16px;margin-bottom:18px;background:#f7faf8;border:1px solid #e4ebe7;border-radius:18px}
+  .gu-field{display:grid;gap:5px}.gu-field label{font-size:11px;font-weight:900;color:#5e7168}.gu-field select{height:40px;border:1px solid #d7e0db;border-radius:11px;background:#fff;padding:0 11px;min-width:135px}
+  .gu-filter button,.gu-reset{height:40px;border:0;border-radius:11px;padding:0 17px;font-weight:900;cursor:pointer}.gu-filter button{background:#16785b;color:#fff}.gu-reset{display:inline-flex;align-items:center;background:#e8efeb;color:#456057;text-decoration:none}
+  .gu-grid{display:grid;grid-template-columns:1.45fr .9fr;gap:16px;margin-bottom:16px}.gu-panel{padding:19px;overflow:hidden}.gu-panel h2{font-size:17px;margin:0 0 15px;font-weight:900}
+  .gu-row{display:grid;grid-template-columns:minmax(160px,1fr) minmax(140px,1.4fr) 100px;gap:12px;align-items:center;margin:12px 0;font-size:13px}.gu-row-name{font-weight:800}.gu-bar{height:10px;background:#edf2ef;border-radius:99px;overflow:hidden}.gu-bar>i{display:block;height:100%;background:linear-gradient(90deg,#16a46f,#76d7ae);border-radius:99px}.gu-row-value{text-align:right;font-weight:900}
+  .gu-model{display:flex;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid #edf1ef;font-size:13px}.gu-model:last-child{border-bottom:0}.gu-model b{word-break:break-all}.gu-model span{text-align:right;white-space:nowrap;color:#52675e}
+  .gu-days{display:flex;gap:7px;align-items:end;height:160px;padding-top:8px;overflow-x:auto}.gu-day{min-width:34px;height:100%;display:flex;flex-direction:column;justify-content:end;align-items:center;gap:5px}.gu-day i{display:block;width:22px;min-height:3px;background:linear-gradient(180deg,#3fb98c,#16785b);border-radius:7px 7px 2px 2px}.gu-day b{font-size:9px;color:#50645b;writing-mode:vertical-rl;max-height:52px}.gu-day span{font-size:9px;color:#7a8c84;white-space:nowrap}
+  .gu-table-wrap{overflow:auto}.gu-table{width:100%;border-collapse:collapse;min-width:1050px;font-size:12px}.gu-table th,.gu-table td{padding:11px 9px;border-bottom:1px solid #edf1ef;text-align:left;vertical-align:top}.gu-table th{background:#f7faf8;color:#50645b;font-weight:900;position:sticky;top:0}.gu-num{text-align:right!important;font-variant-numeric:tabular-nums}.gu-ok{color:#08784d;font-weight:900}.gu-fail{color:#c2413b;font-weight:900}.gu-error{max-width:230px;color:#a33434;word-break:break-word}.gu-empty{padding:30px;text-align:center;color:#7a8c84}
+  .gu-pages{display:flex;justify-content:center;gap:8px;margin-top:16px}.gu-pages a,.gu-pages span{padding:8px 12px;border-radius:9px;background:#eef3f1;color:#385047;text-decoration:none;font-size:12px;font-weight:800}
+  @media(max-width:800px){.gu-head{align-items:flex-start;flex-direction:column}.gu-cards{grid-template-columns:1fr}.gu-grid{grid-template-columns:1fr}.gu-row{grid-template-columns:1fr 1fr}.gu-row-value{grid-column:2}.gu-bar{grid-column:1/-1;grid-row:2}.gu-wrap{padding:0 12px}}
+</style>
+
+<main class="gu-wrap">
+  <div class="gu-head">
+    <div><h1>Gemini 사용량</h1><p>프롬프트와 도면 원문은 저장하지 않고 토큰·모델·기능·성공 여부만 기록합니다.</p></div>
+    <a class="gu-back" href="{% url 'admin_dashboard' %}">관리자 대시보드</a>
+  </div>
+
+  <section class="gu-cards">
+    <article class="gu-card"><small>오늘 전체 토큰</small><strong>{{ today_summary.total_fmt }}</strong><span>{{ today_summary.calls_fmt }}회</span></article>
+    <article class="gu-card"><small>이번 달 전체 토큰</small><strong>{{ month_summary.total_fmt }}</strong><span>{{ month_summary.calls_fmt }}회</span></article>
+    <article class="gu-card"><small>선택 기간 전체 토큰</small><strong>{{ filtered_summary.total_fmt }}</strong><span>실패 {{ filtered_summary.failures }}회</span></article>
+    <article class="gu-card"><small>선택 기간 입력 토큰</small><strong>{{ filtered_summary.prompt_fmt }}</strong></article>
+    <article class="gu-card"><small>선택 기간 출력 토큰</small><strong>{{ filtered_summary.output_fmt }}</strong></article>
+    <article class="gu-card"><small>이미지 입력</small><strong>{{ filtered_summary.images_fmt }}</strong><span>장</span></article>
+  </section>
+
+  <form class="gu-filter" method="get">
+    <div class="gu-field"><label>기간</label><select name="days"><option value="7" {% if days == 7 %}selected{% endif %}>최근 7일</option><option value="30" {% if days == 30 %}selected{% endif %}>최근 30일</option><option value="90" {% if days == 90 %}selected{% endif %}>최근 90일</option></select></div>
+    <div class="gu-field"><label>기능</label><select name="feature"><option value="">전체 기능</option>{% for value,label in feature_choices %}<option value="{{ value }}" {% if selected_feature == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="gu-field"><label>모델</label><select name="model"><option value="">전체 모델</option>{% for value in model_choices %}<option value="{{ value }}" {% if selected_model == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+    <div class="gu-field"><label>상태</label><select name="status"><option value="">전체 상태</option><option value="success" {% if selected_status == 'success' %}selected{% endif %}>성공</option><option value="failed" {% if selected_status == 'failed' %}selected{% endif %}>실패</option></select></div>
+    <button type="submit">조회</button><a class="gu-reset" href="{% url 'gemini_usage_dashboard' %}">초기화</a>
+  </form>
+
+  <section class="gu-grid">
+    <article class="gu-panel"><h2>기능별 사용량</h2>{% for row in feature_rows %}<div class="gu-row"><div class="gu-row-name">{{ row.label }}<br><small>{{ row.calls_fmt }}회 · 실패 {{ row.failures }}회 · 이미지 {{ row.images_fmt }}장</small></div><div class="gu-bar"><i style="width:{{ row.bar_percent }}%"></i></div><div class="gu-row-value">{{ row.total_fmt }}</div></div>{% empty %}<div class="gu-empty">아직 기록된 호출이 없습니다.</div>{% endfor %}</article>
+    <article class="gu-panel"><h2>모델별 사용량</h2>{% for row in model_rows %}<div class="gu-model"><b>{{ row.model }}</b><span>{{ row.total_fmt }} 토큰<br>{{ row.calls_fmt }}회 · 실패 {{ row.failures }}</span></div>{% empty %}<div class="gu-empty">모델 기록이 없습니다.</div>{% endfor %}</article>
+  </section>
+
+  <section class="gu-panel" style="margin-bottom:16px"><h2>일자별 사용량</h2><div class="gu-days">{% for row in daily_rows %}<div class="gu-day" title="{{ row.day }} · {{ row.total_fmt }} 토큰 · {{ row.calls_fmt }}회"><b>{{ row.total_fmt }}</b><i style="height:{{ row.bar_percent }}%"></i><span>{{ row.day|date:'m/d' }}</span></div>{% empty %}<div class="gu-empty">표시할 데이터가 없습니다.</div>{% endfor %}</div></section>
+
+  <section class="gu-panel"><h2>개별 호출 기록</h2><div class="gu-table-wrap"><table class="gu-table"><thead><tr><th>시간</th><th>기능</th><th>모델</th><th class="gu-num">입력</th><th class="gu-num">출력</th><th class="gu-num">전체</th><th class="gu-num">이미지</th><th class="gu-num">시간</th><th>상태</th><th>배치/오류</th></tr></thead><tbody>{% for log in page_obj.object_list %}<tr><td>{{ log.created_at|date:'m-d H:i:s' }}</td><td>{{ log.get_feature_display }}</td><td>{{ log.model|default:'-' }}</td><td class="gu-num">{{ log.prompt_tokens_fmt }}</td><td class="gu-num">{{ log.output_tokens_fmt }}</td><td class="gu-num"><b>{{ log.total_tokens_fmt }}</b></td><td class="gu-num">{{ log.image_inputs }}</td><td class="gu-num">{{ log.duration_seconds }}초</td><td>{% if log.is_success %}<span class="gu-ok">성공</span>{% else %}<span class="gu-fail">실패</span>{% endif %}</td><td>{% if log.batch_total %}{{ log.batch_index }}/{{ log.batch_total }}{% endif %}{% if log.error_message %}<div class="gu-error">{{ log.error_type }} · {{ log.error_message }}</div>{% endif %}</td></tr>{% empty %}<tr><td colspan="10" class="gu-empty">선택 조건에 해당하는 호출이 없습니다.</td></tr>{% endfor %}</tbody></table></div>
+    {% if page_obj.paginator.num_pages > 1 %}<nav class="gu-pages">{% if page_obj.has_previous %}<a href="?days={{ days }}&feature={{ selected_feature }}&model={{ selected_model|urlencode }}&status={{ selected_status }}&page={{ page_obj.previous_page_number }}">이전</a>{% endif %}<span>{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a href="?days={{ days }}&feature={{ selected_feature }}&model={{ selected_model|urlencode }}&status={{ selected_status }}&page={{ page_obj.next_page_number }}">다음</a>{% endif %}</nav>{% endif %}
+  </section>
+</main>
+{% endblock %}
+

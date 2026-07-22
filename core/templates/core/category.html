@@ -106,11 +106,763 @@
             font-size: 11px !important;
         }
     }
+
+
+/* CBL_ARCH_HERO_ICON_TEXT_FIX_START */
+.cbl-arch-hero-icon {
+    color: #0f9f92 !important;
+    font-size: 0 !important;
+}
+.cbl-arch-hero-icon svg {
+    width: 54px;
+    height: 54px;
+    display: block;
+}
+.cbl-arch-hero-icon svg path {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 3.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.cbl-arch-hero-titleline p {
+    color: #111827 !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.035em;
+}
+@media (max-width: 768px) {
+    .cbl-arch-hero-icon svg {
+        width: 42px;
+        height: 42px;
+    }
+    .cbl-arch-hero-titleline p {
+        font-size: 12px !important;
+        line-height: 1.35 !important;
+        white-space: normal !important;
+    }
+}
+/* CBL_ARCH_HERO_ICON_TEXT_FIX_END */
+
+
+
+
+/* CBL_ARCH_BADGE_NAMES_FIX_START */
+.cbl-arch-badge {
+    white-space: nowrap !important;
+    letter-spacing: -0.04em !important;
+}
+.cbl-arch-mini .cbl-arch-badge,
+.cbl-arch-video-badge {
+    font-size: 9px !important;
+    padding: 3px 7px !important;
+    line-height: 1.2 !important;
+}
+.cbl-arch-video-thumb {
+    position: relative !important;
+}
+.cbl-arch-video-badge {
+    position: absolute !important;
+    left: 10px !important;
+    top: 10px !important;
+    z-index: 3 !important;
+}
+@media (max-width: 720px) {
+    .cbl-arch-badge {
+        font-size: 8.5px !important;
+        padding: 3px 6px !important;
+    }
+    .cbl-arch-mini .cbl-arch-badge,
+    .cbl-arch-video-badge {
+        font-size: 8px !important;
+        padding: 3px 5px !important;
+    }
+}
+/* CBL_ARCH_BADGE_NAMES_FIX_END */
+
+/* CBL_ARCH_POPUP_SCROLL_ONLY_GUARD_START */
+/* 메인 섹션은 그대로 두고, 전체보기 팝업 안에서만 스크롤되게 보강 */
+.cbl-arch-modal-panel {
+    max-height: min(880px, calc(100vh - 52px)) !important;
+    overflow: hidden !important;
+}
+.cbl-arch-modal-body {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain !important;
+}
+.cbl-arch-modal-grid {
+    max-height: 540px !important;
+    overflow-y: auto !important;
+}
+.cbl-arch-modal-video-grid {
+    max-height: 370px !important;
+    overflow-y: auto !important;
+}
+@media (max-width: 720px) {
+    .cbl-arch-modal-panel {
+        max-height: calc(100vh - 24px) !important;
+    }
+    .cbl-arch-modal-grid,
+    .cbl-arch-modal-video-grid {
+        max-height: none !important;
+    }
+}
+/* CBL_ARCH_POPUP_SCROLL_ONLY_GUARD_END */
+
+
+/* CBL_ARCH_REMOVE_POPUP_HELPER_TEXTS_START */
+.cbl-arch-modal-subhead > span {
+    display: none !important;
+}
+/* CBL_ARCH_REMOVE_POPUP_HELPER_TEXTS_END */
+
+
+
+
+
+/* CBL_BTP_HERO_POLISH_V2_START */
+/* BIM / 테크 / 프로그램 히어로만 건설 페이지 규격으로 정리 */
+.category-hero.category-bim,
+.category-hero.category-tech,
+.category-hero.category-program {
+    background: transparent !important;
+    padding-top: 24px !important;
+    padding-bottom: 28px !important;
+}
+
+.category-hero.category-bim .container,
+.category-hero.category-tech .container,
+.category-hero.category-program .container {
+    position: relative !important;
+    isolation: isolate !important;
+    overflow: hidden !important;
+    width: min(1380px, calc(100% - 48px)) !important;
+    min-height: 154px !important;
+    margin: 0 auto !important;
+    padding: 28px 56px !important;
+    border: 1px solid rgba(253, 186, 116, .50) !important;
+    border-radius: 28px !important;
+    background: linear-gradient(90deg, #fffaf4 0%, #ffffff 52%, #fff4e8 100%) !important;
+    box-shadow: 0 18px 44px rgba(15, 23, 42, .045) !important;
+}
+
+.category-hero.category-bim .container::after,
+.category-hero.category-tech .container::after,
+.category-hero.category-program .container::after {
+    content: "" !important;
+    position: absolute !important;
+    z-index: 0 !important;
+    top: 0 !important;
+    right: 0 !important;
+    width: 46% !important;
+    height: 100% !important;
+    border-radius: 0 28px 28px 0 !important;
+    background-repeat: no-repeat !important;
+    background-size: cover !important;
+    background-position: center center !important;
+    pointer-events: none !important;
+}
+
+.category-hero.category-bim .container::before,
+.category-hero.category-tech .container::before,
+.category-hero.category-program .container::before {
+    content: "" !important;
+    position: absolute !important;
+    z-index: 1 !important;
+    inset: 0 !important;
+    background: linear-gradient(90deg,
+        #fffaf4 0%,
+        rgba(255,250,244,.98) 45%,
+        rgba(255,250,244,.78) 58%,
+        rgba(255,250,244,.28) 70%,
+        rgba(255,250,244,0) 86%) !important;
+    pointer-events: none !important;
+}
+
+.category-hero.category-bim .container::after {
+    background-image: url('/static/core/img/cbl_btp_hero_bim_clean.jpg') !important;
+    background-position: center center !important;
+}
+.category-hero.category-tech .container::after {
+    background-image: url('/static/core/img/cbl_btp_hero_tech_clean.jpg') !important;
+    background-position: center center !important;
+}
+.category-hero.category-program .container::after {
+    background-image: url('/static/core/img/cbl_btp_hero_program_clean.jpg') !important;
+    background-position: center center !important;
+}
+
+.category-hero.category-bim .category-title,
+.category-hero.category-tech .category-title,
+.category-hero.category-program .category-title,
+.category-hero.category-bim .sub-search,
+.category-hero.category-tech .sub-search,
+.category-hero.category-program .sub-search {
+    position: relative !important;
+    z-index: 3 !important;
+}
+
+.category-hero.category-bim .category-title,
+.category-hero.category-tech .category-title,
+.category-hero.category-program .category-title {
+    display: grid !important;
+    grid-template-columns: 104px minmax(0, 1fr) !important;
+    grid-template-rows: auto auto !important;
+    grid-template-areas:
+        "icon title"
+        "icon desc" !important;
+    align-items: center !important;
+    justify-content: start !important;
+    gap: 4px 30px !important;
+    width: min(720px, 61%) !important;
+    margin: 0 0 14px 0 !important;
+    text-align: left !important;
+}
+
+.category-hero.category-bim .category-title > p,
+.category-hero.category-tech .category-title > p,
+.category-hero.category-program .category-title > p {
+    display: none !important;
+}
+
+.category-hero.category-bim .category-big-icon,
+.category-hero.category-tech .category-big-icon,
+.category-hero.category-program .category-big-icon {
+    grid-area: icon !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 94px !important;
+    height: 94px !important;
+    min-width: 94px !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 22px !important;
+    background: rgba(255,255,255,.96) !important;
+    box-shadow: 0 13px 28px rgba(15,23,42,.055) !important;
+    color: #0f9f92 !important;
+    font-size: 0 !important;
+    line-height: 1 !important;
+    margin: 0 !important;
+}
+.category-hero.category-bim .category-big-icon::before,
+.category-hero.category-tech .category-big-icon::before,
+.category-hero.category-program .category-big-icon::before {
+    display: block !important;
+    color: #0f9f92 !important;
+    font-size: 38px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+}
+.category-hero.category-bim .category-big-icon::before { content: "▧" !important; }
+.category-hero.category-tech .category-big-icon::before { content: "⌨" !important; }
+.category-hero.category-program .category-big-icon::before { content: "⌘" !important; }
+
+.category-hero.category-bim .category-title h1,
+.category-hero.category-tech .category-title h1,
+.category-hero.category-program .category-title h1 {
+    grid-area: title !important;
+    margin: 0 !important;
+    color: #0f172a !important;
+    font-size: 43px !important;
+    line-height: .98 !important;
+    font-weight: 950 !important;
+    letter-spacing: -0.065em !important;
+    white-space: nowrap !important;
+}
+
+.category-hero.category-bim .category-title > span,
+.category-hero.category-tech .category-title > span,
+.category-hero.category-program .category-title > span {
+    grid-area: desc !important;
+    display: block !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    color: #111827 !important;
+    font-size: 14px !important;
+    line-height: 1.35 !important;
+    font-weight: 850 !important;
+    letter-spacing: -0.035em !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+.category-hero.category-bim .sub-search,
+.category-hero.category-tech .sub-search,
+.category-hero.category-program .sub-search {
+    width: min(620px, 58%) !important;
+    margin: 0 0 0 124px !important;
+    display: flex !important;
+    align-items: stretch !important;
+}
+.category-hero.category-bim .sub-search input,
+.category-hero.category-tech .sub-search input,
+.category-hero.category-program .sub-search input {
+    height: 44px !important;
+    border: 1px solid #cbd5e1 !important;
+    border-right: 0 !important;
+    border-radius: 999px 0 0 999px !important;
+    background: rgba(255,255,255,.96) !important;
+    box-shadow: none !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    color: #0f172a !important;
+}
+.category-hero.category-bim .sub-search button,
+.category-hero.category-tech .sub-search button,
+.category-hero.category-program .sub-search button {
+    height: 44px !important;
+    min-width: 96px !important;
+    border-radius: 0 999px 999px 0 !important;
+    background: #0f172a !important;
+    color: #fff !important;
+    font-weight: 950 !important;
+}
+
+@media (max-width: 1000px) {
+    .category-hero.category-bim .container,
+    .category-hero.category-tech .container,
+    .category-hero.category-program .container {
+        width: calc(100% - 28px) !important;
+        min-height: 150px !important;
+        padding: 24px 28px !important;
+    }
+    .category-hero.category-bim .container::after,
+    .category-hero.category-tech .container::after,
+    .category-hero.category-program .container::after {
+        width: 48% !important;
+        opacity: .65 !important;
+    }
+    .category-hero.category-bim .container::before,
+    .category-hero.category-tech .container::before,
+    .category-hero.category-program .container::before {
+        background: linear-gradient(90deg,
+            #fffaf4 0%,
+            rgba(255,250,244,.98) 56%,
+            rgba(255,250,244,.50) 78%,
+            rgba(255,250,244,0) 100%) !important;
+    }
+    .category-hero.category-bim .category-title,
+    .category-hero.category-tech .category-title,
+    .category-hero.category-program .category-title {
+        width: min(680px, 72%) !important;
+    }
+    .category-hero.category-bim .sub-search,
+    .category-hero.category-tech .sub-search,
+    .category-hero.category-program .sub-search {
+        width: min(560px, 72%) !important;
+    }
+}
+
+@media (max-width: 700px) {
+    .category-hero.category-bim,
+    .category-hero.category-tech,
+    .category-hero.category-program {
+        padding-top: 16px !important;
+        padding-bottom: 18px !important;
+    }
+    .category-hero.category-bim .container,
+    .category-hero.category-tech .container,
+    .category-hero.category-program .container {
+        border-radius: 22px !important;
+        min-height: 132px !important;
+        padding: 20px 18px !important;
+    }
+    .category-hero.category-bim .container::after,
+    .category-hero.category-tech .container::after,
+    .category-hero.category-program .container::after {
+        display: none !important;
+    }
+    .category-hero.category-bim .container::before,
+    .category-hero.category-tech .container::before,
+    .category-hero.category-program .container::before {
+        display: none !important;
+    }
+    .category-hero.category-bim .category-title,
+    .category-hero.category-tech .category-title,
+    .category-hero.category-program .category-title {
+        grid-template-columns: 58px minmax(0, 1fr) !important;
+        width: 100% !important;
+        gap: 2px 14px !important;
+        margin-bottom: 12px !important;
+    }
+    .category-hero.category-bim .category-big-icon,
+    .category-hero.category-tech .category-big-icon,
+    .category-hero.category-program .category-big-icon {
+        width: 54px !important;
+        height: 54px !important;
+        min-width: 54px !important;
+        border-radius: 15px !important;
+    }
+    .category-hero.category-bim .category-big-icon::before,
+    .category-hero.category-tech .category-big-icon::before,
+    .category-hero.category-program .category-big-icon::before {
+        font-size: 24px !important;
+    }
+    .category-hero.category-bim .category-title h1,
+    .category-hero.category-tech .category-title h1,
+    .category-hero.category-program .category-title h1 {
+        font-size: 29px !important;
+    }
+    .category-hero.category-bim .category-title > span,
+    .category-hero.category-tech .category-title > span,
+    .category-hero.category-program .category-title > span {
+        font-size: 11px !important;
+    }
+    .category-hero.category-bim .sub-search,
+    .category-hero.category-tech .sub-search,
+    .category-hero.category-program .sub-search {
+        width: 100% !important;
+        margin-left: 0 !important;
+    }
+    .category-hero.category-bim .sub-search input,
+    .category-hero.category-tech .sub-search input,
+    .category-hero.category-program .sub-search input,
+    .category-hero.category-bim .sub-search button,
+    .category-hero.category-tech .sub-search button,
+    .category-hero.category-program .sub-search button {
+        height: 42px !important;
+    }
+}
+/* CBL_BTP_HERO_POLISH_V2_END */
+
+
+/* CBL_BTP_ICON_SEARCH_FIX_V3_START */
+/* BIM / 테크 / 프로그램 히어로: 아이콘 + 검색창만 정리 */
+.category-hero.category-bim .category-big-icon,
+.category-hero.category-tech .category-big-icon,
+.category-hero.category-program .category-big-icon {
+    width: 96px !important;
+    height: 96px !important;
+    min-width: 96px !important;
+    border-radius: 22px !important;
+    background: rgba(255,255,255,.96) !important;
+    border: 1px solid rgba(226,232,240,.96) !important;
+    box-shadow: 0 12px 28px rgba(15,23,42,.055) !important;
+    overflow: hidden !important;
+}
+
+.category-hero.category-bim .category-big-icon::before,
+.category-hero.category-tech .category-big-icon::before,
+.category-hero.category-program .category-big-icon::before {
+    content: "" !important;
+    display: block !important;
+    width: 46px !important;
+    height: 46px !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+    background-size: contain !important;
+    font-size: 0 !important;
+    line-height: 0 !important;
+    color: transparent !important;
+}
+
+.category-hero.category-bim .category-big-icon::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%230f9f92' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M24 5 8 14l16 9 16-9-16-9Z'/%3E%3Cpath d='M8 14v19l16 10 16-10V14'/%3E%3Cpath d='M24 23v20M16 18v19M32 18v19'/%3E%3Cpath d='M12 31l12 7 12-7' opacity='.65'/%3E%3C/svg%3E") !important;
+}
+.category-hero.category-tech .category-big-icon::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%230f9f92' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='8' y='9' width='32' height='24' rx='3'/%3E%3Cpath d='M18 20l-5 4 5 4M30 20l5 4-5 4M27 17l-6 14'/%3E%3Cpath d='M16 40h16M24 33v7'/%3E%3C/svg%3E") !important;
+}
+.category-hero.category-program .category-big-icon::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none' stroke='%230f9f92' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='7' y='8' width='34' height='28' rx='3'/%3E%3Cpath d='M7 16h34'/%3E%3Cpath d='M18 24l-5 4 5 4M30 24l5 4-5 4M27 21l-6 14'/%3E%3Cpath d='M15 41h18'/%3E%3C/svg%3E") !important;
+}
+
+.category-hero.category-bim .sub-search,
+.category-hero.category-tech .sub-search,
+.category-hero.category-program .sub-search {
+    width: min(640px, 58%) !important;
+    height: 46px !important;
+    margin: 0 0 0 124px !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 96px !important;
+    align-items: stretch !important;
+    overflow: hidden !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 999px !important;
+    background: rgba(255,255,255,.97) !important;
+    box-shadow: 0 5px 12px rgba(15,23,42,.035) !important;
+}
+
+.category-hero.category-bim .sub-search input,
+.category-hero.category-tech .sub-search input,
+.category-hero.category-program .sub-search input {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 100% !important;
+    padding: 0 24px !important;
+    border: 0 !important;
+    outline: none !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: #0f172a !important;
+    font-size: 14px !important;
+    font-weight: 750 !important;
+    letter-spacing: -0.035em !important;
+}
+
+.category-hero.category-bim .sub-search input::placeholder,
+.category-hero.category-tech .sub-search input::placeholder,
+.category-hero.category-program .sub-search input::placeholder {
+    color: #94a3b8 !important;
+    opacity: 1 !important;
+}
+
+.category-hero.category-bim .sub-search button,
+.category-hero.category-tech .sub-search button,
+.category-hero.category-program .sub-search button {
+    width: 96px !important;
+    min-width: 96px !important;
+    height: 100% !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #0f172a !important;
+    color: #fff !important;
+    box-shadow: none !important;
+    font-size: 13px !important;
+    font-weight: 950 !important;
+    letter-spacing: -0.035em !important;
+}
+
+.category-hero.category-bim .sub-search button:hover,
+.category-hero.category-tech .sub-search button:hover,
+.category-hero.category-program .sub-search button:hover {
+    background: #111827 !important;
+}
+
+@media (max-width: 1000px) {
+    .category-hero.category-bim .sub-search,
+    .category-hero.category-tech .sub-search,
+    .category-hero.category-program .sub-search {
+        width: min(560px, 72%) !important;
+        margin-left: 124px !important;
+    }
+}
+
+@media (max-width: 700px) {
+    .category-hero.category-bim .category-big-icon,
+    .category-hero.category-tech .category-big-icon,
+    .category-hero.category-program .category-big-icon {
+        width: 56px !important;
+        height: 56px !important;
+        min-width: 56px !important;
+        border-radius: 15px !important;
+    }
+    .category-hero.category-bim .category-big-icon::before,
+    .category-hero.category-tech .category-big-icon::before,
+    .category-hero.category-program .category-big-icon::before {
+        width: 29px !important;
+        height: 29px !important;
+    }
+    .category-hero.category-bim .sub-search,
+    .category-hero.category-tech .sub-search,
+    .category-hero.category-program .sub-search {
+        width: 100% !important;
+        height: 42px !important;
+        margin-left: 0 !important;
+        grid-template-columns: minmax(0, 1fr) 76px !important;
+    }
+    .category-hero.category-bim .sub-search input,
+    .category-hero.category-tech .sub-search input,
+    .category-hero.category-program .sub-search input {
+        padding: 0 16px !important;
+        font-size: 12px !important;
+    }
+    .category-hero.category-bim .sub-search button,
+    .category-hero.category-tech .sub-search button,
+    .category-hero.category-program .sub-search button {
+        width: 76px !important;
+        min-width: 76px !important;
+        font-size: 12px !important;
+    }
+}
+/* CBL_BTP_ICON_SEARCH_FIX_V3_END */
+
+
+/* CBL_POPUP_8_VISIBLE_VIDEO_SECTIONS_ALL_START */
+/* 건설/BIM/테크/프로그램 공통: 전체보기 팝업은 8개만 보이고 나머지는 내부 스크롤 */
+.cbl-arch-modal-panel,
+.cbl-btp-modal-card {
+    overflow: hidden !important;
+}
+
+.cbl-arch-modal-body,
+.cbl-btp-modal-scroll {
+    min-height: 0 !important;
+    max-height: min(74vh, 760px) !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain !important;
+    scrollbar-gutter: stable !important;
+}
+
+.cbl-arch-modal-grid,
+.cbl-btp-modal-grid:not(.video) {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 14px !important;
+    max-height: 586px !important; /* 4열 x 2줄 = 8개 보이는 높이 */
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 1px 6px 6px 1px !important;
+    overscroll-behavior: contain !important;
+    scrollbar-gutter: stable !important;
+}
+
+.cbl-arch-modal-grid .cbl-arch-card,
+.cbl-btp-modal-grid:not(.video) .cbl-btp-card {
+    min-width: 0 !important;
+    height: 286px !important;
+    overflow: hidden !important;
+}
+
+.cbl-arch-modal-grid .cbl-arch-thumb,
+.cbl-btp-modal-grid:not(.video) .cbl-btp-thumb {
+    height: 126px !important;
+}
+
+.cbl-arch-modal-grid .cbl-arch-body,
+.cbl-btp-modal-grid:not(.video) .cbl-btp-body {
+    padding: 12px 13px 13px !important;
+}
+
+.cbl-arch-modal-grid .cbl-arch-card h3,
+.cbl-btp-modal-grid:not(.video) .cbl-btp-card h3 {
+    font-size: 13px !important;
+    line-height: 1.36 !important;
+    min-height: 36px !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+    overflow: hidden !important;
+}
+
+.cbl-arch-modal-grid .cbl-arch-summary {
+    font-size: 11px !important;
+    line-height: 1.45 !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 3 !important;
+    -webkit-box-orient: vertical !important;
+    overflow: hidden !important;
+}
+
+.cbl-arch-modal-video-area,
+.cbl-btp-modal-subtitle {
+    margin-top: 26px !important;
+    padding-top: 20px !important;
+    border-top: 1px solid rgba(226, 232, 240, .95) !important;
+}
+
+.cbl-arch-modal-video-grid,
+.cbl-btp-modal-grid.video {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 14px !important;
+    max-height: 344px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 1px 6px 6px 1px !important;
+    overscroll-behavior: contain !important;
+    scrollbar-gutter: stable !important;
+}
+
+.cbl-arch-modal-video-grid .cbl-arch-video,
+.cbl-btp-modal-grid.video .cbl-btp-video {
+    min-width: 0 !important;
+    height: 158px !important;
+    overflow: hidden !important;
+}
+
+.cbl-arch-modal-video-grid .cbl-arch-video-thumb,
+.cbl-btp-modal-grid.video .cbl-btp-video-thumb {
+    height: 106px !important;
+}
+
+.cbl-arch-modal-video-grid .cbl-arch-video h3,
+.cbl-btp-modal-grid.video .cbl-btp-video h3 {
+    margin-top: 8px !important;
+    font-size: 12px !important;
+    line-height: 1.34 !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+    overflow: hidden !important;
+}
+
+.cbl-arch-modal-subhead span,
+.cbl-btp-modal-helper,
+.cbl-btp-helper-text {
+    display: none !important;
+}
+
+@media (max-width: 1024px) {
+    .cbl-arch-modal-grid,
+    .cbl-btp-modal-grid:not(.video),
+    .cbl-arch-modal-video-grid,
+    .cbl-btp-modal-grid.video {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    }
+}
+
+@media (max-width: 720px) {
+    .cbl-arch-modal-body,
+    .cbl-btp-modal-scroll {
+        max-height: 76vh !important;
+    }
+    .cbl-arch-modal-grid,
+    .cbl-btp-modal-grid:not(.video),
+    .cbl-arch-modal-video-grid,
+    .cbl-btp-modal-grid.video {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        max-height: 512px !important;
+        gap: 10px !important;
+    }
+    .cbl-arch-modal-grid .cbl-arch-card,
+    .cbl-btp-modal-grid:not(.video) .cbl-btp-card {
+        height: 246px !important;
+    }
+    .cbl-arch-modal-grid .cbl-arch-thumb,
+    .cbl-btp-modal-grid:not(.video) .cbl-btp-thumb {
+        height: 96px !important;
+    }
+    .cbl-arch-modal-grid .cbl-arch-summary {
+        -webkit-line-clamp: 2 !important;
+    }
+}
+/* CBL_POPUP_8_VISIBLE_VIDEO_SECTIONS_ALL_END */
+
 </style>
 <!-- CBL_ALL_CATEGORY_COMPACT_HERO_END -->
 
 
 
+{% if slug == "architecture" %}
+<section class="cbl-arch-hero-exact">
+    <div class="cbl-arch-hero-inner">
+        <div class="cbl-arch-hero-icon" aria-hidden="true">
+            <svg viewBox="0 0 72 72" role="img" focusable="false">
+                <path d="M24 58V20h24v38" />
+                <path d="M18 58h36" />
+                <path d="M30 28h4M38 28h4M30 36h4M38 36h4M30 44h4M38 44h4" />
+                <path d="M48 58V34h8v24" />
+                <path d="M48 34h8" />
+            </svg>
+        </div>
+        <div class="cbl-arch-hero-copy">
+            <div class="cbl-arch-hero-titleline">
+                <h1>건설</h1>
+                <p>현장, 공정, 견적, 문서, 원가, 이슈, 시공</p>
+            </div>
+            <form class="cbl-arch-search" action="{% url 'search' %}" method="get">
+                <input type="text" name="q" placeholder="건설 자료, 실무 노하우, 기술 정보를 검색하세요">
+                <button type="submit">검색</button>
+            </form>
+        </div>
+        <div class="cbl-arch-hero-art cbl-arch-hero-art-photo" aria-hidden="true"></div>
+    </div>
+</section>
+{% else %}
 <section class="category-hero category-{{ page.theme }}">
     <div class="container">
         <div class="category-title">
@@ -126,7 +878,1999 @@
         </form>
     </div>
 </section>
+{% endif %}
 
+
+
+{% if slug == "architecture" %}
+<!-- CBL_ARCHITECTURE_PORTAL_START -->
+<style>
+/* =========================================================
+   ChickenBananaLab Architecture Portal Exact V2
+   - 참조 이미지 기준: 넓은 베이지 히어로 + 좁은 콘텐츠 본문
+   - 건축 페이지에만 적용
+========================================================= */
+:root {
+    --cbl-arch-ink: #0f172a;
+    --cbl-arch-muted: #64748b;
+    --cbl-arch-line: #e5e7eb;
+    --cbl-arch-green: #10a37f;
+    --cbl-arch-bg: #f8fafc;
+}
+
+.cbl-arch-hero-exact {
+    padding: 20px 0 16px;
+    background: #f8fafc;
+}
+
+.cbl-arch-hero-inner {
+    position: relative;
+    display: grid;
+    grid-template-columns: 116px minmax(0, 620px) 1fr;
+    align-items: center;
+    gap: 24px;
+    width: min(1440px, calc(100% - 96px));
+    min-height: 152px;
+    margin: 0 auto;
+    padding: 22px 42px;
+    overflow: hidden;
+    border: 1px solid rgba(254, 215, 170, .38);
+    border-radius: 24px;
+    background:
+        radial-gradient(circle at 76% 15%, rgba(251, 146, 60, .12), transparent 28%),
+        linear-gradient(105deg, #fff7ed 0%, #fffaf5 54%, #fff7ed 100%);
+    box-shadow: 0 20px 56px rgba(15, 23, 42, .045);
+    box-sizing: border-box;
+}
+
+.cbl-arch-hero-icon {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 104px;
+    height: 104px;
+    border: 1px solid rgba(226, 232, 240, .92);
+    border-radius: 22px;
+    background: rgba(255, 255, 255, .88);
+    color: #0f9f92;
+    font-size: 58px;
+    font-weight: 200;
+    line-height: 1;
+    box-shadow: 0 18px 36px rgba(15, 23, 42, .08);
+}
+
+.cbl-arch-hero-copy {
+    position: relative;
+    z-index: 3;
+    min-width: 0;
+}
+
+.cbl-arch-hero-titleline {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    min-width: 0;
+    margin-bottom: 16px;
+}
+
+.cbl-arch-hero-titleline h1 {
+    margin: 0;
+    color: #0b1220;
+    font-size: 42px;
+    font-weight: 950;
+    line-height: 1;
+    letter-spacing: -0.065em;
+    white-space: nowrap;
+}
+
+.cbl-arch-hero-titleline p {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    color: #53657d;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cbl-arch-search {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 92px;
+    width: min(560px, 100%);
+    height: 42px;
+    overflow: hidden;
+    border: 1px solid #d7dee8;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 7px 18px rgba(15, 23, 42, .035);
+}
+
+.cbl-arch-search input {
+    min-width: 0;
+    width: 100%;
+    height: 100%;
+    padding: 0 20px;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.cbl-arch-search input::placeholder {
+    color: #98a4b5;
+}
+
+.cbl-arch-search button {
+    height: 100%;
+    border: 0;
+    background: #0f172a;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.cbl-arch-hero-art {
+    position: absolute;
+    right: 66px;
+    bottom: 0;
+    z-index: 1;
+    width: 470px;
+    height: 150px;
+    opacity: .9;
+    pointer-events: none;
+}
+
+.cbl-arch-hero-art::before {
+    position: absolute;
+    right: -18px;
+    bottom: 0;
+    width: 390px;
+    height: 112px;
+    border-radius: 50% 50% 0 0;
+    background: radial-gradient(ellipse at center, rgba(15, 23, 42, .075), transparent 65%);
+    content: "";
+}
+
+.cbl-arch-hero-art .building {
+    position: absolute;
+    bottom: 19px;
+    border: 1px solid rgba(71, 85, 105, .35);
+    background:
+        repeating-linear-gradient(90deg, rgba(71, 85, 105, .35) 0 2px, transparent 2px 24px),
+        repeating-linear-gradient(0deg, rgba(71, 85, 105, .28) 0 2px, transparent 2px 21px),
+        linear-gradient(135deg, rgba(226, 232, 240, .92), rgba(248, 250, 252, .60));
+    box-shadow: 0 20px 35px rgba(15, 23, 42, .10);
+}
+
+.cbl-arch-hero-art .b1 { right: 168px; width: 88px; height: 116px; }
+.cbl-arch-hero-art .b2 { right: 88px; width: 82px; height: 91px; opacity: .86; }
+.cbl-arch-hero-art .b3 { right: 252px; width: 58px; height: 72px; opacity: .48; }
+
+.cbl-arch-hero-art .crane.mast {
+    position: absolute;
+    right: 278px;
+    bottom: 27px;
+    width: 4px;
+    height: 105px;
+    background: #b88944;
+    transform: rotate(-2deg);
+}
+
+.cbl-arch-hero-art .crane.jib {
+    position: absolute;
+    right: 202px;
+    top: 11px;
+    width: 154px;
+    height: 4px;
+    background: #b88944;
+    transform: rotate(-7deg);
+    transform-origin: right center;
+}
+
+.cbl-arch-hero-art .crane.jib::after {
+    position: absolute;
+    left: 18px;
+    top: 4px;
+    width: 2px;
+    height: 34px;
+    background: rgba(184, 137, 68, .85);
+    content: "";
+}
+
+.cbl-arch-hero-art .paper {
+    position: absolute;
+    bottom: 11px;
+    height: 22px;
+    border-radius: 16px 16px 4px 4px;
+    background: linear-gradient(90deg, #e8edf4, #fff, #d9e2ef);
+    box-shadow: 0 10px 14px rgba(15, 23, 42, .09);
+    transform: rotate(-6deg);
+}
+
+.cbl-arch-hero-art .p1 { right: 198px; width: 166px; }
+.cbl-arch-hero-art .p2 { right: 146px; width: 112px; bottom: 6px; opacity: .84; }
+
+.cbl-arch-hero-art .helmet {
+    position: absolute;
+    right: 36px;
+    bottom: 17px;
+    width: 86px;
+    height: 42px;
+    border-radius: 60px 60px 13px 13px;
+    background: linear-gradient(145deg, #fff, #dfe7f1);
+    box-shadow: inset 0 -4px 0 rgba(15, 23, 42, .09), 0 16px 22px rgba(15, 23, 42, .12);
+}
+
+.cbl-arch-hero-art .helmet::after {
+    position: absolute;
+    left: -13px;
+    right: -13px;
+    bottom: -5px;
+    height: 9px;
+    border-radius: 999px;
+    background: #eef3f8;
+    content: "";
+}
+
+.cbl-arch-page {
+    width: min(1120px, calc(100% - 48px));
+    margin: 14px auto 72px;
+    color: var(--cbl-arch-ink);
+}
+
+.cbl-arch-section {
+    margin-top: 24px;
+}
+
+.cbl-arch-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 11px;
+}
+
+.cbl-arch-head-main {
+    min-width: 0;
+}
+
+.cbl-arch-title {
+    margin: 0;
+    color: #0b1220;
+    font-size: 21px;
+    font-weight: 950;
+    line-height: 1.15;
+    letter-spacing: -0.055em;
+}
+
+.cbl-arch-desc {
+    margin: 5px 0 0;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1.45;
+}
+
+.cbl-arch-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.cbl-arch-btn,
+.cbl-arch-more {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.cbl-arch-btn {
+    min-height: 36px;
+    padding: 0 16px;
+    border: 1px solid #dbe2ea;
+    border-radius: 999px;
+    background: #fff;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 950;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, .045);
+}
+
+.cbl-arch-btn.primary {
+    border-color: #0f172a;
+    background: #0f172a;
+    color: #fff;
+}
+
+.cbl-arch-more {
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 850;
+}
+
+.cbl-arch-grid-recent {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.cbl-arch-card,
+.cbl-arch-mini,
+.cbl-arch-video {
+    color: inherit;
+    text-decoration: none;
+}
+
+.cbl-arch-card {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--cbl-arch-line);
+    border-radius: 13px;
+    background: #fff;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, .045);
+    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+
+.cbl-arch-card:hover,
+.cbl-arch-mini:hover,
+.cbl-arch-video:hover .cbl-arch-video-thumb {
+    transform: translateY(-2px);
+    border-color: rgba(16, 163, 127, .35);
+    box-shadow: 0 18px 38px rgba(15, 23, 42, .08);
+}
+
+.cbl-arch-thumb {
+    position: relative;
+    height: 78px;
+    overflow: hidden;
+    background: #eaf0f7;
+}
+
+.cbl-arch-thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.cbl-arch-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    color: #0f766e;
+    font-size: 30px;
+    background:
+        linear-gradient(135deg, rgba(16, 163, 127, .12), rgba(251, 146, 60, .10)),
+        repeating-linear-gradient(90deg, rgba(15,23,42,.055) 0 1px, transparent 1px 26px);
+}
+
+.cbl-arch-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: max-content;
+    max-width: calc(100% - 20px);
+    min-height: 21px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: #ecfdf5;
+    color: #059669;
+    font-size: 9px;
+    font-weight: 950;
+    letter-spacing: -0.035em;
+}
+
+.cbl-arch-thumb .cbl-arch-badge {
+    position: absolute;
+    left: 9px;
+    bottom: 8px;
+    z-index: 2;
+}
+
+.cbl-arch-body {
+    padding: 10px 12px 12px;
+}
+
+.cbl-arch-card h3,
+.cbl-arch-mini h3,
+.cbl-arch-video h3 {
+    margin: 0;
+    color: #111827;
+    font-weight: 950;
+    letter-spacing: -0.045em;
+    line-height: 1.35;
+}
+
+.cbl-arch-card h3 {
+    min-height: 40px;
+    font-size: 13px;
+}
+
+.cbl-arch-summary {
+    margin: 6px 0 0;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 650;
+    line-height: 1.45;
+}
+
+.cbl-arch-date {
+    display: block;
+    margin-top: 8px;
+    color: #8aa0b8;
+    font-size: 10px;
+    font-weight: 850;
+}
+
+.cbl-arch-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 12px;
+}
+
+.cbl-arch-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 27px;
+    padding: 0 13px;
+    border: 1px solid #dfe6ee;
+    border-radius: 999px;
+    background: #fff;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 900;
+    box-shadow: 0 4px 10px rgba(15, 23, 42, .025);
+}
+
+.cbl-arch-pill.active {
+    border-color: var(--cbl-arch-green);
+    background: var(--cbl-arch-green);
+    color: #fff;
+}
+
+.cbl-arch-grid-practice {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.cbl-arch-grid-practice .cbl-arch-thumb {
+    height: 96px;
+}
+
+.cbl-arch-grid-practice .cbl-arch-card h3 {
+    min-height: 38px;
+    font-size: 13px;
+}
+
+.cbl-arch-two-col {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 26px;
+    margin-top: 24px;
+}
+
+.cbl-arch-mini-list {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.cbl-arch-mini {
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr);
+    min-height: 78px;
+    overflow: hidden;
+    border: 1px solid var(--cbl-arch-line);
+    border-radius: 13px;
+    background: #fff;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, .045);
+    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+
+.cbl-arch-mini .cbl-arch-thumb {
+    height: 100%;
+    min-height: 78px;
+}
+
+.cbl-arch-mini-body {
+    min-width: 0;
+    padding: 9px 9px 9px 10px;
+}
+
+.cbl-arch-mini h3 {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 11px;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.cbl-arch-mini .cbl-arch-badge {
+    margin-bottom: 5px;
+    min-height: 18px;
+    padding: 0 6px;
+    font-size: 8px;
+}
+
+.cbl-arch-mini .cbl-arch-date {
+    margin-top: 5px;
+    font-size: 9px;
+}
+
+.cbl-arch-video-row-wrap {
+    position: relative;
+}
+
+.cbl-arch-video-row {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.cbl-arch-video-thumb {
+    position: relative;
+    height: 88px;
+    overflow: hidden;
+    border: 1px solid rgba(15, 23, 42, .08);
+    border-radius: 12px;
+    background: #0f172a;
+    box-shadow: 0 13px 30px rgba(15, 23, 42, .11);
+    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+
+.cbl-arch-video-thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: .75;
+}
+
+.cbl-arch-video-thumb .cbl-arch-fallback {
+    color: #fff;
+    font-size: 28px;
+    background:
+        linear-gradient(135deg, rgba(15, 23, 42, .84), rgba(16, 163, 127, .58)),
+        repeating-linear-gradient(90deg, rgba(255,255,255,.11) 0 1px, transparent 1px 28px);
+}
+
+.cbl-arch-play {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.86);
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 950;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 9px 22px rgba(15, 23, 42, .24);
+}
+
+.cbl-arch-video-time {
+    position: absolute;
+    right: 7px;
+    bottom: 7px;
+    z-index: 2;
+    min-width: 38px;
+    padding: 3px 6px;
+    border-radius: 6px;
+    background: rgba(15, 23, 42, .80);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 900;
+    text-align: center;
+}
+
+.cbl-arch-video h3 {
+    display: -webkit-box;
+    overflow: hidden;
+    margin-top: 8px;
+    font-size: 11px;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.cbl-arch-video-more-round {
+    position: absolute;
+    right: -54px;
+    top: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border: 1px solid #dbe2ea;
+    border-radius: 999px;
+    background: #fff;
+    color: #0f172a;
+    font-size: 20px;
+    font-weight: 900;
+    text-decoration: none;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, .09);
+}
+
+.cbl-arch-empty {
+    grid-column: 1 / -1;
+    padding: 22px 18px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 14px;
+    background: #fff;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 800;
+    text-align: center;
+}
+
+@media (max-width: 1280px) {
+    .cbl-arch-hero-inner {
+        width: min(1280px, calc(100% - 56px));
+    }
+    .cbl-arch-page {
+        width: min(1120px, calc(100% - 40px));
+    }
+    .cbl-arch-video-more-round {
+        display: none;
+    }
+}
+
+@media (max-width: 1080px) {
+    .cbl-arch-hero-inner {
+        grid-template-columns: 92px minmax(0, 1fr);
+        min-height: 142px;
+        padding: 22px 26px;
+    }
+    .cbl-arch-hero-icon {
+        width: 86px;
+        height: 86px;
+        border-radius: 20px;
+        font-size: 48px;
+    }
+    .cbl-arch-hero-art {
+        opacity: .22;
+        right: 18px;
+    }
+    .cbl-arch-grid-recent,
+    .cbl-arch-grid-practice {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .cbl-arch-two-col {
+        grid-template-columns: 1fr;
+    }
+    .cbl-arch-mini-list {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .cbl-arch-video-row {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 720px) {
+    .cbl-arch-hero-exact {
+        padding: 12px 0 8px;
+    }
+    .cbl-arch-hero-inner {
+        grid-template-columns: 58px minmax(0, 1fr);
+        gap: 12px;
+        width: calc(100% - 24px);
+        min-height: auto;
+        padding: 18px 16px;
+        border-radius: 20px;
+    }
+    .cbl-arch-hero-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 16px;
+        font-size: 32px;
+    }
+    .cbl-arch-hero-art {
+        display: none;
+    }
+    .cbl-arch-hero-titleline {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 5px;
+        margin-bottom: 12px;
+    }
+    .cbl-arch-hero-titleline h1 {
+        font-size: 30px;
+    }
+    .cbl-arch-hero-titleline p {
+        width: 100%;
+        font-size: 11px;
+    }
+    .cbl-arch-search {
+        grid-template-columns: minmax(0, 1fr) 68px;
+        height: 38px;
+    }
+    .cbl-arch-search input {
+        padding: 0 14px;
+        font-size: 12px;
+    }
+    .cbl-arch-search button {
+        font-size: 11px;
+    }
+    .cbl-arch-page {
+        width: calc(100% - 24px);
+        margin-top: 12px;
+    }
+    .cbl-arch-head {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .cbl-arch-title {
+        font-size: 20px;
+    }
+    .cbl-arch-actions {
+        width: 100%;
+    }
+    .cbl-arch-actions .cbl-arch-btn {
+        flex: 1;
+    }
+    .cbl-arch-grid-recent,
+    .cbl-arch-grid-practice,
+    .cbl-arch-video-row {
+        grid-template-columns: 1fr;
+    }
+    .cbl-arch-mini-list {
+        grid-template-columns: 1fr;
+    }
+    .cbl-arch-thumb,
+    .cbl-arch-grid-practice .cbl-arch-thumb,
+    .cbl-arch-video-thumb {
+        height: 170px;
+    }
+    .cbl-arch-mini {
+        grid-template-columns: 112px minmax(0, 1fr);
+        min-height: 100px;
+    }
+    .cbl-arch-mini .cbl-arch-thumb {
+        height: 100%;
+        min-height: 100px;
+    }
+    .cbl-arch-mini h3,
+    .cbl-arch-video h3 {
+        font-size: 13px;
+    }
+}
+
+/* CBL_ARCH_MOBILE_2COL_FIX_START */
+@media (max-width: 720px) {
+    /* 모바일도 전체 섹션 2열 고정 */
+    .cbl-arch-grid-recent,
+    .cbl-arch-grid-practice,
+    .cbl-arch-mini-list,
+    .cbl-arch-video-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 10px !important;
+    }
+
+    /* 2열에서 카드가 너무 커지지 않게 압축 */
+    .cbl-arch-card,
+    .cbl-arch-mini {
+        border-radius: 13px !important;
+    }
+
+    .cbl-arch-thumb,
+    .cbl-arch-grid-practice .cbl-arch-thumb,
+    .cbl-arch-video-thumb {
+        height: 92px !important;
+    }
+
+    .cbl-arch-body {
+        padding: 9px 10px 10px !important;
+    }
+
+    .cbl-arch-card h3 {
+        display: -webkit-box !important;
+        min-height: 36px !important;
+        overflow: hidden !important;
+        font-size: 11px !important;
+        line-height: 1.35 !important;
+        -webkit-line-clamp: 2 !important;
+        -webkit-box-orient: vertical !important;
+    }
+
+    .cbl-arch-summary {
+        display: -webkit-box !important;
+        min-height: 30px !important;
+        overflow: hidden !important;
+        margin-top: 5px !important;
+        font-size: 10px !important;
+        line-height: 1.45 !important;
+        -webkit-line-clamp: 2 !important;
+        -webkit-box-orient: vertical !important;
+    }
+
+    .cbl-arch-date {
+        margin-top: 6px !important;
+        font-size: 9px !important;
+    }
+
+    .cbl-arch-badge {
+        min-height: 18px !important;
+        padding: 0 6px !important;
+        font-size: 8px !important;
+    }
+
+    /* 건설기술/건설부동산 미니카드도 2열에 맞게 세로형 카드로 변경 */
+    .cbl-arch-mini {
+        display: block !important;
+        min-height: 0 !important;
+    }
+
+    .cbl-arch-mini .cbl-arch-thumb {
+        width: 100% !important;
+        height: 82px !important;
+        min-height: 82px !important;
+    }
+
+    .cbl-arch-mini-body {
+        padding: 8px 9px 10px !important;
+    }
+
+    .cbl-arch-mini h3,
+    .cbl-arch-video h3 {
+        display: -webkit-box !important;
+        overflow: hidden !important;
+        font-size: 10px !important;
+        line-height: 1.35 !important;
+        -webkit-line-clamp: 2 !important;
+        -webkit-box-orient: vertical !important;
+    }
+
+    .cbl-arch-video-thumb {
+        height: 78px !important;
+        border-radius: 12px !important;
+    }
+
+    .cbl-arch-play {
+        width: 28px !important;
+        height: 28px !important;
+        font-size: 11px !important;
+    }
+
+    .cbl-arch-video-time {
+        right: 6px !important;
+        bottom: 6px !important;
+        min-width: 32px !important;
+        padding: 2px 5px !important;
+        font-size: 8px !important;
+    }
+
+    /* 섹션 제목/필터도 모바일 폭에 맞춤 */
+    .cbl-arch-section {
+        margin-top: 20px !important;
+    }
+
+    .cbl-arch-title {
+        font-size: 18px !important;
+    }
+
+    .cbl-arch-pills {
+        gap: 6px !important;
+        margin-bottom: 10px !important;
+    }
+
+    .cbl-arch-pill {
+        min-height: 24px !important;
+        padding: 0 10px !important;
+        font-size: 9px !important;
+    }
+}
+
+@media (max-width: 390px) {
+    .cbl-arch-grid-recent,
+    .cbl-arch-grid-practice,
+    .cbl-arch-mini-list,
+    .cbl-arch-video-row {
+        gap: 8px !important;
+    }
+
+    .cbl-arch-thumb,
+    .cbl-arch-grid-practice .cbl-arch-thumb {
+        height: 84px !important;
+    }
+
+    .cbl-arch-mini .cbl-arch-thumb,
+    .cbl-arch-video-thumb {
+        height: 72px !important;
+        min-height: 72px !important;
+    }
+
+    .cbl-arch-card h3,
+    .cbl-arch-mini h3,
+    .cbl-arch-video h3 {
+        font-size: 9.5px !important;
+    }
+}
+/* CBL_ARCH_MOBILE_2COL_FIX_END */
+
+/* CBL_ARCH_REMOVE_PILLS_ARROW_START */
+.cbl-arch-pills,
+.cbl-arch-video-more-round {
+    display: none !important;
+}
+.cbl-arch-video-row-wrap {
+    padding-right: 0 !important;
+}
+/* CBL_ARCH_REMOVE_PILLS_ARROW_END */
+
+/* CBL_ARCH_SWAP_VIDEO_PROPERTY_START */
+.cbl-arch-tech-video-row {
+    align-items: start !important;
+}
+.cbl-arch-tech-video-row > .cbl-arch-section {
+    min-width: 0 !important;
+}
+.cbl-arch-video-col .cbl-arch-video-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+}
+.cbl-arch-video-col .cbl-arch-video-thumb {
+    height: 88px !important;
+}
+.cbl-arch-video-col .cbl-arch-video h3 {
+    min-height: 32px !important;
+    font-size: 11px !important;
+    line-height: 1.32 !important;
+}
+.cbl-arch-video-badge {
+    position: absolute !important;
+    left: 9px !important;
+    top: 9px !important;
+    z-index: 3 !important;
+    font-size: 8px !important;
+    padding: 3px 7px !important;
+    line-height: 1.2 !important;
+    white-space: nowrap !important;
+}
+.cbl-arch-property-full .cbl-arch-mini-list {
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+}
+.cbl-arch-property-full .cbl-arch-mini {
+    grid-template-columns: 84px minmax(0, 1fr) !important;
+}
+.cbl-arch-property-full .cbl-arch-thumb {
+    min-height: 78px !important;
+}
+@media (max-width: 1080px) {
+    .cbl-arch-property-full .cbl-arch-mini-list {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    }
+}
+@media (max-width: 720px) {
+    .cbl-arch-video-col .cbl-arch-video-row,
+    .cbl-arch-property-full .cbl-arch-mini-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 10px !important;
+    }
+    .cbl-arch-video-col .cbl-arch-video-thumb {
+        height: 88px !important;
+    }
+    .cbl-arch-property-full .cbl-arch-mini {
+        display: block !important;
+        grid-template-columns: none !important;
+    }
+    .cbl-arch-property-full .cbl-arch-thumb {
+        height: 88px !important;
+        min-height: 88px !important;
+    }
+}
+/* CBL_ARCH_SWAP_VIDEO_PROPERTY_END */
+
+/* CBL_ARCH_PROPERTY_SUBSCRIPTION_CSS_START */
+.cbl-arch-subscription-panel {
+    margin-top: 28px !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+.cbl-arch-subscription-headline {
+    display: flex !important;
+    align-items: flex-end !important;
+    justify-content: space-between !important;
+    gap: 14px !important;
+    margin: 0 0 12px !important;
+}
+.cbl-arch-subscription-titlebox {
+    min-width: 0 !important;
+}
+.cbl-arch-subscription-titlebox .cbl-arch-title {
+    margin: 0 !important;
+}
+.cbl-arch-subscription-titlebox .cbl-arch-desc {
+    margin: 6px 0 0 !important;
+    font-size: 13px !important;
+    line-height: 1.45 !important;
+    color: #64748b !important;
+    font-weight: 700 !important;
+}
+.cbl-arch-subscription-headline .cbl-arch-more {
+    flex: 0 0 auto !important;
+    margin-bottom: 3px !important;
+    color: #94a3b8 !important;
+    font-size: 12px !important;
+    font-weight: 900 !important;
+    text-decoration: none !important;
+}
+.cbl-arch-subscription-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+}
+.cbl-arch-subscription-card {
+    display: flex !important;
+    flex-direction: column !important;
+    min-width: 0 !important;
+    min-height: 156px !important;
+    padding: 15px !important;
+    border: 1px solid rgba(148, 163, 184, .22) !important;
+    border-radius: 18px !important;
+    background: #fff !important;
+    color: #0f172a !important;
+    text-decoration: none !important;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, .045) !important;
+    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease !important;
+}
+.cbl-arch-subscription-card:hover {
+    transform: translateY(-2px) !important;
+    border-color: rgba(20, 184, 166, .38) !important;
+    box-shadow: 0 18px 36px rgba(15, 23, 42, .075) !important;
+}
+.cbl-arch-subscription-top {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    gap: 8px !important;
+    margin-bottom: 10px !important;
+}
+.cbl-arch-subscription-badge {
+    background: #ecfdf5 !important;
+    color: #059669 !important;
+    white-space: nowrap !important;
+}
+.cbl-arch-subscription-status {
+    flex: 0 0 auto !important;
+    padding: 4px 8px !important;
+    border-radius: 999px !important;
+    background: #eef2ff !important;
+    color: #334155 !important;
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    white-space: nowrap !important;
+}
+.cbl-arch-subscription-status.open,
+.cbl-arch-subscription-status.upcoming {
+    background: #dcfce7 !important;
+    color: #047857 !important;
+}
+.cbl-arch-subscription-status.closed {
+    background: #f1f5f9 !important;
+    color: #64748b !important;
+}
+.cbl-arch-subscription-card h3 {
+    margin: 0 0 8px !important;
+    font-size: 15px !important;
+    line-height: 1.34 !important;
+    font-weight: 900 !important;
+    letter-spacing: -0.04em !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+    overflow: hidden !important;
+}
+.cbl-arch-subscription-card p {
+    margin: 0 0 14px !important;
+    color: #64748b !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    line-height: 1.45 !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+    overflow: hidden !important;
+}
+.cbl-arch-subscription-dates {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+    margin-top: auto !important;
+}
+.cbl-arch-subscription-dates span {
+    padding: 8px 6px !important;
+    border-radius: 12px !important;
+    background: #f8fafc !important;
+    color: #64748b !important;
+    font-size: 10px !important;
+    font-weight: 800 !important;
+    text-align: center !important;
+    line-height: 1.25 !important;
+}
+.cbl-arch-subscription-dates b {
+    display: block !important;
+    margin-top: 3px !important;
+    color: #0f172a !important;
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+.cbl-arch-subscription-footer {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    gap: 12px !important;
+    margin: 10px 2px 0 !important;
+}
+.cbl-arch-subscription-footer p,
+.cbl-arch-subscription-footer a {
+    margin: 0 !important;
+    font-size: 11px !important;
+    line-height: 1.4 !important;
+    font-weight: 800 !important;
+}
+.cbl-arch-subscription-footer p {
+    color: #64748b !important;
+}
+.cbl-arch-subscription-footer a {
+    flex: 0 0 auto !important;
+    margin-left: auto !important;
+    color: #0f766e !important;
+    text-decoration: none !important;
+    text-align: right !important;
+    white-space: nowrap !important;
+}
+@media (max-width: 900px) {
+    .cbl-arch-subscription-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+@media (max-width: 720px) {
+    .cbl-arch-subscription-panel {
+        margin-top: 22px !important;
+    }
+    .cbl-arch-subscription-headline {
+        align-items: flex-end !important;
+        margin-bottom: 10px !important;
+    }
+    .cbl-arch-subscription-titlebox .cbl-arch-desc {
+        display: none !important;
+    }
+    .cbl-arch-subscription-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 10px !important;
+    }
+    .cbl-arch-subscription-card {
+        min-height: 146px !important;
+        padding: 12px !important;
+        border-radius: 16px !important;
+    }
+    .cbl-arch-subscription-card h3 {
+        font-size: 12px !important;
+    }
+    .cbl-arch-subscription-card p {
+        font-size: 10px !important;
+    }
+    .cbl-arch-subscription-dates {
+        grid-template-columns: 1fr !important;
+    }
+    .cbl-arch-subscription-dates span {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        padding: 6px 8px !important;
+    }
+    .cbl-arch-subscription-dates b {
+        display: inline !important;
+        margin-top: 0 !important;
+        max-width: 70px !important;
+    }
+    .cbl-arch-subscription-footer {
+        display: block !important;
+        margin-top: 9px !important;
+        text-align: right !important;
+    }
+    .cbl-arch-subscription-footer p {
+        display: none !important;
+    }
+    .cbl-arch-subscription-footer a {
+        display: inline-block !important;
+        font-size: 10px !important;
+        white-space: normal !important;
+    }
+}
+/* CBL_ARCH_PROPERTY_SUBSCRIPTION_CSS_END */
+
+
+/* CBL_ARCH_REAL_PHOTO_HERO_START */
+/* Photo: Chuko Cribb on Unsplash, mBZM6yMwjhU */
+.cbl-arch-hero-art.cbl-arch-hero-art-photo {
+    position: absolute !important;
+    right: 38px !important;
+    bottom: 0 !important;
+    z-index: 1 !important;
+    width: min(540px, 39vw) !important;
+    height: 150px !important;
+    opacity: .98 !important;
+    pointer-events: none !important;
+    background-image:
+        linear-gradient(90deg, rgba(255, 247, 237, 0) 0%, rgba(255, 247, 237, .05) 22%, rgba(255, 247, 237, 0) 100%),
+        url("/static/core/img/cbl_arch_hero_real_unsplash.jpg") !important;
+    background-repeat: no-repeat !important;
+    background-position: right center !important;
+    background-size: cover !important;
+    border-radius: 0 22px 22px 0 !important;
+    filter: saturate(.88) contrast(.96) brightness(1.08) !important;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 20%, #000 100%);
+    mask-image: linear-gradient(90deg, transparent 0%, #000 20%, #000 100%);
+}
+.cbl-arch-hero-art.cbl-arch-hero-art-photo::before,
+.cbl-arch-hero-art.cbl-arch-hero-art-photo::after {
+    display: none !important;
+    content: none !important;
+}
+.cbl-arch-hero-art.cbl-arch-hero-art-photo > * {
+    display: none !important;
+}
+
+@media (max-width: 980px) {
+    .cbl-arch-hero-art.cbl-arch-hero-art-photo {
+        right: 18px !important;
+        width: 360px !important;
+        height: 132px !important;
+        opacity: .36 !important;
+    }
+}
+
+@media (max-width: 720px) {
+    .cbl-arch-hero-art.cbl-arch-hero-art-photo {
+        display: none !important;
+    }
+}
+/* CBL_ARCH_REAL_PHOTO_HERO_END */
+
+/* CBL_ARCH_HERO_PHOTO_RIGHT_NUDGE_START */
+/* 건설 히어로 오른쪽 실제 사진 위치 보정 */
+.cbl-arch-hero-art.cbl-arch-hero-art-photo {
+    right: 0 !important;
+    width: min(500px, 36vw) !important;
+    height: 150px !important;
+    background-position: right center !important;
+    border-radius: 0 22px 22px 0 !important;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%, transparent 8%, rgba(0,0,0,.25) 17%, #000 31%, #000 100%) !important;
+    mask-image: linear-gradient(90deg, transparent 0%, transparent 8%, rgba(0,0,0,.25) 17%, #000 31%, #000 100%) !important;
+}
+
+@media (min-width: 1280px) {
+    .cbl-arch-hero-art.cbl-arch-hero-art-photo {
+        right: 0 !important;
+        width: 515px !important;
+    }
+}
+
+@media (max-width: 980px) {
+    .cbl-arch-hero-art.cbl-arch-hero-art-photo {
+        right: 0 !important;
+        width: 330px !important;
+        height: 132px !important;
+        opacity: .32 !important;
+    }
+}
+/* CBL_ARCH_HERO_PHOTO_RIGHT_NUDGE_END */
+
+
+
+
+/* CBL_ARCH_SECTION_POPUP_CSS_START */
+.cbl-arch-more.cbl-arch-popup-open {
+    appearance: none !important;
+    border: 0 !important;
+    background: transparent !important;
+    cursor: pointer !important;
+    padding: 0 !important;
+    font-family: inherit !important;
+}
+.cbl-arch-modal[hidden] {
+    display: none !important;
+}
+.cbl-arch-modal {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 9999 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 24px !important;
+    background: rgba(15, 23, 42, .46) !important;
+    backdrop-filter: blur(8px) !important;
+}
+.cbl-arch-modal-panel {
+    width: min(1180px, calc(100vw - 42px)) !important;
+    max-height: min(880px, calc(100vh - 52px)) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    border: 1px solid rgba(226, 232, 240, .9) !important;
+    border-radius: 30px !important;
+    background: #ffffff !important;
+    box-shadow: 0 34px 90px rgba(15, 23, 42, .28) !important;
+}
+.cbl-arch-modal-head {
+    flex: 0 0 auto !important;
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 18px !important;
+    padding: 24px 26px 18px !important;
+    border-bottom: 1px solid #eef2f7 !important;
+}
+.cbl-arch-modal-kicker {
+    margin: 0 0 5px !important;
+    color: #10a37f !important;
+    font-size: 11px !important;
+    font-weight: 950 !important;
+    letter-spacing: .16em !important;
+    text-transform: uppercase !important;
+}
+.cbl-arch-modal-title {
+    margin: 0 !important;
+    color: #0f172a !important;
+    font-size: 27px !important;
+    line-height: 1.1 !important;
+    font-weight: 950 !important;
+    letter-spacing: -0.055em !important;
+}
+.cbl-arch-modal-desc {
+    margin: 8px 0 0 !important;
+    color: #64748b !important;
+    font-size: 13px !important;
+    line-height: 1.45 !important;
+    font-weight: 750 !important;
+}
+.cbl-arch-modal-close {
+    flex: 0 0 auto !important;
+    width: 42px !important;
+    height: 42px !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: #f1f5f9 !important;
+    color: #0f172a !important;
+    cursor: pointer !important;
+    font-size: 28px !important;
+    line-height: 1 !important;
+    font-weight: 800 !important;
+}
+.cbl-arch-modal-body {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    padding: 20px 26px 26px !important;
+    overscroll-behavior: contain !important;
+}
+.cbl-arch-modal-body::-webkit-scrollbar,
+.cbl-arch-modal-grid::-webkit-scrollbar,
+.cbl-arch-modal-video-grid::-webkit-scrollbar {
+    width: 10px !important;
+    height: 10px !important;
+}
+.cbl-arch-modal-body::-webkit-scrollbar-thumb,
+.cbl-arch-modal-grid::-webkit-scrollbar-thumb,
+.cbl-arch-modal-video-grid::-webkit-scrollbar-thumb {
+    border: 2px solid transparent !important;
+    border-radius: 999px !important;
+    background: #cbd5e1 !important;
+    background-clip: padding-box !important;
+}
+.cbl-arch-modal-subhead {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+    margin: 4px 0 12px !important;
+}
+.cbl-arch-modal-subhead h3 {
+    margin: 0 !important;
+    color: #0f172a !important;
+    font-size: 18px !important;
+    line-height: 1.2 !important;
+    font-weight: 950 !important;
+    letter-spacing: -0.045em !important;
+}
+.cbl-arch-modal-subhead span {
+    color: #94a3b8 !important;
+    font-size: 11px !important;
+    font-weight: 900 !important;
+    white-space: nowrap !important;
+}
+.cbl-arch-modal-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 13px !important;
+    max-height: 540px !important;
+    overflow-y: auto !important;
+    padding: 1px 4px 4px 1px !important;
+}
+.cbl-arch-modal-grid .cbl-arch-card {
+    min-width: 0 !important;
+}
+.cbl-arch-modal-grid .cbl-arch-thumb {
+    height: 126px !important;
+}
+.cbl-arch-modal-grid .cbl-arch-body {
+    padding: 12px 13px 13px !important;
+}
+.cbl-arch-modal-grid .cbl-arch-card h3 {
+    font-size: 13px !important;
+    line-height: 1.38 !important;
+    min-height: 36px !important;
+}
+.cbl-arch-modal-grid .cbl-arch-summary {
+    font-size: 11px !important;
+    line-height: 1.45 !important;
+    -webkit-line-clamp: 2 !important;
+}
+.cbl-arch-modal-video-area {
+    margin-top: 25px !important;
+    padding-top: 18px !important;
+    border-top: 1px solid #eef2f7 !important;
+}
+.cbl-arch-modal-video-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 13px !important;
+    max-height: 370px !important;
+    overflow-y: auto !important;
+    padding: 1px 4px 4px 1px !important;
+}
+.cbl-arch-modal-video-grid .cbl-arch-video-thumb {
+    height: 118px !important;
+}
+.cbl-arch-modal-video-grid .cbl-arch-video h3 {
+    font-size: 12px !important;
+    line-height: 1.36 !important;
+    min-height: 34px !important;
+}
+.cbl-arch-modal-empty {
+    min-height: 120px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border: 1px dashed #dbe3ee !important;
+    border-radius: 18px !important;
+    background: #f8fafc !important;
+    color: #64748b !important;
+    font-size: 13px !important;
+    font-weight: 800 !important;
+    text-align: center !important;
+}
+body.cbl-arch-modal-lock {
+    overflow: hidden !important;
+}
+@media (max-width: 1024px) {
+    .cbl-arch-modal-grid,
+    .cbl-arch-modal-video-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    }
+}
+@media (max-width: 720px) {
+    .cbl-arch-modal {
+        padding: 12px !important;
+        align-items: stretch !important;
+    }
+    .cbl-arch-modal-panel {
+        width: 100% !important;
+        max-height: calc(100vh - 24px) !important;
+        border-radius: 22px !important;
+    }
+    .cbl-arch-modal-head {
+        padding: 18px 16px 14px !important;
+    }
+    .cbl-arch-modal-title {
+        font-size: 22px !important;
+    }
+    .cbl-arch-modal-desc {
+        font-size: 11px !important;
+    }
+    .cbl-arch-modal-body {
+        padding: 14px 14px 18px !important;
+    }
+    .cbl-arch-modal-grid,
+    .cbl-arch-modal-video-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 10px !important;
+        max-height: none !important;
+    }
+    .cbl-arch-modal-grid .cbl-arch-thumb,
+    .cbl-arch-modal-video-grid .cbl-arch-video-thumb {
+        height: 92px !important;
+    }
+    .cbl-arch-modal-grid .cbl-arch-summary {
+        display: none !important;
+    }
+    .cbl-arch-modal-subhead h3 {
+        font-size: 15px !important;
+    }
+}
+/* CBL_ARCH_SECTION_POPUP_CSS_END */
+
+</style>
+
+<section class="cbl-arch-page" id="post-list">
+    <div class="cbl-arch-section">
+        <div class="cbl-arch-head">
+            <div class="cbl-arch-head-main">
+                <h2 class="cbl-arch-title">최근 컨텐츠</h2>
+            </div>
+            <div class="cbl-arch-actions">
+                <a data-cbl-write-admin-only-v2="1" {% if not user.is_staff %}style="display:none !important;" aria-hidden="true" tabindex="-1"{% endif %} href="{% url 'post_create' %}?category=architecture" class="cbl-arch-btn primary">글 올리기</a> <!-- CBL_WRITE_LINK_ADMIN_ONLY_V2 -->
+            </div>
+        </div>
+
+        <div class="cbl-arch-grid-recent">
+            {% for post in arch_recent_posts %}
+                <a href="{{ post.get_absolute_url }}" class="cbl-arch-card">
+                    <div class="cbl-arch-thumb">
+                        {% if post.thumbnail %}
+                            <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">
+                        {% else %}
+                            <div class="cbl-arch-fallback">🏗️</div>
+                        {% endif %}
+                    </div>
+                    <div class="cbl-arch-body">
+                        <span class="cbl-arch-badge">{{ post.get_category_display }}</span>
+                        <h3>{{ post.title }}</h3>
+                        <span class="cbl-arch-date">{{ post.created_at|date:"Y.m.d" }}</span>
+                    </div>
+                </a>
+            {% empty %}
+                <div class="cbl-arch-empty">아직 등록된 건설 컨텐츠가 없습니다.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="cbl-arch-section">
+        <div class="cbl-arch-head">
+            <div class="cbl-arch-head-main">
+                <h2 class="cbl-arch-title">건설실무 [시공 · 공정 · 적산 · 원가] 컨텐츠</h2>
+            </div>
+            <button type="button" class="cbl-arch-more cbl-arch-popup-open" data-cbl-arch-popup="practice">전체보기 〉</button>
+        </div>
+        <div class="cbl-arch-grid-practice">
+            {% for post in arch_practical_posts %}
+                <a href="{{ post.get_absolute_url }}" class="cbl-arch-card">
+                    <div class="cbl-arch-thumb">
+                        {% if post.thumbnail %}
+                            <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">
+                        {% else %}
+                            <div class="cbl-arch-fallback">📐</div>
+                        {% endif %}
+                    </div>
+                    <div class="cbl-arch-body">
+                        <span class="cbl-arch-badge">건설실무</span>
+                        <h3>{{ post.title }}</h3>
+                        {% if post.summary %}
+                            <p class="cbl-arch-summary">{{ post.summary|truncatechars:58 }}</p>
+                        {% else %}
+                            <p class="cbl-arch-summary">{{ post.content|striptags|cut:"&nbsp;"|cut:"&amp;nbsp;"|truncatechars:58 }}</p>
+                        {% endif %}
+                        <span class="cbl-arch-date">{{ post.created_at|date:"Y.m.d" }}</span>
+                    </div>
+                </a>
+            {% empty %}
+                <div class="cbl-arch-empty">시공·공정·적산·원가 컨텐츠가 아직 없습니다.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="cbl-arch-two-col cbl-arch-tech-video-row">
+        <div class="cbl-arch-section cbl-arch-tech-col">
+            <div class="cbl-arch-head">
+                <div class="cbl-arch-head-main">
+                    <h2 class="cbl-arch-title">건설기술</h2>
+                </div>
+                <button type="button" class="cbl-arch-more cbl-arch-popup-open" data-cbl-arch-popup="tech">전체보기 〉</button>
+            </div>
+
+            <div class="cbl-arch-mini-list">
+                {% for post in arch_tech_posts %}
+                    <a href="{{ post.get_absolute_url }}" class="cbl-arch-mini">
+                        <div class="cbl-arch-thumb">
+                            {% if post.thumbnail %}
+                                <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">
+                            {% else %}
+                                <div class="cbl-arch-fallback">🤖</div>
+                            {% endif %}
+                        </div>
+                        <div class="cbl-arch-mini-body">
+                            <span class="cbl-arch-badge">건설기술</span>
+                            <h3>{{ post.title }}</h3>
+                            <span class="cbl-arch-date">{{ post.created_at|date:"Y.m.d" }}</span>
+                        </div>
+                    </a>
+                {% empty %}
+                    <div class="cbl-arch-empty">건설기술 컨텐츠가 아직 없습니다.</div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="cbl-arch-section cbl-arch-video-col">
+            <div class="cbl-arch-head">
+                <div class="cbl-arch-head-main">
+                    <h2 class="cbl-arch-title">건설 동영상/쇼츠</h2>
+                </div>
+                <button type="button" class="cbl-arch-more cbl-arch-popup-open" data-cbl-arch-popup="videos">전체보기 〉</button>
+            </div>
+
+            <div class="cbl-arch-video-row">
+                {% for post in arch_video_posts %}
+                    <a href="{{ post.get_absolute_url }}" class="cbl-arch-video">
+                        <div class="cbl-arch-video-thumb">
+                            {% if post.shorts_cover %}
+                                <img src="{{ post.shorts_cover.url }}" alt="{{ post.title }}">
+                            {% elif post.thumbnail %}
+                                <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">
+                            {% else %}
+                                <div class="cbl-arch-fallback">🎬</div>
+                            {% endif %}
+                            <span class="cbl-arch-badge cbl-arch-video-badge">건설영상</span>
+                            <span class="cbl-arch-play">▶</span>
+                            <span class="cbl-arch-video-time">05:47</span>
+                        </div>
+                        <h3>{{ post.title }}</h3>
+                    </a>
+                {% empty %}
+                    <div class="cbl-arch-empty">동영상/쇼츠가 연결된 건설 컨텐츠가 아직 없습니다.</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="cbl-arch-section cbl-arch-property-full">
+        <div class="cbl-arch-head">
+            <div class="cbl-arch-head-main">
+                <h2 class="cbl-arch-title">건설 부동산</h2>
+            </div>
+            <button type="button" class="cbl-arch-more cbl-arch-popup-open" data-cbl-arch-popup="property">전체보기 〉</button>
+        </div>
+
+        <div class="cbl-arch-mini-list">
+            {% for post in arch_property_posts %}
+                <a href="{{ post.get_absolute_url }}" class="cbl-arch-mini">
+                    <div class="cbl-arch-thumb">
+                        {% if post.thumbnail %}
+                            <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">
+                        {% else %}
+                            <div class="cbl-arch-fallback">🏙️</div>
+                        {% endif %}
+                    </div>
+                    <div class="cbl-arch-mini-body">
+                        <span class="cbl-arch-badge">건설부동산</span>
+                        <h3>{{ post.title }}</h3>
+                        <span class="cbl-arch-date">{{ post.created_at|date:"Y.m.d" }}</span>
+                    </div>
+                </a>
+            {% empty %}
+                <div class="cbl-arch-empty">건설·부동산 컨텐츠가 아직 없습니다.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- CBL_ARCH_PROPERTY_SUBSCRIPTION_START -->
+    <div class="cbl-arch-subscription-panel">
+        <div class="cbl-arch-subscription-headline">
+            <div class="cbl-arch-subscription-titlebox">
+                <h2 class="cbl-arch-title">최신 청약정보</h2>
+                <p class="cbl-arch-desc">건설 부동산 흐름과 연결되는 모집공고·청약 일정을 한눈에 정리했습니다.</p>
+            </div>
+            <a href="https://www.applyhome.co.kr" target="_blank" rel="noopener noreferrer" class="cbl-arch-more">청약홈 〉</a>
+        </div>
+
+        {% if subscription_items %}
+            <div class="cbl-arch-subscription-grid">
+                {% for item in subscription_items|slice:":6" %}
+                    <a
+                        class="cbl-arch-subscription-card"
+                        {% if item.url %}href="{{ item.url }}" target="_blank" rel="noopener noreferrer"{% else %}href="https://www.applyhome.co.kr" target="_blank" rel="noopener noreferrer"{% endif %}
+                    >
+                        <div class="cbl-arch-subscription-top">
+                            <span class="cbl-arch-badge cbl-arch-subscription-badge">청약정보</span>
+                            <span class="cbl-arch-subscription-status {{ item.status_code }}">{{ item.status }}</span>
+                        </div>
+                        <h3>{{ item.name }}</h3>
+                        <p>{{ item.region }}{% if item.address %} · {{ item.address }}{% endif %}</p>
+                        <div class="cbl-arch-subscription-dates">
+                            <span>특공 <b>{{ item.special|default:"-" }}</b></span>
+                            <span>1순위 <b>{{ item.rank1|default:"-" }}</b></span>
+                            <span>당첨 <b>{{ item.winner|default:"-" }}</b></span>
+                        </div>
+                    </a>
+                {% endfor %}
+            </div>
+            <div class="cbl-arch-subscription-footer">
+                <p>청약 일정과 공급 내용은 변경될 수 있으므로 신청 전 반드시 모집공고 원문을 확인하세요.</p>
+                <a href="https://www.applyhome.co.kr" target="_blank" rel="noopener noreferrer">
+                    한국부동산원 청약홈 공공데이터{% if subscription_updated_at %} · {{ subscription_updated_at }} 기준{% endif %} 〉
+                </a>
+            </div>
+        {% else %}
+            <div class="cbl-arch-empty">{{ subscription_error|default:"현재 표시할 청약정보가 없습니다." }}</div>
+            <div class="cbl-arch-subscription-footer cbl-arch-subscription-footer-empty">
+                <span></span>
+                <a href="https://www.applyhome.co.kr" target="_blank" rel="noopener noreferrer">
+                    한국부동산원 청약홈 공공데이터 〉
+                </a>
+            </div>
+        {% endif %}
+    </div>
+    <!-- CBL_ARCH_PROPERTY_SUBSCRIPTION_END -->
+
+
+    <!-- CBL_ARCH_SECTION_POPUP_MODAL_START -->
+    <div class="cbl-arch-modal" id="cblArchSectionModal" hidden aria-hidden="true">
+        <div class="cbl-arch-modal-panel" role="dialog" aria-modal="true" aria-labelledby="cblArchModalTitle">
+            <div class="cbl-arch-modal-head">
+                <div>
+                    <p class="cbl-arch-modal-kicker">CONSTRUCTION CONTENTS</p>
+                    <h2 class="cbl-arch-modal-title" id="cblArchModalTitle">건설 컨텐츠</h2>
+                    <p class="cbl-arch-modal-desc" id="cblArchModalDesc">컨텐츠와 동영상/쇼츠를 한 번에 확인합니다.</p>
+                </div>
+                <button type="button" class="cbl-arch-modal-close" aria-label="닫기">×</button>
+            </div>
+            <div class="cbl-arch-modal-body">
+                <div class="cbl-arch-modal-subhead">
+                    <h3 id="cblArchModalContentTitle">컨텐츠</h3>
+                </div>
+                <div class="cbl-arch-modal-grid" id="cblArchModalPosts"></div>
+
+                <div class="cbl-arch-modal-video-area">
+                    <div class="cbl-arch-modal-subhead">
+                        <h3 id="cblArchModalVideoTitle">동영상/쇼츠</h3>
+                    </div>
+                    <div class="cbl-arch-modal-video-grid" id="cblArchModalVideos"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <template id="cblArchTplPracticePosts">
+        {% for post in arch_practical_all_posts %}
+            <a href="{{ post.get_absolute_url }}" class="cbl-arch-card">
+                <div class="cbl-arch-thumb">
+                    {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-arch-fallback">📐</div>{% endif %}
+                </div>
+                <div class="cbl-arch-body">
+                    <span class="cbl-arch-badge">건설실무</span>
+                    <h3>{{ post.title }}</h3>
+                    {% if post.summary %}<p class="cbl-arch-summary">{{ post.summary|truncatechars:58 }}</p>{% else %}<p class="cbl-arch-summary">{{ post.content|striptags|cut:"&nbsp;"|cut:"&amp;nbsp;"|truncatechars:58 }}</p>{% endif %}
+                    <span class="cbl-arch-date">{{ post.created_at|date:"Y.m.d" }}</span>
+                </div>
+            </a>
+        {% empty %}
+            <div class="cbl-arch-modal-empty">건설실무 컨텐츠가 아직 없습니다.</div>
+        {% endfor %}
+    </template>
+
+    <template id="cblArchTplTechPosts">
+        {% for post in arch_tech_all_posts %}
+            <a href="{{ post.get_absolute_url }}" class="cbl-arch-card">
+                <div class="cbl-arch-thumb">
+                    {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-arch-fallback">🤖</div>{% endif %}
+                </div>
+                <div class="cbl-arch-body">
+                    <span class="cbl-arch-badge">건설기술</span>
+                    <h3>{{ post.title }}</h3>
+                    {% if post.summary %}<p class="cbl-arch-summary">{{ post.summary|truncatechars:58 }}</p>{% else %}<p class="cbl-arch-summary">{{ post.content|striptags|cut:"&nbsp;"|cut:"&amp;nbsp;"|truncatechars:58 }}</p>{% endif %}
+                    <span class="cbl-arch-date">{{ post.created_at|date:"Y.m.d" }}</span>
+                </div>
+            </a>
+        {% empty %}
+            <div class="cbl-arch-modal-empty">건설기술 컨텐츠가 아직 없습니다.</div>
+        {% endfor %}
+    </template>
+
+    <template id="cblArchTplPropertyPosts">
+        {% for post in arch_property_all_posts %}
+            <a href="{{ post.get_absolute_url }}" class="cbl-arch-card">
+                <div class="cbl-arch-thumb">
+                    {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-arch-fallback">🏙️</div>{% endif %}
+                </div>
+                <div class="cbl-arch-body">
+                    <span class="cbl-arch-badge">건설부동산</span>
+                    <h3>{{ post.title }}</h3>
+                    {% if post.summary %}<p class="cbl-arch-summary">{{ post.summary|truncatechars:58 }}</p>{% else %}<p class="cbl-arch-summary">{{ post.content|striptags|cut:"&nbsp;"|cut:"&amp;nbsp;"|truncatechars:58 }}</p>{% endif %}
+                    <span class="cbl-arch-date">{{ post.created_at|date:"Y.m.d" }}</span>
+                </div>
+            </a>
+        {% empty %}
+            <div class="cbl-arch-modal-empty">건설부동산 컨텐츠가 아직 없습니다.</div>
+        {% endfor %}
+    </template>
+
+    <template id="cblArchTplPracticeVideos">
+        {% for post in arch_practical_video_posts %}
+            <a href="{{ post.get_absolute_url }}" class="cbl-arch-video">
+                <div class="cbl-arch-video-thumb">
+                    {% if post.shorts_cover %}<img src="{{ post.shorts_cover.url }}" alt="{{ post.title }}">{% elif post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-arch-fallback">🎬</div>{% endif %}
+                    <span class="cbl-arch-badge cbl-arch-video-badge">건설영상</span><span class="cbl-arch-play">▶</span><span class="cbl-arch-video-time">05:47</span>
+                </div>
+                <h3>{{ post.title }}</h3>
+            </a>
+        {% empty %}
+            <div class="cbl-arch-modal-empty">건설실무 동영상/쇼츠가 아직 없습니다.</div>
+        {% endfor %}
+    </template>
+
+    <template id="cblArchTplTechVideos">
+        {% for post in arch_tech_video_posts %}
+            <a href="{{ post.get_absolute_url }}" class="cbl-arch-video">
+                <div class="cbl-arch-video-thumb">
+                    {% if post.shorts_cover %}<img src="{{ post.shorts_cover.url }}" alt="{{ post.title }}">{% elif post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-arch-fallback">🎬</div>{% endif %}
+                    <span class="cbl-arch-badge cbl-arch-video-badge">건설영상</span><span class="cbl-arch-play">▶</span><span class="cbl-arch-video-time">05:47</span>
+                </div>
+                <h3>{{ post.title }}</h3>
+            </a>
+        {% empty %}
+            <div class="cbl-arch-modal-empty">건설기술 동영상/쇼츠가 아직 없습니다.</div>
+        {% endfor %}
+    </template>
+
+    <template id="cblArchTplPropertyVideos">
+        {% for post in arch_property_video_posts %}
+            <a href="{{ post.get_absolute_url }}" class="cbl-arch-video">
+                <div class="cbl-arch-video-thumb">
+                    {% if post.shorts_cover %}<img src="{{ post.shorts_cover.url }}" alt="{{ post.title }}">{% elif post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-arch-fallback">🎬</div>{% endif %}
+                    <span class="cbl-arch-badge cbl-arch-video-badge">건설영상</span><span class="cbl-arch-play">▶</span><span class="cbl-arch-video-time">05:47</span>
+                </div>
+                <h3>{{ post.title }}</h3>
+            </a>
+        {% empty %}
+            <div class="cbl-arch-modal-empty">건설부동산 동영상/쇼츠가 아직 없습니다.</div>
+        {% endfor %}
+    </template>
+
+    <template id="cblArchTplAllVideos">
+        {% for post in arch_all_video_posts %}
+            <a href="{{ post.get_absolute_url }}" class="cbl-arch-video">
+                <div class="cbl-arch-video-thumb">
+                    {% if post.shorts_cover %}<img src="{{ post.shorts_cover.url }}" alt="{{ post.title }}">{% elif post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-arch-fallback">🎬</div>{% endif %}
+                    <span class="cbl-arch-badge cbl-arch-video-badge">건설영상</span><span class="cbl-arch-play">▶</span><span class="cbl-arch-video-time">05:47</span>
+                </div>
+                <h3>{{ post.title }}</h3>
+            </a>
+        {% empty %}
+            <div class="cbl-arch-modal-empty">건설 동영상/쇼츠가 아직 없습니다.</div>
+        {% endfor %}
+    </template>
+
+    <script>
+    (function () {
+        const modal = document.getElementById("cblArchSectionModal");
+        if (!modal) return;
+
+        const title = document.getElementById("cblArchModalTitle");
+        const desc = document.getElementById("cblArchModalDesc");
+        const contentTitle = document.getElementById("cblArchModalContentTitle");
+        const videoTitle = document.getElementById("cblArchModalVideoTitle");
+        const postsBox = document.getElementById("cblArchModalPosts");
+        const videosBox = document.getElementById("cblArchModalVideos");
+        const closeBtn = modal.querySelector(".cbl-arch-modal-close");
+
+        const data = {
+            practice: {
+                title: "건설실무 컨텐츠",
+                desc: "시공 · 공정 · 적산 · 원가 · 견적 · 품질 실무 글을 모았습니다.",
+                contentTitle: "건설실무 컨텐츠",
+                videoTitle: "건설실무 동영상/쇼츠",
+                postsTpl: "cblArchTplPracticePosts",
+                videosTpl: "cblArchTplPracticeVideos"
+            },
+            tech: {
+                title: "건설기술 컨텐츠",
+                desc: "BIM · AI · 자동화 · 스마트건설 · 도면 검토 기술 글을 모았습니다.",
+                contentTitle: "건설기술 컨텐츠",
+                videoTitle: "건설기술 동영상/쇼츠",
+                postsTpl: "cblArchTplTechPosts",
+                videosTpl: "cblArchTplTechVideos"
+            },
+            property: {
+                title: "건설부동산 컨텐츠",
+                desc: "분양 · 청약 · 재건축 · 개발 · 건설 부동산 흐름 글을 모았습니다.",
+                contentTitle: "건설부동산 컨텐츠",
+                videoTitle: "건설부동산 동영상/쇼츠",
+                postsTpl: "cblArchTplPropertyPosts",
+                videosTpl: "cblArchTplPropertyVideos"
+            },
+            videos: {
+                title: "건설 동영상/쇼츠",
+                desc: "건설실무 · 건설기술 · 건설부동산에 올라온 영상/쇼츠 글을 함께 모았습니다.",
+                contentTitle: "전체 건설 영상/쇼츠",
+                videoTitle: "건설 동영상/쇼츠",
+                postsTpl: "cblArchTplAllVideos",
+                videosTpl: "cblArchTplAllVideos"
+            }
+        };
+
+        function templateHtml(id) {
+            const tpl = document.getElementById(id);
+            return tpl ? tpl.innerHTML.trim() : "";
+        }
+
+        function openModal(type) {
+            const info = data[type] || data.practice;
+            title.textContent = info.title;
+            desc.textContent = info.desc;
+            contentTitle.textContent = info.contentTitle;
+            videoTitle.textContent = info.videoTitle;
+            postsBox.innerHTML = templateHtml(info.postsTpl) || '<div class="cbl-arch-modal-empty">표시할 컨텐츠가 없습니다.</div>';
+            videosBox.innerHTML = templateHtml(info.videosTpl) || '<div class="cbl-arch-modal-empty">표시할 동영상/쇼츠가 없습니다.</div>';
+
+            if (type === "videos") {
+                videoTitle.parentElement.style.display = "none";
+                videosBox.parentElement.style.display = "none";
+            } else {
+                videoTitle.parentElement.style.display = "flex";
+                videosBox.parentElement.style.display = "grid";
+            }
+
+            modal.hidden = false;
+            modal.setAttribute("aria-hidden", "false");
+            document.body.classList.add("cbl-arch-modal-lock");
+        }
+
+        function closeModal() {
+            modal.hidden = true;
+            modal.setAttribute("aria-hidden", "true");
+            document.body.classList.remove("cbl-arch-modal-lock");
+        }
+
+        document.querySelectorAll(".cbl-arch-popup-open").forEach(function (btn) {
+            btn.addEventListener("click", function (event) {
+                event.preventDefault();
+                openModal(btn.getAttribute("data-cbl-arch-popup"));
+            });
+        });
+
+        closeBtn && closeBtn.addEventListener("click", closeModal);
+        modal.addEventListener("click", function (event) {
+            if (event.target === modal) closeModal();
+        });
+        document.addEventListener("keydown", function (event) {
+            if (event.key === "Escape" && !modal.hidden) closeModal();
+        });
+    })();
+    </script>
+    <!-- CBL_ARCH_SECTION_POPUP_MODAL_END -->
+
+</section>
+<!-- CBL_ARCHITECTURE_PORTAL_END -->
+{% endif %}
 
 {% if slug == "realestate" %}
 <!-- CBL_REALESTATE_SUBSCRIPTION_BOARD_START -->
@@ -720,6 +3464,13 @@
         grid-template-columns: minmax(90px, 1fr) minmax(100px, auto) 72px;
     }
 }
+
+/* CBL_REMOVE_CATEGORY_LIST_BUTTON_START */
+.cbl-arch-actions a[href="#post-list"]:not(.primary),
+.category-button-group a[href="#post-list"].list-btn {
+    display: none !important;
+}
+/* CBL_REMOVE_CATEGORY_LIST_BUTTON_END */
 </style>
 
 <section class="cbl-crypto-board" aria-labelledby="cblCryptoBoardTitle">
@@ -863,6 +3614,1155 @@
 <!-- CBL_CRYPTO_EXCHANGE_BOARD_END -->
 {% endif %}
 
+
+{% if portal_config %}
+<!-- CBL_BTP_PORTAL_PAGE_START -->
+<style>
+.cbl-btp-page {
+    width: min(1180px, calc(100% - 36px));
+    margin: 26px auto 70px;
+    color: #0f172a;
+}
+.cbl-btp-section { margin-top: 34px; }
+.cbl-btp-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 14px;
+    margin-bottom: 12px;
+}
+.cbl-btp-title {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 950;
+    line-height: 1.15;
+    letter-spacing: -0.055em;
+}
+.cbl-btp-more {
+    border: 0;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 900;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.cbl-btp-more:hover { color: #0f172a; }
+.cbl-btp-grid-recent,
+.cbl-btp-grid-main {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 14px;
+}
+.cbl-btp-grid-main {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.cbl-btp-card,
+.cbl-btp-mini,
+.cbl-btp-video {
+    color: inherit;
+    text-decoration: none;
+}
+.cbl-btp-card {
+    overflow: hidden;
+    min-height: 176px;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, .05);
+}
+.cbl-btp-card:hover,
+.cbl-btp-mini:hover,
+.cbl-btp-video:hover .cbl-btp-video-thumb {
+    transform: translateY(-2px);
+    box-shadow: 0 16px 36px rgba(15, 23, 42, .09);
+}
+.cbl-btp-thumb {
+    position: relative;
+    height: 82px;
+    overflow: hidden;
+    background: linear-gradient(135deg, #f8fafc, #eef2f7);
+}
+.cbl-btp-grid-main .cbl-btp-thumb { height: 126px; }
+.cbl-btp-thumb img,
+.cbl-btp-video-thumb img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.cbl-btp-fallback {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; height: 100%;
+    color: #0f9f92; font-size: 34px; font-weight: 950;
+}
+.cbl-btp-body { padding: 12px 13px 13px; }
+.cbl-btp-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 20px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #dcfce7;
+    color: #059669;
+    font-size: 10px;
+    font-weight: 950;
+    line-height: 1.2;
+    letter-spacing: -0.04em;
+    white-space: nowrap;
+}
+.cbl-btp-card h3,
+.cbl-btp-mini h3,
+.cbl-btp-video h3 {
+    margin: 8px 0 0;
+    font-size: 13px;
+    font-weight: 950;
+    line-height: 1.35;
+    letter-spacing: -0.045em;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.cbl-btp-grid-main .cbl-btp-card h3 { font-size: 15px; }
+.cbl-btp-summary {
+    margin: 8px 0 0;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.55;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.cbl-btp-date {
+    display: block;
+    margin-top: 10px;
+    color: #8aa0b8;
+    font-size: 11px;
+    font-weight: 900;
+}
+.cbl-btp-two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+    align-items: start;
+}
+.cbl-btp-mini-list {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+.cbl-btp-third .cbl-btp-mini-list { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.cbl-btp-mini {
+    display: grid;
+    grid-template-columns: 82px 1fr;
+    min-height: 82px;
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 9px 24px rgba(15, 23, 42, .045);
+}
+.cbl-btp-mini .cbl-btp-thumb { height: 82px; }
+.cbl-btp-mini-body { padding: 10px 11px; min-width: 0; }
+.cbl-btp-mini h3 { font-size: 12px; margin-top: 6px; }
+.cbl-btp-mini .cbl-btp-date { margin-top: 6px; font-size: 10px; }
+.cbl-btp-video-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+.cbl-btp-video-thumb {
+    position: relative;
+    height: 96px;
+    overflow: hidden;
+    border: 1px solid #dbe2ea;
+    border-radius: 14px;
+    background: #0f172a;
+    transition: .18s ease;
+}
+.cbl-btp-video-badge { position: absolute; left: 10px; top: 10px; z-index: 3; }
+.cbl-btp-play {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    display: flex; align-items: center; justify-content: center;
+    width: 38px; height: 38px; border-radius: 999px;
+    background: rgba(255,255,255,.92); color: #0f172a;
+    font-size: 13px; font-weight: 950;
+}
+.cbl-btp-video-time {
+    position: absolute; right: 8px; bottom: 8px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: rgba(15,23,42,.82);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 950;
+}
+.cbl-btp-empty {
+    grid-column: 1/-1;
+    min-height: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed #dbe2ea;
+    border-radius: 16px;
+    background: #fff;
+    color: #94a3b8;
+    font-size: 13px;
+    font-weight: 800;
+}
+.cbl-btp-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 22px;
+    background: rgba(15, 23, 42, .42);
+    backdrop-filter: blur(5px);
+}
+.cbl-btp-modal.is-open { display: flex; }
+.cbl-btp-modal-card {
+    width: min(1120px, 100%);
+    max-height: min(780px, calc(100vh - 44px));
+    overflow: hidden;
+    border-radius: 24px;
+    background: #fff;
+    box-shadow: 0 30px 80px rgba(15, 23, 42, .25);
+}
+.cbl-btp-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 22px 24px 14px;
+    border-bottom: 1px solid #eef2f7;
+}
+.cbl-btp-modal-head h3 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 950;
+    letter-spacing: -0.055em;
+}
+.cbl-btp-modal-close {
+    width: 42px; height: 42px;
+    border: 0;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #0f172a;
+    font-size: 24px;
+    font-weight: 900;
+    cursor: pointer;
+}
+.cbl-btp-modal-scroll {
+    max-height: calc(min(780px, 100vh - 44px) - 78px);
+    overflow-y: auto;
+    padding: 20px 24px 26px;
+}
+.cbl-btp-modal-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+}
+.cbl-btp-modal-grid .cbl-btp-card { min-height: 205px; }
+.cbl-btp-modal-grid .cbl-btp-thumb { height: 112px; }
+.cbl-btp-modal-grid.video .cbl-btp-video-thumb { height: 126px; }
+@media (max-width: 900px) {
+    .cbl-btp-grid-recent,
+    .cbl-btp-grid-main,
+    .cbl-btp-mini-list,
+    .cbl-btp-third .cbl-btp-mini-list,
+    .cbl-btp-video-row,
+    .cbl-btp-modal-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .cbl-btp-two-col { grid-template-columns: 1fr; gap: 18px; }
+    .cbl-btp-page { width: calc(100% - 24px); margin-top: 18px; }
+    .cbl-btp-card { min-height: 170px; }
+    .cbl-btp-thumb,
+    .cbl-btp-grid-main .cbl-btp-thumb { height: 104px; }
+    .cbl-btp-mini { grid-template-columns: 1fr; }
+    .cbl-btp-mini .cbl-btp-thumb { height: 94px; }
+    .cbl-btp-video-thumb { height: 96px; }
+}
+@media (max-width: 420px) {
+    .cbl-btp-card h3,
+    .cbl-btp-mini h3,
+    .cbl-btp-video h3 { font-size: 11px; }
+    .cbl-btp-summary { display: none; }
+    .cbl-btp-badge { font-size: 8.5px; padding: 3px 6px; }
+}
+</style>
+
+<section class="cbl-btp-page" id="post-list">
+    <div class="cbl-btp-section">
+        <div class="cbl-btp-head">
+            <h2 class="cbl-btp-title">{{ portal_config.recent_title }}</h2>
+            <a data-cbl-write-admin-only-v2="1" {% if not user.is_staff %}style="display:none !important;" aria-hidden="true" tabindex="-1"{% endif %} href="{% url 'post_create' %}?category={{ slug }}" class="cbl-arch-btn primary">글 올리기</a> <!-- CBL_WRITE_LINK_ADMIN_ONLY_V2 -->
+        </div>
+        <div class="cbl-btp-grid-recent">
+            {% for post in portal_recent_posts %}
+                <a href="{{ post.get_absolute_url }}" class="cbl-btp-card">
+                    <div class="cbl-btp-thumb">
+                        {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-btp-fallback">{{ portal_config.fallback_icon }}</div>{% endif %}
+                    </div>
+                    <div class="cbl-btp-body">
+                        <span class="cbl-btp-badge">{{ post.get_category_display }}</span>
+                        <h3>{{ post.title }}</h3>
+                        <span class="cbl-btp-date">{{ post.created_at|date:"Y.m.d" }}</span>
+                    </div>
+                </a>
+            {% empty %}
+                <div class="cbl-btp-empty">아직 등록된 {{ portal_config.title }} 컨텐츠가 없습니다.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="cbl-btp-section">
+        <div class="cbl-btp-head">
+            <h2 class="cbl-btp-title">{{ portal_config.main_title }}</h2>
+            <button type="button" class="cbl-btp-more" data-cbl-btp-open="main">전체보기 〉</button>
+        </div>
+        <div class="cbl-btp-grid-main">
+            {% for post in portal_main_posts %}
+                <a href="{{ post.get_absolute_url }}" class="cbl-btp-card">
+                    <div class="cbl-btp-thumb">
+                        {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-btp-fallback">{{ portal_config.fallback_icon }}</div>{% endif %}
+                    </div>
+                    <div class="cbl-btp-body">
+                        <span class="cbl-btp-badge">{{ portal_config.main_badge }}</span>
+                        <h3>{{ post.title }}</h3>
+                        <p class="cbl-btp-summary">{% if post.summary %}{{ post.summary|truncatechars:58 }}{% else %}{{ post.content|striptags|cut:"&nbsp;"|cut:"&amp;nbsp;"|truncatechars:58 }}{% endif %}</p>
+                        <span class="cbl-btp-date">{{ post.created_at|date:"Y.m.d" }}</span>
+                    </div>
+                </a>
+            {% empty %}
+                <div class="cbl-btp-empty">{{ portal_config.main_empty }}</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="cbl-btp-two-col">
+        <div class="cbl-btp-section">
+            <div class="cbl-btp-head">
+                <h2 class="cbl-btp-title">{{ portal_config.sub_title }}</h2>
+                <button type="button" class="cbl-btp-more" data-cbl-btp-open="sub">전체보기 〉</button>
+            </div>
+            <div class="cbl-btp-mini-list">
+                {% for post in portal_sub_posts %}
+                    <a href="{{ post.get_absolute_url }}" class="cbl-btp-mini">
+                        <div class="cbl-btp-thumb">{% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-btp-fallback">{{ portal_config.fallback_icon }}</div>{% endif %}</div>
+                        <div class="cbl-btp-mini-body"><span class="cbl-btp-badge">{{ portal_config.sub_badge }}</span><h3>{{ post.title }}</h3><span class="cbl-btp-date">{{ post.created_at|date:"Y.m.d" }}</span></div>
+                    </a>
+                {% empty %}<div class="cbl-btp-empty">{{ portal_config.sub_empty }}</div>{% endfor %}
+            </div>
+        </div>
+
+        <div class="cbl-btp-section">
+            <div class="cbl-btp-head">
+                <h2 class="cbl-btp-title">{{ portal_config.video_title }}</h2>
+                <button type="button" class="cbl-btp-more" data-cbl-btp-open="video">전체보기 〉</button>
+            </div>
+            <div class="cbl-btp-video-row">
+                {% for post in portal_video_posts %}
+                    <a href="{{ post.get_absolute_url }}" class="cbl-btp-video">
+                        <div class="cbl-btp-video-thumb">
+                            {% if post.shorts_cover %}<img src="{{ post.shorts_cover.url }}" alt="{{ post.title }}">{% elif post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-btp-fallback">▶</div>{% endif %}
+                            <span class="cbl-btp-badge cbl-btp-video-badge">{{ portal_config.video_badge }}</span>
+                            <span class="cbl-btp-play">▶</span><span class="cbl-btp-video-time">05:47</span>
+                        </div>
+                        <h3>{{ post.title }}</h3>
+                    </a>
+                {% empty %}<div class="cbl-btp-empty">동영상/쇼츠가 연결된 {{ portal_config.title }} 컨텐츠가 아직 없습니다.</div>{% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- CBL_PROGRAM_THIRD_SECTION_HIDE_SAFE_START -->
+    {% if slug != "program" %}
+    <div class="cbl-btp-section cbl-btp-third">
+        <div class="cbl-btp-head">
+            <h2 class="cbl-btp-title">{{ portal_config.third_title }}</h2>
+            <button type="button" class="cbl-btp-more" data-cbl-btp-open="third">전체보기 〉</button>
+        </div>
+        <div class="cbl-btp-mini-list">
+            {% for post in portal_third_posts %}
+                <a href="{{ post.get_absolute_url }}" class="cbl-btp-mini">
+                    <div class="cbl-btp-thumb">{% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-btp-fallback">{{ portal_config.fallback_icon }}</div>{% endif %}</div>
+                    <div class="cbl-btp-mini-body"><span class="cbl-btp-badge">{{ portal_config.third_badge }}</span><h3>{{ post.title }}</h3><span class="cbl-btp-date">{{ post.created_at|date:"Y.m.d" }}</span></div>
+                </a>
+            {% empty %}<div class="cbl-btp-empty">{{ portal_config.third_empty }}</div>{% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    <!-- CBL_PROGRAM_THIRD_SECTION_HIDE_SAFE_END -->
+</section>
+
+
+
+
+<!-- CBL_PROGRAM_PAGE_UPLOADED_DOWNLOADS_SECTION_START -->
+{% if slug == "program" %}
+<style id="cbl-program-page-uploaded-downloads-style">
+.cbl-program-page-downloads {
+    width: min(1180px, calc(100% - 36px));
+    margin: 26px auto 34px;
+    padding: 0;
+}
+
+.cbl-program-page-downloads-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.cbl-program-page-downloads-head h2 {
+    margin: 0;
+    font-size: 24px;
+    line-height: 1.15;
+    letter-spacing: -0.05em;
+    font-weight: 900;
+    color: #0f172a;
+}
+
+.cbl-program-page-downloads-head p {
+    margin: 7px 0 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: #7b8794;
+}
+
+.cbl-program-page-downloads-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.cbl-program-page-download-card {
+    min-height: 156px;
+    border: 1px solid rgba(15, 23, 42, 0.10);
+    border-radius: 24px;
+    background: #fff;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+    padding: 18px;
+    display: grid;
+    grid-template-columns: 54px minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+}
+
+.cbl-program-page-download-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 17px;
+    display: grid;
+    place-items: center;
+    background: #e9fbf7;
+    color: #008b7a;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+}
+
+.cbl-program-page-download-body {
+    min-width: 0;
+}
+
+.cbl-program-page-download-body strong {
+    display: block;
+    font-size: 16px;
+    line-height: 1.25;
+    font-weight: 900;
+    color: #111827;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cbl-program-page-download-body p {
+    margin: 7px 0 10px;
+    min-height: 36px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: #64748b;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+
+.cbl-program-page-download-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    color: #94a3b8;
+}
+
+.cbl-program-page-download-chip {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 9px;
+    border-radius: 999px;
+    background: #ecfdf5;
+    color: #008b7a;
+    font-weight: 900;
+    font-size: 11px;
+}
+
+.cbl-program-page-download-chip.is-private {
+    background: #fff7ed;
+    color: #ea580c;
+}
+
+.cbl-program-page-download-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.cbl-program-page-download-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    padding: 0 13px;
+    border-radius: 11px;
+    background: #0f9f91;
+    color: #fff !important;
+    font-size: 12px;
+    font-weight: 900;
+    text-decoration: none !important;
+}
+
+.cbl-program-page-download-btn.is-disabled {
+    background: #e2e8f0;
+    color: #64748b !important;
+    pointer-events: none;
+}
+
+.cbl-program-page-download-empty {
+    grid-column: 1 / -1;
+    min-height: 130px;
+    border: 1px dashed rgba(148, 163, 184, 0.45);
+    border-radius: 22px;
+    background: rgba(255, 255, 255, 0.62);
+    display: grid;
+    place-items: center;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+@media (max-width: 1100px) {
+    .cbl-program-page-downloads-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 720px) {
+    .cbl-program-page-downloads {
+        width: min(100% - 24px, 560px);
+        margin-top: 20px;
+    }
+
+    .cbl-program-page-downloads-head {
+        display: block;
+    }
+
+    .cbl-program-page-downloads-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .cbl-program-page-download-card {
+        border-radius: 20px;
+    }
+}
+</style>
+
+<section class="cbl-program-page-downloads">
+    <div class="cbl-program-page-downloads-head">
+        <div>
+            <h2>프로그램 다운로드</h2>
+            
+        </div>
+    </div>
+
+    <div class="cbl-program-page-downloads-grid">
+        {% for item in program_uploaded_downloads %}
+            <article class="cbl-program-page-download-card">
+                <div class="cbl-program-page-download-icon">
+                    {{ item.badge|default:"APP" }}
+                </div>
+
+                <div class="cbl-program-page-download-body">
+                    <strong>{{ item.title }}</strong>
+
+                    <p>
+                        {% if item.description %}
+                            {{ item.description }}
+                        {% else %}
+                            치킨바나나랩 업로드 프로그램입니다.
+                        {% endif %}
+                    </p>
+
+                    <div class="cbl-program-page-download-meta">
+                        {% if item.is_public %}
+                            <span class="cbl-program-page-download-chip">공개</span>
+                        {% else %}
+                            <span class="cbl-program-page-download-chip is-private">비공개</span>
+                        {% endif %}
+
+                        {% if item.file %}
+                            <span>{{ item.file.name|cut:"home_programs/" }}</span>
+                        {% else %}
+                            <span>파일 없음</span>
+                        {% endif %}
+                    </div>
+
+                    <div class="cbl-program-page-download-actions">
+                        {% if item.file %}
+                            {% if item.is_public or program_page_is_staff %}
+                                <a class="cbl-program-page-download-btn" href="{{ item.file.url }}" download>
+                                    다운로드
+                                </a>
+                            {% else %}
+                                <span class="cbl-program-page-download-btn is-disabled">비공개</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="cbl-program-page-download-btn is-disabled">파일 없음</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </article>
+        {% empty %}
+            <div class="cbl-program-page-download-empty">
+                아직 업로드된 프로그램이 없습니다.
+            </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+
+<!-- CBL_PROGRAM_DOWNLOAD_WIDTH_TEXT_FIX_START -->
+<style id="cbl-program-download-width-text-fix">
+{% if slug == "program" %}
+.cbl-program-page-downloads {
+    width: min(1180px, calc(100% - 36px)) !important;
+    max-width: 1180px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+.cbl-program-page-downloads-head {
+    margin-bottom: 14px !important;
+}
+
+.cbl-program-page-downloads-head h2 {
+    margin-bottom: 0 !important;
+}
+
+.cbl-program-page-downloads-head p {
+    display: none !important;
+}
+
+.cbl-program-page-download-empty {
+    color: #94a3b8 !important;
+}
+{% endif %}
+</style>
+<!-- CBL_PROGRAM_DOWNLOAD_WIDTH_TEXT_FIX_END -->
+
+
+
+<!-- CBL_PROGRAM_DOWNLOAD_SCROLL_BOX_START -->
+<style id="cbl-program-download-scroll-box">
+{% if slug == "program" %}
+/* 프로그램 다운로드 목록이 많아질 경우 박스 내부만 스크롤 */
+.cbl-program-page-downloads-grid {
+    max-height: 430px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 2px 8px 8px 2px !important;
+    scrollbar-gutter: stable !important;
+}
+
+/* 스크롤바 디자인 */
+.cbl-program-page-downloads-grid::-webkit-scrollbar {
+    width: 8px;
+}
+
+.cbl-program-page-downloads-grid::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.cbl-program-page-downloads-grid::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.45);
+    border-radius: 999px;
+}
+
+.cbl-program-page-downloads-grid::-webkit-scrollbar-thumb:hover {
+    background: rgba(100, 116, 139, 0.55);
+}
+
+/* 카드가 스크롤 안에서 잘리지 않게 */
+.cbl-program-page-download-card {
+    min-height: 156px !important;
+}
+
+/* 모바일에서는 조금 더 낮게 */
+@media (max-width: 720px) {
+    .cbl-program-page-downloads-grid {
+        max-height: 520px !important;
+        padding-right: 6px !important;
+    }
+}
+{% endif %}
+</style>
+<!-- CBL_PROGRAM_DOWNLOAD_SCROLL_BOX_END -->
+
+<!-- CBL_PROGRAM_PAGE_UPLOADED_DOWNLOADS_SECTION_END -->
+
+
+<style id="cbl-btp-popup-video-style-v1">
+.cbl-btp-modal-subtitle {
+    margin: 24px 0 12px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(148, 163, 184, 0.22);
+    font-size: 17px;
+    font-weight: 900;
+    letter-spacing: -0.04em;
+    color: #0f172a;
+}
+.cbl-btp-modal-scroll {
+    max-height: min(72vh, 780px);
+    overflow-y: auto;
+    padding-right: 6px;
+}
+.cbl-btp-modal-grid.video {
+    margin-bottom: 8px;
+}
+.cbl-btp-modal-grid.video .cbl-btp-video {
+    min-width: 0;
+}
+.cbl-btp-modal-grid.video .cbl-btp-video h3 {
+    margin-top: 9px;
+    font-size: 13px;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+@media (max-width: 720px) {
+    .cbl-btp-modal-subtitle { font-size: 15px; margin-top: 18px; }
+    .cbl-btp-modal-scroll { max-height: 74vh; }
+}
+</style>
+
+<div class="cbl-btp-modal" data-cbl-btp-modal="main" aria-hidden="true">
+    <div class="cbl-btp-modal-card">
+        <div class="cbl-btp-modal-head">
+            <h3>{{ portal_config.main_title }}</h3>
+            <button type="button" class="cbl-btp-modal-close" data-cbl-btp-close>×</button>
+        </div>
+        <div class="cbl-btp-modal-scroll">
+            <div class="cbl-btp-modal-grid">
+                {% for post in portal_main_popup_posts %}
+                <a href="{{ post.get_absolute_url }}" class="cbl-btp-card">
+                    <div class="cbl-btp-thumb">
+                        {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-btp-fallback">{{ portal_config.fallback_icon }}</div>{% endif %}
+                    </div>
+                    <div class="cbl-btp-body">
+                        <span class="cbl-btp-badge">{{ portal_config.main_badge }}</span>
+                        <h3>{{ post.title }}</h3>
+                        <span class="cbl-btp-date">{{ post.created_at|date:"Y.m.d" }}</span>
+                    </div>
+                </a>
+            {% empty %}
+                <div class="cbl-btp-empty">{{ portal_config.main_empty }}</div>
+            {% endfor %}
+            </div>
+            {% if portal_main_popup_video_posts %}
+                <h4 class="cbl-btp-modal-subtitle">{{ portal_config.main_title }} 동영상/쇼츠</h4>
+                <div class="cbl-btp-modal-grid video">
+                    {% for post in portal_main_popup_video_posts %}
+                    <a href="{{ post.get_absolute_url }}" class="cbl-btp-video">
+                        <div class="cbl-btp-video-thumb">
+                            {% if post.shorts_cover %}<img src="{{ post.shorts_cover.url }}" alt="{{ post.title }}">{% elif post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-btp-fallback">▶</div>{% endif %}
+                            <span class="cbl-btp-badge cbl-btp-video-badge">{{ portal_config.video_badge }}</span>
+                            <span class="cbl-btp-play">▶</span>
+                            <span class="cbl-btp-video-time">05:47</span>
+                        </div>
+                        <h3>{{ post.title }}</h3>
+                    </a>
+                {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="cbl-btp-modal" data-cbl-btp-modal="sub" aria-hidden="true">
+    <div class="cbl-btp-modal-card">
+        <div class="cbl-btp-modal-head">
+            <h3>{{ portal_config.sub_title }}</h3>
+            <button type="button" class="cbl-btp-modal-close" data-cbl-btp-close>×</button>
+        </div>
+        <div class="cbl-btp-modal-scroll">
+            <div class="cbl-btp-modal-grid">
+                {% for post in portal_sub_popup_posts %}
+                <a href="{{ post.get_absolute_url }}" class="cbl-btp-card">
+                    <div class="cbl-btp-thumb">
+                        {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-btp-fallback">{{ portal_config.fallback_icon }}</div>{% endif %}
+                    </div>
+                    <div class="cbl-btp-body">
+                        <span class="cbl-btp-badge">{{ portal_config.sub_badge }}</span>
+                        <h3>{{ post.title }}</h3>
+                        <span class="cbl-btp-date">{{ post.created_at|date:"Y.m.d" }}</span>
+                    </div>
+                </a>
+            {% empty %}
+                <div class="cbl-btp-empty">{{ portal_config.sub_empty }}</div>
+            {% endfor %}
+            </div>
+            {% if portal_sub_popup_video_posts %}
+                <h4 class="cbl-btp-modal-subtitle">{{ portal_config.sub_title }} 동영상/쇼츠</h4>
+                <div class="cbl-btp-modal-grid video">
+                    {% for post in portal_sub_popup_video_posts %}
+                    <a href="{{ post.get_absolute_url }}" class="cbl-btp-video">
+                        <div class="cbl-btp-video-thumb">
+                            {% if post.shorts_cover %}<img src="{{ post.shorts_cover.url }}" alt="{{ post.title }}">{% elif post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-btp-fallback">▶</div>{% endif %}
+                            <span class="cbl-btp-badge cbl-btp-video-badge">{{ portal_config.video_badge }}</span>
+                            <span class="cbl-btp-play">▶</span>
+                            <span class="cbl-btp-video-time">05:47</span>
+                        </div>
+                        <h3>{{ post.title }}</h3>
+                    </a>
+                {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="cbl-btp-modal" data-cbl-btp-modal="third" aria-hidden="true">
+    <div class="cbl-btp-modal-card">
+        <div class="cbl-btp-modal-head">
+            <h3>{{ portal_config.third_title }}</h3>
+            <button type="button" class="cbl-btp-modal-close" data-cbl-btp-close>×</button>
+        </div>
+        <div class="cbl-btp-modal-scroll">
+            <div class="cbl-btp-modal-grid">
+                {% for post in portal_third_popup_posts %}
+                <a href="{{ post.get_absolute_url }}" class="cbl-btp-card">
+                    <div class="cbl-btp-thumb">
+                        {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-btp-fallback">{{ portal_config.fallback_icon }}</div>{% endif %}
+                    </div>
+                    <div class="cbl-btp-body">
+                        <span class="cbl-btp-badge">{{ portal_config.third_badge }}</span>
+                        <h3>{{ post.title }}</h3>
+                        <span class="cbl-btp-date">{{ post.created_at|date:"Y.m.d" }}</span>
+                    </div>
+                </a>
+            {% empty %}
+                <div class="cbl-btp-empty">{{ portal_config.third_empty }}</div>
+            {% endfor %}
+            </div>
+            {% if portal_third_popup_video_posts %}
+                <h4 class="cbl-btp-modal-subtitle">{{ portal_config.third_title }} 동영상/쇼츠</h4>
+                <div class="cbl-btp-modal-grid video">
+                    {% for post in portal_third_popup_video_posts %}
+                    <a href="{{ post.get_absolute_url }}" class="cbl-btp-video">
+                        <div class="cbl-btp-video-thumb">
+                            {% if post.shorts_cover %}<img src="{{ post.shorts_cover.url }}" alt="{{ post.title }}">{% elif post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-btp-fallback">▶</div>{% endif %}
+                            <span class="cbl-btp-badge cbl-btp-video-badge">{{ portal_config.video_badge }}</span>
+                            <span class="cbl-btp-play">▶</span>
+                            <span class="cbl-btp-video-time">05:47</span>
+                        </div>
+                        <h3>{{ post.title }}</h3>
+                    </a>
+                {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="cbl-btp-modal" data-cbl-btp-modal="video" aria-hidden="true">
+    <div class="cbl-btp-modal-card"><div class="cbl-btp-modal-head"><h3>{{ portal_config.video_title }}</h3><button type="button" class="cbl-btp-modal-close" data-cbl-btp-close>×</button></div><div class="cbl-btp-modal-scroll"><div class="cbl-btp-modal-grid video">
+        {% for post in portal_video_popup_posts %}<a href="{{ post.get_absolute_url }}" class="cbl-btp-video"><div class="cbl-btp-video-thumb">{% if post.shorts_cover %}<img src="{{ post.shorts_cover.url }}" alt="{{ post.title }}">{% elif post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">{% else %}<div class="cbl-btp-fallback">▶</div>{% endif %}<span class="cbl-btp-badge cbl-btp-video-badge">{{ portal_config.video_badge }}</span><span class="cbl-btp-play">▶</span><span class="cbl-btp-video-time">05:47</span></div><h3>{{ post.title }}</h3></a>{% empty %}<div class="cbl-btp-empty">동영상/쇼츠가 아직 없습니다.</div>{% endfor %}
+    </div></div></div>
+</div>
+<script>
+(function(){
+    function openModal(key){
+        var modal=document.querySelector('[data-cbl-btp-modal="'+key+'"]');
+        if(!modal) return;
+        modal.classList.add('is-open');
+        modal.setAttribute('aria-hidden','false');
+        document.body.style.overflow='hidden';
+    }
+    function closeModal(modal){
+        if(!modal) return;
+        modal.classList.remove('is-open');
+        modal.setAttribute('aria-hidden','true');
+        if(!document.querySelector('.cbl-btp-modal.is-open')) document.body.style.overflow='';
+    }
+    document.addEventListener('click', function(e){
+        var open=e.target.closest('[data-cbl-btp-open]');
+        if(open){ e.preventDefault(); openModal(open.getAttribute('data-cbl-btp-open')); return; }
+        var close=e.target.closest('[data-cbl-btp-close]');
+        if(close){ e.preventDefault(); closeModal(close.closest('.cbl-btp-modal')); return; }
+        if(e.target.classList && e.target.classList.contains('cbl-btp-modal')) closeModal(e.target);
+    });
+    document.addEventListener('keydown', function(e){
+        if(e.key === 'Escape') document.querySelectorAll('.cbl-btp-modal.is-open').forEach(closeModal);
+    });
+})();
+</script>
+
+
+
+
+
+<!-- CBL_TECH_DEVICE_SERVER_SECTION_START -->
+{% if slug == "tech" %}
+<style>
+/* 최종: IT기기를 인터넷·서버·소프트와 같은 좌표/폭으로 맞춤 */
+.cbl-tech-device-section {
+  width: 100% !important;
+  max-width: none !important;
+  margin-top: 34px !important;
+  margin-bottom: 78px !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+  clear: both !important;
+}
+
+.cbl-tech-device-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+  width: 100% !important;
+  margin: 0 0 16px !important;
+}
+
+.cbl-tech-device-head h2 {
+  margin: 0 !important;
+  color: #111827 !important;
+  font-size: clamp(30px, 2.1vw, 38px) !important;
+  font-weight: 950 !important;
+  line-height: 1.05 !important;
+  letter-spacing: -0.06em !important;
+}
+
+.cbl-tech-device-head a {
+  color: #8a9aab !important;
+  font-size: 13px !important;
+  font-weight: 900 !important;
+  text-decoration: none !important;
+  white-space: nowrap !important;
+}
+
+.cbl-tech-device-grid {
+  width: 100% !important;
+  display: grid !important;
+  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  gap: 16px !important;
+  align-items: stretch !important;
+}
+
+.cbl-tech-device-card {
+  min-width: 0 !important;
+  height: 104px !important;
+  display: grid !important;
+  grid-template-columns: 43% 57% !important;
+  overflow: hidden !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 14px !important;
+  background: #fff !important;
+  text-decoration: none !important;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .04) !important;
+  box-sizing: border-box !important;
+}
+
+.cbl-tech-device-thumb {
+  height: 104px !important;
+  overflow: hidden !important;
+  background: linear-gradient(135deg, #e8f2f4, #f7fafc) !important;
+}
+
+.cbl-tech-device-thumb img {
+  width: 100% !important;
+  height: 100% !important;
+  display: block !important;
+  object-fit: cover !important;
+}
+
+.cbl-tech-device-body {
+  min-width: 0 !important;
+  padding: 13px 11px 9px !important;
+  box-sizing: border-box !important;
+}
+
+.cbl-tech-device-badge {
+  display: inline-flex !important;
+  margin-bottom: 7px !important;
+  padding: 4px 8px !important;
+  border-radius: 999px !important;
+  background: #d9ffe8 !important;
+  color: #009c61 !important;
+  font-size: 11px !important;
+  font-weight: 950 !important;
+  line-height: 1 !important;
+}
+
+.cbl-tech-device-title {
+  margin: 0 0 7px !important;
+  color: #111827 !important;
+  font-size: 13px !important;
+  font-weight: 950 !important;
+  line-height: 1.35 !important;
+  letter-spacing: -0.04em !important;
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2 !important;
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+}
+
+.cbl-tech-device-date {
+  color: #8aa0b8 !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+}
+
+@media (max-width: 1280px) {
+  .cbl-tech-device-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .cbl-tech-device-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+</style>
+
+<section class="cbl-tech-device-section" aria-label="IT 기기">
+  <div class="cbl-tech-device-head">
+    <h2>IT 기기</h2>
+    <a href="{% url 'search' %}?q=IT%20기기">전체보기 〉</a>
+  </div>
+
+  <div class="cbl-tech-device-grid">
+    {% for post in tech_device_posts %}
+      <a class="cbl-tech-device-card" href="{% url 'post_detail' post.pk %}">
+        <div class="cbl-tech-device-thumb">
+          {% if post.thumbnail %}
+            <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}">
+          {% elif post.thumbnail_image %}
+            <img src="{{ post.thumbnail_image.url }}" alt="{{ post.title }}">
+          {% elif post.image %}
+            <img src="{{ post.image.url }}" alt="{{ post.title }}">
+          {% endif %}
+        </div>
+        <div class="cbl-tech-device-body">
+          <span class="cbl-tech-device-badge">IT기기</span>
+          <h3 class="cbl-tech-device-title">{{ post.title }}</h3>
+          <span class="cbl-tech-device-date">{{ post.created_at|date:"Y.m.d" }}</span>
+        </div>
+      </a>
+    {% empty %}
+      <p>IT 기기 컨텐츠가 아직 없습니다.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<script>
+(function(){
+  function norm(v){
+    return String(v || '').replace(/\s+/g,'').replace(/ㆍ/g,'·');
+  }
+
+  function findInternetSection(){
+    var heads = Array.prototype.slice.call(document.querySelectorAll('h1,h2,h3,strong'));
+    var head = heads.find(function(el){
+      if (el.closest('.cbl-btp-modal')) return false;
+      var t = norm(el.textContent);
+      return t.includes('인터넷') && t.includes('서버') && t.includes('소프트');
+    });
+
+    if (!head) return null;
+
+    var section = head.closest('section');
+    if (section) return section;
+
+    var node = head.parentElement;
+    while (node && node !== document.body) {
+      if (node.querySelectorAll('a, article, [class*="card"]').length >= 3) return node;
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  function alignDevice(){
+    if (!/\/tech\/?$/.test(window.location.pathname)) return;
+
+    var device = document.querySelector('.cbl-tech-device-section');
+    var internet = findInternetSection();
+
+    if (!device || !internet || !internet.parentNode) return;
+
+    /* 위치는 인터넷·서버·소프트 바로 아래 */
+    if (device.previousElementSibling !== internet) {
+      internet.parentNode.insertBefore(device, internet.nextSibling);
+    }
+
+    /* 화면 좌표를 완전히 동일하게 맞춤 */
+    var rect = internet.getBoundingClientRect();
+    var parentRect = device.parentNode.getBoundingClientRect();
+
+    device.style.setProperty('width', rect.width + 'px', 'important');
+    device.style.setProperty('max-width', rect.width + 'px', 'important');
+    device.style.setProperty('margin-left', (rect.left - parentRect.left) + 'px', 'important');
+    device.style.setProperty('margin-right', '0', 'important');
+    device.style.setProperty('position', 'relative', 'important');
+    device.style.setProperty('left', '0', 'important');
+    device.style.setProperty('transform', 'none', 'important');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', alignDevice);
+  } else {
+    alignDevice();
+  }
+
+  window.addEventListener('load', alignDevice);
+  window.addEventListener('resize', alignDevice);
+  setTimeout(alignDevice, 250);
+})();
+</script>
+{% endif %}
+<!-- CBL_TECH_DEVICE_SERVER_SECTION_END -->
+
+<!-- CBL_BTP_PORTAL_PAGE_END -->
+
+
+{% endif %}
+
+{% if slug != "architecture" and not portal_config %}
+<!-- CBL_NON_ARCHITECTURE_POST_LIST_GUARD_START -->
 <section class="section" id="post-list">
     <div class="container">
 
@@ -873,12 +4773,8 @@
             </div>
 
             <div class="category-button-group">
-                <a href="{% url 'post_create' %}?category={{ slug }}" class="write-btn">
+                <a data-cbl-write-admin-only-v2="1" {% if not user.is_staff %}style="display:none !important;" aria-hidden="true" tabindex="-1"{% endif %} href="{% url 'post_create' %}?category={{ slug }}" class="write-btn"> <!-- CBL_WRITE_LINK_ADMIN_ONLY_V2 -->
                     글 올리기
-                </a>
-
-                <a href="#post-list" class="list-btn">
-                    목록
                 </a>
             </div>
         </div>
@@ -908,7 +4804,7 @@
                 <div class="empty-box full-empty">
                     <h3>아직 등록된 글이 없습니다.</h3>
                     <p>{{ page.title }} 카테고리에 첫 글을 등록해보세요.</p>
-                    <a href="{% url 'post_create' %}?category={{ slug }}" class="write-btn empty-write">
+                    <a data-cbl-write-admin-only-v2="1" {% if not user.is_staff %}style="display:none !important;" aria-hidden="true" tabindex="-1"{% endif %} href="{% url 'post_create' %}?category={{ slug }}" class="write-btn empty-write"> <!-- CBL_WRITE_LINK_ADMIN_ONLY_V2 -->
                         글 올리기
                     </a>
                 </div>
@@ -917,5 +4813,217 @@
 
     </div>
 </section>
+
+<!-- CBL_NON_ARCHITECTURE_POST_LIST_GUARD_END -->
+{% endif %}
+
+
+
+
+<!-- CBL_POST_ADD_CATEGORY_SELECT_FORCE_START -->
+<script>
+(function () {
+  function applyPostCategoryChoices() {
+    var path = window.location.pathname || "";
+
+    if (!(/^\/post\/add\/?$/.test(path) || /^\/post\/\d+\/edit\/?$/.test(path))) {
+      return;
+    }
+
+    var choices = [
+      ["construction_work", "건설실무"],
+      ["construction_tech", "건설기술"],
+      ["construction_real", "건설부동산"],
+      ["bim", "REVIT/BIM"],
+      ["dynamo_automation", "Dynamo/자동화"],
+      ["four_d_five_d", "4D/5D"],
+      ["program", "업무용 프로그램"],
+      ["tool_recommend", "툴소개/툴추천"]
+    ];
+
+    var selects = Array.prototype.slice.call(document.querySelectorAll(
+      'select[name="category"], select#id_category, select[name="target_category"], select#id_target_category'
+    ));
+
+    selects.forEach(function (select) {
+      var current = select.value;
+      var html = '<option value="">카테고리를 선택하세요</option>';
+
+      choices.forEach(function (item) {
+        var value = item[0];
+        var label = item[1];
+        var selected = current === value ? ' selected' : '';
+        html += '<option value="' + value + '"' + selected + '>' + label + '</option>';
+      });
+
+      select.innerHTML = html;
+
+      if (!choices.some(function (item) { return item[0] === current; })) {
+        select.value = "";
+      }
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", applyPostCategoryChoices);
+  } else {
+    applyPostCategoryChoices();
+  }
+
+  window.addEventListener("load", applyPostCategoryChoices);
+})();
+</script>
+<!-- CBL_POST_ADD_CATEGORY_SELECT_FORCE_END -->
+
+
+
+<!-- CBL_CALENDAR_VIDEO_ALIGN_V4_START -->
+<style id="cbl-calendar-video-align-v4-style">
+/* 캘린더 V4: 왼쪽 동영상/쇼츠 2줄 높이에 오른쪽 캘린더 높이 자동 정렬 */
+@media (min-width: 1101px) {
+  .cbl-second-row-same {
+    align-items: stretch !important;
+  }
+
+  .cbl-second-row-same .cbl-second-right {
+    height: var(--cbl-video-calendar-match-height, 590px) !important;
+    min-height: var(--cbl-video-calendar-match-height, 590px) !important;
+    max-height: var(--cbl-video-calendar-match-height, 590px) !important;
+    align-self: stretch !important;
+    display: block !important;
+  }
+
+  .cbl-second-row-same .cbl-second-calendar {
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+  }
+
+  .cbl-second-row-same .cbl-second-calendar-body {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    height: auto !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 220px !important;
+    align-items: stretch !important;
+  }
+
+  .cbl-second-row-same .cbl-second-calendar-main,
+  .cbl-second-row-same .cbl-second-calendar-grid {
+    min-height: 0 !important;
+    height: 100% !important;
+  }
+
+  .cbl-second-row-same .cbl-second-calendar-days {
+    height: 100% !important;
+    min-height: 0 !important;
+    display: grid !important;
+    grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+    grid-auto-rows: minmax(0, 1fr) !important;
+  }
+
+  .cbl-second-row-same .cbl-second-calendar-days button {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    padding: 6px !important;
+    overflow: hidden !important;
+  }
+
+  .cbl-second-row-same [data-cbl-second-calendar-side-list] {
+    max-height: none !important;
+    height: auto !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+}
+
+@media (max-width: 1100px) {
+  .cbl-second-row-same .cbl-second-right,
+  .cbl-second-row-same .cbl-second-calendar {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+  }
+}
+</style>
+
+<script id="cbl-calendar-video-align-v4-script">
+(function () {
+  function findDirectChild(row, target) {
+    let node = target;
+    while (node && node.parentElement !== row) {
+      node = node.parentElement;
+    }
+    return node;
+  }
+
+  function alignCalendarHeight() {
+    if (window.innerWidth < 1101) return;
+
+    const calendar = document.querySelector(".cbl-second-calendar");
+    if (!calendar) return;
+
+    const row = calendar.closest(".cbl-second-row-same");
+    if (!row) return;
+
+    const right = findDirectChild(row, calendar);
+    if (!right) return;
+
+    const children = Array.from(row.children).filter(function (el) {
+      return el && el.offsetParent !== null;
+    });
+
+    const left = children.find(function (el) {
+      return el !== right;
+    });
+
+    if (!left) return;
+
+    const leftHeight = Math.round(left.getBoundingClientRect().height);
+
+    if (leftHeight < 360) return;
+
+    row.style.setProperty("--cbl-video-calendar-match-height", leftHeight + "px");
+    right.style.height = leftHeight + "px";
+    right.style.minHeight = leftHeight + "px";
+    right.style.maxHeight = leftHeight + "px";
+    calendar.style.height = "100%";
+  }
+
+  function runAlign() {
+    alignCalendarHeight();
+    setTimeout(alignCalendarHeight, 200);
+    setTimeout(alignCalendarHeight, 700);
+    setTimeout(alignCalendarHeight, 1400);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", runAlign);
+  } else {
+    runAlign();
+  }
+
+  window.addEventListener("load", runAlign);
+  window.addEventListener("resize", runAlign);
+
+  const observer = new MutationObserver(function () {
+    setTimeout(alignCalendarHeight, 80);
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+
+  window.cblCalendarVideoAlignV4 = runAlign;
+})();
+</script>
+<!-- CBL_CALENDAR_VIDEO_ALIGN_V4_END -->
+
 
 {% endblock %}

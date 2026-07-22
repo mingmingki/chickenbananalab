@@ -604,7 +604,6 @@ document.addEventListener("DOMContentLoaded", function () {
             </div>
         {% endif %}
 
-        {% if user.is_staff or user.is_superuser %}
             <div class="post-admin-publish-box">
                 {% if post.is_published %}
                     <span class="publish-status-badge published">
@@ -628,7 +627,6 @@ document.addEventListener("DOMContentLoaded", function () {
                             {% if is_english %}Publish{% else %}공개하기{% endif %}
                         </button>
                     </form>
-                {% endif %}
             </div>
         {% endif %}
 
@@ -1836,4 +1834,66 @@ document.addEventListener("DOMContentLoaded", function () {
 </script>
 
 
+
+<!-- CBL_POST_TOP_BOX_REMOVE_START -->
+<script>
+(function () {
+  function removePostTopBoxes() {
+    if (!/\/post\//.test(window.location.pathname)) return;
+
+    var keys = [
+      'STRUCTURE TAKEOFF',
+      'CBL PROGRAMS',
+      '수량산출 자동화',
+      '치킨바나나랩 프로그램'
+    ];
+
+    var candidates = Array.prototype.slice.call(
+      document.querySelectorAll('section, div')
+    ).filter(function (el) {
+      var text = el.textContent || '';
+      var rect = el.getBoundingClientRect();
+
+      var hasLauncherText =
+        (text.includes('STRUCTURE TAKEOFF') || text.includes('수량산출 자동화')) &&
+        (text.includes('CBL PROGRAMS') || text.includes('치킨바나나랩 프로그램'));
+
+      if (!hasLauncherText) return false;
+
+      /* 글 제목 위쪽에 있는 얇은 박스 줄만 제거 */
+      if (rect.top > 260) return false;
+      if (rect.height > 190) return false;
+      if (rect.width < 400) return false;
+
+      return true;
+    });
+
+    if (!candidates.length) return;
+
+    candidates.sort(function (a, b) {
+      return a.getBoundingClientRect().height - b.getBoundingClientRect().height;
+    });
+
+    candidates[0].remove();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', removePostTopBoxes);
+  } else {
+    removePostTopBoxes();
+  }
+
+  window.addEventListener('load', removePostTopBoxes);
+  setTimeout(removePostTopBoxes, 300);
+})();
+</script>
+<!-- CBL_POST_TOP_BOX_REMOVE_END -->
+
 {% endblock %}
+
+
+
+
+
+
+

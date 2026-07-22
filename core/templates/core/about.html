@@ -1,228 +1,918 @@
 {% extends "core/base.html" %}
 {% load static %}
 
-{% block title %}소개 - ChickenBanana Lab{% endblock %}
+{% block title %}소개 - ChickenBananaLab{% endblock %}
 
 {% block meta_description %}
-ChickenBanana Lab은 건축, 부동산, 금융, 테크, 생활 정보를 쉽게 정리하는 개인 콘텐츠 플랫폼입니다.
+ChickenBananaLab은 건설 실무, BIM 자동화, AI·테크, 웹 CAD와 업무용 프로그램을 연결해 현장과 사무 업무의 생산성을 높이는 건설 BIM 테크 플랫폼입니다.
 {% endblock %}
 
-{% block og_title %}
-소개 - ChickenBanana Lab
-{% endblock %}
-
-{% block og_description %}
-건축, 부동산, 금융, 테크, 생활 정보를 실무자 관점과 일상 경험을 바탕으로 정리하는 ChickenBanana Lab입니다.
-{% endblock %}
+{% block og_title %}소개 - ChickenBananaLab{% endblock %}
+{% block og_description %}건설 현장의 문제를 BIM, 자동화, AI, 프로그램으로 해결하는 ChickenBananaLab입니다.{% endblock %}
 
 {% block content %}
-
 <style>
-    .about-page {
-        max-width: 1180px;
-        margin: 0 auto;
-        padding: 72px 20px 90px;
-    }
+  .cbl-about-page-v2 {
+    --ink: #0f172a;
+    --text: #334155;
+    --muted: #64748b;
+    --line: rgba(148, 163, 184, .28);
+    --soft: #f8fafc;
+    --blue: #3b82f6;
+    --blue2: #637cff;
+    --teal: #0f9f8d;
+    --yellow: #ffd84d;
+    --amber: #f59e0b;
+    --card: rgba(255, 255, 255, .84);
+    --shadow: 0 24px 70px rgba(15, 23, 42, .08);
+    --shadow2: 0 12px 34px rgba(15, 23, 42, .075);
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 64px 22px 86px;
+    color: var(--text);
+  }
 
-    .about-hero {
-        text-align: center;
-        margin-bottom: 46px;
-    }
+  .cbl-about-page-v2 * { box-sizing: border-box; }
 
-    .about-badge {
-        display: inline-block;
-        padding: 8px 18px;
-        border-radius: 999px;
-        background: #eef2ff;
-        color: #4f46e5;
-        font-size: 13px;
-        font-weight: 900;
-        letter-spacing: 1.5px;
-        margin-bottom: 16px;
-    }
+  .cbl-about-hero-v2 {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, .92fr) minmax(420px, 1.08fr);
+    gap: 38px;
+    align-items: center;
+    min-height: 420px;
+    margin-bottom: 26px;
+  }
 
-    .about-hero h1 {
-        font-size: 42px;
-        font-weight: 950;
-        color: #0f172a;
-        margin: 0 0 16px;
-    }
+  .cbl-about-copy-v2 {
+    position: relative;
+    z-index: 2;
+  }
 
-    .about-hero p {
-        max-width: 760px;
-        margin: 0 auto;
-        color: #64748b;
-        font-size: 17px;
-        line-height: 1.8;
-    }
+  .cbl-about-title-v2 {
+    margin: 0;
+    color: var(--ink);
+    font-size: clamp(42px, 4.5vw, 66px);
+    line-height: 1.03;
+    letter-spacing: -3px;
+    font-weight: 1000;
+  }
 
-    .about-section {
-        background: #ffffff;
-        border: 1px solid #e5e7eb;
-        border-radius: 28px;
-        padding: 36px 38px;
-        margin-bottom: 28px;
-        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.07);
-    }
+  .cbl-about-title-v2 span {
+    display: block;
+    margin-top: 10px;
+    font-size: clamp(24px, 2.1vw, 34px);
+    letter-spacing: -1.35px;
+    color: #1e293b;
+    font-weight: 950;
+  }
 
-    .about-section h2 {
-        margin: 0 0 16px;
-        font-size: 26px;
-        font-weight: 950;
-        color: #111827;
-    }
+  .cbl-about-sub-v2 {
+    margin: 26px 0 0;
+    color: #1e293b;
+    font-size: clamp(20px, 1.7vw, 26px);
+    line-height: 1.48;
+    letter-spacing: -.7px;
+    font-weight: 900;
+  }
 
-    .about-section p {
-        margin: 0;
-        color: #4b5563;
-        font-size: 16px;
-        line-height: 1.85;
-    }
+  .cbl-about-desc-v2 {
+    max-width: 690px;
+    margin: 16px 0 0;
+    color: #475569;
+    font-size: 17px;
+    line-height: 1.86;
+    letter-spacing: -.28px;
+    font-weight: 640;
+  }
 
-    .about-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 22px;
-        margin: 32px 0;
-    }
+  .cbl-about-marker-v2 {
+    width: 68px;
+    height: 7px;
+    margin-top: 28px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--yellow), var(--blue2));
+  }
 
-    .about-card {
-        background: #ffffff;
-        border: 1px solid #e5e7eb;
-        border-radius: 24px;
-        padding: 30px 28px;
-        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.07);
-    }
+  .cbl-about-keyrow-v2 {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    margin-top: 34px;
+    max-width: 760px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    background: rgba(255, 255, 255, .54);
+    backdrop-filter: blur(10px);
+  }
 
-    .about-card-icon {
-        width: 56px;
-        height: 56px;
-        border-radius: 18px;
-        background: #f8fafc;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 27px;
-        margin-bottom: 18px;
-    }
+  .cbl-about-key-v2 {
+    position: relative;
+    min-height: 98px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 9px;
+    color: #172033;
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: -.2px;
+  }
 
-    .about-card h3 {
-        margin: 0 0 10px;
-        font-size: 21px;
-        font-weight: 900;
-        color: #111827;
-    }
+  .cbl-about-key-v2 + .cbl-about-key-v2:before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 22px;
+    width: 1px;
+    height: 54px;
+    background: var(--line);
+  }
 
-    .about-card p {
-        margin: 0;
-        color: #6b7280;
-        line-height: 1.7;
-        font-size: 15px;
-    }
+  .cbl-about-key-v2 svg {
+    width: 31px;
+    height: 31px;
+    color: #0f172a;
+    stroke-width: 1.85;
+  }
 
-    .about-notice {
-        padding: 28px 32px;
-        border-radius: 24px;
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        color: #475569;
-        line-height: 1.8;
-        font-size: 15px;
-    }
+  .cbl-about-visual-v2 {
+    position: relative;
+    min-height: 405px;
+    border-radius: 34px;
+    overflow: hidden;
+    border: 1px solid rgba(226, 232, 240, .9);
+    background:
+      radial-gradient(circle at 58% 46%, rgba(255, 216, 77, .23), transparent 24%),
+      radial-gradient(circle at 78% 20%, rgba(99, 124, 255, .16), transparent 29%),
+      radial-gradient(circle at 38% 78%, rgba(15, 159, 141, .12), transparent 28%),
+      linear-gradient(135deg, rgba(255,255,255,.94), rgba(248,250,252,.78));
+    box-shadow: var(--shadow);
+  }
 
-    .about-notice strong {
-        display: block;
-        color: #0f172a;
-        font-size: 18px;
-        margin-bottom: 8px;
-    }
+  .cbl-about-visual-v2:before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(99, 124, 255, .075) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(99, 124, 255, .075) 1px, transparent 1px);
+    background-size: 34px 34px;
+    mask-image: linear-gradient(90deg, transparent 0%, black 18%, black 94%, transparent 100%);
+    opacity: .9;
+  }
 
-    @media (max-width: 900px) {
-        .about-page {
-            padding: 50px 16px 70px;
-        }
+  .cbl-about-visual-svg-v2 {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
 
-        .about-hero h1 {
-            font-size: 32px;
-        }
+  .cbl-about-mascot-panel-v2 {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-42%, -34%);
+    width: 220px;
+    height: 164px;
+    border-radius: 36px;
+    background: rgba(255,255,255,.72);
+    border: 1px solid rgba(226, 232, 240, .85);
+    box-shadow: 0 22px 50px rgba(15,23,42,.09);
+    backdrop-filter: blur(14px);
+  }
 
-        .about-section {
-            padding: 28px 24px;
-        }
+  .cbl-about-mascot-panel-v2 img {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -52%);
+    width: 124px;
+    height: 124px;
+    object-fit: contain;
+    filter: drop-shadow(0 12px 22px rgba(15,23,42,.13));
+  }
 
-        .about-grid {
-            grid-template-columns: 1fr;
-        }
-    }
+  .cbl-about-mascot-panel-v2:after {
+    content: "BIM + AI";
+    position: absolute;
+    left: 50%;
+    bottom: 16px;
+    transform: translateX(-50%);
+    height: 27px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    background: #0f172a;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 950;
+    letter-spacing: .4px;
+  }
+
+  .cbl-about-floating-v2 {
+    position: absolute;
+    border: 1px solid rgba(226,232,240,.9);
+    background: rgba(255,255,255,.8);
+    border-radius: 20px;
+    box-shadow: 0 18px 44px rgba(15,23,42,.075);
+    backdrop-filter: blur(12px);
+  }
+
+  .cbl-about-mini-model-v2 {
+    left: 94px;
+    top: 64px;
+    width: 176px;
+    height: 122px;
+  }
+
+  .cbl-about-mini-code-v2 {
+    right: 56px;
+    bottom: 54px;
+    width: 205px;
+    height: 126px;
+    padding: 18px 18px;
+  }
+
+  .cbl-about-code-line-v2 {
+    height: 9px;
+    border-radius: 999px;
+    background: #dbeafe;
+    margin-bottom: 11px;
+  }
+  .cbl-about-code-line-v2:nth-child(2) { width: 78%; background: #ccfbf1; }
+  .cbl-about-code-line-v2:nth-child(3) { width: 56%; background: #fde68a; }
+  .cbl-about-code-line-v2:nth-child(4) { width: 88%; background: #e0e7ff; }
+
+  .cbl-about-section-card-v2 {
+    display: grid;
+    grid-template-columns: 1.05fr .95fr;
+    gap: 18px;
+    align-items: stretch;
+    margin-top: 24px;
+  }
+
+  .cbl-about-direction-v2,
+  .cbl-about-notice-v2 {
+    border: 1px solid rgba(226, 232, 240, .92);
+    border-radius: 28px;
+    background: var(--card);
+    box-shadow: var(--shadow2);
+    backdrop-filter: blur(14px);
+  }
+
+  .cbl-about-direction-v2 {
+    padding: 28px 30px;
+  }
+
+  .cbl-about-direction-head-v2 {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 20px;
+    align-items: center;
+  }
+
+  .cbl-about-bigicon-v2 {
+    width: 72px;
+    height: 72px;
+    border-radius: 24px;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(135deg, #fff7d6, #eef2ff);
+    color: #eab308;
+  }
+
+  .cbl-about-bigicon-v2 svg { width: 38px; height: 38px; }
+
+  .cbl-about-direction-v2 h2,
+  .cbl-about-notice-v2 h2,
+  .cbl-about-services-v2 h2 {
+    margin: 0;
+    color: var(--ink);
+    font-size: 26px;
+    line-height: 1.25;
+    letter-spacing: -1px;
+    font-weight: 1000;
+  }
+
+  .cbl-about-direction-v2 p,
+  .cbl-about-notice-v2 p {
+    margin: 9px 0 0;
+    color: #475569;
+    font-size: 15.5px;
+    line-height: 1.78;
+    font-weight: 610;
+    letter-spacing: -.2px;
+  }
+
+  .cbl-about-direction-list-v2 {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 24px;
+    padding: 10px;
+    border: 1px solid rgba(226,232,240,.8);
+    border-radius: 20px;
+    background: #fff;
+  }
+
+  .cbl-about-direction-list-v2 span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 39px;
+    border-radius: 14px;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+
+  .cbl-about-direction-list-v2 span:before {
+    content: "✓";
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    background: #e0f2fe;
+    color: #2563eb;
+    font-size: 12px;
+    font-weight: 1000;
+  }
+
+  .cbl-about-notice-v2 {
+    position: relative;
+    overflow: hidden;
+    padding: 28px 30px;
+    border-color: rgba(245, 158, 11, .28);
+    background:
+      radial-gradient(circle at 22% 28%, rgba(255,216,77,.22), transparent 28%),
+      rgba(255,255,255,.86);
+  }
+
+  .cbl-about-notice-top-v2 {
+    display: grid;
+    grid-template-columns: 72px minmax(0,1fr);
+    gap: 20px;
+    align-items: start;
+  }
+
+  .cbl-about-notice-row-v2 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 25px;
+  }
+
+  .cbl-about-notice-row-v2 span {
+    min-height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0 10px;
+    border-radius: 18px;
+    background: rgba(255,255,255,.76);
+    border: 1px solid rgba(226,232,240,.72);
+    color: #334155;
+    font-size: 13px;
+    font-weight: 880;
+    line-height: 1.35;
+  }
+
+  .cbl-about-cards-v2 {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 20px;
+  }
+
+  .cbl-about-card-v2 {
+    position: relative;
+    min-height: 255px;
+    padding: 26px 24px 24px;
+    overflow: hidden;
+    border: 1px solid rgba(226,232,240,.9);
+    border-radius: 26px;
+    background: rgba(255,255,255,.84);
+    box-shadow: var(--shadow2);
+    backdrop-filter: blur(12px);
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+  }
+
+  .cbl-about-card-v2:hover {
+    transform: translateY(-4px);
+    border-color: rgba(59, 130, 246, .24);
+    box-shadow: 0 24px 52px rgba(15,23,42,.105);
+  }
+
+  .cbl-about-card-v2:after {
+    content: "";
+    position: absolute;
+    right: -30px;
+    top: -32px;
+    width: 120px;
+    height: 120px;
+    border-radius: 999px;
+    background: rgba(99, 124, 255, .08);
+  }
+
+  .cbl-about-card-icon-v2 {
+    width: 64px;
+    height: 64px;
+    display: grid;
+    place-items: center;
+    border-radius: 22px;
+    color: #1d4ed8;
+    background: linear-gradient(135deg, #eef2ff, #f8fafc);
+    margin-bottom: 18px;
+  }
+
+  .cbl-about-card-icon-v2.yellow { color: #d97706; background: linear-gradient(135deg, #fff7d6, #f8fafc); }
+  .cbl-about-card-icon-v2.teal { color: #0f766e; background: linear-gradient(135deg, #ccfbf1, #f8fafc); }
+  .cbl-about-card-icon-v2.dark { color: #111827; background: linear-gradient(135deg, #e2e8f0, #f8fafc); }
+
+  .cbl-about-card-icon-v2 svg { width: 34px; height: 34px; }
+
+  .cbl-about-card-v2 h3 {
+    position: relative;
+    margin: 0;
+    color: var(--ink);
+    font-size: 22px;
+    letter-spacing: -.8px;
+    font-weight: 1000;
+  }
+
+  .cbl-about-card-v2 p {
+    position: relative;
+    margin: 12px 0 0;
+    color: #475569;
+    font-size: 14.8px;
+    line-height: 1.68;
+    font-weight: 610;
+    letter-spacing: -.22px;
+  }
+
+  .cbl-about-card-v2 ul {
+    position: relative;
+    margin: 16px 0 0;
+    padding-left: 0;
+    list-style: none;
+    display: grid;
+    gap: 8px;
+  }
+
+  .cbl-about-card-v2 li {
+    display: grid;
+    grid-template-columns: 17px minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+    color: #334155;
+    font-size: 13.6px;
+    line-height: 1.45;
+    font-weight: 720;
+  }
+
+  .cbl-about-card-v2 li:before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--blue2);
+    margin-top: 7px;
+    justify-self: center;
+  }
+
+  .cbl-about-services-v2 {
+    margin-top: 20px;
+    padding: 27px 28px;
+    border: 1px solid rgba(226,232,240,.9);
+    border-radius: 28px;
+    background: linear-gradient(135deg, rgba(15,23,42,.96), rgba(30,41,59,.94));
+    color: #fff;
+    box-shadow: 0 25px 60px rgba(15,23,42,.16);
+  }
+
+  .cbl-about-services-head-v2 {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 18px;
+  }
+
+  .cbl-about-services-v2 h2 { color: #fff; }
+
+  .cbl-about-services-v2 p {
+    margin: 8px 0 0;
+    color: rgba(255,255,255,.72);
+    font-size: 15px;
+    line-height: 1.65;
+    font-weight: 640;
+  }
+
+  .cbl-about-service-grid-v2 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .cbl-about-service-v2 {
+    min-height: 120px;
+    padding: 19px 19px;
+    border-radius: 22px;
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.12);
+  }
+
+  .cbl-about-service-v2 strong {
+    display: block;
+    color: #fff;
+    font-size: 17px;
+    font-weight: 1000;
+    letter-spacing: -.45px;
+  }
+
+  .cbl-about-service-v2 span {
+    display: block;
+    margin-top: 9px;
+    color: rgba(255,255,255,.66);
+    font-size: 13.5px;
+    line-height: 1.55;
+    font-weight: 620;
+  }
+
+  .cbl-about-quote-v2 {
+    margin-top: 20px;
+    min-height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 14px 22px;
+    border-radius: 22px;
+    border: 1px solid rgba(226,232,240,.82);
+    background: linear-gradient(90deg, #eef2ff, #ffffff, #fff7d6);
+    color: #0f172a;
+    font-size: 22px;
+    font-weight: 1000;
+    letter-spacing: -.8px;
+    text-align: center;
+  }
+
+  .cbl-about-quote-v2 b { color: #647cff; font-size: 38px; line-height: 1; }
+  .cbl-about-quote-v2 i { color: #facc15; font-style: normal; }
+
+  @media (max-width: 1100px) {
+    .cbl-about-hero-v2 { grid-template-columns: 1fr; min-height: auto; }
+    .cbl-about-visual-v2 { min-height: 360px; }
+    .cbl-about-cards-v2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cbl-about-section-card-v2 { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 720px) {
+    .cbl-about-page-v2 { padding: 38px 14px 62px; }
+    .cbl-about-title-v2 { letter-spacing: -1.8px; }
+    .cbl-about-sub-v2 { font-size: 19px; }
+    .cbl-about-desc-v2 { font-size: 15.5px; }
+    .cbl-about-keyrow-v2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .cbl-about-key-v2 + .cbl-about-key-v2:before { display: none; }
+    .cbl-about-visual-v2 { min-height: 315px; border-radius: 24px; }
+    .cbl-about-mini-model-v2 { left: 18px; top: 40px; transform: scale(.82); transform-origin: left top; }
+    .cbl-about-mini-code-v2 { right: 18px; bottom: 34px; transform: scale(.82); transform-origin: right bottom; }
+    .cbl-about-mascot-panel-v2 { transform: translate(-50%, -34%) scale(.82); }
+    .cbl-about-cards-v2 { grid-template-columns: 1fr; }
+    .cbl-about-direction-head-v2,
+    .cbl-about-notice-top-v2 { grid-template-columns: 1fr; }
+    .cbl-about-direction-list-v2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .cbl-about-notice-row-v2 { grid-template-columns: 1fr; }
+    .cbl-about-services-head-v2 { display: block; }
+    .cbl-about-service-grid-v2 { grid-template-columns: 1fr; }
+    .cbl-about-quote-v2 { font-size: 17px; }
+  }
 </style>
 
-<section class="about-page">
+<main class="cbl-about-page-v2">
+  <section class="cbl-about-hero-v2" aria-label="ChickenBananaLab 소개">
+    <div class="cbl-about-copy-v2">
+      <h1 class="cbl-about-title-v2">ChickenBananaLab <span>건설 BIM 테크 플랫폼</span></h1>
+      <p class="cbl-about-sub-v2">건설 현장의 문제를 BIM, 자동화, AI, 프로그램으로 해결합니다.</p>
+      <p class="cbl-about-desc-v2">
+        현장 경험을 바탕으로 도면 검토, 수량산출, 공정·원가, BIM 데이터 활용, 웹 CAD와 업무 자동화 도구를 정리하고 개발합니다.
+        복잡한 건설 업무를 실무자가 바로 이해하고 사용할 수 있는 콘텐츠와 프로그램으로 바꾸는 것이 ChickenBananaLab의 방향입니다.
+      </p>
+      <div class="cbl-about-marker-v2" aria-hidden="true"></div>
 
-    <div class="about-hero">
-        <div class="about-badge">ABOUT</div>
-
-        <h1>ChickenBanana Lab 소개</h1>
-
-        <p>
-            ChickenBanana Lab은 건축, 부동산, 금융, 테크, 생활 정보를 정리하는 개인 콘텐츠 플랫폼입니다.
-            실무 경험과 일상에서 얻은 관심사를 바탕으로, 복잡한 정보를 조금 더 쉽게 이해할 수 있도록 콘텐츠를 작성합니다.
-        </p>
-    </div>
-
-    <div class="about-section">
-        <h2>사이트 운영 방향</h2>
-
-        <p>
-            ChickenBanana Lab은 단순한 뉴스 요약보다 실제 생활과 업무에 도움이 되는 정보를 지향합니다.
-            건축과 부동산은 실무자의 관점에서, 금융과 테크는 일반 이용자가 이해하기 쉬운 관점에서,
-            생활 콘텐츠는 직접 경험과 활용성을 중심으로 정리합니다.
-        </p>
-    </div>
-
-    <div class="about-grid">
-
-        <div class="about-card">
-            <div class="about-card-icon">🏠</div>
-            <h3>건축 · 부동산</h3>
-            <p>
-                건설 실무, 현장 이슈, 부동산 제도, 청약, 실거래가 등 생활과 업무에 연결되는 정보를 정리합니다.
-            </p>
+      <div class="cbl-about-keyrow-v2" aria-label="핵심 방향">
+        <div class="cbl-about-key-v2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 21V9l8-5 8 5v12"/><path d="M9 21v-6h6v6"/><path d="M3 10.5 12 5l9 5.5"/></svg>
+          <span>현장 중심</span>
         </div>
-
-        <div class="about-card">
-            <div class="about-card-icon">💹</div>
-            <h3>금융 · 경제</h3>
-            <p>
-                금리, 주식, 환율, 경제 이슈를 일반 독자가 이해하기 쉬운 방식으로 풀어봅니다.
-            </p>
+        <div class="cbl-about-key-v2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2 4 6v12l8 4 8-4V6l-8-4Z"/><path d="M12 22V10"/><path d="m4 6 8 4 8-4"/><path d="m8 4 8 4"/></svg>
+          <span>BIM 기반</span>
         </div>
-
-        <div class="about-card">
-            <div class="about-card-icon">💻</div>
-            <h3>테크 · 생활</h3>
-            <p>
-                AI, 소프트웨어, 디지털 도구, 가족 일상과 생활 정보를 실용적인 관점에서 다룹니다.
-            </p>
+        <div class="cbl-about-key-v2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m8 9-4 3 4 3"/><path d="m16 9 4 3-4 3"/><path d="m14 4-4 16"/></svg>
+          <span>자동화 · 개발</span>
         </div>
-
+        <div class="cbl-about-key-v2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 3 5-7"/><path d="M18 7h1v1"/></svg>
+          <span>생산성 향상</span>
+        </div>
+      </div>
     </div>
 
-    <div class="about-section">
-        <h2>콘텐츠 작성 기준</h2>
+    <div class="cbl-about-visual-v2" aria-hidden="true">
+      <svg class="cbl-about-visual-svg-v2" viewBox="0 0 760 430" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <g opacity=".34" stroke="#8fb3e8" stroke-width="2">
+          <path d="M34 364V190l58-38 62 38v174"/>
+          <path d="M70 364V242h52v122"/>
+          <path d="M18 198l74-48 78 48"/>
+          <path d="M560 365V206l64-38 64 38v159"/>
+          <path d="M602 365V258h42v107"/>
+          <path d="M544 214l80-48 82 48"/>
+          <path d="M262 362V132h112v230"/>
+          <path d="M282 164h22M331 164h22M282 206h22M331 206h22M282 248h22M331 248h22M282 290h22M331 290h22"/>
+          <path d="M384 362V190h82v172"/>
+          <path d="M402 224h18M438 224h18M402 262h18M438 262h18M402 300h18M438 300h18"/>
+        </g>
+        <g opacity=".28" stroke="#3b82f6" stroke-width="2">
+          <path d="M96 106h232"/>
+          <path d="M96 106 122 76h178l28 30"/>
+          <path d="M300 76V42h28v64"/>
+          <path d="M328 58h282"/>
+          <path d="m610 58 65 30"/>
+          <path d="M620 64 560 96M410 64l60 36M180 106l80-44"/>
+          <path d="M636 88v68"/>
+          <path d="M616 156h42"/>
+        </g>
+        <g opacity=".36" stroke="#0f172a" stroke-width="2">
+          <rect x="96" y="242" width="210" height="104" rx="18"/>
+          <path d="M122 274h70M122 300h134M122 326h102"/>
+          <circle cx="276" cy="272" r="8"/>
+          <circle cx="252" cy="272" r="8"/>
+          <circle cx="228" cy="272" r="8"/>
+        </g>
+        <g opacity=".36" stroke="#0f766e" stroke-width="2.2">
+          <path d="M486 128h156a18 18 0 0 1 18 18v86a18 18 0 0 1-18 18H486a18 18 0 0 1-18-18v-86a18 18 0 0 1 18-18Z"/>
+          <path d="M500 158h92M500 184h124M500 210h74"/>
+          <path d="M628 160h12v12h-12zM628 196h12v12h-12z"/>
+        </g>
+        <g opacity=".45" stroke="#637cff" stroke-width="2">
+          <path d="M604 112c23-26 44-22 63-7" stroke-dasharray="7 8"/>
+          <path d="M168 154c30-24 62-25 96-3" stroke-dasharray="7 8"/>
+          <circle cx="690" cy="126" r="5" fill="#637cff" stroke="none"/>
+          <circle cx="198" cy="80" r="5" fill="#ffd84d" stroke="none"/>
+          <circle cx="432" cy="90" r="4" fill="#ffd84d" stroke="none"/>
+          <circle cx="512" cy="304" r="5" fill="#0f9f8d" stroke="none"/>
+        </g>
+      </svg>
 
-        <p>
-            ChickenBanana Lab의 콘텐츠는 방문자가 검색을 통해 들어왔을 때 필요한 정보를 빠르게 파악할 수 있도록 구성합니다.
-            제목, 요약, 본문 흐름을 명확하게 정리하고, 과장된 표현보다는 참고할 수 있는 정보와 주의점을 함께 전달하는 것을 목표로 합니다.
-        </p>
+      <div class="cbl-about-floating-v2 cbl-about-mini-model-v2">
+        <svg viewBox="0 0 176 122" width="100%" height="100%" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M88 18 38 44v48l50 26 50-26V44L88 18Z" fill="#eef2ff" stroke="#3b82f6" stroke-width="2"/>
+          <path d="M88 118V66M38 44l50 22 50-22M62 56l50-25M64 82l48-25M88 66l25 12v26" stroke="#0f172a" stroke-width="2" opacity=".56"/>
+        </svg>
+      </div>
+
+      <div class="cbl-about-mascot-panel-v2">
+        <img src="{% static 'core/images/chickenbanana_mark.svg' %}" alt="" onerror="this.style.display='none'; this.parentElement.classList.add('is-logo-missing');">
+      </div>
+
+      <div class="cbl-about-floating-v2 cbl-about-mini-code-v2">
+        <div class="cbl-about-code-line-v2" style="width:92%"></div>
+        <div class="cbl-about-code-line-v2"></div>
+        <div class="cbl-about-code-line-v2"></div>
+        <div class="cbl-about-code-line-v2"></div>
+      </div>
     </div>
+  </section>
 
-    <div class="about-notice">
-        <strong>정보 이용 안내</strong>
-        ChickenBanana Lab의 글은 일반적인 정보 제공을 목적으로 작성됩니다.
-        금융, 부동산, 법률, 세무 등 중요한 판단이 필요한 사안은 실제 상황에 따라 달라질 수 있으므로,
-        최종 결정 전 관련 기관 또는 전문가의 확인을 권장합니다.
+  <section class="cbl-about-cards-v2" aria-label="주요 영역">
+    <article class="cbl-about-card-v2">
+      <div class="cbl-about-card-icon-v2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 21V9l8-5 8 5v12"/><path d="M9 21v-6h6v6"/><path d="M3 10.5 12 5l9 5.5"/></svg>
+      </div>
+      <h3>건설 실무</h3>
+      <p>도면, 공정, 원가, 품질, 안전, 하도급 등 현장에서 바로 필요한 내용을 실무 기준으로 정리합니다.</p>
+      <ul>
+        <li>시공·도면·견적·공정 실무 콘텐츠</li>
+        <li>체크리스트, 템플릿, 사례 자료</li>
+        <li>실무 문제 해결을 위한 인사이트</li>
+      </ul>
+    </article>
+
+    <article class="cbl-about-card-v2">
+      <div class="cbl-about-card-icon-v2 teal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2 4 6v12l8 4 8-4V6l-8-4Z"/><path d="M12 22V10"/><path d="m4 6 8 4 8-4"/><path d="M8 14.5 4 12"/><path d="m16 14.5 4-2.5"/></svg>
+      </div>
+      <h3>BIM 자동화</h3>
+      <p>Revit, Dynamo, BIM 데이터를 활용해 반복 업무를 줄이고 수량·검토·정산 흐름을 자동화합니다.</p>
+      <ul>
+        <li>Revit / Dynamo 자동화</li>
+        <li>BIM 수량산출 데이터 구조화</li>
+        <li>워크플로우 최적화와 검증</li>
+      </ul>
+    </article>
+
+    <article class="cbl-about-card-v2">
+      <div class="cbl-about-card-icon-v2 yellow">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3a5 5 0 0 0-5 5c0 1.8.9 3.1 2 4.2.8.8 1 1.4 1 2.3h4c0-.9.2-1.5 1-2.3 1.1-1.1 2-2.4 2-4.2a5 5 0 0 0-5-5Z"/><path d="M9 18h6M10 21h4"/><path d="M4 10h1M19 10h1M6 4l1 1M18 4l-1 1"/></svg>
+      </div>
+      <h3>AI · 테크</h3>
+      <p>AI와 최신 기술을 건설 실무에 적용하는 방법을 실험하고, 실제 업무에 쓸 수 있는 형태로 정리합니다.</p>
+      <ul>
+        <li>AI 기반 업무 보조·분석</li>
+        <li>데이터 처리와 자동화 파이프라인</li>
+        <li>실무 적용 가능한 기술 트렌드</li>
+      </ul>
+    </article>
+
+    <article class="cbl-about-card-v2">
+      <div class="cbl-about-card-icon-v2 dark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m8 9-4 3 4 3"/><path d="m16 9 4 3-4 3"/><path d="m14 4-4 16"/></svg>
+      </div>
+      <h3>프로그램 개발</h3>
+      <p>현장과 BIM 업무에 필요한 도구를 직접 만들고, 웹 서비스와 데스크톱 프로그램으로 제공합니다.</p>
+      <ul>
+        <li>웹 CAD와 업무용 유틸리티</li>
+        <li>수량산출·파일 처리·자동화 도구</li>
+        <li>오픈소스와 공유 지향 개발</li>
+      </ul>
+    </article>
+  </section>
+
+  <section class="cbl-about-section-card-v2" aria-label="운영 방향과 정보 이용 안내">
+    <article class="cbl-about-direction-v2">
+      <div class="cbl-about-direction-head-v2">
+        <div class="cbl-about-bigicon-v2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="m15 9 4-4"/><path d="M19 5h-4V1"/></svg>
+        </div>
+        <div>
+          <h2>사이트 운영 방향</h2>
+          <p>실무자에게 실질적인 도움이 되는 콘텐츠와 도구를 지속적으로 개발하고 공유합니다. 단순 정보 정리가 아니라, 업무 시간을 줄이고 판단을 돕는 플랫폼을 목표로 합니다.</p>
+        </div>
+      </div>
+      <div class="cbl-about-direction-list-v2">
+        <span>실무 중심</span>
+        <span>신뢰할 수 있는 정보</span>
+        <span>지속적인 개선</span>
+        <span>함께 성장하는 플랫폼</span>
+      </div>
+    </article>
+
+    <article class="cbl-about-notice-v2">
+      <div class="cbl-about-notice-top-v2">
+        <div class="cbl-about-bigicon-v2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>
+        </div>
+        <div>
+          <h2>정보 이용 안내</h2>
+          <p>본 사이트의 콘텐츠, 프로그램, 소스 코드는 교육, 연구, 업무 개선을 위한 목적으로 자유롭게 참고할 수 있습니다. 중요한 의사결정 전에는 관련 기준과 전문가 검토를 함께 확인해 주세요.</p>
+        </div>
+      </div>
+      <div class="cbl-about-notice-row-v2">
+        <span>출처 표기 후 자유 이용</span>
+        <span>상업적 이용 시 별도 문의</span>
+        <span>사용 책임은 이용자에게 있음</span>
+      </div>
+    </article>
+  </section>
+
+  <section class="cbl-about-services-v2" aria-label="베타 서비스 운영 중">
+    <div class="cbl-about-services-head-v2">
+      <div>
+        <h2>베타 서비스 운영 중</h2>
+        <p>ChickenBananaLab은 건설·BIM 실무에 필요한 자동화 도구를 베타 서비스로 운영하며, 기능을 계속 검증하고 개선하고 있습니다.</p>
+      </div>
     </div>
+    <div class="cbl-about-service-grid-v2">
+      <div class="cbl-about-service-v2">
+        <strong>AI 수량산출 자동화</strong>
+        <span>CAD/PDF 도면 업로드 후 도면 확인, 수량 검토, 산출 흐름을 자동화하는 베타 서비스입니다.</span>
+      </div>
+      <div class="cbl-about-service-v2">
+        <strong>ChickenBananaCAD</strong>
+        <span>웹에서 도면 열기, 레이어·치수 확인, 저장 흐름을 테스트하는 건설 실무형 웹 CAD 베타 서비스입니다.</span>
+      </div>
+      <div class="cbl-about-service-v2">
+        <strong>업무용 프로그램</strong>
+        <span>파일 처리, 캡처, PDF, 압축, BIM 데이터 정리 등 반복 업무를 줄이는 업무용 프로그램을 순차적으로 운영합니다.</span>
+      </div>
+    </div>
+  </section>
 
-</section>
-
+  <div class="cbl-about-quote-v2">
+    <b>“</b>
+    <span>건설 실무를 BIM과 프로그램으로 더 빠르고 정확하게 만듭니다.</span>
+    <i>✦</i>
+  </div>
+</main>
 {% endblock %}
+
+<!-- CBL_CAD_HOME_START_AUTOVERSION_V1_START -->
+<script>
+(function(){
+  var TAG = "CBL_CAD_HOME_START_AUTOVERSION_V1";
+
+  if (window.__CBL_CAD_HOME_START_AUTOVERSION_V1__) return;
+  window.__CBL_CAD_HOME_START_AUTOVERSION_V1__ = true;
+
+  function cblCadUrl(){
+    return "/static/core/tools/CBLCAD_VER2.html?v=" + Date.now();
+  }
+
+  function isCadStartElement(el){
+    if (!el) return false;
+
+    var id = el.id || "";
+    var cls = el.className || "";
+    var href = el.getAttribute && (el.getAttribute("href") || "");
+    var data = el.getAttribute && (el.getAttribute("data-cad-url") || "");
+    var onclick = el.getAttribute && (el.getAttribute("onclick") || "");
+    var text = (el.innerText || el.textContent || "").trim();
+
+    if (id === "cblWebcadStartBtn") return true;
+    if (String(cls).indexOf("cbl-webcad-start-btn") >= 0) return true;
+    if (href.indexOf("CBLCAD_VER2.html") >= 0) return true;
+    if (data.indexOf("CBLCAD_VER2.html") >= 0) return true;
+    if (onclick.indexOf("CBLCAD_VER2.html") >= 0) return true;
+
+    var card = el.closest && el.closest("article, section, div, a");
+    var cardText = card ? (card.innerText || card.textContent || "") : "";
+    if (text.indexOf("시작하기") >= 0 && cardText.indexOf("ChickenBananaCAD") >= 0) return true;
+
+    return false;
+  }
+
+  function patchOne(el){
+    if (!el || el.__cblCadHomeStartAutoVersionPatched) return;
+    if (!isCadStartElement(el)) return;
+
+    el.__cblCadHomeStartAutoVersionPatched = true;
+    el.setAttribute("data-cblcad-start-autoversion", "1");
+
+    try {
+      if (el.tagName && el.tagName.toLowerCase() === "a") {
+        el.setAttribute("href", cblCadUrl());
+        el.setAttribute("target", "_blank");
+      }
+      el.setAttribute("data-cad-url", cblCadUrl());
+    } catch(e) {}
+
+    el.addEventListener("click", function(e){
+      var url = cblCadUrl();
+
+      try {
+        if (el.tagName && el.tagName.toLowerCase() === "a") {
+          el.setAttribute("href", url);
+        }
+        el.setAttribute("data-cad-url", url);
+      } catch(err) {}
+
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+
+      window.open(url, "_blank");
+      return false;
+    }, true);
+  }
+
+  function bind(){
+    var selectors = [
+      "#cblWebcadStartBtn",
+      ".cbl-webcad-start-btn",
+      "[data-cad-url*='CBLCAD_VER2.html']",
+      "a[href*='CBLCAD_VER2.html']",
+      "button[onclick*='CBLCAD_VER2.html']",
+      "a",
+      "button"
+    ];
+
+    document.querySelectorAll(selectors.join(",")).forEach(function(el){
+      patchOne(el);
+    });
+
+    console.log("✅ " + TAG + " bound");
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bind);
+  } else {
+    bind();
+  }
+
+  setTimeout(bind, 500);
+  setTimeout(bind, 1500);
+  setTimeout(bind, 3000);
+})();
+</script>
+<!-- CBL_CAD_HOME_START_AUTOVERSION_V1_END -->
+
