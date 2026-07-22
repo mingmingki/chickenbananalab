@@ -213,6 +213,40 @@
     cursor: pointer !important;
 }
 
+/* 영상 게시글 전용 플레이어 */
+.cbl-video-post-player {
+    width: 100%;
+    max-width: 1120px;
+    margin: 0 auto 28px;
+    border-radius: 22px;
+    overflow: hidden;
+    background: #05070b;
+    box-shadow: 0 18px 46px rgba(15, 23, 42, 0.18);
+    aspect-ratio: 16 / 9;
+}
+
+.cbl-video-post-player iframe,
+.cbl-video-post-player video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    object-fit: contain;
+    background: #000;
+}
+
+.cbl-video-post-label {
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: 10px;
+    padding: 6px 11px;
+    border-radius: 999px;
+    background: #dcfce7;
+    color: #15803d;
+    font-size: 12px;
+    font-weight: 900;
+}
+
 @media (max-width: 768px) {
     .post-detail-hero .detail-actions button.save-btn.cbl-copy-action-btn {
         width: 100% !important;
@@ -667,7 +701,28 @@ document.addEventListener("DOMContentLoaded", function () {
 <section class="section post-detail-section">
     <div class="container post-detail-container">
 
-        {% if post.thumbnail %}
+        {% if post.post_type == "video" %}
+            {% if post.video_file %}
+                <div class="cbl-video-post-player">
+                    <video controls playsinline preload="metadata" poster="{% if post.thumbnail %}{{ post.thumbnail.url }}{% endif %}">
+                        <source src="{{ post.video_file.url }}">
+                        현재 브라우저에서 이 동영상을 재생할 수 없습니다.
+                    </video>
+                </div>
+            {% elif post.youtube_embed_url %}
+                <div class="cbl-video-post-player">
+                    <iframe
+                        src="{{ post.youtube_embed_url }}"
+                        title="{{ post.title }}"
+                        loading="lazy"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        referrerpolicy="strict-origin-when-cross-origin"
+                        allowfullscreen></iframe>
+                </div>
+            {% endif %}
+        {% endif %}
+
+        {% if post.thumbnail and post.post_type != "video" %}
             <div class="post-main-image-wrap thumbnail-detail-wrap">
                 <img src="{{ post.thumbnail.url }}" alt="{{ post.title }}" class="post-main-image">
 
@@ -680,9 +735,12 @@ document.addEventListener("DOMContentLoaded", function () {
         {% endif %}
 
         <div class="post-content editor-output">
+            {% if post.post_type == "video" %}
+                <span class="cbl-video-post-label">영상 해설·정보</span>
+            {% endif %}
             {{ post.content|safe }}
 
-            {% if post.video_file %}
+            {% if post.video_file and post.post_type != "video" %}
                 <div class="post-local-video-block">
                     <video controls playsinline preload="metadata">
                         <source src="{{ post.video_file.url }}">
@@ -1890,8 +1948,6 @@ document.addEventListener("DOMContentLoaded", function () {
 <!-- CBL_POST_TOP_BOX_REMOVE_END -->
 
 {% endblock %}
-
-
 
 
 

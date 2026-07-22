@@ -9,11 +9,13 @@ class PostForm(forms.ModelForm):
         model = Post
 
         fields = [
+            "post_type",
             "category",
             "title",
             "thumbnail",
             "thumbnail_text",
             "video_file",
+            "youtube_url",
             "program_file",
             "is_published",
             "content",
@@ -21,6 +23,10 @@ class PostForm(forms.ModelForm):
         ]
 
         widgets = {
+            "post_type": forms.Select(attrs={
+                "class": "form-select post-type-select",
+            }),
+
             "category": forms.Select(attrs={
                 "class": "form-select"
             }),
@@ -57,6 +63,12 @@ class PostForm(forms.ModelForm):
                 "accept": "video/mp4,video/webm,video/ogg,video/quicktime",
             }),
 
+            "youtube_url": forms.URLInput(attrs={
+                "id": "youtubeUrlInput",
+                "class": "youtube-url-input",
+                "placeholder": "https://www.youtube.com/watch?v=...",
+            }),
+
             "program_file": forms.FileInput(attrs={
                 "accept": ".zip,.rar,.7z,.exe,.msi,.dmg,.pkg,.apk,.py,.whl",
             }),
@@ -67,8 +79,21 @@ class PostForm(forms.ModelForm):
         }
 
         labels = {
+            "post_type": "게시글 유형",
+            "youtube_url": "유튜브 주소",
             "is_published": "공개 글로 저장",
         }
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get("post_type") == "video":
+            video_file = cleaned_data.get("video_file")
+            youtube_url = (cleaned_data.get("youtube_url") or "").strip()
+            if not video_file and not youtube_url:
+                raise forms.ValidationError(
+                    "영상 글은 유튜브 주소 또는 동영상 파일 중 하나가 필요합니다."
+                )
+        return cleaned_data
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

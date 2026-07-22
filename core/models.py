@@ -4,11 +4,25 @@ from django.urls import reverse
 from django.utils.text import slugify
 from django.utils.html import strip_tags
 import re
+from urllib.parse import parse_qs, urlparse
 from .cbl_category_policy import CBL_MODEL_CATEGORY_CHOICES
 
 
 class Post(models.Model):
     CATEGORY_CHOICES = CBL_MODEL_CATEGORY_CHOICES
+
+    POST_TYPE_CHOICES = [
+        ("article", "일반 글"),
+        ("video", "영상 글"),
+    ]
+
+    post_type = models.CharField(
+        max_length=20,
+        choices=POST_TYPE_CHOICES,
+        default="article",
+        db_index=True,
+        verbose_name="게시글 유형",
+    )
 
     category = models.CharField(
         max_length=20,
@@ -66,6 +80,13 @@ class Post(models.Model):
         blank=True,
         null=True,
         verbose_name="본문 동영상"
+    )
+
+    youtube_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name="유튜브 주소",
     )
 
     # 쇼츠 자동 생성 결과
@@ -152,6 +173,35 @@ class Post(models.Model):
             return reverse("post_detail_slug", kwargs={"slug": self.slug})
 
         return reverse("post_detail", kwargs={"pk": self.pk})
+
+    @property
+    def youtube_embed_url(self):
+        """일반 유튜브·공유·쇼츠 주소를 임베드 주소로 변환합니다."""
+        raw_url = (self.youtube_url or "").strip()
+        if not raw_url:
+            return ""
+
+        try:
+            parsed = urlparse(raw_url)
+            host = (parsed.netloc or "").lower().split(":", 1)[0]
+            video_id = ""
+
+            if host in {"youtu.be", "www.youtu.be"}:
+                video_id = parsed.path.strip("/").split("/")[0]
+            elif host in {"youtube.com", "www.youtube.com", "m.youtube.com"}:
+                path_parts = [part for part in parsed.path.split("/") if part]
+                if parsed.path == "/watch":
+                    video_id = (parse_qs(parsed.query).get("v") or [""])[0]
+                elif len(path_parts) >= 2 and path_parts[0] in {"embed", "shorts", "live"}:
+                    video_id = path_parts[1]
+
+            video_id = re.sub(r"[^A-Za-z0-9_-]", "", video_id)
+            if video_id:
+                return f"https://www.youtube-nocookie.com/embed/{video_id}"
+        except (TypeError, ValueError):
+            pass
+
+        return ""
 
     def __str__(self):
         return self.title

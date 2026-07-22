@@ -437,19 +437,38 @@ def delete_file_safely(file_name):
         pass
 
 
+def cbl_video_post_q():
+    """실제 재생 가능한 영상/쇼츠가 연결된 게시글만 판별합니다."""
+    return (
+        Q(post_type="video")
+        | (Q(youtube_url__isnull=False) & ~Q(youtube_url=""))
+        | (Q(video_file__isnull=False) & ~Q(video_file=""))
+        | (Q(shorts_video__isnull=False) & ~Q(shorts_video=""))
+    )
+
+
 def home(request):
     published = Post.objects.filter(is_published=True).order_by("-created_at")
+    regular_published = published.exclude(cbl_video_post_q())
 
-    latest_all = list(published[:4])
+    latest_all = list(regular_published[:4])
     latest_architecture = list(
-        published.filter(category="architecture")[:4]
+        regular_published.filter(category__in=[
+            "construction_work",
+            "construction_tech",
+            "construction_real",
+            "bim",
+            "architecture",
+            "realestate",
+        ])[:4]
     )
     latest_tech = list(
-        published.filter(category="tech")[:4]
+        regular_published.filter(category="tech")[:4]
     )
     latest_bim = list(
-        published.filter(
-            Q(title__icontains="BIM")
+        regular_published.filter(
+            Q(category="bim")
+            | Q(title__icontains="BIM")
             | Q(title__icontains="Revit")
             | Q(title__icontains="Dynamo")
             | Q(title__icontains="레빗")
@@ -462,7 +481,7 @@ def home(request):
         ).distinct()[:4]
     )
     latest_program = list(
-        published.filter(
+        regular_published.filter(
             (Q(program_file__isnull=False) & ~Q(program_file=""))
             | Q(title__icontains="프로그램")
             | Q(title__icontains="PDF")
@@ -493,6 +512,10 @@ def home(request):
         .order_by("-created_at")[:5]
     )
 
+    home_video_posts = list(
+        published.filter(cbl_video_post_q()).distinct()[:8]
+    )
+
     return render(request, "core/home.html", {
         "latest_posts": latest_all,
         "latest_all": latest_all,
@@ -503,6 +526,7 @@ def home(request):
         "popular_programs": popular_programs,
         "resource_posts": resource_posts,
         "recent_comments": recent_comments,
+        "home_video_posts": home_video_posts,
     })
 
 
@@ -515,7 +539,7 @@ def category_page(request, slug):
     base_posts = Post.objects.filter(
         category=slug,
         is_published=True,
-    ).order_by("-created_at")
+    ).exclude(cbl_video_post_q()).order_by("-created_at")
 
     posts = base_posts[:15]
 
@@ -587,23 +611,22 @@ def category_page(request, slug):
                 items.extend(list(fallback_qs.exclude(pk__in=seen_ids)[: limit - len(items)]))
             return items
 
-        portal_base = Post.objects.filter(
+        portal_all = Post.objects.filter(
             category=slug,
             is_published=True,
         ).order_by("-created_at")
 
-        portal_fallback = Post.objects.filter(
+        portal_fallback_all = Post.objects.filter(
             is_published=True,
         ).filter(
             Q(category=slug) | portal_keyword_q(*portal_cfg["all_keywords"])
         ).order_by("-created_at").distinct()
 
-        portal_video_q = (
-            portal_keyword_q("동영상", "쇼츠", "영상", "유튜브", "shorts", "video") |
-            Q(video_file__gt="") |
-            Q(shorts_video__gt="") |
-            Q(shorts_cover__gt="")
-        )
+        portal_video_q = cbl_video_post_q()
+        portal_base = portal_all.exclude(portal_video_q)
+        portal_fallback = portal_fallback_all.exclude(portal_video_q)
+        portal_video_base = portal_all.filter(portal_video_q).distinct()
+        portal_video_fallback = portal_fallback_all.filter(portal_video_q).distinct()
 
         portal_recent_posts = portal_fill(portal_base, portal_fallback, 5)
         portal_main_posts = portal_fill(
@@ -622,18 +645,17 @@ def category_page(request, slug):
             6,
         )
         portal_video_posts = portal_fill(
-            portal_base.filter(portal_video_q).distinct(),
-            portal_fallback.filter(portal_video_q).distinct(),
+            portal_video_base,
+            portal_video_fallback,
             3,
         )
 
 
 
         def portal_section_videos(keywords, limit=64):
-            section_video_q = portal_keyword_q(*keywords) & portal_video_q
             return portal_fill(
-                portal_base.filter(section_video_q).distinct(),
-                portal_fallback.filter(section_video_q).distinct(),
+                portal_video_base.filter(portal_keyword_q(*keywords)).distinct(),
+                portal_video_fallback.filter(portal_keyword_q(*keywords)).distinct(),
                 limit,
             )
         context.update({
@@ -662,8 +684,8 @@ def category_page(request, slug):
             "portal_sub_popup_video_posts": portal_section_videos(portal_cfg["sub_keywords"], 64),
             "portal_third_popup_video_posts": portal_section_videos(portal_cfg["third_keywords"], 64),
             "portal_video_popup_posts": portal_fill(
-                portal_base.filter(portal_video_q).distinct(),
-                portal_fallback.filter(portal_video_q).distinct(),
+                portal_video_base,
+                portal_video_fallback,
                 64,
             ),
         })
@@ -686,16 +708,19 @@ def category_page(request, slug):
                 items.extend(list(fallback_qs.exclude(pk__in=seen_ids)[: limit - len(items)]))
             return items
 
-        architecture_base = Post.objects.filter(
+        video_q = cbl_video_post_q()
+
+        architecture_all = Post.objects.filter(
             category="architecture",
             is_published=True,
         ).order_by("-created_at")
+        architecture_base = architecture_all.exclude(video_q)
 
         construction_property_base = Post.objects.filter(
             is_published=True,
         ).filter(
             Q(category="architecture") | Q(category="realestate")
-        ).order_by("-created_at")
+        ).exclude(video_q).order_by("-created_at")
 
         practical_q = keyword_q(
             "시공", "공정", "적산", "수량", "원가", "공사비", "실행예산",
@@ -711,13 +736,6 @@ def category_page(request, slug):
             "부동산", "재건축", "재개발", "분양", "청약", "아파트", "오피스텔",
             "토지", "개발", "리모델링", "정비사업", "시장", "정책", "공사비", "분양가",
         )
-        video_q = (
-            keyword_q("동영상", "쇼츠", "영상", "유튜브", "shorts", "video", "현장영상") |
-            Q(video_file__gt="") |
-            Q(shorts_video__gt="") |
-            Q(shorts_cover__gt="")
-        )
-
         arch_recent_posts = fill_posts(architecture_base, architecture_base, 5)
         arch_practical_posts = fill_posts(
             architecture_base.filter(practical_q).distinct(),
@@ -734,11 +752,7 @@ def category_page(request, slug):
             construction_property_base,
             6,
         )
-        arch_video_posts = fill_posts(
-            architecture_base.filter(video_q).distinct(),
-            architecture_base,
-            3,
-        )
+        arch_video_posts = list(architecture_all.filter(video_q).distinct()[:3])
 
         # CBL_CONSTRUCTION_ARCH_PORTAL_CATEGORY_POOLS_START
         construction_all_base = Post.objects.filter(
@@ -746,28 +760,71 @@ def category_page(request, slug):
                 "construction_work",
                 "construction_tech",
                 "construction_real",
+                "bim",
                 "architecture",
                 "realestate",
             ],
             is_published=True,
-        ).order_by("-created_at")
+        ).exclude(video_q).order_by("-created_at")
 
-        construction_work_base = Post.objects.filter(
-            category="construction_work",
+        construction_video_base = Post.objects.filter(
+            category__in=[
+                "construction_work",
+                "construction_tech",
+                "construction_real",
+                "bim",
+                "architecture",
+                "realestate",
+            ],
             is_published=True,
-        ).order_by("-created_at")
+        ).filter(video_q).order_by("-created_at").distinct()
 
-        construction_tech_base = Post.objects.filter(
-            category="construction_tech",
-            is_published=True,
-        ).order_by("-created_at")
+        construction_work_base = Post.objects.filter(is_published=True).filter(
+            Q(category="construction_work")
+            | (Q(category="architecture") & practical_q)
+        ).exclude(video_q).order_by("-created_at").distinct()
 
-        construction_real_base = Post.objects.filter(
-            category="construction_real",
-            is_published=True,
-        ).order_by("-created_at")
+        construction_tech_base = Post.objects.filter(is_published=True).filter(
+            Q(category="construction_tech")
+            | Q(category="bim")
+            | (Q(category="architecture") & technology_q)
+        ).exclude(video_q).order_by("-created_at").distinct()
 
-        arch_recent_posts = fill_posts(construction_all_base, architecture_base, 5)
+        construction_real_base = Post.objects.filter(is_published=True).filter(
+            Q(category="construction_real") | Q(category="realestate")
+        ).exclude(video_q).order_by("-created_at").distinct()
+
+        arch_recent_posts = list(construction_all_base[:5])
+
+        # 기존 글의 DB 값은 보존하면서 최근 콘텐츠 배지만 현재 카테고리로 표시합니다.
+        # 새 글은 이미 현재 카테고리를 사용하므로 그대로 유지됩니다.
+        for recent_post in arch_recent_posts:
+            if recent_post.category == "realestate":
+                recent_post.category = "construction_real"
+                continue
+
+            if recent_post.category != "architecture":
+                continue
+
+            recent_text = " ".join([
+                str(recent_post.title or ""),
+                str(recent_post.summary or ""),
+                str(recent_post.tags or ""),
+                strip_tags(str(recent_post.content or "")),
+            ]).lower()
+
+            if "dynamo" in recent_text or "다이나모" in recent_text:
+                recent_post.category = "dynamo_automation"
+            elif any(word in recent_text for word in ["4d", "5d", "4차원", "5차원"]):
+                recent_post.category = "four_d_five_d"
+            elif any(word in recent_text for word in ["bim", "revit", "레빗", "navisworks"]):
+                recent_post.category = "bim"
+            elif any(word in recent_text for word in [
+                "cad", "ai", "자동화", "스마트건설", "건설기술", "드론", "스캔", "디지털",
+            ]):
+                recent_post.category = "construction_tech"
+            else:
+                recent_post.category = "construction_work"
         arch_practical_posts = fill_posts(
             construction_work_base,
             construction_all_base.filter(practical_q).distinct(),
@@ -780,14 +837,10 @@ def category_page(request, slug):
         )
         arch_property_posts = fill_posts(
             construction_real_base,
-            construction_property_base.filter(property_q).distinct(),
+            construction_all_base.filter(property_q).distinct(),
             6,
         )
-        arch_video_posts = fill_posts(
-            construction_all_base.filter(video_q).distinct(),
-            construction_all_base,
-            3,
-        )
+        arch_video_posts = list(construction_video_base[:3])
         # CBL_CONSTRUCTION_ARCH_PORTAL_CATEGORY_POOLS_END
 
         # CBL_ARCH_SECTION_POPUP_CONTEXT_START
@@ -831,26 +884,16 @@ def category_page(request, slug):
                 is_published=True,
             ).order_by("-created_at")
 
-        # 새 건설 세부 카테고리에 아직 글이 적을 때는 기존 건축/부동산 글도 자연스럽게 보강합니다.
+        # 새 카테고리만 표시하고 기존 건축/부동산 글은 자동 보충하지 않습니다.
         construction_work_popup_base = construction_work_base
-        if not construction_work_popup_base.exists():
-            construction_work_popup_base = architecture_base.filter(practical_q).distinct()
-
         construction_tech_popup_base = construction_tech_base
-        if not construction_tech_popup_base.exists():
-            construction_tech_popup_base = architecture_base.filter(technology_q).distinct()
-
         construction_real_popup_base = construction_real_base
-        if not construction_real_popup_base.exists():
-            construction_real_popup_base = construction_property_base.filter(property_q).distinct()
 
         def cbl_popup_posts(primary_qs, fallback_qs, limit=80):
             return fill_posts(primary_qs, fallback_qs, limit)
 
         def cbl_popup_videos(primary_qs, fallback_qs, limit=80):
-            primary_video_qs = primary_qs.filter(video_q).distinct()
-            fallback_video_qs = fallback_qs.filter(video_q).distinct()
-            return fill_posts(primary_video_qs, fallback_video_qs, limit)
+            return fill_posts(primary_qs.distinct(), fallback_qs.distinct(), limit)
 
         arch_practical_all_posts = cbl_popup_posts(
             construction_work_popup_base,
@@ -864,37 +907,33 @@ def category_page(request, slug):
         )
         arch_property_all_posts = cbl_popup_posts(
             construction_real_popup_base,
-            construction_property_base.filter(property_q).distinct(),
+            construction_all_base.filter(property_q).distinct(),
             80,
         )
 
         arch_practical_video_posts = cbl_popup_videos(
-            construction_work_popup_base,
-            construction_all_base.filter(practical_q).distinct(),
+            construction_video_base.filter(category="construction_work"),
+            construction_video_base.filter(practical_q),
             80,
         )
         arch_tech_video_posts = cbl_popup_videos(
-            construction_tech_popup_base,
-            construction_all_base.filter(technology_q).distinct(),
+            construction_video_base.filter(category__in=["construction_tech", "bim"]),
+            construction_video_base.filter(technology_q),
             80,
         )
         arch_property_video_posts = cbl_popup_videos(
-            construction_real_popup_base,
-            construction_property_base.filter(property_q).distinct(),
+            construction_video_base.filter(category="construction_real"),
+            construction_video_base.filter(property_q),
             80,
         )
         arch_all_video_posts = cbl_popup_videos(
-            construction_all_base,
-            construction_all_base,
+            construction_video_base,
+            construction_video_base,
             80,
         )
 
         # 메인 건설 동영상/쇼츠 섹션은 세부 카테고리 전체 영상/쇼츠에서 자동으로 채웁니다.
-        arch_video_posts = fill_posts(
-            construction_all_base.filter(video_q).distinct(),
-            construction_all_base.filter(video_q).distinct(),
-                80,
-            )
+        arch_video_posts = list(construction_video_base[:3])
         # CBL_ARCH_SECTION_POPUP_CONTEXT_END
 
         context.update({

@@ -5865,7 +5865,15 @@ body.cbl-modal-open {
   var QTY_REVIEW_FIELD_LABEL = {
     length_m: "길이(m)", width_m: "폭(m)", depth_m: "춤(m)", height_m: "높이(m)",
     thickness_m: "두께(m)", area_m2: "면적(m²)", count: "개수",
-    rebar_size: "철근규격", main_rebar_size: "주철근규격",
+    rebar_size: "철근규격", rebar_spacing_m: "철근간격(m)",
+    main_rebar_size: "주철근규격", main_rebar_count: "주철근개수",
+    tie_rebar_size: "띠철근규격", tie_spacing_m: "띠철근간격(m)",
+    stirrup_size: "스터럽규격", stirrup_spacing_m: "스터럽간격(m)",
+    dowel_bar_size: "도웰바규격", dowel_bar_count: "도웰바개수",
+    distribution_rebar_size: "배력철근규격", distribution_rebar_spacing_m: "배력철근간격(m)",
+    end_condition: "단부조건(일자형/T자형/모서리)",
+    has_hook: "정착 갈고리 사용", is_top_bar: "상부철근 여부",
+    is_deck_slab: "데크슬래브 여부", dowel_has_hook: "도웰바 갈고리 사용",
   };
 
   // structPreview = { job_id, annotated_pages, checklist, warnings }.
@@ -5884,9 +5892,19 @@ body.cbl-modal-open {
 
     var checklistHtml = checklist.length
       ? checklist.map(function (item, i) {
+          var boolFields = item.bool_fields || [];
           var fieldsHtml = Object.keys(item.fields || {}).map(function (k) {
             var label = QTY_REVIEW_FIELD_LABEL[k] || k;
             var v = item.fields[k];
+            if (boolFields.indexOf(k) !== -1) {
+              // 참/거짓 필드는 글자로 "true"/"false"를 치게 하면 실수하기 쉬워서 체크박스로 보여준다.
+              return (
+                '<div class="qty-review-field-row">' +
+                  '<span>' + esc(label) + '</span>' +
+                  '<input type="checkbox" data-field="' + esc(k) + '" data-bool="1"' + (v ? ' checked' : '') + '>' +
+                '</div>'
+              );
+            }
             return (
               '<div class="qty-review-field-row">' +
                 '<span>' + esc(label) + '</span>' +
@@ -6038,9 +6056,14 @@ body.cbl-modal-open {
         }
         var fields = {};
         itemEl.querySelectorAll("[data-field]").forEach(function (inputEl) {
+          var fieldName = inputEl.getAttribute("data-field");
+          if (inputEl.getAttribute("data-bool") === "1") {
+            fields[fieldName] = !!inputEl.checked;
+            return;
+          }
           var raw = inputEl.value;
           var num = parseFloat(raw);
-          fields[inputEl.getAttribute("data-field")] = (raw !== "" && !isNaN(num) && /^-?[0-9.]+$/.test(raw.trim())) ? num : raw;
+          fields[fieldName] = (raw !== "" && !isNaN(num) && /^-?[0-9.]+$/.test(raw.trim())) ? num : raw;
         });
         corrections.push({ review_id: reviewId, action: "edit", fields: fields });
       });
@@ -7668,45 +7691,36 @@ body[data-cbl-url-name="home"] .cbl-second-calendar-event-mini span {
     </div>
 
     <div class="cbl-second-video-grid" data-cbl-video-grid>
-      <a class="cblx-post-card" data-cbl-video-card data-cbl-video-cat="bim" href="{% url 'search' %}?q=BIM">
-        <div class="cblx-thumb cbl-second-video-thumb"><span>BIM</span><i class="cbl-second-play"></i><em class="cbl-second-time">8:45</em></div>
-        <div class="cblx-post-body"><h3>BIM 자동화로 업무 10배 빨라지는 법</h3><p>도면 검토, 수량산출, 반복 업무 자동화 흐름을 쉽게 정리했습니다.</p><small>2026.06.10 <b>◉ 1.2만</b></small></div>
+      {% for post in home_video_posts %}
+      <a
+        class="cblx-post-card"
+        data-cbl-video-card
+        data-cbl-video-cat="{% if post.category == 'bim' or post.category == 'dynamo_automation' or post.category == 'four_d_five_d' %}bim{% elif post.category == 'tech' %}tech{% elif post.category == 'program' or post.category == 'tool_recommend' %}program{% else %}architecture{% endif %}"
+        href="{{ post.get_absolute_url }}">
+        <div class="cblx-thumb cbl-second-video-thumb">
+          {% if post.shorts_cover %}
+            <img src="{{ post.shorts_cover.url }}" alt="{{ post.title|striptags }}">
+          {% elif post.thumbnail %}
+            <img src="{{ post.thumbnail.url }}" alt="{{ post.title|striptags }}">
+          {% endif %}
+          <span>
+            {% if post.category == 'bim' or post.category == 'dynamo_automation' or post.category == 'four_d_five_d' %}BIM
+            {% elif post.category == 'tech' %}테크
+            {% elif post.category == 'program' or post.category == 'tool_recommend' %}프로그램
+            {% else %}건설{% endif %}
+          </span>
+          <i class="cbl-second-play"></i>
+          <em class="cbl-second-time">{% if post.shorts_video %}SHORTS{% else %}VIDEO{% endif %}</em>
+        </div>
+        <div class="cblx-post-body">
+          <h3>{{ post.title|striptags|truncatechars:46 }}</h3>
+          <p>{{ post.content|striptags|truncatechars:62 }}</p>
+          <small>{{ post.created_at|date:"Y.m.d" }} <b>◉ {{ post.views }}</b></small>
+        </div>
       </a>
-
-      <a class="cblx-post-card" data-cbl-video-card data-cbl-video-cat="architecture" href="{% url 'architecture' %}">
-        <div class="cblx-thumb cbl-second-video-thumb"><span>건설</span><i class="cbl-second-play"></i><em class="cbl-second-time">6:12</em></div>
-        <div class="cblx-post-body"><h3>수량산출 자동화 맛보기</h3><p>도면에서 수량을 추출하고 검증하는 실무 흐름을 짧게 보여드립니다.</p><small>2026.06.10 <b>◉ 2.1천</b></small></div>
-      </a>
-
-      <a class="cblx-post-card" data-cbl-video-card data-cbl-video-cat="bim" href="{% url 'search' %}?q=Revit">
-        <div class="cblx-thumb cbl-second-video-thumb"><span>BIM</span><i class="cbl-second-play"></i><em class="cbl-second-time">7:30</em></div>
-        <div class="cblx-post-body"><h3>Revit 2026 주요 기능 핵심 정리</h3><p>모델링과 협업에서 바로 써먹기 좋은 기능만 골라 정리했습니다.</p><small>2026.06.09 <b>◉ 3.4천</b></small></div>
-      </a>
-
-      <a class="cblx-post-card" data-cbl-video-card data-cbl-video-cat="tech" href="{% url 'tech' %}">
-        <div class="cblx-thumb cbl-second-video-thumb"><span>테크</span><i class="cbl-second-play"></i><em class="cbl-second-time">4:38</em></div>
-        <div class="cblx-post-body"><h3>AI가 바꾸는 건설 현장의 미래</h3><p>AI 기술이 설계, 시공, 안전 관리에 어떤 변화를 만드는지 살펴봅니다.</p><small>2026.06.09 <b>◉ 9.4천</b></small></div>
-      </a>
-
-      <a class="cblx-post-card" data-cbl-video-card data-cbl-video-cat="architecture" href="{% url 'architecture' %}">
-        <div class="cblx-thumb cbl-second-video-thumb"><span>건설</span><i class="cbl-second-play"></i><em class="cbl-second-time">5:21</em></div>
-        <div class="cblx-post-body"><h3>현장 안전관리 체크리스트 10가지</h3><p>사고를 줄이는 핵심 포인트를 실제 사례와 함께 정리했습니다.</p><small>2026.06.08 <b>◉ 1.8천</b></small></div>
-      </a>
-
-      <a class="cblx-post-card" data-cbl-video-card data-cbl-video-cat="tech" href="{% url 'tech' %}">
-        <div class="cblx-thumb cbl-second-video-thumb"><span>테크</span><i class="cbl-second-play"></i><em class="cbl-second-time">6:05</em></div>
-        <div class="cblx-post-body"><h3>클라우드 협업 환경 설정 가이드</h3><p>프로젝트 팀워크를 높이는 협업 환경을 단계별로 설정해봅니다.</p><small>2026.06.08 <b>◉ 2.8천</b></small></div>
-      </a>
-
-      <a class="cblx-post-card" data-cbl-video-card data-cbl-video-cat="bim" href="{% url 'search' %}?q=Navisworks">
-        <div class="cblx-thumb cbl-second-video-thumb"><span>BIM</span><i class="cbl-second-play"></i><em class="cbl-second-time">9:14</em></div>
-        <div class="cblx-post-body"><h3>Navisworks 충돌검토 실전 팁</h3><p>충돌검토 기본 설정부터 보고서 작성까지 실전 팁을 정리했습니다.</p><small>2026.06.07 <b>◉ 2.3천</b></small></div>
-      </a>
-
-      <a class="cblx-post-card" data-cbl-video-card data-cbl-video-cat="program" href="{% url 'search' %}?q=프로그램">
-        <div class="cblx-thumb cbl-second-video-thumb"><span>프로그램</span><i class="cbl-second-play"></i><em class="cbl-second-time">3:47</em></div>
-        <div class="cblx-post-body"><h3>도면 정리 자동화 스크립트 소개</h3><p>반복되는 도면 정리를 자동으로 처리하는 스크립트를 소개합니다.</p><small>2026.06.07 <b>◉ 1.1천</b></small></div>
-      </a>
+      {% empty %}
+      <div class="cblx-filter-empty">등록된 동영상/쇼츠가 없습니다.</div>
+      {% endfor %}
     </div>
   </section>
 

@@ -14,6 +14,12 @@
     <form method="post" enctype="multipart/form-data" class="tistory-editor-form">
         {% csrf_token %}
 
+        {% if form.non_field_errors %}
+            <div class="editor-field-error editor-form-error">
+                {{ form.non_field_errors|striptags }}
+            </div>
+        {% endif %}
+
         <div class="editor-topbar">
             <div class="editor-logo">CHICKENBANANA LAB</div>
 
@@ -33,6 +39,10 @@
         <div class="editor-wrap">
 
             <div class="editor-category-publish-row">
+                <div class="editor-category-field">
+                    {{ form.post_type }}
+                </div>
+
                 <div class="editor-category-field">
                     {{ form.category }}
                 </div>
@@ -239,12 +249,11 @@
                     <div class="video-modal-section">
                         <label class="video-modal-label">유튜브 주소</label>
 
-                        <input
-                            type="text"
-                            id="youtubeUrlInput"
-                            class="youtube-url-input"
-                            placeholder="유튜브 주소를 붙여넣으세요. 예: https://www.youtube.com/watch?v=..."
-                        >
+                        {{ form.youtube_url }}
+
+                        {% if form.youtube_url.errors %}
+                            <p class="editor-field-error">{{ form.youtube_url.errors|striptags }}</p>
+                        {% endif %}
 
                         <button type="button" class="youtube-preview-btn" onclick="previewYoutubeVideo()">
                             유튜브 미리보기
@@ -1784,9 +1793,32 @@ function performLocationSearch() {
     function insertSelectedVideo() {
         const youtubeInput = document.getElementById("youtubeUrlInput");
         const localVideoInput = document.getElementById("id_video_file");
+        const postTypeInput = document.getElementById("id_post_type");
 
         const hasYoutubeUrl = youtubeInput && youtubeInput.value.trim();
         const hasLocalVideo = localVideoInput && localVideoInput.files && localVideoInput.files.length > 0;
+        const isVideoPost = postTypeInput && postTypeInput.value === "video";
+
+        // 영상 글은 상세페이지 상단의 대표 플레이어에서 재생되므로
+        // 본문에 같은 영상을 한 번 더 삽입하지 않습니다.
+        if (isVideoPost && hasYoutubeUrl) {
+            if (!getYoutubeVideoId(youtubeInput.value)) {
+                alert("올바른 유튜브 주소를 입력해주세요.");
+                return;
+            }
+            closeYoutubeModal();
+            return;
+        }
+
+        if (isVideoPost && hasLocalVideo) {
+            const file = localVideoInput.files[0];
+            if (!file.type.startsWith("video/")) {
+                alert("동영상 파일만 선택할 수 있습니다.");
+                return;
+            }
+            closeYoutubeModal();
+            return;
+        }
 
         if (hasYoutubeUrl) {
             insertYoutubeVideo();
