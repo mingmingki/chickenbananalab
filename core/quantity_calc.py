@@ -346,6 +346,8 @@ def calc_columns(items, general_spec=None, fallback_height_m=None):
                     warnings.append(f"기둥 {mark}: {main_size} 이음길이를 구조일반사항에서 못 찾아 {splice_len}m로 추정했습니다 — 확인 필요")
                 if anchor_src == "추정값(확인필요)":
                     warnings.append(f"기둥 {mark}: {main_size} 정착길이를 구조일반사항에서 못 찾아 {anchor_len}m로 추정했습니다(하부 1개소 가정) — 확인 필요")
+        else:
+            warnings.append(f"기둥 {mark}: 주철근 규격/개수 정보가 없어 주철근량 계산에서 제외했습니다 — 기둥일람표 확인 필요")
 
         tie_size = it.get("tie_rebar_size")
         tie_spacing = it.get("tie_spacing_m")
@@ -356,6 +358,8 @@ def calc_columns(items, general_spec=None, fallback_height_m=None):
                 warnings.append(f"기둥 {mark}: {err}")
             else:
                 rebar_total += wt
+        else:
+            warnings.append(f"기둥 {mark}: 띠철근 규격/간격 정보가 없어 띠철근량 계산에서 제외했습니다 — 기둥일람표 확인 필요")
 
     return round(concrete, 3), round(formwork, 3), round(rebar_total, 2), warnings
 
@@ -399,6 +403,8 @@ def calc_beams(items, general_spec=None):
                     warnings.append(f"보 {mark}: {main_size} 이음길이를 구조일반사항에서 못 찾아 {splice_len}m로 추정했습니다{'(상부근 1.3배 반영)' if top_bar else ''} — 확인 필요")
                 if anchor_src == "추정값(확인필요)":
                     warnings.append(f"보 {mark}: {main_size} 정착길이를 구조일반사항에서 못 찾아 {anchor_len}m로 추정했습니다(양단 각 1개소 가정{'상부근 1.3배' if top_bar else ''}{', 갈고리' if hook else ''}) — 확인 필요")
+        else:
+            warnings.append(f"보 {mark}: 주철근 규격/개수 정보가 없어 주철근량 계산에서 제외했습니다 — 보일람표 확인 필요")
 
         stirrup_size = it.get("stirrup_size")
         stirrup_spacing = it.get("stirrup_spacing_m")
@@ -410,6 +416,8 @@ def calc_beams(items, general_spec=None):
                 warnings.append(f"보 {mark}: {err}")
             else:
                 rebar_total += wt
+        else:
+            warnings.append(f"보 {mark}: 스터럽 규격/간격 정보가 없어 스터럽량 계산에서 제외했습니다 — 보일람표 확인 필요")
 
     return round(concrete, 3), round(formwork, 3), round(rebar_total, 2), warnings
 
@@ -502,6 +510,8 @@ def calc_slabs(items, general_spec=None):
             else:
                 rebar_total += wt
                 warnings.append(f"슬래브 {mark}: 철근량은 정방향 근사치이므로 배근도 방향별 스팬으로 재검증 권장")
+        else:
+            warnings.append(f"슬래브 {mark}: 철근 규격/간격 정보가 없어 철근량 계산에서 제외했습니다 — 슬래브배근도 확인 필요")
 
         chair_wt, chair_err = _chair_bar_weight(net_area, general_spec)
         if chair_err:
@@ -599,6 +609,8 @@ def calc_walls(items, general_spec=None, fallback_height_m=None):
                         f"전단벽 {mark}: 단부보강근(수평, {shape}) {u_count}개×{round(u_bar_len,2)}m 근사 반영 "
                         "— 실제 벤딩(절곡) 형상과 다를 수 있어 확인 필요"
                     )
+        else:
+            warnings.append(f"전단벽 {mark}: 철근 규격/간격 정보가 없어 철근량 계산에서 제외했습니다 — 벽체배근도 확인 필요")
 
     return round(concrete, 3), round(formwork, 3), round(rebar_total, 2), warnings
 
@@ -742,7 +754,7 @@ def calc_spacers(members):
 def _typical_floor_height_m(elevation_data):
     """입면/단면도에서 읽은 floor_heights 중 repeat_count로 가중치를 준 최빈값을 대표 층고로 삼는다.
     (예: 기준층 2.9m가 repeat_count=14로 대부분의 층을 차지하면 그게 대표 층고가 됨)"""
-    entries = (elevation_data or {}).get("floor_heights", [])
+    entries = (elevation_data or {}).get("floor_heights", []) or []
     weighted = {}
     for fh in entries:
         h = fh.get("height_m")
@@ -772,7 +784,7 @@ def _openings_area_from_items(items):
 def _openings_area_from_elevation(elevation_data):
     """입면도에서 읽은 openings 목록의 총 면적(㎡)."""
     total = 0.0
-    for op in (elevation_data or {}).get("openings", []):
+    for op in (elevation_data or {}).get("openings", []) or []:
         w, h, cnt = op.get("width_m"), op.get("height_m"), op.get("count", 1) or 1
         if isinstance(w, (int, float)) and isinstance(h, (int, float)):
             total += w * h * cnt

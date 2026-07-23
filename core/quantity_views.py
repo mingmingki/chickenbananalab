@@ -8,6 +8,7 @@ AI 구조산출 자동화 — views.py
 """
 
 import base64
+import hashlib
 import io
 import json
 import os
@@ -67,6 +68,51 @@ def get_gemini_client():
     if not api_key:
         return None
     return genai.Client(api_key=api_key)
+
+
+# ─────────────────────────────────────────────
+#  개발용 추출 결과 캐시: 팝업 UI/계산 로직을 다듬는 동안 같은 도면으로 반복 테스트하면
+#  로직만 바뀌었을 뿐인데도 매번 Gemini(구조부재 추출)를 다시 호출해서 비용이 든다.
+#  QTY_DEV_CACHE=1 환경변수가 켜져 있을 때만 동작하며, 기본값(꺼짐)에서는 실제 서비스
+#  동작에 전혀 영향을 주지 않는다 — 같은 PDF+DWG 조합이면 이전에 저장해둔 추출 결과를
+#  그대로 재사용하고(Gemini 호출 0회), 처음 보는 조합이면 평소처럼 호출한 뒤 결과를
+#  로컬 임시 폴더에 저장해 다음 테스트부터 재사용한다. 실제 물량 계산(quantity_calc)과
+#  검토 팝업(UI)은 캐시와 무관하게 매번 새로 돈다 — 아끼는 건 Gemini 호출뿐이다.
+# ─────────────────────────────────────────────
+_DEV_CACHE_ENABLED = os.environ.get("QTY_DEV_CACHE", "").strip().lower() in ("1", "true", "yes")
+_DEV_CACHE_DIR = os.path.join(tempfile.gettempdir(), "cbl_qty_dev_cache")
+
+
+def _dev_cache_key(pdf_bytes, dwg_data):
+    h = hashlib.sha256()
+    h.update(pdf_bytes or b"")
+    try:
+        h.update(json.dumps(dwg_data, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8"))
+    except Exception:
+        pass
+    return h.hexdigest()
+
+
+def _dev_cache_load(cache_key):
+    path = os.path.join(_DEV_CACHE_DIR, cache_key + ".json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data["notes"] = ["[개발 캐시] 이전에 같은 도면으로 추출한 결과를 그대로 재사용했습니다 — Gemini를 다시 호출하지 않았습니다."] + list(data.get("notes") or [])
+        return data
+    except Exception:
+        return None
+
+
+def _dev_cache_save(cache_key, result):
+    try:
+        os.makedirs(_DEV_CACHE_DIR, exist_ok=True)
+        with open(os.path.join(_DEV_CACHE_DIR, cache_key + ".json"), "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False)
+    except Exception:
+        pass
 
 
 # ─────────────────────────────────────────────
@@ -193,15 +239,45 @@ def _extraction_store_pop(job_id):
 
 
 # 체크리스트에 보여주고, 사용자가 고칠 수 있게 허용할 카테고리별 핵심 필드.
-# (전체 필드를 다 편집 가능하게 하면 UI가 너무 복잡해져서, 실제로 값이 자주 틀리는
-#  치수/개수/철근규격 위주로만 추린다 — mark/zone/section/bbox 등은 편집 대상에서 제외)
+# 처음엔 치수/개수/철근규격만 추렸었는데, 정작 철근량 계산에 제일 크게 영향을 주는
+# rebar_spacing_m(간격)·main_rebar_count(개수) 등이 빠져있으면 검토 화면에서 고쳐봤자
+# 계산에 반영이 안 되는 항목이 생겨서 — 각 카테고리 스키마의 실제 계산용 필드를 전부 포함시킨다.
+# (mark/zone/section/bbox/openings처럼 목록형이거나 식별용인 필드만 편집 대상에서 제외)
 _MEMBER_SUMMARY_FIELDS = {
-    "foundations": ["length_m", "width_m", "thickness_m", "count", "rebar_size"],
-    "columns": ["width_m", "depth_m", "height_m", "count", "main_rebar_size"],
-    "beams": ["width_m", "depth_m", "length_m", "count", "main_rebar_size"],
-    "slabs": ["area_m2", "thickness_m", "count", "rebar_size"],
-    "walls": ["length_m", "height_m", "thickness_m", "count", "rebar_size"],
-    "stairs": ["width_m", "length_m", "thickness_m", "count", "rebar_size"],
+    "foundations": [
+        "length_m", "width_m", "thickness_m", "count",
+        "rebar_size", "rebar_spacing_m",
+        "dowel_bar_size", "dowel_bar_count", "dowel_has_hook",
+    ],
+    "columns": [
+        "width_m", "depth_m", "height_m", "count",
+        "main_rebar_size", "main_rebar_count",
+        "tie_rebar_size", "tie_spacing_m", "has_hook",
+    ],
+    "beams": [
+        "width_m", "depth_m", "length_m", "count",
+        "main_rebar_size", "main_rebar_count",
+        "stirrup_size", "stirrup_spacing_m", "has_hook", "is_top_bar",
+    ],
+    "slabs": [
+        "area_m2", "thickness_m", "count",
+        "rebar_size", "rebar_spacing_m", "has_hook", "is_top_bar", "is_deck_slab",
+    ],
+    "walls": [
+        "length_m", "height_m", "thickness_m", "count",
+        "rebar_size", "rebar_spacing_m", "has_hook", "end_condition",
+    ],
+    "stairs": [
+        "width_m", "length_m", "thickness_m", "count",
+        "rebar_size", "rebar_spacing_m",
+        "distribution_rebar_size", "distribution_rebar_spacing_m",
+        "is_top_bar", "has_hook",
+    ],
+}
+
+# 위 필드 중 참/거짓 값인 것들 — 검토 팝업에서 텍스트 입력 대신 체크박스로 보여주기 위한 목록.
+_MEMBER_BOOLEAN_FIELDS = {
+    "has_hook", "is_top_bar", "is_deck_slab", "dowel_has_hook",
 }
 
 
@@ -226,6 +302,9 @@ def _build_review_checklist(members):
                 "zone": it.get("zone") or "",
                 "section": it.get("section") or "",
                 "fields": fields,
+                # 필드 중 어떤 게 참/거짓 값인지 알려줘서, 프론트가 그 필드만 텍스트 입력 대신
+                # 체크박스로 그릴 수 있게 한다 (has_hook 같은 걸 "true"라고 글자로 치게 하면 실수하기 쉬움).
+                "bool_fields": sorted(f for f in fields if f in _MEMBER_BOOLEAN_FIELDS),
                 "bbox_page": bbox.get("page") if bbox else None,
             })
     return checklist
@@ -1144,6 +1223,14 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
     중간에 끊을 방법은 없다). 사용자가 "취소"를 누른 뒤 아직 시작 안 한 배치들의
     비용을 아끼기 위한 용도다. None이면 취소 체크를 생략한다.
     """
+    cache_key = _dev_cache_key(pdf_bytes, dwg_data) if _DEV_CACHE_ENABLED else None
+    if cache_key:
+        cached = _dev_cache_load(cache_key)
+        if cached is not None:
+            if progress_cb:
+                progress_cb(1, 1)
+            return cached
+
     client = get_gemini_client()
     if client is None:
         return dict(_EMPTY_MEMBERS, notes=["GEMINI_API_KEY가 설정되지 않았습니다. .env 확인 후 서버를 재시작해 주세요."])
@@ -1152,9 +1239,12 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
         # PDF가 없고 DWG 데이터만 있는 경우(구조 ZIP만 업로드) — 배치 없이 한 번만 호출
         if progress_cb:
             progress_cb(1, 1)
-        return _merge_extracted_members(
+        result = _merge_extracted_members(
             [_extract_structural_members_one_batch(client, dwg_data, [], 1, 1)]
         )
+        if cache_key:
+            _dev_cache_save(cache_key, result)
+        return result
 
     try:
         info = pdfinfo_from_bytes(pdf_bytes)
@@ -1241,7 +1331,10 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
         batch_results.append(one_result)
         del image_batch  # 다음 배치로 넘어가기 전에 명시적으로 메모리 해제
 
-    return _merge_extracted_members(batch_results)
+    result = _merge_extracted_members(batch_results)
+    if cache_key:
+        _dev_cache_save(cache_key, result)
+    return result
 
 
 # ─────────────────────────────────────────────
@@ -1264,11 +1357,11 @@ _CATEGORY_SHORT_LABEL = {
 }
 _CATEGORY_BBOX_COLOR = {
     "기초": (230, 126, 34),   # 주황
-    "기둥": (231, 76, 60),    # 빨강
-    "보": (52, 152, 219),     # 파랑
-    "슬래브": (46, 204, 113), # 초록
-    "전단벽": (155, 89, 182), # 보라
-    "계단": (241, 196, 15),   # 노랑
+    "기둥": (155, 89, 182),   # 보라
+    "보": (231, 76, 60),      # 빨강
+    "슬래브": (52, 152, 219), # 파랑 (바닥)
+    "전단벽": (241, 196, 15), # 노랑 (벽체)
+    "계단": (46, 204, 113),   # 초록
 }
 ANNOTATED_PAGE_MAX_PAGES = 12  # 채팅창에 한 번에 띄울 색칠 페이지 수 상한(응답 크기 제한용)
 
@@ -1298,7 +1391,12 @@ def _draw_member_boxes_on_image(img: Image.Image, boxes):
         label = f"{short_label} {mark}".strip() if mark else short_label
         text_y = max(0, y0 - 14)
         draw.rectangle([x0, text_y, x0 + 7 * len(label) + 4, text_y + 13], fill=color + (200,))
-        draw.text((x0 + 2, text_y), label, fill=(255, 255, 255, 255))
+        # 라벨 배경색 밝기에 따라 글자색을 흰/검 중에서 고른다 — 노랑처럼 밝은 배경에
+        # 흰 글자를 고정으로 쓰면 안 보여서(전단벽 색을 노랑으로 바꾸면서 실제로 발생), YIQ
+        # 공식으로 인지 밝기를 계산해 128 기준으로 나눈다.
+        brightness = color[0] * 0.299 + color[1] * 0.587 + color[2] * 0.114
+        text_color = (0, 0, 0, 255) if brightness > 150 else (255, 255, 255, 255)
+        draw.text((x0 + 2, text_y), label, fill=text_color)
     return Image.alpha_composite(base, overlay).convert("RGB")
 
 
@@ -1897,7 +1995,7 @@ def _build_excel_response(request):
         ws.row_dimensions[3].height = 22
 
         # 데이터 행
-        items = data.get("items", [])
+        items = data.get("items", []) or []
         for idx, item in enumerate(items, 1):
             row = idx + 3
             confidence_color = {
@@ -2103,7 +2201,7 @@ def _build_excel_response(request):
     row = 3
     for type_key, type_name in [("structural", "구조"), ("architectural", "건축")]:
         data = results.get(type_key, {})
-        items = data.get("items", [])
+        items = data.get("items", []) or []
         if not items:
             continue
 
