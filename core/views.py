@@ -730,11 +730,8 @@ def category_page(request, slug):
             },
         )
 
-        def portal_category_qs(pool_name, videos=False):
-            queryset = Post.objects.filter(
-                category__in=portal_pools[pool_name],
-                is_published=True,
-            )
+        def portal_effective_posts(pool_name, limit, videos=False):
+            queryset = Post.objects.filter(is_published=True)
             if pool_name in portal_pools["keyword_sections"]:
                 keywords = portal_cfg[f"{pool_name}_keywords"]
                 queryset = queryset.filter(portal_keyword_q(*keywords))
@@ -742,52 +739,41 @@ def category_page(request, slug):
                 queryset = queryset.filter(portal_video_q)
             else:
                 queryset = queryset.exclude(portal_video_q)
-            return queryset.order_by("-created_at").distinct()
-
-        portal_base = portal_category_qs("recent")
-        portal_main_base = portal_category_qs("main")
-        portal_sub_base = portal_category_qs("sub")
-        portal_third_base = portal_category_qs("third")
-        portal_video_base = portal_category_qs("recent", videos=True)
-
-        portal_recent_categories = portal_pools["recent"]
-        portal_recent_posts = cbl_posts_by_effective_categories(
-            Post.objects.filter(is_published=True)
-            .exclude(portal_video_q)
-            .order_by("-created_at"),
-            portal_recent_categories,
-            5,
-        )
-
-        portal_main_posts = portal_fill(
-            portal_main_base,
-            portal_main_base,
-            4,
-        )
-        portal_sub_posts = portal_fill(
-            portal_sub_base,
-            portal_sub_base,
-            3,
-        )
-        portal_third_posts = portal_fill(
-            portal_third_base,
-            portal_third_base,
-            6,
-        )
-        portal_video_posts = portal_fill(
-            portal_video_base,
-            portal_video_base,
-            3,
-        )
-
-        def portal_section_videos(pool_name, limit=64):
-            section_video_base = portal_category_qs(pool_name, videos=True)
-            return portal_fill(
-                section_video_base,
-                section_video_base,
+            return cbl_posts_by_effective_categories(
+                queryset.order_by("-created_at").distinct(),
+                portal_pools[pool_name],
                 limit,
             )
 
+        portal_recent_posts = portal_effective_posts(
+            "recent",
+            5,
+        )
+
+        portal_main_posts = portal_effective_posts(
+            "main",
+            4,
+        )
+        portal_sub_posts = portal_effective_posts(
+            "sub",
+            3,
+        )
+        portal_third_posts = portal_effective_posts(
+            "third",
+            6,
+        )
+        portal_video_posts = portal_effective_posts(
+            "recent",
+            3,
+            videos=True,
+        )
+
+        def portal_section_videos(pool_name, limit=64):
+            return portal_effective_posts(
+                pool_name,
+                limit,
+                videos=True,
+            )
         context.update({
             "portal_config": portal_cfg,
             "portal_recent_posts": portal_recent_posts,
@@ -795,28 +781,25 @@ def category_page(request, slug):
             "portal_sub_posts": portal_sub_posts,
             "portal_third_posts": portal_third_posts,
             "portal_video_posts": portal_video_posts,
-            "portal_main_popup_posts": portal_fill(
-                portal_main_base,
-                portal_main_base,
+            "portal_main_popup_posts": portal_effective_posts(
+                "main",
                 80,
             ),
-            "portal_sub_popup_posts": portal_fill(
-                portal_sub_base,
-                portal_sub_base,
+            "portal_sub_popup_posts": portal_effective_posts(
+                "sub",
                 80,
             ),
-            "portal_third_popup_posts": portal_fill(
-                portal_third_base,
-                portal_third_base,
+            "portal_third_popup_posts": portal_effective_posts(
+                "third",
                 80,
             ),
             "portal_main_popup_video_posts": portal_section_videos("main", 64),
             "portal_sub_popup_video_posts": portal_section_videos("sub", 64),
             "portal_third_popup_video_posts": portal_section_videos("third", 64),
-            "portal_video_popup_posts": portal_fill(
-                portal_video_base,
-                portal_video_base,
+            "portal_video_popup_posts": portal_effective_posts(
+                "recent",
                 64,
+                videos=True,
             ),
         })
     # CBL_BTP_PORTAL_CONTEXT_END
