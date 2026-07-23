@@ -5828,8 +5828,8 @@ body.cbl-modal-open {
   // 카드를 아예 렌더링하지 않는다(Gemini가 bbox를 하나도 못 채웠거나, PDF가 없는 경우 등).
   // annotated_pages는 [{ page, image_data_url, categories, member_count }] 형태.
   var QTY_CATEGORY_SWATCH = {
-    "기초": "#e67e22", "기둥": "#e74c3c", "보": "#3498db",
-    "슬래브": "#2ecc71", "전단벽": "#9b59b6", "계단": "#f1c40f",
+    "기초": "#e67e22", "기둥": "#9b59b6", "보": "#e74c3c",
+    "슬래브": "#3498db", "전단벽": "#f1c40f", "계단": "#2ecc71",
   };
   function renderAnnotatedPagesCard(annotatedPages) {
     if (!annotatedPages || !annotatedPages.length) return null;

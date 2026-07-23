@@ -2282,11 +2282,11 @@
                         <p>10분·30분·1시간·2시간마다 글을 1개씩 자동 공개합니다.</p>
                     </a>
 
-                    <a href="{% url 'mini_capcut_home' %}" class="manage-menu-item">
+                    <button type="button" id="cblVideoUploadManageButton" class="manage-menu-item manage-menu-button" onclick="openVideoUploadChoiceModal()">
                         <div>🎬</div>
-                        <strong>치킨바나나컷</strong>
-                        <p>글·이미지 기반으로 쇼츠 영상을 자동 생성합니다.</p>
-                    </a>
+                        <strong>동영상/쇼츠 올리기</strong>
+                        <p>동영상을 직접 올리거나 쇼츠를 자동 생성합니다.</p>
+                    </button>
 
 
                     <!-- CBL_GEMINI_USAGE_DASHBOARD_V1 -->
@@ -7154,6 +7154,17 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 
 
 <!-- CBL_FIXED_TOOL_CARDS_HTML_START -->
+<style id="cblHideFixedToolCardsV1">
+  /*
+   * 전 화면에서 하단 빠른 기능 카드 2개를 숨깁니다.
+   * 기존 모달과 기능 코드는 보존해 필요할 때 다시 연결할 수 있습니다.
+   */
+  .cbl-fixed-tools,
+  .cbl-public-service-launcher,
+  .cbl-public-service-slot {
+    display: none !important;
+  }
+</style>
 <div class="cbl-fixed-tools" aria-label="빠른 기능">
   <button
     type="button"
@@ -9630,6 +9641,493 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
 
 
 <!-- CBL_CHICKENBANANA_CUT_MODAL_V2_START -->
+<!-- CBL_VIDEO_UPLOAD_STUDIO_V1_START -->
+<style>
+    .cbl-video-choice-card {
+        width: min(760px, calc(100vw - 32px));
+    }
+
+    .cbl-video-choice-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+    }
+
+    .cbl-video-choice {
+        border: 1px solid #e2e8f0;
+        border-radius: 22px;
+        padding: 24px;
+        background: #fff;
+        text-align: left;
+        cursor: pointer;
+        transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
+    }
+
+    .cbl-video-choice:hover {
+        transform: translateY(-2px);
+        border-color: #14b8a6;
+        box-shadow: 0 18px 35px rgba(15, 23, 42, .10);
+    }
+
+    .cbl-video-choice-icon {
+        display: flex;
+        width: 48px;
+        height: 48px;
+        margin-bottom: 16px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 15px;
+        background: #ecfeff;
+        font-size: 24px;
+    }
+
+    .cbl-video-choice strong {
+        display: block;
+        color: #0f172a;
+        font-size: 18px;
+        font-weight: 950;
+    }
+
+    .cbl-video-choice p {
+        margin: 8px 0 0;
+        color: #64748b;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.55;
+    }
+
+    .cbl-video-studio-card {
+        width: min(1060px, calc(100vw - 28px));
+        max-height: calc(100vh - 30px);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .cbl-video-steps {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+        margin: 0 0 18px;
+    }
+
+    .cbl-video-step {
+        padding: 10px 8px;
+        border-bottom: 3px solid #e2e8f0;
+        color: #94a3b8;
+        font-size: 12px;
+        font-weight: 900;
+        text-align: center;
+    }
+
+    .cbl-video-step.active {
+        border-color: #0f766e;
+        color: #0f766e;
+    }
+
+    .cbl-video-upload-form {
+        overflow-y: auto;
+        padding-right: 4px;
+    }
+
+    .cbl-video-form-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(280px, .75fr);
+        gap: 22px;
+    }
+
+    .cbl-video-fields {
+        display: grid;
+        gap: 15px;
+    }
+
+    .cbl-video-field label {
+        display: block;
+        margin-bottom: 7px;
+        color: #0f172a;
+        font-size: 13px;
+        font-weight: 900;
+    }
+
+    .cbl-video-field input,
+    .cbl-video-field select,
+    .cbl-video-field textarea {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #d8dee9;
+        border-radius: 14px;
+        background: #fff;
+        color: #111827;
+        padding: 13px 14px;
+        font: inherit;
+    }
+
+    .cbl-video-field textarea {
+        min-height: 170px;
+        resize: vertical;
+        line-height: 1.65;
+    }
+
+    .cbl-video-source-tabs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+
+    .cbl-video-source-tabs button {
+        border: 1px solid #d8dee9;
+        border-radius: 12px;
+        padding: 11px;
+        background: #f8fafc;
+        color: #64748b;
+        font-weight: 900;
+        cursor: pointer;
+    }
+
+    .cbl-video-source-tabs button.active {
+        border-color: #0f766e;
+        background: #ecfdf5;
+        color: #0f766e;
+    }
+
+    .cbl-video-preview {
+        min-height: 330px;
+        border: 1px solid #e2e8f0;
+        border-radius: 20px;
+        background: #f8fafc;
+        padding: 18px;
+    }
+
+    .cbl-video-preview-box {
+        display: flex;
+        min-height: 205px;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        border-radius: 15px;
+        background: #0f172a;
+        color: #fff;
+        text-align: center;
+    }
+
+    .cbl-video-preview-box video,
+    .cbl-video-preview-box img {
+        display: block;
+        width: 100%;
+        max-height: 260px;
+        object-fit: contain;
+    }
+
+    .cbl-video-preview h3 {
+        margin: 15px 0 6px;
+        color: #0f172a;
+        font-size: 16px;
+    }
+
+    .cbl-video-preview p,
+    .cbl-video-status {
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.5;
+    }
+
+    .cbl-video-publish {
+        display: flex;
+        margin-top: 14px;
+        align-items: center;
+        gap: 9px;
+        font-weight: 900;
+    }
+
+    .cbl-video-publish input {
+        width: 18px;
+        height: 18px;
+    }
+
+    @media (max-width: 760px) {
+        .cbl-video-choice-grid,
+        .cbl-video-form-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .cbl-video-steps {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+</style>
+
+<div class="site-modal" id="videoUploadChoiceModal">
+    <div class="site-modal-backdrop" onclick="closeVideoUploadChoiceModal()"></div>
+    <div class="site-modal-card cbl-video-choice-card">
+        <div class="site-modal-header">
+            <div>
+                <span>Video Studio</span>
+                <h2>동영상/쇼츠 올리기</h2>
+            </div>
+            <button type="button" onclick="closeVideoUploadChoiceModal()">×</button>
+        </div>
+
+        <div class="cbl-video-choice-grid">
+            <button type="button" class="cbl-video-choice" onclick="openVideoPostUploadModal()">
+                <span class="cbl-video-choice-icon">📹</span>
+                <strong>동영상 올리기</strong>
+                <p>영상 파일 또는 YouTube 주소와 제목·설명·썸네일을 등록합니다.</p>
+            </button>
+
+            <button type="button" class="cbl-video-choice" onclick="openShortsAutoCreateModal()">
+                <span class="cbl-video-choice-icon">🎬</span>
+                <strong>쇼츠 자동생성</strong>
+                <p>기존 치킨바나나컷으로 대본과 이미지를 만들고 쇼츠를 편집합니다.</p>
+            </button>
+        </div>
+
+        <div class="site-modal-actions">
+            <button type="button" class="modal-light-btn" onclick="closeVideoUploadChoiceModal()">취소</button>
+        </div>
+    </div>
+</div>
+
+<div class="site-modal" id="videoPostUploadModal">
+    <div class="site-modal-backdrop" onclick="closeVideoPostUploadModal()"></div>
+    <div class="site-modal-card cbl-video-studio-card">
+        <div class="site-modal-header">
+            <div>
+                <span>Video Studio</span>
+                <h2>동영상 올리기</h2>
+            </div>
+            <button type="button" onclick="closeVideoPostUploadModal()">×</button>
+        </div>
+
+        <div class="cbl-video-steps">
+            <div class="cbl-video-step active">1. 세부정보</div>
+            <div class="cbl-video-step">2. 동영상 요소</div>
+            <div class="cbl-video-step">3. 검토</div>
+            <div class="cbl-video-step">4. 공개 상태</div>
+        </div>
+
+        <form id="videoPostUploadForm" class="cbl-video-upload-form" method="post" enctype="multipart/form-data" action="{% url 'video_post_upload' %}">
+            {% csrf_token %}
+            <div class="cbl-video-form-grid">
+                <div class="cbl-video-fields">
+                    <div class="cbl-video-field">
+                        <label for="cblVideoTitle">제목 <span aria-hidden="true">*</span></label>
+                        <input id="cblVideoTitle" name="title" type="text" maxlength="200" required placeholder="영상 제목을 입력하세요">
+                    </div>
+
+                    <div class="cbl-video-field">
+                        <label for="cblVideoCategory">카테고리 <span aria-hidden="true">*</span></label>
+                        <select id="cblVideoCategory" name="category" required>
+                            <option value="construction_work">건설실무</option>
+                            <option value="construction_tech">건설기술</option>
+                            <option value="construction_real">건설부동산</option>
+                            <option value="bim">REVIT/BIM</option>
+                            <option value="dynamo_automation">Dynamo/자동화</option>
+                            <option value="four_d_five_d">4D/5D</option>
+                            <option value="program">업무용 프로그램</option>
+                            <option value="tool_recommend">툴소개/툴추천</option>
+                        </select>
+                    </div>
+
+                    <div class="cbl-video-field">
+                        <label>영상 소스 <span aria-hidden="true">*</span></label>
+                        <div class="cbl-video-source-tabs">
+                            <button id="cblVideoFileTab" type="button" class="active" onclick="setVideoUploadSource('file')">영상 파일</button>
+                            <button id="cblVideoYoutubeTab" type="button" onclick="setVideoUploadSource('youtube')">YouTube 주소</button>
+                        </div>
+                        <div id="cblVideoFileWrap">
+                            <input id="cblVideoFile" name="video_file" type="file" accept="video/mp4,video/webm,video/ogg,video/quicktime">
+                        </div>
+                        <div id="cblVideoYoutubeWrap" hidden>
+                            <input id="cblVideoYoutube" name="youtube_url" type="url" placeholder="https://www.youtube.com/watch?v=...">
+                        </div>
+                    </div>
+
+                    <div class="cbl-video-field">
+                        <label for="cblVideoContent">설명 및 해설</label>
+                        <textarea id="cblVideoContent" name="content" placeholder="영상 내용, 사용 방법, 참고사항 등을 입력하세요."></textarea>
+                    </div>
+
+                    <div class="cbl-video-field">
+                        <label for="cblVideoTags">태그</label>
+                        <input id="cblVideoTags" name="tags" type="text" maxlength="300" placeholder="예: BIM, Revit, 자동화">
+                    </div>
+                </div>
+
+                <aside class="cbl-video-preview">
+                    <div id="cblVideoPreviewBox" class="cbl-video-preview-box">
+                        영상을 선택하면 미리보기가 표시됩니다.
+                    </div>
+                    <h3 id="cblVideoPreviewTitle">새 동영상</h3>
+                    <p>등록한 영상은 일반 최신 글에서 제외되고 동영상/쇼츠 구간에만 표시됩니다.</p>
+
+                    <div class="cbl-video-field">
+                        <label for="cblVideoThumbnail">썸네일</label>
+                        <input id="cblVideoThumbnail" name="thumbnail" type="file" accept="image/jpeg,image/png,image/webp,image/gif">
+                    </div>
+
+                    <label class="cbl-video-publish">
+                        <input name="is_published" type="checkbox" checked>
+                        즉시 공개
+                    </label>
+                    <div id="cblVideoUploadStatus" class="cbl-video-status"></div>
+                </aside>
+            </div>
+
+            <div class="site-modal-actions">
+                <button type="button" class="modal-light-btn" onclick="closeVideoPostUploadModal()">취소</button>
+                <button id="cblVideoSubmitButton" type="submit" class="modal-dark-btn">동영상 등록</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    function cblSetVideoModalState() {
+        if (typeof setModalBodyState === "function") setModalBodyState();
+    }
+
+    function openVideoUploadChoiceModal() {
+        const manageModal = document.getElementById("manageModal");
+        const modal = document.getElementById("videoUploadChoiceModal");
+        if (manageModal) manageModal.classList.remove("active");
+        if (modal) modal.classList.add("active");
+        cblSetVideoModalState();
+    }
+
+    function closeVideoUploadChoiceModal() {
+        const modal = document.getElementById("videoUploadChoiceModal");
+        if (modal) modal.classList.remove("active");
+        cblSetVideoModalState();
+    }
+
+    function openVideoPostUploadModal() {
+        closeVideoUploadChoiceModal();
+        const modal = document.getElementById("videoPostUploadModal");
+        if (modal) modal.classList.add("active");
+        cblSetVideoModalState();
+    }
+
+    function closeVideoPostUploadModal() {
+        const modal = document.getElementById("videoPostUploadModal");
+        if (modal) modal.classList.remove("active");
+        cblSetVideoModalState();
+    }
+
+    function openShortsAutoCreateModal() {
+        closeVideoUploadChoiceModal();
+        if (typeof openChickenBananaCutModal === "function") {
+            openChickenBananaCutModal();
+        } else {
+            window.location.href = "{% url 'mini_capcut_home' %}";
+        }
+    }
+
+    function setVideoUploadSource(source) {
+        const isFile = source === "file";
+        const fileWrap = document.getElementById("cblVideoFileWrap");
+        const youtubeWrap = document.getElementById("cblVideoYoutubeWrap");
+        const fileTab = document.getElementById("cblVideoFileTab");
+        const youtubeTab = document.getElementById("cblVideoYoutubeTab");
+        const fileInput = document.getElementById("cblVideoFile");
+        const youtubeInput = document.getElementById("cblVideoYoutube");
+
+        if (fileWrap) fileWrap.hidden = !isFile;
+        if (youtubeWrap) youtubeWrap.hidden = isFile;
+        if (fileTab) fileTab.classList.toggle("active", isFile);
+        if (youtubeTab) youtubeTab.classList.toggle("active", !isFile);
+        if (fileInput) fileInput.required = isFile;
+        if (youtubeInput) youtubeInput.required = !isFile;
+        if (isFile && youtubeInput) youtubeInput.value = "";
+        if (!isFile && fileInput) fileInput.value = "";
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+        const form = document.getElementById("videoPostUploadForm");
+        const titleInput = document.getElementById("cblVideoTitle");
+        const fileInput = document.getElementById("cblVideoFile");
+        const thumbnailInput = document.getElementById("cblVideoThumbnail");
+        const previewBox = document.getElementById("cblVideoPreviewBox");
+        const previewTitle = document.getElementById("cblVideoPreviewTitle");
+        const status = document.getElementById("cblVideoUploadStatus");
+        const submitButton = document.getElementById("cblVideoSubmitButton");
+
+        setVideoUploadSource("file");
+
+        if (titleInput && previewTitle) {
+            titleInput.addEventListener("input", function () {
+                previewTitle.textContent = titleInput.value.trim() || "새 동영상";
+            });
+        }
+
+        if (fileInput && previewBox) {
+            fileInput.addEventListener("change", function () {
+                const file = fileInput.files && fileInput.files[0];
+                if (!file) return;
+                const url = URL.createObjectURL(file);
+                previewBox.innerHTML = "";
+                const video = document.createElement("video");
+                video.src = url;
+                video.controls = true;
+                video.preload = "metadata";
+                previewBox.appendChild(video);
+            });
+        }
+
+        if (thumbnailInput && previewBox) {
+            thumbnailInput.addEventListener("change", function () {
+                const file = thumbnailInput.files && thumbnailInput.files[0];
+                if (!file || (fileInput && fileInput.files && fileInput.files[0])) return;
+                const image = document.createElement("img");
+                image.src = URL.createObjectURL(file);
+                image.alt = "선택한 썸네일";
+                previewBox.innerHTML = "";
+                previewBox.appendChild(image);
+            });
+        }
+
+        if (form) {
+            form.addEventListener("submit", async function (event) {
+                event.preventDefault();
+                if (status) status.textContent = "업로드 중입니다. 창을 닫지 마세요.";
+                if (submitButton) {
+                    submitButton.disabled = true;
+                    submitButton.textContent = "업로드 중...";
+                }
+
+                try {
+                    const response = await fetch(form.action, {
+                        method: "POST",
+                        body: new FormData(form),
+                        headers: { "X-Requested-With": "XMLHttpRequest" }
+                    });
+                    const data = await response.json().catch(function () {
+                        return {
+                            ok: false,
+                            error: response.status === 413
+                                ? "영상 용량이 서버 업로드 제한을 초과했습니다."
+                                : "서버 응답을 확인하지 못했습니다."
+                        };
+                    });
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || "동영상 등록에 실패했습니다.");
+                    }
+                    if (status) status.textContent = "등록이 완료되었습니다.";
+                    window.location.href = data.redirect_url;
+                } catch (error) {
+                    if (status) status.textContent = error.message || "동영상 등록에 실패했습니다.";
+                    if (submitButton) {
+                        submitButton.disabled = false;
+                        submitButton.textContent = "동영상 등록";
+                    }
+                }
+            });
+        }
+    });
+</script>
+<!-- CBL_VIDEO_UPLOAD_STUDIO_V1_END -->
+
 <style>
     .cbc-modal-card {
         width: min(1040px, calc(100vw - 34px));
@@ -9966,6 +10464,7 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
         const grid = document.querySelector(".manage-menu-grid");
         if (!grid) return;
 
+        if (document.getElementById("cblVideoUploadManageButton")) return;
         if (document.getElementById("cbcManageButton")) return;
 
         const button = document.createElement("button");

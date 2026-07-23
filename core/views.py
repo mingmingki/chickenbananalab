@@ -447,50 +447,130 @@ def cbl_video_post_q():
     )
 
 
+def cbl_effective_category_key(post):
+    """기존 글을 현재 운영 중인 8개 카테고리 중 가장 가까운 분류로 표시합니다."""
+    current_categories = {
+        "construction_work",
+        "construction_tech",
+        "construction_real",
+        "bim",
+        "dynamo_automation",
+        "four_d_five_d",
+        "program",
+        "tool_recommend",
+    }
+
+    original_category = str(getattr(post, "category", "") or "")
+    if original_category in current_categories:
+        return original_category
+
+    text = " ".join([
+        str(getattr(post, "title", "") or ""),
+        str(getattr(post, "summary", "") or ""),
+        str(getattr(post, "tags", "") or ""),
+        strip_tags(str(getattr(post, "content", "") or "")),
+    ]).lower()
+
+    if "dynamo" in text or "다이나모" in text:
+        return "dynamo_automation"
+
+    if any(word in text for word in ["4d", "5d", "4차원", "5차원"]):
+        return "four_d_five_d"
+
+    if any(word in text for word in ["bim", "revit", "레빗", "navisworks", "나비스웍스"]):
+        return "bim"
+
+    if original_category == "architecture" and any(word in text for word in [
+        "cad", "자동화", "스마트건설", "건설기술", "드론", "스캔", "디지털", "모듈러", "osc", "ai",
+    ]):
+        return "construction_tech"
+
+    if original_category in {"realestate", "finance"} or any(word in text for word in [
+        "부동산", "분양", "청약", "아파트", "재건축", "재개발", "토지", "금리", "대출",
+    ]):
+        return "construction_real"
+
+    if any(word in text for word in [
+        "프로그램", "소프트웨어", "다운로드", "설치", "스크립트", "플러그인", "매크로",
+    ]):
+        return "program"
+
+    if original_category in {"tech", "life"} or any(word in text for word in [
+        "앱", "툴", "도구", "추천", "리뷰", "비교", "노트북", "스마트폰", "태블릿",
+        "인터넷", "ipv4", "ipv6", "클라우드", "보안", "ai", "인공지능",
+    ]):
+        return "tool_recommend"
+
+    if any(word in text for word in [
+        "cad", "자동화", "스마트건설", "건설기술", "드론", "스캔", "디지털", "모듈러", "osc",
+    ]):
+        return "construction_tech"
+
+    if original_category == "architecture":
+        return "construction_work"
+
+    return None
+
+
+def cbl_apply_effective_categories(posts):
+    """조회된 객체의 화면 표시용 카테고리만 현재 분류로 바꿉니다. DB에는 저장하지 않습니다."""
+    for post in posts:
+        post.category = cbl_effective_category_key(post)
+    return posts
+
+
+def cbl_posts_by_effective_categories(queryset, categories, limit):
+    """기존 카테고리 글을 현재 분류로 판별한 뒤 관련 글만 반환합니다."""
+    allowed = set(categories)
+    matched = []
+    # 오래된 글까지 무제한 순회하지 않으면서 최근 후보는 충분히 확인합니다.
+    for post in queryset[:200]:
+        effective_category = cbl_effective_category_key(post)
+        if effective_category not in allowed:
+            continue
+        post.category = effective_category
+        matched.append(post)
+        if len(matched) >= limit:
+            break
+    return matched
+
+
 def home(request):
     published = Post.objects.filter(is_published=True).order_by("-created_at")
     regular_published = published.exclude(cbl_video_post_q())
 
-    latest_all = list(regular_published[:4])
-    latest_architecture = list(
-        regular_published.filter(category__in=[
-            "construction_work",
-            "construction_tech",
-            "construction_real",
-            "bim",
-            "architecture",
-            "realestate",
-        ])[:4]
+    # 최근 콘텐츠는 현재 운영 중인 실제 저장 카테고리만 사용합니다.
+    # 제목/본문 키워드로 다른 페이지 글을 끌어오거나 화면용 카테고리를 덮어쓰지 않습니다.
+    current_categories = [
+        "construction_work",
+        "construction_tech",
+        "construction_real",
+        "bim",
+        "dynamo_automation",
+        "four_d_five_d",
+        "program",
+        "tool_recommend",
+    ]
+    latest_all = cbl_posts_by_effective_categories(
+        regular_published, current_categories, 4
     )
-    latest_tech = list(
-        regular_published.filter(category="tech")[:4]
+    latest_architecture = cbl_posts_by_effective_categories(regular_published, [
+        "construction_work",
+        "construction_tech",
+        "construction_real",
+    ], 4)
+    latest_bim = cbl_posts_by_effective_categories(regular_published, [
+        "bim",
+        "dynamo_automation",
+        "four_d_five_d",
+    ], 4)
+    latest_tech = cbl_posts_by_effective_categories(
+        regular_published, ["tool_recommend"], 4
     )
-    latest_bim = list(
-        regular_published.filter(
-            Q(category="bim")
-            | Q(title__icontains="BIM")
-            | Q(title__icontains="Revit")
-            | Q(title__icontains="Dynamo")
-            | Q(title__icontains="레빗")
-            | Q(title__icontains="다이나모")
-            | Q(title__icontains="수량산출")
-            | Q(tags__icontains="BIM")
-            | Q(tags__icontains="Revit")
-            | Q(tags__icontains="Dynamo")
-            | Q(content__icontains="BIM")
-        ).distinct()[:4]
-    )
-    latest_program = list(
-        regular_published.filter(
-            (Q(program_file__isnull=False) & ~Q(program_file=""))
-            | Q(title__icontains="프로그램")
-            | Q(title__icontains="PDF")
-            | Q(title__icontains="ZIP")
-            | Q(title__icontains="캡처")
-            | Q(title__icontains="뷰어")
-            | Q(tags__icontains="프로그램")
-        ).distinct()[:4]
-    )
+    latest_program = cbl_posts_by_effective_categories(regular_published, [
+        "program",
+        "tool_recommend",
+    ], 4)
 
     popular_programs = (
         published.exclude(program_file="")
@@ -628,12 +708,18 @@ def category_page(request, slug):
         portal_video_base = portal_all.filter(portal_video_q).distinct()
         portal_video_fallback = portal_fallback_all.filter(portal_video_q).distinct()
 
-        portal_recent_posts = portal_fill(portal_base, portal_fallback, 5)
-
-        # 키워드로 보충된 기존 글도 현재 포털의 카테고리 배지로 표시합니다.
-        # 메모리의 표시값만 바꾸므로 DB에 저장된 기존 카테고리는 유지됩니다.
-        for portal_recent_post in portal_recent_posts:
-            portal_recent_post.category = slug
+        portal_recent_categories = {
+            "bim": ["bim", "dynamo_automation", "four_d_five_d"],
+            "tech": ["tool_recommend"],
+            "program": ["program", "tool_recommend"],
+        }.get(slug, [slug])
+        portal_recent_posts = cbl_posts_by_effective_categories(
+            Post.objects.filter(is_published=True)
+            .exclude(portal_video_q)
+            .order_by("-created_at"),
+            portal_recent_categories,
+            5,
+        )
 
         portal_main_posts = portal_fill(
             portal_base.filter(portal_keyword_q(*portal_cfg["main_keywords"])).distinct(),
@@ -800,37 +886,14 @@ def category_page(request, slug):
             Q(category="construction_real") | Q(category="realestate")
         ).exclude(video_q).order_by("-created_at").distinct()
 
-        arch_recent_posts = list(construction_all_base[:5])
+        arch_recent_posts = cbl_posts_by_effective_categories(
+            Post.objects.filter(is_published=True)
+            .exclude(video_q)
+            .order_by("-created_at"),
+            ["construction_work", "construction_tech", "construction_real"],
+            5,
+        )
 
-        # 기존 글의 DB 값은 보존하면서 최근 콘텐츠 배지만 현재 카테고리로 표시합니다.
-        # 새 글은 이미 현재 카테고리를 사용하므로 그대로 유지됩니다.
-        for recent_post in arch_recent_posts:
-            if recent_post.category == "realestate":
-                recent_post.category = "construction_real"
-                continue
-
-            if recent_post.category != "architecture":
-                continue
-
-            recent_text = " ".join([
-                str(recent_post.title or ""),
-                str(recent_post.summary or ""),
-                str(recent_post.tags or ""),
-                strip_tags(str(recent_post.content or "")),
-            ]).lower()
-
-            if "dynamo" in recent_text or "다이나모" in recent_text:
-                recent_post.category = "dynamo_automation"
-            elif any(word in recent_text for word in ["4d", "5d", "4차원", "5차원"]):
-                recent_post.category = "four_d_five_d"
-            elif any(word in recent_text for word in ["bim", "revit", "레빗", "navisworks"]):
-                recent_post.category = "bim"
-            elif any(word in recent_text for word in [
-                "cad", "ai", "자동화", "스마트건설", "건설기술", "드론", "스캔", "디지털",
-            ]):
-                recent_post.category = "construction_tech"
-            else:
-                recent_post.category = "construction_work"
         arch_practical_posts = fill_posts(
             construction_work_base,
             construction_all_base.filter(practical_q).distinct(),
@@ -1185,6 +1248,42 @@ def post_create(request):
             "post": None,
         })
     )
+
+
+@login_required
+@user_passes_test(admin_required)
+@require_POST
+def video_post_upload(request):
+    """관리 팝업에서 동영상 게시글을 별도로 등록합니다."""
+    form_data = request.POST.copy()
+    form_data["post_type"] = "video"
+    if not (form_data.get("content") or "").strip():
+        form_data["content"] = "<p>영상 설명이 아직 없습니다.</p>"
+
+    # 체크되지 않은 공개 여부는 False로 저장되도록 ModelForm 입력을 그대로 사용합니다.
+    form = PostForm(form_data, request.FILES)
+
+    if not form.is_valid():
+        errors = []
+        for field_errors in form.errors.values():
+            errors.extend(str(error) for error in field_errors)
+        return JsonResponse({
+            "ok": False,
+            "error": errors[0] if errors else "입력 내용을 확인해주세요.",
+            "errors": form.errors.get_json_data(),
+        }, status=400)
+
+    post = form.save(commit=False)
+    post.post_type = "video"
+    post.content = normalize_html_spaces(post.content or "")
+    post.save()
+    form.save_m2m()
+
+    return JsonResponse({
+        "ok": True,
+        "post_id": post.pk,
+        "redirect_url": post.get_absolute_url(),
+    })
 
 
 @user_passes_test(admin_required)

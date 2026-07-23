@@ -153,6 +153,7 @@ cbl_path("api/cblcad/csrf/", cbl_views.cblcad_csrf, name="cblcad_csrf"),
     path("life/", views.category_page, {"slug": "life"}, name="life"),
 
     path("post/add/", views.post_create, name="post_create"),
+    path("video/upload/", views.video_post_upload, name="video_post_upload"),
 
     # 기존 숫자 주소 유지
     path("post/<int:pk>/", views.post_detail_redirect, name="post_detail"),
