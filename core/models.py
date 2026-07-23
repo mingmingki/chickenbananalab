@@ -751,6 +751,7 @@ class GeminiUsageLog(models.Model):
         ("ai_translation", "AI 글 · 번역/다국어"),
         ("ai_topic_planning", "AI 글 · 주제 기획"),
         ("ai_keyword_recommendation", "AI 글 · 키워드 추천"),
+        ("ai_fallback_topics", "AI 기본글감 생성"),
         ("ai_image", "AI 이미지 생성"),
         ("naver_keyword_search", "오늘의 키워드 · Gemini 검색"),
         ("other", "기타 Gemini 호출"),
@@ -787,3 +788,163 @@ class GeminiUsageLog(models.Model):
 
     def __str__(self):
         return f"{self.get_feature_display()} · {self.model} · {self.total_tokens:,} tokens"
+
+
+# CBL_AI_FALLBACK_TOPIC_POOL_V1_MODEL_START
+class AIFallbackTopic(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "검토대기"),
+        (STATUS_APPROVED, "승인"),
+        (STATUS_REJECTED, "제외"),
+    ]
+
+    CATEGORY_CHOICES = [
+        ("construction_work", "건설실무"),
+        ("construction_tech", "건설기술"),
+        ("construction_real", "건설부동산"),
+        ("bim", "REVIT/BIM"),
+        ("dynamo_automation", "Dynamo/자동화"),
+        ("four_d_five_d", "4D/5D"),
+        ("tech_ai_development", "AI·개발"),
+        ("tech_data_security", "데이터·보안"),
+        ("tech_server_software", "인터넷·서버·소프트"),
+        ("program", "업무용 프로그램"),
+        ("tool_recommend", "툴소개/툴추천"),
+    ]
+
+    FORMAT_CHOICES = [
+        ("workflow", "실무 절차"),
+        ("checklist", "체크리스트"),
+        ("troubleshooting", "문제 해결"),
+        ("comparison", "비교·선택"),
+        ("automation", "자동화·생산성"),
+        ("case", "사례·트렌드"),
+    ]
+
+    DIFFICULTY_CHOICES = [
+        ("beginner", "입문"),
+        ("practical", "실무"),
+        ("advanced", "심화"),
+    ]
+
+    category = models.CharField(
+        max_length=30,
+        choices=CATEGORY_CHOICES,
+        db_index=True,
+        verbose_name="카테고리",
+    )
+    title = models.CharField(
+        max_length=220,
+        verbose_name="글감 제목",
+    )
+    normalized_title = models.CharField(
+        max_length=220,
+        db_index=True,
+        editable=False,
+        verbose_name="중복 확인용 제목",
+    )
+    content_format = models.CharField(
+        max_length=30,
+        choices=FORMAT_CHOICES,
+        default="workflow",
+        verbose_name="글 형식",
+    )
+    difficulty = models.CharField(
+        max_length=20,
+        choices=DIFFICULTY_CHOICES,
+        default="practical",
+        verbose_name="난이도",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+        verbose_name="상태",
+    )
+    note = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name="AI 설명",
+    )
+    source_model = models.CharField(
+        max_length=160,
+        blank=True,
+        default="",
+        verbose_name="생성 모델",
+    )
+    created_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="created_ai_fallback_topics",
+        verbose_name="생성 요청자",
+    )
+    recommendation_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name="추천 노출 수",
+    )
+    last_recommended_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="최근 추천 시각",
+    )
+    approved_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="승인 시각",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+        verbose_name="생성일",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="수정일",
+    )
+
+    class Meta:
+        ordering = [
+            "last_recommended_at",
+            "recommendation_count",
+            "created_at",
+            "id",
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["category", "normalized_title"],
+                name="uniq_ai_fallback_topic_category_title",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["category", "status"],
+                name="ai_topic_cat_status",
+            ),
+            models.Index(
+                fields=["status", "last_recommended_at"],
+                name="ai_topic_status_last",
+            ),
+        ]
+        verbose_name = "AI 기본글감"
+        verbose_name_plural = "AI 기본글감"
+
+    def save(self, *args, **kwargs):
+        value = re.sub(r"\s+", " ", str(self.title or "")).strip()
+        self.title = value
+        self.normalized_title = re.sub(
+            r"[^0-9a-z가-힣]+", "", value.lower()
+        )
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"[{self.get_category_display()}] {self.title}"
+# CBL_AI_FALLBACK_TOPIC_POOL_V1_MODEL_END

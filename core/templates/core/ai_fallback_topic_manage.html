@@ -1,0 +1,490 @@
+{% extends "core/base.html" %}
+
+{% block title %}AI 기본글감 관리 | ChickenBananaLab{% endblock %}
+
+{% block content %}
+<style>
+  .ai-topic-page {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 42px 24px 90px;
+    color: #0f172a;
+  }
+  .ai-topic-page * { box-sizing: border-box; }
+  .ai-topic-hero {
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    align-items: flex-start;
+    margin-bottom: 24px;
+  }
+  .ai-topic-eyebrow {
+    margin: 0 0 8px;
+    color: #0f9f78;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: .14em;
+  }
+  .ai-topic-hero h1 {
+    margin: 0;
+    font-size: clamp(30px, 4vw, 48px);
+    line-height: 1.05;
+    letter-spacing: -.045em;
+  }
+  .ai-topic-hero p {
+    max-width: 760px;
+    margin: 14px 0 0;
+    color: #64748b;
+    line-height: 1.7;
+  }
+  .ai-topic-back {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    min-height: 42px;
+    padding: 0 16px;
+    border: 1px solid #dbe3ee;
+    border-radius: 999px;
+    color: #0f172a;
+    text-decoration: none;
+    font-weight: 800;
+    background: #fff;
+  }
+  .ai-topic-alert {
+    margin-bottom: 22px;
+    padding: 16px 18px;
+    border: 1px solid #fde68a;
+    border-radius: 16px;
+    background: #fffbeb;
+    color: #854d0e;
+    font-size: 14px;
+    line-height: 1.65;
+  }
+  .ai-topic-alert strong { color: #713f12; }
+  .ai-topic-messages {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 18px;
+  }
+  .ai-topic-message {
+    padding: 13px 16px;
+    border-radius: 12px;
+    background: #ecfdf5;
+    color: #047857;
+    font-weight: 800;
+  }
+  .ai-topic-message.error {
+    background: #fef2f2;
+    color: #b91c1c;
+  }
+  .ai-topic-panel {
+    margin-bottom: 22px;
+    padding: 22px;
+    border: 1px solid #e2e8f0;
+    border-radius: 22px;
+    background: #fff;
+    box-shadow: 0 16px 42px rgba(15, 23, 42, .06);
+  }
+  .ai-topic-panel h2 {
+    margin: 0 0 6px;
+    font-size: 21px;
+    letter-spacing: -.03em;
+  }
+  .ai-topic-panel-sub {
+    margin: 0 0 18px;
+    color: #64748b;
+    font-size: 14px;
+  }
+  .ai-topic-generate-grid {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) 150px auto;
+    gap: 12px;
+    align-items: end;
+  }
+  .ai-topic-field label {
+    display: block;
+    margin-bottom: 7px;
+    font-size: 13px;
+    font-weight: 900;
+  }
+  .ai-topic-field select,
+  .ai-topic-field input {
+    width: 100%;
+    min-height: 46px;
+    padding: 0 13px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    background: #fff;
+    color: #0f172a;
+    font: inherit;
+  }
+  .ai-topic-primary,
+  .ai-topic-btn {
+    border: 0;
+    border-radius: 12px;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 900;
+  }
+  .ai-topic-primary {
+    min-height: 46px;
+    padding: 0 20px;
+    color: #fff;
+    background: linear-gradient(135deg, #0f9f78, #0f766e);
+    box-shadow: 0 10px 20px rgba(15, 159, 120, .2);
+  }
+  .ai-topic-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 22px;
+  }
+  .ai-topic-stat {
+    padding: 18px;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    background: #fff;
+  }
+  .ai-topic-stat span {
+    display: block;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .ai-topic-stat strong {
+    display: block;
+    margin-top: 5px;
+    font-size: 28px;
+  }
+  .ai-topic-category-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .ai-topic-category-card {
+    padding: 13px 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #f8fafc;
+  }
+  .ai-topic-category-card strong {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 14px;
+  }
+  .ai-topic-category-card span {
+    color: #64748b;
+    font-size: 12px;
+  }
+  .ai-topic-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: end;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  .ai-topic-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+    align-items: end;
+  }
+  .ai-topic-filter select {
+    min-height: 40px;
+    padding: 0 11px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    background: #fff;
+  }
+  .ai-topic-filter button,
+  .ai-topic-bulk {
+    min-height: 40px;
+    padding: 0 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    background: #fff;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  .ai-topic-bulk { color: #047857; border-color: #a7f3d0; }
+  .ai-topic-list {
+    display: grid;
+    gap: 10px;
+  }
+  .ai-topic-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 18px;
+    padding: 17px;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    background: #fff;
+  }
+  .ai-topic-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .ai-topic-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 25px;
+    padding: 0 9px;
+    border-radius: 999px;
+    background: #ecfdf5;
+    color: #047857;
+    font-size: 11px;
+    font-weight: 900;
+  }
+  .ai-topic-badge.pending { background: #fff7ed; color: #c2410c; }
+  .ai-topic-badge.rejected { background: #fef2f2; color: #b91c1c; }
+  .ai-topic-badge.approved { background: #ecfdf5; color: #047857; }
+  .ai-topic-item h3 {
+    margin: 0;
+    font-size: 17px;
+    line-height: 1.45;
+  }
+  .ai-topic-note {
+    margin: 7px 0 0;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .ai-topic-meta {
+    margin: 9px 0 0;
+    color: #94a3b8;
+    font-size: 12px;
+  }
+  .ai-topic-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 7px;
+    align-content: center;
+    max-width: 260px;
+  }
+  .ai-topic-btn {
+    min-height: 34px;
+    padding: 0 11px;
+    background: #f1f5f9;
+    color: #334155;
+  }
+  .ai-topic-btn.approve { background: #dcfce7; color: #047857; }
+  .ai-topic-btn.reject { background: #fff7ed; color: #c2410c; }
+  .ai-topic-btn.delete { background: #fef2f2; color: #b91c1c; }
+  .ai-topic-empty {
+    padding: 48px 20px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 16px;
+    text-align: center;
+    color: #94a3b8;
+    font-weight: 800;
+  }
+  .ai-topic-pagination {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  .ai-topic-pagination a,
+  .ai-topic-pagination span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 38px;
+    padding: 0 13px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+    color: #334155;
+    text-decoration: none;
+    font-weight: 800;
+  }
+  @media (max-width: 900px) {
+    .ai-topic-generate-grid { grid-template-columns: 1fr 120px; }
+    .ai-topic-primary { grid-column: 1 / -1; }
+    .ai-topic-category-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 640px) {
+    .ai-topic-page { padding: 26px 14px 70px; }
+    .ai-topic-hero { display: block; }
+    .ai-topic-back { margin-top: 16px; }
+    .ai-topic-stats { grid-template-columns: repeat(2, 1fr); }
+    .ai-topic-category-grid { grid-template-columns: 1fr; }
+    .ai-topic-toolbar { display: block; }
+    .ai-topic-bulk { margin-top: 10px; }
+    .ai-topic-item { grid-template-columns: 1fr; }
+    .ai-topic-actions { justify-content: flex-start; max-width: none; }
+  }
+</style>
+
+<main class="ai-topic-page">
+  <div class="ai-topic-hero">
+    <div>
+      <p class="ai-topic-eyebrow">CONTENT RESERVE</p>
+      <h1>AI 기본글감 관리</h1>
+      <p>
+        외부 기사와 공식자료가 부족할 때 사용할 상시형 글감을 미리 만듭니다.
+        AI가 만든 글감은 바로 노출되지 않고, 관리자가 승인한 항목만 추천됩니다.
+      </p>
+    </div>
+    <a class="ai-topic-back" href="{% url 'home' %}">홈으로</a>
+  </div>
+
+  <div class="ai-topic-alert">
+    <strong>토큰 안내:</strong>
+    아래 ‘AI 글감 생성’ 버튼을 누를 때만 Gemini가 호출됩니다.
+    추천 키워드 창을 열거나 승인 글감을 노출할 때는 Gemini 토큰을 사용하지 않습니다.
+    처음에는 한 카테고리 10개로 품질을 확인한 뒤 늘리는 것을 권장합니다.
+  </div>
+
+  {% if messages %}
+    <div class="ai-topic-messages">
+      {% for message in messages %}
+        <div class="ai-topic-message{% if message.tags %} {{ message.tags }}{% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <section class="ai-topic-panel">
+    <h2>새 기본글감 생성</h2>
+    <p class="ai-topic-panel-sub">사용 모델: {{ topic_model }}</p>
+    <form method="post" class="ai-topic-generate-grid">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="generate">
+      <div class="ai-topic-field">
+        <label for="topic-category">카테고리</label>
+        <select id="topic-category" name="category" required>
+          {% for slug, label in category_choices %}
+            <option value="{{ slug }}">{{ label }}</option>
+          {% endfor %}
+          <option value="all">전체 11개 카테고리</option>
+        </select>
+      </div>
+      <div class="ai-topic-field">
+        <label for="topic-count">카테고리당 개수</label>
+        <input id="topic-count" type="number" name="count" value="10" min="1" max="30">
+      </div>
+      <button class="ai-topic-primary" type="submit"
+              onclick="return confirm('Gemini를 호출해 검토대기 글감을 생성할까요?');">
+        AI 글감 생성
+      </button>
+    </form>
+  </section>
+
+  <div class="ai-topic-stats">
+    <div class="ai-topic-stat"><span>전체</span><strong>{{ aggregate.total|default:0 }}</strong></div>
+    <div class="ai-topic-stat"><span>검토대기</span><strong>{{ aggregate.pending|default:0 }}</strong></div>
+    <div class="ai-topic-stat"><span>승인</span><strong>{{ aggregate.approved|default:0 }}</strong></div>
+    <div class="ai-topic-stat"><span>제외</span><strong>{{ aggregate.rejected|default:0 }}</strong></div>
+  </div>
+
+  <section class="ai-topic-panel">
+    <h2>카테고리 보유 현황</h2>
+    <p class="ai-topic-panel-sub">추천에는 승인된 글감만 사용됩니다.</p>
+    <div class="ai-topic-category-grid">
+      {% for stat in category_stats %}
+        <div class="ai-topic-category-card">
+          <strong>{{ stat.label }}</strong>
+          <span>승인 {{ stat.approved }} · 검토대기 {{ stat.pending }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="ai-topic-panel">
+    <div class="ai-topic-toolbar">
+      <form method="get" class="ai-topic-filter">
+        <select name="category" aria-label="카테고리 필터">
+          <option value="all">전체 카테고리</option>
+          {% for slug, label in category_choices %}
+            <option value="{{ slug }}" {% if selected_category == slug %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <select name="status" aria-label="상태 필터">
+          <option value="all">전체 상태</option>
+          <option value="pending" {% if selected_status == "pending" %}selected{% endif %}>검토대기</option>
+          <option value="approved" {% if selected_status == "approved" %}selected{% endif %}>승인</option>
+          <option value="rejected" {% if selected_status == "rejected" %}selected{% endif %}>제외</option>
+        </select>
+        <button type="submit">필터 적용</button>
+      </form>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="bulk_approve">
+        <input type="hidden" name="category" value="{{ selected_category }}">
+        <button class="ai-topic-bulk" type="submit"
+                onclick="return confirm('현재 선택 카테고리의 검토대기 글감을 모두 승인할까요?');">
+          검토대기 일괄 승인
+        </button>
+      </form>
+    </div>
+
+    <div class="ai-topic-list">
+      {% for topic in page_obj %}
+        <article class="ai-topic-item">
+          <div>
+            <div class="ai-topic-badges">
+              <span class="ai-topic-badge">{{ topic.get_category_display }}</span>
+              <span class="ai-topic-badge {{ topic.status }}">{{ topic.get_status_display }}</span>
+              <span class="ai-topic-badge">{{ topic.get_content_format_display }}</span>
+              <span class="ai-topic-badge">{{ topic.get_difficulty_display }}</span>
+            </div>
+            <h3>{{ topic.title }}</h3>
+            {% if topic.note %}<p class="ai-topic-note">{{ topic.note }}</p>{% endif %}
+            <p class="ai-topic-meta">
+              추천 {{ topic.recommendation_count }}회 · 생성 {{ topic.created_at|date:"Y.m.d H:i" }}
+              {% if topic.last_recommended_at %}· 최근 노출 {{ topic.last_recommended_at|date:"Y.m.d H:i" }}{% endif %}
+            </p>
+          </div>
+          <div class="ai-topic-actions">
+            {% if topic.status != "approved" %}
+              <form method="post">{% csrf_token %}
+                <input type="hidden" name="action" value="approve">
+                <input type="hidden" name="topic_id" value="{{ topic.pk }}">
+                <button class="ai-topic-btn approve" type="submit">승인</button>
+              </form>
+            {% endif %}
+            {% if topic.status != "pending" %}
+              <form method="post">{% csrf_token %}
+                <input type="hidden" name="action" value="pending">
+                <input type="hidden" name="topic_id" value="{{ topic.pk }}">
+                <button class="ai-topic-btn" type="submit">검토대기</button>
+              </form>
+            {% endif %}
+            {% if topic.status != "rejected" %}
+              <form method="post">{% csrf_token %}
+                <input type="hidden" name="action" value="reject">
+                <input type="hidden" name="topic_id" value="{{ topic.pk }}">
+                <button class="ai-topic-btn reject" type="submit">제외</button>
+              </form>
+            {% endif %}
+            <form method="post">{% csrf_token %}
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="topic_id" value="{{ topic.pk }}">
+              <button class="ai-topic-btn delete" type="submit"
+                      onclick="return confirm('이 글감을 삭제할까요?');">삭제</button>
+            </form>
+          </div>
+        </article>
+      {% empty %}
+        <div class="ai-topic-empty">조건에 맞는 AI 기본글감이 없습니다.</div>
+      {% endfor %}
+    </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+      <nav class="ai-topic-pagination" aria-label="페이지 이동">
+        {% if page_obj.has_previous %}
+          <a href="?category={{ selected_category }}&status={{ selected_status }}&page={{ page_obj.previous_page_number }}">이전</a>
+        {% endif %}
+        <span>{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+        {% if page_obj.has_next %}
+          <a href="?category={{ selected_category }}&status={{ selected_status }}&page={{ page_obj.next_page_number }}">다음</a>
+        {% endif %}
+      </nav>
+    {% endif %}
+  </section>
+</main>
+{% endblock %}

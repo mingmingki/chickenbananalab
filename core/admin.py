@@ -58,3 +58,39 @@ class GeminiUsageLogAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+# CBL_AI_FALLBACK_TOPIC_POOL_V1_ADMIN_START
+from .models import AIFallbackTopic
+
+
+@admin.register(AIFallbackTopic)
+class AIFallbackTopicAdmin(admin.ModelAdmin):
+    list_display = (
+        "title",
+        "category",
+        "status",
+        "content_format",
+        "difficulty",
+        "recommendation_count",
+        "last_recommended_at",
+        "created_at",
+    )
+    list_filter = (
+        "category",
+        "status",
+        "content_format",
+        "difficulty",
+        "created_at",
+    )
+    search_fields = ("title", "note", "source_model")
+    readonly_fields = (
+        "normalized_title",
+        "source_model",
+        "recommendation_count",
+        "last_recommended_at",
+        "created_at",
+        "updated_at",
+    )
+    ordering = ("-created_at", "-id")
+# CBL_AI_FALLBACK_TOPIC_POOL_V1_ADMIN_END

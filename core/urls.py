@@ -1,5 +1,6 @@
 from . import quantity_views
 from . import gemini_usage_views
+from . import ai_topic_pool
 from .ip_tools import ip_lookup_api
 from django.urls import path
 from . import views
@@ -183,6 +184,8 @@ cbl_path("api/cblcad/csrf/", cbl_views.cblcad_csrf, name="cblcad_csrf"),
     path("dashboard/", views.admin_dashboard, name="admin_dashboard"),
     path("dashboard/stats/", views.site_stats, name="site_stats"),
     path("dashboard/gemini-usage/", gemini_usage_views.gemini_usage_dashboard, name="gemini_usage_dashboard"),
+    # CBL_AI_FALLBACK_TOPIC_POOL_V1_URL
+    path("dashboard/ai-fallback-topics/", ai_topic_pool.ai_fallback_topic_manage, name="ai_fallback_topic_manage"),
 
     path("ai-post/generate/", views.ai_post_generate, name="ai_post_generate"),
     path("ai-keywords/recommend/", views.ai_keyword_recommend, name="ai_keyword_recommend"),

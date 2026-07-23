@@ -2635,3 +2635,1137 @@ def _cbl_v26_is_good_news_item(category, item):
         "SSL", "HTTPS", "도메인", "호스팅", "소프트웨어",
     ])
 # CBL_TECH_CATEGORY_KEYWORD_PROFILE_V27_END
+# CBL_GLOBAL_RECOMMENDATIONS_V28_START
+# 추천 결과 5개를 네이버 국내뉴스 → GDELT 해외뉴스 → 공식 기술자료
+# → CBL 기본 글감 순서로 채웁니다. 추천 수집 단계에서는 Gemini를 호출하지 않습니다.
+import xml.etree.ElementTree as _cbl_v28_etree
+from datetime import datetime as _cbl_v28_datetime
+from email.utils import parsedate_to_datetime as _cbl_v28_parse_rfc_date
+
+_CBL_GLOBAL_CACHE_SECONDS_V28 = 6 * 60 * 60
+_CBL_GLOBAL_HTTP_TIMEOUT_V28 = 8
+_CBL_GLOBAL_NAVER_LIMIT_V28 = 2
+_CBL_GLOBAL_GDELT_LIMIT_V28 = 2
+_CBL_GLOBAL_OFFICIAL_LIMIT_V28 = 2
+
+_CBL_GLOBAL_GDELT_QUERIES_V28 = {
+    "construction_work": '("construction safety" OR "construction management" OR "quantity takeoff")',
+    "construction_tech": '("smart construction" OR "construction robotics" OR "construction drone" OR "construction AI")',
+    "construction_real": '("housing development" OR "construction cost" OR "real estate development")',
+    "bim": '("building information modeling" OR Revit OR openBIM OR IFC)',
+    "dynamo_automation": '("Autodesk Dynamo" OR "Revit automation" OR "computational BIM")',
+    "four_d_five_d": '("4D BIM" OR "5D BIM" OR Navisworks OR "BIM scheduling")',
+    "tech_ai_development": '("generative AI" OR Python OR Django OR "software development")',
+    "tech_data_security": '(cybersecurity OR ransomware OR "data breach" OR "data privacy")',
+    "tech_server_software": '("cloud server" OR networking OR IPv6 OR HTTPS OR "software update")',
+    "program": '("productivity software" OR "document automation" OR "PDF software")',
+    "tool_recommend": '("AI tools" OR "productivity tools" OR "automation tools")',
+}
+
+_CBL_GLOBAL_MATCH_WORDS_V28 = {
+    "construction_work": [
+        "construction", "jobsite", "site safety", "project management",
+        "quantity takeoff", "cost estimating", "施工", "建設",
+    ],
+    "construction_tech": [
+        "smart construction", "construction technology", "construction ai",
+        "construction robot", "construction drone", "digital construction",
+        "contech", "建設",
+    ],
+    "construction_real": [
+        "housing", "real estate", "property development", "redevelopment",
+        "construction cost", "homebuilding", "住宅", "不動産",
+    ],
+    "bim": [
+        "bim", "revit", "openbim", "building information modeling",
+        "ifc", "autodesk construction cloud",
+    ],
+    "dynamo_automation": [
+        "dynamo", "revit automation", "computational bim",
+        "visual programming", "design automation",
+    ],
+    "four_d_five_d": [
+        "4d bim", "5d bim", "navisworks", "bim scheduling",
+        "model-based estimating", "construction sequencing",
+    ],
+    "tech_ai_development": [
+        "artificial intelligence", "generative ai", "machine learning",
+        "python", "django", "developer", "software development",
+        "programming", "api",
+    ],
+    "tech_data_security": [
+        "cybersecurity", "security", "ransomware", "data breach",
+        "privacy", "encryption", "vulnerability", "malware",
+    ],
+    "tech_server_software": [
+        "server", "cloud", "network", "ipv4", "ipv6", "https", "ssl",
+        "dns", "hosting", "software", "linux", "infrastructure",
+    ],
+    "program": [
+        "software", "application", "productivity", "pdf", "document",
+        "workflow", "file management", "automation",
+    ],
+    "tool_recommend": [
+        "tool", "software", "productivity", "automation",
+        "open source", "developer tool", "ai app",
+    ],
+}
+
+_CBL_GLOBAL_OFFICIAL_FEEDS_V28 = {
+    "construction_work": [
+        ("buildingSMART", "https://www.buildingsmart.org/feed/"),
+    ],
+    "construction_tech": [
+        ("Autodesk AEC", "https://www.autodesk.com/blogs/aec/feed/"),
+        ("buildingSMART", "https://www.buildingsmart.org/feed/"),
+    ],
+    "construction_real": [],
+    "bim": [
+        ("Autodesk AEC", "https://www.autodesk.com/blogs/aec/feed/"),
+        ("buildingSMART", "https://www.buildingsmart.org/feed/"),
+    ],
+    "dynamo_automation": [
+        ("Autodesk AEC", "https://www.autodesk.com/blogs/aec/feed/"),
+    ],
+    "four_d_five_d": [
+        ("Autodesk AEC", "https://www.autodesk.com/blogs/aec/feed/"),
+        ("buildingSMART", "https://www.buildingsmart.org/feed/"),
+    ],
+    "tech_ai_development": [
+        ("Google Developers", "https://developers.googleblog.com/feeds/posts/default"),
+        ("Django", "https://www.djangoproject.com/rss/weblog/"),
+        ("GitHub", "https://github.blog/feed/"),
+    ],
+    "tech_data_security": [
+        ("CISA", "https://www.cisa.gov/cybersecurity-advisories/all.xml"),
+        ("Cloudflare", "https://blog.cloudflare.com/rss/"),
+    ],
+    "tech_server_software": [
+        ("Cloudflare", "https://blog.cloudflare.com/rss/"),
+        ("AWS", "https://aws.amazon.com/blogs/aws/feed/"),
+    ],
+    "program": [
+        ("GitHub", "https://github.blog/feed/"),
+    ],
+    "tool_recommend": [
+        ("GitHub", "https://github.blog/feed/"),
+        ("Google Developers", "https://developers.googleblog.com/feeds/posts/default"),
+    ],
+}
+
+
+def _cbl_v28_cache_get(key):
+    try:
+        cache = globals().get("_cbl_v24_cache")
+        if cache:
+            return cache.get(key)
+    except Exception:
+        pass
+    return None
+
+
+def _cbl_v28_cache_set(key, value):
+    try:
+        cache = globals().get("_cbl_v24_cache")
+        if cache:
+            cache.set(key, value, _CBL_GLOBAL_CACHE_SECONDS_V28)
+    except Exception:
+        pass
+
+
+def _cbl_v28_clean_text(value):
+    value = clean_html(value or "")
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _cbl_v28_title_key(value):
+    value = _cbl_v28_clean_text(value).lower()
+    return re.sub(r"[^0-9a-z가-힣]+", "", value)
+
+
+def _cbl_v28_matches_category(category, title, description=""):
+    text = f"{title} {description}".lower()
+    words = _CBL_GLOBAL_MATCH_WORDS_V28.get(category, [])
+    return any(str(word).lower() in text for word in words)
+
+
+def _cbl_v28_iso_date(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    try:
+        parsed = _cbl_v28_parse_rfc_date(raw)
+        if parsed is not None:
+            return parsed.isoformat()
+    except Exception:
+        pass
+
+    try:
+        return _cbl_v28_datetime.fromisoformat(
+            raw.replace("Z", "+00:00")
+        ).isoformat()
+    except Exception:
+        return raw
+
+
+def _cbl_v28_fetch_gdelt(category):
+    category = _cbl_today_normalize_category_v25(category)
+    cache_key = f"cbl:global-keywords:v28:gdelt:{category}"
+    cached = _cbl_v28_cache_get(cache_key)
+    if isinstance(cached, list):
+        return cached
+
+    query = _CBL_GLOBAL_GDELT_QUERIES_V28.get(category)
+    if not query:
+        _cbl_v28_cache_set(cache_key, [])
+        return []
+
+    result = []
+    try:
+        response = requests.get(
+            "https://api.gdeltproject.org/api/v2/doc/doc",
+            params={
+                "query": query,
+                "mode": "artlist",
+                "maxrecords": 30,
+                "timespan": "1week",
+                "sort": "datedesc",
+                "format": "json",
+            },
+            headers={
+                "User-Agent": "ChickenBananaLab/1.0 keyword-recommendation",
+                "Accept": "application/json",
+            },
+            timeout=_CBL_GLOBAL_HTTP_TIMEOUT_V28,
+        )
+        response.raise_for_status()
+        payload = response.json()
+
+        seen = set()
+        for article in payload.get("articles", []) or []:
+            title = _cbl_v28_clean_text(article.get("title"))
+            description = _cbl_v28_clean_text(
+                article.get("description")
+                or article.get("snippet")
+                or ""
+            )
+            source_url = str(article.get("url") or "").strip()
+            domain = str(article.get("domain") or "").strip()
+
+            if not title or not source_url:
+                continue
+            if not _cbl_v28_matches_category(
+                category, title, description
+            ):
+                continue
+
+            key = _cbl_v28_title_key(title)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+
+            result.append({
+                "category": CBL_TODAY_CATEGORY_LABELS_V25.get(
+                    category, category
+                ),
+                "category_slug": category,
+                "keyword": title[:180],
+                "reason": (
+                    "해외뉴스 · GDELT · 최근 기사 · "
+                    "본문 생성 전 팩트체크"
+                ),
+                "source": domain or "GDELT",
+                "source_url": source_url,
+                "published_at": _cbl_v28_iso_date(
+                    article.get("seendate")
+                    or article.get("date")
+                    or ""
+                ),
+            })
+
+            if len(result) >= _CBL_GLOBAL_GDELT_LIMIT_V28:
+                break
+
+    except Exception as error:
+        print(
+            "[GLOBAL_V28_GDELT_ERROR]",
+            f"category={category}",
+            f"error={type(error).__name__}: {error}",
+        )
+
+    _cbl_v28_cache_set(cache_key, result)
+    print(
+        "[GLOBAL_V28_GDELT]",
+        f"category={category}",
+        f"items={len(result)}",
+    )
+    return result
+
+
+def _cbl_v28_local_name(tag):
+    return str(tag or "").rsplit("}", 1)[-1].lower()
+
+
+def _cbl_v28_child_text(node, names):
+    names = {str(name).lower() for name in names}
+    for child in list(node):
+        if _cbl_v28_local_name(child.tag) in names:
+            return _cbl_v28_clean_text(child.text or "")
+    return ""
+
+
+def _cbl_v28_entry_link(node):
+    for child in list(node):
+        if _cbl_v28_local_name(child.tag) != "link":
+            continue
+        href = str(child.attrib.get("href") or "").strip()
+        rel = str(child.attrib.get("rel") or "alternate").strip()
+        if href and rel in {"", "alternate"}:
+            return href
+        text = str(child.text or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _cbl_v28_parse_feed(source_name, feed_url, category):
+    response = requests.get(
+        feed_url,
+        headers={
+            "User-Agent": "ChickenBananaLab/1.0 keyword-recommendation",
+            "Accept": (
+                "application/rss+xml, application/atom+xml, "
+                "application/xml, text/xml"
+            ),
+        },
+        timeout=_CBL_GLOBAL_HTTP_TIMEOUT_V28,
+    )
+    response.raise_for_status()
+    root = _cbl_v28_etree.fromstring(response.content)
+
+    entries = [
+        node
+        for node in root.iter()
+        if _cbl_v28_local_name(node.tag) in {"item", "entry"}
+    ]
+
+    result = []
+    seen = set()
+    for entry in entries[:30]:
+        title = _cbl_v28_child_text(entry, {"title"})
+        description = _cbl_v28_child_text(
+            entry, {"description", "summary", "content"}
+        )
+        source_url = _cbl_v28_entry_link(entry)
+        published_at = _cbl_v28_child_text(
+            entry, {"pubdate", "published", "updated", "date"}
+        )
+
+        if not title or not source_url:
+            continue
+        if not _cbl_v28_matches_category(
+            category, title, description
+        ):
+            continue
+
+        key = _cbl_v28_title_key(title)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+
+        result.append({
+            "category": CBL_TODAY_CATEGORY_LABELS_V25.get(
+                category, category
+            ),
+            "category_slug": category,
+            "keyword": title[:180],
+            "reason": (
+                f"공식자료 · {source_name} · 최근 글 · "
+                "본문 생성 전 팩트체크"
+            ),
+            "source": source_name,
+            "source_url": source_url,
+            "published_at": _cbl_v28_iso_date(published_at),
+        })
+
+        if len(result) >= _CBL_GLOBAL_OFFICIAL_LIMIT_V28:
+            break
+
+    return result
+
+
+def _cbl_v28_fetch_official(category):
+    category = _cbl_today_normalize_category_v25(category)
+    cache_key = f"cbl:global-keywords:v28:official:{category}"
+    cached = _cbl_v28_cache_get(cache_key)
+    if isinstance(cached, list):
+        return cached
+
+    result = []
+    seen = set()
+    for source_name, feed_url in _CBL_GLOBAL_OFFICIAL_FEEDS_V28.get(
+        category, []
+    ):
+        try:
+            items = _cbl_v28_parse_feed(
+                source_name, feed_url, category
+            )
+        except Exception as error:
+            print(
+                "[GLOBAL_V28_FEED_ERROR]",
+                f"category={category}",
+                f"source={source_name}",
+                f"error={type(error).__name__}: {error}",
+            )
+            continue
+
+        for item in items:
+            key = _cbl_v28_title_key(item.get("keyword"))
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            result.append(item)
+            if len(result) >= _CBL_GLOBAL_OFFICIAL_LIMIT_V28:
+                break
+
+        if len(result) >= _CBL_GLOBAL_OFFICIAL_LIMIT_V28:
+            break
+
+    _cbl_v28_cache_set(cache_key, result)
+    print(
+        "[GLOBAL_V28_OFFICIAL]",
+        f"category={category}",
+        f"items={len(result)}",
+    )
+    return result
+
+
+def _cbl_v28_is_default_item(item):
+    source = str(item.get("source") or "")
+    reason = str(item.get("reason") or "")
+    return "CBL 기본추천" in source or "기본 추천" in reason
+
+
+def _cbl_v28_append_unique(target, items, limit):
+    seen = {
+        _cbl_v28_title_key(item.get("keyword"))
+        for item in target
+        if isinstance(item, dict)
+    }
+
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        key = _cbl_v28_title_key(item.get("keyword"))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        target.append(item)
+        if len(target) >= limit:
+            break
+
+
+_CBL_V28_PREVIOUS_RECOMMEND = recommend_keywords_from_news
+
+
+def recommend_keywords_from_news(category):
+    category = _cbl_today_normalize_category_v25(category)
+    limit = int(globals().get("_CBL_V24_LIMIT", 5) or 5)
+
+    try:
+        previous_items = (
+            _CBL_V28_PREVIOUS_RECOMMEND(category) or []
+        )
+    except Exception as error:
+        print(
+            "[GLOBAL_V28_NAVER_ERROR]",
+            f"category={category}",
+            f"error={type(error).__name__}: {error}",
+        )
+        previous_items = []
+
+    naver_items = [
+        dict(item)
+        for item in previous_items
+        if isinstance(item, dict)
+        and not _cbl_v28_is_default_item(item)
+    ][:_CBL_GLOBAL_NAVER_LIMIT_V28]
+
+    gdelt_items = _cbl_v28_fetch_gdelt(category)
+    official_items = _cbl_v28_fetch_official(category)
+
+    result = []
+    _cbl_v28_append_unique(result, naver_items, limit)
+    _cbl_v28_append_unique(
+        result,
+        gdelt_items[:_CBL_GLOBAL_GDELT_LIMIT_V28],
+        limit,
+    )
+    _cbl_v28_append_unique(
+        result,
+        official_items[:_CBL_GLOBAL_OFFICIAL_LIMIT_V28],
+        limit,
+    )
+
+    result = _cbl_v26_fill_with_fallback(
+        category, result, limit
+    )
+
+    print(
+        "[GLOBAL_V28_MIX]",
+        f"category={category}",
+        f"naver={len(naver_items)}",
+        f"gdelt={len(gdelt_items)}",
+        f"official={len(official_items)}",
+        f"final={len(result)}",
+    )
+    return result[:limit]
+# CBL_GLOBAL_RECOMMENDATIONS_V28_END
+# CBL_RECOMMENDATION_PRIORITY_V28_1_START
+# 추천 우선순위:
+# 네이버로 최대 5개 -> 부족분만 GDELT -> 부족분만 공식자료 -> 최후에 기본 글감
+# 각 카테고리는 반드시 5개를 반환한다.
+
+_CBL_RECOMMENDATION_PRIORITY_LIMIT_V28_1 = 5
+
+# V28에서는 해외/공식자료를 각각 2개로 제한했지만, V28.1에서는 앞 단계가
+# 부족할 경우 다음 단계가 남은 자리를 전부 채울 수 있도록 최대 5개까지 허용한다.
+_CBL_GLOBAL_GDELT_LIMIT_V28 = _CBL_RECOMMENDATION_PRIORITY_LIMIT_V28_1
+_CBL_GLOBAL_OFFICIAL_LIMIT_V28 = _CBL_RECOMMENDATION_PRIORITY_LIMIT_V28_1
+
+
+def _cbl_v28_1_clear_partial_cache():
+    """V28의 2개 제한으로 저장된 기존 캐시만 한 번 비운다."""
+    try:
+        cache = globals().get("_cbl_v24_cache")
+        if not cache:
+            return
+
+        categories = list(
+            globals().get("CBL_TODAY_CATEGORY_LABELS_V25", {}).keys()
+        )
+        for category in categories:
+            cache.delete(
+                f"cbl:global-keywords:v28:gdelt:{category}"
+            )
+            cache.delete(
+                f"cbl:global-keywords:v28:official:{category}"
+            )
+    except Exception as error:
+        print(
+            "[PRIORITY_V28_1_CACHE_CLEAR_ERROR]",
+            f"error={type(error).__name__}: {error}",
+        )
+
+
+_cbl_v28_1_clear_partial_cache()
+
+
+def _cbl_v28_1_force_five(category, items, limit):
+    """기존 기본 글감으로 채우고, 예외 상황에서도 정확히 limit개를 보장한다."""
+    result = _cbl_v26_fill_with_fallback(
+        category, items, limit
+    )
+
+    if len(result) >= limit:
+        return result[:limit]
+
+    label = CBL_TODAY_CATEGORY_LABELS_V25.get(
+        category, category
+    )
+    seen = {
+        _cbl_v28_title_key(item.get("keyword"))
+        for item in result
+        if isinstance(item, dict)
+    }
+
+    sequence = 1
+    while len(result) < limit:
+        keyword = f"{label} 실무 핵심 주제 {sequence}"
+        sequence += 1
+        key = _cbl_v28_title_key(keyword)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(
+            _cbl_v26_make_fallback_item(category, keyword)
+        )
+
+    return result[:limit]
+
+
+def recommend_keywords_from_news(category):
+    category = _cbl_today_normalize_category_v25(category)
+    limit = _CBL_RECOMMENDATION_PRIORITY_LIMIT_V28_1
+
+    try:
+        previous_items = (
+            _CBL_V28_PREVIOUS_RECOMMEND(category) or []
+        )
+    except Exception as error:
+        print(
+            "[PRIORITY_V28_1_NAVER_ERROR]",
+            f"category={category}",
+            f"error={type(error).__name__}: {error}",
+        )
+        previous_items = []
+
+    # V28 직전 추천기는 네이버 결과 + 기본 글감을 반환한다.
+    # 여기서는 기본 글감을 제거하고 실제 네이버 결과를 최대 5개까지 우선 사용한다.
+    naver_items = [
+        dict(item)
+        for item in previous_items
+        if isinstance(item, dict)
+        and not _cbl_v28_is_default_item(item)
+    ][:limit]
+
+    result = []
+    _cbl_v28_append_unique(result, naver_items, limit)
+
+    gdelt_items = []
+    if len(result) < limit:
+        gdelt_items = _cbl_v28_fetch_gdelt(category)
+        _cbl_v28_append_unique(result, gdelt_items, limit)
+
+    official_items = []
+    if len(result) < limit:
+        official_items = _cbl_v28_fetch_official(category)
+        _cbl_v28_append_unique(result, official_items, limit)
+
+    result = _cbl_v28_1_force_five(
+        category, result, limit
+    )
+
+    print(
+        "[PRIORITY_V28_1]",
+        f"category={category}",
+        f"naver={len(naver_items)}",
+        f"gdelt={len(gdelt_items)}",
+        f"official={len(official_items)}",
+        f"final={len(result)}",
+    )
+    return result[:limit]
+
+# CBL_RECOMMENDATION_PRIORITY_V28_1_END
+# CBL_NAVER_EXPANDED_QUERIES_V29_START
+# 카테고리별 네이버 검색 후보를 확장하고 하루 8개 검색어를 사용합니다.
+# 핵심 검색어 4개는 항상 사용하고 나머지 4개는 날짜별로 순환합니다.
+# 최종 추천 우선순위는 네이버 -> GDELT -> 공식자료 -> 기본 글감입니다.
+
+_CBL_NAVER_QUERY_COUNT_V29 = 8
+
+_CBL_NAVER_EXPANDED_SEARCH_WORDS_V29 = {
+    "construction_work": [
+        "건설 현장 안전", "건설 현장 시공", "건설 공정관리", "건설 품질관리",
+        "건설 도면검토", "건설 물량산출", "건설 원가관리", "건설 공사비",
+        "건설 중대재해", "건설 하자보수", "건설 자재", "건설 현장관리",
+    ],
+    "construction_tech": [
+        "스마트건설", "건설 로봇", "건설현장 AI", "건설 드론",
+        "BIM 스마트건설", "건설 디지털트윈", "모듈러 건축", "스마트 안전",
+        "건설 자동화", "건설 3D 프린팅", "OSC 건설", "콘테크 스타트업",
+    ],
+    "construction_real": [
+        "아파트 분양", "청약 주택", "재건축 공사비", "재개발 정비사업",
+        "부동산 주택공급", "미분양 아파트", "분양가 공사비", "입주 물량",
+        "건설사 분양", "주택 공급 정책", "정비사업 시공사", "아파트 공사비",
+    ],
+    "bim": [
+        "Revit BIM", "레빗 BIM", "BIM 모델링", "BIM 물량산출",
+        "BIM 도면검토", "BIM 간섭검토", "IFC openBIM",
+        "Autodesk Construction Cloud", "BIM 디지털트윈", "BIM 설계",
+        "BIM 시공", "BIM 데이터",
+    ],
+    "dynamo_automation": [
+        "Dynamo Revit", "다이나모 자동화", "Dynamo Python",
+        "Revit Dynamo 자동화", "Revit API 자동화", "파라미터 자동화",
+        "엑셀 Dynamo 연동", "BIM 데이터 자동화", "Revit 업무 자동화",
+        "Dynamo 그래프", "Revit 생성형 설계", "Autodesk Dynamo",
+    ],
+    "four_d_five_d": [
+        "4D BIM", "5D BIM", "Navisworks BIM", "BIM 공정관리",
+        "BIM 원가관리", "BIM 공정 시뮬레이션", "건설 공정 시뮬레이션",
+        "BIM 수량 원가", "디지털트윈 공정", "Synchro 4D",
+        "모델 기반 견적", "스마트건설 공정관리",
+    ],
+    "tech_ai_development": [
+        "생성형 AI 개발", "인공지능 개발", "Python 개발", "Django 개발",
+        "AI API", "AI 코딩", "소프트웨어 개발", "LLM 개발",
+        "AI 에이전트 개발", "오픈소스 AI", "AI 개발도구", "머신러닝 개발",
+    ],
+    "tech_data_security": [
+        "데이터 보안", "개인정보 보호", "사이버 보안", "데이터 유출",
+        "랜섬웨어", "데이터베이스 보안", "백업 보안", "보안 취약점",
+        "해킹 사고", "제로트러스트", "클라우드 보안", "인증 보안",
+    ],
+    "tech_server_software": [
+        "클라우드 서버", "웹 서버", "인터넷 네트워크", "IPv4 IPv6",
+        "SSL HTTPS", "도메인 호스팅", "소프트웨어 업데이트", "리눅스 서버",
+        "DNS 서버", "데이터센터", "클라우드 서비스", "웹 호스팅",
+    ],
+    "program": [
+        "업무용 프로그램", "PDF 프로그램", "ZIP 압축 프로그램",
+        "파일 관리 프로그램", "화면 녹화 프로그램", "문서 자동화 프로그램",
+        "업무 자동화 프로그램", "생산성 소프트웨어", "AI 업무 프로그램",
+        "협업 프로그램", "기업용 소프트웨어", "유틸리티 프로그램",
+    ],
+    "tool_recommend": [
+        "AI 도구 추천", "생산성 도구 추천", "업무 자동화 툴",
+        "무료 툴 추천", "PDF 툴 추천", "협업툴 추천", "개발툴 추천",
+        "업무 효율 툴", "오픈소스 도구", "노코드 도구",
+        "프로젝트 관리 도구", "데이터 분석 도구",
+    ],
+}
+
+_CBL_NAVER_CORE_QUERIES_V29 = {
+    key: values[:4]
+    for key, values in _CBL_NAVER_EXPANDED_SEARCH_WORDS_V29.items()
+}
+
+_CBL_NAVER_REQUIRED_WORDS_V29 = {
+    "construction_work": [
+        "건설", "공사", "시공", "현장", "안전", "공정", "품질",
+        "하자", "도면", "물량", "원가", "건축", "토목",
+    ],
+    "construction_tech": [
+        "스마트건설", "건설", "건축", "토목", "시공", "BIM",
+        "로봇", "드론", "디지털트윈", "모듈러", "콘테크", "OSC",
+    ],
+    "construction_real": [
+        "분양", "청약", "재건축", "재개발", "정비사업", "부동산",
+        "아파트", "주택", "입주", "미분양", "분양가", "공사비",
+    ],
+    "bim": [
+        "BIM", "Revit", "레빗", "IFC", "openBIM", "간섭검토",
+        "모델링", "디지털트윈", "Autodesk Construction Cloud",
+    ],
+    "dynamo_automation": [
+        "Dynamo", "다이나모", "Revit 자동화", "Revit API",
+        "파라미터 자동화", "BIM 자동화", "생성형 설계",
+    ],
+    "four_d_five_d": [
+        "4D BIM", "5D BIM", "Navisworks", "나비스웍스",
+        "BIM 공정", "BIM 원가", "공정 시뮬레이션", "Synchro",
+    ],
+    "tech_ai_development": [
+        "AI", "인공지능", "생성형", "LLM", "머신러닝", "Python",
+        "Django", "API", "코딩", "개발", "소프트웨어",
+    ],
+    "tech_data_security": [
+        "데이터", "보안", "개인정보", "사이버", "랜섬웨어",
+        "취약점", "해킹", "유출", "백업", "인증", "제로트러스트",
+    ],
+    "tech_server_software": [
+        "서버", "클라우드", "네트워크", "IPv4", "IPv6", "SSL",
+        "HTTPS", "DNS", "도메인", "호스팅", "리눅스", "데이터센터",
+    ],
+    "program": [
+        "프로그램", "소프트웨어", "PDF", "ZIP", "문서 자동화",
+        "업무 자동화", "파일 관리", "화면 녹화", "협업",
+    ],
+    "tool_recommend": [
+        "도구", "툴", "생산성", "자동화", "협업", "오픈소스",
+        "노코드", "프로젝트 관리", "데이터 분석",
+    ],
+}
+
+CBL_TODAY_SEARCH_WORDS_V25.update(
+    _CBL_NAVER_EXPANDED_SEARCH_WORDS_V29
+)
+CBL_TODAY_SEARCH_WORDS_V26.update(
+    _CBL_NAVER_EXPANDED_SEARCH_WORDS_V29
+)
+CBL_TODAY_CORE_WORDS_V25.update(
+    _CBL_NAVER_CORE_QUERIES_V29
+)
+try:
+    CATEGORY_SEARCH_WORDS.update(
+        _CBL_NAVER_EXPANDED_SEARCH_WORDS_V29
+    )
+except Exception:
+    CATEGORY_SEARCH_WORDS = dict(
+        _CBL_NAVER_EXPANDED_SEARCH_WORDS_V29
+    )
+try:
+    CATEGORY_CORE_WORDS.update(
+        _CBL_NAVER_CORE_QUERIES_V29
+    )
+except Exception:
+    CATEGORY_CORE_WORDS = dict(
+        _CBL_NAVER_CORE_QUERIES_V29
+    )
+try:
+    _CBL_V24_TITLE_REQUIRED.update(
+        _CBL_NAVER_REQUIRED_WORDS_V29
+    )
+except Exception:
+    _CBL_V24_TITLE_REQUIRED = dict(
+        _CBL_NAVER_REQUIRED_WORDS_V29
+    )
+
+
+def _cbl_v24_get_queries(category, count=None):
+    """핵심 4개 + 날짜별 순환 검색어 4개, 총 8개."""
+    category = _cbl_today_normalize_category_v25(category)
+    count = _CBL_NAVER_QUERY_COUNT_V29
+
+    all_words = list(
+        _CBL_NAVER_EXPANDED_SEARCH_WORDS_V29.get(category, [])
+    )
+    core_words = list(
+        _CBL_NAVER_CORE_QUERIES_V29.get(category, [])
+    )
+    optional_words = [
+        word for word in all_words
+        if word not in core_words
+    ]
+
+    seed = (
+        f"{_cbl_v24_timezone.localdate().isoformat()}:"
+        f"{category}:v29"
+    )
+    randomizer = _cbl_v24_random.Random(seed)
+    randomizer.shuffle(optional_words)
+
+    optional_count = max(0, count - len(core_words))
+    selected = (
+        core_words + optional_words[:optional_count]
+    )[:count]
+
+    print(
+        "[NAVER_V29_EXPANDED_QUERIES]",
+        f"category={category}",
+        f"count={len(selected)}",
+        f"queries={selected}",
+    )
+    return selected
+
+
+def _cbl_v29_clear_naver_cache():
+    """기존 5개 검색어로 만들어진 네이버 캐시를 비운다."""
+    try:
+        cache = globals().get("_cbl_v24_cache")
+        if not cache:
+            return
+        for category in _CBL_NAVER_EXPANDED_SEARCH_WORDS_V29:
+            cache.delete(
+                f"cbl:naver-keywords:v24_2:{category}"
+            )
+            cache.delete(
+                f"cbl:naver-keywords:v24_2:stale:{category}"
+            )
+    except Exception as error:
+        print(
+            "[NAVER_V29_CACHE_CLEAR_ERROR]",
+            f"error={type(error).__name__}: {error}",
+        )
+
+
+_cbl_v29_clear_naver_cache()
+
+# 해외와 공식자료는 앞 단계가 부족할 때 최대 5개까지 채울 수 있게 한다.
+_CBL_GLOBAL_GDELT_LIMIT_V28 = 5
+_CBL_GLOBAL_OFFICIAL_LIMIT_V28 = 5
+
+
+def _cbl_v29_force_five(category, items, limit=5):
+    result = _cbl_v26_fill_with_fallback(
+        category, items, limit
+    )
+    if len(result) >= limit:
+        return result[:limit]
+
+    label = CBL_TODAY_CATEGORY_LABELS_V25.get(
+        category, category
+    )
+    seen = {
+        _cbl_v28_title_key(item.get("keyword"))
+        for item in result
+        if isinstance(item, dict)
+    }
+    number = 1
+    while len(result) < limit:
+        keyword = f"{label} 실무 핵심 주제 {number}"
+        number += 1
+        key = _cbl_v28_title_key(keyword)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(
+            _cbl_v26_make_fallback_item(category, keyword)
+        )
+    return result[:limit]
+
+
+def recommend_keywords_from_news(category):
+    category = _cbl_today_normalize_category_v25(category)
+    limit = 5
+
+    try:
+        previous_items = (
+            _CBL_V28_PREVIOUS_RECOMMEND(category) or []
+        )
+    except Exception as error:
+        print(
+            "[NAVER_V29_RECOMMEND_ERROR]",
+            f"category={category}",
+            f"error={type(error).__name__}: {error}",
+        )
+        previous_items = []
+
+    naver_items = [
+        dict(item)
+        for item in previous_items
+        if isinstance(item, dict)
+        and not _cbl_v28_is_default_item(item)
+    ][:limit]
+
+    result = []
+    _cbl_v28_append_unique(result, naver_items, limit)
+
+    gdelt_items = []
+    if len(result) < limit:
+        gdelt_items = _cbl_v28_fetch_gdelt(category)
+        _cbl_v28_append_unique(result, gdelt_items, limit)
+
+    official_items = []
+    if len(result) < limit:
+        official_items = _cbl_v28_fetch_official(category)
+        _cbl_v28_append_unique(result, official_items, limit)
+
+    result = _cbl_v29_force_five(
+        category, result, limit
+    )
+
+    print(
+        "[NAVER_V29_FINAL]",
+        f"category={category}",
+        f"naver={len(naver_items)}",
+        f"gdelt={len(gdelt_items)}",
+        f"official={len(official_items)}",
+        f"final={len(result)}",
+    )
+    return result[:limit]
+
+# CBL_NAVER_EXPANDED_QUERIES_V29_END
+
+# CBL_AI_FALLBACK_TOPIC_POOL_V1_RECOMMEND_START
+# 외부 추천(네이버 → 해외뉴스 → 공식자료)이 부족할 때만 관리자 승인 AI 글감을
+# 사용한다. 승인 글감마저 부족하면 기존 고정 기본글감을 비상용으로 사용한다.
+try:
+    _CBL_AI_TOPIC_PREVIOUS_RECOMMEND = recommend_keywords_from_news
+except Exception:
+    _CBL_AI_TOPIC_PREVIOUS_RECOMMEND = None
+
+
+def _cbl_ai_topic_normalize_title(value):
+    import re as _cbl_ai_topic_re
+
+    value = str(value or "").strip().lower()
+    return _cbl_ai_topic_re.sub(r"[^0-9a-z가-힣]+", "", value)
+
+
+def _cbl_ai_topic_make_item(category, topic):
+    category = _cbl_today_normalize_category_v25(category)
+    label = CBL_TODAY_CATEGORY_LABELS_V25.get(category, category)
+
+    published_at = ""
+    try:
+        published_at = _cbl_v24_timezone.localtime().isoformat()
+    except Exception:
+        pass
+
+    return {
+        "category": label,
+        "category_slug": category,
+        "keyword": topic.title,
+        "reason": (
+            "기본 추천 글감 · AI 생성·관리자 승인 · 바로 생성 가능"
+        ),
+        "source": "CBL 기본추천 · AI 승인",
+        "source_url": "",
+        "published_at": published_at,
+        "fallback_topic_id": topic.pk,
+    }
+
+
+def _cbl_ai_topic_approved_items(category, excluded_keys, count):
+    if count <= 0:
+        return []
+
+    try:
+        from django.db.models import F
+        from django.utils import timezone as _cbl_ai_topic_timezone
+        from .models import AIFallbackTopic, Post
+
+        category = _cbl_today_normalize_category_v25(category)
+        used_keys = set(excluded_keys or set())
+
+        # 이미 발행된 제목은 다시 기본글감으로 추천하지 않는다.
+        for title in Post.objects.filter(
+            category=category
+        ).values_list("title", flat=True):
+            key = _cbl_ai_topic_normalize_title(title)
+            if key:
+                used_keys.add(key)
+
+        candidates = list(
+            AIFallbackTopic.objects.filter(
+                category=category,
+                status=AIFallbackTopic.STATUS_APPROVED,
+            ).order_by(
+                F("last_recommended_at").asc(nulls_first=True),
+                "recommendation_count",
+                "created_at",
+                "id",
+            )[:max(count * 8, 40)]
+        )
+
+        selected = []
+        selected_ids = []
+        for topic in candidates:
+            key = _cbl_ai_topic_normalize_title(topic.title)
+            if not key or key in used_keys:
+                continue
+
+            used_keys.add(key)
+            selected.append(_cbl_ai_topic_make_item(category, topic))
+            selected_ids.append(topic.pk)
+            if len(selected) >= count:
+                break
+
+        if selected_ids:
+            AIFallbackTopic.objects.filter(pk__in=selected_ids).update(
+                recommendation_count=F("recommendation_count") + 1,
+                last_recommended_at=_cbl_ai_topic_timezone.now(),
+            )
+
+        return selected
+    except Exception as error:
+        # 최초 배포에서 migrate 전 요청이 들어오거나 DB가 일시적으로 실패해도
+        # 기존 추천 기능 전체가 중단되지 않도록 고정 기본글감으로 이어간다.
+        print(
+            "[AI_FALLBACK_TOPIC_POOL_ERROR]",
+            f"category={category}",
+            f"error={type(error).__name__}: {error}",
+        )
+        return []
+
+
+def _cbl_ai_topic_is_default_item(item):
+    checker = globals().get("_cbl_v28_is_default_item")
+    if checker:
+        try:
+            return bool(checker(item))
+        except Exception:
+            pass
+
+    source = str(item.get("source") or "")
+    reason = str(
+        item.get("reason") or item.get("description") or ""
+    )
+    return (
+        "CBL 기본추천" in source
+        or "기본 추천" in reason
+        or "기본 글감" in reason
+    )
+
+
+def recommend_keywords_from_news(category):
+    category = _cbl_today_normalize_category_v25(category)
+    try:
+        limit = max(
+            1,
+            int(globals().get("_CBL_V24_LIMIT", 5) or 5),
+        )
+    except (TypeError, ValueError):
+        limit = 5
+
+    previous_items = []
+    if _CBL_AI_TOPIC_PREVIOUS_RECOMMEND:
+        try:
+            previous_items = (
+                _CBL_AI_TOPIC_PREVIOUS_RECOMMEND(category) or []
+            )
+        except Exception as error:
+            print(
+                "[AI_FALLBACK_PREVIOUS_ERROR]",
+                f"category={category}",
+                f"error={type(error).__name__}: {error}",
+            )
+
+    external_items = []
+    static_items = []
+    for item in previous_items:
+        if not isinstance(item, dict):
+            continue
+        if _cbl_ai_topic_is_default_item(item):
+            static_items.append(dict(item))
+        else:
+            external_items.append(dict(item))
+
+    result = []
+    seen = set()
+
+    # 네이버·해외뉴스·공식자료는 기존 추천기가 정한 순서를 그대로 보존한다.
+    for item in external_items:
+        keyword = _cbl_v26_text(item.get("keyword") or "")
+        key = _cbl_ai_topic_normalize_title(keyword)
+        if not keyword or not key or key in seen:
+            continue
+
+        seen.add(key)
+        result.append(item)
+        if len(result) >= limit:
+            return result[:limit]
+
+    # 외부 추천 뒤에 남은 자리만 관리자 승인 AI 기본글감으로 채운다.
+    ai_items = _cbl_ai_topic_approved_items(
+        category,
+        seen,
+        limit - len(result),
+    )
+    for item in ai_items:
+        key = _cbl_ai_topic_normalize_title(item.get("keyword"))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+        if len(result) >= limit:
+            return result[:limit]
+
+    # AI 승인 글감도 부족하면 이전 추천기가 만든 고정 기본글감을 최후 수단으로 쓴다.
+    for item in static_items:
+        keyword = _cbl_v26_text(item.get("keyword") or "")
+        key = _cbl_ai_topic_normalize_title(keyword)
+        if not keyword or not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+        if len(result) >= limit:
+            break
+
+    # 예상 밖의 이전 추천기에서 고정 기본글감이 부족해도 정확한 개수를 보장한다.
+    if len(result) < limit:
+        filler = globals().get("_cbl_v26_fill_with_fallback")
+        if filler:
+            try:
+                result = filler(category, result, limit)
+            except Exception as error:
+                print(
+                    "[AI_FALLBACK_STATIC_ERROR]",
+                    f"category={category}",
+                    f"error={type(error).__name__}: {error}",
+                )
+
+    print(
+        "[AI_FALLBACK_TOPIC_POOL]",
+        f"category={category}",
+        f"external={len(external_items)}",
+        f"ai={len(ai_items)}",
+        f"static={max(0, len(result) - len(external_items) - len(ai_items))}",
+        f"final={len(result[:limit])}",
+    )
+    return result[:limit]
+# CBL_AI_FALLBACK_TOPIC_POOL_V1_RECOMMEND_END
