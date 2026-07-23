@@ -691,28 +691,66 @@ def category_page(request, slug):
                 items.extend(list(fallback_qs.exclude(pk__in=seen_ids)[: limit - len(items)]))
             return items
 
-        portal_all = Post.objects.filter(
-            category=slug,
-            is_published=True,
-        ).order_by("-created_at")
-
-        portal_fallback_all = Post.objects.filter(
-            is_published=True,
-        ).filter(
-            Q(category=slug) | portal_keyword_q(*portal_cfg["all_keywords"])
-        ).order_by("-created_at").distinct()
-
         portal_video_q = cbl_video_post_q()
-        portal_base = portal_all.exclude(portal_video_q)
-        portal_fallback = portal_fallback_all.exclude(portal_video_q)
-        portal_video_base = portal_all.filter(portal_video_q).distinct()
-        portal_video_fallback = portal_fallback_all.filter(portal_video_q).distinct()
 
-        portal_recent_categories = {
-            "bim": ["bim", "dynamo_automation", "four_d_five_d"],
-            "tech": ["tool_recommend"],
-            "program": ["program", "tool_recommend"],
-        }.get(slug, [slug])
+        # 포털과 각 섹션은 실제 저장 카테고리만 사용합니다.
+        # 글이 부족하더라도 제목/본문 키워드가 우연히 겹치는 다른 카테고리
+        # 게시글을 가져오지 않습니다.
+        portal_category_pools = {
+            "bim": {
+                "recent": ["bim", "dynamo_automation", "four_d_five_d"],
+                "main": ["bim"],
+                "sub": ["dynamo_automation"],
+                "third": ["four_d_five_d"],
+                "keyword_sections": [],
+            },
+            "tech": {
+                "recent": ["tool_recommend"],
+                "main": ["tool_recommend"],
+                "sub": ["tool_recommend"],
+                "third": ["tool_recommend"],
+                "keyword_sections": ["main", "sub", "third"],
+            },
+            "program": {
+                "recent": ["program", "tool_recommend"],
+                "main": ["program"],
+                "sub": ["tool_recommend"],
+                "third": ["tool_recommend"],
+                "keyword_sections": ["sub", "third"],
+            },
+        }
+        portal_pools = portal_category_pools.get(
+            slug,
+            {
+                "recent": [slug],
+                "main": [slug],
+                "sub": [slug],
+                "third": [slug],
+                "keyword_sections": ["main", "sub", "third"],
+            },
+        )
+
+        def portal_category_qs(pool_name, videos=False):
+            queryset = Post.objects.filter(
+                category__in=portal_pools[pool_name],
+                is_published=True,
+            )
+            if pool_name in portal_pools["keyword_sections"]:
+                keywords = portal_cfg[f"{pool_name}_keywords"]
+                queryset = queryset.filter(portal_keyword_q(*keywords))
+            if videos:
+                queryset = queryset.filter(portal_video_q)
+            else:
+                queryset = queryset.exclude(portal_video_q)
+            return queryset.order_by("-created_at").distinct()
+
+        portal_base = portal_category_qs("recent")
+        portal_main_base = portal_category_qs("main")
+        portal_sub_base = portal_category_qs("sub")
+        portal_third_base = portal_category_qs("third")
+        portal_video_base = portal_category_qs("recent", videos=True)
+
+        portal_recent_categories = portal_pools["recent"]
         portal_recent_posts = cbl_posts_by_effective_categories(
             Post.objects.filter(is_published=True)
             .exclude(portal_video_q)
@@ -722,34 +760,34 @@ def category_page(request, slug):
         )
 
         portal_main_posts = portal_fill(
-            portal_base.filter(portal_keyword_q(*portal_cfg["main_keywords"])).distinct(),
-            portal_fallback.filter(portal_keyword_q(*portal_cfg["main_keywords"])).distinct(),
+            portal_main_base,
+            portal_main_base,
             4,
         )
         portal_sub_posts = portal_fill(
-            portal_base.filter(portal_keyword_q(*portal_cfg["sub_keywords"])).distinct(),
-            portal_fallback.filter(portal_keyword_q(*portal_cfg["sub_keywords"])).distinct(),
+            portal_sub_base,
+            portal_sub_base,
             3,
         )
         portal_third_posts = portal_fill(
-            portal_base.filter(portal_keyword_q(*portal_cfg["third_keywords"])).distinct(),
-            portal_fallback.filter(portal_keyword_q(*portal_cfg["third_keywords"])).distinct(),
+            portal_third_base,
+            portal_third_base,
             6,
         )
         portal_video_posts = portal_fill(
             portal_video_base,
-            portal_video_fallback,
+            portal_video_base,
             3,
         )
 
-
-
-        def portal_section_videos(keywords, limit=64):
+        def portal_section_videos(pool_name, limit=64):
+            section_video_base = portal_category_qs(pool_name, videos=True)
             return portal_fill(
-                portal_video_base.filter(portal_keyword_q(*keywords)).distinct(),
-                portal_video_fallback.filter(portal_keyword_q(*keywords)).distinct(),
+                section_video_base,
+                section_video_base,
                 limit,
             )
+
         context.update({
             "portal_config": portal_cfg,
             "portal_recent_posts": portal_recent_posts,
@@ -758,26 +796,26 @@ def category_page(request, slug):
             "portal_third_posts": portal_third_posts,
             "portal_video_posts": portal_video_posts,
             "portal_main_popup_posts": portal_fill(
-                portal_base.filter(portal_keyword_q(*portal_cfg["main_keywords"])).distinct(),
-                portal_fallback.filter(portal_keyword_q(*portal_cfg["main_keywords"])).distinct(),
+                portal_main_base,
+                portal_main_base,
                 80,
             ),
             "portal_sub_popup_posts": portal_fill(
-                portal_base.filter(portal_keyword_q(*portal_cfg["sub_keywords"])).distinct(),
-                portal_fallback.filter(portal_keyword_q(*portal_cfg["sub_keywords"])).distinct(),
+                portal_sub_base,
+                portal_sub_base,
                 80,
             ),
             "portal_third_popup_posts": portal_fill(
-                portal_base.filter(portal_keyword_q(*portal_cfg["third_keywords"])).distinct(),
-                portal_fallback.filter(portal_keyword_q(*portal_cfg["third_keywords"])).distinct(),
+                portal_third_base,
+                portal_third_base,
                 80,
             ),
-            "portal_main_popup_video_posts": portal_section_videos(portal_cfg["main_keywords"], 64),
-            "portal_sub_popup_video_posts": portal_section_videos(portal_cfg["sub_keywords"], 64),
-            "portal_third_popup_video_posts": portal_section_videos(portal_cfg["third_keywords"], 64),
+            "portal_main_popup_video_posts": portal_section_videos("main", 64),
+            "portal_sub_popup_video_posts": portal_section_videos("sub", 64),
+            "portal_third_popup_video_posts": portal_section_videos("third", 64),
             "portal_video_popup_posts": portal_fill(
                 portal_video_base,
-                portal_video_fallback,
+                portal_video_base,
                 64,
             ),
         })
