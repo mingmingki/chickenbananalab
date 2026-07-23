@@ -7002,8 +7002,8 @@ def cbl_today_keyword_category_profile(category=""):
 
         "건설기술": "construction_tech",
         "construction_tech": "construction_tech",
-        "테크": "construction_tech",
-        "tech": "construction_tech",
+        "테크": "tech_ai_development",
+        "tech": "tech_ai_development",
 
         "부동산": "construction_real",
         "realestate": "construction_real",
@@ -7023,6 +7023,18 @@ def cbl_today_keyword_category_profile(category=""):
         "5d": "four_d_five_d",
         "4d/5d": "four_d_five_d",
         "four_d_five_d": "four_d_five_d",
+
+        "ai·개발": "tech_ai_development",
+        "ai/개발": "tech_ai_development",
+        "tech_ai_development": "tech_ai_development",
+
+        "데이터·보안": "tech_data_security",
+        "데이터/보안": "tech_data_security",
+        "tech_data_security": "tech_data_security",
+
+        "인터넷·서버·소프트": "tech_server_software",
+        "인터넷/서버/소프트": "tech_server_software",
+        "tech_server_software": "tech_server_software",
 
         "program": "program",
         "프로그램": "program",
@@ -7135,6 +7147,51 @@ def cbl_today_keyword_category_profile(category=""):
                 "Navisworks로 공정을 검토할 때 확인할 점",
                 "공정표와 BIM 모델을 연결하는 기본 구조",
                 "5D 원가관리에서 물량 기준이 중요한 이유"
+            ],
+        },
+        "tech_ai_development": {
+            "name": "AI·개발",
+            "allow": [
+                "AI", "인공지능", "생성형 AI", "개발", "Python", "Django",
+                "웹개발", "앱개발", "API", "코딩", "프로그래밍", "개발도구"
+            ],
+            "block": common_block + ["청약", "전세", "건설사"],
+            "examples": [
+                "생성형 AI를 업무에 적용할 때 확인할 기준",
+                "Python으로 반복 업무를 자동화하는 기본 흐름",
+                "Django 웹서비스의 구조를 쉽게 이해하는 방법",
+                "API 연동을 시작할 때 필요한 핵심 개념",
+                "AI 개발 도구를 실무에 안전하게 적용하는 방법"
+            ],
+        },
+        "tech_data_security": {
+            "name": "데이터·보안",
+            "allow": [
+                "데이터", "데이터베이스", "DB", "보안", "개인정보", "암호화",
+                "백업", "로그", "인증", "해킹", "접근제어", "데이터 보호"
+            ],
+            "block": common_block + ["청약", "전세", "맛집"],
+            "examples": [
+                "업무 데이터 백업 체계를 만들 때 확인할 점",
+                "개인정보를 안전하게 저장하는 기본 원칙",
+                "서버 로그로 보안 이상을 확인하는 방법",
+                "데이터베이스 접근 권한을 나눠야 하는 이유",
+                "계정 인증과 암호화의 차이를 쉽게 이해하는 방법"
+            ],
+        },
+        "tech_server_software": {
+            "name": "인터넷·서버·소프트",
+            "allow": [
+                "인터넷", "서버", "소프트웨어", "클라우드", "호스팅", "도메인",
+                "네트워크", "IPv4", "IPv6", "SSL", "HTTPS", "웹서버"
+            ],
+            "block": common_block + ["청약", "전세", "맛집"],
+            "examples": [
+                "웹서버와 애플리케이션 서버의 차이",
+                "도메인과 호스팅을 연결하는 기본 흐름",
+                "IPv4와 IPv6의 차이를 쉽게 이해하는 방법",
+                "SSL 인증서가 웹서비스에 필요한 이유",
+                "클라우드 서버를 운영할 때 확인할 기본 항목"
             ],
         },
         "program": {

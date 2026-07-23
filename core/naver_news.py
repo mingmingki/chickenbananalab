@@ -2482,3 +2482,156 @@ def recommend_keywords_from_news(category):
 
     return final_items
 # CBL_TODAY_KEYWORD_V26_STRICT_FILTER_END
+
+
+# CBL_TECH_CATEGORY_KEYWORD_PROFILE_V27_START
+# 테크 포털의 실제 3개 저장 카테고리를 추천 뉴스·기본 글감까지 연결합니다.
+_CBL_TECH_CATEGORY_LABELS_V27 = {
+    "tech_ai_development": "AI·개발",
+    "tech_data_security": "데이터·보안",
+    "tech_server_software": "인터넷·서버·소프트",
+}
+
+_CBL_TECH_CATEGORY_ALIASES_V27 = {
+    "AI·개발": "tech_ai_development",
+    "AI/개발": "tech_ai_development",
+    "ai·개발": "tech_ai_development",
+    "ai/개발": "tech_ai_development",
+    "tech_ai_development": "tech_ai_development",
+    "데이터·보안": "tech_data_security",
+    "데이터/보안": "tech_data_security",
+    "tech_data_security": "tech_data_security",
+    "인터넷·서버·소프트": "tech_server_software",
+    "인터넷/서버/소프트": "tech_server_software",
+    "tech_server_software": "tech_server_software",
+}
+
+_CBL_TECH_SEARCH_WORDS_V27 = {
+    "tech_ai_development": [
+        "생성형 AI 개발",
+        "인공지능 개발",
+        "Python 개발",
+        "Django 개발",
+        "AI API",
+        "AI 코딩",
+        "소프트웨어 개발",
+    ],
+    "tech_data_security": [
+        "데이터 보안",
+        "개인정보 보호",
+        "사이버 보안",
+        "데이터 유출",
+        "랜섬웨어",
+        "데이터베이스 보안",
+        "백업 보안",
+    ],
+    "tech_server_software": [
+        "클라우드 서버",
+        "웹 서버",
+        "인터넷 네트워크",
+        "IPv4 IPv6",
+        "SSL HTTPS",
+        "도메인 호스팅",
+        "소프트웨어 업데이트",
+    ],
+}
+
+_CBL_TECH_FALLBACK_KEYWORDS_V27 = {
+    "tech_ai_development": [
+        "생성형 AI를 업무에 적용할 때 확인할 기준",
+        "Python으로 반복 업무를 자동화하는 기본 흐름",
+        "Django 웹서비스의 구조를 쉽게 이해하는 방법",
+        "API 연동을 시작할 때 필요한 핵심 개념",
+        "AI 코딩 도구를 실무에 안전하게 적용하는 방법",
+        "인공지능 모델과 일반 프로그램의 차이",
+        "웹개발을 시작할 때 프론트엔드와 백엔드를 나누는 이유",
+        "생성형 AI 결과를 검증해야 하는 이유",
+    ],
+    "tech_data_security": [
+        "업무 데이터 백업 체계를 만들 때 확인할 점",
+        "개인정보를 안전하게 저장하는 기본 원칙",
+        "서버 로그로 보안 이상을 확인하는 방법",
+        "데이터베이스 접근 권한을 나눠야 하는 이유",
+        "계정 인증과 암호화의 차이를 쉽게 이해하는 방법",
+        "랜섬웨어에 대비하는 백업 원칙",
+        "데이터 유출 사고를 줄이는 권한 관리 방법",
+        "중요 파일을 안전하게 공유하는 방법",
+    ],
+    "tech_server_software": [
+        "웹서버와 애플리케이션 서버의 차이",
+        "도메인과 호스팅을 연결하는 기본 흐름",
+        "IPv4와 IPv6의 차이를 쉽게 이해하는 방법",
+        "SSL 인증서가 웹서비스에 필요한 이유",
+        "클라우드 서버를 운영할 때 확인할 기본 항목",
+        "서버 업데이트 전에 백업해야 하는 이유",
+        "인터넷 주소와 DNS의 관계를 쉽게 이해하는 방법",
+        "소프트웨어 설치 전 호환성을 확인하는 방법",
+    ],
+}
+
+CBL_TODAY_CATEGORY_LABELS_V25.update(_CBL_TECH_CATEGORY_LABELS_V27)
+CBL_TODAY_CATEGORY_ALIASES_V25.update(_CBL_TECH_CATEGORY_ALIASES_V27)
+CBL_TODAY_SEARCH_WORDS_V25.update(_CBL_TECH_SEARCH_WORDS_V27)
+CBL_TODAY_CORE_WORDS_V25.update({
+    key: values[:5]
+    for key, values in _CBL_TECH_SEARCH_WORDS_V27.items()
+})
+CBL_TODAY_FALLBACK_KEYWORDS_V25.update(_CBL_TECH_FALLBACK_KEYWORDS_V27)
+CBL_TODAY_SEARCH_WORDS_V26.update(_CBL_TECH_SEARCH_WORDS_V27)
+
+CATEGORY_LABELS.update(_CBL_TECH_CATEGORY_LABELS_V27)
+CATEGORY_ALIASES.update(_CBL_TECH_CATEGORY_ALIASES_V27)
+CATEGORY_SEARCH_WORDS.update(_CBL_TECH_SEARCH_WORDS_V27)
+try:
+    CATEGORY_CORE_WORDS.update({
+        key: values[:5]
+        for key, values in _CBL_TECH_SEARCH_WORDS_V27.items()
+    })
+except Exception:
+    pass
+try:
+    _CBL_V24_LABELS.update(_CBL_TECH_CATEGORY_LABELS_V27)
+except Exception:
+    pass
+try:
+    _CBL_V24_TITLE_REQUIRED.update(_CBL_TECH_SEARCH_WORDS_V27)
+except Exception:
+    pass
+
+_cbl_v27_previous_is_good_news_item = _cbl_v26_is_good_news_item
+
+
+def _cbl_v26_is_good_news_item(category, item):
+    category = _cbl_today_normalize_category_v25(category)
+
+    if category not in _CBL_TECH_CATEGORY_LABELS_V27:
+        return _cbl_v27_previous_is_good_news_item(category, item)
+
+    title = _cbl_v26_text(item.get("keyword") or item.get("title") or "")
+    desc = _cbl_v26_text(item.get("description") or item.get("reason") or "")
+    source = _cbl_v26_text(item.get("source") or "")
+
+    if "CBL 기본추천" in source or "기본 글감" in desc:
+        return True
+
+    text = f"{title} {desc}"
+    if not title or _cbl_v26_is_blocked(text):
+        return False
+
+    if category == "tech_ai_development":
+        return _cbl_v26_has_any(text, [
+            "AI", "인공지능", "생성형", "개발", "Python", "Django",
+            "API", "코딩", "프로그래밍", "소프트웨어",
+        ])
+
+    if category == "tech_data_security":
+        return _cbl_v26_has_any(text, [
+            "데이터", "보안", "개인정보", "암호화", "해킹",
+            "랜섬웨어", "유출", "백업", "인증", "접근권한",
+        ])
+
+    return _cbl_v26_has_any(text, [
+        "인터넷", "서버", "클라우드", "네트워크", "IPv4", "IPv6",
+        "SSL", "HTTPS", "도메인", "호스팅", "소프트웨어",
+    ])
+# CBL_TECH_CATEGORY_KEYWORD_PROFILE_V27_END

@@ -8,6 +8,9 @@ CBL_PUBLIC_CATEGORY_CHOICES = [
     ("bim", "REVIT/BIM"),
     ("dynamo_automation", "Dynamo/자동화"),
     ("four_d_five_d", "4D/5D"),
+    ("tech_ai_development", "AI·개발"),
+    ("tech_data_security", "데이터·보안"),
+    ("tech_server_software", "인터넷·서버·소프트"),
     ("program", "업무용 프로그램"),
     ("tool_recommend", "툴소개/툴추천"),
 ]
@@ -55,6 +58,21 @@ CBL_AI_CATEGORY_GUIDE = {
         "label": "4D/5D",
         "keywords": ["4D", "5D", "Navisworks", "공정 시뮬레이션", "공정 연동", "수량 연동", "원가 연동", "5D BIM"],
         "writing_focus": "4D 공정 시뮬레이션과 5D 원가·수량 연동을 중심으로 BIM 활용 방식을 설명한다.",
+    },
+    "tech_ai_development": {
+        "label": "AI·개발",
+        "keywords": ["AI", "인공지능", "개발", "Python", "Django", "웹개발", "앱개발", "API", "코딩", "생성형 AI"],
+        "writing_focus": "AI와 소프트웨어 개발의 원리, 활용 사례, 구현 방법을 비전공자도 이해할 수 있도록 구체적으로 설명한다.",
+    },
+    "tech_data_security": {
+        "label": "데이터·보안",
+        "keywords": ["데이터", "데이터베이스", "DB", "보안", "개인정보", "암호화", "백업", "로그", "인증", "해킹"],
+        "writing_focus": "데이터 관리와 보안을 중심으로 저장, 백업, 인증, 개인정보 보호와 실무 대응 방법을 설명한다.",
+    },
+    "tech_server_software": {
+        "label": "인터넷·서버·소프트",
+        "keywords": ["인터넷", "서버", "소프트웨어", "클라우드", "호스팅", "도메인", "네트워크", "IPv4", "IPv6", "SSL"],
+        "writing_focus": "인터넷, 서버, 네트워크, 클라우드와 소프트웨어의 구조 및 설정 방법을 실용적으로 설명한다.",
     },
     "program": {
         "label": "업무용 프로그램",

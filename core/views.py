@@ -448,7 +448,7 @@ def cbl_video_post_q():
 
 
 def cbl_effective_category_key(post):
-    """기존 글을 현재 운영 중인 8개 카테고리 중 가장 가까운 분류로 표시합니다."""
+    """기존 글을 현재 운영 중인 카테고리 중 가장 가까운 분류로 표시합니다."""
     current_categories = {
         "construction_work",
         "construction_tech",
@@ -456,6 +456,9 @@ def cbl_effective_category_key(post):
         "bim",
         "dynamo_automation",
         "four_d_five_d",
+        "tech_ai_development",
+        "tech_data_security",
+        "tech_server_software",
         "program",
         "tool_recommend",
     }
@@ -495,9 +498,24 @@ def cbl_effective_category_key(post):
     ]):
         return "program"
 
+    if original_category == "tech" and any(word in text for word in [
+        "데이터", "database", "db", "보안", "개인정보", "암호화", "백업", "로그", "인증", "해킹",
+    ]):
+        return "tech_data_security"
+
+    if original_category == "tech" and any(word in text for word in [
+        "인터넷", "서버", "클라우드", "호스팅", "도메인", "네트워크",
+        "ipv4", "ipv6", "ssl", "https", "소프트웨어",
+    ]):
+        return "tech_server_software"
+
+    if original_category == "tech" and any(word in text for word in [
+        "ai", "인공지능", "개발", "python", "django", "코딩", "api", "생성형",
+    ]):
+        return "tech_ai_development"
+
     if original_category in {"tech", "life"} or any(word in text for word in [
         "앱", "툴", "도구", "추천", "리뷰", "비교", "노트북", "스마트폰", "태블릿",
-        "인터넷", "ipv4", "ipv6", "클라우드", "보안", "ai", "인공지능",
     ]):
         return "tool_recommend"
 
@@ -548,6 +566,9 @@ def home(request):
         "bim",
         "dynamo_automation",
         "four_d_five_d",
+        "tech_ai_development",
+        "tech_data_security",
+        "tech_server_software",
         "program",
         "tool_recommend",
     ]
@@ -565,7 +586,11 @@ def home(request):
         "four_d_five_d",
     ], 4)
     latest_tech = cbl_posts_by_effective_categories(
-        regular_published, ["tool_recommend"], 4
+        regular_published, [
+            "tech_ai_development",
+            "tech_data_security",
+            "tech_server_software",
+        ], 4
     )
     latest_program = cbl_posts_by_effective_categories(regular_published, [
         "program",
@@ -705,11 +730,15 @@ def category_page(request, slug):
                 "keyword_sections": [],
             },
             "tech": {
-                "recent": ["tool_recommend"],
-                "main": ["tool_recommend"],
-                "sub": ["tool_recommend"],
-                "third": ["tool_recommend"],
-                "keyword_sections": ["main", "sub", "third"],
+                "recent": [
+                    "tech_ai_development",
+                    "tech_data_security",
+                    "tech_server_software",
+                ],
+                "main": ["tech_ai_development"],
+                "sub": ["tech_data_security"],
+                "third": ["tech_server_software"],
+                "keyword_sections": [],
             },
             "program": {
                 "recent": ["program", "tool_recommend"],
@@ -767,6 +796,8 @@ def category_page(request, slug):
             3,
             videos=True,
         )
+
+
 
         def portal_section_videos(pool_name, limit=64):
             return portal_effective_posts(
@@ -2687,6 +2718,9 @@ AI_AUTO_CATEGORY_ORDER = [
     ("bim", "REVIT/BIM"),
     ("dynamo_automation", "Dynamo/자동화"),
     ("four_d_five_d", "4D/5D"),
+    ("tech_ai_development", "AI·개발"),
+    ("tech_data_security", "데이터·보안"),
+    ("tech_server_software", "인터넷·서버·소프트"),
     ("program", "업무용 프로그램"),
     ("tool_recommend", "툴소개/툴추천"),
 ]
@@ -2712,6 +2746,15 @@ def get_enabled_ai_auto_categories(setting):
 
     if getattr(setting, "use_four_d_five_d", True):
         categories.append(("four_d_five_d", "4D/5D"))
+
+    if getattr(setting, "use_tech_ai_development", True):
+        categories.append(("tech_ai_development", "AI·개발"))
+
+    if getattr(setting, "use_tech_data_security", True):
+        categories.append(("tech_data_security", "데이터·보안"))
+
+    if getattr(setting, "use_tech_server_software", True):
+        categories.append(("tech_server_software", "인터넷·서버·소프트"))
 
     if getattr(setting, "use_program", True):
         categories.append(("program", "업무용 프로그램"))
@@ -2807,6 +2850,12 @@ def ai_auto_writer_manage(request):
             setting.use_dynamo_automation = bool(request.POST.get("use_dynamo_automation"))
         if hasattr(setting, "use_four_d_five_d"):
             setting.use_four_d_five_d = bool(request.POST.get("use_four_d_five_d"))
+        if hasattr(setting, "use_tech_ai_development"):
+            setting.use_tech_ai_development = bool(request.POST.get("use_tech_ai_development"))
+        if hasattr(setting, "use_tech_data_security"):
+            setting.use_tech_data_security = bool(request.POST.get("use_tech_data_security"))
+        if hasattr(setting, "use_tech_server_software"):
+            setting.use_tech_server_software = bool(request.POST.get("use_tech_server_software"))
         if hasattr(setting, "use_program"):
             setting.use_program = bool(request.POST.get("use_program"))
         if hasattr(setting, "use_tool_recommend"):
@@ -4800,6 +4849,9 @@ def ai_keyword_recommend(request):
         "bim",
         "dynamo_automation",
         "four_d_five_d",
+        "tech_ai_development",
+        "tech_data_security",
+        "tech_server_software",
         "program",
         "tool_recommend",
     ]
@@ -4926,6 +4978,9 @@ def ai_keyword_recommend(request):
         "bim",
         "dynamo_automation",
         "four_d_five_d",
+        "tech_ai_development",
+        "tech_data_security",
+        "tech_server_software",
         "program",
         "tool_recommend",
     ]
@@ -5829,6 +5884,9 @@ def _cbl_cut_category_label(category):
         "bim": "REVIT/BIM",
         "dynamo_automation": "Dynamo/자동화",
         "four_d_five_d": "4D/5D",
+        "tech_ai_development": "AI·개발",
+        "tech_data_security": "데이터·보안",
+        "tech_server_software": "인터넷·서버·소프트",
         "program": "업무용 프로그램",
         "tool_recommend": "툴소개/툴추천",
     }
@@ -6008,6 +6066,9 @@ def chickenbanana_cut_generate(request):
         "bim",
         "dynamo_automation",
         "four_d_five_d",
+        "tech_ai_development",
+        "tech_data_security",
+        "tech_server_software",
         "program",
         "tool_recommend",
     }
@@ -6118,6 +6179,9 @@ def _cbc_ai_category_label(category):
         "bim": "REVIT/BIM",
         "dynamo_automation": "Dynamo/자동화",
         "four_d_five_d": "4D/5D",
+        "tech_ai_development": "AI·개발",
+        "tech_data_security": "데이터·보안",
+        "tech_server_software": "인터넷·서버·소프트",
         "program": "업무용 프로그램",
         "tool_recommend": "툴소개/툴추천",
     }
@@ -6145,6 +6209,15 @@ def _cbc_ai_normalize_category(category):
         "4D": "four_d_five_d",
         "5D": "four_d_five_d",
         "four_d_five_d": "four_d_five_d",
+        "AI·개발": "tech_ai_development",
+        "AI/개발": "tech_ai_development",
+        "tech_ai_development": "tech_ai_development",
+        "데이터·보안": "tech_data_security",
+        "데이터/보안": "tech_data_security",
+        "tech_data_security": "tech_data_security",
+        "인터넷·서버·소프트": "tech_server_software",
+        "인터넷/서버/소프트": "tech_server_software",
+        "tech_server_software": "tech_server_software",
         "업무용 프로그램": "program",
         "프로그램": "program",
         "program": "program",

@@ -2089,6 +2089,9 @@
       ["bim", "REVIT/BIM"],
       ["dynamo_automation", "Dynamo/자동화"],
       ["four_d_five_d", "4D/5D"],
+      ["tech_ai_development", "AI·개발"],
+      ["tech_data_security", "데이터·보안"],
+      ["tech_server_software", "인터넷·서버·소프트"],
       ["program", "업무용 프로그램"],
       ["tool_recommend", "툴소개/툴추천"]
     ];
@@ -4778,6 +4781,9 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
         ["bim", "REVIT/BIM"],
         ["dynamo_automation", "Dynamo/자동화"],
         ["four_d_five_d", "4D/5D"],
+        ["tech_ai_development", "AI·개발"],
+        ["tech_data_security", "데이터·보안"],
+        ["tech_server_software", "인터넷·서버·소프트"],
         ["program", "업무용 프로그램"],
         ["tool_recommend", "툴소개/툴추천"]
     ];
@@ -4789,6 +4795,9 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
         ["bim", "REVIT/BIM"],
         ["dynamo_automation", "Dynamo/자동화"],
         ["four_d_five_d", "4D/5D"],
+        ["tech_ai_development", "AI·개발"],
+        ["tech_data_security", "데이터·보안"],
+        ["tech_server_software", "인터넷·서버·소프트"],
         ["program", "업무용 프로그램"],
         ["tool_recommend", "툴소개/툴추천"]
     ];
@@ -5377,6 +5386,9 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
             <option value="bim">REVIT/BIM</option>
             <option value="dynamo_automation">Dynamo/자동화</option>
             <option value="four_d_five_d">4D/5D</option>
+            <option value="tech_ai_development">AI·개발</option>
+            <option value="tech_data_security">데이터·보안</option>
+            <option value="tech_server_software">인터넷·서버·소프트</option>
             <option value="program">업무용 프로그램</option>
             <option value="tool_recommend">툴소개/툴추천</option>
         `;
@@ -5776,6 +5788,9 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
         { value: "bim", label: "REVIT/BIM" },
         { value: "dynamo_automation", label: "Dynamo/자동화" },
         { value: "four_d_five_d", label: "4D/5D" },
+        { value: "tech_ai_development", label: "AI·개발" },
+        { value: "tech_data_security", label: "데이터·보안" },
+        { value: "tech_server_software", label: "인터넷·서버·소프트" },
         { value: "program", label: "업무용 프로그램" },
         { value: "tool_recommend", label: "툴소개/툴추천" }
     ];
@@ -5808,6 +5823,15 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
         "4D": "four_d_five_d",
         "5D": "four_d_five_d",
         "four_d_five_d": "four_d_five_d",
+        "AI·개발": "tech_ai_development",
+        "AI/개발": "tech_ai_development",
+        "tech_ai_development": "tech_ai_development",
+        "데이터·보안": "tech_data_security",
+        "데이터/보안": "tech_data_security",
+        "tech_data_security": "tech_data_security",
+        "인터넷·서버·소프트": "tech_server_software",
+        "인터넷/서버/소프트": "tech_server_software",
+        "tech_server_software": "tech_server_software",
         "업무용 프로그램": "program",
         "프로그램": "program",
         "program": "program",
@@ -5828,6 +5852,15 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
         "4D": "four_d_five_d",
         "5D": "four_d_five_d",
         "four_d_five_d": "four_d_five_d",
+        "AI·개발": "tech_ai_development",
+        "AI/개발": "tech_ai_development",
+        "tech_ai_development": "tech_ai_development",
+        "데이터·보안": "tech_data_security",
+        "데이터/보안": "tech_data_security",
+        "tech_data_security": "tech_data_security",
+        "인터넷·서버·소프트": "tech_server_software",
+        "인터넷/서버/소프트": "tech_server_software",
+        "tech_server_software": "tech_server_software",
         "업무용 프로그램": "program",
         "프로그램": "program",
         "program": "program",
@@ -5849,6 +5882,9 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
         "bim": "REVIT/BIM",
         "dynamo_automation": "Dynamo/자동화",
         "four_d_five_d": "4D/5D",
+        "tech_ai_development": "AI·개발",
+        "tech_data_security": "데이터·보안",
+        "tech_server_software": "인터넷·서버·소프트",
         "program": "업무용 프로그램",
         "tool_recommend": "툴소개/툴추천",
 
@@ -6374,7 +6410,7 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
         "life": "life"
     };
 
-    const CBL_VALID_CATEGORIES = new Set(["construction_work", "construction_tech", "construction_real", "bim", "dynamo_automation", "four_d_five_d", "program", "tool_recommend"]);
+    const CBL_VALID_CATEGORIES = new Set(["construction_work", "construction_tech", "construction_real", "bim", "dynamo_automation", "four_d_five_d", "tech_ai_development", "tech_data_security", "tech_server_software", "program", "tool_recommend"]);
 
     function cblNorm(v){
         return String(v || "").replace(/\s+/g, " ").trim();
@@ -6647,7 +6683,7 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
         "life": "life"
     };
 
-    const VALID = new Set(["construction_work", "construction_tech", "construction_real", "bim", "dynamo_automation", "four_d_five_d", "program", "tool_recommend"]);
+    const VALID = new Set(["construction_work", "construction_tech", "construction_real", "bim", "dynamo_automation", "four_d_five_d", "tech_ai_development", "tech_data_security", "tech_server_software", "program", "tool_recommend"]);
 
     function clean(v) {
         return String(v || "").replace(/\s+/g, " ").trim();
@@ -8723,7 +8759,7 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
     if (window.__CBL_AI_SINGLE_VISIBLE_SOURCE__) return;
     window.__CBL_AI_SINGLE_VISIBLE_SOURCE__ = true;
 
-    const VALID_CATEGORIES = new Set(["construction_work", "construction_tech", "construction_real", "bim", "dynamo_automation", "four_d_five_d", "program", "tool_recommend"]);
+    const VALID_CATEGORIES = new Set(["construction_work", "construction_tech", "construction_real", "bim", "dynamo_automation", "four_d_five_d", "tech_ai_development", "tech_data_security", "tech_server_software", "program", "tool_recommend"]);
 
     const CATEGORY_MAP = {
         "건설": "construction_work",
@@ -9925,6 +9961,9 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
                             <option value="bim">REVIT/BIM</option>
                             <option value="dynamo_automation">Dynamo/자동화</option>
                             <option value="four_d_five_d">4D/5D</option>
+                            <option value="tech_ai_development">AI·개발</option>
+                            <option value="tech_data_security">데이터·보안</option>
+                            <option value="tech_server_software">인터넷·서버·소프트</option>
                             <option value="program">업무용 프로그램</option>
                             <option value="tool_recommend">툴소개/툴추천</option>
                         </select>
@@ -10343,6 +10382,9 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
                         <option value="bim">REVIT/BIM</option>
                         <option value="dynamo_automation">Dynamo/자동화</option>
                         <option value="four_d_five_d">4D/5D</option>
+                        <option value="tech_ai_development">AI·개발</option>
+                        <option value="tech_data_security">데이터·보안</option>
+                        <option value="tech_server_software">인터넷·서버·소프트</option>
                         <option value="program">업무용 프로그램</option>
                         <option value="tool_recommend">툴소개/툴추천</option>
                     </select>
@@ -10418,6 +10460,9 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
         ["bim", "REVIT/BIM"],
         ["dynamo_automation", "Dynamo/자동화"],
         ["four_d_five_d", "4D/5D"],
+        ["tech_ai_development", "AI·개발"],
+        ["tech_data_security", "데이터·보안"],
+        ["tech_server_software", "인터넷·서버·소프트"],
         ["program", "업무용 프로그램"],
         ["tool_recommend", "툴소개/툴추천"]
     ];
@@ -10448,6 +10493,15 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
             "4D": "four_d_five_d",
             "5D": "four_d_five_d",
             "four_d_five_d": "four_d_five_d",
+            "AI·개발": "tech_ai_development",
+            "AI/개발": "tech_ai_development",
+            "tech_ai_development": "tech_ai_development",
+            "데이터·보안": "tech_data_security",
+            "데이터/보안": "tech_data_security",
+            "tech_data_security": "tech_data_security",
+            "인터넷·서버·소프트": "tech_server_software",
+            "인터넷/서버/소프트": "tech_server_software",
+            "tech_server_software": "tech_server_software",
             "업무용 프로그램": "program",
             "프로그램": "program",
             "program": "program",
@@ -10946,6 +11000,9 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
         ["bim", "REVIT/BIM"],
         ["dynamo_automation", "Dynamo/자동화"],
         ["four_d_five_d", "4D/5D"],
+        ["tech_ai_development", "AI·개발"],
+        ["tech_data_security", "데이터·보안"],
+        ["tech_server_software", "인터넷·서버·소프트"],
         ["program", "업무용 프로그램"],
         ["tool_recommend", "툴소개/툴추천"]
     ];

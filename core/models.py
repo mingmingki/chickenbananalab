@@ -412,6 +412,9 @@ class AIAutoWriterSetting(models.Model):
     use_bim = models.BooleanField(default=True, verbose_name="REVIT/BIM 사용")
     use_dynamo_automation = models.BooleanField(default=True, verbose_name="Dynamo/자동화 사용")
     use_four_d_five_d = models.BooleanField(default=True, verbose_name="4D/5D 사용")
+    use_tech_ai_development = models.BooleanField(default=True, verbose_name="AI·개발 사용")
+    use_tech_data_security = models.BooleanField(default=True, verbose_name="데이터·보안 사용")
+    use_tech_server_software = models.BooleanField(default=True, verbose_name="인터넷·서버·소프트 사용")
     use_program = models.BooleanField(default=True, verbose_name="업무용 프로그램 사용")
     use_tool_recommend = models.BooleanField(default=True, verbose_name="툴소개/툴추천 사용")
     # CBL_AI_AUTO_NEW_CATEGORY_FIELDS_END
@@ -460,6 +463,9 @@ class AIAutoKeywordQueue(models.Model):
         ("bim", "REVIT/BIM"),
         ("dynamo_automation", "Dynamo/자동화"),
         ("four_d_five_d", "4D/5D"),
+        ("tech_ai_development", "AI·개발"),
+        ("tech_data_security", "데이터·보안"),
+        ("tech_server_software", "인터넷·서버·소프트"),
         ("program", "업무용 프로그램"),
         ("tool_recommend", "툴소개/툴추천"),
 

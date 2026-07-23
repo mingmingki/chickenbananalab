@@ -178,12 +178,17 @@
 
         function getCategoryCount() {
             const categoryNames = [
-                "use_architecture",
+                "use_construction_work",
                 "use_construction_tech",
-                "use_realestate",
-                "use_finance",
-                "use_tech",
-                "use_life"
+                "use_construction_real",
+                "use_bim",
+                "use_dynamo_automation",
+                "use_four_d_five_d",
+                "use_tech_ai_development",
+                "use_tech_data_security",
+                "use_tech_server_software",
+                "use_program",
+                "use_tool_recommend"
             ];
 
             let count = 0;
@@ -893,6 +898,33 @@
                         <label class="ai-auto-check">
                             <input
                                 type="checkbox"
+                                name="use_tech_ai_development"
+                                {% if not ai_auto_setting or ai_auto_setting.use_tech_ai_development %}checked{% endif %}
+                            >
+                            AI·개발
+                        </label>
+
+                        <label class="ai-auto-check">
+                            <input
+                                type="checkbox"
+                                name="use_tech_data_security"
+                                {% if not ai_auto_setting or ai_auto_setting.use_tech_data_security %}checked{% endif %}
+                            >
+                            데이터·보안
+                        </label>
+
+                        <label class="ai-auto-check">
+                            <input
+                                type="checkbox"
+                                name="use_tech_server_software"
+                                {% if not ai_auto_setting or ai_auto_setting.use_tech_server_software %}checked{% endif %}
+                            >
+                            인터넷·서버·소프트
+                        </label>
+
+                        <label class="ai-auto-check">
+                            <input
+                                type="checkbox"
                                 name="use_program"
                                 {% if not ai_auto_setting or ai_auto_setting.use_program %}checked{% endif %}
                             >
@@ -1250,12 +1282,17 @@
 
         function getCategoryCount() {
             const categoryNames = [
-                "use_architecture",
+                "use_construction_work",
                 "use_construction_tech",
-                "use_realestate",
-                "use_finance",
-                "use_tech",
-                "use_life"
+                "use_construction_real",
+                "use_bim",
+                "use_dynamo_automation",
+                "use_four_d_five_d",
+                "use_tech_ai_development",
+                "use_tech_data_security",
+                "use_tech_server_software",
+                "use_program",
+                "use_tool_recommend"
             ];
 
             let count = 0;
