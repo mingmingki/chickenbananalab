@@ -12077,6 +12077,40 @@ body[data-cbl-url-name="home"] .cbl-home-program-card .cbl-program-btn {
 
 
 <!-- CBL_HOME_PROGRAM_REBUILD_FINAL_START -->
+<style id="cbl-home-popular-program-scroll-10-v2">
+/* 메인 인기 프로그램: 카드 높이는 유지하고 목록만 세로 스크롤 */
+body[data-cbl-url-name="home"] #cblx-home-program-panel {
+  overflow: hidden;
+}
+
+body[data-cbl-url-name="home"] #cblHomeProgramMiniList {
+  max-height: 244px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar {
+  width: 7px;
+}
+
+body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+</style>
+
 <style id="cbl-home-program-rebuild-final-style">
 .cbl-home-program-modal {
   position: fixed;
@@ -12377,7 +12411,7 @@ body[data-cbl-url-name="home"] .cbl-home-program-card .cbl-program-btn {
     function renderMini() {
       const items = visiblePrograms().filter(function (p) {
         return p.downloadable;
-      }).slice(0, 3);
+      }).slice(0, 10);
 
       if (!items.length) {
         mini.innerHTML =
