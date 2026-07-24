@@ -6100,8 +6100,16 @@ body.cbl-modal-open {
 
   async function runQuantityAnalysis() {
     // 진행률 폴링용 job_id — 업로드 요청에 같이 실어보내면, 서버가 배치 처리 중간중간
-    // /api/quantity/progress/ 로 조회 가능한 상태를 남겨준다. 분석이 멈춘 건지 그냥
-    // 오래 걸리는 건지 눈으로 볼 수 있게 하기 위함.
+    // /api/quantity/progress/ 로 조회 가능한 상태를 남겨준다.
+    //
+    // api_run_quantity는 이제 실제 작업(Gemini 호출 등)을 백그라운드 스레드로 던져놓고
+    // 바로 응답한다 — 예전에는 이 하나의 fetch가 Gemini 배치 호출을 전부 끝낼 때까지
+    // (실제 도면 기준 수십 분) 응답 없이 연결을 붙잡고 있었는데, 그렇게 오래 아무
+    // 응답도 안 오는 연결은 브라우저/OS/공유기 어딘가의 유휴 타임아웃에 걸려
+    // "네트워크 오류: Load failed"로 끊길 수 있었다(실제로 재현됨). 그 경우 서버는
+    // 계속 Gemini를 호출하며 비용만 나가고, 사용자는 결과를 영영 못 받았다.
+    // 지금은 결과를 이 폴링 루프(handleJobDone)를 통해서만 받는다 — 폴링은 몇 초짜리
+    // 요청이 반복되는 구조라 중간에 한두 번 끊겨도 다음 시도에서 다시 잡힌다.
     var jobId = "qty-" + Date.now() + "-" + Math.random().toString(36).slice(2);
 
     var think = appendLeft(
@@ -6119,6 +6127,8 @@ body.cbl-modal-open {
     var progressPctEl = think.querySelector("#qty-progress-pct");
     var cancelBtnEl = think.querySelector("#qty-progress-cancel");
     var cancelRequested = false;
+    var settled = false;
+    var pollTimer = null;
 
     if (cancelBtnEl) {
       cancelBtnEl.addEventListener("click", async function () {
@@ -6134,13 +6144,61 @@ body.cbl-modal-open {
             body: "job_id=" + encodeURIComponent(jobId)
           });
         } catch (e) {
-          // 취소 요청 자체가 네트워크 오류로 실패해도, 메인 분석 요청은 계속 기다린다 —
+          // 취소 요청 자체가 네트워크 오류로 실패해도, 폴링은 계속 돈다 —
           // 어차피 곧 정상적으로(또는 에러로) 끝나서 결과가 돌아온다.
         }
       });
     }
 
-    var pollTimer = setInterval(async function () {
+    // 폴링에서 done:true(백그라운드 작업 종료)를 받으면 여기서 마무리한다. 예전에
+    // /api/quantity/run/의 응답을 그대로 받아 처리하던 로직을 그대로 옮겨왔다 —
+    // 데이터 모양(ok/results/error)은 동일하게 맞췄으니 아래 로직은 안 바뀌었다.
+    function handleJobDone(pdata) {
+      if (settled) return;
+      settled = true;
+      if (pollTimer) clearInterval(pollTimer);
+      think.remove();
+
+      var data = (pdata.ok === false)
+        ? { error: pdata.error || "수량산출 처리 중 오류가 발생했어요." }
+        : { ok: true, results: pdata.results || {} };
+
+      if (data.error) {
+        addBot("수량산출 중 오류가 발생했어요.<br>" + esc(data.error), 200);
+        showRunButton();
+        return;
+      }
+
+      // ── 도면 확인(검토) 단계 — 실제 물량 계산 전에, 서버가 Gemini로 추출한 구조 부재를
+      //    바로 계산하지 않고 job_id로 임시 저장해둔 채 "확인 필요" 상태만 돌려준다.
+      //    사용자가 색칠된 도면 팝업에서 확인/수정을 마치고 "진행"을 눌러야
+      //    /api/quantity/confirm-review/ 로 실제 계산이 진행된다.
+      var structPreview = (data.results && data.results.structural) || {};
+      if (structPreview.review_required) {
+        addBot(
+          "치킨바나나가 실제 물량 계산 전에 구조 추출 도면 확인을 요청드립니다.<br>" +
+          "AI가 인식한 부재를 색칠한 도면과 체크리스트를 확인하시고, 틀린 부분이 있으면 표시/수정한 뒤 진행해 주세요.",
+          200
+        );
+        var reviewWrap = appendLeft(
+          '<div class="qty-btn-row wide">' +
+            '<button type="button" class="qty-action primary full" id="qty-open-review">도면 확인</button>' +
+          '</div>'
+        );
+        scrollBottom();
+        reviewWrap.querySelector("#qty-open-review").addEventListener("click", function () {
+          openReviewModal(structPreview, function (finalStructural) {
+            data.results.structural = finalStructural;
+            finishQuantityAnalysisFlow(data, false);
+          });
+        });
+        return;
+      }
+
+      finishQuantityAnalysisFlow(data, cancelRequested);
+    }
+
+    pollTimer = setInterval(async function () {
       var pdata;
       try {
         var pres = await fetch("/api/quantity/progress/?job_id=" + encodeURIComponent(jobId), {
@@ -6149,9 +6207,16 @@ body.cbl-modal-open {
         });
         pdata = await pres.json();
       } catch (e) {
-        return; // 폴링 실패는 조용히 넘어감 — 메인 요청 자체는 계속 진행 중이므로
+        return; // 폴링 실패는 조용히 넘어감 — 다음 폴링에서 다시 시도한다. 서버 쪽
+                // 작업은 이 연결과 무관하게 계속 진행 중이므로 다시 잡히면 그만이다.
       }
       if (!pdata || !pdata.found) return;
+
+      if (pdata.done) {
+        handleJobDone(pdata);
+        return;
+      }
+
       var stageIdx = pdata.stage_index || 1;
       var totalStages = pdata.total_stages || 1;
       var cur = pdata.current || 0;
@@ -6174,54 +6239,30 @@ body.cbl-modal-open {
     if (elevZipFile) fd.append("architectural_zip", elevZipFile);
     if (elevPdfFile) fd.append("architectural_pdf", elevPdfFile);
 
-    var data = {};
+    // ── 작업 시작 요청 — 이제 이 fetch는 파일을 넘기고 "백그라운드 작업이 시작됐다"는
+    //    확인(accepted)만 받으면 끝이라 보통 1초 안에 끝난다. 실제 결과는 위 폴링
+    //    루프(handleJobDone)가 받아온다.
+    var kickoff = {};
     try {
       var res = await fetch("/api/quantity/run/", {
         method: "POST",
         headers: { "X-CSRFToken": csrfToken() },
         body: fd
       });
-      data = await res.json();
+      kickoff = await res.json();
     } catch (e) {
-      data = { error: "네트워크 오류: " + (e && e.message ? e.message : String(e)) };
+      kickoff = { error: "네트워크 오류: " + (e && e.message ? e.message : String(e)) };
     }
 
-    clearInterval(pollTimer);
-    think.remove();
-
-    if (data.error) {
-      await addBot("수량산출 중 오류가 발생했어요.<br>" + esc(data.error), 200);
+    if (kickoff.error) {
+      settled = true;
+      clearInterval(pollTimer);
+      think.remove();
+      await addBot("수량산출 중 오류가 발생했어요.<br>" + esc(kickoff.error), 200);
       showRunButton();
       return;
     }
-
-    // ── 도면 확인(검토) 단계 — 실제 물량 계산 전에, 서버가 Gemini로 추출한 구조 부재를
-    //    바로 계산하지 않고 job_id로 임시 저장해둔 채 "확인 필요" 상태만 돌려준다.
-    //    사용자가 색칠된 도면 팝업에서 확인/수정을 마치고 "진행"을 눌러야
-    //    /api/quantity/confirm-review/ 로 실제 계산이 진행된다.
-    var structPreview = (data.results && data.results.structural) || {};
-    if (structPreview.review_required) {
-      await addBot(
-        "치킨바나나가 실제 물량 계산 전에 구조 추출 도면 확인을 요청드립니다.<br>" +
-        "AI가 인식한 부재를 색칠한 도면과 체크리스트를 확인하시고, 틀린 부분이 있으면 표시/수정한 뒤 진행해 주세요.",
-        200
-      );
-      var reviewWrap = appendLeft(
-        '<div class="qty-btn-row wide">' +
-          '<button type="button" class="qty-action primary full" id="qty-open-review">도면 확인</button>' +
-        '</div>'
-      );
-      scrollBottom();
-      reviewWrap.querySelector("#qty-open-review").addEventListener("click", function () {
-        openReviewModal(structPreview, function (finalStructural) {
-          data.results.structural = finalStructural;
-          finishQuantityAnalysisFlow(data, false);
-        });
-      });
-      return;
-    }
-
-    await finishQuantityAnalysisFlow(data, cancelRequested);
+    // kickoff.accepted === true — 이후로는 폴링 루프(handleJobDone)가 나머지를 처리한다.
   }
 
   // runQuantityAnalysis()의 완료 후 처리(층별표/색칠 미리보기/엑셀·3D 버튼)를 분리해둔 함수.
@@ -7675,11 +7716,12 @@ body[data-cbl-url-name="home"] .cbl-second-calendar-event-mini span {
 </style>
 
 <section class="cbl-second-row-same" aria-label="동영상과 캘린더">
+  <!-- CBL_VIDEO_MAIN_COMBINED_POPUP_SPLIT_V1_3 -->
   <section class="cbl-second-left">
     <div class="cbl-second-head">
       <div class="cbl-second-title-tabs">
         <h2>동영상/쇼츠</h2>
-        <div class="cbl-second-tabs" data-cbl-video-tabs>
+        <div class="cbl-second-tabs" data-cbl-video-tabs data-cbl-video-kind-tabs="all">
           <button type="button" class="active" data-cbl-video-filter="all">전체</button>
           <button type="button" data-cbl-video-filter="architecture">건설</button>
           <button type="button" data-cbl-video-filter="bim">BIM</button>
@@ -7687,28 +7729,24 @@ body[data-cbl-url-name="home"] .cbl-second-calendar-event-mini span {
           <button type="button" data-cbl-video-filter="program">프로그램</button>
         </div>
       </div>
-      <a href="{% url 'search' %}?q=동영상" class="cbl-second-more">더보기 <span>→</span></a>
+      <button type="button" class="cbl-second-more cbl-video-more-button" onclick="openCblVideoLibrary('video')">더보기 <span>→</span></button>
     </div>
 
-    <div class="cbl-second-video-grid" data-cbl-video-grid>
+    <div class="cbl-second-video-grid cbl-landscape-video-grid" data-cbl-video-grid="all">
       {% for post in home_video_posts %}
-      <a
-        class="cblx-post-card"
+      <a class="cblx-post-card"
         data-cbl-video-card
-        data-cbl-video-cat="{% if post.category == 'bim' or post.category == 'dynamo_automation' or post.category == 'four_d_five_d' %}bim{% elif post.category == 'tech' %}tech{% elif post.category == 'program' or post.category == 'tool_recommend' %}program{% else %}architecture{% endif %}"
+        data-cbl-video-kind="all"
+        data-cbl-video-id="{{ post.pk }}"
+        data-cbl-video-cat="{% if post.category == 'bim' or post.category == 'dynamo_automation' or post.category == 'four_d_five_d' %}bim{% elif post.category == 'tech' or post.category == 'tech_ai_development' or post.category == 'tech_data_security' or post.category == 'tech_server_software' %}tech{% elif post.category == 'program' or post.category == 'tool_recommend' %}program{% else %}architecture{% endif %}"
         href="{{ post.get_absolute_url }}">
-        <div class="cblx-thumb cbl-second-video-thumb">
+        <div class="cblx-thumb cbl-second-video-thumb cbl-landscape-thumb">
           {% if post.shorts_cover %}
             <img src="{{ post.shorts_cover.url }}" alt="{{ post.title|striptags }}">
           {% elif post.thumbnail %}
             <img src="{{ post.thumbnail.url }}" alt="{{ post.title|striptags }}">
           {% endif %}
-          <span>
-            {% if post.category == 'bim' or post.category == 'dynamo_automation' or post.category == 'four_d_five_d' %}BIM
-            {% elif post.category == 'tech' %}테크
-            {% elif post.category == 'program' or post.category == 'tool_recommend' %}프로그램
-            {% else %}건설{% endif %}
-          </span>
+          <span>{% if post.category == 'bim' or post.category == 'dynamo_automation' or post.category == 'four_d_five_d' %}BIM{% elif post.category == 'tech' or post.category == 'tech_ai_development' or post.category == 'tech_data_security' or post.category == 'tech_server_software' %}테크{% elif post.category == 'program' or post.category == 'tool_recommend' %}프로그램{% else %}건설{% endif %}</span>
           <i class="cbl-second-play"></i>
           <em class="cbl-second-time">{% if post.shorts_video %}SHORTS{% else %}VIDEO{% endif %}</em>
         </div>
@@ -7719,7 +7757,7 @@ body[data-cbl-url-name="home"] .cbl-second-calendar-event-mini span {
         </div>
       </a>
       {% empty %}
-      <div class="cblx-filter-empty">등록된 동영상/쇼츠가 없습니다.</div>
+      <div class="cbl-video-empty-state">아직 등록된 동영상/쇼츠가 없습니다.</div>
       {% endfor %}
     </div>
   </section>
@@ -7763,27 +7801,27 @@ body[data-cbl-url-name="home"] .cbl-second-calendar-event-mini span {
 
 <script>
 (function () {
-  /* 동영상/쇼츠 탭 필터 */
-  const tabsWrap = document.querySelector('[data-cbl-video-tabs]');
-  const videoCards = Array.from(document.querySelectorAll('[data-cbl-video-card]'));
+  /* 동영상과 쇼츠의 카테고리 필터를 각각 독립 실행 */
+  document.querySelectorAll('[data-cbl-video-tabs]').forEach(function (tabsWrap) {
+    const kind = tabsWrap.dataset.cblVideoKindTabs || '';
+    const videoCards = Array.from(
+      document.querySelectorAll('[data-cbl-video-card][data-cbl-video-kind="' + kind + '"]')
+    );
 
-  if (tabsWrap && videoCards.length) {
     tabsWrap.addEventListener('click', function (e) {
       const btn = e.target.closest('[data-cbl-video-filter]');
       if (!btn) return;
-
       const filter = btn.dataset.cblVideoFilter || 'all';
 
       tabsWrap.querySelectorAll('[data-cbl-video-filter]').forEach(function (item) {
         item.classList.toggle('active', item === btn);
       });
-
       videoCards.forEach(function (card) {
         const cat = card.dataset.cblVideoCat || '';
         card.classList.toggle('is-hidden', filter !== 'all' && cat !== filter);
       });
     });
-  }
+  });
 
   /* 캘린더 액션 - 원본 교체 */
   const calendar = document.querySelector('[data-cbl-second-calendar]');
@@ -14220,6 +14258,676 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
 </style>
 <!-- CBL_PC_CAD_RADIUS_FIX_V1_END -->
 
+
+
+<!-- CBL_VIDEO_POPUP_LIBRARY_V1_START -->
+<!-- CBL_VIDEO_SHORTS_SPLIT_V1_2 -->
+<style>
+  body[data-cbl-url-name="home"] .cbl-media-collections {
+    display: flex;
+    flex-direction: column;
+    gap: 34px;
+  }
+  body[data-cbl-url-name="home"] .cbl-second-video-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+  }
+  body[data-cbl-url-name="home"] .cbl-shorts-video-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    align-items: start;
+  }
+  body[data-cbl-url-name="home"] [data-cbl-video-card] {
+    min-width: 0 !important;
+    text-decoration: none !important;
+    cursor: pointer;
+  }
+  body[data-cbl-url-name="home"] [data-cbl-video-card] .cblx-post-body {
+    padding: 10px 10px 9px !important;
+  }
+  body[data-cbl-url-name="home"] [data-cbl-video-card] .cblx-post-body h3 {
+    min-height: 38px;
+    margin: 0 !important;
+    font-size: 13px !important;
+    line-height: 1.42 !important;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  body[data-cbl-url-name="home"] [data-cbl-video-card] .cblx-post-body p {
+    display: none !important;
+  }
+  body[data-cbl-url-name="home"] [data-cbl-video-card] .cblx-post-body small {
+    margin-top: 7px !important;
+    font-size: 10px !important;
+  }
+  body[data-cbl-url-name="home"] .cbl-landscape-thumb {
+    aspect-ratio: 16 / 9 !important;
+    min-height: 0 !important;
+  }
+  body[data-cbl-url-name="home"] .cbl-shorts-card {
+    align-self: start;
+  }
+  body[data-cbl-url-name="home"] .cbl-shorts-thumb {
+    width: 100%;
+    aspect-ratio: 9 / 16 !important;
+    min-height: 0 !important;
+    max-height: 340px;
+  }
+  body[data-cbl-url-name="home"] .cbl-shorts-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .cbl-video-more-button {
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+  }
+  .cbl-video-empty-state {
+    grid-column: 1 / -1;
+    padding: 42px 20px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 16px;
+    color: #94a3b8;
+    font-weight: 800;
+    text-align: center;
+  }
+  .cbl-video-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 13000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    background: rgba(2, 6, 23, .72);
+    backdrop-filter: blur(8px);
+  }
+  .cbl-video-overlay.active {
+    display: flex;
+  }
+  .cbl-video-dialog {
+    width: min(1120px, calc(100vw - 32px));
+    max-height: min(92dvh, 900px);
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 24px;
+    background: #fff;
+    box-shadow: 0 30px 90px rgba(2, 6, 23, .34);
+  }
+  .cbl-video-dialog-head {
+    min-height: 68px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px 18px 14px 22px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .cbl-video-dialog-head h2 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 22px;
+    font-weight: 950;
+  }
+  .cbl-video-dialog-head p {
+    margin: 3px 0 0;
+    color: #64748b;
+    font-size: 12px;
+  }
+  .cbl-video-close {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
+    border: 0;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #0f172a;
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .cbl-video-viewer-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(260px, .75fr);
+    gap: 0;
+    max-height: calc(92dvh - 69px);
+  }
+  .cbl-video-stage {
+    min-height: 0;
+    display: grid;
+    place-items: center;
+    padding: 18px;
+    background: #07111f;
+  }
+  .cbl-video-stage video,
+  .cbl-video-stage iframe {
+    display: block;
+    width: 100%;
+    max-height: calc(92dvh - 110px);
+    aspect-ratio: 16 / 9;
+    border: 0;
+    border-radius: 14px;
+    background: #000;
+    object-fit: contain;
+  }
+  .cbl-video-stage.is-shorts video,
+  .cbl-video-stage.is-shorts iframe {
+    width: auto;
+    max-width: min(390px, 100%);
+    height: min(76dvh, 720px);
+    max-height: calc(92dvh - 110px);
+    aspect-ratio: 9 / 16;
+  }
+  .cbl-video-viewer-info {
+    min-width: 0;
+    overflow-y: auto;
+    padding: 24px 22px;
+  }
+  .cbl-video-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 25px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: #dcfce7;
+    color: #047857;
+    font-size: 11px;
+    font-weight: 900;
+  }
+  .cbl-video-viewer-info h3 {
+    margin: 14px 0 10px;
+    color: #0f172a;
+    font-size: clamp(20px, 2vw, 28px);
+    line-height: 1.28;
+    font-weight: 950;
+  }
+  .cbl-video-meta {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .cbl-video-description {
+    margin-top: 20px;
+    color: #334155;
+    font-size: 14px;
+    line-height: 1.75;
+    white-space: pre-wrap;
+  }
+  .cbl-video-library-dialog {
+    width: min(1220px, calc(100vw - 32px));
+  }
+  .cbl-video-library-tools {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 190px auto;
+    gap: 10px;
+    padding: 15px 20px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f8fafc;
+  }
+  .cbl-video-library-tools input,
+  .cbl-video-library-tools select {
+    width: 100%;
+    min-height: 44px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    background: #fff;
+    padding: 0 13px;
+    color: #0f172a;
+    font: inherit;
+  }
+  .cbl-video-upload-action {
+    min-height: 44px;
+    border: 0;
+    border-radius: 12px;
+    background: #0f172a;
+    color: #fff;
+    padding: 0 18px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+  .cbl-video-library-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 15px;
+    max-height: calc(92dvh - 145px);
+    overflow-y: auto;
+    padding: 20px;
+    background: #f8fafc;
+  }
+  .cbl-video-library-card {
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    background: #fff;
+    padding: 0;
+    text-align: left;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .06);
+    cursor: pointer;
+  }
+  .cbl-video-library-thumb {
+    position: relative;
+    display: grid;
+    place-items: center;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background: linear-gradient(135deg, #0f172a, #0f766e);
+  }
+  .cbl-video-library-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .cbl-video-library-grid.shorts-mode {
+    grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+    align-items: start;
+  }
+  .cbl-video-library-card.is-shorts {
+    max-width: 260px;
+    justify-self: center;
+  }
+  .cbl-video-library-card.is-shorts .cbl-video-library-thumb {
+    aspect-ratio: 9 / 16;
+  }
+  .cbl-video-kind-tabs {
+    display: flex;
+    gap: 8px;
+    padding: 14px 20px 0;
+    background: #f8fafc;
+  }
+  .cbl-video-kind-tabs button {
+    min-height: 40px;
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    background: #fff;
+    color: #475569;
+    padding: 0 18px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+  .cbl-video-kind-tabs button.active {
+    border-color: #0f766e;
+    background: #0f766e;
+    color: #fff;
+  }
+  .cbl-video-library-play {
+    position: absolute;
+    width: 46px;
+    height: 46px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: rgba(255,255,255,.92);
+    color: #0f766e;
+    font-size: 18px;
+    box-shadow: 0 6px 18px rgba(0,0,0,.18);
+  }
+  .cbl-video-library-kind {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    padding: 3px 7px;
+    border-radius: 7px;
+    background: rgba(15,23,42,.88);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 900;
+  }
+  .cbl-video-library-card-body {
+    padding: 12px;
+  }
+  .cbl-video-library-card-body strong {
+    display: -webkit-box;
+    min-height: 40px;
+    overflow: hidden;
+    color: #0f172a;
+    font-size: 14px;
+    line-height: 1.42;
+    font-weight: 900;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .cbl-video-library-card-body small {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 9px;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 700;
+  }
+  @media (max-width: 980px) {
+    body[data-cbl-url-name="home"] .cbl-second-video-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+    .cbl-video-viewer-body {
+      grid-template-columns: 1fr;
+      overflow-y: auto;
+    }
+    .cbl-video-stage {
+      padding: 12px;
+    }
+    .cbl-video-stage video,
+    .cbl-video-stage iframe {
+      max-height: 52dvh;
+    }
+    .cbl-video-viewer-info {
+      overflow: visible;
+      padding: 18px;
+    }
+  }
+  @media (max-width: 640px) {
+    .cbl-video-overlay {
+      align-items: flex-end;
+      padding: 0;
+    }
+    .cbl-video-dialog,
+    .cbl-video-library-dialog {
+      width: 100%;
+      max-height: 95dvh;
+      border-radius: 22px 22px 0 0;
+    }
+    .cbl-video-library-tools {
+      grid-template-columns: 1fr;
+    }
+    .cbl-video-library-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      max-height: calc(95dvh - 270px);
+      padding: 12px;
+      gap: 10px;
+    }
+  }
+</style>
+
+<div id="cblVideoViewerModal" class="cbl-video-overlay" role="dialog" aria-modal="true" aria-labelledby="cblVideoViewerHeading">
+  <section class="cbl-video-dialog">
+    <header class="cbl-video-dialog-head">
+      <div>
+        <h2 id="cblVideoViewerHeading">동영상/쇼츠</h2>
+        <p>한 화면에서 영상과 설명을 함께 확인합니다.</p>
+      </div>
+      <button type="button" class="cbl-video-close" onclick="closeCblVideoViewer()" aria-label="닫기">×</button>
+    </header>
+    <div class="cbl-video-viewer-body">
+      <div id="cblVideoStage" class="cbl-video-stage">
+        <span style="color:#cbd5e1;font-weight:800">영상을 불러오는 중입니다.</span>
+      </div>
+      <aside class="cbl-video-viewer-info">
+        <span id="cblVideoViewerChip" class="cbl-video-chip">동영상</span>
+        <h3 id="cblVideoViewerTitle">영상을 불러오는 중입니다.</h3>
+        <div id="cblVideoViewerMeta" class="cbl-video-meta"></div>
+        <div id="cblVideoViewerDescription" class="cbl-video-description"></div>
+      </aside>
+    </div>
+  </section>
+</div>
+
+<div id="cblVideoLibraryModal" class="cbl-video-overlay" role="dialog" aria-modal="true" aria-labelledby="cblVideoLibraryHeading">
+  <section class="cbl-video-dialog cbl-video-library-dialog">
+    <header class="cbl-video-dialog-head">
+      <div>
+        <h2 id="cblVideoLibraryHeading">동영상/쇼츠 전체보기</h2>
+        <p id="cblVideoLibraryCount">등록된 영상을 불러오는 중입니다.</p>
+      </div>
+      <button type="button" class="cbl-video-close" onclick="closeCblVideoLibrary()" aria-label="닫기">×</button>
+    </header>
+    <div class="cbl-video-kind-tabs" data-cbl-video-kind-tabs-library>
+      <button type="button" class="active" data-cbl-library-kind="video">동영상 모음</button>
+      <button type="button" data-cbl-library-kind="shorts">쇼츠 모음</button>
+    </div>
+    <div class="cbl-video-library-tools">
+      <input id="cblVideoLibrarySearch" type="search" placeholder="동영상 제목·설명·태그 검색" autocomplete="off">
+      <select id="cblVideoLibraryCategory" aria-label="동영상 카테고리">
+        <option value="all">전체 카테고리</option>
+        <option value="architecture">건설</option>
+        <option value="bim">BIM</option>
+        <option value="tech">테크</option>
+        <option value="program">프로그램</option>
+      </select>
+      {% if request.user.is_staff or request.user.is_superuser %}
+      <button type="button" class="cbl-video-upload-action" onclick="openCblVideoUploader()">동영상 올리기</button>
+      {% endif %}
+    </div>
+    <div id="cblVideoLibraryGrid" class="cbl-video-library-grid">
+      <div class="cbl-video-empty-state">동영상을 불러오는 중입니다.</div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  const apiUrl = "/api/videos/";
+  const viewer = document.getElementById("cblVideoViewerModal");
+  const library = document.getElementById("cblVideoLibraryModal");
+  const stage = document.getElementById("cblVideoStage");
+  const libraryGrid = document.getElementById("cblVideoLibraryGrid");
+  const libraryCount = document.getElementById("cblVideoLibraryCount");
+  const searchInput = document.getElementById("cblVideoLibrarySearch");
+  const categoryInput = document.getElementById("cblVideoLibraryCategory");
+  let searchTimer = null;
+  let currentLibraryKind = "video";
+  const kindButtons = Array.from(document.querySelectorAll("[data-cbl-library-kind]"));
+
+  function escapeHtml(value) {
+    return String(value || "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function modalBodyState() {
+    const open = document.querySelector(".cbl-video-overlay.active");
+    document.documentElement.style.overflow = open ? "hidden" : "";
+  }
+
+  function stopPlayer() {
+    if (stage) {
+      stage.innerHTML = "";
+      stage.classList.remove("is-shorts");
+    }
+  }
+
+  function renderViewer(item) {
+    if (!item || !stage) return;
+    stage.classList.toggle("is-shorts", item.kind === "shorts" || item.video_kind === "SHORTS");
+    if (item.source_type === "youtube") {
+      stage.innerHTML = '<iframe src="' + escapeHtml(item.source_url)
+        + '" title="' + escapeHtml(item.title)
+        + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>';
+    } else {
+      stage.innerHTML = '<video controls playsinline autoplay preload="metadata"'
+        + (item.cover_url ? ' poster="' + escapeHtml(item.cover_url) + '"' : "")
+        + '><source src="' + escapeHtml(item.source_url)
+        + '">현재 브라우저에서 이 영상을 재생할 수 없습니다.</video>';
+    }
+    document.getElementById("cblVideoViewerChip").textContent =
+      (item.category_label || "동영상") + " · " + (item.video_kind || "VIDEO");
+    document.getElementById("cblVideoViewerTitle").textContent = item.title || "제목 없는 영상";
+    document.getElementById("cblVideoViewerMeta").textContent =
+      (item.created_at || "") + "  ·  조회 " + Number(item.views || 0).toLocaleString();
+    document.getElementById("cblVideoViewerDescription").textContent =
+      item.description || "등록된 영상 설명이 없습니다.";
+  }
+
+  async function fetchVideos(params) {
+    const query = new URLSearchParams(params || {});
+    const response = await fetch(apiUrl + "?" + query.toString(), {
+      headers: { "X-Requested-With": "XMLHttpRequest" }
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "영상을 불러오지 못했습니다.");
+    return data;
+  }
+
+  window.openCblVideoViewer = async function (id) {
+    if (!viewer) return;
+    viewer.classList.add("active");
+    stage.innerHTML = '<span style="color:#cbd5e1;font-weight:800">영상을 불러오는 중입니다.</span>';
+    modalBodyState();
+    try {
+      const data = await fetchVideos({ id: id });
+      if (!data.items.length) throw new Error("재생할 영상을 찾지 못했습니다.");
+      renderViewer(data.items[0]);
+    } catch (error) {
+      stage.innerHTML = '<span style="color:#fecaca;font-weight:800">'
+        + escapeHtml(error.message) + "</span>";
+    }
+  };
+
+  window.closeCblVideoViewer = function () {
+    if (viewer) viewer.classList.remove("active");
+    stopPlayer();
+    modalBodyState();
+  };
+
+  function renderLibrary(items) {
+    if (!libraryGrid) return;
+    libraryGrid.classList.toggle("shorts-mode", currentLibraryKind === "shorts");
+    if (!items.length) {
+      libraryGrid.innerHTML = '<div class="cbl-video-empty-state">아직 등록된 동영상/쇼츠가 없습니다.</div>';
+      return;
+    }
+    libraryGrid.innerHTML = items.map(function (item) {
+      const image = item.cover_url
+        ? '<img src="' + escapeHtml(item.cover_url) + '" alt="">'
+        : "";
+      return '<button type="button" class="cbl-video-library-card '
+        + (item.kind === "shorts" ? "is-shorts" : "")
+        + '" data-cbl-library-video-id="'
+        + Number(item.id) + '"><span class="cbl-video-library-thumb">' + image
+        + '<i class="cbl-video-library-play">▶</i><em class="cbl-video-library-kind">'
+        + escapeHtml(item.video_kind) + '</em></span><span class="cbl-video-library-card-body">'
+        + '<span class="cbl-video-chip">' + escapeHtml(item.category_label) + '</span>'
+        + '<strong>' + escapeHtml(item.title) + '</strong><small><span>'
+        + escapeHtml(item.created_at) + '</span><span>조회 '
+        + Number(item.views || 0).toLocaleString() + '</span></small></span></button>';
+    }).join("");
+  }
+
+  async function loadLibrary() {
+    if (!libraryGrid) return;
+    libraryGrid.innerHTML = '<div class="cbl-video-empty-state">동영상을 불러오는 중입니다.</div>';
+    try {
+      const data = await fetchVideos({
+        q: searchInput ? searchInput.value.trim() : "",
+        category: categoryInput ? categoryInput.value : "all",
+        kind: currentLibraryKind
+      });
+      if (libraryCount) libraryCount.textContent = data.count + "개의 동영상/쇼츠";
+      renderLibrary(data.items || []);
+    } catch (error) {
+      libraryGrid.innerHTML = '<div class="cbl-video-empty-state">'
+        + escapeHtml(error.message) + "</div>";
+    }
+  }
+
+  function syncLibraryKindButtons() {
+    kindButtons.forEach(function (button) {
+      button.classList.toggle("active", button.dataset.cblLibraryKind === currentLibraryKind);
+    });
+    const heading = document.getElementById("cblVideoLibraryHeading");
+    if (heading) heading.textContent = currentLibraryKind === "shorts"
+      ? "쇼츠 모음 전체보기"
+      : "동영상 모음 전체보기";
+  }
+
+  window.openCblVideoLibrary = function (kind) {
+    if (!library) return;
+    if (kind === "video" || kind === "shorts") currentLibraryKind = kind;
+    syncLibraryKindButtons();
+    library.classList.add("active");
+    modalBodyState();
+    loadLibrary();
+    setTimeout(function () {
+      if (searchInput) searchInput.focus();
+    }, 80);
+  };
+
+  window.closeCblVideoLibrary = function () {
+    if (library) library.classList.remove("active");
+    modalBodyState();
+  };
+
+  window.openCblVideoUploader = function () {
+    window.closeCblVideoLibrary();
+    if (typeof window.openVideoPostUploadModal === "function") {
+      window.openVideoPostUploadModal();
+    } else if (typeof window.openVideoUploadChoiceModal === "function") {
+      window.openVideoUploadChoiceModal();
+    }
+  };
+
+  document.addEventListener("click", function (event) {
+    const homeCard = event.target.closest("[data-cbl-video-card]");
+    if (homeCard) {
+      const id = homeCard.dataset.cblVideoId;
+      if (id) {
+        event.preventDefault();
+        window.openCblVideoViewer(id);
+      }
+      return;
+    }
+
+    const libraryCard = event.target.closest("[data-cbl-library-video-id]");
+    if (libraryCard) {
+      const id = libraryCard.dataset.cblLibraryVideoId;
+      window.closeCblVideoLibrary();
+      window.openCblVideoViewer(id);
+    }
+  }, true);
+
+  [viewer, library].forEach(function (modal) {
+    if (!modal) return;
+    modal.addEventListener("click", function (event) {
+      if (event.target !== modal) return;
+      if (modal === viewer) window.closeCblVideoViewer();
+      else window.closeCblVideoLibrary();
+    });
+  });
+
+  kindButtons.forEach(function (button) {
+    button.addEventListener("click", function () {
+      currentLibraryKind = button.dataset.cblLibraryKind === "shorts" ? "shorts" : "video";
+      syncLibraryKindButtons();
+      loadLibrary();
+    });
+  });
+
+  if (searchInput) {
+    searchInput.addEventListener("input", function () {
+      window.clearTimeout(searchTimer);
+      searchTimer = window.setTimeout(loadLibrary, 260);
+    });
+  }
+  if (categoryInput) categoryInput.addEventListener("change", loadLibrary);
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Escape") return;
+    if (viewer && viewer.classList.contains("active")) window.closeCblVideoViewer();
+    else if (library && library.classList.contains("active")) window.closeCblVideoLibrary();
+  });
+
+  const params = new URLSearchParams(window.location.search);
+  const uploadedVideoId = params.get("video");
+  if (uploadedVideoId && /^\d+$/.test(uploadedVideoId)) {
+    window.setTimeout(function () {
+      window.openCblVideoViewer(uploadedVideoId);
+    }, 120);
+    params.delete("video");
+    const clean = window.location.pathname
+      + (params.toString() ? "?" + params.toString() : "")
+      + window.location.hash;
+    window.history.replaceState({}, "", clean);
+  }
+})();
+</script>
+<!-- CBL_VIDEO_POPUP_LIBRARY_V1_END -->
+
 {% endblock %}
 
 
@@ -15214,3 +15922,6 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
 })();
 </script>
 <!-- CBL_CAD_HOME_START_AUTOVERSION_V1_END -->
+
+
+
