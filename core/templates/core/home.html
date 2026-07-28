@@ -15133,6 +15133,29 @@ html body[data-cbl-url-name="home"] .cbl-second-calendar-event-mini {
   border-left: 4px solid var(--cbl-event-color, #2f9e97) !important;
 }
 
+/* 2026-07-28 사용자 지적: "색깔라인이랑 글이랑 수정 삭제 일자가 너무 붙어있어" —
+   왼쪽 색상 바와 글자가 거의 맞닿아 있고, 날짜/제목과 수정·삭제 버튼 사이도
+   간격이 부족해 답답해 보였다. 좌측 여백과 상단 여백을 넉넉히 늘린다. */
+html body[data-cbl-url-name="home"] .cbl-second-calendar-event-mini {
+  padding: 11px 4px 13px 14px !important;
+}
+
+html body[data-cbl-url-name="home"] .cbl-second-calendar-event-mini em {
+  margin-bottom: 5px !important;
+}
+
+html body[data-cbl-url-name="home"] .cbl-second-calendar-event-mini b {
+  line-height: 1.5 !important;
+}
+
+html body[data-cbl-url-name="home"] .cbl-second-calendar-event-mini span {
+  margin-top: 5px !important;
+}
+
+html body[data-cbl-url-name="home"] .cbl-second-calendar-event-actions {
+  margin-top: 14px !important;
+}
+
 @media (max-width: 720px) {
   html body[data-cbl-url-name="home"] .cbl-event-color-row {
     grid-template-columns: 48px 1fr !important;
