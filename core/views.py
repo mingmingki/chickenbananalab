@@ -5824,6 +5824,11 @@ try:
     def _cbl_construction_rewrite_post_for_generation(request):
         import json
         qd = request.POST.copy()
+        request_text = (
+            qd.get("keyword")
+            or qd.get("title")
+            or " ".join(qd.getlist("keywords[]"))
+        )
 
         for name in (
             "category", "post_category", "post_category_slug", "selected_category",
@@ -5841,11 +5846,6 @@ try:
             except Exception:
                 rows = []
             if isinstance(rows, list):
-        request_text = (
-            qd.get("keyword")
-            or qd.get("title")
-            or " ".join(qd.getlist("keywords[]"))
-        )
                 for item in rows:
                     if isinstance(item, dict):
                         item["category"] = _cbl_construction_generation_category(
