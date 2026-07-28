@@ -11,6 +11,8 @@ import base64
 import hashlib
 import io
 import json
+import logging
+import math
 import os
 import re
 import shutil
@@ -18,6 +20,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import unicodedata
 import zipfile
 from functools import wraps
 
@@ -26,6 +29,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from pdf2image import convert_from_bytes, pdfinfo_from_bytes
 from PIL import Image, ImageDraw
+from pypdf import PdfReader, PdfWriter
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required, user_passes_test
@@ -38,7 +42,9 @@ from google import genai
 from google.genai import types
 
 from .views import admin_required
-from .quantity_calc import compute_structural_quantities, compute_massing_model
+from .quantity_calc import compute_structural_quantities, compute_massing_model, REBAR_UNIT_WEIGHT
+
+logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────
@@ -167,6 +173,49 @@ def _progress_get(job_id):
 
 
 # ─────────────────────────────────────────────
+#  결과 저장소: api_run_quantity는 이제 Gemini 작업을 백그라운드 스레드로 던져놓고
+#  즉시 응답한다(진행률 폴링 저장소와 같은 이유 — 응답을 안 보내고 몇 분~몇십 분씩
+#  연결을 붙잡고 있으면, 그 사이 브라우저/OS/공유기 어딘가의 유휴 커넥션 타임아웃에
+#  걸려 "네트워크 오류: Load failed"로 끊길 수 있다. 이때 서버는 클라이언트가
+#  끊긴 걸 알 방법이 없어 Gemini 호출을 계속 실행하므로, 돈은 나가는데 사용자는
+#  결과를 영영 못 받는 상황이 생긴다 — 실제로 재현된 문제다).
+#  백그라운드 스레드가 끝나면 최종 결과(성공/실패 모두)를 여기에 job_id로 저장해두고,
+#  프론트엔드는 기존에 쓰던 진행률 폴링(api_quantity_progress)을 그대로 계속 돌리다가
+#  done=true가 오면 같이 담겨온 결과를 쓴다. 폴링 연결이 중간에 한두 번 끊겨도 다음
+#  폴링에서 다시 시도하면 그만이라, 몇 초짜리 요청이 반복되는 구조가 몇십 분짜리
+#  요청 하나보다 훨씬 안전하다.
+# ─────────────────────────────────────────────
+_RESULT_STORE = {}
+_RESULT_LOCK = threading.Lock()
+_RESULT_TTL_SEC = 60 * 60  # 1시간 — 사용자가 자리를 비웠다 돌아와도 결과를 받을 수 있게 넉넉히
+
+
+def _result_cleanup_locked():
+    cutoff = time.time() - _RESULT_TTL_SEC
+    stale = [jid for jid, v in _RESULT_STORE.items() if v.get("_created_at", 0) < cutoff]
+    for jid in stale:
+        _RESULT_STORE.pop(jid, None)
+
+
+def _result_set(job_id, payload):
+    if not job_id:
+        return
+    with _RESULT_LOCK:
+        stored = dict(payload)
+        stored["_created_at"] = time.time()
+        _RESULT_STORE[job_id] = stored
+        _result_cleanup_locked()
+
+
+def _result_get(job_id):
+    if not job_id:
+        return None
+    with _RESULT_LOCK:
+        _result_cleanup_locked()
+        return _RESULT_STORE.get(job_id)
+
+
+# ─────────────────────────────────────────────
 #  취소 요청: 사용자가 분석 도중 "취소" 버튼을 누르면, 그 job_id를 이 집합에 넣어둔다.
 #  api_run_quantity가 각 단계(건축분석/입면검토/구조부재 배치추출)를 시작하기 직전에
 #  이 집합을 확인해서, 이미 취소 요청이 온 경우 그 단계부터는 건너뛰고 지금까지
@@ -238,6 +287,155 @@ def _extraction_store_pop(job_id):
         return _EXTRACTION_STORE.pop(job_id, None)
 
 
+def _extraction_store_get(job_id):
+    """pop과 달리 저장소에서 지우지 않고 읽기만 한다. 확정 계산(api_quantity_confirm_review)이
+    이 값으로 계산을 시도했다가 실패하면 그대로 재시도할 수 있어야 하므로(Gemini 추출을
+    처음부터 다시 하지 않아도 되게), 계산이 실제로 성공했을 때만 호출부가 별도로
+    _extraction_store_pop을 불러서 지우게 한다."""
+    if not job_id:
+        return None
+    with _EXTRACTION_LOCK:
+        _extraction_cleanup_locked()
+        return _EXTRACTION_STORE.get(job_id)
+
+
+# ─────────────────────────────────────────────
+#  확인 절차 상태머신 (review_id) — 지피티 독립 검토에서 지적된 실제 구멍을 막기 위해
+#  추가했다: api_run_quantity가 confirmed_general_spec 없이도 바로 본 산출을 시작할 수
+#  있었고, 있어도 브라우저가 보내는 JSON을 서버가 그대로 신뢰했다 — API를 직접 두드리면
+#  개요/구조일반사항 확인을 생략하거나 임의의 구조일반사항을 주입할 수 있었다는 뜻이다.
+#
+#  이제는 프론트가 흐름을 시작할 때 review_id 하나를 만들어 모든 단계(개요확인→
+#  개요확정→구조일반사항확인→구조일반사항확정→지하주차장평면도확인→확정→본추출→
+#  부재검토→계산) 내내 재사용하고, 서버가 이 review_id로 "지금까지 실제로 어디까지
+#  확정됐는지"를 기억한다. 각 단계 엔드포인트는 자기 앞 단계가 서버 기록상 확정돼
+#  있는지 확인한 뒤에만 진행하고, 아니면 409를 돌려준다 — 클라이언트가 무슨 값을
+#  같이 보내든 서버 기록이 이긴다(general_spec도 서버가 들고 있는 값을 쓰지, 요청에
+#  실려온 값을 신뢰하지 않는다).
+#
+#  progress 폴링용 job_id(_PROGRESS_STORE/_RESULT_STORE 키)와는 별개의 개념이다 —
+#  job_id는 호출마다 새로 만들어도 되는 일회성 폴링 토큰이고, review_id는 세션
+#  전체에서 하나만 만들어 계속 재사용하는 "이 확인 절차가 지금 어디까지 왔는지"의
+#  단일 진실 공급원이다.
+# ─────────────────────────────────────────────
+_REVIEW_STORE = {}
+_REVIEW_LOCK = threading.Lock()
+_REVIEW_TTL_SEC = 60 * 60 * 3  # 3시간 — 개요/구조일반사항/지하주차장 확인을 여러 번 왕복해도 넉넉하게
+
+REVIEW_STAGE_ORDER = ["overview", "general_spec", "basement_plan"]
+
+
+def _sha256_bytes(value):
+    return hashlib.sha256(value or b"").hexdigest() if value is not None else None
+
+
+def _review_file_hashes(structural_pdf_bytes=None, architectural_pdf_bytes=None,
+                        structural_zip_bytes=None, architectural_zip_bytes=None):
+    return {
+        "structural_pdf": _sha256_bytes(structural_pdf_bytes),
+        "architectural_pdf": _sha256_bytes(architectural_pdf_bytes),
+        "structural_zip": _sha256_bytes(structural_zip_bytes),
+        "architectural_zip": _sha256_bytes(architectural_zip_bytes),
+    }
+
+
+def _canonical_review_id(user_id, file_hashes):
+    """로그인 사용자와 업로드 파일 내용에 종속된, 클라이언트가 위조할 수 없는 상태 키."""
+    material = json.dumps(
+        {"user_id": str(user_id), "files": file_hashes},
+        sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    return "qtyrev-" + hashlib.sha256(material).hexdigest()
+
+
+def _matching_uploaded_files(record, current_hashes):
+    expected = (record or {}).get("_file_hashes") or {}
+    for key, current in current_hashes.items():
+        if current is not None and expected.get(key) != current:
+            return False
+    return True
+
+
+def _review_cleanup_locked():
+    cutoff = time.time() - _REVIEW_TTL_SEC
+    stale = [rid for rid, v in _REVIEW_STORE.items() if v.get("_updated_at", 0) < cutoff]
+    for rid in stale:
+        _REVIEW_STORE.pop(rid, None)
+
+
+def _review_ensure(review_id, user_id=None, file_hashes=None):
+    """review_id에 해당하는 상태 기록이 없으면 새로 만들고, 있으면 그대로 반환한다."""
+    with _REVIEW_LOCK:
+        _review_cleanup_locked()
+        rec = _REVIEW_STORE.get(review_id)
+        if rec is None:
+            rec = {
+                "overview": None, "overview_confirmed": False,
+                "general_spec": None, "general_spec_confirmed": False,
+                "basement_plan": None, "basement_plan_confirmed": False,
+                "extraction_started": False,
+                "_user_id": str(user_id) if user_id is not None else None,
+                "_file_hashes": dict(file_hashes or {}),
+                "_created_at": time.time(), "_updated_at": time.time(),
+            }
+            _REVIEW_STORE[review_id] = rec
+        return rec
+
+
+def _review_get(review_id):
+    if not review_id:
+        return None
+    with _REVIEW_LOCK:
+        _review_cleanup_locked()
+        return _REVIEW_STORE.get(review_id)
+
+
+def _review_update(review_id, **fields):
+    """review_id 기록에 필드를 병합한다. 기록이 없으면(만료됐거나 애초에 없으면) 아무것도
+    하지 않고 False를 반환한다 — 호출부가 "세션을 찾을 수 없음"으로 처리해야 한다."""
+    with _REVIEW_LOCK:
+        rec = _REVIEW_STORE.get(review_id)
+        if rec is None:
+            return False
+        rec.update(fields)
+        rec["_updated_at"] = time.time()
+        return True
+
+
+def _review_require_stage(review_id, required_confirmed_field, stage_label):
+    """review_id가 required_confirmed_field(예: "general_spec_confirmed")까지 확정된
+    상태인지 확인한다. 통과하면 (record, None)을, 실패하면 (None, JsonResponse) 를
+    반환한다 — 호출부는 두 번째 값이 있으면 그대로 return하면 된다."""
+    rec = _review_get(review_id)
+    if rec is None:
+        return None, JsonResponse({
+            "error": "확인 절차 세션을 찾을 수 없습니다 — 시간이 너무 지났거나 잘못된 review_id입니다. "
+                     "개요 확인부터 다시 진행해 주세요.",
+        }, status=404)
+    if not rec.get(required_confirmed_field):
+        return None, JsonResponse({
+            "error": f"{stage_label} 확정이 되지 않았습니다 — 이전 단계를 먼저 확인/확정해 주세요.",
+        }, status=409)
+    return rec, None
+
+
+def _review_reset_confirmations_from(review_id, stage):
+    """stage 및 그 이후 단계(REVIEW_STAGE_ORDER 기준)의 *_confirmed 플래그를 전부 False로
+    되돌린다. 지피티 독립 검토에서 지적된 문제: 개요/구조일반사항을 다시 확인하거나
+    "아니요, 수정할게요"로 재검토한 뒤에도 이미 확정(confirmed=True)돼 있던 플래그가
+    그대로 남아있었다 — 새로 받아온 데이터가 이전에 사람이 눈으로 보고 확정한 데이터와
+    다를 수 있는데도, 서버 기록상으로는 여전히 "확정됨"으로 남아 있었다는 뜻이다.
+    이제 overview-check/overview-revise/basement-plan-check가 데이터를 새로 쓸 때마다
+    그 단계부터 이후 모든 단계의 확정을 무효화해서, 사용자가 매번 새 데이터를 다시
+    "예, 맞습니다"로 확인해야만 본 추출까지 갈 수 있게 한다."""
+    try:
+        idx = REVIEW_STAGE_ORDER.index(stage)
+    except ValueError:
+        return
+    reset_fields = {f"{s}_confirmed": False for s in REVIEW_STAGE_ORDER[idx:]}
+    _review_update(review_id, **reset_fields)
+
+
 # 체크리스트에 보여주고, 사용자가 고칠 수 있게 허용할 카테고리별 핵심 필드.
 # 처음엔 치수/개수/철근규격만 추렸었는데, 정작 철근량 계산에 제일 크게 영향을 주는
 # rebar_spacing_m(간격)·main_rebar_count(개수) 등이 빠져있으면 검토 화면에서 고쳐봤자
@@ -265,7 +463,7 @@ _MEMBER_SUMMARY_FIELDS = {
     ],
     "walls": [
         "length_m", "height_m", "thickness_m", "count",
-        "rebar_size", "rebar_spacing_m", "has_hook", "end_condition",
+        "rebar_size", "rebar_spacing_m", "has_hook", "end_condition", "is_single_face",
     ],
     "stairs": [
         "width_m", "length_m", "thickness_m", "count",
@@ -277,8 +475,29 @@ _MEMBER_SUMMARY_FIELDS = {
 
 # 위 필드 중 참/거짓 값인 것들 — 검토 팝업에서 텍스트 입력 대신 체크박스로 보여주기 위한 목록.
 _MEMBER_BOOLEAN_FIELDS = {
-    "has_hook", "is_top_bar", "is_deck_slab", "dowel_has_hook",
+    "has_hook", "is_top_bar", "is_deck_slab", "dowel_has_hook", "is_single_face",
 }
+
+# extract_structural_members()가 남기는 notes 중, "이 결과는 온전하지 않다"는 신호로 볼 수 있는
+# 문구들 — 이런 note가 하나라도 있으면 검토 팝업에서 "일부만 인식됨"을 눈에 띄게 알려야 한다.
+# 그냥 notes 목록 맨 아래 묻혀 있으면 사용자가 놓치고 "확정" 취급해버릴 위험이 크다(실제로
+# 지적받은 문제 — Gemini 응답이 잘리거나 배치가 실패해도 지금까지는 조용히 부분 결과로
+# 진행할 수 있었다).
+_INCOMPLETE_EXTRACTION_MARKERS = [
+    "도중에 잘려", "렌더링 중 오류가 발생했습니다", "취소를 요청하여", "JSON 파싱 오류",
+]
+
+
+def _extraction_incomplete_reasons(members):
+    """members["notes"]를 훑어서 추출이 불완전했다고 볼 수 있는 사유만 골라 돌려준다.
+    빈 리스트면 완전하다고 간주한다(마커에 해당하는 note가 하나도 없었다는 뜻)."""
+    reasons = []
+    for note in members.get("notes") or []:
+        if not isinstance(note, str):
+            continue
+        if any(marker in note for marker in _INCOMPLETE_EXTRACTION_MARKERS):
+            reasons.append(note)
+    return reasons
 
 
 def _build_review_checklist(members):
@@ -295,6 +514,7 @@ def _build_review_checklist(members):
                 if f in it:
                     fields[f] = it.get(f)
             bbox = it.get("bbox") if isinstance(it.get("bbox"), dict) else None
+            rebar_layers = it.get("rebar_layers")
             checklist.append({
                 "review_id": f"{cat_key}:{i}",
                 "category": label,
@@ -306,14 +526,164 @@ def _build_review_checklist(members):
                 # 체크박스로 그릴 수 있게 한다 (has_hook 같은 걸 "true"라고 글자로 치게 하면 실수하기 쉬움).
                 "bool_fields": sorted(f for f in fields if f in _MEMBER_BOOLEAN_FIELDS),
                 "bbox_page": bbox.get("page") if bbox else None,
+                "dedup_flag": it.get("_dedup_flag") or None,
+                # 세분화 배근(rebar_layers)은 role/size/spacing_m/count 등을 담은 리스트라
+                # 위 fields(스칼라 값 전용)와 형태가 달라 따로 내려준다 — 프론트는 이걸
+                # 읽기전용 요약 + 편집용 JSON 텍스트영역으로 보여준다.
+                "rebar_layers": rebar_layers if isinstance(rebar_layers, list) else None,
             })
     return checklist
+
+
+_VALID_REBAR_SIZES = set(REBAR_UNIT_WEIGHT.keys())
+_VALID_WALL_END_CONDITIONS = {"일자형", "T자형", "모서리"}
+_MAX_REASONABLE_NUMERIC = 100000  # 오타로 0을 몇 개 더 붙인 값 등을 걸러내는 상한 — 실제 치수/간격/개수 범위를 크게 벗어남
+
+
+def _validate_correction_field(field, value):
+    """검토 팝업에서 들어온 수정값 1개가 계산에 안전하게 들어가도 되는 값인지 확인한다.
+    유효하면 (True, 정제된 값), 무효하면 (False, 사유 문자열)을 돌려준다.
+
+    이게 없으면(원래 없었음) 수정 팝업에 count=-1 같은 값을 넣었을 때 그대로 계산에
+    들어가 콘크리트/거푸집 물량이 음수로 나오는 문제가 실제로 있었다 — 치수/간격/개수
+    필드는 양수인지, 철근 규격은 실제 존재하는 규격인지 정도는 최소한으로 걸러낸다."""
+    if field in _MEMBER_BOOLEAN_FIELDS:
+        return True, bool(value)
+
+    if field.endswith("_size"):
+        if value in _VALID_REBAR_SIZES:
+            return True, value
+        return False, f"{field}={value!r}: 허용되지 않는 철근 규격입니다"
+
+    if field == "end_condition":
+        if not value or value in _VALID_WALL_END_CONDITIONS:
+            return True, value
+        return False, f"end_condition={value!r}: 일자형/T자형/모서리 중 하나여야 합니다"
+
+    # 나머지(길이/두께/간격/개수 등)는 전부 숫자 필드 — 음수·NaN·비정상적으로 큰 값을 막는다.
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return False, f"{field}={value!r}: 숫자가 아닙니다"
+    if not math.isfinite(num) or num <= 0:
+        return False, f"{field}={value!r}: 0보다 큰 숫자여야 합니다"
+    if num > _MAX_REASONABLE_NUMERIC:
+        return False, f"{field}={value!r}: 비정상적으로 큰 값입니다"
+    if field == "count" or field.endswith("_count"):
+        if num != int(num):
+            return False, f"{field}={value!r}: 정수(개수)여야 합니다"
+        return True, int(num)
+    return True, num
+
+
+_VALID_REBAR_LAYER_ROLES = {
+    "주근", "후프", "타이", "스터럽", "수직근", "수평근",
+    "단부보강근", "모서리보강근", "교차부보강근", "개구부보강근", "배력근",
+}
+
+
+def _validate_rebar_layers_correction(value):
+    """검토 팝업에서 세분화 배근(rebar_layers) 전체를 사용자가 JSON으로 고쳐 넣었을 때
+    계산에 안전하게 들어가도 되는 형태인지 검증한다. 유효하면 (True, 정제된 리스트),
+    무효하면 (False, 사유 문자열)을 돌려준다.
+
+    rebar_layers는 스칼라 값이 아니라 role/size/spacing_m/count 등을 담은 딕셔너리의
+    리스트라 _validate_correction_field(숫자·철근규격·참거짓만 다룸)로는 검증할 수 없어서
+    따로 만들었다. 항목 하나하나의 최종 방어는 quantity_calc._valid_rebar_layers가 실제
+    계산 시점에도 한 번 더 하지만(그 함수는 안전을 위해 조용히 걸러내고 경고만 남김),
+    검토 화면에서 미리 걸러 알려줘야 사용자가 "저장했는데 왜 반영이 안 되지"라고
+    헷갈리지 않는다."""
+    if value in (None, ""):
+        return True, []
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            return False, "세분화배근: JSON 형식이 아닙니다"
+    if value == []:
+        return True, []
+    if not isinstance(value, list):
+        return False, "세분화배근: 목록(JSON 배열) 형태여야 합니다"
+    cleaned = []
+    for i, layer in enumerate(value):
+        if not isinstance(layer, dict):
+            return False, f"세분화배근[{i}]: 각 항목은 객체({{...}}) 형태여야 합니다"
+        role = layer.get("role")
+        if not role or role not in _VALID_REBAR_LAYER_ROLES:
+            return False, f"세분화배근[{i}]: role={role!r}은 허용되지 않는 배근 종류입니다"
+        size = layer.get("size")
+        if size is not None and size not in _VALID_REBAR_SIZES:
+            return False, f"세분화배근[{i}]: size={size!r}은 허용되지 않는 철근 규격입니다"
+        for numf in ("spacing_m", "zone_length_m"):
+            v = layer.get(numf)
+            if v is not None:
+                try:
+                    v = float(v)
+                except (TypeError, ValueError):
+                    return False, f"세분화배근[{i}].{numf}={layer.get(numf)!r}: 숫자가 아닙니다"
+                if not math.isfinite(v) or v <= 0:
+                    return False, f"세분화배근[{i}].{numf}={layer.get(numf)!r}: 0보다 큰 숫자여야 합니다"
+                layer[numf] = v
+        if layer.get("count") is not None:
+            try:
+                c = float(layer.get("count"))
+            except (TypeError, ValueError):
+                return False, f"세분화배근[{i}].count={layer.get('count')!r}: 숫자가 아닙니다"
+            if not math.isfinite(c) or c <= 0 or c != int(c):
+                return False, f"세분화배근[{i}].count={layer.get('count')!r}: 0보다 큰 정수(개수)여야 합니다"
+            layer["count"] = int(c)
+        cleaned.append(layer)
+    return True, cleaned
+
+
+def _sanitize_raw_members(members):
+    """Gemini가 추출한 원본 부재 데이터를 실제 계산(compute_structural_quantities)에
+    넣기 전에 마지막으로 한 번 더 검증한다.
+
+    검토 팝업에서 사용자가 직접 고친 필드는 _apply_member_corrections가
+    _validate_correction_field로 이미 검증하지만, 사용자가 건드리지 않은 나머지 필드
+    (실무에서는 대부분의 필드가 여기 해당한다)는 Gemini 원본값이 그대로 계산에
+    들어간다 — count=0이 `it.get("count", 1) or 1` 폴백 때문에 조용히 1로 바뀌거나,
+    count=-2 같은 값이 그대로 들어가 콘크리트/거푸집/철근량이 통째로 음수로 계산되는
+    문제가 실제로 재현/확인됐다. 이 함수는 카테고리별 계산용 필드(_MEMBER_SUMMARY_FIELDS)를
+    전부 훑어서 무효한 값(음수/0/NaN/비정수 개수 등)이 있으면 그 필드만 None으로 비운다
+    (항목 전체를 지우지는 않는다 — 필드 하나가 이상하다고 나머지 정상 값까지 버릴 필요는
+    없어서다). 필드가 None이 되면 quantity_calc.py에 이미 있는 "치수 누락시 계산 제외"
+    "철근정보 없으면 정보없음 처리" 로직이 그대로 안전하게 이어받는다."""
+    cleaned = json.loads(json.dumps(members))
+    rejected_notes = []
+    for cat_key, label in _CATEGORY_KEY_TO_LABEL.items():
+        for it in cleaned.get(cat_key) or []:
+            if not isinstance(it, dict):
+                continue
+            mark = it.get("mark") or "무명"
+            for field in _MEMBER_SUMMARY_FIELDS.get(cat_key, []):
+                if field not in it or it[field] is None:
+                    continue
+                ok, result = _validate_correction_field(field, it[field])
+                if ok:
+                    it[field] = result
+                else:
+                    it[field] = None
+                    rejected_notes.append(f"{label} {mark}: 원본 추출값 {result} — 계산에 반영하지 않고 비웠습니다.")
+    if rejected_notes:
+        cleaned["notes"] = list(cleaned.get("notes") or []) + rejected_notes
+    return cleaned
 
 
 def _apply_member_corrections(members, corrections):
     """검토 팝업에서 받은 corrections(제거/수정 목록)를 members에 반영한다.
     review_id 형식은 "카테고리:인덱스"이며, _build_review_checklist가 만든 것과
-    반드시 같은 순서/인덱스 기준이어야 한다(그 사이에 members가 바뀌면 안 됨)."""
+    반드시 같은 순서/인덱스 기준이어야 한다(그 사이에 members가 바뀌면 안 됨).
+
+    Returns: (corrected_members, rejected_notes) — rejected_notes는 값이 유효하지
+    않아 반영하지 않은 수정 건에 대한 설명 리스트다(원래 값은 그대로 유지됨).
+    무효한 값을 조용히 버리기만 하면 사용자가 "수정했는데 왜 그대로지"라고 헷갈릴
+    수 있어서, 호출부(api_quantity_confirm_review)가 이 리스트를 결과 warnings에 같이 붙인다.
+
+    사용자가 고치지 않은 나머지 필드(Gemini 원본값)는 마지막에 _sanitize_raw_members로
+    한 번 더 걸러서 반환한다 — 그래서 이 함수의 반환값은 "사용자 수정 반영 + 원본값
+    안전성 검증"까지 끝난, 곧바로 계산에 넣어도 되는 상태다."""
     corrected = json.loads(json.dumps(members))  # 얕은 복사로는 중첩 dict가 공유돼서 깊은 복사 사용
     removals = set()
     edits = {}
@@ -329,6 +699,7 @@ def _apply_member_corrections(members, corrections):
         elif action == "edit":
             edits[rid] = c.get("fields") or {}
 
+    rejected_notes = []
     for cat_key in _CATEGORY_KEY_TO_LABEL.keys():
         items = corrected.get(cat_key) or []
         new_items = []
@@ -338,12 +709,39 @@ def _apply_member_corrections(members, corrections):
                 continue
             if rid in edits and isinstance(it, dict):
                 allowed = set(_MEMBER_SUMMARY_FIELDS.get(cat_key, []))
+                label = _CATEGORY_KEY_TO_LABEL.get(cat_key, cat_key)
+                mark = it.get("mark") or "무명"
                 for k, v in edits[rid].items():
-                    if k in allowed:
-                        it[k] = v
+                    if k == "rebar_layers":
+                        # rebar_layers는 스칼라 값이 아니라 리스트라 _MEMBER_SUMMARY_FIELDS
+                        # (allowed)에 들어있지 않다 — 여기서 따로 처리한다.
+                        ok, result = _validate_rebar_layers_correction(v)
+                        if ok:
+                            if result:
+                                it["rebar_layers"] = result
+                            else:
+                                it.pop("rebar_layers", None)
+                        else:
+                            rejected_notes.append(f"{label} {mark}: {result} — 이 수정은 반영하지 않고 기존 값을 유지했습니다.")
+                        continue
+                    if k not in allowed:
+                        continue
+                    ok, result = _validate_correction_field(k, v)
+                    if ok:
+                        it[k] = result
+                    else:
+                        rejected_notes.append(f"{label} {mark}: {result} — 이 수정은 반영하지 않고 기존 값을 유지했습니다.")
             new_items.append(it)
         corrected[cat_key] = new_items
-    return corrected
+
+    # 사용자가 건드리지 않은 나머지 필드(Gemini 원본값)까지 마지막으로 한 번 더 검증한다.
+    sanitized = _sanitize_raw_members(corrected)
+    sanitize_notes = sanitized.get("notes") or []
+    original_note_count = len(corrected.get("notes") or [])
+    # _sanitize_raw_members가 새로 덧붙인 note만 rejected_notes에 합쳐서 반환한다
+    # (원래 있던 notes는 corrected에 이미 있으니 중복으로 다시 붙이지 않는다).
+    new_sanitize_notes = sanitize_notes[original_note_count:] if len(sanitize_notes) > original_note_count else []
+    return sanitized, rejected_notes + new_sanitize_notes
 
 
 def _extract_text_from_gemini_response(response):
@@ -360,6 +758,57 @@ def _extract_text_from_gemini_response(response):
             if part_text:
                 pieces.append(str(part_text))
     return "\n".join(piece for piece in pieces if piece).strip()
+
+
+def _gemini_response_diagnostics(response):
+    """Gemini 응답 본문을 저장하지 않고 종료 사유·토큰·후보 길이만 진단한다."""
+    candidates = list(getattr(response, "candidates", None) or [])
+    candidate_details = []
+    for index, candidate in enumerate(candidates):
+        content = getattr(candidate, "content", None)
+        parts = list(getattr(content, "parts", None) or [])
+        text_length = sum(
+            len(str(part_text))
+            for part in parts
+            for part_text in [getattr(part, "text", None)]
+            if part_text
+        )
+        finish_reason = getattr(candidate, "finish_reason", None)
+        candidate_details.append({
+            "index": index,
+            "finish_reason": (
+                getattr(finish_reason, "name", None)
+                or (str(finish_reason) if finish_reason is not None else None)
+            ),
+            "part_count": len(parts),
+            "text_length": text_length,
+        })
+
+    usage = getattr(response, "usage_metadata", None)
+
+    def usage_value(name):
+        if usage is None:
+            return None
+        if isinstance(usage, dict):
+            return usage.get(name)
+        return getattr(usage, name, None)
+
+    prompt_feedback = getattr(response, "prompt_feedback", None)
+    block_reason = getattr(prompt_feedback, "block_reason", None)
+    return {
+        "candidate_count": len(candidates),
+        "candidates": candidate_details,
+        "prompt_block_reason": (
+            getattr(block_reason, "name", None)
+            or (str(block_reason) if block_reason is not None else None)
+        ),
+        "usage": {
+            "prompt_token_count": usage_value("prompt_token_count"),
+            "candidates_token_count": usage_value("candidates_token_count"),
+            "thoughts_token_count": usage_value("thoughts_token_count"),
+            "total_token_count": usage_value("total_token_count"),
+        },
+    }
 
 
 def _try_repair_truncated_json(raw_clean):
@@ -432,6 +881,23 @@ def _code_matches_filename(code: str, filename_upper: str) -> bool:
     return False
 
 
+def _normalize_for_match(s):
+    """한글 NFC/NFD·전각 기호·공백 차이를 없앤 파일명/텍스트 매칭 전처리."""
+    value = unicodedata.normalize("NFKC", str(s or ""))
+    value = value.replace("～", "~").replace("∼", "~")
+    return re.sub(r"[\s,_()（）\\[\\]{}]+", "", value).upper()
+
+
+def _filename_matches_keywords(filename_norm, keywords, exclude_keywords=None):
+    """정규화된 파일명(filename_norm)에 keywords 중 하나라도 포함되고,
+    exclude_keywords는 하나도 포함되지 않으면 True."""
+    if not any(_normalize_for_match(kw) in filename_norm for kw in keywords):
+        return False
+    if exclude_keywords and any(_normalize_for_match(kw) in filename_norm for kw in exclude_keywords):
+        return False
+    return True
+
+
 # ─────────────────────────────────────────────
 #  필수 구조도면 목록 (도면번호: 도면명)
 # ─────────────────────────────────────────────
@@ -440,8 +906,10 @@ REQUIRED_STRUCTURAL = {
     "S-002": "사용자재표 (콘크리트/철근 규격)",
     "S-101": "기초평면도",
     "S-102": "기초상세도",
-    "S-103": "지하층 골조평면도",
+    "S-103": "지하층 골조평면도 (지하주차장 구조 포함)",
     "S-104": "지하외벽 배근도",
+    "S-105": "기준층 골조평면도 (반복되는 표준층)",
+    "S-106": "지하주차장 램프 평면도/입단면도",
     "S-201": "기둥배근도",
     "S-202": "기둥일람표",
     "S-203": "보배근도",
@@ -452,6 +920,75 @@ REQUIRED_STRUCTURAL = {
     "S-402": "옥탑층 골조평면도",
     "S-501": "부재일람표 요약본",
 }
+
+# 2026-07-27 1차 지적: "웬만한거 다있으면 넘어가... 개요 구조일반사항 기초평면도
+# 벽체 기둥일람표 주요한거 있으면 그냥 넘어가" — 15개 도면 전부를 엄격히 대조하니
+# 실제로는 큰 문제 없는 프로젝트에서도 매번 같은 몇 개(S-203/S-204/S-302 등)가
+# "누락"으로 뜨면서 업로드 흐름을 방해했다. 이후 계산에 실제로 꼭 필요한 핵심
+# 항목만 "누락 도면" 경고 대상으로 좁혔다.
+#
+# 2026-07-27 2차 지적: "지하주차장 평면도 각동 각층 평면도 기준층 평면도 램프
+# 평입단면도 등 안필요해?? 그런거를 확인하라고" — 첫 좁힌 목록(S-001/002/101/202/301)이
+# 실제 물량산출(층별 기둥/보/슬래브/벽체 부재 추출)에 정작 핵심인 지하층/기준층
+# 골조평면도와 램프 도면을 빠뜨리고 있었다. 이 세 가지(지하층 골조평면도,
+# 기준층 골조평면도, 램프 평입단면도)를 핵심 목록에 추가했었다.
+#
+# 2026-07-27 3차(가장 중요한) 지적: "처음에 할때 구조평면도 하면 거기 캐드에 다들어있어" +
+# 실제 프로젝트(부천 현장)의 구조/건축 폴더 파일 목록을 직접 받아본 결과, 지금까지 쓰던
+# S-001~S-501 코드 체계는 전부 내가 임의로 지어낸 것이었고 실제 설계사무소 도면번호
+# 규칙과 전혀 안 맞았다 (이 프로젝트는 예: 구조일반사항=S-011~022, 동기초 구조평면도=
+# S-201~202, 기둥일람표=S-301, 벽체일람표=S-311~324, 지하주차장 구조평면도=S-401~403,
+# 동(기준층 포함) 구조평면도=S-111~130 사용 — 내가 가정한 번호와 겹치는 게 거의 없었다).
+# 도면번호 규칙은 설계사무소마다 다르고 업계 표준이 없어서, 코드 기반 매칭 자체가
+# 근본적으로 신뢰할 수 없는 방식이었다. 그래서 도면번호가 아니라 파일명에 실제로 적힌
+# 한글 도면명(예: "기초", "지하주차장", "기둥일람표")으로 매칭하는 방식으로 전면 교체한다
+# — 이미 낱장 PDF 파일명 힌트(_classify_filename_hint)에서 검증된 것과 같은 접근이다.
+# 주의: "각동 각층" 전체(동별로 기준층이 다 다른 경우 각 동마다 몇 장씩)까지는 파일명
+# 규칙만으로 일반화해서 자동 판별하기 어렵다 — 최소 그 종류의 도면이 한 장이라도
+# 있는지는 확인하지만, 동별 층별 전수 커버리지까지 보장하진 못한다는 한계는 있다
+# (사용자에게 그대로 알려야 함).
+_STRUCTURAL_CRITICAL_ITEMS = [
+    {
+        "key": "general_spec",
+        "name": "구조일반사항 / 구조설계개요",
+        "filename_keywords": ["구조일반사항", "구조설계개요", "설계개요"],
+        "content_keywords": ["구조설계개요", "설계기준", "구조일반사항", "내진설계", "허용지내력", "설계하중"],
+    },
+    {
+        "key": "foundation_plan",
+        "name": "기초(동기초) 구조평면도",
+        "filename_keywords": ["기초"],
+        "content_keywords": ["기초", "FOOTING", "PILE", "매트기초", "독립기초", "줄기초"],
+    },
+    {
+        "key": "basement_parking_plan",
+        "name": "지하주차장 구조평면도",
+        "filename_keywords": ["지하주차장", "지하층"],
+        "content_keywords": ["지하주차장", "골조평면도", "주차", "지하"],
+    },
+    {
+        "key": "typical_floor_plan",
+        "name": "동(기준층 포함) 구조평면도",
+        "filename_keywords": ["구조평면도", "골조평면도"],
+        "exclude_keywords": ["기초", "지하주차장", "지하층"],
+        "content_keywords": ["구조평면도", "골조평면도", "기준층"],
+    },
+    {
+        "key": "column_schedule",
+        "name": "기둥 일람표",
+        "filename_keywords": ["기둥일람표"],
+        "content_keywords": ["기둥", "COLUMN", "일람표"],
+    },
+    {
+        "key": "wall_schedule",
+        "name": "벽체(전단벽) 일람표",
+        "filename_keywords": ["벽체일람표", "전단벽일람표", "전단벽"],
+        "content_keywords": ["전단벽", "내력벽", "WALL", "벽체", "일람표"],
+    },
+]
+
+# 구버전 코드에서 참조하던 이름 — 항목 개수/설명 문구에 쓰기 위해 남겨둔다.
+REQUIRED_STRUCTURAL_CRITICAL = [item["key"] for item in _STRUCTURAL_CRITICAL_ITEMS]
 
 REQUIRED_ARCHITECTURAL = {
     "A-000": "건축 일반사항 / 범례",
@@ -465,6 +1002,184 @@ REQUIRED_ARCHITECTURAL = {
     "A-501": "내부마감표",
     "A-601": "계단 상세도",
 }
+
+CAD_PRECHECK_STRUCTURAL_ITEMS = [
+    {"key": "general_spec", "name": "구조일반사항 / 구조설계개요",
+     "filename_any": ["구조일반사항", "구조설계개요", "설계개요"],
+     "content_any": ["구조일반사항", "구조설계개요", "설계기준", "내진설계"]},
+    {"key": "building_structure_plan", "name": "동·단위세대·기준층 구조평면도",
+     "filename_any": ["구조평면도", "골조평면도"],
+     "filename_exclude": ["동기초", "주차장", "기초"],
+     "content_any": ["구조평면도", "골조평면도", "기준층", "단위세대"]},
+    {"key": "building_foundation_plan", "name": "동기초 구조평면도",
+     "filename_all_groups": [["기초"], ["동", "주동", "아파트"]],
+     "filename_exclude": ["주차장"],
+     "content_any": ["기초", "FOUNDATION", "FOOTING"]},
+    {"key": "parking_foundation_plan", "name": "지하주차장 기초 구조평면도",
+     "filename_all_groups": [["주차장"], ["기초"]],
+     "content_any": ["주차장", "기초", "FOUNDATION", "FOOTING"]},
+    {"key": "parking_structure_plan", "name": "지하주차장 구조평면도",
+     "filename_all_groups": [["주차장"], ["구조평면도", "골조평면도"]],
+     "filename_exclude": ["기초"],
+     "content_any": ["지하주차장", "구조평면도", "골조평면도"]},
+    {"key": "building_column_schedule", "name": "주동 기둥일람표",
+     "filename_all_groups": [["기둥"], ["일람표", "배근도"], ["아파트", "주동", "단위세대", "동"]],
+     "filename_exclude": ["주차장"],
+     "content_any": ["기둥", "COLUMN", "일람표"]},
+    {"key": "parking_column_schedule", "name": "지하주차장 기둥일람표",
+     "filename_all_groups": [["주차장"], ["기둥"], ["일람표", "배근도"]],
+     "content_any": ["주차장", "기둥", "COLUMN", "일람표"]},
+    {"key": "building_wall_schedule", "name": "주동 벽체·전단벽·지하외벽 일람표/배근도",
+     "filename_all_groups": [["벽체", "전단벽", "지하외벽"], ["일람표", "배근도"]],
+     "filename_exclude": ["주차장"],
+     "content_any": ["벽체", "전단벽", "지하외벽", "WALL"]},
+    {"key": "parking_wall_schedule", "name": "지하주차장 벽체·지하외벽 일람표/배근도",
+     "filename_all_groups": [["주차장"], ["벽체", "전단벽", "지하외벽"], ["일람표", "배근도"]],
+     "content_any": ["주차장", "벽체", "지하외벽", "WALL"]},
+    {"key": "building_beam_schedule", "name": "주동 보 일람표",
+     "filename_all_groups": [["보일람표", "보 일람표", "보배근도", "보 배근도"],
+                             ["아파트", "주동", "단위세대", "동"]],
+     "filename_exclude": ["주차장"],
+     "content_any": ["보일람표", "보 일람표", "BEAM", "배근"]},
+    {"key": "parking_beam_schedule", "name": "지하주차장 보 일람표",
+     "filename_all_groups": [["주차장"], ["보일람표", "보 일람표", "보배근도", "보 배근도"]],
+     "content_any": ["주차장", "보일람표", "BEAM", "배근"]},
+    {"key": "building_slab_rebar", "name": "주동 슬래브 배근도",
+     "filename_all_groups": [["슬래브"], ["배근도", "일람표"], ["아파트", "주동", "단위세대", "동"]],
+     "filename_exclude": ["주차장"],
+     "content_any": ["슬래브", "SLAB", "배근"]},
+    {"key": "parking_slab_rebar", "name": "지하주차장 슬래브 배근도",
+     "filename_all_groups": [["주차장"], ["슬래브"], ["배근도", "일람표"]],
+     "content_any": ["주차장", "슬래브", "SLAB", "배근"]},
+]
+
+CAD_PRECHECK_ARCHITECTURAL_ITEMS = [
+    {"key": "building_plans", "name": "주동 평면도",
+     "filename_all_groups": [["평면도"], ["주동", "동평면"]],
+     "filename_exclude": ["구조", "주차장", "코아", "코어", "부대시설"],
+     "content_any": ["주동", "동평면", "FLOOR PLAN"]},
+    {"key": "unit_plans", "name": "단위세대 평면도",
+     "filename_all_groups": [["평면도"], ["단위세대"]],
+     "filename_exclude": ["구조", "주차장", "코아", "코어", "부대시설"],
+     "content_any": ["단위세대", "평면도", "FLOOR PLAN"]},
+    {"key": "building_elevations", "name": "주동 입면도",
+     "filename_any": ["동입면도", "주동입면도", "주동 입면도"],
+     "content_any": ["입면도", "ELEVATION"]},
+    {"key": "building_sections", "name": "주동 단면도",
+     "filename_all_groups": [["단면도"], ["주동", "동단면"]],
+     "filename_exclude": ["코아", "코어", "주차장", "부대시설"],
+     "content_any": ["단면도", "SECTION"]},
+    {"key": "core_plans", "name": "코어 확대평면도",
+     "filename_all_groups": [["코아", "코어"], ["평면도"]],
+     "content_any": ["코아", "코어", "CORE", "평면도", "PLAN"]},
+    {"key": "core_sections", "name": "코어 단면도",
+     "filename_all_groups": [["코아", "코어"], ["단면도"]],
+     "content_any": ["코아", "코어", "CORE", "단면도", "SECTION"]},
+    {"key": "parking_plans", "name": "지하주차장 평면도",
+     "filename_all_groups": [["주차장"], ["평면도"]],
+     "filename_exclude": ["구조", "기초", "경사로", "램프"],
+     "content_any": ["지하주차장", "평면도", "PARKING"]},
+    {"key": "parking_sections", "name": "지하주차장 종·횡단면도",
+     "filename_all_groups": [["주차장"], ["단면도", "종단면", "횡단면", "종횡"]],
+     "content_any": ["주차장", "종단면", "횡단면", "SECTION"]},
+    {"key": "parking_ramps", "name": "주차장 램프/경사로 평면·단면·상세도",
+     "filename_all_groups": [["램프", "경사로"], ["평면", "단면", "상세"]],
+     "content_any": ["램프", "경사로", "RAMP"]},
+    {"key": "amenity_drawings", "name": "부대시설 평면·입면·단면도",
+     "filename_all_groups": [["부대시설", "경비실"], ["평", "입", "단면"]],
+     "content_any": ["부대시설", "경비실", "평면도", "입면도", "단면도"],
+     "content_components": [["평면도", "PLAN"], ["입면도", "ELEVATION"], ["단면도", "SECTION"]]},
+    {"key": "finish_schedule", "name": "실내재료마감표",
+     "filename_any": ["실내재료마감표", "재료마감표"],
+     "content_any": ["재료마감표", "FINISH"]},
+    {"key": "window_schedule", "name": "창호일람표",
+     "filename_any": ["창호일람표", "창호도"],
+     "content_any": ["창호일람표", "창호도", "WINDOW"]},
+    {"key": "overview_reference", "name": "사업개요·동별개요·면적산출표 (참고/검산)",
+     "filename_any": ["사업개요", "동별개요", "면적산출", "면적 산출"],
+     "content_any": ["사업개요", "동별개요", "건축면적", "연면적"], "reference": True},
+]
+
+CAD_PRECHECK_ALLOWED_EXTENSIONS = {".dwg", ".dxf"}
+CAD_PRECHECK_EXCLUDED_EXTENSIONS = {".bak", ".dwl", ".dwl2", ".cdc", ".txt", ".err"}
+
+
+def _zip_name_quality(value):
+    """깨진 ZIP 이름보다 한글/NFC 이름을 우선하기 위한 보수적인 품질 점수."""
+    hangul = sum(
+        "\uac00" <= char <= "\ud7a3" or "\u1100" <= char <= "\u11ff"
+        or "\u3130" <= char <= "\u318f"
+        for char in value
+    )
+    controls = sum(unicodedata.category(char).startswith("C") for char in value)
+    mojibake = sum(char in "ßäàåÇÑ⌐⌫⌂╡╕│┤¡" for char in value)
+    replacements = value.count("\ufffd")
+    return (hangul, -(controls + replacements), -mojibake)
+
+
+def _decode_zip_member_name(zip_info):
+    """ZIP UTF-8 플래그를 존중하고, 비플래그 CP437 오해석만 안전하게 복구한다."""
+    raw_name = str(zip_info.filename or "")
+    normalized_raw = unicodedata.normalize("NFC", raw_name)
+    if zip_info.flag_bits & 0x800:
+        return {
+            "decoded_name": normalized_raw,
+            "raw_name": raw_name,
+            "decode_method": "utf8_flag",
+        }
+
+    try:
+        original_bytes = raw_name.encode("cp437")
+    except UnicodeEncodeError:
+        return {
+            "decoded_name": normalized_raw,
+            "raw_name": raw_name,
+            "decode_method": "unchanged",
+        }
+
+    candidates = []
+    for encoding, method in (
+        ("utf-8", "legacy_cp437_to_utf8"),
+        ("cp949", "legacy_cp437_to_cp949"),
+        ("euc-kr", "legacy_cp437_to_cp949"),
+    ):
+        try:
+            candidate = unicodedata.normalize("NFC", original_bytes.decode(encoding))
+        except UnicodeDecodeError:
+            continue
+        candidates.append((
+            candidate,
+            "unchanged" if candidate == normalized_raw else method,
+        ))
+        if encoding == "cp949":
+            break
+
+    if not candidates:
+        return {
+            "decoded_name": normalized_raw,
+            "raw_name": raw_name,
+            "decode_method": "failed",
+        }
+
+    decoded_name, decode_method = max(
+        candidates,
+        key=lambda item: (_zip_name_quality(item[0]), item[1] == "legacy_cp437_to_utf8"),
+    )
+    return {
+        "decoded_name": decoded_name,
+        "raw_name": raw_name,
+        "decode_method": decode_method,
+    }
+
+
+def _is_macos_zip_metadata(member_path):
+    parts = str(member_path or "").replace("\\", "/").split("/")
+    basename = parts[-1] if parts else ""
+    return (
+        any(part.upper() == "__MACOSX" for part in parts)
+        or basename.startswith("._")
+        or basename in {".DS_Store", ".localized"}
+    )
 
 
 # ─────────────────────────────────────────────
@@ -482,60 +1197,453 @@ def quantity_main(request):
     })
 
 
+def _cad_source_folder(upload_name, member_path):
+    parts = [
+        _normalize_for_match(part)
+        for part in str(member_path or "").replace("\\", "/").split("/")[:-1]
+    ]
+    upload_hint = _normalize_for_match(os.path.splitext(upload_name or "")[0])
+    if any("XREF" in part for part in parts) or "XREF" in upload_hint:
+        return "XRef"
+    if any("구조" in part for part in parts) or "구조" in upload_hint:
+        return "구조"
+    if any("건축" in part for part in parts) or "건축" in upload_hint:
+        return "건축"
+    return "루트/기타"
+
+
+def _cad_item_matches(record, item):
+    filename_norm = _normalize_for_match(record["filename"])
+    if any(_normalize_for_match(word) in filename_norm for word in item.get("filename_exclude", [])):
+        return False
+    if item.get("filename_any") and not any(
+        _normalize_for_match(word) in filename_norm for word in item["filename_any"]
+    ):
+        return False
+    for alternatives in item.get("filename_all_groups", []):
+        if not any(_normalize_for_match(word) in filename_norm for word in alternatives):
+            return False
+    return True
+
+
+def _collect_cad_precheck_inventory(uploaded_files):
+    """모든 업로드와 ZIP 하위 경로를 열거한다. 내용 파싱 상한은 이 단계에 적용하지 않는다."""
+    records = []
+    excluded = []
+    zip_stats = []
+    scan_errors = []
+    seen_uploads = set()
+    accepted_upload_names = []
+
+    for upload_index, uploaded in enumerate(uploaded_files):
+        upload_name = unicodedata.normalize("NFC", os.path.basename(uploaded.name or "upload"))
+        upload_role = getattr(uploaded, "_quantity_cad_role", None)
+        raw = uploaded.read()
+        upload_digest = hashlib.sha256(raw).hexdigest()
+        upload_key = (upload_name, len(raw), upload_digest)
+        if upload_key in seen_uploads:
+            continue
+        seen_uploads.add(upload_key)
+        accepted_upload_names.append(upload_name)
+        ext = os.path.splitext(upload_name)[1].lower()
+
+        if ext in CAD_PRECHECK_ALLOWED_EXTENSIONS:
+            records.append({
+                "upload_name": upload_name, "path": upload_name, "raw_path": upload_name,
+                "filename": upload_name, "decode_method": "unchanged",
+                "source_folder": _cad_source_folder(upload_name, upload_name),
+                "extension": ext, "data": raw, "upload_index": upload_index,
+                "upload_role": upload_role,
+            })
+            continue
+        if ext != ".zip":
+            excluded.append({"upload": upload_name, "path": upload_name, "reason": "지원하지 않는 업로드 형식"})
+            continue
+
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+                infos = zf.infolist()
+                zip_stats.append({"name": upload_name, "entry_count": len(infos)})
+                logger.info(
+                    "quantity_cad_precheck_zip upload=%s total_entries=%s",
+                    upload_name, len(infos),
+                )
+                decode_counts = {}
+                cad_log_count = 0
+                for info in infos:
+                    if info.is_dir():
+                        continue
+                    decoded = _decode_zip_member_name(info)
+                    raw_member_path = decoded["raw_name"].replace("\\", "/")
+                    member_path = decoded["decoded_name"].replace("\\", "/")
+                    decode_method = decoded["decode_method"]
+                    decode_counts[decode_method] = decode_counts.get(decode_method, 0) + 1
+                    if _is_macos_zip_metadata(member_path) or _is_macos_zip_metadata(raw_member_path):
+                        reason = "macOS 메타데이터"
+                        excluded.append({
+                            "upload": upload_name, "path": member_path,
+                            "raw_path": raw_member_path, "reason": reason,
+                        })
+                        logger.info(
+                            "quantity_cad_precheck_excluded upload=%s path=%s reason=%s",
+                            upload_name, member_path, reason,
+                        )
+                        continue
+                    member_ext = os.path.splitext(member_path)[1].lower()
+                    if member_ext not in CAD_PRECHECK_ALLOWED_EXTENSIONS:
+                        reason = (
+                            "기본도면 제외 확장자" if member_ext in CAD_PRECHECK_EXCLUDED_EXTENSIONS
+                            else "CAD 도면이 아닌 파일"
+                        )
+                        excluded.append({"upload": upload_name, "path": member_path, "reason": reason})
+                        logger.info(
+                            "quantity_cad_precheck_excluded upload=%s path=%s reason=%s",
+                            upload_name, member_path, reason,
+                        )
+                        continue
+                    try:
+                        member_data = zf.read(info)
+                    except Exception as exc:
+                        scan_errors.append(f"{upload_name}:{member_path}: {str(exc)[:160]}")
+                        continue
+                    source_folder = _cad_source_folder(upload_name, member_path)
+                    records.append({
+                        "upload_name": upload_name,
+                        "path": member_path,
+                        "raw_path": raw_member_path,
+                        "filename": unicodedata.normalize("NFC", os.path.basename(member_path)),
+                        "decode_method": decode_method,
+                        "source_folder": source_folder,
+                        "extension": member_ext,
+                        "data": member_data,
+                        "upload_index": upload_index,
+                        "upload_role": upload_role,
+                    })
+                    if cad_log_count < 30:
+                        logger.info(
+                            "quantity_cad_precheck_cad upload_name=%s raw_path=%s "
+                            "decoded_path=%s decode_method=%s source_folder=%s extension=%s",
+                            upload_name, raw_member_path, member_path, decode_method,
+                            source_folder, member_ext,
+                        )
+                        cad_log_count += 1
+                logger.info(
+                    "quantity_cad_precheck_decode_summary upload=%s method_counts=%s "
+                    "cad_path_logs=%s",
+                    upload_name, decode_counts, cad_log_count,
+                )
+        except (zipfile.BadZipFile, OSError, RuntimeError) as exc:
+            scan_errors.append(f"{upload_name}: {str(exc)[:160]}")
+            logger.warning(
+                "quantity_cad_precheck_zip_failed upload=%s error=%s",
+                upload_name, str(exc)[:200],
+            )
+
+    unique_records = []
+    duplicates = []
+    by_content = {}
+    for record in records:
+        digest = hashlib.sha256(record["data"]).hexdigest()
+        duplicate_key = (_normalize_for_match(record["filename"]), digest)
+        location = {
+            "upload_name": record["upload_name"], "path": record["path"],
+            "source_folder": record["source_folder"],
+        }
+        if duplicate_key in by_content:
+            canonical = by_content[duplicate_key]
+            canonical.setdefault("duplicate_locations", []).append(location)
+            duplicates.append({"filename": record["filename"], "locations": [
+                {"upload_name": canonical["upload_name"], "path": canonical["path"],
+                 "source_folder": canonical["source_folder"]},
+                location,
+            ]})
+            continue
+        record["content_sha256"] = digest
+        record["duplicate_locations"] = []
+        by_content[duplicate_key] = record
+        unique_records.append(record)
+
+    folder_counts = {"구조": 0, "건축": 0, "XRef": 0, "루트/기타": 0}
+    for record in records:
+        folder_counts[record["source_folder"]] = folder_counts.get(record["source_folder"], 0) + 1
+    logger.info(
+        "quantity_cad_precheck_inventory uploads=%s upload_names=%s cad_count=%s "
+        "folder_counts=%s excluded_count=%s scan_error_count=%s",
+        len(seen_uploads), accepted_upload_names, len(records),
+        folder_counts, len(excluded), len(scan_errors),
+    )
+    return {
+        "records": unique_records, "all_cad_count": len(records), "zip_stats": zip_stats,
+        "folder_counts": folder_counts, "excluded": excluded, "duplicates": duplicates,
+        "scan_errors": scan_errors, "scan_complete": not scan_errors,
+        "upload_count": len(seen_uploads), "upload_names": accepted_upload_names,
+    }
+
+
+def _parse_precheck_candidates(candidate_records):
+    """체크리스트 후보를 먼저 배치하고, 그 후보에만 DWG 파싱 안전 상한을 적용한다."""
+    selected = candidate_records[:DWG_ZIP_PARSE_MAX_FILES]
+    capped = len(candidate_records) > len(selected)
+    if capped:
+        logger.warning(
+            "quantity_cad_precheck_parse_capped candidate_count=%s cap=%s",
+            len(candidate_records), DWG_ZIP_PARSE_MAX_FILES,
+        )
+    if not selected:
+        return {}, set(), capped
+
+    buffer = io.BytesIO()
+    synthetic_to_record = {}
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for index, record in enumerate(selected):
+            synthetic_path = f"{index:04d}/{record['path'].lstrip('/')}"
+            zf.writestr(synthetic_path, record["data"])
+            synthetic_to_record[synthetic_path] = record
+    try:
+        parsed_raw = parse_dwg_from_zip(buffer.getvalue())
+    except Exception as exc:
+        logger.warning("quantity_cad_precheck_content_parse_failed error=%s", str(exc)[:200])
+        parsed_raw = {}
+
+    parsed_by_digest = {}
+    attempted = set()
+    for synthetic_path, record in synthetic_to_record.items():
+        attempted.add(record["content_sha256"])
+        info = parsed_raw.get(synthetic_path)
+        if info is None:
+            info = {"error": "CAD 내용 파싱 결과를 찾지 못했습니다."}
+        parsed_by_digest[record["content_sha256"]] = info
+    return parsed_by_digest, attempted, capped
+
+
+def _build_cad_precheck(uploaded_files):
+    inventory = _collect_cad_precheck_inventory(uploaded_files)
+    all_items = CAD_PRECHECK_STRUCTURAL_ITEMS + CAD_PRECHECK_ARCHITECTURAL_ITEMS
+    candidates_by_key = {
+        item["key"]: [record for record in inventory["records"] if _cad_item_matches(record, item)]
+        for item in all_items
+    }
+    prioritized = []
+    seen_digests = set()
+    for item in all_items:
+        for record in candidates_by_key[item["key"]]:
+            digest = record["content_sha256"]
+            if digest not in seen_digests:
+                prioritized.append(record)
+                seen_digests.add(digest)
+    parsed, attempted, parse_capped = _parse_precheck_candidates(prioritized)
+
+    def classify(item):
+        candidates = candidates_by_key[item["key"]]
+        files = [{
+            "filename": record["filename"], "path": record["path"],
+            "raw_path": record.get("raw_path", record["path"]),
+            "decode_method": record.get("decode_method", "unchanged"),
+            "upload_name": record["upload_name"], "source_folder": record["source_folder"],
+            "duplicate_locations": record.get("duplicate_locations") or [],
+        } for record in candidates]
+        if not candidates:
+            status = "missing" if inventory["scan_complete"] else "scan_incomplete"
+            reason = (
+                "모든 업로드와 하위 폴더에서 파일명 후보를 찾지 못했습니다."
+                if status == "missing" else "일부 업로드를 열거하지 못해 파일 없음으로 단정할 수 없습니다."
+            )
+        else:
+            status = "candidate_unverified"
+            primary_candidates = [
+                record for record in candidates if record["source_folder"] != "XRef"
+            ]
+            reason = (
+                "XRef에서 후보를 찾았지만 본 도면의 기본도면을 대신할 수 없어 확인이 필요합니다."
+                if not primary_candidates
+                else "파일은 찾았지만 실제 내용 확인이 필요합니다."
+            )
+            parsed_texts = []
+            for record in primary_candidates:
+                info = parsed.get(record["content_sha256"])
+                if not info or "error" in info:
+                    continue
+                parsed_texts.extend(info.get("texts") or [])
+            text_norm = _normalize_for_match(" ".join(parsed_texts))
+            content_found = any(
+                _normalize_for_match(word) in text_norm for word in item["content_any"]
+            )
+            components_found = all(
+                any(_normalize_for_match(word) in text_norm for word in alternatives)
+                for alternatives in item.get("content_components", [])
+            )
+            if content_found and components_found:
+                status = "confirmed"
+                reason = "파일명 후보와 CAD 본문을 확인했습니다."
+        logger.info(
+            "quantity_cad_precheck_item key=%s candidates=%s status=%s parse_results=%s",
+            item["key"], [record["path"] for record in candidates], status,
+            [
+                "not_attempted" if record["content_sha256"] not in attempted
+                else "failed" if "error" in parsed.get(record["content_sha256"], {})
+                else "parsed"
+                for record in candidates
+            ],
+        )
+        return {
+            "key": item["key"], "name": item["name"], "status": status,
+            "reference": bool(item.get("reference")), "files": files, "reason": reason,
+        }
+
+    structural = [classify(item) for item in CAD_PRECHECK_STRUCTURAL_ITEMS]
+    architectural = [classify(item) for item in CAD_PRECHECK_ARCHITECTURAL_ITEMS]
+    final_statuses = [item["status"] for item in structural + architectural]
+    final_status = (
+        "scan_incomplete" if not inventory["scan_complete"]
+        else "missing" if "missing" in final_statuses
+        else "candidate_unverified" if "candidate_unverified" in final_statuses
+        else "confirmed"
+    )
+    logger.info(
+        "quantity_cad_precheck_complete final_status=%s parse_capped=%s",
+        final_status, parse_capped,
+    )
+    return {
+        "structural_checklist": structural,
+        "architectural_checklist": architectural,
+        "scan": {
+            "complete": inventory["scan_complete"], "status": final_status,
+            "upload_count": inventory["upload_count"], "upload_names": inventory["upload_names"],
+            "zip_stats": inventory["zip_stats"], "cad_count": inventory["all_cad_count"],
+            "folder_counts": inventory["folder_counts"], "excluded": inventory["excluded"],
+            "duplicates": inventory["duplicates"], "errors": inventory["scan_errors"],
+            "cad_files": [{
+                "filename": record["filename"], "path": record["path"],
+                "raw_path": record.get("raw_path", record["path"]),
+                "decode_method": record.get("decode_method", "unchanged"),
+                "upload_name": record["upload_name"], "source_folder": record["source_folder"],
+                "duplicate_locations": record.get("duplicate_locations") or [],
+            } for record in inventory["records"]],
+            "parse_candidate_count": len(prioritized),
+            "parse_limit": DWG_ZIP_PARSE_MAX_FILES, "parse_capped": parse_capped,
+        },
+    }
+
+
+def _collect_request_cad_uploads(request):
+    """신규 다중 필드와 기존 단일 필드를 합치되 동일 업로드 객체는 한 번만 반환한다."""
+    uploaded_files = []
+    seen_objects = set()
+    for field in ("cad_files", "zip_file", "structural_zip", "architectural_zip", "cad_file"):
+        for uploaded in request.FILES.getlist(field):
+            if field in ("zip_file", "structural_zip", "cad_file"):
+                setattr(uploaded, "_quantity_cad_role", "structural")
+            elif field == "architectural_zip":
+                setattr(uploaded, "_quantity_cad_role", "architectural")
+            if id(uploaded) in seen_objects:
+                continue
+            seen_objects.add(id(uploaded))
+            uploaded_files.append(uploaded)
+    return uploaded_files
+
+
+def _ordered_cad_records(records, checklist):
+    ordered = []
+    seen = set()
+    for item in checklist:
+        for record in records:
+            digest = record["content_sha256"]
+            if digest not in seen and _cad_item_matches(record, item):
+                ordered.append(record)
+                seen.add(digest)
+    for record in records:
+        digest = record["content_sha256"]
+        if digest not in seen:
+            ordered.append(record)
+            seen.add(digest)
+    return ordered
+
+
+def _cad_records_to_zip(records):
+    if not records:
+        return None
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for index, record in enumerate(records):
+            upload_dir = os.path.splitext(record["upload_name"])[0] or f"upload_{index}"
+            member_path = f"{upload_dir}/{record['path'].lstrip('/')}"
+            zf.writestr(member_path, record["data"])
+    return buffer.getvalue()
+
+
+def _merge_uploaded_cad_sets(uploaded_files):
+    """여러 ZIP/DWG/DXF를 구조·건축 통합 ZIP으로 합친다.
+
+    모든 경로를 먼저 열거한 뒤 체크리스트 후보를 ZIP 앞쪽에 배치하므로 실제 파서의
+    60개 안전 상한이 적용돼도 기본도면 후보가 일반 참고도면 뒤에서 잘리지 않는다.
+    """
+    if not uploaded_files:
+        return None, None, {"upload_count": 0, "cad_count": 0}
+    inventory = _collect_cad_precheck_inventory(uploaded_files)
+    structural_records = []
+    architectural_records = []
+    for record in inventory["records"]:
+        name_norm = _normalize_for_match(record["filename"])
+        is_structural = (
+            record.get("upload_role") == "structural"
+            or record["source_folder"] == "구조" or name_norm.startswith("S-")
+            or any(_cad_item_matches(record, item) for item in CAD_PRECHECK_STRUCTURAL_ITEMS)
+        )
+        is_architectural = (
+            record.get("upload_role") == "architectural"
+            or record["source_folder"] == "건축" or name_norm.startswith("A-")
+            or any(_cad_item_matches(record, item) for item in CAD_PRECHECK_ARCHITECTURAL_ITEMS)
+        )
+        if is_structural:
+            structural_records.append(record)
+        if is_architectural:
+            architectural_records.append(record)
+        if not is_structural and not is_architectural:
+            # 기존 structural_zip/cad_file의 분류 불가능한 CAD도 조용히 버리지 않는다.
+            structural_records.append(record)
+
+    structural_records = _ordered_cad_records(
+        structural_records, CAD_PRECHECK_STRUCTURAL_ITEMS,
+    )
+    architectural_records = _ordered_cad_records(
+        architectural_records, CAD_PRECHECK_ARCHITECTURAL_ITEMS,
+    )
+    logger.info(
+        "quantity_cad_merge_for_run uploads=%s total_cad=%s structural=%s architectural=%s "
+        "scan_complete=%s",
+        inventory["upload_count"], inventory["all_cad_count"],
+        len(structural_records), len(architectural_records), inventory["scan_complete"],
+    )
+    return (
+        _cad_records_to_zip(structural_records),
+        _cad_records_to_zip(architectural_records),
+        {
+            "upload_count": inventory["upload_count"],
+            "upload_names": inventory["upload_names"],
+            "cad_count": inventory["all_cad_count"],
+            "structural_count": len(structural_records),
+            "architectural_count": len(architectural_records),
+            "scan_complete": inventory["scan_complete"],
+            "scan_errors": inventory["scan_errors"],
+        },
+    )
+
+
 # ─────────────────────────────────────────────
-#  API: ZIP 파일 검증 (DWG 목록 확인)
+#  API: CAD ZIP/DWG/DXF 기본도면 사전검토
 # ─────────────────────────────────────────────
 @require_POST
 @_admin_only_json
 def api_check_zip(request):
-    """
-    ZIP 파일을 받아 구조/건축 도면 파일 존재 여부 확인
-    Returns JSON: { structural: {code: {name, exists}}, architectural: {...}, missing: [...] }
-    """
-    zip_file = request.FILES.get("zip_file")
-    if not zip_file:
-        return JsonResponse({"error": "ZIP 파일이 없습니다."}, status=400)
+    uploaded_files = _collect_request_cad_uploads(request)
+    if not uploaded_files:
+        return JsonResponse({"error": "검토할 CAD ZIP/DWG/DXF 파일이 없습니다."}, status=400)
 
-    if not zip_file.name.lower().endswith(".zip"):
-        return JsonResponse({"error": "ZIP 파일만 업로드 가능합니다."}, status=400)
-
-    try:
-        zf = zipfile.ZipFile(io.BytesIO(zip_file.read()))
-    except zipfile.BadZipFile:
-        return JsonResponse({"error": "올바른 ZIP 파일이 아닙니다."}, status=400)
-
-    # ZIP 내부 파일명 목록 (소문자, 확장자 제거)
-    zip_names = [os.path.splitext(os.path.basename(n))[0].upper() for n in zf.namelist()]
-
-    def check_list(required_dict):
-        result = {}
-        for code, name in required_dict.items():
-            exists = any(_code_matches_filename(code, fname) for fname in zip_names)
-            result[code] = {"name": name, "exists": exists}
-        return result
-
-    structural_result = check_list(REQUIRED_STRUCTURAL)
-    arch_result = check_list(REQUIRED_ARCHITECTURAL)
-
-    missing_structural = [
-        {"code": c, "name": d["name"]}
-        for c, d in structural_result.items() if not d["exists"]
-    ]
-    missing_arch = [
-        {"code": c, "name": d["name"]}
-        for c, d in arch_result.items() if not d["exists"]
-    ]
-
-    return JsonResponse({
-        "structural": structural_result,
-        "architectural": arch_result,
-        "missing_structural": missing_structural,
-        "missing_architectural": missing_arch,
-        "total_structural": len(REQUIRED_STRUCTURAL),
-        "found_structural": sum(1 for d in structural_result.values() if d["exists"]),
-        "total_architectural": len(REQUIRED_ARCHITECTURAL),
-        "found_architectural": sum(1 for d in arch_result.values() if d["exists"]),
-    })
+    logger.info(
+        "quantity_cad_precheck_received upload_count=%s upload_names=%s",
+        len(uploaded_files), [uploaded.name for uploaded in uploaded_files],
+    )
+    return JsonResponse(_build_cad_precheck(uploaded_files))
 
 
 # ─────────────────────────────────────────────
@@ -751,9 +1859,25 @@ def _extract_dxf_quantities(doc):
     }
 
 
-def parse_dwg_from_zip(zip_bytes, target_codes):
+# 2026-07-27: parse_dwg_from_zip은 원래 REQUIRED_STRUCTURAL/REQUIRED_ARCHITECTURAL의
+# 임의로 지어낸 도면번호(target_codes)에 매칭되는 파일만 골라 파싱했다. 그 코드 체계가
+# 실제 프로젝트 번호 규칙과 전혀 안 맞는다는 게 확인된 이상, api_run_quantity 본 산출
+# 파이프라인에서 이 함수를 호출할 때마다 매칭되는 파일이 0개라서 dwg_data가 항상 빈
+# 딕셔너리로 나왔을 가능성이 크다(= 구조/건축 PDF 기반 Gemini 추출은 정상 진행되지만,
+# ZIP으로 올린 DWG의 기하 데이터가 보조 검증용으로 전혀 반영되지 않고 조용히 버려졌다).
+# 도면번호는 사무소마다 달라 신뢰할 수 없으므로, keywords가 주어지면 파일명 키워드로
+# 필터링하고(핵심 항목 확인용), keywords=None이면 ZIP 안의 모든 dwg/dxf를 대상으로
+# 한다(본 산출 파이프라인의 보조 기하 데이터 추출용 — 특정 목록에만 의존하지 않는다).
+# 파일이 지나치게 많은 ZIP에서 변환/파싱이 오래 걸리는 것을 막기 위해 개수 상한을 둔다.
+DWG_ZIP_PARSE_MAX_FILES = 60
+
+
+def parse_dwg_from_zip(zip_bytes, keywords=None):
     """
-    ZIP 바이트에서 target_codes에 해당하는 DWG/DXF 파일을 찾아 파싱한다.
+    ZIP 바이트에서 DWG/DXF 파일을 찾아 파싱한다.
+    keywords가 None이면 ZIP 안의 모든 .dwg/.dxf 파일이 대상(최대 DWG_ZIP_PARSE_MAX_FILES개).
+    keywords가 주어지면 파일명(공백 무시, 대소문자 무시)에 그 중 하나라도 포함된 파일만
+    대상으로 한다.
     DWG(바이너리 AutoCAD 포맷)는 ezdxf가 직접 읽지 못하므로,
     서버에 ODA File Converter가 설치돼 있으면 자동으로 DXF로 변환 후 파싱한다.
     Returns: { filename: { layers, layer_geometry, block_counts, texts, dimensions, ... } | {"error": ...} }
@@ -766,12 +1890,22 @@ def parse_dwg_from_zip(zip_bytes, target_codes):
         ext = os.path.splitext(member)[1].lower()
         if ext not in (".dwg", ".dxf"):
             continue
-        basename = os.path.basename(member).upper()
-        if any(_code_matches_filename(code, basename) for code in target_codes):
+        if keywords is None:
+            matched_members.append(member)
+            continue
+        basename_norm = _normalize_for_match(os.path.basename(member))
+        if any(_normalize_for_match(kw) in basename_norm for kw in keywords):
             matched_members.append(member)
 
     if not matched_members:
         return result
+
+    if len(matched_members) > DWG_ZIP_PARSE_MAX_FILES:
+        logger.warning(
+            "quantity_parse_dwg_from_zip_capped total=%s cap=%s",
+            len(matched_members), DWG_ZIP_PARSE_MAX_FILES,
+        )
+        matched_members = matched_members[:DWG_ZIP_PARSE_MAX_FILES]
 
     with tempfile.TemporaryDirectory(prefix="cbl_qty_") as work_dir:
         dwg_dir = os.path.join(work_dir, "dwg_in")
@@ -798,7 +1932,8 @@ def parse_dwg_from_zip(zip_bytes, target_codes):
 
         for member in matched_members:
             ext, local_path, local_name = member_to_local[member]
-            out_name = os.path.basename(member)
+            # 전체 ZIP 경로를 키로 유지해 구조/건축/XRef의 동명 파일이 서로 덮어쓰지 않게 한다.
+            out_name = member
 
             if ext == ".dxf":
                 dxf_path = local_path
@@ -827,6 +1962,66 @@ def parse_dwg_from_zip(zip_bytes, target_codes):
     return result
 
 
+def _check_critical_content(zip_bytes):
+    """_STRUCTURAL_CRITICAL_ITEMS 각 항목에 대해, 파일명에 그 도면 종류를 나타내는
+    한글 키워드가 있는 파일을 찾는 것에서 그치지 않고, 실제로 그 DWG/DXF를 열어
+    (parse_dwg_from_zip 재사용) 예상 키워드가 도면 텍스트에 실제로 있는지까지 확인한다.
+    도면번호(S-001 등)가 아니라 파일명에 실제로 적힌 한글 도면명으로 매칭한다 —
+    번호 체계는 사무소마다 달라 코드 기반 매칭은 신뢰할 수 없다는 게 확인됐다.
+
+    Returns: {key: {"exists": bool, "content_verified": bool|None, "reason": str}}
+    - exists=False: 파일명 매칭 자체가 안 됨(파일이 없음)
+    - content_verified=True: 파일을 열어봤고 예상 키워드를 실제로 찾음
+    - content_verified=False: 파일은 열었지만 예상 키워드를 못 찾음(엉뚱한 내용일 가능성)
+    - content_verified=None: 파일은 있는데 열어보지 못함(DWG인데 ODA 미설치 등) — 이
+      경우 "확인 안 됨"을 "확인됨"으로 속이지 않고 정직하게 이유를 남긴다."""
+    try:
+        # ZIP 안의 모든 dwg/dxf를 한 번만 파싱해서 각 항목이 재사용한다
+        # (항목별로 다시 열지 않아 변환/파싱 비용을 아낀다).
+        parsed = parse_dwg_from_zip(zip_bytes)
+    except Exception as e:
+        parsed = {}
+        logger.warning("quantity_check_zip_content_parse_failed error=%s", str(e)[:200])
+
+    result = {}
+    for item in _STRUCTURAL_CRITICAL_ITEMS:
+        key = item["key"]
+        fname_kw = item["filename_keywords"]
+        excl_kw = item.get("exclude_keywords") or []
+        matched_entries = [
+            (fname, info) for fname, info in parsed.items()
+            if _filename_matches_keywords(_normalize_for_match(os.path.basename(fname)), fname_kw, excl_kw)
+        ]
+        if not matched_entries:
+            result[key] = {"exists": False, "content_verified": False, "reason": "파일명에서 이 도면 종류로 보이는 파일을 찾지 못했습니다"}
+            continue
+
+        keywords = item["content_keywords"]
+        verified = False
+        conversion_failed = False
+        fail_reason = ""
+        for fname, info in matched_entries:
+            if "error" in info:
+                conversion_failed = True
+                fail_reason = info["error"]
+                continue
+            all_text = " ".join(info.get("texts") or []).upper().replace(" ", "")
+            if any(kw.upper().replace(" ", "") in all_text for kw in keywords):
+                verified = True
+                break
+
+        if verified:
+            result[key] = {"exists": True, "content_verified": True, "reason": ""}
+        elif conversion_failed:
+            result[key] = {"exists": True, "content_verified": None, "reason": fail_reason}
+        else:
+            result[key] = {
+                "exists": True, "content_verified": False,
+                "reason": "파일은 찾았지만 도면 텍스트에서 예상 키워드를 찾지 못했습니다 — 실제 내용을 확인해 주세요",
+            }
+    return result
+
+
 # ─────────────────────────────────────────────
 #  PDF → 이미지 변환
 # ─────────────────────────────────────────────
@@ -845,6 +2040,8 @@ MAX_PDF_PAGES_TO_GEMINI = 80
 # 죽거나(MemoryError) 매우 느려질 수 있다. 어차피 image_to_jpeg_bytes()에서 최종적으로
 # 1536px로 축소하므로, 150dpi로 뽑을 필요 없이 120dpi 정도로도 충분하다(메모리 약 36% 절감).
 PDF_RENDER_DPI = 120
+OVERVIEW_TABLE_RENDER_DPI = 220
+OVERVIEW_TABLE_IMAGE_MAX_SIZE = (3000, 3000)
 
 
 def pdf_to_images(pdf_bytes, max_pages=MAX_PDF_PAGES_TO_GEMINI, dpi=PDF_RENDER_DPI):
@@ -855,11 +2052,14 @@ def pdf_to_images(pdf_bytes, max_pages=MAX_PDF_PAGES_TO_GEMINI, dpi=PDF_RENDER_D
     return images
 
 
-def _render_pdf_page_range(pdf_bytes, first_page, last_page, dpi=PDF_RENDER_DPI):
+def _render_pdf_page_range(pdf_bytes, first_page, last_page, dpi=PDF_RENDER_DPI, timeout=None):
     """PDF의 지정된 페이지 범위만 렌더링한다. 대형 PDF를 배치 단위로 나눠 필요한
     페이지만 그때그때 렌더링하고 곧바로 버려서, 전체 페이지를 한꺼번에 메모리에
     올려두지 않게 하기 위함이다."""
-    return convert_from_bytes(pdf_bytes, dpi=dpi, first_page=first_page, last_page=last_page)
+    return convert_from_bytes(
+        pdf_bytes, dpi=dpi, first_page=first_page, last_page=last_page,
+        timeout=timeout,
+    )
 
 
 # ─────────────────────────────────────────────
@@ -907,9 +2107,165 @@ def _detect_schedule_pages(pdf_bytes, total_pages,
                 text = result.stdout.decode("utf-8", errors="ignore").upper()
             except Exception:
                 continue
-            hits = sum(1 for kw in _SCHEDULE_PAGE_KEYWORDS if kw.upper() in text)
+            # CAD 표제란은 글자 사이를 벌려서(자소 사이 공백) 그리는 경우가 있어, pdftotext가
+            # 그 간격을 단어 구분 공백으로 착각해 "일 람 표"처럼 뽑아낼 수 있다 — 공백을 제거한
+            # 버전으로도 같이 대조해서 이런 경우를 놓치지 않게 한다.
+            text_nospace = text.replace(" ", "").replace("\t", "")
+            hits = sum(1 for kw in _SCHEDULE_PAGE_KEYWORDS if kw.upper() in text or kw.upper() in text_nospace)
             if hits > 0:
                 scored.append((hits, page_num))
+
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        return sorted(p for _, p in scored[:max_results])
+    except Exception:
+        return []
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+
+# ─────────────────────────────────────────────
+#  낱장 파일명 기반 개요/구조일반사항 페이지 힌트
+#  — 실제 현장 CAD는 도면 파일명 자체에 "A-015,016 사업개요,동별개요.dwg"처럼 그 시트에
+#  뭐가 있는지 이미 명확히 적혀 있는 경우가 많다(2026-07-27 사용자 지적: "캐드에 별도로
+#  있잖아"). 이 경우 Vision이 페이지 내용을 보고 추측하는 것보다 파일명에 이미 적힌
+#  정답을 그대로 신뢰하는 게 훨씬 안전하다 — 사용자가 낱장 파일들을 여러 개 선택해서
+#  올리면, 이 힌트가 사업개요 로케이터(Vision 추측)보다 우선한다.
+# ─────────────────────────────────────────────
+_FILENAME_HINT_KEYWORDS = {
+    "overview": ["사업개요", "건축개요", "설계개요", "개요"],
+    "area_table": ["동별개요", "동별면적", "층별면적", "면적표", "동별현황"],
+    "general_spec": ["구조일반사항", "구조설계개요", "구조개요", "일반사항"],
+}
+
+
+def _classify_filename_hint(filename):
+    """파일명(확장자 제외)에서 어떤 종류의 페이지인지 힌트를 뽑는다. 한 파일이 여러
+    종류에 동시에 해당할 수 있다(예: "사업개요,동별개요"가 한 시트에 같이 있는 경우)
+    — 매칭된 종류를 전부 집합으로 반환한다. 매칭 없으면 빈 집합."""
+    name = os.path.splitext(str(filename or ""))[0]
+    name_nospace = name.replace(" ", "").replace("_", "")
+    hints = set()
+    for hint_type, keywords in _FILENAME_HINT_KEYWORDS.items():
+        for kw in keywords:
+            if kw in name or kw in name_nospace:
+                hints.add(hint_type)
+                break
+    return hints
+
+
+def _merge_uploaded_pdfs(uploaded_files):
+    """여러 개의 업로드된 PDF 파일(각각 .name/.read()를 가진 Django UploadedFile 또는
+    (파일명, bytes) 튜플)을 페이지 순서대로 하나의 PDF로 합치고, 합쳐진 PDF의 각
+    페이지 번호(1부터)가 원래 어느 파일에서 왔는지 매핑을 함께 반환한다.
+
+    Returns: (merged_pdf_bytes 또는 None, page_source_map) — page_source_map은
+    {페이지번호: {"filename": 원본파일명, "hints": {"overview", ...}}} 형태(힌트가
+    없는 파일의 페이지는 매핑에서 제외).
+
+    파일이 1개뿐이면 재인코딩 없이 그 파일의 원본 바이트를 그대로 반환한다 — 지금까지
+    "합본 PDF 1개 업로드" 방식으로 잘 동작하던 경로의 화질/바이트를 그대로 보존하기
+    위함이다. 유효한 PDF가 아닌 파일(예: 변환 안 된 원본 .dwg를 실수로 선택한 경우)은
+    조용히 건너뛴다."""
+    items = []
+    for f in uploaded_files:
+        if isinstance(f, tuple):
+            name, data = f
+        else:
+            name, data = getattr(f, "name", "unknown.pdf"), f.read()
+        if not data:
+            continue
+        items.append((name, data))
+
+    if not items:
+        return None, {}
+
+    if len(items) == 1:
+        name, data = items[0]
+        hints = _classify_filename_hint(name)
+        page_source_map = {}
+        if hints:
+            try:
+                total = len(PdfReader(io.BytesIO(data)).pages)
+            except Exception:
+                total = 0
+            for p in range(1, total + 1):
+                page_source_map[p] = {"filename": name, "hints": hints}
+        return data, page_source_map
+
+    writer = PdfWriter()
+    page_source_map = {}
+    page_counter = 0
+    for name, data in items:
+        try:
+            reader = PdfReader(io.BytesIO(data))
+        except Exception:
+            logger.warning("quantity_multi_pdf_merge_skip_invalid file=%s", name)
+            continue
+        hints = _classify_filename_hint(name)
+        for page in reader.pages:
+            writer.add_page(page)
+            page_counter += 1
+            if hints:
+                page_source_map[page_counter] = {"filename": name, "hints": hints}
+
+    if page_counter == 0:
+        return None, {}
+
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue(), page_source_map
+
+
+# ─────────────────────────────────────────────
+#  지하주차장 각층평면도 페이지 자동 감지
+#  — 본 추출(비용 큼) 전에 지하주차장 평면도만 먼저 가볍게 읽어서 부재(벽/보/슬래브/계단)
+#  색칠 미리보기를 보여주고 사람이 인식이 맞는지 확인받기 위해, 그 페이지를 먼저 찾는다.
+#  "지하/B1/주차장" 같은 층 키워드만으로는 구조일반사항 등 다른 페이지도 걸릴 수 있어서,
+#  "평면도/PLAN" 키워드가 함께 있는 페이지만 후보로 삼는다(오탐 방지).
+# ─────────────────────────────────────────────
+_BASEMENT_PLAN_LEVEL_KEYWORDS = [
+    "지하", "B1", "B2", "B3", "B4", "지하1층", "지하2층", "지하3층", "주차장",
+]
+_BASEMENT_PLAN_TYPE_KEYWORDS = ["평면도", "PLAN"]
+BASEMENT_PLAN_PAGE_MAX_CHECK = 60  # 지하주차장 평면도는 도면집 전반에 흩어져 있을 수 있어 조금 더 넓게 훑는다
+BASEMENT_PLAN_PAGE_MAX_RESULTS = 6  # 지하층 수만큼(보통 1~4장) + 여유분
+
+
+def _detect_basement_plan_pages(pdf_bytes, total_pages,
+                                 max_check_pages=BASEMENT_PLAN_PAGE_MAX_CHECK,
+                                 max_results=BASEMENT_PLAN_PAGE_MAX_RESULTS):
+    """_detect_schedule_pages와 동일한 방식(pdftotext 페이지별 텍스트 스캔)으로 지하주차장
+    각층평면도로 보이는 페이지를 찾는다. 레이스터(이미지) PDF라 텍스트가 안 잡히면 빈
+    리스트를 반환한다 — 이 경우 프론트가 이 확인 단계를 조용히 건너뛰고 바로 본 추출로
+    진행한다(기능 실패가 전체 파이프라인을 막으면 안 됨)."""
+    check_upto = min(total_pages, max_check_pages)
+    if check_upto <= 0:
+        return []
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+            f.write(pdf_bytes)
+            tmp_path = f.name
+
+        scored = []
+        for page_num in range(1, check_upto + 1):
+            try:
+                result = subprocess.run(
+                    ["pdftotext", "-f", str(page_num), "-l", str(page_num), tmp_path, "-"],
+                    capture_output=True, timeout=10,
+                )
+                text = result.stdout.decode("utf-8", errors="ignore").upper()
+            except Exception:
+                continue
+            text_nospace = text.replace(" ", "").replace("\t", "")
+            has_type = any(kw.upper() in text or kw.upper() in text_nospace for kw in _BASEMENT_PLAN_TYPE_KEYWORDS)
+            level_hits = sum(1 for kw in _BASEMENT_PLAN_LEVEL_KEYWORDS if kw.upper() in text or kw.upper() in text_nospace)
+            if has_type and level_hits > 0:
+                scored.append((level_hits, page_num))
 
         scored.sort(key=lambda x: (-x[0], x[1]))
         return sorted(p for _, p in scored[:max_results])
@@ -960,10 +2316,15 @@ MEMBER_EXTRACTION_SYSTEM_PROMPT = """당신은 구조도면을 판독하는 전�
   채우세요). 예: [{"bar_size_max":10,"grade":"SD500","fy_mpa":500},
   {"bar_size_max":999,"grade":"SD500S","fy_mpa":500}]. 모든 지름이 같은 강종이면 표 없이
   rebar_grade 하나만 채워도 됩니다.
-- 철근 이음등급 (A급/B급)
+- 철근 이음등급 (A급/B급) — 도면에 명시된 값을 lap_splice_class에 그대로 채우세요(참고용 표기이며,
+  실제 이음길이 계산은 항상 B급 기준으로 고정되어 있으니 이 필드 때문에 표를 왜곡해서 옮기지 마세요).
 - 철근 이음길이표 (직경별 이음길이, m 단위) — 표가 있으면 반드시 그대로 옮겨 적으세요(lap_splice_table).
   표에 상부근/하부근이 따로 나뉘어 있으면 각 행에 position을 "상부" 또는 "하부"로 채우고,
-  구분이 없으면 position은 생략하세요. 근사치를 만들어내지 말고, 표가 없으면 빈 배열로 두세요.
+  구분이 없으면 position은 생략하세요. 표에 A급/B급 이음길이가 각각 다른 열(컬럼)로 나뉘어
+  있으면, 반드시 두 값을 각각 별도의 행으로 만들고 그 행에 splice_class를 "A" 또는 "B"로
+  채우세요(예: 같은 D25/하부근이라도 A급 행 하나, B급 행 하나를 따로 만드세요). 표에 등급 구분
+  없이 값이 하나뿐이면 splice_class는 생략하세요. 근사치를 만들어내지 말고, 표가 없으면 빈
+  배열로 두세요. (이 도구는 실제 계산 시 B급 값만 사용하고 A급 값은 참고용으로만 저장합니다.)
 - 철근 정착길이표(정착장, 직경별 m 단위) — 표가 있으면 반드시 그대로 옮겨 적으세요(anchorage_table).
   표준갈고리 정착길이표라면 각 행에 "hook": true를 채우고, 직선철근 정착길이표라면 "hook": false로
   채우세요(생략 시 false로 간주). 근사치를 만들어내지 말고, 표가 없으면 빈 배열로 두세요.
@@ -997,6 +2358,14 @@ MEMBER_EXTRACTION_SYSTEM_PROMPT = """당신은 구조도면을 판독하는 전�
 채우세요: 벽체가 다른 벽체와 만나지 않고 끝나면 "일자형", T자로 다른 벽체와 만나면 "T자형",
 직각으로 꺾이는 모서리면 "모서리". 판단이 안 되면 null로 두세요 (양쪽 단부 조건이 다르면
 더 보강량이 많은 쪽을 기준으로 채우세요).
+
+벽체(walls)의 배근이 벽 두께 방향으로 한 겹(단면, 편측)만 있는지 아니면 앞뒤 두 겹(양면)
+모두 있는지 판단할 수 있으면 is_single_face를 채우세요: 배근도/단면 상세에 "단면" 표기가
+있거나, 벽 두께 방향 단면도에 철근이 한 줄만 그려져 있으면 true. "양면" 표기가 있거나 벽
+두께 방향에 철근이 두 줄(전후면) 그려져 있으면 false. 대부분의 구조 전단벽(두께 180mm 이상)은
+양면 배근이 표준이므로, 도면에서 명확히 "단면"이라고 확인되지 않는 이상 임의로 true로
+채우지 마세요 — 판단 근거가 없으면 null로 두세요 (null이면 안전하게 양면으로 간주해서
+계산합니다).
 
 슬래브(slabs)는 데크플레이트(DECK, 철제 영구 거푸집)를 사용하는 슬래브면 is_deck_slab을
 true로 채우세요. 일반 합판/유로폼 거푸집을 쓰면 false, 확인이 안 되면 null로 두세요.
@@ -1062,23 +2431,1969 @@ DWG 파싱 데이터의 layer_geometry에 있는 opening_area/opening_count는 �
 폭방향 배력근(distribution_rebar_size/distribution_rebar_spacing_m)을 각각 채우세요.
 계단은 별도 부재로, slabs 배열에 포함하지 말고 반드시 stairs 배열에 넣으세요.
 
+세분화 배근(rebar_layers) — 기둥/보/슬래브/전단벽/계단은 위에서 설명한 "대표 철근 1세트"
+필드(main_rebar_size 등) 대신, 도면에 실제 배근이 방향/위치/구간별로 나뉘어 표시돼 있으면
+그 각각을 rebar_layers 배열의 별도 항목으로 채우세요. 이 필드는 선택사항입니다 — 도면에서
+구분이 안 보이면 비워두고 기존처럼 대표 필드만 채우면 됩니다(그 경우 계산은 기존 방식대로
+동작합니다). rebar_layers를 채우면 그게 대표 필드보다 우선 사용되니, 채울 거면 그 부재의
+배근을 빠짐없이 항목으로 나열해야 합니다(일부만 적으면 나머지 배근이 누락된 것으로 계산에서
+빠집니다).
+각 항목 형식: {"role": "...", "position": "...", "direction": "...", "strip": "...",
+"zone": "...", "size": "D13", "spacing_m": 0.2, "count": 8, "has_hook": false, "note": "..."}
+(size/spacing_m 또는 size/count 중 그 배근에 맞는 것만 채우고 나머지는 생략)
+- role: 그 철근의 역할. 기둥="주근"/"후프"/"타이", 보="주근"/"스터럽", 슬래브="주근",
+  전단벽="수직근"/"수평근"/"단부보강근"/"모서리보강근"/"교차부보강근"/"개구부보강근",
+  계단="주근"/"배력근"
+- position: "상부"/"하부"(보/슬래브/계단 주근) 또는 "수직"/"수평"(전단벽, role로 이미
+  구분되면 생략 가능). 해당 없으면 생략.
+- direction: 슬래브 주근의 배근 방향 — "X" 또는 "Y". 슬래브가 아니면 생략.
+- strip: 슬래브 주근이 주열대(기둥 위 폭이 좁은 구간, 배근이 더 촘촘함)와 중간대(그 사이
+  구간)로 나뉘어 있으면 "주열대" 또는 "중간대". 구분이 없으면 생략(전체 스팬에 동일 간격).
+- zone: 구간 구분 — 보/기둥은 "단부"(부재 끝, 응력이 커서 배근이 촘촘한 구간) 또는
+  "중앙부", 계단은 "계단참"(휴게참 슬래브 구간), 그 외 부재는 생략. 기둥 "후프"가 단부/
+  중앙부로 간격이 다르면 두 항목으로 나눠 각각 zone과 spacing_m을 채우세요.
+  주근(기둥 MAIN BAR가 여러 그룹, 예: 모서리근/중간근으로 지름이나 개수가 다르면) 항목을
+  여러 개로 나눠 role="주근", note에 "모서리"/"중간" 등 구분을 적으세요.
+- 기둥 "주근" 항목은 spacing_m 대신 count(그 그룹의 가닥수)를 채우세요(간격 배근이 아니라
+  개수 배근이므로). 보/슬래브/전단벽/계단의 주근·배력근·수직수평근은 spacing_m(간격)을
+  채우세요. 스터럽/후프/타이는 spacing_m을 채우세요.
+- zone_length_m: zone이 "단부"인 항목(보 주근 감소배근, 기둥/보 단부 스터럽·후프 구간)에는
+  그 구간의 부재길이방향 총 길이(m, 도면에 표기된 값 그대로)를 채우세요. 모르면 생략해도
+  되며(생략 시 계산이 부재길이의 25%로 근사합니다), 아는 값이 있으면 반드시 채워서 근사
+  오차를 줄이세요.
+- has_hook: 그 배근의 정착이 표준갈고리면 true, 직선이면 false, 판단 안 되면 생략.
+
 반드시 아래와 같은 키를 가진 JSON 객체 하나만 반환하세요. 다른 텍스트는 절대 포함하지 마세요.
 값을 모르면 null, 해당 부재가 없으면 빈 배열([])로 두세요. 예시(형식 참고용, 실제 값 아님):
 {
   "foundations": [{"mark": "F1", "length_m": 2.0, "width_m": 2.0, "thickness_m": 0.6, "count": 4, "rebar_size": "D16", "rebar_spacing_m": 0.2, "dowel_bar_size": "D25", "dowel_bar_count": 8, "dowel_has_hook": false, "zone": "지하1층", "floor_repeat_count": 1, "section": "101동", "bbox": {"page": 5, "box_2d": [120, 200, 260, 340]}}],
-  "columns": [{"mark": "C1", "width_m": 0.5, "depth_m": 0.5, "height_m": 3.2, "count": 12, "main_rebar_size": "D25", "main_rebar_count": 8, "tie_rebar_size": "D10", "tie_spacing_m": 0.2, "has_hook": false, "zone": "기준층(2~15층)", "floor_repeat_count": 14, "section": "101동", "bbox": {"page": 12, "box_2d": [300, 410, 380, 490]}}],
-  "beams": [{"mark": "G1", "width_m": 0.4, "depth_m": 0.6, "length_m": 6.0, "count": 10, "main_rebar_size": "D22", "main_rebar_count": 6, "stirrup_size": "D10", "stirrup_spacing_m": 0.2, "has_hook": false, "is_top_bar": false, "zone": "기준층(2~15층)", "floor_repeat_count": 14, "section": "101동", "bbox": {"page": 12, "box_2d": [280, 300, 320, 600]}}],
-  "slabs": [{"mark": "SL1", "area_m2": 120.0, "thickness_m": 0.15, "count": 1, "rebar_size": "D13", "rebar_spacing_m": 0.2, "has_hook": false, "is_top_bar": false, "is_deck_slab": false, "openings": [{"label": "계단실 개구부", "width_m": 2.4, "height_m": 4.0, "count": 1}], "zone": "기준층(2~15층)", "floor_repeat_count": 14, "section": "101동", "bbox": {"page": 12, "box_2d": [100, 100, 700, 700]}}],
-  "walls": [{"mark": "W1", "length_m": 5.0, "height_m": 3.2, "thickness_m": 0.2, "count": 2, "rebar_size": "D13", "rebar_spacing_m": 0.2, "has_hook": false, "end_condition": "모서리", "openings": [{"label": "출입구", "width_m": 0.9, "height_m": 2.1, "count": 1}], "zone": "지하1층", "floor_repeat_count": 1, "section": "지하주차장", "bbox": {"page": 8, "box_2d": [400, 100, 900, 250]}}],
-  "stairs": [{"mark": "ST1", "width_m": 1.2, "length_m": 4.5, "thickness_m": 0.15, "count": 2, "rebar_size": "D13", "rebar_spacing_m": 0.2, "distribution_rebar_size": "D10", "distribution_rebar_spacing_m": 0.3, "is_top_bar": false, "has_hook": false, "zone": "1층", "floor_repeat_count": 1, "section": "101동", "bbox": {"page": 3, "box_2d": [500, 600, 650, 750]}}],
+  "columns": [{"mark": "C1", "width_m": 0.5, "depth_m": 0.5, "height_m": 3.2, "count": 12, "main_rebar_size": "D25", "main_rebar_count": 8, "tie_rebar_size": "D10", "tie_spacing_m": 0.2, "has_hook": false, "zone": "기준층(2~15층)", "floor_repeat_count": 14, "section": "101동", "bbox": {"page": 12, "box_2d": [300, 410, 380, 490]}, "rebar_layers": [{"role": "주근", "size": "D25", "count": 4, "note": "모서리"}, {"role": "주근", "size": "D22", "count": 4, "note": "중간"}, {"role": "후프", "size": "D10", "spacing_m": 0.1, "zone": "단부"}, {"role": "후프", "size": "D10", "spacing_m": 0.2, "zone": "중앙부"}]}],
+  "beams": [{"mark": "G1", "width_m": 0.4, "depth_m": 0.6, "length_m": 6.0, "count": 10, "main_rebar_size": "D22", "main_rebar_count": 6, "stirrup_size": "D10", "stirrup_spacing_m": 0.2, "has_hook": false, "is_top_bar": false, "zone": "기준층(2~15층)", "floor_repeat_count": 14, "section": "101동", "bbox": {"page": 12, "box_2d": [280, 300, 320, 600]}, "rebar_layers": [{"role": "주근", "position": "상부", "size": "D22", "count": 4, "zone": "단부"}, {"role": "주근", "position": "상부", "size": "D22", "count": 2, "zone": "중앙부"}, {"role": "주근", "position": "하부", "size": "D22", "count": 4}, {"role": "스터럽", "size": "D10", "spacing_m": 0.1, "zone": "단부"}, {"role": "스터럽", "size": "D10", "spacing_m": 0.2, "zone": "중앙부"}]}],
+  "slabs": [{"mark": "SL1", "area_m2": 120.0, "thickness_m": 0.15, "count": 1, "rebar_size": "D13", "rebar_spacing_m": 0.2, "has_hook": false, "is_top_bar": false, "is_deck_slab": false, "openings": [{"label": "계단실 개구부", "width_m": 2.4, "height_m": 4.0, "count": 1}], "zone": "기준층(2~15층)", "floor_repeat_count": 14, "section": "101동", "bbox": {"page": 12, "box_2d": [100, 100, 700, 700]}, "rebar_layers": [{"role": "주근", "position": "상부", "direction": "X", "strip": "주열대", "size": "D13", "spacing_m": 0.15}, {"role": "주근", "position": "상부", "direction": "X", "strip": "중간대", "size": "D13", "spacing_m": 0.25}, {"role": "주근", "position": "하부", "direction": "X", "size": "D13", "spacing_m": 0.2}, {"role": "주근", "position": "상부", "direction": "Y", "size": "D13", "spacing_m": 0.2}, {"role": "주근", "position": "하부", "direction": "Y", "size": "D13", "spacing_m": 0.2}]}],
+  "walls": [{"mark": "W1", "length_m": 5.0, "height_m": 3.2, "thickness_m": 0.2, "count": 2, "rebar_size": "D13", "rebar_spacing_m": 0.2, "has_hook": false, "end_condition": "모서리", "is_single_face": null, "openings": [{"label": "출입구", "width_m": 0.9, "height_m": 2.1, "count": 1}], "zone": "지하1층", "floor_repeat_count": 1, "section": "지하주차장", "bbox": {"page": 8, "box_2d": [400, 100, 900, 250]}, "rebar_layers": [{"role": "수직근", "size": "D13", "spacing_m": 0.2}, {"role": "수평근", "size": "D13", "spacing_m": 0.2}, {"role": "모서리보강근", "size": "D16", "count": 4}, {"role": "개구부보강근", "size": "D13", "count": 2, "note": "출입구 상하좌우"}]}],
+  "stairs": [{"mark": "ST1", "width_m": 1.2, "length_m": 4.5, "thickness_m": 0.15, "count": 2, "rebar_size": "D13", "rebar_spacing_m": 0.2, "distribution_rebar_size": "D10", "distribution_rebar_spacing_m": 0.3, "is_top_bar": false, "has_hook": false, "zone": "1층", "floor_repeat_count": 1, "section": "101동", "bbox": {"page": 3, "box_2d": [500, 600, 650, 750]}, "rebar_layers": [{"role": "주근", "position": "하부", "size": "D13", "spacing_m": 0.2}, {"role": "주근", "position": "상부", "size": "D13", "spacing_m": 0.2, "zone": "계단참"}, {"role": "배력근", "size": "D10", "spacing_m": 0.3}]}],
   "notes": ["확인이 필요하거나 근사치인 항목에 대한 메모"],
-  "general_spec": {"concrete_fck_mpa": 30, "rebar_grade": "SD500", "lap_splice_class": "B", "cover_thickness_mm": 40, "chair_bar_size": "D10", "chair_bar_height_m": 0.1, "concrete_fck_table": [{"category": "기초", "fck_mpa": 24}, {"category": "기둥", "fck_mpa": 30}, {"category": "보", "fck_mpa": 30}, {"category": "슬래브", "fck_mpa": 30}, {"category": "전단벽", "fck_mpa": 30}, {"category": "계단", "fck_mpa": 30}], "rebar_grade_table": [{"bar_size_max": 10, "grade": "SD500", "fy_mpa": 500}, {"bar_size_max": 999, "grade": "SD500S", "fy_mpa": 500}], "lap_splice_table": [{"bar_size": "D25", "length_m": 1.3, "position": "하부"}], "anchorage_table": [{"bar_size": "D25", "length_m": 1.0, "hook": false}]}
+  "general_spec": {"concrete_fck_mpa": 30, "rebar_grade": "SD500", "lap_splice_class": "B", "cover_thickness_mm": 40, "chair_bar_size": "D10", "chair_bar_height_m": 0.1, "concrete_fck_table": [{"category": "기초", "fck_mpa": 24}, {"category": "기둥", "fck_mpa": 30}, {"category": "보", "fck_mpa": 30}, {"category": "슬래브", "fck_mpa": 30}, {"category": "전단벽", "fck_mpa": 30}, {"category": "계단", "fck_mpa": 30}], "rebar_grade_table": [{"bar_size_max": 10, "grade": "SD500", "fy_mpa": 500}, {"bar_size_max": 999, "grade": "SD500S", "fy_mpa": 500}], "lap_splice_table": [{"bar_size": "D25", "length_m": 1.0, "position": "하부", "splice_class": "A"}, {"bar_size": "D25", "length_m": 1.3, "position": "하부", "splice_class": "B"}], "anchorage_table": [{"bar_size": "D25", "length_m": 1.0, "hook": false}]}
 }"""
 
 _EMPTY_MEMBERS = {
     "foundations": [], "columns": [], "beams": [], "slabs": [], "walls": [], "stairs": [],
     "notes": [], "general_spec": {},
 }
+
+
+# ─────────────────────────────────────────────
+#  개요/구조일반사항 사전 확인 단계
+#  — 전체 도면을 배치로 나눠 다 읽는 본 추출(extract_structural_members)은 비용/시간이
+#  꽤 든다. 그 전에 "이 프로젝트가 뭔지, 구조 설계 기준이 뭔지"부터 사용자에게 맞는지
+#  확인받아서, 애초에 도면을 잘못 이해한 채로 비싼 본 추출을 돌리는 걸 막기 위한
+#  가벼운 사전 단계다. 표지(개요) 몇 페이지 + 구조일반사항 페이지만 뽑아서 1번만
+#  Gemini에 보낸다 — 본 추출(배치 여러 번)에 비하면 토큰이 훨씬 적게 든다.
+# ─────────────────────────────────────────────
+OVERVIEW_SPEC_SYSTEM_PROMPT = """당신은 건축/구조도면의 표지(개요)와 구조일반사항을 판독하는 전문가입니다.
+아래 두 가지만 "있는 그대로" 읽어서 구조화된 JSON으로 추출하세요. 절대 물량을 계산하지 마세요.
+확인할 수 없는 값은 반드시 null(또는 빈 배열)로 두고, 절대 추정해서 채우지 마세요 — 확인 안 되는
+항목은 각각 overview.unconfirmed_items / general_spec.unconfirmed_items에 짧은 설명으로 남기세요
+(예: "구조형식", "정확한 동별 연면적", "D25 상부근 이음길이").
+
+표/근거가 있는 값은 반드시 그 값을 어느 도면·페이지·표에서 봤는지 source 필드에 남기세요.
+overview의 source는 반드시
+{"pdf_type":"건축","page":3,"table":"동별자료","quote":"원문"}
+객체(근거가 여러 개면 객체 배열)여야 합니다. 문자열 source는 허용되지 않습니다.
+source를 모르면 null로 두세요.
+
+1) 프로젝트 개요(overview) — 표지, 개요표, 건축계획개요 등에서:
+
+⚠ 매우 중요한 주의사항: 도면목록/시트 인덱스(예: "A-001 도면목록", "A-101 지하1층 평면도" ~
+"A-126 옥탑층 평면도"처럼 도면 번호가 나열된 표)는 그 프로젝트에 도면이 몇 장 있는지를 보여줄
+뿐, 실제 층수·개요 정보가 아닙니다. 도면 번호의 마지막 숫자나 목록에 나열된 항목 개수를 보고
+"지하 26개층"처럼 층수를 유추하지 마세요 — 이는 절대 금지된 추론입니다. basement_floor_count와
+  buildings[].floor_count는 반드시 "사업개요", "건축계획개요", "동별 면적표"처럼 명시적으로 층수
+자체를 나타내는 표/문구에 실제로 적힌 숫자만 사용하세요. 그런 표를 찾지 못했으면
+도면목록으로 대신 유추하지 말고 반드시
+null로 두고 unconfirmed_items에 남기세요.
+
+- project_name: 사업개요의 "사업명칭" 셀에 명확한 값이 있으면 그 값을 채우세요.
+  셀의 값은 글자 하나도 고치거나 생략하지 말고 원문 그대로 옮기세요. 특히 "번지" 같은
+  단어를 임의로 삭제하지 마세요.
+  PROJECT TITLE이 함께 보이면 공백·줄바꿈·'번지' 표기 차이를 감안한 보조 교차검증에만
+  사용하고, 완전히 동일하지 않다는 이유만으로 사업명칭 셀의 값을 버리지 마세요.
+- site_location, usage, structure_type, household_count, site_area_m2, building_area_m2,
+  aboveground_floor_area_m2, basement_floor_area_m2, total_floor_area_m2: 해당 셀에 명시된
+  값만 채우고 각각 sources에 근거를 남기세요.
+- structure_type: "주요구조/규모"처럼 구조와 층수가 결합된 셀에 "철근콘크리트조"가
+  보이면 structure_type에는 구조 부분인 "철근콘크리트조"를 추출하세요. 이때
+  sources.structure_type의 quote에는 구조 부분만 잘라 쓰지 말고 "주요구조/규모"의
+  라벨과 철근콘크리트조 및 지하·지상 층수까지 보이는 전체 셀 원문을 넣으세요.
+- basement_floor_count: 지하층 수(정수). 위 주의사항대로 도면목록이 아닌 실제 개요표/면적표
+  근거로만 채우세요.
+- aboveground_max_floor: 지상 최고층(정수). "주요구조/규모", 동별면적표 또는 층별면적표에
+  명시된 값으로만 채우세요.
+- buildings: 동별자료/동별면적표에서 "숫자+동"인 모든 행을 각각 별도
+  항목으로 추출하세요. "아파트", "공동주택" 같은 공통 용도명으로 합치지 마세요.
+  각 항목에는 label, floor_range, floor_count, building_area_m2,
+  total_floor_area_m2, household_count, source를 넣으세요.
+  각 항목의 source는 문자열이 아니라 반드시
+  {"pdf_type":"건축","page":8,"table":"동별자료","quote":"해당 행 전체 원문"}
+  객체로 넣으세요. quote에는 그 행에서 값을 사용한 동명·층수·건축면적·연면적·세대수를
+  실제로 보이는 범위에서 모두 포함하세요. 보이지 않는 값은 만들지 말고 해당 필드를 null로 두세요.
+- underground_parking_note: 지하주차장 층 범위를 설명하는 문장(예: "지하 1~2층"). 확인 안 되면 null.
+- amenity_facilities: 부대복리시설 표의 모든 행을 빠짐없이 추출하세요.
+  대표 항목만 고르지 마세요. 면적이 없거나 작아 보이는 시설도
+  면적이 없거나 작아 보여도 표에 행이 있으면 반드시 포함하고, 없는 숫자는 null로 두세요.
+  각 행은 buildings와 같은 필드 형식으로 만들고 source는 문자열이 아니라 반드시
+  {pdf_type, page, table, quote} 객체로 넣으세요. quote에는 그 행에서 값을 사용한
+  시설명·층수·건축면적·연면적·세대수를 실제로 보이는 범위에서 모두 포함하세요.
+- utility_facilities: 별도 설비 표가 있으면 동일한 행 객체 형식으로 모든 행을 추출하세요.
+  각 행의 source 역시 문자열이 아닌 {pdf_type, page, table, quote} 객체여야 하며,
+  quote에는 그 행에서 값을 사용한 시설명·층수·건축면적·연면적·세대수를 실제로
+  보이는 범위에서 모두 포함하세요.
+- commercial_note: 근린생활시설 관련 설명(예: "근린생활시설 1개 동"). 확인 안 되면 null.
+- unconfirmed_items: 개요 중 도면에서 확인하지 못한 항목 목록(문자열 배열). 예: "구조형식", "정확한
+  동별 연면적". 확인 못한 게 없으면 빈 배열.
+- apartment_total_floor_area_m2: 동별자료에 공동주택/아파트 연면적 소계가 명시돼 있으면 그 값.
+- conflicts: OCR 숫자가 표의 구성행 합계와 다르다고 보이면 추측으로 고치지 말고
+  field, reported, calculated, formula, message를 가진 객체 배열로 남기세요.
+  특히 동별·시설별 건축면적 합, 동별 연면적 합, 동별 세대수 합, 지상+지하 연면적을
+  각각 표의 소계/합계와 반드시 검산하세요. 숫자가 다르게 보이면 원문 OCR값과
+  계산값을 모두 conflict에 남기고 임의 확정하지 마세요.
+- sources: project_name/basement_floor_count/aboveground_max_floor/buildings/underground_parking_note/
+  amenity_facilities/utility_facilities/commercial_note 중 실제로 값을 채운 키에 대해서만,
+  {"pdf_type":"건축","page":3,"table":"사업개요","quote":"사업명칭: OO 신축공사"}
+  형식으로 실제 PDF 종류, 실제 1부터 시작하는 페이지 번호, 표 이름, 근거 원문을 담으세요.
+  프로젝트명은 사업명칭 셀 근거 하나가 명확하면 인정하세요. PROJECT TITLE은 보이면
+  보조 교차검증 근거로 추가할 수 있습니다. buildings처럼 여러 근거가 필요하면 객체 배열을 사용하세요.
+  overview.sources.buildings, overview.sources.amenity_facilities,
+  overview.sources.utility_facilities에는 각 행의 source와 동일한 {pdf_type, page, table, quote}
+  객체를 행별로 빠짐없이 객체 배열로 다시 넣으세요. 문자열이나 문자열 배열은 허용되지 않습니다.
+  각 quote에는 해당 행에서 사용한 동명/시설명·층수·건축면적·연면적·세대수를 실제로
+  보이는 범위에서 모두 포함해야 합니다.
+  값을 못 채운 키(즉 null이거나 unconfirmed_items에 있는 항목)는 sources에 넣지 마세요.
+  근거를 알 수 없는 값을 확정적으로 채우지 마세요 — source를 댈 수 없으면 그 값 자체를
+  null로 두고 unconfirmed_items에 넣는 것이 원칙입니다.
+
+2) 구조일반사항(general_spec) — 구조일반사항/구조설계개요 페이지에서:
+- concrete_fck_mpa: 가장 일반적인 대표 콘크리트강도(MPa)
+- concrete_fck_table: 부위별 Fck가 다르면 각 행을 만드세요. category는 반드시 "기초", "기둥",
+  "보", "슬래브", "전단벽", "계단" 6개 중 정확히 하나여야 합니다(계산 엔진이 이 6개 이름만
+  그대로 매칭합니다 — "기초 콘크리트"나 "벽·기둥"처럼 다르게 쓰면 계산에 반영되지 않습니다).
+  지하층/지상층처럼 위치에 따라 같은 부재 종류라도 Fck가 다르면, category는 그대로 두고
+  zone_scope에 "지하" 또는 "지상"을 채워 같은 category로 행을 2개 만드세요(구분이 없으면
+  zone_scope는 null). 예: 지하 기둥 30MPa/지상 기둥 27MPa면
+  [{"category":"기둥","zone_scope":"지하","fck_mpa":30,"source":"..."},
+   {"category":"기둥","zone_scope":"지상","fck_mpa":27,"source":"..."}] 형식으로. 표에 "전부재"
+  처럼 여러 부재가 묶여 표기돼 있으면 해당하는 개별 category 각각에 같은 값으로 행을 만드세요.
+- rebar_grade: 가장 일반적인 대표 철근강종(SD400/SD500 등)
+- rebar_grade_table: 철근 지름별 강종이 다르면
+  [{"bar_size_min": null, "bar_size_max": 10, "grade": "SD400", "fy_mpa": 400, "source": "S-002 철근재료표"},
+   {"bar_size_min": 13, "bar_size_max": 25, "grade": "SD500", "fy_mpa": 500, "source": "S-002 철근재료표"}] 형식으로
+  (bar_size_min/bar_size_max는 mm 숫자만, 하한이 없으면 null).
+- lap_splice_class: 도면에 명시된 이음등급(A급/B급) — 참고용으로만 채우세요(실제 계산은 정책상 항상
+  B급 기준입니다).
+- lap_splice_table: 이음길이표가 있으면 철근 지름별·상부/하부별로 전부
+  [{"bar_size": "D25", "position": "상부", "length_m": 1.5, "splice_class": "B", "source": "S-001 이음기준"}, ...]
+  형식으로 옮기세요. A급/B급이 각각 다른 열에 있으면 각각 행으로 나눠 splice_class를 채우세요.
+- anchorage_table: 정착길이표가 있으면 철근 지름별·상부/하부별·직선/갈고리별로 전부
+  [{"bar_size": "D25", "position": "상부", "hook": false, "length_m": 1.1, "source": "..."}, ...] 형식으로.
+- cover_thickness_mm: 대표(가장 얇은) 피복두께(mm)
+- cover_table: 부위별 피복두께가 다르면 각 행을 만드세요. category는 concrete_fck_table과
+  동일하게 "기초"/"기둥"/"보"/"슬래브"/"전단벽"/"계단" 6개 중 정확히 하나로 쓰세요(예:
+  "벽·기둥"처럼 묶어 쓰지 말고 "기둥"과 "전단벽" 각각 행으로 나누세요).
+  [{"category": "기초", "thickness_mm": 80, "source": "S-001 피복표"}, {"category": "전단벽", "thickness_mm": 40, "source": "..."}] 형식으로.
+- seismic_rebar_rules: 내진철근이 적용되는 부위/규격을 구조화해서
+  [{"location": "기둥·보 접합부", "grade": "SD500S", "source": "S-002 내진상세"}] 형식으로. 확인 안 되면 빈 배열.
+- summary_notes: 위 내용을 근거로 한 짧은 요약 문장들(문자열 배열). 예: "본 프로젝트는 B급 겹침이음을
+  적용합니다.", "상부근과 하부근의 이음길이가 구분되어 있습니다.", "벽체는 양면 배근이며, 보 단부는
+  중앙부보다 스터럽 간격이 조밀합니다." — 도면 근거가 있는 내용만 쓰세요, 지어내지 마세요.
+- unconfirmed_items: 구조일반사항 중 도면에서 확인하지 못한 항목 목록(문자열 배열). 특히 특정 철근
+  지름·위치 조합의 이음/정착길이가 표에 없으면 "D25 상부근 이음길이"처럼 구체적으로 남기세요 —
+  이 목록에 있는 항목은 사용자가 직접 값을 채우기 전까지 철근 실수량 계산에서 제외됩니다.
+
+사용자가 이전 확인 단계에서 정정한 내용(있다면 아래 [사용자 확인/정정 내용]으로 주어집니다)이 있으면
+그 내용을 최우선 근거로 삼아 반영하세요 — 도면에서 다르게 보이더라도 사용자가 이미 확인한 내용을
+우선하세요.
+
+반드시 아래 키를 가진 JSON 객체 하나만 반환하세요. 다른 텍스트는 절대 포함하지 마세요.
+예시(형식 참고용, 실제 값 아님):
+{
+  "overview": {
+    "project_name": "OO 공동주택 신축공사",
+    "structure_type": "철근콘크리트조",
+    "basement_floor_count": 2,
+    "buildings": [
+      {"label": "101동", "floor_range": "지상1층~지상20층", "floor_count": 20,
+       "building_area_m2": 600.1, "total_floor_area_m2": 5000.2, "household_count": 60,
+       "source": {"pdf_type":"건축","page":8,"table":"동별자료","quote":"101동 | 지상1층~지상20층 | 건축면적 600.1㎡ | 연면적 5,000.2㎡ | 60세대"}},
+      {"label": "102동", "floor_range": "지상1층~지상18층", "floor_count": 18,
+       "building_area_m2": 580.3, "total_floor_area_m2": 4700.4, "household_count": 55,
+       "source": {"pdf_type":"건축","page":8,"table":"동별자료","quote":"102동 | 지상1층~지상18층 | 건축면적 580.3㎡ | 연면적 4,700.4㎡ | 55세대"}}
+    ],
+    "underground_parking_note": "지하 1~2층",
+    "amenity_facilities": [
+      {"label":"관리사무소","floor_range":"지상1층","floor_count":1,
+       "building_area_m2":30.0,"total_floor_area_m2":30.0,"household_count":null,
+       "source":{"pdf_type":"건축","page":7,"table":"부대복리시설 설치계획","quote":"관리사무소 | 지상1층 | 건축면적 30.0㎡ | 연면적 30.0㎡"}}
+    ],
+    "utility_facilities": [
+      {"label":"전기실","floor_range":"지하1층","floor_count":1,
+       "building_area_m2":null,"total_floor_area_m2":45.0,"household_count":null,
+       "source":{"pdf_type":"건축","page":7,"table":"설비시설","quote":"전기실 | 지하1층 | 연면적 45.0㎡"}}
+    ],
+    "commercial_note": "근린생활시설 1개 동",
+    "unconfirmed_items": ["구조형식", "정확한 동별 연면적"],
+    "sources": {
+      "project_name": {"pdf_type":"건축","page":7,"table":"사업개요","quote":"사업명칭: OO 공동주택 신축공사"},
+      "structure_type": {"pdf_type":"건축","page":7,"table":"사업개요","quote":"주요구조/규모: 철근콘크리트조, 지하2층 / 지상20층"},
+      "basement_floor_count": {"pdf_type":"건축","page":7,"table":"사업개요","quote":"주요구조/규모: 철근콘크리트조, 지하2층 / 지상20층"},
+      "buildings": [
+        {"pdf_type":"건축","page":8,"table":"동별자료","quote":"101동 | 지상1층~지상20층 | 건축면적 600.1㎡ | 연면적 5,000.2㎡ | 60세대"},
+        {"pdf_type":"건축","page":8,"table":"동별자료","quote":"102동 | 지상1층~지상18층 | 건축면적 580.3㎡ | 연면적 4,700.4㎡ | 55세대"}
+      ],
+      "amenity_facilities": [
+        {"pdf_type":"건축","page":7,"table":"부대복리시설 설치계획","quote":"관리사무소 | 지상1층 | 건축면적 30.0㎡ | 연면적 30.0㎡"}
+      ],
+      "utility_facilities": [
+        {"pdf_type":"건축","page":7,"table":"설비시설","quote":"전기실 | 지하1층 | 연면적 45.0㎡"}
+      ]
+    }
+  },
+  "general_spec": {
+    "concrete_fck_mpa": 27,
+    "concrete_fck_table": [
+      {"category": "기초", "zone_scope": null, "fck_mpa": 24, "source": "S-001 3페이지"},
+      {"category": "기둥", "zone_scope": "지하", "fck_mpa": 30, "source": "S-001 3페이지"},
+      {"category": "기둥", "zone_scope": "지상", "fck_mpa": 27, "source": "S-001 3페이지"},
+      {"category": "전단벽", "zone_scope": "지하", "fck_mpa": 30, "source": "S-001 3페이지"},
+      {"category": "전단벽", "zone_scope": "지상", "fck_mpa": 27, "source": "S-001 3페이지"},
+      {"category": "보", "zone_scope": null, "fck_mpa": 27, "source": "S-001 4페이지"},
+      {"category": "슬래브", "zone_scope": null, "fck_mpa": 27, "source": "S-001 4페이지"}
+    ],
+    "rebar_grade": "SD500",
+    "rebar_grade_table": [
+      {"bar_size_min": null, "bar_size_max": 10, "grade": "SD400", "fy_mpa": 400, "source": "S-002 철근재료표"},
+      {"bar_size_min": 13, "bar_size_max": 25, "grade": "SD500", "fy_mpa": 500, "source": "S-002 철근재료표"}
+    ],
+    "lap_splice_class": "B",
+    "lap_splice_table": [{"bar_size": "D25", "position": "상부", "length_m": 1.5, "splice_class": "B", "source": "S-001 이음기준"}],
+    "anchorage_table": [{"bar_size": "D25", "position": "상부", "hook": false, "length_m": 1.1, "source": "S-001 이음기준"}],
+    "cover_thickness_mm": 40,
+    "cover_table": [{"category": "기초", "thickness_mm": 80, "source": "S-001 피복표"}, {"category": "기둥", "thickness_mm": 40, "source": "S-001 피복표"}, {"category": "전단벽", "thickness_mm": 40, "source": "S-001 피복표"}],
+    "seismic_rebar_rules": [{"location": "기둥·보 접합부", "grade": "SD500S", "source": "S-002 내진상세"}],
+    "summary_notes": [
+      "본 프로젝트는 B급 겹침이음을 적용합니다.",
+      "상부근과 하부근의 이음길이가 구분되어 있습니다.",
+      "벽체는 양면 배근이며, 보 단부는 중앙부보다 스터럽 간격이 조밀합니다."
+    ],
+    "unconfirmed_items": ["D25 상부근 이음길이"]
+  },
+  "notes": ["확인이 필요하거나 근사치인 항목에 대한 메모"]
+}"""
+
+_EMPTY_OVERVIEW_SPEC = {
+    "overview": {
+    "project_name": None, "basement_floor_count": None, "buildings": [],
+        "aboveground_max_floor": None,
+        "underground_parking_note": None, "amenity_facilities": [], "utility_facilities": [],
+        "commercial_note": None, "unconfirmed_items": [],
+    },
+    "general_spec": {},
+    "notes": [],
+}
+
+OVERVIEW_CHECK_MAX_PAGES = 12  # 사업개요 관련 최대 6장 + 구조일반사항 최대 6장 정도로 토큰을 억제한다
+
+# 실제 프로젝트에서 확인된 문제: 무조건 앞 2페이지만 "표지"로 간주해서 보냈더니, 표지/목차/
+# 조감도가 앞쪽에 오고 정작 사업명·대지위치·층별면적·부대복리시설이 담긴 "사업개요표"는
+# 3페이지 이후에 있는 문서에서 프로젝트명/지하층수/부대시설 목록이 통째로 "확인 안 됨"으로
+# 나왔다(그 페이지 자체를 Gemini에 아예 보내지 않았으므로 당연한 결과). _detect_schedule_
+# pages와 같은 방식으로 "사업개요" 관련 키워드가 있는 페이지를 먼저 찾아서 우선 포함한다.
+OVERVIEW_CLASSIFY_DPI = 120
+OVERVIEW_CLASSIFY_MIN_LONG_EDGE = 2000
+OVERVIEW_CLASSIFY_MAX_LONG_EDGE = 2800
+# 실제 프로젝트들에서 사업개요/동별면적표는 거의 항상 앞쪽 30쪽 안에 있었다(2026-07-27
+# 사용자 확인: "보통 30쪽 이상은 안 간다"). 이전에는 이 값이 정의만 되고 실제 호출부
+# (extract_overview_and_spec -> _find_incremental_overview_pages)에 전달되지 않아서
+# 사실상 페이지 수 제한 없이 문서 끝까지(120초 시간제한에만 걸려서) 스캔하고 있었다.
+# 아래에서 실제로 max_pages로 전달해 30쪽 이후는 스캔하지 않도록 한다.
+OVERVIEW_CLASSIFY_MAX_PAGES = int(os.environ.get("QTY_OVERVIEW_CLASSIFY_MAX_PAGES", "30"))
+OVERVIEW_LOCATOR_VERSION = "vision-evidence-validated-v12"
+OVERVIEW_VISION_TIMEOUT_SEC = 60
+OVERVIEW_LOCATOR_TIMEOUT_SEC = 120
+
+
+class OverviewLocatorTimeout(RuntimeError):
+    pass
+OVERVIEW_PAGE_TYPES = {
+    "overview", "building_area_table", "drawing_list", "other",
+}
+OVERVIEW_PAGE_CLASSIFIER_PROMPT = """당신은 건축 PDF 페이지 종류 분류기입니다.
+값을 추출하거나 층수·동·면적을 해석하지 말고 각 이미지의 페이지 종류만 분류하세요.
+page_type은 overview / building_area_table / drawing_list / other 중 하나입니다.
+각 페이지는 오직 그 이미지 자체의 제목, 표 머리글, 셀 내용만 보고 판정하세요.
+페이지 번호, 앞뒤 페이지, 문서 내 위치, 다른 페이지의 판정 결과로 종류를 추정하지 마세요.
+overview는 사업개요 또는 건축개요 제목과 함께 사업명칭, 대지위치, 주용도,
+구조·규모, 면적 항목이 실제 표에 나타나는 페이지입니다.
+building_area_table은 동별면적표·층별면적표 등의 제목과 동 구분 및
+건축면적·연면적 열이 실제 표에 나타나는 페이지입니다.
+도면번호 A-001 등 시트 번호와 도면명이 나열된 목록 페이지는 drawing_list입니다.
+'건축개요'라는 도면명이 목록 일부에 있어도 실제 개요표가 아니면 overview가 아닙니다.
+각 결과에 page_number, page_type, confidence, title_text, evidence_terms를 반환하세요.
+evidence_terms는 실제 이미지에서 읽힌 판정 근거 표제·셀명·열 이름만 문자열 배열로 넣으세요.
+각 페이지의 evidence_terms는 최대 6개의 짧은 용어 또는 셀 근거만 넣고,
+설명문·판단 과정·장문 문장은 반환하지 마세요.
+building_area_table로 판정한 경우 실제 표에서 보이는 101동·102동 같은 독립 동명 셀도
+evidence_terms에 포함하세요. 제목이 불명확하면 건축면적·연면적 머리글과 독립 동명 셀을
+반드시 함께 반환하고, 실제로 보이지 않는 동명이나 숫자는 만들지 마세요.
+반드시 {"pages":[{"page_number":1,"page_type":"overview","confidence":0.98,
+"title_text":"사업개요","evidence_terms":["사업명칭","대지위치","주용도","규모"]}]} JSON만 반환하세요.
+그 외 키와 값 추출 결과는 반환하지 마세요."""
+
+_OVERVIEW_CLASSIFICATION_CACHE = {}
+_OVERVIEW_CLASSIFICATION_LOCK = threading.Lock()
+
+
+class _OverviewClassificationResult(list):
+    """기존 list 호출부와 호환하면서 locator 응답 완전성 메타를 전달한다."""
+
+    def __init__(self, pages=(), *, requested_pages=(), finish_reason=None,
+                 missing_page_numbers=(), partial_repair_used=False):
+        super().__init__(pages)
+        self.requested_pages = list(requested_pages)
+        self.finish_reason = finish_reason
+        self.missing_page_numbers = list(missing_page_numbers)
+        self.partial_repair_used = bool(partial_repair_used)
+
+
+def _incremental_overview_ranges(total_pages, max_pages=None):
+    end_limit = total_pages if max_pages is None else min(total_pages, max_pages)
+    starts_and_sizes = ((1, 10), (11, 5), (16, 5))
+    for start, size in starts_and_sizes:
+        if start <= end_limit:
+            yield start, min(start + size - 1, end_limit)
+    start = 21
+    while start <= end_limit:
+        yield start, min(start + 9, end_limit)
+        start += 10
+
+
+def _prepare_overview_classifier_image(image):
+    image = image.convert("RGB")
+    long_edge = max(image.size)
+    if long_edge < OVERVIEW_CLASSIFY_MIN_LONG_EDGE:
+        scale = OVERVIEW_CLASSIFY_MIN_LONG_EDGE / float(long_edge)
+    elif long_edge > OVERVIEW_CLASSIFY_MAX_LONG_EDGE:
+        scale = OVERVIEW_CLASSIFY_MAX_LONG_EDGE / float(long_edge)
+    else:
+        return image
+    size = (
+        max(1, int(round(image.width * scale))),
+        max(1, int(round(image.height * scale))),
+    )
+    return image.resize(size, Image.Resampling.LANCZOS)
+
+
+def _classify_overview_page_batch(pdf_bytes, page_numbers, needed_types=None):
+    """페이지를 독립 이미지로 렌더링하되 단 한 번의 Vision 요청으로 분류한다."""
+    client = get_gemini_client()
+    if client is None or not page_numbers:
+        return []
+    contents = [
+        "각 이미지의 페이지 종류를 그 페이지 자체 내용만으로 분류하세요. "
+        "값을 추출하지 말고 모든 이미지에 대해 page_number, page_type, confidence, "
+        "title_text, evidence_terms만 반환하세요."
+    ]
+    for page_num in page_numbers:
+        try:
+            images = _render_pdf_page_range(
+                pdf_bytes, page_num, page_num, dpi=OVERVIEW_CLASSIFY_DPI,
+                timeout=OVERVIEW_VISION_TIMEOUT_SEC,
+            )
+        except Exception as exc:
+            logger.warning(
+                "quantity_overview_locator_render_failed page=%s error=%s",
+                page_num, str(exc)[:160],
+            )
+            continue
+        if not images:
+            continue
+        image = _prepare_overview_classifier_image(images[0])
+        logger.info(
+            "[OVERVIEW_LOCATOR] page=%s image_pixels=%sx%s",
+            page_num, image.width, image.height,
+        )
+        contents.append(f"[PDF_PAGE={page_num}]")
+        contents.append(types.Part.from_bytes(
+            data=image_to_jpeg_bytes(
+                image,
+                max_size=(OVERVIEW_CLASSIFY_MAX_LONG_EDGE, OVERVIEW_CLASSIFY_MAX_LONG_EDGE),
+            ),
+            mime_type="image/jpeg",
+        ))
+    if len(contents) == 1:
+        logger.warning("[OVERVIEW_LOCATOR] no_page_images_rendered pages=%s", page_numbers)
+        return []
+    response = client.models.generate_content(
+        model=GEMINI_QUANTITY_MODEL,
+        contents=contents,
+        config=types.GenerateContentConfig(
+            system_instruction=OVERVIEW_PAGE_CLASSIFIER_PROMPT,
+            # 실제 사용자 문서에서 재현된 버그: 10페이지 배치(첫 배치 1-10쪽, 이후 21쪽부터의
+            # 10쪽 단위 배치)는 페이지당 title_text/evidence_terms까지 포함하면 2048 토큰을
+            # 쉽게 넘겨 응답이 중간에 잘렸다. json.loads가 실패하면 무조건 빈 리스트를
+            # 반환했으므로, 그 배치의 모든 페이지가 "다시 시도 없이 통째로 other/미발견"
+            # 처리됐다(5쪽 배치인 11-15/16-20은 토큰이 부족하지 않아 정상 동작했음 —
+            # 로그에서 10쪽 배치만 raw_response가 중간에 끊긴 것으로 확인됨). 5쪽 배치
+            # 기준 실측 크기에 여유를 크게 둬서 10쪽 배치도 안전하게 담기도록 올린다.
+            response_mime_type="application/json", temperature=0.0, max_output_tokens=8192,
+            thinking_config=types.ThinkingConfig(thinking_budget=512),
+            http_options=types.HttpOptions(timeout=OVERVIEW_VISION_TIMEOUT_SEC * 1000),
+        ),
+    )
+    raw = _extract_text_from_gemini_response(response).replace("```json", "").replace("```", "").strip()
+    logger.info("[OVERVIEW_LOCATOR] raw_response=%s", raw[:12000])
+    partial_repair_used = False
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError):
+        # 토큰 상향 조정 후에도 혹시 잘리는 경우를 대비한 안전망 — 끝까지 못 받았어도
+        # 앞부분에 완전히 끝난 페이지 항목까지는 있는 그대로 살려서 쓴다(전체를 버리고
+        # "전부 못 찾음" 처리하는 것보다 일부라도 건지는 편이 낫다).
+        payload = _try_repair_truncated_json(raw)
+        if payload is None:
+            logger.warning(
+                "[OVERVIEW_LOCATOR] json_parse_failed_even_after_repair pages=%s raw_len=%s",
+                page_numbers, len(raw),
+            )
+            payload = {"pages": []}
+        else:
+            partial_repair_used = True
+            logger.warning(
+                "[OVERVIEW_LOCATOR] json_truncated_partial_repair_used pages=%s raw_len=%s",
+                page_numbers, len(raw),
+            )
+    pages = payload.get("pages", []) if isinstance(payload, dict) else payload
+    if not isinstance(pages, list):
+        pages = []
+    requested_page_numbers = [int(page) for page in page_numbers]
+    requested_set = set(requested_page_numbers)
+    parsed_page_numbers = sorted({
+        int(item.get("page_number"))
+        for item in pages
+        if isinstance(item, dict)
+        and str(item.get("page_number") or "").strip().isdigit()
+        and int(item.get("page_number")) in requested_set
+    })
+    missing_page_numbers = [
+        page for page in requested_page_numbers if page not in set(parsed_page_numbers)
+    ]
+    response_diagnostics = _gemini_response_diagnostics(response)
+    candidate_diagnostics = response_diagnostics.get("candidates") or []
+    finish_reason = (
+        candidate_diagnostics[0].get("finish_reason")
+        if candidate_diagnostics else None
+    )
+    usage = response_diagnostics.get("usage") or {}
+    _log_overview_diagnostic(
+        "locator_vision_response",
+        requested_page_numbers=requested_page_numbers,
+        finish_reason=finish_reason,
+        prompt_token_count=usage.get("prompt_token_count"),
+        thoughts_token_count=usage.get("thoughts_token_count"),
+        candidates_token_count=usage.get("candidates_token_count"),
+        total_token_count=usage.get("total_token_count"),
+        raw_length=len(raw),
+        parsed_page_numbers=parsed_page_numbers,
+        missing_page_numbers=missing_page_numbers,
+        partial_json_repair_used=partial_repair_used,
+    )
+    if missing_page_numbers:
+        _log_overview_diagnostic(
+            "locator_vision_incomplete_response",
+            level=logging.WARNING,
+            requested_page_numbers=requested_page_numbers,
+            finish_reason=finish_reason,
+            missing_page_numbers=missing_page_numbers,
+            partial_json_repair_used=partial_repair_used,
+        )
+    logger.info("[OVERVIEW_LOCATOR] decisions=%s", json.dumps(pages, ensure_ascii=False))
+    return _OverviewClassificationResult(
+        pages,
+        requested_pages=requested_page_numbers,
+        finish_reason=finish_reason,
+        missing_page_numbers=missing_page_numbers,
+        partial_repair_used=partial_repair_used,
+    )
+
+
+def _normalize_page_classification(item, allowed_pages):
+    if not isinstance(item, dict):
+        return None
+    try:
+        page_number = int(item.get("page_number"))
+        confidence = float(item.get("confidence", 0))
+    except (TypeError, ValueError):
+        return None
+    page_type = str(item.get("page_type") or "other")
+    if page_number not in allowed_pages or page_type not in OVERVIEW_PAGE_TYPES:
+        return None
+    return {
+        "page_number": page_number,
+        "page_type": page_type,
+        "confidence": max(0.0, min(1.0, confidence)),
+        "title_text": str(item.get("title_text") or "")[:200],
+        "evidence_terms": [
+            str(term).strip()[:100]
+            for term in (
+                item.get("evidence_terms")
+                if isinstance(item.get("evidence_terms"), list)
+                else [item.get("evidence_terms")]
+            )
+            if str(term or "").strip()
+        ][:6],
+    }
+
+
+def _classification_has_evidence(item):
+    """높은 confidence만으로 표 종류를 확정하지 않고 실제 표제와 판정 근거를 확인한다."""
+    page_type = item.get("page_type")
+    title = re.sub(r"\s+", "", str(item.get("title_text") or ""))
+    terms = {
+        re.sub(r"\s+", "", str(term))
+        for term in item.get("evidence_terms") or []
+        if str(term).strip()
+    }
+    if page_type == "overview":
+        title_ok = any(value in title for value in ("사업개요", "건축개요", "건축계획개요"))
+        evidence_keys = ("사업명칭", "사업명", "대지위치", "주용도", "용도", "구조", "규모", "면적")
+        return title_ok and sum(any(key in term for term in terms) for key in evidence_keys) >= 2
+    if page_type == "building_area_table":
+        title_ok = any(value in title for value in ("동별면적", "층별면적", "동별자료"))
+        evidence_keys = ("동", "층", "건축면적", "연면적")
+        standard_evidence = sum(
+            any(key in term for term in terms) for key in evidence_keys
+        ) >= 2
+        if title_ok:
+            return standard_evidence
+
+        combined = " ".join([title, *terms])
+        if "도면목록" in combined.replace(" ", "") or "DRAWINGLIST" in combined.replace(" ", "").upper():
+            return False
+        building_labels = {
+            match.group(0).replace(" ", "")
+            for match in re.finditer(r"(?<!\d)\d{1,4}\s*동(?!\w)", combined)
+        }
+        has_area_headers = (
+            any("건축면적" in term for term in terms)
+            and any("연면적" in term for term in terms)
+        )
+        if not has_area_headers:
+            return False
+        if len(building_labels) >= 2:
+            return True
+        if len(building_labels) == 1:
+            has_row_context = any(
+                key in combined for key in ("세대수", "세대", "층수", "지상", "지하")
+            )
+            has_area_number = bool(re.search(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d+", combined))
+            return has_row_context and has_area_number
+        return False
+    return True
+
+
+def _cache_validated_overview_pages(pdf_bytes, page_detection, overview):
+    """실제 핵심 개요값까지 검증된 경우에만 locator 성공 페이지를 캐시한다."""
+    if not page_detection.get("complete"):
+        return False
+    if (
+        not overview.get("project_name")
+        or overview.get("basement_floor_count") is None
+        or overview.get("aboveground_max_floor") is None
+        or not any(
+            isinstance(building, dict) and building.get("label")
+            for building in overview.get("buildings") or []
+        )
+    ):
+        return False
+    overview_page = page_detection.get("overview", {}).get("page_number")
+    area_table_page = page_detection.get("area_table", {}).get("page_number")
+    if not isinstance(overview_page, int) or not isinstance(area_table_page, int):
+        return False
+    cache_key = f"{OVERVIEW_LOCATOR_VERSION}:{_sha256_bytes(pdf_bytes)}"
+    with _OVERVIEW_CLASSIFICATION_LOCK:
+        _OVERVIEW_CLASSIFICATION_CACHE[cache_key] = {
+            "overview_page": overview_page,
+            "area_table_page": area_table_page,
+        }
+    return True
+
+
+_OVERVIEW_TEXT_KEYWORDS = {
+    "overview": (
+        ("사업개요", 8), ("건축개요", 6), ("사업명칭", 7),
+        ("주요구조", 4), ("규모", 2),
+    ),
+    "building_area_table": (
+        ("동별면적표", 10), ("층별면적표", 8), ("동별 면적", 8),
+        ("동별자료", 8), ("101동", 3), ("102동", 3),
+    ),
+}
+
+
+def _extract_pdf_page_texts(pdf_bytes, first_page=1, last_page=None, timeout_sec=20):
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as handle:
+            handle.write(pdf_bytes)
+            tmp_path = handle.name
+        command = ["pdftotext", "-layout"]
+        if first_page is not None:
+            command += ["-f", str(first_page)]
+        if last_page is not None:
+            command += ["-l", str(last_page)]
+        command += [tmp_path, "-"]
+        result = subprocess.run(
+            command,
+            capture_output=True, timeout=timeout_sec,
+        )
+        if result.returncode != 0:
+            return {}
+        pages = result.stdout.decode("utf-8", errors="ignore").split("\f")
+        return {
+            index: text
+            for index, text in enumerate(pages, start=first_page or 1)
+            if text.strip()
+        }
+    except Exception:
+        return {}
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+
+def _text_page_score(text, page_type):
+    compact = re.sub(r"\s+", "", str(text or ""))
+    score = 0
+    hits = []
+    for keyword, weight in _OVERVIEW_TEXT_KEYWORDS[page_type]:
+        if keyword in text or keyword.replace(" ", "") in compact:
+            score += weight
+            hits.append(keyword)
+    if "도면목록" in compact or "DRAWINGLIST" in compact.upper():
+        score -= 8
+    return score, hits
+
+
+def _log_locator_page(page_number, text_score, predicted_type, confidence, selection_reason,
+                      scan_range="text-all"):
+    logger.info(
+        "quantity_overview_locator %s",
+        json.dumps({
+            "locator_version": OVERVIEW_LOCATOR_VERSION,
+            "range": scan_range,
+            "page_number": page_number,
+            "text_score": text_score,
+            "predicted_type": predicted_type,
+            "confidence": confidence,
+            "selection_reason": selection_reason,
+        }, ensure_ascii=False, sort_keys=True),
+    )
+
+
+def _log_overview_diagnostic(event, level=logging.INFO, **details):
+    """사업개요 탐색의 실행 흐름만 JSON 한 줄로 남기는 진단 전용 로그."""
+    payload = {
+        "event": event,
+        "locator_version": OVERVIEW_LOCATOR_VERSION,
+    }
+    payload.update(details)
+    logger.log(
+        level,
+        "quantity_overview_diagnostic %s",
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str),
+    )
+
+
+def _overview_diagnostic_missing_fields(overview):
+    """판독 결과에서 비어 있는 주요 개요 필드를 진단용으로만 계산한다."""
+    overview = overview if isinstance(overview, dict) else {}
+    missing = []
+    for field in (
+        "project_name",
+        "site_location",
+        "usage",
+        "structure_type",
+        "basement_floor_count",
+        "aboveground_max_floor",
+        "household_count",
+    ):
+        value = overview.get(field)
+        if value is None or value == "":
+            missing.append(field)
+    if not overview.get("buildings"):
+        missing.append("buildings")
+    if not overview.get("amenity_facilities"):
+        missing.append("amenity_facilities")
+    return missing
+
+
+def _select_text_locator_candidates(page_texts, page_numbers, selections, scan_range):
+    diagnostics = []
+    for page_number in page_numbers:
+        text = page_texts.get(page_number, "")
+        overview_score, overview_hits = _text_page_score(text, "overview")
+        area_score, area_hits = _text_page_score(text, "building_area_table")
+        predicted_type = "other"
+        text_score = max(overview_score, area_score)
+        hits = []
+        if overview_score >= 7 and overview_score >= area_score:
+            predicted_type, hits = "overview", overview_hits
+        elif area_score >= 6:
+            predicted_type, hits = "building_area_table", area_hits
+        reason = "text_keywords:" + ",".join(hits) if hits else "text_no_match"
+        diagnostic = {
+            "page_number": page_number, "page_type": predicted_type,
+            "confidence": 1.0 if predicted_type != "other" else 0.0,
+            "title_text": "", "text_score": text_score, "selection_reason": reason,
+        }
+        diagnostics.append(diagnostic)
+        _log_locator_page(
+            page_number, text_score, predicted_type, diagnostic["confidence"], reason, scan_range,
+        )
+        if predicted_type == "overview":
+            current = selections["overview"]
+            if current is None or text_score > current["text_score"]:
+                selections["overview"] = diagnostic
+        elif predicted_type == "building_area_table":
+            current = selections["area_table"]
+            if current is None or text_score > current["text_score"]:
+                selections["area_table"] = diagnostic
+    return selections, diagnostics
+
+
+def _find_incremental_overview_pages(pdf_bytes, total_pages, classify_batch=None,
+                                     max_pages=None,
+                                     page_texts=None, progress_callback=None):
+    """범위별 텍스트 점수 후 부족한 페이지만 Vision으로 보완하고 즉시 중단한다."""
+    classify_batch = classify_batch or _classify_overview_page_batch
+    cache_key = f"{OVERVIEW_LOCATOR_VERSION}:{_sha256_bytes(pdf_bytes)}"
+    with _OVERVIEW_CLASSIFICATION_LOCK:
+        cached_result = _OVERVIEW_CLASSIFICATION_CACHE.get(cache_key)
+    if cached_result:
+        _log_overview_diagnostic(
+            "locator_cache_hit",
+            selected_pages={
+                "overview": cached_result["overview_page"],
+                "area_table": cached_result["area_table_page"],
+            },
+        )
+        return {
+            "overview": {
+                "page_number": cached_result["overview_page"], "page_type": "overview",
+                "confidence": 1.0, "title_text": "", "text_score": 0,
+                "selection_reason": "versioned_success_cache",
+            },
+            "area_table": {
+                "page_number": cached_result["area_table_page"],
+                "page_type": "building_area_table", "confidence": 1.0,
+                "title_text": "", "text_score": 0,
+                "selection_reason": "versioned_success_cache",
+            },
+            "classifications": [], "top_candidates": [], "scanned_pages": [],
+            "complete": True, "from_cache": True,
+            "vision_call_count": 0, "vision_pages": [],
+        }
+
+    supplied_page_texts = page_texts
+    locator_started = time.monotonic()
+    deadline = locator_started + OVERVIEW_LOCATOR_TIMEOUT_SEC
+
+    def remaining_seconds():
+        return deadline - time.monotonic()
+
+    def ensure_time(phase):
+        if remaining_seconds() <= 0:
+            _log_overview_diagnostic(
+                "locator_timeout",
+                level=logging.WARNING,
+                phase=phase,
+                elapsed_seconds=round(time.monotonic() - locator_started, 3),
+                selected_pages={
+                    key: (value or {}).get("page_number")
+                    for key, value in selections.items()
+                },
+                scanned_pages=list(scanned_pages),
+                vision_call_count=vision_call_count,
+            )
+            raise OverviewLocatorTimeout(
+                f"사업개요 페이지 자동 탐색이 {OVERVIEW_LOCATOR_TIMEOUT_SEC}초를 초과했습니다 "
+                f"(단계: {phase})."
+            )
+
+    selections = {"overview": None, "area_table": None}
+    diagnostics = []
+    scanned_pages = []
+    vision_call_count = 0
+    vision_pages = []
+    _log_overview_diagnostic(
+        "locator_start",
+        total_pages=total_pages,
+        max_pages=max_pages,
+        timeout_seconds=OVERVIEW_LOCATOR_TIMEOUT_SEC,
+    )
+    for first_page, last_page in _incremental_overview_ranges(total_pages, max_pages):
+        page_numbers = list(range(first_page, last_page + 1))
+        scan_range = f"{first_page}-{last_page}"
+        ensure_time(f"{scan_range} 텍스트 검색")
+        if progress_callback:
+            progress_callback(f"개요 페이지 탐색 · {scan_range}쪽 · 텍스트 검색")
+        current_page_texts = (
+            _extract_pdf_page_texts(
+                pdf_bytes, first_page, last_page,
+                timeout_sec=max(1, min(20, int(remaining_seconds()))),
+            )
+            if supplied_page_texts is None else supplied_page_texts
+        )
+        selections, text_diagnostics = _select_text_locator_candidates(
+            current_page_texts, page_numbers, selections, scan_range,
+        )
+        diagnostics.extend(text_diagnostics)
+        scanned_pages.extend(page_numbers)
+        vision_types = {"overview", "building_area_table"}
+        # 텍스트 점수는 후보 생성과 로그에만 사용한다. 두 후보가 모두 있어도 같은 배치의
+        # 독립 이미지 Vision 분류를 생략하지 않는다. 최종 종류는 페이지 자체 콘텐츠를
+        # 읽은 Vision 결과로 검증한다.
+        # 이 배치에서 문서 종류가 하나라도 부족하면 같은 배치의 모든 페이지를 Vision
+        # 요청에 넣는다. 텍스트 판정 여부나 페이지 위치 때문에 이미지를 제외하지 않는다.
+        # 각 페이지는 독립 이미지와 정확한 PDF_PAGE 라벨로 자체 내용만 분류한다.
+        diagnostic_by_page = {
+            item["page_number"]: item for item in text_diagnostics
+        }
+        pages_to_classify = list(page_numbers)
+        # 같은 범위의 Vision 단계가 실제로 시작됐음을 응답 전에 기록한다. 이 호출이 끝나기
+        # 전에는 아래 for-loop가 다음 범위로 진행될 수 없다.
+        for page_number in pages_to_classify:
+            _log_locator_page(
+                page_number, diagnostic_by_page[page_number]["text_score"],
+                "other", 0.0, "image_fallback_queued", scan_range,
+            )
+        vision_call_count += 1
+        vision_pages.append(list(pages_to_classify))
+        ensure_time(f"{scan_range} Vision 시작")
+        if progress_callback:
+            progress_callback(f"개요 페이지 탐색 · {scan_range}쪽 · Vision 분류")
+        vision_started = time.monotonic()
+        logger.info("[OVERVIEW_LOCATOR] pages=%s phase=vision start", scan_range)
+        logger.info(
+            "quantity_overview_locator_vision_call call=%s pages=%s range=%s",
+            vision_call_count, pages_to_classify, scan_range,
+        )
+        try:
+            returned = classify_batch(pdf_bytes, pages_to_classify, vision_types) or []
+        except TypeError:
+            # 기존 테스트/내부 주입 함수와의 호환.
+            try:
+                returned = classify_batch(pdf_bytes, pages_to_classify) or []
+            except Exception as exc:
+                if isinstance(exc, (TimeoutError, OverviewLocatorTimeout)) or "timeout" in str(exc).lower():
+                    logger.info(
+                        "[OVERVIEW_LOCATOR] pages=%s phase=vision end elapsed=%.3f found=timeout",
+                        scan_range, time.monotonic() - vision_started,
+                    )
+                    _log_overview_diagnostic(
+                        "locator_timeout",
+                        level=logging.WARNING,
+                        phase=f"{scan_range} Vision 분류",
+                        elapsed_seconds=round(time.monotonic() - locator_started, 3),
+                        selected_pages={
+                            key: (value or {}).get("page_number")
+                            for key, value in selections.items()
+                        },
+                        scanned_pages=list(scanned_pages),
+                        vision_call_count=vision_call_count,
+                    )
+                    raise OverviewLocatorTimeout(
+                        f"{scan_range}쪽 Vision 분류가 {OVERVIEW_VISION_TIMEOUT_SEC}초 제한을 초과했습니다."
+                    ) from exc
+                logger.exception(
+                    "quantity_overview_locator_fallback_failed range=%s error=%s",
+                    scan_range, str(exc)[:160],
+                )
+                returned = []
+        except Exception as exc:
+            if isinstance(exc, (TimeoutError, OverviewLocatorTimeout)) or "timeout" in str(exc).lower():
+                logger.info(
+                    "[OVERVIEW_LOCATOR] pages=%s phase=vision end elapsed=%.3f found=timeout",
+                    scan_range, time.monotonic() - vision_started,
+                )
+                _log_overview_diagnostic(
+                    "locator_timeout",
+                    level=logging.WARNING,
+                    phase=f"{scan_range} Vision 분류",
+                    elapsed_seconds=round(time.monotonic() - locator_started, 3),
+                    selected_pages={
+                        key: (value or {}).get("page_number")
+                        for key, value in selections.items()
+                    },
+                    scanned_pages=list(scanned_pages),
+                    vision_call_count=vision_call_count,
+                )
+                raise OverviewLocatorTimeout(
+                    f"{scan_range}쪽 Vision 분류가 {OVERVIEW_VISION_TIMEOUT_SEC}초 제한을 초과했습니다."
+                ) from exc
+            logger.exception(
+                "quantity_overview_locator_fallback_failed range=%s error=%s",
+                scan_range, str(exc)[:160],
+            )
+            returned = []
+        if remaining_seconds() <= 0:
+            logger.info(
+                "[OVERVIEW_LOCATOR] pages=%s phase=vision end elapsed=%.3f found=timeout",
+                scan_range, time.monotonic() - vision_started,
+            )
+            _log_overview_diagnostic(
+                "locator_timeout",
+                level=logging.WARNING,
+                phase=f"{scan_range} Vision 완료",
+                elapsed_seconds=round(time.monotonic() - locator_started, 3),
+                selected_pages={
+                    key: (value or {}).get("page_number")
+                    for key, value in selections.items()
+                },
+                scanned_pages=list(scanned_pages),
+                vision_call_count=vision_call_count,
+            )
+            raise OverviewLocatorTimeout(
+                f"사업개요 페이지 자동 탐색이 {OVERVIEW_LOCATOR_TIMEOUT_SEC}초를 초과했습니다 "
+                f"(단계: {scan_range} Vision 완료)."
+            )
+        # 실제 Gemini 분류기는 요청/응답 페이지 집합을 함께 반환한다. 부분 JSON이
+        # 복구됐더라도 누락 페이지는 성공으로 확정하지 않고, 다음 범위로 넘어가기 전에
+        # 최대 3페이지씩 한 번만 재분류한다. 일반 list를 반환하는 기존 주입 테스트와
+        # 내부 호출은 기존 동작을 유지한다.
+        missing_page_numbers = list(
+            getattr(returned, "missing_page_numbers", ()) or ()
+        )
+        finish_reason = str(getattr(returned, "finish_reason", "") or "").upper()
+        if missing_page_numbers or finish_reason == "MAX_TOKENS":
+            merged_by_page = {
+                int(item.get("page_number")): item
+                for item in returned
+                if isinstance(item, dict)
+                and str(item.get("page_number") or "").strip().isdigit()
+            }
+            for offset in range(0, len(missing_page_numbers), 3):
+                retry_pages = missing_page_numbers[offset:offset + 3]
+                if not retry_pages:
+                    continue
+                ensure_time(f"{scan_range} 누락 페이지 Vision 재분류 시작")
+                vision_call_count += 1
+                vision_pages.append(list(retry_pages))
+                logger.info(
+                    "quantity_overview_locator_vision_call call=%s pages=%s "
+                    "range=%s retry=missing_pages",
+                    vision_call_count, retry_pages, scan_range,
+                )
+                try:
+                    retry_returned = classify_batch(
+                        pdf_bytes, retry_pages, vision_types,
+                    ) or []
+                except TypeError:
+                    retry_returned = classify_batch(pdf_bytes, retry_pages) or []
+                except Exception as exc:
+                    if (
+                        isinstance(exc, (TimeoutError, OverviewLocatorTimeout))
+                        or "timeout" in str(exc).lower()
+                    ):
+                        raise OverviewLocatorTimeout(
+                            f"{scan_range}쪽 누락 페이지 Vision 재분류가 "
+                            f"{OVERVIEW_VISION_TIMEOUT_SEC}초 제한을 초과했습니다."
+                        ) from exc
+                    logger.exception(
+                        "quantity_overview_locator_missing_retry_failed "
+                        "range=%s pages=%s error=%s",
+                        scan_range, retry_pages, str(exc)[:160],
+                    )
+                    retry_returned = []
+                ensure_time(f"{scan_range} 누락 페이지 Vision 재분류 완료")
+                for item in retry_returned:
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        retry_page_number = int(item.get("page_number"))
+                    except (TypeError, ValueError):
+                        continue
+                    if retry_page_number in retry_pages:
+                        merged_by_page[retry_page_number] = item
+            returned = [
+                merged_by_page[page]
+                for page in pages_to_classify
+                if page in merged_by_page
+            ]
+            remaining_missing = [
+                page for page in pages_to_classify
+                if page not in merged_by_page
+            ]
+            _log_overview_diagnostic(
+                "locator_missing_page_retry_complete",
+                scan_range=scan_range,
+                requested_page_numbers=pages_to_classify,
+                retried_page_numbers=missing_page_numbers,
+                remaining_missing_page_numbers=remaining_missing,
+            )
+        allowed = set(pages_to_classify)
+        returned_page_numbers = set()
+        for raw_item in returned:
+            normalized_item = _normalize_page_classification(raw_item, allowed)
+            raw_page_number = raw_item.get("page_number") if isinstance(raw_item, dict) else None
+            if normalized_item is None:
+                _log_overview_diagnostic(
+                    "candidate_rejected",
+                    scan_range=scan_range,
+                    page_number=raw_page_number,
+                    reason="invalid_classifier_result",
+                )
+                continue
+            returned_page_numbers.add(normalized_item["page_number"])
+            if normalized_item["page_type"] not in ("overview", "building_area_table"):
+                _log_overview_diagnostic(
+                    "candidate_rejected",
+                    scan_range=scan_range,
+                    page_number=normalized_item["page_number"],
+                    predicted_type=normalized_item["page_type"],
+                    confidence=normalized_item["confidence"],
+                    title_text=normalized_item["title_text"],
+                    evidence_terms=normalized_item["evidence_terms"],
+                    reason="non_target_page_type",
+                )
+            elif not _classification_has_evidence(normalized_item):
+                _log_overview_diagnostic(
+                    "candidate_rejected",
+                    scan_range=scan_range,
+                    page_number=normalized_item["page_number"],
+                    predicted_type=normalized_item["page_type"],
+                    confidence=normalized_item["confidence"],
+                    title_text=normalized_item["title_text"],
+                    evidence_terms=normalized_item["evidence_terms"],
+                    reason="evidence_validation_failed",
+                )
+            else:
+                _log_overview_diagnostic(
+                    "candidate_accepted",
+                    scan_range=scan_range,
+                    page_number=normalized_item["page_number"],
+                    predicted_type=normalized_item["page_type"],
+                    confidence=normalized_item["confidence"],
+                    title_text=normalized_item["title_text"],
+                    evidence_terms=normalized_item["evidence_terms"],
+                )
+        for page_number in pages_to_classify:
+            if page_number not in returned_page_numbers:
+                _log_overview_diagnostic(
+                    "candidate_rejected",
+                    scan_range=scan_range,
+                    page_number=page_number,
+                    reason="classifier_no_result",
+                )
+        normalized = [
+            item for raw in returned
+            if (item := _normalize_page_classification(raw, allowed)) is not None
+            and _classification_has_evidence(item)
+        ]
+
+        # 면적표 근거는 찾았지만 overview 근거가 없으면 다음 범위로 넘어가기 전에 동일한
+        # 이미지들을 overview 전용으로 딱 한 번 재분류한다. 페이지 위치는 사용하지 않는다.
+        # (예전에는 first_page == 1인 배치에서만 이 재시도를 했는데, 사업개요표가 첫 배치
+        # 이후 범위에 있는 문서에서는 재시도 자체가 걸리지 않았다 — 모든 배치에 동일하게
+        # 적용한다.)
+        found_types = {item["page_type"] for item in normalized}
+        if (
+            "building_area_table" in found_types
+            and "overview" not in found_types
+            and selections["overview"] is None
+        ):
+            ensure_time(f"{scan_range} overview 집중 Vision 시작")
+            if progress_callback:
+                progress_callback(f"개요 페이지 탐색 · {scan_range}쪽 · overview 집중 재분류")
+            vision_call_count += 1
+            vision_pages.append(list(pages_to_classify))
+            logger.info(
+                "quantity_overview_locator_vision_call call=%s pages=%s range=%s focus=overview",
+                vision_call_count, pages_to_classify, scan_range,
+            )
+            try:
+                focused_returned = classify_batch(
+                    pdf_bytes, pages_to_classify, {"overview"},
+                ) or []
+            except TypeError:
+                focused_returned = classify_batch(pdf_bytes, pages_to_classify) or []
+            except Exception as exc:
+                if isinstance(exc, (TimeoutError, OverviewLocatorTimeout)) or "timeout" in str(exc).lower():
+                    raise OverviewLocatorTimeout(
+                        f"{scan_range}쪽 overview 집중 Vision 분류가 "
+                        f"{OVERVIEW_VISION_TIMEOUT_SEC}초 제한을 초과했습니다."
+                    ) from exc
+                logger.exception(
+                    "quantity_overview_locator_focus_failed range=%s error=%s",
+                    scan_range, str(exc)[:160],
+                )
+                focused_returned = []
+            focused_normalized = [
+                item for raw in focused_returned
+                if (item := _normalize_page_classification(raw, allowed)) is not None
+                and item["page_type"] == "overview"
+                and _classification_has_evidence(item)
+            ]
+            normalized.extend(focused_normalized)
+
+        by_page = {item["page_number"]: item for item in normalized}
+        for page_number in pages_to_classify:
+            item = by_page.get(page_number)
+            predicted = item["page_type"] if item else "other"
+            confidence = item["confidence"] if item else 0.0
+            reason = "image_fallback" if item else "image_no_result"
+            _log_locator_page(page_number, 0, predicted, confidence, reason, scan_range)
+        for item in normalized:
+            item["text_score"] = 0
+            item["selection_reason"] = "image_fallback"
+            diagnostics.append(item)
+
+        # 같은 배치의 Vision 응답은 텍스트 후보보다 우선한다. 예를 들어 도면목록에서
+        # '건축개요'라는 도면명이 검출돼도 Vision이 drawing_list로 판정하면 overview
+        # 후보를 폐기하고, 실제 개요표로 판정된 페이지를 선택한다.
+        selection_specs = (
+            ("overview", "overview"),
+            ("area_table", "building_area_table"),
+        )
+        for selection_key, expected_type in selection_specs:
+            current = selections[selection_key]
+            candidates = [
+                item for item in normalized if item["page_type"] == expected_type
+            ]
+            if candidates:
+                selections[selection_key] = max(
+                    candidates, key=lambda item: item["confidence"],
+                )
+            elif current and current["page_number"] in allowed:
+                selections[selection_key] = None
+        found_labels = []
+        if selections["overview"]:
+            found_labels.append(f"overview:{selections['overview']['page_number']}")
+        if selections["area_table"]:
+            found_labels.append(f"building_area_table:{selections['area_table']['page_number']}")
+        logger.info(
+            "[OVERVIEW_LOCATOR] pages=%s phase=vision end elapsed=%.3f found=%s",
+            scan_range, time.monotonic() - vision_started,
+            ",".join(found_labels) if found_labels else "none",
+        )
+        _log_overview_diagnostic(
+            "range_complete",
+            scan_range=scan_range,
+            elapsed_seconds=round(time.monotonic() - locator_started, 3),
+            selected_pages={
+                key: (value or {}).get("page_number")
+                for key, value in selections.items()
+            },
+            vision_call_count=vision_call_count,
+        )
+        if selections["overview"] and selections["area_table"]:
+            break
+
+    top_candidates = sorted(
+        (
+            item for item in diagnostics
+            if item.get("text_score", 0) > 0 or item.get("confidence", 0) > 0
+        ),
+        key=lambda item: (item.get("text_score", 0), item.get("confidence", 0)),
+        reverse=True,
+    )[:10]
+    result = {
+        "overview": selections["overview"],
+        "area_table": selections["area_table"],
+        "classifications": diagnostics,
+        "top_candidates": top_candidates,
+        "scanned_pages": scanned_pages,
+        "vision_call_count": vision_call_count,
+        "vision_pages": vision_pages,
+        "complete": bool(selections["overview"] and selections["area_table"]),
+    }
+    _log_overview_diagnostic(
+        "locator_complete",
+        complete=result["complete"],
+        elapsed_seconds=round(time.monotonic() - locator_started, 3),
+        selected_pages={
+            key: (value or {}).get("page_number")
+            for key, value in selections.items()
+        },
+        scanned_pages=scanned_pages,
+        vision_call_count=vision_call_count,
+        vision_pages=vision_pages,
+    )
+    # 페이지 발견만으로는 캐시하지 않는다. 고해상도 실제 값 추출 후 프로젝트명·층수·동
+    # 검증까지 통과한 경우에만 extract_overview_and_spec에서 성공 페이지를 캐시한다.
+    return result
+
+
+def _tile_page_image(image, columns=2, rows=2, overlap_ratio=0.04):
+    """A1 전체 축소 대신 원본 렌더의 표 영역을 겹치는 타일로 잘라 반환한다."""
+    width, height = image.size
+    tiles = []
+    for row in range(rows):
+        for col in range(columns):
+            x0 = int(col * width / columns)
+            y0 = int(row * height / rows)
+            x1 = int((col + 1) * width / columns)
+            y1 = int((row + 1) * height / rows)
+            pad_x, pad_y = int(width * overlap_ratio), int(height * overlap_ratio)
+            box = (max(0, x0 - pad_x), max(0, y0 - pad_y),
+                   min(width, x1 + pad_x), min(height, y1 + pad_y))
+            tiles.append(image.crop(box))
+    return tiles
+
+
+def extract_overview_and_spec(structural_pdf_bytes=None, architectural_pdf_bytes=None,
+                              correction_context=None, progress_callback=None,
+                              architectural_page_hints=None, structural_page_hints=None):
+    """표지(개요) 몇 페이지 + 구조일반사항 페이지만 뽑아서 가볍게 1번만 Gemini에 보내
+    프로젝트 개요와 구조일반사항을 추출한다. 본 추출(extract_structural_members)보다
+    훨씬 적은 페이지/토큰만 쓰는 사전 확인용 함수다.
+
+    correction_context: 사용자가 이전 확인 단계에서 "아니요"를 누르고 입력한 정정 텍스트.
+    주어지면 프롬프트에 최우선 근거로 반영하라고 명시해서 재요청한다(재검토).
+
+    architectural_page_hints/structural_page_hints: 사용자가 낱장 파일(예: "A-015,016
+    사업개요,동별개요.dwg")을 여러 개 선택해서 올린 경우 _merge_uploaded_pdfs가 만든
+    {페이지번호: {"filename":..., "hints": {"overview", "area_table", "general_spec"}}}
+    매핑. 파일명 자체에 내용이 명시돼 있으면 Vision 추측보다 이 힌트를 우선 신뢰한다
+    (2026-07-27 사용자 지적: "캐드에 별도로 있잖아")."""
+    client = get_gemini_client()
+    if client is None:
+        _log_overview_diagnostic(
+            "extractor_stopped",
+            level=logging.WARNING,
+            stage="client_initialization",
+            reason="gemini_client_unavailable",
+        )
+        return dict(_EMPTY_OVERVIEW_SPEC, notes=["GEMINI_API_KEY가 설정되지 않았습니다. .env 확인 후 서버를 재시작해 주세요."])
+
+    if not structural_pdf_bytes and not architectural_pdf_bytes:
+        _log_overview_diagnostic(
+            "extractor_stopped",
+            level=logging.WARNING,
+            stage="input_validation",
+            reason="no_pdf_input",
+        )
+        return dict(_EMPTY_OVERVIEW_SPEC, notes=["개요/구조일반사항을 확인할 PDF가 없습니다."])
+
+    _log_overview_diagnostic(
+        "extractor_start",
+        has_architectural_pdf=bool(architectural_pdf_bytes),
+        has_structural_pdf=bool(structural_pdf_bytes),
+        architectural_hint_pages=len(architectural_page_hints or {}),
+        structural_hint_pages=len(structural_page_hints or {}),
+    )
+
+    # 먼저 저해상도 이미지로 페이지 "종류"만 증분 분류한다. 값 추출은 이 단계에서 금지하고,
+    # overview + 동별/층별면적표로 확정된 실제 페이지만 아래에서 고해상도 타일로 다시 렌더한다.
+    overview_pairs = []  # (라벨, PIL Image)
+    page_detection = {}
+    try:
+        cover_bytes = architectural_pdf_bytes or structural_pdf_bytes
+        cover_source = "건축" if architectural_pdf_bytes else "구조"
+        cover_page_hints = architectural_page_hints if architectural_pdf_bytes else structural_page_hints
+        cover_info = pdfinfo_from_bytes(cover_bytes)
+        cover_total = int(cover_info.get("Pages", 0) or 0)
+
+        # 파일명 힌트로 이미 확정된 페이지가 있으면 그 자체를 최우선 신뢰한다 — 파일명이
+        # "사업개요"/"동별개요"라고 명시하면 그게 정답이므로, Vision한테 다시 추측시킬
+        # 필요가 없다(틀릴 여지 자체가 없어짐). 둘 다 힌트로 나오면 Vision 로케이터
+        # 자체를 건너뛰어 비용/시간도 아낀다.
+        hint_selected = {"overview": None, "area_table": None}
+        if cover_page_hints:
+            for page_num in sorted(cover_page_hints):
+                info = cover_page_hints[page_num]
+                hints = info.get("hints") or set()
+                if "overview" in hints and hint_selected["overview"] is None:
+                    hint_selected["overview"] = {
+                        "page_number": page_num, "page_type": "overview",
+                        "confidence": 1.0, "title_text": info.get("filename") or "",
+                        "text_score": 0, "selection_reason": "filename_hint",
+                    }
+                if "area_table" in hints and hint_selected["area_table"] is None:
+                    hint_selected["area_table"] = {
+                        "page_number": page_num, "page_type": "building_area_table",
+                        "confidence": 1.0, "title_text": info.get("filename") or "",
+                        "text_score": 0, "selection_reason": "filename_hint",
+                    }
+
+        if hint_selected["overview"] and hint_selected["area_table"]:
+            logger.info(
+                "[OVERVIEW_LOCATOR] filename_hint_short_circuit overview=%s area_table=%s",
+                hint_selected["overview"]["page_number"], hint_selected["area_table"]["page_number"],
+            )
+            selected = dict(
+                hint_selected, complete=True, classifications=[], top_candidates=[],
+                scanned_pages=[], vision_call_count=0, vision_pages=[],
+                from_filename_hint=True,
+            )
+        else:
+            selected = _find_incremental_overview_pages(
+                cover_bytes, cover_total, max_pages=OVERVIEW_CLASSIFY_MAX_PAGES,
+                progress_callback=progress_callback,
+            )
+            # 힌트로 확정된 쪽이 있으면 Vision 결과보다 그 힌트를 우선한다(파일명이
+            # 명시적으로 알려주는 정답이 Vision의 추측보다 신뢰도가 높음).
+            if hint_selected["overview"]:
+                selected["overview"] = hint_selected["overview"]
+            if hint_selected["area_table"]:
+                selected["area_table"] = hint_selected["area_table"]
+        page_detection = selected
+        _log_overview_diagnostic(
+            "pages_selected",
+            cover_source=cover_source,
+            total_pages=cover_total,
+            complete=bool(selected.get("overview") and selected.get("area_table")),
+            selected_pages={
+                "overview": (selected.get("overview") or {}).get("page_number"),
+                "area_table": (selected.get("area_table") or {}).get("page_number"),
+            },
+            selection_reasons={
+                "overview": (selected.get("overview") or {}).get("selection_reason"),
+                "area_table": (selected.get("area_table") or {}).get("selection_reason"),
+            },
+            scanned_pages=selected.get("scanned_pages") or [],
+            vision_call_count=selected.get("vision_call_count", 0),
+        )
+
+        # 이전에는 overview/area_table 둘 다 찾았을 때만(selected["complete"]) 페이지를
+        # 보냈다 — 그래서 동별면적표는 찾았는데 사업개요 페이지만 못 찾은 흔한 경우에도
+        # "둘 다 못 찾음" 취급으로 이미 찾은 동별면적표 페이지까지 통째로 버리고 완전히
+        # 빈 결과를 반환했다(실제 사용자 프로젝트에서 재현됨 — 101동/102동/부대시설처럼
+        # 동별면적표만으로 읽을 수 있는 값까지 전부 "확인 안 됨"으로 나온 원인).
+        # 이제는 둘 중 하나라도 찾았으면 그 페이지만이라도 보내고, 나머지 값은 기존처럼
+        # unconfirmed_items/근거없음으로 정직하게 남긴다 — 이미 만들어둔 "핵심 항목
+        # 미확인시 확인버튼 차단" 게이트가 그 나머지를 안전하게 막아준다.
+        if selected.get("overview") or selected.get("area_table"):
+            page_types = (
+                ("overview", selected.get("overview")),
+                ("area_table", selected.get("area_table")),
+            )
+            seen_pages = set()
+            for role, info in page_types:
+                if not info:
+                    continue
+                page_num = int(info["page_number"])
+                if page_num in seen_pages or not (1 <= page_num <= cover_total):
+                    continue
+                seen_pages.add(page_num)
+                images = _render_pdf_page_range(
+                    cover_bytes, page_num, page_num, dpi=OVERVIEW_TABLE_RENDER_DPI,
+                )
+                if not images:
+                    continue
+                for tile_index, tile in enumerate(_tile_page_image(images[0]), start=1):
+                    overview_pairs.append((
+                        f"{cover_source} PDF 실제 {page_num}페이지 "
+                        f"{info['page_type']} 표 타일 {tile_index}/4",
+                        tile,
+                    ))
+    except OverviewLocatorTimeout:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "quantity_overview_page_preparation_failed error=%s",
+            str(exc)[:200],
+        )
+        _log_overview_diagnostic(
+            "extractor_error",
+            level=logging.ERROR,
+            stage="page_detection_or_render",
+            error=str(exc)[:200],
+        )
+        pass
+
+    # 구조일반사항 페이지: 파일명 힌트(예: "S-002 구조일반사항.dwg")가 있으면 그 페이지를
+    # 최우선으로 쓰고, 없으면 기존 일람표 자동감지를 재사용한다(구조 PDF에서만 찾는다 —
+    # 구조일반사항은 관례상 구조도면집에 있음). max_results는 이전에 4로 하드코딩돼 있어
+    # 실제 설계 의도(모듈 상수 SCHEDULE_PAGE_MAX_RESULTS=6, OVERVIEW_CHECK_MAX_PAGES 주석
+    # 참고: "구조일반사항 최대 6장")보다 낮게 잡혀 있었다 — 구조일반사항이 4페이지를
+    # 넘는 프로젝트에서 뒷부분 표(정착길이/피복두께 등)가 잘려나가는 원인이었다.
+    spec_pairs = []
+    if structural_pdf_bytes:
+        try:
+            spec_info = pdfinfo_from_bytes(structural_pdf_bytes)
+            spec_total = int(spec_info.get("Pages", 0) or 0)
+            spec_pages_from_hints = sorted(
+                p for p, info in (structural_page_hints or {}).items()
+                if "general_spec" in (info.get("hints") or set()) and 1 <= p <= spec_total
+            )
+            if spec_pages_from_hints:
+                logger.info(
+                    "[OVERVIEW_LOCATOR] general_spec_filename_hint pages=%s",
+                    spec_pages_from_hints,
+                )
+                spec_pages = spec_pages_from_hints[:SCHEDULE_PAGE_MAX_RESULTS]
+            else:
+                spec_pages = _detect_schedule_pages(
+                    structural_pdf_bytes, spec_total, max_results=SCHEDULE_PAGE_MAX_RESULTS,
+                )
+            for p in spec_pages:
+                if len(overview_pairs) + len(spec_pairs) >= OVERVIEW_CHECK_MAX_PAGES:
+                    break
+                imgs = _render_pdf_page_range(
+                    structural_pdf_bytes, p, p, dpi=PDF_RENDER_DPI,
+                )
+                if imgs:
+                    spec_pairs.append((f"구조도면 {p}페이지(구조일반사항 추정)", imgs[0]))
+        except Exception:
+            pass
+
+    all_pairs = overview_pairs + spec_pairs
+    if not overview_pairs:
+        result = _fill_overview_spec_defaults(dict(
+            _EMPTY_OVERVIEW_SPEC,
+            notes=["사업개요 또는 동별면적표를 자동으로 찾지 못했습니다"],
+        ))
+        result["page_detection"] = page_detection
+        result["locator_failed"] = True
+        _log_overview_diagnostic(
+            "extractor_complete",
+            locator_failed=True,
+            selected_pages={
+                "overview": (page_detection.get("overview") or {}).get("page_number"),
+                "area_table": (page_detection.get("area_table") or {}).get("page_number"),
+            },
+            missing_fields=_overview_diagnostic_missing_fields(result.get("overview")),
+            unconfirmed_items=(result.get("overview") or {}).get("unconfirmed_items") or [],
+            notes=result.get("notes") or [],
+        )
+        return result
+
+    contents = ["아래 도면 이미지를 보고 개요와 구조일반사항을 읽어서 추출해주세요."]
+    if correction_context:
+        contents.append(f"\n[사용자 확인/정정 내용]\n{correction_context}\n")
+    for label, img in all_pairs:
+        contents.append(f"[{label}]")
+        contents.append(types.Part.from_bytes(
+            data=image_to_jpeg_bytes(img, max_size=OVERVIEW_TABLE_IMAGE_MAX_SIZE),
+            mime_type="image/jpeg",
+        ))
+
+    try:
+        _log_overview_diagnostic(
+            "value_extraction_start",
+            image_count=len(all_pairs),
+            image_labels=[label for label, _image in all_pairs],
+        )
+        response = client.models.generate_content(
+            model=GEMINI_QUANTITY_MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=OVERVIEW_SPEC_SYSTEM_PROMPT,
+                response_mime_type="application/json",
+                temperature=0.0,
+                max_output_tokens=8192,
+                # Gemini 2.5 Pro의 동적 생각이 실제 재현에서 7,862토큰을 사용해
+                # JSON 출력이 316토큰만 남고 MAX_TOKENS로 잘렸다. 이 요청은
+                # 복잡한 추론이 아닌 표 원문 전사이므로 생각을 1,024토큰으로 제한해
+                # 값과 sources 근거 JSON이 끝까지 출력될 공간을 확보한다.
+                thinking_config=types.ThinkingConfig(thinking_budget=1024),
+            ),
+        )
+    except Exception as e:
+        _log_overview_diagnostic(
+            "extractor_error",
+            level=logging.ERROR,
+            stage="value_extraction_request",
+            error=str(e)[:200],
+        )
+        return dict(_EMPTY_OVERVIEW_SPEC, notes=[f"Gemini 개요/구조일반사항 판독 요청 중 오류가 발생했습니다: {str(e)[:200]}"])
+
+    raw = _extract_text_from_gemini_response(response)
+    _log_overview_diagnostic(
+        "value_extraction_raw_response",
+        raw_length=len(raw),
+        raw_preview=raw[:12000],
+        response_diagnostics=_gemini_response_diagnostics(response),
+    )
+    try:
+        raw_clean = raw.replace("```json", "").replace("```", "").strip()
+        data = json.loads(raw_clean)
+    except json.JSONDecodeError:
+        data = _try_repair_truncated_json(raw.replace("```json", "").replace("```", "").strip())
+        if data is None:
+            _log_overview_diagnostic(
+                "extractor_error",
+                level=logging.ERROR,
+                stage="value_extraction_json_parse",
+                raw_length=len(raw),
+            )
+            return dict(_EMPTY_OVERVIEW_SPEC, notes=[f"JSON 파싱 오류 - 원본 응답 확인 필요: {raw[:300]}"])
+
+    parsed_overview = data.get("overview") if isinstance(data, dict) else {}
+    parsed_overview = parsed_overview if isinstance(parsed_overview, dict) else {}
+    parsed_sources = parsed_overview.get("sources")
+    parsed_sources = parsed_sources if isinstance(parsed_sources, dict) else {}
+    _log_overview_diagnostic(
+        "value_extraction_before_validation",
+        extracted_fields={
+            field: parsed_overview.get(field)
+            for field in (
+                "project_name",
+                "site_location",
+                "usage",
+                "structure_type",
+                "basement_floor_count",
+                "aboveground_max_floor",
+                "household_count",
+            )
+        },
+        building_count=len(parsed_overview.get("buildings") or []),
+        amenity_facility_count=len(parsed_overview.get("amenity_facilities") or []),
+        source_keys=sorted(parsed_sources),
+        unconfirmed_items=parsed_overview.get("unconfirmed_items") or [],
+    )
+
+    data = _fill_overview_spec_defaults(data)
+    data["page_detection"] = page_detection
+    data["locator_failed"] = False
+    _cache_validated_overview_pages(
+        cover_bytes, page_detection, data.get("overview") or {},
+    )
+    _log_overview_diagnostic(
+        "extractor_complete",
+        locator_failed=False,
+        selected_pages={
+            "overview": (page_detection.get("overview") or {}).get("page_number"),
+            "area_table": (page_detection.get("area_table") or {}).get("page_number"),
+        },
+        missing_fields=_overview_diagnostic_missing_fields(data.get("overview")),
+        unconfirmed_items=(data.get("overview") or {}).get("unconfirmed_items") or [],
+        notes=data.get("notes") or [],
+    )
+    return data
+
+
+_MAX_REASONABLE_BASEMENT_FLOORS = 10  # 국내 실제 프로젝트에서 지하 10개층을 넘는 사례는 극히 이례적
+_MAX_REASONABLE_ABOVEGROUND_FLOORS = 100  # 초고층이라도 국내 주거동이 100층을 넘는 사례는 없음
+_MAX_REASONABLE_ROOFTOP_FLOORS = 10
+
+
+def _source_items(source):
+    if isinstance(source, dict):
+        return [source]
+    if isinstance(source, list):
+        return [item for item in source if isinstance(item, dict)]
+    return []
+
+
+def _source_quote(source):
+    return " ".join(str(item.get("quote") or "") for item in _source_items(source)).strip()
+
+
+def _source_is_complete(source):
+    items = _source_items(source)
+    return bool(items) and all(
+        item.get("pdf_type") and isinstance(item.get("page"), int) and item.get("quote")
+        for item in items
+    )
+
+
+def _source_uses_drawing_list(source):
+    return any(
+        "도면목록" in (str(item.get("table") or "") + str(item.get("quote") or "")).replace(" ", "")
+        or "DRAWINGLIST" in str(item.get("quote") or "").replace(" ", "").upper()
+        for item in _source_items(source)
+    )
+
+
+def _parse_explicit_floor_count(text, level):
+    """도면번호가 아니라 '지하 2층/지상13층/옥탑 1층' 명시 문구만 파싱한다."""
+    text = str(text or "")
+    label = {"basement": "지하", "aboveground": "지상", "rooftop": "옥탑"}[level]
+    matches = re.findall(rf"{label}\s*([0-9]{{1,3}})\s*층", text)
+    return max((int(value) for value in matches), default=None)
+
+
+def _normalize_project_title(value):
+    value = re.sub(r"\s+", "", str(value or "")).lower()
+    return value.replace("번지", "")
+
+
+def _business_name_cell_value(source):
+    """근거 quote에서 셀 라벨만 제거하고 값의 원문 표기는 그대로 보존한다."""
+    for item in _source_items(source):
+        quote = str(item.get("quote") or "")
+        match = re.search(r"사업명(?:칭)?\s*(?:[:：]\s*)?(.+)", quote, flags=re.S)
+        if match:
+            value = re.sub(r"^[\s|:：\-–—]+", "", match.group(1))
+            return value.strip()
+    return None
+
+
+def _as_number(value):
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _sum_numbers(items, key):
+    values = [_as_number(item.get(key)) for item in items if isinstance(item, dict)]
+    values = [value for value in values if value is not None]
+    return (round(sum(values), 2), values) if values else (None, [])
+
+
+def _format_sum(values):
+    return " + ".join(f"{value:.2f}".rstrip("0").rstrip(".") for value in values)
+
+
+def _source_supports_number(source, value):
+    """쉼표·공백·단위·정수/소수 표기만 무시하고 quote의 독립 숫자와 정확히 비교한다."""
+    expected = _as_number(value)
+    if expected is None:
+        return True
+    quote = _source_quote(source)
+    tokens = re.findall(
+        r"(?<![\d.])[-+]?(?:\d{1,3}(?:\s*,\s*\d{3})+|\d+)(?:\.\d+)?(?![\d.])",
+        quote,
+    )
+    return any(
+        math.isclose(expected, parsed, rel_tol=0, abs_tol=1e-9)
+        for parsed in (_as_number(token.replace(" ", "")) for token in tokens)
+        if parsed is not None
+    )
+
+
+def _validate_overview_arithmetic(overview):
+    """표 구성행 합계를 독립 계산하고 OCR 표시값과 다르면 conflict로 남긴다."""
+    validations = []
+    conflicts = []
+
+    def compare(field, reported, calculated, values, label, replace_with_calculated=False):
+        if calculated is None or reported is None:
+            return
+        matched = math.isclose(reported, calculated, rel_tol=0, abs_tol=0.01)
+        entry = {
+            "field": field, "reported": round(reported, 2), "calculated": calculated,
+            "formula": _format_sum(values), "status": "matched" if matched else "conflict",
+            "message": f"{label} 일치" if matched else f"{label} 표시값과 구성행 합계 불일치",
+        }
+        validations.append(entry)
+        if not matched:
+            conflicts.append(dict(entry))
+            if replace_with_calculated:
+                overview[field] = calculated
+
+    buildings = overview.get("buildings") or []
+
+    building_floor_sum, building_floor_values = _sum_numbers(buildings, "total_floor_area_m2")
+    compare(
+        "apartment_total_floor_area_m2",
+        _as_number(overview.get("apartment_total_floor_area_m2")),
+        building_floor_sum, building_floor_values, "공동주택 연면적 소계",
+        replace_with_calculated=False,
+    )
+
+    household_sum, household_values = _sum_numbers(buildings, "household_count")
+    compare(
+        "household_count", _as_number(overview.get("household_count")),
+        household_sum, household_values, "세대수", replace_with_calculated=False,
+    )
+
+    above = _as_number(overview.get("aboveground_floor_area_m2"))
+    basement = _as_number(overview.get("basement_floor_area_m2"))
+    total = _as_number(overview.get("total_floor_area_m2"))
+    if above is not None and basement is not None:
+        compare(
+            "total_floor_area_m2", total, round(above + basement, 2),
+            [above, basement], "전체 연면적", replace_with_calculated=False,
+        )
+
+    overview["validations"] = validations
+    overview["conflicts"] = conflicts
+    return overview
+
+
+def _sanity_check_overview(data):
+    """Gemini가 사업개요를 읽으면서 도면목록/시트 인덱스의 도면 번호(예: "A-101"~"A-126")를
+    실제 층수로 착각해 "지하 26개층"처럼 명백히 비현실적인 값을 만들어내는 사례가 실제로
+    확인됐다(2026-07-26, 사용자 프로젝트에서 재현). 프롬프트 지시만으로 완전히 막힌다는
+    보장이 없어서, 코드에서 한 번 더 상식적인 범위를 벗어난 값을 걸러 null로 되돌리고
+    unconfirmed_items에 사유를 남긴다. 미확인 값은 이후 도면 판독과 최종 검산에서
+    참고할 수 있도록 null/미확인 상태 그대로 유지한다."""
+    overview = data.get("overview")
+    if not isinstance(overview, dict):
+        return data
+    unconfirmed = overview.get("unconfirmed_items")
+    if not isinstance(unconfirmed, list):
+        unconfirmed = []
+        overview["unconfirmed_items"] = unconfirmed
+    sources = overview.get("sources")
+    if not isinstance(sources, dict):
+        sources = {}
+        overview["sources"] = sources
+
+    bfc_source = sources.get("basement_floor_count")
+    bfc = _parse_explicit_floor_count(_source_quote(bfc_source), "basement")
+    if not _source_is_complete(bfc_source) or _source_uses_drawing_list(bfc_source) or bfc is None:
+        overview["basement_floor_count"] = None
+        sources.pop("basement_floor_count", None)
+        unconfirmed.append("지하층 수(명시 문구와 페이지 근거가 없어 제외됨)")
+    else:
+        overview["basement_floor_count"] = bfc
+
+    above_source = sources.get("aboveground_max_floor")
+    above = _parse_explicit_floor_count(_source_quote(above_source), "aboveground")
+    if not _source_is_complete(above_source) or _source_uses_drawing_list(above_source) or above is None:
+        overview["aboveground_max_floor"] = None
+        sources.pop("aboveground_max_floor", None)
+        unconfirmed.append("지상 최고층(명시 문구와 페이지 근거가 없어 제외됨)")
+    else:
+        overview["aboveground_max_floor"] = above
+
+    project_sources = _source_items(sources.get("project_name"))
+    project_quotes = [str(item.get("quote") or "") for item in project_sources]
+    has_business_name = any("사업명" in quote for quote in project_quotes)
+    project_name = str(overview.get("project_name") or "").strip()
+    raw_business_name = _business_name_cell_value(project_sources)
+    if raw_business_name:
+        # 비교용 정규화와 표시용 원문을 분리한다. 표시값에서는 '번지' 등을 절대 삭제하지 않는다.
+        overview["project_name"] = raw_business_name
+        project_name = raw_business_name
+    normalized_name = _normalize_project_title(project_name)
+    business_name_matches = any(
+        "사업명" in quote and normalized_name
+        and normalized_name in _normalize_project_title(quote)
+        for quote in project_quotes
+    )
+    if not (
+        _source_is_complete(project_sources) and not _source_uses_drawing_list(project_sources)
+        and has_business_name and business_name_matches
+    ):
+        overview["project_name"] = None
+        sources.pop("project_name", None)
+        unconfirmed.append("프로젝트명(사업개요의 사업명칭 셀 근거가 없음)")
+    project_title_quotes = [
+        quote for quote in project_quotes if "PROJECT TITLE" in quote.upper()
+    ]
+    if project_title_quotes and normalized_name:
+        overview["project_title_crosscheck"] = (
+            "matched" if any(
+                normalized_name in _normalize_project_title(quote)
+                for quote in project_title_quotes
+            ) else "mismatch"
+        )
+    else:
+        overview["project_title_crosscheck"] = "not_available"
+
+    for key, label in (
+        ("site_location", "대지 위치"), ("usage", "용도"), ("structure_type", "구조"),
+        ("household_count", "세대수"), ("site_area_m2", "대지면적"),
+        ("building_area_m2", "건축면적"), ("aboveground_floor_area_m2", "지상 연면적"),
+        ("basement_floor_area_m2", "지하 연면적"), ("total_floor_area_m2", "전체 연면적"),
+    ):
+        if overview.get(key) is not None and (
+            not _source_is_complete(sources.get(key))
+            or _source_uses_drawing_list(sources.get(key))
+        ):
+            overview[key] = None
+            sources.pop(key, None)
+            unconfirmed.append(f"{label}(페이지 원문 근거가 없음)")
+
+    for key, label, empty_value in (
+        ("underground_parking_note", "지하주차장", None),
+        ("commercial_note", "근린생활시설", None),
+    ):
+        value = overview.get(key)
+        if value and (
+            not _source_is_complete(sources.get(key))
+            or _source_uses_drawing_list(sources.get(key))
+        ):
+            overview[key] = empty_value
+            sources.pop(key, None)
+            unconfirmed.append(f"{label}(페이지 원문 근거가 없음)")
+
+    normalized_buildings = []
+    for b in overview.get("buildings") or []:
+        if not isinstance(b, dict):
+            continue
+        label = str(b.get("label") or "").strip()
+        source = b.get("source")
+        if not re.fullmatch(r"\d+\s*동", label):
+            continue
+        label = re.sub(r"\s+", "", label)
+        if (
+            not _source_is_complete(source) or _source_uses_drawing_list(source)
+            or label not in _source_quote(source).replace(" ", "")
+        ):
+            unconfirmed.append(f"{label}(동별자료 행 원문 근거가 없음)")
+            continue
+        row = {
+            "label": label,
+            "floor_range": b.get("floor_range"),
+            "floor_count": _as_number(b.get("floor_count")),
+            "building_area_m2": _as_number(b.get("building_area_m2")),
+            "total_floor_area_m2": _as_number(b.get("total_floor_area_m2")),
+            "household_count": _as_number(b.get("household_count")),
+            "source": source,
+        }
+        for field, field_label in (
+            ("floor_count", "층수"),
+            ("building_area_m2", "건축면적"),
+            ("total_floor_area_m2", "연면적"),
+            ("household_count", "세대수"),
+        ):
+            if row[field] is not None and not _source_supports_number(source, row[field]):
+                row[field] = None
+                unconfirmed.append(
+                    f"{label} {field_label}(동별자료 행 source.quote에 해당 숫자가 없어 제외됨)"
+                )
+        if row["floor_count"] is not None:
+            row["floor_count"] = int(row["floor_count"])
+        if row["household_count"] is not None:
+            row["household_count"] = int(row["household_count"])
+        normalized_buildings.append(row)
+    overview["buildings"] = normalized_buildings
+    if not normalized_buildings:
+        sources.pop("buildings", None)
+        unconfirmed.append("동 목록(숫자+동 형식의 독립 행 근거가 없음)")
+
+    def normalize_facility_rows(rows, category_label):
+        normalized = []
+        for facility in rows or []:
+            if not isinstance(facility, dict) or not str(facility.get("label") or "").strip():
+                continue
+            source = facility.get("source")
+            if not _source_is_complete(source) or _source_uses_drawing_list(source):
+                continue
+            facility_label = str(facility["label"]).strip()
+            row = {
+                "label": facility_label,
+                "source": source,
+            }
+            for field, field_label in (
+                ("building_area_m2", "건축면적"),
+                ("total_floor_area_m2", "연면적"),
+                ("household_count", "세대수"),
+            ):
+                value = _as_number(facility.get(field))
+                if value is not None and not _source_supports_number(source, value):
+                    value = None
+                    unconfirmed.append(
+                        f"{category_label} {facility_label} {field_label}"
+                        "(행 source.quote에 해당 숫자가 없어 제외됨)"
+                    )
+                if field == "household_count" and value is not None:
+                    value = int(value)
+                row[field] = value
+            normalized.append(row)
+        return normalized
+
+    overview["amenity_facilities"] = normalize_facility_rows(
+        overview.get("amenity_facilities"), "부대시설",
+    )
+    overview["utility_facilities"] = normalize_facility_rows(
+        overview.get("utility_facilities"), "설비시설",
+    )
+    _validate_overview_arithmetic(overview)
+    overview["unconfirmed_items"] = list(dict.fromkeys(unconfirmed))
+
+    return data
+
+
+def _fill_overview_spec_defaults(data):
+    """extract_overview_and_spec / revise_overview_and_spec_with_text가 공통으로 쓰는
+    기본값 채우기. 응답에 일부 키가 빠져도 프론트가 죽지 않도록 방어한다."""
+    data = dict(data or {})
+    data.setdefault("overview", {})
+    data["overview"] = dict(data["overview"] or {})
+    data["overview"].setdefault("project_name", None)
+    data["overview"].setdefault("basement_floor_count", None)
+    data["overview"].setdefault("aboveground_max_floor", None)
+    data["overview"].setdefault("buildings", [])
+    data["overview"].setdefault("apartment_total_floor_area_m2", None)
+    data["overview"].setdefault("validations", [])
+    data["overview"].setdefault("conflicts", [])
+    for key in (
+        "site_location", "usage", "structure_type", "household_count", "site_area_m2",
+        "building_area_m2", "aboveground_floor_area_m2", "basement_floor_area_m2",
+        "total_floor_area_m2",
+    ):
+        data["overview"].setdefault(key, None)
+    data["overview"].setdefault("underground_parking_note", None)
+    data["overview"].setdefault("amenity_facilities", [])
+    data["overview"].setdefault("utility_facilities", [])
+    data["overview"].setdefault("commercial_note", None)
+    data["overview"].setdefault("unconfirmed_items", [])
+    data["overview"].setdefault("sources", {})
+    if not isinstance(data["overview"]["sources"], dict):
+        data["overview"]["sources"] = {}
+    data.setdefault("general_spec", {})
+    data["general_spec"] = dict(data["general_spec"] or {})
+    data["general_spec"].setdefault("concrete_fck_table", [])
+    data["general_spec"].setdefault("rebar_grade_table", [])
+    data["general_spec"].setdefault("lap_splice_table", [])
+    data["general_spec"].setdefault("anchorage_table", [])
+    data["general_spec"].setdefault("cover_table", [])
+    data["general_spec"].setdefault("seismic_rebar_rules", [])
+    data["general_spec"].setdefault("summary_notes", [])
+    data["general_spec"].setdefault("unconfirmed_items", [])
+    data.setdefault("notes", [])
+    data = _sanity_check_overview(data)
+    return data
+
+
+def revise_overview_and_spec_with_text(prior_result, correction_text):
+    """이전 개요/구조일반사항 추출 결과(prior_result)에 사용자의 정정 텍스트만 반영해서
+    수정된 JSON을 만든다. 도면 이미지를 다시 보내지 않고 텍스트만 주고받으므로
+    extract_overview_and_spec()(이미지 재전송)보다 훨씬 저렴하다 — 사용자가 "아니요"를
+    누르고 정정 내용을 입력했을 때, 전체 도면을 다시 읽는 대신 이 함수로 가볍게 재검토한다."""
+    client = get_gemini_client()
+    if client is None:
+        return dict(prior_result or _EMPTY_OVERVIEW_SPEC, notes=["GEMINI_API_KEY가 설정되지 않았습니다. .env 확인 후 서버를 재시작해 주세요."])
+    if not correction_text:
+        return _fill_overview_spec_defaults(prior_result or _EMPTY_OVERVIEW_SPEC)
+
+    prompt = (
+        "아래는 이전에 도면에서 읽은 프로젝트 개요/구조일반사항 JSON입니다. 사용자가 이 중 일부가 "
+        "틀렸다고 정정 내용을 알려줬습니다. 정정 내용을 최우선 근거로 반영해서 전체 JSON을 다시 "
+        "만들어 반환하세요 — 정정과 무관한 값은 그대로 유지하세요. 정정 내용에 없는 값을 새로 "
+        "추측해서 바꾸지 마세요. 정정으로 새롭게 확인된 항목은 unconfirmed_items에서 제거하고, "
+        "그 항목의 overview.sources 값을 \"사용자 확인\"으로 갱신하세요(도면 근거가 아니라 "
+        "사용자가 직접 알려준 값임을 구분할 수 있어야 합니다).\n\n"
+        f"[이전 추출 결과]\n{json.dumps(prior_result or {}, ensure_ascii=False)[:8000]}\n\n"
+        f"[사용자 정정 내용]\n{correction_text}\n"
+    )
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_QUANTITY_MODEL,
+            contents=[prompt],
+            config=types.GenerateContentConfig(
+                system_instruction=OVERVIEW_SPEC_SYSTEM_PROMPT,
+                response_mime_type="application/json",
+                temperature=0.0,
+                max_output_tokens=8192,
+            ),
+        )
+    except Exception as e:
+        return dict(prior_result or _EMPTY_OVERVIEW_SPEC, notes=[f"Gemini 재검토 요청 중 오류가 발생했습니다: {str(e)[:200]}"])
+
+    raw = _extract_text_from_gemini_response(response)
+    try:
+        raw_clean = raw.replace("```json", "").replace("```", "").strip()
+        data = json.loads(raw_clean)
+    except json.JSONDecodeError:
+        data = _try_repair_truncated_json(raw.replace("```json", "").replace("```", "").strip())
+        if data is None:
+            return dict(prior_result or _EMPTY_OVERVIEW_SPEC, notes=[f"JSON 파싱 오류 - 원본 응답 확인 필요: {raw[:300]}"])
+
+    return _fill_overview_spec_defaults(data)
 
 
 # 대형 프로젝트(수십~백 페이지)를 한 번의 Gemini 호출에 몰아넣으면 부재가 많을수록
@@ -1091,9 +4406,91 @@ _EMPTY_MEMBERS = {
 EXTRACTION_BATCH_PAGE_SIZE = 8
 
 
+# (mark, zone, section)이 같은 항목끼리 중복 여부를 판단할 때 비교할 "핵심 치수" 필드들.
+# 이 필드들이 서로 크게 다르면 배치 중복 추출이 아니라 같은 mark를 쓰는 진짜 다른
+# 부재(예: 같은 W1이라도 위치마다 실제 길이가 다른 경우)일 가능성이 커서 자동으로
+# 지우지 않는다 — ChatGPT 2차 검토에서 지적받은 "같은 mark/zone/section이 항상 같은
+# 부재라고 단정할 수 없다"는 위험에 대한 대응.
+_DEDUP_DIMENSION_FIELDS = {
+    "foundations": ["length_m", "width_m", "thickness_m"],
+    "columns": ["width_m", "depth_m", "height_m"],
+    "beams": ["width_m", "depth_m", "length_m"],
+    "slabs": ["area_m2", "thickness_m"],
+    "walls": ["length_m", "height_m", "thickness_m"],
+    "stairs": ["width_m", "length_m", "thickness_m"],
+}
+
+
+def _dims_roughly_match(a, b, fields, rel_tol=0.03, abs_tol=0.02):
+    """두 항목의 핵심 치수 필드가 (둘 다 값이 있는 경우에 한해) 오차범위 내로 같은지 본다.
+    한쪽만 값이 있으면(다른 배치가 그 필드를 못 읽었을 뿐일 수 있어서) 그 필드는 판단에서
+    제외한다 — 값이 있는 필드끼리만 비교해서, 둘 다 있는데 실제로 다르면 다른 부재로 본다."""
+    for f in fields:
+        av, bv = a.get(f), b.get(f)
+        if av is None or bv is None:
+            continue
+        if not isinstance(av, (int, float)) or not isinstance(bv, (int, float)):
+            continue
+        if abs(av - bv) > max(abs_tol, rel_tol * max(abs(av), abs(bv))):
+            return False
+    return True
+
+
+def _dedupe_category_items(items, cat_key=None):
+    """같은 부재가 두 번 이상 추출된 항목을 걸러낸다.
+
+    일람표/구조일반사항 페이지를 모든 배치에 함께 끼워 보내다 보니(마크의 실제 치수를
+    다른 배치에서도 찾을 수 있게 하려고), 그 일람표 자체에 나열된 마크가 "평면도에서
+    본 부재"와 별개로 한 번 더 추출되거나, 같은 일람표 페이지가 여러 배치에 반복
+    전송되면서 같은 부재가 배치마다 중복 추출될 수 있다 — 실제로 이런 위험이 있다는
+    지적을 받고 코드 차원의 안전망으로 추가했다.
+
+    mark가 있는 항목만 (mark, zone, section) 조합으로 중복을 판단한다. mark가 없는
+    ("무명") 항목은 서로 구분할 근거가 없어 잘못 합쳤다가 실제로 다른 부재를 지울
+    위험이 더 크므로 그대로 둔다.
+
+    (mark, zone, section)이 같아도 핵심 치수가 서로 크게 다르면(_dims_roughly_match가
+    False) 자동으로 지우지 않는다 — 같은 mark를 쓰는 서로 다른 실제 부재를 배치 중복으로
+    오인해서 물량을 잃어버릴 위험이, 진짜 배치 중복을 한 번 더 보여주는 것보다 크다고
+    판단했다. 이 경우 둘 다 남기고 _dedup_flag를 붙여서 검토 화면에서 사람이 확인하게 한다.
+
+    치수가 같은 범위 내(진짜 중복으로 판단됨)면, 필드가 더 많이 채워진(정보가 더 풍부한)
+    쪽을 남긴다 — 같은 부재를 서로 다른 배치가 서로 다르게(한쪽은 자세히, 한쪽은
+    부분적으로) 읽었을 수 있어서다."""
+    dim_fields = _DEDUP_DIMENSION_FIELDS.get(cat_key, [])
+    seen_at = {}
+    result = []
+    removed = 0
+    flagged = 0
+    for it in items:
+        if not isinstance(it, dict) or not it.get("mark"):
+            result.append(it)
+            continue
+        key = (it.get("mark"), it.get("zone") or "", it.get("section") or "")
+        if key not in seen_at:
+            seen_at[key] = len(result)
+            result.append(it)
+            continue
+        idx = seen_at[key]
+        existing = result[idx]
+        if dim_fields and not _dims_roughly_match(existing, it, dim_fields):
+            it["_dedup_flag"] = "같은 mark/구역인데 치수가 달라 자동 병합하지 않았습니다 — 실제로 다른 부재인지 확인해 주세요."
+            existing["_dedup_flag"] = existing.get("_dedup_flag") or it["_dedup_flag"]
+            result.append(it)
+            flagged += 1
+            continue
+        removed += 1
+        existing_filled = sum(1 for v in existing.values() if v not in (None, "", []))
+        new_filled = sum(1 for v in it.values() if v not in (None, "", []))
+        if new_filled > existing_filled:
+            result[idx] = it
+    return result, removed, flagged
+
+
 def _merge_extracted_members(batch_results: list) -> dict:
     """extract_structural_members()가 배치별로 얻은 결과 리스트를 하나로 합친다.
-    - foundations/columns/beams/slabs/walls/stairs: 배열을 그대로 이어붙인다.
+    - foundations/columns/beams/slabs/walls/stairs: 배열을 이어붙인 뒤 중복 추출을 걸러낸다
+      (_dedupe_category_items — 일람표 페이지 반복 전송으로 같은 부재가 두 번 뽑힐 수 있어서).
     - notes: 배치별 메모를 순서대로 이어붙인다(각 메모에 이미 배치 태그가 붙어 있음).
     - general_spec: 구조일반사항은 보통 도면 앞쪽 한 곳에만 있으므로, 스칼라 필드는
       처음 나온 non-null 값을, 표(테이블) 필드는 처음 나온 비어있지 않은 표를 채택한다
@@ -1121,10 +4518,61 @@ def _merge_extracted_members(batch_results: list) -> dict:
             if not merged["general_spec"].get(field) and gs.get(field):
                 merged["general_spec"][field] = gs[field]
 
+    dedup_total = 0
+    for key, label in _CATEGORY_KEY_TO_LABEL.items():
+        merged[key], removed, flagged = _dedupe_category_items(merged[key], key)
+        if removed:
+            dedup_total += removed
+            merged["notes"].append(f"{label}: 배치 간 중복 추출된 항목 {removed}건을 병합했습니다(같은 mark/zone/section 기준).")
+        if flagged:
+            merged["notes"].append(
+                f"{label}: 같은 mark/zone/section인데 치수가 달라 자동 병합하지 않고 둘 다 남긴 항목이 "
+                f"{flagged}건 있습니다 — 검토 화면에서 실제로 다른 부재인지 확인해 주세요."
+            )
+
     return merged
 
 
-def _extract_structural_members_one_batch(client, dwg_data, image_batch, batch_idx, total_batches, page_numbers=None):
+def _apply_confirmed_general_spec_override(result, confirmed_general_spec):
+    """사용자가 개요/구조일반사항 사전 확인 단계에서 이미 확인한 general_spec을, 본 추출
+    결과의 general_spec 위에 강제로 덮어쓴다. 배치 프롬프트에 이미 확인된 값을 우선하라고
+    안내는 해두었지만(_extract_structural_members_one_batch의 confirmed_note), Gemini가
+    그래도 다르게 읽어올 가능성을 코드 차원에서 한 번 더 막기 위한 마지막 안전장치다 —
+    사용자가 직접 확인한 값이 AI가 다시 읽은 값보다 항상 우선해야 한다."""
+    if not confirmed_general_spec:
+        return result
+    result = dict(result)
+    gs = dict(result.get("general_spec") or {})
+    overridden_fields = []
+    # AI판독값 vs 사용자확정값 병행 보관 — 사용자가 "나중에 산출 근거도 추적할 수 있게"
+    # 요청한 감사(audit) 기록. 덮어쓰기 전에 이 본 추출이 자체적으로 읽은 값(ai_value)을
+    # 먼저 남겨두고, 그 다음에 사용자 확정값(confirmed_value)으로 덮어쓴다 — 나중에 결과를
+    # 다시 열어봤을 때 "AI는 뭐라고 읽었고 사람은 뭐라고 확정했는지"를 함께 볼 수 있다.
+    audit = []
+    for k, v in confirmed_general_spec.items():
+        if v in (None, "", []):
+            continue
+        ai_value = gs.get(k)
+        gs[k] = v
+        overridden_fields.append(k)
+        audit.append({"field": k, "ai_value": ai_value, "confirmed_value": v})
+    # 사용자가 개요/구조일반사항 사전 확인 단계를 실제로 거쳤다는 표시.
+    # quantity_calc.py의 get_splice_length/get_anchorage_length가 이 플래그를 보고,
+    # 표에서 못 찾은 이음/정착길이 항목을 공식으로 추정하지 않고 완전히 제외한다
+    # (사용자가 명시적으로 요청한 정책: "확정 전까지 계산제외").
+    gs["_confirmed"] = True
+    result["general_spec"] = gs
+    if audit:
+        result["general_spec_confirmation_audit"] = audit
+    if overridden_fields:
+        result["notes"] = list(result.get("notes") or []) + [
+            f"사용자가 사전 확인 단계에서 확인한 구조일반사항({', '.join(overridden_fields)})을 "
+            "그대로 반영했습니다."
+        ]
+    return result
+
+
+def _extract_structural_members_one_batch(client, dwg_data, image_batch, batch_idx, total_batches, page_numbers=None, confirmed_general_spec=None):
     """extract_structural_members()의 배치 1개를 처리한다. 실패해도 예외를 던지지 않고
     _EMPTY_MEMBERS(+오류 메모)를 반환해서, 이 배치가 실패해도 다른 배치는 계속 처리되게 한다.
 
@@ -1132,7 +4580,12 @@ def _extract_structural_members_one_batch(client, dwg_data, image_batch, batch_i
     알려준다. 반드시 넘겨야 한다 — 안 넘기면(None) 이미지 순번(1,2,3...)을 페이지 번호처럼
     라벨링하게 되는데, 이 배치가 예를 들어 16~30페이지 범위라면 실제로는 16페이지인 이미지가
     "1페이지"로 잘못 표시되는 문제가 있었다(과거 버그). 부재 위치(bbox.page)를 실제 페이지
-    번호와 연결해서 도면에 색칠 미리보기를 그리려면 이 번호가 정확해야 한다."""
+    번호와 연결해서 도면에 색칠 미리보기를 그리려면 이 번호가 정확해야 한다.
+
+    confirmed_general_spec: 사용자가 개요/구조일반사항 사전 확인 단계에서 이미 확인/정정한
+    general_spec(dict). 주어지면 이 배치가 구조일반사항 페이지를 못 보거나 다르게 읽더라도
+    이미 확인된 값을 최우선으로 쓰라고 명시해서, 사전 확인 단계에서 잡은 실수가 본 추출에서
+    다시 반복되지 않게 한다."""
     is_multi_batch = total_batches > 1
     batch_tag = f"[배치 {batch_idx}/{total_batches}] " if is_multi_batch else ""
 
@@ -1142,6 +4595,14 @@ def _extract_structural_members_one_batch(client, dwg_data, image_batch, batch_i
     if page_numbers is None:
         # 하위 호환: 실제 페이지 번호를 모르면 순번으로라도 라벨링한다(이전 동작과 동일).
         page_numbers = list(range(1, len(image_batch) + 1))
+
+    confirmed_note = ""
+    if confirmed_general_spec:
+        confirmed_note = (
+            "\n\n[사용자가 이미 확인한 구조일반사항 — 이 값을 general_spec에 그대로 반영하세요. "
+            "도면에서 다르게 보이더라도 아래 값을 우선하세요]\n"
+            f"{json.dumps(confirmed_general_spec, ensure_ascii=False)[:4000]}\n"
+        )
 
     contents = [
         f"[구조도면 DWG 파싱 데이터]\n"
@@ -1154,6 +4615,7 @@ def _extract_structural_members_one_batch(client, dwg_data, image_batch, batch_i
             "부재를 추측해서 채우거나 이 배치에 없는 부재를 생략하지 마세요."
             if is_multi_batch else ""
         )
+        + confirmed_note
     ]
     for i, img in enumerate(image_batch):
         page_label = page_numbers[i] if i < len(page_numbers) else (i + 1)
@@ -1198,11 +4660,15 @@ def _extract_structural_members_one_batch(client, dwg_data, image_batch, batch_i
     return data
 
 
-def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, cancel_cb=None) -> dict:
+def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, cancel_cb=None, confirmed_general_spec=None) -> dict:
     """
     DWG 파싱 데이터 + 구조도면 PDF(원본 바이트) 를 Gemini Vision에 보내
     '부재 리스트만' 구조화된 JSON으로 추출한다 (계산은 하지 않음).
     실제 물량 계산은 quantity_calc.compute_structural_quantities가 결정론적으로 수행한다.
+
+    confirmed_general_spec: 개요/구조일반사항 사전 확인 단계에서 사용자가 이미 확인/정정한
+    general_spec. 주어지면 모든 배치 요청에 함께 실어보내서, 본 추출이 사전 확인 단계에서
+    잡은 실수(Fck/철근강종/이음등급 등)를 다시 반복하지 않게 한다.
 
     두 가지 방식으로 대형 프로젝트(수십~백 페이지)에서의 실패를 막는다:
     1) Gemini 호출을 EXTRACTION_BATCH_PAGE_SIZE 페이지 단위로 나눠 순차 호출 후 병합
@@ -1229,7 +4695,7 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
         if cached is not None:
             if progress_cb:
                 progress_cb(1, 1)
-            return cached
+            return _apply_confirmed_general_spec_override(cached, confirmed_general_spec)
 
     client = get_gemini_client()
     if client is None:
@@ -1240,20 +4706,37 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
         if progress_cb:
             progress_cb(1, 1)
         result = _merge_extracted_members(
-            [_extract_structural_members_one_batch(client, dwg_data, [], 1, 1)]
+            [_extract_structural_members_one_batch(client, dwg_data, [], 1, 1, confirmed_general_spec=confirmed_general_spec)]
         )
         if cache_key:
             _dev_cache_save(cache_key, result)
-        return result
+        return _apply_confirmed_general_spec_override(result, confirmed_general_spec)
 
     try:
         info = pdfinfo_from_bytes(pdf_bytes)
-        total_pages = min(int(info.get("Pages", 0) or 0), MAX_PDF_PAGES_TO_GEMINI)
+        actual_pages = int(info.get("Pages", 0) or 0)
+        total_pages = min(actual_pages, MAX_PDF_PAGES_TO_GEMINI)
     except Exception as e:
         return dict(_EMPTY_MEMBERS, notes=[f"구조도면 PDF 페이지 수 확인 중 오류가 발생했습니다: {str(e)[:200]}"])
 
     if total_pages <= 0:
         return dict(_EMPTY_MEMBERS, notes=["구조도면 PDF에서 읽을 수 있는 페이지가 없습니다 — 파일이 비어있거나 손상됐을 수 있습니다."])
+
+    # 페이지가 MAX_PDF_PAGES_TO_GEMINI(80장)를 넘으면 그 이후 페이지는 아예 처리하지 않고
+    # 조용히 잘려나갔다 — 대형 프로젝트(80장 초과 도면집)에서 결과가 "완전"해 보이지만
+    # 실제로는 일부 부재가 통째로 누락될 수 있는 위험한 상황이라, 반드시 눈에 띄는 note를
+    # 남긴다. 이 문구는 _INCOMPLETE_EXTRACTION_MARKERS에도 등록해서, 검토 팝업의 "불완전
+    # 추출" 경고 배너(진행 전 확인 강제)가 이 경우도 자동으로 잡아내게 한다.
+    page_cap_truncated = actual_pages > MAX_PDF_PAGES_TO_GEMINI
+    page_cap_note = None
+    if page_cap_truncated:
+        page_cap_note = (
+            f"구조도면 PDF가 총 {actual_pages}페이지인데, 한 번에 처리 가능한 최대 페이지 수"
+            f"({MAX_PDF_PAGES_TO_GEMINI}장)를 넘어서 {MAX_PDF_PAGES_TO_GEMINI + 1}페이지부터 "
+            f"{actual_pages}페이지까지({actual_pages - MAX_PDF_PAGES_TO_GEMINI}페이지)는 도중에 잘려 "
+            "처리하지 못했습니다 — 해당 페이지의 부재는 결과에서 완전히 누락됩니다. 도면을 나눠서 "
+            "여러 번 업로드하거나, 필요한 페이지만 추려서 다시 시도해 주세요."
+        )
 
     page_ranges = [
         (start, min(start + EXTRACTION_BATCH_PAGE_SIZE - 1, total_pages))
@@ -1318,7 +4801,8 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
         combined_page_numbers = [p for p, _ in extra_pairs] + list(range(first_page, last_page + 1))
 
         one_result = _extract_structural_members_one_batch(
-            client, dwg_data, combined_batch, idx, total_batches, page_numbers=combined_page_numbers
+            client, dwg_data, combined_batch, idx, total_batches, page_numbers=combined_page_numbers,
+            confirmed_general_spec=confirmed_general_spec,
         )
         if extra_images and not schedule_note_added:
             schedule_note_added = True
@@ -1332,9 +4816,11 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
         del image_batch  # 다음 배치로 넘어가기 전에 명시적으로 메모리 해제
 
     result = _merge_extracted_members(batch_results)
+    if page_cap_note:
+        result["notes"] = [page_cap_note] + list(result.get("notes") or [])
     if cache_key:
         _dev_cache_save(cache_key, result)
-    return result
+    return _apply_confirmed_general_spec_override(result, confirmed_general_spec)
 
 
 # ─────────────────────────────────────────────
@@ -1431,6 +4917,15 @@ def build_annotated_pages(pdf_bytes, members: dict, max_pages=ANNOTATED_PAGE_MAX
             mark = it.get("mark") or ""
             page_boxes.setdefault(page, []).append((label, mark, box_2d, color))
 
+    return _render_page_boxes_to_annotated(pdf_bytes, page_boxes, max_pages)
+
+
+def _render_page_boxes_to_annotated(pdf_bytes, page_boxes, max_pages):
+    """page_boxes: {page_num: [(category_label_kr, mark, box_2d, color_rgb), ...]} 를 받아
+    해당 페이지들만 다시 렌더링하고 부재종류별 색상 박스를 그린 뒤 base64 JPEG 미리보기
+    리스트로 반환한다. build_annotated_pages(본 추출 후 전체 부재 색칠)와
+    build_basement_plan_preview(본 추출 전 지하주차장 평면도만 가볍게 색칠) 둘 다 이
+    렌더링 로직을 공유한다."""
     if not page_boxes:
         return []
 
@@ -1453,6 +4948,133 @@ def build_annotated_pages(pdf_bytes, members: dict, max_pages=ANNOTATED_PAGE_MAX
             continue
 
     return annotated
+
+
+# ─────────────────────────────────────────────
+#  지하주차장 각층평면도 사전 확인 — 본 추출(전체 도면 배치 읽기, 비용 큼) 전에
+#  지하주차장 평면도로 감지된 몇 페이지만 가볍게 읽어서 벽/보/슬래브/계단 등 부재 위치만
+#  뽑고, build_annotated_pages와 같은 색상 규칙으로 색칠 미리보기를 만든다. 치수/철근은
+#  아직 안 읽는다 — "AI가 부재 종류를 제대로 구분하는지"만 사람이 눈으로 먼저 확인하고,
+#  틀렸으면 본 추출을 시작하기 전에 바로잡을 수 있게 하기 위한 사전 점검용이다.
+# ─────────────────────────────────────────────
+BASEMENT_PLAN_CHECK_SYSTEM_PROMPT = """당신은 지하주차장 구조평면도를 판독하는 전문가입니다.
+주어진 평면도 이미지에서 보이는 구조부재의 위치만 표시하세요. 치수나 철근 정보는 아직 읽지
+마세요 — 이 단계는 부재 종류 인식이 맞는지 사람이 색깔로 먼저 확인하기 위한 사전 점검입니다
+(치수/철근은 나중 단계에서 따로 정밀하게 읽습니다).
+
+이미지에 보이는 구조부재마다 아래 정보를 남기세요:
+- category: "기초", "기둥", "보", "슬래브", "전단벽", "계단" 중 하나 (반드시 이 6개 중 하나만 쓰세요)
+- mark: 도면에 표기된 부재기호(예: W1, G2, C3, SL1). 표기가 안 보이면 null.
+- bbox: {"page": <그 부재가 보이는 이미지 위에 표시된 "[도면 N페이지]"의 N>, "box_2d": [ymin, xmin, ymax, xmax]}
+  (0~1000 정규화 좌표, 좌상단이 (0,0), 우하단이 (1000,1000))
+
+같은 종류/같은 모양이 반복돼도 평면도에 보이는 개별 위치마다 각각 항목을 만드세요(개수로 묶지
+마세요) — 이 단계는 "AI가 벽/보/슬래브/계단을 제대로 구분하는지" 시각적으로 검증하는 용도입니다.
+
+사용자가 이전 확인 단계에서 정정한 내용(있다면 [사용자 확인/정정 내용]으로 주어집니다)이 있으면
+그 내용을 최우선 근거로 반영하세요.
+
+반드시 아래 키를 가진 JSON 객체 하나만 반환하세요. 다른 텍스트는 절대 포함하지 마세요.
+{
+  "members": [
+    {"category": "전단벽", "mark": "W1", "bbox": {"page": 1, "box_2d": [400, 100, 900, 250]}},
+    {"category": "보", "mark": "G1", "bbox": {"page": 1, "box_2d": [280, 300, 320, 600]}}
+  ],
+  "notes": ["확인이 필요한 사항"]
+}"""
+
+_EMPTY_BASEMENT_PLAN_CHECK = {"members": [], "notes": []}
+
+
+def extract_basement_plan_members(pdf_bytes, page_numbers, correction_context=None):
+    """지하주차장 각층평면도로 감지된 페이지(page_numbers)만 가볍게 읽어서 부재 종류별
+    위치(bbox)만 뽑는다 — 본 추출(extract_structural_members)처럼 치수/철근까지 전부 읽지
+    않고 "어디에 뭐가 있는지"만 확인해서, 본 추출 전에 색칠 미리보기로 사람이 눈으로
+    검증할 수 있게 한다. 페이지 수가 적어(보통 지하층 수만큼, 몇 장) 본 추출보다 훨씬 싸다."""
+    client = get_gemini_client()
+    if client is None:
+        return dict(_EMPTY_BASEMENT_PLAN_CHECK, notes=["GEMINI_API_KEY가 설정되지 않았습니다. .env 확인 후 서버를 재시작해 주세요."])
+    if not pdf_bytes or not page_numbers:
+        return dict(_EMPTY_BASEMENT_PLAN_CHECK)
+
+    contents = []
+    if correction_context:
+        contents.append(
+            "[사용자 확인/정정 내용 — 최우선 반영]\n" + str(correction_context)[:2000] + "\n"
+        )
+
+    page_count = 0
+    for page_num in page_numbers:
+        try:
+            imgs = _render_pdf_page_range(pdf_bytes, page_num, page_num)
+        except Exception:
+            continue
+        if not imgs:
+            continue
+        contents.append(f"[도면 {page_num}페이지]")
+        contents.append(types.Part.from_bytes(data=image_to_jpeg_bytes(imgs[0]), mime_type="image/jpeg"))
+        page_count += 1
+
+    if page_count == 0:
+        return dict(_EMPTY_BASEMENT_PLAN_CHECK, notes=["지하주차장 평면도로 보이는 페이지를 렌더링하지 못했습니다."])
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_QUANTITY_MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=BASEMENT_PLAN_CHECK_SYSTEM_PROMPT,
+                response_mime_type="application/json",
+                temperature=0.0,
+                max_output_tokens=16384,
+            ),
+        )
+    except Exception as e:
+        return dict(_EMPTY_BASEMENT_PLAN_CHECK, notes=[f"지하주차장 평면도 사전 확인 요청 중 오류가 발생했습니다: {str(e)[:200]}"])
+
+    raw = _extract_text_from_gemini_response(response)
+    try:
+        raw_clean = raw.replace("```json", "").replace("```", "").strip()
+        data = json.loads(raw_clean)
+    except json.JSONDecodeError:
+        data = _try_repair_truncated_json(raw.replace("```json", "").replace("```", "").strip())
+        if data is None:
+            return dict(_EMPTY_BASEMENT_PLAN_CHECK, notes=[f"JSON 파싱 오류 - 원본 응답 확인 필요: {raw[:300]}"])
+
+    if not isinstance(data, dict):
+        return dict(_EMPTY_BASEMENT_PLAN_CHECK, notes=["예상치 못한 응답 형식입니다."])
+    data.setdefault("members", [])
+    data.setdefault("notes", [])
+    return data
+
+
+def build_basement_plan_preview(pdf_bytes, members, max_pages=BASEMENT_PLAN_PAGE_MAX_RESULTS):
+    """extract_basement_plan_members()가 뽑은 부재 목록을 build_annotated_pages와 동일한
+    색상 규칙(_CATEGORY_BBOX_COLOR)으로 색칠해서 미리보기 이미지 리스트를 만든다."""
+    if not pdf_bytes or not members:
+        return []
+    page_boxes = {}
+    for it in members:
+        if not isinstance(it, dict):
+            continue
+        label = it.get("category")
+        color = _CATEGORY_BBOX_COLOR.get(label)
+        if not color:
+            continue
+        bbox = it.get("bbox")
+        if not isinstance(bbox, dict):
+            continue
+        page = bbox.get("page")
+        box_2d = bbox.get("box_2d")
+        if not isinstance(page, (int, float)) or not (isinstance(box_2d, list) and len(box_2d) == 4):
+            continue
+        try:
+            page = int(page)
+        except (TypeError, ValueError):
+            continue
+        mark = it.get("mark") or ""
+        page_boxes.setdefault(page, []).append((label, mark, box_2d, color))
+    return _render_page_boxes_to_annotated(pdf_bytes, page_boxes, max_pages)
 
 
 # ─────────────────────────────────────────────
@@ -1638,35 +5260,477 @@ def analyze_with_gemini(dwg_data: dict, pdf_images: list, system_prompt: str, dr
 
 
 # ─────────────────────────────────────────────
+#  API: 개요/구조일반사항 사전 확인
+#  — 본 추출(api_run_quantity) 전에, 표지+구조일반사항 몇 페이지만 가볍게 읽어서
+#  채팅창에서 사용자에게 "이 프로젝트 맞나요? / 이 구조기준 맞나요?"를 먼저 확인받는다.
+#  기존 진행률 폴링/결과 저장소(_progress_set/_result_set)를 그대로 재사용한다 —
+#  job_id만 본 작업과 다른 값(프론트가 접두사로 구분)을 쓰면 서로 섞이지 않는다.
+# ─────────────────────────────────────────────
+def _run_overview_check_job(job_id, review_id, structural_pdf_bytes, architectural_pdf_bytes,
+                            correction_context, architectural_page_hints=None,
+                            structural_page_hints=None):
+    try:
+        _log_overview_diagnostic(
+            "job_start",
+            job_id=job_id,
+            review_id=review_id,
+        )
+        _progress_set(job_id, "overview", 0, 1, "개요/구조일반사항 확인 중", stage_index=1, total_stages=1)
+        data = extract_overview_and_spec(
+            structural_pdf_bytes, architectural_pdf_bytes, correction_context,
+            progress_callback=lambda label: _progress_set(
+                job_id, "overview_locator", 0, 1, label,
+                stage_index=1, total_stages=1,
+            ),
+            architectural_page_hints=architectural_page_hints,
+            structural_page_hints=structural_page_hints,
+        )
+        # review_id 상태머신에 이 단계에서 실제로 읽은 overview/general_spec을 기록해둔다 —
+        # 사용자가 이후 "확정" 버튼을 누르면(api_quantity_review_confirm) 이 값이 확정된다.
+        _review_update(review_id, overview=data.get("overview"), general_spec=data.get("general_spec"))
+        # 새 데이터로 덮어썼으니 overview 및 그 이후 단계(general_spec/basement_plan)의
+        # 기존 확정은 전부 무효화한다 — 이 review_id로 이전에 이미 확정까지 갔었더라도
+        # (예: 같은 세션으로 다른 도면을 다시 확인하는 경우) 새 데이터를 다시 확인받아야 한다.
+        _review_reset_confirmations_from(review_id, "overview")
+        _result_set(job_id, {"ok": True, "results": data})
+        _log_overview_diagnostic(
+            "job_complete",
+            job_id=job_id,
+            review_id=review_id,
+            ok=True,
+            locator_failed=bool(data.get("locator_failed")),
+            missing_fields=_overview_diagnostic_missing_fields(data.get("overview")),
+        )
+    except OverviewLocatorTimeout as e:
+        _log_overview_diagnostic(
+            "job_timeout",
+            level=logging.WARNING,
+            job_id=job_id,
+            review_id=review_id,
+            stage="overview_locator",
+            error=str(e)[:300],
+        )
+        _result_set(job_id, {
+            "ok": False,
+            "error": f"사업개요 페이지 자동 탐색 시간 초과: {str(e)[:300]}",
+        })
+    except Exception as e:
+        logger.exception(
+            "quantity_overview_job_failed job_id=%s review_id=%s error=%s",
+            job_id, review_id, str(e)[:300],
+        )
+        _log_overview_diagnostic(
+            "job_error",
+            level=logging.ERROR,
+            job_id=job_id,
+            review_id=review_id,
+            stage="overview_check",
+            error=str(e)[:300],
+        )
+        _result_set(job_id, {"ok": False, "error": f"개요/구조일반사항 확인 중 오류가 발생했습니다: {str(e)[:300]}"})
+    finally:
+        _progress_clear(job_id)
+
+
+@require_POST
+@_admin_only_json
+def api_quantity_overview_check(request):
+    """개요/구조일반사항 사전 확인을 백그라운드로 시작한다. 본 추출(api_run_quantity)과
+    완전히 동일한 kickoff+폴링 패턴이다 — 다만 표지/구조일반사항 몇 페이지만 쓰므로
+    훨씬 빠르고 저렴하다.
+    POST 필드: job_id(필수, 폴링용 일회성 토큰), review_id(필수, 이 확인 절차 세션 전체를
+    식별하는 값 — 프론트가 흐름 시작 시 한 번만 만들어서 이후 모든 단계에 재사용해야 함),
+    structural_pdf, architectural_pdf(둘 다 선택, 최소 1개는 있어야 함),
+    correction_context(선택 — 사용자가 이전 확인에서 입력한 정정 텍스트, 재검토용)."""
+    job_id = request.POST.get("job_id") or None
+    if not job_id:
+        return JsonResponse({"error": "job_id가 없습니다."}, status=400)
+
+    # 낱장 파일(예: "A-015,016 사업개요,동별개요.dwg"처럼 파일명 자체에 내용이 적힌
+    # 개별 PDF들)을 여러 개 선택해서 올릴 수도 있으므로 getlist로 전부 받는다 —
+    # 예전에는 get()이라 프론트가 여러 파일을 보내도 그중 하나만 쓰였다.
+    structural_pdf_files = request.FILES.getlist("structural_pdf")
+    architectural_pdf_files = request.FILES.getlist("architectural_pdf")
+    if not structural_pdf_files and not architectural_pdf_files:
+        return JsonResponse({"error": "구조 또는 건축 PDF가 최소 1개는 필요합니다."}, status=400)
+
+    structural_pdf_bytes, structural_page_hints = _merge_uploaded_pdfs(structural_pdf_files)
+    architectural_pdf_bytes, architectural_page_hints = _merge_uploaded_pdfs(architectural_pdf_files)
+    cad_uploads = _collect_request_cad_uploads(request)
+    structural_zip_bytes, architectural_zip_bytes, _cad_merge_info = (
+        _merge_uploaded_cad_sets(cad_uploads)
+    )
+    file_hashes = _review_file_hashes(
+        structural_pdf_bytes, architectural_pdf_bytes,
+        structural_zip_bytes, architectural_zip_bytes,
+    )
+    review_id = _canonical_review_id(request.user.pk, file_hashes)
+    # 파일 내용이 달라지면 canonical id가 달라지고 새 레코드가 만들어지므로 이전 개요와
+    # 모든 confirmed 상태가 새 파일에 승계되지 않는다.
+    _review_ensure(review_id, request.user.pk, file_hashes)
+    correction_context = (request.POST.get("correction_context") or "").strip() or None
+    _progress_set(job_id, "queued", 0, 1, "대기열에 등록됨", stage_index=1, total_stages=1)
+    thread = threading.Thread(
+        target=_run_overview_check_job,
+        args=(job_id, review_id, structural_pdf_bytes, architectural_pdf_bytes,
+              correction_context),
+        kwargs={
+            "architectural_page_hints": architectural_page_hints,
+            "structural_page_hints": structural_page_hints,
+        },
+        daemon=True,
+    )
+    thread.start()
+    return JsonResponse({"accepted": True, "job_id": job_id, "review_id": review_id})
+
+
+def _run_overview_revise_job(job_id, review_id, prior_result, correction_text, revision_stage):
+    try:
+        _progress_set(job_id, "overview_revise", 0, 1, "정정 내용 반영해서 재검토 중", stage_index=1, total_stages=1)
+        data = revise_overview_and_spec_with_text(prior_result, correction_text)
+        # 재검토 결과로 review 기록을 갱신한다. 정정된 새 데이터이므로, 혹시 이전에
+        # 이미 확정돼 있던 게 있다면(예: 사용자가 확정 후 다시 이 단계로 돌아와 재검토한
+        # 경우) 그 확정은 더 이상 유효하지 않다 — overview/general_spec/basement_plan
+        # confirmed를 전부 무효화해서 사용자가 새 결과를 다시 확인하게 한다.
+        _review_update(review_id, overview=data.get("overview"), general_spec=data.get("general_spec"))
+        _review_reset_confirmations_from(review_id, revision_stage)
+        _result_set(job_id, {"ok": True, "results": data})
+    except Exception as e:
+        _result_set(job_id, {"ok": False, "error": f"재검토 중 오류가 발생했습니다: {str(e)[:300]}"})
+    finally:
+        _progress_clear(job_id)
+
+
+@require_POST
+@_admin_only_json
+def api_quantity_overview_revise(request):
+    """개요/구조일반사항 "아니요" 정정을 텍스트 전용으로 재검토한다. api_quantity_overview_check와
+    달리 도면 이미지를 다시 보내지 않는다 — 이전 추출 결과(JSON)와 사용자 정정 텍스트만 Gemini에
+    보내서 토큰을 크게 아낀다.
+    POST 필드: job_id(필수), review_id(필수), prior_result(필수, JSON 문자열), correction_text(필수)."""
+    job_id = request.POST.get("job_id") or None
+    if not job_id:
+        return JsonResponse({"error": "job_id가 없습니다."}, status=400)
+
+    review_id = request.POST.get("review_id") or None
+    if not review_id:
+        return JsonResponse({"error": "review_id가 없습니다."}, status=400)
+    rec = _review_get(review_id)
+    if rec is None or rec.get("_user_id") != str(request.user.pk):
+        return JsonResponse({
+            "error": "확인 절차 세션을 찾을 수 없습니다 — 시간이 너무 지났거나 잘못된 review_id입니다. "
+                     "개요 확인부터 다시 진행해 주세요.",
+        }, status=404)
+
+    correction_text = (request.POST.get("correction_text") or "").strip()
+    if not correction_text:
+        return JsonResponse({"error": "정정 내용이 없습니다."}, status=400)
+
+    # 브라우저 prior_result는 변조되거나 오래된 값일 수 있으므로 서버 저장값만 사용한다.
+    prior_result = {
+        "overview": rec.get("overview") or {},
+        "general_spec": rec.get("general_spec") or {},
+    }
+    revision_stage = request.POST.get("stage") or "overview"
+    if revision_stage not in ("overview", "general_spec"):
+        return JsonResponse({"error": "재검토 단계가 올바르지 않습니다."}, status=400)
+
+    _progress_set(job_id, "queued", 0, 1, "대기열에 등록됨", stage_index=1, total_stages=1)
+    thread = threading.Thread(
+        target=_run_overview_revise_job,
+        args=(job_id, review_id, prior_result, correction_text, revision_stage),
+        daemon=True,
+    )
+    thread.start()
+    return JsonResponse({"accepted": True, "job_id": job_id})
+
+
+# ─────────────────────────────────────────────
+#  API: 지하주차장 각층평면도 사전 확인
+#  — 구조일반사항 확인이 끝난 뒤, 본 추출(비용 큼) 전에 지하주차장 평면도로 보이는
+#  페이지만 찾아서 부재 위치를 가볍게 읽고 색칠 미리보기를 만든다. 사용자가 색으로
+#  부재 인식이 맞는지 확인한 뒤에만 비싼 본 추출을 시작한다.
+# ─────────────────────────────────────────────
+def _run_basement_plan_check_job(job_id, review_id, structural_pdf_bytes, correction_context):
+    try:
+        _progress_set(job_id, "basement_plan", 0, 1, "지하주차장 평면도 부재 인식 확인 중", stage_index=1, total_stages=1)
+
+        if not structural_pdf_bytes:
+            result = {
+                "skipped": True, "reason": "구조 PDF가 없어 이 확인은 건너뜁니다.",
+                "pages": [], "members": [], "annotated": [],
+            }
+            _review_update(review_id, basement_plan=result)
+            _review_reset_confirmations_from(review_id, "basement_plan")
+            _result_set(job_id, {"ok": True, "results": result})
+            return
+
+        total_pages = 0
+        try:
+            info = pdfinfo_from_bytes(structural_pdf_bytes)
+            total_pages = int(info.get("Pages", 0) or 0)
+        except Exception:
+            total_pages = 0
+
+        pages = _detect_basement_plan_pages(structural_pdf_bytes, total_pages)
+        if not pages:
+            result = {
+                "skipped": True, "reason": "지하주차장 평면도로 보이는 페이지를 찾지 못했습니다.",
+                "pages": [], "members": [], "annotated": [],
+            }
+            _review_update(review_id, basement_plan=result)
+            _review_reset_confirmations_from(review_id, "basement_plan")
+            _result_set(job_id, {"ok": True, "results": result})
+            return
+
+        data = extract_basement_plan_members(structural_pdf_bytes, pages, correction_context)
+        annotated = build_basement_plan_preview(structural_pdf_bytes, data.get("members") or [])
+        result = {
+            "skipped": False,
+            "pages": pages,
+            "members": data.get("members") or [],
+            "notes": data.get("notes") or [],
+            "annotated": annotated,
+        }
+        _review_update(review_id, basement_plan=result)
+        _review_reset_confirmations_from(review_id, "basement_plan")
+        _result_set(job_id, {"ok": True, "results": result})
+    except Exception as e:
+        _result_set(job_id, {"ok": False, "error": f"지하주차장 평면도 확인 중 오류가 발생했습니다: {str(e)[:300]}"})
+    finally:
+        _progress_clear(job_id)
+
+
+@require_POST
+@_admin_only_json
+def api_quantity_basement_plan_check(request):
+    """본 추출 전, 지하주차장 각층평면도만 가볍게 읽어서 부재(벽/보/슬래브/계단 등) 색칠
+    미리보기를 만든다. 지하주차장 평면도로 보이는 페이지를 못 찾으면 skipped=True로
+    응답해서, 프론트가 이 확인 단계를 건너뛰고 바로 본 추출로 진행할 수 있게 한다.
+    구조일반사항이 아직 확정되지 않은 review_id로는 진행할 수 없다(409) — 확인 순서를
+    건너뛰고 API를 직접 두드리는 경로를 막기 위함.
+    POST 필드: job_id(필수), review_id(필수, 구조일반사항까지 확정돼 있어야 함),
+    structural_pdf(필수), correction_context(선택 — "아니요" 정정 재검토용, 해당 페이지
+    이미지를 다시 보내되 이 몇 장뿐이라 여전히 저렴함)."""
+    job_id = request.POST.get("job_id") or None
+    if not job_id:
+        return JsonResponse({"error": "job_id가 없습니다."}, status=400)
+
+    review_id = request.POST.get("review_id") or None
+    if not review_id:
+        return JsonResponse({"error": "review_id가 없습니다."}, status=400)
+    rec, err = _review_require_stage(review_id, "general_spec_confirmed", "구조일반사항")
+    if err:
+        return err
+    if rec.get("_user_id") != str(request.user.pk):
+        return JsonResponse({"error": "다른 사용자의 확인 세션입니다."}, status=403)
+
+    # getlist: overview-check 단계와 똑같이 낱장 파일 여러 개를 받을 수 있어야 하고,
+    # 병합 결과 바이트가 그 단계와 정확히 같아야 아래 해시 비교(_matching_uploaded_files)가
+    # 통과한다 — 병합 로직(_merge_uploaded_pdfs)을 그대로 재사용해서 이를 보장한다.
+    structural_pdf_files = request.FILES.getlist("structural_pdf")
+    if not structural_pdf_files:
+        return JsonResponse({"error": "구조 PDF가 필요합니다."}, status=400)
+
+    structural_pdf_bytes, _structural_page_hints = _merge_uploaded_pdfs(structural_pdf_files)
+    if not _matching_uploaded_files(
+        rec, _review_file_hashes(structural_pdf_bytes=structural_pdf_bytes),
+    ):
+        _review_reset_confirmations_from(review_id, "overview")
+        return JsonResponse({
+            "error": "업로드 파일이 바뀌었습니다. 이전 개요와 확정 상태를 초기화했으니 개요부터 다시 확인해 주세요.",
+        }, status=409)
+    correction_context = (request.POST.get("correction_context") or "").strip() or None
+
+    _progress_set(job_id, "queued", 0, 1, "대기열에 등록됨", stage_index=1, total_stages=1)
+    thread = threading.Thread(
+        target=_run_basement_plan_check_job,
+        args=(job_id, review_id, structural_pdf_bytes, correction_context),
+        daemon=True,
+    )
+    thread.start()
+    return JsonResponse({"accepted": True, "job_id": job_id})
+
+
+@require_POST
+@_admin_only_json
+def api_quantity_review_confirm(request):
+    """개요/구조일반사항/지하주차장 평면도 각 단계를 "확정"한다 — 화면에서 사용자가
+    "예, 맞습니다"를 눌렀을 때만 호출돼야 한다. 확정 후에는 그 값이 review_id 기록에
+    영구히 남아 이후 단계(특히 api_run_quantity)가 클라이언트가 보내는 값이 아니라
+    이 서버 기록을 신뢰하게 된다.
+    POST 필드: review_id(필수), stage(필수, "overview" | "general_spec" | "basement_plan")."""
+    review_id = request.POST.get("review_id") or None
+    if not review_id:
+        return JsonResponse({"error": "review_id가 없습니다."}, status=400)
+
+    stage = request.POST.get("stage") or None
+    if stage not in REVIEW_STAGE_ORDER:
+        return JsonResponse({"error": f"알 수 없는 stage입니다: {stage!r}"}, status=400)
+
+    rec = _review_get(review_id)
+    if rec is None:
+        return JsonResponse({
+            "error": "확인 절차 세션을 찾을 수 없습니다 — 시간이 너무 지났거나 잘못된 review_id입니다. "
+            "개요 확인부터 다시 진행해 주세요.",
+        }, status=404)
+    if rec.get("_user_id") != str(request.user.pk):
+        return JsonResponse({"error": "다른 사용자의 확인 세션입니다."}, status=403)
+
+    # 이 stage 앞 단계까지는 이미 확정돼 있어야 한다(순서를 건너뛰고 임의 stage를
+    # 확정하는 걸 막기 위함). overview는 첫 단계라 앞 단계가 없다.
+    stage_idx = REVIEW_STAGE_ORDER.index(stage)
+    if stage_idx > 0:
+        prior_stage = REVIEW_STAGE_ORDER[stage_idx - 1]
+        if not rec.get(f"{prior_stage}_confirmed"):
+            return JsonResponse({
+                "error": f"이전 단계({prior_stage})가 아직 확정되지 않았습니다.",
+            }, status=409)
+
+    # 확정하려는 stage 자체의 데이터가 서버에 저장돼 있어야 한다(확인 호출을 아예
+    # 건너뛰고 바로 확정만 두드리는 경로를 막기 위함). 예외: basement_plan은 애초에
+    # "지하주차장 구조 PDF가 아예 없으면 확인 자체가 성립하지 않는" 선택적 단계다 —
+    # 프론트가 구조 PDF가 없을 때 이 확인 호출 자체를 건너뛰므로 rec["basement_plan"]이
+    # None으로 남을 수 있는데, 그 경우 api_run_quantity 쪽에서도 어차피 structural_pdf/
+    # structural_zip이 없으면 구조 부재 추출 자체가 실행되지 않으므로 확정만 통과시켜도
+    # "AI 부재인식을 확인 안 하고 넘어가는" 구멍이 생기지 않는다.
+    if rec.get(stage) is None and stage != "basement_plan":
+        return JsonResponse({
+            "error": f"{stage} 확인 데이터가 없습니다 — 먼저 확인을 실행해 주세요.",
+        }, status=409)
+
+    ok = _review_update(review_id, **{f"{stage}_confirmed": True})
+    if not ok:
+        return JsonResponse({"error": "확정 처리 중 세션을 찾지 못했습니다."}, status=404)
+
+    return JsonResponse({"ok": True, "review_id": review_id, "stage": stage, "confirmed": True})
+
+
+# ─────────────────────────────────────────────
 #  API: 수량산출 실행 (메인 엔드포인트)
 # ─────────────────────────────────────────────
 @require_POST
 @_admin_only_json
 def api_run_quantity(request):
     """
-    파일 4개 받아서 수량산출 실행
+    파일 4개 받아서 수량산출을 백그라운드 스레드로 시작하고 즉시 응답한다.
     - structural_zip: 구조도면 ZIP (DWG)
     - structural_pdf: 구조도면 합본 PDF
     - architectural_zip: 건축도면 ZIP (DWG)
     - architectural_pdf: 건축도면 합본 PDF
-    """
-    structural_zip = request.FILES.get("structural_zip")
-    structural_pdf = request.FILES.get("structural_pdf")
-    architectural_zip = request.FILES.get("architectural_zip")
-    architectural_pdf = request.FILES.get("architectural_pdf")
 
-    if not any([structural_zip, structural_pdf, architectural_zip, architectural_pdf]):
+    예전에는 이 요청 하나가 Gemini 배치 호출을 전부 끝낼 때까지(실제 도면 기준
+    수십 분 걸릴 수 있음) 응답을 내보내지 않고 연결을 계속 붙잡고 있었다. 문제는
+    응답 바이트가 1바이트도 안 나가는 채로 이렇게 오래 연결이 떠 있으면, 브라우저/
+    OS/공유기 등 어딘가의 유휴(idle) 커넥션 타임아웃에 걸려 "네트워크 오류:
+    Load failed"로 끊겨버릴 수 있다는 것 — 실제로 재현됐다. 이때 서버는 클라이언트가
+    끊긴 걸 알 방법이 없어서 이미 시작한 Gemini 호출들을 계속 실행한다: 돈은
+    나가는데 사용자는 결과를 영영 못 받는 최악의 조합이다.
+
+    그래서 지금은 실제 작업(파일 파싱 + Gemini 호출)을 별도 스레드(_run_quantity_job)로
+    던져놓고, 이 뷰는 파일을 바이트로 읽어 확보한 뒤 곧장 {"accepted": true, "job_id"}를
+    돌려준다. 프론트엔드는 이미 갖고 있던 진행률 폴링(api_quantity_progress)을
+    계속 돌리다가 done=true가 되면 같이 담겨오는 결과를 쓴다. 폴링은 몇 초짜리
+    요청이 반복되는 구조라 중간에 한두 번 끊겨도 다음 폴링에서 다시 잡히고,
+    서버 쪽 작업 자체는 브라우저 연결 상태와 무관하게 끝까지 실행된다.
+    """
+    cad_uploads = _collect_request_cad_uploads(request)
+    # getlist: overview-check 단계와 동일하게 낱장 PDF 여러 개를 받을 수 있어야 하고,
+    # 병합 결과가 그 단계와 바이트 단위로 똑같아야 아래 해시 비교가 통과한다 —
+    # _merge_uploaded_pdfs를 그대로 재사용해서 이를 보장한다.
+    structural_pdf_files = request.FILES.getlist("structural_pdf")
+    architectural_pdf_files = request.FILES.getlist("architectural_pdf")
+
+    if not any([cad_uploads, structural_pdf_files, architectural_pdf_files]):
         return JsonResponse({"error": "파일이 없습니다."}, status=400)
 
-    # ── 진행률 표시용: job_id는 프론트엔드가 업로드와 함께 보내는 임의 문자열이다.
-    #    없으면(구버전 클라이언트 등) 아래 _progress_set 호출들은 전부 조용히 무시된다.
+    # job_id는 프론트엔드가 업로드와 함께 보내는 임의 문자열이다. 백그라운드로
+    # 처리한 결과를 나중에 어디로 돌려줘야 할지 이 값 하나로 찾으므로, 이제는
+    # (진행률 표시가 선택사항이던 예전과 달리) 필수값이다.
     job_id = request.POST.get("job_id") or None
+    if not job_id:
+        return JsonResponse({"error": "job_id가 없습니다 — 새로고침 후 다시 시도해 주세요."}, status=400)
+
+    # review_id 상태머신 강제: 개요→구조일반사항→지하주차장 평면도 확인을 전부
+    # 확정하지 않고서는 본 추출(비용이 큰 실제 작업)을 시작할 수 없다. 클라이언트가
+    # confirmed_general_spec을 뭘 보내든, 아래에서 서버가 review_id 기록으로 직접
+    # 확정된 general_spec을 가져와 덮어쓴다 — API를 직접 두드려 임의의 구조일반사항을
+    # 주입하거나 확인 단계를 생략하는 경로를 막기 위함.
+    review_id = request.POST.get("review_id") or None
+    if not review_id:
+        return JsonResponse({"error": "review_id가 없습니다 — 개요/구조일반사항 확인부터 다시 진행해 주세요."}, status=400)
+    review_rec, err = _review_require_stage(review_id, "basement_plan_confirmed", "지하주차장 평면도")
+    if err:
+        return err
+    if review_rec.get("_user_id") != str(request.user.pk):
+        return JsonResponse({"error": "다른 사용자의 확인 세션입니다."}, status=403)
+
+    # 백그라운드 스레드에서는 Django의 request/FILES 객체를 더 이상 안전하게 쓸 수
+    # 없다(요청-응답 주기가 끝나면 내부적으로 임시파일 등이 정리될 수 있음). 그래서
+    # 응답을 만들기 전, 즉 요청이 아직 살아있는 지금 필요한 바이트를 전부 메모리로
+    # 읽어두고 그 바이트만 스레드에 넘긴다.
+    structural_zip_bytes, architectural_zip_bytes, cad_merge_info = (
+        _merge_uploaded_cad_sets(cad_uploads)
+    )
+    structural_pdf_bytes, _structural_page_hints = _merge_uploaded_pdfs(structural_pdf_files)
+    architectural_pdf_bytes, _architectural_page_hints = _merge_uploaded_pdfs(architectural_pdf_files)
+    logger.info(
+        "quantity_run_cad_uploads upload_count=%s upload_names=%s cad_count=%s "
+        "structural_count=%s architectural_count=%s scan_complete=%s",
+        cad_merge_info.get("upload_count"), cad_merge_info.get("upload_names"),
+        cad_merge_info.get("cad_count"), cad_merge_info.get("structural_count"),
+        cad_merge_info.get("architectural_count"), cad_merge_info.get("scan_complete"),
+    )
+    current_hashes = _review_file_hashes(
+        structural_pdf_bytes, architectural_pdf_bytes,
+        structural_zip_bytes, architectural_zip_bytes,
+    )
+    if not _matching_uploaded_files(review_rec, current_hashes):
+        _review_reset_confirmations_from(review_id, "overview")
+        return JsonResponse({
+            "error": "업로드 파일이 바뀌었습니다. 이전 개요와 모든 확정 상태를 초기화했습니다.",
+        }, status=409)
+
+    # 개요/구조일반사항 사전 확인 단계에서 사용자가 확정한 general_spec — 클라이언트가
+    # 보낸 값이 아니라 review_id 기록에 서버가 직접 저장해둔 값을 쓴다(신뢰의 기준점을
+    # 서버로 옮김). general_spec_confirmed까지 확정돼야 이 함수까지 올 수 있으므로
+    # (basement_plan_confirmed는 general_spec_confirmed보다 뒤 단계) 이 시점에는
+    # review_rec["general_spec"]이 반드시 채워져 있다.
+    confirmed_general_spec = review_rec.get("general_spec") or None
+
     progress_stages = []
-    if architectural_zip or architectural_pdf:
+    if architectural_zip_bytes or architectural_pdf_bytes:
         progress_stages += ["architectural", "elevation"]
-    if structural_zip or structural_pdf:
+    if structural_zip_bytes or structural_pdf_bytes:
         progress_stages.append("structural")
     progress_total_stages = len(progress_stages) or 1
+
+    # 스레드가 실제로 시작해서 첫 _report_progress를 부르기 전까지는 진행률
+    # 저장소가 비어있어, 그 짧은 틈에 프론트가 첫 폴링을 하면 found=false를 받고
+    # "아직 시작 안 했나?"로 헷갈릴 수 있다. 미리 "대기열에 등록됨" 상태를 하나
+    # 넣어둬서 그 틈을 없앤다.
+    _progress_set(job_id, "queued", 0, 1, "대기열에 등록됨", stage_index=1, total_stages=progress_total_stages)
+
+    thread = threading.Thread(
+        target=_run_quantity_job,
+        args=(job_id, structural_zip_bytes, structural_pdf_bytes,
+              architectural_zip_bytes, architectural_pdf_bytes,
+              progress_stages, progress_total_stages, confirmed_general_spec),
+        daemon=True,
+    )
+    thread.start()
+
+    return JsonResponse({"accepted": True, "job_id": job_id})
+
+
+def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
+                       architectural_zip_bytes, architectural_pdf_bytes,
+                       progress_stages, progress_total_stages, confirmed_general_spec=None):
+    """api_run_quantity가 백그라운드 스레드로 실행시키는 실제 작업 본체.
+    HTTP 요청/응답과 완전히 분리돼 있어서, 이 함수를 시작시킨 브라우저 연결이
+    중간에 끊기든 말든 이 함수는 끝까지 실행되고, 최종 결과는 _RESULT_STORE에
+    job_id로 저장된다 — 나중에 같은 job_id로 폴링하면(페이지를 새로고침해서
+    다시 접속해도) 결과를 받을 수 있다."""
 
     def _report_progress(stage, current, total, label):
         try:
@@ -1691,155 +5755,179 @@ def api_run_quantity(request):
         return None
 
     try:
-        # ── 건축 수량산출 + 입면도/단면도 검토 (구조 계산보다 먼저 실행 —
-        #    여기서 읽은 층고/개구부를 구조 계산의 층고 대체값/개구부 대조에 사용) ──
-        if (architectural_zip or architectural_pdf) and _cancelled():
-            results["architectural"] = {"items": [], "missing_info": [_note_cancelled_once() or "사용자가 취소를 요청했습니다."], "warnings": []}
-        elif architectural_zip or architectural_pdf:
-            arch_dwg_data = {}
-            arch_pdf_images = []
+        try:
+            # ── 건축 수량산출 + 입면도/단면도 검토 (구조 계산보다 먼저 실행 —
+            #    여기서 읽은 층고/개구부를 구조 계산의 층고 대체값/개구부 대조에 사용) ──
+            if (architectural_zip_bytes or architectural_pdf_bytes) and _cancelled():
+                results["architectural"] = {"items": [], "missing_info": [_note_cancelled_once() or "사용자가 취소를 요청했습니다."], "warnings": []}
+            elif architectural_zip_bytes or architectural_pdf_bytes:
+                arch_dwg_data = {}
+                arch_pdf_images = []
 
-            if architectural_zip:
-                zip_bytes = architectural_zip.read()
-                arch_dwg_data = parse_dwg_from_zip(zip_bytes, list(REQUIRED_ARCHITECTURAL.keys()))
+                if architectural_zip_bytes:
+                    # 2026-07-27: REQUIRED_ARCHITECTURAL의 임의 코드(A-001 등)로 필터링하면
+                    # 실제 프로젝트 파일명과 안 맞아 매칭 0건이 될 수 있으므로, ZIP 안의
+                    # 모든 dwg/dxf를 대상으로 한다(코드 목록에 의존하지 않음).
+                    arch_dwg_data = parse_dwg_from_zip(architectural_zip_bytes)
 
-            if architectural_pdf:
-                pdf_bytes = architectural_pdf.read()
-                try:
-                    arch_pdf_images = pdf_to_images(pdf_bytes, max_pages=MAX_PDF_PAGES_TO_GEMINI)
-                except Exception as e:
-                    arch_pdf_images = []
-                    results["architectural_pdf_error"] = str(e)
-
-            if arch_dwg_data or arch_pdf_images:
-                _report_progress("architectural", 0, 1, "건축도면 분석 중")
-                try:
-                    results["architectural"] = analyze_with_gemini(
-                        arch_dwg_data, arch_pdf_images,
-                        ARCHITECTURAL_SYSTEM_PROMPT, "건축도면"
-                    )
-                except Exception as e:
-                    results["architectural"] = {"error": str(e), "items": [], "missing_info": [f"건축 수량산출 처리 중 오류가 발생했습니다: {str(e)[:300]}"], "warnings": []}
-                _report_progress("architectural", 1, 1, "건축도면 분석 완료")
-
-                if _cancelled():
-                    elevation_data = dict(_EMPTY_ELEVATION_SECTION, notes=[_note_cancelled_once() or "사용자가 취소를 요청했습니다."])
-                else:
-                    # 입면도/단면도 검토: 층고 + 개구부(창호) 목록만 별도로 읽음
-                    # (건축 수량산출과 같은 파싱 데이터/이미지를 재사용해 중복 변환을 피한다)
-                    _report_progress("elevation", 0, 1, "입면/단면 검토 중")
+                if architectural_pdf_bytes:
                     try:
-                        elevation_data = extract_elevation_section_data(arch_dwg_data, arch_pdf_images)
+                        arch_pdf_images = pdf_to_images(architectural_pdf_bytes, max_pages=MAX_PDF_PAGES_TO_GEMINI)
                     except Exception as e:
-                        elevation_data = dict(_EMPTY_ELEVATION_SECTION, notes=[f"입면/단면 검토 중 오류: {str(e)[:200]}"])
-                    _report_progress("elevation", 1, 1, "입면/단면 검토 완료")
-            elif architectural_zip or architectural_pdf:
-                # 파일은 올렸지만 arch_dwg_data/arch_pdf_images 둘 다 비어서(PDF 변환 실패 등)
-                # 분석을 아예 시작도 못한 경우 — 이 사유를 architectural.missing_info에 남겨서
-                # 프론트엔드가 결과가 0건일 때 "왜"인지 보여줄 수 있게 한다 (그냥 조용히
-                # results["architectural"] 키 자체가 안 생기면 원인을 알 방법이 없어진다).
-                pdf_err = results.get("architectural_pdf_error")
-                reason = (
-                    f"건축도면 PDF를 이미지로 변환하는 중 오류가 발생했습니다: {pdf_err}"
-                    if pdf_err else
-                    "건축도면 파일에서 읽을 수 있는 데이터가 없습니다 — ZIP/PDF가 비어있거나 손상됐을 수 있습니다."
-                )
-                results["architectural"] = {"items": [], "missing_info": [reason], "warnings": []}
+                        arch_pdf_images = []
+                        results["architectural_pdf_error"] = str(e)
 
-        # ── 구조 수량산출 ──
-        if structural_zip or structural_pdf:
-            dwg_data = {}
-            structural_pdf_bytes = None
-
-            if structural_zip:
-                zip_bytes = structural_zip.read()
-                dwg_data = parse_dwg_from_zip(zip_bytes, list(REQUIRED_STRUCTURAL.keys()))
-
-            if structural_pdf:
-                # PDF를 여기서 미리 전부 이미지로 렌더링하지 않는다 — 대형 도면집(수십~백 페이지)을
-                # 한꺼번에 렌더링하면 메모리를 너무 많이 써서 서버가 죽을 수 있다. 원본 바이트만
-                # 넘기고, extract_structural_members()가 배치 단위로 필요한 페이지만 그때그때
-                # 렌더링한다(page 수 확인/렌더링 실패도 그 안에서 배치별로 안전하게 처리됨).
-                structural_pdf_bytes = structural_pdf.read()
-
-            if _cancelled() and (dwg_data or structural_pdf_bytes):
-                results["structural"] = {
-                    "items": [],
-                    "missing_info": [_note_cancelled_once() or "사용자가 취소를 요청했습니다."],
-                    "warnings": [],
-                }
-            elif dwg_data or structural_pdf_bytes:
-                try:
-                    # 1단계: Gemini는 '읽기'만 (구조화된 부재 리스트). progress_cb로 배치별
-                    # 진행상황("배치 3/6 처리 중")을 폴링 저장소에 실시간으로 남긴다. cancel_cb는
-                    # 취소 요청이 들어오면 아직 시작 안 한 배치들을 건너뛰게 한다(비용 절약).
-                    def _structural_progress_cb(idx, total):
-                        _report_progress("structural", idx, total, f"구조 부재 추출 배치 {idx}/{total} 처리 중")
-
-                    members = extract_structural_members(
-                        dwg_data, structural_pdf_bytes, progress_cb=_structural_progress_cb, cancel_cb=_cancelled
-                    )
-                    # 색칠된 도면 미리보기 — Gemini가 채운 bbox(부재 위치)를 원본 페이지 위에
-                    # 색상 박스로 그려서, 의뢰인이 채팅창에서 놓친 벽/보가 있는지 직접 확인할
-                    # 수 있게 한다. bbox 데이터가 없거나 실패해도 예외를 던지지 않는 보조
-                    # 기능이라, 여기서 문제가 생겨도 이후 흐름에는 영향이 없다.
+                if arch_dwg_data or arch_pdf_images:
+                    _report_progress("architectural", 0, 1, "건축도면 분석 중")
                     try:
-                        annotated_pages = build_annotated_pages(structural_pdf_bytes, members)
-                    except Exception as e:
-                        annotated_pages = []
-                        results.setdefault("structural_warnings_pre", []).append(
-                            f"색칠된 도면 미리보기 생성 중 오류가 발생했습니다: {str(e)[:200]}"
+                        results["architectural"] = analyze_with_gemini(
+                            arch_dwg_data, arch_pdf_images,
+                            ARCHITECTURAL_SYSTEM_PROMPT, "건축도면"
                         )
+                    except Exception as e:
+                        results["architectural"] = {"error": str(e), "items": [], "missing_info": [f"건축 수량산출 처리 중 오류가 발생했습니다: {str(e)[:300]}"], "warnings": []}
+                    _report_progress("architectural", 1, 1, "건축도면 분석 완료")
 
-                    if job_id and not _cancelled():
-                        # ── 실제 물량 계산 전에 사용자 확인을 거치게 한다 ──
-                        # job_id가 있는 클라이언트(최신 프론트)에 한해서만 리뷰 단계를 넣는다.
-                        # 여기서 바로 계산하지 않고 members를 job_id로 저장해두고, 프론트가
-                        # "도면 확인" 팝업에서 사용자 확인/수정을 받은 뒤 /api/quantity/confirm-review/
-                        # 로 다시 요청해야 실제 계산(compute_structural_quantities)이 실행된다.
-                        _extraction_store_set(job_id, members, elevation_data)
-                        results["structural"] = {
-                            "review_required": True,
-                            "job_id": job_id,
-                            "annotated_pages": annotated_pages,
-                            "checklist": _build_review_checklist(members),
-                            "warnings": results.pop("structural_warnings_pre", []),
-                        }
+                    if _cancelled():
+                        elevation_data = dict(_EMPTY_ELEVATION_SECTION, notes=[_note_cancelled_once() or "사용자가 취소를 요청했습니다."])
                     else:
-                        # job_id가 없는 옛 클라이언트 호환용 — 리뷰 단계 없이 바로 계산.
-                        results["structural"] = compute_structural_quantities(members, elevation_data)
-                        results["structural"]["_raw_members"] = members  # 디버그/검증용
-                        if elevation_data:
-                            results["structural"]["_elevation_section"] = elevation_data  # 디버그/검증용
-                        results["structural"]["massing"] = compute_massing_model(members, elevation_data)
-                        results["structural"]["annotated_pages"] = annotated_pages
-                        for w in results.pop("structural_warnings_pre", []):
-                            results["structural"].setdefault("warnings", []).append(w)
-                except Exception as e:
+                        # 입면도/단면도 검토: 층고 + 개구부(창호) 목록만 별도로 읽음
+                        # (건축 수량산출과 같은 파싱 데이터/이미지를 재사용해 중복 변환을 피한다)
+                        _report_progress("elevation", 0, 1, "입면/단면 검토 중")
+                        try:
+                            elevation_data = extract_elevation_section_data(arch_dwg_data, arch_pdf_images)
+                        except Exception as e:
+                            elevation_data = dict(_EMPTY_ELEVATION_SECTION, notes=[f"입면/단면 검토 중 오류: {str(e)[:200]}"])
+                        _report_progress("elevation", 1, 1, "입면/단면 검토 완료")
+                elif architectural_zip_bytes or architectural_pdf_bytes:
+                    # 파일은 올렸지만 arch_dwg_data/arch_pdf_images 둘 다 비어서(PDF 변환 실패 등)
+                    # 분석을 아예 시작도 못한 경우 — 이 사유를 architectural.missing_info에 남겨서
+                    # 프론트엔드가 결과가 0건일 때 "왜"인지 보여줄 수 있게 한다 (그냥 조용히
+                    # results["architectural"] 키 자체가 안 생기면 원인을 알 방법이 없어진다).
+                    pdf_err = results.get("architectural_pdf_error")
+                    reason = (
+                        f"건축도면 PDF를 이미지로 변환하는 중 오류가 발생했습니다: {pdf_err}"
+                        if pdf_err else
+                        "건축도면 파일에서 읽을 수 있는 데이터가 없습니다 — ZIP/PDF가 비어있거나 손상됐을 수 있습니다."
+                    )
+                    results["architectural"] = {"items": [], "missing_info": [reason], "warnings": []}
+
+            # ── 구조 수량산출 ──
+            if structural_zip_bytes or structural_pdf_bytes:
+                dwg_data = {}
+
+                if structural_zip_bytes:
+                    # 2026-07-27: 여기서 REQUIRED_STRUCTURAL의 임의 코드(S-001~S-501 등)로
+                    # 필터링하던 게 실제 프로젝트(부천 현장 등)의 실제 도면번호 규칙과 전혀
+                    # 안 맞아 항상 매칭 0건 -> dwg_data가 매번 빈 딕셔너리로 나왔을 가능성이
+                    # 크다(구조 PDF 기반 Gemini 추출은 그대로 진행되지만, ZIP으로 올린 DWG의
+                    # 기하 데이터가 보조 자료로 전혀 반영되지 않고 조용히 버려진 것). 도면번호
+                    # 목록에 의존하지 않고 ZIP 안의 모든 dwg/dxf를 대상으로 바꾼다.
+                    dwg_data = parse_dwg_from_zip(structural_zip_bytes)
+
+                # structural_pdf_bytes는 이미 파라미터로 받은 원본 바이트 그대로 사용한다 —
+                # 여기서 미리 전부 이미지로 렌더링하지 않는다(대형 도면집을 한꺼번에
+                # 렌더링하면 메모리를 너무 많이 써서 서버가 죽을 수 있다). extract_structural_
+                # members()가 배치 단위로 필요한 페이지만 그때그때 렌더링한다.
+
+                if _cancelled() and (dwg_data or structural_pdf_bytes):
                     results["structural"] = {
-                        "error": str(e), "items": [],
-                        "missing_info": [f"구조 수량산출 처리 중 오류가 발생했습니다: {str(e)[:300]}"],
+                        "items": [],
+                        "missing_info": [_note_cancelled_once() or "사용자가 취소를 요청했습니다."],
                         "warnings": [],
                     }
-            else:
-                # 파일은 올렸지만 dwg_data/structural_pdf_bytes 둘 다 비어서(빈 ZIP, 빈 PDF 등)
-                # 추출을 아예 시작도 못한 경우 — 이전에는 이 경우 results에 "structural" 키
-                # 자체가 생기지 않아, 프론트엔드에서 "왜 실패했는지" 전혀 알 수 없는 상태로
-                # 그냥 "추출하지 못했어요"만 표시됐다. 실제 원인을 missing_info에 남겨서
-                # 화면에 보이도록 한다.
-                results["structural"] = {
-                    "items": [],
-                    "missing_info": ["구조도면 파일에서 읽을 수 있는 데이터가 없습니다 — ZIP/PDF가 비어있거나 손상됐을 수 있습니다."],
-                    "warnings": [],
-                }
-    finally:
-        # 요청이 끝나면(성공/실패 무관) 진행률/취소 항목을 정리한다 — 프론트엔드는 최종
-        # 응답을 받는 순간 폴링을 멈추므로, 여기 남겨둬도 TTL(30분)로 언젠가 청소되긴
-        # 하지만 job_id 재사용/누적을 막기 위해 즉시 지운다.
+                elif dwg_data or structural_pdf_bytes:
+                    try:
+                        # 1단계: Gemini는 '읽기'만 (구조화된 부재 리스트). progress_cb로 배치별
+                        # 진행상황("배치 3/6 처리 중")을 폴링 저장소에 실시간으로 남긴다. cancel_cb는
+                        # 취소 요청이 들어오면 아직 시작 안 한 배치들을 건너뛰게 한다(비용 절약).
+                        def _structural_progress_cb(idx, total):
+                            _report_progress("structural", idx, total, f"구조 부재 추출 배치 {idx}/{total} 처리 중")
+
+                        members = extract_structural_members(
+                            dwg_data, structural_pdf_bytes, progress_cb=_structural_progress_cb, cancel_cb=_cancelled,
+                            confirmed_general_spec=confirmed_general_spec,
+                        )
+                        # 색칠된 도면 미리보기 — Gemini가 채운 bbox(부재 위치)를 원본 페이지 위에
+                        # 색상 박스로 그려서, 의뢰인이 채팅창에서 놓친 벽/보가 있는지 직접 확인할
+                        # 수 있게 한다. bbox 데이터가 없거나 실패해도 예외를 던지지 않는 보조
+                        # 기능이라, 여기서 문제가 생겨도 이후 흐름에는 영향이 없다.
+                        try:
+                            annotated_pages = build_annotated_pages(structural_pdf_bytes, members)
+                        except Exception as e:
+                            annotated_pages = []
+                            results.setdefault("structural_warnings_pre", []).append(
+                                f"색칠된 도면 미리보기 생성 중 오류가 발생했습니다: {str(e)[:200]}"
+                            )
+
+                        if job_id and not _cancelled():
+                            # ── 실제 물량 계산 전에 사용자 확인을 거치게 한다 ──
+                            # 여기서 바로 계산하지 않고 members를 job_id로 저장해두고, 프론트가
+                            # "도면 확인" 팝업에서 사용자 확인/수정을 받은 뒤 /api/quantity/confirm-review/
+                            # 로 다시 요청해야 실제 계산(compute_structural_quantities)이 실행된다.
+                            _extraction_store_set(job_id, members, elevation_data)
+                            incomplete_reasons = _extraction_incomplete_reasons(members)
+                            results["structural"] = {
+                                "review_required": True,
+                                "job_id": job_id,
+                                "annotated_pages": annotated_pages,
+                                "checklist": _build_review_checklist(members),
+                                "warnings": results.pop("structural_warnings_pre", []),
+                                # 응답 잘림/배치 실패/취소 등으로 이 추출 결과가 온전하지 않을 때, 검토
+                                # 팝업이 "체크리스트만 보면 끝"이 아니라 눈에 띄게 경고하고 명시적 확인을
+                                # 받게 하기 위한 플래그 — 조용히 부분 결과로 확정 계산까지 가는 걸 막는다.
+                                "extraction_incomplete": bool(incomplete_reasons),
+                                "incomplete_reasons": incomplete_reasons[:5],
+                            }
+                        else:
+                            # job_id가 없는 경우를 위한 방어적 fallback — 리뷰 단계 없이 바로 계산.
+                            # 검토 팝업을 거치지 않으므로 _apply_member_corrections의 검증도 못 받는다 —
+                            # 그래서 여기서 직접 _sanitize_raw_members를 거쳐 원본값(count=0/음수 등)을
+                            # 계산에 넣기 전에 한 번 더 걸러낸다.
+                            incomplete_reasons = _extraction_incomplete_reasons(members)
+                            sanitized_members = _sanitize_raw_members(members)
+                            results["structural"] = compute_structural_quantities(sanitized_members, elevation_data)
+                            results["structural"]["_raw_members"] = sanitized_members  # 디버그/검증용
+                            if elevation_data:
+                                results["structural"]["_elevation_section"] = elevation_data  # 디버그/검증용
+                            results["structural"]["massing"] = compute_massing_model(sanitized_members, elevation_data)
+                            results["structural"]["annotated_pages"] = annotated_pages
+                            results["structural"]["extraction_incomplete"] = bool(incomplete_reasons)
+                            results["structural"]["incomplete_reasons"] = incomplete_reasons[:5]
+                            for w in results.pop("structural_warnings_pre", []):
+                                results["structural"].setdefault("warnings", []).append(w)
+                    except Exception as e:
+                        results["structural"] = {
+                            "error": str(e), "items": [],
+                            "missing_info": [f"구조 수량산출 처리 중 오류가 발생했습니다: {str(e)[:300]}"],
+                            "warnings": [],
+                        }
+                else:
+                    # 파일은 올렸지만 dwg_data/structural_pdf_bytes 둘 다 비어서(빈 ZIP, 빈 PDF 등)
+                    # 추출을 아예 시작도 못한 경우 — 이전에는 이 경우 results에 "structural" 키
+                    # 자체가 생기지 않아, 프론트엔드에서 "왜 실패했는지" 전혀 알 수 없는 상태로
+                    # 그냥 "추출하지 못했어요"만 표시됐다. 실제 원인을 missing_info에 남겨서
+                    # 화면에 보이도록 한다.
+                    results["structural"] = {
+                        "items": [],
+                        "missing_info": ["구조도면 파일에서 읽을 수 있는 데이터가 없습니다 — ZIP/PDF가 비어있거나 손상됐을 수 있습니다."],
+                        "warnings": [],
+                    }
+        finally:
+            # 작업이 끝나면(성공/실패 무관) 진행률/취소 항목을 정리한다. 결과는 그 앞에
+            # _result_set으로 먼저 저장해둬야, 정리와 폴링이 같은 순간에 겹쳐도 프론트가
+            # "진행 중도 아니고 결과도 없음" 틈새를 보지 않는다.
+            _result_set(job_id, {"ok": True, "results": results})
+            _progress_clear(job_id)
+            _cancel_clear(job_id)
+    except Exception as e:
+        # 위 로직 내부의 각 단계는 이미 자체적으로 try/except를 갖고 있어 개별 오류를
+        # results 안에 담아 처리하지만, 혹시 그 바깥에서 예상 못한 예외가 튀어나오는
+        # 경우까지의 안전망이다 — 이게 없으면 스레드가 조용히 죽어버리고 프론트는
+        # 영원히 "진행 중"만 보게 된다(그리고 그 시점까지 쓴 Gemini 비용은 그냥 날아간다).
+        _result_set(job_id, {"ok": False, "error": f"수량산출 처리 중 예상치 못한 오류가 발생했습니다: {str(e)[:300]}"})
         _progress_clear(job_id)
         _cancel_clear(job_id)
-
-    return JsonResponse({"ok": True, "results": results})
 
 
 @require_POST
@@ -1857,7 +5945,11 @@ def api_quantity_confirm_review(request):
     if not job_id:
         return JsonResponse({"error": "job_id가 없습니다."}, status=400)
 
-    stored = _extraction_store_pop(job_id)
+    # pop이 아니라 get(읽기 전용)으로 꺼낸다 — 여기서 바로 지워버리면, 아래 계산 중
+    # 예외가 나서 500을 반환했을 때 저장 데이터가 이미 사라져서 사용자가 재시도할
+    # 방법이 없어(Gemini 추출부터 다시 해야 함) 비용 낭비가 컸다. 계산이 실제로
+    # 성공했을 때만 아래에서 별도로 pop해서 지운다.
+    stored = _extraction_store_get(job_id)
     if not stored:
         return JsonResponse({
             "error": "검토할 추출 결과를 찾을 수 없습니다 — 시간이 너무 지났거나(2시간 초과) "
@@ -1876,21 +5968,39 @@ def api_quantity_confirm_review(request):
     elevation_data = stored.get("elevation_data")
 
     try:
-        corrected_members = _apply_member_corrections(members, corrections)
+        corrected_members, rejected_notes = _apply_member_corrections(members, corrections)
         structural_results = compute_structural_quantities(corrected_members, elevation_data)
         structural_results["_raw_members"] = corrected_members  # 디버그/검증용
         if elevation_data:
             structural_results["_elevation_section"] = elevation_data  # 디버그/검증용
         structural_results["massing"] = compute_massing_model(corrected_members, elevation_data)
-        if corrections:
+        applied_count = len(corrections) - len(rejected_notes)
+        if applied_count > 0:
             structural_results.setdefault("warnings", []).insert(
-                0, f"도면 확인 단계에서 {len(corrections)}건의 수정사항이 반영됐습니다."
+                0, f"도면 확인 단계에서 {applied_count}건의 수정사항이 반영됐습니다."
+            )
+        for note in rejected_notes:
+            structural_results.setdefault("warnings", []).append(note)
+
+        # 추출이 애초에 불완전했다면(응답 잘림/배치 실패/취소) 검토 팝업 단계에서 이미
+        # 경고했지만, 확정 계산 결과(엑셀/최종 요약)에도 이 사실이 묻히지 않게 계속 남긴다.
+        incomplete_reasons = _extraction_incomplete_reasons(members)
+        structural_results["extraction_incomplete"] = bool(incomplete_reasons)
+        if incomplete_reasons:
+            structural_results.setdefault("warnings", []).insert(
+                0, "⚠ 이 결과는 도면 인식이 불완전한 상태(응답 잘림/배치 실패 등)에서 확정됐습니다 — "
+                   "전문가 검토 없이 확정 물량으로 사용하지 마세요."
             )
     except Exception as e:
+        # 계산 실패 — 저장 데이터를 지우지 않았으니(_extraction_store_get을 썼음) 같은
+        # job_id/corrections로 다시 POST하면 Gemini 재추출 없이 재시도할 수 있다.
         return JsonResponse({
-            "error": f"수정사항 반영 후 물량 계산 중 오류가 발생했습니다: {str(e)[:300]}",
+            "error": f"수정사항 반영 후 물량 계산 중 오류가 발생했습니다: {str(e)[:300]} "
+                     "— 도면을 다시 분석하지 않아도 같은 화면에서 다시 시도할 수 있습니다.",
         }, status=500)
 
+    # 계산이 성공했을 때만 저장 데이터를 지운다.
+    _extraction_store_pop(job_id)
     return JsonResponse({"ok": True, "results": {"structural": structural_results}})
 
 
@@ -1913,14 +6023,30 @@ def api_quantity_cancel(request):
 def api_quantity_progress(request):
     """진행률 폴링 엔드포인트. 프론트엔드가 api_run_quantity 요청을 보낸 직후부터
     주기적으로(예: 1.5초마다) job_id를 담아 호출해서 지금 어느 단계/배치까지 됐는지 읽는다.
-    아직 기록이 없으면(요청이 아직 시작 전이거나, 이미 끝나서 정리된 경우) found=false로
-    응답한다 — 프론트는 이 경우 "진행 중"으로만 표시하고 굳이 오류 취급하지 않는다."""
+
+    api_run_quantity가 백그라운드 스레드로 바뀌면서, 이 엔드포인트가 진행상황뿐 아니라
+    "다 끝났을 때 최종 결과"까지 같이 실어 나르는 역할을 겸한다 — 별도의 결과 조회
+    엔드포인트를 새로 안 만들고, 프론트가 이미 돌리고 있던 폴링 루프 하나로 충분하게
+    했다. 결과 저장소(_RESULT_STORE)를 먼저 확인해서 있으면 done=true와 함께 그대로
+    돌려주고, 없으면 진행 중 저장소(_PROGRESS_STORE)를 본다. 둘 다 없으면(아직 시작
+    전이거나 TTL로 이미 정리된 경우) found=false로 응답한다 — 프론트는 이 경우 "진행
+    중"으로만 표시하고 굳이 오류 취급하지 않는다."""
     job_id = request.POST.get("job_id") or request.GET.get("job_id") or None
-    progress = _progress_get(job_id) if job_id else None
-    if not progress:
+    if not job_id:
         return JsonResponse({"found": False})
+
+    result = _result_get(job_id)
+    if result is not None:
+        payload = {"found": True, "done": True}
+        payload.update({k: v for k, v in result.items() if k != "_created_at"})
+        return JsonResponse(payload)
+
+    progress = _progress_get(job_id)
+    if not progress:
+        return JsonResponse({"found": False, "done": False})
     return JsonResponse({
         "found": True,
+        "done": False,
         "stage": progress.get("stage"),
         "current": progress.get("current"),
         "total": progress.get("total"),
@@ -1933,6 +6059,36 @@ def api_quantity_progress(request):
 # ─────────────────────────────────────────────
 #  API: 엑셀 다운로드
 # ─────────────────────────────────────────────
+_XLSX_FORMULA_TRIGGER_CHARS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _xlsx_injection_guard(value):
+    """엑셀/구글시트 수식 인젝션(CSV/XLSX Injection) 방지.
+
+    openpyxl은 셀 값이 "="로 시작하는 문자열이면 자동으로 그 셀을 수식(formula) 타입으로
+    인식해서 저장한다 — 즉 Gemini가 도면에서 읽어온 mark/note/zone 같은 텍스트에 우연히
+    (또는 악의적으로 조작된 도면 파일을 통해 의도적으로) "=1+1", "=CMD(...)" 같은 문자열이
+    들어있으면, 그게 그대로 실행 가능한 엑셀 수식이 돼서 파일을 여는 사람의 PC에서
+    임의 동작(외부 프로그램 실행 등, 구버전 Excel의 DDE 취약점 포함)으로 이어질 수 있다.
+    "+", "-", "@"로 시작하는 값도 일부 스프레드시트 프로그램에서 수식으로 해석될 수 있어
+    함께 막는다. 이런 문자로 시작하면 앞에 작은따옴표를 붙여 순수 텍스트로 강제한다."""
+    if isinstance(value, str) and value[:1] in _XLSX_FORMULA_TRIGGER_CHARS:
+        return "'" + value
+    return value
+
+
+def _sanitize_for_excel(obj):
+    """results(=Gemini 추출 결과가 섞여 있는 JSON)를 엑셀로 옮기기 전에 재귀적으로 훑어서
+    모든 문자열값에 _xlsx_injection_guard를 적용한다. write_sheet를 비롯한 모든 시트
+    작성 코드가 어디서 값을 꺼내 쓰든 이 한 번의 전처리로 전부 보호되게 하기 위함이다
+    (각 ws.cell(value=...) 호출부마다 개별적으로 방어하는 것보다 훨씬 빠뜨리기 어렵다)."""
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_excel(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_for_excel(v) for v in obj]
+    return _xlsx_injection_guard(obj)
+
+
 def _build_excel_response(request):
     """
     수량산출 결과 JSON을 받아 엑셀 파일로 반환
@@ -1940,7 +6096,7 @@ def _build_excel_response(request):
     """
     try:
         body = json.loads(request.body)
-        results = body.get("results", {})
+        results = _sanitize_for_excel(body.get("results", {}))
     except (json.JSONDecodeError, AttributeError):
         return HttpResponse("잘못된 요청입니다.", status=400)
 

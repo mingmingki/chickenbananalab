@@ -456,26 +456,9 @@ class AIAutoWriterSetting(models.Model):
 
 
 class AIAutoKeywordQueue(models.Model):
-    CATEGORY_CHOICES = [
-        ("construction_work", "건설실무"),
-        ("construction_tech", "건설기술"),
-        ("construction_real", "건설부동산"),
-        ("bim", "REVIT/BIM"),
-        ("dynamo_automation", "Dynamo/자동화"),
-        ("four_d_five_d", "4D/5D"),
-        ("tech_ai_development", "AI·개발"),
-        ("tech_data_security", "데이터·보안"),
-        ("tech_server_software", "인터넷·서버·소프트"),
-        ("program", "업무용 프로그램"),
-        ("tool_recommend", "툴소개/툴추천"),
-
-        # 기존 글/대기열 호환용
-        ("architecture", "건축"),
-        ("realestate", "부동산"),
-        ("finance", "금융"),
-        ("tech", "테크"),
-        ("life", "일상"),
-    ]
+    # Post와 동일한 단일 원본을 사용한다. legacy choices는 기존 DB 행 표시 호환용이며
+    # 신규 자동글 저장은 cbl_resolve_auto_post_category()에서 public 목록만 허용한다.
+    CATEGORY_CHOICES = CBL_MODEL_CATEGORY_CHOICES
 
     STATUS_CHOICES = [
         ("waiting", "대기"),

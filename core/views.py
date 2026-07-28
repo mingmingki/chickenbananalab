@@ -1,4 +1,5 @@
 import glob
+import logging
 from django.db import models
 from .models import CalendarEvent as CBLCalendarEvent
 from django.contrib.admin.views.decorators import staff_member_required as cbl_staff_member_required
@@ -3089,7 +3090,16 @@ from django.utils import timezone
 import json
 import uuid
 import os
-from .cbl_category_policy import CBL_PUBLIC_CATEGORY_CHOICES, CBL_AI_CATEGORY_GUIDE, CBL_CATEGORY_LABELS
+from .cbl_category_policy import (
+    CBL_AI_CATEGORY_GUIDE,
+    CBL_CATEGORY_LABELS,
+    CBL_PUBLIC_CATEGORY_CHOICES,
+    CBL_PUBLIC_CATEGORY_CODE_SET,
+    cbl_resolve_auto_post_category,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 @login_required
@@ -3501,6 +3511,29 @@ def ai_post_generate(request):
         image_count = 0
 
     image_count = max(0, min(image_count, 5))
+    canonical_category, category_diagnostics = cbl_resolve_auto_post_category(
+        category,
+        title=" ".join(keyword_list),
+        summary=extra_prompt_input,
+    )
+    logger.info(
+        "auto_post_category_before_save raw_category=%r normalized_before=%r "
+        "canonical_category=%r legacy_mapping_used=%s fallback_reason=%s",
+        category,
+        category_diagnostics.get("normalized_before"),
+        canonical_category,
+        category_diagnostics.get("legacy_mapping_used"),
+        category_diagnostics.get("fallback_reason") or "",
+    )
+    if canonical_category is None:
+        logger.error(
+            "auto_post_category_rejected raw_category=%r fallback_reason=%s",
+            category, category_diagnostics.get("fallback_reason"),
+        )
+        messages.error(request, "자동글 카테고리를 현재 허용 목록으로 분류하지 못했습니다.")
+        return redirect("admin_dashboard")
+    category = canonical_category
+
 
     make_thumbnail = request.POST.get("make_thumbnail") == "on"
     include_tags = request.POST.get("include_tags") == "on"
@@ -4299,48 +4332,22 @@ try:
 
     _cbl_prev_ai_post_generate_row_category = ai_post_generate
 
-    def _cbl_row_normalize_category(value):
-        value = str(value or "").strip()
-
-        alias = {
-            "건축": "architecture",
-            "건설": "architecture",
-        "BIM": "bim",
-        "비아이엠": "bim",
-        "프로그램": "program",
-        "툴": "program",
-        "BIM": "bim",
-        "bim": "bim",
-        "비아이엠": "bim",
-        "프로그램": "program",
-        "툴": "program",
-            "architecture": "architecture",
-
-            "부동산": "realestate",
-            "realestate": "realestate",
-            "real_estate": "realestate",
-
-            "금융": "finance",
-            "경제": "finance",
-            "finance": "finance",
-
-            "테크": "tech",
-            "기술": "tech",
-            "IT": "tech",
-            "it": "tech",
-            "tech": "tech",
-
-            "일상": "life",
-            "라이프": "life",
-            "life": "life",
-        }
-
-        value = alias.get(value, value)
-
-        if value not in {"architecture", "realestate", "finance", "tech", "life"}:
-            value = "tech"
-
-        return value
+    def _cbl_row_normalize_category(value, text=""):
+        canonical, diagnostics = cbl_resolve_auto_post_category(
+            value, title=text,
+        )
+        logger.info(
+            "auto_post_category_row raw_category=%r normalized_before=%r "
+            "canonical_category=%r legacy_mapping_used=%s fallback_reason=%s",
+            value,
+            diagnostics.get("normalized_before"),
+            canonical,
+            diagnostics.get("legacy_mapping_used"),
+            diagnostics.get("fallback_reason") or "",
+        )
+        if canonical is None:
+            raise ValueError("자동글 행의 카테고리를 안전하게 분류하지 못했습니다.")
+        return canonical
 
     def _cbl_row_clean_image_count(value):
         try:
@@ -4373,7 +4380,9 @@ try:
 
                     rows.append({
                         "keyword": keyword,
-                        "category": _cbl_row_normalize_category(item.get("category")),
+                        "category": _cbl_row_normalize_category(
+                            item.get("category"), keyword,
+                        ),
                         "image_count": _cbl_row_clean_image_count(item.get("image_count")),
                     })
 
@@ -4389,7 +4398,10 @@ try:
 
                 rows.append({
                     "keyword": keyword,
-                    "category": _cbl_row_normalize_category(categories[idx] if idx < len(categories) else request.POST.get("category")),
+                    "category": _cbl_row_normalize_category(
+                        categories[idx] if idx < len(categories) else request.POST.get("category"),
+                        keyword,
+                    ),
                     "image_count": _cbl_row_clean_image_count(image_counts[idx] if idx < len(image_counts) else request.POST.get("image_count")),
                 })
 
@@ -5252,6 +5264,208 @@ def _cbl_parse_calendar_payload(request):
 
     title = (request.POST.get("title") or "").strip()
     event_date_raw = (request.POST.get("event_date") or "").strip()
+# CBL_CALENDAR_AI_SUGGEST_API_START
+# 2026-07-28 사용자 요청: "일정등록에 AI를 사용해 자동일정등록 — 키워드 기입할 수 있는 칸
+# (추가/삭제), 일정들 리스트가 나오면 체크해서 자동으로 일정이 등록". 관리자가 키워드를
+# 여러 개 입력하면 Gemini가 후보 일정 목록(제목/날짜/분류)을 만들어 보여주고, 그중 체크한
+# 것만 골라서 한 번에 등록하는 2단계(제안 → 일괄등록) 기능. 정확한 미래 날짜(공휴일 등)를
+# 모델이 지어낼 위험이 있으므로, 날짜를 확신 못 하면 반드시 null로 비우고 note에 이유를
+# 남기라고 프롬프트에서 강제한다 — 프론트는 날짜가 없는 항목은 사용자가 직접 채우기 전엔
+# 체크할 수 없게 만든다.
+# 2026-07-28 사용자 지적: "야 .env 에 제미나이 있잖아" — 처음엔 OPENAI_API_KEY 기반으로
+# 만들었는데, 이 서버 .env에는 GEMINI_API_KEY만 있고 OPENAI_API_KEY가 없어 실제로는
+# 동작하지 않았다. ai_writer.py의 gemini_generate_text(재시도 래퍼)+extract_json을
+# 그대로 재사용한다 — 이미 recommend_today_keywords 등에서 검증된 "키워드 → JSON 목록"
+# 패턴과 동일하다. 게다가 ai_writer.py는 기본적으로 GEMINI_USE_GOOGLE_SEARCH=true라
+# 구글 검색 근거를 함께 참고하므로, 공휴일처럼 실제 날짜가 있는 항목은 순수 LLM 추측보다
+# 더 신뢰할 수 있다 — 그래도 프롬프트의 "확신 없으면 null" 규칙과 프론트의 체크 제한은
+# 그대로 유지한다(안전망은 이중으로 둔다).
+@cbl_staff_member_required
+@cbl_require_POST
+def calendar_ai_suggest_api(request):
+    """
+    키워드 목록을 받아 Gemini로 캘린더 일정 후보 목록을 생성해 반환한다.
+    실제로 등록하지는 않는다 — 사용자가 체크한 것만 calendar_ai_bulk_create_api로
+    별도 등록한다.
+    """
+    from datetime import datetime
+    import json
+
+    from .ai_writer import gemini_generate_text, extract_json
+
+    raw_keywords = request.POST.get("keywords") or "[]"
+    try:
+        keywords = json.loads(raw_keywords)
+        if not isinstance(keywords, list):
+            keywords = []
+    except Exception:
+        keywords = []
+    keywords = [str(k or "").strip() for k in keywords if str(k or "").strip()][:10]
+
+    if not keywords:
+        return CBLJsonResponse({"ok": False, "message": "키워드를 1개 이상 입력해 주세요."}, status=400)
+
+    today = datetime.now().date()
+
+    prompt = f"""
+너는 건설/BIM/실무 업무 사이트(ChickenBananaLab)의 캘린더 일정 후보를 만드는 어시스턴트다.
+
+오늘 날짜: {today.isoformat()}
+관리자가 준 키워드: {json.dumps(keywords, ensure_ascii=False)}
+
+위 키워드를 참고해서 캘린더에 등록할 만한 일정 후보를 각 키워드당 1~3개씩, 최대 12개 만들어라.
+
+가장 중요한 규칙:
+- 정확한 날짜(공휴일, 특정 행사일 등)를 확신할 수 없으면 절대 날짜를 지어내지 말고
+  event_date를 null로 두고 note에 "정확한 날짜 확인 필요"라고 남겨라.
+- 확신할 수 있는 경우(예: 이미 안정적으로 아는 매년 고정 국경일, 검색으로 실제 확인한 날짜)만
+  event_date를 채워라.
+- title은 20자 이내로 간결하게.
+- date는 반드시 YYYY-MM-DD 형식 또는 null.
+
+반환은 반드시 아래 JSON 형식만 사용해라. 마크다운, 코드블록, 설명문은 쓰지 마라.
+
+{{
+  "suggestions": [
+    {{
+      "title": "일정 제목",
+      "event_date": "YYYY-MM-DD 또는 null",
+      "end_date": "YYYY-MM-DD 또는 null(단일일이면 event_date와 동일하거나 null)",
+      "category": "업데이트/공지/강의/개인일정/행사 등 짧은 분류",
+      "is_all_day": true,
+      "note": "왜 이 일정을 제안했는지, 날짜가 불확실하면 그 이유",
+      "confident_date": true
+    }}
+  ]
+}}
+"""
+
+    try:
+        text = gemini_generate_text(prompt)
+        data = extract_json(text)
+        suggestions_raw = data.get("suggestions") if isinstance(data, dict) else None
+
+        if not isinstance(suggestions_raw, list):
+            return CBLJsonResponse({"ok": False, "message": "AI 응답을 해석하지 못했습니다. 다시 시도해 주세요."}, status=502)
+
+    except Exception as error:
+        print("[CBL_CALENDAR_AI_SUGGEST_ERROR]", type(error).__name__, str(error))
+        return CBLJsonResponse({"ok": False, "message": f"AI 호출에 실패했습니다: {type(error).__name__}"}, status=502)
+
+    suggestions = []
+    for item in suggestions_raw[:12]:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        event_date = str(item.get("event_date") or "").strip() or None
+        end_date = str(item.get("end_date") or "").strip() or None
+        if event_date:
+            try:
+                datetime.strptime(event_date, "%Y-%m-%d")
+            except ValueError:
+                event_date = None
+        if end_date:
+            try:
+                datetime.strptime(end_date, "%Y-%m-%d")
+            except ValueError:
+                end_date = None
+        suggestions.append({
+            "title": title[:120],
+            "event_date": event_date,
+            "end_date": end_date,
+            "category": (str(item.get("category") or "일정").strip() or "일정")[:30],
+            "is_all_day": bool(item.get("is_all_day")),
+            "note": str(item.get("note") or "").strip()[:200],
+            "confident_date": bool(item.get("confident_date")) and event_date is not None,
+        })
+
+    return CBLJsonResponse({"ok": True, "suggestions": suggestions})
+
+
+def _cbl_calendar_build_event_kwargs(fields):
+    """calendar_event_create_api와 calendar_ai_bulk_create_api가 공유하는 검증 로직.
+    Returns: (kwargs dict | None, error_message | None)"""
+    from datetime import datetime
+
+    title = str(fields.get("title") or "").strip()
+    if not title:
+        return None, "일정명을 입력해 주세요."
+
+    event_date_raw = str(fields.get("event_date") or "").strip()
+    if not event_date_raw:
+        return None, "일정 날짜가 없습니다."
+    try:
+        event_date = datetime.strptime(event_date_raw, "%Y-%m-%d").date()
+    except ValueError:
+        return None, "날짜 형식이 올바르지 않습니다."
+
+    end_date_raw = str(fields.get("end_date") or "").strip()
+    end_date = event_date
+    if end_date_raw:
+        try:
+            end_date = datetime.strptime(end_date_raw, "%Y-%m-%d").date()
+        except ValueError:
+            return None, "종료일 형식이 올바르지 않습니다."
+    if end_date < event_date:
+        return None, "종료일은 시작일보다 빠를 수 없습니다."
+
+    category = str(fields.get("category") or "일정").strip() or "일정"
+
+    return {
+        "title": title[:120],
+        "event_date": event_date,
+        "end_date": end_date,
+        "start_time": None,
+        "end_time": None,
+        "category": category[:30],
+        "description": str(fields.get("description") or "").strip(),
+        "link_url": str(fields.get("link_url") or "").strip(),
+        "is_public": True,
+        "is_important": bool(fields.get("is_important")),
+        "is_all_day": _cbl_calendar_bool(fields.get("is_all_day")),
+        "event_color": _cbl_calendar_normalize_color(fields.get("event_color")),
+    }, None
+
+
+@cbl_staff_member_required
+@cbl_require_POST
+def calendar_ai_bulk_create_api(request):
+    """AI 추천 목록 중 사용자가 체크한 항목들을 한 번에 등록한다."""
+    import json
+
+    raw_items = request.POST.get("items") or "[]"
+    try:
+        items = json.loads(raw_items)
+        if not isinstance(items, list):
+            items = []
+    except Exception:
+        items = []
+
+    if not items:
+        return CBLJsonResponse({"ok": False, "message": "등록할 일정을 선택해 주세요."}, status=400)
+
+    created = []
+    errors = []
+    for idx, item in enumerate(items[:30]):
+        if not isinstance(item, dict):
+            errors.append({"index": idx, "message": "잘못된 항목 형식입니다."})
+            continue
+        kwargs, err = _cbl_calendar_build_event_kwargs(item)
+        if err:
+            errors.append({"index": idx, "title": item.get("title"), "message": err})
+            continue
+        ev = CBLCalendarEvent.objects.create(**kwargs)
+        created.append({"id": ev.id, "title": ev.title, "date": ev.event_date.isoformat()})
+
+    return CBLJsonResponse({
+        "ok": len(created) > 0,
+        "created": created,
+        "errors": errors,
+        "message": f"{len(created)}개 일정을 등록했습니다." + (f" ({len(errors)}개 실패)" if errors else ""),
+    })
+# CBL_CALENDAR_AI_SUGGEST_API_END
     end_date_raw = (request.POST.get("end_date") or "").strip()
     start_time_raw = (request.POST.get("start_time") or "").strip()
     end_time_raw = (request.POST.get("end_time") or "").strip()
@@ -5544,58 +5758,25 @@ def calendar_event_delete_v3_api(request, pk):
 try:
     _cbl_prev_ai_post_generate_construction_final = ai_post_generate
 
-    def _cbl_construction_norm_category(value):
-        value = str(value or "").strip()
-        alias = {
-            "건설": "construction_work",
-            "건축": "construction_work",
-            "건설실무": "construction_work",
-            "시공": "construction_work",
-            "architecture": "construction_work",
-            "construction_work": "construction_work",
+    def _cbl_construction_norm_category(value, text=""):
+        canonical, diagnostics = cbl_resolve_auto_post_category(
+            value, title=text,
+        )
+        logger.info(
+            "auto_post_category_request raw_category=%r normalized_before=%r "
+            "canonical_category=%r legacy_mapping_used=%s fallback_reason=%s",
+            value,
+            diagnostics.get("normalized_before"),
+            canonical,
+            diagnostics.get("legacy_mapping_used"),
+            diagnostics.get("fallback_reason") or "",
+        )
+        if canonical is None:
+            raise ValueError("자동글 요청 카테고리를 안전하게 분류하지 못했습니다.")
+        return canonical
 
-            "건설기술": "construction_tech",
-            "BIM": "construction_tech",
-            "bim": "construction_tech",
-            "construction_tech": "construction_tech",
-
-            "부동산": "construction_real",
-            "건설부동산": "construction_real",
-            "건설 부동산": "construction_real",
-            "realestate": "construction_real",
-            "real_estate": "construction_real",
-            "construction_real": "construction_real",
-
-            "금융": "finance",
-            "경제": "finance",
-            "finance": "finance",
-            "테크": "tech",
-            "IT": "tech",
-            "it": "tech",
-            "tech": "tech",
-            "일상": "life",
-            "라이프": "life",
-            "생활": "life",
-            "life": "life",
-        }
-        slug = alias.get(value, value)
-        valid = {
-            "construction_work",
-            "construction_tech",
-            "construction_real",
-            "finance",
-            "tech",
-            "life",
-        }
-        return slug if slug in valid else "tech"
-
-    def _cbl_construction_generation_category(value):
-        target = _cbl_construction_norm_category(value)
-        if target in ("construction_work", "construction_tech"):
-            return "architecture"
-        if target == "construction_real":
-            return "realestate"
-        return target
+    def _cbl_construction_generation_category(value, text=""):
+        return _cbl_construction_norm_category(value, text)
 
     def _cbl_construction_extract_targets(request):
         import json
@@ -5613,7 +5794,9 @@ try:
                     keyword = str(item.get("keyword", "") or "").strip()
                     if not keyword:
                         continue
-                    targets.append(_cbl_construction_norm_category(item.get("category")))
+                    targets.append(_cbl_construction_norm_category(
+                        item.get("category"), keyword,
+                    ))
         if targets:
             return targets
 
@@ -5623,7 +5806,7 @@ try:
             if not str(kw or "").strip():
                 continue
             raw_cat = categories[idx] if idx < len(categories) else request.POST.get("category")
-            targets.append(_cbl_construction_norm_category(raw_cat))
+            targets.append(_cbl_construction_norm_category(raw_cat, kw))
         if targets:
             return targets
 
@@ -5632,8 +5815,10 @@ try:
             or request.POST.get("auto_category")
             or request.POST.get("selected_category")
             or request.POST.get("post_category")
-            or request.POST.get("category")
-            or "tech"
+            or request.POST.get("category"),
+            request.POST.get("keyword")
+            or request.POST.get("title")
+            or " ".join(request.POST.getlist("keywords[]")),
         )]
 
     def _cbl_construction_rewrite_post_for_generation(request):
@@ -5645,7 +5830,9 @@ try:
             "ai_category", "auto_category", "cbl_locked_category", "cbl_force_category",
         ):
             if qd.get(name):
-                qd[name] = _cbl_construction_generation_category(qd.get(name))
+                qd[name] = _cbl_construction_generation_category(
+                    qd.get(name), request_text,
+                )
 
         raw = str(qd.get("cbl_keyword_rows", "") or "").strip()
         if raw:
@@ -5654,9 +5841,16 @@ try:
             except Exception:
                 rows = []
             if isinstance(rows, list):
+        request_text = (
+            qd.get("keyword")
+            or qd.get("title")
+            or " ".join(qd.getlist("keywords[]"))
+        )
                 for item in rows:
                     if isinstance(item, dict):
-                        item["category"] = _cbl_construction_generation_category(item.get("category"))
+                        item["category"] = _cbl_construction_generation_category(
+                            item.get("category"), item.get("keyword", ""),
+                        )
                 qd["cbl_keyword_rows"] = json.dumps(rows, ensure_ascii=False)
 
         for list_name in (
@@ -5665,7 +5859,10 @@ try:
         ):
             values = qd.getlist(list_name)
             if values:
-                qd.setlist(list_name, [_cbl_construction_generation_category(v) for v in values])
+                qd.setlist(list_name, [
+                    _cbl_construction_generation_category(value, request_text)
+                    for value in values
+                ])
 
         return qd
 
@@ -5700,7 +5897,7 @@ try:
                 if posts:
                     for idx, post in enumerate(posts):
                         target = targets[min(idx, len(targets) - 1)]
-                        if target in {"construction_work", "construction_tech", "construction_real", "finance", "tech", "life"}:
+                        if target in CBL_PUBLIC_CATEGORY_CODE_SET:
                             post.category = target
                             try:
                                 post.save(update_fields=["category", "updated_at"])

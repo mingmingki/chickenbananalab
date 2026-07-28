@@ -3104,6 +3104,488 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
 </script>
 <!-- CBL_HOME_EVENT_POPUP_END -->
 
+<!-- CBL_CALENDAR_AI_SUGGEST_UI_START -->
+{% if request.user.is_staff %}
+<div class="cbl-event-popup" data-cbl-ai-calendar-popup hidden>
+  <div class="cbl-event-popup-backdrop" data-cbl-ai-calendar-close></div>
+
+  <section class="cbl-event-popup-dialog cbl-ai-cal-dialog" role="dialog" aria-modal="true" aria-label="AI 자동 일정등록">
+    <div class="cbl-event-popup-head">
+      <div>
+        <span>ChickenBananaLab</span>
+        <strong>AI 자동 일정등록</strong>
+      </div>
+      <button type="button" data-cbl-ai-calendar-close aria-label="닫기">×</button>
+    </div>
+
+    <div data-cbl-ai-cal-step="keywords">
+      <p class="cbl-ai-cal-desc">키워드를 입력하면 AI가 일정 후보를 만들어 드려요. 리스트가 나오면 체크한 것만 등록돼요.</p>
+
+      <div class="cbl-ai-cal-tags" data-cbl-ai-cal-tags></div>
+
+      <div class="cbl-ai-cal-tag-row">
+        <input type="text" data-cbl-ai-cal-tag-input placeholder="키워드 입력 후 Enter (예: 정기점검, 여름휴가, 신규강의)">
+        <button type="button" data-cbl-ai-cal-tag-add>+ 추가</button>
+      </div>
+
+      <p class="cbl-ai-cal-status" data-cbl-ai-cal-status></p>
+
+      <div class="cbl-event-popup-actions">
+        <button type="button" class="cbl-event-popup-cancel" data-cbl-ai-calendar-close>취소</button>
+        <button type="button" class="cbl-event-popup-submit" data-cbl-ai-cal-suggest>추천 받기</button>
+      </div>
+    </div>
+
+    <div data-cbl-ai-cal-step="results" hidden>
+      <p class="cbl-ai-cal-desc">등록할 일정만 체크하세요. 날짜가 확인되지 않은 항목은 날짜를 직접 입력해야 체크할 수 있어요.</p>
+
+      <div class="cbl-ai-cal-results" data-cbl-ai-cal-results></div>
+
+      <p class="cbl-ai-cal-status" data-cbl-ai-cal-status2></p>
+
+      <div class="cbl-event-popup-actions">
+        <button type="button" class="cbl-event-popup-cancel" data-cbl-ai-cal-back>‹ 키워드 다시</button>
+        <button type="button" class="cbl-event-popup-submit" data-cbl-ai-cal-register>선택 항목 등록</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<style>
+.cbl-ai-cal-desc {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: #4b5563;
+  line-height: 1.5;
+}
+
+.cbl-ai-cal-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+  min-height: 0;
+}
+
+.cbl-ai-cal-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 999px;
+  background: #eafaf8;
+  border: 1px solid #bfeae5;
+  color: #0f766e;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.cbl-ai-cal-tag button {
+  border: 0;
+  background: transparent;
+  color: #0f766e;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  font-weight: 900;
+}
+
+.cbl-ai-cal-tag-row {
+  display: flex;
+  gap: 8px;
+}
+
+.cbl-ai-cal-tag-row input {
+  flex: 1;
+  border: 1px solid #dfe8e7;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13.5px;
+  box-sizing: border-box;
+}
+
+.cbl-ai-cal-tag-row button {
+  border: 1px solid #dfe8e7;
+  background: #fff;
+  border-radius: 12px;
+  padding: 0 14px;
+  font-weight: 800;
+  font-size: 13px;
+  color: #111827;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cbl-ai-cal-status {
+  min-height: 16px;
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: #0f766e;
+  font-weight: 700;
+}
+
+.cbl-ai-cal-status.is-error {
+  color: #dc2626;
+}
+
+.cbl-ai-cal-results {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.cbl-ai-cal-result-row {
+  border: 1px solid #e5edec;
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: #fbfefe;
+}
+
+.cbl-ai-cal-result-row.is-unconfirmed {
+  background: #fffaf0;
+  border-color: #fbe3b8;
+}
+
+.cbl-ai-cal-result-row input[type="checkbox"] {
+  margin-top: 3px;
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+.cbl-ai-cal-result-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.cbl-ai-cal-result-title {
+  font-weight: 800;
+  font-size: 14px;
+  color: #111827;
+  margin-bottom: 4px;
+}
+
+.cbl-ai-cal-result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.cbl-ai-cal-result-meta input[type="date"] {
+  border: 1px solid #dfe8e7;
+  border-radius: 8px;
+  padding: 4px 6px;
+  font-size: 12.5px;
+}
+
+.cbl-ai-cal-result-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f1f5f4;
+  color: #374151;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.cbl-ai-cal-result-badge.warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.cbl-ai-cal-result-note {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+
+.cbl-ai-cal-empty {
+  font-size: 13px;
+  color: #6b7280;
+  text-align: center;
+  padding: 24px 0;
+}
+</style>
+
+<script>
+(function () {
+  "use strict";
+
+  const popup = document.querySelector('[data-cbl-ai-calendar-popup]');
+  if (!popup) return;
+
+  const closeBtns = popup.querySelectorAll('[data-cbl-ai-calendar-close]');
+  const stepKeywords = popup.querySelector('[data-cbl-ai-cal-step="keywords"]');
+  const stepResults = popup.querySelector('[data-cbl-ai-cal-step="results"]');
+  const tagsWrap = popup.querySelector('[data-cbl-ai-cal-tags]');
+  const tagInput = popup.querySelector('[data-cbl-ai-cal-tag-input]');
+  const tagAddBtn = popup.querySelector('[data-cbl-ai-cal-tag-add]');
+  const statusEl = popup.querySelector('[data-cbl-ai-cal-status]');
+  const status2El = popup.querySelector('[data-cbl-ai-cal-status2]');
+  const suggestBtn = popup.querySelector('[data-cbl-ai-cal-suggest]');
+  const backBtn = popup.querySelector('[data-cbl-ai-cal-back]');
+  const registerBtn = popup.querySelector('[data-cbl-ai-cal-register]');
+  const resultsWrap = popup.querySelector('[data-cbl-ai-cal-results]');
+
+  let keywords = [];
+  let suggestions = [];
+
+  function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+    return '';
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function renderTags() {
+    tagsWrap.innerHTML = keywords.map(function (kw, i) {
+      return '<span class="cbl-ai-cal-tag">' + esc(kw) +
+        '<button type="button" data-idx="' + i + '" aria-label="삭제">×</button></span>';
+    }).join('');
+    tagsWrap.querySelectorAll('button[data-idx]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        keywords.splice(Number(btn.getAttribute('data-idx')), 1);
+        renderTags();
+      });
+    });
+  }
+
+  function addKeywordFromInput() {
+    const v = (tagInput.value || '').trim();
+    if (!v) return;
+    if (keywords.length >= 10) {
+      setStatus(statusEl, '키워드는 최대 10개까지 입력할 수 있어요.', true);
+      return;
+    }
+    if (keywords.indexOf(v) === -1) keywords.push(v);
+    tagInput.value = '';
+    renderTags();
+  }
+
+  tagAddBtn.addEventListener('click', addKeywordFromInput);
+  tagInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addKeywordFromInput();
+    }
+  });
+
+  function setStatus(el, text, isError) {
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.toggle('is-error', !!isError);
+  }
+
+  function showStep(name) {
+    stepKeywords.hidden = name !== 'keywords';
+    stepResults.hidden = name !== 'results';
+  }
+
+  function openPopup() {
+    popup.hidden = false;
+    document.body.classList.add('cbl-modal-open');
+    keywords = [];
+    suggestions = [];
+    renderTags();
+    setStatus(statusEl, '');
+    setStatus(status2El, '');
+    showStep('keywords');
+    setTimeout(function () { tagInput.focus(); }, 50);
+  }
+
+  function closePopup() {
+    popup.hidden = true;
+    document.body.classList.remove('cbl-modal-open');
+  }
+
+  closeBtns.forEach(function (btn) { btn.addEventListener('click', closePopup); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !popup.hidden) closePopup();
+  });
+
+  function renderResults() {
+    if (!suggestions.length) {
+      resultsWrap.innerHTML = '<div class="cbl-ai-cal-empty">추천된 일정이 없어요. 키워드를 바꿔서 다시 시도해 보세요.</div>';
+      return;
+    }
+    resultsWrap.innerHTML = suggestions.map(function (s, i) {
+      const unconfirmed = !s.event_date;
+      const badgeClass = unconfirmed ? 'cbl-ai-cal-result-badge warn' : 'cbl-ai-cal-result-badge';
+      const badgeText = unconfirmed ? '날짜 미확인' : esc(s.category || '일정');
+      return (
+        '<div class="cbl-ai-cal-result-row' + (unconfirmed ? ' is-unconfirmed' : '') + '" data-row="' + i + '">' +
+          '<input type="checkbox" data-role="check"' + (unconfirmed ? '' : ' checked') + '>' +
+          '<div class="cbl-ai-cal-result-main">' +
+            '<div class="cbl-ai-cal-result-title">' + esc(s.title) + '</div>' +
+            '<div class="cbl-ai-cal-result-meta">' +
+              '<span class="' + badgeClass + '">' + badgeText + '</span>' +
+              '<input type="date" data-role="date" value="' + esc(s.event_date || '') + '">' +
+            '</div>' +
+            (s.note ? '<div class="cbl-ai-cal-result-note">' + esc(s.note) + '</div>' : '') +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+
+    resultsWrap.querySelectorAll('.cbl-ai-cal-result-row').forEach(function (row) {
+      const idx = Number(row.getAttribute('data-row'));
+      const checkEl = row.querySelector('[data-role="check"]');
+      const dateEl = row.querySelector('[data-role="date"]');
+
+      function syncCheckable() {
+        const hasDate = !!dateEl.value;
+        checkEl.disabled = !hasDate;
+        if (!hasDate) checkEl.checked = false;
+      }
+      syncCheckable();
+
+      dateEl.addEventListener('input', function () {
+        suggestions[idx].event_date = dateEl.value || null;
+        syncCheckable();
+      });
+    });
+  }
+
+  suggestBtn.addEventListener('click', async function () {
+    if (!keywords.length) {
+      setStatus(statusEl, '키워드를 1개 이상 입력해 주세요.', true);
+      return;
+    }
+    setStatus(statusEl, 'AI가 일정 후보를 만들고 있어요...', false);
+    suggestBtn.disabled = true;
+
+    try {
+      const fd = new FormData();
+      fd.append('keywords', JSON.stringify(keywords));
+      const res = await fetch('/api/calendar-events/ai-suggest/', {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': getCookie('csrftoken'),
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: fd
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.message || 'AI 추천에 실패했습니다.');
+      }
+      suggestions = (data.suggestions || []).map(function (s) {
+        return {
+          title: s.title || '',
+          event_date: s.event_date || null,
+          end_date: s.end_date || s.event_date || null,
+          category: s.category || '일정',
+          is_all_day: !!s.is_all_day,
+          note: s.note || '',
+        };
+      });
+      renderResults();
+      setStatus(statusEl, '');
+      showStep('results');
+    } catch (err) {
+      setStatus(statusEl, err.message || 'AI 추천에 실패했습니다.', true);
+    } finally {
+      suggestBtn.disabled = false;
+    }
+  });
+
+  backBtn.addEventListener('click', function () {
+    showStep('keywords');
+  });
+
+  registerBtn.addEventListener('click', async function () {
+    const rows = resultsWrap.querySelectorAll('.cbl-ai-cal-result-row');
+    const items = [];
+    rows.forEach(function (row) {
+      const idx = Number(row.getAttribute('data-row'));
+      const checkEl = row.querySelector('[data-role="check"]');
+      if (!checkEl.checked) return;
+      const s = suggestions[idx];
+      items.push({
+        title: s.title,
+        event_date: s.event_date,
+        end_date: s.end_date || s.event_date,
+        category: s.category,
+        is_all_day: s.is_all_day,
+      });
+    });
+
+    if (!items.length) {
+      setStatus(status2El, '등록할 일정을 1개 이상 체크해 주세요.', true);
+      return;
+    }
+
+    setStatus(status2El, '등록 중입니다...', false);
+    registerBtn.disabled = true;
+
+    try {
+      const fd = new FormData();
+      fd.append('items', JSON.stringify(items));
+      const res = await fetch('/api/calendar-events/ai-bulk-create/', {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': getCookie('csrftoken'),
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: fd
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.message || '일정 등록에 실패했습니다.');
+      }
+      setStatus(status2El, data.message || '등록 완료! 화면을 새로고침합니다.', false);
+      setTimeout(function () { window.location.reload(); }, 400);
+    } catch (err) {
+      setStatus(status2El, err.message || '일정 등록에 실패했습니다.', true);
+    } finally {
+      registerBtn.disabled = false;
+    }
+  });
+
+  // 기존 "+ 일정 등록" 버튼들 옆에 "+ AI 자동등록" 버튼을 끼워 넣는다. 이 사이트의
+  // 캘린더 UI가 여러 버전(레거시 포함)으로 겹쳐 있어 정확한 정적 삽입 위치를 찾기보다,
+  // 실제로 렌더링된 "+ 일정 등록" 트리거를 런타임에 찾아 그 옆에 배치하는 쪽이 더 안전하다.
+  function injectTriggerButtons() {
+    const anchors = document.querySelectorAll('[data-cbl-event-open], [data-cbl-second-calendar-add]');
+    anchors.forEach(function (anchor) {
+      if (anchor.dataset.cblAiCalInjected) return;
+      if (anchor.closest('[data-cbl-ai-calendar-popup]')) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = '+ AI 자동등록';
+      btn.className = anchor.className ? anchor.className + ' cbl-ai-cal-trigger' : 'cbl-ai-cal-trigger';
+      btn.setAttribute('data-cbl-ai-calendar-open', '');
+      btn.addEventListener('click', openPopup);
+      anchor.insertAdjacentElement('afterend', btn);
+      anchor.dataset.cblAiCalInjected = '1';
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', injectTriggerButtons);
+  } else {
+    injectTriggerButtons();
+  }
+})();
+</script>
+{% endif %}
+<!-- CBL_CALENDAR_AI_SUGGEST_UI_END -->
+
 <!-- CBL_AI_JOB_CENTER_UI_START -->
 <style>
   #cblAiJobMessengerModal[hidden] { display: none !important; }
@@ -4772,6 +5254,37 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
   margin-top: 2px;
 }
 
+.qty-review-incomplete-banner {
+  margin: 0 20px;
+  padding: 10px 14px;
+  border: 1px solid #e74c3c;
+  background: #fdf1f0;
+  border-radius: 10px;
+  color: #c0392b;
+}
+
+.qty-review-incomplete-banner-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+
+.qty-review-incomplete-banner-reasons {
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 0 0 6px 0;
+  padding-left: 16px;
+}
+
+.qty-review-incomplete-banner-ack {
+  font-size: 11.5px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
 .qty-review-close-btn {
   border: 0.5px solid #dfe5e1;
   background: #f8faf9;
@@ -4817,6 +5330,18 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
 .qty-review-item.qty-review-flagged {
   border-color: #e74c3c;
   background: #fdf1f0;
+}
+
+.qty-review-item.qty-review-item-dedup {
+  border-color: #e2a03f;
+  background: #fdf7ec;
+}
+
+.qty-review-item-dedup-flag {
+  font-size: 10.5px;
+  color: #b5730a;
+  margin: 4px 0 0 21px;
+  line-height: 1.5;
 }
 
 .qty-review-item-head {
@@ -4891,6 +5416,45 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
   border: 0.5px solid #dfe5e1;
   border-radius: 6px;
   box-sizing: border-box;
+}
+
+.qty-review-rebar-layers-summary {
+  margin: 6px 0 0 21px;
+}
+
+.qty-review-rebar-layers-title {
+  font-size: 10px;
+  color: #69736d;
+  margin-bottom: 2px;
+}
+
+.qty-review-rebar-layers-list {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 10.5px;
+  color: #151a17;
+  line-height: 1.6;
+}
+
+.qty-review-rebar-layers-edit-wrap {
+  margin-top: 6px;
+}
+
+.qty-review-rebar-layers-edit-label {
+  font-size: 10px;
+  color: #69736d;
+  margin-bottom: 3px;
+}
+
+.qty-review-rebar-layers-edit {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 10.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 6px 8px;
+  border: 0.5px solid #dfe5e1;
+  border-radius: 6px;
+  resize: vertical;
 }
 
 .qty-review-viewer-pane {
@@ -5258,6 +5822,217 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
   line-height: 1.85;
 }
 
+#cblQuantityMessengerModal .qty-missing-status {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+#cblQuantityMessengerModal .qty-missing-status-none {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+#cblQuantityMessengerModal .qty-missing-status-mismatch {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+#cblQuantityMessengerModal .qty-missing-status-unknown {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+#cblQuantityMessengerModal .qty-missing-reason {
+  font-size: 10px;
+  color: #64748b;
+  line-height: 1.5;
+  margin: 1px 0 4px 12px;
+}
+
+#cblQuantityMessengerModal .qty-ovw-card {
+  margin-left: 42px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  width: 300px;
+  box-sizing: border-box;
+}
+
+#cblQuantityMessengerModal .qty-ovw-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #166534;
+  margin-bottom: 8px;
+}
+
+#cblQuantityMessengerModal .qty-ovw-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#cblQuantityMessengerModal .qty-ovw-item {
+  font-size: 11.5px;
+  color: #334155;
+  line-height: 1.7;
+  padding-left: 12px;
+  position: relative;
+}
+
+#cblQuantityMessengerModal .qty-ovw-item::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  color: #16a34a;
+}
+
+#cblQuantityMessengerModal .qty-ovw-item b {
+  color: #0f172a;
+}
+
+#cblQuantityMessengerModal .qty-ovw-source {
+  font-size: 10px;
+  color: #94a3b8;
+  font-style: italic;
+  padding-left: 2px;
+  line-height: 1.5;
+}
+
+#cblQuantityMessengerModal .qty-ovw-guidance-box {
+  margin-left: 42px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+  max-width: 440px;
+}
+
+#cblQuantityMessengerModal .qty-ovw-guidance-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #b45309;
+  margin-bottom: 4px;
+}
+
+#cblQuantityMessengerModal .qty-ovw-guidance-line {
+  font-size: 11px;
+  color: #78350f;
+  line-height: 1.6;
+}
+
+#cblQuantityMessengerModal .qty-unconfirmed-box {
+  margin-left: 42px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 12px;
+  padding: 10px 12px;
+  width: 300px;
+  box-sizing: border-box;
+}
+
+#cblQuantityMessengerModal .qty-unconfirmed-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #b45309;
+  margin-bottom: 5px;
+}
+
+#cblQuantityMessengerModal .qty-unconfirmed-line {
+  font-size: 11px;
+  color: #78350f;
+  line-height: 1.75;
+}
+
+#cblQuantityMessengerModal .qty-unconfirmed-note {
+  font-size: 10.5px;
+  color: #b45309;
+  margin-top: 6px;
+  line-height: 1.6;
+}
+
+#cblQuantityMessengerModal .qty-spec-card {
+  margin-left: 42px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  width: 320px;
+  box-sizing: border-box;
+}
+
+#cblQuantityMessengerModal .qty-spec-section {
+  margin-bottom: 12px;
+}
+
+#cblQuantityMessengerModal .qty-spec-section:last-child {
+  margin-bottom: 0;
+}
+
+#cblQuantityMessengerModal .qty-spec-section-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 5px;
+}
+
+#cblQuantityMessengerModal .qty-spec-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10.5px;
+}
+
+#cblQuantityMessengerModal .qty-spec-table th,
+#cblQuantityMessengerModal .qty-spec-table td {
+  border: 1px solid #e2e8f0;
+  padding: 4px 6px;
+  text-align: left;
+  color: #334155;
+}
+
+#cblQuantityMessengerModal .qty-spec-table th {
+  background: #f1f5f9;
+  color: #475569;
+  font-weight: 600;
+}
+
+#cblQuantityMessengerModal .qty-spec-table td.qty-spec-source {
+  color: #94a3b8;
+  font-size: 9.5px;
+}
+
+#cblQuantityMessengerModal .qty-spec-summary {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#cblQuantityMessengerModal .qty-spec-summary li {
+  font-size: 11px;
+  color: #334155;
+  line-height: 1.7;
+  padding-left: 12px;
+  position: relative;
+}
+
+#cblQuantityMessengerModal .qty-spec-summary li::before {
+  content: "·";
+  position: absolute;
+  left: 0;
+  color: #64748b;
+}
+
+#cblQuantityMessengerModal .qty-spec-empty {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
 body.cbl-modal-open {
   overflow: hidden;
 }
@@ -5282,7 +6057,11 @@ body.cbl-modal-open {
   #cblQuantityMessengerModal .qty-file-box,
   #cblQuantityMessengerModal .qty-thinking,
   #cblQuantityMessengerModal .qty-progress-box,
-  #cblQuantityMessengerModal .qty-missing-box {
+  #cblQuantityMessengerModal .qty-missing-box,
+  #cblQuantityMessengerModal .qty-ovw-card,
+  #cblQuantityMessengerModal .qty-ovw-guidance-box,
+  #cblQuantityMessengerModal .qty-unconfirmed-box,
+  #cblQuantityMessengerModal .qty-spec-card {
     margin-left: 0;
     width: 100%;
   }
@@ -5325,23 +6104,45 @@ body.cbl-modal-open {
 
   var LOGO_SRC = "{% static 'core/images/cbl_program_icon_logo_v3.png' %}";
 
-  var REQUIRED_STRUCTURAL_GROUPS = [
-    { title: "일반사항", items: [["S-001", "구조설계개요 및 시방서"], ["S-002", "사용자재표 (콘크리트/철근 규격)"]] },
-    { title: "기초 / 지하구조", items: [["S-101", "기초평면도"], ["S-102", "기초상세도"], ["S-103", "지하층 골조평면도"], ["S-104", "지하외벽 배근도"]] },
-    { title: "골조 (기둥·보·슬래브)", items: [["S-201", "기둥배근도"], ["S-202", "기둥일람표"], ["S-203", "보배근도"], ["S-204", "슬래브 배근도 (층별)"]] },
-    { title: "벽체 / 계단", items: [["S-301", "전단벽 배근도"], ["S-302", "계단 배근도"]] },
-    { title: "지붕 / 옥탑", items: [["S-401", "지붕층 골조평면도"], ["S-402", "옥탑층 골조평면도"]] },
-    { title: "구조계산서", items: [["S-501", "부재일람표 요약본"]] }
-  ];
-
   var state = {
     answers: { projectType: null, structureType: null, excavationType: null },
     cadFiles: [],
     pdfFiles: [],
     elevCadFiles: [],
     elevPdfFiles: [],
-    started: false
+    started: false,
+    reviewId: null
   };
+
+  // 개요 확인 → 구조일반사항 확인 → 지하주차장 평면도 확인 → 본 산출까지 전체 확인
+  // 흐름 내내 재사용하는 하나의 세션 식별자. 서버가 이 값으로 "지금까지 뭘 확정했는지"를
+  // 기억하므로(review_id 상태머신), 폴링용 job_id(호출마다 새로 생성)와 달리 이 값은
+  // 흐름을 새로 시작할 때(파일을 새로 올릴 때) 딱 한 번만 새로 만들어야 한다.
+  function ensureReviewId() {
+    if (!state.reviewId) {
+      state.reviewId = "rev-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+    }
+    return state.reviewId;
+  }
+
+  // 확인 화면에서 "예, 맞습니다"를 눌렀을 때 해당 단계를 서버에 확정 요청한다.
+  // 실패해도(세션 만료 등) 그 자리에서 사용자에게 알리는 게 나으므로 에러를 던진다 —
+  // 호출부에서 catch해서 안내 메시지를 보여줘야 한다.
+  async function confirmReviewStage(stage) {
+    var form = new FormData();
+    form.append("review_id", ensureReviewId());
+    form.append("stage", stage);
+    var res = await fetch("/api/quantity/review-confirm/", {
+      method: "POST",
+      headers: { "X-CSRFToken": csrfToken() },
+      body: form
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || ("확정 요청이 실패했습니다 (" + res.status + ")"));
+    }
+    return data;
+  }
 
   function scrollBottom() {
     bodyEl.scrollTop = bodyEl.scrollHeight;
@@ -5542,15 +6343,6 @@ body.cbl-modal-open {
   async function startUploadStep() {
     await addBot("건축·구조 캐드 및 PDF 파일을 올려주세요. 구조도면은 누락된 게 있으면 따로 알려드릴게요.", 250);
 
-    var groupsHtml = REQUIRED_STRUCTURAL_GROUPS.map(function (group) {
-      var lines = group.items.map(function (item) {
-        return '<div class="qty-required-line"><span>' + esc(item[0]) + ' ' + esc(item[1]) + '</span><span class="qty-pill">필요</span></div>';
-      }).join("");
-      return '<div class="qty-required-section"><div class="qty-required-title">' + group.title + '</div>' + lines + '</div>';
-    }).join("");
-
-    appendLeft('<div class="qty-required">' + groupsHtml + '</div>');
-
     var uploadEl = appendLeft(
       '<label class="qty-upload" id="qty-upload">' +
         '<input type="file" id="qty-file-input" multiple accept=".zip,.dwg,.dxf,.pdf">' +
@@ -5627,6 +6419,7 @@ body.cbl-modal-open {
         ignored += 1;
       }
     });
+    if (added > 0) state.reviewId = null;
 
     if (added > 0) addUser(added + "개 구조도면 파일을 올렸어요.");
     if (ignored > 0) addBot("지원하지 않는 파일 " + ignored + "개는 제외했어요. (ZIP, DWG, DXF, PDF만 가능)", 200);
@@ -5651,6 +6444,7 @@ body.cbl-modal-open {
         ignored += 1;
       }
     });
+    if (added > 0) state.reviewId = null;
 
     if (added > 0) addUser(added + "개 건축도면 파일을 올렸어요.");
     if (ignored > 0) addBot("지원하지 않는 파일 " + ignored + "개는 제외했어요. (ZIP, DWG, DXF, PDF만 가능)", 200);
@@ -5696,6 +6490,7 @@ body.cbl-modal-open {
       state.pdfFiles = [];
       state.elevCadFiles = [];
       state.elevPdfFiles = [];
+      state.reviewId = null;
       fileStatusEl.remove();
       fileActionsEl.remove();
       addUser("파일을 다시 올릴게요.");
@@ -5713,17 +6508,17 @@ body.cbl-modal-open {
     var think = appendLeft('<div class="qty-thinking"><div class="qty-spin"></div><span>제가 열심히 분석중입니다.. (오픈AI검토)</span></div>');
     scrollBottom();
 
-    var zipFile = state.cadFiles.find(function (f) { return f.name.toLowerCase().endsWith(".zip"); });
+    var cadUploads = state.cadFiles.concat(state.elevCadFiles || []);
 
-    if (!zipFile) {
+    if (!cadUploads.length) {
       think.remove();
-      await addBot("ZIP 파일이 없어 도면명 대조는 생략할게요.<br>바로 구조수량산출을 진행할 수 있어요.", 200);
+      await addBot("검토할 CAD ZIP/DWG/DXF 파일이 없어 도면명 대조는 생략할게요.", 200);
       showRunButton();
       return;
     }
 
     var fd = new FormData();
-    fd.append("zip_file", zipFile);
+    cadUploads.forEach(function (file) { fd.append("cad_files", file); });
 
     var data = {};
     try {
@@ -5745,37 +6540,56 @@ body.cbl-modal-open {
       return;
     }
 
-    var missing = data.missing_structural || [];
-    if (missing.length > 0) {
-      await addBot("부족한 도면이 " + missing.length + "개 있어요. 아래 목록을 확인해 주세요.", 200);
-
-      var rows = missing.map(function (d) {
-        return '<div class="qty-missing-line">• <b>' + esc(d.code) + '</b> ' + esc(d.name) + '</div>';
+    var statusLabels = {
+      confirmed: "확인됨", candidate_unverified: "후보 발견·내용 확인 필요",
+      missing: "파일 없음", scan_incomplete: "업로드 탐색 미완료"
+    };
+    function renderChecklist(title, items) {
+      var rows = (items || []).map(function (item) {
+        var files = (item.files || []).map(function (file) {
+          return '<div class="qty-missing-reason">' + esc(file.filename) +
+            '<br>위치: ' + esc(file.path) + ' · 분류: ' + esc(file.source_folder) + '</div>';
+        }).join("");
+        return '<div class="qty-missing-line">• <b>' + esc(item.name) + '</b> — ' +
+          esc(statusLabels[item.status] || item.status) + files + '</div>';
       }).join("");
-
-      appendLeft('<div class="qty-missing-box"><div class="qty-missing-title">누락된 구조도면</div>' + rows + '</div>');
-
-      var missBtns = appendLeft(
-        '<div class="qty-btn-row">' +
-          '<button type="button" class="qty-action" id="qty-missing-add">누락 도면 추가</button>' +
-          '<button type="button" class="qty-action primary" id="qty-missing-skip">지금 도면으로 진행</button>' +
-        '</div>'
-      );
-
-      missBtns.querySelector("#qty-missing-add").addEventListener("click", function () {
-        missBtns.remove();
-        addUser("누락 도면을 추가로 올릴게요.");
-        startUploadStep();
-      });
-      missBtns.querySelector("#qty-missing-skip").addEventListener("click", function () {
-        missBtns.remove();
-        addUser("지금 있는 도면으로 진행할게요.");
-        showRunButton();
-      });
-    } else {
-      await addBot("모든 구조도면이 확인됐어요! 바로 수량산출을 진행할 수 있어요.", 200);
-      showRunButton();
+      appendLeft('<div class="qty-missing-box"><div class="qty-missing-title">' +
+        esc(title) + '</div>' + rows + '</div>');
     }
+    var scan = data.scan || {};
+    var allChecklist = (data.structural_checklist || []).concat(data.architectural_checklist || []);
+    var candidateCount = allChecklist.reduce(function (count, item) {
+      return count + ((item.files || []).length);
+    }, 0);
+    if (scan.complete === false) {
+      await addBot("일부 업로드를 끝까지 확인하지 못했어요.", 200);
+    } else if (!scan.cad_count) {
+      await addBot("업로드에서 DWG/DXF 도면을 찾지 못했어요.", 200);
+    } else {
+      await addBot("CAD 도면 " + scan.cad_count + "개와 ZIP 내부 하위 폴더를 확인했어요.", 200);
+      if (!candidateCount) {
+        await addBot("CAD 파일은 찾았지만 도면명이 정상적으로 판독되지 않아 기본도면을 분류하지 못했어요.", 160);
+      }
+    }
+    renderChecklist("구조 기본도면", data.structural_checklist);
+    renderChecklist("건축 기본도면", data.architectural_checklist);
+
+    var missBtns = appendLeft(
+      '<div class="qty-btn-row">' +
+        '<button type="button" class="qty-action" id="qty-missing-add">도면 추가/교체</button>' +
+        '<button type="button" class="qty-action primary" id="qty-missing-skip">현재 도면으로 진행</button>' +
+      '</div>'
+    );
+    missBtns.querySelector("#qty-missing-add").addEventListener("click", function () {
+      missBtns.remove();
+      addUser("도면을 추가/교체해서 다시 올릴게요.");
+      startUploadStep();
+    });
+    missBtns.querySelector("#qty-missing-skip").addEventListener("click", function () {
+      missBtns.remove();
+      addUser("현재 도면으로 진행할게요.");
+      showRunButton();
+    });
   }
 
   function showRunButton() {
@@ -5785,7 +6599,628 @@ body.cbl-modal-open {
     wrap.querySelector("#qty-run-go").addEventListener("click", function () {
       wrap.remove();
       addUser("구조수량산출을 시작할게요.");
-      runQuantityAnalysis();
+      runOverviewCheck();
+    });
+  }
+
+  // ─────────────────────────────────────────────
+  //  개요/구조일반사항 사전 확인 — 전체 도면을 배치로 나눠 다 읽는 본 추출(비용/시간이
+  //  꽤 듦) 전에, 표지+구조일반사항 몇 페이지만 가볍게 읽어서 "이 프로젝트가 뭔지,
+  //  구조 기준이 뭔지" 먼저 확인받는다. 확인된 내용은 runQuantityAnalysis에 실어보내서
+  //  본 추출이 같은 실수를 반복하지 않게 한다.
+  // ─────────────────────────────────────────────
+  function runOverviewCheck(correctionContext) {
+    var jobId = "ovw-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+    var think = appendLeft('<div class="qty-thinking"><div class="qty-spin"></div><span>개요/구조일반사항을 확인하고 있어요…</span></div>');
+    scrollBottom();
+
+    // 여러 낱장 PDF(예: "A-015,016 사업개요,동별개요.pdf"처럼 파일명에 내용이 적힌
+    // 개별 시트 파일들)를 선택했을 수도 있으므로, 첫 파일만 보내지 않고 선택한 파일을
+    // 전부 같은 필드명으로 보낸다 — 서버가 request.FILES.getlist()로 전부 받아 병합한다.
+    var fd = new FormData();
+    fd.append("job_id", jobId);
+    fd.append("review_id", ensureReviewId());
+    state.pdfFiles.forEach(function (f) { fd.append("structural_pdf", f); });
+    state.elevPdfFiles.forEach(function (f) { fd.append("architectural_pdf", f); });
+    state.cadFiles.forEach(function (f) { fd.append("cad_files", f); });
+    state.elevCadFiles.forEach(function (f) { fd.append("cad_files", f); });
+    if (correctionContext) fd.append("correction_context", correctionContext);
+
+    function fail(msg) {
+      think.remove();
+      addBot("개요/구조일반사항 확인 중 오류가 발생했어요.<br>" + esc(msg), 200).then(function () {
+        appendLeft(
+          '<div class="qty-btn-row wide">' +
+          '<button type="button" class="qty-action primary full" disabled aria-disabled="true">' +
+          '구조수량산출 진행</button></div>'
+        );
+      });
+    }
+
+    fetch("/api/quantity/overview-check/", {
+      method: "POST",
+      headers: { "X-CSRFToken": csrfToken() },
+      body: fd,
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (kickoff) {
+        if (kickoff.error) { fail(kickoff.error); return; }
+        if (kickoff.review_id) state.reviewId = kickoff.review_id;
+        var timer = setInterval(function () {
+          fetch("/api/quantity/progress/?job_id=" + encodeURIComponent(jobId), {
+            method: "POST",
+            headers: { "X-CSRFToken": csrfToken() },
+          })
+            .then(function (res) {
+              return res.json().catch(function () { return {}; }).then(function (pdata) {
+                if (!res.ok) {
+                  var message = pdata.error || ("진행상황 조회 실패 (HTTP " + res.status + ")");
+                  if (res.status === 401 || res.status === 403) {
+                    message = "로그인 또는 관리자 권한이 풀렸습니다. 페이지를 새로고침하고 다시 로그인해 주세요.";
+                  }
+                  var error = new Error(message);
+                  error.status = res.status;
+                  throw error;
+                }
+                return pdata;
+              });
+            })
+            .then(function (pdata) {
+              if (!pdata || !pdata.found || !pdata.done) return;
+              clearInterval(timer);
+              think.remove();
+              if (pdata.ok === false) { fail(pdata.error || "알 수 없는 오류"); return; }
+              if (pdata.results && pdata.results.locator_failed) {
+                showOverviewLocatorFailure(pdata.results.page_detection || {});
+                return;
+              }
+              showOverviewStep((pdata.results && pdata.results.overview) || {}, (pdata.results && pdata.results.general_spec) || {});
+            })
+            .catch(function (error) {
+              // 인증/권한 오류를 무시하면 서버 작업이 끝난 뒤에도 1.5초마다 403을
+              // 무한 반복하면서 화면은 계속 "확인 중"으로 남는다. 실제 재현 로그에서
+              // 작업은 완료됐지만 폴링만 12분 이상 403을 반복했다.
+              if (error && (error.status === 401 || error.status === 403)) {
+                clearInterval(timer);
+                fail(error.message);
+              }
+              // 일시적인 네트워크 오류는 다음 폴링에서 재시도한다.
+            });
+        }, 1500);
+      })
+      .catch(function (e) { fail(e && e.message ? e.message : String(e)); });
+  }
+
+  function showOverviewLocatorFailure(detection) {
+    var candidates = detection.top_candidates || [];
+    var logs = detection.classifications || [];
+    var candidateRows = candidates.length ? candidates.map(function (item) {
+      return '<div class="qty-unconfirmed-line">• ' + esc(item.page_number) + '쪽 · ' +
+        esc(item.page_type || "other") + ' · 점수 ' + esc(item.text_score || 0) +
+        ' · 신뢰도 ' + esc(item.confidence || 0) + ' · ' +
+        esc(item.selection_reason || "") + '</div>';
+    }).join("") : '<div class="qty-unconfirmed-line">후보 페이지 없음</div>';
+    var logRows = logs.map(function (item) {
+      return '<div class="qty-unconfirmed-line">' + esc(item.page_number) + '쪽 | ' +
+        esc(item.page_type || "other") + ' | score=' + esc(item.text_score || 0) +
+        ' | confidence=' + esc(item.confidence || 0) + ' | ' +
+        esc(item.selection_reason || "") + '</div>';
+    }).join("");
+    addBot("사업개요 또는 동별면적표를 자동으로 찾지 못했습니다", 150).then(function () {
+      appendLeft(
+        '<div class="qty-unconfirmed-box">' +
+          '<div class="qty-unconfirmed-title">자동 탐색이 차단되었습니다</div>' +
+          '<div class="qty-unconfirmed-note">관리자 확인용 상위 후보 페이지</div>' +
+          candidateRows +
+          '<details style="margin-top:10px"><summary>전체 탐색 로그 보기</summary>' +
+            (logRows || '<div class="qty-unconfirmed-line">탐색 로그 없음</div>') +
+          '</details>' +
+        '</div>'
+      );
+    });
+  }
+
+  // 개요(overview)를 불릿 리스트 카드로 렌더링. 문장으로 풀어쓰던 이전 방식 대신, 항목별로
+  // 한눈에 훑어볼 수 있게 목록화했다.
+  function buildOverviewCard(overview) {
+    overview = overview || {};
+    var sources = overview.sources || {};
+    var lines = [];
+    function pushLine(text, sourceKey) {
+      lines.push({ text: text, source: sourceKey ? sources[sourceKey] : null });
+    }
+    function sourceText(source) {
+      var values = Array.isArray(source) ? source : (source ? [source] : []);
+      return values.map(function (item) {
+        if (!item || typeof item !== "object") return String(item || "");
+        return [item.pdf_type ? item.pdf_type + " PDF" : "", item.page ? item.page + "페이지" : "",
+          item.table || "", item.quote ? "“" + item.quote + "”" : ""].filter(Boolean).join(" · ");
+      }).filter(Boolean).join(" / ");
+    }
+    pushLine("프로젝트명: <b>" + esc(overview.project_name || "확인 안 됨") + "</b>", "project_name");
+    [
+      ["site_location", "대지 위치", ""],
+      ["usage", "용도", ""],
+      ["structure_type", "구조", ""],
+      ["household_count", "세대수", "세대"],
+      ["site_area_m2", "대지면적", "㎡"],
+      ["building_area_m2", "건축면적", "㎡"],
+      ["aboveground_floor_area_m2", "지상 연면적", "㎡"],
+      ["basement_floor_area_m2", "지하 연면적", "㎡"],
+      ["total_floor_area_m2", "전체 연면적", "㎡"]
+    ].forEach(function (row) {
+      if (overview[row[0]] != null) pushLine(row[1] + ": " + esc(overview[row[0]]) + row[2], row[0]);
+    });
+    if (overview.basement_floor_count != null) {
+      pushLine("지하 " + esc(overview.basement_floor_count) + "개층", "basement_floor_count");
+    }
+    if (overview.aboveground_max_floor != null) {
+      pushLine("지상 최고 " + esc(overview.aboveground_max_floor) + "층", "aboveground_max_floor");
+    }
+    if ((overview.buildings || []).length) {
+      var buildingLines = overview.buildings.map(function (b) {
+        var label = b.label || "동";
+        var details = [];
+        if (b.floor_range) details.push(esc(b.floor_range));
+        else if (b.floor_count != null) details.push(esc(b.floor_count) + "층");
+        if (b.building_area_m2 != null) details.push("건축면적 " + esc(b.building_area_m2) + "㎡");
+        if (b.total_floor_area_m2 != null) details.push("연면적 " + esc(b.total_floor_area_m2) + "㎡");
+        if (b.household_count != null) details.push(esc(b.household_count) + "세대");
+        return { text: esc(label) + ": " + (details.join(" · ") || "상세 확인 안 됨"), source: b.source };
+      });
+      buildingLines.forEach(function (row) {
+        lines.push(row);
+      });
+    }
+    if (overview.underground_parking_note) {
+      pushLine("지하주차장: " + esc(overview.underground_parking_note), "underground_parking_note");
+    }
+    if ((overview.amenity_facilities || []).length) {
+      overview.amenity_facilities.forEach(function (facility) {
+        var detail = facility.label || "시설";
+        if (facility.building_area_m2 != null) detail += " · 건축면적 " + facility.building_area_m2 + "㎡";
+        if (facility.total_floor_area_m2 != null) detail += " · 연면적 " + facility.total_floor_area_m2 + "㎡";
+        lines.push({ text: "부대시설: " + esc(detail), source: facility.source });
+      });
+    }
+    if ((overview.utility_facilities || []).length) {
+      overview.utility_facilities.forEach(function (facility) {
+        lines.push({ text: "설비시설: " + esc(facility.label || "시설"), source: facility.source });
+      });
+    }
+    if (overview.commercial_note) {
+      pushLine("근린생활시설: " + esc(overview.commercial_note), "commercial_note");
+    }
+    if (!lines.length) {
+      return '<div class="qty-ovw-card"><div class="qty-spec-empty">개요를 확인하지 못했습니다 — 표지 페이지를 확인해 주세요.</div></div>';
+    }
+    var items = lines.map(function (l) {
+      var renderedSource = sourceText(l.source);
+      var sourceHtml = renderedSource ? '<div class="qty-ovw-source">근거: ' + esc(renderedSource) + '</div>' : "";
+      return '<li class="qty-ovw-item">' + l.text + sourceHtml + '</li>';
+    }).join("");
+    return '<div class="qty-ovw-card"><div class="qty-ovw-title">프로젝트 개요</div><ul class="qty-ovw-list">' + items + '</ul></div>';
+  }
+
+  function buildOverviewConflictBox(conflicts) {
+    conflicts = conflicts || [];
+    if (!conflicts.length) return "";
+    var rows = conflicts.map(function (item) {
+      return '<div class="qty-unconfirmed-line">• ' +
+        esc(item.message || item.field || "산술 검증 충돌") +
+        ' — OCR/표시값 ' + esc(item.reported) +
+        ', 구성행 합계 ' + esc(item.calculated) +
+        (item.formula ? ' (' + esc(item.formula) + ')' : '') +
+      '</div>';
+    }).join("");
+    return '<div class="qty-unconfirmed-box"><div class="qty-unconfirmed-title">합계 검산 충돌 (' +
+      conflicts.length + '건)</div>' + rows +
+      '<div class="qty-unconfirmed-note">개요 검산 참고값으로 표시하며, 실제 물량은 상세 도면을 기준으로 산출합니다.</div></div>';
+  }
+
+  // 프로젝트 개요의 누락·검증 실패 항목은 상세 도면 판독 범위와 최종 검산을 위한
+  // 참고 경고로만 보여준다. 실제 물량은 평·입·단면도와 구조도면을 기준으로 산출하므로
+  // 이 목록은 다음 단계 진행을 차단하지 않는다.
+  function overviewReferenceWarnings(overview) {
+    overview = overview || {};
+    var warnings = [];
+    if (!overview.project_name) warnings.push("프로젝트명");
+    if (!overview.site_location) warnings.push("위치");
+    if (!overview.usage) warnings.push("용도");
+    if (!overview.structure_type) warnings.push("구조형식");
+    if (overview.basement_floor_count == null) warnings.push("지하층 수");
+    if (overview.aboveground_max_floor == null) warnings.push("지상 최고층");
+    if (overview.site_area_m2 == null) warnings.push("대지면적");
+    if (overview.building_area_m2 == null) warnings.push("건축면적");
+    if (overview.aboveground_floor_area_m2 == null) warnings.push("지상 연면적");
+    if (overview.basement_floor_area_m2 == null) warnings.push("지하 연면적");
+    if (overview.total_floor_area_m2 == null) warnings.push("전체 연면적");
+    var hasBuildings = (overview.buildings || []).some(function (b) { return b && b.label; });
+    if (!hasBuildings) warnings.push("동 목록 및 동별자료 행 근거");
+    if ((overview.conflicts || []).length) warnings.push("산술 검산 충돌");
+    return warnings;
+  }
+
+  // 도면에서 확인하지 못한 항목 목록을 경고 박스로 렌더링. items가 비어있으면 아예 렌더링하지
+  // 않는다("확인 못한 게 없으면 빈 배열" — 백엔드 프롬프트 정책과 일치).
+  function buildUnconfirmedBox(items, note) {
+    items = items || [];
+    if (!items.length) return "";
+    var lines = items.map(function (t) { return '<div class="qty-unconfirmed-line">• ' + esc(t) + '</div>'; }).join("");
+    return (
+      '<div class="qty-unconfirmed-box">' +
+        '<div class="qty-unconfirmed-title">확인되지 않은 항목 (' + items.length + '건)</div>' +
+        lines +
+        (note ? '<div class="qty-unconfirmed-note">' + esc(note) + '</div>' : "") +
+      '</div>'
+    );
+  }
+
+  // lap_splice_table(이음)과 anchorage_table(정착)을 철근규격x위치 기준으로 합쳐서 한 표로
+  // 보여준다 — 이음길이/정착(직선)/정착(갈고리) 3가지 값 + 규격 + 위치, 총 5가지 축으로
+  // 구성된 매트릭스.
+  function buildSpliceAnchorMatrix(spliceTable, anchorTable) {
+    var map = {};
+    function keyOf(barSize, position) { return (barSize || "?") + "|" + (position || "공통"); }
+    (spliceTable || []).forEach(function (r) {
+      if (!r || !r.bar_size) return;
+      var k = keyOf(r.bar_size, r.position);
+      map[k] = map[k] || { bar_size: r.bar_size, position: r.position, sources: [] };
+      map[k].splice = r.length_m;
+      if (r.source && map[k].sources.indexOf(r.source) === -1) map[k].sources.push(r.source);
+    });
+    (anchorTable || []).forEach(function (r) {
+      if (!r || !r.bar_size) return;
+      var k = keyOf(r.bar_size, r.position);
+      map[k] = map[k] || { bar_size: r.bar_size, position: r.position, sources: [] };
+      if (r.hook) { map[k].anchorHook = r.length_m; } else { map[k].anchorStraight = r.length_m; }
+      if (r.source && map[k].sources.indexOf(r.source) === -1) map[k].sources.push(r.source);
+    });
+    return Object.keys(map).sort().map(function (k) { return map[k]; });
+  }
+
+  // 구조일반사항(general_spec)을 근거(source) 포함 표 형식으로 렌더링.
+  function buildSpecCard(spec) {
+    spec = spec || {};
+    var sections = [];
+
+    if ((spec.concrete_fck_table || []).length) {
+      var rows1 = spec.concrete_fck_table.map(function (r) {
+        return '<tr><td>' + esc(r.category || "-") + '</td><td>' + esc(r.fck_mpa != null ? r.fck_mpa : "-") + ' MPa</td><td class="qty-spec-source">' + esc(r.source || "") + '</td></tr>';
+      }).join("");
+      sections.push(
+        '<div class="qty-spec-section"><div class="qty-spec-section-title">콘크리트 강도 (Fck)</div>' +
+        '<table class="qty-spec-table"><thead><tr><th>부위</th><th>강도</th><th>근거</th></tr></thead><tbody>' + rows1 + '</tbody></table></div>'
+      );
+    } else if (spec.concrete_fck_mpa != null) {
+      sections.push('<div class="qty-spec-section"><div class="qty-spec-section-title">콘크리트 강도 (Fck)</div><div>대표 Fck ' + esc(spec.concrete_fck_mpa) + ' MPa</div></div>');
+    }
+
+    if ((spec.rebar_grade_table || []).length) {
+      var rows2 = spec.rebar_grade_table.map(function (r) {
+        var range = r.bar_size_min != null ? ("D" + esc(r.bar_size_min) + "~D" + esc(r.bar_size_max)) : ("D" + esc(r.bar_size_max) + " 이하");
+        return '<tr><td>' + range + '</td><td>' + esc(r.grade || "-") + '</td><td class="qty-spec-source">' + esc(r.source || "") + '</td></tr>';
+      }).join("");
+      sections.push(
+        '<div class="qty-spec-section"><div class="qty-spec-section-title">철근 강종</div>' +
+        '<table class="qty-spec-table"><thead><tr><th>규격 범위</th><th>강종</th><th>근거</th></tr></thead><tbody>' + rows2 + '</tbody></table></div>'
+      );
+    } else if (spec.rebar_grade) {
+      sections.push('<div class="qty-spec-section"><div class="qty-spec-section-title">철근 강종</div><div>대표 강종 ' + esc(spec.rebar_grade) + '</div></div>');
+    }
+
+    var matrix = buildSpliceAnchorMatrix(spec.lap_splice_table || [], spec.anchorage_table || []);
+    if (matrix.length) {
+      var rows3 = matrix.map(function (m) {
+        return (
+          '<tr><td>' + esc(m.bar_size) + '</td><td>' + esc(m.position || "공통") + '</td>' +
+          '<td>' + (m.splice != null ? esc(m.splice) + 'm' : "-") + '</td>' +
+          '<td>' + (m.anchorStraight != null ? esc(m.anchorStraight) + 'm' : "-") + '</td>' +
+          '<td>' + (m.anchorHook != null ? esc(m.anchorHook) + 'm' : "-") + '</td>' +
+          '<td class="qty-spec-source">' + esc(m.sources.join(", ")) + '</td></tr>'
+        );
+      }).join("");
+      sections.push(
+        '<div class="qty-spec-section"><div class="qty-spec-section-title">이음·정착길이 (이음은 항상 B급 적용)</div>' +
+        '<table class="qty-spec-table"><thead><tr><th>규격</th><th>위치</th><th>이음길이</th><th>정착(직선)</th><th>정착(갈고리)</th><th>근거</th></tr></thead><tbody>' + rows3 + '</tbody></table></div>'
+      );
+    }
+
+    if ((spec.cover_table || []).length) {
+      var rows4 = spec.cover_table.map(function (r) {
+        return '<tr><td>' + esc(r.category || "-") + '</td><td>' + esc(r.thickness_mm != null ? r.thickness_mm : "-") + ' mm</td><td class="qty-spec-source">' + esc(r.source || "") + '</td></tr>';
+      }).join("");
+      sections.push(
+        '<div class="qty-spec-section"><div class="qty-spec-section-title">피복두께</div>' +
+        '<table class="qty-spec-table"><thead><tr><th>부위</th><th>두께</th><th>근거</th></tr></thead><tbody>' + rows4 + '</tbody></table></div>'
+      );
+    } else if (spec.cover_thickness_mm != null) {
+      sections.push('<div class="qty-spec-section"><div class="qty-spec-section-title">피복두께</div><div>대표 ' + esc(spec.cover_thickness_mm) + ' mm</div></div>');
+    }
+
+    if ((spec.seismic_rebar_rules || []).length) {
+      var rows5 = spec.seismic_rebar_rules.map(function (r) {
+        return '<tr><td>' + esc(r.location || "-") + '</td><td>' + esc(r.grade || "-") + '</td><td class="qty-spec-source">' + esc(r.source || "") + '</td></tr>';
+      }).join("");
+      sections.push(
+        '<div class="qty-spec-section"><div class="qty-spec-section-title">내진철근 적용부위</div>' +
+        '<table class="qty-spec-table"><thead><tr><th>부위</th><th>강종</th><th>근거</th></tr></thead><tbody>' + rows5 + '</tbody></table></div>'
+      );
+    }
+
+    if ((spec.summary_notes || []).length) {
+      var items6 = spec.summary_notes.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join("");
+      sections.push('<div class="qty-spec-section"><div class="qty-spec-section-title">요약</div><ul class="qty-spec-summary">' + items6 + '</ul></div>');
+    }
+
+    if (!sections.length) {
+      return '<div class="qty-spec-card"><div class="qty-spec-empty">구조일반사항을 확인하지 못했습니다 — 도면에 구조일반사항 페이지가 있는지 확인해 주세요.</div></div>';
+    }
+    return '<div class="qty-spec-card">' + sections.join("") + '</div>';
+  }
+
+  var OVW_CONFIRM_CHOICES = ["예, 맞습니다", "아니요, 수정할게요", "미확인 항목 직접 입력"];
+  var OVERVIEW_CONTINUE_CHOICE = "도면 기준으로 계속 진행";
+  var OVERVIEW_CONFIRM_CHOICES = [OVERVIEW_CONTINUE_CHOICE, "아니요, 수정할게요", "미확인 항목 직접 입력"];
+
+  function showOverviewStep(overview, generalSpec) {
+    overview = overview || {};
+    generalSpec = generalSpec || {};
+    addBot("먼저 프로젝트 개요를 확인할게요.", 200).then(function () {
+      appendLeft(buildOverviewCard(overview));
+      var unconfirmedHtml = buildUnconfirmedBox(overview.unconfirmed_items, null);
+      if (unconfirmedHtml) appendLeft(unconfirmedHtml);
+      var conflictHtml = buildOverviewConflictBox(overview.conflicts);
+      if (conflictHtml) appendLeft(conflictHtml);
+
+      var warnings = overviewReferenceWarnings(overview);
+      var hasOverviewWarnings = warnings.length ||
+        (overview.unconfirmed_items || []).length ||
+        (overview.conflicts || []).length;
+      if (hasOverviewWarnings) {
+        appendLeft(
+          '<div class="qty-ovw-guidance-box">' +
+            '<div class="qty-ovw-guidance-title">일부 프로젝트 개요 항목을 확인하지 못했어요.</div>' +
+            '<div class="qty-ovw-guidance-line">동별 연면적·건축면적·세대수 등 프로젝트 개요 정보는 범위 확인과 최종 검산을 위한 참고값입니다. 실제 물량은 각 층 평면도와 구조평면도, 입면도, 단면도 및 상세도를 기준으로 산출합니다. 미확인 항목은 이후 도면 판독 과정에서 보완할 수 있습니다.</div>' +
+            '<div class="qty-ovw-guidance-line" style="margin-top:6px;font-weight:700">일부 개요 항목이 확인되지 않았지만 수량산출을 계속할 수 있어요.</div>' +
+            '<div class="qty-ovw-guidance-line" style="margin-top:4px">실제 물량은 평·입·단면도와 구조도면을 기준으로 계산하며, 연면적 등의 개요 정보는 최종 검산에 활용합니다.</div>' +
+          '</div>'
+        );
+      }
+
+      askChoice(OVERVIEW_CONFIRM_CHOICES, function (val) {
+        if (val === OVERVIEW_CONTINUE_CHOICE) {
+          confirmReviewStage("overview")
+            .then(function () { showGeneralSpecStep(generalSpec, overview); })
+            .catch(function (e) {
+              addBot("확정 처리 중 오류가 발생했어요.<br>" + esc(e.message || String(e)), 150).then(showRunButton);
+            });
+        } else if (val === "아니요, 수정할게요") {
+          addBot("어디가 잘못됐는지 알려주세요.", 150).then(function () {
+            askEtcInput("예: 지하 3개층이 아니라 2개층이에요", function (text) {
+              runOverviewRevise(text, overview, generalSpec, "overview");
+            });
+          });
+        } else {
+          addBot("확인되지 않은 항목의 실제 값을 알려주시면 반영할게요.", 150).then(function () {
+            askEtcInput("확인되지 않은 항목의 값을 입력해 주세요", function (text) {
+              runOverviewRevise(text, overview, generalSpec, "overview");
+            });
+          });
+        }
+      });
+    });
+  }
+
+  function showGeneralSpecStep(generalSpec, overview) {
+    generalSpec = generalSpec || {};
+    overview = overview || {};
+    addBot("다음으로는 구조일반사항을 확인하겠습니다.", 200).then(function () {
+      appendLeft(buildSpecCard(generalSpec));
+      var unconfirmedHtml = buildUnconfirmedBox(
+        generalSpec.unconfirmed_items,
+        "위 항목은 직접 값을 채우기 전까지 철근 실수량 계산에서 제외됩니다."
+      );
+      if (unconfirmedHtml) appendLeft(unconfirmedHtml);
+      askChoice(OVW_CONFIRM_CHOICES, function (val) {
+        if (val === "예, 맞습니다") {
+          confirmReviewStage("general_spec")
+            .then(function () { runBasementPlanCheck(generalSpec); })
+            .catch(function (e) {
+              addBot("확정 처리 중 오류가 발생했어요.<br>" + esc(e.message || String(e)), 150).then(showRunButton);
+            });
+        } else if (val === "아니요, 수정할게요") {
+          addBot("어디가 잘못됐는지 알려주세요.", 150).then(function () {
+            askEtcInput("예: 지상 콘크리트 강도는 27이 아니라 24예요", function (text) {
+              runOverviewRevise(text, overview, generalSpec, "spec");
+            });
+          });
+        } else {
+          addBot("확인되지 않은 항목의 실제 값을 알려주시면 반영할게요. (예: \"D25 상부근 이음길이는 1.5m 입니다\")", 150).then(function () {
+            askEtcInput("확인되지 않은 항목의 값을 입력해 주세요", function (text) {
+              runOverviewRevise(text, overview, generalSpec, "spec");
+            });
+          });
+        }
+      });
+    });
+  }
+
+  // "아니요"/"미확인 항목 직접 입력"으로 들어온 정정 텍스트를 반영해 재검토한다.
+  // runOverviewCheck(도면 이미지 재전송)와 달리 이전 결과 JSON + 정정 텍스트만 서버로 보내는
+  // 텍스트 전용 엔드포인트(api/quantity/overview-revise/)를 써서 토큰을 아낀다.
+  // resumeStep: "overview"면 재검토 후 개요 확인부터, "spec"이면 구조일반사항 확인부터 다시 보여준다.
+  function runOverviewRevise(correctionText, overview, generalSpec, resumeStep) {
+    resumeStep = resumeStep === "spec" ? "spec" : "overview";
+    var jobId = "ovwrev-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+    var think = appendLeft('<div class="qty-thinking"><div class="qty-spin"></div><span>정정 내용을 반영해서 다시 확인하고 있어요…</span></div>');
+    scrollBottom();
+
+    var priorResult = { overview: overview || {}, general_spec: generalSpec || {} };
+
+    var fd = new FormData();
+    fd.append("job_id", jobId);
+    fd.append("review_id", ensureReviewId());
+    fd.append("prior_result", JSON.stringify(priorResult));
+    fd.append("correction_text", correctionText);
+    fd.append("stage", resumeStep === "spec" ? "general_spec" : "overview");
+
+    function fail(msg) {
+      think.remove();
+      addBot("재검토 중 오류가 발생했어요.<br>" + esc(msg), 200).then(function () {
+        if (resumeStep === "spec") { showGeneralSpecStep(generalSpec, overview); } else { showOverviewStep(overview, generalSpec); }
+      });
+    }
+
+    fetch("/api/quantity/overview-revise/", {
+      method: "POST",
+      headers: { "X-CSRFToken": csrfToken() },
+      body: fd,
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (kickoff) {
+        if (kickoff.error) { fail(kickoff.error); return; }
+        var timer = setInterval(function () {
+          fetch("/api/quantity/progress/?job_id=" + encodeURIComponent(jobId), {
+            method: "POST",
+            headers: { "X-CSRFToken": csrfToken() },
+          })
+            .then(function (res) { return res.json(); })
+            .then(function (pdata) {
+              if (!pdata || !pdata.found || !pdata.done) return;
+              clearInterval(timer);
+              think.remove();
+              if (pdata.ok === false) { fail(pdata.error || "알 수 없는 오류"); return; }
+              var newOverview = (pdata.results && pdata.results.overview) || overview || {};
+              var newSpec = (pdata.results && pdata.results.general_spec) || generalSpec || {};
+              if (resumeStep === "spec") {
+                showGeneralSpecStep(newSpec, newOverview);
+              } else {
+                showOverviewStep(newOverview, newSpec);
+              }
+            })
+            .catch(function () { /* 폴링 실패는 조용히 넘어감 — 다음 폴링에서 재시도 */ });
+        }, 1500);
+      })
+      .catch(function (e) { fail(e && e.message ? e.message : String(e)); });
+  }
+
+  // ─────────────────────────────────────────────
+  //  지하주차장 각층평면도 사전 확인 — 구조일반사항 확인이 끝난 뒤, 본 추출(전체 도면
+  //  배치 읽기, 비용 큼)을 시작하기 전에 지하주차장 평면도로 보이는 페이지만 가볍게 읽어서
+  //  벽/보/슬래브/계단 색칠 미리보기를 보여준다. 색깔로 부재 인식이 맞는지 사람이 먼저
+  //  확인하고, 틀렸으면 본 추출 전에 바로잡을 수 있다. 지하주차장 평면도를 못 찾으면
+  //  (skipped) 이 단계를 건너뛰고 바로 본 추출로 넘어간다.
+  // ─────────────────────────────────────────────
+  // 확정된 general_spec을 넘겨 본 추출로 진행하기 전, basement_plan 단계를 서버에
+  // 확정 처리한다(데이터가 없어도 — 구조 PDF 자체가 없는 경우 — 서버가 통과시켜준다).
+  function confirmBasementPlanAndRun(generalSpec) {
+    confirmReviewStage("basement_plan")
+      .then(function () { runQuantityAnalysis(generalSpec); })
+      .catch(function (e) {
+        addBot("확정 처리 중 오류가 발생했어요.<br>" + esc(e.message || String(e)), 150).then(showRunButton);
+      });
+  }
+
+  function runBasementPlanCheck(generalSpec, correctionContext) {
+    if (!state.pdfFiles.length) {
+      // 구조 PDF가 없으면 이 확인은 의미가 없으니 바로 본 추출로 넘어간다.
+      confirmBasementPlanAndRun(generalSpec);
+      return;
+    }
+
+    var jobId = "bpc-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+    var think = appendLeft('<div class="qty-thinking"><div class="qty-spin"></div><span>지하주차장 평면도에서 부재 인식을 확인하고 있어요…</span></div>');
+    scrollBottom();
+
+    var fd = new FormData();
+    fd.append("job_id", jobId);
+    fd.append("review_id", ensureReviewId());
+    // overview-check 단계와 똑같은 낱장 파일 전체를 보내야 서버의 병합 결과(해시)가
+    // 일치한다 — 첫 파일만 보내면 서버가 "파일이 바뀌었다"며 확정 상태를 초기화한다.
+    state.pdfFiles.forEach(function (f) { fd.append("structural_pdf", f); });
+    if (correctionContext) fd.append("correction_context", correctionContext);
+
+    function fail(msg) {
+      think.remove();
+      addBot("지하주차장 평면도 확인 중 오류가 발생했어요. 이 확인은 건너뛰고 진행할게요.<br>" + esc(msg), 200).then(function () {
+        confirmBasementPlanAndRun(generalSpec);
+      });
+    }
+
+    fetch("/api/quantity/basement-plan-check/", {
+      method: "POST",
+      headers: { "X-CSRFToken": csrfToken() },
+      body: fd,
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (kickoff) {
+        if (kickoff.error) { fail(kickoff.error); return; }
+        var timer = setInterval(function () {
+          fetch("/api/quantity/progress/?job_id=" + encodeURIComponent(jobId), {
+            method: "POST",
+            headers: { "X-CSRFToken": csrfToken() },
+          })
+            .then(function (res) { return res.json(); })
+            .then(function (pdata) {
+              if (!pdata || !pdata.found || !pdata.done) return;
+              clearInterval(timer);
+              think.remove();
+              if (pdata.ok === false) { fail(pdata.error || "알 수 없는 오류"); return; }
+              var results = pdata.results || {};
+              if (results.skipped) {
+                // 지피티 독립 검토에서 지적된 문제: 페이지 탐지가 실패하면(스캔 PDF이거나
+                // 60쪽 이후에 있는 경우 등) 예전에는 조용히 건너뛰고 바로 본 추출로
+                // 진행했다 — 사용자가 인지하지 못한 채 "지하주차장 부재 인식을 눈으로
+                // 확인 안 한 채" 본 추출이 시작될 수 있었다. 이제는 반드시 사용자가
+                // 명시적으로 선택해야만 다음 단계로 넘어간다(불완전 추출 배너와 같은
+                // 원칙 — 자동 통과 금지, 확인은 사람이 누른다).
+                addBot(
+                  "지하주차장 평면도로 보이는 페이지를 찾지 못했어요." +
+                    (results.reason ? ("<br>(" + esc(results.reason) + ")") : "") +
+                    "<br>이 경우 AI가 지하주차장 부재(벽/보/슬래브/계단)를 어떻게 인식했는지 " +
+                    "미리 눈으로 확인할 기회 없이 본 추출이 진행됩니다.",
+                  200
+                ).then(function () {
+                  askChoice(["예, 확인했고 진행할게요", "다시 한 번 찾아볼게요"], function (val) {
+                    if (val === "다시 한 번 찾아볼게요") {
+                      runBasementPlanCheck(generalSpec, correctionContext);
+                    } else {
+                      confirmBasementPlanAndRun(generalSpec);
+                    }
+                  });
+                });
+                return;
+              }
+              showBasementPlanStep(results, generalSpec);
+            })
+            .catch(function () { /* 폴링 실패는 조용히 넘어감 — 다음 폴링에서 재시도 */ });
+        }, 1500);
+      })
+      .catch(function (e) { fail(e && e.message ? e.message : String(e)); });
+  }
+
+  function showBasementPlanStep(results, generalSpec) {
+    addBot("지하주차장 평면도에서 부재 위치를 먼저 확인할게요. 색깔이 부재 종류대로 잘 구분됐는지 봐주세요.", 200).then(function () {
+      var annotatedHtml = renderAnnotatedPagesCard(results.annotated || []);
+      if (!annotatedHtml) {
+        addBot("부재 위치를 표시하지 못해 이 확인은 건너뛰고 진행할게요.", 150).then(function () {
+          confirmBasementPlanAndRun(generalSpec);
+        });
+        return;
+      }
+      appendLeft(annotatedHtml);
+      askChoice(["예, 맞습니다", "아니요, 수정할게요"], function (val) {
+        if (val === "예, 맞습니다") {
+          confirmBasementPlanAndRun(generalSpec);
+        } else {
+          addBot("어디가 잘못 인식됐는지 알려주세요. (예: \"1층 오른쪽 위 벽이 보로 잘못 표시됐어요\")", 150).then(function () {
+            askEtcInput("잘못 인식된 부분을 설명해 주세요", function (text) {
+              runBasementPlanCheck(generalSpec, text);
+            });
+          });
+        }
+      });
     });
   }
 
@@ -5874,6 +7309,7 @@ body.cbl-modal-open {
     end_condition: "단부조건(일자형/T자형/모서리)",
     has_hook: "정착 갈고리 사용", is_top_bar: "상부철근 여부",
     is_deck_slab: "데크슬래브 여부", dowel_has_hook: "도웰바 갈고리 사용",
+    is_single_face: "단면(편측) 배근 — 체크 안 하면 양면으로 계산",
   };
 
   // structPreview = { job_id, annotated_pages, checklist, warnings }.
@@ -5889,6 +7325,22 @@ body.cbl-modal-open {
 
     var overlay = document.createElement("div");
     overlay.className = "qty-review-overlay";
+
+    var incompleteReasons = structPreview.extraction_incomplete ? (structPreview.incomplete_reasons || []) : [];
+    var incompleteBannerHtml = incompleteReasons.length
+      ? (
+          '<div class="qty-review-incomplete-banner" id="qty-review-incomplete-banner">' +
+            '<div class="qty-review-incomplete-banner-title">⚠ 도면 인식이 불완전할 수 있어요</div>' +
+            '<ul class="qty-review-incomplete-banner-reasons">' +
+              incompleteReasons.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join("") +
+            '</ul>' +
+            '<label class="qty-review-incomplete-banner-ack">' +
+              '<input type="checkbox" id="qty-review-incomplete-ack">' +
+              '위 내용을 확인했고, 그래도 이 결과로 진행할게요' +
+            '</label>' +
+          '</div>'
+        )
+      : "";
 
     var checklistHtml = checklist.length
       ? checklist.map(function (item, i) {
@@ -5918,16 +7370,51 @@ body.cbl-modal-open {
           var jumpHtml = (item.bbox_page != null)
             ? '<span class="qty-review-item-jump" data-jump-page="' + esc(item.bbox_page) + '">도면에서 보기</span>'
             : "";
+          var dedupFlagHtml = item.dedup_flag
+            ? '<div class="qty-review-item-dedup-flag">⚠ ' + esc(item.dedup_flag) + '</div>'
+            : "";
+          // 세분화 배근(rebar_layers): role/size/spacing_m/count 등을 담은 리스트라
+          // 위의 스칼라 fields와는 별도로, 읽기전용 요약(항상 표시) + 편집용 JSON
+          // 텍스트영역(체크해서 수정모드로 들어갔을 때만 표시)으로 보여준다.
+          var rebarLayers = item.rebar_layers || [];
+          var rebarLayersSummaryHtml = rebarLayers.length
+            ? (
+                '<div class="qty-review-rebar-layers-summary">' +
+                  '<div class="qty-review-rebar-layers-title">세분화 배근 (' + rebarLayers.length + '건)</div>' +
+                  '<ul class="qty-review-rebar-layers-list">' +
+                    rebarLayers.map(function (l) {
+                      var bits = [l.role || "?"];
+                      if (l.position) bits.push(l.position);
+                      if (l.direction) bits.push(l.direction + "방향");
+                      if (l.strip) bits.push(l.strip);
+                      if (l.zone) bits.push(l.zone);
+                      if (l.size) bits.push(l.size);
+                      if (l.count) bits.push(l.count + "가닥");
+                      if (l.spacing_m) bits.push("@" + l.spacing_m + "m");
+                      return "<li>" + esc(bits.join(" ")) + "</li>";
+                    }).join("") +
+                  '</ul>' +
+                '</div>'
+              )
+            : "";
+          var rebarLayersEditHtml =
+            '<div class="qty-review-rebar-layers-edit-wrap">' +
+              '<div class="qty-review-rebar-layers-edit-label">세분화 배근 JSON (역할·규격·간격·개수를 직접 고칠 수 있어요. 빈 배열 []이면 세분화 배근 없이 계산돼요)</div>' +
+              '<textarea class="qty-review-rebar-layers-edit" data-field="rebar_layers" rows="6">' + esc(JSON.stringify(rebarLayers, null, 2)) + '</textarea>' +
+            '</div>';
           return (
-            '<div class="qty-review-item" data-review-id="' + esc(item.review_id) + '" data-idx="' + i + '">' +
+            '<div class="qty-review-item' + (item.dedup_flag ? ' qty-review-item-dedup' : '') + '" data-review-id="' + esc(item.review_id) + '" data-idx="' + i + '">' +
               '<label class="qty-review-item-head">' +
                 '<input type="checkbox" class="qty-review-flag-cb">' +
                 '<span class="qty-review-item-label">[' + esc(item.category) + '] ' + esc(item.mark || "무명") + jumpHtml + '</span>' +
               '</label>' +
               (metaBits.length ? '<div class="qty-review-item-meta">' + esc(metaBits.join(" · ")) + '</div>' : "") +
+              dedupFlagHtml +
+              rebarLayersSummaryHtml +
               '<div class="qty-review-edit-fields" hidden>' +
                 '<div class="qty-review-remove-row"><label><input type="checkbox" class="qty-review-remove-cb"> 이 항목은 잘못 인식됐어요 (물량에서 제외)</label></div>' +
                 fieldsHtml +
+                rebarLayersEditHtml +
               '</div>' +
             '</div>'
           );
@@ -5943,6 +7430,7 @@ body.cbl-modal-open {
           '</div>' +
           '<button type="button" class="qty-review-close-btn" id="qty-review-close">×</button>' +
         '</div>' +
+        incompleteBannerHtml +
         '<div class="qty-review-body">' +
           '<div class="qty-review-checklist-pane">' + checklistHtml + '</div>' +
           '<div class="qty-review-viewer-pane">' +
@@ -6043,6 +7531,14 @@ body.cbl-modal-open {
     var proceedBtn = overlay.querySelector("#qty-review-proceed");
     var errorEl = overlay.querySelector("#qty-review-error");
 
+    if (incompleteReasons.length) {
+      proceedBtn.disabled = true;
+      var ackCb = overlay.querySelector("#qty-review-incomplete-ack");
+      ackCb.addEventListener("change", function () {
+        proceedBtn.disabled = !ackCb.checked;
+      });
+    }
+
     proceedBtn.addEventListener("click", function () {
       var corrections = [];
       overlay.querySelectorAll(".qty-review-item").forEach(function (itemEl) {
@@ -6098,7 +7594,7 @@ body.cbl-modal-open {
     renderPage();
   }
 
-  async function runQuantityAnalysis() {
+  async function runQuantityAnalysis(confirmedGeneralSpec) {
     // 진행률 폴링용 job_id — 업로드 요청에 같이 실어보내면, 서버가 배치 처리 중간중간
     // /api/quantity/progress/ 로 조회 가능한 상태를 남겨준다.
     //
@@ -6227,17 +7723,22 @@ body.cbl-modal-open {
       if (progressTextEl && pdata.label) progressTextEl.textContent = pdata.label;
     }, 1500);
 
-    var zipFile = state.cadFiles.find(function (f) { return f.name.toLowerCase().endsWith(".zip"); });
-    var pdfFile = state.pdfFiles[0];
-    var elevZipFile = state.elevCadFiles.find(function (f) { return f.name.toLowerCase().endsWith(".zip"); });
-    var elevPdfFile = state.elevPdfFiles[0];
-
     var fd = new FormData();
     fd.append("job_id", jobId);
-    if (zipFile) fd.append("structural_zip", zipFile);
-    if (pdfFile) fd.append("structural_pdf", pdfFile);
-    if (elevZipFile) fd.append("architectural_zip", elevZipFile);
-    if (elevPdfFile) fd.append("architectural_pdf", elevPdfFile);
+    // review_id 상태머신: 서버는 이 값으로 개요/구조일반사항/지하주차장 평면도가
+    // 실제로 전부 확정됐는지 확인한 뒤에만 본 추출을 시작한다(확정 안 됐으면 409).
+    // confirmed_general_spec은 더 이상 서버가 신뢰하지 않는다 — 참고용으로만 같이
+    // 보내지만, 실제로 쓰이는 값은 review_id 기록에 서버가 저장해둔 값이다.
+    fd.append("review_id", ensureReviewId());
+    state.cadFiles.forEach(function (f) { fd.append("cad_files", f); });
+    // overview-check 단계와 정확히 같은 낱장 PDF 전체를 그대로 다시 보내야 한다 —
+    // 서버가 두 단계에서 같은 병합 결과(해시)를 얻어야 확정 상태가 유지된다. 첫
+    // 파일만 보내던 예전 버그는 여러 파일을 고른 경우 "파일이 바뀌었다"는 409로
+    // 확정 상태가 초기화되는 원인이었다.
+    state.pdfFiles.forEach(function (f) { fd.append("structural_pdf", f); });
+    state.elevCadFiles.forEach(function (f) { fd.append("cad_files", f); });
+    state.elevPdfFiles.forEach(function (f) { fd.append("architectural_pdf", f); });
+    if (confirmedGeneralSpec) fd.append("confirmed_general_spec", JSON.stringify(confirmedGeneralSpec));
 
     // ── 작업 시작 요청 — 이제 이 fetch는 파일을 넘기고 "백그라운드 작업이 시작됐다"는
     //    확인(accepted)만 받으면 끝이라 보통 1초 안에 끝난다. 실제 결과는 위 폴링
@@ -6419,7 +7920,24 @@ body.cbl-modal-open {
 
     var CONCRETE_COLORS = [0x2f6f8f, 0x3a7ca5, 0x4a90b8, 0x5aa5c9, 0x6bb9da];
     var FORMWORK_COLOR = 0xf9c20a; // 사이트 브랜드 노란색 — 거푸집 강조용
-    var REBAR_COLOR = 0xff5b4d; // 철근 개략 표시용
+    // 철근 종류별 색상 구분 — 주근(수직) = 빨강, 후프/스터럽(수평) = 노랑,
+    // 슬래브 상부근 = 파랑, 슬래브 하부근 = 초록, 보강근/다월 = 보라.
+    var REBAR_VERTICAL_COLOR = 0xff5b4d; // 주근/수직근 계열
+    var REBAR_RING_COLOR = 0xffd400; // 후프/스터럽/수평근 계열
+    var REBAR_SLAB_TOP_COLOR = 0x2b7de9;
+    var REBAR_SLAB_BOTTOM_COLOR = 0x2ecc71;
+    var REBAR_REINFORCE_COLOR = 0x9b59b6; // 보강근/다월/개구부보강근 계열
+
+    function rebarLayerColor(layer, category) {
+      var role = (layer && layer.role) || "";
+      if (category === "슬래브" && role === "주근") {
+        return layer.position === "하부" ? REBAR_SLAB_BOTTOM_COLOR : REBAR_SLAB_TOP_COLOR;
+      }
+      if (role === "주근" || role === "수직근") return REBAR_VERTICAL_COLOR;
+      if (role === "후프" || role === "타이" || role === "스터럽" || role === "수평근" || role === "배력근") return REBAR_RING_COLOR;
+      if (role === "단부보강근" || role === "모서리보강근" || role === "교차부보강근" || role === "개구부보강근") return REBAR_REINFORCE_COLOR;
+      return REBAR_VERTICAL_COLOR;
+    }
 
     var geoms = [];
     var floorEntries = []; // { group, concreteMesh, concreteMat, formworkGroup, rebarGroup }
@@ -6491,7 +8009,7 @@ body.cbl-modal-open {
         var vGeo = new THREE.BufferGeometry();
         vGeo.setAttribute("position", new THREE.BufferAttribute(vPositions, 3));
         geoms.push(vGeo);
-        rebarGroup.add(new THREE.LineSegments(vGeo, new THREE.LineBasicMaterial({ color: REBAR_COLOR })));
+        rebarGroup.add(new THREE.LineSegments(vGeo, new THREE.LineBasicMaterial({ color: REBAR_VERTICAL_COLOR })));
       }
 
       if (ringsPerFloor > 0) {
@@ -6512,7 +8030,7 @@ body.cbl-modal-open {
         var rGeo = new THREE.BufferGeometry();
         rGeo.setAttribute("position", new THREE.BufferAttribute(rPositions, 3));
         geoms.push(rGeo);
-        rebarGroup.add(new THREE.LineSegments(rGeo, new THREE.LineBasicMaterial({ color: REBAR_COLOR })));
+        rebarGroup.add(new THREE.LineSegments(rGeo, new THREE.LineBasicMaterial({ color: REBAR_RING_COLOR })));
       }
 
       rebarGroup.visible = false;
@@ -6525,6 +8043,74 @@ body.cbl-modal-open {
         rebarGroup: rebarGroup,
       });
     });
+
+    // ── 부재별 상세보기: 클릭으로 선택한 부재의 세분화 배근(rebar_layers)만 색상 구분해서
+    // 보여준다. 실제 X/Y 좌표는 도면에서 추출하지 않으므로, 건물 매싱 옆 별도 공간에
+    // 스키매틱하게(참고용, 실제 배치 아님) 그린다 — 전체/층별 보기와는 다른 용도.
+    var memberDetailGroup = new THREE.Group();
+    memberDetailGroup.visible = false;
+    group.add(memberDetailGroup);
+    var memberDetailGeoms = [];
+    memberDetailGroup.position.set(side / 2 + Math.max(2, side * 0.15) + 1.5, totalH / 2, 0);
+
+    function clearMemberDetail() {
+      while (memberDetailGroup.children.length) {
+        var c = memberDetailGroup.children.pop();
+        memberDetailGroup.remove(c);
+      }
+      memberDetailGeoms.forEach(function (g) { g.dispose(); });
+      memberDetailGeoms = [];
+    }
+
+    function showMemberDetail(entry) {
+      clearMemberDetail();
+      if (!entry || !entry.rebar_layers || !entry.rebar_layers.length) {
+        memberDetailGroup.visible = false;
+        return;
+      }
+      memberDetailGroup.visible = true;
+      var boxSize = Math.max(2, Math.min(side, totalH) * 0.28);
+      var half = boxSize / 2;
+      entry.rebar_layers.forEach(function (layer) {
+        var color = rebarLayerColor(layer, entry.category);
+        var mat = new THREE.LineBasicMaterial({ color: color });
+        if (layer.spacing_m && layer.spacing_m > 0) {
+          // 간격(spacing_m) 기반 배근 — 후프/스터럽/수평근처럼 여러 겹의 사각 링으로 표시.
+          var n = Math.max(2, Math.min(20, Math.round(boxSize / Math.max(layer.spacing_m, 0.05))));
+          var positions = new Float32Array(n * 8 * 3);
+          for (var ri = 0; ri < n; ri++) {
+            var y = -half + (boxSize * (ri + 0.5) / n);
+            var corners = [[-half, -half], [half, -half], [half, half], [-half, half]];
+            for (var ci = 0; ci < 4; ci++) {
+              var p0 = corners[ci], p1 = corners[(ci + 1) % 4];
+              var base = (ri * 4 + ci) * 6;
+              positions[base] = p0[0]; positions[base + 1] = y; positions[base + 2] = p0[1];
+              positions[base + 3] = p1[0]; positions[base + 4] = y; positions[base + 5] = p1[1];
+            }
+          }
+          var geo = new THREE.BufferGeometry();
+          geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+          memberDetailGeoms.push(geo);
+          memberDetailGroup.add(new THREE.LineSegments(geo, mat));
+        } else {
+          // 개수(count) 기반 배근 — 주근/수직근처럼 세로선 다발로 표시.
+          var count = Math.max(1, Math.min(24, layer.count || 4));
+          var positions2 = new Float32Array(count * 2 * 3);
+          for (var vi = 0; vi < count; vi++) {
+            var angle = (vi / count) * Math.PI * 2;
+            var rx = Math.cos(angle) * half * 0.85;
+            var rz = Math.sin(angle) * half * 0.85;
+            var base2 = vi * 6;
+            positions2[base2] = rx; positions2[base2 + 1] = -half; positions2[base2 + 2] = rz;
+            positions2[base2 + 3] = rx; positions2[base2 + 4] = half; positions2[base2 + 5] = rz;
+          }
+          var geo2 = new THREE.BufferGeometry();
+          geo2.setAttribute("position", new THREE.BufferAttribute(positions2, 3));
+          memberDetailGeoms.push(geo2);
+          memberDetailGroup.add(new THREE.LineSegments(geo2, mat));
+        }
+      });
+    }
 
     group.position.y = -totalH / 2;
 
@@ -6585,6 +8171,7 @@ body.cbl-modal-open {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       geoms.forEach(function (g) { g.dispose(); });
+      clearMemberDetail();
       renderer.dispose();
     };
 
@@ -6621,6 +8208,11 @@ body.cbl-modal-open {
           fe.concreteMat.clippingPlanes = applyClip ? [sectionPlane] : [];
         });
         canvas.style.cursor = enabled ? "default" : "grab";
+      },
+      showMemberDetail: showMemberDetail,
+      clearMemberDetail: function () {
+        clearMemberDetail();
+        memberDetailGroup.visible = false;
       },
     };
 
@@ -6667,6 +8259,22 @@ body.cbl-modal-open {
       ? ("콘크리트/레미콘 " + totals.concrete_m3 + "m³ · 거푸집 " + totals.formwork_m2 + "m² · 철근 " + totals.rebar_ton + "ton (전체 건물 기준)" + barCountsText)
       : "수량 정보를 불러오지 못했어요.";
 
+    // 철근 색상 범례 — 부재별 보기에서 선택한 배근의 역할별 색상과 매칭된다.
+    var colorLegend = document.createElement("div");
+    colorLegend.style.cssText = "flex-shrink:0;padding:0 46px 8px 14px;font-size:10.5px;color:rgba(255,255,255,.7);background:rgba(255,255,255,.04);";
+    var legendItems = [
+      ["#ff5b4d", "주근·수직근"],
+      ["#ffd400", "후프·스터럽·수평근·배력근"],
+      ["#2b7de9", "슬래브 상부근"],
+      ["#2ecc71", "슬래브 하부근"],
+      ["#9b59b6", "보강근·다월·개구부보강근"],
+    ];
+    colorLegend.innerHTML = legendItems.map(function (li) {
+      return '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">' +
+        '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:' + li[0] + ';"></span>' +
+        esc(li[1]) + '</span>';
+    }).join("");
+
     // 컨트롤 바 (층 선택 + 토글)
     var controlBar = document.createElement("div");
     controlBar.style.cssText =
@@ -6707,6 +8315,93 @@ body.cbl-modal-open {
     controlBar.appendChild(rebarToggle.label);
     controlBar.appendChild(sectionToggle.label);
 
+    // 부재별 보기 — zone(도면 층 라벨) 선택 → 그 층 부재 목록 선택 → 선택한 부재의
+    // 세분화 배근만 색상 구분해서 별도 스키매틱 공간에 표시. 위 층 박스 선택(floorSelect)과는
+    // 서로 다른 출처(elevation_data vs 부재 zone 필드)라 독립적인 컨트롤로 둔다.
+    var memberByZone = lastMassingData.member_rebar_by_zone || [];
+    var memberBar = document.createElement("div");
+    memberBar.style.cssText =
+      "flex-shrink:0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 14px;" +
+      "background:rgba(255,255,255,.02);border-bottom:1px solid rgba(255,255,255,.08);" +
+      "font-size:11px;color:rgba(255,255,255,.8);";
+
+    if (memberByZone.length) {
+      var memberBarLabel = document.createElement("span");
+      memberBarLabel.textContent = "부재별 보기:";
+      memberBarLabel.style.cssText = "color:rgba(255,255,255,.55);";
+
+      var zoneSelect = document.createElement("select");
+      zoneSelect.style.cssText = "background:#132234;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:4px 6px;font-size:11px;";
+      var zoneOptNone = document.createElement("option");
+      zoneOptNone.value = "-1";
+      zoneOptNone.textContent = "층 선택…";
+      zoneSelect.appendChild(zoneOptNone);
+      memberByZone.forEach(function (z, i) {
+        var opt = document.createElement("option");
+        opt.value = String(i);
+        opt.textContent = z.zone + " (" + z.members.length + "개 부재)";
+        zoneSelect.appendChild(opt);
+      });
+
+      var memberSelect = document.createElement("select");
+      memberSelect.style.cssText = "background:#132234;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:4px 6px;font-size:11px;";
+      memberSelect.disabled = true;
+
+      var clearMemberBtn = document.createElement("button");
+      clearMemberBtn.type = "button";
+      clearMemberBtn.textContent = "선택 해제";
+      clearMemberBtn.style.cssText = "background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:4px 9px;font-size:11px;cursor:pointer;";
+
+      memberBar.appendChild(memberBarLabel);
+      memberBar.appendChild(zoneSelect);
+      memberBar.appendChild(memberSelect);
+      memberBar.appendChild(clearMemberBtn);
+
+      function fillMemberOptions() {
+        memberSelect.innerHTML = "";
+        var zi = parseInt(zoneSelect.value, 10);
+        if (zi === -1 || !memberByZone[zi]) {
+          memberSelect.disabled = true;
+          return;
+        }
+        var noneOpt = document.createElement("option");
+        noneOpt.value = "-1";
+        noneOpt.textContent = "부재 선택…";
+        memberSelect.appendChild(noneOpt);
+        memberByZone[zi].members.forEach(function (m, mi) {
+          var opt = document.createElement("option");
+          opt.value = String(mi);
+          opt.textContent = "[" + m.category + "] " + m.mark + (m.rebar_layers.length ? "" : " (배근 정보 없음)");
+          if (!m.rebar_layers.length) opt.disabled = true;
+          memberSelect.appendChild(opt);
+        });
+        memberSelect.disabled = false;
+      }
+
+      zoneSelect.addEventListener("change", function () {
+        fillMemberOptions();
+        if (sceneHandle) sceneHandle.controls.clearMemberDetail();
+      });
+      memberSelect.addEventListener("change", function () {
+        var zi = parseInt(zoneSelect.value, 10);
+        var mi = parseInt(memberSelect.value, 10);
+        if (!sceneHandle) return;
+        if (zi === -1 || mi === -1 || !memberByZone[zi]) {
+          sceneHandle.controls.clearMemberDetail();
+          return;
+        }
+        sceneHandle.controls.showMemberDetail(memberByZone[zi].members[mi]);
+      });
+      clearMemberBtn.addEventListener("click", function () {
+        zoneSelect.value = "-1";
+        fillMemberOptions();
+        if (sceneHandle) sceneHandle.controls.clearMemberDetail();
+      });
+    } else {
+      memberBar.textContent = "부재별 보기: 부재별 배근 데이터가 없어 이 도면에서는 지원하지 않아요.";
+      memberBar.style.color = "rgba(255,255,255,.5)";
+    }
+
     // 캔버스 영역
     var canvasWrap = document.createElement("div");
     canvasWrap.style.cssText = "position:relative;flex:1;min-height:0;";
@@ -6730,7 +8425,9 @@ body.cbl-modal-open {
     canvasWrap.appendChild(caption);
 
     panel.appendChild(legend);
+    panel.appendChild(colorLegend);
     panel.appendChild(controlBar);
+    panel.appendChild(memberBar);
     panel.appendChild(canvasWrap);
     panel.appendChild(closeBtn);
     overlay.appendChild(panel);
@@ -12660,11 +14357,19 @@ body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb:
 <style id="cbl-calendar-original-real-fix-style">
 /* 캘린더 크기 고정 */
 @media (min-width: 1101px) {
+  /* 2026-07-28 사용자 지적: "pc버전 크기는 아직 위에 일정들이 날짜를 가리네" —
+     PC(1101px 이상)에서만 캘린더 전체 높이를 590px로 못박고(overflow:hidden),
+     날짜 grid의 각 행도 grid-template-rows: repeat(6, minmax(0, 1fr))로 강제 균등분할
+     했었다. 이러면 reserveRowHeights()가 특정 주(week)의 버튼에 아무리 큰
+     min-height를 inline !important로 걸어도, grid 트랙 자체는 고정된 1/6 몫만
+     차지하고 더 커지지 않아 다음 주 행 위로 내용이 흘러넘쳤다(=날짜가 가려짐).
+     모바일은 이 미디어쿼리가 적용되지 않아 행이 실제로 자라서 정상이었다.
+     고정 높이/균등분할을 버리고 행이 내용(막대 줄 수)에 맞춰 자라도록 바꾼다. */
   body[data-cbl-url-name="home"] .cbl-second-calendar {
-    height: 590px !important;
     min-height: 590px !important;
-    max-height: 590px !important;
-    overflow: hidden !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
   }
 
   body[data-cbl-url-name="home"] .cbl-second-calendar-body {
@@ -12688,11 +14393,11 @@ body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb:
     min-height: 0 !important;
     display: grid !important;
     grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
-    grid-template-rows: repeat(6, minmax(0, 1fr)) !important;
+    grid-template-rows: repeat(6, minmax(46px, auto)) !important;
   }
 
   body[data-cbl-url-name="home"] .cbl-second-calendar-days button {
-    min-height: 0 !important;
+    min-height: 46px !important;
     height: auto !important;
     max-height: none !important;
   }
@@ -13211,6 +14916,69 @@ html body[data-cbl-url-name="home"] .cbl-calendar-overlay-bar.is-single {
     layer.appendChild(bar);
   }
 
+  // 2026-07-28 사용자 지적: "왜 일자를 없애 일자 밑에 들어가야지" — 여러 일정이 겹쳐서
+  // 같은 주에 막대가 2~3줄 쌓이면(lane 0/1/2), 그 막대들이 실제 차지하는 세로 공간을
+  // 요일 버튼 자체는 모른 채 그 위에 절대좌표로만 얹히기 때문에, 막대 줄 수가 늘어날수록
+  // 다음 주 요일 숫자를 덮어버렸다(사용자가 본 "일자가 사라짐" 현상). 그려지는 막대
+  // 줄 수를 미리 계산해서 그 주의 요일 버튼 높이를 늘려(min-height 강제) 다음 줄을
+  // 밀어내는 방식으로 고친다 — 픽셀 위치(offsetTop) 대신 DOM 순서 기반 행 인덱스로
+  // 계산해야 "늘렸더니 오프셋이 바뀌는" 닭과 달걀 문제가 안 생긴다.
+  function reserveRowHeights(state) {
+    const allButtons = Array.from(document.querySelectorAll('.cbl-second-calendar-days > button'));
+    if (!allButtons.length) return;
+
+    // 이전에 늘려둔 높이를 먼저 초기화해야 일정이 줄었을 때(달을 넘기거나 삭제 등)
+    // 불필요하게 커진 행이 그대로 남지 않는다.
+    allButtons.forEach(function (btn) {
+      btn.style.removeProperty('min-height');
+    });
+
+    const monthStart = new Date(state.year, state.month - 1, 1);
+    const monthEnd = new Date(state.year, state.month, 0);
+
+    const rowIndexByDateKey = {};
+    allButtons.forEach(function (btn, i) {
+      const b = btn.querySelector('b');
+      const day = b ? parseInt(b.textContent, 10) : NaN;
+      if (!day || btn.classList.contains('muted') || btn.disabled) return;
+      rowIndexByDateKey[dateKey(state.year, state.month, day)] = Math.floor(i / 7);
+    });
+
+    const laneCountByRowIndex = {};
+    (state.events || []).slice(0, 30).forEach(function (ev) {
+      let start = parseDate(ev.date);
+      let end = parseDate(ev.end_date || ev.date);
+      if (!start || !end) return;
+      if (end < monthStart || start > monthEnd) return;
+      if (start < monthStart) start = monthStart;
+      if (end > monthEnd) end = monthEnd;
+
+      let cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      while (cursor <= end) {
+        const segStart = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate());
+        const daysToSat = 6 - segStart.getDay();
+        let segEnd = addDays(segStart, daysToSat);
+        if (segEnd > end) segEnd = end;
+
+        const rowIndex = rowIndexByDateKey[keyFromDate(segStart)];
+        if (rowIndex !== undefined) {
+          laneCountByRowIndex[rowIndex] = (laneCountByRowIndex[rowIndex] || 0) + 1;
+        }
+        cursor = addDays(segEnd, 1);
+      }
+    });
+
+    allButtons.forEach(function (btn, i) {
+      const rowIndex = Math.floor(i / 7);
+      const lanes = Math.min(3, laneCountByRowIndex[rowIndex] || 0);
+      if (lanes > 0) {
+        // 30px: 요일 숫자 영역, 19px: 막대 한 줄 높이(lane당), 8px: 여유
+        const needed = 30 + lanes * 19 + 8;
+        btn.style.setProperty('min-height', needed + 'px', 'important');
+      }
+    });
+  }
+
   function drawOverlayBars() {
     const state = window.cblHomeCalendarGetState ? window.cblHomeCalendarGetState() : null;
     const daysEl = document.querySelector('.cbl-second-calendar-days');
@@ -13222,6 +14990,8 @@ html body[data-cbl-url-name="home"] .cbl-calendar-overlay-bar.is-single {
     daysEl.querySelectorAll('.cbl-calendar-overlay-layer').forEach(function (el) {
       el.remove();
     });
+
+    reserveRowHeights(state);
 
     const layer = document.createElement('div');
     layer.className = 'cbl-calendar-overlay-layer';
@@ -13242,7 +15012,6 @@ html body[data-cbl-url-name="home"] .cbl-calendar-overlay-bar.is-single {
       if (end > monthEnd) end = monthEnd;
 
       let cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-      let firstSegment = true;
 
       while (cursor <= end) {
         const segStart = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate());
@@ -13261,17 +15030,20 @@ html body[data-cbl-url-name="home"] .cbl-calendar-overlay-bar.is-single {
           const lane = Math.min(2, laneByRow[row]);
           laneByRow[row] += 1;
 
+          // 2026-07-28 사용자 지적: "막대기가 깨지지 않어?" — 여러 주에 걸치는 일정의
+          // 2주차 이후 이어지는 막대가 제목 없이 빈 색상 띠로만 나와서 깨진 것처럼
+          // 보였다. 원래는 첫 주 구간에만 제목을 넣고 이어지는 구간은 빈 텍스트였는데,
+          // 매 주 구간마다 제목을 반복 표시하도록 바꾼다(구글 캘린더 등 흔한 방식).
           createSegment(
             layer,
             ev,
             startKey,
             endKey,
             lane,
-            firstSegment ? (ev.title || '일정') : ''
+            ev.title || '일정'
           );
         }
 
-        firstSegment = false;
         cursor = addDays(segEnd, 1);
       }
     });
@@ -15518,19 +17290,6 @@ document.addEventListener('click', function(e){
       scrollBottom();
     }
 
-    function firstZipFile() {
-      return state.cadFiles.find(function (file) {
-        return file.name.toLowerCase().endsWith(".zip");
-      });
-    }
-
-    function firstCadFile() {
-      return state.cadFiles.find(function (file) {
-        var name = file.name.toLowerCase();
-        return name.endsWith(".dwg") || name.endsWith(".dxf");
-      });
-    }
-
     function firstPdfFile() {
       return state.pdfFiles[0] || null;
     }
@@ -15595,14 +17354,14 @@ document.addEventListener('click', function(e){
     }
 
     async function checkZipFiles() {
-      var zipFile = firstZipFile();
+      var cadFiles = state.cadFiles.slice();
 
       addUser("도면 목록 확인을 진행합니다.");
       nextBtn.disabled = true;
       nextBtn.textContent = "확인 중";
 
-      if (!zipFile) {
-        addBot("ZIP 파일이 없어 ZIP 내부 도면명 체크는 생략했습니다.<br>현재 업로드된 CAD/PDF 기준으로 다음 단계 진행이 가능합니다.");
+      if (!cadFiles.length) {
+        addBot("검토할 CAD ZIP/DWG/DXF 파일이 없습니다.");
         state.checked = true;
         nextBtn.disabled = false;
         nextBtn.textContent = "AI 수량산출 시작";
@@ -15611,8 +17370,9 @@ document.addEventListener('click', function(e){
 
       try {
         var fd = new FormData();
-        fd.append("zip_file", zipFile);
-        fd.append("structural_zip", zipFile);
+        cadFiles.forEach(function (file) {
+          fd.append("cad_files", file);
+        });
 
         var res = await fetch("/api/quantity/check-zip/", {
           method: "POST",
@@ -15630,32 +17390,52 @@ document.addEventListener('click', function(e){
         }
 
         if (!res.ok || data.error) {
-          addBot("ZIP 도면 확인 중 오류가 발생했습니다.<br>" + esc(data.error || "서버 응답을 확인해 주세요."));
+          addBot("CAD 기본도면 확인 중 오류가 발생했습니다.<br>" + esc(data.error || "서버 응답을 확인해 주세요."));
         } else {
-          var found = data.found_structural;
-          var total = data.total_structural;
-          var missing = data.missing_structural || data.missing || [];
+          var scan = data.scan || {};
+          var statusLabels = {
+            confirmed: "확인됨",
+            candidate_unverified: "후보 발견",
+            missing: "파일 없음",
+            scan_incomplete: "업로드 탐색 미완료"
+          };
 
-          if (found === undefined) found = data.found_count || 0;
-          if (total === undefined) total = data.total_count || data.required_total || 0;
+          function checklistHtml(title, items) {
+            var rows = (items || []).map(function (item) {
+              var status = statusLabels[item.status] || item.status || "확인 필요";
+              var files = (item.files || []).map(function (file) {
+                var duplicateNote = (file.duplicate_locations || []).length
+                  ? " · 중복 " + file.duplicate_locations.length + "개"
+                  : "";
+                return (
+                  '<div style="margin:3px 0 0 12px;color:#475569;">' +
+                    esc(file.filename) + '<br>' +
+                    '<span style="color:#64748b;">위치: ' + esc(file.path) +
+                    ' · 분류: ' + esc(file.source_folder || "루트/기타") +
+                    ' · 업로드: ' + esc(file.upload_name || "") + esc(duplicateNote) + '</span>' +
+                  '</div>'
+                );
+              }).join("");
+              var verification = item.status === "candidate_unverified"
+                ? '<div style="margin-left:12px;color:#b45309;">파일은 찾았지만 실제 내용 확인이 필요합니다</div>'
+                : "";
+              return (
+                '<div style="margin-top:8px;">' +
+                  '<b>' + esc(item.name) + ' — ' + esc(status) + '</b>' +
+                  files + verification +
+                '</div>'
+              );
+            }).join("");
+            addStatus("<b>" + esc(title) + "</b>" + rows);
+          }
 
-          addBot("ZIP 내부 도면 확인 결과입니다.<br><b>확인된 구조도면: " + esc(found) + " / " + esc(total) + "</b>");
-
-          if (Array.isArray(missing) && missing.length) {
-            var rows = missing.slice(0, 10).map(function (item) {
-              if (typeof item === "string") return "• " + esc(item);
-              return "• " + esc(item.code || "") + " " + esc(item.name || item.title || "");
-            }).join("<br>");
-
-            addStatus(
-              "<b>누락 가능 도면</b><br>" +
-              rows +
-              (missing.length > 10 ? "<br>외 " + (missing.length - 10) + "개" : "")
-            );
-
-            addBot("누락된 도면이 일부 있습니다. 그래도 현재 업로드된 도면 기준으로 부분 산출을 진행할 수 있습니다.");
-          } else {
-            addBot("필수 구조도면이 모두 확인됐거나, 누락 목록이 없습니다.<br>이제 AI 수량산출을 시작할 수 있습니다.");
+          addBot(
+            "전체 CAD 업로드와 하위 폴더 탐색 결과입니다.<br>" +
+            "<b>업로드 " + esc(scan.upload_count || cadFiles.length) + "개 · CAD " +
+            esc(scan.cad_count || 0) + "개</b>"
+          );
+          if (scan.complete === false) {
+            addBot("<b>업로드 탐색 미완료</b><br>일부 업로드를 모두 확인하지 못해 파일 없음으로 단정하지 않습니다.");
           }
         }
       } catch (err) {
@@ -15680,6 +17460,12 @@ document.addEventListener('click', function(e){
         var cadFile = firstCadFile();
         var pdfFile = firstPdfFile();
 
+          if (scan.parse_capped) {
+            addBot("내용 파싱 안전 상한이 적용됐습니다. 파일명 후보는 전체 CAD 목록에서 먼저 찾았으며, 파싱되지 않은 후보는 내용 확인 필요 상태로 표시합니다.");
+          }
+          checklistHtml("구조 기본도면", data.structural_checklist);
+          checklistHtml("건축 기본도면", data.architectural_checklist);
+          addBot("후보 또는 미확인 도면이 있어도 현재 업로드 기준으로 수량산출을 계속할 수 있습니다.");
         var fd = new FormData();
 
         if (zipFile) {

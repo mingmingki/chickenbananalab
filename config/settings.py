@@ -280,3 +280,44 @@ CACHES["external_api"] = {
     },
 }
 # CBL_EXTERNAL_API_SHARED_CACHE_END
+
+# CBL_QUANTITY_FILE_LOGGING_START
+# 사업개요 자동판독(quantity_overview_locator 등 core.quantity_views 로거)이 콘솔에만
+# 찍히고 파일로 남지 않아서, 실제 서버에서 실패한 원인을 나중에 재구성할 수 없었다
+# (2026-07-27) — 로그 파일 핸들러를 추가해 다음에도 같은 문제가 생기면 페이지별
+# 판독 근거(text_score/predicted_type/selection_reason 등)를 그대로 확인할 수 있게 한다.
+_CBL_LOG_DIR = BASE_DIR / "logs"
+_CBL_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "cbl_verbose": {
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        },
+    },
+    "handlers": {
+        "cbl_quantity_overview_file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": str(_CBL_LOG_DIR / "quantity_overview.log"),
+            "maxBytes": 10 * 1024 * 1024,  # 10MB
+            "backupCount": 3,
+            "formatter": "cbl_verbose",
+            "level": "INFO",
+        },
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "cbl_verbose",
+            "level": "INFO",
+        },
+    },
+    "loggers": {
+        "core.quantity_views": {
+            "handlers": ["cbl_quantity_overview_file", "console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
+# CBL_QUANTITY_FILE_LOGGING_END

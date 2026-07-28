@@ -1,4 +1,5 @@
 import json
+import logging
 import traceback
 from datetime import datetime, time, timedelta
 
@@ -20,6 +21,14 @@ from core.models import (
 )
 from core.naver_news import recommend_keywords_from_news
 from core.keyword_dedupe import unpack_recommendation, is_duplicate_candidate, build_news_context
+from core.cbl_category_policy import (
+    CBL_PUBLIC_CATEGORY_CHOICES,
+    cbl_auto_category_prompt_guide,
+    cbl_resolve_auto_post_category,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 # CBL_AUTO_WRITER_CATEGORY_STYLE_START
@@ -199,6 +208,10 @@ def build_auto_extra_prompt(queue_item):
 - 같은 표현과 문장 구조를 반복하지 말 것
 - 본문에는 h2, h3, p, ul, li 태그를 적절히 사용
 - 본문 최상단에 h1 태그는 절대 사용하지 말 것
+
+카테고리를 반환하는 경우 아래 canonical 저장값 중 하나만 사용하세요.
+표시명이나 legacy 값인 "테크", "tech", "기술 일반"은 반환하지 마세요.
+{cbl_auto_category_prompt_guide()}
 """.strip()
 
     if experience_vault_text:
@@ -252,8 +265,34 @@ def save_ai_data_to_post(ai_data, queue_item, setting):
     content = replace_image_placeholders(content, inline_image_blocks)
     content = normalize_html_spaces(content)
 
+    raw_category = ai_data.get("category") or queue_item.category
+    canonical_category, category_diagnostics = cbl_resolve_auto_post_category(
+        raw_category,
+        title=ai_data.get("title", queue_item.keyword),
+        summary=ai_data.get("summary", ""),
+        content=content,
+    )
+    logger.info(
+        "auto_post_category_resolved raw_category=%r normalized_before=%r "
+        "canonical_category=%r legacy_mapping_used=%s fallback_reason=%s",
+        raw_category,
+        category_diagnostics.get("normalized_before"),
+        canonical_category,
+        category_diagnostics.get("legacy_mapping_used"),
+        category_diagnostics.get("fallback_reason") or "",
+    )
+    if canonical_category is None:
+        logger.error(
+            "auto_post_category_rejected raw_category=%r normalized_before=%r "
+            "fallback_reason=%s",
+            raw_category,
+            category_diagnostics.get("normalized_before"),
+            category_diagnostics.get("fallback_reason"),
+        )
+        raise ValueError("자동글 카테고리를 현재 허용 목록으로 안전하게 분류하지 못했습니다.")
+
     post = Post.objects.create(
-        category=queue_item.category,
+        category=canonical_category,
         title=ai_data.get("title", queue_item.keyword),
         thumbnail_text=ai_data.get("thumbnail_text", ""),
         content=content,
@@ -288,20 +327,28 @@ def save_ai_data_to_post(ai_data, queue_item, setting):
 
 
 # CBL_AUTO_NAVER_QUEUE_V25_START
-AUTO_NAVER_CATEGORY_ORDER = [
-    ("architecture", "건축"),
-    ("realestate", "부동산"),
-    ("finance", "금융"),
-    ("tech", "테크"),
-    ("life", "일상"),
-]
+AUTO_NAVER_CATEGORY_ORDER = CBL_PUBLIC_CATEGORY_CHOICES
+
+AUTO_NAVER_SETTING_FIELDS = {
+    "construction_work": "use_architecture",
+    "construction_tech": "use_construction_tech",
+    "construction_real": "use_realestate",
+    "bim": "use_bim",
+    "dynamo_automation": "use_dynamo_automation",
+    "four_d_five_d": "use_four_d_five_d",
+    "tech_ai_development": "use_tech_ai_development",
+    "tech_data_security": "use_tech_data_security",
+    "tech_server_software": "use_tech_server_software",
+    "program": "use_program",
+    "tool_recommend": "use_tool_recommend",
+}
 
 
 def get_enabled_auto_news_categories(setting):
     enabled = []
 
     for category, label in AUTO_NAVER_CATEGORY_ORDER:
-        field_name = f"use_{category}"
+        field_name = AUTO_NAVER_SETTING_FIELDS[category]
 
         if bool(getattr(setting, field_name, False)):
             enabled.append((category, label))
@@ -570,10 +617,30 @@ class Command(BaseCommand):
         try:
             extra_prompt = build_auto_extra_prompt(queue_item)
 
-            auto_writing_style = cbl_auto_writing_style_by_category(queue_item.category)
+            generation_category, category_diagnostics = cbl_resolve_auto_post_category(
+                queue_item.category,
+                title=queue_item.keyword,
+                summary=getattr(queue_item, "reason", ""),
+            )
+            logger.info(
+                "auto_post_category_before_generation raw_category=%r "
+                "normalized_before=%r canonical_category=%r "
+                "legacy_mapping_used=%s fallback_reason=%s",
+                queue_item.category,
+                category_diagnostics.get("normalized_before"),
+                generation_category,
+                category_diagnostics.get("legacy_mapping_used"),
+                category_diagnostics.get("fallback_reason") or "",
+            )
+            if generation_category is None:
+                raise ValueError(
+                    "대기열 카테고리를 현재 허용 목록으로 안전하게 분류하지 못했습니다."
+                )
+
+            auto_writing_style = cbl_auto_writing_style_by_category(generation_category)
 
             ai_data = generate_ai_post(
-                category=queue_item.category,
+                category=generation_category,
                 keywords=queue_item.keyword,
                 writing_style=auto_writing_style,
                 extra_prompt=extra_prompt,

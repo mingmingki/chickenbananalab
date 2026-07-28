@@ -53,3 +53,4 @@ websockets==16.0
 yfinance==1.4.1
 google-genai==2.7.0
 reportlab>=4.4,<5
+pypdf>=6.0,<7

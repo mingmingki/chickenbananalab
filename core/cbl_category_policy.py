@@ -27,6 +27,8 @@ CBL_LEGACY_CATEGORY_CHOICES = [
 CBL_MODEL_CATEGORY_CHOICES = CBL_PUBLIC_CATEGORY_CHOICES + CBL_LEGACY_CATEGORY_CHOICES
 
 CBL_CATEGORY_LABELS = dict(CBL_MODEL_CATEGORY_CHOICES)
+CBL_PUBLIC_CATEGORY_CODES = tuple(code for code, _label in CBL_PUBLIC_CATEGORY_CHOICES)
+CBL_PUBLIC_CATEGORY_CODE_SET = frozenset(CBL_PUBLIC_CATEGORY_CODES)
 
 CBL_AI_CATEGORY_GUIDE = {
     "construction_work": {
@@ -97,3 +99,137 @@ def cbl_category_label(slug):
 
 def cbl_ai_category_guide(slug):
     return CBL_AI_CATEGORY_GUIDE.get(slug, {})
+
+
+_CBL_CATEGORY_LABEL_TO_CODE = {
+    str(label).strip().casefold(): code
+    for code, label in CBL_PUBLIC_CATEGORY_CHOICES
+}
+_CBL_CATEGORY_CODE_CASEFOLD = {
+    str(code).strip().casefold(): code
+    for code, _label in CBL_PUBLIC_CATEGORY_CHOICES
+}
+_CBL_LEGACY_TECH_VALUES = {
+    "tech", "테크", "기술", "기술일반", "기술 일반", "general tech",
+}
+_CBL_SAFE_LEGACY_CATEGORY_MAP = {
+    "architecture": "construction_work",
+    "건축": "construction_work",
+    "건설": "construction_work",
+    "realestate": "construction_real",
+    "real_estate": "construction_real",
+    "부동산": "construction_real",
+    "finance": "construction_real",
+    "금융": "construction_real",
+}
+
+_CBL_AUTO_CATEGORY_TERMS = {
+    "tech_ai_development": (
+        "ai", "인공지능", "llm", "대규모 언어 모델", "생성형", "에이전트",
+        "agent", "머신러닝", "machine learning", "딥러닝", "강화학습",
+        "강화 학습", "tpu", "gpu", "모델 실행", "모델 훈련", "훈련",
+        "프레임워크", "framework", "ray", "tunix", "개발", "코딩",
+        "python", "django", "api",
+    ),
+    "tech_data_security": (
+        "데이터베이스", "database", "개인정보", "보안", "security",
+        "암호화", "해킹", "인증", "접근제어", "데이터 분석", "데이터분석",
+        "빅데이터", "백업", "복구",
+    ),
+    "tech_server_software": (
+        "서버", "server", "네트워크", "network", "클라우드", "cloud",
+        "웹", "인터넷", "internet", "소프트웨어", "software", "호스팅",
+        "도메인", "dns", "ssl", "http",
+    ),
+    "bim": ("revit", "bim", "패밀리", "bim 협업", "도면검토"),
+    "dynamo_automation": ("dynamo", "다이나모", "노드", "파라미터 자동"),
+    "four_d_five_d": ("4d", "5d", "navisworks", "공정 시뮬레이션"),
+    "construction_work": (
+        "현장관리", "시공", "공사일보", "하자", "안전관리", "품질관리",
+    ),
+    "construction_tech": (
+        "스마트건설", "건설기술", "드론", "건설 로봇", "신공법",
+    ),
+    "construction_real": (
+        "분양", "청약", "재건축", "재개발", "공사비", "부동산",
+    ),
+    "program": ("업무용 프로그램", "설치법", "사용법", "pdf 프로그램"),
+    "tool_recommend": (
+        "툴 추천", "툴추천", "추천 도구", "생산성 도구", "ai 도구",
+    ),
+}
+
+
+def cbl_auto_category_prompt_guide():
+    """자동 분류 프롬프트와 관리자 선택지가 공유하는 정확한 저장값/표시명."""
+    return "\n".join(
+        f"- {code}: {label}"
+        for code, label in CBL_PUBLIC_CATEGORY_CHOICES
+    )
+
+
+def cbl_resolve_auto_post_category(raw_category, *, title="", summary="", content=""):
+    """
+    자동글 저장용 카테고리를 canonical code로 검증한다.
+
+    반환값은 (canonical 또는 None, diagnostics)이다. 허용 목록 밖 값이나 legacy
+    'tech'는 제목·요약·본문의 짧은 텍스트 근거로 재분류하며, 근거가 없을 때 임의의
+    첫 카테고리로 보내지 않는다.
+    """
+    raw_text = str(raw_category or "").strip()
+    folded = raw_text.casefold()
+    normalized = (
+        _CBL_CATEGORY_CODE_CASEFOLD.get(folded)
+        or _CBL_CATEGORY_LABEL_TO_CODE.get(folded)
+        or _CBL_SAFE_LEGACY_CATEGORY_MAP.get(folded)
+        or raw_text
+    )
+    legacy_mapping_used = folded in {
+        value.casefold() for value in _CBL_LEGACY_TECH_VALUES
+    }
+
+    if normalized in CBL_PUBLIC_CATEGORY_CODE_SET and not legacy_mapping_used:
+        return normalized, {
+            "raw_category": raw_text,
+            "normalized_before": normalized,
+            "canonical_category": normalized,
+            "legacy_mapping_used": False,
+            "fallback_reason": "",
+        }
+
+    searchable = " ".join(
+        str(value or "") for value in (title, summary, content)
+    ).casefold()[:12000]
+    scores = {}
+    for code, terms in _CBL_AUTO_CATEGORY_TERMS.items():
+        score = sum(
+            2 if len(term) >= 4 else 1
+            for term in terms
+            if term.casefold() in searchable
+        )
+        if score:
+            scores[code] = score
+
+    canonical = None
+    fallback_reason = "unsupported_category_without_text_evidence"
+    if scores:
+        top_score = max(scores.values())
+        winners = [code for code, score in scores.items() if score == top_score]
+        if len(winners) == 1:
+            canonical = winners[0]
+            fallback_reason = (
+                "legacy_tech_reclassified_from_content"
+                if legacy_mapping_used
+                else "unsupported_category_reclassified_from_content"
+            )
+        else:
+            fallback_reason = "ambiguous_text_evidence"
+
+    return canonical, {
+        "raw_category": raw_text,
+        "normalized_before": normalized,
+        "canonical_category": canonical,
+        "legacy_mapping_used": legacy_mapping_used,
+        "fallback_reason": fallback_reason,
+        "category_scores": scores,
+    }

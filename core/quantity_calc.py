@@ -44,6 +44,92 @@ def _with_waste(kg):
     return round(kg * REBAR_WASTE_FACTOR, 2)
 
 
+# 지피티 독립 검토로 재현/확인된 실제 버그: 모든 calc_* 함수가 개수(count)를
+# `it.get("count", 1) or 1` 관용구로 읽었는데, 이 표현은 "키가 아예 없음"과 "키는
+# 있는데 값이 0/None"을 구분하지 못한다 — 파이썬에서 0과 None이 모두 falsy라서 `or 1`
+# 폴백에 걸려 둘 다 조용히 "1개"로 둔갑한다. count=None은 두 가지 경우에서 생긴다:
+# (1) Gemini가 원본을 읽을 때부터 "몇 개인지 모르겠다"는 뜻으로 명시적으로 null을
+#     반환한 경우, (2) 원본이 0/음수 같은 무효값이어서 _sanitize_raw_members가
+#     안전하게 비워둔 경우. 두 경우 모두 "실제 개수를 모른다"는 뜻이지 "1개"라는
+#     뜻이 아니다 — 개수를 모르는 채로 1개라고 가정하면, 실제로는 부재가 여러 개인
+#     경우 물량이 크게 과소산출될 수 있다(반대로 count=-2 같은 값을 검증 없이 그대로
+#     계산에 넣으면 물량이 음수로 나오는 것도 별도로 확인됨). 그래서 "1개 기본값"은
+#     키 자체가 없을 때(=원본 데이터에 count 필드가 아예 없어서 아무 신호도 없는 경우)
+#     로만 한정하고, 키가 있는데 무효하면(None/0/음수/비정수) 그 부재를 계산에서
+#     제외해서 사용자가 검토 화면에서 직접 채우게 한다 — 이음/정착길이 완전제외
+#     정책(EXCLUDED_SOURCE)과 같은 원칙("모르면 추정하지 말고 빼고 알려라")이다.
+def _resolve_count(it, category, mark, warnings=None):
+    """it.get("count", ...) 자리를 대체하는 안전한 개수 해석 함수.
+    반환값이 None이면 호출측이 continue로 그 부재를 건너뛰어야 한다(치수 누락과
+    동일하게 취급). warnings는 선택 — 경고 목록을 안 쓰는 보조 계산(3D 뷰어 집계 등)은
+    None으로 두면 조용히 건너뛴다."""
+    if "count" not in it:
+        return 1
+    n = it["count"]
+    if n is None or isinstance(n, bool) or not isinstance(n, (int, float)) or n != int(n) or n <= 0:
+        if warnings is not None:
+            warnings.append(f"{category} {mark}: 개수(count)를 확인할 수 없어(값: {n!r}) 계산에서 제외했습니다 — 검토 화면에서 직접 입력해 주세요")
+        return None
+    return int(n)
+
+
+def _valid_rebar_layers(it, category, mark, warnings):
+    """세분화 배근(rebar_layers) 필드를 검증해서 계산에 쓸 수 있는 층(layer)만 골라
+    반환한다. 사용자 제공 철근참조자료(슬래브 X/Y·상하부·주열대/중간대, 기둥 MAIN BAR
+    그룹·HOOP 단부/중앙부, 보 상하부·단부/중앙부·스터럽구간, 전단벽 수직/수평·단부/모서리/
+    교차부/개구부보강, 계단 상하부·배력근·계단참)를 반영하려고 추가한 필드다.
+    rebar_layers가 아예 없거나 빈 배열이면 빈 리스트를 반환한다 — 호출부는 이 경우
+    기존 "대표 철근 1세트" 필드(main_rebar_size 등) 방식으로 계산해야 한다(하위호환).
+    철근 규격을 모르거나(REBAR_UNIT_WEIGHT에 없음) 간격/개수가 둘 다 없는 층은
+    EXCLUDED_SOURCE 정책과 같은 원칙으로 경고를 남기고 제외한다."""
+    layers = it.get("rebar_layers")
+    if not layers or not isinstance(layers, list):
+        return []
+    valid = []
+    for i, layer in enumerate(layers):
+        if not isinstance(layer, dict):
+            continue
+        size = layer.get("size")
+        if not size or size not in REBAR_UNIT_WEIGHT:
+            warnings.append(f"{category} {mark}: 세분화배근[{i}]({layer.get('role','?')}) 철근규격을 확인할 수 없어(값: {size!r}) 제외했습니다")
+            continue
+        spacing = layer.get("spacing_m")
+        count = layer.get("count")
+        has_spacing = isinstance(spacing, (int, float)) and not isinstance(spacing, bool) and spacing > 0
+        has_count = isinstance(count, (int, float)) and not isinstance(count, bool) and count > 0
+        if not has_spacing and not has_count:
+            warnings.append(f"{category} {mark}: 세분화배근[{i}]({layer.get('role','?')}) 간격/개수 정보가 없어 제외했습니다")
+            continue
+        valid.append(layer)
+    return valid
+
+
+def _zone_segment_length_m(layer, member_length_m, default_ratio):
+    """rebar_layers의 zone("단부"/"중앙부")에 해당하는 부재길이방향 길이(m)를 구한다.
+    layer에 zone_length_m이 명시돼 있으면 그 값을 그대로 쓰고, 없으면 부재 전체길이의
+    default_ratio 비율로 근사한다(단부 기본 25%, 중앙부 기본 50% — 실제 배근도 구간
+    길이를 모를 때의 거친 근사치이므로, 정확도가 중요하면 zone_length_m을 채워야 한다)."""
+    zl = layer.get("zone_length_m")
+    if isinstance(zl, (int, float)) and not isinstance(zl, bool) and zl > 0:
+        return zl
+    if not isinstance(member_length_m, (int, float)):
+        return 0.0
+    return member_length_m * default_ratio
+
+
+def _spacing_bar_count(length_m, spacing_m):
+    """부재 길이(또는 폭/높이) length_m에 spacing_m 간격으로 철근/스터럽/띠철근을 배치할 때
+    필요한 가닥(개소) 수. 기존에는 ceil(length/spacing)을 썼는데, 이는 "시작점에는 배치
+    안 함"을 암묵적으로 가정한 값이라 실무 관행(양 끝에 1개씩 배치하고 그 사이를 간격으로
+    채움, 이른바 펜스포스트 방식: 개수 = 구간 수 + 1)보다 보통 1개 적게 나온다.
+    floor(length/spacing) + 1로 계산해서 이 관행에 맞춘다.
+    부동소수점 오차로 길이가 간격의 정확한 배수일 때 한 칸 덜 세는 걸 막기 위해 아주 작은
+    보정값(1e-9)을 더한 뒤 내림한다."""
+    if not spacing_m or spacing_m <= 0 or not length_m or length_m <= 0:
+        return 0
+    return int(math.floor(length_m / spacing_m + 1e-9)) + 1
+
+
 def _bar_diameter_mm(bar_size):
     """'D25' -> 25.0 (호칭지름 mm 근사, 국내 관행상 호칭번호를 mm로 그대로 사용)"""
     if not bar_size or not isinstance(bar_size, str) or not bar_size.upper().startswith("D"):
@@ -85,20 +171,49 @@ def _rebar_fy_mpa(general_spec, bar_size=None):
     return 400.0
 
 
-def _concrete_fck_mpa(general_spec, category=None):
+def _concrete_fck_mpa(general_spec, category=None, zone=None):
     """
     콘크리트 설계기준강도(MPa).
-    1순위: general_spec.concrete_fck_table에서 category(기초/기둥/보/슬래브/전단벽/계단)와
-      일치하는 행 (도면에 부재 종류별로 Fck가 다르게 표기된 경우 대응, 예: 기초 24MPa/그 외 30MPa)
+    1순위: general_spec.concrete_fck_table에서 category(기초/기둥/보/슬래브/전단벽/계단)가
+      정확히 일치하는 행 — zone(예: "지하1층", "기준층(2~15층)")이 주어지면 그 중에서도
+      row.zone_scope("지하"/"지상")가 zone 문자열과 부합하는 행을 우선한다(도면에 지하/지상
+      Fck가 다르게 표기된 경우 대응). zone_scope가 없는(공통) 행은 위치 무관 폴백으로 쓴다.
+      ※ category는 개요/구조일반사항 사전확인 프롬프트(OVERVIEW_SPEC_SYSTEM_PROMPT)와
+      본 추출 프롬프트(MEMBER_EXTRACTION_SYSTEM_PROMPT) 양쪽 모두 이 6개 이름 그대로
+      쓰도록 통일돼 있다 — 예전에는 사전확인 쪽이 "기초 콘크리트"/"지하층 벽·기둥"처럼 다른
+      이름을 써서 이 매칭이 항상 실패하고 대표값(2순위)만 쓰이는 버그가 있었다(지피티 검토로
+      재현/확인됨). 표에 없는 category라도 general_spec.concrete_fck_mpa로는 폴백되므로 계산
+      자체가 죽지는 않았지만, 부위별로 다른 Fck가 반영되지 않는 문제였다.
     2순위: general_spec.concrete_fck_mpa 단일 대표값
     3순위: 24MPa 기본값
     """
     table = (general_spec or {}).get("concrete_fck_table") or []
     if category and table:
+        zone_wanted = None
+        if zone:
+            zone_str = str(zone)
+            if "지하" in zone_str:
+                zone_wanted = "지하"
+            elif "지상" in zone_str or "기준층" in zone_str:
+                zone_wanted = "지상"
+
+        # 1차: category + zone_scope가 정확히 일치하는 행 우선
+        if zone_wanted:
+            for row in table:
+                fck = row.get("fck_mpa")
+                if row.get("category") == category and row.get("zone_scope") == zone_wanted \
+                        and isinstance(fck, (int, float)) and fck > 0:
+                    return float(fck)
+        # 2차: category만 일치하고 zone_scope가 없는(공통) 행
         for row in table:
-            row_cat = row.get("category")
             fck = row.get("fck_mpa")
-            if row_cat == category and isinstance(fck, (int, float)) and fck > 0:
+            if row.get("category") == category and not row.get("zone_scope") \
+                    and isinstance(fck, (int, float)) and fck > 0:
+                return float(fck)
+        # 3차: zone 매칭에 실패했어도 category만 일치하면 그 행이라도 사용(위치 무관보다 낫다)
+        for row in table:
+            fck = row.get("fck_mpa")
+            if row.get("category") == category and isinstance(fck, (int, float)) and fck > 0:
                 return float(fck)
 
     fck = (general_spec or {}).get("concrete_fck_mpa")
@@ -118,8 +233,17 @@ def _adequate_cover(general_spec, bar_size):
     return cover_mm >= db
 
 
+MIN_STRAIGHT_DEVELOPMENT_LENGTH_MM = 300.0  # KDS 14 20 52: 인장 이형철근의 정착길이는 항상 300mm 이상
+
+
 def _development_length_straight_m(bar_size, general_spec, top_bar=False, adequate_cover=True, category=None):
-    """직선철근 인장정착길이(ld, m) — KDS 14 20 52 근사 공식."""
+    """직선철근 인장정착길이(ld, m) — KDS 14 20 52 근사 공식. 최소 300mm.
+    사용자가 제공한 철근 참조 자료(SD400/SD500 이음길이 실측표)를 대조하다 발견한 갭:
+    가는 철근(예: HD10)은 콘크리트 강도가 얼마든 이음길이가 300/390mm로 고정돼 있었는데,
+    이건 공식 계산값이 KDS의 최소 정착길이(300mm) 규정보다 작아서 그 하한이 그대로 표에
+    나온 것이다. 이 함수는 get_anchorage_length(직선)와 get_splice_length(이 값에 B급
+    1.3배)가 공유하므로, 여기서 한 번만 최소값을 강제하면 이음길이도 자연히 300×1.3=390mm
+    하한을 갖게 돼 자료의 표와 정확히 일치한다."""
     db = _bar_diameter_mm(bar_size)
     if db is None:
         return 0.0
@@ -129,6 +253,7 @@ def _development_length_straight_m(bar_size, general_spec, top_bar=False, adequa
     case_coeff = 0.6 if adequate_cover else 0.9
     psi_t = 1.3 if top_bar else 1.0
     ld_mm = case_coeff * db * fy / math.sqrt(fck) * psi_s * psi_t
+    ld_mm = max(ld_mm, MIN_STRAIGHT_DEVELOPMENT_LENGTH_MM)
     return round(ld_mm / 1000, 3)
 
 
@@ -144,6 +269,34 @@ def _development_length_hooked_m(bar_size, general_spec, category=None):
     return round(ldh_mm / 1000, 3)
 
 
+# get_splice_length/get_anchorage_length가 반환하는 "source" 값 중, 이 값이면 호출측
+# calc_* 함수가 그 항목의 철근 물량을 아예 빼야 한다는 신호다(공식 추정값이 아님).
+# 개요/구조일반사항 사전 확인 흐름에서 사용자가 "미확인 항목은 계산에서 완전히 빼 달라"고
+# 명시적으로 요청해서 추가한 정책 — general_spec._confirmed가 True일 때만 발동한다.
+EXCLUDED_SOURCE = "미확인(확정전 계산제외)"
+
+
+def _valid_table_length_m(v):
+    """lap_splice_table/anchorage_table 행의 length_m이 실제로 쓸 수 있는 값인지 검사한다.
+    지피티 독립 검토에서 재현된 버그: 예전에는 `not row.get("length_m")`만 걸러서
+    0/None만 막고, 음수(-1)나 문자열("bad") 같은 값은 그대로 "도면표기재"로 채택했다 —
+    음수는 경고 없이 음수 길이가 물량에 섞여 들어갔고, 문자열은 이후 산술 연산에서
+    TypeError로 계산 전체가 죽었다. 표에 있는 값이라고 무조건 신뢰하지 않고, 여기서
+    막힌 행은 "이 항목은 표에 없는 것"과 동일하게 취급해 _row_ok가 건너뛰게 한다 —
+    그러면 general_spec._confirmed=True일 때는 EXCLUDED_SOURCE로 안전하게 제외된다."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
+
+
+def _excluded_note(category, mark, size, item_label, parts):
+    """calc_* 함수들이 EXCLUDED_SOURCE를 받았을 때 공통으로 쓰는 경고 문구를 만든다.
+    parts는 ["이음길이", "정착길이"] 중 실제로 못 찾은 항목들."""
+    part_str = "/".join(parts) if parts else "이음/정착길이"
+    return (
+        f"{category} {mark}: {size} {part_str}를 도면에서 확인하지 못했습니다 — "
+        f"해당 항목({item_label})은 확정 전까지 철근 실수량 계산에서 제외됩니다."
+    )
+
+
 def get_splice_length(bar_size, general_spec, top_bar=False, category=None):
     """
     이음길이(m)를 구한다.
@@ -153,13 +306,45 @@ def get_splice_length(bar_size, general_spec, top_bar=False, category=None):
     ※ 겹침이음(splice)은 실무상 항상 직선 구간에서 이뤄지므로 갈고리는 적용하지 않습니다.
     """
     table = (general_spec or {}).get("lap_splice_table") or []
-    wanted_pos = "상부" if top_bar else None
-    for row in table:
-        if row.get("bar_size") != bar_size or not row.get("length_m"):
-            continue
-        row_pos = row.get("position")
-        if wanted_pos is None or row_pos is None or row_pos == wanted_pos:
-            return row["length_m"], "도면표기재"
+    # top_bar=False(하부근)일 때 wanted_pos를 None으로 두면 아래 매칭 조건에서
+    # "포지션 무관 매칭"과 똑같이 취급돼, 표에 상부/하부가 나뉘어 있어도 먼저 나오는
+    # 행(대개 상부)을 하부근에도 그대로 돌려주는 버그가 있었다. 하부근이면 명시적으로
+    # "하부"를 찾게 해야, 표에 포지션이 없는 행(row_pos is None → 공통값)만 무관 매칭되고
+    # 상부/하부가 실제로 나뉜 표에서는 정확한 쪽을 고른다.
+    #
+    # 2-pass로 훑는 이유: 표 순서가 뒤죽박죽이어서(예: 공통값 행이 하부 전용 행보다
+    # 앞에 나오는 경우) 첫 매치에서 바로 return하면 "포지션 무관 공통값"을 "포지션이
+    # 정확히 일치하는 값"보다 먼저 골라버리는 문제가 있었다 — 실제로 재현 확인됨.
+    # 그래서 1차로 표 전체를 훑어 "포지션이 정확히 일치하는 행"만 찾고, 그게 없을 때만
+    # 2차로 "포지션 무관(공통) 행"을 찾는다. 이렇게 하면 표 안의 행 순서와 상관없이
+    # 항상 더 구체적인(정확히 일치하는) 값이 우선한다.
+    wanted_pos = "상부" if top_bar else "하부"
+
+    def _row_ok(row):
+        if row.get("bar_size") != bar_size or not _valid_table_length_m(row.get("length_m")):
+            return False
+        # 이음은 항상 B급으로 계산한다는 방침 — 표에 A급/B급이 각각 행으로 나뉘어 있고
+        # 그 행에 splice_class="A"가 찍혀 있으면 그 행은 건너뛴다(길이가 더 짧아서 실제
+        # 이음길이를 과소 산정하게 되므로). splice_class가 없거나 "B"면 그대로 쓴다.
+        row_class = row.get("splice_class")
+        if row_class and str(row_class).strip().upper().startswith("A"):
+            return False
+        return True
+
+    for row in table:  # 1차: 정확히 일치하는 포지션 우선
+        if _row_ok(row) and row.get("position") == wanted_pos:
+            return row["length_m"], "도면표기재(B급)"
+    for row in table:  # 2차: 포지션 구분이 없는 공통값
+        if _row_ok(row) and row.get("position") is None:
+            return row["length_m"], "도면표기재(B급)"
+
+    # general_spec._confirmed가 True면(개요/구조일반사항 사전 확인 단계를 거쳐 사용자가
+    # "예"로 확정한 경우), 표에서 못 찾은 항목은 공식으로 추정하지 않고 완전히 제외한다 —
+    # 사용자가 "미확인 항목은 직접 값을 채우기 전까지 계산에서 빼 달라"고 명시적으로
+    # 요청한 정책이다. _confirmed가 없으면(기존 경로/이 사전확인 단계를 거치지 않은
+    # 경우) 하위호환을 위해 기존처럼 공식 추정값을 그대로 쓴다.
+    if (general_spec or {}).get("_confirmed"):
+        return 0.0, EXCLUDED_SOURCE
 
     adequate = _adequate_cover(general_spec, bar_size)
     ld = _development_length_straight_m(bar_size, general_spec, top_bar=top_bar, adequate_cover=adequate, category=category)
@@ -176,15 +361,28 @@ def get_anchorage_length(bar_size, general_spec, top_bar=False, hook=False, cate
       카테고리별 Fck·철근지름별 강종 반영)
     """
     table = (general_spec or {}).get("anchorage_table") or []
-    wanted_pos = "상부" if top_bar else None
-    for row in table:
-        if row.get("bar_size") != bar_size or not row.get("length_m"):
-            continue
-        if bool(row.get("hook", False)) != bool(hook):
-            continue
-        row_pos = row.get("position")
-        if wanted_pos is None or row_pos is None or row_pos == wanted_pos:
+    # get_splice_length와 동일한 이유로 하부근일 때 "하부"를 명시적으로 찾는다 —
+    # None으로 두면 상부/하부가 나뉜 표에서도 먼저 나오는 행(대개 상부)을 그대로
+    # 돌려주는 버그가 있었다. 마찬가지로 표 순서와 무관하게 정확한 포지션 일치를
+    # 공통값보다 항상 우선하도록 2-pass로 찾는다(get_splice_length와 동일한 이유).
+    wanted_pos = "상부" if top_bar else "하부"
+
+    def _row_ok(row):
+        if row.get("bar_size") != bar_size or not _valid_table_length_m(row.get("length_m")):
+            return False
+        return bool(row.get("hook", False)) == bool(hook)
+
+    for row in table:  # 1차: 정확히 일치하는 포지션 우선
+        if _row_ok(row) and row.get("position") == wanted_pos:
             return row["length_m"], "도면표기재"
+    for row in table:  # 2차: 포지션 구분이 없는 공통값
+        if _row_ok(row) and row.get("position") is None:
+            return row["length_m"], "도면표기재"
+
+    # get_splice_length와 동일한 정책 — 사전 확인 단계에서 확정된(_confirmed) general_spec
+    # 인데 표에서 못 찾으면 공식 추정 없이 완전히 제외한다.
+    if (general_spec or {}).get("_confirmed"):
+        return 0.0, EXCLUDED_SOURCE
 
     if hook:
         ldh = _development_length_hooked_m(bar_size, general_spec, category=category)
@@ -244,8 +442,11 @@ def calc_foundations(items, general_spec=None):
     rebar_total = 0.0
     warnings = []
     for it in items:
-        L, W, T, n = it.get("length_m"), it.get("width_m"), it.get("thickness_m"), it.get("count", 1) or 1
+        L, W, T = it.get("length_m"), it.get("width_m"), it.get("thickness_m")
         mark = it.get("mark", "?")
+        n = _resolve_count(it, "기초", mark, warnings)
+        if n is None:
+            continue
         if not all(isinstance(v, (int, float)) for v in (L, W, T)):
             warnings.append(f"기초 {mark}: 치수 누락으로 계산 제외")
             continue
@@ -255,25 +456,28 @@ def calc_foundations(items, general_spec=None):
         size = it.get("rebar_size")
         spacing = it.get("rebar_spacing_m")
         if size and spacing:
-            bars_along_w = math.ceil(W / spacing)  # L방향으로 뻗는 바, W폭에 걸쳐 spacing 간격 배치
-            bars_along_l = math.ceil(L / spacing)  # W방향으로 뻗는 바, L폭에 걸쳐 spacing 간격 배치
+            bars_along_w = _spacing_bar_count(W, spacing)  # L방향으로 뻗는 바, W폭에 걸쳐 spacing 간격 배치
+            bars_along_l = _spacing_bar_count(L, spacing)  # W방향으로 뻗는 바, L폭에 걸쳐 spacing 간격 배치
 
             l_splices = max(0, math.ceil(L / STOCK_BAR_LENGTH_M) - 1)
             w_splices = max(0, math.ceil(W / STOCK_BAR_LENGTH_M) - 1)
             splice_len, splice_src = get_splice_length(size, general_spec, category="기초")
 
-            len_l = L + l_splices * splice_len
-            len_w = W + w_splices * splice_len
-            total_len = (bars_along_w * len_l + bars_along_l * len_w) * n
-
-            wt, err = rebar_weight(size, total_len)
-            if err:
-                warnings.append(f"기초 {mark}: {err}")
+            if (l_splices or w_splices) and splice_src == EXCLUDED_SOURCE:
+                warnings.append(_excluded_note("기초", mark, size, "저판 하부 2방향 배근", ["이음길이"]))
             else:
-                rebar_total += wt
-                warnings.append(f"기초 {mark}: 저판 하부 2방향 배근 근사치 (상부근은 미반영)")
-                if (l_splices or w_splices) and splice_src == "추정값(확인필요)":
-                    warnings.append(f"기초 {mark}: {size} 이음길이를 구조일반사항에서 못 찾아 {splice_len}m로 추정했습니다 — 확인 필요")
+                len_l = L + l_splices * splice_len
+                len_w = W + w_splices * splice_len
+                total_len = (bars_along_w * len_l + bars_along_l * len_w) * n
+
+                wt, err = rebar_weight(size, total_len)
+                if err:
+                    warnings.append(f"기초 {mark}: {err}")
+                else:
+                    rebar_total += wt
+                    warnings.append(f"기초 {mark}: 저판 하부 2방향 배근 근사치 (상부근은 미반영)")
+                    if (l_splices or w_splices) and splice_src == "추정값(확인필요)":
+                        warnings.append(f"기초 {mark}: {size} 이음길이를 구조일반사항에서 못 찾아 {splice_len}m로 추정했습니다 — 확인 필요")
         else:
             warnings.append(f"기초 {mark}: 철근 규격/간격 정보가 없어 철근량 계산에서 제외했습니다 — 기초일람표/기초상세도 확인 필요")
 
@@ -283,21 +487,29 @@ def calc_foundations(items, general_spec=None):
             dowel_hook = bool(it.get("dowel_has_hook"))
             d_anchor_len, d_anchor_src = get_anchorage_length(dowel_size, general_spec, top_bar=False, hook=dowel_hook, category="기초")
             d_splice_len, d_splice_src = get_splice_length(dowel_size, general_spec, top_bar=False, category="기초")
-            dowel_len_per_bar = d_anchor_len + T + d_splice_len
-            wt, err = rebar_weight(dowel_size, dowel_len_per_bar * dowel_count * n)
-            if err:
-                warnings.append(f"기초 {mark}: 도웰바 {err}")
+            if d_anchor_src == EXCLUDED_SOURCE or d_splice_src == EXCLUDED_SOURCE:
+                parts = []
+                if d_splice_src == EXCLUDED_SOURCE:
+                    parts.append("이음길이")
+                if d_anchor_src == EXCLUDED_SOURCE:
+                    parts.append("정착길이")
+                warnings.append(_excluded_note("기초", mark, dowel_size, "도웰바", parts))
             else:
-                rebar_total += wt
-                warnings.append(
-                    f"기초 {mark}: 도웰바(기둥/벽체 연결 정착철근) {dowel_count}가닥 × {n}개소 반영 "
-                    f"(정착{d_anchor_len}m + 기초두께{T}m + 이음{d_splice_len}m)"
-                    + (" [갈고리 정착]" if dowel_hook else "")
-                )
-                if d_anchor_src == "추정값(확인필요)":
-                    warnings.append(f"기초 {mark}: 도웰바 {dowel_size} 정착길이를 구조일반사항에서 못 찾아 {d_anchor_len}m로 추정했습니다 — 확인 필요")
-                if d_splice_src == "추정값(확인필요)":
-                    warnings.append(f"기초 {mark}: 도웰바 {dowel_size} 이음길이를 구조일반사항에서 못 찾아 {d_splice_len}m로 추정했습니다 — 확인 필요")
+                dowel_len_per_bar = d_anchor_len + T + d_splice_len
+                wt, err = rebar_weight(dowel_size, dowel_len_per_bar * dowel_count * n)
+                if err:
+                    warnings.append(f"기초 {mark}: 도웰바 {err}")
+                else:
+                    rebar_total += wt
+                    warnings.append(
+                        f"기초 {mark}: 도웰바(기둥/벽체 연결 정착철근) {dowel_count}가닥 × {n}개소 반영 "
+                        f"(정착{d_anchor_len}m + 기초두께{T}m + 이음{d_splice_len}m)"
+                        + (" [갈고리 정착]" if dowel_hook else "")
+                    )
+                    if d_anchor_src == "추정값(확인필요)":
+                        warnings.append(f"기초 {mark}: 도웰바 {dowel_size} 정착길이를 구조일반사항에서 못 찾아 {d_anchor_len}m로 추정했습니다 — 확인 필요")
+                    if d_splice_src == "추정값(확인필요)":
+                        warnings.append(f"기초 {mark}: 도웰바 {dowel_size} 이음길이를 구조일반사항에서 못 찾아 {d_splice_len}m로 추정했습니다 — 확인 필요")
         else:
             warnings.append(f"기초 {mark}: 도웰바(기둥/벽체 연결 정착철근) 정보가 없어 계산에서 제외했습니다 — 기초상세도 확인 필요")
 
@@ -310,6 +522,11 @@ def calc_columns(items, general_spec=None, fallback_height_m=None):
       ※ 기둥 주철근은 관행상 층마다 1개소 이음(하부에서 겹침)이 들어간다고 가정
       ※ 하부(기초/하부 부재 접합부) 1개소 정착길이를 근사 반영 (상부 정착은 미반영)
       ※ has_hook=true면 하부 정착에 표준갈고리 공식 사용 (좁은 기초 깊이 등)
+      ※ floor_repeat_count(기준층 반복)가 적용된 항목은 count가 이미 "1개 층 기준 개수 ×
+        반복 층수"로 부풀려져 있다 — 정착길이는 기둥 1개 위치가 여러 층을 관통하는 연속
+        부재 전체에서 딱 1번(기초 접합부)만 필요한데, count에 비례해서 그대로 곱하면 반복
+        층수만큼 정착길이가 중복 반영된다. 그래서 정착길이 항만 _floor_repeat 배율로 나눠
+        되돌린다 — 층마다 반복되는 이음길이(splice_len)는 실제로 층마다 있으므로 그대로 둔다.
     띠철근 중량 = (층고/간격) x 둘레(근사) x 단위중량 x 부재개수 (이음 없음, 개별 폐합 형상)
     ※ height_m이 없으면 fallback_height_m(입면/단면도에서 읽은 층고)으로 대체 시도.
     """
@@ -318,8 +535,11 @@ def calc_columns(items, general_spec=None, fallback_height_m=None):
     rebar_total = 0.0
     warnings = []
     for it in items:
-        w, d, h, n = it.get("width_m"), it.get("depth_m"), it.get("height_m"), it.get("count", 1) or 1
+        w, d, h = it.get("width_m"), it.get("depth_m"), it.get("height_m")
         mark = it.get("mark", "?")
+        n = _resolve_count(it, "기둥", mark, warnings)
+        if n is None:
+            continue
         if not isinstance(h, (int, float)) and fallback_height_m:
             h = fallback_height_m
             warnings.append(f"기둥 {mark}: 층고 정보 없어 입면/단면도 층고값 {h}m로 대체 사용 — 확인 필요")
@@ -330,36 +550,106 @@ def calc_columns(items, general_spec=None, fallback_height_m=None):
         perimeter = 2 * (w + d)
         formwork += perimeter * h * n
 
-        main_size = it.get("main_rebar_size")
-        main_count = it.get("main_rebar_count")
-        if main_size and main_count:
-            hook = bool(it.get("has_hook"))
-            splice_len, splice_src = get_splice_length(main_size, general_spec, category="기둥")
-            anchor_len, anchor_src = get_anchorage_length(main_size, general_spec, top_bar=False, hook=hook, category="기둥")
-            length_per_bar = h + splice_len + anchor_len  # 층당 1개소 이음 + 하부 1개소 정착 가정
-            wt, err = rebar_weight(main_size, length_per_bar * main_count * n)
-            if err:
-                warnings.append(f"기둥 {mark}: {err}")
+        layers = _valid_rebar_layers(it, "기둥", mark, warnings)
+        if layers:
+            # ── 세분화 배근(rebar_layers) 경로 — 사용자 제공 철근참조자료 기준으로
+            # MAIN BAR를 그룹(모서리근/중간근 등)별로, HOOP을 단부/중앙부 구간별로 나눠 반영 ──
+            main_layers = [l for l in layers if l.get("role") == "주근"]
+            hoop_layers = [l for l in layers if l.get("role") in ("후프", "타이")]
+            floor_repeat = it.get("_floor_repeat", 1) or 1
+            if main_layers:
+                for layer in main_layers:
+                    size, count = layer["size"], layer.get("count")
+                    if not count:
+                        continue
+                    hook = bool(layer.get("has_hook")) if layer.get("has_hook") is not None else bool(it.get("has_hook"))
+                    splice_len, splice_src = get_splice_length(size, general_spec, category="기둥")
+                    anchor_len, anchor_src = get_anchorage_length(size, general_spec, top_bar=False, hook=hook, category="기둥")
+                    if splice_src == EXCLUDED_SOURCE or anchor_src == EXCLUDED_SOURCE:
+                        parts = []
+                        if splice_src == EXCLUDED_SOURCE:
+                            parts.append("이음길이")
+                        if anchor_src == EXCLUDED_SOURCE:
+                            parts.append("정착길이")
+                        warnings.append(_excluded_note("기둥", mark, size, f"주근({layer.get('note') or '그룹'})", parts))
+                        continue
+                    length_per_bar = h + splice_len + anchor_len / floor_repeat
+                    wt, err = rebar_weight(size, length_per_bar * count * n)
+                    if err:
+                        warnings.append(f"기둥 {mark}: {err}")
+                    else:
+                        rebar_total += wt
+                        if splice_src == "추정값(확인필요)" or anchor_src == "추정값(확인필요)":
+                            warnings.append(f"기둥 {mark}: 주근({layer.get('note') or size}) 이음/정착길이 일부를 추정값으로 반영했습니다 — 확인 필요")
             else:
-                rebar_total += wt
-                if splice_src == "추정값(확인필요)":
-                    warnings.append(f"기둥 {mark}: {main_size} 이음길이를 구조일반사항에서 못 찾아 {splice_len}m로 추정했습니다 — 확인 필요")
-                if anchor_src == "추정값(확인필요)":
-                    warnings.append(f"기둥 {mark}: {main_size} 정착길이를 구조일반사항에서 못 찾아 {anchor_len}m로 추정했습니다(하부 1개소 가정) — 확인 필요")
-        else:
-            warnings.append(f"기둥 {mark}: 주철근 규격/개수 정보가 없어 주철근량 계산에서 제외했습니다 — 기둥일람표 확인 필요")
+                warnings.append(f"기둥 {mark}: 세분화배근에 주근(역할=주근) 항목이 없어 주철근량 계산에서 제외했습니다")
 
-        tie_size = it.get("tie_rebar_size")
-        tie_spacing = it.get("tie_spacing_m")
-        if tie_size and tie_spacing:
-            num_ties = math.ceil(h / tie_spacing) * n
-            wt, err = rebar_weight(tie_size, num_ties * perimeter)
-            if err:
-                warnings.append(f"기둥 {mark}: {err}")
+            if hoop_layers:
+                for layer in hoop_layers:
+                    size, spacing = layer["size"], layer.get("spacing_m")
+                    if not spacing:
+                        continue
+                    zone = layer.get("zone")
+                    if zone == "단부":
+                        seg_len = _zone_segment_length_m(layer, h, 0.25)
+                    elif zone == "중앙부":
+                        seg_len = _zone_segment_length_m(layer, h, 0.5)
+                    else:
+                        seg_len = h
+                    num = _spacing_bar_count(seg_len, spacing) * n
+                    wt, err = rebar_weight(size, num * perimeter)
+                    if err:
+                        warnings.append(f"기둥 {mark}: {err}")
+                    else:
+                        rebar_total += wt
+                        if not layer.get("zone_length_m") and zone in ("단부", "중앙부"):
+                            warnings.append(f"기둥 {mark}: 후프/타이({zone}) 구간길이를 확인 못해 층고의 {'25%' if zone=='단부' else '50%'}로 근사했습니다 — 정확한 구간길이 확인 권장")
             else:
-                rebar_total += wt
+                warnings.append(f"기둥 {mark}: 세분화배근에 후프/타이 항목이 없어 띠철근량 계산에서 제외했습니다")
         else:
-            warnings.append(f"기둥 {mark}: 띠철근 규격/간격 정보가 없어 띠철근량 계산에서 제외했습니다 — 기둥일람표 확인 필요")
+            # ── 기존(레거시) 대표 철근 1세트 경로 — 세분화 배근이 없을 때의 하위호환 계산 ──
+            main_size = it.get("main_rebar_size")
+            main_count = it.get("main_rebar_count")
+            if main_size and main_count:
+                hook = bool(it.get("has_hook"))
+                splice_len, splice_src = get_splice_length(main_size, general_spec, category="기둥")
+                anchor_len, anchor_src = get_anchorage_length(main_size, general_spec, top_bar=False, hook=hook, category="기둥")
+                if splice_src == EXCLUDED_SOURCE or anchor_src == EXCLUDED_SOURCE:
+                    parts = []
+                    if splice_src == EXCLUDED_SOURCE:
+                        parts.append("이음길이")
+                    if anchor_src == EXCLUDED_SOURCE:
+                        parts.append("정착길이")
+                    warnings.append(_excluded_note("기둥", mark, main_size, "주철근", parts))
+                else:
+                    floor_repeat = it.get("_floor_repeat", 1) or 1
+                    # anchor_len(정착)은 반복 배율로 나눠서, count(=원래 개수×반복층수)를 곱했을 때
+                    # 정착길이 총합이 "반복 층수와 무관하게 원래 개수만큼"만 나오게 한다 — 정착은
+                    # 부재 전체에서 1번뿐이라서다. splice_len은 층마다 실제로 있으므로 그대로 둔다.
+                    length_per_bar = h + splice_len + anchor_len / floor_repeat  # 층당 1개소 이음 + 하부 1개소 정착 가정
+                    wt, err = rebar_weight(main_size, length_per_bar * main_count * n)
+                    if err:
+                        warnings.append(f"기둥 {mark}: {err}")
+                    else:
+                        rebar_total += wt
+                        if splice_src == "추정값(확인필요)":
+                            warnings.append(f"기둥 {mark}: {main_size} 이음길이를 구조일반사항에서 못 찾아 {splice_len}m로 추정했습니다 — 확인 필요")
+                        if anchor_src == "추정값(확인필요)":
+                            warnings.append(f"기둥 {mark}: {main_size} 정착길이를 구조일반사항에서 못 찾아 {anchor_len}m로 추정했습니다(하부 1개소 가정) — 확인 필요")
+            else:
+                warnings.append(f"기둥 {mark}: 주철근 규격/개수 정보가 없어 주철근량 계산에서 제외했습니다 — 기둥일람표 확인 필요")
+
+            tie_size = it.get("tie_rebar_size")
+            tie_spacing = it.get("tie_spacing_m")
+            if tie_size and tie_spacing:
+                num_ties = _spacing_bar_count(h, tie_spacing) * n
+                wt, err = rebar_weight(tie_size, num_ties * perimeter)
+                if err:
+                    warnings.append(f"기둥 {mark}: {err}")
+                else:
+                    rebar_total += wt
+            else:
+                warnings.append(f"기둥 {mark}: 띠철근 규격/간격 정보가 없어 띠철근량 계산에서 제외했습니다 — 기둥일람표 확인 필요")
 
     return round(concrete, 3), round(formwork, 3), round(rebar_total, 2), warnings
 
@@ -377,47 +667,130 @@ def calc_beams(items, general_spec=None):
     rebar_total = 0.0
     warnings = []
     for it in items:
-        w, d, L, n = it.get("width_m"), it.get("depth_m"), it.get("length_m"), it.get("count", 1) or 1
+        w, d, L = it.get("width_m"), it.get("depth_m"), it.get("length_m")
         mark = it.get("mark", "?")
+        n = _resolve_count(it, "보", mark, warnings)
+        if n is None:
+            continue
         if not all(isinstance(v, (int, float)) for v in (w, d, L)):
             warnings.append(f"보 {mark}: 치수 누락으로 계산 제외")
             continue
         concrete += w * d * L * n
         formwork += (w + 2 * d) * L * n
 
-        main_size = it.get("main_rebar_size")
-        main_count = it.get("main_rebar_count")
-        if main_size and main_count:
-            top_bar = bool(it.get("is_top_bar"))
-            hook = bool(it.get("has_hook"))
-            num_splices = max(0, math.ceil(L / STOCK_BAR_LENGTH_M) - 1)
-            splice_len, splice_src = get_splice_length(main_size, general_spec, top_bar=top_bar, category="보")
-            anchor_len, anchor_src = get_anchorage_length(main_size, general_spec, top_bar=top_bar, hook=hook, category="보")
-            length_per_bar = L + num_splices * splice_len + 2 * anchor_len  # 양단 각 1개소 정착 가정
-            wt, err = rebar_weight(main_size, length_per_bar * main_count * n)
-            if err:
-                warnings.append(f"보 {mark}: {err}")
+        layers = _valid_rebar_layers(it, "보", mark, warnings)
+        stirrup_len = 2 * (w + d)
+        if layers:
+            # ── 세분화 배근 경로: 주근을 상/하부 + 단부/중앙부로, 스터럽을 구간별 간격으로 반영 ──
+            main_layers = [l for l in layers if l.get("role") == "주근"]
+            stirrup_layers = [l for l in layers if l.get("role") == "스터럽"]
+            if main_layers:
+                for layer in main_layers:
+                    size, count = layer["size"], layer.get("count")
+                    if not count:
+                        continue
+                    top_bar = (layer.get("position") == "상부") if layer.get("position") else bool(it.get("is_top_bar"))
+                    hook = bool(layer.get("has_hook")) if layer.get("has_hook") is not None else bool(it.get("has_hook"))
+                    zone = layer.get("zone")
+                    label = f"주근({layer.get('position') or '?'}{'/' + zone if zone else ''})"
+                    if zone == "단부":
+                        # 단부 구간에만 배치되는 감소(컷오프)근 근사 — 짧은 구간이라 이음/정착은
+                        # 반영하지 않는다(부재 전체 정착은 연속되는 중앙부/정착 그룹 쪽에서 처리).
+                        seg_len = _zone_segment_length_m(layer, L, 0.25)
+                        wt, err = rebar_weight(size, seg_len * count * n)
+                        if err:
+                            warnings.append(f"보 {mark}: {err}")
+                        else:
+                            rebar_total += wt
+                            if not layer.get("zone_length_m"):
+                                warnings.append(f"보 {mark}: {label} 구간길이를 확인 못해 전체길이의 25%로 근사했습니다 — 정확한 구간길이 확인 권장")
+                    else:
+                        num_splices = max(0, math.ceil(L / STOCK_BAR_LENGTH_M) - 1)
+                        splice_len, splice_src = get_splice_length(size, general_spec, top_bar=top_bar, category="보")
+                        anchor_len, anchor_src = get_anchorage_length(size, general_spec, top_bar=top_bar, hook=hook, category="보")
+                        if (anchor_src == EXCLUDED_SOURCE) or (num_splices and splice_src == EXCLUDED_SOURCE):
+                            parts = []
+                            if num_splices and splice_src == EXCLUDED_SOURCE:
+                                parts.append("이음길이")
+                            if anchor_src == EXCLUDED_SOURCE:
+                                parts.append("정착길이")
+                            warnings.append(_excluded_note("보", mark, size, label, parts))
+                            continue
+                        length_per_bar = L + num_splices * splice_len + 2 * anchor_len
+                        wt, err = rebar_weight(size, length_per_bar * count * n)
+                        if err:
+                            warnings.append(f"보 {mark}: {err}")
+                        else:
+                            rebar_total += wt
+                            if (num_splices and splice_src == "추정값(확인필요)") or anchor_src == "추정값(확인필요)":
+                                warnings.append(f"보 {mark}: {label} 이음/정착길이 일부를 추정값으로 반영했습니다 — 확인 필요")
             else:
-                rebar_total += wt
-                if num_splices and splice_src == "추정값(확인필요)":
-                    warnings.append(f"보 {mark}: {main_size} 이음길이를 구조일반사항에서 못 찾아 {splice_len}m로 추정했습니다{'(상부근 1.3배 반영)' if top_bar else ''} — 확인 필요")
-                if anchor_src == "추정값(확인필요)":
-                    warnings.append(f"보 {mark}: {main_size} 정착길이를 구조일반사항에서 못 찾아 {anchor_len}m로 추정했습니다(양단 각 1개소 가정{'상부근 1.3배' if top_bar else ''}{', 갈고리' if hook else ''}) — 확인 필요")
-        else:
-            warnings.append(f"보 {mark}: 주철근 규격/개수 정보가 없어 주철근량 계산에서 제외했습니다 — 보일람표 확인 필요")
+                warnings.append(f"보 {mark}: 세분화배근에 주근(역할=주근) 항목이 없어 주철근량 계산에서 제외했습니다")
 
-        stirrup_size = it.get("stirrup_size")
-        stirrup_spacing = it.get("stirrup_spacing_m")
-        if stirrup_size and stirrup_spacing:
-            num_stirrups = math.ceil(L / stirrup_spacing) * n
-            stirrup_len = 2 * (w + d)
-            wt, err = rebar_weight(stirrup_size, num_stirrups * stirrup_len)
-            if err:
-                warnings.append(f"보 {mark}: {err}")
+            if stirrup_layers:
+                for layer in stirrup_layers:
+                    size, spacing = layer["size"], layer.get("spacing_m")
+                    if not spacing:
+                        continue
+                    zone = layer.get("zone")
+                    if zone == "단부":
+                        seg_len = _zone_segment_length_m(layer, L, 0.25)
+                    elif zone == "중앙부":
+                        seg_len = _zone_segment_length_m(layer, L, 0.5)
+                    else:
+                        seg_len = L
+                    num = _spacing_bar_count(seg_len, spacing) * n
+                    wt, err = rebar_weight(size, num * stirrup_len)
+                    if err:
+                        warnings.append(f"보 {mark}: {err}")
+                    else:
+                        rebar_total += wt
+                        if not layer.get("zone_length_m") and zone in ("단부", "중앙부"):
+                            warnings.append(f"보 {mark}: 스터럽({zone}) 구간길이를 확인 못해 부재길이의 {'25%' if zone=='단부' else '50%'}로 근사했습니다 — 확인 권장")
             else:
-                rebar_total += wt
+                warnings.append(f"보 {mark}: 세분화배근에 스터럽 항목이 없어 스터럽량 계산에서 제외했습니다")
         else:
-            warnings.append(f"보 {mark}: 스터럽 규격/간격 정보가 없어 스터럽량 계산에서 제외했습니다 — 보일람표 확인 필요")
+            # ── 기존(레거시) 대표 철근 1세트 경로 ──
+            main_size = it.get("main_rebar_size")
+            main_count = it.get("main_rebar_count")
+            if main_size and main_count:
+                top_bar = bool(it.get("is_top_bar"))
+                hook = bool(it.get("has_hook"))
+                num_splices = max(0, math.ceil(L / STOCK_BAR_LENGTH_M) - 1)
+                splice_len, splice_src = get_splice_length(main_size, general_spec, top_bar=top_bar, category="보")
+                anchor_len, anchor_src = get_anchorage_length(main_size, general_spec, top_bar=top_bar, hook=hook, category="보")
+                if (anchor_src == EXCLUDED_SOURCE) or (num_splices and splice_src == EXCLUDED_SOURCE):
+                    parts = []
+                    if num_splices and splice_src == EXCLUDED_SOURCE:
+                        parts.append("이음길이")
+                    if anchor_src == EXCLUDED_SOURCE:
+                        parts.append("정착길이")
+                    warnings.append(_excluded_note("보", mark, main_size, "주철근", parts))
+                else:
+                    length_per_bar = L + num_splices * splice_len + 2 * anchor_len  # 양단 각 1개소 정착 가정
+                    wt, err = rebar_weight(main_size, length_per_bar * main_count * n)
+                    if err:
+                        warnings.append(f"보 {mark}: {err}")
+                    else:
+                        rebar_total += wt
+                        if num_splices and splice_src == "추정값(확인필요)":
+                            warnings.append(f"보 {mark}: {main_size} 이음길이를 구조일반사항에서 못 찾아 {splice_len}m로 추정했습니다{'(상부근 1.3배 반영)' if top_bar else ''} — 확인 필요")
+                        if anchor_src == "추정값(확인필요)":
+                            warnings.append(f"보 {mark}: {main_size} 정착길이를 구조일반사항에서 못 찾아 {anchor_len}m로 추정했습니다(양단 각 1개소 가정{'상부근 1.3배' if top_bar else ''}{', 갈고리' if hook else ''}) — 확인 필요")
+            else:
+                warnings.append(f"보 {mark}: 주철근 규격/개수 정보가 없어 주철근량 계산에서 제외했습니다 — 보일람표 확인 필요")
+
+            stirrup_size = it.get("stirrup_size")
+            stirrup_spacing = it.get("stirrup_spacing_m")
+            if stirrup_size and stirrup_spacing:
+                num_stirrups = _spacing_bar_count(L, stirrup_spacing) * n
+                wt, err = rebar_weight(stirrup_size, num_stirrups * stirrup_len)
+                if err:
+                    warnings.append(f"보 {mark}: {err}")
+                else:
+                    rebar_total += wt
+            else:
+                warnings.append(f"보 {mark}: 스터럽 규격/간격 정보가 없어 스터럽량 계산에서 제외했습니다 — 보일람표 확인 필요")
 
     return round(concrete, 3), round(formwork, 3), round(rebar_total, 2), warnings
 
@@ -444,10 +817,17 @@ def _opening_area_m2(it, mark, member_label, warnings):
         else:
             warnings.append(f"{member_label} {mark}: 개구부 '{op.get('label','?')}' 치수 확인 필요 — 이번 계산에서 제외")
     if total > 0:
-        warnings.append(
-            f"{member_label} {mark}: 개구부 {total}㎡ 콘크리트/거푸집에서 차감함 "
-            "(인방보 등 개구부 보강철근은 미반영 — 별도 확인 필요)"
+        # rebar_layers에 "개구부보강근" 역할 항목이 실제로 있으면(전단벽 세분화배근 경로에서
+        # 별도로 반영됨) "미반영" 문구가 모순돼 보이므로 안내 문구를 다르게 남긴다.
+        has_opening_reinforcement = any(
+            isinstance(l, dict) and l.get("role") == "개구부보강근"
+            for l in (it.get("rebar_layers") or [])
         )
+        note = (
+            "(개구부보강근은 세분화배근 항목으로 별도 반영됨)" if has_opening_reinforcement
+            else "(인방보 등 개구부 보강철근은 미반영 — 별도 확인 필요)"
+        )
+        warnings.append(f"{member_label} {mark}: 개구부 {total}㎡ 콘크리트/거푸집에서 차감함 {note}")
     return total
 
 
@@ -466,8 +846,11 @@ def calc_slabs(items, general_spec=None):
     rebar_total = 0.0
     warnings = []
     for it in items:
-        area, T, n = it.get("area_m2"), it.get("thickness_m"), it.get("count", 1) or 1
+        area, T = it.get("area_m2"), it.get("thickness_m")
         mark = it.get("mark", "?")
+        n = _resolve_count(it, "슬래브", mark, warnings)
+        if n is None:
+            continue
         if not all(isinstance(v, (int, float)) for v in (area, T)):
             warnings.append(f"슬래브 {mark}: 치수 누락으로 계산 제외")
             continue
@@ -478,40 +861,100 @@ def calc_slabs(items, general_spec=None):
         concrete += net_area * T * n
         formwork += net_area * n
 
-        size = it.get("rebar_size")
-        spacing = it.get("rebar_spacing_m")
-        if size and spacing:
-            top_bar = bool(it.get("is_top_bar"))
-            hook = bool(it.get("has_hook"))
-            avg_span = math.sqrt(net_area) if net_area > 0 else 0.0
-            num_bars = math.ceil(avg_span / spacing) if avg_span else 0
-
-            num_splices = max(0, math.ceil(avg_span / STOCK_BAR_LENGTH_M) - 1) if avg_span else 0
-            length_per_bar = avg_span
-            if num_splices:
-                splice_len, splice_src = get_splice_length(size, general_spec, top_bar=top_bar, category="슬래브")
-                length_per_bar = avg_span + num_splices * splice_len
-                warnings.append(
-                    f"슬래브 {mark}: 스팬({round(avg_span,2)}m)이 철근 장대길이({STOCK_BAR_LENGTH_M}m)를 넘어 "
-                    f"가닥당 이음 {num_splices}개소 반영함"
-                )
-                if splice_src == "추정값(확인필요)":
-                    warnings.append(f"슬래브 {mark}: {size} 이음길이를 구조일반사항에서 못 찾아 {splice_len}m로 추정했습니다 — 확인 필요")
-
-            anchor_len, anchor_src = get_anchorage_length(size, general_spec, top_bar=top_bar, hook=hook, category="슬래브")
-            length_per_bar += 2 * anchor_len  # 스팬 양단 각 1개소 정착 가정
-            if anchor_src == "추정값(확인필요)":
-                warnings.append(f"슬래브 {mark}: {size} 정착길이를 구조일반사항에서 못 찾아 {anchor_len}m로 추정했습니다(양단 각 1개소 가정{', 상부근' if top_bar else ''}{', 갈고리' if hook else ''}) — 확인 필요")
-
-            total_len = num_bars * length_per_bar * 2 * n  # 2방향(X,Y) 근사, 양방향 모두 이음+정착 반영
-            wt, err = rebar_weight(size, total_len)
-            if err:
-                warnings.append(f"슬래브 {mark}: {err}")
+        avg_span = math.sqrt(net_area) if net_area > 0 else 0.0
+        layers = _valid_rebar_layers(it, "슬래브", mark, warnings)
+        if layers:
+            # ── 세분화 배근 경로: X/Y 방향 + 상/하부 + 주열대/중간대를 각각 별도 배근군으로
+            # 반영한다. 실제 방향별 스팬 길이 데이터는 없으므로(면적만 있음) 기존과 동일하게
+            # sqrt(면적)을 그 방향의 근사 스팬으로 쓴다 — 주열대/중간대 구분이 있으면 그
+            # 스트립이 슬래브 폭의 절반을 담당한다고 근사(직접설계법의 대략적인 배분 관행)한다.
+            main_layers = [l for l in layers if l.get("role") == "주근"]
+            if main_layers:
+                for layer in main_layers:
+                    size, spacing = layer["size"], layer.get("spacing_m")
+                    if not spacing:
+                        continue
+                    top_bar = (layer.get("position") == "상부") if layer.get("position") else bool(it.get("is_top_bar"))
+                    hook = bool(layer.get("has_hook")) if layer.get("has_hook") is not None else bool(it.get("has_hook"))
+                    strip = layer.get("strip")
+                    direction = layer.get("direction") or "?"
+                    label = f"주근({direction}방향/{layer.get('position') or '?'}{'/' + strip if strip else ''})"
+                    perp_width = avg_span * 0.5 if strip else avg_span
+                    num_bars = _spacing_bar_count(perp_width, spacing) if perp_width else 0
+                    if not num_bars:
+                        continue
+                    num_splices = max(0, math.ceil(avg_span / STOCK_BAR_LENGTH_M) - 1) if avg_span else 0
+                    splice_len, splice_src = (0.0, None)
+                    if num_splices:
+                        splice_len, splice_src = get_splice_length(size, general_spec, top_bar=top_bar, category="슬래브")
+                    anchor_len, anchor_src = get_anchorage_length(size, general_spec, top_bar=top_bar, hook=hook, category="슬래브")
+                    if (anchor_src == EXCLUDED_SOURCE) or (num_splices and splice_src == EXCLUDED_SOURCE):
+                        parts = []
+                        if num_splices and splice_src == EXCLUDED_SOURCE:
+                            parts.append("이음길이")
+                        if anchor_src == EXCLUDED_SOURCE:
+                            parts.append("정착길이")
+                        warnings.append(_excluded_note("슬래브", mark, size, label, parts))
+                        continue
+                    length_per_bar = avg_span + num_splices * splice_len + 2 * anchor_len
+                    total_len = num_bars * length_per_bar * n
+                    wt, err = rebar_weight(size, total_len)
+                    if err:
+                        warnings.append(f"슬래브 {mark}: {err}")
+                    else:
+                        rebar_total += wt
+                        if (num_splices and splice_src == "추정값(확인필요)") or anchor_src == "추정값(확인필요)":
+                            warnings.append(f"슬래브 {mark}: {label} 이음/정착길이 일부를 추정값으로 반영했습니다 — 확인 필요")
+                if not any(l.get("direction") for l in main_layers):
+                    warnings.append(f"슬래브 {mark}: 세분화배근에 방향(X/Y) 구분이 없어 스팬 근사치가 부정확할 수 있습니다")
             else:
-                rebar_total += wt
-                warnings.append(f"슬래브 {mark}: 철근량은 정방향 근사치이므로 배근도 방향별 스팬으로 재검증 권장")
+                warnings.append(f"슬래브 {mark}: 세분화배근에 주근(역할=주근) 항목이 없어 철근량 계산에서 제외했습니다")
         else:
-            warnings.append(f"슬래브 {mark}: 철근 규격/간격 정보가 없어 철근량 계산에서 제외했습니다 — 슬래브배근도 확인 필요")
+            # ── 기존(레거시) 대표 철근 1세트 경로 ──
+            size = it.get("rebar_size")
+            spacing = it.get("rebar_spacing_m")
+            if size and spacing:
+                top_bar = bool(it.get("is_top_bar"))
+                hook = bool(it.get("has_hook"))
+                num_bars = _spacing_bar_count(avg_span, spacing) if avg_span else 0
+
+                num_splices = max(0, math.ceil(avg_span / STOCK_BAR_LENGTH_M) - 1) if avg_span else 0
+                splice_len, splice_src = (0.0, None)
+                if num_splices:
+                    splice_len, splice_src = get_splice_length(size, general_spec, top_bar=top_bar, category="슬래브")
+                anchor_len, anchor_src = get_anchorage_length(size, general_spec, top_bar=top_bar, hook=hook, category="슬래브")
+
+                if (anchor_src == EXCLUDED_SOURCE) or (num_splices and splice_src == EXCLUDED_SOURCE):
+                    parts = []
+                    if num_splices and splice_src == EXCLUDED_SOURCE:
+                        parts.append("이음길이")
+                    if anchor_src == EXCLUDED_SOURCE:
+                        parts.append("정착길이")
+                    warnings.append(_excluded_note("슬래브", mark, size, "주철근", parts))
+                else:
+                    length_per_bar = avg_span
+                    if num_splices:
+                        length_per_bar = avg_span + num_splices * splice_len
+                        warnings.append(
+                            f"슬래브 {mark}: 스팬({round(avg_span,2)}m)이 철근 장대길이({STOCK_BAR_LENGTH_M}m)를 넘어 "
+                            f"가닥당 이음 {num_splices}개소 반영함"
+                        )
+                        if splice_src == "추정값(확인필요)":
+                            warnings.append(f"슬래브 {mark}: {size} 이음길이를 구조일반사항에서 못 찾아 {splice_len}m로 추정했습니다 — 확인 필요")
+
+                    length_per_bar += 2 * anchor_len  # 스팬 양단 각 1개소 정착 가정
+                    if anchor_src == "추정값(확인필요)":
+                        warnings.append(f"슬래브 {mark}: {size} 정착길이를 구조일반사항에서 못 찾아 {anchor_len}m로 추정했습니다(양단 각 1개소 가정{', 상부근' if top_bar else ''}{', 갈고리' if hook else ''}) — 확인 필요")
+
+                    total_len = num_bars * length_per_bar * 2 * n  # 2방향(X,Y) 근사, 양방향 모두 이음+정착 반영
+                    wt, err = rebar_weight(size, total_len)
+                    if err:
+                        warnings.append(f"슬래브 {mark}: {err}")
+                    else:
+                        rebar_total += wt
+                        warnings.append(f"슬래브 {mark}: 철근량은 정방향 근사치이므로 배근도 방향별 스팬으로 재검증 권장")
+            else:
+                warnings.append(f"슬래브 {mark}: 철근 규격/간격 정보가 없어 철근량 계산에서 제외했습니다 — 슬래브배근도 확인 필요")
 
         chair_wt, chair_err = _chair_bar_weight(net_area, general_spec)
         if chair_err:
@@ -533,14 +976,23 @@ def calc_walls(items, general_spec=None, fallback_height_m=None):
     ※ has_hook=true면 수직근 하부 정착에 표준갈고리 공식 사용.
     ※ end_condition("일자형"/"T자형"/"모서리")이 있으면 SK에코플랜트 매뉴얼 기준 벽체
       단부보강근(추가 수직근 + U형바/C형바)을 근사 반영합니다.
+    ※ is_single_face 처리: 대부분의 구조 전단벽(두께 180mm 이상)은 벽 두께 방향으로 앞뒤
+      두 겹(양면) 배근이 표준이고, 도면에 rebar_size/rebar_spacing_m이 한 줄로만 적혀 있어도
+      실제로는 양면 모두에 같은 사양이 들어가는 경우가 많습니다. 그래서 is_single_face가
+      명시적으로 true(도면에서 "단면"으로 확인됨)가 아닌 이상 기본적으로 양면(2배)으로
+      계산합니다 — 실제 도면으로 검증되기 전까지는 가정치이므로 notes로 안내합니다.
     """
     concrete = 0.0
     formwork = 0.0
     rebar_total = 0.0
     warnings = []
+    assumed_double_face_count = 0
     for it in items:
-        L, H, T, n = it.get("length_m"), it.get("height_m"), it.get("thickness_m"), it.get("count", 1) or 1
+        L, H, T = it.get("length_m"), it.get("height_m"), it.get("thickness_m")
         mark = it.get("mark", "?")
+        n = _resolve_count(it, "전단벽", mark, warnings)
+        if n is None:
+            continue
         if not isinstance(H, (int, float)) and fallback_height_m:
             H = fallback_height_m
             warnings.append(f"전단벽 {mark}: 층고 정보 없어 입면/단면도 층고값 {H}m로 대체 사용 — 확인 필요")
@@ -554,63 +1006,187 @@ def calc_walls(items, general_spec=None, fallback_height_m=None):
         concrete += net_face_area * T * n
         formwork += 2 * net_face_area * n
 
-        size = it.get("rebar_size")
-        spacing = it.get("rebar_spacing_m")
-        if size and spacing:
+        layers = _valid_rebar_layers(it, "전단벽", mark, warnings)
+        if layers:
+            # ── 세분화 배근 경로: 수직근/수평근을 각각 별도 간격으로, 단부·모서리·교차부·
+            # 개구부 보강근을 사용자가 직접 지정한 가닥수로 반영한다(기존 end_condition
+            # 기반 SK매뉴얼 근사식 대신 도면에서 직접 읽은 값을 우선 사용).
             hook = bool(it.get("has_hook"))
-            splice_len, splice_src = get_splice_length(size, general_spec, category="전단벽")
-            anchor_len, anchor_src = get_anchorage_length(size, general_spec, top_bar=False, hook=hook, category="전단벽")
-            vertical_bars = math.ceil(L / spacing)
-            horizontal_bars = math.ceil(H / spacing)
-            h_splices = max(0, math.ceil(L / STOCK_BAR_LENGTH_M) - 1)
+            floor_repeat = it.get("_floor_repeat", 1) or 1
+            v_layers = [l for l in layers if l.get("role") == "수직근"]
+            h_layers = [l for l in layers if l.get("role") == "수평근"]
+            reinforce_layers = [l for l in layers if l.get("role") in ("단부보강근", "모서리보강근", "교차부보강근")]
+            opening_layers = [l for l in layers if l.get("role") == "개구부보강근"]
 
-            vertical_len = vertical_bars * (H + splice_len + anchor_len)  # 하부(기초 접합부) 1개소 정착
-            horizontal_len = horizontal_bars * (L + h_splices * splice_len)
-            total_len = (vertical_len + horizontal_len) * n
-
-            wt, err = rebar_weight(size, total_len)
-            if err:
-                warnings.append(f"전단벽 {mark}: {err}")
-            else:
-                rebar_total += wt
-                if splice_src == "추정값(확인필요)":
-                    warnings.append(f"전단벽 {mark}: {size} 이음길이를 구조일반사항에서 못 찾아 {splice_len}m로 추정했습니다 — 확인 필요")
-                if anchor_src == "추정값(확인필요)":
-                    warnings.append(f"전단벽 {mark}: {size} 정착길이를 구조일반사항에서 못 찾아 {anchor_len}m로 추정했습니다(수직근 하부 1개소 가정{', 갈고리' if hook else ''}) — 확인 필요")
-
-            end_condition = it.get("end_condition")
-            if end_condition:
-                extra_vertical = {"일자형": 2, "T자형": 4, "모서리": 4}.get(end_condition, 0)
-                if extra_vertical:
-                    extra_len = H + splice_len + anchor_len
-                    wt_extra, err_extra = rebar_weight(size, extra_vertical * extra_len * n)
-                    if err_extra:
-                        warnings.append(f"전단벽 {mark}: 단부보강근(수직) {err_extra}")
+            if v_layers:
+                for layer in v_layers:
+                    size, spacing = layer["size"], layer.get("spacing_m")
+                    if not spacing:
+                        continue
+                    l_hook = bool(layer.get("has_hook")) if layer.get("has_hook") is not None else hook
+                    splice_len, splice_src = get_splice_length(size, general_spec, category="전단벽")
+                    anchor_len, anchor_src = get_anchorage_length(size, general_spec, top_bar=False, hook=l_hook, category="전단벽")
+                    if splice_src == EXCLUDED_SOURCE or anchor_src == EXCLUDED_SOURCE:
+                        parts = []
+                        if splice_src == EXCLUDED_SOURCE:
+                            parts.append("이음길이")
+                        if anchor_src == EXCLUDED_SOURCE:
+                            parts.append("정착길이")
+                        warnings.append(_excluded_note("전단벽", mark, size, "수직근", parts))
+                        continue
+                    vertical_bars = _spacing_bar_count(L, spacing)
+                    total_len = vertical_bars * (H + splice_len + anchor_len / floor_repeat) * n
+                    wt, err = rebar_weight(size, total_len)
+                    if err:
+                        warnings.append(f"전단벽 {mark}: {err}")
                     else:
-                        rebar_total += wt_extra
-                        warnings.append(
-                            f"전단벽 {mark}: 단부보강근(수직) {end_condition} 기준 +{extra_vertical}가닥 반영 "
-                            "(SK에코플랜트 매뉴얼 기준 근사)"
-                        )
+                        rebar_total += wt
+                        if splice_src == "추정값(확인필요)" or anchor_src == "추정값(확인필요)":
+                            warnings.append(f"전단벽 {mark}: 수직근 이음/정착길이 일부를 추정값으로 반영했습니다 — 확인 필요")
+            else:
+                warnings.append(f"전단벽 {mark}: 세분화배근에 수직근 항목이 없어 수직철근량 계산에서 제외했습니다")
 
-                u_bar_len = 2 * 0.3 + T  # 양측 300mm 연장 + 벽두께 감싸는 구간 근사(벤딩 여유 미포함)
-                if L <= 0.6:
-                    u_count, shape = horizontal_bars, "C형(편측)"
-                elif L <= 1.2:
-                    u_count, shape = horizontal_bars, "U형+C형"
+            if h_layers:
+                for layer in h_layers:
+                    size, spacing = layer["size"], layer.get("spacing_m")
+                    if not spacing:
+                        continue
+                    splice_len, splice_src = get_splice_length(size, general_spec, category="전단벽")
+                    if splice_src == EXCLUDED_SOURCE:
+                        warnings.append(_excluded_note("전단벽", mark, size, "수평근", ["이음길이"]))
+                        continue
+                    horizontal_bars = _spacing_bar_count(H, spacing)
+                    h_splices = max(0, math.ceil(L / STOCK_BAR_LENGTH_M) - 1)
+                    total_len = horizontal_bars * (L + h_splices * splice_len) * n
+                    wt, err = rebar_weight(size, total_len)
+                    if err:
+                        warnings.append(f"전단벽 {mark}: {err}")
+                    else:
+                        rebar_total += wt
+                        if h_splices and splice_src == "추정값(확인필요)":
+                            warnings.append(f"전단벽 {mark}: 수평근 이음길이를 추정값으로 반영했습니다 — 확인 필요")
+            else:
+                warnings.append(f"전단벽 {mark}: 세분화배근에 수평근 항목이 없어 수평철근량 계산에서 제외했습니다")
+
+            for layer in reinforce_layers:
+                size, count = layer["size"], layer.get("count")
+                if not count:
+                    continue
+                anchor_len, anchor_src = get_anchorage_length(size, general_spec, top_bar=False, hook=bool(layer.get("has_hook")), category="전단벽")
+                if anchor_src == EXCLUDED_SOURCE:
+                    warnings.append(_excluded_note("전단벽", mark, size, layer.get("role"), ["정착길이"]))
+                    continue
+                seg_len = H + anchor_len / floor_repeat
+                wt, err = rebar_weight(size, seg_len * count * n)
+                if err:
+                    warnings.append(f"전단벽 {mark}: {layer.get('role')} {err}")
                 else:
-                    u_count, shape = horizontal_bars * 2, "U형(양단)"
-                wt_u, err_u = rebar_weight(size, u_count * u_bar_len * n)
-                if err_u:
-                    warnings.append(f"전단벽 {mark}: 단부보강근(수평) {err_u}")
-                elif wt_u:
-                    rebar_total += wt_u
-                    warnings.append(
-                        f"전단벽 {mark}: 단부보강근(수평, {shape}) {u_count}개×{round(u_bar_len,2)}m 근사 반영 "
-                        "— 실제 벤딩(절곡) 형상과 다를 수 있어 확인 필요"
-                    )
+                    rebar_total += wt
+                    warnings.append(f"전단벽 {mark}: {layer.get('role')} {count}가닥 반영 (도면 지정값)")
+
+            for layer in opening_layers:
+                size, count = layer["size"], layer.get("count")
+                if not count:
+                    continue
+                anchor_len, anchor_src = get_anchorage_length(size, general_spec, top_bar=False, hook=bool(layer.get("has_hook")), category="전단벽")
+                if anchor_src == EXCLUDED_SOURCE:
+                    warnings.append(_excluded_note("전단벽", mark, size, "개구부보강근", ["정착길이"]))
+                    continue
+                seg_len = layer.get("zone_length_m") or (2 * anchor_len)
+                if not layer.get("zone_length_m"):
+                    warnings.append(f"전단벽 {mark}: 개구부보강근 길이를 확인 못해 정착길이×2로 근사했습니다 — 실제 개구부 치수 기준 확인 권장")
+                wt, err = rebar_weight(size, seg_len * count * n)
+                if err:
+                    warnings.append(f"전단벽 {mark}: 개구부보강근 {err}")
+                else:
+                    rebar_total += wt
+                    warnings.append(f"전단벽 {mark}: 개구부보강근 {count}가닥 반영 (도면 지정값)")
         else:
-            warnings.append(f"전단벽 {mark}: 철근 규격/간격 정보가 없어 철근량 계산에서 제외했습니다 — 벽체배근도 확인 필요")
+            # ── 기존(레거시) 대표 철근 1세트 경로 ──
+            size = it.get("rebar_size")
+            spacing = it.get("rebar_spacing_m")
+            if size and spacing:
+                hook = bool(it.get("has_hook"))
+                is_single_face = it.get("is_single_face") is True
+                face_count = 1 if is_single_face else 2
+                if not is_single_face:
+                    assumed_double_face_count += 1
+                splice_len, splice_src = get_splice_length(size, general_spec, category="전단벽")
+                anchor_len, anchor_src = get_anchorage_length(size, general_spec, top_bar=False, hook=hook, category="전단벽")
+                vertical_bars = _spacing_bar_count(L, spacing) * face_count
+                horizontal_bars = _spacing_bar_count(H, spacing) * face_count
+                h_splices = max(0, math.ceil(L / STOCK_BAR_LENGTH_M) - 1)
+                floor_repeat = it.get("_floor_repeat", 1) or 1
+
+                main_excluded = (splice_src == EXCLUDED_SOURCE) or (anchor_src == EXCLUDED_SOURCE)
+                if main_excluded:
+                    parts = []
+                    if splice_src == EXCLUDED_SOURCE:
+                        parts.append("이음길이")
+                    if anchor_src == EXCLUDED_SOURCE:
+                        parts.append("정착길이")
+                    warnings.append(_excluded_note("전단벽", mark, size, "수직/수평 철근", parts))
+                else:
+                    # calc_columns와 동일한 이유 — count가 이미 반복 층수만큼 곱해져 있으므로,
+                    # 정착길이(수직근 하부 1개소, 부재 전체에서 1번뿐)는 반복 배율로 나눠서 중복
+                    # 반영을 막는다. 이음길이는 층마다 실제로 있어서 그대로 둔다.
+                    vertical_len = vertical_bars * (H + splice_len + anchor_len / floor_repeat)  # 하부(기초 접합부) 1개소 정착
+                    horizontal_len = horizontal_bars * (L + h_splices * splice_len)
+                    total_len = (vertical_len + horizontal_len) * n
+
+                    wt, err = rebar_weight(size, total_len)
+                    if err:
+                        warnings.append(f"전단벽 {mark}: {err}")
+                    else:
+                        rebar_total += wt
+                        if splice_src == "추정값(확인필요)":
+                            warnings.append(f"전단벽 {mark}: {size} 이음길이를 구조일반사항에서 못 찾아 {splice_len}m로 추정했습니다 — 확인 필요")
+                        if anchor_src == "추정값(확인필요)":
+                            warnings.append(f"전단벽 {mark}: {size} 정착길이를 구조일반사항에서 못 찾아 {anchor_len}m로 추정했습니다(수직근 하부 1개소 가정{', 갈고리' if hook else ''}) — 확인 필요")
+
+                end_condition = it.get("end_condition")
+                if end_condition:
+                    extra_vertical = {"일자형": 2, "T자형": 4, "모서리": 4}.get(end_condition, 0)
+                    if extra_vertical:
+                        if main_excluded:
+                            warnings.append(f"전단벽 {mark}: 단부보강근(수직) {size} 이음/정착길이 미확인으로 확정 전까지 계산에서 제외됩니다.")
+                        else:
+                            extra_len = H + splice_len + anchor_len / floor_repeat  # 위 수직근과 동일 이유
+                            wt_extra, err_extra = rebar_weight(size, extra_vertical * extra_len * n)
+                            if err_extra:
+                                warnings.append(f"전단벽 {mark}: 단부보강근(수직) {err_extra}")
+                            else:
+                                rebar_total += wt_extra
+                                warnings.append(
+                                    f"전단벽 {mark}: 단부보강근(수직) {end_condition} 기준 +{extra_vertical}가닥 반영 "
+                                    "(SK에코플랜트 매뉴얼 기준 근사)"
+                                )
+
+                    u_bar_len = 2 * 0.3 + T  # 양측 300mm 연장 + 벽두께 감싸는 구간 근사(벤딩 여유 미포함)
+                    if L <= 0.6:
+                        u_count, shape = horizontal_bars, "C형(편측)"
+                    elif L <= 1.2:
+                        u_count, shape = horizontal_bars, "U형+C형"
+                    else:
+                        u_count, shape = horizontal_bars * 2, "U형(양단)"
+                    wt_u, err_u = rebar_weight(size, u_count * u_bar_len * n)
+                    if err_u:
+                        warnings.append(f"전단벽 {mark}: 단부보강근(수평) {err_u}")
+                    elif wt_u:
+                        rebar_total += wt_u
+                        warnings.append(
+                            f"전단벽 {mark}: 단부보강근(수평, {shape}) {u_count}개×{round(u_bar_len,2)}m 근사 반영 "
+                            "— 실제 벤딩(절곡) 형상과 다를 수 있어 확인 필요"
+                        )
+            else:
+                warnings.append(f"전단벽 {mark}: 철근 규격/간격 정보가 없어 철근량 계산에서 제외했습니다 — 벽체배근도 확인 필요")
+
+    if assumed_double_face_count:
+        warnings.append(
+            f"전단벽 철근량: 도면에서 단면(편측) 배근이 확인되지 않은 {assumed_double_face_count}개소는 "
+            "양면(두 겹) 배근으로 가정해 계산했습니다 — 실제 벽체배근도 확인 후 다르면 검토 화면에서 "
+            "'단면(편측) 배근'으로 고쳐주세요."
+        )
 
     return round(concrete, 3), round(formwork, 3), round(rebar_total, 2), warnings
 
@@ -627,47 +1203,120 @@ def calc_stairs(items, general_spec=None):
     rebar_total = 0.0
     warnings = []
     for it in items:
-        W, L, T, n = it.get("width_m"), it.get("length_m"), it.get("thickness_m"), it.get("count", 1) or 1
+        W, L, T = it.get("width_m"), it.get("length_m"), it.get("thickness_m")
         mark = it.get("mark", "?")
+        n = _resolve_count(it, "계단", mark, warnings)
+        if n is None:
+            continue
         if not all(isinstance(v, (int, float)) for v in (W, L, T)):
             warnings.append(f"계단 {mark}: 치수 누락으로 계산 제외")
             continue
         concrete += W * L * T * n
         formwork += W * L * n  # 경사면(하부) 거푸집 기준, 측판/챌판 거푸집은 미반영
 
-        size = it.get("rebar_size")
-        spacing = it.get("rebar_spacing_m")
-        if size and spacing:
-            top_bar = bool(it.get("is_top_bar"))
-            hook = bool(it.get("has_hook"))
-            num_splices = max(0, math.ceil(L / STOCK_BAR_LENGTH_M) - 1)
-            splice_len, splice_src = get_splice_length(size, general_spec, top_bar=top_bar, category="계단")
-            anchor_len, anchor_src = get_anchorage_length(size, general_spec, top_bar=top_bar, hook=hook, category="계단")
-            main_bars = math.ceil(W / spacing)
-            main_len_per_bar = L + num_splices * splice_len + 2 * anchor_len
-            wt, err = rebar_weight(size, main_bars * main_len_per_bar * n)
-            if err:
-                warnings.append(f"계단 {mark}: {err}")
+        layers = _valid_rebar_layers(it, "계단", mark, warnings)
+        if layers:
+            # ── 세분화 배근 경로: 주근(상/하부, 계단참 구간 별도)과 배력근을 각각 반영 ──
+            main_layers = [l for l in layers if l.get("role") == "주근"]
+            dist_layers = [l for l in layers if l.get("role") == "배력근"]
+            if main_layers:
+                for layer in main_layers:
+                    size, spacing = layer["size"], layer.get("spacing_m")
+                    if not spacing:
+                        continue
+                    top_bar = (layer.get("position") == "상부") if layer.get("position") else bool(it.get("is_top_bar"))
+                    hook = bool(layer.get("has_hook")) if layer.get("has_hook") is not None else bool(it.get("has_hook"))
+                    zone = layer.get("zone")
+                    main_bars = _spacing_bar_count(W, spacing)
+                    label = f"주근({layer.get('position') or '?'}{'/' + zone if zone else ''})"
+                    if zone == "계단참":
+                        seg_len = _zone_segment_length_m(layer, L, 0.25)
+                        wt, err = rebar_weight(size, main_bars * seg_len * n)
+                        if err:
+                            warnings.append(f"계단 {mark}: {err}")
+                        else:
+                            rebar_total += wt
+                            if not layer.get("zone_length_m"):
+                                warnings.append(f"계단 {mark}: {label} 구간길이를 확인 못해 전체 경사길이의 25%로 근사했습니다 — 확인 권장")
+                    else:
+                        num_splices = max(0, math.ceil(L / STOCK_BAR_LENGTH_M) - 1)
+                        splice_len, splice_src = get_splice_length(size, general_spec, top_bar=top_bar, category="계단")
+                        anchor_len, anchor_src = get_anchorage_length(size, general_spec, top_bar=top_bar, hook=hook, category="계단")
+                        if (anchor_src == EXCLUDED_SOURCE) or (num_splices and splice_src == EXCLUDED_SOURCE):
+                            parts = []
+                            if num_splices and splice_src == EXCLUDED_SOURCE:
+                                parts.append("이음길이")
+                            if anchor_src == EXCLUDED_SOURCE:
+                                parts.append("정착길이")
+                            warnings.append(_excluded_note("계단", mark, size, label, parts))
+                            continue
+                        main_len_per_bar = L + num_splices * splice_len + 2 * anchor_len
+                        wt, err = rebar_weight(size, main_bars * main_len_per_bar * n)
+                        if err:
+                            warnings.append(f"계단 {mark}: {err}")
+                        else:
+                            rebar_total += wt
+                            if (num_splices and splice_src == "추정값(확인필요)") or anchor_src == "추정값(확인필요)":
+                                warnings.append(f"계단 {mark}: {label} 이음/정착길이 일부를 추정값으로 반영했습니다 — 확인 필요")
             else:
-                rebar_total += wt
-                if num_splices and splice_src == "추정값(확인필요)":
-                    warnings.append(f"계단 {mark}: {size} 이음길이를 구조일반사항에서 못 찾아 {splice_len}m로 추정했습니다 — 확인 필요")
-                if anchor_src == "추정값(확인필요)":
-                    warnings.append(f"계단 {mark}: {size} 정착길이를 구조일반사항에서 못 찾아 {anchor_len}m로 추정했습니다(양단 각 1개소 가정) — 확인 필요")
+                warnings.append(f"계단 {mark}: 세분화배근에 주근(역할=주근) 항목이 없어 주근 계산에서 제외했습니다")
 
-            dist_size = it.get("distribution_rebar_size")
-            dist_spacing = it.get("distribution_rebar_spacing_m")
-            if dist_size and dist_spacing:
-                dist_bars = math.ceil(L / dist_spacing)
-                wt2, err2 = rebar_weight(dist_size, dist_bars * W * n)
-                if err2:
-                    warnings.append(f"계단 {mark}: {err2}")
-                else:
-                    rebar_total += wt2
+            if dist_layers:
+                for layer in dist_layers:
+                    size, spacing = layer["size"], layer.get("spacing_m")
+                    if not spacing:
+                        continue
+                    dist_bars = _spacing_bar_count(L, spacing)
+                    wt2, err2 = rebar_weight(size, dist_bars * W * n)
+                    if err2:
+                        warnings.append(f"계단 {mark}: {err2}")
+                    else:
+                        rebar_total += wt2
             else:
-                warnings.append(f"계단 {mark}: 배력근(폭방향) 정보가 없어 주근(경사방향)만 계산했습니다 — 계단상세도 확인 필요")
+                warnings.append(f"계단 {mark}: 세분화배근에 배력근 항목이 없어 배력근 계산에서 제외했습니다")
         else:
-            warnings.append(f"계단 {mark}: 철근 규격/간격 정보가 없어 철근량 계산에서 제외했습니다 — 계단상세도 확인 필요")
+            # ── 기존(레거시) 대표 철근 1세트 경로 ──
+            size = it.get("rebar_size")
+            spacing = it.get("rebar_spacing_m")
+            if size and spacing:
+                top_bar = bool(it.get("is_top_bar"))
+                hook = bool(it.get("has_hook"))
+                num_splices = max(0, math.ceil(L / STOCK_BAR_LENGTH_M) - 1)
+                splice_len, splice_src = get_splice_length(size, general_spec, top_bar=top_bar, category="계단")
+                anchor_len, anchor_src = get_anchorage_length(size, general_spec, top_bar=top_bar, hook=hook, category="계단")
+                main_bars = _spacing_bar_count(W, spacing)
+                if (anchor_src == EXCLUDED_SOURCE) or (num_splices and splice_src == EXCLUDED_SOURCE):
+                    parts = []
+                    if num_splices and splice_src == EXCLUDED_SOURCE:
+                        parts.append("이음길이")
+                    if anchor_src == EXCLUDED_SOURCE:
+                        parts.append("정착길이")
+                    warnings.append(_excluded_note("계단", mark, size, "주근", parts))
+                else:
+                    main_len_per_bar = L + num_splices * splice_len + 2 * anchor_len
+                    wt, err = rebar_weight(size, main_bars * main_len_per_bar * n)
+                    if err:
+                        warnings.append(f"계단 {mark}: {err}")
+                    else:
+                        rebar_total += wt
+                        if num_splices and splice_src == "추정값(확인필요)":
+                            warnings.append(f"계단 {mark}: {size} 이음길이를 구조일반사항에서 못 찾아 {splice_len}m로 추정했습니다 — 확인 필요")
+                        if anchor_src == "추정값(확인필요)":
+                            warnings.append(f"계단 {mark}: {size} 정착길이를 구조일반사항에서 못 찾아 {anchor_len}m로 추정했습니다(양단 각 1개소 가정) — 확인 필요")
+
+                dist_size = it.get("distribution_rebar_size")
+                dist_spacing = it.get("distribution_rebar_spacing_m")
+                if dist_size and dist_spacing:
+                    dist_bars = _spacing_bar_count(L, dist_spacing)
+                    wt2, err2 = rebar_weight(dist_size, dist_bars * W * n)
+                    if err2:
+                        warnings.append(f"계단 {mark}: {err2}")
+                    else:
+                        rebar_total += wt2
+                else:
+                    warnings.append(f"계단 {mark}: 배력근(폭방향) 정보가 없어 주근(경사방향)만 계산했습니다 — 계단상세도 확인 필요")
+            else:
+                warnings.append(f"계단 {mark}: 철근 규격/간격 정보가 없어 철근량 계산에서 제외했습니다 — 계단상세도 확인 필요")
 
     return round(concrete, 3), round(formwork, 3), round(rebar_total, 2), warnings
 
@@ -688,8 +1337,9 @@ def calc_spacers(members):
     slab_ea = 0.0
     deck_excluded_count = 0
     for it in members.get("slabs", []) or []:
-        area, n = it.get("area_m2"), it.get("count", 1) or 1
-        if not isinstance(area, (int, float)):
+        area = it.get("area_m2")
+        n = _resolve_count(it, "슬래브", it.get("mark", "?"), warnings)
+        if n is None or not isinstance(area, (int, float)):
             continue
         if it.get("is_deck_slab"):
             deck_excluded_count += 1
@@ -704,8 +1354,9 @@ def calc_spacers(members):
 
     wall_ea = 0.0
     for it in members.get("walls", []) or []:
-        L, H, n = it.get("length_m"), it.get("height_m"), it.get("count", 1) or 1
-        if not isinstance(L, (int, float)) or not isinstance(H, (int, float)):
+        L, H = it.get("length_m"), it.get("height_m")
+        n = _resolve_count(it, "전단벽", it.get("mark", "?"), warnings)
+        if n is None or not isinstance(L, (int, float)) or not isinstance(H, (int, float)):
             continue
         opening_area = 0.0
         for op in it.get("openings") or []:
@@ -717,15 +1368,17 @@ def calc_spacers(members):
 
     column_ea = 0.0
     for it in members.get("columns", []) or []:
-        h, n = it.get("height_m"), it.get("count", 1) or 1
-        if not isinstance(h, (int, float)):
+        h = it.get("height_m")
+        n = _resolve_count(it, "기둥", it.get("mark", "?"), warnings)
+        if n is None or not isinstance(h, (int, float)):
             continue
         column_ea += 4 * (h / 0.9) * n
 
     beam_ea = 0.0
     for it in members.get("beams", []) or []:
-        L, n = it.get("length_m"), it.get("count", 1) or 1
-        if not isinstance(L, (int, float)):
+        L = it.get("length_m")
+        n = _resolve_count(it, "보", it.get("mark", "?"), warnings)
+        if n is None or not isinstance(L, (int, float)):
             continue
         beam_ea += (L * n) / 0.9
 
@@ -852,6 +1505,12 @@ def _expand_items_by_floor_repeat(items):
         if repeat and repeat != 1:
             new_it = dict(it)
             new_it["count"] = (it.get("count") or 1) * repeat
+            # calc_columns/calc_walls가 "하부 1개소 정착길이"를 count에 비례해서 더하면,
+            # 반복된 층 수만큼 정착길이가 중복 반영된다 — 실제로는 기둥/벽체 1개 위치가
+            # 여러 층을 관통하는 연속 부재라 정착(기초 접합부)은 그 부재 전체에서 딱 1번뿐이고,
+            # 층 경계마다 있는 건 이음(겹침)이다. count는 이미 반복 층수만큼 곱했으니, 정착길이
+            # 계산 쪽에서 이 배율로 나눠 되돌릴 수 있게 반복 배율을 같이 넘겨준다.
+            new_it["_floor_repeat"] = repeat
             expanded.append(new_it)
             mark = it.get("mark") or "(mark 미상)"
             zone = it.get("zone") or "미상"
@@ -1171,9 +1830,14 @@ def compute_structural_quantities(members: dict, elevation_data: dict = None) ->
     else:
         all_warnings.append("구조일반사항에서 철근 강종(SD400/SD500 등)을 확인하지 못했습니다 — 도면 확인 필요")
     if splice_class:
-        spec_lines.append(f"이음등급 {splice_class}급")
+        spec_lines.append(f"이음등급 {splice_class}급(도면 표기)")
+        if str(splice_class).strip().upper().startswith("A"):
+            all_warnings.append(
+                "도면 구조일반사항에는 이음등급이 A급으로 표기돼 있지만, 이 도구는 안전측 기준으로 "
+                "이음길이를 항상 B급(직선 정착길이×1.3) 기준으로 계산합니다 — 정책에 따른 의도된 동작입니다."
+            )
     else:
-        all_warnings.append("구조일반사항에서 이음등급(A급/B급)을 확인하지 못했습니다 — 기본값(추정 이음길이)으로 계산했습니다")
+        all_warnings.append("구조일반사항에서 이음등급(A급/B급) 표기를 확인하지 못했습니다 — 이음길이는 항상 B급 기준으로 계산했습니다.")
     if not general_spec.get("lap_splice_table"):
         all_warnings.append("이음길이표가 도면에서 확인되지 않아 KDS 근사 공식값으로 계산했습니다 — 실제 이음길이표로 재검증 권장")
     if not general_spec.get("anchorage_table"):
@@ -1371,12 +2035,95 @@ def _representative_footprint_area_m2(members):
     return best
 
 
+_MEMBER_CATEGORY_LABEL = {
+    "foundations": "기초", "columns": "기둥", "beams": "보",
+    "slabs": "슬래브", "walls": "전단벽", "stairs": "계단",
+}
+
+
+def _synthesize_display_layers(cat_key, it):
+    """3D 뷰어의 "부재별 상세보기"에서 세분화 배근(rebar_layers)이 없는 레거시 부재도
+    똑같은 형태로 보여주기 위해, 카테고리별 레거시 스칼라 필드(main_rebar_size 등)를
+    rebar_layers와 같은 모양의 리스트로 변환한다. 표시 전용 변환이며 계산에는 쓰이지
+    않는다 — 실제 계산은 calc_*의 rebar_layers/레거시 분기가 각자 담당한다."""
+    layers = it.get("rebar_layers")
+    if isinstance(layers, list) and layers:
+        return layers
+    out = []
+    if cat_key == "columns":
+        if it.get("main_rebar_size") and it.get("main_rebar_count"):
+            out.append({"role": "주근", "size": it["main_rebar_size"], "count": it["main_rebar_count"]})
+        if it.get("tie_rebar_size") and it.get("tie_spacing_m"):
+            out.append({"role": "후프", "size": it["tie_rebar_size"], "spacing_m": it["tie_spacing_m"]})
+    elif cat_key == "beams":
+        if it.get("main_rebar_size") and it.get("main_rebar_count"):
+            out.append({
+                "role": "주근", "position": "상부" if it.get("is_top_bar") else "하부",
+                "size": it["main_rebar_size"], "count": it["main_rebar_count"],
+            })
+        if it.get("stirrup_size") and it.get("stirrup_spacing_m"):
+            out.append({"role": "스터럽", "size": it["stirrup_size"], "spacing_m": it["stirrup_spacing_m"]})
+    elif cat_key == "slabs":
+        if it.get("rebar_size") and it.get("rebar_spacing_m"):
+            out.append({
+                "role": "주근", "position": "상부" if it.get("is_top_bar") else "하부",
+                "size": it["rebar_size"], "spacing_m": it["rebar_spacing_m"],
+            })
+    elif cat_key == "walls":
+        if it.get("rebar_size") and it.get("rebar_spacing_m"):
+            out.append({"role": "수직근", "size": it["rebar_size"], "spacing_m": it["rebar_spacing_m"]})
+            out.append({"role": "수평근", "size": it["rebar_size"], "spacing_m": it["rebar_spacing_m"]})
+    elif cat_key == "stairs":
+        if it.get("rebar_size") and it.get("rebar_spacing_m"):
+            out.append({
+                "role": "주근", "position": "상부" if it.get("is_top_bar") else "하부",
+                "size": it["rebar_size"], "spacing_m": it["rebar_spacing_m"],
+            })
+        if it.get("distribution_rebar_size") and it.get("distribution_rebar_spacing_m"):
+            out.append({
+                "role": "배력근", "size": it["distribution_rebar_size"],
+                "spacing_m": it["distribution_rebar_spacing_m"],
+            })
+    return out
+
+
+def compute_member_rebar_detail(members: dict) -> list:
+    """3D 뷰어의 "부재별 보기"(클릭해서 그 부재 배근만 표시)용 데이터를 만든다.
+    zone(도면에 기재된 층 라벨) 기준으로 부재를 묶어, 층마다 부재 목록 + 각 부재의
+    세분화 배근(rebar_layers, 없으면 레거시 필드에서 변환)을 함께 내려준다.
+
+    실제 부재의 X/Y 좌표는 도면에서 추출하지 않으므로 여기엔 위치 정보가 없다 —
+    3D 뷰어는 이 목록을 "클릭 가능한 부재 리스트"로 보여주고, 선택된 부재의 배근을
+    층 박스 안에 스키매틱하게(실제 배치가 아닌 참고용으로) 그린다.
+
+    Returns: [{"zone": "지하1층", "members": [{"category","mark","count","rebar_layers"}, ...]}, ...]
+    지하→지상→옥탑→미상 순으로 정렬된다(_floor_sort_key 재사용, compute_floor_breakdown과
+    동일한 정렬 기준이라 다른 화면과 층 순서가 어긋나지 않는다).
+    """
+    by_zone = {}
+    for cat_key, label in _MEMBER_CATEGORY_LABEL.items():
+        for it in members.get(cat_key, []) or []:
+            if not isinstance(it, dict):
+                continue
+            zone = (it.get("zone") or "").strip() or "미상"
+            by_zone.setdefault(zone, []).append({
+                "category": label,
+                "mark": it.get("mark") or "무명",
+                "count": it.get("count"),
+                "rebar_layers": _synthesize_display_layers(cat_key, it),
+            })
+    return [
+        {"zone": zone, "members": by_zone[zone]}
+        for zone in sorted(by_zone.keys(), key=_floor_sort_key)
+    ]
+
+
 def compute_rebar_bar_counts(members: dict) -> dict:
     """
     3D 매싱 뷰어에서 철근을 "라인"으로 그릴 때, 임의 개수가 아니라 실제 배근 수량에
     가까운 가닥 수를 쓰기 위한 집계. 중량(rebar_weight)이 아니라 "가닥 수"만 세는
     시각화 전용 개략 계산이며, calc_columns/calc_walls/calc_beams의 이음/스터럽 개수
-    산정 로직과 동일한 방식(간격으로 나눠 올림)을 재사용한다.
+    산정 로직과 동일한 방식(_spacing_bar_count: 간격당 +1, 펜스포스트 방식)을 재사용한다.
 
     Returns: {"vertical_bar_count": int, "horizontal_ring_count": int}
       - vertical_bar_count: 기둥 주근 + 벽체 수직근 가닥 수 총합
@@ -1386,7 +2133,9 @@ def compute_rebar_bar_counts(members: dict) -> dict:
     horizontal = 0
 
     for it in members.get("columns", []) or []:
-        n = it.get("count", 1) or 1
+        n = _resolve_count(it, "기둥", it.get("mark", "?"))
+        if n is None:
+            continue
         main_count = it.get("main_rebar_count")
         if isinstance(main_count, (int, float)) and main_count > 0:
             vertical += int(main_count) * n
@@ -1394,23 +2143,29 @@ def compute_rebar_bar_counts(members: dict) -> dict:
         h = it.get("height_m")
         spacing = it.get("tie_spacing_m")
         if isinstance(h, (int, float)) and isinstance(spacing, (int, float)) and spacing > 0:
-            horizontal += math.ceil(h / spacing) * n
+            horizontal += _spacing_bar_count(h, spacing) * n
 
     for it in members.get("walls", []) or []:
-        n = it.get("count", 1) or 1
+        n = _resolve_count(it, "전단벽", it.get("mark", "?"))
+        if n is None:
+            continue
+        # calc_walls와 동일한 가정 — is_single_face가 true로 명시되지 않으면 양면(2배)로 본다.
+        face_count = 1 if it.get("is_single_face") is True else 2
         L, H = it.get("length_m"), it.get("height_m")
         spacing = it.get("rebar_spacing_m")
         if isinstance(L, (int, float)) and isinstance(spacing, (int, float)) and spacing > 0:
-            vertical += math.ceil(L / spacing) * n
+            vertical += _spacing_bar_count(L, spacing) * face_count * n
         if isinstance(H, (int, float)) and isinstance(spacing, (int, float)) and spacing > 0:
-            horizontal += math.ceil(H / spacing) * n
+            horizontal += _spacing_bar_count(H, spacing) * face_count * n
 
     for it in members.get("beams", []) or []:
-        n = it.get("count", 1) or 1
+        n = _resolve_count(it, "보", it.get("mark", "?"))
+        if n is None:
+            continue
         L = it.get("length_m")
         spacing = it.get("stirrup_spacing_m")
         if isinstance(L, (int, float)) and isinstance(spacing, (int, float)) and spacing > 0:
-            horizontal += math.ceil(L / spacing) * n
+            horizontal += _spacing_bar_count(L, spacing) * n
 
     return {"vertical_bar_count": vertical, "horizontal_ring_count": horizontal}
 
@@ -1465,4 +2220,8 @@ def compute_massing_model(members: dict, elevation_data: dict = None) -> dict:
         "warnings": warnings,
         "note": "실제 평면 형상·부재 배치가 아닌, 대표 슬래브 면적과 층고를 이용한 개략 매싱 박스입니다 — 참고용으로만 사용하세요.",
         "rebar_bar_counts": compute_rebar_bar_counts(members),
+        # 부재별 상세보기(클릭해서 그 부재만 표시)용 — zone(도면 층 라벨) 기준 부재 목록.
+        # 위 floors(박스 층수)와는 서로 다른 출처(elevation_data vs 부재 zone 필드)라
+        # 이름이 정확히 일치하지 않을 수 있다 — 프론트는 이 목록을 별도 선택 UI로 보여준다.
+        "member_rebar_by_zone": compute_member_rebar_detail(members),
     }

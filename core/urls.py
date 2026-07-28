@@ -36,6 +36,10 @@ cbl_path("api/cblcad/csrf/", cbl_views.cblcad_csrf, name="cblcad_csrf"),
 
     path('quantity/', quantity_views.quantity_main, name='quantity_main'),
     path('api/quantity/check-zip/', quantity_views.api_check_zip, name='api_check_zip'),
+    path('api/quantity/overview-check/', quantity_views.api_quantity_overview_check, name='api_quantity_overview_check'),
+    path('api/quantity/overview-revise/', quantity_views.api_quantity_overview_revise, name='api_quantity_overview_revise'),
+    path('api/quantity/basement-plan-check/', quantity_views.api_quantity_basement_plan_check, name='api_quantity_basement_plan_check'),
+    path('api/quantity/review-confirm/', quantity_views.api_quantity_review_confirm, name='api_quantity_review_confirm'),
     path('api/quantity/run/', quantity_views.api_run_quantity, name='api_run_quantity'),
     path('api/quantity/progress/', quantity_views.api_quantity_progress, name='api_quantity_progress'),
     path('api/quantity/cancel/', quantity_views.api_quantity_cancel, name='api_quantity_cancel'),
@@ -69,6 +73,10 @@ cbl_path("api/cblcad/csrf/", cbl_views.cblcad_csrf, name="cblcad_csrf"),
     # CBL_CALENDAR_FORCE_DELETE_URL_END
 
     path('api/calendar-events/create/', views.calendar_event_create_api, name='calendar_event_create_api'),
+    # CBL_CALENDAR_AI_SUGGEST_URL_START
+    path('api/calendar-events/ai-suggest/', views.calendar_ai_suggest_api, name='calendar_ai_suggest_api'),
+    path('api/calendar-events/ai-bulk-create/', views.calendar_ai_bulk_create_api, name='calendar_ai_bulk_create_api'),
+    # CBL_CALENDAR_AI_SUGGEST_URL_END
     # CBL_CALENDAR_FINAL_DELETE_URL_START
     path('api/calendar-events/<int:pk>/delete-final/', views.calendar_event_delete_final_api, name='calendar_event_delete_final_api'),
     path('api/calendar-events/<int:pk>/update-final/', views.calendar_event_update_final_api, name='calendar_event_update_final_api'),
