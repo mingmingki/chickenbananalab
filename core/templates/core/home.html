@@ -18117,13 +18117,14 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
 })();
 </script>
 <!-- CBL_CAD_HOME_START_AUTOVERSION_V1_END -->
-<!-- CBL_MOBILE_CHAT_VIEWPORT_V4_START -->
+<!-- CBL_MOBILE_CHAT_VIEWPORT_V5_START -->
 <style>
 #cblAiJobMessengerModal,
 #cblQuantityMessengerModal {
   position: fixed !important;
   inset: 0 !important;
-  width: 100vw !important;
+  width: auto !important;
+  box-sizing: border-box !important;
   height: 100dvh !important;
   max-height: none !important;
   display: flex !important;
@@ -18139,7 +18140,8 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
   #cblQuantityMessengerModal {
     position: fixed !important;
     inset: 0 !important;
-    width: 100vw !important;
+    width: auto !important;
+    box-sizing: border-box !important;
     height: 100dvh !important;
     max-height: none !important;
     padding: 12px !important;
@@ -18154,6 +18156,13 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
 
   #cblAiJobMessengerModal .job-wrap,
   #cblQuantityMessengerModal .qty-wrap {
+    position: fixed !important;
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%) !important;
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+    box-sizing: border-box !important;
     height: 62dvh;
     max-height: calc(100dvh - 24px);
     min-height: 0;
@@ -18217,7 +18226,7 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
     var input = modal.querySelector(".job-input-area, .qty-input-area, .qty-footer, .qty-actions");
     var body = modal.querySelector(".job-body, .qty-body");
     modal.classList.toggle("cbl-chat-keyboard-open", !!focused);
-    if (wrap) { wrap.style.setProperty("position", "fixed", "important"); wrap.style.setProperty("top", top + "px", "important"); wrap.style.setProperty("height", keyboardHeight + "px", "important"); wrap.style.setProperty("max-height", keyboardHeight + "px", "important"); wrap.style.setProperty("left", "12px", "important"); wrap.style.setProperty("right", "12px", "important"); wrap.style.setProperty("margin", "0 auto", "important"); }
+    if (wrap) { wrap.style.setProperty("top", top + "px", "important"); wrap.style.setProperty("height", keyboardHeight + "px", "important"); wrap.style.setProperty("max-height", keyboardHeight + "px", "important"); }
     if (screen) { screen.style.setProperty("display", "flex", "important"); screen.style.setProperty("flex-direction", "column", "important"); screen.style.setProperty("min-height", "0", "important"); }
     if (header) header.style.setProperty("flex-shrink", "0", "important");
     if (input) input.style.setProperty("flex-shrink", "0", "important");
@@ -18243,5 +18252,5 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
   window.setTimeout(bind, 300);
 })();
 </script>
-<!-- CBL_MOBILE_CHAT_VIEWPORT_V4_END -->
+<!-- CBL_MOBILE_CHAT_VIEWPORT_V5_END -->
 {% endblock %}
