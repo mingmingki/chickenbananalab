@@ -18122,28 +18122,51 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
 })();
 </script>
 <!-- CBL_CAD_HOME_START_AUTOVERSION_V1_END -->
-<!-- CBL_MOBILE_CHAT_VIEWPORT_V1_START -->
+<!-- CBL_MOBILE_CHAT_VIEWPORT_V2_START -->
 <style>
 @media (max-width: 768px) {
+  #cblAiJobMessengerModal,
+  #cblQuantityMessengerModal {
+    position: fixed;
+    top: var(--cbl-chat-viewport-top, 0px);
+    left: 0;
+    right: 0;
+    height: var(--cbl-chat-viewport-height, 100vh);
+    max-height: var(--cbl-chat-viewport-height, 100vh);
+    align-items: flex-start;
+    padding: var(--cbl-chat-safe-space, 8px);
+    overflow: hidden;
+  }
+
   #cblAiJobMessengerModal .job-wrap,
   #cblQuantityMessengerModal .qty-wrap {
     height: min(75dvh, calc(var(--cbl-chat-viewport-height, 100vh) - 16px));
     max-height: calc(var(--cbl-chat-viewport-height, 100vh) - 16px);
     min-height: 0;
+    margin: auto;
   }
 
   #cblAiJobMessengerModal .job-screen,
   #cblQuantityMessengerModal .qty-screen {
+    display: flex;
+    flex-direction: column;
     min-height: 0;
     max-height: 100%;
   }
 
   #cblAiJobMessengerModal .job-body,
   #cblQuantityMessengerModal .qty-body {
+    flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+  }
+
+  #cblAiJobMessengerModal .job-header,
+  #cblQuantityMessengerModal .qty-header,
+  #cblAiJobMessengerModal .job-input-area {
+    flex: 0 0 auto;
   }
 }
 </style>
@@ -18152,17 +18175,26 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
   "use strict";
   var ids = ["cblAiJobMessengerModal", "cblQuantityMessengerModal"];
   var root = document.documentElement;
+  var safeSpace = 8;
 
   function updateChatViewportHeight() {
-    var height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-    if (height > 0) root.style.setProperty("--cbl-chat-viewport-height", height + "px");
+    var viewport = window.visualViewport;
+    var height = viewport ? viewport.height : window.innerHeight;
+    var top = viewport ? Math.max(0, viewport.offsetTop || 0) : 0;
+    if (height > 0) {
+      root.style.setProperty("--cbl-chat-viewport-height", height + "px");
+      root.style.setProperty("--cbl-chat-viewport-top", top + "px");
+      root.style.setProperty("--cbl-chat-safe-space", safeSpace + "px");
+    }
   }
 
   function keepFocusedFieldVisible(event) {
     var target = event.target;
     if (!target || !target.matches("input, textarea, select, [contenteditable='true']")) return;
     window.setTimeout(function () {
-      try { target.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch (e) { target.scrollIntoView(); }
+      var modal = target.closest("#cblAiJobMessengerModal, #cblQuantityMessengerModal");
+      var body = modal && modal.querySelector(".job-body, .qty-body");
+      if (body) body.scrollTop = body.scrollHeight;
     }, 120);
   }
 
@@ -18186,4 +18218,4 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
   window.setTimeout(bind, 300);
 })();
 </script>
-<!-- CBL_MOBILE_CHAT_VIEWPORT_V1_END -->
+<!-- CBL_MOBILE_CHAT_VIEWPORT_V2_END -->
