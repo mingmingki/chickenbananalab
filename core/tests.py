@@ -1,10 +1,12 @@
 import io
 import json
+import ast
 import struct
 import unicodedata
 import zipfile
 import zlib
 from copy import deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -25,6 +27,14 @@ from .quantity_views import (
     _classification_has_evidence,
     _fill_overview_spec_defaults,
     _find_incremental_overview_pages,
+    _general_notes_page_candidates,
+    _merge_general_notes_page_candidates,
+    _empty_member_rebar_check_state,
+    _cbl_v5_parse_source,
+    _cbl_v5_select_material_page,
+    extract_general_notes,
+    _validate_general_notes_result,
+    _run_general_notes_job,
     _merge_uploaded_cad_sets,
     _OverviewClassificationResult,
     _OVERVIEW_CLASSIFICATION_CACHE,
@@ -32,6 +42,12 @@ from .quantity_views import (
     OverviewLocatorTimeout,
     _parse_explicit_floor_count,
     _review_file_hashes,
+    _review_ensure,
+    _review_update,
+    api_quantity_general_notes_check,
+    _coordination_target_pages,
+    _coordination_cross_check,
+    _cbl_v5_parse_source,
 )
 from .cbl_category_policy import (
     CBL_PUBLIC_CATEGORY_CHOICES,
@@ -44,6 +60,79 @@ from .management.commands.run_ai_auto_writer import (
     save_ai_data_to_post,
 )
 from .models import CalendarEvent, Post
+
+
+class DrawingCoordinationRegressionTests(SimpleTestCase):
+    def test_target_pages_keep_each_drawing_type_balanced(self):
+        rows = []
+        for kind, start in (("structural_plan", 10), ("elevation", 100), ("ramp", 200)):
+            rows.extend({"pdf_page": start + index, "drawing_type": kind}
+                        for index in range(20))
+        selected = _coordination_target_pages(rows)
+        self.assertIn(10, selected)
+        self.assertIn(29, selected)
+        self.assertIn(100, selected)
+        self.assertIn(119, selected)
+        self.assertIn(200, selected)
+        self.assertIn(219, selected)
+
+    def test_cross_check_reports_level_conflict_without_overwriting(self):
+        structural = [{
+            "discipline": "구조", "pdf_page": 20, "drawing_number": "S-111",
+            "building_scope": "101동", "floor_scope": "1층",
+            "levels": [{"label": "1FL", "elevation_m": 0.0, "quote": "1FL ±0"}],
+        }]
+        architectural = [{
+            "discipline": "건축", "pdf_page": 80, "drawing_number": "A-401",
+            "building_scope": "101동", "floor_scope": "1층",
+            "levels": [{"label": "1FL", "elevation_m": 0.15, "quote": "1FL +150"}],
+        }]
+        conflicts, unconfirmed = _coordination_cross_check(structural, architectural)
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(len(conflicts[0]["evidence"]), 2)
+        self.assertEqual(unconfirmed, [])
+
+    def test_stage_does_not_generate_quantities_or_geometry(self):
+        template = Path(__file__).with_name("templates").joinpath("core", "home.html").read_text()
+        self.assertIn("동·층·층고·코어·개구부 확인", template)
+        self.assertIn("/api/quantity/drawing-coordination-check/", template)
+
+
+class GeneralNotesGeneralizationTests(SimpleTestCase):
+    def test_extract_general_notes_has_single_definition(self):
+        source = Path(__file__).with_name("quantity_views.py").read_text()
+        tree = ast.parse(source)
+        self.assertEqual(
+            sum(node.name == "extract_general_notes"
+                for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)),
+            1,
+        )
+
+    def test_quantity_entrypoints_have_single_definitions(self):
+        source = Path(__file__).with_name("quantity_views.py").read_text()
+        tree = ast.parse(source)
+        names = (
+            "extract_general_notes", "_run_general_notes_job",
+            "_run_overview_check_job", "api_quantity_overview_check",
+            "api_quantity_general_notes_check",
+            "api_quantity_drawing_coordination_check",
+        )
+        for name in names:
+            self.assertEqual(
+                sum(isinstance(node, ast.FunctionDef) and node.name == name
+                    for node in ast.walk(tree)),
+                1, name,
+            )
+
+    def test_material_parser_does_not_require_drawing_or_toc_numbers(self):
+        source = """구조재료 및 강도
+콘크리트 적용: 아파트 전부재 fck=35MPa
+철근 재료: D13 이하 SD400, fy=400MPa
+"""
+        result = _cbl_v5_parse_source(source, pdf_page=9, drawing_number="S-100")
+        self.assertEqual(result["concrete_materials"][0]["fck_mpa"], 35)
+        self.assertEqual(result["rebar_materials"][0]["grade"], "SD400")
+        self.assertEqual(result["rebar_materials"][0]["evidence"]["drawing_number"], "S-100")
 
 
 class CadPrecheckRegressionTests(SimpleTestCase):
@@ -452,6 +541,456 @@ class CadPrecheckRegressionTests(SimpleTestCase):
         self.assertIsNone(structural_zip_bytes)
         self.assertIsNotNone(architectural_zip_bytes)
         self.assertEqual(info["architectural_count"], 1)
+
+
+class GeneralNotesRegressionTests(SimpleTestCase):
+    def _evidence(self, quote, page=3, drawing="S-011"):
+        return {
+            "file_type": "구조 PDF", "pdf_page": page,
+            "drawing_number": drawing, "drawing_title": "구조일반사항(1)",
+            "quote": quote, "method": "pdf_image", "confidence": 0.97,
+        }
+
+    def _source_text(self, data):
+        quotes = []
+        for group in (
+            "concrete_materials", "rebar_materials", "cover_requirements",
+            "anchorage_splice_requirements", "quantity_notes",
+        ):
+            for row in data.get(group) or []:
+                quote = ((row or {}).get("evidence") or {}).get("quote")
+                if quote:
+                    quotes.append(quote)
+        return "\n".join(quotes)
+
+    @patch("core.quantity_views.os.remove")
+    @patch("core.quantity_views.tempfile.NamedTemporaryFile")
+    @patch("core.quantity_views.subprocess.run")
+    def test_candidate_selection_recognizes_s011_to_s022(self, run, named, _remove):
+        handle = Mock()
+        handle.name = "/tmp/general-notes.pdf"
+        named.return_value.__enter__.return_value = handle
+        texts = {
+            1: "도면목록",
+            2: "S-011 구조일반사항 콘크리트 철근 피복두께",
+            3: "S-012 GENERAL NOTES 정착 이음",
+        }
+        run.side_effect = lambda args, **kwargs: SimpleNamespace(
+            returncode=0, stdout=texts.get(int(args[2]), "").encode(),
+        )
+        result = _general_notes_page_candidates(b"pdf", 3)
+        self.assertEqual(result["selected_pages"], [2, 3])
+        self.assertGreater(result["pages"][1]["score"], result["pages"][0]["score"])
+
+    @patch("core.quantity_views.os.remove")
+    @patch("core.quantity_views.tempfile.NamedTemporaryFile")
+    @patch("core.quantity_views.subprocess.run")
+    def test_drawing_list_is_rejected_and_image_pages_are_selected(self, run, named, _remove):
+        handle = Mock()
+        handle.name = "/tmp/general-notes.pdf"
+        named.return_value.__enter__.return_value = handle
+        drawing_list = "도면목록 도면번호 도면명 비고 S-011~S-022 구조일반사항"
+        run.side_effect = lambda args, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout=(drawing_list if int(args[2]) == 1 else "").encode(),
+        )
+        scan = _general_notes_page_candidates(b"pdf", 79)
+        decisions = [{
+            "pdf_page": page,
+            "page_type": "general_notes",
+            "drawing_number": f"S-{number:03d}",
+            "drawing_title": f"구조일반사항({number - 10})",
+            "is_general_notes": True,
+            "confidence": 0.98,
+            "evidence_terms": ["구조일반사항"],
+        } for page, number in zip(range(3, 15), range(11, 23))]
+        selected, mapping = _merge_general_notes_page_candidates(scan, decisions)
+        self.assertEqual(scan["pages"][0]["page_type"], "drawing_list")
+        self.assertEqual(scan["pages"][0]["rejection_reason"], "drawing_list_not_content")
+        self.assertEqual(
+            scan["expected_drawing_numbers"],
+            [f"S-{number:03d}" for number in range(11, 23)],
+        )
+        self.assertNotIn(1, selected)
+        self.assertEqual(selected, list(range(3, 15)))
+        self.assertEqual(mapping["S-011"], 3)
+        self.assertEqual(mapping["S-022"], 14)
+
+    def test_v5_material_page_uses_overview_content_not_drawing_list(self):
+        scan = {"drawing_list_pages": [1]}
+        decisions = [{
+            "pdf_page": 3, "page_type": "general_notes",
+            "drawing_number": None, "drawing_title": "",
+            "is_general_notes": True,
+            "evidence_terms": ["구조재료 및 강도", "콘크리트", "철근"],
+        }]
+        page = _cbl_v5_select_material_page(scan, decisions, [], {})
+        self.assertEqual(page, 3)
+        self.assertNotEqual(page, 1)
+
+    def test_v5_actual_material_transcription_is_source_grounded(self):
+        source = """A. 구조개요
+6. 구조재료 및 강도
+6.1 콘크리트
+1) 아파트 전부재(기초 제외) : fck = 30MPa
+2) 아파트 기초, 주차장 전부재 : fck = 24MPa
+6.2 철근
+1) D13이하 : SD500, fy=500MPa
+2) D16이상 : SD600, fy=600MPa
+3) D13이하 : SD500S, fy=500MPa (내진용철근)
+4) D16이하 : SD600S, fy=600MPa (내진용철근)
+7. 특기사항"""
+        parsed = _cbl_v5_parse_source(source, pdf_page=3, drawing_number="S-011")
+        result = _validate_general_notes_result(
+            parsed, [3], source_text=source,
+        )
+        self.assertEqual(
+            [row["fck_mpa"] for row in result["concrete_materials"]], [30, 24],
+        )
+        self.assertEqual(
+            [row["grade"] for row in result["rebar_materials"]],
+            ["SD500", "SD600", "SD500S", "SD600S"],
+        )
+        self.assertEqual(
+            [row["diameter_rule"] for row in result["rebar_materials"]],
+            ["D13 이하", "D16 이상", "D13 이하", "D16 이하"],
+        )
+        self.assertNotIn(35, [row["fck_mpa"] for row in result["concrete_materials"]])
+        self.assertNotIn("SD400", [row["grade"] for row in result["rebar_materials"]])
+
+    def test_filename_without_parsed_cad_text_cannot_become_evidence(self):
+        result = _validate_general_notes_result({
+            "basic_info": {
+                "structure_system": {
+                    "value": "철근콘크리트조",
+                    "evidence": {
+                        "file_type": "구조 CAD", "pdf_page": None,
+                        "drawing_number": "S-011", "drawing_title": "구조일반사항",
+                        "quote": "", "method": "filename", "confidence": 0.9,
+                    },
+                },
+            },
+        }, [])
+        self.assertNotIn("structure_system", result["basic_info"])
+
+    @patch("core.quantity_views.image_to_jpeg_bytes", return_value=b"jpeg")
+    @patch("core.quantity_views._render_pdf_page_range", return_value=[Mock()])
+    @patch("core.quantity_views._cbl_v5_classify_general_notes")
+    @patch("core.quantity_views._general_notes_page_candidates")
+    @patch("core.quantity_views.pdfinfo_from_bytes", return_value={"Pages": 79})
+    @patch("core.quantity_views.get_gemini_client")
+    def test_extraction_sends_content_pages_not_drawing_list(
+        self, get_client, _pdfinfo, candidates, classify, _render, _jpeg,
+    ):
+        panel = SimpleNamespace(size=(1000, 2000))
+        image = SimpleNamespace(size=(2000, 3000), crop=Mock(return_value=panel))
+        _render.return_value = [image]
+        candidates.return_value = {
+            "pages": [{"page": 1, "score": 60, "selected": False,
+                       "page_type": "drawing_list", "reasons": [],
+                       "drawing_numbers": [f"S-{n:03d}" for n in range(11, 23)],
+                       "text_available": True, "text_error": None,
+                       "rejection_reason": "drawing_list_not_content"}],
+            "scan_range": [1, 40], "selected_pages": [], "text_used": True,
+            "image_fallback": False, "drawing_list_pages": [1],
+            "expected_drawing_numbers": [f"S-{n:03d}" for n in range(11, 23)],
+        }
+        classify.return_value = [{
+            "pdf_page": page, "page_type": "general_notes",
+            "drawing_number": f"S-{number:03d}", "drawing_title": "구조일반사항",
+            "is_general_notes": True, "confidence": 0.98,
+            "evidence_terms": ["구조일반사항"],
+        } for page, number in zip(range(3, 15), range(11, 23))]
+        payload = {
+            "source_text": "철근콘크리트조",
+            "basic_info": {
+                "structure_system": {
+                    "value": "철근콘크리트조",
+                    "evidence": self._evidence("철근콘크리트조", page=3),
+                },
+            },
+        }
+        response = SimpleNamespace(text=json.dumps(payload, ensure_ascii=False),
+                                   candidates=[], usage_metadata=None)
+        client = Mock()
+        client.models.generate_content.return_value = response
+        get_client.return_value = client
+
+        result = extract_general_notes(b"pdf", job_id="mock-image-locator")
+
+        self.assertEqual(result["selected_pages"], [3])
+        contents = client.models.generate_content.call_args.kwargs["contents"]
+        labels = [item for item in contents if isinstance(item, str)]
+        self.assertFalse(any("실제 1페이지" in item for item in labels))
+        self.assertTrue(any("실제 3페이지" in item for item in labels))
+        self.assertFalse(any("실제 14페이지" in item for item in labels))
+
+    @patch("core.quantity_views._cbl_v5_classify_general_notes", return_value=[])
+    @patch("core.quantity_views._general_notes_page_candidates")
+    @patch("core.quantity_views.pdfinfo_from_bytes", return_value={"Pages": 12})
+    @patch("core.quantity_views.get_gemini_client")
+    def test_failed_image_locator_uses_parsed_cad_text_fallback(
+        self, get_client, _pdfinfo, candidates, _classify,
+    ):
+        candidates.return_value = {
+            "pages": [], "scan_range": [1, 12], "selected_pages": [],
+            "text_used": False, "image_fallback": False,
+            "drawing_list_pages": [1], "expected_drawing_numbers": ["S-011"],
+        }
+        client = Mock()
+        get_client.return_value = client
+        cad_text = """6. 구조재료 및 강도
+6.1 콘크리트
+1) 기초 전 부재 : fck = 30MPa
+7. 특기사항"""
+
+        result = extract_general_notes(
+            b"pdf", job_id="mock-cad-fallback",
+            cad_context=[{"path": "구조/S-011~022 구조일반사항.dwg",
+                          "filename": "S-011~022 구조일반사항.dwg",
+                          "text": cad_text}],
+        )
+
+        self.assertEqual(result["concrete_materials"][0]["fck_mpa"], 30)
+        client.models.generate_content.assert_not_called()
+        self.assertEqual(result["diagnostics"]["cad_fallback_reason"],
+                         "no_pdf_content_candidate")
+
+    def test_empty_result_ui_does_not_offer_confirmation_and_hides_internal_keys(self):
+        template = Path(__file__).with_name("templates").joinpath("core", "home.html").read_text()
+        self.assertIn('structure_system: "구조방식"', template)
+        self.assertIn('foundation_type: "기초형식"', template)
+        self.assertIn('askChoice(["다시 확인", "도면 추가/교체", "미확인 항목 직접 입력"]', template)
+        empty_branch = template[
+            template.index("if (!hasValidValues)"):
+            template.index('askChoice(["구조일반사항 확인 완료"', template.index("if (!hasValidValues)"))
+        ]
+        self.assertNotIn('"구조일반사항 확인 완료"', empty_branch)
+
+    def test_member_rebar_stage_has_independent_locked_cache_slots(self):
+        state = _empty_member_rebar_check_state()
+        self.assertEqual(
+            list(state),
+            ["columns", "walls", "beams", "slabs", "foundations", "parking"],
+        )
+        self.assertTrue(all(item["status"] == "locked" for item in state.values()))
+        state["columns"]["status"] = "ready"
+        self.assertEqual(state["walls"]["status"], "locked")
+
+    def test_member_rebar_buttons_are_scaffolded_without_ai_calls(self):
+        template = Path(__file__).with_name("templates").joinpath("core", "home.html").read_text()
+        for label in (
+            "기둥 배근 확인", "벽체·전단벽 배근 확인", "보 배근 확인",
+            "슬래브 배근 확인", "기초 배근 확인", "지하주차장 배근 확인",
+        ):
+            self.assertIn(label, template)
+        self.assertIn("data-member-rebar-key=", template)
+        self.assertIn("구조일반사항 확인 후 사용 가능", template)
+        scaffold = template[
+            template.index("function showMemberRebarCheckStage"):
+            template.index('// "아니요"', template.index("function showMemberRebarCheckStage"))
+        ]
+        self.assertNotIn("fetch(", scaffold)
+
+    def test_review_steps_are_manual_and_cache_aware(self):
+        template = Path(__file__).with_name("templates").joinpath("core", "home.html").read_text()
+        overview_confirm = template[
+            template.index("if (val === OVERVIEW_CONTINUE_CHOICE)"):
+            template.index('} else if (val === "아니요, 수정할게요")')
+        ]
+        self.assertNotIn(".then(function () { runGeneralNotesCheck", overview_confirm)
+        self.assertIn("3. 구조일반사항 확인", overview_confirm)
+        self.assertIn("stageCache.overview", template)
+        self.assertIn("stageCache.generalSpec", template)
+        self.assertIn('fd.append("force", "true")', template)
+
+    def test_material_ranges_and_cover_conditions_remain_separate(self):
+        data = {
+            "basic_info": {},
+            "concrete_materials": [
+                {"location": "지하", "member_type": "기둥", "floor_scope": "지하층",
+                 "fck_mpa": 30, "evidence": self._evidence("구조재료 및 강도 | 지하층 기둥 fck 30 MPa")},
+                {"location": "지상", "member_type": "기둥", "floor_scope": "지상층",
+                 "fck_mpa": 27, "evidence": self._evidence("구조재료 및 강도 | 지상층 기둥 fck 27 MPa")},
+            ],
+            "rebar_materials": [
+                {"diameter_min_mm": 10, "diameter_max_mm": 16, "grade": "SD400",
+                 "fy_mpa": 400, "member_scope": None,
+                 "evidence": self._evidence("D10~D16 SD400 fy 400 MPa")},
+                {"diameter_min_mm": 19, "diameter_max_mm": 35, "grade": "SD500",
+                 "fy_mpa": 500, "member_scope": None,
+                 "evidence": self._evidence("D19~D35 SD500 fy 500 MPa")},
+            ],
+            "cover_requirements": [
+                {"member_type": "기초", "exposure_condition": "토양 접촉", "location": "기초",
+                 "thickness_mm": 80, "evidence": self._evidence("기초 토양 접촉 피복 80 mm")},
+                {"member_type": "슬래브", "exposure_condition": "내부", "location": "지상",
+                 "thickness_mm": 20, "evidence": self._evidence("지상 내부 슬래브 피복 20 mm")},
+            ],
+            "anchorage_splice_requirements": [],
+            "quantity_notes": [], "conflicts": [], "unconfirmed_items": [],
+        }
+        result = _validate_general_notes_result(data, [3], source_text=self._source_text(data))
+        self.assertEqual([r["fck_mpa"] for r in result["concrete_materials"]], [30, 27])
+        self.assertEqual([r["grade"] for r in result["rebar_materials"]], ["SD400", "SD500"])
+        self.assertEqual([r["thickness_mm"] for r in result["cover_requirements"]], [80, 20])
+
+    def test_only_explicit_material_strength_values_are_applied(self):
+        applied = [
+            {"location": "아파트", "member_type": "전 부재(기초 제외)",
+             "floor_scope": None, "fck_mpa": 30,
+             "evidence": self._evidence(
+                 "구조재료 및 강도 | 아파트 전 부재(기초 제외) fck 30 MPa"
+             )},
+            {"location": "아파트 기초 및 지하주차장", "member_type": "전 부재",
+             "floor_scope": None, "fck_mpa": 24,
+             "evidence": self._evidence(
+                 "구조재료 및 강도 | 아파트 기초 및 지하주차장 전 부재 fck 24 MPa"
+             )},
+        ]
+        lookup_noise = [
+            {"location": "B급 이음길이표", "member_type": "표", "floor_scope": "lookup",
+             "fck_mpa": value, "evidence": self._evidence(f"B급 이음길이표 fck {value} MPa")}
+            for value in (35, 40)
+        ]
+        data = {"concrete_materials": applied + lookup_noise}
+        result = _validate_general_notes_result(
+            data, [3], source_text=self._source_text({"concrete_materials": applied}),
+        )
+        self.assertEqual([row["fck_mpa"] for row in result["concrete_materials"]], [30, 24])
+        self.assertNotIn(35, [row["fck_mpa"] for row in result["concrete_materials"]])
+        self.assertNotIn(40, [row["fck_mpa"] for row in result["concrete_materials"]])
+
+    def test_fck_35_40_and_sd400_are_allowed_when_present_in_source(self):
+        data = {
+            "concrete_materials": [
+                {"location": "타 프로젝트 A동", "member_type": "기둥", "floor_scope": None,
+                 "fck_mpa": value,
+                 "evidence": self._evidence(
+                     f"구조재료 및 강도 | 타 프로젝트 A동 기둥 fck {value} MPa"
+                 )}
+                for value in (35, 40)
+            ],
+            "rebar_materials": [{
+                "diameter_min_mm": None, "diameter_max_mm": 13, "grade": "SD400",
+                "fy_mpa": 400, "member_scope": None,
+                "evidence": self._evidence("D13 이하 SD400 fy 400 MPa"),
+            }],
+        }
+        result = _validate_general_notes_result(data, [3], source_text=self._source_text(data))
+        self.assertEqual([row["fck_mpa"] for row in result["concrete_materials"]], [35, 40])
+        self.assertEqual([row["grade"] for row in result["rebar_materials"]], ["SD400"])
+
+    def test_fabricated_evidence_quote_is_rejected_against_source_text(self):
+        data = {"concrete_materials": [{
+            "location": "아파트", "member_type": "기둥", "floor_scope": None,
+            "fck_mpa": 40,
+            "evidence": self._evidence("구조재료 및 강도 | 아파트 기둥 fck 40 MPa"),
+        }]}
+        result = _validate_general_notes_result(
+            data, [3],
+            source_text="구조재료 및 강도 | 아파트 기둥 fck 30 MPa",
+        )
+        self.assertEqual(result["concrete_materials"], [])
+        self.assertTrue(any("원문 불일치" in item for item in result["validation_rejections"]))
+
+    def test_rebar_grades_are_split_without_sd400(self):
+        rows = [
+            (None, 13, "SD500", 500, "D13 이하 SD500 fy 500 MPa"),
+            (16, None, "SD600", 600, "D16 이상 SD600 fy 600 MPa"),
+            (None, 13, "SD500S", 500, "내진 D13 이하 SD500S fy 500 MPa"),
+            (16, None, "SD600S", 600, "내진 D16 이상 SD600S fy 600 MPa"),
+            (None, 10, "SD400", 400, "D10 이하 SD400 fy 400 MPa"),
+        ]
+        data = {"rebar_materials": [{
+            "diameter_min_mm": low, "diameter_max_mm": high, "grade": grade,
+            "fy_mpa": fy, "member_scope": "내진" if grade.endswith("S") else None,
+            "evidence": self._evidence(quote),
+        } for low, high, grade, fy, quote in rows]}
+        source_without_sd400 = "\n".join(quote for *_, grade, __, quote in rows if grade != "SD400")
+        result = _validate_general_notes_result(data, [3], source_text=source_without_sd400)
+        self.assertEqual(
+            [row["grade"] for row in result["rebar_materials"]],
+            ["SD500", "SD600", "SD500S", "SD600S"],
+        )
+        self.assertNotIn("SD400", [row["grade"] for row in result["rebar_materials"]])
+
+    def test_b_class_length_table_is_internal_lookup_only(self):
+        row = {
+            "requirement_type": "인장이음", "bar_size": "D25", "position": "상부",
+            "concrete_fck_mpa": 35, "value": 1.5, "unit": "m",
+            "splice_class": "B", "conditions": "fck 35 MPa",
+            "evidence": self._evidence("B급 인장이음 길이표 | D25 | fck 35 MPa | 1.5 m"),
+        }
+        data = {"anchorage_splice_requirements": [row]}
+        result = _validate_general_notes_result(data, [3], source_text=self._source_text(data))
+        self.assertEqual(result["anchorage_splice_requirements"], [])
+        self.assertEqual(len(result["lookup_data"]["splice_length_rows"]), 1)
+        self.assertEqual(result["quantity_notes"][0]["text"], "전 부재 B급 인장이음 적용")
+        self.assertEqual(result["quantity_notes"][0]["source_type"], "user_confirmed")
+
+    def test_anchorage_conditions_are_separate_and_evidence_less_value_is_rejected(self):
+        good = {
+            "requirement_type": "인장이음", "bar_size": "D25", "position": "상부",
+            "value": 1.5, "unit": "m", "conditions": "fck 30 MPa",
+            "evidence": self._evidence("D25 상부 인장이음 fck 30 MPa 1.5 m"),
+        }
+        bad = {
+            "requirement_type": "압축정착", "bar_size": "D25", "position": "하부",
+            "value": 1.1, "unit": "m", "conditions": "fck 30 MPa", "evidence": None,
+        }
+        data = {
+            "anchorage_splice_requirements": [good, bad],
+        }
+        result = _validate_general_notes_result(data, [3], source_text=self._source_text(data))
+        self.assertEqual(len(result["anchorage_splice_requirements"]), 1)
+        self.assertTrue(any("구조화 근거 누락" in item for item in result["validation_rejections"]))
+
+    def test_conflicting_values_are_not_overwritten(self):
+        conflicts = [{
+            "field": "fck_mpa", "scope": "지하 기둥", "values": [30, 35],
+            "message": "페이지별 값 충돌",
+            "evidences": [self._evidence("30 MPa"), self._evidence("35 MPa", page=4)],
+        }]
+        result = _validate_general_notes_result({"conflicts": conflicts}, [3, 4])
+        self.assertEqual(result["conflicts"][0]["values"], [30, 35])
+
+    def test_converted_cad_text_evidence_is_allowed_without_pdf_page(self):
+        evidence = {
+            "file_type": "구조 CAD", "pdf_page": None, "drawing_number": "S-011",
+            "drawing_title": "구조일반사항(1)", "quote": "구조재료 및 강도 | 기초 fck 30 MPa",
+            "method": "cad_text", "confidence": 0.85,
+        }
+        data = {
+            "concrete_materials": [{
+                "location": "기초", "member_type": "기초", "floor_scope": None,
+                "fck_mpa": 30, "evidence": evidence,
+            }],
+        }
+        result = _validate_general_notes_result(data, [], source_text=self._source_text(data))
+        self.assertEqual(result["concrete_materials"][0]["fck_mpa"], 30)
+
+    def test_overview_must_be_confirmed_before_general_notes_endpoint(self):
+        review_id = "general-notes-gate"
+        _review_ensure(review_id, user_id=7, file_hashes={})
+        request = Mock(method="POST")
+        request.user = Mock(pk=7, is_authenticated=True, is_staff=True, is_superuser=False)
+        request.POST.get.side_effect = lambda key, default=None: {
+            "job_id": "job-1", "review_id": review_id,
+        }.get(key, default)
+        response = api_quantity_general_notes_check(request)
+        self.assertEqual(response.status_code, 409)
+
+    @patch("core.quantity_views._general_notes_log")
+    @patch("core.quantity_views._result_set")
+    @patch("core.quantity_views.extract_general_notes", side_effect=TimeoutError("timeout"))
+    def test_timeout_is_recorded(self, _extract, result_set, log):
+        review_id = "general-notes-timeout"
+        _review_ensure(review_id, user_id=8, file_hashes={})
+        _review_update(review_id, overview={"structure_type": "철근콘크리트조"})
+        _run_general_notes_job("job-timeout", review_id, b"pdf", {})
+        self.assertFalse(result_set.call_args.args[1]["ok"])
+        self.assertTrue(any(call.args[0] == "job_timeout" for call in log.call_args_list))
 
 
 class OjeongOverviewRegressionTests(SimpleTestCase):

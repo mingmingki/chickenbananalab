@@ -6033,6 +6033,32 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
   color: #94a3b8;
 }
 
+#cblQuantityMessengerModal .qty-member-rebar-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+#cblQuantityMessengerModal .qty-member-rebar-button {
+  border: 1px solid #dbe3ee;
+  border-radius: 9px;
+  padding: 9px 10px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 650;
+  text-align: left;
+}
+
+#cblQuantityMessengerModal .qty-member-rebar-button span {
+  display: block;
+  margin-top: 3px;
+  color: #94a3b8;
+  font-size: 9.5px;
+  font-weight: 500;
+}
+
 body.cbl-modal-open {
   overflow: hidden;
 }
@@ -6111,8 +6137,42 @@ body.cbl-modal-open {
     elevCadFiles: [],
     elevPdfFiles: [],
     started: false,
-    reviewId: null
+    reviewId: null,
+    fileFingerprint: null,
+    stageCache: {
+      basicDrawings: null,
+      overview: null,
+      generalSpec: null
+    },
+    memberRebarChecks: {
+      columns: { status: "locked", result: null },
+      walls: { status: "locked", result: null },
+      beams: { status: "locked", result: null },
+      slabs: { status: "locked", result: null },
+      foundations: { status: "locked", result: null },
+      parking: { status: "locked", result: null }
+    }
   };
+
+  function quantityFileFingerprint() {
+    return [state.cadFiles, state.pdfFiles, state.elevCadFiles, state.elevPdfFiles]
+      .reduce(function (all, files, index) {
+        return all.concat((files || []).map(function (file) {
+          return [index, file.name, file.size, file.lastModified].join(":");
+        }));
+      }, []).sort().join("|");
+  }
+
+  function refreshQuantityFingerprint() {
+    var next = quantityFileFingerprint();
+    if (state.fileFingerprint !== null && state.fileFingerprint !== next) {
+      state.reviewId = null;
+      state.stageCache.basicDrawings = null;
+      state.stageCache.overview = null;
+      state.stageCache.generalSpec = null;
+    }
+    state.fileFingerprint = next;
+  }
 
   // 개요 확인 → 구조일반사항 확인 → 지하주차장 평면도 확인 → 본 산출까지 전체 확인
   // 흐름 내내 재사용하는 하나의 세션 식별자. 서버가 이 값으로 "지금까지 뭘 확정했는지"를
@@ -6481,7 +6541,7 @@ body.cbl-modal-open {
       '<div class="qty-btn-row">' +
         '<button type="button" class="qty-action" id="qty-re-upload">재등록</button>' +
         '<button type="button" class="qty-action primary" id="qty-upload-go" ' +
-          (state.cadFiles.length || state.pdfFiles.length ? '' : 'disabled') + '>진행</button>' +
+          (state.cadFiles.length || state.pdfFiles.length ? '' : 'disabled') + '>1. 기본도면 확인</button>' +
       '</div>'
     );
 
@@ -6505,6 +6565,11 @@ body.cbl-modal-open {
   }
 
   async function runCheckZip() {
+    refreshQuantityFingerprint();
+    if (state.stageCache.basicDrawings) {
+      renderCadPrecheckResult(state.stageCache.basicDrawings);
+      return;
+    }
     var think = appendLeft('<div class="qty-thinking"><div class="qty-spin"></div><span>제가 열심히 분석중입니다.. (오픈AI검토)</span></div>');
     scrollBottom();
 
@@ -6540,6 +6605,11 @@ body.cbl-modal-open {
       return;
     }
 
+    state.stageCache.basicDrawings = data;
+    renderCadPrecheckResult(data);
+  }
+
+  async function renderCadPrecheckResult(data) {
     var statusLabels = {
       confirmed: "확인됨", candidate_unverified: "후보 발견·내용 확인 필요",
       missing: "파일 없음", scan_incomplete: "업로드 탐색 미완료"
@@ -6594,11 +6664,11 @@ body.cbl-modal-open {
 
   function showRunButton() {
     var wrap = appendLeft(
-      '<div class="qty-btn-row wide"><button type="button" class="qty-action primary full" id="qty-run-go">구조수량산출 진행</button></div>'
+      '<div class="qty-btn-row wide"><button type="button" class="qty-action primary full" id="qty-run-go">2. 프로젝트 개요 확인</button></div>'
     );
     wrap.querySelector("#qty-run-go").addEventListener("click", function () {
       wrap.remove();
-      addUser("구조수량산출을 시작할게요.");
+      addUser("프로젝트 개요를 확인할게요.");
       runOverviewCheck();
     });
   }
@@ -6609,9 +6679,14 @@ body.cbl-modal-open {
   //  구조 기준이 뭔지" 먼저 확인받는다. 확인된 내용은 runQuantityAnalysis에 실어보내서
   //  본 추출이 같은 실수를 반복하지 않게 한다.
   // ─────────────────────────────────────────────
-  function runOverviewCheck(correctionContext) {
+  function runOverviewCheck(correctionContext, force) {
+    refreshQuantityFingerprint();
+    if (state.stageCache.overview && !force && !correctionContext) {
+      showOverviewStep(state.stageCache.overview, state.stageCache.generalSpec || {});
+      return;
+    }
     var jobId = "ovw-" + Date.now() + "-" + Math.random().toString(36).slice(2);
-    var think = appendLeft('<div class="qty-thinking"><div class="qty-spin"></div><span>개요/구조일반사항을 확인하고 있어요…</span></div>');
+    var think = appendLeft('<div class="qty-thinking"><div class="qty-spin"></div><span>프로젝트 개요를 확인하고 있어요...</span></div>');
     scrollBottom();
 
     // 여러 낱장 PDF(예: "A-015,016 사업개요,동별개요.pdf"처럼 파일명에 내용이 적힌
@@ -6622,13 +6697,16 @@ body.cbl-modal-open {
     fd.append("review_id", ensureReviewId());
     state.pdfFiles.forEach(function (f) { fd.append("structural_pdf", f); });
     state.elevPdfFiles.forEach(function (f) { fd.append("architectural_pdf", f); });
+    state.cadFiles.forEach(function (f) { fd.append("structural_cad", f); });
+    state.elevCadFiles.forEach(function (f) { fd.append("architectural_cad", f); });
     state.cadFiles.forEach(function (f) { fd.append("cad_files", f); });
     state.elevCadFiles.forEach(function (f) { fd.append("cad_files", f); });
     if (correctionContext) fd.append("correction_context", correctionContext);
+    if (force) fd.append("force", "true");
 
     function fail(msg) {
       think.remove();
-      addBot("개요/구조일반사항 확인 중 오류가 발생했어요.<br>" + esc(msg), 200).then(function () {
+      addBot("프로젝트 개요 확인 중 오류가 발생했어요.<br>" + esc(msg), 200).then(function () {
         appendLeft(
           '<div class="qty-btn-row wide">' +
           '<button type="button" class="qty-action primary full" disabled aria-disabled="true">' +
@@ -6674,7 +6752,9 @@ body.cbl-modal-open {
                 showOverviewLocatorFailure(pdata.results.page_detection || {});
                 return;
               }
-              showOverviewStep((pdata.results && pdata.results.overview) || {}, (pdata.results && pdata.results.general_spec) || {});
+              state.stageCache.overview = (pdata.results && pdata.results.overview) || {};
+              state.stageCache.generalSpec = (pdata.results && pdata.results.general_spec) || state.stageCache.generalSpec;
+              showOverviewStep(state.stageCache.overview, state.stageCache.generalSpec || {});
             })
             .catch(function (error) {
               // 인증/권한 오류를 무시하면 서버 작업이 끝난 뒤에도 1.5초마다 403을
@@ -6883,6 +6963,101 @@ body.cbl-modal-open {
   function buildSpecCard(spec) {
     spec = spec || {};
     var sections = [];
+    var basicLabels = {
+      structure_system: "구조방식",
+      foundation_type: "기초형식",
+      design_codes: "구조설계기준",
+      soil_bearing_capacity: "지반 지지력",
+      groundwater_buoyancy: "지하수·부력 기준",
+      seismic_design: "내진설계 기준",
+      structure_system_apartment: "아파트 구조형식",
+      structure_system_parking: "지하주차장 구조형식",
+      foundation_type_apartment: "아파트 기초형식",
+      foundation_type_parking: "지하주차장 기초형식",
+      design_code_building: "건축 구조설계기준",
+      design_code_concrete: "콘크리트 구조설계기준",
+      soil_bearing_capacity_apartment: "아파트 기초 설계지내력",
+      soil_bearing_capacity_parking: "지하주차장 기초 설계지내력",
+      groundwater_external_wall: "지하외벽 설계 지하수위",
+      groundwater_foundation_slab: "기초·내수압슬래브 지하수위",
+      seismic_design_category: "내진설계범주",
+      seismic_force_resisting_system: "지진력저항시스템"
+    };
+    function evidenceText(evidence) {
+      if (!evidence || typeof evidence !== "object") return "";
+      return [
+        evidence.file_type || "",
+        evidence.pdf_page ? evidence.pdf_page + "페이지" : "",
+        evidence.drawing_number || "",
+        evidence.drawing_title || "",
+        evidence.section_path || "",
+        evidence.quote ? "“" + evidence.quote + "”" : "",
+        evidence.method || "",
+        evidence.confidence != null ? "신뢰도 " + evidence.confidence : ""
+      ].filter(Boolean).join(" · ");
+    }
+    function evidenceCell(row) {
+      if ((row || {}).source_type === "user_confirmed") {
+        return '<div class="qty-spec-source">사용자 확정조건</div>';
+      }
+      return '<div class="qty-spec-source">' + esc(evidenceText((row || {}).evidence)) + '</div>';
+    }
+    var hasDedicatedSchema = (spec.concrete_materials || []).length ||
+      (spec.rebar_materials || []).length || (spec.cover_requirements || []).length ||
+      (spec.anchorage_splice_requirements || []).length || (spec.quantity_notes || []).length ||
+      Object.keys(spec.basic_info || {}).length;
+    if (hasDedicatedSchema) {
+      var basicRows = Object.keys(spec.basic_info || {}).map(function (key) {
+        var item = spec.basic_info[key] || {};
+        return '<tr><td>' + esc(basicLabels[key] || key) + '</td><td>' + esc(item.value != null ? item.value : "-") +
+          (item.unit ? " " + esc(item.unit) : "") + '</td><td>' + evidenceCell(item) + '</td></tr>';
+      }).join("");
+      if (basicRows) sections.push('<div class="qty-spec-section"><div class="qty-spec-section-title">구조설계 기준</div>' +
+        '<table class="qty-spec-table"><tbody>' + basicRows + '</tbody></table></div>');
+      function tableSection(title, rows, valueFn) {
+        if (!rows.length) return;
+        sections.push('<div class="qty-spec-section"><div class="qty-spec-section-title">' + esc(title) + '</div>' +
+          '<table class="qty-spec-table"><tbody>' + rows.map(function (row) {
+            return '<tr><td>' + valueFn(row) + '</td><td>' + evidenceCell(row) + '</td></tr>';
+          }).join("") + '</tbody></table></div>');
+      }
+      tableSection("콘크리트 재료", spec.concrete_materials || [], function (r) {
+        return esc([r.location, r.member_type, r.floor_scope].filter(Boolean).join(" · ") || "적용범위") +
+          " — Fck " + esc(r.fck_mpa) + " MPa";
+      });
+      tableSection("철근 재료", spec.rebar_materials || [], function (r) {
+        var range = r.diameter_rule || "";
+        if (!range && r.diameter_min_mm != null && r.diameter_max_mm != null) {
+          range = "D" + r.diameter_min_mm + "~D" + r.diameter_max_mm;
+        } else if (!range && r.diameter_max_mm != null) {
+          range = "D" + r.diameter_max_mm + " 이하";
+        } else if (!range && r.diameter_min_mm != null) {
+          range = "D" + r.diameter_min_mm + " 이상";
+        }
+        return esc((range ? range + " " : "") + (r.grade || "") +
+          (r.fy_mpa != null ? " · fy " + r.fy_mpa + " MPa" : "") +
+          (r.member_scope ? " · " + r.member_scope : ""));
+      });
+      tableSection("피복두께", spec.cover_requirements || [], function (r) {
+        return esc([r.member_type, r.location, r.exposure_condition].filter(Boolean).join(" · ")) +
+          " — " + esc(r.thickness_mm) + " mm";
+      });
+      tableSection("정착·이음", spec.anchorage_splice_requirements || [], function (r) {
+        return esc([r.requirement_type, r.bar_size, r.position, r.conditions].filter(Boolean).join(" · ")) +
+          " — " + esc(r.value) + " " + esc(r.unit || "");
+      });
+      tableSection("수량산출 특기사항", spec.quantity_notes || [], function (r) {
+        return esc([r.category, r.text, r.affected_work].filter(Boolean).join(" · "));
+      });
+      if ((spec.conflicts || []).length) {
+        sections.push('<div class="qty-spec-section"><div class="qty-spec-section-title">충돌 또는 추가 확인 항목</div>' +
+          (spec.conflicts || []).map(function (r) {
+            return '<div class="qty-unconfirmed-line">• ' + esc(r.message || r.field || "확인 필요") + '</div>';
+          }).join("") + '</div>');
+      }
+      return '<div class="qty-spec-card"><div class="qty-ovw-title">구조일반사항 확인 결과</div>' +
+        sections.join("") + '</div>';
+    }
 
     if ((spec.concrete_fck_table || []).length) {
       var rows1 = spec.concrete_fck_table.map(function (r) {
@@ -6961,7 +7136,9 @@ body.cbl-modal-open {
 
   var OVW_CONFIRM_CHOICES = ["예, 맞습니다", "아니요, 수정할게요", "미확인 항목 직접 입력"];
   var OVERVIEW_CONTINUE_CHOICE = "도면 기준으로 계속 진행";
-  var OVERVIEW_CONFIRM_CHOICES = [OVERVIEW_CONTINUE_CHOICE, "아니요, 수정할게요", "미확인 항목 직접 입력"];
+  var OVERVIEW_CONFIRM_CHOICES = [
+    OVERVIEW_CONTINUE_CHOICE, "다시 확인", "아니요, 수정할게요", "미확인 항목 직접 입력"
+  ];
 
   function showOverviewStep(overview, generalSpec) {
     overview = overview || {};
@@ -6991,10 +7168,21 @@ body.cbl-modal-open {
       askChoice(OVERVIEW_CONFIRM_CHOICES, function (val) {
         if (val === OVERVIEW_CONTINUE_CHOICE) {
           confirmReviewStage("overview")
-            .then(function () { showGeneralSpecStep(generalSpec, overview); })
+            .then(function () {
+              var next = appendLeft(
+                '<div class="qty-btn-row wide"><button type="button" class="qty-action primary full" ' +
+                'id="qty-general-notes-go">3. 구조일반사항 확인</button></div>'
+              );
+              next.querySelector("#qty-general-notes-go").addEventListener("click", function () {
+                next.remove();
+                runGeneralNotesCheck(overview);
+              });
+            })
             .catch(function (e) {
               addBot("확정 처리 중 오류가 발생했어요.<br>" + esc(e.message || String(e)), 150).then(showRunButton);
             });
+        } else if (val === "다시 확인") {
+          runOverviewCheck(null, true);
         } else if (val === "아니요, 수정할게요") {
           addBot("어디가 잘못됐는지 알려주세요.", 150).then(function () {
             askEtcInput("예: 지하 3개층이 아니라 2개층이에요", function (text) {
@@ -7012,24 +7200,92 @@ body.cbl-modal-open {
     });
   }
 
+  function runGeneralNotesCheck(overview, force) {
+    refreshQuantityFingerprint();
+    if (state.stageCache.generalSpec && !force) {
+      showGeneralSpecStep(state.stageCache.generalSpec, overview || state.stageCache.overview || {});
+      return;
+    }
+    var jobId = "gnotes-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+    var think = appendLeft('<div class="qty-thinking"><div class="qty-spin"></div><span>구조일반사항을 확인하고 있어요...</span></div>');
+    var fd = new FormData();
+    fd.append("job_id", jobId);
+    fd.append("review_id", ensureReviewId());
+    state.pdfFiles.forEach(function (f) { fd.append("structural_pdf", f); });
+    state.cadFiles.forEach(function (f) { fd.append("cad_files", f); });
+    state.elevCadFiles.forEach(function (f) { fd.append("cad_files", f); });
+    if (force) fd.append("force", "true");
+    function fail(message) {
+      think.remove();
+      addBot("구조일반사항 확인 중 오류가 발생했어요.<br>" + esc(message), 200);
+    }
+    fetch("/api/quantity/general-notes-check/", {
+      method: "POST", headers: { "X-CSRFToken": csrfToken() }, body: fd
+    }).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok || data.error) throw new Error(data.error || "요청 실패");
+        return data;
+      });
+    }).then(function () {
+      var timer = setInterval(function () {
+        fetch("/api/quantity/progress/?job_id=" + encodeURIComponent(jobId), {
+          method: "POST", headers: { "X-CSRFToken": csrfToken() }
+        }).then(function (res) { return res.json(); }).then(function (data) {
+          if (!data || !data.found || !data.done) return;
+          clearInterval(timer);
+          think.remove();
+          if (data.ok === false) { fail(data.error || "알 수 없는 오류"); return; }
+          state.stageCache.generalSpec = (data.results || {}).general_spec || {};
+          showGeneralSpecStep(state.stageCache.generalSpec, overview || {});
+        }).catch(function () {});
+      }, 1500);
+    }).catch(function (error) { fail(error.message || String(error)); });
+  }
+
   function showGeneralSpecStep(generalSpec, overview) {
     generalSpec = generalSpec || {};
     overview = overview || {};
-    addBot("다음으로는 구조일반사항을 확인하겠습니다.", 200).then(function () {
+    var hasValidValues = Object.keys(generalSpec.basic_info || {}).length > 0 ||
+      ["concrete_materials", "rebar_materials", "cover_requirements",
+       "anchorage_splice_requirements"].some(function (key) {
+        return (generalSpec[key] || []).length > 0;
+      }) || (generalSpec.quantity_notes || []).some(function (row) {
+        return row.source_type !== "user_confirmed";
+      });
+    addBot("구조일반사항 확인 결과", 200).then(function () {
       appendLeft(buildSpecCard(generalSpec));
       var unconfirmedHtml = buildUnconfirmedBox(
         generalSpec.unconfirmed_items,
-        "위 항목은 직접 값을 채우기 전까지 철근 실수량 계산에서 제외됩니다."
+        "확인되지 않은 기준은 후속 콘크리트·철근·거푸집 수량산출에 적용하지 않습니다."
       );
       if (unconfirmedHtml) appendLeft(unconfirmedHtml);
-      askChoice(OVW_CONFIRM_CHOICES, function (val) {
-        if (val === "예, 맞습니다") {
+      if (!hasValidValues) {
+        appendLeft('<div class="qty-spec-card"><div class="qty-spec-empty">구조일반사항을 확인하지 못했습니다</div></div>');
+        askChoice(["다시 확인", "도면 추가/교체", "미확인 항목 직접 입력"], function (val) {
+          if (val === "다시 확인") {
+            runGeneralNotesCheck(overview, true);
+          } else if (val === "도면 추가/교체") {
+            startUploadStep();
+          } else {
+            addBot("확인되지 않은 항목의 실제 값을 알려주시면 반영할게요.", 150).then(function () {
+              askEtcInput("확인되지 않은 항목의 값을 입력해 주세요", function (text) {
+                runOverviewRevise(text, overview, generalSpec, "spec");
+              });
+            });
+          }
+        });
+        return;
+      }
+      askChoice(["구조일반사항 확인 완료", "수정할게요", "미확인 항목 직접 입력"], function (val) {
+        if (val === "구조일반사항 확인 완료") {
           confirmReviewStage("general_spec")
-            .then(function () { runBasementPlanCheck(generalSpec); })
+            .then(function () {
+              showDrawingCoordinationStart();
+            })
             .catch(function (e) {
               addBot("확정 처리 중 오류가 발생했어요.<br>" + esc(e.message || String(e)), 150).then(showRunButton);
             });
-        } else if (val === "아니요, 수정할게요") {
+        } else if (val === "수정할게요") {
           addBot("어디가 잘못됐는지 알려주세요.", 150).then(function () {
             askEtcInput("예: 지상 콘크리트 강도는 27이 아니라 24예요", function (text) {
               runOverviewRevise(text, overview, generalSpec, "spec");
@@ -7043,6 +7299,114 @@ body.cbl-modal-open {
           });
         }
       });
+    });
+  }
+
+  function showDrawingCoordinationStart() {
+    addBot("4. 구조평면도·건축 평·입·단면도 확인", 150).then(function () {
+      var box = appendLeft(
+        '<div class="qty-btn-row wide"><button type="button" class="qty-action primary full" ' +
+        'id="qty-drawing-coordination-go">동·층·층고·코어·개구부 확인</button></div>'
+      );
+      box.querySelector("#qty-drawing-coordination-go").addEventListener("click", function () {
+        box.remove();
+        runDrawingCoordinationCheck();
+      });
+    });
+  }
+
+  function runDrawingCoordinationCheck() {
+    var jobId = "coord-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+    var think = appendLeft('<div class="qty-thinking"><div class="qty-spin"></div><span>구조평면도와 건축 평·입·단면도를 대조하고 있어요...</span></div>');
+    var fd = new FormData();
+    fd.append("job_id", jobId);
+    fd.append("review_id", ensureReviewId());
+    state.pdfFiles.forEach(function (f) { fd.append("structural_pdf", f); });
+    state.elevPdfFiles.forEach(function (f) { fd.append("architectural_pdf", f); });
+    function fail(message) {
+      think.remove();
+      addBot("도면 대조 중 오류가 발생했어요.<br>" + esc(message), 200).then(showDrawingCoordinationStart);
+    }
+    fetch("/api/quantity/drawing-coordination-check/", {
+      method: "POST", headers: { "X-CSRFToken": csrfToken() }, body: fd
+    }).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok || data.error) throw new Error(data.error || "요청 실패");
+        return data;
+      });
+    }).then(function () {
+      var timer = setInterval(function () {
+        fetch("/api/quantity/progress/?job_id=" + encodeURIComponent(jobId), {
+          method: "POST", headers: { "X-CSRFToken": csrfToken() }
+        }).then(function (res) { return res.json(); }).then(function (data) {
+          if (!data || !data.found || !data.done) return;
+          clearInterval(timer);
+          think.remove();
+          if (data.ok === false) { fail(data.error || "알 수 없는 오류"); return; }
+          showDrawingCoordinationResult((data.results || {}).drawing_coordination || {});
+        }).catch(function () {});
+      }, 1500);
+    }).catch(function (error) { fail(error.message || String(error)); });
+  }
+
+  function showDrawingCoordinationResult(result) {
+    var sheets = (result.structural_sheets || []).concat(result.architectural_sheets || []);
+    var rows = sheets.map(function (sheet) {
+      var counts = [
+        "층고·레벨 " + ((sheet.levels || []).length),
+        "코어 " + ((sheet.cores || []).length),
+        "개구부 " + ((sheet.openings || []).length),
+        "램프 " + ((sheet.ramps || []).length)
+      ].join(" · ");
+      return '<div class="qty-spec-row"><div class="qty-spec-name">' +
+        esc((sheet.drawing_number || "도면번호 미확인") + " · " + (sheet.drawing_title || "")) +
+        '</div><div class="qty-spec-value">' +
+        esc((sheet.building_scope || "동 미확인") + " · " + (sheet.floor_scope || "층 미확인")) +
+        '</div><div class="qty-spec-evidence">PDF ' + esc(sheet.pdf_page) +
+        '페이지 · ' + esc(counts) + '</div></div>';
+    }).join("");
+    var warnings = (result.conflicts || []).length + (result.unconfirmed_items || []).length;
+    addBot("구조·건축 도면 대조 결과", 150).then(function () {
+      appendLeft('<div class="qty-spec-card"><div class="qty-ovw-title">동·층·층고·코어·개구부</div>' +
+        (rows || '<div class="qty-spec-empty">확인된 상세 도면이 없습니다.</div>') +
+        '<div class="qty-spec-evidence">충돌·추가 확인 ' + esc(warnings) + '건</div></div>');
+      askChoice(["도면 대조 확인 완료", "다시 확인"], function (value) {
+        if (value === "다시 확인") {
+          runDrawingCoordinationCheck();
+        } else {
+          confirmReviewStage("drawing_coordination")
+            .then(showMemberRebarCheckStage)
+            .catch(function (e) {
+              addBot("확정 처리 중 오류가 발생했어요.<br>" + esc(e.message || String(e)), 150);
+            });
+        }
+      });
+    });
+  }
+
+  function showMemberRebarCheckStage() {
+    var members = [
+      ["columns", "기둥 배근 확인"],
+      ["walls", "벽체·전단벽 배근 확인"],
+      ["beams", "보 배근 확인"],
+      ["slabs", "슬래브 배근 확인"],
+      ["foundations", "기초 배근 확인"],
+      ["parking", "지하주차장 배근 확인"]
+    ];
+    var buttons = members.map(function (item) {
+      var cached = state.memberRebarChecks[item[0]] || { status: "locked", result: null };
+      return '<button type="button" class="qty-member-rebar-button" disabled ' +
+        'data-member-rebar-key="' + esc(item[0]) + '" data-cache-status="' + esc(cached.status) + '">' +
+        esc(item[1]) + '<span>구조일반사항 확인 후 사용 가능</span></button>';
+    }).join("");
+    addBot("4. 부재별 배근 확인", 150).then(function () {
+      appendLeft(
+        '<div class="qty-spec-card">' +
+          '<div class="qty-ovw-title">부재별 배근 확인</div>' +
+          '<div class="qty-spec-empty">부재별 판독은 구조일반사항 실제 시험이 성공한 다음 단계에서 사용할 수 있습니다.</div>' +
+          '<div class="qty-member-rebar-grid">' + buttons + '</div>' +
+        '</div>'
+      );
     });
   }
 
@@ -8905,7 +9269,7 @@ body.cbl-modal-open {
       </article>
 
       <article class="cblx-panel" id="community">
-        <div class="cblx-panel-head"><h2>커뮤니티 최신글</h2><a href="{% url 'search' %}?q=질문">더보기 →</a></div>
+        <div class="cblx-panel-head"><h2>커뮤니티 최신글</h2><a href="{% url 'community' %}">더보기 →</a></div>
         <div class="cblx-community-list">
           {% for comment in recent_comments %}<a href="{{ comment.post.get_absolute_url }}#comments"><span>질문</span><b>{{ comment.content|striptags|truncatechars:35 }}</b><small>{{ comment.created_at|timesince }} 전</small></a>
           {% empty %}<div class="cblx-empty-line">아직 등록된 커뮤니티 글이 없습니다.</div>{% endfor %}
@@ -17460,6 +17824,12 @@ document.addEventListener('click', function(e){
           if (scan.complete === false) {
             addBot("<b>업로드 탐색 미완료</b><br>일부 업로드를 모두 확인하지 못해 파일 없음으로 단정하지 않습니다.");
           }
+          if (scan.parse_capped) {
+            addBot("내용 파싱 안전 상한이 적용됐습니다. 파일명 후보는 전체 CAD 목록에서 먼저 찾았으며, 파싱되지 않은 후보는 내용 확인 필요 상태로 표시합니다.");
+          }
+          checklistHtml("구조 기본도면", data.structural_checklist);
+          checklistHtml("건축 기본도면", data.architectural_checklist);
+          addBot("후보 또는 미확인 도면이 있어도 현재 업로드 기준으로 수량산출을 계속할 수 있습니다.");
         }
       } catch (err) {
         addBot("ZIP 체크 API 연결 중 오류가 발생했습니다.<br>화면 기능은 정상이고, 서버 쪽 check-zip 응답만 확인하면 됩니다.");
@@ -17479,26 +17849,13 @@ document.addEventListener('click', function(e){
       nextBtn.textContent = "산출 중";
 
       try {
-        var zipFile = firstZipFile();
-        var cadFile = firstCadFile();
         var pdfFile = firstPdfFile();
 
-          if (scan.parse_capped) {
-            addBot("내용 파싱 안전 상한이 적용됐습니다. 파일명 후보는 전체 CAD 목록에서 먼저 찾았으며, 파싱되지 않은 후보는 내용 확인 필요 상태로 표시합니다.");
-          }
-          checklistHtml("구조 기본도면", data.structural_checklist);
-          checklistHtml("건축 기본도면", data.architectural_checklist);
-          addBot("후보 또는 미확인 도면이 있어도 현재 업로드 기준으로 수량산출을 계속할 수 있습니다.");
         var fd = new FormData();
 
-        if (zipFile) {
-          fd.append("structural_zip", zipFile);
-          fd.append("zip_file", zipFile);
-        }
-
-        if (cadFile) {
-          fd.append("cad_file", cadFile);
-        }
+        state.cadFiles.forEach(function (file) {
+          fd.append("cad_files", file);
+        });
 
         if (pdfFile) {
           fd.append("structural_pdf", pdfFile);
@@ -17765,6 +18122,3 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
 })();
 </script>
 <!-- CBL_CAD_HOME_START_AUTOVERSION_V1_END -->
-
-
-

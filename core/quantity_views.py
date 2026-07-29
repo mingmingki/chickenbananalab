@@ -322,7 +322,18 @@ _REVIEW_STORE = {}
 _REVIEW_LOCK = threading.Lock()
 _REVIEW_TTL_SEC = 60 * 60 * 3  # 3시간 — 개요/구조일반사항/지하주차장 확인을 여러 번 왕복해도 넉넉하게
 
-REVIEW_STAGE_ORDER = ["overview", "general_spec", "basement_plan"]
+REVIEW_STAGE_ORDER = ["overview", "general_spec", "drawing_coordination", "basement_plan"]
+MEMBER_REBAR_CHECK_KEYS = (
+    "columns", "walls", "beams", "slabs", "foundations", "parking",
+)
+
+
+def _empty_member_rebar_check_state():
+    """4단계 부재별 판독의 독립 캐시 슬롯. 실제 판독 endpoint는 후속 작업에서 연결한다."""
+    return {
+        key: {"status": "locked", "result": None, "error": None, "updated_at": None}
+        for key in MEMBER_REBAR_CHECK_KEYS
+    }
 
 
 def _sha256_bytes(value):
@@ -371,14 +382,19 @@ def _review_ensure(review_id, user_id=None, file_hashes=None):
         if rec is None:
             rec = {
                 "overview": None, "overview_confirmed": False,
+                "overview_page_detection": None,
                 "general_spec": None, "general_spec_confirmed": False,
+                "drawing_coordination": None, "drawing_coordination_confirmed": False,
                 "basement_plan": None, "basement_plan_confirmed": False,
+                "member_rebar_checks": _empty_member_rebar_check_state(),
                 "extraction_started": False,
                 "_user_id": str(user_id) if user_id is not None else None,
                 "_file_hashes": dict(file_hashes or {}),
                 "_created_at": time.time(), "_updated_at": time.time(),
             }
             _REVIEW_STORE[review_id] = rec
+        else:
+            rec.setdefault("member_rebar_checks", _empty_member_rebar_check_state())
         return rec
 
 
@@ -1886,16 +1902,20 @@ def parse_dwg_from_zip(zip_bytes, keywords=None):
     zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
 
     matched_members = []
-    for member in zf.namelist():
+    for info in zf.infolist():
+        decoded = _decode_zip_member_name(info)
+        member = decoded["decoded_name"].replace("\\", "/")
+        if _is_macos_zip_metadata(member) or _is_macos_zip_metadata(decoded["raw_name"]):
+            continue
         ext = os.path.splitext(member)[1].lower()
         if ext not in (".dwg", ".dxf"):
             continue
         if keywords is None:
-            matched_members.append(member)
+            matched_members.append((info, member))
             continue
         basename_norm = _normalize_for_match(os.path.basename(member))
         if any(_normalize_for_match(kw) in basename_norm for kw in keywords):
-            matched_members.append(member)
+            matched_members.append((info, member))
 
     if not matched_members:
         return result
@@ -1916,12 +1936,12 @@ def parse_dwg_from_zip(zip_bytes, keywords=None):
         # 1차: 원본 그대로 풀어두기 (파일명 충돌 방지를 위해 인덱스 접두어 사용)
         member_to_local = {}
         dwg_present = False
-        for idx, member in enumerate(matched_members):
+        for idx, (info, member) in enumerate(matched_members):
             ext = os.path.splitext(member)[1].lower()
             local_name = f"{idx:03d}_{os.path.basename(member)}"
             local_path = os.path.join(dwg_dir if ext == ".dwg" else work_dir, local_name)
             with open(local_path, "wb") as f:
-                f.write(zf.read(member))
+                f.write(zf.read(info))
             member_to_local[member] = (ext, local_path, local_name)
             if ext == ".dwg":
                 dwg_present = True
@@ -1930,7 +1950,7 @@ def parse_dwg_from_zip(zip_bytes, keywords=None):
         if dwg_present:
             oda_ok, oda_msg = _convert_dwg_folder_to_dxf(dwg_dir, dxf_out_dir)
 
-        for member in matched_members:
+        for _, member in matched_members:
             ext, local_path, local_name = member_to_local[member]
             # 전체 ZIP 경로를 키로 유지해 구조/건축/XRef의 동명 파일이 서로 덮어쓰지 않게 한다.
             out_name = member
@@ -2125,6 +2145,290 @@ def _detect_schedule_pages(pdf_bytes, total_pages,
                 os.remove(tmp_path)
             except OSError:
                 pass
+
+
+# ─────────────────────────────────────────────
+#  구조일반사항 전용 3단계
+#  프로젝트 개요와 분리해 구조 PDF의 목차/제목/텍스트로 후보를 먼저 좁힌 뒤,
+#  선택된 페이지만 고해상도로 판독한다. 파일명은 후보 힌트일 뿐 값의 근거로 쓰지 않는다.
+# ─────────────────────────────────────────────
+GENERAL_NOTES_TIMEOUT_SEC = 120
+GENERAL_NOTES_MAX_TEXT_SCAN_PAGES = 40
+GENERAL_NOTES_MAX_SELECTED_PAGES = 12
+GENERAL_NOTES_RENDER_DPI = 180
+GENERAL_NOTES_LOCATOR_DPI = 100
+GENERAL_NOTES_LOCATOR_MAX_PAGE = 24
+GENERAL_NOTES_LOCATOR_BATCH_SIZE = 6
+_GENERAL_NOTES_TERMS = {
+    "title": ("구조일반사항", "구조설계개요", "GENERAL NOTES", "GENERAL NOTE"),
+    "material": ("구조재료", "콘크리트", "철근", "피복두께"),
+    "detail": ("정착", "이음", "갈고리", "HOOK", "내진"),
+}
+
+
+def _general_notes_log(event, level=logging.INFO, **payload):
+    safe = {"event": event}
+    safe.update(payload)
+    logger.log(
+        level,
+        "quantity_general_notes %s",
+        json.dumps(safe, ensure_ascii=False, sort_keys=True, default=str),
+    )
+
+
+def _general_notes_page_candidates(pdf_bytes, total_pages, page_hints=None,
+                                   max_scan_pages=GENERAL_NOTES_MAX_TEXT_SCAN_PAGES):
+    """텍스트 레이어와 낱장 파일명 힌트로 구조일반사항 후보를 점수화한다.
+
+    전체 페이지를 이미지로 보내지 않는다. 텍스트 레이어가 없는 페이지는 후보로
+    확정하지 않으며, 파일명 힌트는 고해상도 판독 대상으로만 올린다.
+    """
+    limit = min(int(total_pages or 0), int(max_scan_pages))
+    hint_pages = {
+        int(page)
+        for page, info in (page_hints or {}).items()
+        if "general_spec" in (info.get("hints") or set())
+    }
+    tmp_path = None
+    rows = []
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as handle:
+            handle.write(pdf_bytes or b"")
+            tmp_path = handle.name
+        for page in range(1, limit + 1):
+            text = ""
+            text_error = None
+            try:
+                result = subprocess.run(
+                    ["pdftotext", "-f", str(page), "-l", str(page), tmp_path, "-"],
+                    capture_output=True, timeout=10,
+                )
+                if result.returncode == 0:
+                    text = result.stdout.decode("utf-8", errors="ignore")
+                else:
+                    text_error = f"pdftotext_returncode_{result.returncode}"
+            except Exception as exc:
+                text_error = type(exc).__name__
+            normalized = re.sub(r"\s+", "", text).upper()
+            title_hits = [
+                term for term in _GENERAL_NOTES_TERMS["title"]
+                if re.sub(r"\s+", "", term).upper() in normalized
+            ]
+            material_hits = [
+                term for term in _GENERAL_NOTES_TERMS["material"]
+                if re.sub(r"\s+", "", term).upper() in normalized
+            ]
+            detail_hits = [
+                term for term in _GENERAL_NOTES_TERMS["detail"]
+                if re.sub(r"\s+", "", term).upper() in normalized
+            ]
+            drawing_number_set = {
+                f"S-{int(match):03d}"
+                for match in re.findall(r"\bS\s*[-–—]\s*0?(\d{2,3})\b", text, flags=re.I)
+            }
+            for start, end in re.findall(
+                r"S\s*[-–—]\s*0?(\d{2,3})\s*[~～]\s*(?:S\s*[-–—]\s*)?0?(\d{2,3})",
+                text, flags=re.I,
+            ):
+                first, last = int(start), int(end)
+                if first <= last:
+                    drawing_number_set.update(
+                        f"S-{number:03d}" for number in range(first, last + 1)
+                    )
+            drawing_numbers = sorted(drawing_number_set)
+            drawing_list_markers = (
+                "도면목록" in normalized
+                or "DRAWINGLIST" in normalized
+                or all(marker in normalized for marker in ("도면번호", "도면명", "비고"))
+            )
+            is_drawing_list = drawing_list_markers or len(drawing_numbers) >= 4
+            score = (
+                len(title_hits) * 8
+                + len(material_hits) * 3
+                + len(detail_hits) * 2
+                + len(drawing_numbers) * 5
+                + (10 if page in hint_pages else 0)
+            )
+            reasons = []
+            if title_hits:
+                reasons.append("제목:" + ",".join(title_hits))
+            if drawing_numbers:
+                reasons.append("도면번호:" + ",".join(drawing_numbers))
+            if material_hits:
+                reasons.append("재료:" + ",".join(material_hits))
+            if detail_hits:
+                reasons.append("상세:" + ",".join(detail_hits))
+            if page in hint_pages:
+                reasons.append("업로드 파일명 힌트")
+            selected = score > 0 and not is_drawing_list
+            rows.append({
+                "page": page,
+                "score": score,
+                "selected": selected,
+                "page_type": "drawing_list" if is_drawing_list else (
+                    "general_notes_text_candidate" if selected else "other"
+                ),
+                "reasons": reasons,
+                "drawing_numbers": drawing_numbers,
+                "text_available": bool(text.strip()),
+                "text_error": text_error,
+                "rejection_reason": "drawing_list_not_content" if is_drawing_list else (
+                    None if selected else "general_notes_markers_not_found"
+                ),
+            })
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+    ranked = sorted(
+        (row for row in rows if row["selected"]),
+        key=lambda row: (-row["score"], row["page"]),
+    )[:GENERAL_NOTES_MAX_SELECTED_PAGES]
+    selected_pages = sorted(row["page"] for row in ranked)
+    expected_numbers = sorted({
+        number for row in rows if row["page_type"] == "drawing_list"
+        for number in row["drawing_numbers"]
+    })
+    drawing_list_pages = [row["page"] for row in rows if row["page_type"] == "drawing_list"]
+    return {
+        "total_pages": int(total_pages or 0),
+        "scan_range": [1, limit] if limit else [],
+        "pages": rows,
+        "selected_pages": selected_pages,
+        "drawing_list_pages": drawing_list_pages,
+        "expected_drawing_numbers": expected_numbers,
+        "text_used": any(row["text_available"] for row in rows),
+        "image_fallback": bool(selected_pages),
+        "complete": bool(selected_pages),
+    }
+
+
+GENERAL_NOTES_LOCATOR_PROMPT = """구조 PDF 페이지 종류를 짧은 JSON으로 분류하세요.
+각 페이지마다 pdf_page, page_type, drawing_number, drawing_title, is_general_notes,
+confidence, evidence_terms(최대 6개)를 반환하세요. 도면목록은 page_type=drawing_list,
+is_general_notes=false입니다. 단일 구조 도면번호 타이틀블록, 구조일반사항/구조설계개요/
+GENERAL NOTES 제목, 또는 콘크리트·철근·피복·정착·이음 표식이 강한 실제 내용 페이지만
+is_general_notes=true로 하세요. 페이지 순서만 보고 도면번호를 추정하지 마세요."""
+
+
+def _classify_general_notes_image_pages(pdf_bytes, page_numbers, job_id=None):
+    """텍스트가 없는 초기 페이지를 저해상도 vision으로 실제 분류한다."""
+    client = get_gemini_client()
+    if client is None or not page_numbers:
+        return []
+    decisions = []
+    for offset in range(0, len(page_numbers), GENERAL_NOTES_LOCATOR_BATCH_SIZE):
+        batch = page_numbers[offset:offset + GENERAL_NOTES_LOCATOR_BATCH_SIZE]
+        contents = [f"요청 PDF 페이지: {batch}"]
+        rendered_pages = []
+        for page in batch:
+            images = _render_pdf_page_range(
+                pdf_bytes, page, page, dpi=GENERAL_NOTES_LOCATOR_DPI, timeout=20,
+            )
+            if not images:
+                continue
+            rendered_pages.append(page)
+            contents.extend([
+                f"[PDF 실제 {page}페이지]",
+                types.Part.from_bytes(
+                    data=image_to_jpeg_bytes(images[0], max_size=(1400, 1400)),
+                    mime_type="image/jpeg",
+                ),
+            ])
+        if not rendered_pages:
+            continue
+        _general_notes_log("vision_locator_call", job_id=job_id, pages=rendered_pages)
+        response = client.models.generate_content(
+            model=GEMINI_QUANTITY_MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=GENERAL_NOTES_LOCATOR_PROMPT,
+                response_mime_type="application/json",
+                temperature=0.0,
+                max_output_tokens=4096,
+                thinking_config=types.ThinkingConfig(thinking_budget=512),
+            ),
+        )
+        raw = _extract_text_from_gemini_response(response)
+        try:
+            parsed = json.loads(raw.replace("```json", "").replace("```", "").strip())
+        except json.JSONDecodeError:
+            parsed = _try_repair_truncated_json(raw.replace("```json", "").replace("```", "").strip())
+        items = parsed.get("pages") if isinstance(parsed, dict) else parsed
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            try:
+                page = int(item.get("pdf_page"))
+            except (TypeError, ValueError):
+                continue
+            if page not in rendered_pages:
+                continue
+            number = re.sub(r"\s+", "", str(item.get("drawing_number") or "").upper())
+            number_match = re.fullmatch(r"S[-–—]?0?(\d{2,3})", number)
+            normalized_number = (
+                f"S-{int(number_match.group(1)):03d}" if number_match else None
+            )
+            title = str(item.get("drawing_title") or "")
+            terms = [str(value) for value in (item.get("evidence_terms") or [])[:6]]
+            marker_text = " ".join([title] + terms).upper()
+            strong_marker = any(term in marker_text for term in (
+                "구조일반사항", "구조설계개요", "GENERAL NOTE", "콘크리트", "철근",
+                "피복", "정착", "이음",
+            ))
+            number_valid = bool(normalized_number)
+            is_drawing_list = str(item.get("page_type") or "") == "drawing_list"
+            accepted = bool(
+                item.get("is_general_notes") and not is_drawing_list
+                and (number_valid or strong_marker)
+            )
+            decision = {
+                "pdf_page": page,
+                "page_type": item.get("page_type") or "other",
+                "drawing_number": normalized_number,
+                "drawing_title": title,
+                "is_general_notes": accepted,
+                "confidence": item.get("confidence"),
+                "evidence_terms": terms,
+            }
+            decisions.append(decision)
+            _general_notes_log("vision_locator_result", job_id=job_id, **decision)
+    return decisions
+
+
+def _merge_general_notes_page_candidates(scan, vision_decisions):
+    """텍스트 후보와 vision으로 확인한 실제 내용 페이지만 합쳐 최대 12장을 고른다."""
+    selected = set(scan.get("selected_pages") or [])
+    mapping = {}
+    for item in vision_decisions or []:
+        if not item.get("is_general_notes"):
+            continue
+        page = item.get("pdf_page")
+        if not isinstance(page, int):
+            continue
+        selected.add(page)
+        number = item.get("drawing_number")
+        if number and number not in mapping:
+            mapping[number] = page
+    drawing_list_pages = set(scan.get("drawing_list_pages") or [])
+    selected.difference_update(drawing_list_pages)
+    return sorted(selected)[:GENERAL_NOTES_MAX_SELECTED_PAGES], mapping
+
+
+def _general_notes_has_values(result):
+    return bool(
+        (result or {}).get("basic_info")
+        or any((result or {}).get(key) for key in (
+            "concrete_materials", "rebar_materials", "cover_requirements",
+            "anchorage_splice_requirements",
+        ))
+        or any(
+            row.get("source_type") != "user_confirmed"
+            for row in ((result or {}).get("quantity_notes") or [])
+        )
+    )
 
 
 # ─────────────────────────────────────────────
@@ -5259,13 +5563,295 @@ def analyze_with_gemini(dwg_data: dict, pdf_images: list, system_prompt: str, dr
         }
 
 
-# ─────────────────────────────────────────────
-#  API: 개요/구조일반사항 사전 확인
-#  — 본 추출(api_run_quantity) 전에, 표지+구조일반사항 몇 페이지만 가볍게 읽어서
-#  채팅창에서 사용자에게 "이 프로젝트 맞나요? / 이 구조기준 맞나요?"를 먼저 확인받는다.
-#  기존 진행률 폴링/결과 저장소(_progress_set/_result_set)를 그대로 재사용한다 —
-#  job_id만 본 작업과 다른 값(프론트가 접두사로 구분)을 쓰면 서로 섞이지 않는다.
-# ─────────────────────────────────────────────
+GENERAL_NOTES_SYSTEM_PROMPT = """구조도면의 구조일반사항만 판독하세요. 구조평면도, 건축
+평·입·단면도, 개구부, 부재 수량, 3D 및 물량은 판독하거나 계산하지 마세요. 없는 값은
+추정하지 말고 null/빈 배열로 두세요. 모든 값/행에는
+{"file_type":"구조 PDF","pdf_page":null,"drawing_number":"실제 보이는 도면번호 또는 null",
+"drawing_title":"실제 보이는 도면명","quote":"조건을 포함한 실제 원문",
+"method":"pdf_image","confidence":0.95} 형식의 evidence를 넣으세요. 파일명은 값의
+근거가 아닙니다. 범위별 값은 별도 행으로 유지하고 실제 충돌은 덮어쓰지 마세요.
+응답 최상위 source_text에는 선택된 페이지에서 실제 판독한 원문만 페이지·구역 제목과
+함께 전사하세요. evidence.quote는 source_text에 문자 그대로 존재하는 일부여야 합니다.
+concrete_materials는 반드시 "구조재료 및 강도" 제목 아래의 프로젝트 적용 문장에서만
+추출하고 evidence.quote에 그 제목/문맥과 적용 위치 문장을 함께 넣으세요. 이음길이·
+정착길이·피복두께 구역의 행은 숫자와 무관하게 lookup 데이터이며 프로젝트 적용 재료가
+아닙니다. 철근 재료표의 실제 직경 범위·강종·fy를 그대로 분리하고 원문에 없는 강종을
+생성하지 마세요. JSON 키는 source_text,
+basic_info(structure_system, foundation_type, design_codes,
+soil_bearing_capacity, groundwater_buoyancy, seismic_design; 각 값은 value/unit/evidence),
+concrete_materials(location,member_type,floor_scope,fck_mpa,slump_mm,aggregate_mm,
+exposure_condition,evidence), rebar_materials(diameter_min_mm,diameter_max_mm,grade,
+fy_mpa,member_scope,material_type,evidence), cover_requirements(member_type,
+exposure_condition,location,thickness_mm,evidence), anchorage_splice_requirements
+(requirement_type,bar_size,position,concrete_fck_mpa,value,unit,splice_class,
+top_bar_factor,seismic_condition,conditions,evidence), quantity_notes(category,text,
+affected_work,evidence), conflicts(field,scope,values,message,evidences),
+unconfirmed_items입니다. JSON 객체 하나만 반환하세요."""
+
+
+def _empty_general_notes_result(reason=None):
+    result = {
+        "basic_info": {}, "concrete_materials": [], "rebar_materials": [],
+        "cover_requirements": [], "anchorage_splice_requirements": [],
+        "quantity_notes": [], "conflicts": [], "validation_rejections": [],
+        "lookup_data": {"splice_length_rows": [], "anchorage_rows": [], "cover_fck_rows": []},
+        "source_text": "",
+        "unconfirmed_items": ["구조방식", "기초형식", "적용 구조설계기준", "콘크리트 재료",
+                              "철근 재료", "피복두께", "정착·이음 기준"],
+        "selected_pages": [], "page_candidates": [], "notes": [reason] if reason else [],
+    }
+    return _general_notes_add_legacy_fields(result)
+
+
+def _general_notes_evidence_valid(evidence, selected_pages):
+    if not isinstance(evidence, dict):
+        return False
+    file_type = str(evidence.get("file_type") or "")
+    if "PDF" in file_type:
+        page_valid = (
+            isinstance(evidence.get("pdf_page"), int)
+            and evidence["pdf_page"] in set(selected_pages or [])
+        )
+    elif "CAD" in file_type:
+        page_valid = evidence.get("pdf_page") is None and evidence.get("method") == "cad_text"
+    else:
+        page_valid = False
+    return bool(
+        page_valid and evidence.get("drawing_number") and evidence.get("drawing_title")
+        and str(evidence.get("quote") or "").strip()
+        and evidence.get("method")
+        and isinstance(evidence.get("confidence"), (int, float))
+    )
+
+
+def _general_notes_quote_supports(evidence, value):
+    if value in (None, ""):
+        return True
+    quote = re.sub(r"\s+", "", str((evidence or {}).get("quote") or "")).upper()
+    expected = re.sub(r"\s+", "", str(value)).upper()
+    if isinstance(value, (int, float)):
+        return _source_supports_number({"quote": quote}, value)
+    return expected in quote
+
+
+def _general_notes_normalize_source(value):
+    return re.sub(r"\s+", "", str(value or "")).upper()
+
+
+def _general_notes_quote_in_source(evidence, source_text):
+    quote = _general_notes_normalize_source((evidence or {}).get("quote"))
+    source = _general_notes_normalize_source(source_text)
+    return bool(quote and source and quote in source)
+
+
+def _general_notes_row_fields_supported(group, row, evidence):
+    fields = {
+        "concrete_materials": (
+            "fck_mpa", "location", "member_type", "floor_scope",
+        ),
+        "rebar_materials": (
+            "grade", "fy_mpa", "diameter_min_mm", "diameter_max_mm", "member_scope",
+        ),
+    }.get(group, ())
+    return all(
+        value in (None, "") or _general_notes_quote_supports(evidence, value)
+        for value in (row.get(field) for field in fields)
+    )
+
+
+def _general_notes_is_material_strength_statement(evidence):
+    quote = re.sub(r"\s+", "", str((evidence or {}).get("quote") or "")).upper()
+    return "구조재료및강도" in quote and not any(
+        marker in quote for marker in ("이음길이표", "정착길이표", "피복두께표")
+    )
+
+
+def _general_notes_is_lookup_row(group, row):
+    quote = re.sub(r"\s+", "", str(((row or {}).get("evidence") or {}).get("quote") or "")).upper()
+    if group == "anchorage_splice_requirements":
+        return "표" in quote and any(marker in quote for marker in ("이음", "정착"))
+    if group == "cover_requirements":
+        return "피복두께" in quote and "표" in quote
+    return False
+
+
+def _general_notes_add_legacy_fields(result):
+    concrete = []
+    for row in result.get("concrete_materials") or []:
+        category = {"벽": "전단벽", "지하외벽": "전단벽", "내부벽": "전단벽"}.get(
+            row.get("member_type"), row.get("member_type"),
+        )
+        if category in ("기초", "기둥", "보", "슬래브", "전단벽", "계단"):
+            concrete.append({"category": category, "zone_scope": row.get("location") or row.get("floor_scope"),
+                             "fck_mpa": row.get("fck_mpa"), "source": row.get("evidence")})
+    rebar = [{"bar_size_min": r.get("diameter_min_mm"), "bar_size_max": r.get("diameter_max_mm"),
+              "grade": r.get("grade"), "fy_mpa": r.get("fy_mpa"), "source": r.get("evidence")}
+             for r in result.get("rebar_materials") or []]
+    cover = []
+    for row in result.get("cover_requirements") or []:
+        category = {"벽": "전단벽", "지하외벽": "전단벽", "내부벽": "전단벽",
+                    "토양에 접하는 부재": "전단벽"}.get(row.get("member_type"), row.get("member_type"))
+        if category in ("기초", "기둥", "보", "슬래브", "전단벽", "계단"):
+            cover.append({"category": category, "thickness_mm": row.get("thickness_mm"),
+                          "condition": row.get("exposure_condition") or row.get("location"),
+                          "source": row.get("evidence")})
+    laps, anchors = [], []
+    for row in result.get("anchorage_splice_requirements") or []:
+        common = {"bar_size": row.get("bar_size"), "position": row.get("position"),
+                  "length_m": row.get("value") if row.get("unit") == "m" else None,
+                  "source": row.get("evidence")}
+        if "이음" in str(row.get("requirement_type") or ""):
+            laps.append({**common, "splice_class": row.get("splice_class")})
+        elif row.get("requirement_type") in ("인장정착", "압축정착", "갈고리"):
+            anchors.append({**common, "hook": row.get("requirement_type") == "갈고리"})
+    fcks = [r.get("fck_mpa") for r in result.get("concrete_materials") or [] if r.get("fck_mpa") is not None]
+    grades = [r.get("grade") for r in result.get("rebar_materials") or [] if r.get("grade")]
+    covers = [r.get("thickness_mm") for r in result.get("cover_requirements") or [] if r.get("thickness_mm") is not None]
+    result.update({
+        "concrete_fck_mpa": fcks[0] if fcks else None, "concrete_fck_table": concrete,
+        "rebar_grade": grades[0] if grades else None, "rebar_grade_table": rebar,
+        "lap_splice_class": None, "lap_splice_table": laps, "anchorage_table": anchors,
+        "cover_thickness_mm": min(covers) if covers else None, "cover_table": cover,
+        "seismic_rebar_rules": [],
+        "summary_notes": [r.get("text") for r in result.get("quantity_notes") or [] if r.get("text")],
+    })
+    return result
+
+
+def _validate_general_notes_result(data, selected_pages, overview=None, source_text=None):
+    data = data if isinstance(data, dict) else {}
+    result = _empty_general_notes_result()
+    source_text = str(source_text if source_text is not None else data.get("source_text") or "")
+    result["source_text"] = source_text
+    result["selected_pages"] = list(selected_pages or [])
+    rejected = []
+    basic = data.get("basic_info") if isinstance(data.get("basic_info"), dict) else {}
+    for field, item in basic.items():
+        evidence = item.get("evidence") if isinstance(item, dict) else None
+        if not _general_notes_evidence_valid(evidence, selected_pages):
+            rejected.append(f"{field}: 구조화 근거 누락")
+        elif not _general_notes_quote_in_source(evidence, source_text):
+            rejected.append(f"{field}: evidence.quote 원문 불일치")
+        elif not _general_notes_quote_supports(evidence, item.get("value")):
+            rejected.append(f"{field}: 원문에 값 없음")
+        else:
+            result["basic_info"][field] = item
+    specs = {
+        "concrete_materials": ("fck_mpa", ("location", "member_type", "floor_scope")),
+        "rebar_materials": ("grade", ("diameter_min_mm", "diameter_max_mm", "member_scope")),
+        "cover_requirements": ("thickness_mm", ("member_type", "exposure_condition", "location")),
+        "anchorage_splice_requirements": ("value", ("requirement_type", "bar_size", "conditions")),
+        "quantity_notes": ("text", ("category", "affected_work")),
+    }
+    for group, (value_field, scopes) in specs.items():
+        for index, row in enumerate(data.get(group) or []):
+            evidence = row.get("evidence") if isinstance(row, dict) else None
+            reason = None
+            if _general_notes_is_lookup_row(group, row):
+                if (
+                    not _general_notes_evidence_valid(evidence, selected_pages)
+                    or not _general_notes_quote_in_source(evidence, source_text)
+                ):
+                    rejected.append(f"{group}[{index}]: lookup 원문 불일치")
+                    continue
+                lookup_key = (
+                    "splice_length_rows"
+                    if "이음" in str(row.get("requirement_type") or "")
+                    else "anchorage_rows"
+                ) if group == "anchorage_splice_requirements" else "cover_fck_rows"
+                result["lookup_data"][lookup_key].append(row)
+                continue
+            if not _general_notes_evidence_valid(evidence, selected_pages):
+                reason = "구조화 근거 누락"
+            elif not _general_notes_quote_in_source(evidence, source_text):
+                reason = "evidence.quote 원문 불일치"
+            elif row.get(value_field) in (None, "") or not _general_notes_quote_supports(evidence, row.get(value_field)):
+                reason = f"{value_field} 원문 근거 없음"
+            elif not _general_notes_row_fields_supported(group, row, evidence):
+                reason = "필드별 원문 근거 없음"
+            elif group == "concrete_materials" and not _general_notes_is_material_strength_statement(evidence):
+                reason = "구조재료 및 강도 적용 문장 아님"
+            elif not any(row.get(field) not in (None, "") for field in scopes):
+                reason = "적용 범위/조건 없음"
+            elif group == "anchorage_splice_requirements" and not row.get("unit"):
+                reason = "단위 없음"
+            if reason:
+                rejected.append(f"{group}[{index}]: {reason}")
+            else:
+                result[group].append(row)
+    result["conflicts"] = [c for c in data.get("conflicts") or []
+                           if isinstance(c, dict) and len(c.get("evidences") or []) >= 2]
+    result["validation_rejections"] = rejected
+    result["unconfirmed_items"] = list(dict.fromkeys(list(data.get("unconfirmed_items") or []) + rejected))
+    for group, label in (("concrete_materials", "콘크리트 재료"), ("rebar_materials", "철근 재료"),
+                         ("cover_requirements", "피복두께"),
+                         ("anchorage_splice_requirements", "정착·이음 기준")):
+        if not result[group] and label not in result["unconfirmed_items"]:
+            result["unconfirmed_items"].append(label)
+    structure_item = result["basic_info"].get("structure_system") or {}
+    old, new = str((overview or {}).get("structure_type") or ""), str(structure_item.get("value") or "")
+    if old and new and not (old == new or ("철근콘크리트" in old and "철근콘크리트" in new)):
+        result["conflicts"].append({"field": "structure_system", "scope": "프로젝트 개요 교차검증",
+                                    "values": [old, new], "message": "개요 구조형식과 충돌",
+                                    "evidences": [structure_item.get("evidence")]})
+    result["quantity_notes"].append({
+        "category": "이음 정책",
+        "text": "전 부재 B급 인장이음 적용",
+        "affected_work": "전 부재",
+        "source_type": "user_confirmed",
+        "provenance": "사용자 확정조건",
+        "evidence": None,
+    })
+    return _general_notes_add_legacy_fields(result)
+
+def _run_general_notes_job(job_id, review_id, structural_pdf_bytes, structural_page_hints,
+                           cad_candidate_records=None):
+    started = time.monotonic()
+    try:
+        _progress_set(job_id, "general_spec", 0, 1, "구조일반사항을 확인하고 있어요...",
+                      stage_index=1, total_stages=1)
+        rec = _review_get(review_id) or {}
+        cad_context = []
+        if cad_candidate_records:
+            parsed, attempted, capped = _parse_precheck_candidates(cad_candidate_records)
+            for record in cad_candidate_records:
+                info = parsed.get(record.get("content_sha256")) or {}
+                if "error" in info:
+                    _general_notes_log("cad_parse", job_id=job_id, path=record.get("path"),
+                                       success=False, error=str(info.get("error"))[:160])
+                    continue
+                texts = [str(value) for value in info.get("texts") or [] if str(value).strip()]
+                if texts:
+                    cad_context.append({"path": record.get("path"),
+                                        "filename": record.get("filename"),
+                                        "text": "\n".join(texts)})
+                _general_notes_log("cad_parse", job_id=job_id, path=record.get("path"),
+                                   success=bool(texts), parse_capped=capped,
+                                   attempted=record.get("content_sha256") in attempted)
+        result = extract_general_notes(
+            structural_pdf_bytes, structural_page_hints, rec.get("overview"),
+            job_id=job_id, timeout_seconds=GENERAL_NOTES_TIMEOUT_SEC,
+            cad_context=cad_context,
+        )
+        _review_update(review_id, general_spec=result)
+        _review_reset_confirmations_from(review_id, "general_spec")
+        _result_set(job_id, {"ok": True, "results": {"general_spec": result}})
+    except TimeoutError as exc:
+        _general_notes_log("job_timeout", level=logging.WARNING, job_id=job_id,
+                           stage="candidate_or_extraction",
+                           elapsed_seconds=round(time.monotonic() - started, 3),
+                           error=str(exc)[:200])
+        _result_set(job_id, {"ok": False, "error": f"구조일반사항 확인 시간 초과: {str(exc)[:200]}"})
+    except Exception as exc:
+        logger.exception("quantity_general_notes_job_failed job_id=%s error=%s", job_id, str(exc)[:200])
+        _general_notes_log("job_error", level=logging.ERROR, job_id=job_id,
+                           elapsed_seconds=round(time.monotonic() - started, 3),
+                           error=str(exc)[:200])
+        _result_set(job_id, {"ok": False, "error": f"구조일반사항 확인 중 오류: {str(exc)[:200]}"})
+    finally:
+        _progress_clear(job_id)
+
+
 def _run_overview_check_job(job_id, review_id, structural_pdf_bytes, architectural_pdf_bytes,
                             correction_context, architectural_page_hints=None,
                             structural_page_hints=None):
@@ -5275,7 +5861,8 @@ def _run_overview_check_job(job_id, review_id, structural_pdf_bytes, architectur
             job_id=job_id,
             review_id=review_id,
         )
-        _progress_set(job_id, "overview", 0, 1, "개요/구조일반사항 확인 중", stage_index=1, total_stages=1)
+        _progress_set(job_id, "overview", 0, 1, "프로젝트 개요를 확인하고 있어요...",
+                      stage_index=1, total_stages=1)
         data = extract_overview_and_spec(
             structural_pdf_bytes, architectural_pdf_bytes, correction_context,
             progress_callback=lambda label: _progress_set(
@@ -5287,7 +5874,14 @@ def _run_overview_check_job(job_id, review_id, structural_pdf_bytes, architectur
         )
         # review_id 상태머신에 이 단계에서 실제로 읽은 overview/general_spec을 기록해둔다 —
         # 사용자가 이후 "확정" 버튼을 누르면(api_quantity_review_confirm) 이 값이 확정된다.
-        _review_update(review_id, overview=data.get("overview"), general_spec=data.get("general_spec"))
+        # 기존 결합 extractor가 호환성상 general_spec도 반환하지만, 3단계 전용 endpoint가
+        # 실제 구조 PDF 근거로 다시 판독하기 전에는 review 상태에 저장하지 않는다.
+        _review_update(
+            review_id,
+            overview=data.get("overview"),
+            overview_page_detection=data.get("page_detection"),
+            general_spec=None,
+        )
         # 새 데이터로 덮어썼으니 overview 및 그 이후 단계(general_spec/basement_plan)의
         # 기존 확정은 전부 무효화한다 — 이 review_id로 이전에 이미 확정까지 갔었더라도
         # (예: 같은 세션으로 다른 도면을 다시 확인하는 경우) 새 데이터를 다시 확인받아야 한다.
@@ -5367,8 +5961,22 @@ def api_quantity_overview_check(request):
     review_id = _canonical_review_id(request.user.pk, file_hashes)
     # 파일 내용이 달라지면 canonical id가 달라지고 새 레코드가 만들어지므로 이전 개요와
     # 모든 confirmed 상태가 새 파일에 승계되지 않는다.
-    _review_ensure(review_id, request.user.pk, file_hashes)
+    rec = _review_ensure(review_id, request.user.pk, file_hashes)
     correction_context = (request.POST.get("correction_context") or "").strip() or None
+    force = str(request.POST.get("force") or "").lower() in {"1", "true", "yes"}
+    if rec.get("overview") is not None and not force and not correction_context:
+        _result_set(job_id, {
+            "ok": True,
+            "results": {
+                "overview": rec["overview"],
+                "general_spec": rec.get("general_spec"),
+                "page_detection": rec.get("overview_page_detection"),
+            },
+            "cache_hit": True,
+        })
+        return JsonResponse({
+            "accepted": True, "job_id": job_id, "review_id": review_id, "cache_hit": True,
+        })
     _progress_set(job_id, "queued", 0, 1, "대기열에 등록됨", stage_index=1, total_stages=1)
     thread = threading.Thread(
         target=_run_overview_check_job,
@@ -5382,6 +5990,58 @@ def api_quantity_overview_check(request):
     )
     thread.start()
     return JsonResponse({"accepted": True, "job_id": job_id, "review_id": review_id})
+
+
+@require_POST
+@_admin_only_json
+def api_quantity_general_notes_check(request):
+    """개요 확정 뒤에만 실행되는 구조일반사항 전용 3단계."""
+    job_id = request.POST.get("job_id") or None
+    review_id = request.POST.get("review_id") or None
+    if not job_id or not review_id:
+        return JsonResponse({"error": "job_id와 review_id가 필요합니다."}, status=400)
+    rec, err = _review_require_stage(review_id, "overview_confirmed", "프로젝트 개요")
+    if err:
+        return err
+    if rec.get("_user_id") != str(request.user.pk):
+        return JsonResponse({"error": "다른 사용자의 확인 절차입니다."}, status=403)
+    structural_files = request.FILES.getlist("structural_pdf")
+    cad_uploads = _collect_request_cad_uploads(request)
+    if not structural_files and not cad_uploads:
+        return JsonResponse({"error": "구조 PDF 또는 구조일반사항 CAD 후보가 필요합니다."}, status=400)
+    structural_pdf_bytes, page_hints = _merge_uploaded_pdfs(structural_files)
+    cad_names = [str(getattr(item, "name", "") or "") for item in cad_uploads]
+    cad_inventory = _collect_cad_precheck_inventory(cad_uploads) if cad_uploads else {"records": []}
+    general_item = CAD_PRECHECK_STRUCTURAL_ITEMS[0]
+    cad_candidates = [
+        record for record in cad_inventory.get("records") or []
+        if _cad_item_matches(record, general_item)
+    ]
+    structural_zip_bytes, architectural_zip_bytes, _info = _merge_uploaded_cad_sets(cad_uploads)
+    current_hashes = _review_file_hashes(
+        structural_pdf_bytes=structural_pdf_bytes,
+        structural_zip_bytes=structural_zip_bytes,
+        architectural_zip_bytes=architectural_zip_bytes,
+    )
+    if not _matching_uploaded_files(rec, current_hashes):
+        return JsonResponse({"error": "개요 확인 때와 업로드 파일이 다릅니다."}, status=409)
+    force = str(request.POST.get("force") or "").lower() in {"1", "true", "yes"}
+    if rec.get("general_spec") is not None and not force:
+        _result_set(job_id, {
+            "ok": True, "results": {"general_spec": rec["general_spec"]}, "cache_hit": True,
+        })
+        return JsonResponse({"accepted": True, "job_id": job_id, "cache_hit": True})
+    _general_notes_log("job_received", job_id=job_id, review_id=review_id,
+                       structural_pdf_names=[getattr(f, "name", "") for f in structural_files],
+                       cad_candidate_names=cad_names,
+                       cad_filename_only=True)
+    _progress_set(job_id, "queued", 0, 1, "대기열에 등록됨", stage_index=1, total_stages=1)
+    threading.Thread(
+        target=_run_general_notes_job,
+        args=(job_id, review_id, structural_pdf_bytes, page_hints, cad_candidates),
+        daemon=True,
+    ).start()
+    return JsonResponse({"accepted": True, "job_id": job_id})
 
 
 def _run_overview_revise_job(job_id, review_id, prior_result, correction_text, revision_stage):
@@ -6420,3 +7080,984 @@ def api_download_excel(request):
         return _build_excel_response(request)
     except Exception as e:
         return HttpResponse(f"엑셀 생성 중 오류가 발생했습니다: {str(e)[:300]}", status=500)
+
+# CBL_QUANTITY_GENERAL_NOTES_SOURCE_GROUNDED_V5
+# 후보 도면의 실제 구조재료 적용문을 전사하고, 적용값은 원문 구역에서 로컬 구조화한다.
+GENERAL_NOTES_OVERVIEW_TRANSCRIPTION_PROMPT_V5 = """이 이미지는 구조일반사항 후보 도면입니다.
+도면번호·도면명과 구조재료 적용문이 보이는 영역을 우선 전사하세요. 특정 도면번호나
+목차번호를 전제로 하지 마세요. 값을 해석하거나 요약하지 말고 보이는 원문만 전사하세요.
+특히 6. 구조재료 및 강도의 콘크리트와 철근 문장은 숫자, 이하/이상, 강종, fy,
+괄호 안 적용조건까지 원문 그대로 보존하세요. 보이지 않는 내용을 만들지 마세요.
+JSON 객체 하나만 반환하세요.
+{"drawing_number":"실제 보이는 도면번호 또는 null","drawing_title":"실제 도면명",
+ "source_text":"구조재료 적용문을 포함한 실제 원문 전사"}"""
+
+
+def _cbl_v5_evidence(section_path, quote, pdf_page=None, drawing_number=None,
+                     drawing_title="구조일반사항", file_type="구조 PDF",
+                     method="pdf_transcription"):
+    return {
+        "file_type": file_type, "pdf_page": pdf_page,
+        "drawing_number": drawing_number, "drawing_title": drawing_title,
+        "section_path": section_path, "quote": quote, "method": method,
+        "confidence": 0.9,
+    }
+
+
+def _cbl_v5_clean_line(value):
+    line = re.sub(r"^[\s>*·•-]+", "", str(value or "").strip())
+    return re.sub(r"\s+", " ", line).strip()
+
+
+def _cbl_v5_section(source_text, start_pattern, end_pattern=None):
+    text = str(source_text or "")
+    start = re.search(start_pattern, text, flags=re.I)
+    if not start:
+        return ""
+    tail = text[start.start():]
+    if end_pattern:
+        start_length = start.end() - start.start()
+        end = re.search(end_pattern, tail[start_length:], flags=re.I)
+        if end:
+            return tail[:start_length + end.start()]
+    return tail
+
+
+def _cbl_v5_crop_overview(image):
+    if not isinstance(image, Image.Image):
+        return image
+    width, height = image.size
+    # 고정된 도면 좌측 패널을 가정하지 않는다. 전체 페이지를 먼저 판독해
+    # 구조재료 적용문과 표 영역을 의미적으로 구분하도록 전달한다.
+    return image.copy()
+
+
+def _cbl_v5_parse_source(source_text, pdf_page=None, drawing_number=None,
+                         drawing_title="구조일반사항", file_type="구조 PDF",
+                         method="pdf_transcription"):
+    source_text = str(source_text or "").strip()
+    data = {
+        "source_text": source_text, "basic_info": {},
+        "concrete_materials": [], "rebar_materials": [],
+        "cover_requirements": [], "anchorage_splice_requirements": [],
+        "quantity_notes": [], "conflicts": [], "unconfirmed_items": [],
+    }
+    material = _cbl_v5_section(
+        source_text,
+        r"(?:^|\n)\s*(?:\d+(?:\.\d+)?\s*[.)]?\s*)?(?:구조재료\s*및\s*강도|구조재료|구조재료표|STRUCTURAL\s+MATERIALS?)",
+        r"(?:^|\n)\s*(?:\d+(?:\.\d+)?\s*[.)]?\s*)?(?:특기사항|GENERAL\s+NOTES|피복|정착|이음)",
+    )
+    if not material:
+        data["unconfirmed_items"].append("구조재료 및 강도 원문 구역")
+        return data
+
+    all_lines = [_cbl_v5_clean_line(v) for v in source_text.splitlines()
+                 if _cbl_v5_clean_line(v)]
+    lines = [_cbl_v5_clean_line(v) for v in material.splitlines()
+             if _cbl_v5_clean_line(v)]
+    heading = next((line for line in all_lines if re.search(
+        r"구조재료\s*및\s*강도|구조재료|STRUCTURAL\s+MATERIALS?", line,
+        re.I,
+    )), "구조재료 및 강도")
+    base = heading
+    concrete_path = base + " > 콘크리트 적용"
+    rebar_path = base + " > 철근 적용"
+
+    def basic(key, value, quote, section, unit=None, scope=None):
+        if value in (None, ""):
+            return
+        data["basic_info"][key] = {
+            "value": value, "unit": unit, "scope": scope,
+            "evidence": _cbl_v5_evidence(
+                section, quote, pdf_page, drawing_number, drawing_title,
+                file_type, method,
+            ),
+        }
+
+    for line in all_lines:
+        numbered = re.sub(r"^\s*\d+(?:\.\d+)?\s*", "", line).strip()
+        matches = (
+            (r"아파트\s*[:：]\s*(.+)", "structure_system_apartment",
+             "구조형식", "아파트"),
+            (r"지하주차장\s*[:：]\s*(.+)", "structure_system_parking",
+             "구조형식", "지하주차장"),
+            (r"지진력저항시스템\s*[:：]\s*(.+)", "seismic_force_resisting_system",
+             "내진형식", None),
+            (r"내진설계범주\s*[:：]\s*(.+)", "seismic_design_category",
+             "내진형식", None),
+            (r"아파트\s*기초\s*[:：]\s*(.+)", "foundation_type_apartment",
+             "기초형식", "아파트"),
+            (r"지하주차장\s*기초\s*[:：]\s*(.+)", "foundation_type_parking",
+             "기초형식", "지하주차장"),
+        )
+        for pattern, key, section, scope in matches:
+            if re.search(pattern, line):
+                basic(key, re.split(r"[:：]", line, maxsplit=1)[1].strip(),
+                      line, section, scope=scope)
+                break
+        else:
+            if "건축구조기준" in numbered and "(" in numbered:
+                basic("design_code_building", numbered, line, base + " > 2. 설계기준")
+            elif "콘크리트구조 설계" in numbered and "(" in numbered:
+                basic("design_code_concrete", numbered, line, base + " > 2. 설계기준")
+
+    foundation_scope = None
+    for line in all_lines:
+        if re.search(r"아파트\s*기초\s*[:：]", line):
+            foundation_scope = "아파트 기초"
+            continue
+        if re.search(r"지하주차장\s*기초\s*[:：]", line):
+            foundation_scope = "지하주차장 기초"
+            continue
+        bearing = re.search(
+            r"설계요구지내력\s*=\s*(\d+(?:\.\d+)?)\s*kN\s*/\s*m(?:2|²)",
+            line, flags=re.I,
+        )
+        if bearing and foundation_scope:
+            key = ("soil_bearing_capacity_apartment"
+                   if foundation_scope == "아파트 기초"
+                   else "soil_bearing_capacity_parking")
+            raw = bearing.group(1)
+            basic(key, float(raw) if "." in raw else int(raw), line,
+                  "기초형식", unit="kN/m²",
+                  scope=foundation_scope)
+            foundation_scope = None
+        groundwater = re.search(
+            r"(지하외벽|기초\s*및\s*내수압슬래브)\s*[:：]\s*(.+)", line,
+        )
+        if groundwater:
+            scope = re.sub(r"\s+", " ", groundwater.group(1)).strip()
+            key = ("groundwater_external_wall" if "지하외벽" in scope
+                   else "groundwater_foundation_slab")
+            basic(key, groundwater.group(2).strip(), line,
+                  "기초형식 > 지하수위", scope=scope)
+
+    for line in lines:
+        fck = re.search(r"\bF\s*CK\s*=\s*(\d+(?:\.\d+)?)\s*MPA\b",
+                        line, flags=re.I)
+        if not fck:
+            continue
+        prefix = re.sub(r"^\s*\d+\s*[.)]\s*", "",
+                        line[:fck.start()].strip(" :：,")).strip()
+        member = re.search(r"(전\s*부재(?:\s*\([^)]*\))?)", prefix)
+        member_type = (re.sub(r"\s+", " ", member.group(1)).strip()
+                       if member else prefix)
+        location = prefix[:member.start()].strip(" ,:：") if member else prefix
+        raw = fck.group(1)
+        data["concrete_materials"].append({
+            "location": location or None, "member_type": member_type or None,
+            "floor_scope": None,
+            "fck_mpa": float(raw) if "." in raw else int(raw),
+            "slump_mm": None, "aggregate_mm": None,
+            "exposure_condition": None,
+            "evidence": _cbl_v5_evidence(
+                concrete_path, line, pdf_page, drawing_number, drawing_title,
+                file_type, method,
+            ),
+        })
+
+    for line in lines:
+        match = re.search(
+            r"D\s*(\d+)\s*(이하|이상)\s*[:：]?\s*"
+            r"(SD\s*\d+\s*S?)\s*,?\s*FY\s*=\s*(\d+(?:\.\d+)?)\s*MPA",
+            line, flags=re.I,
+        )
+        if not match:
+            continue
+        diameter = int(match.group(1))
+        comparison = match.group(2)
+        grade = re.sub(r"\s+", "", match.group(3)).upper()
+        raw = match.group(4)
+        data["rebar_materials"].append({
+            "diameter_min_mm": diameter if comparison == "이상" else None,
+            "diameter_max_mm": diameter if comparison == "이하" else None,
+            "diameter_rule": f"D{diameter} {comparison}",
+            "grade": grade,
+            "fy_mpa": float(raw) if "." in raw else int(raw),
+            "member_scope": None,
+            "material_type": "내진용 철근" if grade.endswith("S") else "일반철근",
+            "evidence": _cbl_v5_evidence(
+                rebar_path, line, pdf_page, drawing_number, drawing_title,
+                file_type, method,
+            ),
+        })
+
+    for line in lines:
+        scope = re.search(r"내진용\s*철근\s*[:：]\s*(.+)", line)
+        if scope and "적용" in scope.group(1):
+            data["quantity_notes"].append({
+                "category": "내진용 철근 적용범위", "text": line,
+                "affected_work": scope.group(1).strip(),
+                "evidence": _cbl_v5_evidence(
+                    rebar_path, line, pdf_page, drawing_number, drawing_title,
+                    file_type, method,
+                ),
+            })
+    for line in all_lines:
+        if re.search(r"(?:시공이음|끊어치기|보강근|버림콘크리트|무근콘크리트|개구부)", line):
+            data["quantity_notes"].append({
+                "category": "구조 특기사항", "text": line,
+                "affected_work": "기초·터파기·배수",
+                "evidence": _cbl_v5_evidence(
+                    "특기사항", line, pdf_page,
+                    drawing_number, drawing_title, file_type, method,
+                ),
+            })
+    return data
+
+
+_cbl_v5_original_material_statement = _general_notes_is_material_strength_statement
+def _general_notes_is_material_strength_statement(evidence):
+    quote = re.sub(r"\s+", "", str((evidence or {}).get("quote") or "")).upper()
+    section = re.sub(r"\s+", "", str((evidence or {}).get("section_path") or "")).upper()
+    return "구조재료및강도" in (section or quote) and not any(
+        marker in quote for marker in ("이음길이표", "정착길이표", "피복두께표")
+    )
+
+
+_cbl_v5_original_classifier = _classify_general_notes_image_pages
+def _cbl_v5_classify_general_notes(pdf_bytes, page_numbers, job_id=None):
+    decisions = []
+    size = max(1, int(GENERAL_NOTES_LOCATOR_BATCH_SIZE))
+    for offset in range(0, len(page_numbers), size):
+        batch = page_numbers[offset:offset + size]
+        decisions.extend(_cbl_v5_original_classifier(
+            pdf_bytes, batch, job_id=job_id,
+        ) or [])
+        material_markers = ("구조재료", "콘크리트", "fck", "mpa", "철근", "sd", "fy")
+        if any(
+            row.get("is_general_notes") and any(
+                marker in str(term).lower()
+                for term in (row.get("evidence_terms") or [])
+                for marker in material_markers
+            )
+            for row in decisions
+        ):
+            _general_notes_log(
+                "vision_locator_candidate_found", job_id=job_id,
+                scanned_through_page=max(batch),
+            )
+            break
+    return decisions
+
+def _cbl_v5_select_material_page(scan, decisions, selected, mapping):
+    scan_by_page = {int(row.get("page")): row for row in (scan or {}).get("pages") or []
+                    if row.get("page") is not None}
+    candidates = []
+    for row in decisions or []:
+        if not row.get("is_general_notes") or row.get("page_type") == "drawing_list":
+            continue
+        terms = " ".join(str(v) for v in (row.get("evidence_terms") or []))
+        scan_row = scan_by_page.get(int(row.get("pdf_page") or 0), {})
+        haystack = (terms + " " + " ".join(str(v) for v in scan_row.get("reasons") or [])).lower()
+        score = sum(5 for marker in ("구조재료", "콘크리트", "fck", "mpa", "철근", "sd", "fy")
+                    if marker in haystack)
+        candidates.append((score, int(row["pdf_page"]), row))
+    candidates.sort(key=lambda item: (-item[0], item[1]))
+    for score, page, row in candidates:
+        _general_notes_log("material_page_score", page=page, score=score,
+                           drawing_number=row.get("drawing_number"),
+                           evidence_terms=row.get("evidence_terms") or [])
+    page = candidates[0][1] if candidates and candidates[0][0] > 0 else None
+    if page is None:
+        page = min(selected) if selected else None
+    drawing_list_pages = set((scan or {}).get("drawing_list_pages") or [])
+    return None if page in drawing_list_pages else page
+
+
+def _cbl_v5_finish_result(result):
+    result = result or _empty_general_notes_result(
+        "구조일반사항 내용을 확인하지 못했습니다."
+    )
+    result["unconfirmed_items"] = [
+        item for item in (result.get("unconfirmed_items") or [])
+        if item not in ("피복두께", "정착·이음 기준")
+    ]
+    result["deferred_items"] = [
+        "피복두께는 부재별 배근 확인 단계에서 해당 부재 조건표를 적용합니다.",
+        "정착·이음 길이는 실제 부재·철근직경·콘크리트강도 확인 후 해당 표 행을 적용합니다.",
+    ]
+    result["lap_splice_class"] = "B"
+    notes = result.setdefault("quantity_notes", [])
+    if not any(row.get("source_type") == "user_confirmed"
+               and "B급" in str(row.get("text") or "") for row in notes):
+        notes.append({
+            "category": "이음 정책",
+            "text": "전 부재 B급 인장이음 적용",
+            "affected_work": "전 부재",
+            "source_type": "user_confirmed",
+            "provenance": "사용자 확정조건",
+            "evidence": None,
+        })
+    return result
+
+
+def extract_general_notes(structural_pdf_bytes, page_hints=None, overview=None,
+                          job_id=None, timeout_seconds=GENERAL_NOTES_TIMEOUT_SEC,
+                          cad_context=None):
+    started = time.monotonic()
+    total_pages = (int(pdfinfo_from_bytes(structural_pdf_bytes).get("Pages", 0) or 0)
+                   if structural_pdf_bytes else 0)
+    scan = (_general_notes_page_candidates(
+        structural_pdf_bytes, total_pages, page_hints,
+    ) if structural_pdf_bytes else {
+        "pages": [], "scan_range": [], "selected_pages": [], "text_used": False,
+        "image_fallback": False, "drawing_list_pages": [],
+        "expected_drawing_numbers": [],
+    })
+    for row in scan.get("pages") or []:
+        _general_notes_log("page_candidate", job_id=job_id, **row)
+
+    vision_pages = []
+    if structural_pdf_bytes and total_pages:
+        start_page = (max(scan.get("drawing_list_pages") or [0]) + 1
+                      if scan.get("drawing_list_pages") else 1)
+        end_page = min(total_pages, GENERAL_NOTES_LOCATOR_MAX_PAGE)
+        text_by_page = {row["page"]: row for row in scan.get("pages") or []}
+        vision_pages = [
+            page for page in range(start_page, end_page + 1)
+            if page not in set(scan.get("drawing_list_pages") or [])
+            and not (text_by_page.get(page) or {}).get("text_available")
+        ]
+    decisions = (_cbl_v5_classify_general_notes(
+        structural_pdf_bytes, vision_pages, job_id=job_id,
+    ) if vision_pages else [])
+    selected, mapping = _merge_general_notes_page_candidates(scan, decisions)
+    page = _cbl_v5_select_material_page(scan, decisions, selected, mapping)
+    selected_pages = [page] if isinstance(page, int) else []
+
+    cad_context = [
+        row for row in (cad_context or [])
+        if str(row.get("text") or "").strip()
+    ]
+    result = None
+    if selected_pages:
+        remaining = timeout_seconds - (time.monotonic() - started)
+        if remaining <= 0:
+            raise TimeoutError("구조일반사항 페이지 렌더링 시간 초과")
+        images = _render_pdf_page_range(
+            structural_pdf_bytes, page, page, dpi=GENERAL_NOTES_RENDER_DPI,
+            timeout=max(10, int(remaining)),
+        )
+        if images:
+            panel = _cbl_v5_crop_overview(images[0])
+            _general_notes_log(
+                "overview_panel_selected", job_id=job_id, pdf_page=page,
+                source_size=list(images[0].size), crop_size=list(panel.size),
+                included_drawing_number=None,
+                excluded_sections=[
+                    "B. 설계도서 일반사항", "C. 철근콘크리트 일반사항",
+                ],
+            )
+            client = get_gemini_client()
+            if client is None:
+                raise ValueError("GEMINI_API_KEY가 설정되지 않았습니다.")
+            response = client.models.generate_content(
+                model=GEMINI_QUANTITY_MODEL,
+                contents=[
+                    f"[구조 PDF 실제 {page}페이지 · 도면번호는 이미지에서 확인]",
+                    types.Part.from_bytes(
+                        data=image_to_jpeg_bytes(panel, max_size=(1600, 2600)),
+                        mime_type="image/jpeg",
+                    ),
+                ],
+                config=types.GenerateContentConfig(
+                    system_instruction=GENERAL_NOTES_OVERVIEW_TRANSCRIPTION_PROMPT_V5,
+                    response_mime_type="application/json", temperature=0.0,
+                    max_output_tokens=4096,
+                    thinking_config=types.ThinkingConfig(thinking_budget=256),
+                ),
+            )
+            raw = _extract_text_from_gemini_response(response)
+            diagnostics = _gemini_response_diagnostics(response)
+            first_candidate = (diagnostics.get("candidates") or [{}])[0]
+            usage = diagnostics.get("usage") or {}
+            _general_notes_log(
+                "overview_transcription_response", job_id=job_id,
+                pdf_page=page,
+                finish_reason=first_candidate.get("finish_reason"),
+                prompt_token_count=usage.get("prompt_token_count"),
+                candidates_token_count=usage.get("candidates_token_count"),
+                thoughts_token_count=usage.get("thoughts_token_count"),
+                total_token_count=usage.get("total_token_count"),
+                raw_length=len(raw),
+            )
+            cleaned = raw.replace("```json", "").replace("```", "").strip()
+            try:
+                transcript = json.loads(cleaned)
+            except json.JSONDecodeError:
+                transcript = _try_repair_truncated_json(cleaned)
+            if not isinstance(transcript, dict):
+                raise ValueError("구조개요 전사 JSON 파싱 실패")
+            source_text = str(transcript.get("source_text") or "").strip()
+            actual_number = str(transcript.get("drawing_number") or "").strip() or None
+            actual_title = str(transcript.get("drawing_title") or "구조일반사항").strip()
+            parsed = _cbl_v5_parse_source(
+                source_text, pdf_page=page, drawing_number=actual_number,
+                drawing_title=str(
+                    actual_title
+                ),
+            )
+            result = _validate_general_notes_result(
+                parsed, [page], overview, source_text=source_text,
+            )
+            if actual_number:
+                mapping[actual_number] = page
+
+    fallback_reason = None
+    if cad_context and not _general_notes_has_values(result):
+        fallback_reason = ("no_pdf_content_candidate" if not selected_pages
+                           else "empty_pdf_extraction")
+        source_text = "\n".join(str(row.get("text") or "")
+                                for row in cad_context)
+        primary = cad_context[0]
+        cad_drawing_number = re.search(
+            r"\b([SA]-\s*\d{3}(?:\s*[~,\-/]\s*\d{3})?)\b",
+            str(primary.get("filename") or primary.get("path") or ""), re.I,
+        )
+        parsed = _cbl_v5_parse_source(
+            source_text, pdf_page=None,
+            drawing_number=(cad_drawing_number.group(1).replace(" ", "")
+                            if cad_drawing_number else "CAD-구조일반사항"),
+            drawing_title=str(primary.get("filename") or "구조일반사항"),
+            file_type="구조 CAD", method="cad_text",
+        )
+        result = _validate_general_notes_result(
+            parsed, [], overview, source_text=source_text,
+        )
+
+    result = _cbl_v5_finish_result(result)
+    result["page_candidates"] = scan.get("pages") or []
+    result["selected_pages"] = selected_pages
+    result["diagnostics"] = {
+        "total_pages": total_pages,
+        "scan_range": scan.get("scan_range") or [],
+        "pdf_text_used": scan.get("text_used", False),
+        "image_fallback": bool(vision_pages),
+        "drawing_number_page_mapping": mapping,
+        "cad_fallback_reason": fallback_reason,
+        "material_source_page": page,
+        "deferred_drawing_numbers": [],
+        "elapsed_seconds": round(time.monotonic() - started, 3),
+    }
+    _general_notes_log(
+        "extraction_complete", job_id=job_id,
+        extracted_counts={
+            key: len(result.get(key) or []) for key in (
+                "concrete_materials", "rebar_materials",
+                "cover_requirements", "anchorage_splice_requirements",
+                "quantity_notes",
+            )
+        },
+        validation_rejections=result.get("validation_rejections") or [],
+        missing_required=result.get("unconfirmed_items") or [],
+        conflict_count=len(result.get("conflicts") or []),
+        elapsed_seconds=result["diagnostics"]["elapsed_seconds"],
+    )
+    return result
+
+
+def _cbl_v5_compact_spec(spec):
+    spec = spec or {}
+    return {
+        "basic_info": {
+            key: {
+                "value": item.get("value"), "unit": item.get("unit"),
+                "scope": item.get("scope"),
+            }
+            for key, item in (spec.get("basic_info") or {}).items()
+            if isinstance(item, dict) and item.get("value") not in (None, "")
+        },
+        "concrete_materials": [
+            {key: row.get(key) for key in (
+                "location", "member_type", "floor_scope", "fck_mpa",
+            )} for row in spec.get("concrete_materials") or []
+        ],
+        "rebar_materials": [
+            {key: row.get(key) for key in (
+                "diameter_min_mm", "diameter_max_mm", "diameter_rule",
+                "grade", "fy_mpa", "material_type",
+            )} for row in spec.get("rebar_materials") or []
+        ],
+        "lap_splice_class": spec.get("lap_splice_class") or "B",
+        "quantity_policies": [
+            {"text": row.get("text"), "source_type": row.get("source_type")}
+            for row in spec.get("quantity_notes") or []
+            if row.get("source_type") == "user_confirmed"
+        ],
+    }
+
+
+_cbl_v5_original_member_batch = _extract_structural_members_one_batch
+def _extract_structural_members_one_batch(
+    client, dwg_data, image_batch, batch_idx, total_batches,
+    page_numbers=None, confirmed_general_spec=None,
+):
+    compact = (_cbl_v5_compact_spec(confirmed_general_spec)
+               if confirmed_general_spec else None)
+    return _cbl_v5_original_member_batch(
+        client, dwg_data, image_batch, batch_idx, total_batches,
+        page_numbers=page_numbers, confirmed_general_spec=compact,
+    )
+
+
+# CBL_DRAWING_COORDINATION_V1
+# 구조·건축 PDF의 실제 타이틀블록과 대표 상세를 대조한다. 물량/3D는 만들지 않는다.
+DRAWING_COORDINATION_LOCATOR_BATCH = 12
+DRAWING_COORDINATION_DETAIL_BATCH = 6
+DRAWING_COORDINATION_MAX_DETAIL_PAGES = 54
+DRAWING_COORDINATION_IMAGE_PROBE_PAGES = {
+    "구조": 48,
+    "건축": 72,
+}
+
+DRAWING_COORDINATION_LOCATOR_PROMPT = """각 이미지의 타이틀블록을 읽어 JSON만 반환하세요.
+{"pages":[{"pdf_page":1,"drawing_number":"S-101","drawing_title":"...",
+"drawing_type":"structural_plan|foundation_plan|architectural_plan|elevation|section|
+core_plan|core_section|parking_plan|parking_section|ramp|amenity|window_schedule|other",
+"building_scope":"101동/102동/주동/지하주차장/공통 또는 null",
+"floor_scope":"지하2층/1층/기준층/옥탑층/전체 또는 null",
+"confidence":0.0,"evidence_terms":["실제로 보이는 짧은 표기"]}]}
+페이지 순서나 파일명으로 도면번호를 추정하지 마세요. 도면목록은 other입니다."""
+
+DRAWING_COORDINATION_DETAIL_PROMPT = """구조·건축 도면의 동·층·레벨·코어·램프·개구부만
+실제로 보이는 범위에서 JSON으로 옮기세요. 물량 계산과 3D/매스 생성은 금지합니다.
+{"sheets":[{"pdf_page":1,"drawing_number":"A-401","drawing_title":"...",
+"building_scope":"101동","floor_scope":"1층",
+"levels":[{"label":"1FL","elevation_m":0.0,"floor_height_m":3.2,"quote":"실제 표기"}],
+"structural_scope":["벽체","기둥","보","슬래브","기초"],
+"cores":[{"type":"엘리베이터|계단","label":"...","location":"...","quote":"..."}],
+"openings":[{"type":"창호|출입문|슬래브 오픈구|설비 샤프트|전기 샤프트|배관 샤프트|
+PIT|VOID|램프|지하외벽 개구부|내력벽 개구부","label":"...","location":"...",
+"floor_scope":"...","width_m":null,"height_m":null,"quote":"실제 표기"}],
+"ramps":[{"label":"...","slope":null,"level_from":null,"level_to":null,"quote":"..."}],
+"unconfirmed":[],"confidence":0.0}]}
+보이지 않는 값은 null로 두고 근거를 만들지 마세요."""
+
+
+def _drawing_coordination_log(event, **payload):
+    logger.info("quantity_drawing_coordination %s", json.dumps(
+        {"event": event, **payload}, ensure_ascii=False, sort_keys=True, default=str,
+    ))
+
+
+def _coordination_title_crop(image):
+    if not isinstance(image, Image.Image):
+        return image
+    width, height = image.size
+    if width >= height:
+        return image.crop((int(width * .60), 0, width, height))
+    return image.crop((int(width * .50), int(height * .52), width, height))
+
+
+def _coordination_json(raw):
+    cleaned = str(raw or "").replace("```json", "").replace("```", "").strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        return _try_repair_truncated_json(cleaned) or {}
+
+
+def _coordination_probe_pages(pdf_bytes, discipline, total):
+    """텍스트 레이어가 있는 후보와 초기 이미지 구간만 locator에 전달한다.
+
+    도면집 전체를 매 페이지 이미지로 보내면 200페이지 이상에서 시간 제한을
+    소진한다. pdftotext는 한 번만 실행하고, 도면번호/도면명 표식이 있는 페이지와
+    도면목록 뒤의 초기 이미지 구간을 합쳐 실제 후보를 놓치지 않게 한다.
+    """
+    limit = min(int(total or 0), int(DRAWING_COORDINATION_IMAGE_PROBE_PAGES.get(
+        discipline, 48)))
+    pages = set(range(1, limit + 1))
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as handle:
+            handle.write(pdf_bytes or b"")
+            tmp_path = handle.name
+        proc = subprocess.run(
+            ["pdftotext", "-layout", tmp_path, "-"],
+            capture_output=True, timeout=90,
+        )
+        text = proc.stdout.decode("utf-8", errors="ignore")
+        for page, chunk in enumerate(text.split("\f"), 1):
+            if page > total:
+                break
+            if re.search(r"\b[SA]-\s*\d{3}", chunk, re.I) or any(
+                marker in chunk for marker in (
+                    "도면목록", "도면번호", "구조평면", "기초", "주차장",
+                    "평면도", "입면도", "단면도", "코어", "경사로", "창호",
+                )
+            ):
+                pages.add(page)
+    except Exception:
+        pass
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+    selected = sorted(page for page in pages if 1 <= page <= total)
+    return selected, limit
+
+
+def _locate_coordination_pages(pdf_bytes, discipline, job_id=None):
+    total = int((pdfinfo_from_bytes(pdf_bytes) or {}).get("Pages", 0) or 0)
+    client = get_gemini_client()
+    if not client:
+        raise ValueError("GEMINI_API_KEY가 설정되지 않았습니다.")
+    rows = {}
+    probe_pages, probe_limit = _coordination_probe_pages(pdf_bytes, discipline, total)
+    _drawing_coordination_log(
+        "locator_probe", job_id=job_id, discipline=discipline,
+        total_pages=total, probe_limit=probe_limit,
+        probe_page_count=len(probe_pages), probe_pages=probe_pages,
+    )
+    for offset in range(0, len(probe_pages), DRAWING_COORDINATION_LOCATOR_BATCH):
+        requested = probe_pages[offset:offset + DRAWING_COORDINATION_LOCATOR_BATCH]
+        contents, rendered = [f"분야={discipline}, PDF 페이지={requested}"], []
+        for page in requested:
+            images = _render_pdf_page_range(pdf_bytes, page, page, dpi=90, timeout=25)
+            if not images:
+                continue
+            rendered.append(page)
+            contents.extend([
+                f"[PDF 실제 {page}페이지]",
+                types.Part.from_bytes(data=image_to_jpeg_bytes(
+                    _coordination_title_crop(images[0]), max_size=(850, 1200),
+                ), mime_type="image/jpeg"),
+            ])
+        if not rendered:
+            continue
+        response = client.models.generate_content(
+            model=GEMINI_QUANTITY_MODEL, contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=DRAWING_COORDINATION_LOCATOR_PROMPT,
+                response_mime_type="application/json", temperature=0,
+                max_output_tokens=4096,
+                thinking_config=types.ThinkingConfig(thinking_budget=128),
+            ),
+        )
+        parsed = _coordination_json(_extract_text_from_gemini_response(response))
+        items = parsed.get("pages") if isinstance(parsed, dict) else parsed
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            try:
+                page = int(item.get("pdf_page"))
+            except (TypeError, ValueError):
+                continue
+            if page in rendered:
+                rows[page] = item
+        diagnostics = _gemini_response_diagnostics(response)
+        _drawing_coordination_log(
+            "locator_batch", job_id=job_id, discipline=discipline,
+            requested_pages=rendered,
+            parsed_pages=sorted(page for page in rows if page in rendered),
+            finish_reason=((diagnostics.get("candidates") or [{}])[0]).get("finish_reason"),
+            usage=diagnostics.get("usage_metadata"),
+        )
+    return [rows[page] for page in sorted(rows)], total
+
+
+def _coordination_target_pages(locator_rows):
+    wanted = {
+        "structural_plan", "foundation_plan", "architectural_plan", "elevation",
+        "section", "core_plan", "core_section", "parking_plan",
+        "parking_section", "ramp", "amenity", "window_schedule",
+    }
+    groups = {}
+    for row in locator_rows:
+        kind = str(row.get("drawing_type") or "other")
+        if kind in wanted:
+            groups.setdefault(kind, []).append(int(row["pdf_page"]))
+    # 각 도면 종류를 먼저 한 장씩 포함한 뒤 남은 상한을 채운다.  단순히
+    # locator 응답 순서로 자르면 앞쪽 평면도만 남고 램프/단면/창호표가
+    # 조용히 누락될 수 있다.
+    normalized = {kind: sorted(set(pages)) for kind, pages in groups.items()}
+    # 각 종류의 첫/마지막 도면은 범위 확인에 중요하므로 상한 안에 우선 예약한다.
+    tails = {kind: pages[-1] for kind, pages in normalized.items() if pages}
+    selected = []
+    selection_limit = max(0, DRAWING_COORDINATION_MAX_DETAIL_PAGES - len(tails))
+    index = 0
+    kinds = list(normalized)
+    while kinds and len(selected) < selection_limit:
+        next_kinds = []
+        for kind in kinds:
+            pages = normalized[kind]
+            usable = pages[:-1] if len(pages) > 1 else pages
+            if index < len(usable):
+                selected.append(usable[index])
+            if index + 1 < len(usable):
+                next_kinds.append(kind)
+            if len(selected) >= selection_limit:
+                break
+        kinds = next_kinds
+        index += 1
+    selected.extend(tails.values())
+    return sorted(set(selected))[:DRAWING_COORDINATION_MAX_DETAIL_PAGES]
+
+
+def _extract_coordination_details(pdf_bytes, discipline, locator_rows, job_id=None):
+    client = get_gemini_client()
+    selected = _coordination_target_pages(locator_rows)
+    locator = {int(row["pdf_page"]): row for row in locator_rows}
+    details = {}
+    empty_pages = []
+    for offset in range(0, len(selected), DRAWING_COORDINATION_DETAIL_BATCH):
+        batch = selected[offset:offset + DRAWING_COORDINATION_DETAIL_BATCH]
+        contents, rendered = [
+            "locator=" + json.dumps([locator[p] for p in batch], ensure_ascii=False),
+        ], []
+        for page in batch:
+            images = _render_pdf_page_range(pdf_bytes, page, page, dpi=150, timeout=30)
+            if not images:
+                continue
+            rendered.append(page)
+            contents.extend([
+                f"[PDF 실제 {page}페이지]",
+                types.Part.from_bytes(data=image_to_jpeg_bytes(
+                    images[0], max_size=(1800, 1800),
+                ), mime_type="image/jpeg"),
+            ])
+        if not rendered:
+            continue
+        response = client.models.generate_content(
+            model=GEMINI_QUANTITY_MODEL, contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=DRAWING_COORDINATION_DETAIL_PROMPT,
+                response_mime_type="application/json", temperature=0,
+                max_output_tokens=8192,
+                thinking_config=types.ThinkingConfig(thinking_budget=512),
+            ),
+        )
+        parsed = _coordination_json(_extract_text_from_gemini_response(response))
+        for item in (parsed.get("sheets") if isinstance(parsed, dict) else []) or []:
+            if not isinstance(item, dict):
+                continue
+            try:
+                page = int(item.get("pdf_page"))
+            except (TypeError, ValueError):
+                continue
+            if page not in rendered:
+                continue
+            source = locator.get(page) or {}
+            item["drawing_number"] = item.get("drawing_number") or source.get("drawing_number")
+            item["drawing_title"] = item.get("drawing_title") or source.get("drawing_title")
+            item["discipline"] = discipline
+            details[page] = item
+        _drawing_coordination_log(
+            "detail_batch", job_id=job_id, discipline=discipline,
+            pages=rendered, extracted_pages=sorted(
+                page for page in details if page in rendered
+            ),
+        )
+        empty_pages.extend(page for page in rendered if page not in details)
+
+    # 여러 장을 한 번에 보낸 응답이 일부 페이지를 생략할 수 있으므로,
+    # 해당 페이지에 한해서만 1회 단일 페이지 재시도를 한다. 다른 도면을
+    # 다시 호출하지 않으며, 추출 실패를 확인된 값으로 승격하지 않는다.
+    for page in empty_pages:
+        source = locator.get(page) or {}
+        images = _render_pdf_page_range(pdf_bytes, page, page, dpi=150, timeout=30)
+        if not images:
+            continue
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_QUANTITY_MODEL,
+                contents=[
+                    "이 한 장의 도면에서 실제로 보이는 레벨, 구조범위, 코어, 개구부, 램프만 JSON으로 추출하세요.",
+                    "locator=" + json.dumps(source, ensure_ascii=False),
+                    f"[PDF 실제 {page}페이지]",
+                    types.Part.from_bytes(data=image_to_jpeg_bytes(
+                        images[0], max_size=(1800, 1800),
+                    ), mime_type="image/jpeg"),
+                ],
+                config=types.GenerateContentConfig(
+                    system_instruction=DRAWING_COORDINATION_DETAIL_PROMPT,
+                    response_mime_type="application/json", temperature=0,
+                    max_output_tokens=4096,
+                    thinking_config=types.ThinkingConfig(thinking_budget=256),
+                ),
+            )
+            parsed = _coordination_json(_extract_text_from_gemini_response(response))
+            candidates = (parsed.get("sheets") if isinstance(parsed, dict) else []) or []
+            for item in candidates:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    item_page = int(item.get("pdf_page"))
+                except (TypeError, ValueError):
+                    continue
+                if item_page != page:
+                    continue
+                item["drawing_number"] = item.get("drawing_number") or source.get("drawing_number")
+                item["drawing_title"] = item.get("drawing_title") or source.get("drawing_title")
+                item["discipline"] = discipline
+                details[page] = item
+                break
+            _drawing_coordination_log(
+                "detail_retry", job_id=job_id, discipline=discipline,
+                page=page, extracted=page in details,
+                finish_reason=((_gemini_response_diagnostics(response).get("candidates") or [{}])[0]).get("finish_reason"),
+            )
+        except Exception as exc:
+            _drawing_coordination_log(
+                "detail_retry_failed", job_id=job_id, discipline=discipline,
+                page=page, error=str(exc)[:240],
+            )
+    return [details[p] for p in sorted(details)], selected
+
+
+def _coordination_cross_check(structural_sheets, architectural_sheets):
+    conflicts, unconfirmed, values = [], [], {}
+    for sheet in structural_sheets + architectural_sheets:
+        scope = (sheet.get("building_scope"), sheet.get("floor_scope"))
+        for level in sheet.get("levels") or []:
+            if level.get("elevation_m") is None:
+                continue
+            values.setdefault((scope, level.get("label")), []).append({
+                "value": level.get("elevation_m"), "discipline": sheet.get("discipline"),
+                "page": sheet.get("pdf_page"), "drawing_number": sheet.get("drawing_number"),
+                "quote": level.get("quote"),
+            })
+        if not all(scope):
+            unconfirmed.append({
+                "pdf_page": sheet.get("pdf_page"),
+                "drawing_number": sheet.get("drawing_number"),
+                "reason": "동 또는 적용 층 확인 불가",
+            })
+    for key, evidence in values.items():
+        if len({str(row["value"]) for row in evidence}) > 1:
+            conflicts.append({
+                "type": "도면 간 레벨 충돌", "building_floor": key[0],
+                "level": key[1], "evidence": evidence,
+            })
+    return conflicts, unconfirmed
+
+
+def extract_drawing_coordination(structural_pdf_bytes, architectural_pdf_bytes,
+                                 *, structural_cad_bytes=None,
+                                 architectural_cad_bytes=None, job_id=None):
+    started = time.monotonic()
+    struct_map, struct_total = _locate_coordination_pages(
+        structural_pdf_bytes, "구조", job_id,
+    )
+    arch_map, arch_total = _locate_coordination_pages(
+        architectural_pdf_bytes, "건축", job_id,
+    )
+    struct_sheets, struct_selected = _extract_coordination_details(
+        structural_pdf_bytes, "구조", struct_map, job_id,
+    )
+    arch_sheets, arch_selected = _extract_coordination_details(
+        architectural_pdf_bytes, "건축", arch_map, job_id,
+    )
+    conflicts, unconfirmed = _coordination_cross_check(struct_sheets, arch_sheets)
+    cad_diagnostics = {}
+    for label, cad_bytes in (("structural", structural_cad_bytes),
+                             ("architectural", architectural_cad_bytes)):
+        if not cad_bytes:
+            cad_diagnostics[label] = {"provided": False, "parsed": 0}
+            continue
+        try:
+            parsed_cad = parse_dwg_from_zip(cad_bytes)
+            cad_diagnostics[label] = {
+                "provided": True,
+                "parsed": sum(1 for value in parsed_cad.values() if "error" not in value),
+                "errors": {key: value.get("error") for key, value in parsed_cad.items()
+                           if isinstance(value, dict) and value.get("error")},
+                "paths": list(parsed_cad),
+            }
+        except Exception as exc:
+            cad_diagnostics[label] = {
+                "provided": True, "parsed": 0,
+                "errors": {"inventory": str(exc)[:240]}, "paths": [],
+            }
+    result = {
+        "page_maps": {"structural": struct_map, "architectural": arch_map},
+        "selected_pages": {
+            "structural": struct_selected, "architectural": arch_selected,
+        },
+        "structural_sheets": struct_sheets,
+        "architectural_sheets": arch_sheets,
+        "conflicts": conflicts, "unconfirmed_items": unconfirmed,
+        "diagnostics": {
+            "structural_total_pages": struct_total,
+            "architectural_total_pages": arch_total,
+            "elapsed_seconds": round(time.monotonic() - started, 3),
+            "quantities_generated": False, "geometry_generated": False,
+            "cad_diagnostics": cad_diagnostics,
+        },
+    }
+    _drawing_coordination_log(
+        "complete", job_id=job_id, structural_map_count=len(struct_map),
+        architectural_map_count=len(arch_map),
+        structural_detail_count=len(struct_sheets),
+        architectural_detail_count=len(arch_sheets),
+        conflict_count=len(conflicts), unconfirmed_count=len(unconfirmed),
+        elapsed_seconds=result["diagnostics"]["elapsed_seconds"],
+    )
+    return result
+
+
+def _run_drawing_coordination_job(job_id, review_id, structural_bytes,
+                                  architectural_bytes, structural_cad_bytes=None,
+                                  architectural_cad_bytes=None):
+    try:
+        _progress_set(job_id, "drawing_coordination", 0, 1,
+                      "구조평면도와 건축 평·입·단면도를 대조하고 있어요...",
+                      stage_index=1, total_stages=1)
+        result = extract_drawing_coordination(
+            structural_bytes, architectural_bytes,
+            structural_cad_bytes=structural_cad_bytes,
+            architectural_cad_bytes=architectural_cad_bytes,
+            job_id=job_id,
+        )
+        _review_update(review_id, drawing_coordination=result)
+        _review_reset_confirmations_from(review_id, "drawing_coordination")
+        _result_set(job_id, {"ok": True, "results": {"drawing_coordination": result}})
+    except Exception as exc:
+        _result_set(job_id, {"ok": False, "error":
+                    f"구조·건축 도면 대조 중 오류가 발생했습니다: {str(exc)[:300]}"})
+    finally:
+        _progress_clear(job_id)
+
+
+@require_POST
+@_admin_only_json
+def api_quantity_drawing_coordination_check(request):
+    job_id, review_id = request.POST.get("job_id"), request.POST.get("review_id")
+    if not job_id or not review_id:
+        return JsonResponse({"error": "job_id와 review_id가 필요합니다."}, status=400)
+    rec, err = _review_require_stage(review_id, "general_spec_confirmed", "구조일반사항")
+    if err:
+        return err
+    if rec.get("_user_id") != str(request.user.pk):
+        return JsonResponse({"error": "다른 사용자의 확인 세션입니다."}, status=403)
+    structural_files = request.FILES.getlist("structural_pdf")
+    architectural_files = request.FILES.getlist("architectural_pdf")
+    if not structural_files or not architectural_files:
+        return JsonResponse({"error": "구조 PDF와 건축 PDF가 모두 필요합니다."}, status=400)
+    structural_bytes, _ = _merge_uploaded_pdfs(structural_files)
+    architectural_bytes, _ = _merge_uploaded_pdfs(architectural_files)
+    structural_cad_files = request.FILES.getlist("structural_cad")
+    architectural_cad_files = request.FILES.getlist("architectural_cad")
+    structural_cad_bytes, _, _ = _merge_uploaded_cad_sets(structural_cad_files)
+    architectural_cad_bytes, _, _ = _merge_uploaded_cad_sets(architectural_cad_files)
+    hashes = _review_file_hashes(
+        structural_pdf_bytes=structural_bytes,
+        architectural_pdf_bytes=architectural_bytes,
+        structural_zip_bytes=structural_cad_bytes,
+        architectural_zip_bytes=architectural_cad_bytes,
+    )
+    if not _matching_uploaded_files(rec, hashes):
+        return JsonResponse({"error":
+            "업로드 파일이 바뀌었습니다. 프로젝트 개요부터 다시 확인해 주세요."}, status=409)
+    _progress_set(job_id, "queued", 0, 1, "대기열에 등록됨",
+                  stage_index=1, total_stages=1)
+    threading.Thread(
+        target=_run_drawing_coordination_job,
+        args=(job_id, review_id, structural_bytes, architectural_bytes,
+              structural_cad_bytes, architectural_cad_bytes),
+        daemon=True,
+    ).start()
+    return JsonResponse({"accepted": True, "job_id": job_id})

@@ -37,6 +37,8 @@ cbl_path("api/cblcad/csrf/", cbl_views.cblcad_csrf, name="cblcad_csrf"),
     path('quantity/', quantity_views.quantity_main, name='quantity_main'),
     path('api/quantity/check-zip/', quantity_views.api_check_zip, name='api_check_zip'),
     path('api/quantity/overview-check/', quantity_views.api_quantity_overview_check, name='api_quantity_overview_check'),
+    path('api/quantity/general-notes-check/', quantity_views.api_quantity_general_notes_check, name='api_quantity_general_notes_check'),
+    path('api/quantity/drawing-coordination-check/', quantity_views.api_quantity_drawing_coordination_check, name='api_quantity_drawing_coordination_check'),
     path('api/quantity/overview-revise/', quantity_views.api_quantity_overview_revise, name='api_quantity_overview_revise'),
     path('api/quantity/basement-plan-check/', quantity_views.api_quantity_basement_plan_check, name='api_quantity_basement_plan_check'),
     path('api/quantity/review-confirm/', quantity_views.api_quantity_review_confirm, name='api_quantity_review_confirm'),
@@ -215,4 +217,10 @@ cbl_path("api/cblcad/csrf/", cbl_views.cblcad_csrf, name="cblcad_csrf"),
 ]
 urlpatterns += [
     path("community/", views.community, name="community"),
+]
+
+
+# CBL_VIDEO_LIBRARY_URL_V1
+urlpatterns += [
+    path("api/videos/", views.video_library_api, name="video_library_api"),
 ]
