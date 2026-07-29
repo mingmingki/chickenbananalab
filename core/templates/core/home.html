@@ -18122,26 +18122,26 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
 })();
 </script>
 <!-- CBL_CAD_HOME_START_AUTOVERSION_V1_END -->
-<!-- CBL_MOBILE_CHAT_VIEWPORT_V2_START -->
+<!-- CBL_MOBILE_CHAT_VIEWPORT_V3_START -->
 <style>
 @media (max-width: 768px) {
   #cblAiJobMessengerModal,
   #cblQuantityMessengerModal {
     position: fixed;
-    top: var(--cbl-chat-viewport-top, 0px);
+    top: var(--cbl-chat-viewport-top, 6px);
     left: 0;
     right: 0;
-    height: var(--cbl-chat-viewport-height, 100vh);
-    max-height: var(--cbl-chat-viewport-height, 100vh);
+    height: var(--cbl-chat-viewport-height, 62vh);
+    max-height: var(--cbl-chat-viewport-height, 62vh);
     align-items: flex-start;
-    padding: var(--cbl-chat-safe-space, 8px);
+    padding: 0 6px 6px;
     overflow: hidden;
   }
 
   #cblAiJobMessengerModal .job-wrap,
   #cblQuantityMessengerModal .qty-wrap {
-    height: min(75dvh, calc(var(--cbl-chat-viewport-height, 100vh) - 16px));
-    max-height: calc(var(--cbl-chat-viewport-height, 100vh) - 16px);
+    height: calc(var(--cbl-chat-viewport-height, 62vh) - 6px);
+    max-height: calc(var(--cbl-chat-viewport-height, 62vh) - 6px);
     min-height: 0;
     margin: auto;
   }
@@ -18174,48 +18174,59 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
 (function () {
   "use strict";
   var ids = ["cblAiJobMessengerModal", "cblQuantityMessengerModal"];
-  var root = document.documentElement;
-  var safeSpace = 8;
+  var media = window.matchMedia ? window.matchMedia("(max-width: 768px)") : null;
+  var keyboardOpen = {};
+  var safe = 12;
 
-  function updateChatViewportHeight() {
-    var viewport = window.visualViewport;
-    var height = viewport ? viewport.height : window.innerHeight;
-    var top = viewport ? Math.max(0, viewport.offsetTop || 0) : 0;
-    if (height > 0) {
-      root.style.setProperty("--cbl-chat-viewport-height", height + "px");
-      root.style.setProperty("--cbl-chat-viewport-top", top + "px");
-      root.style.setProperty("--cbl-chat-safe-space", safeSpace + "px");
-    }
+  function isMobile() { return !!(media && media.matches); }
+  function visibleHeight() {
+    var vv = window.visualViewport;
+    return vv && vv.height ? vv.height : (window.innerHeight || document.documentElement.clientHeight || 0);
   }
-
-  function keepFocusedFieldVisible(event) {
+  function apply(id, focused) {
+    var modal = document.getElementById(id);
+    if (!modal || !isMobile()) return;
+    var vv = window.visualViewport;
+    var screenHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    var height = visibleHeight();
+    var shrunk = !!(vv && height > 0 && height < screenHeight * 0.85);
+    var keyboardHeight = focused ? (shrunk ? Math.max(120, height - safe * 2) : Math.max(120, screenHeight * 0.44)) : Math.max(120, screenHeight * 0.62);
+    var top = (vv && Number.isFinite(vv.offsetTop) ? vv.offsetTop : 0) + 6;
+    var wrap = modal.querySelector(".job-wrap, .qty-wrap");
+    var screen = modal.querySelector(".job-screen, .qty-screen");
+    var header = modal.querySelector(".job-header, .qty-header");
+    var input = modal.querySelector(".job-input-area, .qty-input-area, .qty-footer, .qty-actions");
+    var body = modal.querySelector(".job-body, .qty-body");
+    modal.classList.toggle("cbl-chat-keyboard-open", !!focused);
+    modal.style.setProperty("position", "fixed", "important");
+    modal.style.setProperty("top", top + "px", "important");
+    modal.style.setProperty("height", keyboardHeight + "px", "important");
+    modal.style.setProperty("max-height", keyboardHeight + "px", "important");
+    modal.style.setProperty("padding", "0 6px 6px", "important");
+    if (wrap) { wrap.style.setProperty("height", (keyboardHeight - 6) + "px", "important"); wrap.style.setProperty("max-height", (keyboardHeight - 6) + "px", "important"); }
+    if (screen) { screen.style.setProperty("display", "flex", "important"); screen.style.setProperty("flex-direction", "column", "important"); screen.style.setProperty("min-height", "0", "important"); }
+    if (header) header.style.setProperty("flex-shrink", "0", "important");
+    if (input) input.style.setProperty("flex-shrink", "0", "important");
+    if (body) { body.style.setProperty("flex", "1 1 auto", "important"); body.style.setProperty("min-height", "0", "important"); body.style.setProperty("overflow-y", "auto", "important"); }
+  }
+  function applyAll() { if (!isMobile()) return; ids.forEach(function (id) { apply(id, !!keyboardOpen[id]); }); }
+  function focusBody(event) {
     var target = event.target;
-    if (!target || !target.matches("input, textarea, select, [contenteditable='true']")) return;
-    window.setTimeout(function () {
-      var modal = target.closest("#cblAiJobMessengerModal, #cblQuantityMessengerModal");
-      var body = modal && modal.querySelector(".job-body, .qty-body");
-      if (body) body.scrollTop = body.scrollHeight;
-    }, 120);
+    if (!target || !target.matches || !target.matches("input, textarea, select, [contenteditable='true']")) return;
+    var modal = target.closest("#cblAiJobMessengerModal, #cblQuantityMessengerModal");
+    if (!modal) return;
+    keyboardOpen[modal.id] = true;
+    [0, 100, 300].forEach(function (delay) { window.setTimeout(function () { apply(modal.id, true); var body = modal.querySelector(".job-body, .qty-body"); if (body) body.scrollTop = body.scrollHeight; }, delay); });
   }
-
   function bind() {
-    ids.forEach(function (id) {
-      var modal = document.getElementById(id);
-      if (!modal || modal.dataset.cblChatViewportBound === "1") return;
-      modal.dataset.cblChatViewportBound = "1";
-      modal.addEventListener("focusin", keepFocusedFieldVisible);
-    });
-    updateChatViewportHeight();
+    ids.forEach(function (id) { var modal = document.getElementById(id); if (!modal || modal.dataset.cblChatViewportBound === "1") return; modal.dataset.cblChatViewportBound = "1"; modal.addEventListener("focusin", focusBody); modal.addEventListener("focusout", function () { window.setTimeout(function () { if (!modal.contains(document.activeElement)) { keyboardOpen[id] = false; apply(id, false); } }, 300); }); });
+    applyAll();
   }
-
-  window.addEventListener("resize", updateChatViewportHeight, { passive: true });
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", updateChatViewportHeight, { passive: true });
-    window.visualViewport.addEventListener("scroll", updateChatViewportHeight, { passive: true });
-  }
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind);
-  else bind();
+  window.addEventListener("resize", applyAll, { passive: true });
+  if (window.visualViewport) { window.visualViewport.addEventListener("resize", applyAll, { passive: true }); window.visualViewport.addEventListener("scroll", applyAll, { passive: true }); }
+  if (media && media.addEventListener) media.addEventListener("change", applyAll);
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind); else bind();
   window.setTimeout(bind, 300);
 })();
 </script>
-<!-- CBL_MOBILE_CHAT_VIEWPORT_V2_END -->
+<!-- CBL_MOBILE_CHAT_VIEWPORT_V3_END -->
