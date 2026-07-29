@@ -4,6 +4,14 @@
 {% block title %}AI건설 구인구직 | ChickenBanana Lab{% endblock %}
 
 {% block content %}
+{% if request.GET.cbl_modal %}
+<style>
+  html, body { margin: 0 !important; padding: 0 !important; overflow: hidden !important; background: transparent !important; }
+  header, footer, .site-header, .site-footer, .navbar, .main-header { display: none !important; }
+  .job-wrap { width: 100% !important; max-width: none !important; height: 100% !important; margin: 0 !important; padding: 0 !important; }
+  #job-screen { width: 100% !important; max-width: none !important; height: 100% !important; max-height: none !important; min-height: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+</style>
+{% endif %}
 <style>
 .job-wrap {
   max-width: 480px;
@@ -729,7 +737,7 @@ async function freeChat() {
   var wrap = document.querySelector(".job-wrap");
   var body = document.getElementById("job-body");
   var input = document.getElementById("job-inp");
-  if (!screen || !wrap) return;
+  if (!screen || !wrap || new URLSearchParams(window.location.search).get("cbl_modal") === "1") return;
   function mobile() { return !!(mq && mq.matches); }
   function apply(focused) {
     if (!mobile()) { [screen, wrap].forEach(function (el) { ["height", "max-height", "top", "position"].forEach(function (p) { el.style.removeProperty(p); }); }); return; }
