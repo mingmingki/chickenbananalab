@@ -22722,3 +22722,138 @@ def cblcad_v29_save_ops(request):
         }, status=500)
 
 # ===== CBL CAD V29 CLEAN API END =====
+# CBL_VIDEO_LIBRARY_API_V1_START
+def _cbl_video_file_url(field):
+    try:
+        return field.url if field and field.name else ""
+    except (ValueError, AttributeError):
+        return ""
+
+
+def _cbl_video_group_and_label(post):
+    key = str(getattr(post, "category", "") or "")
+    try:
+        effective = cbl_effective_category_key(post)
+        if effective:
+            key = effective
+    except Exception:
+        pass
+
+    mapping = {
+        "construction_work": ("architecture", "건설실무"),
+        "construction_tech": ("architecture", "건설기술"),
+        "construction_real": ("architecture", "건설부동산"),
+        "bim": ("bim", "REVIT/BIM"),
+        "dynamo_automation": ("bim", "Dynamo/자동화"),
+        "four_d_five_d": ("bim", "4D/5D"),
+        "tech_ai_development": ("tech", "AI·개발"),
+        "tech_data_security": ("tech", "데이터·보안"),
+        "tech_server_software": ("tech", "인터넷·서버·소프트"),
+        "tech": ("tech", "테크"),
+        "program": ("program", "업무용 프로그램"),
+        "tool_recommend": ("program", "툴소개/툴추천"),
+    }
+    return mapping.get(key, ("architecture", "건설"))
+
+
+def _cbl_video_payload(post):
+    group, category_label = _cbl_video_group_and_label(post)
+
+    shorts_url = _cbl_video_file_url(getattr(post, "shorts_video", None))
+    file_url = _cbl_video_file_url(getattr(post, "video_file", None))
+    embed_url = str(getattr(post, "youtube_embed_url", "") or "")
+    youtube_url = str(getattr(post, "youtube_url", "") or "")
+
+    if shorts_url:
+        source_type = "file"
+        source_url = shorts_url
+        video_kind = "SHORTS"
+        kind = "shorts"
+    elif file_url:
+        source_type = "file"
+        source_url = file_url
+        video_kind = "VIDEO"
+        kind = "video"
+    elif embed_url:
+        source_type = "youtube"
+        source_url = embed_url
+        video_kind = "VIDEO"
+        kind = "video"
+    else:
+        source_type = ""
+        source_url = ""
+        video_kind = "VIDEO"
+        kind = "video"
+
+    cover_url = _cbl_video_file_url(getattr(post, "shorts_cover", None))
+    if not cover_url:
+        cover_url = _cbl_video_file_url(getattr(post, "thumbnail", None))
+
+    plain = " ".join(strip_tags(str(getattr(post, "content", "") or "")).split())
+
+    return {
+        "id": post.pk,
+        "title": str(getattr(post, "title", "") or "제목 없는 영상"),
+        "description": plain[:1200],
+        "category_group": group,
+        "category_label": category_label,
+        "kind": kind,
+        "video_kind": video_kind,
+        "source_type": source_type,
+        "source_url": source_url,
+        "cover_url": cover_url,
+        "created_at": post.created_at.strftime("%Y.%m.%d") if post.created_at else "",
+        "views": int(getattr(post, "views", 0) or 0),
+        "detail_url": post.get_absolute_url(),
+        "youtube_url": youtube_url,
+    }
+
+
+def video_library_api(request):
+    """동영상 모음과 쇼츠 모음을 종류·카테고리·검색어로 나눠 반환합니다."""
+    queryset = (
+        Post.objects.filter(is_published=True)
+        .filter(cbl_video_post_q())
+        .distinct()
+        .order_by("-created_at")
+    )
+
+    requested_id = str(request.GET.get("id", "") or "").strip()
+    if requested_id.isdigit():
+        queryset = queryset.filter(pk=int(requested_id))
+
+    query = str(request.GET.get("q", "") or "").strip()
+    if query:
+        queryset = queryset.filter(
+            Q(title__icontains=query)
+            | Q(content__icontains=query)
+            | Q(tags__icontains=query)
+        )
+
+    category = str(request.GET.get("category", "all") or "all").strip()
+    kind = str(request.GET.get("kind", "all") or "all").strip().lower()
+    if kind not in {"all", "video", "shorts"}:
+        kind = "all"
+
+    items = []
+    for post in queryset[:200]:
+        payload = _cbl_video_payload(post)
+        if kind != "all" and payload["kind"] != kind:
+            continue
+        if category != "all" and payload["category_group"] != category:
+            continue
+        if not payload["source_url"]:
+            continue
+        items.append(payload)
+
+    return JsonResponse({
+        "ok": True,
+        "items": items,
+        "count": len(items),
+        "kind": kind,
+        "can_upload": bool(
+            request.user.is_authenticated
+            and (request.user.is_staff or request.user.is_superuser)
+        ),
+    })
+# CBL_VIDEO_LIBRARY_API_V1_END
