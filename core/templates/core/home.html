@@ -18122,3 +18122,68 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
 })();
 </script>
 <!-- CBL_CAD_HOME_START_AUTOVERSION_V1_END -->
+<!-- CBL_MOBILE_CHAT_VIEWPORT_V1_START -->
+<style>
+@media (max-width: 768px) {
+  #cblAiJobMessengerModal .job-wrap,
+  #cblQuantityMessengerModal .qty-wrap {
+    height: min(75dvh, calc(var(--cbl-chat-viewport-height, 100vh) - 16px));
+    max-height: calc(var(--cbl-chat-viewport-height, 100vh) - 16px);
+    min-height: 0;
+  }
+
+  #cblAiJobMessengerModal .job-screen,
+  #cblQuantityMessengerModal .qty-screen {
+    min-height: 0;
+    max-height: 100%;
+  }
+
+  #cblAiJobMessengerModal .job-body,
+  #cblQuantityMessengerModal .qty-body {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+</style>
+<script>
+(function () {
+  "use strict";
+  var ids = ["cblAiJobMessengerModal", "cblQuantityMessengerModal"];
+  var root = document.documentElement;
+
+  function updateChatViewportHeight() {
+    var height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    if (height > 0) root.style.setProperty("--cbl-chat-viewport-height", height + "px");
+  }
+
+  function keepFocusedFieldVisible(event) {
+    var target = event.target;
+    if (!target || !target.matches("input, textarea, select, [contenteditable='true']")) return;
+    window.setTimeout(function () {
+      try { target.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch (e) { target.scrollIntoView(); }
+    }, 120);
+  }
+
+  function bind() {
+    ids.forEach(function (id) {
+      var modal = document.getElementById(id);
+      if (!modal || modal.dataset.cblChatViewportBound === "1") return;
+      modal.dataset.cblChatViewportBound = "1";
+      modal.addEventListener("focusin", keepFocusedFieldVisible);
+    });
+    updateChatViewportHeight();
+  }
+
+  window.addEventListener("resize", updateChatViewportHeight, { passive: true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", updateChatViewportHeight, { passive: true });
+    window.visualViewport.addEventListener("scroll", updateChatViewportHeight, { passive: true });
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind);
+  else bind();
+  window.setTimeout(bind, 300);
+})();
+</script>
+<!-- CBL_MOBILE_CHAT_VIEWPORT_V1_END -->
