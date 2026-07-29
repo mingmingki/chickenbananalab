@@ -18117,28 +18117,48 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
 })();
 </script>
 <!-- CBL_CAD_HOME_START_AUTOVERSION_V1_END -->
-<!-- CBL_MOBILE_CHAT_VIEWPORT_V3_START -->
+<!-- CBL_MOBILE_CHAT_VIEWPORT_V4_START -->
 <style>
+#cblAiJobMessengerModal,
+#cblQuantityMessengerModal {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-height: none !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  background: rgba(15, 23, 42, 0.58) !important;
+  backdrop-filter: blur(6px);
+  z-index: 10000 !important;
+  overflow: hidden !important;
+}
 @media (max-width: 768px) {
   #cblAiJobMessengerModal,
   #cblQuantityMessengerModal {
-    position: fixed;
-    top: var(--cbl-chat-viewport-top, 6px);
-    left: 0;
-    right: 0;
-    height: var(--cbl-chat-viewport-height, 62vh);
-    max-height: var(--cbl-chat-viewport-height, 62vh);
-    align-items: flex-start;
-    padding: 0 6px 6px;
-    overflow: hidden;
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: none !important;
+    padding: 12px !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    background: rgba(15, 23, 42, 0.58) !important;
+    backdrop-filter: blur(6px);
+    z-index: 10000 !important;
+    overflow: hidden !important;
   }
 
   #cblAiJobMessengerModal .job-wrap,
   #cblQuantityMessengerModal .qty-wrap {
-    height: calc(var(--cbl-chat-viewport-height, 62vh) - 6px);
-    max-height: calc(var(--cbl-chat-viewport-height, 62vh) - 6px);
+    height: 62dvh;
+    max-height: calc(100dvh - 24px);
     min-height: 0;
     margin: auto;
+    overflow: hidden;
   }
 
   #cblAiJobMessengerModal .job-screen,
@@ -18160,7 +18180,8 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
 
   #cblAiJobMessengerModal .job-header,
   #cblQuantityMessengerModal .qty-header,
-  #cblAiJobMessengerModal .job-input-area {
+  #cblAiJobMessengerModal .job-input-area,
+  #cblQuantityMessengerModal .qty-input-area {
     flex: 0 0 auto;
   }
 }
@@ -18180,25 +18201,23 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
   }
   function apply(id, focused) {
     var modal = document.getElementById(id);
-    if (!modal || !isMobile()) return;
+    if (!modal) return;
+    if (!isMobile()) return;
     var vv = window.visualViewport;
     var screenHeight = window.innerHeight || document.documentElement.clientHeight || 0;
     var height = visibleHeight();
     var shrunk = !!(vv && height > 0 && height < screenHeight * 0.85);
-    var keyboardHeight = focused ? (shrunk ? Math.max(120, height - safe * 2) : Math.max(120, screenHeight * 0.44)) : Math.max(120, screenHeight * 0.62);
-    var top = (vv && Number.isFinite(vv.offsetTop) ? vv.offsetTop : 0) + 6;
+    var keyboardHeight = focused ? (shrunk ? Math.max(120, height - safe) : Math.max(120, screenHeight * 0.44)) : Math.max(120, screenHeight * 0.62);
+    var areaTop = vv && Number.isFinite(vv.offsetTop) ? vv.offsetTop : 0;
+    var areaHeight = focused && shrunk ? height : (focused ? screenHeight * 0.62 : screenHeight);
+    var top = areaTop + Math.max(12, (areaHeight - keyboardHeight) / 2);
     var wrap = modal.querySelector(".job-wrap, .qty-wrap");
     var screen = modal.querySelector(".job-screen, .qty-screen");
     var header = modal.querySelector(".job-header, .qty-header");
     var input = modal.querySelector(".job-input-area, .qty-input-area, .qty-footer, .qty-actions");
     var body = modal.querySelector(".job-body, .qty-body");
     modal.classList.toggle("cbl-chat-keyboard-open", !!focused);
-    modal.style.setProperty("position", "fixed", "important");
-    modal.style.setProperty("top", top + "px", "important");
-    modal.style.setProperty("height", keyboardHeight + "px", "important");
-    modal.style.setProperty("max-height", keyboardHeight + "px", "important");
-    modal.style.setProperty("padding", "0 6px 6px", "important");
-    if (wrap) { wrap.style.setProperty("height", (keyboardHeight - 6) + "px", "important"); wrap.style.setProperty("max-height", (keyboardHeight - 6) + "px", "important"); }
+    if (wrap) { wrap.style.setProperty("position", "fixed", "important"); wrap.style.setProperty("top", top + "px", "important"); wrap.style.setProperty("height", keyboardHeight + "px", "important"); wrap.style.setProperty("max-height", keyboardHeight + "px", "important"); wrap.style.setProperty("left", "12px", "important"); wrap.style.setProperty("right", "12px", "important"); wrap.style.setProperty("margin", "0 auto", "important"); }
     if (screen) { screen.style.setProperty("display", "flex", "important"); screen.style.setProperty("flex-direction", "column", "important"); screen.style.setProperty("min-height", "0", "important"); }
     if (header) header.style.setProperty("flex-shrink", "0", "important");
     if (input) input.style.setProperty("flex-shrink", "0", "important");
@@ -18224,5 +18243,5 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
   window.setTimeout(bind, 300);
 })();
 </script>
-<!-- CBL_MOBILE_CHAT_VIEWPORT_V3_END -->
+<!-- CBL_MOBILE_CHAT_VIEWPORT_V4_END -->
 {% endblock %}
