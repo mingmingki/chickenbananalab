@@ -18117,24 +18117,8 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
 })();
 </script>
 <!-- CBL_CAD_HOME_START_AUTOVERSION_V1_END -->
-<!-- CBL_MOBILE_CHAT_VIEWPORT_V6_START -->
+<!-- CBL_MOBILE_CHAT_VIEWPORT_V7_START -->
 <style>
-#cblAiJobMessengerModal,
-#cblQuantityMessengerModal {
-  position: fixed !important;
-  inset: 0 !important;
-  width: auto !important;
-  box-sizing: border-box !important;
-  height: 100dvh !important;
-  max-height: none !important;
-  display: flex !important;
-  justify-content: center !important;
-  align-items: center !important;
-  background: rgba(15, 23, 42, 0.58) !important;
-  backdrop-filter: blur(6px);
-  z-index: 10000 !important;
-  overflow: hidden !important;
-}
 @media (max-width: 768px) {
   #cblAiJobMessengerModal,
   #cblQuantityMessengerModal {
@@ -18232,7 +18216,20 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
     if (input) input.style.setProperty("flex-shrink", "0", "important");
     if (body) { body.style.setProperty("flex", "1 1 auto", "important"); body.style.setProperty("min-height", "0", "important"); body.style.setProperty("overflow-y", "auto", "important"); }
   }
-  function applyAll() { if (!isMobile()) return; ids.forEach(function (id) { apply(id, !!keyboardOpen[id]); }); }
+  function clearMobileStyles(id) {
+    var modal = document.getElementById(id);
+    if (!modal) return;
+    var wrap = modal.querySelector(".job-wrap, .qty-wrap");
+    [modal, wrap].forEach(function (el) {
+      if (!el) return;
+      ["position", "top", "height", "max-height", "left", "right", "transform", "margin"].forEach(function (name) { el.style.removeProperty(name); });
+    });
+    modal.classList.remove("cbl-chat-keyboard-open");
+  }
+  function applyAll() {
+    if (!isMobile()) { ids.forEach(clearMobileStyles); return; }
+    ids.forEach(function (id) { apply(id, !!keyboardOpen[id]); });
+  }
   function focusBody(event) {
     var target = event.target;
     if (!target || !target.matches || !target.matches("input, textarea, select, [contenteditable='true']")) return;
@@ -18252,5 +18249,5 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
   window.setTimeout(bind, 300);
 })();
 </script>
-<!-- CBL_MOBILE_CHAT_VIEWPORT_V6_END -->
+<!-- CBL_MOBILE_CHAT_VIEWPORT_V7_END -->
 {% endblock %}
