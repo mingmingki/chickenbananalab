@@ -16924,6 +16924,7 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
   const categoryInput = document.getElementById("cblVideoLibraryCategory");
   let searchTimer = null;
   let currentLibraryKind = "video";
+  let activeObjectUrls = [];
   const kindButtons = Array.from(document.querySelectorAll("[data-cbl-library-kind]"));
 
   function escapeHtml(value) {
@@ -16935,6 +16936,24 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
       .replaceAll("'", "&#039;");
   }
 
+  function normalizeVideoUrl(value) {
+    if (value === undefined || value === null) throw new Error("영상 주소를 확인할 수 없습니다.");
+    if (typeof Blob !== "undefined" && value instanceof Blob) {
+      return { url: URL.createObjectURL(value), revoke: true };
+    }
+    const raw = String(value).trim();
+    if (!raw) throw new Error("영상 주소를 확인할 수 없습니다.");
+    if (/^(?:blob:|https?:\/\/)/i.test(raw) || raw.charAt(0) === "/") {
+      return { url: raw, revoke: false };
+    }
+    try {
+      return { url: new URL(raw, window.location.origin).toString(), revoke: false };
+    } catch (error) {
+      console.error("[CBL_VIDEO_URL_NORMALIZE]", error, value);
+      throw new Error("영상 주소를 확인할 수 없습니다.");
+    }
+  }
+
   function modalBodyState() {
     const open = document.querySelector(".cbl-video-overlay.active");
     document.documentElement.style.overflow = open ? "hidden" : "";
@@ -16942,23 +16961,66 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
 
   function stopPlayer() {
     if (stage) {
+      const video = stage.querySelector("video");
+      if (video) {
+        video.pause();
+        video.removeAttribute("src");
+        video.querySelectorAll("source").forEach(function (source) {
+          source.removeAttribute("src");
+        });
+        video.load();
+      }
       stage.innerHTML = "";
       stage.classList.remove("is-shorts");
     }
+    activeObjectUrls.forEach(function (url) {
+      try { URL.revokeObjectURL(url); } catch (error) { console.warn("[CBL_VIDEO_URL_REVOKE]", error); }
+    });
+    activeObjectUrls = [];
   }
 
   function renderViewer(item) {
     if (!item || !stage) return;
+    let source;
+    try {
+      source = normalizeVideoUrl(item.source_url);
+    } catch (error) {
+      stage.innerHTML = '<span style="color:#fecaca;font-weight:800">'
+        + escapeHtml(error.message) + "</span>";
+      document.getElementById("cblVideoViewerTitle").textContent = "영상을 열 수 없습니다.";
+      return;
+    }
+    stage.innerHTML = "";
+    if (source.revoke) activeObjectUrls.push(source.url);
     stage.classList.toggle("is-shorts", item.kind === "shorts" || item.video_kind === "SHORTS");
     if (item.source_type === "youtube") {
-      stage.innerHTML = '<iframe src="' + escapeHtml(item.source_url)
-        + '" title="' + escapeHtml(item.title)
-        + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>';
+      const iframe = document.createElement("iframe");
+      iframe.src = source.url;
+      iframe.title = item.title || "동영상";
+      iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
+      iframe.allowFullscreen = true;
+      stage.appendChild(iframe);
     } else {
-      stage.innerHTML = '<video controls playsinline autoplay preload="metadata"'
-        + (item.cover_url ? ' poster="' + escapeHtml(item.cover_url) + '"' : "")
-        + '><source src="' + escapeHtml(item.source_url)
-        + '">현재 브라우저에서 이 영상을 재생할 수 없습니다.</video>';
+      const video = document.createElement("video");
+      video.controls = true;
+      video.playsInline = true;
+      video.autoplay = true;
+      video.preload = "metadata";
+      if (item.cover_url) {
+        try {
+          const poster = normalizeVideoUrl(item.cover_url);
+          video.poster = poster.url;
+          if (poster.revoke) activeObjectUrls.push(poster.url);
+        } catch (error) { console.warn("[CBL_VIDEO_POSTER]", error); }
+      }
+      video.addEventListener("loadedmetadata", function () { stage.classList.add("is-ready"); });
+      video.addEventListener("canplay", function () { stage.classList.add("is-ready"); });
+      video.addEventListener("error", function () {
+        stage.classList.remove("is-ready");
+        stage.innerHTML = '<span style="color:#fecaca;font-weight:800">영상 파일을 재생할 수 없습니다. 영상 주소 또는 파일 상태를 확인해 주세요.</span>';
+      });
+      video.src = source.url;
+      stage.appendChild(video);
     }
     document.getElementById("cblVideoViewerChip").textContent =
       (item.category_label || "동영상") + " · " + (item.video_kind || "VIDEO");
@@ -16981,6 +17043,7 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
 
   window.openCblVideoViewer = async function (id) {
     if (!viewer) return;
+    stopPlayer();
     viewer.classList.add("active");
     stage.innerHTML = '<span style="color:#cbd5e1;font-weight:800">영상을 불러오는 중입니다.</span>';
     modalBodyState();
@@ -16991,6 +17054,7 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
     } catch (error) {
       stage.innerHTML = '<span style="color:#fecaca;font-weight:800">'
         + escapeHtml(error.message) + "</span>";
+      document.getElementById("cblVideoViewerTitle").textContent = "영상을 열 수 없습니다.";
     }
   };
 
