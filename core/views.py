@@ -10,6 +10,8 @@ import json
 import os
 import uuid
 import traceback
+import hashlib
+import time as _cbl_time
 
 from datetime import date, timedelta
 
@@ -9989,6 +9991,274 @@ _CBL_DWG_DXF_VERSIONS_V1 = ["ACAD2004"]  # CBL_V27_ACAD2004_SWEEP
 _CBL_DWG_DXF_FAST_VERSIONS_V2 = ["ACAD2004"]  # CBL_V27_ACAD2004_SWEEP
 
 
+# CBL_DWG_DXF_READTHROUGH_CACHE_V1
+# DWG bytes -> ODA DXF 결과만 재사용한다. 기존 V21 RAW cache는 저장 round-trip
+# 용도이므로 이 cache와 섞지 않는다.
+_CBL_DWG_DXF_CACHE_SCHEMA_V1 = "cbl-dwg-dxf-cache-v1"
+_CBL_DWG_DXF_CACHE_TTL_SECONDS_V1 = 7 * 24 * 60 * 60
+_CBL_DWG_DXF_CACHE_MAX_ENTRIES_V1 = 64
+_CBL_DWG_DXF_CACHE_MAX_BYTES_V1 = 2 * 1024 * 1024 * 1024
+
+
+def _cbl_dwg_dxf_emit_log_v1(message, *args):
+    """Emit only the new DWG cache diagnostics through the project stdout path."""
+    try:
+        print(str(message) % args if args else str(message), flush=True)
+    except Exception:
+        pass
+
+
+def _cbl_dwg_dxf_cache_dir_v1():
+    base = _cbl_Path(getattr(settings, "BASE_DIR", _cbl_Path.cwd()))
+    path = base / "tmp" / "cblcad_dwg_dxf_cache_v1"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _cbl_dwg_dxf_cache_key_v1(src_file, output_type, version, options):
+    data = _cbl_Path(src_file).read_bytes()
+    file_sha256 = hashlib.sha256(data).hexdigest()
+    descriptor = {
+        "schema": _CBL_DWG_DXF_CACHE_SCHEMA_V1,
+        "file_sha256": file_sha256,
+        "output_type": str(output_type).upper(),
+        "version": str(version),
+        "options": [str(v) for v in (options or ())],
+    }
+    key = hashlib.sha256(
+        json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return key, file_sha256, data
+
+
+def _cbl_dwg_dxf_cache_valid_v1(path, expected_bytes=None):
+    try:
+        stat = path.stat()
+        if not path.is_file() or stat.st_size < 500:
+            return False
+        if expected_bytes is not None and stat.st_size != int(expected_bytes):
+            return False
+        with path.open("rb") as stream:
+            head = stream.read(4096)
+            stream.seek(max(0, stat.st_size - 16384))
+            tail = stream.read(16384)
+        head_values = [line.strip() for line in head.decode("utf-8", errors="replace").splitlines() if line.strip()]
+        tail_values = [line.strip() for line in tail.decode("utf-8", errors="replace").splitlines() if line.strip()]
+        return (
+            len(head_values) >= 2
+            and head_values[0] == "0"
+            and head_values[1].upper() == "SECTION"
+            and len(tail_values) >= 2
+            and tail_values[-2] == "0"
+            and tail_values[-1].upper() == "EOF"
+        )
+    except Exception:
+        return False
+
+
+def _cbl_dwg_dxf_cache_cleanup_v1(cache_dir, now=None, protected_lock=None):
+    import fcntl
+
+    now = float(now if now is not None else _cbl_time.time())
+    invalidation = []
+    entries = []
+
+    def remove_entry(path, meta, reason):
+        lock_path = path.with_suffix(".lock")
+        if protected_lock is not None and lock_path == protected_lock:
+            return False
+        try:
+            with lock_path.open("a+") as lock_file:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                path.unlink(missing_ok=True)
+                meta.unlink(missing_ok=True)
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            invalidation.append(reason)
+            return True
+        except (BlockingIOError, OSError):
+            return False
+
+    # ODA 결과 저장 중 프로세스가 중단돼 남은 임시 파일은 TTL 기준으로만 제거한다.
+    for path in cache_dir.glob(".*.tmp"):
+        try:
+            if now - path.stat().st_mtime > _CBL_DWG_DXF_CACHE_TTL_SECONDS_V1:
+                path.unlink(missing_ok=True)
+                invalidation.append("temp")
+        except OSError:
+            pass
+
+    # 오래된 빈 lock은 non-blocking lock 획득에 성공한 경우에만 제거한다.
+    for lock_path in cache_dir.glob("*.lock"):
+        if protected_lock is not None and lock_path == protected_lock:
+            continue
+        try:
+            if lock_path.stat().st_size == 0 and now - lock_path.stat().st_mtime > _CBL_DWG_DXF_CACHE_TTL_SECONDS_V1:
+                with lock_path.open("a+") as lock_file:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_path.unlink(missing_ok=True)
+                invalidation.append("lock")
+        except (BlockingIOError, OSError):
+            pass
+
+    for path in cache_dir.glob("*.dxf"):
+        meta = path.with_suffix(".json")
+        try:
+            if now - path.stat().st_mtime > _CBL_DWG_DXF_CACHE_TTL_SECONDS_V1:
+                remove_entry(path, meta, "ttl")
+                continue
+            entries.append((path.stat().st_mtime, path.stat().st_size, path, meta))
+        except OSError:
+            continue
+
+    entries.sort(reverse=True)
+    total = 0
+    for index, (_mtime, size, path, meta) in enumerate(entries):
+        if index >= _CBL_DWG_DXF_CACHE_MAX_ENTRIES_V1 or total + size > _CBL_DWG_DXF_CACHE_MAX_BYTES_V1:
+            remove_entry(path, meta, "capacity")
+            continue
+        total += size
+    return invalidation
+
+
+def _cbl_dwg_dxf_readthrough_v1(src_file, destination, *, version, output_type, options, endpoint, producer):
+    """Return a validated DXF copy, invoking producer at most once per cache key."""
+    import fcntl
+    import shutil
+
+    started = _cbl_time.perf_counter()
+    cache_dir = _cbl_dwg_dxf_cache_dir_v1()
+    key, file_sha256, _source_bytes = _cbl_dwg_dxf_cache_key_v1(
+        src_file, output_type, version, options
+    )
+    cache_path = cache_dir / f"{key}.dxf"
+    meta_path = cache_dir / f"{key}.json"
+    lock_path = cache_dir / f"{key}.lock"
+    cache_read_started = _cbl_time.perf_counter()
+    invalidation_reason = ""
+
+    if str(output_type).upper() != "DXF":
+        produced = producer()
+        shutil.copy2(produced["path"], destination)
+        return {
+            **produced,
+            "cache_key": key,
+            "file_sha256": file_sha256,
+            "cache_hit": False,
+            "cache_wait": False,
+            "oda_executed": True,
+            "oda_ms": 0.0,
+            "cache_read_ms": 0.0,
+            "dxf_bytes": destination.stat().st_size,
+            "invalidation_reason": "output_type_not_dxf",
+            "path": str(destination),
+        }
+
+    def valid_cache():
+        if not cache_path.exists() or not meta_path.exists():
+            return False
+        try:
+            if _cbl_time.time() - cache_path.stat().st_mtime > _CBL_DWG_DXF_CACHE_TTL_SECONDS_V1:
+                return False
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            return (
+                meta.get("schema") == _CBL_DWG_DXF_CACHE_SCHEMA_V1
+                and meta.get("cache_key") == key
+                and meta.get("file_sha256") == file_sha256
+                and meta.get("output_type") == str(output_type).upper()
+                and _cbl_dwg_dxf_cache_valid_v1(cache_path, meta.get("dxf_bytes"))
+            )
+        except Exception:
+            return False
+
+    waited = False
+    with lock_path.open("a+") as lock_file:
+        wait_started = _cbl_time.perf_counter()
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        waited = (_cbl_time.perf_counter() - wait_started) > 0.01
+        invalidation = _cbl_dwg_dxf_cache_cleanup_v1(cache_dir, protected_lock=lock_path)
+        if invalidation:
+            invalidation_reason = ",".join(sorted(set(invalidation)))
+
+        if valid_cache():
+            cache_read_ms = (_cbl_time.perf_counter() - cache_read_started) * 1000
+            shutil.copy2(cache_path, destination)
+            info = {
+                "cache_key": key, "file_sha256": file_sha256, "cache_hit": True,
+                "cache_wait": waited, "oda_executed": False, "oda_ms": 0.0,
+                "cache_read_ms": round(cache_read_ms, 2),
+                "dxf_bytes": cache_path.stat().st_size,
+                "invalidation_reason": invalidation_reason, "path": str(destination),
+            }
+            _cbl_dwg_dxf_emit_log_v1(
+                "CBLCAD_DWG_DXF_CACHE endpoint=%s file_sha256=%s cache_key=%s event=%s oda_executed=0 cache_read_ms=%.2f dxf_bytes=%s endpoint_ms=%.2f",
+                endpoint, file_sha256[:12], key[:12],
+                "cache_wait_hit" if waited else "cache_hit", cache_read_ms, info["dxf_bytes"],
+                (_cbl_time.perf_counter() - started) * 1000,
+            )
+            return info
+
+        if cache_path.exists() or meta_path.exists():
+            try:
+                invalidation_reason = (
+                    "ttl"
+                    if _cbl_time.time() - cache_path.stat().st_mtime > _CBL_DWG_DXF_CACHE_TTL_SECONDS_V1
+                    else "corrupt"
+                )
+            except OSError:
+                invalidation_reason = "corrupt"
+            try:
+                cache_path.unlink(missing_ok=True)
+                meta_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        oda_started = _cbl_time.perf_counter()
+        produced = producer()
+        oda_ms = (_cbl_time.perf_counter() - oda_started) * 1000
+        produced_path = _cbl_Path(produced["path"])
+        if not _cbl_dwg_dxf_cache_valid_v1(produced_path):
+            invalidation_reason = "invalid_producer_result"
+            _cbl_dwg_dxf_emit_log_v1(
+                "CBLCAD_DWG_DXF_CACHE endpoint=%s file_sha256=%s cache_key=%s event=miss_invalid_result oda_executed=1 oda_ms=%.2f invalidation_reason=%s",
+                endpoint, file_sha256[:12], key[:12], oda_ms, invalidation_reason,
+            )
+            raise RuntimeError("ODA returned an empty or incomplete DXF result")
+
+        temp_path = cache_dir / f".{key}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+        temp_meta = cache_dir / f".{key}.{os.getpid()}.{uuid.uuid4().hex}.json.tmp"
+        dxf_bytes = produced_path.stat().st_size
+        shutil.copyfile(produced_path, temp_path)
+        os.replace(temp_path, cache_path)
+        meta = {
+            "schema": _CBL_DWG_DXF_CACHE_SCHEMA_V1,
+            "cache_key": key,
+            "file_sha256": file_sha256,
+            "output_type": str(output_type).upper(),
+            "version": str(version),
+            "options": [str(v) for v in (options or ())],
+            "dxf_bytes": dxf_bytes,
+            "created_at": _cbl_time.time(),
+        }
+        temp_meta.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temp_meta, meta_path)
+        shutil.copy2(cache_path, destination)
+        info = {
+            **produced, "cache_key": key, "file_sha256": file_sha256,
+            "cache_hit": False, "cache_wait": waited, "oda_executed": True,
+            "oda_ms": round(oda_ms, 2),
+            "cache_read_ms": round((_cbl_time.perf_counter() - cache_read_started) * 1000, 2),
+            "dxf_bytes": dxf_bytes, "invalidation_reason": invalidation_reason,
+            "path": str(destination),
+        }
+        _cbl_dwg_dxf_emit_log_v1(
+            "CBLCAD_DWG_DXF_CACHE endpoint=%s file_sha256=%s cache_key=%s event=cache_miss oda_executed=1 oda_ms=%.2f cache_read_ms=%.2f dxf_bytes=%s endpoint_ms=%.2f invalidation_reason=%s",
+            endpoint, file_sha256[:12], key[:12], oda_ms, info["cache_read_ms"], dxf_bytes,
+            (_cbl_time.perf_counter() - started) * 1000, invalidation_reason,
+        )
+        return info
+
+
 _CBL_DXF_TRACK_ENTITY_TYPES_V1 = [
     "INSERT",
     "LINE",
@@ -10220,7 +10490,7 @@ def _cbl_run_oda_to_dxf_version_v1(converter, src_dwg_path, version, work_root, 
         "score": -1,
     }
 
-    try:
+    def produce():
         proc = _cbl_subprocess.run(
             cmd,
             cwd=str(work_root),
@@ -10228,14 +10498,43 @@ def _cbl_run_oda_to_dxf_version_v1(converter, src_dwg_path, version, work_root, 
             capture_output=True,
             timeout=120,
         )
-        attempt["returncode"] = proc.returncode
-        attempt["stdout"] = _cbl_tail_v1(proc.stdout)
-        attempt["stderr"] = _cbl_tail_v1(proc.stderr)
+        dxf_files = _cbl_collect_dxf_files_v1(out_dir)
+        if not dxf_files:
+            raise RuntimeError(
+                "ODA output not found / "
+                f"returncode={proc.returncode} / "
+                f"stdout={proc.stdout[:1000]} / stderr={proc.stderr[:1000]}"
+            )
+        selected = sorted(dxf_files, key=lambda p: p.stat().st_size, reverse=True)[0]
+        return {
+            "path": str(selected),
+            "returncode": proc.returncode,
+            "stdout": _cbl_tail_v1(proc.stdout),
+            "stderr": _cbl_tail_v1(proc.stderr),
+        }
+
+    try:
+        cached = _cbl_dwg_dxf_readthrough_v1(
+            src_dwg_path,
+            out_dir / "cached.dxf",
+            version=version,
+            output_type="DXF",
+            options=("0", "1", "*.dwg"),
+            endpoint="dwg-to-dxf",
+            producer=produce,
+        )
+        attempt["returncode"] = cached.get("returncode", 0)
+        attempt["stdout"] = cached.get("stdout", "")
+        attempt["stderr"] = cached.get("stderr", "")
+        attempt["cache_hit"] = bool(cached.get("cache_hit"))
+        attempt["cache_wait"] = bool(cached.get("cache_wait"))
+        attempt["oda_executed"] = bool(cached.get("oda_executed"))
+        attempt["oda_ms"] = cached.get("oda_ms", 0.0)
+        dxf_files = [_cbl_Path(cached["path"])]
     except Exception as e:
         attempt["error"] = str(e)
         return attempt, None, None
 
-    dxf_files = _cbl_collect_dxf_files_v1(out_dir)
     attempt["found"] = [
         {
             "path": str(p),
@@ -10380,6 +10679,8 @@ def cblcad_dwg_to_best_dxf_api(request):
             "error": "POST 요청만 지원합니다.",
         }, status=405, json_dumps_params={"ensure_ascii": False})
 
+    endpoint_started = _cbl_time.perf_counter()
+
     upload = None
     for key in ("file", "dwg", "dwg_file", "dwgFile", "upload"):
         if key in request.FILES:
@@ -10480,6 +10781,15 @@ def cblcad_dwg_to_best_dxf_api(request):
             # dxf_text/text/content 중복 전송은 브라우저 메모리를 크게 잡아먹는다.
             payload["dxf"] = dxf_text
             payload["dxf_payload_mode"] = "single_dxf_only"
+
+    _cbl_dwg_dxf_emit_log_v1(
+        "CBLCAD_DWG_DXF_ENDPOINT endpoint=dwg-to-dxf status=%s dxf_bytes=%s oda_executed=%s cache_hit=%s endpoint_ms=%.2f",
+        status,
+        result.get("dxf_size", 0),
+        any(bool(a.get("oda_executed")) for a in result.get("attempts", [])),
+        any(bool(a.get("cache_hit")) for a in result.get("attempts", [])),
+        (_cbl_time.perf_counter() - endpoint_started) * 1000,
+    )
 
     return _cbl_HttpResponse(
         _cbl_json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
@@ -22246,29 +22556,66 @@ def _cbl_v29_oda_convert(src_file, out_dir, version="ACAD2004", output_type="DWG
     safe_src = in_dir / src_file.name
     shutil.copy2(src_file, safe_src)
 
-    cmd = [oda, str(in_dir), str(result_dir), version, output_type, "0", "1"]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
+    cmd = [oda, str(in_dir), str(result_dir), version, output_type, "0", "1", "*.dwg"]
     ext = "." + output_type.lower()
-    found = list(result_dir.rglob("*" + ext))
-    if not found:
-        raise RuntimeError(
-            "ODA output not found / "
-            f"returncode={proc.returncode} / "
-            f"stdout={proc.stdout[:1000]} / "
-            f"stderr={proc.stderr[:1000]}"
-        )
-
-    found = sorted(found, key=lambda p: p.stat().st_size, reverse=True)[0]
     final = out_dir / f"converted{ext}"
-    shutil.copy2(found, final)
+
+    def produce():
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        found = list(result_dir.rglob("*" + ext))
+        if not found:
+            raise RuntimeError(
+                "ODA output not found / "
+                f"returncode={proc.returncode} / "
+                f"stdout={proc.stdout[:1000]} / stderr={proc.stderr[:1000]}"
+            )
+        found = sorted(found, key=lambda p: p.stat().st_size, reverse=True)[0]
+        return {
+            "path": str(found),
+            "returncode": proc.returncode,
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+        }
+
+    if str(output_type).upper() != "DXF":
+        produced = produce()
+        shutil.copy2(produced["path"], final)
+        return {
+            "returncode": produced.get("returncode", 0),
+            "output": str(final),
+            "output_bytes": final.stat().st_size,
+            "stdout": produced.get("stdout", ""),
+            "stderr": produced.get("stderr", ""),
+            "cache_hit": False,
+            "cache_wait": False,
+            "oda_executed": True,
+            "oda_ms": 0.0,
+            "cache_key": None,
+            "file_sha256": None,
+        }
+
+    cached = _cbl_dwg_dxf_readthrough_v1(
+        src_file,
+        final,
+        version=version,
+        output_type=output_type,
+        options=("0", "1", "*.dwg"),
+        endpoint="v29/open-session",
+        producer=produce,
+    )
 
     return {
-        "returncode": proc.returncode,
+        "returncode": cached.get("returncode", 0),
         "output": str(final),
         "output_bytes": final.stat().st_size,
-        "stdout": proc.stdout,
-        "stderr": proc.stderr,
+        "stdout": cached.get("stdout", ""),
+        "stderr": cached.get("stderr", ""),
+        "cache_hit": bool(cached.get("cache_hit")),
+        "cache_wait": bool(cached.get("cache_wait")),
+        "oda_executed": bool(cached.get("oda_executed")),
+        "oda_ms": cached.get("oda_ms", 0.0),
+        "cache_key": cached.get("cache_key"),
+        "file_sha256": cached.get("file_sha256"),
     }
 
 def _cbl_v29_safe_layer_name(name):
@@ -22354,6 +22701,8 @@ def cblcad_v29_open_session(request):
     if not upload:
         return JsonResponse({"ok": False, "error": "file field required"}, status=400)
 
+    endpoint_started = _cbl_time.perf_counter()
+
     session_id = uuid.uuid4().hex
     session_dir = _cbl_v29_root() / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
@@ -22392,6 +22741,14 @@ def cblcad_v29_open_session(request):
             encoding="utf-8",
         )
 
+        _cbl_dwg_dxf_emit_log_v1(
+            "CBLCAD_DWG_DXF_ENDPOINT endpoint=v29/open-session status=200 dxf_bytes=%s oda_executed=%s cache_hit=%s oda_ms=%.2f endpoint_ms=%.2f",
+            meta["base_dxf_bytes"],
+            result.get("oda_executed", False),
+            result.get("cache_hit", False),
+            result.get("oda_ms", 0.0),
+            (_cbl_time.perf_counter() - endpoint_started) * 1000,
+        )
         print("[CBL_V29_OPEN_SESSION]", meta)
 
         return JsonResponse({
@@ -22403,6 +22760,10 @@ def cblcad_v29_open_session(request):
         })
 
     except Exception as e:
+        _cbl_dwg_dxf_emit_log_v1(
+            "CBLCAD_DWG_DXF_ENDPOINT endpoint=v29/open-session status=500 oda_executed=unknown endpoint_ms=%.2f",
+            (_cbl_time.perf_counter() - endpoint_started) * 1000,
+        )
         return JsonResponse({
             "ok": False,
             "error": repr(e),

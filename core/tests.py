@@ -1,10 +1,14 @@
 import io
 import json
 import ast
+import os
 import struct
 import unicodedata
 import zipfile
 import zlib
+import tempfile
+import threading
+import time
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,7 +17,7 @@ from unittest.mock import Mock, patch
 from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase, TestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase
 from PIL import Image
 
 from .quantity_views import (
@@ -60,6 +64,317 @@ from .management.commands.run_ai_auto_writer import (
     save_ai_data_to_post,
 )
 from .models import CalendarEvent, Post
+
+
+class CblCadDwgDxfReadthroughCacheTests(SimpleTestCase):
+    DXF = "0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n" + (" " * 600)
+
+    def setUp(self):
+        self.source_dir = tempfile.TemporaryDirectory(prefix="cblcad-cache-source-")
+        self.work_dir = tempfile.TemporaryDirectory(prefix="cblcad-cache-work-")
+        self.cache_dir = tempfile.TemporaryDirectory(prefix="cblcad-cache-")
+        self.source = Path(self.source_dir.name) / "same-name.dwg"
+        self.source.write_bytes(b"same DWG bytes for cache regression")
+
+    def tearDown(self):
+        self.source_dir.cleanup()
+        self.work_dir.cleanup()
+        self.cache_dir.cleanup()
+
+    def _call(self, destination, producer, **kwargs):
+        return core_views._cbl_dwg_dxf_readthrough_v1(
+            self.source,
+            destination,
+            version=kwargs.get("version", "ACAD2004"),
+            output_type=kwargs.get("output_type", "DXF"),
+            options=kwargs.get("options", ("0", "1")),
+            endpoint=kwargs.get("endpoint", "test"),
+            producer=producer,
+        )
+
+    def test_same_bytes_across_endpoints_call_oda_once(self):
+        calls = []
+
+        def produce():
+            calls.append("oda")
+            output = Path(self.work_dir.name) / f"out-{len(calls)}.dxf"
+            output.write_text(self.DXF, encoding="utf-8")
+            return {"path": str(output), "returncode": 0}
+
+        with patch.object(core_views, "_cbl_dwg_dxf_cache_dir_v1", return_value=Path(self.cache_dir.name)):
+            first = self._call(Path(self.work_dir.name) / "v29.dxf", produce, endpoint="v29/open-session")
+            second = self._call(Path(self.work_dir.name) / "display.dxf", produce, endpoint="dwg-to-dxf")
+
+        self.assertEqual(calls, ["oda"])
+        self.assertFalse(first["cache_hit"])
+        self.assertTrue(second["cache_hit"])
+        self.assertTrue((Path(self.work_dir.name) / "v29.dxf").is_file())
+        self.assertTrue((Path(self.work_dir.name) / "display.dxf").is_file())
+
+    def test_content_version_and_options_change_cache_key(self):
+        calls = []
+
+        def produce():
+            calls.append(1)
+            output = Path(self.work_dir.name) / f"variant-{len(calls)}.dxf"
+            output.write_text(self.DXF, encoding="utf-8")
+            return {"path": str(output), "returncode": 0}
+
+        with patch.object(core_views, "_cbl_dwg_dxf_cache_dir_v1", return_value=Path(self.cache_dir.name)):
+            self._call(Path(self.work_dir.name) / "a.dxf", produce)
+            self._call(Path(self.work_dir.name) / "b.dxf", produce, version="ACAD2013")
+            self._call(Path(self.work_dir.name) / "c.dxf", produce, options=("1", "1"))
+            self.source.write_bytes(b"different DWG bytes")
+            self._call(Path(self.work_dir.name) / "d.dxf", produce)
+
+        self.assertEqual(len(calls), 4)
+
+    def test_corrupt_cache_is_rebuilt_and_failure_is_not_saved(self):
+        calls = []
+
+        def produce():
+            calls.append(1)
+            output = Path(self.work_dir.name) / f"corrupt-{len(calls)}.dxf"
+            output.write_text(self.DXF if len(calls) > 1 else "bad", encoding="utf-8")
+            return {"path": str(output), "returncode": 0}
+
+        with patch.object(core_views, "_cbl_dwg_dxf_cache_dir_v1", return_value=Path(self.cache_dir.name)):
+            with self.assertRaises(RuntimeError):
+                self._call(Path(self.work_dir.name) / "failed.dxf", produce)
+            self.assertEqual(list(Path(self.cache_dir.name).glob("*.dxf")), [])
+            self._call(Path(self.work_dir.name) / "good.dxf", produce)
+            key, _sha, _raw = core_views._cbl_dwg_dxf_cache_key_v1(self.source, "DXF", "ACAD2004", ("0", "1"))
+            (Path(self.cache_dir.name) / f"{key}.dxf").write_text("corrupt", encoding="utf-8")
+            self._call(Path(self.work_dir.name) / "rebuilt.dxf", produce)
+
+        self.assertEqual(len(calls), 3)
+
+    def test_concurrent_same_key_runs_oda_once(self):
+        calls = []
+        barrier = threading.Barrier(2)
+
+        def produce():
+            calls.append(1)
+            time.sleep(0.05)
+            output = Path(self.work_dir.name) / "concurrent.dxf"
+            output.write_text(self.DXF, encoding="utf-8")
+            return {"path": str(output), "returncode": 0}
+
+        def run(index):
+            barrier.wait()
+            return self._call(Path(self.work_dir.name) / f"thread-{index}.dxf", produce)
+
+        with patch.object(core_views, "_cbl_dwg_dxf_cache_dir_v1", return_value=Path(self.cache_dir.name)):
+            results = [None, None]
+            threads = [threading.Thread(target=lambda i=i: results.__setitem__(i, run(i))) for i in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(sum(bool(result["cache_wait"]) for result in results), 1)
+
+    def test_v29_cache_hit_still_creates_independent_session_copy(self):
+        calls = []
+
+        def fake_oda(cmd, **kwargs):
+            calls.append(cmd)
+            output_dir = Path(cmd[2])
+            output_dir.mkdir(parents=True, exist_ok=True)
+            (output_dir / "same-name.dxf").write_text(self.DXF, encoding="utf-8")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        first_dir = Path(self.work_dir.name) / "session-one"
+        second_dir = Path(self.work_dir.name) / "session-two"
+        with patch.object(core_views, "_cbl_dwg_dxf_cache_dir_v1", return_value=Path(self.cache_dir.name)), \
+             patch.object(core_views, "_cbl_v29_find_oda", return_value="/mock/ODAFileConverter"), \
+             patch("subprocess.run", side_effect=fake_oda):
+            first = core_views._cbl_v29_oda_convert(self.source, first_dir, output_type="DXF")
+            second = core_views._cbl_v29_oda_convert(self.source, second_dir, output_type="DXF")
+
+        self.assertEqual(len(calls), 1)
+        self.assertNotEqual(first["output"], second["output"])
+        self.assertEqual(Path(first["output"]).read_text(encoding="utf-8"), self.DXF)
+        self.assertEqual(Path(second["output"]).read_text(encoding="utf-8"), self.DXF)
+
+    def test_validation_reads_only_small_head_and_tail_for_50mb_dxf(self):
+        path = Path(self.work_dir.name) / "large.dxf"
+        with path.open("wb") as stream:
+            stream.write(b"0\nSECTION\n2\nHEADER\n")
+            stream.write(b"X" * (50 * 1024 * 1024))
+            stream.write(b"\n0\nEOF\n")
+
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("full read forbidden")):
+            self.assertTrue(core_views._cbl_dwg_dxf_cache_valid_v1(path, path.stat().st_size))
+
+    def test_cleanup_removes_stale_temp_but_preserves_active_cache_lock(self):
+        import fcntl
+
+        cache = Path(self.cache_dir.name)
+        old_time = time.time() - core_views._CBL_DWG_DXF_CACHE_TTL_SECONDS_V1 - 10
+        stale_temp = cache / ".stale.tmp"
+        stale_temp.write_text("partial", encoding="utf-8")
+        os.utime(stale_temp, (old_time, old_time))
+
+        active_dxf = cache / ("a" * 64 + ".dxf")
+        active_dxf.write_text(self.DXF, encoding="utf-8")
+        active_lock = active_dxf.with_suffix(".lock")
+        with active_lock.open("a+") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            os.utime(active_dxf, (old_time, old_time))
+            core_views._cbl_dwg_dxf_cache_cleanup_v1(cache, now=time.time(), protected_lock=cache / "other.lock")
+            self.assertTrue(active_dxf.exists())
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+        self.assertFalse(stale_temp.exists())
+
+    def test_non_dxf_output_bypasses_readthrough_cache(self):
+        calls = []
+
+        def produce():
+            calls.append(1)
+            output = Path(self.work_dir.name) / "output.dwg"
+            output.write_bytes(b"D" * 800)
+            return {"path": str(output), "returncode": 0}
+
+        with patch.object(core_views, "_cbl_dwg_dxf_cache_dir_v1", return_value=Path(self.cache_dir.name)):
+            result = self._call(Path(self.work_dir.name) / "copy.dwg", produce, output_type="DWG")
+
+        self.assertEqual(calls, [1])
+        self.assertEqual(result["invalidation_reason"], "output_type_not_dxf")
+        self.assertFalse(list(Path(self.cache_dir.name).glob("*.dxf")))
+
+    def test_cache_miss_hit_and_wait_logs_are_captured_on_stdout(self):
+        def produce():
+            output = Path(self.work_dir.name) / "log.dxf"
+            output.write_text(self.DXF, encoding="utf-8")
+            return {"path": str(output), "returncode": 0}
+
+        with patch("builtins.print") as print_mock:
+            with patch.object(core_views, "_cbl_dwg_dxf_cache_dir_v1", return_value=Path(self.cache_dir.name)):
+                self._call(Path(self.work_dir.name) / "miss.dxf", produce)
+                self._call(Path(self.work_dir.name) / "hit.dxf", produce)
+
+        output = "\n".join(str(call.args[0]) for call in print_mock.call_args_list if call.args)
+        self.assertIn("CBLCAD_DWG_DXF_CACHE", output)
+        self.assertIn("event=cache_miss", output)
+        self.assertIn("event=cache_hit", output)
+
+        wait_cache = tempfile.TemporaryDirectory(prefix="cblcad-log-wait-cache-")
+        barrier = threading.Barrier(2)
+
+        def slow_produce():
+            time.sleep(0.05)
+            output = Path(self.work_dir.name) / "wait-log.dxf"
+            output.write_text(self.DXF, encoding="utf-8")
+            return {"path": str(output), "returncode": 0}
+
+        def run_wait(index):
+            barrier.wait()
+            return self._call(Path(self.work_dir.name) / f"wait-{index}.dxf", slow_produce)
+
+        with patch("builtins.print") as wait_print:
+            with patch.object(core_views, "_cbl_dwg_dxf_cache_dir_v1", return_value=Path(wait_cache.name)):
+                threads = [threading.Thread(target=run_wait, args=(index,)) for index in range(2)]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join()
+        wait_output = "\n".join(str(call.args[0]) for call in wait_print.call_args_list if call.args)
+        self.assertIn("event=cache_wait_hit", wait_output)
+        wait_cache.cleanup()
+
+    def test_real_display_and_v29_functions_share_cache_in_both_orders(self):
+        for first in ("display", "v29"):
+            cache = tempfile.TemporaryDirectory(prefix="cblcad-order-cache-")
+            display_dir = Path(self.work_dir.name) / f"display-{first}"
+            v29_dir = Path(self.work_dir.name) / f"v29-{first}"
+            calls = []
+
+            def fake_oda(cmd, **kwargs):
+                calls.append(cmd)
+                output_dir = Path(cmd[2])
+                output_dir.mkdir(parents=True, exist_ok=True)
+                source_names = list(Path(cmd[1]).glob("*.dwg"))
+                name = source_names[0].stem if source_names else "same-name"
+                (output_dir / f"{name}.dxf").write_text(self.DXF, encoding="utf-8")
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            with patch.object(core_views, "_cbl_dwg_dxf_cache_dir_v1", return_value=Path(cache.name)), \
+                 patch.object(core_views, "_cbl_v29_find_oda", return_value="/mock/ODAFileConverter"), \
+                 patch("subprocess.run", side_effect=fake_oda):
+                if first == "display":
+                    display_result = core_views._cbl_run_oda_to_dxf_version_v1(
+                        "/mock/ODAFileConverter", self.source, "ACAD2004", display_dir, "XR-FORM-A(A3)"
+                    )
+                    v29_result = core_views._cbl_v29_oda_convert(self.source, v29_dir, output_type="DXF")
+                    first_hit = display_result[0].get("cache_hit")
+                    second_hit = v29_result.get("cache_hit")
+                else:
+                    v29_result = core_views._cbl_v29_oda_convert(self.source, v29_dir, output_type="DXF")
+                    display_result = core_views._cbl_run_oda_to_dxf_version_v1(
+                        "/mock/ODAFileConverter", self.source, "ACAD2004", display_dir, "XR-FORM-A(A3)"
+                    )
+                    first_hit = v29_result.get("cache_hit")
+                    second_hit = display_result[0].get("cache_hit")
+
+            cache.cleanup()
+            self.assertEqual(len(calls), 1)
+            self.assertFalse(first_hit)
+            self.assertTrue(second_hit)
+            self.assertTrue(Path(v29_result["output"]).exists())
+            self.assertTrue(Path(display_result[2]).exists())
+
+    def test_endpoint_response_shape_stays_compatible_on_hit_and_miss(self):
+        factory = RequestFactory()
+        base_endpoint = core_views._CBL_V21_3_ORIGINAL_BEST_DWG_TO_DXF_API
+        calls = []
+
+        def fake_oda(cmd, **kwargs):
+            calls.append(cmd)
+            output_dir = Path(cmd[2])
+            output_dir.mkdir(parents=True, exist_ok=True)
+            (output_dir / "same-name.dxf").write_text(self.DXF, encoding="utf-8")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        def post_display():
+            upload = SimpleUploadedFile("same-name.dwg", self.source.read_bytes(), content_type="application/acad")
+            return base_endpoint(factory.post("/api/cblcad/dwg-to-dxf/", {"file": upload}))
+
+        session_root = Path(self.work_dir.name) / "sessions"
+        with patch.object(core_views, "_cbl_dwg_dxf_cache_dir_v1", return_value=Path(self.cache_dir.name)), \
+             patch.object(core_views, "_cbl_v29_root", return_value=session_root), \
+             patch.object(core_views, "_cbl_v29_find_oda", return_value="/mock/ODAFileConverter"), \
+             patch("subprocess.run", side_effect=fake_oda):
+            display_miss = post_display()
+            display_hit = post_display()
+
+            def post_v29():
+                upload = SimpleUploadedFile("same-name.dwg", self.source.read_bytes(), content_type="application/acad")
+                return core_views.cblcad_v29_open_session(
+                    factory.post("/api/cblcad/v29/open-session/", {"file": upload})
+                )
+
+            v29_miss = post_v29()
+            v29_hit = post_v29()
+
+        self.assertEqual(display_miss.status_code, display_hit.status_code)
+        self.assertEqual(display_miss["Content-Type"], display_hit["Content-Type"])
+        display_miss_json = json.loads(display_miss.content)
+        display_hit_json = json.loads(display_hit.content)
+        self.assertEqual(set(display_miss_json.keys()), set(display_hit_json.keys()))
+        self.assertIn("dxf", display_miss_json)
+        self.assertEqual(v29_miss.status_code, v29_hit.status_code)
+        self.assertEqual(v29_miss["Content-Type"], v29_hit["Content-Type"])
+        v29_miss_json = json.loads(v29_miss.content)
+        v29_hit_json = json.loads(v29_hit.content)
+        self.assertEqual(set(v29_miss_json.keys()), set(v29_hit_json.keys()))
+        self.assertEqual(
+            set(json.loads((session_root / v29_miss_json["session_id"] / "meta.json").read_text()).keys()),
+            {"session_id", "original_name", "original_bytes", "base_dxf_bytes", "base_dxf"},
+        )
+        self.assertEqual(len(calls), 1)
 
 
 class DrawingCoordinationRegressionTests(SimpleTestCase):
