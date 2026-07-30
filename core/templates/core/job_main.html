@@ -6,10 +6,17 @@
 {% block content %}
 {% if request.GET.cbl_modal %}
 <style>
-  html, body { margin: 0 !important; padding: 0 !important; overflow: hidden !important; background: transparent !important; }
+  html, body, main { width: 100% !important; height: 100% !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; background: #f0f2f5 !important; }
   header, footer, .site-header, .site-footer, .navbar, .main-header { display: none !important; }
-  .job-wrap { width: 100% !important; max-width: none !important; height: 100% !important; margin: 0 !important; padding: 0 !important; }
-  #job-screen { width: 100% !important; max-width: none !important; height: 100% !important; max-height: none !important; min-height: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+  .job-wrap { width: 100% !important; max-width: none !important; height: 100% !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; background: #f0f2f5 !important; }
+  #job-screen { width: 100% !important; max-width: none !important; height: 100% !important; max-height: none !important; min-height: 0 !important; display: flex !important; flex-direction: column !important; overflow: hidden !important; border-radius: 0 !important; box-shadow: none !important; background: #f0f2f5 !important; }
+  #job-screen .job-header { flex: 0 0 auto !important; padding-right: 58px !important; }
+  #job-screen .job-input-area { flex: 0 0 auto !important; }
+  #job-screen .job-body { flex: 1 1 auto !important; min-height: 0 !important; overflow-y: auto !important; overscroll-behavior: contain !important; -webkit-overflow-scrolling: touch !important; background: #f0f2f5 !important; }
+  #job-screen .job-body::-webkit-scrollbar { width: 8px; }
+  #job-screen .job-body::-webkit-scrollbar-track { background: rgba(156,163,175,.18); }
+  #job-screen .job-body::-webkit-scrollbar-thumb { background: #9ca3af; border-radius: 8px; }
+  #job-screen .job-body { scrollbar-width: thin; scrollbar-color: #9ca3af rgba(156,163,175,.18); }
 </style>
 {% endif %}
 <style>
