@@ -6330,6 +6330,9 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
 <!-- CBLCAD_BETA_V255_BOX_V1_START -->
 <style id="CBLCAD_BETA_V255_BOX_V1_STYLE">
  .cbl-bottom-tools {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
   position: fixed;
   right: 14px;
   bottom: 52px;
@@ -6343,7 +6346,12 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
   background: rgba(15, 23, 42, .94);
   box-shadow: 0 18px 60px rgba(0,0,0,.65);
   backdrop-filter: blur(10px);
- }
+}
+#cblBottomTools {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
 
  .cbl-bottom-tools button {
   height: 38px;
@@ -42061,4 +42069,3 @@ window.cblSnapResidueGateStatusV12 = function(){
 
 </script>
 <!-- CBL_V29_FINAL_BUTTON_LOCK_V2_END -->
-
