@@ -3875,6 +3875,76 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
 
   var state = {};
   var inputMode = "";
+  var jobCleanupTimers = [];
+  var jobBlobUrls = [];
+  var jobCleanupGeneration = 0;
+
+  function trackJobTimer(timerId) {
+    if (timerId != null) jobCleanupTimers.push(timerId);
+    return timerId;
+  }
+
+  function trackJobBlobUrl(url) {
+    if (typeof url === 'string' && url.indexOf('blob:') === 0 && jobBlobUrls.indexOf(url) === -1) {
+      jobBlobUrls.push(url);
+    }
+    return url;
+  }
+
+  function clearJobTimers() {
+    jobCleanupTimers.splice(0).forEach(function (timerId) {
+      try { window.clearTimeout(timerId); } catch (e) {}
+      try { window.clearInterval(timerId); } catch (e) {}
+    });
+  }
+
+  function revokeJobBlobUrls() {
+    jobBlobUrls.splice(0).forEach(function (url) {
+      try { window.URL.revokeObjectURL(url); } catch (e) {}
+    });
+  }
+
+  function cleanupJobMedia() {
+    jobCleanupGeneration += 1;
+    clearJobTimers();
+
+    try {
+      if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') state.mediaRecorder.stop();
+    } catch (e) {}
+    try {
+      if (state.realInterview && state.realInterview.recorder && state.realInterview.recorder.state !== 'inactive') {
+        state.realInterview.recorder.stop();
+      }
+    } catch (e) {}
+    try {
+      var activeSegmentRecorder = state.realInterview && state.realInterview.activeSegment && state.realInterview.activeSegment.recorder;
+      if (activeSegmentRecorder && activeSegmentRecorder.state !== 'inactive') activeSegmentRecorder.stop();
+    } catch (e) {}
+    try { stopRealInterviewTracks(); } catch (e) {}
+
+    modal.querySelectorAll('video, audio').forEach(function (media) {
+      try { media.pause(); } catch (e) {}
+      try { media.srcObject = null; } catch (e) {}
+      try { media.removeAttribute('src'); media.load(); } catch (e) {}
+    });
+    modal.querySelectorAll('.media-preview-card, .real-video-card').forEach(function (card) {
+      try { card.remove(); } catch (e) {}
+    });
+    revokeJobBlobUrls();
+
+    if (state.realInterview) {
+      state.realInterview.objectUrl = null;
+      state.realInterview.chunks = [];
+      state.realInterview.answerSegments = [];
+      state.realInterview.segmentPromises = [];
+      state.realInterview.activeSegment = null;
+      state.realInterview.stream = null;
+      state.realInterview.recorder = null;
+      state.realInterview.liveVideo = null;
+    }
+    state.mediaRecorder = null;
+    state.mediaPrecheck = null;
+  }
 
   var questionBank = {
     "공사": {
@@ -4061,6 +4131,7 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
   function hideInput() { inputArea.style.display = "none"; inputMode = ""; inputEl.value = ""; }
 
   function reset() {
+    cleanupJobMedia();
     USER = USER || "게스트";
     if (userNameEl) userNameEl.textContent = USER;
     state = { career: "", field: "", profile: {}, answers: [], qIdx: 0 };
@@ -4074,13 +4145,13 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
     ], function (role) {
       if (role === 'hire') { botSay('구인 기능은 준비 중이에요. 곧 채용 조건 정리 기능까지 연결할게요.'); return; }
       botSay('반갑습니다! 건설 분야 경력이 어떻게 되세요?');
-      window.setTimeout(function () {
+      trackJobTimer(window.setTimeout(function () {
         chips('career-chips', [
           { label: '신입 (0~2년)', value: '신입' },
           { label: '중견 (3~7년)', value: '중견' },
           { label: '시니어 (8년+)', value: '시니어', navy: true }
         ], selectCareer);
-      }, 300);
+      }, 300));
     });
   }
   function selectCareer(career) {
@@ -4128,7 +4199,7 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
 
       botSay(String(remaining), 120);
       remaining -= 1;
-      window.setTimeout(tick, 1000);
+      trackJobTimer(window.setTimeout(tick, 1000));
     }
 
     tick();
@@ -4136,17 +4207,18 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
 
   // CBL_AI_JOB_MEDIA_PRECHECK_COMBINED_V1
   function startMediaPrecheck() {
+    cleanupJobMedia();
     state.mediaPrecheck = { consent: false, video: false };
     botSay('면접 전 녹화, 녹음 기능을 확인하겠습니다.');
-    window.setTimeout(function () {
+    trackJobTimer(window.setTimeout(function () {
       botSay('1. 촬영에 동의하시나요? 동의 후 카메라와 마이크를 함께 5초간 테스트합니다.');
-      window.setTimeout(function () {
+      trackJobTimer(window.setTimeout(function () {
         chips('media-consent-chips', [
           { label: '동의합니다', value: 'yes', navy: true },
           { label: '동의하지 않습니다', value: 'no' }
         ], handleMediaConsent);
-      }, 250);
-    }, 250);
+      }, 250));
+    }, 250));
   }
 
   function handleMediaConsent(value) {
@@ -4156,22 +4228,22 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
     }
 
     state.mediaPrecheck.consent = true;
-    window.setTimeout(startVideoMediaCheck, 250);
+    trackJobTimer(window.setTimeout(startVideoMediaCheck, 250));
   }
 
   function startVideoMediaCheck() {
     botSay('2. 영상+음성 테스트를 진행하겠습니다. 준비되면 아래 버튼을 눌러주세요.');
-    window.setTimeout(function () {
+    trackJobTimer(window.setTimeout(function () {
       chips('media-video-chips', [
         { label: '🎥 영상+음성 5초 테스트', value: 'video', navy: true }
       ], function () {
         runMediaRecordCheck('video', function () {
           state.mediaPrecheck.video = true;
           botSay('영상과 음성이 모두 정상적으로 확인되었습니다. 아래 미리보기를 확인해 주세요.');
-          window.setTimeout(startInterviewAfterMediaPrecheck, 450);
+          trackJobTimer(window.setTimeout(startInterviewAfterMediaPrecheck, 450));
         });
       });
-    }, 250);
+    }, 250));
   }
 
 
@@ -4228,7 +4300,7 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
     if (isLive) {
       media.srcObject = src;
     } else {
-      media.src = src;
+      media.src = trackJobBlobUrl(src);
     }
 
     media.play().catch(function () {});
@@ -4279,6 +4351,8 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
       var mime = pickMediaMimeType(mode);
       var options = mime ? { mimeType: mime } : undefined;
       var recorder = new MediaRecorder(stream, options);
+      var recorderGeneration = jobCleanupGeneration;
+      state.mediaRecorder = recorder;
 
       if (mode === 'video') {
         livePreview = addMediaPreview('video', stream, true);
@@ -4289,9 +4363,16 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
       };
 
       recorder.onstop = function () {
+        if (recorderGeneration !== jobCleanupGeneration) {
+          stream.getTracks().forEach(function (track) {
+            try { track.stop(); } catch (e) {}
+          });
+          state.mediaRecorder = null;
+          return;
+        }
         var type = mime || (mode === 'video' ? 'video/webm' : 'audio/webm');
         var blob = new Blob(chunks, { type: type });
-        var url = URL.createObjectURL(blob);
+        var url = trackJobBlobUrl(URL.createObjectURL(blob));
 
         if (livePreview) {
           try {
@@ -4307,62 +4388,64 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
         addMediaPreview(mode === 'video' ? 'video' : 'audio', url, false);
 
         if (typeof done === 'function') done();
+        state.mediaRecorder = null;
       };
 
       recorder.start(1000);
       botSay('영상+음성 테스트를 시작했습니다. 아래 카운트가 끝나면 자동으로 중지됩니다.');
 
-      window.setTimeout(function () {
+      trackJobTimer(window.setTimeout(function () {
         runCblBotCountdown(5, function () {
           if (recorder && recorder.state !== 'inactive') {
             recorder.stop();
           }
         });
-      }, 350);
+      }, 350));
 
     }).catch(function (error) {
       console.error('[AI Job Media Precheck]', error);
       botSay('권한이 거부되었거나 장치를 사용할 수 없습니다. 브라우저 주소창의 카메라/마이크 권한을 허용한 뒤 다시 시도해 주세요.');
 
-      window.setTimeout(function () {
+      trackJobTimer(window.setTimeout(function () {
         chips('media-retry-chips', [
           { label: '다시 테스트하기', value: 'retry', navy: true }
         ], function () {
           startVideoMediaCheck();
         });
-      }, 250);
+      }, 250));
     });
   }
 
   function startInterviewAfterMediaPrecheck() {
     botSay('녹화와 녹음 기능이 정상 확인되었습니다. 다음 면접으로 넘어가겠습니다.');
 
-    window.setTimeout(function () {
+    trackJobTimer(window.setTimeout(function () {
       botSay('이제 바로 실전 면접을 진행하겠습니다. 진행하시겠습니까?');
 
-      window.setTimeout(function () {
+      trackJobTimer(window.setTimeout(function () {
         chips('real-interview-confirm-chips', [
           { label: '중지합니다', value: 'stop' },
           { label: '진행합니다', value: 'go', navy: true }
         ], handleRealInterviewConfirm);
-      }, 300);
-    }, 500);
+      }, 300));
+    }, 500));
   }
 
   function handleRealInterviewConfirm(value) {
     if (value !== 'go') {
+      cleanupJobMedia();
       botSay('실전 면접을 중지했습니다. 필요하면 다시 면접 시작하기를 눌러주세요.');
       return;
     }
 
     botSay('10초 뒤에 영상이 열리면서 실전 면접을 시작하겠습니다. 카메라와 마이크를 준비해 주세요.');
 
-    window.setTimeout(function () {
+    trackJobTimer(window.setTimeout(function () {
       runCblBotCountdown(10, function () {
         botSay('면접 진행하겠습니다. 지금부터 키보드 답변이 아니라 영상으로 답변을 녹화합니다.');
         startRealVideoInterview();
       });
-    }, 350);
+    }, 350));
   }
 
   function buildRealInterviewQuestions() {
@@ -4602,6 +4685,7 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
   }
 
   function startRealVideoInterview() {
+    cleanupJobMedia();
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
       botSay('이 브라우저에서는 카메라·마이크 녹화를 지원하지 않습니다. 최신 Safari 또는 Chrome에서 다시 확인해 주세요.');
       return;
@@ -4615,6 +4699,7 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
       var chunks = [];
       var mime = pickMediaMimeType('video');
       var recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      var recorderGeneration = jobCleanupGeneration;
       var liveVideo = addRealVideoPreview(stream);
       state.realInterview = {
         stream: stream,
@@ -4632,8 +4717,12 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
         if (event.data && event.data.size > 0) chunks.push(event.data);
       };
       recorder.onstop = function () {
+        if (recorderGeneration !== jobCleanupGeneration) {
+          stopRealInterviewTracks();
+          return;
+        }
         var blob = new Blob(chunks, { type: mime || 'video/webm' });
-        var url = URL.createObjectURL(blob);
+        var url = trackJobBlobUrl(URL.createObjectURL(blob));
         state.realInterview.objectUrl = url;
         if (liveVideo) {
           try { liveVideo.pause(); liveVideo.srcObject = null; } catch (e) {}
@@ -4646,11 +4735,11 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
       };
       recorder.start(1000);
       botSay('실전 면접 녹화를 시작했습니다. 질문을 보고 카메라를 보면서 답변해 주세요.');
-      window.setTimeout(showRealVideoQuestion, 400);
+      trackJobTimer(window.setTimeout(showRealVideoQuestion, 400));
     }).catch(function (error) {
       console.error('[AI Job Real Video Interview]', error);
       botSay('카메라 또는 마이크 권한이 거부되었거나 장치를 사용할 수 없습니다. 브라우저 권한을 허용한 뒤 다시 진행해 주세요.');
-      window.setTimeout(function () {
+      trackJobTimer(window.setTimeout(function () {
         chips('real-interview-retry-chips', [
           { label: '중지합니다', value: 'stop' },
           { label: '다시 진행합니다', value: 'retry', navy: true }
@@ -4658,7 +4747,7 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
           if (value === 'retry') startRealVideoInterview();
           else botSay('실전 면접을 중지했습니다.');
         });
-      }, 300);
+      }, 300));
     });
   }
 
@@ -4677,7 +4766,7 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
       '</div>'
     );
     startRealAnswerSegment(idx, state.questions[idx]);
-    window.setTimeout(function () {
+    trackJobTimer(window.setTimeout(function () {
       chips('real-question-chips-' + idx, [
         { label: isLast ? '면접 종료' : '다음 질문으로', value: 'next', navy: true },
         { label: '중지합니다', value: 'stop' }
@@ -4688,10 +4777,10 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
             return;
           }
           state.qIdx += 1;
-          window.setTimeout(showRealVideoQuestion, 350);
+          trackJobTimer(window.setTimeout(showRealVideoQuestion, 350));
         });
       });
-    }, 250);
+    }, 250));
   }
 
   function finishRealVideoInterview() {
@@ -4753,12 +4842,15 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
     return false;
   }
   function closePopup() {
+    cleanupJobMedia();
     modal.hidden = true;
     modal.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('cbl-modal-open');
   }
   modal.querySelectorAll('[data-cbl-job-close]').forEach(function (el) { el.addEventListener('click', closePopup); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !modal.hidden) closePopup(); });
+  window.addEventListener('pagehide', cleanupJobMedia);
+  window.addEventListener('beforeunload', cleanupJobMedia);
   window.cblOpenAiJobChat = openPopup;
 })();
 </script>
@@ -9187,7 +9279,7 @@ body.cbl-modal-open {
           {% for post in latest_all %}
           <a class="cblx-post-card" href="{{ post.get_absolute_url }}">
             <div class="cblx-thumb">
-              {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title|striptags }}">{% else %}<div class="cblx-placeholder">CBL</div>{% endif %}
+              {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title|striptags }}" loading="lazy" decoding="async" fetchpriority="low">{% else %}<div class="cblx-placeholder">CBL</div>{% endif %}
               <span>{{ post.get_category_display }}</span>
             </div>
             <div class="cblx-post-body">
@@ -9206,7 +9298,7 @@ body.cbl-modal-open {
           {% for post in latest_architecture %}
           <a class="cblx-post-card" href="{{ post.get_absolute_url }}">
             <div class="cblx-thumb">
-              {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title|striptags }}">{% else %}<div class="cblx-placeholder">CBL</div>{% endif %}
+              {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title|striptags }}" loading="lazy" decoding="async" fetchpriority="low">{% else %}<div class="cblx-placeholder">CBL</div>{% endif %}
               <span>{{ post.get_category_display }}</span>
             </div>
             <div class="cblx-post-body">
@@ -9225,7 +9317,7 @@ body.cbl-modal-open {
           {% for post in latest_bim %}
           <a class="cblx-post-card" href="{{ post.get_absolute_url }}">
             <div class="cblx-thumb">
-              {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title|striptags }}">{% else %}<div class="cblx-placeholder">CBL</div>{% endif %}
+              {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title|striptags }}" loading="lazy" decoding="async" fetchpriority="low">{% else %}<div class="cblx-placeholder">CBL</div>{% endif %}
               <span>{{ post.get_category_display }}</span>
             </div>
             <div class="cblx-post-body">
@@ -9244,7 +9336,7 @@ body.cbl-modal-open {
           {% for post in latest_tech %}
           <a class="cblx-post-card" href="{{ post.get_absolute_url }}">
             <div class="cblx-thumb">
-              {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title|striptags }}">{% else %}<div class="cblx-placeholder">CBL</div>{% endif %}
+              {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title|striptags }}" loading="lazy" decoding="async" fetchpriority="low">{% else %}<div class="cblx-placeholder">CBL</div>{% endif %}
               <span>{{ post.get_category_display }}</span>
             </div>
             <div class="cblx-post-body">
@@ -9263,7 +9355,7 @@ body.cbl-modal-open {
           {% for post in latest_program %}
           <a class="cblx-post-card" href="{{ post.get_absolute_url }}">
             <div class="cblx-thumb">
-              {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title|striptags }}">{% else %}<div class="cblx-placeholder">CBL</div>{% endif %}
+              {% if post.thumbnail %}<img src="{{ post.thumbnail.url }}" alt="{{ post.title|striptags }}" loading="lazy" decoding="async" fetchpriority="low">{% else %}<div class="cblx-placeholder">CBL</div>{% endif %}
               <span>{{ post.get_category_display }}</span>
             </div>
             <div class="cblx-post-body">
@@ -9825,9 +9917,9 @@ body[data-cbl-url-name="home"] .cbl-second-calendar-event-mini span {
         href="{{ post.get_absolute_url }}">
         <div class="cblx-thumb cbl-second-video-thumb cbl-landscape-thumb">
           {% if post.shorts_cover %}
-            <img src="{{ post.shorts_cover.url }}" alt="{{ post.title|striptags }}">
+            <img src="{{ post.shorts_cover.url }}" alt="{{ post.title|striptags }}" loading="lazy" decoding="async" fetchpriority="low">
           {% elif post.thumbnail %}
-            <img src="{{ post.thumbnail.url }}" alt="{{ post.title|striptags }}">
+            <img src="{{ post.thumbnail.url }}" alt="{{ post.title|striptags }}" loading="lazy" decoding="async" fetchpriority="low">
           {% endif %}
           <span>{% if post.category == 'bim' or post.category == 'dynamo_automation' or post.category == 'four_d_five_d' %}BIM{% elif post.category == 'tech' or post.category == 'tech_ai_development' or post.category == 'tech_data_security' or post.category == 'tech_server_software' %}테크{% elif post.category == 'program' or post.category == 'tool_recommend' %}프로그램{% else %}건설{% endif %}</span>
           <i class="cbl-second-play"></i>
@@ -17073,7 +17165,7 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
     }
     libraryGrid.innerHTML = items.map(function (item) {
       const image = item.cover_url
-        ? '<img src="' + escapeHtml(item.cover_url) + '" alt="">'
+        ? '<img src="' + escapeHtml(item.cover_url) + '" alt="" loading="lazy" decoding="async" fetchpriority="low">'
         : "";
       return '<button type="button" class="cbl-video-library-card '
         + (item.kind === "shorts" ? "is-shorts" : "")
