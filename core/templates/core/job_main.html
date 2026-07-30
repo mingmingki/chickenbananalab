@@ -4,21 +4,6 @@
 {% block title %}AI건설 구인구직 | ChickenBanana Lab{% endblock %}
 
 {% block content %}
-{% if request.GET.cbl_modal %}
-<style>
-  html, body, main { width: 100% !important; height: 100% !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; background: #f0f2f5 !important; }
-  header, footer, .site-header, .site-footer, .navbar, .main-header { display: none !important; }
-  .job-wrap { width: 100% !important; max-width: none !important; height: 100% !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; background: #f0f2f5 !important; }
-  #job-screen { width: 100% !important; max-width: none !important; height: 100% !important; max-height: none !important; min-height: 0 !important; display: flex !important; flex-direction: column !important; overflow: hidden !important; border-radius: 0 !important; box-shadow: none !important; background: #f0f2f5 !important; }
-  #job-screen .job-header { flex: 0 0 auto !important; padding-right: 58px !important; }
-  #job-screen .job-input-area { flex: 0 0 auto !important; }
-  #job-screen .job-body { flex: 1 1 auto !important; min-height: 0 !important; overflow-y: auto !important; overscroll-behavior: contain !important; -webkit-overflow-scrolling: touch !important; background: #f0f2f5 !important; }
-  #job-screen .job-body::-webkit-scrollbar { width: 8px; }
-  #job-screen .job-body::-webkit-scrollbar-track { background: rgba(156,163,175,.18); }
-  #job-screen .job-body::-webkit-scrollbar-thumb { background: #9ca3af; border-radius: 8px; }
-  #job-screen .job-body { scrollbar-width: thin; scrollbar-color: #9ca3af rgba(156,163,175,.18); }
-</style>
-{% endif %}
 <style>
 .job-wrap {
   max-width: 480px;
@@ -725,41 +710,5 @@ async function freeChat() {
   scroll();
   await botSay('확인했어요. 추가 궁금한 점이 있으시면 언제든 말씀해 주세요.');
 }
-</script>
-<style id="cbl-job-viewport-v1">
-  .job-wrap { width: 520px; max-width: 520px; padding-left: 0; padding-right: 0; box-sizing: border-box; }
-  #job-screen { width: 520px; max-width: 100%; height: min(820px, calc(100vh - 36px)); max-height: 820px; box-sizing: border-box; min-height: 0; }
-  @media (max-width: 768px) {
-    .job-wrap { width: calc(100vw - 24px); max-width: calc(100vw - 24px); padding: 0; margin: 12px auto; }
-    #job-screen { width: 100%; max-width: 100%; height: 68dvh; max-height: calc(100dvh - 24px); min-height: 0; }
-    #job-screen .job-header, #job-screen .job-input-area { flex-shrink: 0; }
-    #job-screen .job-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-  }
-</style>
-<script>
-(function () {
-  "use strict";
-  var mq = window.matchMedia ? window.matchMedia("(max-width: 768px)") : null;
-  var screen = document.getElementById("job-screen");
-  var wrap = document.querySelector(".job-wrap");
-  var body = document.getElementById("job-body");
-  var input = document.getElementById("job-inp");
-  if (!screen || !wrap || new URLSearchParams(window.location.search).get("cbl_modal") === "1") return;
-  function mobile() { return !!(mq && mq.matches); }
-  function apply(focused) {
-    if (!mobile()) { [screen, wrap].forEach(function (el) { ["height", "max-height", "top", "position"].forEach(function (p) { el.style.removeProperty(p); }); }); return; }
-    var vv = window.visualViewport, full = window.innerHeight || document.documentElement.clientHeight || 0;
-    var vh = vv && vv.height ? vv.height : full, shrunk = vh < full * .85;
-    var h = focused ? (shrunk ? Math.max(120, vh - 12) : Math.max(120, full * .44)) : Math.max(120, full * .68);
-    var top = (vv && Number.isFinite(vv.offsetTop) ? vv.offsetTop : 0) + Math.max(12, ((shrunk ? vh : full) - h) / 2);
-    screen.style.setProperty("height", h + "px", "important"); screen.style.setProperty("max-height", h + "px", "important"); screen.style.setProperty("margin-top", "0", "important");
-    wrap.style.setProperty("margin-top", top + "px", "important");
-  }
-  if (input) { input.addEventListener("focus", function () { [0, 100, 300].forEach(function (d) { setTimeout(function () { apply(true); if (body) body.scrollTop = body.scrollHeight; }, d); }); }); input.addEventListener("blur", function () { setTimeout(function () { apply(false); }, 300); }); }
-  window.addEventListener("resize", function () { apply(!!(input && document.activeElement === input)); }, { passive: true });
-  if (window.visualViewport) window.visualViewport.addEventListener("resize", function () { apply(!!(input && document.activeElement === input)); }, { passive: true });
-  if (mq && mq.addEventListener) mq.addEventListener("change", function () { apply(false); });
-  apply(false);
-})();
 </script>
 {% endblock %}

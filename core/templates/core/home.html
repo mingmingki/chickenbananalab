@@ -4762,6 +4762,27 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
 })();
 </script>
 <!-- CBL_AI_JOB_CENTER_UI_END -->
+<style id="CBL_AI_JOB_VIDEO_LAYOUT_V2">
+#cblAiJobMessengerModal { position: fixed; inset: 0; z-index: 2147483500; display: flex; align-items: center; justify-content: center; padding: 12px; background: rgba(15,23,42,.58); backdrop-filter: blur(6px); overflow: hidden; }
+#cblAiJobMessengerModal[hidden] { display: none !important; }
+#cblAiJobMessengerModal .job-wrap { width: 520px; max-width: 100%; height: min(820px, calc(100dvh - 24px)); max-height: 820px; min-height: 0; padding: 0; margin: 0; overflow: hidden; }
+#cblAiJobMessengerModal .job-screen { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; overflow: hidden; background: #f0f2f5; border-radius: 20px; }
+#cblAiJobMessengerModal .job-header, #cblAiJobMessengerModal .job-input-area { flex: 0 0 auto; }
+#cblAiJobMessengerModal .job-header { padding-right: 58px; }
+#cblAiJobMessengerModal .job-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; background: #f0f2f5; scrollbar-width: thin; scrollbar-color: #9ca3af rgba(156,163,175,.18); }
+#cblAiJobMessengerModal .job-body::-webkit-scrollbar { width: 8px; }
+#cblAiJobMessengerModal .job-body::-webkit-scrollbar-track { background: rgba(156,163,175,.18); }
+#cblAiJobMessengerModal .job-body::-webkit-scrollbar-thumb { background: #9ca3af; border-radius: 8px; }
+@media (max-width: 768px) { #cblAiJobMessengerModal { padding: 12px; } #cblAiJobMessengerModal .job-wrap { width: calc(100vw - 24px); height: 68dvh; max-height: calc(100dvh - 24px); } }
+</style>
+<script>
+(function(){
+  var modal=document.getElementById('cblAiJobMessengerModal'), wrap=modal&&modal.querySelector('.job-wrap');
+  if(!modal||!wrap) return;
+  function apply(){ if(window.matchMedia && !window.matchMedia('(max-width:768px)').matches) return; var vv=window.visualViewport, full=window.innerHeight||0, h=vv&&vv.height?vv.height:full; var focused=document.activeElement&&/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName); var shrunk=h<full*.85; var target=focused?(shrunk?Math.max(160,h-12):Math.max(160,full*.44)):Math.max(160,full*.68); wrap.style.height=target+'px'; wrap.style.maxHeight=target+'px'; }
+  window.addEventListener('resize',apply,{passive:true}); if(window.visualViewport) window.visualViewport.addEventListener('resize',apply,{passive:true}); modal.addEventListener('focusin',function(){setTimeout(apply,0);setTimeout(apply,100);setTimeout(apply,300);}); modal.addEventListener('focusout',function(){setTimeout(apply,300);});
+})();
+</script>
 
 
 <!-- CBL_QUANTITY_JOB_STYLE_CHAT_V7_START -->
@@ -17508,28 +17529,6 @@ document.addEventListener('click', function(e){
 <!-- ===== /CBL CAD STATE BRIDGE FORCE V2 ===== -->
 
 
-<style id="CBL_AI_JOB_IFRAME_MODAL_V1">
-  #cblAiJobIframeModal { position: fixed; inset: 0; z-index: 12000; display: none; align-items: center; justify-content: center; padding: 12px; background: rgba(15,23,42,.58); backdrop-filter: blur(6px); }
-  #cblAiJobIframeModal.is-open { display: flex; }
-  #cblAiJobIframeModal .cbl-job-iframe-wrap { position: relative; width: 520px; height: min(820px, calc(100dvh - 24px)); max-height: 820px; border-radius: 20px; overflow: hidden; background: #fff; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
-  #cblAiJobIframeModal iframe { display: block; width: 100%; height: 100%; border: 0; }
-  #cblAiJobIframeModal .cbl-job-iframe-close { position: absolute; top: 8px; right: 10px; z-index: 2; width: 32px; height: 32px; border: 0; border-radius: 50%; background: rgba(7,58,91,.9); color: #fff; font-size: 22px; cursor: pointer; }
-  @media (max-width: 768px) { #cblAiJobIframeModal .cbl-job-iframe-wrap { width: calc(100vw - 24px); height: 68dvh; max-height: calc(100dvh - 24px); } }
-</style>
-<div id="cblAiJobIframeModal" aria-hidden="true">
-  <div class="cbl-job-iframe-wrap"><button class="cbl-job-iframe-close" type="button" aria-label="닫기">×</button><iframe title="AI건설 구인구직" src="/job/?cbl_modal=1"></iframe></div>
-</div>
-<script>
-(function(){
-  var modal = document.getElementById('cblAiJobIframeModal'); if (!modal) return;
-  var frame = modal.querySelector('iframe');
-  function close(){ modal.classList.remove('is-open'); modal.setAttribute('aria-hidden','true'); document.body.classList.remove('cbl-modal-open'); }
-  window.cblOpenAiJobModal = function(){ modal.classList.add('is-open'); modal.setAttribute('aria-hidden','false'); document.body.classList.add('cbl-modal-open'); };
-  modal.addEventListener('click', function(e){ if(e.target === modal || e.target.closest('.cbl-job-iframe-close')) close(); });
-  document.addEventListener('keydown', function(e){ if(e.key === 'Escape' && modal.classList.contains('is-open')) close(); });
-  window.addEventListener('resize', function(){ if(!modal.classList.contains('is-open')) return; var vv=window.visualViewport; var wrap=modal.querySelector('.cbl-job-iframe-wrap'); if(vv && wrap && window.matchMedia('(max-width:768px)').matches){ wrap.style.height=Math.min(vv.height-24, window.innerHeight*.68)+'px'; } });
-})();
-</script>
 <script id="CBL_AI_CONSTRUCTION_JOB_START_LINK_V1">
 (function(){
   function hasJobContext(el){
@@ -17545,7 +17544,7 @@ document.addEventListener('click', function(e){
       var txt = (el.textContent || '').trim();
       if((txt.indexOf('시작하기') >= 0 || txt.indexOf('자세히보기') >= 0) && hasJobContext(el)){
         el.setAttribute('data-cbl-ai-job-start', '1');
-        if(el.tagName === 'A') el.setAttribute('href', '#cblAiJobIframeModal');
+        if(el.tagName === 'A') el.setAttribute('href', '#cblAiJobMessengerModal');
       }
     });
   }
@@ -17554,7 +17553,7 @@ document.addEventListener('click', function(e){
     if(!el) return;
     var txt = (el.textContent || '').trim();
     if((el.getAttribute('data-cbl-ai-job-start') === '1' || txt.indexOf('시작하기') >= 0) && hasJobContext(el)){
-      e.preventDefault(); e.stopPropagation(); if(window.cblOpenAiJobModal) window.cblOpenAiJobModal();
+      e.preventDefault(); e.stopPropagation(); if(window.cblOpenAiJobChat) window.cblOpenAiJobChat();
     }
   }, true);
   document.addEventListener('DOMContentLoaded', markButtons);
