@@ -4745,6 +4745,7 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
   sendBtn.addEventListener('click', handleInput);
 
   function openPopup() {
+    if (!modal.hidden && modal.getAttribute('aria-hidden') === 'false') return false;
     modal.hidden = false;
     modal.setAttribute('aria-hidden', 'false');
     document.body.classList.add('cbl-modal-open');
@@ -17540,19 +17541,15 @@ document.addEventListener('click', function(e){
     return false;
   }
   function markButtons(){
-    document.querySelectorAll('a,button').forEach(function(el){
-      var txt = (el.textContent || '').trim();
-      if((txt.indexOf('시작하기') >= 0 || txt.indexOf('자세히보기') >= 0) && hasJobContext(el)){
-        el.setAttribute('data-cbl-ai-job-start', '1');
-        if(el.tagName === 'A') el.setAttribute('href', '#cblAiJobMessengerModal');
-      }
+    document.querySelectorAll('[data-cbl-beta-open="job"], [data-cbl-ai-job-start="1"]').forEach(function(el){
+      if(el.tagName === 'A') el.setAttribute('href', '#cblAiJobMessengerModal');
     });
   }
   document.addEventListener('click', function(e){
     var el = e.target.closest('a,button');
     if(!el) return;
-    var txt = (el.textContent || '').trim();
-    if((el.getAttribute('data-cbl-ai-job-start') === '1' || txt.indexOf('시작하기') >= 0) && hasJobContext(el)){
+    if(el.closest('#cblAiJobMessengerModal')) return;
+    if((el.matches('[data-cbl-beta-open="job"], [data-cbl-ai-job-start="1"]')) && hasJobContext(el)){
       e.preventDefault(); e.stopPropagation(); if(window.cblOpenAiJobChat) window.cblOpenAiJobChat();
     }
   }, true);
