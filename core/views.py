@@ -23205,7 +23205,8 @@ def video_library_api(request):
             and (request.user.is_staff or request.user.is_superuser)
         )
         if payload["can_manage"]:
-            payload["edit_url"] = reverse("post_update", kwargs={"pk": post.pk})
+            payload["edit_data_url"] = reverse("video_post_edit_data_api", kwargs={"pk": post.pk})
+            payload["update_url"] = reverse("video_post_update_api", kwargs={"pk": post.pk})
             payload["delete_url"] = reverse("video_library_delete_api", kwargs={"pk": post.pk})
         if kind != "all" and payload["kind"] != kind:
             continue
@@ -23235,4 +23236,79 @@ def video_library_delete_api(request, pk):
         return JsonResponse({"ok": False, "error": "동영상/쇼츠 게시글이 아닙니다."}, status=400)
     post.delete()
     return JsonResponse({"ok": True, "id": pk})
+
+
+@user_passes_test(admin_required)
+def video_post_edit_data_api(request, pk):
+    """동영상 올리기 팝업에서 기존 동영상 게시글을 수정할 때 초기값을 내려줍니다."""
+    post = get_object_or_404(Post, pk=pk)
+    if not Post.objects.filter(cbl_video_post_q(), pk=pk).exists():
+        return JsonResponse({"ok": False, "error": "동영상/쇼츠 게시글이 아닙니다."}, status=400)
+
+    file_url = _cbl_video_file_url(getattr(post, "video_file", None))
+    shorts_url = _cbl_video_file_url(getattr(post, "shorts_video", None))
+    video_url = file_url or shorts_url
+    youtube_url = str(getattr(post, "youtube_url", "") or "")
+    source_type = "file" if video_url else ("youtube" if youtube_url else "file")
+
+    return JsonResponse({
+        "ok": True,
+        "id": post.pk,
+        "title": str(getattr(post, "title", "") or ""),
+        "category": str(getattr(post, "category", "") or ""),
+        "content": strip_tags(str(getattr(post, "content", "") or "")),
+        "tags": str(getattr(post, "tags", "") or ""),
+        "is_published": bool(getattr(post, "is_published", False)),
+        "source_type": source_type,
+        "video_url": video_url,
+        "youtube_url": youtube_url,
+        "thumbnail_url": _cbl_video_file_url(getattr(post, "thumbnail", None)),
+    })
+
+
+@user_passes_test(admin_required)
+@require_POST
+def video_post_update_api(request, pk):
+    """동영상 올리기 팝업에서 기존 동영상 게시글을 그대로 수정 저장합니다."""
+    post = get_object_or_404(Post, pk=pk)
+    if not Post.objects.filter(cbl_video_post_q(), pk=pk).exists():
+        return JsonResponse({"ok": False, "error": "동영상/쇼츠 게시글이 아닙니다."}, status=400)
+
+    old_thumbnail_name = post.thumbnail.name if post.thumbnail else ""
+    old_video_file_name = post.video_file.name if post.video_file else ""
+
+    form_data = request.POST.copy()
+    form_data["post_type"] = "video"
+    if not (form_data.get("content") or "").strip():
+        form_data["content"] = "<p>영상 설명이 아직 없습니다.</p>"
+
+    form = PostForm(form_data, request.FILES, instance=post)
+
+    if not form.is_valid():
+        errors = []
+        for field_errors in form.errors.values():
+            errors.extend(str(error) for error in field_errors)
+        return JsonResponse({
+            "ok": False,
+            "error": errors[0] if errors else "입력 내용을 확인해주세요.",
+            "errors": form.errors.get_json_data(),
+        }, status=400)
+
+    post = form.save(commit=False)
+    post.post_type = "video"
+    post.content = normalize_html_spaces(post.content or "")
+    post.save()
+    form.save_m2m()
+
+    if request.FILES.get("thumbnail") and old_thumbnail_name != (post.thumbnail.name if post.thumbnail else ""):
+        delete_file_safely(old_thumbnail_name)
+
+    if request.FILES.get("video_file") and old_video_file_name != (post.video_file.name if post.video_file else ""):
+        delete_file_safely(old_video_file_name)
+
+    return JsonResponse({
+        "ok": True,
+        "post_id": post.pk,
+        "redirect_url": f"/?video={post.pk}",
+    })
 # CBL_VIDEO_LIBRARY_API_V1_END

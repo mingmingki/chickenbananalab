@@ -224,4 +224,6 @@ urlpatterns += [
 urlpatterns += [
     path("api/videos/", views.video_library_api, name="video_library_api"),
     path("api/videos/<int:pk>/delete/", views.video_library_delete_api, name="video_library_delete_api"),
+    path("api/videos/<int:pk>/edit-data/", views.video_post_edit_data_api, name="video_post_edit_data_api"),
+    path("api/videos/<int:pk>/update/", views.video_post_update_api, name="video_post_update_api"),
 ]

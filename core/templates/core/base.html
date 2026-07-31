@@ -10057,8 +10057,41 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
         cblSetVideoModalState();
     }
 
+    function cblResetVideoUploadFormMode() {
+        const form = document.getElementById("videoPostUploadForm");
+        if (!form) return;
+
+        form.dataset.cblMode = "create";
+        delete form.dataset.cblEditUpdateUrl;
+
+        const heading = document.querySelector("#videoPostUploadModal .site-modal-header h2");
+        if (heading) heading.textContent = "동영상 올리기";
+
+        const submitButton = document.getElementById("cblVideoSubmitButton");
+        if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = "동영상 등록";
+        }
+
+        const status = document.getElementById("cblVideoUploadStatus");
+        if (status) status.textContent = "";
+
+        form.reset();
+
+        const fileInput = document.getElementById("cblVideoFile");
+        if (fileInput) fileInput.required = true;
+
+        if (typeof setVideoUploadSource === "function") setVideoUploadSource("file");
+
+        const previewBox = document.getElementById("cblVideoPreviewBox");
+        if (previewBox) previewBox.textContent = "영상을 선택하면 미리보기가 표시됩니다.";
+        const previewTitle = document.getElementById("cblVideoPreviewTitle");
+        if (previewTitle) previewTitle.textContent = "새 동영상";
+    }
+
     function openVideoPostUploadModal() {
         closeVideoUploadChoiceModal();
+        cblResetVideoUploadFormMode();
         const modal = document.getElementById("videoPostUploadModal");
         if (modal) modal.classList.add("active");
         cblSetVideoModalState();
@@ -10079,6 +10112,79 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
         if (modal) modal.classList.remove("active");
         cblSetVideoModalState();
     }
+
+    window.openVideoPostEditModal = function (editDataUrl, updateUrl) {
+        if (!editDataUrl || !updateUrl) return;
+        openVideoPostUploadModal();
+
+        const form = document.getElementById("videoPostUploadForm");
+        const heading = document.querySelector("#videoPostUploadModal .site-modal-header h2");
+        const submitButton = document.getElementById("cblVideoSubmitButton");
+        const status = document.getElementById("cblVideoUploadStatus");
+
+        if (form) {
+            form.dataset.cblMode = "edit";
+            form.dataset.cblEditUpdateUrl = updateUrl;
+        }
+        if (heading) heading.textContent = "동영상 수정";
+        if (submitButton) submitButton.textContent = "수정 저장";
+        if (status) status.textContent = "불러오는 중입니다...";
+
+        fetch(editDataUrl, { headers: { "X-Requested-With": "XMLHttpRequest" } })
+            .then(function (response) {
+                return response.json().then(function (data) {
+                    if (!response.ok || !data.ok) throw new Error(data.error || "정보를 불러오지 못했습니다.");
+                    return data;
+                });
+            })
+            .then(function (data) {
+                const titleInput = document.getElementById("cblVideoTitle");
+                const categorySelect = document.getElementById("cblVideoCategory");
+                const contentInput = document.getElementById("cblVideoContent");
+                const tagsInput = document.getElementById("cblVideoTags");
+                const publishInput = form ? form.querySelector('input[name="is_published"]') : null;
+                const previewBox = document.getElementById("cblVideoPreviewBox");
+                const previewTitle = document.getElementById("cblVideoPreviewTitle");
+                const fileInput = document.getElementById("cblVideoFile");
+                const youtubeInput = document.getElementById("cblVideoYoutube");
+
+                if (titleInput) titleInput.value = data.title || "";
+                if (categorySelect) categorySelect.value = data.category || "";
+                if (contentInput) contentInput.value = data.content || "";
+                if (tagsInput) tagsInput.value = data.tags || "";
+                if (publishInput) publishInput.checked = !!data.is_published;
+
+                if (typeof setVideoUploadSource === "function") {
+                    setVideoUploadSource(data.source_type === "youtube" ? "youtube" : "file");
+                }
+                if (fileInput) fileInput.required = false;
+                if (youtubeInput) {
+                    youtubeInput.required = false;
+                    youtubeInput.value = data.youtube_url || "";
+                }
+
+                if (previewTitle) previewTitle.textContent = data.title || "새 동영상";
+                if (previewBox) {
+                    if (data.source_type === "file" && data.video_url) {
+                        previewBox.innerHTML = "";
+                        const video = document.createElement("video");
+                        video.src = data.video_url;
+                        video.controls = true;
+                        video.preload = "metadata";
+                        previewBox.appendChild(video);
+                    } else if (data.source_type === "youtube" && data.youtube_url) {
+                        previewBox.textContent = "현재 연결된 YouTube 영상: " + data.youtube_url;
+                    } else {
+                        previewBox.textContent = "영상을 선택하면 미리보기가 표시됩니다.";
+                    }
+                }
+
+                if (status) status.textContent = "새 파일을 선택하지 않으면 기존 영상이 유지됩니다.";
+            })
+            .catch(function (error) {
+                if (status) status.textContent = error.message || "정보를 불러오지 못했습니다.";
+            });
+    };
 
     function openShortsAutoCreateModal() {
         closeVideoUploadChoiceModal();
@@ -10155,14 +10261,17 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
         if (form) {
             form.addEventListener("submit", async function (event) {
                 event.preventDefault();
-                if (status) status.textContent = "업로드 중입니다. 창을 닫지 마세요.";
+                const isEdit = form.dataset.cblMode === "edit";
+                const targetUrl = isEdit ? (form.dataset.cblEditUpdateUrl || form.action) : form.action;
+
+                if (status) status.textContent = isEdit ? "저장 중입니다. 창을 닫지 마세요." : "업로드 중입니다. 창을 닫지 마세요.";
                 if (submitButton) {
                     submitButton.disabled = true;
-                    submitButton.textContent = "업로드 중...";
+                    submitButton.textContent = isEdit ? "저장 중..." : "업로드 중...";
                 }
 
                 try {
-                    const response = await fetch(form.action, {
+                    const response = await fetch(targetUrl, {
                         method: "POST",
                         body: new FormData(form),
                         headers: { "X-Requested-With": "XMLHttpRequest" }
@@ -10176,15 +10285,15 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
                         };
                     });
                     if (!response.ok || !data.ok) {
-                        throw new Error(data.error || "동영상 등록에 실패했습니다.");
+                        throw new Error(data.error || (isEdit ? "동영상 수정에 실패했습니다." : "동영상 등록에 실패했습니다."));
                     }
-                    if (status) status.textContent = "등록이 완료되었습니다.";
+                    if (status) status.textContent = isEdit ? "수정이 완료되었습니다." : "등록이 완료되었습니다.";
                     window.location.href = data.redirect_url;
                 } catch (error) {
-                    if (status) status.textContent = error.message || "동영상 등록에 실패했습니다.";
+                    if (status) status.textContent = error.message || (isEdit ? "동영상 수정에 실패했습니다." : "동영상 등록에 실패했습니다.");
                     if (submitButton) {
                         submitButton.disabled = false;
-                        submitButton.textContent = "동영상 등록";
+                        submitButton.textContent = isEdit ? "수정 저장" : "동영상 등록";
                     }
                 }
             });

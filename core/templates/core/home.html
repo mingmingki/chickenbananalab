@@ -17174,7 +17174,7 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
       const image = item.cover_url
         ? '<img src="' + escapeHtml(item.cover_url) + '" alt="" loading="lazy" decoding="async" fetchpriority="low">'
         : "";
-      const manage = item.can_manage ? '<span class="cbl-video-library-actions"><a class="cbl-video-library-edit" href="' + escapeHtml(item.edit_url || '#') + '" data-cbl-video-manage="1">수정</a><button type="button" class="cbl-video-library-delete" data-cbl-video-delete="' + Number(item.id) + '" data-cbl-video-delete-url="' + escapeHtml(item.delete_url || '') + '">삭제</button></span>' : '';
+      const manage = item.can_manage ? '<span class="cbl-video-library-actions"><button type="button" class="cbl-video-library-edit" data-cbl-video-edit="' + Number(item.id) + '" data-cbl-video-edit-data-url="' + escapeHtml(item.edit_data_url || '') + '" data-cbl-video-update-url="' + escapeHtml(item.update_url || '') + '">수정</button><button type="button" class="cbl-video-library-delete" data-cbl-video-delete="' + Number(item.id) + '" data-cbl-video-delete-url="' + escapeHtml(item.delete_url || '') + '">삭제</button></span>' : '';
       return '<article role="button" tabindex="0" class="cbl-video-library-card '
         + (item.kind === "shorts" ? "is-shorts" : "")
         + '" data-cbl-library-video-id="'
@@ -17254,8 +17254,19 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
         .catch(function (error) { window.alert(error.message); });
       return;
     }
-    const editLink = event.target.closest("[data-cbl-video-manage]");
-    if (editLink) { event.stopPropagation(); return; }
+    const editButton = event.target.closest("[data-cbl-video-edit]");
+    if (editButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      window.closeCblVideoLibrary();
+      if (typeof window.openVideoPostEditModal === "function") {
+        window.openVideoPostEditModal(
+          editButton.dataset.cblVideoEditDataUrl,
+          editButton.dataset.cblVideoUpdateUrl
+        );
+      }
+      return;
+    }
     const homeCard = event.target.closest("[data-cbl-video-card]");
     if (homeCard) {
       const id = homeCard.dataset.cblVideoId;
