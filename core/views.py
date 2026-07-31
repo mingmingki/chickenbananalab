@@ -23199,6 +23199,13 @@ def video_library_api(request):
     items = []
     for post in queryset[:200]:
         payload = _cbl_video_payload(post)
+        payload["can_manage"] = bool(
+            request.user.is_authenticated
+            and (request.user.is_staff or request.user.is_superuser)
+        )
+        if payload["can_manage"]:
+            payload["edit_url"] = reverse("post_update", kwargs={"pk": post.pk})
+            payload["delete_url"] = reverse("video_library_delete_api", kwargs={"pk": post.pk})
         if kind != "all" and payload["kind"] != kind:
             continue
         if category != "all" and payload["category_group"] != category:
@@ -23217,4 +23224,14 @@ def video_library_api(request):
             and (request.user.is_staff or request.user.is_superuser)
         ),
     })
+
+
+@user_passes_test(admin_required)
+@require_POST
+def video_library_delete_api(request, pk):
+    post = get_object_or_404(Post, pk=pk)
+    if not Post.objects.filter(cbl_video_post_q(), pk=pk).exists():
+        return JsonResponse({"ok": False, "error": "동영상/쇼츠 게시글이 아닙니다."}, status=400)
+    post.delete()
+    return JsonResponse({"ok": True, "id": pk})
 # CBL_VIDEO_LIBRARY_API_V1_END

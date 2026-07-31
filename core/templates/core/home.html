@@ -16906,6 +16906,10 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
     font-size: 10px;
     font-weight: 700;
   }
+  .cbl-video-library-actions { display:flex; gap:6px; margin-top:8px; align-items:center; }
+  .cbl-video-library-actions a, .cbl-video-library-actions button { border:0; border-radius:7px; padding:5px 9px; font-size:11px; font-weight:800; text-decoration:none; cursor:pointer; }
+  .cbl-video-library-edit { background:#dcfce7; color:#166534; }
+  .cbl-video-library-delete { background:#fee2e2; color:#b91c1c; }
   @media (max-width: 980px) {
     body[data-cbl-url-name="home"] .cbl-second-video-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
@@ -17167,7 +17171,8 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
       const image = item.cover_url
         ? '<img src="' + escapeHtml(item.cover_url) + '" alt="" loading="lazy" decoding="async" fetchpriority="low">'
         : "";
-      return '<button type="button" class="cbl-video-library-card '
+      const manage = item.can_manage ? '<span class="cbl-video-library-actions"><a class="cbl-video-library-edit" href="' + escapeHtml(item.edit_url || '#') + '" data-cbl-video-manage="1">수정</a><button type="button" class="cbl-video-library-delete" data-cbl-video-delete="' + Number(item.id) + '" data-cbl-video-delete-url="' + escapeHtml(item.delete_url || '') + '">삭제</button></span>' : '';
+      return '<article role="button" tabindex="0" class="cbl-video-library-card '
         + (item.kind === "shorts" ? "is-shorts" : "")
         + '" data-cbl-library-video-id="'
         + Number(item.id) + '"><span class="cbl-video-library-thumb">' + image
@@ -17176,7 +17181,7 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
         + '<span class="cbl-video-chip">' + escapeHtml(item.category_label) + '</span>'
         + '<strong>' + escapeHtml(item.title) + '</strong><small><span>'
         + escapeHtml(item.created_at) + '</span><span>조회 '
-        + Number(item.views || 0).toLocaleString() + '</span></small></span></button>';
+        + Number(item.views || 0).toLocaleString() + '</span></small>' + manage + '</span></article>';
     }).join("");
   }
 
@@ -17234,6 +17239,20 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
   };
 
   document.addEventListener("click", function (event) {
+    const deleteButton = event.target.closest("[data-cbl-video-delete]");
+    if (deleteButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!window.confirm("이 동영상/쇼츠를 삭제하시겠습니까? 삭제 후 복구할 수 없습니다.")) return;
+      const token = (document.cookie.match(/(?:^|; )csrftoken=([^;]+)/) || [])[1] || "";
+      fetch(deleteButton.dataset.cblVideoDeleteUrl, { method: "POST", headers: { "X-CSRFToken": decodeURIComponent(token), "X-Requested-With": "XMLHttpRequest" } })
+        .then(function (response) { return response.json().then(function (data) { if (!response.ok || !data.ok) throw new Error(data.error || "삭제에 실패했습니다."); return data; }); })
+        .then(function () { loadLibrary(); })
+        .catch(function (error) { window.alert(error.message); });
+      return;
+    }
+    const editLink = event.target.closest("[data-cbl-video-manage]");
+    if (editLink) { event.stopPropagation(); return; }
     const homeCard = event.target.closest("[data-cbl-video-card]");
     if (homeCard) {
       const id = homeCard.dataset.cblVideoId;

@@ -223,4 +223,5 @@ urlpatterns += [
 # CBL_VIDEO_LIBRARY_URL_V1
 urlpatterns += [
     path("api/videos/", views.video_library_api, name="video_library_api"),
+    path("api/videos/<int:pk>/delete/", views.video_library_delete_api, name="video_library_delete_api"),
 ]
