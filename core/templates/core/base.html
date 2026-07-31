@@ -4779,6 +4779,15 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
 }
 </style>
 
+<!-- CBL_VIDEO_AUTO_ROW_SAFETY_V1 -->
+<style>
+  #videoPostUploadForm .cbl-kw-row-panel,
+  #videoPostUploadForm .cbl-force-top-row-panel,
+  #videoPostUploadForm #cblForceTopRowPanel {
+    display: none !important;
+  }
+</style>
+
 <script>
 (function(){
     const CATS = [
@@ -10053,6 +10062,16 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
         const modal = document.getElementById("videoPostUploadModal");
         if (modal) modal.classList.add("active");
         cblSetVideoModalState();
+        (function cblCleanVideoUploadStrayPanels() {
+            const form = document.getElementById("videoPostUploadForm");
+            if (!form) return;
+            const strays = form.querySelectorAll(
+                ".cbl-kw-row-panel, .cbl-force-top-row-panel, #cblForceTopRowPanel"
+            );
+            strays.forEach(function (el) {
+                el.parentNode && el.parentNode.removeChild(el);
+            });
+        })();
     }
 
     function closeVideoPostUploadModal() {

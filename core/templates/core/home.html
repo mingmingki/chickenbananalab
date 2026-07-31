@@ -16697,12 +16697,14 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
     cursor: pointer;
   }
   .cbl-video-viewer-body {
-    display: grid;
-    grid-template-columns: minmax(0, 1.55fr) minmax(260px, .75fr);
+    display: flex;
+    flex-direction: column;
     gap: 0;
     max-height: calc(92dvh - 69px);
+    overflow-y: auto;
   }
   .cbl-video-stage {
+    flex: 0 0 auto;
     min-height: 0;
     display: grid;
     place-items: center;
@@ -16713,7 +16715,7 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
   .cbl-video-stage iframe {
     display: block;
     width: 100%;
-    max-height: calc(92dvh - 110px);
+    max-height: 56dvh;
     aspect-ratio: 16 / 9;
     border: 0;
     border-radius: 14px;
@@ -16724,13 +16726,14 @@ body[data-cbl-url-name="home"] .cbl-home-visual-pair * {
   .cbl-video-stage.is-shorts iframe {
     width: auto;
     max-width: min(390px, 100%);
-    height: min(76dvh, 720px);
-    max-height: calc(92dvh - 110px);
+    height: min(60dvh, 640px);
+    max-height: 60dvh;
     aspect-ratio: 9 / 16;
   }
   .cbl-video-viewer-info {
+    flex: 1 1 auto;
     min-width: 0;
-    overflow-y: auto;
+    overflow-y: visible;
     padding: 24px 22px;
   }
   .cbl-video-chip {
