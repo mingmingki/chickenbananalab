@@ -23118,6 +23118,27 @@ def _cbl_video_group_and_label(post):
     return mapping.get(key, ("architecture", "건설"))
 
 
+def _cbl_video_description_plain_text(raw_content, limit=1200):
+    """
+    동영상 뷰어 설명란에 쓸 평문을 만듭니다.
+    줄바꿈(문단)은 유지하고, 줄 안의 중복 공백만 정리합니다.
+    (기존에는 전체를 공백 기준으로 합쳐서 여러 줄이 한 줄로 붙어버리는 문제가 있었습니다.)
+    """
+    import re
+
+    text = str(raw_content or "")
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</p\s*>", "\n\n", text)
+    text = re.sub(r"(?i)</div\s*>", "\n", text)
+    text = re.sub(r"(?i)</li\s*>", "\n", text)
+    text = strip_tags(text)
+
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    plain = "\n".join(lines).strip()
+    plain = re.sub(r"\n{3,}", "\n\n", plain)
+    return plain[:limit]
+
+
 def _cbl_video_payload(post):
     group, category_label = _cbl_video_group_and_label(post)
 
@@ -23151,7 +23172,7 @@ def _cbl_video_payload(post):
     if not cover_url:
         cover_url = _cbl_video_file_url(getattr(post, "thumbnail", None))
 
-    plain = " ".join(strip_tags(str(getattr(post, "content", "") or "")).split())
+    plain = _cbl_video_description_plain_text(getattr(post, "content", ""))
 
     return {
         "id": post.pk,
