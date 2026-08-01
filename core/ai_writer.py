@@ -327,6 +327,21 @@ def clamp_number(value, min_value, max_value, default):
     return max(min_value, min(number, max_value))
 
 
+def _cbl_json_key_particle_repair(text):
+    """
+    Gemini가 가끔 JSON 콜론(:) 자리에 한국어 조사 '는'/'은'을 그대로 써서
+    '"title"는 "..."' 처럼 문법이 깨진 유사-JSON을 반환하는 경우가 있다.
+    (예: 자동 발행 글 본문에 JSON 원문이 그대로 노출되는 버그의 원인)
+    순수 영문 키 뒤에 붙은 는/은만 콜론으로 교정한다. 값(한글 문장) 안의
+    는/은은 key 패턴에 맞지 않으므로 건드리지 않는다.
+    """
+    return re.sub(
+        r'("[A-Za-z_][A-Za-z0-9_]*")\s*(?:는|은)\s*(?=[\[{"\-\d]|true|false|null)',
+        r"\1: ",
+        text,
+    )
+
+
 def extract_json(text):
     text = (text or "").strip()
 
@@ -336,25 +351,31 @@ def extract_json(text):
     text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
     text = re.sub(r"```$", "", text).strip()
 
-    try:
-        data = json.loads(text)
-        if isinstance(data, dict):
-            return data
-    except json.JSONDecodeError:
-        pass
+    candidates = [text]
+    repaired = _cbl_json_key_particle_repair(text)
+    if repaired != text:
+        candidates.append(repaired)
 
     decoder = json.JSONDecoder()
 
-    for index, char in enumerate(text):
-        if char != "{":
-            continue
-
+    for candidate in candidates:
         try:
-            data, _ = decoder.raw_decode(text[index:])
+            data = json.loads(candidate)
             if isinstance(data, dict):
                 return data
         except json.JSONDecodeError:
-            continue
+            pass
+
+        for index, char in enumerate(candidate):
+            if char != "{":
+                continue
+
+            try:
+                data, _ = decoder.raw_decode(candidate[index:])
+                if isinstance(data, dict):
+                    return data
+            except json.JSONDecodeError:
+                continue
 
     return None
 
