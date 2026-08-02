@@ -1,7 +1,9 @@
 from pathlib import Path
 
 from django.contrib.auth.decorators import user_passes_test
-from django.http import JsonResponse
+from django.db.models import F
+from django.http import Http404, HttpResponseRedirect, JsonResponse
+from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import ProgramDownload
@@ -81,7 +83,7 @@ def _ensure_programs():
     return programs
 
 
-def _file_payload(file_field, is_public=False):
+def _file_payload(file_field, is_public=False, slug="", platform="", download_count=0):
     if not file_field:
         return {
             "has_file": False,
@@ -89,7 +91,9 @@ def _file_payload(file_field, is_public=False):
             "is_public": False,
             "can_download": False,
             "url": "",
+            "download_url": "",
             "filename": "",
+            "download_count": 0,
         }
 
     try:
@@ -99,14 +103,24 @@ def _file_payload(file_field, is_public=False):
 
     has_file = bool(url)
     is_public = bool(is_public and has_file)
+    can_download = bool(has_file and is_public)
+
+    download_url = ""
+    if can_download and slug and platform:
+        download_url = reverse(
+            "program_download_file",
+            kwargs={"slug": slug, "platform": platform},
+        )
 
     return {
         "has_file": has_file,
         "ready": has_file,
         "is_public": is_public,
-        "can_download": bool(has_file and is_public),
+        "can_download": can_download,
         "url": url,
+        "download_url": download_url or url,
         "filename": Path(file_field.name).name,
+        "download_count": int(download_count or 0),
     }
 
 
@@ -116,6 +130,10 @@ def _public_attr(platform):
 
 def _file_attr(platform):
     return "mac_file" if platform == "mac" else "windows_file"
+
+
+def _count_attr(platform):
+    return "mac_download_count" if platform == "mac" else "windows_download_count"
 
 
 @require_GET
@@ -133,10 +151,16 @@ def program_download_status(request):
                 "mac": _file_payload(
                     program.mac_file,
                     getattr(program, "mac_is_public", False),
+                    slug=program.slug,
+                    platform="mac",
+                    download_count=getattr(program, "mac_download_count", 0),
                 ),
                 "windows": _file_payload(
                     program.windows_file,
                     getattr(program, "windows_is_public", False),
+                    slug=program.slug,
+                    platform="windows",
+                    download_count=getattr(program, "windows_download_count", 0),
                 ),
             }
             for program in programs
@@ -296,3 +320,37 @@ def program_download_delete(request, slug, platform):
         "ok": True,
         "message": f"{program.name} {platform}용 파일을 삭제했습니다.",
     })
+
+
+@require_GET
+def program_download_file(request, slug, platform):
+    if platform not in ALLOWED_EXTENSIONS:
+        raise Http404("지원하지 않는 운영체제입니다.")
+
+    program = ProgramDownload.objects.filter(slug=slug).first()
+
+    if not program:
+        raise Http404("프로그램 정보를 찾을 수 없습니다.")
+
+    field_name = _file_attr(platform)
+    public_field_name = _public_attr(platform)
+    count_field_name = _count_attr(platform)
+
+    target_file = getattr(program, field_name)
+    is_public = getattr(program, public_field_name, False)
+
+    if not target_file or not is_public:
+        raise Http404("다운로드할 수 없는 파일입니다.")
+
+    try:
+        file_url = target_file.url
+    except ValueError:
+        raise Http404("다운로드할 수 없는 파일입니다.")
+
+    # 실제 파일은 그대로 media/정적 서빙 경로로 리다이렉트하고,
+    # 카운트만 원자적으로(F 표현식) 증가시켜 동시 다운로드에도 정확히 집계한다.
+    ProgramDownload.objects.filter(pk=program.pk).update(
+        **{count_field_name: F(count_field_name) + 1}
+    )
+
+    return HttpResponseRedirect(file_url)

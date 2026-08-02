@@ -129,6 +129,11 @@ cbl_path("api/cblcad/csrf/", cbl_views.cblcad_csrf, name="cblcad_csrf"),
         program_downloads.program_download_publish,
         name="program_download_publish",
     ),
+    path(
+        "api/program-downloads/<slug:slug>/<str:platform>/get/",
+        program_downloads.program_download_file,
+        name="program_download_file",
+    ),
 
     path("api/home-programs/status/", home_program_downloads.home_program_status, name="home_program_status"),
     path("api/home-programs/upload/", home_program_downloads.home_program_upload, name="home_program_upload"),

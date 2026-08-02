@@ -616,6 +616,16 @@ class ProgramDownload(models.Model):
         verbose_name="Windows 공개",
     )
 
+    mac_download_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Mac 다운로드 수",
+    )
+
+    windows_download_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Windows 다운로드 수",
+    )
+
     order = models.PositiveIntegerField(
         default=0,
         verbose_name="표시 순서",
