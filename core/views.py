@@ -62,6 +62,7 @@ from .ai_writer import (
 )
 
 from .telegram_alerts import notify_post_view, notify_signup
+from .account_extras import CblSignupForm, INTEREST_CHOICES
 
 CATEGORY_PAGES = {
     "architecture": {
@@ -2531,8 +2532,10 @@ def ai_keyword_recommend(request):
 
 
 def signup(request):
+    ref_username = (request.GET.get("ref") or request.POST.get("ref") or "").strip()
+
     if request.method == "POST":
-        form = UserCreationForm(request.POST)
+        form = CblSignupForm(request.POST)
 
         if form.is_valid():
             user = form.save()
@@ -2550,10 +2553,15 @@ def signup(request):
             return redirect("profile_setup")
 
     else:
-        form = UserCreationForm()
+        initial = {}
+        if ref_username:
+            initial["referrer_username"] = ref_username
+        form = CblSignupForm(initial=initial)
 
     return render(request, "core/signup.html", {
         "form": form,
+        "interest_choices": INTEREST_CHOICES,
+        "ref_username": ref_username,
     })
 
 

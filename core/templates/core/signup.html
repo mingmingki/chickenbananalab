@@ -18,6 +18,13 @@
             <p>ChickenBanana Lab 계정을 만들고 다양한 기능을 이용해보세요.</p>
         </div>
 
+        {% if ref_username %}
+            <div class="signup-ref-banner">
+                <i class="ti ti-gift"></i>
+                <span><strong>{{ ref_username }}</strong>님의 추천으로 오셨네요. 추천인 아이디가 자동으로 입력되었어요.</span>
+            </div>
+        {% endif %}
+
         <a href="{% provider_login_url 'google' %}" class="google-signup-btn">
             <span>G</span>
             Google 계정으로 시작하기
@@ -27,7 +34,7 @@
             <span>또는 직접 가입하기</span>
         </div>
 
-        <form method="post" class="login-form">
+        <form method="post" class="login-form" id="cblSignupForm" novalidate>
             {% csrf_token %}
 
             {% if form.non_field_errors %}
@@ -39,8 +46,12 @@
             {% endif %}
 
             <div class="login-field">
-                <label for="{{ form.username.id_for_label }}">사용자 이름</label>
-                {{ form.username }}
+                <label for="{{ form.username.id_for_label }}">사용자 아이디</label>
+                <div class="username-check-row">
+                    {{ form.username }}
+                    <button type="button" id="usernameCheckBtn" class="username-check-btn">중복확인</button>
+                </div>
+                <div id="usernameCheckResult" class="username-check-result"></div>
                 {% if form.username.help_text %}
                     <small class="field-help">{{ form.username.help_text }}</small>
                 {% endif %}
@@ -52,6 +63,14 @@
             <div class="login-field">
                 <label for="{{ form.password1.id_for_label }}">비밀번호</label>
                 {{ form.password1 }}
+                <div class="password-strength-meter" id="passwordStrengthMeter">
+                    <div class="password-strength-bars">
+                        <span class="strength-bar"></span>
+                        <span class="strength-bar"></span>
+                        <span class="strength-bar"></span>
+                    </div>
+                    <span class="password-strength-label" id="passwordStrengthLabel"></span>
+                </div>
                 {% if form.password1.help_text %}
                     <small class="field-help">{{ form.password1.help_text|safe }}</small>
                 {% endif %}
@@ -63,12 +82,54 @@
             <div class="login-field">
                 <label for="{{ form.password2.id_for_label }}">비밀번호 확인</label>
                 {{ form.password2 }}
+                <div class="password-match-indicator" id="passwordMatchIndicator"></div>
                 {% if form.password2.help_text %}
                     <small class="field-help">{{ form.password2.help_text }}</small>
                 {% endif %}
                 {% for error in form.password2.errors %}
                     <div class="field-error">{{ error }}</div>
                 {% endfor %}
+            </div>
+
+            <div class="login-field">
+                <label>관심 분야 <span class="field-optional">(선택, 복수 선택 가능)</span></label>
+                <div class="interest-chip-grid">
+                    {% for checkbox in form.interests %}
+                        <label class="interest-chip" for="{{ checkbox.id_for_label }}">
+                            {{ checkbox.tag }}
+                            <span>{{ checkbox.choice_label }}</span>
+                        </label>
+                    {% endfor %}
+                </div>
+                {% for error in form.interests.errors %}
+                    <div class="field-error">{{ error }}</div>
+                {% endfor %}
+            </div>
+
+            <div class="login-field">
+                <label for="{{ form.referrer_username.id_for_label }}">추천인 아이디 <span class="field-optional">(선택)</span></label>
+                {{ form.referrer_username }}
+                <small class="field-help">추천인의 아이디를 입력하면 추천 관계가 계정에 저장돼요.</small>
+                {% for error in form.referrer_username.errors %}
+                    <div class="field-error">{{ error }}</div>
+                {% endfor %}
+            </div>
+
+            <div class="login-field checkbox-field">
+                <label class="checkbox-field-label" for="{{ form.terms_agree.id_for_label }}">
+                    {{ form.terms_agree }}
+                    <span>{{ form.terms_agree.label }} <span class="field-required">(필수)</span></span>
+                </label>
+                {% for error in form.terms_agree.errors %}
+                    <div class="field-error">{{ error }}</div>
+                {% endfor %}
+            </div>
+
+            <div class="login-field checkbox-field">
+                <label class="checkbox-field-label" for="{{ form.marketing_opt_in.id_for_label }}">
+                    {{ form.marketing_opt_in }}
+                    <span>{{ form.marketing_opt_in.label }} <span class="field-optional">(선택)</span></span>
+                </label>
             </div>
 
             <button type="submit" class="login-submit">회원가입 완료</button>
@@ -85,6 +146,26 @@
 <style>
 .signup-card {
     max-width: 560px;
+}
+
+.signup-ref-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    color: #9a3412;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.5;
+}
+
+.signup-ref-banner i {
+    font-size: 18px;
+    flex-shrink: 0;
 }
 
 .google-signup-btn {
@@ -161,7 +242,20 @@
     font-weight: 800;
 }
 
-.login-form .login-field input {
+.field-optional {
+    color: #9ca3af;
+    font-weight: 600;
+    font-size: 12px;
+}
+
+.field-required {
+    color: #dc2626;
+    font-weight: 700;
+    font-size: 12px;
+}
+
+.login-form .login-field input[type="text"],
+.login-form .login-field input[type="password"] {
     width: 100%;
     padding: 14px 16px;
     border: 1px solid #d1d5db;
@@ -172,9 +266,186 @@
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.login-form .login-field input:focus {
+.login-form .login-field input[type="text"]:focus,
+.login-form .login-field input[type="password"]:focus {
     border-color: #111827;
     box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.08);
+}
+
+.username-check-row {
+    display: flex;
+    gap: 8px;
+}
+
+.username-check-row input {
+    flex: 1;
+    min-width: 0;
+}
+
+.username-check-btn {
+    flex-shrink: 0;
+    padding: 0 16px;
+    border: 1px solid #111827;
+    border-radius: 14px;
+    background: #111827;
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.2s ease;
+}
+
+.username-check-btn:hover {
+    opacity: 0.85;
+}
+
+.username-check-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.username-check-result {
+    margin-top: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    min-height: 16px;
+}
+
+.username-check-result.is-available {
+    color: #15803d;
+}
+
+.username-check-result.is-taken {
+    color: #dc2626;
+}
+
+.username-check-result.is-checking {
+    color: #6b7280;
+}
+
+.password-strength-meter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.password-strength-bars {
+    display: flex;
+    gap: 4px;
+    flex: 1;
+}
+
+.strength-bar {
+    height: 5px;
+    flex: 1;
+    border-radius: 999px;
+    background: #e5e7eb;
+    transition: background 0.2s ease;
+}
+
+.password-strength-label {
+    font-size: 12px;
+    font-weight: 800;
+    min-width: 32px;
+    text-align: right;
+    color: #9ca3af;
+}
+
+.password-strength-meter.is-weak .strength-bar:nth-child(1) {
+    background: #dc2626;
+}
+.password-strength-meter.is-weak .password-strength-label {
+    color: #dc2626;
+}
+
+.password-strength-meter.is-medium .strength-bar:nth-child(1),
+.password-strength-meter.is-medium .strength-bar:nth-child(2) {
+    background: #d97706;
+}
+.password-strength-meter.is-medium .password-strength-label {
+    color: #d97706;
+}
+
+.password-strength-meter.is-strong .strength-bar {
+    background: #15803d;
+}
+.password-strength-meter.is-strong .password-strength-label {
+    color: #15803d;
+}
+
+.password-match-indicator {
+    margin-top: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    min-height: 16px;
+}
+
+.password-match-indicator.is-match {
+    color: #15803d;
+}
+
+.password-match-indicator.is-mismatch {
+    color: #dc2626;
+}
+
+.interest-chip-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.interest-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 9px 14px;
+    border: 1px solid #d1d5db;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #4b5563;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s ease;
+    margin-bottom: 0;
+}
+
+.interest-chip input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.interest-chip.is-active {
+    border-color: #111827;
+    background: #111827;
+    color: #ffffff;
+}
+
+.checkbox-field-label {
+    display: flex !important;
+    align-items: flex-start;
+    gap: 10px;
+    cursor: pointer;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: #374151 !important;
+}
+
+.checkbox-field-label input[type="checkbox"] {
+    margin-top: 2px;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    accent-color: #111827;
 }
 
 .field-help {
@@ -214,5 +485,159 @@
     text-decoration: underline;
 }
 </style>
+
+<script>
+(function () {
+    var usernameInput = document.getElementById("{{ form.username.id_for_label }}");
+    var checkBtn = document.getElementById("usernameCheckBtn");
+    var checkResult = document.getElementById("usernameCheckResult");
+    var lastCheckedValue = null;
+
+    function setCheckResult(text, state) {
+        checkResult.textContent = text || "";
+        checkResult.className = "username-check-result" + (state ? " is-" + state : "");
+    }
+
+    if (usernameInput && checkBtn) {
+        checkBtn.addEventListener("click", function () {
+            var value = (usernameInput.value || "").trim();
+
+            if (!value) {
+                setCheckResult("아이디를 입력해 주세요.", "taken");
+                return;
+            }
+
+            checkBtn.disabled = true;
+            setCheckResult("확인 중...", "checking");
+
+            fetch("{% url 'signup_username_available' %}?username=" + encodeURIComponent(value))
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    lastCheckedValue = value;
+                    if (data.available) {
+                        setCheckResult("✓ " + data.message, "available");
+                    } else {
+                        setCheckResult(data.message || "사용할 수 없는 아이디예요.", "taken");
+                    }
+                })
+                .catch(function () {
+                    setCheckResult("확인 중 오류가 발생했어요. 다시 시도해 주세요.", "taken");
+                })
+                .finally(function () {
+                    checkBtn.disabled = false;
+                });
+        });
+
+        usernameInput.addEventListener("input", function () {
+            if (lastCheckedValue !== null && usernameInput.value.trim() !== lastCheckedValue) {
+                setCheckResult("", "");
+                lastCheckedValue = null;
+            }
+        });
+    }
+
+    var password1 = document.getElementById("{{ form.password1.id_for_label }}");
+    var password2 = document.getElementById("{{ form.password2.id_for_label }}");
+    var strengthMeter = document.getElementById("passwordStrengthMeter");
+    var strengthLabel = document.getElementById("passwordStrengthLabel");
+    var matchIndicator = document.getElementById("passwordMatchIndicator");
+
+    function scorePassword(value) {
+        if (!value) {
+            return 0;
+        }
+
+        var score = 0;
+
+        if (value.length >= 8) score += 1;
+        if (value.length >= 12) score += 1;
+        if (/[a-z]/.test(value) && /[A-Z]/.test(value)) score += 1;
+        if (/[0-9]/.test(value)) score += 1;
+        if (/[^a-zA-Z0-9]/.test(value)) score += 1;
+
+        return score;
+    }
+
+    function updateStrength() {
+        if (!password1 || !strengthMeter || !strengthLabel) {
+            return;
+        }
+
+        var value = password1.value || "";
+        var score = scorePassword(value);
+
+        strengthMeter.classList.remove("is-weak", "is-medium", "is-strong");
+
+        if (!value) {
+            strengthLabel.textContent = "";
+            return;
+        }
+
+        if (score <= 1) {
+            strengthMeter.classList.add("is-weak");
+            strengthLabel.textContent = "약함";
+        } else if (score <= 3) {
+            strengthMeter.classList.add("is-medium");
+            strengthLabel.textContent = "보통";
+        } else {
+            strengthMeter.classList.add("is-strong");
+            strengthLabel.textContent = "강력";
+        }
+    }
+
+    function updateMatch() {
+        if (!password1 || !password2 || !matchIndicator) {
+            return;
+        }
+
+        var value2 = password2.value || "";
+
+        if (!value2) {
+            matchIndicator.textContent = "";
+            matchIndicator.className = "password-match-indicator";
+            return;
+        }
+
+        if (password1.value === value2) {
+            matchIndicator.textContent = "✓ 비밀번호가 일치해요.";
+            matchIndicator.className = "password-match-indicator is-match";
+        } else {
+            matchIndicator.textContent = "비밀번호가 일치하지 않아요.";
+            matchIndicator.className = "password-match-indicator is-mismatch";
+        }
+    }
+
+    if (password1) {
+        password1.addEventListener("input", function () {
+            updateStrength();
+            updateMatch();
+        });
+    }
+
+    if (password2) {
+        password2.addEventListener("input", updateMatch);
+    }
+
+    var interestChips = document.querySelectorAll(".interest-chip");
+
+    function refreshChipState(chip) {
+        var input = chip.querySelector("input[type=checkbox]");
+        if (!input) {
+            return;
+        }
+        chip.classList.toggle("is-active", input.checked);
+    }
+
+    interestChips.forEach(function (chip) {
+        refreshChipState(chip);
+        var input = chip.querySelector("input[type=checkbox]");
+        if (input) {
+            input.addEventListener("change", function () {
+                refreshChipState(chip);
+            });
+        }
+    });
+})();
+</script>
 
 {% endblock %}

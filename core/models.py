@@ -303,6 +303,26 @@ class UserProfile(models.Model):
         verbose_name="부관리자 여부"
     )
 
+    interests = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="관심 분야",
+    )
+
+    referred_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="referrals",
+        verbose_name="추천인",
+    )
+
+    marketing_opt_in = models.BooleanField(
+        default=False,
+        verbose_name="마케팅 정보 수신 동의",
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name="가입일"
