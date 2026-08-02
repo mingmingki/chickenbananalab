@@ -139,6 +139,7 @@ cbl_path("api/cblcad/csrf/", cbl_views.cblcad_csrf, name="cblcad_csrf"),
     path("api/home-programs/upload/", home_program_downloads.home_program_upload, name="home_program_upload"),
     path("api/home-programs/<int:pk>/toggle/", home_program_downloads.home_program_toggle_public, name="home_program_toggle_public"),
     path("api/home-programs/<int:pk>/delete/", home_program_downloads.home_program_delete, name="home_program_delete"),
+    path("api/home-programs/<int:pk>/get/", home_program_downloads.home_program_file, name="home_program_file"),
 
     path("api/crypto-market/", crypto_market_api, name="crypto_market_api"),
     path("chickenbanana-cut/generate/", views.chickenbanana_cut_generate, name="chickenbanana_cut_generate"),

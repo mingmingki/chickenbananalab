@@ -14462,6 +14462,11 @@ body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb:
   font-size: 12px;
 }
 
+.cbl-home-program-download-count {
+  color: #b7c0c9;
+  font-size: 11px;
+}
+
 .cbl-home-program-actions {
   display: flex;
   gap: 6px;
@@ -14600,8 +14605,9 @@ body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb:
 
       mini.innerHTML = items.map(function (p) {
         const file = p.file || {};
+        const href = file.download_url || file.url;
         return (
-          '<a href="' + esc(file.url) + '" download>' +
+          '<a href="' + esc(href) + '" download>' +
           '<span>' + esc(p.badge || "APP") + '</span>' +
           '<b>' + esc(p.title || "프로그램") + '</b>' +
           '<em>다운로드</em>' +
@@ -14640,9 +14646,10 @@ body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb:
       list.innerHTML = items.map(function (p) {
         const file = p.file || {};
         const fileReady = !!file.ready;
+        const downloadCount = Number(p.download_count || 0);
 
         const downloadBtn = p.downloadable
-          ? '<a class="cbl-home-program-btn" href="' + esc(file.url) + '" download>다운로드</a>'
+          ? '<a class="cbl-home-program-btn" href="' + esc(file.download_url || file.url) + '" download>다운로드</a>'
           : '<button type="button" class="cbl-home-program-btn is-muted" disabled>비공개</button>';
 
         const publicBtn = state.isStaff
@@ -14664,6 +14671,9 @@ body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb:
           '<small class="cbl-home-program-file">' +
           esc(fileReady ? file.filename : "파일 없음") +
           (state.isStaff ? " · " + (p.is_public ? "공개" : "비공개") : "") +
+          '</small>' +
+          '<small class="cbl-home-program-download-count">' +
+          esc(downloadCount.toLocaleString("ko-KR") + "회 다운로드") +
           '</small>' +
           '</div>' +
           '<div class="cbl-home-program-actions">' + downloadBtn + publicBtn + deleteBtn + '</div>' +

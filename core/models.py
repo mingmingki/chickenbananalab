@@ -654,6 +654,7 @@ class HomeProgramDownload(models.Model):
     description = models.CharField(max_length=200, blank=True, default="", verbose_name="설명")
     file = models.FileField(upload_to="home_programs/", blank=True, null=True, verbose_name="다운로드 파일")
     is_public = models.BooleanField(default=False, verbose_name="공개 여부")
+    download_count = models.PositiveIntegerField(default=0, verbose_name="다운로드 수")
     order = models.PositiveIntegerField(default=0, verbose_name="표시 순서")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="등록일")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="수정일")

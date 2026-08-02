@@ -1,8 +1,9 @@
 from pathlib import Path
 
 from django.contrib.auth.decorators import user_passes_test
-from django.db.models import Max
-from django.http import JsonResponse
+from django.db.models import F, Max
+from django.http import Http404, HttpResponseRedirect, JsonResponse
+from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import HomeProgramDownload
@@ -42,6 +43,13 @@ def _file_payload(file_field):
 
 def _program_payload(program, *, is_staff=False):
     file_info = _file_payload(program.file)
+    downloadable = bool(file_info["ready"] and (program.is_public or is_staff))
+
+    download_url = ""
+    if downloadable:
+        download_url = reverse("home_program_file", kwargs={"pk": program.id})
+
+    file_info["download_url"] = download_url or file_info["url"]
 
     return {
         "id": program.id,
@@ -51,7 +59,8 @@ def _program_payload(program, *, is_staff=False):
         "is_public": bool(program.is_public),
         "order": program.order,
         "file": file_info,
-        "downloadable": bool(file_info["ready"] and (program.is_public or is_staff)),
+        "downloadable": downloadable,
+        "download_count": int(program.download_count or 0),
     }
 
 
@@ -148,3 +157,29 @@ def home_program_delete(request, pk):
     program.delete()
 
     return JsonResponse({"ok": True, "message": "삭제했습니다."})
+
+
+@require_GET
+def home_program_file(request, pk):
+    program = HomeProgramDownload.objects.filter(pk=pk).first()
+
+    if not program:
+        raise Http404("프로그램을 찾을 수 없습니다.")
+
+    if not program.file:
+        raise Http404("다운로드할 수 없는 파일입니다.")
+
+    # 공개 파일이거나, 관리자가 게시 전 미리 확인하는 경우만 허용한다.
+    if not (program.is_public or _is_staff(request.user)):
+        raise Http404("다운로드할 수 없는 파일입니다.")
+
+    try:
+        file_url = program.file.url
+    except ValueError:
+        raise Http404("다운로드할 수 없는 파일입니다.")
+
+    HomeProgramDownload.objects.filter(pk=program.pk).update(
+        download_count=F("download_count") + 1
+    )
+
+    return HttpResponseRedirect(file_url)
