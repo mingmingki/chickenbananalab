@@ -2609,7 +2609,7 @@ def profile_update(request):
 def member_manage(request):
     users = (
         User.objects
-        .select_related("profile")
+        .select_related("profile", "profile__referred_by", "profile__referred_by__profile")
         .order_by("-date_joined")
     )
 

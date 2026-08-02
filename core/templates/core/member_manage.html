@@ -24,9 +24,11 @@
                 <thead>
                     <tr style="background:#f8fafc;">
                         <th style="padding:14px; text-align:left;">닉네임</th>
+                        <th style="padding:14px; text-align:left;">아이디</th>
                         <th style="padding:14px; text-align:left;">이메일</th>
                         <th style="padding:14px; text-align:left;">가입일</th>
                         <th style="padding:14px; text-align:left;">권한</th>
+                        <th style="padding:14px; text-align:left;">추천인</th>
                         <th style="padding:14px; text-align:left;">부관리자</th>
                         <th style="padding:14px; text-align:left;">삭제</th>
                     </tr>
@@ -41,6 +43,10 @@
                                 {% else %}
                                     닉네임 없음
                                 {% endif %}
+                            </td>
+
+                            <td style="padding:14px; color:#6b7280;">
+                                {{ member.username }}
                             </td>
 
                             <td style="padding:14px;">
@@ -64,6 +70,19 @@
                                     부관리자
                                 {% else %}
                                     일반회원
+                                {% endif %}
+                            </td>
+
+                            <td style="padding:14px; color:#6b7280;">
+                                {% if member.profile.referred_by %}
+                                    {% if member.profile.referred_by.profile.nickname %}
+                                        {{ member.profile.referred_by.profile.nickname }}
+                                        <div style="font-size:11px; color:#9ca3af;">@{{ member.profile.referred_by.username }}</div>
+                                    {% else %}
+                                        {{ member.profile.referred_by.username }}
+                                    {% endif %}
+                                {% else %}
+                                    -
                                 {% endif %}
                             </td>
 
@@ -117,7 +136,7 @@
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="6" style="padding:30px; text-align:center;">
+                            <td colspan="8" style="padding:30px; text-align:center;">
                                 가입 회원이 없습니다.
                             </td>
                         </tr>
