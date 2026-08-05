@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <LangVersion>preview</LangVersion>
+    <ACadSharpSourceRoot Condition="'$(ACadSharpSourceRoot)' == ''">/private/tmp/ACadSharp-3.6.51-poc</ACadSharpSourceRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(ACadSharpSourceRoot)/src/ACadSharp/ACadSharp.csproj" />
+  </ItemGroup>
+</Project>

@@ -9043,51 +9043,53 @@ body.cbl-modal-open {
 .cbl-beta-gate-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(15,23,42,.52);
-  backdrop-filter: blur(8px);
+  background: rgba(15,23,42,.26);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 .cbl-beta-gate-dialog {
   position: relative;
   z-index: 1;
-  width: min(520px, 100%);
+  width: min(500px, 100%);
   overflow: hidden;
-  border-radius: 26px;
-  background: #fff;
-  border: 1px solid rgba(226,232,240,.92);
-  box-shadow: 0 28px 80px rgba(15,23,42,.30);
+  border-radius: 24px;
+  background: rgba(255,255,255,.94);
+  border: 1px solid rgba(255,255,255,.78);
+  box-shadow: 0 34px 90px rgba(15,23,42,.24), 0 8px 24px rgba(15,23,42,.12), inset 0 1px 0 rgba(255,255,255,.9);
 }
 .cbl-beta-gate-head {
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  padding: 24px 24px 18px;
-  background: linear-gradient(135deg, #fff8d8 0%, #ffffff 60%);
+  padding: 25px 25px 19px;
+  background: linear-gradient(135deg, #f8fbff 0%, #ffffff 68%);
 }
 .cbl-beta-gate-icon {
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: 46px;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  border-radius: 16px;
-  background: #111827;
-  color: #FFD84D;
-  font-size: 21px;
+  border-radius: 15px;
+  background: #eaf2ff;
+  border: 1px solid #cfe0fb;
+  color: #315f9f;
+  font-size: 15px;
   font-weight: 950;
 }
 .cbl-beta-gate-title {
   margin: 0;
   color: #111827;
-  font-size: 22px;
+  font-size: 21px;
   line-height: 1.18;
-  font-weight: 950;
+  font-weight: 850;
   letter-spacing: -.05em;
 }
 .cbl-beta-gate-text {
   margin: 8px 0 0;
   color: #475569;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 650;
   line-height: 1.55;
   letter-spacing: -.03em;
 }
@@ -9095,7 +9097,7 @@ body.cbl-modal-open {
 .cbl-beta-gate-note {
   padding: 14px 15px;
   border: 1px solid #e2e8f0;
-  border-radius: 18px;
+  border-radius: 14px;
   background: #f8fafc;
   color: #64748b;
   font-size: 13px;
@@ -9105,28 +9107,52 @@ body.cbl-modal-open {
 }
 .cbl-beta-gate-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 9px;
-  padding: 16px 24px 22px;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 16px 25px 23px;
   border-top: 1px solid #edf2f7;
 }
 .cbl-beta-gate-actions button {
-  min-width: 104px;
+  flex: 1 1 0;
+  min-width: 0;
   min-height: 44px;
-  border-radius: 14px;
+  border-radius: 12px;
+  padding: 0 14px;
   font-size: 14px;
   font-weight: 950;
   cursor: pointer;
 }
 .cbl-beta-gate-cancel {
-  border: 1px solid #dbe5e4;
+  border: 1px solid #d8e0ea;
   background: #fff;
   color: #475569;
 }
+.cbl-beta-gate-signup {
+  border: 1px solid #c9dcfa;
+  background: #edf5ff;
+  color: #315f9f;
+}
 .cbl-beta-gate-confirm {
   border: 0;
-  background: #111827;
+  background: #17263d;
   color: #fff;
+}
+.cbl-beta-gate-actions button:hover { transform: translateY(-1px); }
+.cbl-beta-gate-cancel:hover { background: #f8fafc; }
+.cbl-beta-gate-signup:hover { background: #e0edff; }
+.cbl-beta-gate-confirm:hover { background: #223858; }
+.cbl-beta-gate-actions button:active { transform: translateY(0); }
+.cbl-beta-gate-actions button:focus-visible {
+  outline: 3px solid rgba(59,130,246,.32);
+  outline-offset: 2px;
+}
+@media (max-width: 560px) {
+  .cbl-beta-gate { padding: 12px; }
+  .cbl-beta-gate-dialog { border-radius: 22px; }
+  .cbl-beta-gate-head { padding: 21px 20px 16px; }
+  .cbl-beta-gate-body { padding: 0 20px 18px; }
+  .cbl-beta-gate-actions { padding: 14px 20px 20px; }
+  .cbl-beta-gate-actions button { flex: 1 1 100%; }
 }
 </style>
 
@@ -9147,7 +9173,8 @@ body.cbl-modal-open {
     </div>
     <div class="cbl-beta-gate-actions">
       <button type="button" class="cbl-beta-gate-cancel" data-cbl-beta-close>닫기</button>
-      <button type="button" class="cbl-beta-gate-confirm" data-cbl-beta-confirm>확인</button>
+      <button type="button" class="cbl-beta-gate-signup" data-cbl-beta-signup hidden>회원가입</button>
+      <button type="button" class="cbl-beta-gate-confirm" data-cbl-beta-confirm>로그인하기</button>
     </div>
   </section>
 </div>
@@ -9155,6 +9182,8 @@ body.cbl-modal-open {
 <script>
 (function () {
   "use strict";
+
+  var cblCadAuthenticated = {{ user.is_authenticated|yesno:"true,false" }};
 
   var gate = document.getElementById("cblBetaGate");
   if (!gate) return;
@@ -9164,6 +9193,8 @@ body.cbl-modal-open {
   var text = gate.querySelector("[data-cbl-beta-text]");
   var note = gate.querySelector("[data-cbl-beta-note]");
   var icon = gate.querySelector("[data-cbl-beta-icon]");
+  var dialog = gate.querySelector(".cbl-beta-gate-dialog");
+  var signupBtn = gate.querySelector("[data-cbl-beta-signup]");
   var confirmBtn = gate.querySelector("[data-cbl-beta-confirm]");
 
   var configs = {
@@ -9192,11 +9223,21 @@ body.cbl-modal-open {
 
   function openGate(type) {
     var cfg = configs[type] || configs.quantity;
+    if (type === "cad" && !cblCadAuthenticated) {
+      cfg = {
+        icon: "CAD",
+        title: "ChickenBananaCAD 로그인 안내",
+        text: "ChickenBananaCAD는 로그인 후 이용할 수 있습니다.",
+        note: "로그인 페이지로 이동한 뒤 완료되면 CAD 화면으로 돌아옵니다.",
+        confirm: "로그인하기"
+      };
+    }
     currentType = type;
     icon.textContent = cfg.icon;
     title.textContent = cfg.title;
     text.textContent = cfg.text;
     note.textContent = cfg.note;
+    signupBtn.hidden = type !== "cad";
     confirmBtn.textContent = cfg.confirm;
     gate.hidden = false;
     gate.setAttribute("aria-hidden", "false");
@@ -9235,8 +9276,38 @@ body.cbl-modal-open {
   }
 
   function openCad() {
-    window.open("/static/core/tools/CBLCAD_VER2.html", "_blank", "noopener");
+    var target = "/tools/cad/?mode=free-dwg";
+    if (!cblCadAuthenticated) {
+      window.location.assign("/accounts/login/?next=" + encodeURIComponent(target));
+      return;
+    }
+    window.open(target, "_blank", "noopener");
   }
+
+  function openSignup() {
+    var target = "/tools/cad/?mode=free-dwg";
+    window.location.assign("/signup/?next=" + encodeURIComponent(target));
+  }
+
+  window.cblStartCadFromHomeV1 = function () {
+    if (cblCadAuthenticated) {
+      openCad();
+      return false;
+    }
+    openGate("cad");
+    return false;
+  };
+
+  document.querySelectorAll(".cbl-webcad-start-btn").forEach(function (button) {
+    if (button.getAttribute("data-cbl-cad-gate-bound") === "1") return;
+    button.setAttribute("data-cbl-cad-gate-bound", "1");
+    button.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+      window.cblStartCadFromHomeV1();
+    }, true);
+  });
 
   confirmBtn.addEventListener("click", function () {
     var targetType = currentType;
@@ -9248,12 +9319,32 @@ body.cbl-modal-open {
     }, 80);
   });
 
+  signupBtn.addEventListener("click", function () {
+    if (currentType !== "cad") return;
+    closeGate();
+    window.setTimeout(openSignup, 80);
+  });
+
   gate.querySelectorAll("[data-cbl-beta-close]").forEach(function (btn) {
     btn.addEventListener("click", closeGate);
   });
 
   document.addEventListener("keydown", function (event) {
-    if (event.key === "Escape" && !gate.hidden) closeGate();
+    if (gate.hidden) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeGate();
+      return;
+    }
+    if (event.key !== "Tab" || !dialog) return;
+    var focusable = Array.prototype.slice.call(dialog.querySelectorAll("button:not([hidden]):not([disabled])"));
+    if (!focusable.length) return;
+    var first = focusable[0], last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault(); last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault(); first.focus();
+    }
   });
 
   window.cblOpenBetaGate = openGate;

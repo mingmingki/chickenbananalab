@@ -25,6 +25,11 @@ from . import views as cbl_views_v21_2
 
 urlpatterns = [
     path("api/cblcad/v29/open-session/", views.cblcad_v29_open_session, name="cblcad_v29_open_session"),
+    path("api/cblcad/free-dwg-to-dxf/", views.cblcad_free_dwg_local_api, name="cblcad_free_dwg_local_api"),
+    path("api/cblcad/free-dwg-native-open/", views.cblcad_free_dwg_native_open_api, name="cblcad_free_dwg_native_open_api"),
+    path("api/cblcad/free-dwg-native-save-path/", views.cblcad_free_dwg_native_save_path_api, name="cblcad_free_dwg_native_save_path_api"),
+    path("api/cblcad/free-dwg-save/", views.cblcad_free_dwg_save_local_api, name="cblcad_free_dwg_save_local_api"),
+    path("api/cblcad/free-dwg-download/<str:token>/", views.cblcad_free_dwg_download_api, name="cblcad_free_dwg_download_api"),
     path("api/cblcad/v29/save-ops/", views.cblcad_v29_save_ops, name="cblcad_v29_save_ops"),
 
 cbl_path("api/cblcad/csrf/", cbl_views.cblcad_csrf, name="cblcad_csrf"),

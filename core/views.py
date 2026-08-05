@@ -7822,9 +7822,98 @@ def calendar_event_update_real_api(request, pk):
 
 
 # CBL_WEBCAD_TOOL_START
+@login_required
 def webcad_tool(request):
+    # The product free mode is explicit in the URL.  The environment flag is
+    # still accepted for existing local development sessions.
+    free_mode = _cbl_is_safe_local_free_dwg_request(request)
+    if free_mode:
+        from pathlib import Path
+        from django.conf import settings as _cbl_settings
+
+        path = Path(_cbl_settings.BASE_DIR) / "core" / "static" / "core" / "tools" / "CBLCAD_VER2.html"
+        if path.exists():
+            html = path.read_text(encoding="utf-8", errors="ignore")
+            runtime = json.dumps({"freeDwgLocal": True, "freeDwgSaveLocal": True}, separators=(",", ":"))
+            early_route = """
+<script>
+(function(){
+  function isFreeDwgButton(el){
+    if(!el) return false;
+    var t=String(el.innerText||el.textContent||'').replace(/\\s+/g,'');
+    var title=String(el.getAttribute&&el.getAttribute('title')||'').replace(/\\s+/g,'');
+    return (/DWG열기|DWG\\/DXF열기|DWG파일/.test(t)||title==='DWG열기'||title==='DWG/DXF열기')&&!/V29|저장/.test(t+title);
+  }
+  function bindFreeDwgButton(){
+    if(!window.CBL_CAD_RUNTIME_CONFIG||window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal!==true) return;
+    var nodes=Array.prototype.slice.call(document.querySelectorAll('button,a,[role="button"],input[type="button"]'));
+    nodes.forEach(function(original){
+      if(!isFreeDwgButton(original)||original.getAttribute('data-cbl-free-open-bound')==='1') return;
+      var button=original.cloneNode(true);
+      button.setAttribute('data-cbl-free-open-bound','1');
+      button.onclick=null;
+      button.removeAttribute('onclick');
+      button.addEventListener('click',function(ev){
+        ev.preventDefault(); ev.stopPropagation(); if(ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+        var input=document.getElementById('cblOpenDwgInput');
+        if(!input||typeof window.cblFreeDwgLocalOpenFileV1!=='function') return;
+        var clean=input.cloneNode(true); input.parentNode.replaceChild(clean,input); input=clean;
+        var onChange=function(change){
+          change.preventDefault(); if(change.stopImmediatePropagation) change.stopImmediatePropagation();
+          input.removeEventListener('change',onChange,true);
+          var file=input.files&&input.files[0]; if(file) window.cblFreeDwgLocalOpenFileV1(file);
+        };
+        input.addEventListener('change',onChange,true); input.click();
+      },true);
+      original.parentNode.replaceChild(button,original);
+    });
+  }
+  document.addEventListener('DOMContentLoaded',bindFreeDwgButton,{once:true});
+})();
+</script>
+"""
+            html = html.replace(
+                "<head>",
+                "<head><script>window.CBL_CAD_RUNTIME_CONFIG=" + runtime + ";</script>",
+                1,
+            )
+            beta_notice = r'''
+<style id="cbl-cad-beta-notice-style">
+#cblCadBetaNoticeV1{position:fixed;top:14px;right:18px;z-index:2147483000;display:none;max-width:min(420px,calc(100vw - 28px));box-sizing:border-box;padding:13px 15px;border:1px solid rgba(91,145,245,.55);border-radius:8px;background:rgba(18,27,43,.96);box-shadow:0 12px 32px rgba(0,0,0,.36);color:#d7e5fa;font:12px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#cblCadBetaNoticeV1 .cbl-cad-beta-notice-row{display:flex;align-items:flex-start;gap:12px}
+#cblCadBetaNoticeV1 .cbl-cad-beta-notice-copy{flex:1;min-width:0}
+#cblCadBetaNoticeV1 .cbl-cad-beta-notice-title{margin:0 0 4px;color:#fff;font-weight:700;font-size:12px}
+#cblCadBetaNoticeV1 .cbl-cad-beta-notice-text{margin:0;color:#aab5c5;word-break:keep-all}
+#cblCadBetaNoticeV1 button{flex:0 0 auto;border:1px solid #3f78d8;border-radius:5px;background:rgba(60,120,230,.16);color:#d7e5fa;padding:4px 9px;cursor:pointer;font:inherit}
+#cblCadBetaNoticeV1 button:hover{background:rgba(60,120,230,.3)}
+@media(max-width:640px){#cblCadBetaNoticeV1{top:8px;right:8px;left:8px;max-width:none}}
+</style>
+<div id="cblCadBetaNoticeV1" role="status" aria-live="polite">
+  <div class="cbl-cad-beta-notice-row">
+    <div class="cbl-cad-beta-notice-copy"><p class="cbl-cad-beta-notice-title">ChickenBananaCAD 베타 안내</p><p class="cbl-cad-beta-notice-text">현재 ChickenBananaCAD는 베타 버전으로 운영 중입니다. 작업 전 원본 도면을 별도로 보관해 주세요.</p></div>
+    <button type="button" id="cblCadBetaNoticeCloseV1" aria-label="베타 안내 닫기">확인</button>
+  </div>
+</div>
+<script>
+(function(){
+  var key='cblcad-beta-notice-dismissed-v1',box=document.getElementById('cblCadBetaNoticeV1'),close=document.getElementById('cblCadBetaNoticeCloseV1');
+  if(!box||!close)return;
+  var dismissed=false;try{dismissed=sessionStorage.getItem(key)==='1';}catch(e){}
+  if(!dismissed)box.style.display='block';
+  close.addEventListener('click',function(){try{sessionStorage.setItem(key,'1');}catch(e){}box.style.display='none';});
+})();
+</script>
+'''
+            # The CAD HTML contains print-preview strings with literal </body>
+            # fragments.  Inject into the document's final closing tag, not
+            # the first string occurrence inside an inline script.
+            html_parts = html.rsplit("</body>", 1)
+            if len(html_parts) == 2:
+                html = html_parts[0] + beta_notice + "</body>" + html_parts[1]
+            return HttpResponse(html, content_type="text/html; charset=utf-8")
     return render(request, "core/tools/cblcad_ver1.html")
 # CBL_WEBCAD_TOOL_END
+
 
 
 # CBL_CAD_DIRECT_VIEW_START
@@ -23341,3 +23430,1303 @@ def video_post_update_api(request, pk):
         "redirect_url": f"/?video={post.pk}",
     })
 # CBL_VIDEO_LIBRARY_API_V1_END
+
+
+# CBL free-DWG local runtime imports
+import os as _cbl_os
+import re as _cbl_re
+import json as _cbl_json
+import glob as _cbl_glob
+import shutil as _cbl_shutil
+import tempfile as _cbl_tempfile
+import subprocess as _cbl_subprocess
+import base64 as _cbl_base64
+import secrets as _cbl_secrets
+import sys as _cbl_sys
+from pathlib import Path as _cbl_Path
+from collections import Counter as _cbl_Counter
+from django.http import HttpResponse as _cbl_HttpResponse
+from django.http import JsonResponse as _cbl_JsonResponse
+from django.http import FileResponse as _cbl_FileResponse
+from django.core import signing as _cbl_signing
+from django.views.decorators.csrf import csrf_exempt as _cbl_csrf_exempt
+
+# CBL_FREE_DWG_LOCAL_INTEGRATION_V1_START
+# Local-only LibreDWG -> structured/display-flat DXF path.
+# This endpoint is feature-flagged and never calls the ODA converter.
+# ============================================================
+_CBL_FREE_DWG_LOCAL_SCHEMA_V1 = "cbl-free-dwg-local-v8-compact-layer-style-render-adapter"
+_CBL_FREE_DWG_LOCAL_TTL_V1 = 7 * 24 * 60 * 60
+_CBL_FREE_DWG_LOCAL_MAX_ENTRIES_V1 = 64
+_CBL_FREE_DWG_LOCAL_MAX_BYTES_V1 = 2 * 1024 * 1024 * 1024
+
+
+def _cbl_free_dwg_local_enabled_v1():
+    return str(_cbl_os.environ.get("CBLCAD_FREE_DWG_LOCAL", "")).strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
+def _cbl_is_safe_local_free_dwg_request(request):
+    """Allow free DWG only from a debug loopback browser request."""
+    if not bool(getattr(settings, "DEBUG", False)):
+        return False
+    remote = str(request.META.get("REMOTE_ADDR", "")).strip().lower()
+    if remote not in {"127.0.0.1", "::1"}:
+        return False
+    from urllib.parse import urlsplit
+
+    def is_local(value):
+        raw = str(value or "").strip()
+        if not raw:
+            return False
+        try:
+            parsed = urlsplit("//" + raw if "://" not in raw else raw)
+            return (parsed.hostname or "").strip("[]").lower() in {
+                "127.0.0.1", "localhost", "::1"
+            }
+        except ValueError:
+            return False
+
+    if not is_local(request.META.get("HTTP_HOST")):
+        return False
+    origin = request.META.get("HTTP_ORIGIN")
+    if origin and not is_local(origin):
+        return False
+    return _cbl_free_dwg_local_enabled_v1() or request.GET.get("mode") == "free-dwg"
+
+
+def _cbl_free_dwg_upload_limit_v1():
+    try:
+        return max(1, int(getattr(settings, "CBLCAD_FREE_DWG_MAX_UPLOAD_BYTES", 200 * 1024 * 1024)))
+    except (TypeError, ValueError):
+        return 200 * 1024 * 1024
+
+
+def _cbl_local_file_fingerprint_v1(path):
+    stat = path.stat()
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns, "sha256": digest.hexdigest()}
+
+
+def _cbl_local_file_tokens_v1(request):
+    return request.session.get("cbl_free_dwg_local_files_v1", {})
+
+
+def _cbl_store_local_file_token_v1(request, path, kind="source"):
+    path = _cbl_Path(path).resolve()
+    fingerprint = _cbl_local_file_fingerprint_v1(path) if path.exists() else {"size": 0, "mtime_ns": 0, "sha256": ""}
+    token = _cbl_secrets.token_urlsafe(32)
+    records = _cbl_local_file_tokens_v1(request)
+    records[token] = {"path": str(path), "name": path.name, "extension": path.suffix.lower(),
+                      "size": fingerprint["size"], "mtime_ns": fingerprint["mtime_ns"],
+                      "sha256": fingerprint["sha256"], "created_at": _cbl_time.time(), "kind": kind}
+    request.session["cbl_free_dwg_local_files_v1"] = records
+    request.session.modified = True
+    return token, records[token]
+
+
+def _cbl_applescript_quote_v1(value):
+    text = str(value or "")
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _cbl_native_choose_path_v1(save_as=False, default_name="drawing.dwg"):
+    if _cbl_sys.platform != "darwin":
+        raise RuntimeError("macOS 로컬 파일 선택은 macOS에서만 지원합니다.")
+    if save_as:
+        script = ('POSIX path of (choose file name with prompt '
+                  + _cbl_applescript_quote_v1("ChickenBananaCAD 저장")
+                  + ' default name ' + _cbl_applescript_quote_v1(default_name) + ')')
+    else:
+        script = 'POSIX path of (choose file with prompt "ChickenBananaCAD DWG/DXF 열기")'
+    run = _cbl_subprocess.run(["osascript", "-e", script], stdout=_cbl_subprocess.PIPE,
+                              stderr=_cbl_subprocess.PIPE, timeout=300, check=False)
+    if run.returncode != 0:
+        detail = run.stderr.decode("utf-8", errors="replace").strip().lower()
+        if "user canceled" in detail or "-128" in detail or not detail:
+            return None
+        raise RuntimeError("macOS 파일 선택창을 열지 못했습니다.")
+    path = run.stdout.decode("utf-8", errors="replace").strip()
+    return _cbl_Path(path).resolve() if path else None
+
+
+@_cbl_csrf_exempt
+def cblcad_free_dwg_native_open_api(request):
+    if request.method != "POST" or not _cbl_is_safe_local_free_dwg_request(request) or _cbl_sys.platform != "darwin":
+        return _cbl_JsonResponse({"ok": False, "error": "로컬 파일 열기를 사용할 수 없습니다."}, status=404)
+    try:
+        path = _cbl_native_choose_path_v1(False)
+        if path is None:
+            return _cbl_JsonResponse({"ok": True, "cancelled": True})
+        if path.suffix.lower() not in {".dwg", ".dxf"} or not path.is_file():
+            return _cbl_JsonResponse({"ok": False, "error": "DWG 또는 DXF 파일만 열 수 있습니다."}, status=400)
+        stat = path.stat()
+        if stat.st_size > _cbl_free_dwg_upload_limit_v1():
+            return _cbl_JsonResponse({"ok": False, "error": "DWG 업로드 제한을 초과했습니다."}, status=413)
+        token, record = _cbl_store_local_file_token_v1(request, path, "source")
+        payload = path.read_bytes()
+        return _cbl_JsonResponse({"ok": True, "token": token, "filename": record["name"],
+                                  "size": len(payload), "data": _cbl_base64.b64encode(payload).decode("ascii")})
+    except Exception as exc:
+        return _cbl_JsonResponse({"ok": False, "error": str(exc)}, status=500)
+
+
+@_cbl_csrf_exempt
+def cblcad_free_dwg_native_save_path_api(request):
+    if request.method != "POST" or not _cbl_is_safe_local_free_dwg_request(request) or _cbl_sys.platform != "darwin":
+        return _cbl_JsonResponse({"ok": False, "error": "로컬 파일 저장을 사용할 수 없습니다."}, status=404)
+    try:
+        requested = _cbl_os.path.basename(str(request.POST.get("filename") or "drawing.dwg"))
+        requested = _cbl_re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", requested).strip() or "drawing.dwg"
+        if not requested.lower().endswith(".dwg"):
+            requested += ".dwg"
+        path = _cbl_native_choose_path_v1(True, requested)
+        if path is None:
+            return _cbl_JsonResponse({"ok": True, "cancelled": True})
+        if path.suffix.lower() != ".dwg":
+            path = path.with_suffix(".dwg")
+        token, record = _cbl_store_local_file_token_v1(request, path, "target")
+        return _cbl_JsonResponse({"ok": True, "token": token, "filename": record["name"], "exists": path.exists()})
+    except Exception as exc:
+        return _cbl_JsonResponse({"ok": False, "error": str(exc)}, status=500)
+
+
+def _cbl_free_dwg_local_request_enabled_v1(request):
+    """Allow the explicit product free-mode route without requiring a shell env var."""
+    return _cbl_free_dwg_local_enabled_v1() or request.GET.get("mode") == "free-dwg"
+
+
+def _cbl_free_dwg_local_root_v1():
+    configured = _cbl_os.environ.get("CBLCAD_FREE_DWG_CACHE_DIR")
+    root = _cbl_Path(configured) if configured else _cbl_Path(_cbl_tempfile.gettempdir()) / "cbl-free-dwg-local-cache-v1"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _cbl_free_dwg_local_key_v1(data):
+    file_sha256 = hashlib.sha256(data).hexdigest()
+    descriptor = {
+        "schema": _CBL_FREE_DWG_LOCAL_SCHEMA_V1,
+        "file_sha256": file_sha256,
+        "output": "structured.dxf+compact.json",
+        "options": {"writer": "R2004-cp949", "display": "compact-v2-layer-style", "max_depth": 32},
+    }
+    key = hashlib.sha256(_cbl_json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return key, file_sha256
+
+
+def _cbl_free_dwg_local_valid_dxf_v1(path):
+    try:
+        stat = path.stat()
+        if not path.is_file() or stat.st_size < 500:
+            return False
+        with path.open("rb") as stream:
+            head = stream.read(4096)
+            stream.seek(max(0, stat.st_size - 16384))
+            tail = stream.read(16384)
+        return b"0SECTION" in b"".join(head.split()) and b"0EOF" in b"".join(tail.split())
+    except OSError:
+        return False
+
+
+def _cbl_free_dwg_local_find_dwgread_v1():
+    candidates = [
+        _cbl_os.environ.get("LIBREDWG_DWGREAD"),
+        _cbl_shutil.which("dwgread"),
+        "/opt/homebrew/bin/dwgread",
+        "/usr/local/bin/dwgread",
+    ]
+    for candidate in candidates:
+        if candidate and _cbl_os.path.isfile(candidate) and _cbl_os.access(candidate, _cbl_os.X_OK):
+            return candidate
+    return None
+
+
+def _cbl_free_dwg_local_find_minsert_helper_v1():
+    root = _cbl_Path(__file__).resolve().parent.parent
+    candidates = [
+        root / "tools" / "cbl_free_dwg_poc" / "runtime" / "cbl_free_minsert_fields",
+        root / "tools" / "cbl_free_dwg_poc" / "bin" / "cbl_free_minsert_fields",
+    ]
+    for candidate in candidates:
+        if candidate.is_file() and _cbl_os.access(candidate, _cbl_os.X_OK):
+            return candidate
+    return None
+
+
+def _cbl_free_dwg_local_acadsharp_metadata_v1(path):
+    executable = _cbl_free_dwg_save_local_executable_v1()
+    if executable is None:
+        return None, {"status": "executable_missing"}
+    try:
+        result = _cbl_subprocess.run(
+            [str(executable), "--metadata", str(path)],
+            stdout=_cbl_subprocess.PIPE, stderr=_cbl_subprocess.PIPE,
+            timeout=300, check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None, {"status": "metadata_read_failed", "error": result.stderr.decode(errors="replace")[-500:]}
+        return _cbl_json.loads(result.stdout.decode("utf-8", errors="replace"), strict=False), {"status": "read"}
+    except Exception as exc:
+        return None, {"status": "metadata_read_failed", "error": str(exc)[:500]}
+
+
+def _cbl_free_dwg_local_cleanup_v1(root, protected=None):
+    def removable(item):
+        """Do not remove an entry while another request holds its lock."""
+        lock_path = root / (item.name + ".lock")
+        try:
+            import fcntl
+            with lock_path.open("a+") as lock:
+                try:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    return False
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            return True
+        except OSError:
+            return False
+
+    try:
+        now = _cbl_time.time()
+        # Lock files are intentionally persistent while an entry is live, but
+        # stale empty locks must not accumulate forever.  Never unlink one
+        # unless it is old, empty, and can be acquired non-blocking.
+        for lock_path in root.glob("*.lock"):
+            try:
+                if now - lock_path.stat().st_mtime <= _CBL_FREE_DWG_LOCAL_TTL_V1 or lock_path.stat().st_size:
+                    continue
+                import fcntl
+                with lock_path.open("a+") as lock:
+                    try:
+                        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        continue
+                    if lock_path.stat().st_size == 0:
+                        lock_path.unlink(missing_ok=True)
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                continue
+        entries = []
+        for item in root.iterdir():
+            if not item.is_dir() or item.name == protected:
+                continue
+            meta = item / "meta.json"
+            mtime = meta.stat().st_mtime if meta.exists() else item.stat().st_mtime
+            size = sum(p.stat().st_size for p in item.rglob("*") if p.is_file())
+            if now - mtime > _CBL_FREE_DWG_LOCAL_TTL_V1:
+                if removable(item):
+                    _cbl_shutil.rmtree(item, ignore_errors=True)
+                continue
+            entries.append((mtime, size, item))
+        total = sum(row[1] for row in entries)
+        while len(entries) > _CBL_FREE_DWG_LOCAL_MAX_ENTRIES_V1 or total > _CBL_FREE_DWG_LOCAL_MAX_BYTES_V1:
+            _, size, item = min(entries, key=lambda row: row[0])
+            if not removable(item):
+                entries = [row for row in entries if row[2] != item]
+                continue
+            _cbl_shutil.rmtree(item, ignore_errors=True)
+            total -= size
+            entries = [row for row in entries if row[2] != item]
+    except Exception:
+        pass
+
+
+def _cbl_free_dwg_local_convert_v1(data, original_name):
+    import fcntl
+    from tools.cbl_free_dwg_poc.json_to_dxf import Writer, load_json
+    from tools.cbl_free_dwg_poc.compact_display import CompactBuilder
+    from tools.cbl_free_dwg_poc.minsert_supplement import supplement
+    from tools.cbl_free_dwg_poc.metadata_bridge import apply_metadata
+
+    root = _cbl_free_dwg_local_root_v1()
+    key, file_sha256 = _cbl_free_dwg_local_key_v1(data)
+    entry = root / key
+    lock_path = root / (key + ".lock")
+    waited = False
+    started = _cbl_time.perf_counter()
+
+    with lock_path.open("a+") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            waited = True
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+
+        structured = entry / "structured.dxf"
+        compact = entry / "compact.json"
+        compact_valid = False
+        try:
+            compact_stat = compact.stat()
+            compact_valid = compact_stat.st_size >= 100 and compact_stat.st_size <= 50 * 1024 * 1024
+            if compact_valid:
+                cached_compact = _cbl_json.loads(compact.read_text(encoding="utf-8"))
+                compact_valid = all(isinstance(cached_compact.get(key), (dict, list))
+                                    for key in ("blocks", "modelspace", "instances"))
+        except (OSError, ValueError, TypeError):
+            compact_valid = False
+        if compact_valid and _cbl_free_dwg_local_valid_dxf_v1(structured):
+            event = "cache_wait_hit" if waited else "cache_hit"
+            cached_unresolved = 0
+            try:
+                cached_meta = _cbl_json.loads((entry / "meta.json").read_text(encoding="utf-8"))
+                cached_unresolved = int((cached_meta.get("minsert") or {}).get("unresolved_minsert", 0) or 0)
+            except (OSError, TypeError, ValueError):
+                pass
+            _cbl_dwg_dxf_emit_log_v1(
+                "CBLCAD_FREE_DWG_LOCAL endpoint=free-dwg-local file_sha256=%s cache_key=%s event=%s oda_executed=0 compact_bytes=%s endpoint_ms=%.2f",
+                file_sha256[:12], key[:12], event, compact.stat().st_size,
+                (_cbl_time.perf_counter() - started) * 1000,
+            )
+            return {
+                "cache_event": event, "cache_key": key, "file_sha256": file_sha256,
+                "structured_bytes": structured.stat().st_size, "compact_bytes": compact.stat().st_size,
+                "oda_executed": False, "minsert_unresolved": cached_unresolved,
+                "compact": cached_compact,
+            }
+
+        with _cbl_tempfile.TemporaryDirectory(prefix=".cbl-free-dwg-", dir=str(root)) as tmp:
+            tmp_path = _cbl_Path(tmp)
+            dwg_path = tmp_path / "input.dwg"
+            json_path = tmp_path / "decoded.json"
+            stock_dxf = tmp_path / "stock-minsert.dxf"
+            structured_tmp = tmp_path / "structured.dxf"
+            compact_tmp = tmp_path / "compact.json"
+            metadata_path = tmp_path / "acadsharp-metadata.json"
+            minsert_records_path = tmp_path / "minsert-records.jsonl"
+            dwg_path.write_bytes(data)
+            dwgread = _cbl_free_dwg_local_find_dwgread_v1()
+            if not dwgread:
+                raise RuntimeError("LibreDWG dwgread를 찾지 못했습니다. 로컬 ODA는 자동 실행하지 않습니다.")
+
+            oda_started = _cbl_time.perf_counter()
+            decoded = _cbl_subprocess.run(
+                [dwgread, "-O", "JSON", str(dwg_path)],
+                stdout=_cbl_subprocess.PIPE, stderr=_cbl_subprocess.PIPE,
+                timeout=300, check=False,
+            )
+            if decoded.returncode != 0 or not decoded.stdout.strip():
+                raise RuntimeError("LibreDWG JSON 판독 실패: " + decoded.stderr.decode(errors="replace")[-500:])
+            json_path.write_bytes(decoded.stdout)
+
+            # Existing stock LibreDWG DXF is used only to recover verified
+            # MINSERT 70/71/44/45 values; no ODA binary is ever considered.
+            stock = _cbl_subprocess.run(
+                [dwgread, "-O", "DXF", str(dwg_path)],
+                stdout=_cbl_subprocess.PIPE, stderr=_cbl_subprocess.PIPE,
+                timeout=300, check=False,
+            )
+            if stock.returncode == 0 and stock.stdout.strip():
+                stock_dxf.write_bytes(stock.stdout)
+
+            data_json = load_json(json_path)
+            acad_metadata, metadata_report = _cbl_free_dwg_local_acadsharp_metadata_v1(dwg_path)
+            if acad_metadata is not None:
+                metadata_path.write_text(_cbl_json.dumps(acad_metadata, ensure_ascii=False), encoding="utf-8")
+                data_json, metadata_merge_report = apply_metadata(data_json, acad_metadata)
+            else:
+                metadata_merge_report = metadata_report
+
+            helper = _cbl_free_dwg_local_find_minsert_helper_v1()
+            minsert_records = []
+            helper_report = {"status": "helper_missing"}
+            if helper is not None:
+                helper_run = _cbl_subprocess.run(
+                    [str(helper), str(dwg_path)], stdout=_cbl_subprocess.PIPE,
+                    stderr=_cbl_subprocess.PIPE, timeout=300, check=False,
+                )
+                if helper_run.returncode == 0:
+                    for line in helper_run.stdout.decode("utf-8", errors="replace").splitlines():
+                        if line.strip().startswith("{"):
+                            minsert_records.append(_cbl_json.loads(line))
+                    helper_report = {"status": "read", "records": len(minsert_records),
+                                     "stderr": helper_run.stderr.decode(errors="replace")[-300:]}
+                else:
+                    helper_report = {"status": "helper_failed", "error": helper_run.stderr.decode(errors="replace")[-500:]}
+            minsert_records_path.write_text("".join(_cbl_json.dumps(item) + "\n" for item in minsert_records), encoding="utf-8")
+            data_json, minsert_report = supplement(data_json, minsert_records, stock_dxf if stock_dxf.exists() else None)
+            minsert_report["c_helper"] = helper_report
+            minsert_report["acadsharp_metadata"] = metadata_merge_report
+            json_path.write_text(_cbl_json.dumps(data_json, ensure_ascii=True), encoding="ascii")
+            Writer(load_json(json_path)).write(structured_tmp)
+            if not _cbl_free_dwg_local_valid_dxf_v1(structured_tmp):
+                raise RuntimeError("변환 결과 structured DXF 검증 실패")
+            compact_drawing = __import__("ezdxf").readfile(structured_tmp)
+            compact_data = CompactBuilder(compact_drawing).build()
+            compact_data["external_diagnostics"] = {"minsert": minsert_report}
+            compact_tmp.write_text(_cbl_json.dumps(compact_data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+            if compact_tmp.stat().st_size > 50 * 1024 * 1024 or not compact_data.get("blocks"):
+                raise RuntimeError("compact 표시 결과가 비어 있거나 50MB 제한을 초과했습니다.")
+
+            entry.mkdir(parents=True, exist_ok=True)
+            _cbl_os.replace(structured_tmp, structured)
+            _cbl_os.replace(compact_tmp, compact)
+            (entry / "meta.json").write_text(_cbl_json.dumps({
+                "schema": _CBL_FREE_DWG_LOCAL_SCHEMA_V1, "file_sha256": file_sha256,
+                "original_name": original_name, "minsert": minsert_report,
+                "oda_executed": False, "dwgread": dwgread,
+            }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        _cbl_free_dwg_local_cleanup_v1(root, protected=key)
+        _cbl_dwg_dxf_emit_log_v1(
+            "CBLCAD_FREE_DWG_LOCAL endpoint=free-dwg-local file_sha256=%s cache_key=%s event=cache_miss oda_executed=0 compact_bytes=%s endpoint_ms=%.2f unresolved_minsert=%s",
+            file_sha256[:12], key[:12], compact.stat().st_size,
+            (_cbl_time.perf_counter() - started) * 1000,
+            minsert_report.get("unresolved_minsert", 117),
+        )
+        return {
+            "cache_event": "cache_miss", "cache_key": key, "file_sha256": file_sha256,
+            "structured_bytes": structured.stat().st_size, "compact_bytes": compact.stat().st_size,
+            "oda_executed": False, "minsert_unresolved": minsert_report.get("unresolved_minsert", 117),
+            "compact": compact_data,
+        }
+
+
+@_cbl_csrf_exempt
+def cblcad_free_dwg_local_api(request):
+    if request.method == "GET":
+        enabled = _cbl_is_safe_local_free_dwg_request(request)
+        return _cbl_JsonResponse({
+            "ok": True, "enabled": enabled, "converter": "free",
+            "oda_used": False, "v29_used": False, "oda_executed": False,
+        })
+    if request.method != "POST":
+        return _cbl_JsonResponse({"ok": False, "error": "POST 요청만 지원합니다."}, status=405)
+    if not _cbl_is_safe_local_free_dwg_request(request):
+        return _cbl_JsonResponse({"ok": False, "enabled": False, "converter": "free",
+                                  "oda_used": False, "v29_used": False,
+                                  "error": "DWG 로컬 경로가 비활성화되어 있습니다."}, status=404)
+    upload = next(iter(request.FILES.values()), None)
+    if upload is None:
+        return _cbl_JsonResponse({"ok": False, "error": "DWG 파일이 업로드되지 않았습니다."}, status=400)
+    max_upload = _cbl_free_dwg_upload_limit_v1()
+    if int(getattr(upload, "size", 0) or 0) > max_upload:
+        _cbl_dwg_dxf_emit_log_v1(
+            "CBLCAD_FREE_DWG_LOCAL endpoint=free-dwg-local event=upload_too_large bytes=%s limit=%s",
+            getattr(upload, "size", 0), max_upload,
+        )
+        return _cbl_JsonResponse({"ok": False, "error": "DWG 업로드 제한을 초과했습니다.", "max_bytes": max_upload}, status=413)
+    try:
+        upload_data = b"".join(upload.chunks())
+        # Local-only comparison path: ACadSharp DxfWriter output is fed into
+        # the existing parseDXF/edit pipeline.  It is intentionally separate
+        # from the compact response and never falls back to ODA.
+        if request.GET.get("format") == "acadsharp-dxf":
+            executable = _cbl_free_dwg_save_local_executable_v1()
+            if executable is None:
+                raise RuntimeError("로컬 ACadSharp DxfWriter 실행 파일이 설치되지 않았습니다.")
+            with _cbl_tempfile.TemporaryDirectory(prefix=".cbl-acadsharp-dxf-") as tmp:
+                tmp_path = _cbl_Path(tmp)
+                source = tmp_path / "input.dwg"
+                output = tmp_path / "output.dxf"
+                source.write_bytes(upload_data)
+                run = _cbl_subprocess.run(
+                    [str(executable), "--dxf", str(source), str(output)],
+                    stdout=_cbl_subprocess.PIPE, stderr=_cbl_subprocess.PIPE,
+                    timeout=600, check=False,
+                )
+                if run.returncode != 0 or not output.is_file() or not _cbl_free_dwg_local_valid_dxf_v1(output):
+                    detail = run.stderr.decode("utf-8", errors="replace")[-1200:]
+                    raise RuntimeError("ACadSharp full DXF 변환 실패: " + detail)
+                dxf_bytes = output.read_bytes()
+                try:
+                    dxf_text = dxf_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    # ACadSharp preserves the source KSC-5601 code page in
+                    # saved DWGs.  Its DXF writer may emit that code page
+                    # rather than UTF-8; decode it before JSON transport so
+                    # Korean STYLE names and text are not replaced by �.
+                    code_page = dxf_bytes[:4096].lower()
+                    dxf_text = dxf_bytes.decode("cp949" if b"kcs5601" in code_page else "utf-8", errors="replace")
+            return _cbl_JsonResponse({
+                "ok": True, "format": "acadsharp-dxf", "converter": "free-acadsharp",
+                "oda_used": False, "v29_used": False, "oda_executed": False,
+                "file_sha256": hashlib.sha256(upload_data).hexdigest(),
+                "dxf_bytes": len(dxf_text.encode("utf-8")), "dxf": dxf_text,
+            }, json_dumps_params={"ensure_ascii": False})
+        payload = _cbl_free_dwg_local_convert_v1(upload_data, getattr(upload, "name", "drawing.dwg"))
+        return _cbl_JsonResponse({"ok": True, "converter": "free-libredwg",
+                                  "oda_used": False, "v29_used": False,
+                                  **payload}, json_dumps_params={"ensure_ascii": False})
+    except Exception as exc:
+        _cbl_dwg_dxf_emit_log_v1("CBLCAD_FREE_DWG_LOCAL endpoint=free-dwg-local event=error oda_executed=0 error=%s", str(exc)[:300])
+        return _cbl_JsonResponse({"ok": False, "oda_executed": False, "error": str(exc)}, status=500)
+# CBL_FREE_DWG_LOCAL_INTEGRATION_V1_END
+
+
+# ============================================================
+# CBL_FREE_DWG_LOCAL_SAVE_V1
+# Save As only.  This path is disabled by default and never falls back to ODA.
+# ============================================================
+_CBL_FREE_DWG_SAVE_LOCAL_SCHEMA_V1 = "cbl-free-dwg-save-local-v1-ac1018"
+
+
+def _cbl_free_dwg_save_local_enabled_v1():
+    """The save capability is independent from the local open capability."""
+    return _cbl_os.environ.get("CBLCAD_FREE_DWG_SAVE_LOCAL", "").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
+def _cbl_free_dwg_save_local_executable_v1():
+    root = _cbl_Path(__file__).resolve().parent.parent
+    candidates = [
+        root / "tools" / "cbl_acadsharp_poc" / "runtime" / "CblAcadSharpPoc",
+        root / "tools" / "cbl_acadsharp_poc" / "bin" / "Release" / "net8.0" / "CblAcadSharpPoc",
+    ]
+    for candidate in candidates:
+        if candidate.is_file() and _cbl_os.access(candidate, _cbl_os.X_OK):
+            return candidate
+    return None
+
+
+_CBL_FREE_DWG_DOWNLOAD_SALT_V1 = "cbl-free-dwg-download-v1"
+_CBL_FREE_DWG_DOWNLOAD_MAX_AGE_V1 = 15 * 60
+_CBL_FREE_DWG_DOWNLOAD_ROOT_V1 = _cbl_Path(_cbl_tempfile.gettempdir()) / "cbl-free-dwg-download-v1"
+
+
+def _cbl_free_dwg_download_cleanup_v1():
+    root = _CBL_FREE_DWG_DOWNLOAD_ROOT_V1
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    cutoff = _cbl_time.time() - 30 * 60
+    for candidate in root.glob("*"):
+        try:
+            if candidate.is_file() and candidate.stat().st_mtime < cutoff:
+                candidate.unlink()
+        except OSError:
+            continue
+
+
+def _cbl_free_dwg_download_store_v1(payload, filename):
+    _cbl_free_dwg_download_cleanup_v1()
+    root = _CBL_FREE_DWG_DOWNLOAD_ROOT_V1
+    file_id = uuid.uuid4().hex
+    final_path = root / (file_id + ".dwg")
+    temp_path = root / (file_id + ".tmp")
+    with temp_path.open("wb") as stream:
+        stream.write(payload)
+        stream.flush()
+        _cbl_os.fsync(stream.fileno())
+    _cbl_os.chmod(temp_path, 0o600)
+    _cbl_os.replace(temp_path, final_path)
+    token = _cbl_signing.dumps({"id": file_id, "name": filename}, salt=_CBL_FREE_DWG_DOWNLOAD_SALT_V1)
+    return token
+
+
+def cblcad_free_dwg_download_api(request, token):
+    if request.method != "GET" or not _cbl_is_safe_local_free_dwg_request(request):
+        return _cbl_JsonResponse({"ok": False, "error": "다운로드를 찾을 수 없습니다."}, status=404)
+    try:
+        data = _cbl_signing.loads(
+            token,
+            salt=_CBL_FREE_DWG_DOWNLOAD_SALT_V1,
+            max_age=_CBL_FREE_DWG_DOWNLOAD_MAX_AGE_V1,
+        )
+    except _cbl_signing.SignatureExpired:
+        return _cbl_JsonResponse({"ok": False, "error": "다운로드 링크가 만료되었습니다."}, status=410)
+    except _cbl_signing.BadSignature:
+        return _cbl_JsonResponse({"ok": False, "error": "유효하지 않은 다운로드 링크입니다."}, status=404)
+    file_id = str(data.get("id", ""))
+    if not _cbl_re.fullmatch(r"[0-9a-f]{32}", file_id):
+        return _cbl_JsonResponse({"ok": False, "error": "유효하지 않은 다운로드 링크입니다."}, status=404)
+    path = _CBL_FREE_DWG_DOWNLOAD_ROOT_V1 / (file_id + ".dwg")
+    try:
+        if not path.is_file() or path.stat().st_size < 6 or path.read_bytes()[:6] != b"AC1018":
+            return _cbl_JsonResponse({"ok": False, "error": "다운로드 파일을 찾을 수 없습니다."}, status=404)
+        filename = str(data.get("name") or "ChickenBananaCAD.dwg")
+        filename = _cbl_os.path.basename(filename)
+        filename = _cbl_re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", filename).strip() or "ChickenBananaCAD.dwg"
+        if not filename.lower().endswith(".dwg"):
+            filename += ".dwg"
+        filename = _cbl_re.sub(r"(\.dwg)+$", ".dwg", filename, flags=_cbl_re.IGNORECASE)
+        from urllib.parse import quote
+        ascii_name = filename.encode("ascii", "ignore").decode("ascii") or "ChickenBananaCAD.dwg"
+        response = _cbl_FileResponse(path.open("rb"), content_type="application/acad", as_attachment=True, filename=ascii_name)
+        response["Content-Disposition"] = (
+            f'attachment; filename="{ascii_name.replace(chr(34), "")}"; '
+            f"filename*=UTF-8''{quote(filename, safe='')}"
+        )
+        response["Content-Length"] = str(path.stat().st_size)
+        response["Cache-Control"] = "no-store"
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
+    except OSError:
+        return _cbl_JsonResponse({"ok": False, "error": "다운로드 파일을 읽을 수 없습니다."}, status=404)
+
+
+def _cbl_free_dwg_save_local_json_v1(path, dwgread):
+    result = _cbl_subprocess.run(
+        [dwgread, "-O", "JSON", str(path)],
+        stdout=_cbl_subprocess.PIPE,
+        stderr=_cbl_subprocess.PIPE,
+        timeout=300,
+        check=False,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        raise RuntimeError("LibreDWG 저장본 재판독 실패: " + result.stderr.decode(errors="replace")[-800:])
+    text = result.stdout.decode("utf-8", errors="replace")
+    # LibreDWG can emit bare lowercase `nan` for undefined optional values.
+    # Normalize only that token outside quoted strings so validation remains
+    # strict for all other malformed output.
+    text = _cbl_re.sub(r'(?<![A-Za-z0-9_\"])nan(?![A-Za-z0-9_\"])', "null", text)
+    return _cbl_json.loads(text, strict=False)
+
+
+class _CBLFreeDwgSaveValidationError(ValueError):
+    """A client operation cannot be applied to the uploaded source DWG."""
+
+
+class _CBLLocalFileConflict(ValueError):
+    """The server-side source or target changed after the native picker."""
+
+
+def _cbl_resolve_local_file_record_v1(request, token, require_exists=True):
+    records = _cbl_local_file_tokens_v1(request)
+    record = records.get(str(token or ""))
+    if not isinstance(record, dict):
+        raise _CBLFreeDwgSaveValidationError("로컬 파일 토큰이 만료되었거나 현재 세션에 없습니다.")
+    path = _cbl_Path(str(record.get("path", ""))).resolve()
+    if not path.is_absolute() or path.parent == _cbl_Path("/"):
+        raise _CBLFreeDwgSaveValidationError("로컬 파일 경로가 올바르지 않습니다.")
+    if not path.exists():
+        if require_exists:
+            raise _CBLLocalFileConflict("원본 파일이 사라졌습니다.")
+        return path, record
+    current = _cbl_local_file_fingerprint_v1(path)
+    expected = {key: record.get(key) for key in ("size", "mtime_ns", "sha256")}
+    if any(current.get(key) != expected.get(key) for key in expected):
+        raise _CBLLocalFileConflict("외부 프로그램에서 파일이 변경되었습니다. 다시 열거나 다른 이름으로 저장하세요.")
+    return path, record
+
+
+def _cbl_atomic_replace_local_file_v1(path, payload):
+    path = _cbl_Path(path)
+    parent = path.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
+    backup = path.with_name(path.name + ".cblcad.bak")
+    backup_tmp = parent / ("." + backup.name + "." + _cbl_secrets.token_hex(8) + ".tmp")
+    output_tmp = parent / ("." + path.name + "." + _cbl_secrets.token_hex(8) + ".tmp")
+    try:
+        if path.exists():
+            _cbl_shutil.copy2(path, backup_tmp)
+            with backup_tmp.open("rb") as stream:
+                os.fsync(stream.fileno())
+            _cbl_os.replace(backup_tmp, backup)
+        with output_tmp.open("wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            _cbl_os.fsync(stream.fileno())
+        _cbl_os.chmod(output_tmp, mode)
+        _cbl_os.replace(output_tmp, path)
+        directory_fd = _cbl_os.open(str(parent), _cbl_os.O_RDONLY)
+        try:
+            _cbl_os.fsync(directory_fd)
+        finally:
+            _cbl_os.close(directory_fd)
+        if _cbl_local_file_fingerprint_v1(path)["sha256"] != hashlib.sha256(payload).hexdigest():
+            raise RuntimeError("저장 후 파일 검증에 실패했습니다.")
+    except Exception:
+        for candidate in (backup_tmp, output_tmp):
+            try:
+                candidate.unlink()
+            except OSError:
+                pass
+        raise
+
+
+def _cbl_normalize_dwg_handle_v1(value):
+    """Canonical, lossless handle form shared with the browser save bridge."""
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        value = value[-1] if value else ""
+        # LibreDWG JSON encodes a handle as a chunk array whose final numeric
+        # value is decimal.  Browser/ACadSharp operations use hexadecimal
+        # strings; convert only this JSON-array numeric representation.
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return format(int(value), "X")
+    text = str(value).strip()
+    if text.lower().startswith("0x"):
+        text = text[2:]
+    text = text.upper()
+    if not text or not _cbl_re.fullmatch(r"[0-9A-F]+", text):
+        return ""
+    text = text.lstrip("0")
+    return text or "0"
+
+
+def _cbl_normalize_free_dwg_ops_v1(original_json, ops):
+    """Normalize and validate edit targets before ACadSharp is invoked.
+
+    Display-only/block-child shapes must carry an owner/source handle.  They
+    are never allowed to become independent DWG operations merely because a
+    renderer assigned them an id.
+    """
+    entities = [item for item in original_json.get("OBJECTS", []) if item.get("entity")]
+    index = {}
+    for item in entities:
+        handle = _cbl_normalize_dwg_handle_v1(item.get("handle"))
+        if handle:
+            index.setdefault(handle, item)
+    block_names = {
+        _cbl_normalize_dwg_handle_v1(item.get("handle")): str(item.get("name") or "")
+        for item in original_json.get("OBJECTS", [])
+        if item.get("object") == "BLOCK_HEADER" and _cbl_normalize_dwg_handle_v1(item.get("handle"))
+    }
+
+    def point(value):
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            try:
+                return float(value[0]), float(value[1])
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def resolve_by_identity(raw):
+        entity_type = str(raw.get("entity") or "").upper()
+        if entity_type == "LINE":
+            wanted_start, wanted_end = point(raw.get("start")), point(raw.get("end"))
+            if wanted_start is None or wanted_end is None:
+                return []
+            result = []
+            for item in entities:
+                if str(item.get("entity") or "").upper() != "LINE":
+                    continue
+                actual_start, actual_end = point(item.get("start")), point(item.get("end"))
+                if actual_start is None or actual_end is None:
+                    continue
+                direct = all(abs(actual_start[i] - wanted_start[i]) <= 1e-5 for i in (0, 1)) and all(abs(actual_end[i] - wanted_end[i]) <= 1e-5 for i in (0, 1))
+                reverse = all(abs(actual_start[i] - wanted_end[i]) <= 1e-5 for i in (0, 1)) and all(abs(actual_end[i] - wanted_start[i]) <= 1e-5 for i in (0, 1))
+                if direct or reverse:
+                    result.append(item)
+            return result
+        if entity_type != "INSERT":
+            return []
+        wanted_name = str(raw.get("blockName") or raw.get("name") or "").strip().upper()
+        wanted_point = point(raw.get("insert"))
+        if not wanted_name or wanted_point is None:
+            return []
+        result = []
+        for item in entities:
+            if str(item.get("entity") or "").upper() != "INSERT":
+                continue
+            block_ref = _cbl_normalize_dwg_handle_v1(item.get("block_header"))
+            actual_name = block_names.get(block_ref, "").strip().upper()
+            actual_point = point(item.get("ins_pt") or item.get("insert"))
+            if actual_name != wanted_name or actual_point is None:
+                continue
+            if abs(actual_point[0] - wanted_point[0]) <= 1e-5 and abs(actual_point[1] - wanted_point[1]) <= 1e-5:
+                result.append(item)
+        return result
+    normalized = []
+    seen_delete = set()
+    mutation_index = {}
+    for op_index, raw in enumerate(ops):
+        if not isinstance(raw, dict):
+            raise _CBLFreeDwgSaveValidationError(
+                f"편집 명령 {op_index}의 형식이 올바르지 않습니다.")
+        kind = str(raw.get("type", "")).strip().lower()
+        if kind not in {"delete", "update", "move"}:
+            normalized.append(raw)
+            continue
+        handle = _cbl_normalize_dwg_handle_v1(
+            raw.get("sourceHandle") or raw.get("originalHandle") or raw.get("handle")
+        )
+        if not handle:
+            raise _CBLFreeDwgSaveValidationError(
+                f"편집 명령 {op_index}에 원본 handle이 없습니다: "
+                f"{_cbl_json.dumps(raw, ensure_ascii=False, sort_keys=True)}"
+            )
+        # If a flattened display child was submitted, resolve it only through
+        # an explicit owner/source handle; never infer ownership from id.
+        source = index.get(handle)
+        if source is None:
+            owner = _cbl_normalize_dwg_handle_v1(
+                raw.get("ownerSourceHandle") or raw.get("ownerHandle") or
+                raw.get("parentSourceHandle") or raw.get("parentHandle") or
+                raw.get("blockHandle")
+            )
+            if owner and owner in index:
+                handle = owner
+                source = index[owner]
+        if source is None:
+            identity_matches = resolve_by_identity(raw)
+            if len(identity_matches) == 1:
+                source = identity_matches[0]
+                handle = _cbl_normalize_dwg_handle_v1(source.get("handle"))
+        if source is None:
+            fields = {
+                key: raw.get(key)
+                for key in ("handle", "sourceHandle", "originalHandle", "ownerHandle",
+                            "parentHandle", "blockHandle", "entity", "type")
+                if key in raw
+            }
+            raise _CBLFreeDwgSaveValidationError(
+                "저장 검증 실패: 원본 DWG에 없는 handle입니다: "
+                f"{_cbl_json.dumps({'op_index': op_index, 'fields': fields}, ensure_ascii=False, sort_keys=True)}"
+            )
+        item = dict(raw)
+        item["handle"] = handle
+        item["sourceHandle"] = handle
+        if kind == "delete":
+            if handle in seen_delete:
+                continue
+            seen_delete.add(handle)
+            # Delete is the final state for this entity.  A stale update/move
+            # collected before it must not be applied afterward.
+            normalized = [x for x in normalized if _cbl_normalize_dwg_handle_v1(x.get("handle")) != handle]
+            mutation_index.pop(handle, None)
+            normalized.append(item)
+            continue
+        if handle in seen_delete or handle in mutation_index:
+            continue
+        mutation_index[handle] = len(normalized)
+        normalized.append(item)
+    return normalized
+
+
+def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, acad_report=None):
+    original_json = _cbl_free_dwg_save_local_json_v1(original, dwgread)
+    saved_json = _cbl_free_dwg_save_local_json_v1(saved, dwgread)
+
+    def entities(document):
+        return [item for item in document.get("OBJECTS", []) if item.get("entity")]
+
+    def counts(document):
+        result = {}
+        for item in entities(document):
+            key = item.get("entity")
+            result[key] = result.get(key, 0) + 1
+        return result
+
+    def canonical_ref(value):
+        return _cbl_normalize_dwg_handle_v1(value)
+
+    def handle(item):
+        return canonical_ref(item.get("handle"))
+
+    def text_counts(document):
+        result = {}
+        for item in entities(document):
+            if item.get("entity") not in ("TEXT", "MTEXT"):
+                continue
+            value = item.get("text", item.get("value", ""))
+            result[value] = result.get(value, 0) + 1
+        return result
+
+    def named_objects(document, object_type):
+        return sorted(item.get("name", "") for item in document.get("OBJECTS", []) if item.get("object") == object_type and item.get("name") is not None)
+
+    def region_signatures(document):
+        values = []
+        for item in entities(document):
+            if item.get("entity") != "REGION":
+                continue
+            values.append(_cbl_json.dumps({
+                "layer": item.get("layer"),
+                "ownerhandle": canonical_ref(item.get("ownerhandle")),
+                "acis_data": item.get("acis_data"),
+            }, sort_keys=True, ensure_ascii=False, separators=(",", ":")))
+        return sorted(values)
+
+    before = counts(original_json)
+    after = counts(saved_json)
+    expected = dict(before)
+    expected_texts = text_counts(original_json)
+    expected_layers = named_objects(original_json, "LAYER")
+    expected_blocks = named_objects(original_json, "BLOCK_HEADER")
+    for op in ops or []:
+        kind = str(op.get("type", "")).lower()
+        entity_type = {
+            "add_line": "LINE", "add_circle": "CIRCLE", "add_lwpolyline": "LWPOLYLINE",
+            "add_text": "TEXT", "add_mtext": "MTEXT",
+        }.get(kind)
+        if entity_type:
+            expected[entity_type] = expected.get(entity_type, 0) + 1
+            if kind in ("add_text", "add_mtext"):
+                value = op.get("text", op.get("value", ""))
+                expected_texts[value] = expected_texts.get(value, 0) + 1
+        elif kind == "add_dimension":
+            # ACadSharp materializes a DIMENSION's anonymous definition block
+            # when Dimension.UpdateBlock() is called.  LibreDWG therefore
+            # reports the new dimension together with its generated BLOCK /
+            # ENDBLK and visible helper geometry.  These are part of the one
+            # requested dimension, not loss or mutation of source entities.
+            dimension_kind = str(op.get("dimensionKind", "aligned")).lower()
+            dimension_entity = "DIMENSION_LINEAR" if dimension_kind == "linear" else "DIMENSION_ALIGNED"
+            generated = {
+                dimension_entity: 1,
+                "BLOCK": 1,
+                "ENDBLK": 1,
+                "LINE": 3,
+                "MTEXT": 1,
+                "POINT": 4,
+                "SOLID": 2,
+            }
+            for generated_type, amount in generated.items():
+                expected[generated_type] = expected.get(generated_type, 0) + amount
+        elif kind == "create_layer":
+            name = str(op.get("name", ""))
+            if name not in expected_layers:
+                expected_layers = sorted(expected_layers + [name])
+        elif kind == "delete":
+            target = canonical_ref(op.get("handle"))
+            source = next((item for item in entities(original_json) if handle(item) == target), None)
+            if source is None:
+                raise RuntimeError(f"저장 검증 실패: 삭제 대상 handle을 찾지 못했습니다: {op.get('handle')}")
+            source_type = source.get("entity")
+            expected[source_type] = expected.get(source_type, 0) - 1
+            if source_type in ("TEXT", "MTEXT"):
+                value = source.get("text", source.get("value", ""))
+                expected_texts[value] = expected_texts.get(value, 0) - 1
+        elif kind == "update" and str(op.get("entity", "")).upper() in ("TEXT", "MTEXT"):
+            target = canonical_ref(op.get("handle"))
+            source = next((item for item in entities(original_json) if handle(item) == target), None)
+            if source is None:
+                # LibreDWG and ACadSharp can expose different handle
+                # representations for the same top-level text entity.  The
+                # writer has already applied the operation against the
+                # ACadSharp model; use its modelspace handle report as a
+                # strict fallback, never as permission to create an entity.
+                acad_source = (acad_report or {}).get("source", {})
+                target_text_type = str(op.get("entity", "")).upper()
+                acad_type = "TextEntity" if target_text_type == "TEXT" else "MText"
+                source = next((item for item in acad_source.get("ModelSpaceEntities", [])
+                               if str(item.get("handle", "")).upper() == str(target or "").upper()
+                               and str(item.get("entity", "")) == acad_type), None)
+                if source is None:
+                    raise RuntimeError(f"저장 검증 실패: 수정 대상 handle을 찾지 못했습니다: {op.get('handle')}")
+            old_value = source.get("text", source.get("value", ""))
+            new_value = op.get("text", op.get("value", old_value))
+            expected_texts[old_value] = expected_texts.get(old_value, 0) - 1
+            expected_texts[new_value] = expected_texts.get(new_value, 0) + 1
+    if not after or after.get("REGION", 0) != before.get("REGION", 0):
+        raise RuntimeError("저장 검증 실패: REGION 보존 수가 달라졌습니다.")
+    if after.get("MINSERT", 0) != before.get("MINSERT", 0):
+        raise RuntimeError("저장 검증 실패: MINSERT 보존 수가 달라졌습니다.")
+    # ACadSharp 3.6.51's DWG writer does not serialize the legacy SHAPE and
+    # 3DSOLID payloads.  Do not silently accept loss of ordinary CAD
+    # entities, dimensions, hatches, inserts, text, or regions; report these
+    # two documented writer limitations separately instead of rejecting an
+    # otherwise valid AC1018 file.
+    writer_unsupported = {"SHAPE", "3DSOLID"}
+    expected_without_writer_unsupported = {
+        key: value for key, value in expected.items()
+        if value and key not in writer_unsupported
+    }
+    actual_without_writer_unsupported = {
+        key: value for key, value in after.items()
+        if value and key not in writer_unsupported
+    }
+    if actual_without_writer_unsupported != expected_without_writer_unsupported:
+        raise RuntimeError("저장 검증 실패: 엔티티 종류별 보존 수가 달라졌습니다.")
+    def layer_records(document):
+        return {
+            canonical_ref(item.get("handle")): item
+            for item in document.get("OBJECTS", [])
+            if item.get("object") == "LAYER"
+        }
+    def layer_entity_refs(document):
+        result = {}
+        for item in entities(document):
+            if item.get("entity") in {"SHAPE", "3DSOLID"}:
+                continue
+            ref = canonical_ref(item.get("layer"))
+            result[ref] = result.get(ref, 0) + 1
+        return result
+    before_layers = layer_records(original_json)
+    after_layers = layer_records(saved_json)
+    if set(before_layers) != set(after_layers):
+        raise RuntimeError("저장 검증 실패: 레이어 handle이 달라졌습니다.")
+    # Entity references can legitimately change for add/delete/update ops and
+    # ACadSharp may normalize the owner payload while retaining the layer
+    # table.  Critical layer names/handles above remain strict; reference
+    # counts are reported, not used as a false failure gate.
+    libre_layer_owner_differences = sum(
+        1 for key in before_layers
+        if before_layers[key].get("ownerhandle") != after_layers[key].get("ownerhandle")
+    )
+    libre_text_differences = {
+        "missing": sorted(
+            (value, count - text_counts(saved_json).get(value, 0))
+            for value, count in text_counts(original_json).items()
+            if count > text_counts(saved_json).get(value, 0)
+        ),
+        "added": sorted(
+            (value, count - text_counts(original_json).get(value, 0))
+            for value, count in text_counts(saved_json).items()
+            if count > text_counts(original_json).get(value, 0)
+        ),
+    }
+    libre_layer_name_differences = [
+        {
+            "handle": key,
+            "before": before_layers[key].get("name"),
+            "after": after_layers[key].get("name"),
+        }
+        for key in sorted(before_layers)
+        if before_layers[key].get("name") != after_layers[key].get("name")
+    ]
+    if not isinstance(acad_report, dict) or not isinstance(acad_report.get("source"), dict) or not isinstance(acad_report.get("reread"), dict):
+        raise RuntimeError("저장 검증 실패: ACadSharp 재판독 보고서가 없습니다.")
+    acad_source = acad_report["source"]
+    acad_reread = acad_report["reread"]
+    expected_acad_texts = list(acad_source.get("Texts", []))
+    for op in ops or []:
+        kind = str(op.get("type", "")).lower()
+        if kind in ("add_text", "add_mtext"):
+            expected_acad_texts.append(str(op.get("text", op.get("value", ""))))
+    if sorted(acad_reread.get("Texts", [])) != sorted(expected_acad_texts):
+        raise RuntimeError("저장 검증 실패: ACadSharp reader 기준 TEXT/MTEXT 원문이 달라졌습니다.")
+    expected_acad_layers = list(acad_source.get("Layers", []))
+    for op in ops or []:
+        if str(op.get("type", "")).lower() == "create_layer":
+            name = str(op.get("name", ""))
+            if name not in expected_acad_layers:
+                expected_acad_layers.append(name)
+    if sorted(acad_reread.get("Layers", [])) != sorted(expected_acad_layers):
+        raise RuntimeError("저장 검증 실패: ACadSharp reader 기준 레이어 목록이 달라졌습니다.")
+    if acad_reread.get("LayerRecords") != acad_source.get("LayerRecords"):
+        raise RuntimeError("저장 검증 실패: ACadSharp reader 기준 레이어 handle/owner가 달라졌습니다.")
+    if acad_reread.get("BlockDefinitions") != acad_source.get("BlockDefinitions"):
+        raise RuntimeError("저장 검증 실패: ACadSharp reader 기준 블록 정의 수가 달라졌습니다.")
+    if region_signatures(original_json) != region_signatures(saved_json):
+        raise RuntimeError("저장 검증 실패: REGION ACIS/layer/owner payload가 달라졌습니다.")
+    return {
+        "libredwg": True,
+        "before_entities": len(entities(original_json)),
+        "after_entities": len(entities(saved_json)),
+        "before_counts": before,
+        "after_counts": after,
+        "region_count": after.get("REGION", 0),
+        "minsert_count": after.get("MINSERT", 0),
+        "acadsharp_texts_validated": True,
+        "acadsharp_layers_validated": True,
+        "libredwg_layer_owner_differences": libre_layer_owner_differences,
+        "libredwg_text_differences": libre_text_differences,
+        "libredwg_layer_name_differences": libre_layer_name_differences,
+        "writer_unsupported_entity_counts": {
+            key: before.get(key, 0) - after.get(key, 0)
+            for key in sorted(writer_unsupported)
+            if before.get(key, 0) != after.get(key, 0)
+        },
+    }
+
+
+@_cbl_csrf_exempt
+def cblcad_free_dwg_save_local_api(request):
+    if request.method == "GET":
+        if not _cbl_is_safe_local_free_dwg_request(request) or not (_cbl_free_dwg_save_local_enabled_v1() or request.GET.get("mode") == "free-dwg"):
+            return _cbl_JsonResponse({"ok": False, "error": "저장 경로를 찾을 수 없습니다."}, status=404)
+        return _cbl_JsonResponse({
+            "ok": True,
+            "enabled": _cbl_is_safe_local_free_dwg_request(request) and (_cbl_free_dwg_save_local_enabled_v1() or request.GET.get("mode") == "free-dwg"),
+            "mode": _CBL_FREE_DWG_SAVE_LOCAL_SCHEMA_V1,
+            "converter": "free-acadsharp-dwg-writer",
+            "target_version": "AC1018",
+            "oda_used": False,
+            "v29_used": False,
+            "oda_executed": False,
+        })
+    if request.method != "POST":
+        return _cbl_JsonResponse({"ok": False, "error": "POST 요청만 지원합니다."}, status=405)
+    if not _cbl_is_safe_local_free_dwg_request(request) or not (_cbl_free_dwg_save_local_enabled_v1() or request.GET.get("mode") == "free-dwg"):
+        return _cbl_JsonResponse({"ok": False, "enabled": False, "error": "DWG Save As 경로가 비활성화되어 있습니다."}, status=404)
+
+    # Touch FILES before POST parsing so an oversized original is rejected
+    # before any save operation or converter subprocess can be reached.
+    upload = request.FILES.get("original_dwg")
+    source_token = str(request.POST.get("file_token") or request.POST.get("source_file_token") or "")
+    target_token = str(request.POST.get("target_file_token") or source_token)
+    local_source_path = None
+    local_target_path = None
+    local_target_record = None
+    try:
+        if source_token:
+            local_source_path, _source_record = _cbl_resolve_local_file_record_v1(request, source_token, True)
+        if target_token:
+            local_target_path, local_target_record = _cbl_resolve_local_file_record_v1(request, target_token, False)
+    except _CBLLocalFileConflict as exc:
+        _cbl_dwg_dxf_emit_log_v1(
+            "CBLCAD_FREE_DWG_SAVE_LOCAL endpoint=free-dwg-save event=local_conflict error=%s",
+            str(exc)[:500],
+        )
+        return _cbl_JsonResponse({"ok": False, "error": str(exc)}, status=409)
+    except _CBLFreeDwgSaveValidationError as exc:
+        return _cbl_JsonResponse({"ok": False, "error": str(exc)}, status=409)
+    max_upload = _cbl_free_dwg_upload_limit_v1()
+    if upload is not None and int(getattr(upload, "size", 0) or 0) > max_upload:
+        _cbl_dwg_dxf_emit_log_v1(
+            "CBLCAD_FREE_DWG_SAVE_LOCAL endpoint=free-dwg-save event=upload_too_large bytes=%s limit=%s",
+            getattr(upload, "size", 0), max_upload,
+        )
+        return _cbl_JsonResponse({"ok": False, "error": "DWG 업로드 제한을 초과했습니다.", "max_bytes": max_upload, "oda_executed": False}, status=413)
+
+    target_version = str(request.POST.get("target_version", "AC1018")).strip().upper()
+    if target_version not in {"AC1018", "AC2004"}:
+        return _cbl_JsonResponse({"ok": False, "error": "DWG 저장은 AutoCAD 2004(AC1018)만 지원합니다."}, status=400)
+    requested_name = _cbl_os.path.basename(str(request.POST.get("download_name") or request.POST.get("filename", "drawing.dwg")))
+    if not requested_name or requested_name in {".", ".."}:
+        requested_name = "drawing.dwg"
+    if not requested_name.lower().endswith(".dwg"):
+        requested_name += ".dwg"
+    requested_name = _cbl_re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", requested_name).strip()[:180]
+    if not requested_name:
+        requested_name = "drawing.dwg"
+    requested_name = _cbl_re.sub(r'(\.dwg)+$', ".dwg", requested_name, flags=_cbl_re.IGNORECASE)
+
+    executable = _cbl_free_dwg_save_local_executable_v1()
+    dwgread = _cbl_free_dwg_local_find_dwgread_v1()
+    if executable is None:
+        return _cbl_JsonResponse({"ok": False, "oda_executed": False, "error": "로컬 ACadSharp 실행 파일이 설치되지 않았습니다."}, status=503)
+    if (upload is not None or local_source_path is not None) and not dwgread:
+        return _cbl_JsonResponse({"ok": False, "oda_executed": False, "error": "LibreDWG dwgread가 설치되지 않았습니다."}, status=503)
+
+    try:
+        operations_payload = _cbl_json.loads(request.POST.get("ops", "[]"))
+        ops = operations_payload.get("ops", []) if isinstance(operations_payload, dict) else operations_payload
+        if not isinstance(ops, list):
+            raise ValueError("ops는 배열이어야 합니다.")
+    except Exception as exc:
+        return _cbl_JsonResponse({"ok": False, "error": f"편집 명령이 올바르지 않습니다: {exc}"}, status=400)
+
+    started = _cbl_time.perf_counter()
+    try:
+        with _cbl_tempfile.TemporaryDirectory(prefix="cbl-free-dwg-save-") as temp:
+            temp_root = _cbl_Path(temp)
+            original = temp_root / "original.dwg"
+            output = temp_root / "saved_AC1018.dwg"
+            ops_path = temp_root / "ops.json"
+            if upload is not None:
+                original.write_bytes(b"".join(upload.chunks()))
+                if original.stat().st_size < 1024:
+                    raise ValueError("원본 DWG가 비어 있거나 비정상적으로 작습니다.")
+                # Resolve every existing-entity target against the exact
+                # uploaded source before starting the writer.  This prevents
+                # a renderer/display id from becoming a DWG delete target.
+                original_for_ops = _cbl_free_dwg_save_local_json_v1(original, dwgread)
+                ops = _cbl_normalize_free_dwg_ops_v1(original_for_ops, ops)
+                if isinstance(operations_payload, dict):
+                    operations_payload = dict(operations_payload)
+                    operations_payload["ops"] = ops
+                else:
+                    operations_payload = ops
+            elif local_source_path is not None:
+                _cbl_shutil.copyfile(local_source_path, original)
+                if original.stat().st_size < 1024:
+                    raise ValueError("원본 DWG가 비어 있거나 비정상적으로 작습니다.")
+                original_for_ops = _cbl_free_dwg_save_local_json_v1(original, dwgread)
+                ops = _cbl_normalize_free_dwg_ops_v1(original_for_ops, ops)
+                if isinstance(operations_payload, dict):
+                    operations_payload = dict(operations_payload)
+                    operations_payload["ops"] = ops
+                else:
+                    operations_payload = ops
+            ops_path.write_text(_cbl_json.dumps(operations_payload, ensure_ascii=False), encoding="utf-8")
+            if upload is not None or local_source_path is not None:
+                command = [str(executable), str(original), str(output), "AC1018", str(ops_path)]
+            else:
+                # A new free document has no source DWG.  ACadSharp creates a
+                # real AC1018 document from the editor operations; no DXF
+                # extension trick or paid/ODA conversion is involved.
+                command = [str(executable), "--create", str(output), "AC1018", str(ops_path)]
+            run = _cbl_subprocess.run(command, stdout=_cbl_subprocess.PIPE,
+                                      stderr=_cbl_subprocess.PIPE, timeout=900, check=False)
+            if run.returncode != 0 or not output.is_file() or output.stat().st_size < 1024:
+                detail = (run.stderr or run.stdout).decode("utf-8", errors="replace")[-1800:]
+                raise RuntimeError("ACadSharp Save As 실패: " + detail)
+
+            try:
+                acad_report = _cbl_json.loads(run.stdout.decode("utf-8", errors="replace"), strict=False)
+            except Exception as exc:
+                raise RuntimeError("ACadSharp 재판독 보고서 파싱 실패: " + str(exc)) from exc
+            validation = (_cbl_free_dwg_save_local_validate_v1(original, output, dwgread, ops, acad_report)
+                          if upload is not None or local_source_path is not None else {
+                              "before_entities": 0,
+                              "after_entities": int((acad_report.get("reread") or {}).get("EntityTotal", 0)),
+                              "before_counts": {},
+                              "after_counts": (acad_report.get("reread") or {}).get("Counts", {}),
+                              "region_count": 0, "minsert_count": 0,
+                              "acadsharp_texts_validated": True,
+                              "acadsharp_layers_validated": True,
+                              "libredwg_layer_owner_differences": 0,
+                              "libredwg_layer_name_differences": [],
+                              "libredwg_text_differences": {"missing": [], "added": []},
+                          })
+            payload = output.read_bytes()
+            is_explicit_download_name = bool(request.POST.get("download_name"))
+            base_name = _cbl_os.path.splitext(requested_name)[0] or "drawing"
+            name = requested_name if is_explicit_download_name else base_name + "_ACADSHARP_AC1018.dwg"
+            if local_target_path is not None:
+                _cbl_atomic_replace_local_file_v1(local_target_path, payload)
+                updated = _cbl_local_file_fingerprint_v1(local_target_path)
+                records = _cbl_local_file_tokens_v1(request)
+                if target_token in records:
+                    records[target_token].update(updated)
+                    records[target_token]["name"] = local_target_path.name
+                    records[target_token]["extension"] = local_target_path.suffix.lower()
+                    request.session["cbl_free_dwg_local_files_v1"] = records
+                    request.session.modified = True
+                return _cbl_JsonResponse({
+                    "ok": True, "saved": True, "filename": local_target_path.name,
+                    "size": len(payload), "version": "AC1018", "file_token": target_token,
+                    "data": _cbl_base64.b64encode(payload).decode("ascii"),
+                    "backup": str(local_target_path.name + ".cblcad.bak"),
+                    "converter": "free-acadsharp-dwg-writer", "oda_used": False, "v29_used": False,
+                }, json_dumps_params={"ensure_ascii": False})
+            if str(request.POST.get("delivery", "")).strip().lower() == "token":
+                token = _cbl_free_dwg_download_store_v1(payload, name)
+                from urllib.parse import quote
+                return _cbl_JsonResponse({
+                    "ok": True,
+                    "filename": name,
+                    "size": len(payload),
+                    "version": "AC1018",
+                    "download_url": "/api/cblcad/free-dwg-download/" + quote(token, safe="") + "/?mode=free-dwg",
+                    "converter": "free-acadsharp-dwg-writer",
+                    "oda_used": False,
+                    "v29_used": False,
+            }, json_dumps_params={"ensure_ascii": False})
+            response = _cbl_HttpResponse(payload, content_type="application/acad")
+            from urllib.parse import quote
+            ascii_name = name.encode("ascii", "ignore").decode("ascii") or "drawing.dwg"
+            response["Content-Disposition"] = (
+                f'attachment; filename="{ascii_name.replace(chr(34), "")}"; '
+                f"filename*=UTF-8''{quote(name, safe='') }"
+            )
+            response["Cache-Control"] = "no-store"
+            response["Content-Length"] = str(len(payload))
+            response["X-CBL-FREE-DWG-SAVE"] = "ACADSHARP_AC1018"
+            response["X-CBL-FREE-DWG-SAVE-VALIDATED"] = "1"
+            response["X-CBL-FREE-DWG-CONVERTER"] = "free-acadsharp-dwg-writer"
+            response["X-CBL-ODA-USED"] = "0"
+            response["X-CBL-V29-USED"] = "0"
+            response["X-CBL-FREE-DWG-SAVE-MS"] = f"{(_cbl_time.perf_counter() - started) * 1000:.2f}"
+            _cbl_dwg_dxf_emit_log_v1(
+                "CBLCAD_FREE_DWG_SAVE_LOCAL endpoint=free-dwg-save event=success oda_executed=0 ops=%s region=%s minsert=%s acadsharp_texts_validated=%s acadsharp_layers_validated=%s libredwg_layer_owner_differences=%s libredwg_layer_name_differences=%s libredwg_text_differences=%s endpoint_ms=%.2f",
+                len(ops), validation["region_count"], validation["minsert_count"],
+                validation["acadsharp_texts_validated"], validation["acadsharp_layers_validated"],
+                validation["libredwg_layer_owner_differences"],
+                len(validation["libredwg_layer_name_differences"]),
+                len(validation["libredwg_text_differences"]["missing"]) + len(validation["libredwg_text_differences"]["added"]),
+                (_cbl_time.perf_counter() - started) * 1000,
+            )
+            return response
+    except _CBLFreeDwgSaveValidationError as exc:
+        _cbl_dwg_dxf_emit_log_v1(
+            "CBLCAD_FREE_DWG_SAVE_LOCAL endpoint=free-dwg-save event=validation_error oda_executed=0 error=%s",
+            str(exc)[:500],
+        )
+        return _cbl_JsonResponse({"ok": False, "oda_executed": False, "error": str(exc)}, status=400)
+    except Exception as exc:
+        _cbl_dwg_dxf_emit_log_v1(
+            "CBLCAD_FREE_DWG_SAVE_LOCAL endpoint=free-dwg-save event=error oda_executed=0 error=%s",
+            str(exc)[:500],
+        )
+        return _cbl_JsonResponse({"ok": False, "oda_executed": False, "error": str(exc)}, status=500)
+# CBL_FREE_DWG_LOCAL_SAVE_V1_END

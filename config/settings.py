@@ -180,6 +180,9 @@ MEDIA_ROOT = BASE_DIR / "media"
 DATA_UPLOAD_MAX_MEMORY_SIZE = 500 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 500 * 1024 * 1024
 
+# Local free-DWG endpoint cap; enforced before converter subprocess execution.
+CBLCAD_FREE_DWG_MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+
 FILE_UPLOAD_HANDLERS = [
     "django.core.files.uploadhandler.MemoryFileUploadHandler",
     "django.core.files.uploadhandler.TemporaryFileUploadHandler",

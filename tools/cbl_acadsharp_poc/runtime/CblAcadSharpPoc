@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+runtime_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+os_name=$(uname -s 2>/dev/null || true)
+arch_name=$(uname -m 2>/dev/null || true)
+case "$os_name:$arch_name" in
+  Darwin:arm64|Darwin:aarch64) runtime="$runtime_dir/macos-arm64/CblAcadSharpPoc.bin" ;;
+  Linux:x86_64|Linux:amd64) runtime="$runtime_dir/linux-x64/CblAcadSharpPoc.bin" ;;
+  *) echo "CblAcadSharpPoc self-contained runtime is not available for $os_name/$arch_name" >&2; exit 2 ;;
+esac
+if [ ! -x "$runtime" ]; then
+  echo "CblAcadSharpPoc self-contained runtime is not installed: $runtime" >&2
+  exit 2
+fi
+exec "$runtime" "$@"

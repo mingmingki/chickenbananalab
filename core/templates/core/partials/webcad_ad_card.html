@@ -256,7 +256,7 @@
     <div class="cbl-webcad-card-v4-copy">
       <h2>ChickenBananaCAD</h2>
       <p>웹에서 바로 도면을 열고,<br class="cbl-webcad-br"> 레이어·치수·저장까지 작업합니다.</p>
-      <button type="button" class="cbl-webcad-start-btn cbl-webcad-card-v4-btn" onclick="if (window.cblOpenBetaGate) { return cblOpenBetaGate('cad'); } window.open('/static/core/tools/CBLCAD_VER2.html', '_blank', 'noopener'); return false;">
+      <button type="button" class="cbl-webcad-start-btn cbl-webcad-card-v4-btn" onclick="return cblStartCadFromHomeV1();">
         시작하기 <span aria-hidden="true">→</span>
       </button>
     </div>
@@ -283,7 +283,7 @@
   window.__CBL_CAD_HOME_START_AUTOVERSION_V1__ = true;
 
   function cblCadUrl(){
-    return "/static/core/tools/CBLCAD_VER2.html?v=" + Date.now();
+    return "/tools/cad/?mode=free-dwg&v=" + Date.now();
   }
 
   function isCadStartElement(el){
@@ -373,4 +373,3 @@
 })();
 </script>
 <!-- CBL_CAD_HOME_START_AUTOVERSION_V1_END -->
-
