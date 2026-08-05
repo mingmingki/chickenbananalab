@@ -7910,7 +7910,27 @@ def webcad_tool(request):
             html_parts = html.rsplit("</body>", 1)
             if len(html_parts) == 2:
                 html = html_parts[0] + beta_notice + "</body>" + html_parts[1]
-            return HttpResponse(html, content_type="text/html; charset=utf-8")
+            response = HttpResponse(html, content_type="text/html; charset=utf-8")
+            response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response["Pragma"] = "no-cache"
+            response["Expires"] = "0"
+            return response
+
+    # /tools/cad/ without the explicit mode must still use the canonical CAD
+    # document.  Falling back to the legacy cblcad_ver1.html made authenticated
+    # navigation display an older editor after login.
+    from pathlib import Path
+    from django.conf import settings as _cbl_settings
+    canonical_path = Path(_cbl_settings.BASE_DIR) / "core" / "static" / "core" / "tools" / "CBLCAD_VER2.html"
+    if canonical_path.exists():
+        response = HttpResponse(
+            canonical_path.read_text(encoding="utf-8", errors="ignore"),
+            content_type="text/html; charset=utf-8",
+        )
+        response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response["Pragma"] = "no-cache"
+        response["Expires"] = "0"
+        return response
     return render(request, "core/tools/cblcad_ver1.html")
 # CBL_WEBCAD_TOOL_END
 
