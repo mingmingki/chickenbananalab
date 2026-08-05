@@ -82,7 +82,7 @@
     // In local mode the native macOS chooser is the Save As UI.  Do not put
     // a second filename modal in front of Finder; the chooser owns both the
     // destination directory and the final filename.
-    if(typeof window.cblFreeDwgSaveAC1018V1==='function'){
+    if(window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgSaveLocal===true && typeof window.cblFreeDwgSaveAC1018V1==='function'){
       var nativeStatus=window.CBL_FREE_DWG_SAVE_AS_STATUS_V1;
       nativeStatus.dialogOpened=true;
       return window.cblFreeDwgSaveAC1018V1({saveAs:true}).then(function(ok){
