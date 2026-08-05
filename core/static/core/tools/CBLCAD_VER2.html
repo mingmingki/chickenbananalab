@@ -93,7 +93,7 @@
     close();
     var st=window.CBL_FREE_DWG_SAVE_AS_STATUS_V1;st.dialogOpened=true;st.lastError=null;
     var m=document.createElement('div');m.id='cblFreeDwgSaveAsModalV1';m.style.cssText='position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;';
-    m.innerHTML='<div role="dialog" aria-modal="true" style="width:360px;background:#fff;color:#111;border-radius:10px;padding:18px;box-shadow:0 12px 40px rgba(0,0,0,.35);font:14px sans-serif"><div style="font-weight:700;font-size:16px;margin-bottom:12px">다른 이름으로 저장</div><input id="cblFreeDwgSaveAsNameV1" type="text" style="box-sizing:border-box;width:100%;padding:8px" aria-label="파일명"><div id="cblFreeDwgSaveAsErrorV1" style="min-height:20px;color:#b91c1c;margin-top:6px"></div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px"><button type="button" id="cblFreeDwgSaveAsCancelV1">취소</button><button type="button" id="cblFreeDwgSaveAsConfirmV1">확인</button></div></div>';
+    m.innerHTML='<div role="dialog" aria-modal="true" style="width:360px;background:#fff;color:#111;border-radius:10px;padding:18px;box-shadow:0 12px 40px rgba(0,0,0,.35);font:14px sans-serif"><div style="font-weight:700;font-size:16px;margin-bottom:12px">다른 이름으로 저장</div><input id="cblFreeDwgSaveAsNameV1" type="text" style="box-sizing:border-box;width:100%;padding:8px" aria-label="파일명"><div style="margin-top:7px;color:#667085;font-size:12px;line-height:1.45">저장 위치는 Safari의 파일 다운로드 설정에 따라 결정됩니다.</div><div style="margin-top:4px;color:#667085;font-size:12px;line-height:1.45">매번 위치를 선택하려면 Safari 설정의 다운로드 위치를 ‘다운로드할 때마다 묻기’로 설정하세요.</div><div id="cblFreeDwgSaveAsErrorV1" style="min-height:20px;color:#b91c1c;margin-top:6px"></div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px"><button type="button" id="cblFreeDwgSaveAsCancelV1">취소</button><button type="button" id="cblFreeDwgSaveAsConfirmV1">확인</button></div></div>';
     document.body.appendChild(m);
     var input=m.querySelector('#cblFreeDwgSaveAsNameV1'),err=m.querySelector('#cblFreeDwgSaveAsErrorV1'),confirmBtn=m.querySelector('#cblFreeDwgSaveAsConfirmV1');
     input.value=current();input.focus();input.select();
@@ -44108,13 +44108,19 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(!/^\/api\/cblcad\/free-dwg-download\//.test(String(downloadUrl||'')))throw new Error('유효하지 않은 DWG 다운로드 주소입니다.');
     var finalName=safeName(filename||'ChickenBananaCAD.dwg')||'ChickenBananaCAD.dwg',old=document.getElementById('cblDwgHttpDownloadLinkV1');
     if(old)old.remove();
-    var link=document.createElement('a');link.id='cblDwgHttpDownloadLinkV1';link.href=downloadUrl;link.textContent='DWG 내보내기: '+finalName+' (15분 내)';link.rel='noopener';
+    var oldFrame=document.getElementById('cblDwgDownloadFrameV1');if(oldFrame)oldFrame.remove();
+    var frame=document.createElement('iframe');frame.id='cblDwgDownloadFrameV1';frame.name='cblDwgDownloadFrameV1';frame.title='DWG 다운로드';frame.setAttribute('aria-hidden','true');frame.style.cssText='position:fixed;width:1px;height:1px;left:-10px;top:-10px;border:0;opacity:0;pointer-events:none';
+    var link=document.createElement('a');link.id='cblDwgHttpDownloadLinkV1';link.href=downloadUrl;link.target='cblDwgDownloadFrameV1';link.textContent='DWG 다운로드: '+finalName+' (15분 내)';link.rel='noopener';
     link.style.cssText='position:fixed;right:18px;bottom:18px;z-index:2147482000;padding:9px 13px;border-radius:6px;background:#1f6feb;color:#fff;text-decoration:none;font:13px sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.25)';
-    document.body.appendChild(link);
+    document.body.appendChild(frame);document.body.appendChild(link);
+    var state=window.CBL_FREE_DWG_DOWNLOAD_STATUS_V1||(window.CBL_FREE_DWG_DOWNLOAD_STATUS_V1={});state.url=downloadUrl;state.filename=finalName;state.size=Number(size)||0;state.failed=false;state.retryCount=0;
+    function markFailure(message){state.failed=true;state.error=String(message||'DWG 다운로드에 실패했습니다.');link.textContent='DWG 다운로드 재시도: '+finalName;link.style.background='#a33b4b';try{if(typeof setHint==='function')setHint('DWG 생성 완료 · 다운로드 실패: '+state.error);}catch(e){}}
+    frame.addEventListener('load',function(){try{var body=frame.contentDocument&&frame.contentDocument.body,txt=body?String(body.textContent||''):'';if(/다운로드를 찾을 수 없습니다|유효하지 않은 다운로드 링크|다운로드 링크가 만료/.test(txt))markFailure('다운로드 링크를 확인할 수 없습니다. 다시 시도해 주세요.');}catch(e){}},true);
+    link.addEventListener('click',function(){state.retryCount=Number(state.retryCount||0)+1;state.failed=false;frame.src=downloadUrl;},true);
     var started=false;
-    function start(){if(started)return false;started=true;window.location.assign(downloadUrl);return true;}
+    function start(){if(started)return false;started=true;frame.src=downloadUrl;return true;}
     requestAnimationFrame(start);
-    setTimeout(function(){try{link.remove();}catch(e){}},15*60*1000);
+    setTimeout(function(){try{link.remove();frame.remove();}catch(e){}},15*60*1000);
     return {filename:finalName,bytes:Number(size)||0,url:downloadUrl,started:true};
   }
   var freeDwgSaveInFlightV1=false;
@@ -44175,7 +44181,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       }else{
         if(!delivery.download_url)throw new Error('DWG 내보내기 주소를 받지 못했습니다.');
         var downloadReport=prepareHttpDwgDownloadV1(delivery.download_url,delivery.filename,delivery.size);
-        if(typeof setHint==='function')setHint('DWG 내보내기 준비: '+downloadReport.filename);
+        if(typeof setHint==='function')setHint('DWG 생성 완료 · 다운로드 준비: '+downloadReport.filename);
         window.CBL_FREE_DWG_LAST_SAVE={converter:'free-acadsharp-dwg-writer',targetVersion:'AC1018',oda_used:false,v29_used:false,ops:pack.ops.length,bytes:downloadReport.bytes,downloadUrl:downloadReport.url,exported:true};
       }
       freeDwgSaveInFlightV1=false;

@@ -24078,7 +24078,7 @@ def _cbl_free_dwg_download_store_v1(payload, filename):
 
 
 def cblcad_free_dwg_download_api(request, token):
-    if request.method != "GET" or not _cbl_is_safe_local_free_dwg_request(request):
+    if request.method != "GET" or not _cbl_is_free_dwg_request(request):
         return _cbl_JsonResponse({"ok": False, "error": "다운로드를 찾을 수 없습니다."}, status=404)
     try:
         data = _cbl_signing.loads(
