@@ -44181,6 +44181,9 @@ window.cblSnapResidueGateStatusV12 = function(){
       }else{
         if(!delivery.download_url)throw new Error('DWG 내보내기 주소를 받지 못했습니다.');
         var downloadReport=prepareHttpDwgDownloadV1(delivery.download_url,delivery.filename,delivery.size);
+        window.CBL_FREE_DWG_CURRENT_FILENAME=delivery.filename;
+        try{curFile=delivery.filename;}catch(_downloadNameError){}
+        if(options.saveAs&&window.CBL_FREE_DWG_SAVE_AS_STATUS_V1){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=false;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.downloadedName=delivery.filename;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveCompleted=true;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;}
         if(typeof setHint==='function')setHint('DWG 생성 완료 · 다운로드 준비: '+downloadReport.filename);
         window.CBL_FREE_DWG_LAST_SAVE={converter:'free-acadsharp-dwg-writer',targetVersion:'AC1018',oda_used:false,v29_used:false,ops:pack.ops.length,bytes:downloadReport.bytes,downloadUrl:downloadReport.url,exported:true};
       }
