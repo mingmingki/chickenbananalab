@@ -6092,7 +6092,7 @@ window.cblBuildFullDxfBlockSnapIndexV1=cblBuildFullDxfBlockSnapIndexV1;
 window.cblInstallFullDxfBlockSnapV1=cblInstallFullDxfBlockSnapV1;
 
 // ===== FILE =====
-function fileNew(){if(!confirm('새 파일? 저장되지 않은 내용이 사라집니다.'))return;shapes=[];sel=[];hist=[];hIdx=-1;layers=[{id:1,name:'기본',color:'#3b82f6',visible:true,locked:false,lineType:'Continuous',lineWidth:0.25}];actLay=1;blocks={};curFile='untitled.wcd';if(window.CBL_CAD_RUNTIME_CONFIG&&window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal===true){window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=[];window.CBLCAD_V29_LAST_DWG_FILE=null;}saveH();updUI();updLayers();updBlkList();requestCadRenderV1();}
+function fileNew(){if(!confirm('새 파일? 저장되지 않은 내용이 사라집니다.'))return;shapes=[];sel=[];hist=[];hIdx=-1;layers=[{id:1,name:'기본',color:'#3b82f6',visible:true,locked:false,lineType:'Continuous',lineWidth:0.25}];actLay=1;blocks={};curFile='untitled.wcd';if(window.CBL_CAD_RUNTIME_CONFIG&&window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal===true){window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=[];window.CBLCAD_V29_LAST_DWG_FILE=null;window.CBL_FREE_DWG_CURRENT_FILENAME='';}saveH();updUI();updLayers();updBlkList();requestCadRenderV1();}
 function fileOpen(){var inp=document.createElement('input');inp.type='file';inp.accept='.wcd,.json';inp.onchange=function(e){var f=e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev){try{var d=JSON.parse(ev.target.result);shapes=d.shapes||[];layers=d.layers||[{id:1,name:'기본',color:'#3b82f6',visible:true,locked:false,lineType:'Continuous',lineWidth:0.25}];blocks=d.blocks||{};actLay=1;curFile=f.name;saveH();updUI();updLayers();updBlkList();setTimeout(zoomFit,50);setHint('열기 완료: '+f.name+' ('+shapes.length+'개)');}catch(err){alert('파일 오류: '+err.message);}};r.readAsText(f);};inp.click();}
 function fileSave(){var d=JSON.stringify({shapes:shapes,layers:layers,blocks:blocks,v:'4'},null,2);var b=new Blob([d],{type:'application/json'});var u=URL.createObjectURL(b);var a=document.createElement('a');a.href=u;a.download=curFile.replace(/\.[^.]+$/,'')+'.wcd';a.click();URL.revokeObjectURL(u);setHint('저장 완료');}
 function fileSaveAs(){var n=prompt('파일 이름:',curFile.replace(/\.[^.]+$/,'')||'untitled');if(!n)return;curFile=n+'.wcd';fileSave();}
@@ -43757,6 +43757,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       sourceFile = file;
     }
     try { curFile = file.name || 'drawing.dwg'; } catch(e) {}
+    try { window.CBL_FREE_DWG_CURRENT_FILENAME = file.name || 'drawing.dwg'; } catch(e) {}
     window.CBLCAD_V29_LAST_DWG_FILE = sourceFile;
     window.CBLCAD_V29_LAST_DWG_FILE_NAME = sourceFile.name || 'drawing.dwg';
     window.CBLCAD_V29_ORIGINAL_FILE_NAME = sourceFile.name || 'drawing.dwg';
@@ -43900,6 +43901,14 @@ window.cblSnapResidueGateStatusV12 = function(){
     return true;
   }
   function open(){
+    var browserMode = !!(window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgBrowser === true);
+    if (browserMode) {
+      var input = document.getElementById('cblOpenDwgInput');
+      if (!input) { alert('DWG 열기 입력을 찾지 못했습니다.'); return false; }
+      input.value = '';
+      input.click();
+      return true;
+    }
     localOpen().catch(function(err){
       try { console.error('[CBL_FREE_DWG_LOCAL] open failed', err); } catch(e) {}
       try { if (typeof setHint === 'function') setHint('DWG 열기 실패: '+(err.message || err)); } catch(e) {}
@@ -43983,6 +43992,7 @@ window.cblSnapResidueGateStatusV12 = function(){
   if (window.__CBL_FREE_DWG_AC1018_SAVE_V1__) return;
   window.__CBL_FREE_DWG_AC1018_SAVE_V1__ = true;
   function freeMode(){return !!(window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal === true);}
+  function browserMode(){return !!(window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgBrowser === true);}
   function shapes(){try{if(Array.isArray(window.shapes))return window.shapes;}catch(e){}return [];}
   function layers(){try{if(Array.isArray(window.layers))return window.layers;}catch(e){}return [];}
   function n(v,d){var x=Number(v);return Number.isFinite(x)?x:(d||0);}
@@ -44111,12 +44121,16 @@ window.cblSnapResidueGateStatusV12 = function(){
   window.cblFreeDwgSaveAC1018V1=async function(options){
     if(!freeMode())return false;
     options=options||{};
+    if(browserMode() && !options.saveAs && !window.CBL_FREE_DWG_LOCAL_FILE_TOKEN && !window.CBL_FREE_DWG_CURRENT_FILENAME){
+      if(typeof window.cblFreeDwgSaveAsV1==='function')return window.cblFreeDwgSaveAsV1();
+      throw new Error('먼저 다른 이름으로 저장할 파일명을 정해야 합니다.');
+    }
     var requested=name(options);
     // A document opened through the native bridge already has a session-bound
     // source token.  A browser-file document has no safe path, so the first
     // Save/Cmd+S deliberately opens the native Save panel once and promotes
     // that target token to the document's local save target.
-    if(!options.targetFileToken && (options.saveAs || !window.CBL_FREE_DWG_LOCAL_FILE_TOKEN)){
+    if(!browserMode() && !options.targetFileToken && (options.saveAs || !window.CBL_FREE_DWG_LOCAL_FILE_TOKEN)){
       var pathResponse=await fetch('/api/cblcad/free-dwg-native-save-path/?mode=free-dwg',{
         method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
         body:'filename='+encodeURIComponent(requested)

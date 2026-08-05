@@ -7826,7 +7826,9 @@ def calendar_event_update_real_api(request, pk):
 def webcad_tool(request):
     # The product free mode is explicit in the URL.  The environment flag is
     # still accepted for existing local development sessions.
-    free_mode = _cbl_is_safe_local_free_dwg_request(request)
+    local_free_mode = _cbl_is_safe_local_free_dwg_request(request)
+    browser_free_mode = _cbl_is_browser_free_dwg_request(request)
+    free_mode = local_free_mode or browser_free_mode
     if free_mode:
         from pathlib import Path
         from django.conf import settings as _cbl_settings
@@ -7834,7 +7836,11 @@ def webcad_tool(request):
         path = Path(_cbl_settings.BASE_DIR) / "core" / "static" / "core" / "tools" / "CBLCAD_VER2.html"
         if path.exists():
             html = path.read_text(encoding="utf-8", errors="ignore")
-            runtime = json.dumps({"freeDwgLocal": True, "freeDwgSaveLocal": True}, separators=(",", ":"))
+            runtime = json.dumps({
+                "freeDwgLocal": True,
+                "freeDwgSaveLocal": bool(local_free_mode),
+                "freeDwgBrowser": bool(browser_free_mode),
+            }, separators=(",", ":"))
             early_route = """
 <script>
 (function(){
@@ -23516,6 +23522,40 @@ def _cbl_is_safe_local_free_dwg_request(request):
     return _cbl_free_dwg_local_enabled_v1() or request.GET.get("mode") == "free-dwg"
 
 
+def _cbl_is_browser_free_dwg_request(request):
+    """Allow the authenticated production browser free-DWG route.
+
+    Native Finder endpoints continue to use the stricter loopback/macOS
+    helper above. The browser route never accepts a client filesystem path.
+    """
+    if request.GET.get("mode") != "free-dwg" or _cbl_is_safe_local_free_dwg_request(request):
+        return False
+    user = getattr(request, "user", None)
+    if not user or not bool(getattr(user, "is_authenticated", False)):
+        return False
+    from urllib.parse import urlsplit
+
+    def _host(value):
+        raw = str(value or "").strip()
+        try:
+            parsed = urlsplit("//" + raw if "://" not in raw else raw)
+            return (parsed.hostname or "").strip("[]").lower()
+        except ValueError:
+            return ""
+
+    host = _host(request.META.get("HTTP_HOST"))
+    if not host or host in {"127.0.0.1", "localhost", "::1"}:
+        return False
+    origin = request.META.get("HTTP_ORIGIN")
+    if origin and _host(origin) != host:
+        return False
+    return True
+
+
+def _cbl_is_free_dwg_request(request):
+    return _cbl_is_safe_local_free_dwg_request(request) or _cbl_is_browser_free_dwg_request(request)
+
+
 def _cbl_free_dwg_upload_limit_v1():
     try:
         return max(1, int(getattr(settings, "CBLCAD_FREE_DWG_MAX_UPLOAD_BYTES", 200 * 1024 * 1024)))
@@ -23909,14 +23949,14 @@ def _cbl_free_dwg_local_convert_v1(data, original_name):
 @_cbl_csrf_exempt
 def cblcad_free_dwg_local_api(request):
     if request.method == "GET":
-        enabled = _cbl_is_safe_local_free_dwg_request(request)
+        enabled = _cbl_is_free_dwg_request(request)
         return _cbl_JsonResponse({
             "ok": True, "enabled": enabled, "converter": "free",
             "oda_used": False, "v29_used": False, "oda_executed": False,
         })
     if request.method != "POST":
         return _cbl_JsonResponse({"ok": False, "error": "POST 요청만 지원합니다."}, status=405)
-    if not _cbl_is_safe_local_free_dwg_request(request):
+    if not _cbl_is_free_dwg_request(request):
         return _cbl_JsonResponse({"ok": False, "enabled": False, "converter": "free",
                                   "oda_used": False, "v29_used": False,
                                   "error": "DWG 로컬 경로가 비활성화되어 있습니다."}, status=404)
@@ -24541,11 +24581,11 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
 @_cbl_csrf_exempt
 def cblcad_free_dwg_save_local_api(request):
     if request.method == "GET":
-        if not _cbl_is_safe_local_free_dwg_request(request) or not (_cbl_free_dwg_save_local_enabled_v1() or request.GET.get("mode") == "free-dwg"):
+        if not _cbl_is_free_dwg_request(request) or not (_cbl_free_dwg_save_local_enabled_v1() or request.GET.get("mode") == "free-dwg"):
             return _cbl_JsonResponse({"ok": False, "error": "저장 경로를 찾을 수 없습니다."}, status=404)
         return _cbl_JsonResponse({
             "ok": True,
-            "enabled": _cbl_is_safe_local_free_dwg_request(request) and (_cbl_free_dwg_save_local_enabled_v1() or request.GET.get("mode") == "free-dwg"),
+            "enabled": _cbl_is_free_dwg_request(request) and (_cbl_free_dwg_save_local_enabled_v1() or request.GET.get("mode") == "free-dwg"),
             "mode": _CBL_FREE_DWG_SAVE_LOCAL_SCHEMA_V1,
             "converter": "free-acadsharp-dwg-writer",
             "target_version": "AC1018",
@@ -24555,7 +24595,7 @@ def cblcad_free_dwg_save_local_api(request):
         })
     if request.method != "POST":
         return _cbl_JsonResponse({"ok": False, "error": "POST 요청만 지원합니다."}, status=405)
-    if not _cbl_is_safe_local_free_dwg_request(request) or not (_cbl_free_dwg_save_local_enabled_v1() or request.GET.get("mode") == "free-dwg"):
+    if not _cbl_is_free_dwg_request(request) or not (_cbl_free_dwg_save_local_enabled_v1() or request.GET.get("mode") == "free-dwg"):
         return _cbl_JsonResponse({"ok": False, "enabled": False, "error": "DWG Save As 경로가 비활성화되어 있습니다."}, status=404)
 
     # Touch FILES before POST parsing so an oversized original is rejected
