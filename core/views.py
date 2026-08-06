@@ -24119,6 +24119,49 @@ def cblcad_free_dwg_download_api(request, token):
 
 
 def _cbl_free_dwg_save_local_json_v1(path, dwgread):
+    if not dwgread:
+        executable = _cbl_free_dwg_save_local_executable_v1()
+        if executable is None:
+            raise RuntimeError("LibreDWG와 ACadSharp metadata runtime을 모두 찾지 못했습니다.")
+        result = _cbl_subprocess.run(
+            [str(executable), "--metadata", str(path)],
+            stdout=_cbl_subprocess.PIPE, stderr=_cbl_subprocess.PIPE,
+            timeout=300, check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            raise RuntimeError("ACadSharp 저장본 metadata 재판독 실패: " + result.stderr.decode(errors="replace")[-800:])
+        report = _cbl_json.loads(result.stdout.decode("utf-8", errors="replace"), strict=False)
+        if report.get("status") != "read":
+            raise RuntimeError("ACadSharp metadata 재판독 상태가 올바르지 않습니다.")
+        type_map = {
+            "DIMENSIONALIGNED": "DIMENSION_ALIGNED",
+            "DIMENSIONLINEAR": "DIMENSION_LINEAR",
+            "DIMENSIONANGULAR": "DIMENSION_ANGULAR",
+            "DIMENSIONRADIUS": "DIMENSION_RADIUS",
+            "DIMENSIONDIAMETER": "DIMENSION_DIAMETER",
+        }
+        objects = []
+        for layer in report.get("layers", []):
+            objects.append({
+                "object": "LAYER", "handle": layer.get("handle"),
+                "name": layer.get("name"), "ownerhandle": layer.get("owner"),
+            })
+        for item in report.get("entities", []):
+            entity = str(item.get("type") or "").upper()
+            entity = type_map.get(entity, entity)
+            row = {
+                "entity": entity, "handle": item.get("handle"),
+                "ownerhandle": item.get("owner"),
+            }
+            layer = item.get("layer") or {}
+            if layer.get("handle") is not None:
+                row["layer"] = layer.get("handle")
+            if "text" in item:
+                row["text"] = item.get("text")
+            if item.get("block"):
+                row["block_header"] = (item.get("block") or {}).get("handle")
+            objects.append(row)
+        return {"OBJECTS": objects, "_cbl_validation_source": "acadsharp-metadata"}
     result = _cbl_subprocess.run(
         [dwgread, "-O", "JSON", str(path)],
         stdout=_cbl_subprocess.PIPE,
@@ -24644,8 +24687,9 @@ def cblcad_free_dwg_save_local_api(request):
     dwgread = _cbl_free_dwg_local_find_dwgread_v1()
     if executable is None:
         return _cbl_JsonResponse({"ok": False, "oda_executed": False, "error": "로컬 ACadSharp 실행 파일이 설치되지 않았습니다."}, status=503)
-    if (upload is not None or local_source_path is not None) and not dwgread:
-        return _cbl_JsonResponse({"ok": False, "oda_executed": False, "error": "LibreDWG dwgread가 설치되지 않았습니다."}, status=503)
+    # LibreDWG is optional on Linux: when dwgread is unavailable, the
+    # self-contained ACadSharp runtime supplies strict metadata/handle
+    # validation below.  Do not skip validation or invoke ODA as a fallback.
 
     try:
         operations_payload = _cbl_json.loads(request.POST.get("ops", "[]"))

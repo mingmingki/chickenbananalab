@@ -150,6 +150,7 @@
   var trace=window.CBL_CHROME_SAVE_TRACE_V1={installed:true,installCount:1,lastAction:null,userActivation:null,pickerCalls:0,postCalls:0,writeCalls:0,closeCalls:0,lastError:null};
   var previousSave=window.fileSave;
   var previousSaveAs=window.fileSaveAs;
+  var dispatcherInFlight=null;
   function free(){return !!(window.CBL_CAD_RUNTIME_CONFIG&&window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal===true);}
   function nativeSupported(){return typeof window.showSaveFilePicker==='function'&&typeof window.FileSystemFileHandle==='function'&&window.FileSystemFileHandle.prototype&&typeof window.FileSystemFileHandle.prototype.createWritable==='function';}
   function cleanName(value){
@@ -186,20 +187,23 @@
       var fallback=as?previousSaveAs:previousSave;
       return typeof fallback==='function'?fallback.call(this,event):false;
     }
+    if(dispatcherInFlight)return dispatcherInFlight;
     var existing=!as?(window.CBL_FREE_DWG_NATIVE_FILE_HANDLE||null):null;
     if(existing&&typeof window.cblFreeDwgSaveAC1018V1==='function'){
-      return window.cblFreeDwgSaveAC1018V1({saveAs:false,nativeHandle:existing,skipSafariGuide:true});
+      dispatcherInFlight=Promise.resolve(window.cblFreeDwgSaveAC1018V1({saveAs:false,nativeHandle:existing,skipSafariGuide:true}));
+      return dispatcherInFlight.finally(function(){dispatcherInFlight=null;});
     }
     var pickerPromise;
     try{
       trace.pickerCalls++;
       pickerPromise=window.showSaveFilePicker(pickerOptions(currentName()));
     }catch(error){return Promise.resolve(resetOnError(error));}
-    return Promise.resolve(pickerPromise).then(function(handle){
+    dispatcherInFlight=Promise.resolve(pickerPromise).then(function(handle){
       if(!handle)throw new Error('저장 파일을 선택하지 못했습니다.');
       if(typeof window.cblFreeDwgSaveAC1018V1!=='function')throw new Error('DWG 저장 함수를 찾을 수 없습니다.');
       return window.cblFreeDwgSaveAC1018V1({saveAs:as,nativeHandle:handle,skipSafariGuide:true});
     }).catch(function(error){return resetOnError(error);});
+    return dispatcherInFlight.finally(function(){dispatcherInFlight=null;});
   };
   window.cblNativeDwgSaveFromGestureV1.__cblChromeDispatcherV1=true;
   window.cblBottomSaveDWG=function(ev){return window.cblNativeDwgSaveFromGestureV1(false,ev);};
