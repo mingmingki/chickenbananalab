@@ -120,6 +120,10 @@
       pickerStatus.dialogOpened=true;
       return window.cblFreeDwgSaveAC1018V1({saveAs:true,nativePicker:true}).then(function(ok){pickerStatus.dialogOpened=false;return ok;});
     }
+    if(safariFallback()&&typeof window.cblFreeDwgSaveAC1018V1==='function'){
+      window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;
+      return window.cblFreeDwgSaveAC1018V1({saveAs:true,skipSafariGuide:true,filename:current()});
+    }
     close();
     var st=window.CBL_FREE_DWG_SAVE_AS_STATUS_V1;st.dialogOpened=true;st.lastError=null;
     var m=document.createElement('div');m.id='cblFreeDwgSaveAsModalV1';m.style.cssText='position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;';
@@ -44204,6 +44208,13 @@ window.cblSnapResidueGateStatusV12 = function(){
     return window.showSaveFilePicker({suggestedName:filename,types:[{description:'DWG 파일',accept:{'application/acad':['.dwg']}}]});
   }
   var freeDwgSaveInFlightV1=false;
+  function resetFreeDwgSaveStateV1(){
+    freeDwgSaveInFlightV1=false;
+    var st=window.CBL_FREE_DWG_SAVE_AS_STATUS_V1;
+    if(st){st.saveStarted=false;st.dialogOpened=false;}
+    var m=document.getElementById('cblFreeDwgSaveAsModalV1');
+    if(m){var ok=m.querySelector('#cblFreeDwgSaveAsConfirmV1'),cancel=m.querySelector('#cblFreeDwgSaveAsCancelV1');if(ok)ok.disabled=false;if(cancel)cancel.disabled=false;}
+  }
   window.cblFreeDwgSaveAC1018V1=async function(options){
     if(!freeMode())return false;
     options=options||{};
@@ -44245,7 +44256,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(!options.exportOnly&&window.CBL_FREE_DWG_LOCAL_FILE_TOKEN)fd.append('file_token',window.CBL_FREE_DWG_LOCAL_FILE_TOKEN);
     if(options.sourceFileToken)fd.append('source_file_token',options.sourceFileToken);
     if(options.targetFileToken)fd.append('target_file_token',options.targetFileToken);
-    if(window.CBL_FREE_DWG_SAVE_AS_STATUS_V1&&options.saveAs){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=true;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.requestedName=requested;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.lastError=null;}
+    if(window.CBL_FREE_DWG_SAVE_AS_STATUS_V1){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=true;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.requestedName=requested;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.lastError=null;}
     if(source instanceof File)fd.append('original_dwg',source,source.name||'drawing.dwg');
     try{
       if(typeof setHint==='function')setHint('DWG 저장 중...');
@@ -44284,9 +44295,9 @@ window.cblSnapResidueGateStatusV12 = function(){
           window.CBL_FREE_DWG_LAST_SAVE={converter:'free-acadsharp-dwg-writer',targetVersion:'AC1018',oda_used:false,v29_used:false,ops:pack.ops.length,bytes:downloadReport.bytes,downloadUrl:downloadReport.url,exported:true};
         }
       }
-      freeDwgSaveInFlightV1=false;
+      resetFreeDwgSaveStateV1();
         return true;
-    }catch(e){freeDwgSaveInFlightV1=false;if(e&&e.name==='AbortError'){if(window.CBL_FREE_DWG_SAVE_AS_STATUS_V1&&options.saveAs){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.lastError=null;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=false;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;}return false;}console.error('[CBL_FREE_DWG_AC1018_SAVE]',e);if(window.CBL_FREE_DWG_SAVE_AS_STATUS_V1&&options.saveAs){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.lastError=String(e&&e.message||e);window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=false;}if(typeof setHint==='function')setHint('DWG 저장 실패: '+e.message);alert('DWG 저장 실패\n\n'+e.message);return false;}
+    }catch(e){resetFreeDwgSaveStateV1();if(e&&e.name==='AbortError')return false;console.error('[CBL_FREE_DWG_AC1018_SAVE]',e);if(window.CBL_FREE_DWG_SAVE_AS_STATUS_V1)window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.lastError=String(e&&e.message||e);if(typeof setHint==='function')setHint('DWG 저장 실패: '+e.message);alert('DWG 저장 실패\n\n'+e.message);return false;}
   };
   window.cblFreeDwgExportAC1018V1=function(options){
     options=Object.assign({},options||{},{exportOnly:true,saveAs:false});
