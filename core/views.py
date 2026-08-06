@@ -23948,6 +23948,7 @@ def _cbl_free_dwg_local_convert_v1(data, original_name):
 
 @_cbl_csrf_exempt
 def cblcad_free_dwg_local_api(request):
+    endpoint_started = _cbl_time.perf_counter()
     if request.method == "GET":
         enabled = _cbl_is_free_dwg_request(request)
         return _cbl_JsonResponse({
@@ -23984,6 +23985,7 @@ def cblcad_free_dwg_local_api(request):
                 source = tmp_path / "input.dwg"
                 output = tmp_path / "output.dxf"
                 source.write_bytes(upload_data)
+                convert_started = _cbl_time.perf_counter()
                 run = _cbl_subprocess.run(
                     [str(executable), "--dxf", str(source), str(output)],
                     stdout=_cbl_subprocess.PIPE, stderr=_cbl_subprocess.PIPE,
@@ -24002,12 +24004,23 @@ def cblcad_free_dwg_local_api(request):
                     # Korean STYLE names and text are not replaced by �.
                     code_page = dxf_bytes[:4096].lower()
                     dxf_text = dxf_bytes.decode("cp949" if b"kcs5601" in code_page else "utf-8", errors="replace")
-            return _cbl_JsonResponse({
+            response = _cbl_JsonResponse({
                 "ok": True, "format": "acadsharp-dxf", "converter": "free-acadsharp",
                 "oda_used": False, "v29_used": False, "oda_executed": False,
                 "file_sha256": hashlib.sha256(upload_data).hexdigest(),
                 "dxf_bytes": len(dxf_text.encode("utf-8")), "dxf": dxf_text,
             }, json_dumps_params={"ensure_ascii": False})
+            response["Server-Timing"] = "convert;dur=%.2f,response;dur=%.2f" % (
+                (_cbl_time.perf_counter() - convert_started) * 1000,
+                (_cbl_time.perf_counter() - endpoint_started) * 1000,
+            )
+            _cbl_dwg_dxf_emit_log_v1(
+                "CBLCAD_FREE_DWG_LOCAL endpoint=free-dwg-local event=acadsharp_dxf upload_bytes=%s dxf_bytes=%s convert_ms=%.2f endpoint_ms=%.2f oda_executed=0",
+                len(upload_data), len(dxf_text.encode("utf-8")),
+                (_cbl_time.perf_counter() - convert_started) * 1000,
+                (_cbl_time.perf_counter() - endpoint_started) * 1000,
+            )
+            return response
         payload = _cbl_free_dwg_local_convert_v1(upload_data, getattr(upload, "name", "drawing.dwg"))
         return _cbl_JsonResponse({"ok": True, "converter": "free-libredwg",
                                   "oda_used": False, "v29_used": False,
