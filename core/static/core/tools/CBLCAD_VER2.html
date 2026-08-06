@@ -8463,6 +8463,7 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
 <!-- CBLCAD_REPLACE_TOP_SAVE_WITH_DWG_SAVE_V1_START -->
 <script id="CBLCAD_REPLACE_TOP_SAVE_WITH_DWG_SAVE_V1_SCRIPT">
 (function () {
+  if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgBrowser === true) return;
   if (window.CBLCAD_REPLACE_TOP_SAVE_WITH_DWG_SAVE_V1) return;
   window.CBLCAD_REPLACE_TOP_SAVE_WITH_DWG_SAVE_V1 = true;
 
@@ -30001,6 +30002,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
 <script id="CBL_V29_FRONT_TEST_V2_SCRIPT">
 (function(){
+  if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgBrowser === true) return;
   window.CBL_V29_FRONT_TEST_V1 = true;
   window.CBL_V29_FRONT_TEST_V2 = true;
 
@@ -44014,6 +44016,8 @@ window.cblSnapResidueGateStatusV12 = function(){
     window.CBLCAD_FREE_DWG_LOCAL_DOCUMENT={loaded:true,mode:'acadsharp-full-dxf',primitive_count:count,instance_count:imported.filter(function(s){return s&&s.type==='blockref';}).length,editable_overlay_count:0,baseline_count:count};
     window.CBLCAD_V29_BASE_SHAPE_COUNT = count;
     window.__CBL_FREE_DWG_LOCAL_ROUTE_STATE__.baseline_shape_count=count;
+    window.CBL_FREE_DWG_SAVED_REVISION_V1=typeof cblComputeDocumentRevisionV1==='function'?cblComputeDocumentRevisionV1():null;
+    window.CBL_FREE_DWG_DIRTY=false;
     var zoomStarted=performance.now();
     try { if (typeof zoomFit === 'function') zoomFit(); } catch(e) { try { console.warn('[CBL_FREE_DWG_LOCAL] zoom-error', e); } catch(_e) {} }
     openTiming.zoom_fit_ms=+(performance.now()-zoomStarted).toFixed(2);openTiming.first_render_ms=openTiming.zoom_fit_ms;publishOpenTiming();
@@ -44250,7 +44254,15 @@ window.cblSnapResidueGateStatusV12 = function(){
     base.forEach(function(s){var h=ownerHandleOf(s);if(isTopLevelEditable(s)&&h){before[h]=s;topLevelHandles[h]=true;}});
     ss.forEach(function(s){var h=ownerHandleOf(s);if(isTopLevelEditable(s)&&h)after[h]=s;});
     Object.keys(before).forEach(function(h){if(!after[h])ops.push(deleteOpForShape(before[h],h));else if(!sameGeometry(before[h],after[h])){var u=opForShape(after[h],true);if(u&&topLevelHandles[h])ops.push(u);}});
-    var newOps=[];ss.forEach(function(s){if(!isTopLevelEditable(s)||sourceHandleOf(s))return;var o=opForShape(s,false);if(o)newOps.push(o);});
+    var newOps=[];ss.forEach(function(s){
+      if(!isTopLevelEditable(s)||sourceHandleOf(s))return;
+      // A newly-created entity has no source handle in the browser model even
+      // after the first DWG save.  If its geometry is already in the committed
+      // baseline it is persisted and must not be emitted as a second create.
+      var alreadyPersisted=base.some(function(b){return isTopLevelEditable(b)&&sameGeometry(b,s);});
+      if(alreadyPersisted)return;
+      var o=opForShape(s,false);if(o)newOps.push(o);
+    });
     var used={};newOps.forEach(function(o){if(o.layer)used[o.layer]=true;});
     var originalLayers=window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES||[];
     layers().forEach(function(l){if(used[l.name]&&originalLayers.indexOf(String(l.name))<0)ops.unshift({type:'create_layer',name:String(l.name),color:Number(l.aci)||256,linetype:l.lineType||'Continuous'});});
@@ -44333,6 +44345,63 @@ window.cblSnapResidueGateStatusV12 = function(){
     var m=document.getElementById('cblFreeDwgSaveAsModalV1');
     if(m){var ok=m.querySelector('#cblFreeDwgSaveAsConfirmV1'),cancel=m.querySelector('#cblFreeDwgSaveAsCancelV1');if(ok)ok.disabled=false;if(cancel)cancel.disabled=false;}
   }
+  function cblRevisionCleanV1(value,seen,depth){
+    if(depth>8||value===null||value===undefined)return value;
+    if(typeof value!=='object')return typeof value==='function'?undefined:value;
+    seen=seen||[];if(seen.indexOf(value)>=0)return '[cycle]';seen.push(value);
+    if(Array.isArray(value)){var arr=value.map(function(v){return cblRevisionCleanV1(v,seen,depth+1);});seen.pop();return arr;}
+    var out={};Object.keys(value).sort().forEach(function(k){
+      if(/^(selected|isSelected|hover|hovered|grip|bbox|bb|cache|render|preview|_)/i.test(k))return;
+      var v=cblRevisionCleanV1(value[k],seen,depth+1);if(v!==undefined)out[k]=v;
+    });seen.pop();return out;
+  }
+  function cblComputeDocumentRevisionV1(){
+    var model={shapes:Array.isArray(window.shapes)?window.shapes:[],layers:Array.isArray(window.layers)?window.layers:[],blocks:window.blocks||{},textStyles:window.CBL_CAD_TEXT_STYLES_V1||{}};
+    try{return JSON.stringify(cblRevisionCleanV1(model,[],0));}catch(e){return 'revision-error:'+String(e&&e.message||e);}
+  }
+  window.cblComputeDocumentRevisionV1=cblComputeDocumentRevisionV1;
+  window.cblIsDocumentDirtyV1=function(){
+    var saved=window.CBL_FREE_DWG_SAVED_REVISION_V1;
+    if(saved===null||saved===undefined){
+      var ss=Array.isArray(window.shapes)?window.shapes:[];
+      return ss.length>0;
+    }
+    return cblComputeDocumentRevisionV1()!==String(saved);
+  };
+  window.cblCommitSuccessfulDwgSaveV1=function(result){
+    result=result||{};
+    var bytes=result.bytes instanceof Uint8Array?result.bytes:(result.bytes?new Uint8Array(result.bytes):null);
+    var handle=result.handle||window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1||window.CBL_FREE_DWG_NATIVE_FILE_HANDLE||null;
+    var filename=safeName(result.filename||((handle&&handle.name)||window.CBL_FREE_DWG_CURRENT_FILENAME||'ChickenBananaCAD.dwg'));
+    if(handle&&handle.name)filename=safeName(handle.name)||filename;
+    if(!filename)filename='ChickenBananaCAD.dwg';
+    window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1=handle;
+    window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=handle;
+    window.CBL_FREE_DWG_CURRENT_FILENAME=filename;
+    window.CBLCAD_V29_LAST_DWG_FILE_NAME=filename;
+    window.CBLCAD_V29_ORIGINAL_FILE_NAME=filename;
+    if(bytes&&bytes.length){
+      var header=String.fromCharCode.apply(null,Array.prototype.slice.call(bytes,0,6));
+      if(header!=='AC1018')throw new Error('저장 확정 대상이 AC1018이 아닙니다.');
+      var stable=new File([bytes],filename,{type:'application/acad'});
+      window.CBLCAD_V29_LAST_DWG_FILE=stable;
+      window.CBL_FREE_DWG_CURRENT_BUFFER_V1=bytes.slice(0);
+    }
+    try{curFile=filename;}catch(e){}
+    try{window.curFile=filename;}catch(e){}
+    try{window.CBL_FREE_DWG_ORIGINAL_SHAPES=(Array.isArray(window.shapes)?window.shapes:[]).map(function(s){return cblFreeDwgSnapshotShapeV1(s);});}catch(e){window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];}
+    window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};
+    window.CBL_FREE_DWG_ORIGINAL_SHAPES.forEach(function(s){var h=normHandle(s&&((s.sourceHandle||s.originalHandle)||''));if(h)window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES[h]=true;});
+    window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=Array.isArray(window.layers)?window.layers.map(function(l){return String(l&&l.name||'');}):[];
+    window.CBL_FREE_DWG_SAVE_BASELINE_METADATA_V1={layers:window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES.slice(),styles:cblRevisionCleanV1(window.CBL_CAD_TEXT_STYLES_V1||{},[],0),bytes:bytes?bytes.byteLength:null,header:bytes?'AC1018':null,filename:filename};
+    window.CBL_FREE_DWG_SAVED_REVISION_V1=cblComputeDocumentRevisionV1();
+    window.CBL_FREE_DWG_DIRTY=false;
+    try{document.querySelectorAll('.cbl-dname').forEach(function(el){el.textContent=filename;el.title=filename;});}catch(e){}
+    try{if(typeof updUI==='function')updUI();}catch(e){}
+    if(window.CBL_NATIVE_FILE_STATUS_V1){window.CBL_NATIVE_FILE_STATUS_V1.currentFilename=filename;window.CBL_NATIVE_FILE_STATUS_V1.hasCurrentHandle=!!handle;window.CBL_NATIVE_FILE_STATUS_V1.lastSaveState='file-clean';}
+    if(window.CBL_FREE_DWG_SAVE_AS_STATUS_V1){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=false;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveCompleted=true;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.downloadedName=filename;}
+    return {filename:filename,handle:handle,bytes:bytes?bytes.byteLength:0,revision:window.CBL_FREE_DWG_SAVED_REVISION_V1,layers:window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES.slice(),dirty:false};
+  };
   window.cblFreeDwgSaveAC1018V1=async function(options){
     if(!freeMode())return false;
     options=options||{};
@@ -44364,6 +44433,7 @@ window.cblSnapResidueGateStatusV12 = function(){
         throw nativePickerError;
       }
       if(!nativeHandle)return false;
+      requested=safeName(nativeHandle.name||requested)||requested;
     }
     freeDwgSaveInFlightV1=true;
     var pack=buildOps(), fd=new FormData(), source=window.CBLCAD_V29_LAST_DWG_FILE;
@@ -44388,17 +44458,9 @@ window.cblSnapResidueGateStatusV12 = function(){
         if(window.CBL_NATIVE_FILE_STATUS_V1)window.CBL_NATIVE_FILE_STATUS_V1.responseBytes=binaryBytes.byteLength;
         if(binaryBytes.length<=0||String.fromCharCode.apply(null,Array.prototype.slice.call(binaryBytes,0,6))!=='AC1018')throw new Error('저장 응답이 AC1018 DWG 바이너리가 아닙니다. JSON 또는 오류 응답은 파일에 기록하지 않습니다.');
         await writeNativeDwgBytesV1(binaryBytes,requested,nativeHandle);
-        window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1=nativeHandle;
-        window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=nativeHandle;
-        window.CBL_FREE_DWG_CURRENT_FILENAME=requested;
-        var nativeSavedFile=new File([binaryBytes],requested,{type:'application/acad'});
-        window.CBLCAD_V29_LAST_DWG_FILE=nativeSavedFile;
-        window.CBLCAD_V29_LAST_DWG_FILE_NAME=requested;
-        window.CBLCAD_V29_ORIGINAL_FILE_NAME=requested;
-        try{window.CBL_FREE_DWG_ORIGINAL_SHAPES=(Array.isArray(window.shapes)?window.shapes:[]).map(function(s){return cblFreeDwgSnapshotShapeV1(s);});}catch(_nativeBaselineError){window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];}
-        try{curFile=requested;}catch(_binaryFileNameError){}
+        var commitResult=window.cblCommitSuccessfulDwgSaveV1({bytes:binaryBytes,filename:nativeHandle.name||requested,handle:nativeHandle});
         window.CBL_FREE_DWG_LAST_SAVE={converter:'free-acadsharp-dwg-writer',targetVersion:'AC1018',oda_used:false,v29_used:false,ops:pack.ops.length,bytes:binaryBytes.byteLength,saved:true,nativePicker:true,delivery:'binary'};
-        if(typeof setHint==='function')setHint('DWG 저장 완료: '+requested);
+        if(typeof setHint==='function')setHint('DWG 저장 완료: '+commitResult.filename);
         resetFreeDwgSaveStateV1();
         return true;
       }
@@ -44410,24 +44472,17 @@ window.cblSnapResidueGateStatusV12 = function(){
         if(savedBytes.length<6||String.fromCharCode.apply(null,Array.prototype.slice.call(savedBytes,0,6))!=='AC1018')throw new Error('저장된 DWG 헤더 검증에 실패했습니다.');
         var stableSavedFile=new File([savedBytes],delivery.filename,{type:'application/acad'});
         window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=delivery.file_token||options.targetFileToken||window.CBL_FREE_DWG_LOCAL_FILE_TOKEN;
-        window.CBLCAD_V29_LAST_DWG_FILE=stableSavedFile;
-        window.CBLCAD_V29_LAST_DWG_FILE_NAME=delivery.filename;
-        window.CBLCAD_V29_ORIGINAL_FILE_NAME=delivery.filename;
-        window.CBL_FREE_DWG_CURRENT_FILENAME=delivery.filename;
-        try{curFile=delivery.filename;}catch(_fileNameError){}
-        try{window.CBL_FREE_DWG_ORIGINAL_SHAPES=(Array.isArray(window.shapes)?window.shapes:[]).map(function(s){return cblFreeDwgSnapshotShapeV1(s);});}catch(_baselineError){window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];}
-        if(typeof setHint==='function')setHint('저장 완료: '+delivery.filename);
+        var commitResult=window.cblCommitSuccessfulDwgSaveV1({bytes:savedBytes,filename:delivery.filename,handle:options.nativeHandle||window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1||null});
+        if(typeof setHint==='function')setHint('저장 완료: '+commitResult.filename);
         if(options.saveAs&&window.CBL_FREE_DWG_SAVE_AS_STATUS_V1){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=false;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.downloadedName=delivery.filename;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveCompleted=true;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;}
         window.CBL_FREE_DWG_LAST_SAVE={converter:'free-acadsharp-dwg-writer',targetVersion:'AC1018',oda_used:false,v29_used:false,ops:pack.ops.length,bytes:Number(delivery.size),saved:true,localPath:true};
       }else{
         if(!delivery.download_url)throw new Error('DWG 내보내기 주소를 받지 못했습니다.');
         var nativeSaved=browserMode()&&!!nativeHandle&&await saveTokenToNativePickerV1(delivery,delivery.filename,nativeHandle);
-        if(nativeSaved){window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=nativeHandle;window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1=nativeHandle;}
-        window.CBL_FREE_DWG_CURRENT_FILENAME=delivery.filename;
-        try{curFile=delivery.filename;}catch(_downloadNameError){}
+        var commitResult=window.cblCommitSuccessfulDwgSaveV1({filename:(nativeSaved&&nativeHandle&&nativeHandle.name)||delivery.filename,handle:nativeSaved?nativeHandle:null});
         if(options.saveAs&&window.CBL_FREE_DWG_SAVE_AS_STATUS_V1){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=false;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.downloadedName=delivery.filename;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveCompleted=true;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;}
         if(nativeSaved){
-          if(typeof setHint==='function')setHint('DWG 저장 완료: '+delivery.filename);
+          if(typeof setHint==='function')setHint('DWG 저장 완료: '+commitResult.filename);
           window.CBL_FREE_DWG_LAST_SAVE={converter:'free-acadsharp-dwg-writer',targetVersion:'AC1018',oda_used:false,v29_used:false,ops:pack.ops.length,bytes:Number(delivery.size),saved:true,nativePicker:true};
         }else{
           var downloadReport=prepareHttpDwgDownloadV1(delivery.download_url,delivery.filename,delivery.size);
@@ -44437,7 +44492,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       }
       resetFreeDwgSaveStateV1();
         return true;
-    }catch(e){resetFreeDwgSaveStateV1();if(e&&e.name==='AbortError')return false;console.error('[CBL_FREE_DWG_AC1018_SAVE]',e);if(window.CBL_FREE_DWG_SAVE_AS_STATUS_V1)window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.lastError=String(e&&e.message||e);if(typeof setHint==='function')setHint('DWG 저장 실패: '+e.message);alert('DWG 저장 실패\n\n'+e.message);return false;}
+    }catch(e){resetFreeDwgSaveStateV1();if(e&&e.name==='AbortError')return false;console.error('[CBL_FREE_DWG_AC1018_SAVE]',e);if(window.CBL_FREE_DWG_SAVE_AS_STATUS_V1)window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.lastError=String(e&&e.message||e);if(typeof setHint==='function')setHint('DWG 저장 실패: '+e.message);var life=document.getElementById('cblFreeBrowserLifecycleDialogV1');if(life){var card=life.querySelector('.cbl-life-card');if(card){var oldErr=card.querySelector('.cbl-life-error');if(oldErr)oldErr.remove();var er=document.createElement('p');er.className='cbl-life-error';er.style.cssText='margin:12px 0 0;color:#f2a7ad;overflow-wrap:anywhere';er.textContent='저장하지 못했습니다: '+String(e&&e.message||e);card.appendChild(er);}}return false;}
   };
   window.cblFreeDwgExportAC1018V1=function(options){
     options=Object.assign({},options||{},{exportOnly:true,saveAs:false});
@@ -44491,6 +44546,13 @@ window.cblSnapResidueGateStatusV12 = function(){
   if(!window.CBL_CAD_RUNTIME_CONFIG||window.CBL_CAD_RUNTIME_CONFIG.freeDwgBrowser!==true)return;
   if(window.CBL_FREE_BROWSER_FILE_CONTROLLER_V1&&window.CBL_FREE_BROWSER_FILE_CONTROLLER_V1.installed)return;
   var status=window.CBL_FREE_BROWSER_FILE_CONTROLLER_V1={installed:true,installCount:1,saveButtonsBound:1,openButtonsBound:1,newButtonsBound:1,keyHandlersBound:1,legacyV29Disabled:true,lastCommand:null,lastError:null,inFlight:false};
+  function hideV29TestUi(){
+    var n=0;
+    document.querySelectorAll('.cbl-v29-test-panel,[data-cbl-v29-ui-finalize-hidden],[data-cbl-v29-ui-finalize-panel]').forEach(function(el){el.hidden=true;el.setAttribute('aria-hidden','true');el.tabIndex=-1;el.style.display='none';n++;});
+    document.querySelectorAll('button,a,[role="button"]').forEach(function(el){var t=String(el.innerText||el.textContent||el.title||'').replace(/\s+/g,'');if(/V29(DWG열기|저장테스트|실제저장)/.test(t)){el.hidden=true;el.setAttribute('aria-hidden','true');el.tabIndex=-1;el.style.display='none';n++;}});
+    status.v29HiddenCount=n;return n;
+  }
+  hideV29TestUi();
   function text(el){return String(el&&(el.innerText||el.textContent)||'').replace(/\s+/g,'').trim();}
   function clean(v){
     if(v===null||v===undefined)return v;
@@ -44502,6 +44564,9 @@ window.cblSnapResidueGateStatusV12 = function(){
     });return o;
   }
   function dirty(){
+    if(typeof window.cblIsDocumentDirtyV1==='function'){
+      try{return !!window.cblIsDocumentDirtyV1();}catch(e){status.lastError=String(e&&e.message||e);}
+    }
     try{
       var a=Array.isArray(window.CBL_FREE_DWG_ORIGINAL_SHAPES)?window.CBL_FREE_DWG_ORIGINAL_SHAPES:[];
       var b=Array.isArray(window.shapes)?window.shapes:[];
@@ -44511,8 +44576,9 @@ window.cblSnapResidueGateStatusV12 = function(){
   function closeDialog(){var d=document.getElementById('cblFreeBrowserLifecycleDialogV1');if(d)d.remove();}
   function dialog(kind,action){
     closeDialog();
-    var d=document.createElement('div');d.id='cblFreeBrowserLifecycleDialogV1';d.style.cssText='position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.38);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#182235';
-    d.innerHTML='<div role="dialog" aria-modal="true" style="width:min(440px,100%);background:#f7f9fc;border:1px solid rgba(255,255,255,.9);border-radius:22px;padding:22px;box-shadow:0 18px 55px rgba(0,0,0,.3)"><h3 style="margin:0 0 8px;font-size:18px">변경된 도면</h3><p style="margin:0 0 18px;color:#4b5a70">현재 도면에 저장되지 않은 변경 사항이 있습니다.</p><div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap"><button type="button" data-cbl-life="cancel">취소</button><button type="button" data-cbl-life="discard">저장하지 않고 '+(kind==='new'?'새 파일':'열기')+'</button><button type="button" data-cbl-life="save" style="background:#173b72;color:white">저장 후 '+(kind==='new'?'새 파일':'열기')+'</button></div></div>';
+    if(!document.getElementById('cblFreeBrowserLifecycleStyleV1')){var st=document.createElement('style');st.id='cblFreeBrowserLifecycleStyleV1';st.textContent='.cbl-life-backdrop{position:fixed;inset:0;z-index:2147483001;background:rgba(2,8,20,.58);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e5edf8}.cbl-life-card{width:min(500px,100%);background:#111827;border:1px solid #334155;border-radius:16px;padding:24px;box-shadow:0 24px 70px rgba(0,0,0,.45)}.cbl-life-head{display:flex;gap:12px;align-items:flex-start}.cbl-life-icon{width:34px;height:34px;flex:0 0 34px;color:#7da8ef}.cbl-life-title{margin:0;font-size:19px;line-height:1.25}.cbl-life-copy{margin:8px 0 4px;color:#b7c5d8}.cbl-life-file{margin:0 0 20px;color:#7f93ad;overflow-wrap:anywhere}.cbl-life-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}.cbl-life-actions button{min-height:40px;padding:0 14px;border:1px solid #475569;border-radius:9px;background:#24344d;color:#e5edf8;cursor:pointer}.cbl-life-actions button[data-cbl-life="save"]{background:#315f9e;border-color:#4d83cd}.cbl-life-actions button:hover{background:#38516f}.cbl-life-actions button[data-cbl-life="discard"]:hover{background:#74414a}.cbl-life-actions button:focus-visible{outline:2px solid #8ebcff;outline-offset:2px}@media(max-width:560px){.cbl-life-card{padding:20px}.cbl-life-actions{display:grid;grid-template-columns:1fr}.cbl-life-actions button{width:100%}}';document.head.appendChild(st);}
+    var d=document.createElement('div');d.id='cblFreeBrowserLifecycleDialogV1';d.className='cbl-life-backdrop';
+    d.innerHTML='<div class="cbl-life-card" role="dialog" aria-modal="true" aria-labelledby="cblLifeTitleV1"><div class="cbl-life-head"><svg class="cbl-life-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3.8 7.5 12 12l8.2-4.5L12 3Z"/><path d="m5.8 12.2 6.2 3.4 6.2-3.4M5.8 16.3l6.2 3.4 6.2-3.4"/></svg><div><h3 id="cblLifeTitleV1" class="cbl-life-title">변경된 도면</h3><p class="cbl-life-copy">현재 도면에 저장되지 않은 변경 사항이 있습니다.</p><p class="cbl-life-file">현재 파일: '+String(window.CBL_FREE_DWG_CURRENT_FILENAME||window.curFile||'ChickenBananaCAD.dwg').replace(/[&<>"']/g,'')+'</p></div></div><div class="cbl-life-actions"><button type="button" data-cbl-life="cancel">취소</button><button type="button" data-cbl-life="discard">저장하지 않고 '+(kind==='new'?'새 파일':'열기')+'</button><button type="button" data-cbl-life="save">저장 후 '+(kind==='new'?'새 파일':'열기')+'</button></div></div>';
     document.body.appendChild(d);
     var buttons=d.querySelectorAll('button');if(buttons.length)buttons[0].focus();
     d.addEventListener('click',async function(ev){
@@ -44526,12 +44592,12 @@ window.cblSnapResidueGateStatusV12 = function(){
       try{
         var ok=await (typeof window.cblNativeDwgSaveFromGestureV1==='function'?window.cblNativeDwgSaveFromGestureV1(false,ev):window.cblFreeDwgSaveAC1018V1({saveAs:false}));
         if(!ok){buttons.forEach(function(x){x.disabled=false;});status.inFlight=false;return;}
-        if(kind==='new'){closeDialog();action(ev);return;}
+        if(kind==='new'){status.inFlight=false;closeDialog();action(ev);return;}
         d.querySelector('div[role="dialog"]').innerHTML='<h3 style="margin:0 0 8px;font-size:18px">저장 완료</h3><p style="margin:0 0 18px;color:#4b5a70">저장되었습니다. 파일을 선택해 계속하세요.</p><div style="display:flex;justify-content:flex-end"><button type="button" data-cbl-life="continue">파일 선택</button></div>';
         status.inFlight=false;
       }catch(err){status.lastError=String(err&&err.message||err);status.inFlight=false;buttons.forEach(function(x){x.disabled=false;});}
     },true);
-    d.addEventListener('keydown',function(ev){if(ev.key==='Escape'){ev.preventDefault();closeDialog();}},true);
+    d.addEventListener('keydown',function(ev){if(ev.key==='Escape'){ev.preventDefault();closeDialog();return;}if(ev.key==='Tab'){var fs=[].slice.call(d.querySelectorAll('button:not([disabled]),[href],input,select,textarea,[tabindex]:not([tabindex="-1"])'));if(!fs.length)return;var i=fs.indexOf(document.activeElement);if(ev.shiftKey)i=i<=0?fs.length-1:i-1;else i=i>=fs.length-1?0:i+1;ev.preventDefault();fs[i].focus();}},true);
     d.addEventListener('click',function(ev){if(ev.target===d)closeDialog();},true);
   }
   function openNow(ev){status.lastCommand='open';try{return typeof window.cblFreeDwgLocalOpenV1==='function'?window.cblFreeDwgLocalOpenV1():false;}catch(e){status.lastError=String(e&&e.message||e);return false;}}
@@ -44540,7 +44606,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     try{window.sel=[];sel=[];window.hist=[];hist=[];window.hIdx=-1;hIdx=-1;}catch(e){}
     try{window.layers=[{id:1,name:'기본',color:'#3b82f6',visible:true,locked:false,lineType:'Continuous',lineWidth:0.25}];layers=window.layers;window.actLay=1;actLay=1;}catch(e){}
     try{window.blocks={};blocks=window.blocks;}catch(e){}
-    window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=['기본'];window.CBLCAD_V29_LAST_DWG_FILE=null;window.CBLCAD_V29_LAST_DWG_FILE_NAME='ChickenBananaCAD.dwg';window.CBL_FREE_DWG_CURRENT_FILENAME='ChickenBananaCAD.dwg';window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=null;window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1=null;window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=null;window.CBLCAD_V29_SESSION_ID=null;window.CBLCAD_V29_BASE_SHAPE_COUNT=0;window.CBLCAD_FREE_DWG_LOCAL_DOCUMENT={loaded:true,mode:'blank',baseline_count:0,primitive_count:0,shapes:0};
+    window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=['기본'];window.CBL_FREE_DWG_SAVED_REVISION_V1=typeof window.cblComputeDocumentRevisionV1==='function'?window.cblComputeDocumentRevisionV1():null;window.CBL_FREE_DWG_DIRTY=false;window.CBLCAD_V29_LAST_DWG_FILE=null;window.CBLCAD_V29_LAST_DWG_FILE_NAME='ChickenBananaCAD.dwg';window.CBL_FREE_DWG_CURRENT_FILENAME='ChickenBananaCAD.dwg';window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=null;window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1=null;window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=null;window.CBLCAD_V29_SESSION_ID=null;window.CBLCAD_V29_BASE_SHAPE_COUNT=0;window.CBLCAD_FREE_DWG_LOCAL_DOCUMENT={loaded:true,mode:'blank',baseline_count:0,primitive_count:0,shapes:0};
     try{curFile='ChickenBananaCAD.dwg';}catch(e){}try{if(typeof saveH==='function')saveH();if(typeof updUI==='function')updUI();if(typeof updLayers==='function')updLayers();if(typeof updBlkList==='function')updBlkList();if(typeof requestCadRenderV1==='function')requestCadRenderV1();}catch(e){status.lastError=String(e&&e.message||e);}
     status.lastCommand='new';return true;
   }
