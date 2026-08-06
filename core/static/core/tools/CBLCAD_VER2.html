@@ -78,33 +78,9 @@
   function current(){return clean(window.CBL_FREE_DWG_CURRENT_FILENAME||window.curFile||window.CBLCAD_V29_ORIGINAL_FILE_NAME||'')||'ChickenBananaCAD.dwg';}
   function close(){var m=document.getElementById('cblFreeDwgSaveAsModalV1');if(m)m.remove();window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;}
   function safariFallback(){return free()&&typeof window.showSaveFilePicker!=='function';}
-  function safariGuideSeen(){try{return localStorage.getItem('cblSafariAskDownloadLocationV1')==='true';}catch(e){return false;}}
-  function safariGuideMarkSeen(){try{localStorage.setItem('cblSafariAskDownloadLocationV1','true');}catch(e){}}
-  function refreshSafariSaveSettingsButton(){var g=document.getElementById('cblSafariSaveSettingsGroupV1');if(g)g.style.display=safariFallback()?'':'none';}
-  function safariGuideProceed(){
-    var fn=current();
-    safariGuideMarkSeen();setTimeout(safariGuideMarkSeen,0);
-    if(typeof window.cblFreeDwgSaveAC1018V1!=='function')return false;
-    return window.cblFreeDwgSaveAC1018V1({saveAs:true,skipSafariGuide:true,filename:fn});
-  }
-  function showSafariSaveGuide(force){
-    if(!safariFallback())return false;
-    if(!force&&safariGuideSeen())return safariGuideProceed();
-    var old=document.getElementById('cblSafariSaveGuideV1');if(old)old.remove();
-    var root=document.createElement('div');root.id='cblSafariSaveGuideV1';root.style.cssText='position:fixed;inset:0;z-index:2147483100;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.28);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);';
-    root.innerHTML='<div role="dialog" aria-modal="true" aria-labelledby="cblSafariSaveGuideTitleV1" tabindex="-1" style="box-sizing:border-box;width:min(470px,100%);background:rgba(255,255,255,.94);color:#172033;border:1px solid rgba(255,255,255,.82);border-radius:22px;padding:25px 26px 22px;box-shadow:0 24px 70px rgba(15,23,42,.28),0 3px 12px rgba(15,23,42,.14);font:14px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif"><div style="display:flex;align-items:center;gap:12px;margin-bottom:15px"><div style="width:36px;height:36px;border-radius:11px;background:#e8f0ff;color:#2f66c5;display:grid;place-items:center;font-size:20px">↓</div><h2 id="cblSafariSaveGuideTitleV1" style="margin:0;font-size:18px;letter-spacing:-.02em">파일 다운로드 위치 설정</h2></div><p style="margin:0 0 8px;font-size:15px;font-weight:650">저장할 때마다 파일명과 위치를 선택하시겠습니까?</p><p style="margin:0 0 17px;color:#596579;line-height:1.55">Safari에서 ⌘, 키를 누른 후 일반 &gt; 파일 다운로드 위치에서 ‘각 다운로드에 대해 묻기’를 선택하세요.</p><ol style="list-style:none;padding:0;margin:0 0 20px;display:grid;gap:9px;color:#344158"><li style="display:flex;gap:10px;align-items:center"><b style="width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#e8f0ff;color:#2f66c5;font-size:12px">1</b><span><strong>⌘,</strong> Safari 설정 열기</span></li><li style="display:flex;gap:10px;align-items:center"><b style="width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#e8f0ff;color:#2f66c5;font-size:12px">2</b><span><strong>일반</strong> 선택</span></li><li style="display:flex;gap:10px;align-items:center"><b style="width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#e8f0ff;color:#2f66c5;font-size:12px">3</b><span>파일 다운로드 위치 → <strong>각 다운로드에 대해 묻기</strong></span></li></ol><div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap"><button type="button" onclick="window.cblSafariSaveGuideActionV1(&quot;cancel&quot;)" data-cbl-safari-guide="cancel" style="min-height:36px;padding:0 13px;border:1px solid #d5dce7;border-radius:9px;background:#fff;color:#39465c;font-weight:600">취소</button><button type="button" onclick="window.cblSafariSaveGuideActionV1(&quot;default&quot;)" data-cbl-safari-guide="default" style="min-height:36px;padding:0 13px;border:1px solid #c8d8f4;border-radius:9px;background:#edf4ff;color:#285cae;font-weight:650">기본 다운로드로 저장</button><button type="button" onclick="window.cblSafariSaveGuideActionV1(&quot;settings&quot;)" data-cbl-safari-guide="settings" style="min-height:36px;padding:0 13px;border:1px solid #2f66c5;border-radius:9px;background:#2f66c5;color:#fff;font-weight:650">설정 완료하고 저장</button></div></div>';
-    document.body.appendChild(root);var dialog=root.firstElementChild,buttons=root.querySelectorAll('button'),cancel=root.querySelector('[data-cbl-safari-guide="cancel"]');
-    function dismiss(save){if(root.__cblClosedV1)return;root.__cblClosedV1=true;if(save)safariGuideMarkSeen();root.remove();window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;if(save)setTimeout(safariGuideProceed,0);}
-    window.cblSafariSaveGuideActionV1=function(action){var save=action!=='cancel';if(save){try{localStorage.setItem('cblSafariAskDownloadLocationV1','true');}catch(_saveGuideStorageError){}}var active=document.getElementById('cblSafariSaveGuideV1');if(active&&active.__cblDismissV1)active.__cblDismissV1(save);};root.__cblDismissV1=dismiss;
-    root.addEventListener('click',function(e){var action=e.target&&e.target.closest?e.target.closest('[data-cbl-safari-guide]'):null;if(action){e.preventDefault();dismiss(action.getAttribute('data-cbl-safari-guide')!=='cancel');}else if(e.target===root)dismiss(false);},true);
-    root.addEventListener('keydown',function(e){if(e.key==='Escape'){e.preventDefault();dismiss(false);return;}if(e.key==='Tab'){var a=Array.prototype.slice.call(buttons),i=a.indexOf(document.activeElement);if(e.shiftKey&&i<=0){e.preventDefault();a[a.length-1].focus();}else if(!e.shiftKey&&i===a.length-1){e.preventDefault();a[0].focus();}}},true);
-    window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=true;buttons[1].focus();return true;
-  }
-  window.cblOpenSafariSaveGuideV1=function(){return showSafariSaveGuide(true);};
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',refreshSafariSaveSettingsButton,{once:true});else refreshSafariSaveSettingsButton();
   function open(){
     if(!free()||window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted)return false;
-    if(typeof window.cblNativeDwgSaveFromGestureV1==='function')return window.cblNativeDwgSaveFromGestureV1(true,window.event||null);
+    if(typeof window.cblNativeDwgSaveFromGestureV1==='function'&&typeof window.showSaveFilePicker==='function')return window.cblNativeDwgSaveFromGestureV1(true,window.event||null);
     // In local mode the native macOS chooser is the Save As UI.  Do not put
     // a second filename modal in front of Finder; the chooser owns both the
     // destination directory and the final filename.
@@ -121,14 +97,10 @@
       pickerStatus.dialogOpened=true;
       return window.cblFreeDwgSaveAC1018V1({saveAs:true,nativePicker:true}).then(function(ok){pickerStatus.dialogOpened=false;return ok;});
     }
-    if(safariFallback()&&typeof window.cblFreeDwgSaveAC1018V1==='function'){
-      window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;
-      return window.cblFreeDwgSaveAC1018V1({saveAs:true,skipSafariGuide:true,filename:current()});
-    }
     close();
     var st=window.CBL_FREE_DWG_SAVE_AS_STATUS_V1;st.dialogOpened=true;st.lastError=null;
     var m=document.createElement('div');m.id='cblFreeDwgSaveAsModalV1';m.style.cssText='position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;';
-    m.innerHTML='<div role="dialog" aria-modal="true" style="width:360px;background:#fff;color:#111;border-radius:10px;padding:18px;box-shadow:0 12px 40px rgba(0,0,0,.35);font:14px sans-serif"><div style="font-weight:700;font-size:16px;margin-bottom:12px">다른 이름으로 저장</div><input id="cblFreeDwgSaveAsNameV1" type="text" style="box-sizing:border-box;width:100%;padding:8px" aria-label="파일명"><div style="margin-top:7px;color:#667085;font-size:12px;line-height:1.45">저장 위치는 Safari의 파일 다운로드 설정에 따라 결정됩니다.</div><div style="margin-top:4px;color:#667085;font-size:12px;line-height:1.45">저장 위치를 매번 선택하려면 Safari 설정 &gt; 일반 &gt; 파일 다운로드 위치에서 ‘각 다운로드에 대해 묻기’를 선택하세요.</div><div id="cblFreeDwgSaveAsErrorV1" style="min-height:20px;color:#b91c1c;margin-top:6px"></div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px"><button type="button" id="cblFreeDwgSaveAsCancelV1">취소</button><button type="button" id="cblFreeDwgSaveAsConfirmV1">확인</button></div></div>';
+    m.innerHTML='<div role="dialog" aria-modal="true" style="width:360px;background:#fff;color:#111;border-radius:10px;padding:18px;box-shadow:0 12px 40px rgba(0,0,0,.35);font:14px sans-serif"><div style="font-weight:700;font-size:16px;margin-bottom:12px">다른 이름으로 저장</div><input id="cblFreeDwgSaveAsNameV1" type="text" style="box-sizing:border-box;width:100%;padding:8px" aria-label="파일명"><div id="cblFreeDwgSaveAsErrorV1" style="min-height:20px;color:#b91c1c;margin-top:6px"></div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px"><button type="button" id="cblFreeDwgSaveAsCancelV1">취소</button><button type="button" id="cblFreeDwgSaveAsConfirmV1">확인</button></div></div>';
     document.body.appendChild(m);
     var input=m.querySelector('#cblFreeDwgSaveAsNameV1'),err=m.querySelector('#cblFreeDwgSaveAsErrorV1'),confirmBtn=m.querySelector('#cblFreeDwgSaveAsConfirmV1');
     input.value=current();input.focus();input.select();
@@ -160,7 +132,7 @@
     return s+'.dwg';
   }
   function currentName(){return cleanName(window.CBL_FREE_DWG_CURRENT_FILENAME||window.CBLCAD_V29_LAST_DWG_FILE_NAME||window.CBLCAD_V29_ORIGINAL_FILE_NAME||window.curFile||'');}
-  function pickerOptions(name){return {suggestedName:name,types:[{description:'DWG 파일',accept:{'application/acad':['.dwg']}}],excludeAcceptAllOption:false};}
+  function pickerOptions(name){return {suggestedName:name,startIn:'downloads',types:[{description:'DWG 파일',accept:{'application/acad':['.dwg']}}],excludeAcceptAllOption:false};}
   function resetOnError(error){
     trace.lastError=String(error&&error.name||error&&error.message||error||'unknown');
     if(window.CBL_FREE_DWG_SAVE_AS_STATUS_V1)window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.lastError=String(error&&error.message||error||'');
@@ -190,7 +162,7 @@
     if(dispatcherInFlight)return dispatcherInFlight;
     var existing=!as?(window.CBL_FREE_DWG_NATIVE_FILE_HANDLE||null):null;
     if(existing&&typeof window.cblFreeDwgSaveAC1018V1==='function'){
-      dispatcherInFlight=Promise.resolve(window.cblFreeDwgSaveAC1018V1({saveAs:false,nativeHandle:existing,skipSafariGuide:true}));
+      dispatcherInFlight=Promise.resolve(window.cblFreeDwgSaveAC1018V1({saveAs:false,nativeHandle:existing}));
       return dispatcherInFlight.finally(function(){dispatcherInFlight=null;});
     }
     var pickerPromise;
@@ -201,7 +173,7 @@
     dispatcherInFlight=Promise.resolve(pickerPromise).then(function(handle){
       if(!handle)throw new Error('저장 파일을 선택하지 못했습니다.');
       if(typeof window.cblFreeDwgSaveAC1018V1!=='function')throw new Error('DWG 저장 함수를 찾을 수 없습니다.');
-      return window.cblFreeDwgSaveAC1018V1({saveAs:as,nativeHandle:handle,skipSafariGuide:true});
+      return window.cblFreeDwgSaveAC1018V1({saveAs:as,nativeHandle:handle});
     }).catch(function(error){return resetOnError(error);});
     return dispatcherInFlight.finally(function(){dispatcherInFlight=null;});
   };
@@ -1256,9 +1228,6 @@ canvas,
    <button class="rl" onclick="fileSave()"><span class="ic">&#128190;</span>저장<span class="kk">Ctrl+S</span></button>
    <button class="rl" onclick="showSaveAsModal()"><span class="ic">&#128444;</span>다른이름<span class="kk">Ctrl+Shift+S</span></button>
    </div><div class="rgl">저장</div></div>
-   <div class="rg" id="cblSafariSaveSettingsGroupV1" style="display:none"><div class="rgb">
-    <button class="rl" type="button" onclick="if(window.cblOpenSafariSaveGuideV1)window.cblOpenSafariSaveGuideV1()"><span class="ic">&#9881;</span>Safari 저장 설정</button>
-   </div><div class="rgl">다운로드</div></div>
    <div class="rg" style="border-right:none"><div class="rgb">
     <button class="rl" onclick="showPrintModal()"><span class="ic">&#128438;</span>인쇄<span class="kk">Ctrl+P</span></button>
    </div><div class="rgl">출력</div></div>
@@ -44260,22 +44229,15 @@ window.cblSnapResidueGateStatusV12 = function(){
   }
   function prepareHttpDwgDownloadV1(downloadUrl,filename,size){
     if(!/^\/api\/cblcad\/free-dwg-download\//.test(String(downloadUrl||'')))throw new Error('유효하지 않은 DWG 다운로드 주소입니다.');
-    var finalName=safeName(filename||'ChickenBananaCAD.dwg')||'ChickenBananaCAD.dwg',old=document.getElementById('cblDwgHttpDownloadLinkV1');
-    if(old)old.remove();
+    var finalName=safeName(filename||'ChickenBananaCAD.dwg');
     var oldFrame=document.getElementById('cblDwgDownloadFrameV1');if(oldFrame)oldFrame.remove();
     var frame=document.createElement('iframe');frame.id='cblDwgDownloadFrameV1';frame.name='cblDwgDownloadFrameV1';frame.title='DWG 다운로드';frame.setAttribute('aria-hidden','true');frame.style.cssText='position:fixed;width:1px;height:1px;left:-10px;top:-10px;border:0;opacity:0;pointer-events:none';
-    var link=document.createElement('a');link.id='cblDwgHttpDownloadLinkV1';link.href=downloadUrl;link.target='cblDwgDownloadFrameV1';link.textContent='다시 다운로드: '+finalName;link.rel='noopener';
-    link.style.cssText='display:none;position:fixed;right:18px;bottom:18px;z-index:2147482000;padding:9px 13px;border-radius:6px;background:#a33b4b;color:#fff;text-decoration:none;font:13px sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.25)';
-    document.body.appendChild(frame);document.body.appendChild(link);
+    document.body.appendChild(frame);
     var state=window.CBL_FREE_DWG_DOWNLOAD_STATUS_V1||(window.CBL_FREE_DWG_DOWNLOAD_STATUS_V1={});state.url=downloadUrl;state.filename=finalName;state.size=Number(size)||0;state.failed=false;state.retryCount=0;
-    function markFailure(message){state.failed=true;state.error=String(message||'DWG 다운로드에 실패했습니다.');link.textContent='다시 다운로드: '+finalName;link.style.display='block';try{if(typeof setHint==='function')setHint('DWG 다운로드 실패: '+state.error);}catch(e){}}
-    frame.addEventListener('load',function(){try{var body=frame.contentDocument&&frame.contentDocument.body,txt=body?String(body.textContent||''):'';if(/다운로드를 찾을 수 없습니다|유효하지 않은 다운로드 링크|다운로드 링크가 만료/.test(txt))markFailure('다운로드 링크를 확인할 수 없습니다. 다시 시도해 주세요.');else if(!state.failed){link.remove();}}catch(e){}},true);
-    link.addEventListener('click',function(){state.retryCount=Number(state.retryCount||0)+1;state.failed=false;frame.src=downloadUrl;},true);
     var started=false;
     function start(){if(started)return false;started=true;frame.src=downloadUrl;return true;}
     requestAnimationFrame(start);
-    setTimeout(function(){if(!state.failed)try{link.remove();}catch(e){}},3000);
-    setTimeout(function(){try{link.remove();frame.remove();}catch(e){}},15*60*1000);
+    setTimeout(function(){try{frame.remove();}catch(e){}},120000);
     return {filename:finalName,bytes:Number(size)||0,url:downloadUrl,started:true};
   }
   async function saveTokenToNativePickerV1(delivery,filename,picker){
@@ -44306,8 +44268,6 @@ window.cblSnapResidueGateStatusV12 = function(){
   window.cblFreeDwgSaveAC1018V1=async function(options){
     if(!freeMode())return false;
     options=options||{};
-    var safariGuideWasSeen=false;try{safariGuideWasSeen=localStorage.getItem('cblSafariAskDownloadLocationV1')==='true';}catch(_storageError){}
-    if(browserMode()&&!cblNativeFilePickerSupportedV1()&&!options.saveAs&&!options.skipSafariGuide&&!safariGuideWasSeen&&typeof window.cblOpenSafariSaveGuideV1==='function')return window.cblOpenSafariSaveGuideV1();
     if(browserMode() && !options.saveAs && !window.CBL_FREE_DWG_LOCAL_FILE_TOKEN && !window.CBL_FREE_DWG_CURRENT_FILENAME){
       if(typeof window.cblFreeDwgSaveAsV1==='function')return window.cblFreeDwgSaveAsV1();
       throw new Error('먼저 다른 이름으로 저장할 파일명을 정해야 합니다.');
