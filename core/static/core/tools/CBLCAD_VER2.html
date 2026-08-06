@@ -43840,7 +43840,8 @@ window.cblSnapResidueGateStatusV12 = function(){
     return compact.modelspace.length+compact.instances.length;
   }
   async function localOpen(providedFile){
-    var openStarted=performance.now(),openTiming={picker_ms:null,file_read_ms:null,hash_ms:null,upload_ms:null,server_metadata_ms:null,server_convert_ms:null,response_ms:null,parse_ms:null,shape_build_ms:null,first_render_ms:null,zoom_fit_ms:null,total_ms:null};
+    var openStarted=performance.now(),openTiming={picker_ms:window.__CBL_DWG_PICKER_MS_V1==null?null:Number(window.__CBL_DWG_PICKER_MS_V1),file_read_ms:null,hash_ms:null,upload_ms:null,server_metadata_ms:null,server_convert_ms:null,response_ms:null,parse_ms:null,shape_build_ms:null,first_render_ms:null,zoom_fit_ms:null,total_ms:null};
+    try{delete window.__CBL_DWG_PICKER_MS_V1;}catch(_pickerTimingCleanupError){}
     function publishOpenTiming(){openTiming.total_ms=+(performance.now()-openStarted).toFixed(2);window.CBL_DWG_OPEN_TIMINGS_V1=openTiming;}
     // The server-rendered free-mode capability is authoritative for this
     // explicit user action.  Avoid a second capability request on the file
@@ -44035,9 +44036,10 @@ window.cblSnapResidueGateStatusV12 = function(){
   async function cblOpenDwgWithNativePickerImplV1(){
     var nativeStatus=window.CBL_NATIVE_FILE_STATUS_V1=window.CBL_NATIVE_FILE_STATUS_V1||{};
     nativeStatus.lastCommand='open';nativeStatus.userActivation=navigator.userActivation?!!navigator.userActivation.isActive:null;nativeStatus.showOpenFilePicker=typeof window.showOpenFilePicker==='function';nativeStatus.showSaveFilePicker=typeof window.showSaveFilePicker==='function';nativeStatus.supported=nativeStatus.showSaveFilePicker&&nativeStatus.showOpenFilePicker;nativeStatus.pickerCount=Number(nativeStatus.pickerCount||0)+1;nativeStatus.inFlight=true;
-    var handles;
+    var pickerStarted=performance.now(),handles;
     try{handles=await window.showOpenFilePicker({multiple:false,types:[{description:'DWG/DXF 파일',accept:{'application/acad':['.dwg','.dxf'],'application/dxf':['.dxf']}}]});}
     catch(error){nativeStatus.inFlight=false;nativeStatus.lastError=String(error&&error.message||error);nativeStatus.lastStack=String(error&&error.stack||'');throw error;}
+    window.__CBL_DWG_PICKER_MS_V1=+(performance.now()-pickerStarted).toFixed(2);
     var handle=handles&&handles[0];
     if(!handle){nativeStatus.inFlight=false;return false;}
     var file=await handle.getFile();
