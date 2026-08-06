@@ -168,6 +168,11 @@
   }
   window.cblNativeDwgSaveFromGestureV1=function(saveAs,event){
     var as=!!saveAs;
+    try{
+      var target=event&&event.target&&event.target.closest?event.target.closest('button,a,[role="button"]'):null;
+      var targetText=String(target&&(target.innerText||target.textContent)||'').replace(/\s+/g,'');
+      if(!as&&targetText.indexOf('다른이름')>=0)as=true;
+    }catch(_gestureTargetError){}
     trace.lastAction=as?'saveAs':'save';
     trace.lastError=null;
     trace.userActivation=navigator.userActivation?!!navigator.userActivation.isActive:null;
