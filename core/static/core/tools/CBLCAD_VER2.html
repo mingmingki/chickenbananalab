@@ -31361,7 +31361,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
   async function runV29Save(reason){
     if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal === true && typeof window.cblNativeDwgSaveFromGestureV1 === 'function') {
-      return window.cblNativeDwgSaveFromGestureV1(false, window.event || null);
+      return window.cblNativeDwgSaveFromGestureV1(/다른\s*이름|saveas/i.test(String(reason||'')), window.event || null);
     }
     if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal === true && typeof window.cblFreeDwgSaveAC1018V1 === 'function') {
       return window.cblFreeDwgSaveAC1018V1();
@@ -32357,7 +32357,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
   async function runV29Save(reason){
     if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal === true && typeof window.cblNativeDwgSaveFromGestureV1 === 'function') {
-      return window.cblNativeDwgSaveFromGestureV1(false, window.event || null);
+      return window.cblNativeDwgSaveFromGestureV1(/다른\s*이름|saveas/i.test(String(reason||'')), window.event || null);
     }
     if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal === true && typeof window.cblFreeDwgSaveAC1018V1 === 'function') {
       return window.cblFreeDwgSaveAC1018V1();
