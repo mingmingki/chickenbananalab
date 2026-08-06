@@ -7851,7 +7851,7 @@ def webcad_tool(request):
     return (/DWG열기|DWG\\/DXF열기|DWG파일/.test(t)||title==='DWG열기'||title==='DWG/DXF열기')&&!/V29|저장/.test(t+title);
   }
   function bindFreeDwgButton(){
-    if(!window.CBL_CAD_RUNTIME_CONFIG||window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal!==true) return;
+    if(!window.CBL_CAD_RUNTIME_CONFIG||window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal!==true||window.CBL_CAD_RUNTIME_CONFIG.freeDwgBrowser===true) return;
     var nodes=Array.prototype.slice.call(document.querySelectorAll('button,a,[role="button"],input[type="button"]'));
     nodes.forEach(function(original){
       if(!isFreeDwgButton(original)||original.getAttribute('data-cbl-free-open-bound')==='1') return;
