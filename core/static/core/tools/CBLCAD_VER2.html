@@ -104,6 +104,7 @@
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',refreshSafariSaveSettingsButton,{once:true});else refreshSafariSaveSettingsButton();
   function open(){
     if(!free()||window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted)return false;
+    if(typeof window.cblNativeDwgSaveFromGestureV1==='function')return window.cblNativeDwgSaveFromGestureV1(true,window.event||null);
     // In local mode the native macOS chooser is the Save As UI.  Do not put
     // a second filename modal in front of Finder; the chooser owns both the
     // destination directory and the final filename.
@@ -140,6 +141,74 @@
   document.addEventListener('click',function(e){if(!free())return;var el=e.target&&e.target.closest?e.target.closest('button,a,[role="button"]'):null;if(!isSaveAs(el))return;e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();open();},true);
   document.addEventListener('keydown',function(e){if(!free()||e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.isContentEditable))return;if((e.metaKey||e.ctrlKey)&&e.shiftKey&&String(e.key||'').toLowerCase()==='s'){e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();open();}},true);
   window.fileSaveAs=function(){if(free())return open();return false;};try{fileSaveAs=window.fileSaveAs;}catch(e){}
+})();
+</script>
+<script id="CBL_CHROME_NATIVE_SAVE_DISPATCHER_V1_SCRIPT">
+(function(){
+  if(window.__CBL_CHROME_NATIVE_SAVE_DISPATCHER_V1__)return;
+  window.__CBL_CHROME_NATIVE_SAVE_DISPATCHER_V1__=true;
+  var trace=window.CBL_CHROME_SAVE_TRACE_V1={installed:true,installCount:1,lastAction:null,userActivation:null,pickerCalls:0,postCalls:0,writeCalls:0,closeCalls:0,lastError:null};
+  var previousSave=window.fileSave;
+  var previousSaveAs=window.fileSaveAs;
+  function free(){return !!(window.CBL_CAD_RUNTIME_CONFIG&&window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal===true);}
+  function nativeSupported(){return typeof window.showSaveFilePicker==='function'&&typeof window.FileSystemFileHandle==='function'&&window.FileSystemFileHandle.prototype&&typeof window.FileSystemFileHandle.prototype.createWritable==='function';}
+  function cleanName(value){
+    var s=String(value||'').trim().replace(/[\\/:*?"<>|]/g,'_').replace(/\s+/g,' ').trim();
+    while(/\.(dwg|wcd|dxf)$/i.test(s))s=s.replace(/\.(dwg|wcd|dxf)$/i,'').trim();
+    if(!s||/^(untitled|untitled\.wcd|drawing)$/i.test(s))s='ChickenBananaCAD';
+    return s+'.dwg';
+  }
+  function currentName(){return cleanName(window.CBL_FREE_DWG_CURRENT_FILENAME||window.CBLCAD_V29_LAST_DWG_FILE_NAME||window.CBLCAD_V29_ORIGINAL_FILE_NAME||window.curFile||'');}
+  function pickerOptions(name){return {suggestedName:name,types:[{description:'DWG 파일',accept:{'application/acad':['.dwg']}}],excludeAcceptAllOption:false};}
+  function resetOnError(error){
+    trace.lastError=String(error&&error.name||error&&error.message||error||'unknown');
+    if(window.CBL_FREE_DWG_SAVE_AS_STATUS_V1)window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.lastError=String(error&&error.message||error||'');
+    if(error&&error.name==='AbortError')return false;
+    return false;
+  }
+  window.cblNativeDwgSaveFromGestureV1=function(saveAs,event){
+    var as=!!saveAs;
+    trace.lastAction=as?'saveAs':'save';
+    trace.lastError=null;
+    trace.userActivation=navigator.userActivation?!!navigator.userActivation.isActive:null;
+    if(!free()){
+      var legacy=as?previousSaveAs:previousSave;
+      return typeof legacy==='function'?legacy.call(this,event):false;
+    }
+    if(!nativeSupported()){
+      if(as&&typeof window.cblFreeDwgSaveAsV1==='function')return window.cblFreeDwgSaveAsV1();
+      if(!as&&typeof window.cblFreeDwgSaveAC1018V1==='function')return window.cblFreeDwgSaveAC1018V1({saveAs:false});
+      var fallback=as?previousSaveAs:previousSave;
+      return typeof fallback==='function'?fallback.call(this,event):false;
+    }
+    var existing=!as?(window.CBL_FREE_DWG_NATIVE_FILE_HANDLE||null):null;
+    if(existing&&typeof window.cblFreeDwgSaveAC1018V1==='function'){
+      return window.cblFreeDwgSaveAC1018V1({saveAs:false,nativeHandle:existing,skipSafariGuide:true});
+    }
+    var pickerPromise;
+    try{
+      trace.pickerCalls++;
+      pickerPromise=window.showSaveFilePicker(pickerOptions(currentName()));
+    }catch(error){return Promise.resolve(resetOnError(error));}
+    return Promise.resolve(pickerPromise).then(function(handle){
+      if(!handle)throw new Error('저장 파일을 선택하지 못했습니다.');
+      if(typeof window.cblFreeDwgSaveAC1018V1!=='function')throw new Error('DWG 저장 함수를 찾을 수 없습니다.');
+      return window.cblFreeDwgSaveAC1018V1({saveAs:as,nativeHandle:handle,skipSafariGuide:true});
+    }).catch(function(error){return resetOnError(error);});
+  };
+  window.cblNativeDwgSaveFromGestureV1.__cblChromeDispatcherV1=true;
+  window.cblBottomSaveDWG=function(ev){return window.cblNativeDwgSaveFromGestureV1(false,ev);};
+  window.fileSave=function(ev){return window.cblNativeDwgSaveFromGestureV1(false,ev);};
+  window.fileSaveAs=function(ev){return window.cblNativeDwgSaveFromGestureV1(true,ev);};
+  try{cblBottomSaveDWG=window.cblBottomSaveDWG;fileSave=window.fileSave;fileSaveAs=window.fileSaveAs;}catch(e){}
+  document.addEventListener('keydown',function(ev){
+    if(!free()||!ev||ev.target&&(ev.target.tagName==='INPUT'||ev.target.tagName==='TEXTAREA'||ev.target.isContentEditable))return;
+    var key=String(ev.key||'').toLowerCase();
+    if((ev.metaKey||ev.ctrlKey)&&key==='s'){
+      ev.preventDefault();ev.stopPropagation();if(ev.stopImmediatePropagation)ev.stopImmediatePropagation();
+      window.cblNativeDwgSaveFromGestureV1(!!ev.shiftKey,ev);
+    }
+  },true);
 })();
 </script>
 <script>
@@ -31286,6 +31355,9 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
   }
 
   async function runV29Save(reason){
+    if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal === true && typeof window.cblNativeDwgSaveFromGestureV1 === 'function') {
+      return window.cblNativeDwgSaveFromGestureV1(false, window.event || null);
+    }
     if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal === true && typeof window.cblFreeDwgSaveAC1018V1 === 'function') {
       return window.cblFreeDwgSaveAC1018V1();
     }
@@ -32279,6 +32351,9 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
   }
 
   async function runV29Save(reason){
+    if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal === true && typeof window.cblNativeDwgSaveFromGestureV1 === 'function') {
+      return window.cblNativeDwgSaveFromGestureV1(false, window.event || null);
+    }
     if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal === true && typeof window.cblFreeDwgSaveAC1018V1 === 'function') {
       return window.cblFreeDwgSaveAC1018V1();
     }
@@ -42916,6 +42991,9 @@ window.cblSnapResidueGateStatusV12 = function(){
   }
 
   async function finalSave(reason){
+    if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal === true && typeof window.cblNativeDwgSaveFromGestureV1 === 'function') {
+      return window.cblNativeDwgSaveFromGestureV1(false, window.event || null);
+    }
     if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal === true && typeof window.cblFreeDwgSaveAC1018V1 === 'function') {
       return window.cblFreeDwgSaveAC1018V1();
     }
@@ -44319,7 +44397,8 @@ window.cblSnapResidueGateStatusV12 = function(){
     var el=ev.target&&ev.target.closest?ev.target.closest('button,a,[role="button"]'):null;
     if(!el||el.getAttribute('data-cbl-top-dwg-save-replacement')!=='save')return;
     ev.preventDefault();ev.stopPropagation();if(ev.stopImmediatePropagation)ev.stopImmediatePropagation();
-    window.cblFreeDwgSaveAC1018V1();
+    if(typeof window.cblNativeDwgSaveFromGestureV1==='function')window.cblNativeDwgSaveFromGestureV1(false,ev);
+    else window.cblFreeDwgSaveAC1018V1();
   },true);
   // The base Save As command is a WCD/DXF modal.  In free mode the visible
   // top Save As command must reach the same AC1018 download without changing
@@ -44329,7 +44408,19 @@ window.cblSnapResidueGateStatusV12 = function(){
     var el=ev.target&&ev.target.closest?ev.target.closest('button,a,[role="button"]'):null;
     if(!el||el.getAttribute('data-cbl-top-dwg-save-replacement')!=='saveAs')return;
     ev.preventDefault();ev.stopPropagation();if(ev.stopImmediatePropagation)ev.stopImmediatePropagation();
-    window.cblFreeDwgSaveAC1018V1();
+    if(typeof window.cblNativeDwgSaveFromGestureV1==='function')window.cblNativeDwgSaveFromGestureV1(true,ev);
+    else window.cblFreeDwgSaveAC1018V1();
   },true);
+})();
+</script>
+<script id="CBL_CHROME_NATIVE_SAVE_DISPATCHER_V1_FINALIZE_SCRIPT">
+(function(){
+  if(window.__CBL_CHROME_NATIVE_SAVE_DISPATCHER_V1_FINALIZED__)return;
+  window.__CBL_CHROME_NATIVE_SAVE_DISPATCHER_V1_FINALIZED__=true;
+  if(typeof window.cblNativeDwgSaveFromGestureV1!=='function')return;
+  window.cblBottomSaveDWG=function(ev){return window.cblNativeDwgSaveFromGestureV1(false,ev);};
+  window.fileSave=function(ev){return window.cblNativeDwgSaveFromGestureV1(false,ev);};
+  window.fileSaveAs=function(ev){return window.cblNativeDwgSaveFromGestureV1(true,ev);};
+  try{cblBottomSaveDWG=window.cblBottomSaveDWG;fileSave=window.fileSave;fileSaveAs=window.fileSaveAs;}catch(e){}
 })();
 </script>
