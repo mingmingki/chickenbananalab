@@ -83,6 +83,7 @@
   function refreshSafariSaveSettingsButton(){var g=document.getElementById('cblSafariSaveSettingsGroupV1');if(g)g.style.display=safariFallback()?'':'none';}
   function safariGuideProceed(){
     var fn=current();
+    safariGuideMarkSeen();setTimeout(safariGuideMarkSeen,0);
     if(typeof window.cblFreeDwgSaveAC1018V1!=='function')return false;
     return window.cblFreeDwgSaveAC1018V1({saveAs:true,skipSafariGuide:true,filename:fn});
   }
