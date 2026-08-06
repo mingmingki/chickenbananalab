@@ -21847,6 +21847,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 <!-- CBL_DIRECT_OPEN_DWG_DXF_V9_START -->
 <script>
 (function(){
+  if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgBrowser === true) return;
   var MARK = 'CBL_DIRECT_OPEN_DWG_DXF_V9';
   if (window[MARK]) return;
   window[MARK] = true;
