@@ -24195,6 +24195,10 @@ def _cbl_free_dwg_save_local_json_v1(path, dwgread):
 class _CBLFreeDwgSaveValidationError(ValueError):
     """A client operation cannot be applied to the uploaded source DWG."""
 
+    def __init__(self, message, diagnostics=None):
+        super().__init__(message)
+        self.diagnostics = diagnostics if isinstance(diagnostics, dict) else None
+
 
 class _CBLLocalFileConflict(ValueError):
     """The server-side source or target changed after the native picker."""
@@ -24410,13 +24414,26 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
     original_json = _cbl_free_dwg_save_local_json_v1(original, dwgread)
     saved_json = _cbl_free_dwg_save_local_json_v1(saved, dwgread)
 
+    def canonical_entity_type(value):
+        raw = str(value or "").strip().upper()
+        return {
+            "LINEENTITY": "LINE",
+            "TEXTENTITY": "TEXT",
+            "MTEXTENTITY": "MTEXT",
+            "DIMENSIONALIGNED": "DIMENSION_ALIGNED",
+            "DIMENSIONLINEAR": "DIMENSION_LINEAR",
+            "DIMENSIONANGULAR": "DIMENSION_ANGULAR",
+            "DIMENSIONRADIUS": "DIMENSION_RADIUS",
+            "DIMENSIONDIAMETER": "DIMENSION_DIAMETER",
+        }.get(raw, raw)
+
     def entities(document):
         return [item for item in document.get("OBJECTS", []) if item.get("entity")]
 
     def counts(document):
         result = {}
         for item in entities(document):
-            key = item.get("entity")
+            key = canonical_entity_type(item.get("entity"))
             result[key] = result.get(key, 0) + 1
         return result
 
@@ -24453,17 +24470,41 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
     before = counts(original_json)
     after = counts(saved_json)
     expected = dict(before)
+    operation_deltas = {}
+    operation_sources = []
     expected_texts = text_counts(original_json)
     expected_layers = named_objects(original_json, "LAYER")
     expected_blocks = named_objects(original_json, "BLOCK_HEADER")
-    for op in ops or []:
+    def add_delta(entity_type, amount, op_index, operation_type):
+        entity_type = canonical_entity_type(entity_type)
+        if not entity_type or not amount:
+            return
+        expected[entity_type] = expected.get(entity_type, 0) + int(amount)
+        operation_deltas[entity_type] = operation_deltas.get(entity_type, 0) + int(amount)
+        operation_sources.append({
+            "op_index": op_index,
+            "entity": entity_type,
+            "operation_type": operation_type,
+            "delta": int(amount),
+        })
+
+    operation_entity_types = {
+        "add_line": "LINE",
+        "add_test_line": "LINE",
+        "add_circle": "CIRCLE",
+        "add_arc": "ARC",
+        "add_lwpolyline": "LWPOLYLINE",
+        "add_polyline": "POLYLINE",
+        "add_text": "TEXT",
+        "add_mtext": "MTEXT",
+        "add_hatch": "HATCH",
+        "add_insert": "INSERT",
+    }
+    for op_index, op in enumerate(ops or []):
         kind = str(op.get("type", "")).lower()
-        entity_type = {
-            "add_line": "LINE", "add_circle": "CIRCLE", "add_lwpolyline": "LWPOLYLINE",
-            "add_text": "TEXT", "add_mtext": "MTEXT",
-        }.get(kind)
+        entity_type = operation_entity_types.get(kind)
         if entity_type:
-            expected[entity_type] = expected.get(entity_type, 0) + 1
+            add_delta(entity_type, 1, op_index, kind)
             if kind in ("add_text", "add_mtext"):
                 value = op.get("text", op.get("value", ""))
                 expected_texts[value] = expected_texts.get(value, 0) + 1
@@ -24485,7 +24526,7 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
                 "SOLID": 2,
             }
             for generated_type, amount in generated.items():
-                expected[generated_type] = expected.get(generated_type, 0) + amount
+                add_delta(generated_type, amount, op_index, kind)
         elif kind == "create_layer":
             name = str(op.get("name", ""))
             if name not in expected_layers:
@@ -24496,8 +24537,8 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
             if source is None:
                 raise RuntimeError(f"저장 검증 실패: 삭제 대상 handle을 찾지 못했습니다: {op.get('handle')}")
             source_type = source.get("entity")
-            expected[source_type] = expected.get(source_type, 0) - 1
-            if source_type in ("TEXT", "MTEXT"):
+            add_delta(source_type, -1, op_index, kind)
+            if canonical_entity_type(source_type) in ("TEXT", "MTEXT"):
                 value = source.get("text", source.get("value", ""))
                 expected_texts[value] = expected_texts.get(value, 0) - 1
         elif kind == "update" and str(op.get("entity", "")).upper() in ("TEXT", "MTEXT"):
@@ -24540,7 +24581,34 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
         if value and key not in writer_unsupported
     }
     if actual_without_writer_unsupported != expected_without_writer_unsupported:
-        raise RuntimeError("저장 검증 실패: 엔티티 종류별 보존 수가 달라졌습니다.")
+        all_types = sorted(set(actual_without_writer_unsupported) | set(expected_without_writer_unsupported))
+        mismatches = {
+            key: {
+                "original": int(before.get(key, 0)),
+                "expected": int(expected_without_writer_unsupported.get(key, 0)),
+                "output": int(actual_without_writer_unsupported.get(key, 0)),
+                "delta": int(operation_deltas.get(key, 0)),
+            }
+            for key in all_types
+            if int(actual_without_writer_unsupported.get(key, 0)) != int(expected_without_writer_unsupported.get(key, 0))
+        }
+        first = next(iter(mismatches.items()), (None, {}))
+        entity, detail = first
+        diagnostics = {
+            "original_counts": {str(k): int(v) for k, v in before.items()},
+            "expected_counts": {str(k): int(v) for k, v in expected_without_writer_unsupported.items()},
+            "output_counts": {str(k): int(v) for k, v in after.items()},
+            "operation_deltas": {str(k): int(v) for k, v in operation_deltas.items()},
+            "mismatches": mismatches,
+            "op_index": next((x["op_index"] for x in operation_sources if x["entity"] == entity), None),
+            "entity": entity,
+            "operation_type": next((x["operation_type"] for x in operation_sources if x["entity"] == entity), None),
+            "mismatch_detail": detail,
+            "operation_sources": operation_sources,
+        }
+        raise _CBLFreeDwgSaveValidationError(
+            "저장 검증 실패: 엔티티 종류별 보존 수가 달라졌습니다.", diagnostics
+        )
     def layer_records(document):
         return {
             canonical_ref(item.get("handle")): item
@@ -24839,7 +24907,10 @@ def cblcad_free_dwg_save_local_api(request):
             "CBLCAD_FREE_DWG_SAVE_LOCAL endpoint=free-dwg-save event=validation_error oda_executed=0 error=%s",
             str(exc)[:500],
         )
-        return _cbl_JsonResponse({"ok": False, "oda_executed": False, "error": str(exc)}, status=400)
+        payload = {"ok": False, "oda_executed": False, "error": str(exc)}
+        if isinstance(getattr(exc, "diagnostics", None), dict):
+            payload["validation"] = exc.diagnostics
+        return _cbl_JsonResponse(payload, status=400, json_dumps_params={"ensure_ascii": False})
     except Exception as exc:
         _cbl_dwg_dxf_emit_log_v1(
             "CBLCAD_FREE_DWG_SAVE_LOCAL endpoint=free-dwg-save event=error oda_executed=0 error=%s",

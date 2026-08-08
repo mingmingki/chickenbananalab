@@ -119,7 +119,7 @@
   if(window.__CBL_CHROME_NATIVE_SAVE_DISPATCHER_V1__)return;
   window.__CBL_CHROME_NATIVE_SAVE_DISPATCHER_V1__=true;
   var trace=window.CBL_CHROME_SAVE_TRACE_V1={installed:true,installCount:1,lastAction:null,userActivation:null,pickerCalls:0,postCalls:0,writeCalls:0,closeCalls:0,lastError:null};
-  var nativeStatus=window.CBL_NATIVE_FILE_STATUS_V1=window.CBL_NATIVE_FILE_STATUS_V1||{supported:false,showOpenFilePicker:false,showSaveFilePicker:false,userActivation:null,lastCommand:null,commandId:0,savePath:null,delivery:null,opsCount:0,responseStatus:null,responseContentType:null,responseBytes:0,responseHeader:null,writtenBytes:0,currentFilename:null,pickerCount:0,openPickerCount:0,savePickerCount:0,postCount:0,writeCount:0,closeCount:0,hasCurrentHandle:false,inFlight:false,lastError:null,lastStack:null,createWritableStartedAt:null,postStartedAt:null,createWritableBeforePost:false,permissionState:null,writableAborted:false};
+  var nativeStatus=window.CBL_NATIVE_FILE_STATUS_V1=window.CBL_NATIVE_FILE_STATUS_V1||{supported:false,showOpenFilePicker:false,showSaveFilePicker:false,userActivation:null,lastCommand:null,commandId:0,savePath:null,delivery:null,opsCount:0,responseStatus:null,responseContentType:null,responseBytes:0,responseHeader:null,writtenBytes:0,currentFilename:null,pickerCount:0,openPickerCount:0,savePickerCount:0,postCount:0,writeCount:0,closeCount:0,hasCurrentHandle:false,inFlight:false,lastError:null,lastStack:null,createWritableStartedAt:null,postStartedAt:null,createWritableBeforePost:false,permissionState:null,writableAborted:false,validationError:null};
   var previousSave=window.fileSave;
   var previousSaveAs=window.fileSaveAs;
   var dispatcherInFlight=null;
@@ -186,6 +186,7 @@
     nativeStatus.createWritableBeforePost=false;
     nativeStatus.permissionState=null;
     nativeStatus.writableAborted=false;
+    nativeStatus.validationError=null;
     if(!free()){
       var legacy=as?previousSaveAs:previousSave;
       return typeof legacy==='function'?legacy.call(this,event):false;
@@ -44500,8 +44501,8 @@ window.cblSnapResidueGateStatusV12 = function(){
       if(window.CBL_NATIVE_FILE_STATUS_V1)window.CBL_NATIVE_FILE_STATUS_V1.postStartedAt=typeof performance!=='undefined'&&performance.now?performance.now():Date.now();
       if(window.CBL_NATIVE_FILE_STATUS_V1)window.CBL_NATIVE_FILE_STATUS_V1.postCount++;
       var res=await fetch('/api/cblcad/free-dwg-save/?mode=free-dwg',{method:'POST',body:fd,credentials:'same-origin'});
-      if(!res.ok){var ep=null;try{ep=await res.json();}catch(_jsonErr){}var em=ep&&ep.error?String(ep.error):('DWG 저장 실패 HTTP '+res.status);throw new Error(em);}
       if(window.CBL_NATIVE_FILE_STATUS_V1){window.CBL_NATIVE_FILE_STATUS_V1.responseStatus=res.status;window.CBL_NATIVE_FILE_STATUS_V1.responseContentType=res.headers.get('content-type')||null;window.CBL_NATIVE_FILE_STATUS_V1.responseHeader=res.headers.get('content-disposition')||null;}
+      if(!res.ok){var ep=null;try{ep=await res.json();}catch(_jsonErr){}if(window.CBL_NATIVE_FILE_STATUS_V1)window.CBL_NATIVE_FILE_STATUS_V1.validationError=ep&&ep.validation?ep.validation:{error:ep&&ep.error?String(ep.error):('HTTP '+res.status)};var em=ep&&ep.error?String(ep.error):('DWG 저장 실패 HTTP '+res.status);throw new Error(em);}
       if(nativeBinary){
         var binaryBytes=new Uint8Array(await res.arrayBuffer());
         if(window.CBL_NATIVE_FILE_STATUS_V1)window.CBL_NATIVE_FILE_STATUS_V1.responseBytes=binaryBytes.byteLength;
