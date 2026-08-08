@@ -758,7 +758,7 @@ internal static class Program
 
         if (op.TryGetProperty("linetype", out var lineTypeValue) && lineTypeValue.ValueKind == JsonValueKind.String)
         {
-            var name = lineTypeValue.GetString();
+            var name = CanonicalLineTypeName(lineTypeValue.GetString());
             if (!string.IsNullOrWhiteSpace(name))
             {
                 var lineType = document.LineTypes.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -773,6 +773,19 @@ internal static class Program
             if (Enum.TryParse<LineWeightType>(raw, true, out var parsed)) entity.LineWeight = parsed;
             else if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numeric)) entity.LineWeight = (LineWeightType)numeric;
         }
+    }
+
+    private static string CanonicalLineTypeName(string? raw)
+    {
+        var value = (raw ?? string.Empty).Trim();
+        var key = new string(value.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+        return key switch
+        {
+            "SOLID" or "CONTINUOUS" or "CONTINUE" or "실선" => "Continuous",
+            "BYLAYER" or "LAYER" => "ByLayer",
+            "BYBLOCK" or "BLOCK" => "ByBlock",
+            _ => value,
+        };
     }
 
     private static string RequiredString(JsonElement obj, string name) => obj.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(value.GetString()) ? value.GetString()! : throw new InvalidDataException($"{name} is required");

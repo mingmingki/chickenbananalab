@@ -44256,13 +44256,24 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(scale!==null&&!Array.isArray(scale))return shapeNumber({v:scale},['v'],1);
     return 1;
   }
+  function canonicalDwgLineTypeV1(v){
+    var raw=String(v==null?'':v).trim();
+    if(!raw)return 'Continuous';
+    var key=raw.toUpperCase().replace(/[\s_\-.]/g,'');
+    if(key==='SOLID'||key==='CONTINUOUS'||key==='CONTINUE'||key==='실선')return 'Continuous';
+    if(key==='BYLAYER'||key==='LAYER')return 'ByLayer';
+    if(key==='BYBLOCK'||key==='BLOCK')return 'ByBlock';
+    try{if(typeof cblLtAliasV3Norm==='function')return cblLtAliasV3Norm(raw);}catch(e){}
+    return raw;
+  }
+  function shapeLineType(s){return canonicalDwgLineTypeV1(firstShapeValue(s,['linetype','lineType','lineTypeName','lt','cblRawLineType','rawLineType'],''));}
   function color(s){var v=firstShapeValue(s,['aci','cblAciColor','colorIndex','color'],256);var x=Number(v);return Number.isFinite(x)?x:256;}
   function shapeVisualProperties(s){
     return {
       aci:color(s),
       color:color(s),
       trueColor:firstShapeValue(s,['trueColor','truecolor','rgb','colorRgb'],null),
-      linetype:String(firstShapeValue(s,['linetype','lineType','lineTypeName','lt'],'' )||''),
+      linetype:shapeLineType(s),
       lineweight:firstShapeValue(s,['lineweight','lineWeight','lineWidth','lw'],null)
     };
   }

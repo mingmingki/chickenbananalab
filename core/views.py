@@ -24924,5 +24924,14 @@ def cblcad_free_dwg_save_local_api(request):
             "CBLCAD_FREE_DWG_SAVE_LOCAL endpoint=free-dwg-save event=error oda_executed=0 error=%s",
             str(exc)[:500],
         )
+        detail = str(exc)
+        if "Linetype not found:" in detail:
+            raw_name = detail.split("Linetype not found:", 1)[1].strip().split("\\n", 1)[0].splitlines()[0][:120]
+            return _cbl_JsonResponse({
+                "ok": False,
+                "oda_executed": False,
+                "error": "저장 검증 실패: 알 수 없는 선종류입니다.",
+                "validation": {"code": "unknown_linetype", "linetype": raw_name},
+            }, status=400, json_dumps_params={"ensure_ascii": False})
         return _cbl_JsonResponse({"ok": False, "oda_executed": False, "error": str(exc)}, status=500)
 # CBL_FREE_DWG_LOCAL_SAVE_V1_END
