@@ -68,6 +68,104 @@
 })();
 // CBL_INPUT_LATENCY_DIAG_V1_END
 </script>
+
+<!-- CBL_DWG_OPEN_INTEGRITY_V1_START -->
+<script id="CBL_DWG_OPEN_INTEGRITY_V1_SCRIPT">
+(function(){
+  if(window.__CBL_DWG_OPEN_INTEGRITY_V1__)return;
+  window.__CBL_DWG_OPEN_INTEGRITY_V1__=true;
+
+  var state=window.CBL_DWG_OPEN_INTEGRITY_V1={
+    metadataEntityCount:null,parsedEntityCount:null,canonicalShapeCount:0,finalShapeCount:0,
+    blockDefinitionCount:0,blockChildCount:0,blockDefinitions:[],nestedInsertCount:0,anonymousBlockCount:0,
+    resolvedInsertCount:0,unresolvedInsertCount:0,
+    unresolvedBlockNames:[],xrefCount:0,unresolvedXrefs:[],perLayerCounts:{},
+    culledInvalidBBoxCount:0,removedByCleanupCounts:{},warnings:[],lastStage:null
+  };
+  function arr(){try{return Array.isArray(window.shapes)?window.shapes:[];}catch(e){return[];}}
+  function layers(){try{return Array.isArray(window.layers)?window.layers:[];}catch(e){return[];}}
+  function layerName(s){
+    var n=s&&(s.cblSourceLayerName||s.rawLayerName||s.rawLayer||s.layerName);
+    if(n)return String(n);
+    var id=Number(s&&s.layId||0),ls=layers();
+    for(var i=0;i<ls.length;i++)if(Number(ls[i]&&ls[i].id)===id)return String(ls[i].name||'');
+    return '0';
+  }
+  function countLayers(a){var out={};a.forEach(function(s){if(!s)return;var n=layerName(s);out[n]=(out[n]||0)+1;});return out;}
+  function missingFromStats(st){
+    var names=[],n=0;
+    Object.keys(st&&st.skipped||{}).forEach(function(k){
+      if(k.indexOf('INSERT_MISSING_BLOCK_')===0){n+=Number(st.skipped[k]||0);names.push(k.slice(21));}
+    });
+    state.unresolvedInsertCount=n;
+    state.unresolvedBlockNames=names.filter(function(v,i,a){return a.indexOf(v)===i;});
+  }
+  function syncFromStats(st,a){
+    st=st||{};state.parsedEntityCount=Number(st.mainEntityCount||0)||null;
+    state.canonicalShapeCount=a.length;state.finalShapeCount=a.length;
+    state.blockDefinitionCount=Number(st.blockCount||0);
+    state.blockChildCount=Number(st.blockChildCount||0);
+    state.blockDefinitions=Array.isArray(st.blockDefinitions)?st.blockDefinitions:[];
+    state.nestedInsertCount=Number(st.nestedInsertCount||0);
+    state.anonymousBlockCount=Number(st.anonymousBlockCount||0);
+    state.resolvedInsertCount=Math.max(0,Number(st.insertCount||0)-Number(state.unresolvedInsertCount||0));
+    state.perLayerCounts=countLayers(a);state.lastStage='canonical-import';
+    missingFromStats(st);
+    state.resolvedInsertCount=Math.max(0,Number(st.insertCount||0)-Number(state.unresolvedInsertCount||0));
+    state.warnings=[];
+    if(state.unresolvedInsertCount)state.warnings.push('unresolved block reference');
+  }
+  function restoreFlattenedStyles(a){
+    var flat=window.cblSingleModelImportStatsV1;
+    if(!flat||Number(flat.flattenedEntityCount||0)<=0)return false;
+    var ls=layers(),by={};ls.forEach(function(l){if(l&&l.name)by[String(l.name).trim().toLowerCase()]=l;});
+    a.forEach(function(s){
+      if(!s)return;
+      var nm=String(s.cblSourceLayerName||s.rawLayerName||'').trim();
+      var l=by[nm.toLowerCase()];
+      if(l){s.layId=l.id;s.rawLayerName=l.name;}
+      if(s.cblSourceStroke){s.stroke=s.cblSourceStroke;s.color=s.cblSourceStroke;}
+      if(s.cblSourceLineType){s.cblRawLineType=s.cblSourceLineType;s.cblLineType=s.cblSourceLineType;s.lineType=s.cblSourceLineType;s.dash=s.cblSourceLineType;}
+    });
+    state.warnings.push('index-aligned layer metadata skipped for flattened block shapes');
+    return true;
+  }
+  function installParse(){
+    var fn=window.parseDXF;
+    if(typeof fn!=='function'||fn.__cblOpenIntegrityV1)return false;
+    var old=fn;
+    var wrapped=function(txt){
+      var res=old.apply(this,arguments),a=Array.isArray(res)?res:arr();
+      try{
+        var flat=window.cblSingleModelImportStatsV1;
+        syncFromStats(flat,a);
+        if(flat&&Number(flat.flattenedEntityCount||0)>0)restoreFlattenedStyles(a);
+        window.CBL_DWG_OPEN_INTEGRITY_V1=state;
+        console.log('[CBL_DWG_OPEN_INTEGRITY_V1]',JSON.parse(JSON.stringify(state)));
+      }catch(e){state.warnings.push('integrity instrumentation: '+String(e&&e.message||e));}
+      return res;
+    };
+    wrapped.__cblOpenIntegrityV1=true;wrapped.__cblOriginalParseDXF=old;window.parseDXF=wrapped;
+    try{parseDXF=wrapped;}catch(e){}
+    return true;
+  }
+  function installRender(){
+    var fn=window.cblRenderVisibleShapesV1;
+    if(typeof fn!=='function'||fn.__cblOpenIntegrityRenderV1)return false;
+    var old=fn;
+    var wrapped=function(){
+      var r=old.apply(this,arguments);var a=arr();state.finalShapeCount=a.length;state.perLayerCounts=countLayers(a);state.lastStage='render';
+      try{var s=window.cblViewportCullingStatsV1;if(s)state.culledInvalidBBoxCount=Number(s.bboxError||0)||0;}catch(e){}
+      return r;
+    };
+    wrapped.__cblOpenIntegrityRenderV1=true;window.cblRenderVisibleShapesV1=wrapped;try{cblRenderVisibleShapesV1=wrapped;}catch(e){}return true;
+  }
+  window.addEventListener('load',function(){installParse();installRender();},{once:true});
+  window.cblDwgOpenIntegrityStatusV1=function(){return JSON.parse(JSON.stringify(state));};
+  console.log('CBL_DWG_OPEN_INTEGRITY_V1 loaded');
+})();
+</script>
+<!-- CBL_DWG_OPEN_INTEGRITY_V1_END -->
 <script id="CBL_FREE_DWG_SAVE_AS_V1_SCRIPT">
 (function(){
   if(window.__CBL_FREE_DWG_SAVE_AS_V1__)return;
@@ -23002,6 +23100,12 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       insertCount:0,
       mainEntityCount:0,
       flattenedEntityCount:0,
+      blockChildCount:0,
+      blockChildrenByType:{},
+      blockDefinitions:[],
+      totalInsertCount:0,
+      nestedInsertCount:0,
+      anonymousBlockCount:0,
       skipped:{},
       entityTypes:{},
       ms:0
@@ -23318,6 +23422,9 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       return {
         layId:ly.id,
         stroke:color || ly.color || '#e5e7eb',
+        cblSourceLayerName:layerName,
+        cblSourceStroke:color || ly.color || '#e5e7eb',
+        cblSourceLineType:lt,
         fill:'none',
         lineWidth:ly.lineWidth || 0.25,
         opacity:1,
@@ -23840,6 +23947,21 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
     stats.layerCount = layers.length;
     stats.blockCount = Object.keys(blocks).length;
+    stats.blockDefinitions = Object.keys(blocks).map(function(name){
+      var ents = blocks[name] && Array.isArray(blocks[name].ents) ? blocks[name].ents : [];
+      var types = {};
+      ents.forEach(function(ent){
+        var t = String(ent && ent.type || '').toUpperCase();
+        if(!t)return;
+        stats.blockChildCount++;
+        stats.blockChildrenByType[t]=(stats.blockChildrenByType[t]||0)+1;
+        types[t]=(types[t]||0)+1;
+      });
+      return {name:name,childCount:ents.length,childTypes:types,anonymous:String(name).charAt(0)==='*'};
+    });
+    stats.anonymousBlockCount = stats.blockDefinitions.filter(function(b){return b.anonymous;}).length;
+    stats.nestedInsertCount = Number(stats.blockChildrenByType.INSERT || 0);
+    stats.totalInsertCount = Number(stats.insertCount || 0) + stats.nestedInsertCount;
     stats.mainEntityCount = mainEntities.length;
     stats.ms = Math.round((performance && performance.now ? performance.now() : Date.now()) - t0);
 
@@ -23903,6 +24025,11 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
           layerCount:parsed.stats.layerCount,
           blockCount:parsed.stats.blockCount,
           insertCount:parsed.stats.insertCount,
+          totalInsertCount:parsed.stats.totalInsertCount,
+          nestedInsertCount:parsed.stats.nestedInsertCount,
+          blockChildCount:parsed.stats.blockChildCount,
+          blockDefinitions:parsed.stats.blockDefinitions,
+          anonymousBlockCount:parsed.stats.anonymousBlockCount,
           entityCount:parsed.stats.mainEntityCount,
           flattenedEntityCount:parsed.stats.flattenedEntityCount,
           entityTypes:parsed.stats.entityTypes,
@@ -43954,9 +44081,13 @@ window.cblSnapResidueGateStatusV12 = function(){
     // builds, so do not call the unqualified helper from this later IIFE.
     // Resolve the canonical public parser explicitly and fail loudly if the
     // full-DXF path was not installed.
-    var parseFn = typeof window.cblParseAcadSharpFullDxfV1 === 'function'
-      ? window.cblParseAcadSharpFullDxfV1
-      : (typeof window.parseDXF === 'function' ? window.parseDXF : null);
+    // The canonical full-DXF entry is the current parseDXF function.  The
+    // older cblParseAcadSharpFullDxfV1 alias points at the pre-single-model
+    // parser on some builds and therefore returns model-space entities only,
+    // while the BLOCK/INSERT children remain only in the block table.
+    var parseFn = typeof window.parseDXF === 'function'
+      ? window.parseDXF
+      : (typeof window.cblParseAcadSharpFullDxfV1 === 'function' ? window.cblParseAcadSharpFullDxfV1 : null);
     if (!parseFn) throw new Error('canonical parseDXF 함수를 찾지 못했습니다.');
     var parseStarted=performance.now();
     var imported = parseFn(String(result.dxf));
@@ -44009,6 +44140,13 @@ window.cblSnapResidueGateStatusV12 = function(){
         var originalHandle=normHandle(s&&((s.sourceHandle||s.originalHandle)||''));
         if(originalHandle) window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES[originalHandle]=true;
       });
+      try {
+        var integrity=window.CBL_DWG_OPEN_INTEGRITY_V1;
+        if(integrity&&typeof integrity==='object'){
+          integrity.finalShapeCount=canonicalImportedShapes.length;
+          integrity.lastStage='final-canonical-model';
+        }
+      } catch(_integrityFinalError) {}
     } catch(_canonicalBaselineError) {
       window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];
       window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};
