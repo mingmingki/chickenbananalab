@@ -14396,7 +14396,10 @@ body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb:
 
 .cbl-home-program-dialog {
   width: min(980px, calc(100vw - 32px));
-  max-height: min(760px, calc(100vh - 48px));
+  max-height: min(760px, calc(100dvh - 24px));
+  height: min(760px, calc(100dvh - 24px));
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border-radius: 28px;
   background: #fff;
@@ -14410,6 +14413,7 @@ body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb:
   justify-content: space-between;
   gap: 18px;
   padding: 24px 26px 18px;
+  flex: 0 0 auto;
   border-bottom: 1px solid rgba(15, 23, 42, .08);
 }
 
@@ -14438,9 +14442,12 @@ body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb:
 }
 
 .cbl-home-program-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   padding: 22px 26px 26px;
-  max-height: calc(100vh - 190px);
-  overflow: auto;
 }
 
 .cbl-home-program-upload {
@@ -14448,6 +14455,7 @@ body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb:
   grid-template-columns: 1.1fr .7fr 1.6fr 1.3fr auto;
   gap: 8px;
   margin-bottom: 18px;
+  flex: 0 0 auto;
   padding: 14px;
   border-radius: 18px;
   background: #f8fafc;
@@ -14492,8 +14500,17 @@ body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb:
 }
 
 .cbl-home-program-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  scrollbar-gutter: stable;
+  padding: 0 4px 28px 0;
   display: grid;
   gap: 10px;
+  align-content: start;
 }
 
 .cbl-home-program-empty {
@@ -14572,6 +14589,7 @@ body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb:
 
 @media (max-width: 720px) {
   .cbl-home-program-dialog {
+    height: calc(100dvh - 24px);
     border-radius: 22px;
   }
 
@@ -14810,8 +14828,13 @@ body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb:
 
     function openModal() {
       if (!modal) return;
+      if (!modal.classList.contains("is-open")) {
+        modal.dataset.cblPreviousBodyOverflow = document.body.style.overflow || "";
+        document.body.style.overflow = "hidden";
+      }
       modal.classList.add("is-open");
       modal.setAttribute("aria-hidden", "false");
+      if (list) list.scrollTop = 0;
       loadPrograms();
     }
 
@@ -14819,6 +14842,19 @@ body[data-cbl-url-name="home"] #cblHomeProgramMiniList::-webkit-scrollbar-thumb:
       if (!modal) return;
       modal.classList.remove("is-open");
       modal.setAttribute("aria-hidden", "true");
+      document.body.style.overflow = modal.dataset.cblPreviousBodyOverflow || "";
+      delete modal.dataset.cblPreviousBodyOverflow;
+    }
+
+    if (modal && !modal.dataset.cblWheelBound) {
+      modal.dataset.cblWheelBound = "1";
+      modal.addEventListener("wheel", function (event) {
+        if (event.target.closest("#cblHomeProgramList")) {
+          // Keep document-level wheel handlers (including CAD zoom handlers)
+          // away from the program list without cancelling the browser scroll.
+          event.stopPropagation();
+        }
+      }, {capture: true, passive: true});
     }
 
     document.addEventListener("click", function (event) {
