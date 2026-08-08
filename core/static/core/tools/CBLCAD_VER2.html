@@ -199,7 +199,8 @@
     if(dispatcherInFlight){nativeStatus.inFlight=true;return dispatcherInFlight;}
     var existing=!as?(window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1||window.CBL_FREE_DWG_NATIVE_FILE_HANDLE||null):null;
     if(existing&&typeof window.cblFreeDwgSaveAC1018V1==='function'){
-      var existingPrepared=prepareNativeWritableV1(existing,event);
+      var existingPrepared;
+      try{existingPrepared=prepareNativeWritableV1(existing,event);}catch(existingPrepareError){nativeStatus.lastError=String(existingPrepareError&&existingPrepareError.message||existingPrepareError||'');nativeStatus.lastStack=String(existingPrepareError&&existingPrepareError.stack||'');nativeStatus.inFlight=false;resetOnError(existingPrepareError);return Promise.resolve(false);}
       dispatcherInFlight=Promise.resolve(window.cblFreeDwgSaveAC1018V1({saveAs:false,nativeHandle:existing,preparedWritable:existingPrepared}));
       return dispatcherInFlight.finally(function(){dispatcherInFlight=null;});
     }
