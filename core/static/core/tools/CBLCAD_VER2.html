@@ -44246,15 +44246,55 @@ window.cblSnapResidueGateStatusV12 = function(){
   }
   function p(x,y,z){return [n(x),n(y),n(z)];}
   function layerName(s){var ls=layers(), id=s&&(s.layId||s.layerId);for(var i=0;i<ls.length;i++)if(String(ls[i].id)===String(id))return String(ls[i].name||'0');return String(s&&(s.rawLayerName||s.layer)||'0');}
-  function color(s){return Number(s&&(s.aci!=null?s.aci:s.cblAciColor!=null?s.cblAciColor:256))||256;}
+  function firstShapeValue(s,keys,fallback){for(var i=0;i<keys.length;i++){if(s&&s[keys[i]]!==undefined&&s[keys[i]]!==null)return s[keys[i]];}return fallback;}
+  function shapeNumber(s,keys,fallback){var v=firstShapeValue(s,keys,null);if(v===null||v==='')return fallback;var x=Number(v);return Number.isFinite(x)?x:fallback;}
+  function shapeRotation(s){return shapeNumber(s,['rotation','rot'],0);}
+  function shapeScale(s,key,index){
+    var direct=firstShapeValue(s,[key],null);if(direct!==null)return shapeNumber({v:direct},['v'],1);
+    var scale=firstShapeValue(s,['scale'],null);
+    if(Array.isArray(scale)&&scale[index]!==undefined)return shapeNumber({v:scale[index]},['v'],1);
+    if(scale!==null&&!Array.isArray(scale))return shapeNumber({v:scale},['v'],1);
+    return 1;
+  }
+  function color(s){var v=firstShapeValue(s,['aci','cblAciColor','colorIndex','color'],256);var x=Number(v);return Number.isFinite(x)?x:256;}
+  function shapeVisualProperties(s){
+    return {
+      aci:color(s),
+      color:color(s),
+      trueColor:firstShapeValue(s,['trueColor','truecolor','rgb','colorRgb'],null),
+      linetype:String(firstShapeValue(s,['linetype','lineType','lineTypeName','lt'],'' )||''),
+      lineweight:firstShapeValue(s,['lineweight','lineWeight','lineWidth','lw'],null)
+    };
+  }
+  function cblShapeSaveSignatureV1(s){
+    if(!s)return '';
+    function q(v){var x=Number(v);return Number.isFinite(x)?Math.round(x*1000000)/1000000:String(v==null?'':v);}
+    function point(v){return Array.isArray(v)?v.slice(0,3).map(q):null;}
+    var t=String(s.type||s.rawDxfType||'').toLowerCase();
+    if(t==='lwpolyline'||t==='poly')t='polyline';
+    if(t==='insert')t='blockref';
+    if(t==='attrib'||t==='attdef')t='text';
+    var visual=shapeVisualProperties(s);
+    var sig={type:t,layer:{id:String(firstShapeValue(s,['layId','layerId'],'')||''),name:layerName(s),raw:String(firstShapeValue(s,['rawLayerName','layer'],'')||'')},visual:{aci:visual.aci,trueColor:visual.trueColor,linetype:visual.linetype,lineweight:visual.lineweight}};
+    if(t==='line')sig.geometry={start:[q(s.x1),q(s.y1),q(s.z1)],end:[q(s.x2),q(s.y2),q(s.z2)]};
+    else if(t==='circle')sig.geometry={center:[q(s.cx),q(s.cy),q(s.cz)],radius:q(s.r)};
+    else if(t==='arc')sig.geometry={center:[q(s.cx),q(s.cy),q(s.cz)],radius:q(s.r),start:q(firstShapeValue(s,['startAngle','a1'],0)),end:q(firstShapeValue(s,['endAngle','a2'],0))};
+    else if(t==='polyline'||t==='lwpolyline')sig.geometry={points:(s.pts||[]).map(function(v){return {p:[q(v.x),q(v.y),q(v.z)],bulge:q(v.bulge||0)};}),closed:!!s.closed};
+    else if(t==='text'||t==='mtext'||t==='attrib'||t==='attdef')sig.geometry={text:String(s.text||s.content||''),insert:[q(s.x),q(s.y),q(s.z)],height:q(firstShapeValue(s,['size','height','textHeight'],0)),rotation:q(shapeRotation(s)),style:String(firstShapeValue(s,['textStyleName','textStyle'],'')||''),widthFactor:q(firstShapeValue(s,['widthFactor'],1)),obliqueAngle:q(firstShapeValue(s,['obliqueAngle','oblique'],0))};
+    else if(t==='blockref'||t==='insert')sig.geometry={block:String(firstShapeValue(s,['name','blockName'],'')||''),insert:[q(s.x),q(s.y),q(s.z)],rotation:q(shapeRotation(s)),scaleX:q(shapeScale(s,'scaleX',0)),scaleY:q(shapeScale(s,'scaleY',1)),scaleZ:q(shapeScale(s,'scaleZ',2))};
+    else if(t==='dimaligned'||t==='dimlinear'||t==='dimension')sig.geometry={first:point(s.firstPoint||[s.x1,s.y1,0]),second:point(s.secondPoint||[s.x2,s.y2,0]),definition:point(s.definitionPoint),textPosition:point(s.textPosition),rotation:q(shapeRotation(s)),text:String(s.overrideText||s.dimText||''),style:String(firstShapeValue(s,['dimensionStyleName','dimensionStyle'],'')||''),lineColor:q(firstShapeValue(s,['lineAci','lineColor'],7)),extensionColor:q(firstShapeValue(s,['extAci','extensionColor'],7)),textColor:q(firstShapeValue(s,['textAci','textColor'],3)),textHeight:q(firstShapeValue(s,['textHeight'],20)),arrowSize:q(firstShapeValue(s,['arrowSize'],11))};
+    else sig.geometry={x:q(s.x),y:q(s.y),rotation:q(shapeRotation(s))};
+    return JSON.stringify(sig);
+  }
+  window.cblShapeSaveSignatureV1=cblShapeSaveSignatureV1;
   function opForShape(s, mode){
     if(!s)return null; var t=String(s.type||'').toLowerCase(), h=ownerHandleOf(s);
-    var base={type:mode||'add_line',layer:layerName(s),color:color(s)};
+    var base=Object.assign({type:mode||'add_line',layer:layerName(s)},shapeVisualProperties(s));
     if(t==='line')return Object.assign(base,{type:mode?'update':'add_line',handle:h,start:p(s.x1,s.y1),end:p(s.x2,s.y2)});
     if(t==='circle')return Object.assign(base,{type:mode?'update':'add_circle',handle:h,center:p(s.cx,s.cy),radius:Math.abs(n(s.r))});
     if(t==='polyline')return Object.assign(base,{type:mode?'update':'add_lwpolyline',handle:h,points:(s.pts||[]).map(function(q){return p(q.x,q.y);}),closed:!!s.closed});
     if(t==='rect'||t==='rectangle')return Object.assign(base,{type:mode?'update':'add_lwpolyline',handle:h,points:[[n(s.x),n(s.y)],[n(s.x)+n(s.w||s.width),n(s.y)],[n(s.x)+n(s.w||s.width),n(s.y)+n(s.h||s.height)],[n(s.x),n(s.y)+n(s.h||s.height)]],closed:true});
-    if(t==='text'||t==='mtext')return Object.assign(base,{type:mode?'update':'add_text',handle:h,entity:String(s.rawDxfType||(t==='mtext'?'MTEXT':'TEXT')).toUpperCase(),text:String(s.text||s.content||''),insert:p(s.x,s.y),height:n(s.size,250),rotation:n(s.rot),textStyle:String(s.textStyleName||s.textStyle||'STANDARD'),widthFactor:n(s.widthFactor,1),obliqueAngle:n(s.obliqueAngle,0)});
+    if(t==='text'||t==='mtext')return Object.assign(base,{type:mode?'update':'add_text',handle:h,entity:String(s.rawDxfType||(t==='mtext'?'MTEXT':'TEXT')).toUpperCase(),text:String(s.text||s.content||''),insert:p(s.x,s.y),height:n(firstShapeValue(s,['size','height','textHeight'],250),250),rotation:shapeRotation(s),textStyle:String(s.textStyleName||s.textStyle||'STANDARD'),widthFactor:n(s.widthFactor,1),obliqueAngle:n(s.obliqueAngle,0)});
     if(t==='dimaligned'||t==='dimlinear'||t==='dimension'){
       var x1=n(s.x1),y1=n(s.y1),x2=n(s.x2),y2=n(s.y2),dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy)||1;
       var ux=dx/len,uy=dy/len,nx=-uy,ny=ux,off=n(s.off,25),kind=t==='dimaligned'?'aligned':'linear';
@@ -44270,7 +44310,7 @@ window.cblSnapResidueGateStatusV12 = function(){
         textColor:Number(s.textAci!=null?s.textAci:(ds.textAci!=null?ds.textAci:3))||3,
         textHeight:n(ds.textSz,20),arrowSize:n(ds.arrowSz,11),textStyle:String(s.textStyleName||s.textStyle||'STANDARD')});
     }
-    if(t==='blockref'&&mode)return {type:'update',handle:h,sourceHandle:h,entity:'INSERT',blockName:String(s.name||s.blockName||''),insert:p(s.x,s.y),rotation:n(s.rotation,s.rot),scale:[n(s.scaleX,s.scale==null?1:s.scale),n(s.scaleY,s.scale==null?1:s.scale)]};
+    if((t==='blockref'||t==='insert')&&mode)return Object.assign(base,{type:'update',handle:h,sourceHandle:h,entity:'INSERT',blockName:String(s.name||s.blockName||''),insert:p(s.x,s.y),rotation:shapeRotation(s),scale:[shapeScale(s,'scaleX',0),shapeScale(s,'scaleY',1),shapeScale(s,'scaleZ',2)]});
     return null;
   }
   function deleteOpForShape(s,h){
@@ -44283,11 +44323,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     return o;
   }
   function sameGeometry(a,b){
-    if(!a||!b)return false;
-    var keys=['type','x1','y1','x2','y2','cx','cy','r','x','y','rot','size','text','closed','rawDxfType','textStyleName','widthFactor','obliqueAngle'];
-    for(var i=0;i<keys.length;i++){var k=keys[i];if(String(a[k] == null ? '' : a[k])!==String(b[k] == null ? '' : b[k]))return false;}
-    if(a.pts||b.pts){if(JSON.stringify(a.pts||[])!==JSON.stringify(b.pts||[]))return false;}
-    return true;
+    return !!a&&!!b&&cblShapeSaveSignatureV1(a)===cblShapeSaveSignatureV1(b);
   }
   function isTopLevelEditable(s){
     if(!s)return false;

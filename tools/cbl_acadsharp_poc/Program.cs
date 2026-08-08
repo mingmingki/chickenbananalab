@@ -265,6 +265,10 @@ internal static class Program
                 ["type"] = type,
                 ["owner"] = entity.Owner == null ? null : Hex(entity.Owner.Handle),
                 ["space"] = space,
+                ["aci"] = entity.Color.Index,
+                ["trueColor"] = entity.Color.IsTrueColor ? entity.Color.TrueColor : null,
+                ["linetype"] = entity.LineType == null ? null : entity.LineType.Name,
+                ["lineweight"] = entity.LineWeight.ToString(),
                 ["layer"] = entity.Layer == null ? null : new
                 {
                     handle = Hex(entity.Layer.Handle),
@@ -413,6 +417,7 @@ internal static class Program
                 {
                     var layer = ResolveLayer(document, op);
                     var line = new Line(ReadPoint(op, "start"), ReadPoint(op, "end")) { Layer = layer };
+                    ApplyEntityDisplayProperties(document, line, op);
                     document.ModelSpace.Entities.Add(line);
                     applied.Add(new { type, handle = line.Handle.ToString("X") });
                     break;
@@ -421,6 +426,7 @@ internal static class Program
                 {
                     var layer = ResolveLayer(document, op);
                     var circle = new Circle(ReadPoint(op, "center"), ReadDouble(op, "radius", 1)) { Layer = layer };
+                    ApplyEntityDisplayProperties(document, circle, op);
                     document.ModelSpace.Entities.Add(circle);
                     applied.Add(new { type, handle = circle.Handle.ToString("X") });
                     break;
@@ -432,6 +438,7 @@ internal static class Program
                     if (points.Length < 2) throw new InvalidDataException("add_lwpolyline requires two points");
                     var poly = new LwPolyline(points) { IsClosed = ReadBool(op, "closed") };
                     poly.Layer = ResolveLayer(document, op);
+                    ApplyEntityDisplayProperties(document, poly, op);
                     document.ModelSpace.Entities.Add(poly);
                     applied.Add(new { type, handle = poly.Handle.ToString("X"), points = points.Length });
                     break;
@@ -445,6 +452,7 @@ internal static class Program
                     {
                         var entity = new MText(value ?? string.Empty) { InsertPoint = ReadPoint(op, "insert"), Layer = layer };
                         entity.Height = ReadDouble(op, "height", 250);
+                        ApplyEntityDisplayProperties(document, entity, op);
                         ApplyTextStyle(document, entity, op);
                         document.ModelSpace.Entities.Add(entity);
                         applied.Add(new { type, handle = entity.Handle.ToString("X") });
@@ -454,6 +462,7 @@ internal static class Program
                         var entity = new TextEntity { Value = value ?? string.Empty, InsertPoint = ReadPoint(op, "insert"), Layer = layer };
                         entity.Height = ReadDouble(op, "height", 250);
                         entity.Rotation = ReadDouble(op, "rotation", 0);
+                        ApplyEntityDisplayProperties(document, entity, op);
                         ApplyTextStyle(document, entity, op);
                         document.ModelSpace.Entities.Add(entity);
                         applied.Add(new { type, handle = entity.Handle.ToString("X") });
@@ -575,6 +584,8 @@ internal static class Program
 
     private static void UpdateEntity(CadDocument document, Entity entity, JsonElement op)
     {
+        entity.Layer = ResolveLayer(document, op);
+        ApplyEntityDisplayProperties(document, entity, op);
         switch (entity)
         {
             case Line line:
@@ -599,15 +610,27 @@ internal static class Program
             case TextEntity text:
                 if (op.TryGetProperty("text", out var value)) text.Value = value.GetString() ?? string.Empty;
                 if (op.TryGetProperty("insert", out _)) text.InsertPoint = ReadPoint(op, "insert");
+                if (op.TryGetProperty("height", out _)) text.Height = ReadDouble(op, "height", text.Height);
+                if (op.TryGetProperty("rotation", out _)) text.Rotation = ReadDouble(op, "rotation", text.Rotation);
+                if (op.TryGetProperty("widthFactor", out _)) text.WidthFactor = ReadDouble(op, "widthFactor", text.WidthFactor);
+                if (op.TryGetProperty("obliqueAngle", out _)) text.ObliqueAngle = ReadDouble(op, "obliqueAngle", text.ObliqueAngle);
                 ApplyTextStyle(document, text, op);
                 break;
             case MText mtext:
                 if (op.TryGetProperty("text", out var mvalue)) mtext.Value = mvalue.GetString() ?? string.Empty;
                 if (op.TryGetProperty("insert", out _)) mtext.InsertPoint = ReadPoint(op, "insert");
+                if (op.TryGetProperty("height", out _)) mtext.Height = ReadDouble(op, "height", mtext.Height);
                 ApplyTextStyle(document, mtext, op);
                 break;
             case Insert insert:
                 if (op.TryGetProperty("insert", out _)) insert.InsertPoint = ReadPoint(op, "insert");
+                if (op.TryGetProperty("rotation", out _)) insert.Rotation = ReadDouble(op, "rotation", insert.Rotation);
+                if (op.TryGetProperty("scale", out var scale) && scale.ValueKind == JsonValueKind.Array)
+                {
+                    if (scale.GetArrayLength() > 0) insert.XScale = ReadDouble(scale, 0);
+                    if (scale.GetArrayLength() > 1) insert.YScale = ReadDouble(scale, 1);
+                    if (scale.GetArrayLength() > 2) insert.ZScale = ReadDouble(scale, 2);
+                }
                 break;
             case DimensionLinear linear:
                 UpdateDimension(linear, document, op);
@@ -720,6 +743,38 @@ internal static class Program
     }
 
     private static string SafeName(string value) => string.IsNullOrWhiteSpace(value) ? "CBL_LOCAL_LAYER" : value.Trim()[..Math.Min(255, value.Trim().Length)];
+
+    private static void ApplyEntityDisplayProperties(CadDocument document, Entity entity, JsonElement op)
+    {
+        if (op.TryGetProperty("trueColor", out var trueColor) &&
+            trueColor.ValueKind == JsonValueKind.Number && trueColor.TryGetUInt32(out var rgb))
+        {
+            entity.Color = Color.FromTrueColor(rgb);
+        }
+        else if (op.TryGetProperty("aci", out _) || op.TryGetProperty("color", out _))
+        {
+            entity.Color = new Color((short)ReadInt(op, op.TryGetProperty("aci", out _) ? "aci" : "color", 256));
+        }
+
+        if (op.TryGetProperty("linetype", out var lineTypeValue) && lineTypeValue.ValueKind == JsonValueKind.String)
+        {
+            var name = lineTypeValue.GetString();
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                var lineType = document.LineTypes.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
+                if (lineType == null) throw new InvalidDataException($"Linetype not found: {name}");
+                entity.LineType = lineType;
+            }
+        }
+
+        if (op.TryGetProperty("lineweight", out var lineWeightValue))
+        {
+            var raw = lineWeightValue.ValueKind == JsonValueKind.String ? lineWeightValue.GetString() ?? string.Empty : lineWeightValue.ToString();
+            if (Enum.TryParse<LineWeightType>(raw, true, out var parsed)) entity.LineWeight = parsed;
+            else if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numeric)) entity.LineWeight = (LineWeightType)numeric;
+        }
+    }
+
     private static string RequiredString(JsonElement obj, string name) => obj.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(value.GetString()) ? value.GetString()! : throw new InvalidDataException($"{name} is required");
     private static bool ReadBool(JsonElement obj, string name) => obj.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.True;
     private static int ReadInt(JsonElement obj, string name, int fallback) => obj.TryGetProperty(name, out var value) && value.TryGetInt32(out var result) ? result : fallback;
