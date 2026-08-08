@@ -24131,21 +24131,26 @@ def cblcad_free_dwg_download_api(request, token):
         return _cbl_JsonResponse({"ok": False, "error": "다운로드 파일을 읽을 수 없습니다."}, status=404)
 
 
+def _cbl_free_dwg_acadsharp_metadata_v1(path):
+    executable = _cbl_free_dwg_save_local_executable_v1()
+    if executable is None:
+        raise RuntimeError("ACadSharp metadata runtime을 찾지 못했습니다.")
+    result = _cbl_subprocess.run(
+        [str(executable), "--metadata", str(path)],
+        stdout=_cbl_subprocess.PIPE, stderr=_cbl_subprocess.PIPE,
+        timeout=300, check=False,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        raise RuntimeError("ACadSharp 저장본 metadata 재판독 실패: " + result.stderr.decode(errors="replace")[-800:])
+    report = _cbl_json.loads(result.stdout.decode("utf-8", errors="replace"), strict=False)
+    if report.get("status") != "read":
+        raise RuntimeError("ACadSharp metadata 재판독 상태가 올바르지 않습니다.")
+    return report
+
+
 def _cbl_free_dwg_save_local_json_v1(path, dwgread):
     if not dwgread:
-        executable = _cbl_free_dwg_save_local_executable_v1()
-        if executable is None:
-            raise RuntimeError("LibreDWG와 ACadSharp metadata runtime을 모두 찾지 못했습니다.")
-        result = _cbl_subprocess.run(
-            [str(executable), "--metadata", str(path)],
-            stdout=_cbl_subprocess.PIPE, stderr=_cbl_subprocess.PIPE,
-            timeout=300, check=False,
-        )
-        if result.returncode != 0 or not result.stdout.strip():
-            raise RuntimeError("ACadSharp 저장본 metadata 재판독 실패: " + result.stderr.decode(errors="replace")[-800:])
-        report = _cbl_json.loads(result.stdout.decode("utf-8", errors="replace"), strict=False)
-        if report.get("status") != "read":
-            raise RuntimeError("ACadSharp metadata 재판독 상태가 올바르지 않습니다.")
+        report = _cbl_free_dwg_acadsharp_metadata_v1(path)
         type_map = {
             "DIMENSIONALIGNED": "DIMENSION_ALIGNED",
             "DIMENSIONLINEAR": "DIMENSION_LINEAR",
@@ -24165,6 +24170,7 @@ def _cbl_free_dwg_save_local_json_v1(path, dwgread):
             row = {
                 "entity": entity, "handle": item.get("handle"),
                 "ownerhandle": item.get("owner"),
+                "space": item.get("space"),
             }
             layer = item.get("layer") or {}
             if layer.get("handle") is not None:
@@ -24173,8 +24179,13 @@ def _cbl_free_dwg_save_local_json_v1(path, dwgread):
                 row["text"] = item.get("text")
             if item.get("block"):
                 row["block_header"] = (item.get("block") or {}).get("handle")
+                row["block_name"] = (item.get("block") or {}).get("name")
             objects.append(row)
-        return {"OBJECTS": objects, "_cbl_validation_source": "acadsharp-metadata"}
+        return {
+            "OBJECTS": objects,
+            "semanticManifest": report.get("semanticManifest"),
+            "_cbl_validation_source": "acadsharp-metadata",
+        }
     result = _cbl_subprocess.run(
         [dwgread, "-O", "JSON", str(path)],
         stdout=_cbl_subprocess.PIPE,
@@ -24189,7 +24200,12 @@ def _cbl_free_dwg_save_local_json_v1(path, dwgread):
     # Normalize only that token outside quoted strings so validation remains
     # strict for all other malformed output.
     text = _cbl_re.sub(r'(?<![A-Za-z0-9_\"])nan(?![A-Za-z0-9_\"])', "null", text)
-    return _cbl_json.loads(text, strict=False)
+    parsed = _cbl_json.loads(text, strict=False)
+    # LibreDWG remains the source for its rich handle/object JSON, while the
+    # ACadSharp metadata pass supplies the block/layout/style structure that
+    # must survive repeated saves.
+    parsed["semanticManifest"] = _cbl_free_dwg_acadsharp_metadata_v1(path).get("semanticManifest")
+    return parsed
 
 
 class _CBLFreeDwgSaveValidationError(ValueError):
@@ -24485,6 +24501,52 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
     expected_texts = text_counts(original_json)
     expected_layers = named_objects(original_json, "LAYER")
     expected_blocks = named_objects(original_json, "BLOCK_HEADER")
+
+    def semantic_type_counts(manifest):
+        model = (manifest or {}).get("modelspace") or {}
+        raw = model.get("typeCounts") or model.get("childTypeCounts") or {}
+        result = {}
+        aliases = {
+            "TEXTENTITY": "TEXT",
+            "DIMENSIONLINEAR": "DIMENSION_LINEAR",
+            "DIMENSIONALIGNED": "DIMENSION_ALIGNED",
+            "DIMENSIONANGULAR": "DIMENSION_ANGULAR",
+            "DIMENSIONRADIUS": "DIMENSION_RADIUS",
+            "DIMENSIONDIAMETER": "DIMENSION_DIAMETER",
+        }
+        for key, value in raw.items():
+            canonical = aliases.get(str(key).upper(), str(key).upper())
+            result[canonical] = result.get(canonical, 0) + int(value or 0)
+        return result
+
+    def semantic_index(manifest):
+        return {
+            "modelspace": semantic_type_counts(manifest),
+            "paperspace": ((manifest or {}).get("paperspace") or {}).get("typeCounts") or {},
+            "layouts": {
+                str(item.get("name")): item for item in ((manifest or {}).get("layouts") or [])
+            },
+            "blocks": {
+                str(item.get("name")): item for item in ((manifest or {}).get("blocks") or [])
+            },
+            "styles": (manifest or {}).get("styles") or {},
+            "unsupported": (manifest or {}).get("unsupported") or {},
+            "inserts": (manifest or {}).get("inserts") or {},
+        }
+
+    original_semantic = original_json.get("semanticManifest")
+    saved_semantic = saved_json.get("semanticManifest")
+    if not isinstance(original_semantic, dict) or not isinstance(saved_semantic, dict):
+        raise _CBLFreeDwgSaveValidationError(
+            "저장 검증 실패: DWG 구조 manifest를 생성하지 못했습니다.",
+            {"semantic_manifest_available": False},
+        )
+    original_semantic_index = semantic_index(original_semantic)
+    saved_semantic_index = semantic_index(saved_semantic)
+    expected_semantic_counts = dict(original_semantic_index["modelspace"])
+    semantic_deltas = {}
+    structural_ops = {"add_dimension": False}
+
     def add_delta(entity_type, amount, op_index, operation_type):
         entity_type = canonical_entity_type(entity_type)
         if not entity_type or not amount:
@@ -24497,6 +24559,11 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
             "operation_type": operation_type,
             "delta": int(amount),
         })
+
+    def add_semantic_delta(entity_type, amount):
+        canonical = canonical_entity_type(entity_type)
+        expected_semantic_counts[canonical] = expected_semantic_counts.get(canonical, 0) + int(amount)
+        semantic_deltas[canonical] = semantic_deltas.get(canonical, 0) + int(amount)
 
     operation_entity_types = {
         "add_line": "LINE",
@@ -24515,10 +24582,12 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
         entity_type = operation_entity_types.get(kind)
         if entity_type:
             add_delta(entity_type, 1, op_index, kind)
+            add_semantic_delta(entity_type, 1)
             if kind in ("add_text", "add_mtext"):
                 value = op.get("text", op.get("value", ""))
                 expected_texts[value] = expected_texts.get(value, 0) + 1
         elif kind == "add_dimension":
+            structural_ops["add_dimension"] = True
             # ACadSharp materializes a DIMENSION's anonymous definition block
             # when Dimension.UpdateBlock() is called.  LibreDWG therefore
             # reports the new dimension together with its generated BLOCK /
@@ -24535,6 +24604,7 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
             }
             for generated_type, amount in generated.items():
                 add_delta(generated_type, amount, op_index, kind)
+            add_semantic_delta(dimension_entity, 1)
         elif kind == "create_layer":
             name = str(op.get("name", ""))
             if name not in expected_layers:
@@ -24546,6 +24616,9 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
                 raise RuntimeError(f"저장 검증 실패: 삭제 대상 handle을 찾지 못했습니다: {op.get('handle')}")
             source_type = source.get("entity")
             add_delta(source_type, -1, op_index, kind)
+            source_space = str(source.get("space") or "").lower()
+            if not source_space or source_space == "modelspace":
+                add_semantic_delta(source_type, -1)
             if canonical_entity_type(source_type) in ("TEXT", "MTEXT"):
                 value = source.get("text", source.get("value", ""))
                 expected_texts[value] = expected_texts.get(value, 0) - 1
@@ -24570,6 +24643,109 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
             new_value = op.get("text", op.get("value", old_value))
             expected_texts[old_value] = expected_texts.get(old_value, 0) - 1
             expected_texts[new_value] = expected_texts.get(new_value, 0) + 1
+
+    def semantic_mismatches():
+        mismatches = {}
+        if expected_semantic_counts != saved_semantic_index["modelspace"]:
+            mismatches["modelspace.typeCounts"] = {
+                "original": original_semantic_index["modelspace"],
+                "expected": expected_semantic_counts,
+                "output": saved_semantic_index["modelspace"],
+            }
+        if original_semantic_index["paperspace"] != saved_semantic_index["paperspace"]:
+            mismatches["paperspace.typeCounts"] = {
+                "original": original_semantic_index["paperspace"],
+                "output": saved_semantic_index["paperspace"],
+            }
+        for name, before_block in original_semantic_index["blocks"].items():
+            after_block = saved_semantic_index["blocks"].get(name)
+            if after_block is None:
+                mismatches[f"blocks.{name}"] = {"original": before_block, "output": None}
+                continue
+            if name == "*Model_Space":
+                expected_model_count = sum(expected_semantic_counts.values())
+                output_model_types = semantic_type_counts({"modelspace": after_block})
+                if int(after_block.get("childCount", 0)) != expected_model_count or output_model_types != expected_semantic_counts:
+                    mismatches[f"blocks.{name}.childCount"] = {
+                        "original": before_block.get("childCount"),
+                        "expected": expected_model_count,
+                        "output": after_block.get("childCount"),
+                        "expectedTypeCounts": expected_semantic_counts,
+                        "outputTypeCounts": output_model_types,
+                    }
+                continue
+            if int(after_block.get("childCount", 0)) < int(before_block.get("childCount", 0)):
+                mismatches[f"blocks.{name}.childCount"] = {
+                    "original": before_block.get("childCount"),
+                    "output": after_block.get("childCount"),
+                }
+            before_types = before_block.get("childTypeCounts") or {}
+            after_types = after_block.get("childTypeCounts") or {}
+            for type_name, count in before_types.items():
+                if int(after_types.get(type_name, 0)) < int(count):
+                    mismatches[f"blocks.{name}.childTypeCounts.{type_name}"] = {
+                        "original": count, "output": after_types.get(type_name, 0)
+                    }
+        if not ops and original_semantic_index["blocks"] != saved_semantic_index["blocks"]:
+            mismatches["blocks.exact"] = {
+                "original": original_semantic_index["blocks"],
+                "output": saved_semantic_index["blocks"],
+            }
+        if not structural_ops["add_dimension"] and original_semantic_index["blocks"].keys() != saved_semantic_index["blocks"].keys():
+            mismatches["blocks.names"] = {
+                "original": sorted(original_semantic_index["blocks"]),
+                "output": sorted(saved_semantic_index["blocks"]),
+            }
+        for name, before_layout in original_semantic_index["layouts"].items():
+            after_layout = saved_semantic_index["layouts"].get(name)
+            if after_layout is None:
+                mismatches[f"layouts.{name}"] = {"original": before_layout, "output": after_layout}
+                continue
+            if name == "Model":
+                output_layout_counts = semantic_type_counts({"modelspace": after_layout})
+                expected_entity_count = sum(expected_semantic_counts.values())
+                if output_layout_counts != expected_semantic_counts or int(after_layout.get("entityCount", 0)) != expected_entity_count:
+                    mismatches[f"layouts.{name}"] = {
+                        "original": before_layout,
+                        "expected": {"entityCount": expected_entity_count, "typeCounts": expected_semantic_counts},
+                        "output": after_layout,
+                    }
+            elif before_layout != after_layout:
+                mismatches[f"layouts.{name}"] = {"original": before_layout, "output": after_layout}
+        if original_semantic_index["styles"] != saved_semantic_index["styles"]:
+                mismatches["styles"] = {"original": original_semantic_index["styles"], "output": saved_semantic_index["styles"]}
+        if not ops and original_semantic_index["inserts"] != saved_semantic_index["inserts"]:
+            mismatches["inserts.exact"] = {
+                "original": original_semantic_index["inserts"],
+                "output": saved_semantic_index["inserts"],
+            }
+        if not ops and original_semantic_index["unsupported"] != saved_semantic_index["unsupported"]:
+            mismatches["unsupported.exact"] = {
+                "original": original_semantic_index["unsupported"],
+                "output": saved_semantic_index["unsupported"],
+            }
+        for type_name, count in original_semantic_index["unsupported"].items():
+            if int(saved_semantic_index["unsupported"].get(type_name, 0)) < int(count):
+                mismatches[f"unsupported.{type_name}"] = {"original": count, "output": saved_semantic_index["unsupported"].get(type_name, 0)}
+        if int((saved_semantic_index["inserts"] or {}).get("unresolvedCount", 0)):
+            mismatches["inserts.unresolvedCount"] = {"output": saved_semantic_index["inserts"].get("unresolvedCount")}
+        return mismatches
+
+    semantic_structure_mismatches = semantic_mismatches()
+    if semantic_structure_mismatches:
+        raise _CBLFreeDwgSaveValidationError(
+            "저장 검증 실패: DWG 구조 manifest가 변경되었습니다.",
+            {
+                "semantic_manifest_original": original_semantic,
+                "semantic_manifest_expected": {
+                    "modelspace": {"typeCounts": expected_semantic_counts},
+                    "operation_deltas": semantic_deltas,
+                },
+                "semantic_manifest_output": saved_semantic,
+                "semantic_mismatches": semantic_structure_mismatches,
+                "operation_deltas": operation_deltas,
+            },
+        )
     if not after or after.get("REGION", 0) != before.get("REGION", 0):
         raise RuntimeError("저장 검증 실패: REGION 보존 수가 달라졌습니다.")
     if after.get("MINSERT", 0) != before.get("MINSERT", 0):
@@ -24702,6 +24878,13 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
         "libredwg_layer_owner_differences": libre_layer_owner_differences,
         "libredwg_text_differences": libre_text_differences,
         "libredwg_layer_name_differences": libre_layer_name_differences,
+        "semantic_manifest_validated": True,
+        "semantic_modelspace_counts": semantic_index(saved_semantic)["modelspace"],
+        "semantic_block_count": len(saved_semantic_index["blocks"]),
+        "semantic_layout_count": len(saved_semantic_index["layouts"]),
+        "semantic_insert_count": int((saved_semantic_index["inserts"] or {}).get("count", 0)),
+        "semantic_unresolved_insert_count": int((saved_semantic_index["inserts"] or {}).get("unresolvedCount", 0)),
+        "semantic_style_counts": {key: len(value) for key, value in (saved_semantic_index["styles"] or {}).items()},
         "writer_unsupported_entity_counts": {
             key: before.get(key, 0) - after.get(key, 0)
             for key in sorted(writer_unsupported)

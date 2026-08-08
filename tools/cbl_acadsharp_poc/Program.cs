@@ -234,6 +234,7 @@ internal static class Program
                 })
                 .OrderBy(layer => layer.handle, StringComparer.Ordinal)
                 .ToArray();
+            var semanticManifest = BuildSemanticManifest(document, entities);
             var result = new
             {
                 mode = "metadata",
@@ -241,6 +242,7 @@ internal static class Program
                 codePage = document.Header.CodePage,
                 layers,
                 entities,
+                semanticManifest,
                 notifications,
                 status = "read"
             };
@@ -252,6 +254,95 @@ internal static class Program
             Console.Error.WriteLine(JsonSerializer.Serialize(new { input, mode = "metadata", status = "failed", error = ex.ToString() }, new JsonSerializerOptions { WriteIndented = true }));
             return 1;
         }
+    }
+
+    private static object BuildSemanticManifest(CadDocument document, List<object> metadataEntities)
+    {
+        static string CanonicalType(Entity entity) => entity is Insert insert && insert.IsMultiple
+            ? "MINSERT"
+            : entity.GetType().Name.ToUpperInvariant();
+
+        static object TypeCounts(IEnumerable<Entity> source) => source
+            .GroupBy(CanonicalType, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+
+        var blocks = document.BlockRecords
+            .Select(block => new
+            {
+                name = block.Name,
+                handle = Hex(block.Handle),
+                anonymous = block.IsAnonymous,
+                layout = block.Layout?.Name,
+                childCount = block.Entities.Count,
+                childTypeCounts = TypeCounts(block.Entities),
+            })
+            .OrderBy(item => item.name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var inserts = metadataEntities
+            .OfType<Dictionary<string, object?>>()
+            .Where(item => string.Equals(item.GetValueOrDefault("type")?.ToString(), "INSERT", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(item.GetValueOrDefault("type")?.ToString(), "MINSERT", StringComparison.OrdinalIgnoreCase))
+            .Select(item => new
+            {
+                handle = item.GetValueOrDefault("handle")?.ToString(),
+                space = item.GetValueOrDefault("space")?.ToString(),
+                block = item.GetValueOrDefault("block") is Dictionary<string, object?> block
+                    ? block.GetValueOrDefault("name")?.ToString()
+                    : item.GetValueOrDefault("block")?.GetType().GetProperty("name")?.GetValue(item.GetValueOrDefault("block"))?.ToString()
+                        ?? item.GetValueOrDefault("block")?.ToString(),
+            })
+            .OrderBy(item => item.handle, StringComparer.Ordinal)
+            .ToArray();
+
+        var layouts = (document.Layouts ?? Enumerable.Empty<ACadSharp.Objects.Layout>())
+            .Select(layout => new
+            {
+                name = layout.Name,
+                paperSpace = layout.IsPaperSpace,
+                associatedBlock = layout.AssociatedBlock?.Name,
+                entityCount = layout.AssociatedBlock?.Entities.Count ?? 0,
+                typeCounts = layout.AssociatedBlock == null
+                    ? new Dictionary<string, int>()
+                    : (Dictionary<string, int>)TypeCounts(layout.AssociatedBlock.Entities),
+            })
+            .OrderBy(item => item.name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var modelTypeCounts = TypeCounts(document.ModelSpace.Entities);
+        var paperTypeCounts = TypeCounts(document.PaperSpace.Entities);
+        var insertTargets = new HashSet<string>(
+            document.BlockRecords.Select(block => block.Name),
+            StringComparer.OrdinalIgnoreCase);
+        var unresolvedInsertCount = inserts.Count(item => string.IsNullOrWhiteSpace(item.block) || !insertTargets.Contains(item.block));
+        var styleNames = new
+        {
+            text = document.TextStyles.Select(style => style.Name).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray(),
+            linetype = document.LineTypes.Select(lineType => lineType.Name).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray(),
+            dimension = document.DimensionStyles.Select(style => style.Name).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray(),
+        };
+        var unsupported = metadataEntities
+            .OfType<Dictionary<string, object?>>()
+            .Select(item => item.GetValueOrDefault("type")?.ToString() ?? "")
+            .Where(type => type.Length > 0 && type is not ("LINE" or "ARC" or "CIRCLE" or "LWPOLYLINE" or "POLYLINE" or "TEXTENTITY" or "MTEXT" or "DIMENSIONLINEAR" or "DIMENSIONALIGNED" or "DIMENSIONANGULAR" or "DIMENSIONRADIUS" or "DIMENSIONDIAMETER" or "INSERT" or "MINSERT" or "POINT" or "HATCH" or "SOLID" or "3DSOLID" or "REGION"))
+            .GroupBy(type => type, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key.ToUpperInvariant(), group => group.Count(), StringComparer.Ordinal);
+
+        return new
+        {
+            modelspace = new { entityCount = document.ModelSpace.Entities.Count, typeCounts = modelTypeCounts },
+            paperspace = new { entityCount = document.PaperSpace.Entities.Count, typeCounts = paperTypeCounts },
+            layouts,
+            blocks,
+            inserts = new { count = inserts.Length, unresolvedCount = unresolvedInsertCount, references = inserts },
+            styles = styleNames,
+            unsupported,
+            // Extents are intentionally reported as unavailable rather than
+            // guessed from renderer geometry.  Entity and structure counts
+            // remain strict and this field makes that limitation explicit.
+            extents = new { available = false },
+        };
     }
 
     private static void AddMetadata(IEnumerable<Entity> source, string space, List<object> result)
