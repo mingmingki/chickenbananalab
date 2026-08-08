@@ -43996,6 +43996,24 @@ window.cblSnapResidueGateStatusV12 = function(){
       if(typeof window.syncAfterImport==='function') window.syncAfterImport();
     }
     openTiming.shape_build_ms=+(performance.now()-shapeBuildStarted).toFixed(2);
+    // The parser result is not necessarily the final canonical editor model:
+    // import application can attach layer metadata and dimension/block display
+    // helpers.  Capture the save baseline only after that model is complete,
+    // otherwise source-less imported helpers are emitted as new operations.
+    try {
+      var canonicalImportedShapes=Array.isArray(window.shapes)?window.shapes:[];
+      window.CBL_FREE_DWG_ORIGINAL_SHAPES=canonicalImportedShapes.map(function(s){return cblFreeDwgSnapshotShapeV1(s);});
+      window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};
+      window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=Array.isArray(window.layers)?window.layers.map(function(l){return String(l&&l.name||'');}):[];
+      window.CBL_FREE_DWG_ORIGINAL_SHAPES.forEach(function(s){
+        var originalHandle=normHandle(s&&((s.sourceHandle||s.originalHandle)||''));
+        if(originalHandle) window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES[originalHandle]=true;
+      });
+    } catch(_canonicalBaselineError) {
+      window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];
+      window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};
+      window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=[];
+    }
     try {
       if (typeof saveH === 'function') saveH();
       // Commit the import history snapshot before the spatial grid build.

@@ -24430,9 +24430,19 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
     def entities(document):
         return [item for item in document.get("OBJECTS", []) if item.get("entity")]
 
+    structural_entity_types = {
+        "SECTION", "ENDSEC", "TABLE", "ENDTAB", "BLOCK", "ENDBLK",
+        "BLOCK_RECORD", "EOF",
+    }
+
+    def is_model_entity(item):
+        return canonical_entity_type(item.get("entity")) not in structural_entity_types
+
     def counts(document):
         result = {}
         for item in entities(document):
+            if not is_model_entity(item):
+                continue
             key = canonical_entity_type(item.get("entity"))
             result[key] = result.get(key, 0) + 1
         return result
@@ -24518,8 +24528,6 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
             dimension_entity = "DIMENSION_LINEAR" if dimension_kind == "linear" else "DIMENSION_ALIGNED"
             generated = {
                 dimension_entity: 1,
-                "BLOCK": 1,
-                "ENDBLK": 1,
                 "LINE": 3,
                 "MTEXT": 1,
                 "POINT": 4,
