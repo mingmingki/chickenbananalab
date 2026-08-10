@@ -217,7 +217,7 @@
   if(window.__CBL_CHROME_NATIVE_SAVE_DISPATCHER_V1__)return;
   window.__CBL_CHROME_NATIVE_SAVE_DISPATCHER_V1__=true;
   var trace=window.CBL_CHROME_SAVE_TRACE_V1={installed:true,installCount:1,lastAction:null,userActivation:null,pickerCalls:0,postCalls:0,writeCalls:0,closeCalls:0,lastError:null};
-  var nativeStatus=window.CBL_NATIVE_FILE_STATUS_V1=window.CBL_NATIVE_FILE_STATUS_V1||{supported:false,showOpenFilePicker:false,showSaveFilePicker:false,userActivation:null,lastCommand:null,commandId:0,savePath:null,delivery:null,opsCount:0,responseStatus:null,responseContentType:null,responseBytes:0,responseHeader:null,writtenBytes:0,currentFilename:null,pickerCount:0,openPickerCount:0,savePickerCount:0,postCount:0,writeCount:0,closeCount:0,hasCurrentHandle:false,inFlight:false,lastError:null,lastStack:null,createWritableStartedAt:null,postStartedAt:null,createWritableBeforePost:false,permissionState:null,writableAborted:false,validationError:null};
+  var nativeStatus=window.CBL_NATIVE_FILE_STATUS_V1=window.CBL_NATIVE_FILE_STATUS_V1||{supported:false,showOpenFilePicker:false,showSaveFilePicker:false,userActivation:null,lastCommand:null,commandId:0,savePath:null,delivery:null,opsCount:0,responseStatus:null,responseContentType:null,responseBytes:0,responseHeader:null,writtenBytes:0,currentFilename:null,pickerCount:0,openPickerCount:0,savePickerCount:0,postCount:0,writeCount:0,closeCount:0,hasCurrentHandle:false,inFlight:false,lastError:null,lastStack:null,createWritableStartedAt:null,postStartedAt:null,createWritableBeforePost:false,permissionState:null,writableAborted:false,validationError:null,snapshotDiagnostics:null,outputHandles:null};
   var previousSave=window.fileSave;
   var previousSaveAs=window.fileSaveAs;
   var dispatcherInFlight=null;
@@ -260,13 +260,14 @@
     var started=typeof performance!=='undefined'&&performance.now?performance.now():Date.now();
     nativeStatus.createWritableStartedAt=started;
     nativeStatus.createWritableBeforePost=true;
-    nativeStatus.permissionState='requested';
+    nativeStatus.permissionState='checking';
     try{
-      var prepared={handle:handle,promise:handle.createWritable(),used:false,aborted:false};
+      var permissionPromise=null;
       try{
-        var permissionPromise=typeof handle.queryPermission==='function'?handle.queryPermission({mode:'readwrite'}):null;
+        permissionPromise=typeof handle.queryPermission==='function'?handle.queryPermission({mode:'readwrite'}):null;
         if(permissionPromise&&typeof permissionPromise.then==='function')permissionPromise.then(function(state){nativeStatus.permissionState=state;},function(){nativeStatus.permissionState='denied-or-unknown';});
       }catch(_permissionError){nativeStatus.permissionState='unknown';}
+      var prepared={handle:handle,promise:handle.createWritable(),used:false,aborted:false};
       return prepared;
     }catch(error){
       nativeStatus.lastError=String(error&&error.message||error||'');
@@ -23388,27 +23389,32 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       return ln;
     }
 
-    function resolveColor(ent, layerName, ctx){
+    function resolveColorMeta(ent, layerName, ctx){
       var p = ent.p || {};
       var tc = first(p,'420', null);
-      if(tc !== null && tc !== undefined) return trueColorToHex(tc);
+      if(tc !== null && tc !== undefined && trueColorToHex(tc)) return {color:trueColorToHex(tc),source:'TrueColor',rawAci:first(p,'62',null),rawTrueColor:tc};
 
       var aci = first(p,'62', null);
 
       if(aci !== null && aci !== undefined){
         aci = Number(aci);
 
-        if(aci === 0 && ctx && ctx.color){
-          return ctx.color;
+        if(aci === 0){
+          if(ctx && ctx.color) return {color:ctx.color,source:'ByBlock',rawAci:aci,rawTrueColor:null};
+          return {color:aciToColor(7),source:'ByBlock',rawAci:aci,rawTrueColor:null};
         }
 
         if(aci !== 256 && aci !== -256){
-          return aciToColor(aci);
+          return {color:aciToColor(aci),source:'ACI',rawAci:aci,rawTrueColor:null};
         }
       }
 
       var ly = layerObj(layerName);
-      return ly.color || '#e5e7eb';
+      return {color:ly.color || '#e5e7eb',source:'ByLayer',rawAci:aci===null?256:aci,rawTrueColor:null};
+    }
+
+    function resolveColor(ent, layerName, ctx){
+      return resolveColorMeta(ent,layerName,ctx).color;
     }
 
     function resolveLtype(ent, layerName, ctx){
@@ -23428,7 +23434,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     function baseStyle(ent, ctx){
       var layerName = resolveLayerName(ent, ctx);
       var ly = layerObj(layerName);
-      var color = resolveColor(ent, layerName, ctx);
+      var colorMeta = resolveColorMeta(ent, layerName, ctx);
+      var color = colorMeta.color;
       var lt = resolveLtype(ent, layerName, ctx);
 
       var sourceHandle = String(first(ent && ent.p || {}, '5', '') || '');
@@ -23445,6 +23452,13 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         lineType:lt,
         rawLayerName:layerName,
         rawDxfType:ent.type,
+        cblRawAci:colorMeta.rawAci,
+        cblRawTrueColor:colorMeta.rawTrueColor,
+        cblEffectiveColorSource:colorMeta.source,
+        cblEffectiveColor:color,
+        cblBlockName:ctx&&ctx.blockName?String(ctx.blockName):'',
+        cblInsertLayer:ctx&&ctx.layer?String(ctx.layer):layerName,
+        cblInsertAci:ctx&&ctx.rawAci!==undefined?ctx.rawAci:null,
         sourceHandle:sourceHandle,
         originalHandle:sourceHandle,
         handle:sourceHandle
@@ -23921,6 +23935,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         var insertCtx = {
           layer:layerName,
           color:resolveColor(ent, layerName, ctx),
+          rawAci:first(p,'62',null),
+          rawTrueColor:first(p,'420',null),
           linetype:resolveLtype(ent, layerName, ctx),
           matrix:makeInsertMatrix(ent, block),
           ownerSourceHandle:ctx && (ctx.ownerSourceHandle || ctx.parentSourceHandle) || String(first(p,'5','') || ''),
@@ -23969,6 +23985,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
           var dCtx = {
             layer:dLayerName,
             color:resolveColor(ent, dLayerName, ctx),
+            rawAci:first(p,'62',null),
+            rawTrueColor:first(p,'420',null),
             linetype:resolveLtype(ent, dLayerName, ctx),
             matrix:ctx && ctx.matrix ? ctx.matrix : matIdentity(),
             dimensionTextRotationDeg:cblDimensionTextRotationDegV2(p),
@@ -25155,7 +25173,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
   function normalizeLayer(l){if(!l)return null;if(!l.name)l.name='0';if(!l.color)l.color='#ffffff';var rawLT=l.cblRawLineType||l.rawFromOriginalDxf||l.cblLineType||l.lineType||l.linetype||l.dash||'Continuous';l.cblRawLineType=String(rawLT||'Continuous');l.cblLineType=canonicalLT(rawLT);l.lineType=l.cblLineType;l.linetype=l.cblLineType;l.dash=l.cblLineType;if(l.cblLineWeightKind==='mm'){var mm=Number(l.cblLineWeightMm);if(!Number.isFinite(mm))mm=Number(l.lineWidth||0);l.cblLineWeightMm=Math.round(mm*100)/100;l.cblLineWeightRaw=Math.round(l.cblLineWeightMm*100);l.lineWidth=l.cblLineWeightMm;l.lineweight=l.cblLineWeightMm;}else{l.cblLineWeightKind='default';l.cblLineWeightMm=null;l.cblLineWeightRaw=-3;l.lineWidth=0;l.lineweight=-3;}if(typeof l.visible==='undefined')l.visible=true;if(typeof l.locked==='undefined')l.locked=false;return l;}
   function normalizeLayers(){var ls=getLayers();if(!ls.length)ls.push({id:1,name:'0',color:'#ffffff',visible:true,locked:false,cblRawLineType:'Continuous',cblLineType:'Continuous',cblLineWeightKind:'default',cblLineWeightRaw:-3,lineType:'Continuous',lineWidth:0,lineweight:-3});ls.forEach(normalizeLayer);var maxId=ls.reduce(function(m,l){return Math.max(m,Number(l&&l.id)||0);},0);try{var lc=g('layCtr',1);if(Number(lc)<=maxId)sg('layCtr',maxId+1);}catch(e){}var act=g('actLay',ls[0].id);if(!layerById(act))sg('actLay',ls[0].id);}
 
-  function applyMetaToLayers(meta,result){meta=meta||{layers:{},entities:[]};var lm=meta.layers||{};Object.keys(lm).forEach(function(k){var m=lm[k];var l=getOrCreateLayer(m.name);l.color=m.color||l.color||'#ffffff';l.visible=m.visible!==false;l.locked=!!m.locked;l.cblRawLineType=m.rawLineType||m.lineType||'Continuous';l.cblLineType=canonicalLT(l.cblRawLineType);l.rawFromOriginalDxf=l.cblRawLineType;l.cblLineWeightKind=m.lineWeightKind==='mm'?'mm':'default';l.cblLineWeightMm=m.lineWeightKind==='mm'?Number(m.lineWeightMm||0):null;l.cblLineWeightRaw=m.rawLineWeight;normalizeLayer(l);});var arr=Array.isArray(result)?result:getShapes();var ents=meta.entities||[];for(var i=0;i<arr.length;i++){var s=arr[i];if(!s||typeof s!=='object')continue;var l=layerById(s.layId);if(l)normalizeLayer(l);var em=ents[i]||null;if(em&&em.layer){var el=layerByName(em.layer);if(el){l=el;s.layId=el.id;}}if(!l)continue;s.stroke=em&&em.color?em.color:(l.color||s.stroke||'#ffffff');s.color=s.stroke;s.cblLineType=em&&em.lineType?em.lineType:l.cblLineType;s.cblRawLineType=em&&em.rawLineType?em.rawLineType:l.cblRawLineType;s.lineType=s.cblLineType;s.dash=s.cblLineType;if(em&&em.lineWeight&&em.lineWeight.kind==='mm'){s.cblLineWeightKind='mm';s.cblLineWeightMm=em.lineWeight.mm;s.cblLineWeightRaw=em.lineWeight.raw;s.lineweight=em.lineWeight.mm;s.lineWidth=mmToPx(em.lineWeight.mm);}else{var lw=effectiveLayerLW(l);s.cblLineWeightKind=lw.kind;s.cblLineWeightMm=lw.mm;s.cblLineWeightRaw=lw.raw;s.lineweight=lw.kind==='mm'?lw.mm:-3;s.lineWidth=lw.kind==='mm'?mmToPx(lw.mm):1;}}refreshAllSoon(true);try{console.log('✅ CBL DWG layer original style applied',getLayers().map(function(l){normalizeLayer(l);return {name:l.name,lt:l.cblRawLineType,lw:l.cblLineWeightKind==='mm'?l.cblLineWeightMm:'Default'};}));}catch(e){}}
+  function applyMetaToLayers(meta,result){meta=meta||{layers:{},entities:[]};var lm=meta.layers||{};Object.keys(lm).forEach(function(k){var m=lm[k];var l=getOrCreateLayer(m.name);l.color=m.color||l.color||'#ffffff';l.visible=m.visible!==false;l.locked=!!m.locked;l.cblRawLineType=m.rawLineType||m.lineType||'Continuous';l.cblLineType=canonicalLT(l.cblRawLineType);l.rawFromOriginalDxf=l.cblRawLineType;l.cblLineWeightKind=m.lineWeightKind==='mm'?'mm':'default';l.cblLineWeightMm=m.lineWeightKind==='mm'?Number(m.lineWeightMm||0):null;l.cblLineWeightRaw=m.rawLineWeight;normalizeLayer(l);});var arr=Array.isArray(result)?result:getShapes();var ents=meta.entities||[];for(var i=0;i<arr.length;i++){var s=arr[i];if(!s||typeof s!=='object')continue;var l=layerById(s.layId);if(l)normalizeLayer(l);var em=ents[i]||null;if(em&&em.layer){var el=layerByName(em.layer);if(el){l=el;s.layId=el.id;}}if(!l)continue;var resolved=s.cblEffectiveColor||s.stroke||s.color||l.color||'#ffffff';s.stroke=resolved;s.color=resolved;s.cblLineType=em&&em.lineType?em.lineType:l.cblLineType;s.cblRawLineType=em&&em.rawLineType?em.rawLineType:l.cblRawLineType;s.lineType=s.cblLineType;s.dash=s.cblLineType;if(em&&em.lineWeight&&em.lineWeight.kind==='mm'){s.cblLineWeightKind='mm';s.cblLineWeightMm=em.lineWeight.mm;s.cblLineWeightRaw=em.lineWeight.raw;s.lineweight=em.lineWeight.mm;s.lineWidth=mmToPx(em.lineWeight.mm);}else{var lw=effectiveLayerLW(l);s.cblLineWeightKind=lw.kind;s.cblLineWeightMm=lw.mm;s.cblLineWeightRaw=lw.raw;s.lineweight=lw.kind==='mm'?lw.mm:-3;s.lineWidth=lw.kind==='mm'?mmToPx(lw.mm):1;}}refreshAllSoon(true);try{console.log('✅ CBL DWG layer original style applied',getLayers().map(function(l){normalizeLayer(l);return {name:l.name,lt:l.cblRawLineType,lw:l.cblLineWeightKind==='mm'?l.cblLineWeightMm:'Default'};}));}catch(e){}}
   function ltOptions(cur){cur=canonicalLT(cur);var list=BASE_LT.slice();if(list.map(function(x){return x.toUpperCase();}).indexOf(String(cur).toUpperCase())<0)list.unshift(cur);return list.map(function(x){return '<option value="'+esc(x)+'" '+(String(x).toUpperCase()===String(cur).toUpperCase()?'selected':'')+'>'+esc(x)+'</option>';}).join('');}
   function lwOptions(l){normalizeLayer(l);var html='<option value="__DEFAULT__" '+(l.cblLineWeightKind!=='mm'?'selected':'')+'>Default</option>';var cur=Number(l.cblLineWeightMm);var list=BASE_LW.slice();if(l.cblLineWeightKind==='mm'&&Number.isFinite(cur)&&!list.some(function(w){return Math.abs(w-cur)<0.001;}))list.unshift(cur);html+=list.map(function(w){return '<option value="'+w+'" '+(l.cblLineWeightKind==='mm'&&Math.abs(w-cur)<0.001?'selected':'')+'>'+Number(w).toFixed(2)+'</option>';}).join('');return html;}
   function setLayerProp(id,key,value){normalizeLayers();var l=layerById(id);if(!l)return;if(key==='color')l.color=value||'#ffffff';if(key==='lineType'){l.cblRawLineType=value||'Continuous';l.cblLineType=canonicalLT(value);}if(key==='lineWidth'){if(value==='__DEFAULT__'||value==='Default'||value===''||value==null){l.cblLineWeightKind='default';l.cblLineWeightMm=null;l.cblLineWeightRaw=-3;}else{var mm=Number(value);if(!Number.isFinite(mm))mm=0;l.cblLineWeightKind='mm';l.cblLineWeightMm=Math.round(mm*100)/100;l.cblLineWeightRaw=Math.round(l.cblLineWeightMm*100);}}if(key==='visible')l.visible=!!value;if(key==='locked')l.locked=!!value;normalizeLayer(l);applyLayerToShapes(l);syncStyleFromActive();refreshAllSoon(true);try{if(typeof saveH==='function')saveH();}catch(e){}}
@@ -25166,7 +25184,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
   function refreshDropdowns(){normalizeLayers();var act=Number(g('actLay',1));var html=getLayers().map(function(l){normalizeLayer(l);return '<option value="'+l.id+'" '+(Number(l.id)===act?'selected':'')+'>'+(l.visible===false?'[OFF] ':'')+(l.locked?'[LOCK] ':'')+esc(l.name)+'</option>';}).join('');['layDrop','layerDrop','pLay'].forEach(function(id){var el=E(id);if(el){el.innerHTML=html;try{el.value=String(act);}catch(e){}}});syncStyleFromActive();}
   function refreshAllSoon(renderToo){setTimeout(function(){try{renderLayerRows();}catch(e){}try{refreshDropdowns();}catch(e){}try{if(renderToo&&typeof render==='function')render();}catch(e){}},0);setTimeout(function(){try{renderLayerRows();}catch(e){}try{refreshDropdowns();}catch(e){}},120);setTimeout(function(){try{normalizeLayers();renderLayerRows();refreshDropdowns();}catch(e){}},350);}
 
-  window.apSt=function(s,isSel){var l=layerById(s&&s.layId);normalizeLayer(l);var lt=(s&&s.cblLineType)||(l&&l.cblLineType)||(s&&(s.lineType||s.dash))||'Continuous';var lw=effectiveShapeLW(s,l);try{ctx.strokeStyle=isSel?'#f59e0b':((s&&(s.stroke||s.color))||(l&&l.color)||'#ffffff');var styl=g('styl',{});var f=s&&s.fill!==undefined?s.fill:styl.fill;ctx.fillStyle=(f==='none'||f==='')?'rgba(0,0,0,0)':(f||'rgba(0,0,0,0)');var sc=Math.max(Math.abs(Number(g('vScale',1))||1),1e-9);try{if(ctx&&typeof ctx.getTransform==='function'){var tr=ctx.getTransform();sc=Math.max(Math.hypot(tr.a,tr.b),Math.hypot(tr.c,tr.d),1e-9);}}catch(_e){}ctx.lineWidth=(lw.kind==='mm'?mmToPx(lw.mm):1)/sc;ctx.globalAlpha=s&&s.opacity!==undefined?s.opacity:1;var pat=dashPattern(lt);ctx.setLineDash(isSel?[]:pat.map(function(n){return n/sc;}));}catch(e){}};
+  window.apSt=function(s,isSel){var l=layerById(s&&s.layId);normalizeLayer(l);var lt=(s&&s.cblLineType)||(l&&l.cblLineType)||(s&&(s.lineType||s.dash))||'Continuous';var lw=effectiveShapeLW(s,l);try{ctx.strokeStyle=isSel?'#f59e0b':((s&&(s.cblEffectiveColor||s.stroke||s.color))||(l&&l.color)||'#ffffff');var styl=g('styl',{});var f=s&&s.fill!==undefined?s.fill:styl.fill;ctx.fillStyle=(f==='none'||f==='')?'rgba(0,0,0,0)':(f||'rgba(0,0,0,0)');var sc=Math.max(Math.abs(Number(g('vScale',1))||1),1e-9);try{if(ctx&&typeof ctx.getTransform==='function'){var tr=ctx.getTransform();sc=Math.max(Math.hypot(tr.a,tr.b),Math.hypot(tr.c,tr.d),1e-9);}}catch(_e){}ctx.lineWidth=(lw.kind==='mm'?mmToPx(lw.mm):1)/sc;ctx.globalAlpha=s&&s.opacity!==undefined?s.opacity:1;var pat=dashPattern(lt);ctx.setLineDash(isSel?[]:pat.map(function(n){return n/sc;}));}catch(e){}};
   function overrideUiFunctions(){window.updLayers=function(){applyAllLayerStyles();renderLayerRows();refreshDropdowns();};try{updLayers=window.updLayers;}catch(e){}window.updLayDrop=function(){refreshDropdowns();};try{updLayDrop=window.updLayDrop;}catch(e){}window.updLayerDrop=function(){refreshDropdowns();};try{updLayerDrop=window.updLayerDrop;}catch(e){}window.cblLayerSyncBridgeV4=function(){normalizeLayers();renderLayerRows();refreshDropdowns();return true;};window.cblLayerSetBridgeV4=setLayerProp;window.cblLayerSetV3=setLayerProp;window.setActLayer=function(id){sg('actLay',Number(id));syncStyleFromActive();renderLayerRows();refreshDropdowns();try{if(typeof render==='function')render();}catch(e){}};try{setActLayer=window.setActLayer;}catch(e){}window.ribbonLayColor=function(v){setLayerProp(g('actLay',1),'color',v);};window.ribbonLayLT=function(v){setLayerProp(g('actLay',1),'lineType',v);};window.ribbonLayLW=function(v){setLayerProp(g('actLay',1),'lineWidth',v);};window.layCurrentToggle=function(){var l=layerById(g('actLay',1));if(!l)return;setLayerProp(l.id,'visible',!(l.visible!==false));};}
 
   function n(v){v=Number(v);if(!Number.isFinite(v))v=0;return v.toFixed(6);}function p(out,code,value){out.push(String(code));out.push(String(value==null?'':value));}
@@ -44449,6 +44467,15 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(child)return normHandle(s.ownerSourceHandle||s.parentSourceHandle||s.ownerHandle||s.parentHandle||s.blockHandle||'');
     return sourceHandleOf(s);
   }
+  var cblClientShapeSeqV1=Number(window.CBL_CLIENT_SHAPE_SEQ_V1||0);
+  function clientShapeIdOf(s){return s&&s.clientShapeId!=null?String(s.clientShapeId):'';}
+  function ensureClientShapeIdV1(s){
+    if(!s||typeof s!=='object')return '';
+    var existing=clientShapeIdOf(s)||String(s.objectId||s.id||'');
+    if(existing){s.clientShapeId=existing;return existing;}
+    cblClientShapeSeqV1+=1;window.CBL_CLIENT_SHAPE_SEQ_V1=cblClientShapeSeqV1;
+    s.clientShapeId='cbl-shape-'+String(cblClientShapeSeqV1);return s.clientShapeId;
+  }
   function p(x,y,z){return [n(x),n(y),n(z)];}
   function layerName(s){var ls=layers(), id=s&&(s.layId||s.layerId);for(var i=0;i<ls.length;i++)if(String(ls[i].id)===String(id))return String(ls[i].name||'0');return String(s&&(s.rawLayerName||s.layer)||'0');}
   function firstShapeValue(s,keys,fallback){for(var i=0;i<keys.length;i++){if(s&&s[keys[i]]!==undefined&&s[keys[i]]!==null)return s[keys[i]];}return fallback;}
@@ -44506,11 +44533,11 @@ window.cblSnapResidueGateStatusV12 = function(){
   function opForShape(s, mode){
     if(!s)return null; var t=String(s.type||'').toLowerCase(), h=ownerHandleOf(s);
     var base=Object.assign({type:mode||'add_line',layer:layerName(s)},shapeVisualProperties(s));
-    if(t==='line')return Object.assign(base,{type:mode?'update':'add_line',handle:h,start:p(s.x1,s.y1),end:p(s.x2,s.y2)});
-    if(t==='circle')return Object.assign(base,{type:mode?'update':'add_circle',handle:h,center:p(s.cx,s.cy),radius:Math.abs(n(s.r))});
-    if(t==='polyline')return Object.assign(base,{type:mode?'update':'add_lwpolyline',handle:h,points:(s.pts||[]).map(function(q){return p(q.x,q.y);}),closed:!!s.closed});
-    if(t==='rect'||t==='rectangle')return Object.assign(base,{type:mode?'update':'add_lwpolyline',handle:h,points:[[n(s.x),n(s.y)],[n(s.x)+n(s.w||s.width),n(s.y)],[n(s.x)+n(s.w||s.width),n(s.y)+n(s.h||s.height)],[n(s.x),n(s.y)+n(s.h||s.height)]],closed:true});
-    if(t==='text'||t==='mtext')return Object.assign(base,{type:mode?'update':'add_text',handle:h,entity:String(s.rawDxfType||(t==='mtext'?'MTEXT':'TEXT')).toUpperCase(),text:String(s.text||s.content||''),insert:p(s.x,s.y),height:n(firstShapeValue(s,['size','height','textHeight'],250),250),rotation:shapeRotation(s),textStyle:String(s.textStyleName||s.textStyle||'STANDARD'),widthFactor:n(s.widthFactor,1),obliqueAngle:n(s.obliqueAngle,0)});
+    if(t==='line')return Object.assign(base,{type:mode?'update':'add_line',handle:h,start:p(s.x1,s.y1),end:p(s.x2,s.y2),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
+    if(t==='circle')return Object.assign(base,{type:mode?'update':'add_circle',handle:h,center:p(s.cx,s.cy),radius:Math.abs(n(s.r)),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
+    if(t==='polyline')return Object.assign(base,{type:mode?'update':'add_lwpolyline',handle:h,points:(s.pts||[]).map(function(q){return p(q.x,q.y);}),closed:!!s.closed,clientShapeId:mode?'':ensureClientShapeIdV1(s)});
+    if(t==='rect'||t==='rectangle')return Object.assign(base,{type:mode?'update':'add_lwpolyline',handle:h,points:[[n(s.x),n(s.y)],[n(s.x)+n(s.w||s.width),n(s.y)],[n(s.x)+n(s.w||s.width),n(s.y)+n(s.h||s.height)],[n(s.x),n(s.y)+n(s.h||s.height)]],closed:true,clientShapeId:mode?'':ensureClientShapeIdV1(s)});
+    if(t==='text'||t==='mtext')return Object.assign(base,{type:mode?'update':'add_text',handle:h,entity:String(s.rawDxfType||(t==='mtext'?'MTEXT':'TEXT')).toUpperCase(),text:String(s.text||s.content||''),insert:p(s.x,s.y),height:n(firstShapeValue(s,['size','height','textHeight'],250),250),rotation:shapeRotation(s),textStyle:String(s.textStyleName||s.textStyle||'STANDARD'),widthFactor:n(s.widthFactor,1),obliqueAngle:n(s.obliqueAngle,0),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
     if(t==='dimaligned'||t==='dimlinear'||t==='dimension'){
       var x1=n(s.x1),y1=n(s.y1),x2=n(s.x2),y2=n(s.y2),dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy)||1;
       var ux=dx/len,uy=dy/len,nx=-uy,ny=ux,off=n(s.off,25),kind=t==='dimaligned'?'aligned':'linear';
@@ -44524,7 +44551,7 @@ window.cblSnapResidueGateStatusV12 = function(){
         lineColor:Number(s.lineAci!=null?s.lineAci:(ds.lineAci!=null?ds.lineAci:7))||7,
         extensionColor:Number(s.extAci!=null?s.extAci:(ds.extAci!=null?ds.extAci:7))||7,
         textColor:Number(s.textAci!=null?s.textAci:(ds.textAci!=null?ds.textAci:3))||3,
-        textHeight:n(ds.textSz,20),arrowSize:n(ds.arrowSz,11),textStyle:String(s.textStyleName||s.textStyle||'STANDARD')});
+        textHeight:n(ds.textSz,20),arrowSize:n(ds.arrowSz,11),textStyle:String(s.textStyleName||s.textStyle||'STANDARD'),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
     }
     if((t==='blockref'||t==='insert')&&mode)return Object.assign(base,{type:'update',handle:h,sourceHandle:h,entity:'INSERT',blockName:String(s.name||s.blockName||''),insert:p(s.x,s.y),rotation:shapeRotation(s),scale:[shapeScale(s,'scaleX',0),shapeScale(s,'scaleY',1),shapeScale(s,'scaleZ',2)]});
     return null;
@@ -44691,18 +44718,24 @@ window.cblSnapResidueGateStatusV12 = function(){
   async function applyOutputHandlesV1(outputHandles,pack){
     var handles=await resolveOutputHandlesV1(outputHandles),applied=0,seen={};
     var pending=(pack&&pack.pendingAddRefs)||[];
+    var current=Array.isArray(window.shapes)?window.shapes:[],mapped=current.slice();
     pending.forEach(function(ref){
       var handle=normHandle(handles[String(ref.opIndex)]||'');
       if(!handle||!ref.shape)throw new Error('신규 객체의 저장 후 handle을 확인하지 못했습니다: op '+String(ref.opIndex));
       if(seen[handle])throw new Error('신규 객체의 저장 후 handle이 중복됩니다: '+handle);
       seen[handle]=true;
+      var operation=pack.ops&&pack.ops[ref.opIndex],expectedClient=String(operation&&operation.clientShapeId||'');
+      if(expectedClient&&clientShapeIdOf(ref.shape)!==expectedClient)throw new Error('신규 객체의 clientShapeId가 operation과 일치하지 않습니다: '+expectedClient);
       ref.shape.sourceHandle=handle;
       ref.shape.originalHandle=handle;
       ref.shape.handle=handle;
+      var shapeIndex=current.indexOf(ref.shape);
+      if(shapeIndex>=0){var copy=Object.assign({},ref.shape);copy.sourceHandle=handle;copy.originalHandle=handle;copy.handle=handle;mapped[shapeIndex]=copy;}
       applied++;
     });
     if(applied!==pending.length)throw new Error('신규 객체의 저장 후 handle mapping이 모호합니다.');
     if(window.CBL_NATIVE_FILE_STATUS_V1)window.CBL_NATIVE_FILE_STATUS_V1.outputHandleCount=applied;
+    if(pack)pack.mappedShapes=mapped;
     return applied;
   }
   function prepareDwgSaveCommitV1(result){
@@ -44713,13 +44746,24 @@ window.cblSnapResidueGateStatusV12 = function(){
     var filename=safeName(result.filename||((handle&&handle.name)||window.CBL_FREE_DWG_CURRENT_FILENAME||'ChickenBananaCAD.dwg'));
     if(handle&&handle.name)filename=safeName(handle.name)||filename;
     if(!filename)filename='ChickenBananaCAD.dwg';
-    var committedShapes=Array.isArray(window.shapes)?window.shapes:null;
+    var committedShapes=Array.isArray(result.shapes)?result.shapes:(Array.isArray(window.shapes)?window.shapes:null);
     if(!committedShapes)throw new Error('저장 기준 모델이 없어 저장 상태를 확정할 수 없습니다.');
     if(window.CBL_ACADSHARP_FULL_DXF_ACTIVE===true&&!committedShapes.length)throw new Error('저장 기준 모델이 없어 저장 상태를 확정할 수 없습니다.');
-    var committedBaseline;
-    try{committedBaseline=committedShapes.map(function(s){var snap=cblFreeDwgSnapshotShapeV1(s);if(!snap||typeof snap!=='object')throw new Error('invalid snapshot');return snap;});}
-    catch(e){throw new Error('저장 기준 스냅샷 생성에 실패했습니다.');}
-    return {bytes:bytes,handle:handle,filename:filename,baseline:committedBaseline,
+    var committedBaseline,missing=[],rendererOnly=0,failing=null;
+    try{committedBaseline=committedShapes.map(function(s,index){
+      if(!s||typeof s!=='object'){failing={index:index,shape:s};throw new Error('invalid snapshot shape');}
+      if(s.rendererOnly===true||s.blockChild===true||s.displayOnly===true||s.synthetic===true||s.helper===true)rendererOnly++;
+      var snap=cblFreeDwgSnapshotShapeV1(s);if(!snap||typeof snap!=='object'){failing={index:index,shape:s};throw new Error('invalid snapshot');}
+      if(isTopLevelEditable(s)&&!ownerHandleOf(s)&&!clientShapeIdOf(s))missing.push(index);
+      return snap;
+    });}
+    catch(e){
+      nativeStatus.snapshotDiagnostics={snapshotShapeCount:committedShapes.length,mappedShapeCount:committedBaseline?committedBaseline.length:0,missingHandleShapes:missing,rendererOnlyCount:rendererOnly,baselineCount:Array.isArray(window.CBL_FREE_DWG_ORIGINAL_SHAPES)?window.CBL_FREE_DWG_ORIGINAL_SHAPES.length:0,failingShape:failing,failingOpIndex:null,outputHandles:nativeStatus.outputHandles||null,clientShapeId:failing&&failing.shape&&failing.shape.clientShapeId||null,error:String(e&&e.message||e)};
+      throw new Error('저장 기준 스냅샷 생성에 실패했습니다.');
+    }
+    nativeStatus.snapshotDiagnostics={snapshotShapeCount:committedShapes.length,mappedShapeCount:committedBaseline.length,missingHandleShapes:missing,rendererOnlyCount:rendererOnly,baselineCount:Array.isArray(window.CBL_FREE_DWG_ORIGINAL_SHAPES)?window.CBL_FREE_DWG_ORIGINAL_SHAPES.length:0,failingShape:null,failingOpIndex:null,outputHandles:nativeStatus.outputHandles||null,clientShapeId:null};
+    if(missing.length)throw new Error('신규 편집 객체의 저장 후 handle이 없어 저장 기준을 확정할 수 없습니다.');
+    return {bytes:bytes,handle:handle,filename:filename,baseline:committedBaseline,shapes:committedShapes,
       layers:Array.isArray(window.layers)?window.layers.map(function(l){return String(l&&l.name||'');}):[],
       styles:cblRevisionCleanV1(window.CBL_CAD_TEXT_STYLES_V1||{},[],0),revision:cblComputeDocumentRevisionV1()};
   }
@@ -44760,6 +44804,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     var prepared=result.prepared||prepareDwgSaveCommitV1(result);
     var bytes=prepared.bytes,handle=prepared.handle,filename=prepared.filename;
     var committedBaseline=prepared.baseline;
+    if(Array.isArray(prepared.shapes))window.shapes=prepared.shapes;
     window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1=handle;
     window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=handle;
     window.CBL_FREE_DWG_CURRENT_FILENAME=filename;
@@ -44856,8 +44901,9 @@ window.cblSnapResidueGateStatusV12 = function(){
         if(window.CBL_NATIVE_FILE_STATUS_V1)window.CBL_NATIVE_FILE_STATUS_V1.responseBytes=binaryBytes.byteLength;
         if(binaryBytes.length<=0||String.fromCharCode.apply(null,Array.prototype.slice.call(binaryBytes,0,6))!=='AC1018')throw new Error('저장 응답이 AC1018 DWG 바이너리가 아닙니다. JSON 또는 오류 응답은 파일에 기록하지 않습니다.');
         var binaryOutputHandles=res.headers.get('X-CBL-FREE-DWG-OUTPUT-HANDLES')||'';
+        if(window.CBL_NATIVE_FILE_STATUS_V1)window.CBL_NATIVE_FILE_STATUS_V1.outputHandles=binaryOutputHandles||null;
         await applyOutputHandlesV1(binaryOutputHandles,pack);
-        var binaryPrepared=prepareDwgSaveCommitV1({bytes:binaryBytes,filename:nativeHandle.name||requested,handle:nativeHandle});
+        var binaryPrepared=prepareDwgSaveCommitV1({bytes:binaryBytes,filename:nativeHandle.name||requested,handle:nativeHandle,shapes:pack.mappedShapes});
         await writeNativeDwgBytesV1(binaryBytes,requested,nativeHandle,options.preparedWritable||null);
         writeCompleted=true;
         var commitResult=window.cblCommitSuccessfulDwgSaveV1({prepared:binaryPrepared});
@@ -44868,6 +44914,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       }
       var delivery=await res.json();
       if(!delivery||delivery.ok!==true||!delivery.filename||Number(delivery.size)<=0)throw new Error(delivery&&delivery.error?String(delivery.error):'DWG 저장 응답이 올바르지 않습니다.');
+      if(window.CBL_NATIVE_FILE_STATUS_V1)window.CBL_NATIVE_FILE_STATUS_V1.outputHandles=delivery.output_handles||null;
       await applyOutputHandlesV1(delivery.output_handles,pack);
       if(delivery.saved===true){
         var savedRaw=atob(String(delivery.data||'')),savedBytes=new Uint8Array(savedRaw.length);
@@ -44876,7 +44923,7 @@ window.cblSnapResidueGateStatusV12 = function(){
         var stableSavedFile=new File([savedBytes],delivery.filename,{type:'application/acad'});
         window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=delivery.file_token||options.targetFileToken||window.CBL_FREE_DWG_LOCAL_FILE_TOKEN;
         writeCompleted=true;
-        var savedPrepared=prepareDwgSaveCommitV1({bytes:savedBytes,filename:delivery.filename,handle:options.nativeHandle||window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1||null});
+        var savedPrepared=prepareDwgSaveCommitV1({bytes:savedBytes,filename:delivery.filename,handle:options.nativeHandle||window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1||null,shapes:pack.mappedShapes});
         var commitResult=window.cblCommitSuccessfulDwgSaveV1({prepared:savedPrepared});
         if(typeof setHint==='function')setHint('저장 완료: '+commitResult.filename);
         if(options.saveAs&&window.CBL_FREE_DWG_SAVE_AS_STATUS_V1){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=false;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.downloadedName=delivery.filename;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveCompleted=true;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;}
@@ -44885,7 +44932,7 @@ window.cblSnapResidueGateStatusV12 = function(){
         if(!delivery.download_url)throw new Error('DWG 내보내기 주소를 받지 못했습니다.');
         var nativeSaved=browserMode()&&!!nativeHandle&&await saveTokenToNativePickerV1(delivery,delivery.filename,nativeHandle,options.preparedWritable||null);
         if(nativeSaved)writeCompleted=true;
-        var tokenPrepared=prepareDwgSaveCommitV1({filename:(nativeSaved&&nativeHandle&&nativeHandle.name)||delivery.filename,handle:nativeSaved?nativeHandle:null});
+        var tokenPrepared=prepareDwgSaveCommitV1({filename:(nativeSaved&&nativeHandle&&nativeHandle.name)||delivery.filename,handle:nativeSaved?nativeHandle:null,shapes:pack.mappedShapes});
         var commitResult=window.cblCommitSuccessfulDwgSaveV1({prepared:tokenPrepared});
         if(options.saveAs&&window.CBL_FREE_DWG_SAVE_AS_STATUS_V1){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=false;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.downloadedName=delivery.filename;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveCompleted=true;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;}
         if(nativeSaved){
