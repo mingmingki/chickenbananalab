@@ -14437,12 +14437,6 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
         }
       }
 
-      // 자동 순번 매칭은 위험하므로 기본값은 꺼둠.
-      // 필요하면 콘솔에서 cblApplyDxfStylesToRenderedEntitiesV1({byOrder:true}) 실행.
-      if (!style && opts.byOrder === true && data.entities[i]) {
-        style = data.entities[i].effective;
-      }
-
       if (style && applyStyleToSvgElement(el, style)) applied++;
     }
 
