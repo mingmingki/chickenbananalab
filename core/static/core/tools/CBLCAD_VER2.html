@@ -23103,6 +23103,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     var lines = String(text || '').replace(/\r/g, '').split('\n');
 
     var layerDefs = {};
+    var dimensionStyleDefs = {};
     var layerOrder = [];
     var blocks = {};
     var mainEntities = [];
@@ -23132,6 +23133,10 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
           color:'#e5e7eb',
           linetype:'Continuous',
           lineweight:0.25,
+          aci:7,
+          trueColor:null,
+          transparency:null,
+          plot:true,
           visible:true,
           locked:false
         };
@@ -23140,6 +23145,10 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
       if(info){
         if(info.color) layerDefs[name].color = info.color;
+        if(info.aci !== undefined) layerDefs[name].aci = info.aci;
+        if(info.trueColor !== undefined) layerDefs[name].trueColor = info.trueColor;
+        if(info.transparency !== undefined) layerDefs[name].transparency = info.transparency;
+        if(info.plot !== undefined) layerDefs[name].plot = info.plot;
         if(info.linetype) layerDefs[name].linetype = info.linetype;
         if(info.lineweight !== undefined) layerDefs[name].lineweight = info.lineweight;
         if(info.visible !== undefined) layerDefs[name].visible = info.visible;
@@ -23171,10 +23180,14 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
       rememberLayer(name, {
         color: color || '#e5e7eb',
+        aci: aci === null || aci === undefined ? 7 : Number(aci),
+        trueColor: trueColor,
+        transparency: first(p,'440',null),
         linetype: str(first(p,'6','Continuous'), 'Continuous'),
         lineweight: lineWeightMm(first(p,'370',25)),
         visible: Number(aci || 7) >= 0,
-        locked: !!(flags & 4)
+        locked: !!(flags & 4),
+        plot: Number(first(p,'290',1)) !== 0
       });
     }
 
@@ -23208,6 +23221,11 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
               i = ent.end;
               continue;
             }
+            if(c2 === '0' && tableName === 'DIMSTYLE' && v2 === 'DIMSTYLE'){
+              var dimEnt=readEntityAnyFixed(lines,i),dp=dimEnt.p||{},dimName=String(first(dp,'2','STANDARD')).toUpperCase();
+              dimensionStyleDefs[dimName]={name:String(first(dp,'2','STANDARD')),line:first(dp,'176',256),extension:first(dp,'177',256),text:first(dp,'178',256),textStyle:String(first(dp,'3','STANDARD'))};
+              i=dimEnt.end;continue;
+            }
 
             i += 2;
           }
@@ -23227,6 +23245,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       var name = normName(first(hp, '2', first(hp, '3', '')));
       var block = {
         name:name,
+        handle:String(first(hp,'5','') || ''),
         baseX:num(first(hp,'10',0)),
         baseY:num(first(hp,'20',0)),
         ents:[]
@@ -23358,6 +23377,10 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
           id:id,
           name:name,
           color:def.color || '#e5e7eb',
+          aci:def.aci == null ? 7 : def.aci,
+          trueColor:def.trueColor == null ? null : def.trueColor,
+          transparency:def.transparency == null ? null : def.transparency,
+          plot:def.plot !== false,
           visible:def.visible !== false,
           locked:def.locked === true,
           lineType:def.linetype || 'Continuous',
@@ -23409,6 +23432,14 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         }
       }
 
+      if(ctx&&ctx.dimensionStyle&&tc===null&&(aci===null||aci===undefined)){
+        var role=String(ent.type||'').toUpperCase()==='MTEXT'||String(ent.type||'').toUpperCase()==='TEXT'?'text':(String(ent.type||'').toUpperCase()==='SOLID'?'line':'line');
+        var dimAci=Number(ctx.dimensionStyle[role]);
+        if(Number.isFinite(dimAci)&&dimAci!==256){
+          if(dimAci===0&&ctx.color)return {color:ctx.color,source:'DimensionStyle-ByBlock',rawAci:dimAci,rawTrueColor:null};
+          if(dimAci>=1&&dimAci<=255)return {color:aciToColor(dimAci),source:'DimensionStyle',rawAci:dimAci,rawTrueColor:null};
+        }
+      }
       var ly = layerObj(layerName);
       return {color:ly.color || '#e5e7eb',source:'ByLayer',rawAci:aci===null?256:aci,rawTrueColor:null};
     }
@@ -23433,12 +23464,17 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
     function baseStyle(ent, ctx){
       var layerName = resolveLayerName(ent, ctx);
+      var rawEntityLayerName = normName(first(ent && ent.p || {}, '8', '0'));
       var ly = layerObj(layerName);
       var colorMeta = resolveColorMeta(ent, layerName, ctx);
       var color = colorMeta.color;
       var lt = resolveLtype(ent, layerName, ctx);
 
       var sourceHandle = String(first(ent && ent.p || {}, '5', '') || '');
+      var pathParts=(ctx&&Array.isArray(ctx.insertPath)?ctx.insertPath:[]).slice();
+      if(ctx&&ctx.blockHandle)pathParts.push(String(ctx.blockHandle));
+      if(sourceHandle)pathParts.push(sourceHandle);
+      var sourcePath=pathParts.join('/');
       var style = {
         layId:ly.id,
         stroke:color || ly.color || '#e5e7eb',
@@ -23450,7 +23486,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         opacity:1,
         dash:ltToDash(lt),
         lineType:lt,
-        rawLayerName:layerName,
+        rawLayerName:rawEntityLayerName,
+        cblEffectiveLayerName:layerName,
         rawDxfType:ent.type,
         cblRawAci:colorMeta.rawAci,
         cblRawTrueColor:colorMeta.rawTrueColor,
@@ -23459,6 +23496,10 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         cblBlockName:ctx&&ctx.blockName?String(ctx.blockName):'',
         cblInsertLayer:ctx&&ctx.layer?String(ctx.layer):layerName,
         cblInsertAci:ctx&&ctx.rawAci!==undefined?ctx.rawAci:null,
+        sourcePath:sourcePath||sourceHandle,
+        cblRawTransparency:first(ent&&ent.p||{},'440',null),
+        cblRawLineType:first(ent&&ent.p||{},'6',null),
+        cblRawLineWeight:first(ent&&ent.p||{},'370',null),
         sourceHandle:sourceHandle,
         originalHandle:sourceHandle,
         handle:sourceHandle
@@ -23937,6 +23978,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
           color:resolveColor(ent, layerName, ctx),
           rawAci:first(p,'62',null),
           rawTrueColor:first(p,'420',null),
+          insertPath:(ctx&&Array.isArray(ctx.insertPath)?ctx.insertPath:[]).concat(String(first(p,'5','')||'')),
+          blockHandle:block&&block.handle?String(block.handle):'',
           linetype:resolveLtype(ent, layerName, ctx),
           matrix:makeInsertMatrix(ent, block),
           ownerSourceHandle:ctx && (ctx.ownerSourceHandle || ctx.parentSourceHandle) || String(first(p,'5','') || ''),
@@ -23982,11 +24025,15 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
         if(dblock){
           var dLayerName = resolveLayerName(ent, ctx);
+          var dstyle=dimensionStyleDefs[String(first(p,'3','STANDARD')).toUpperCase()]||null;
           var dCtx = {
             layer:dLayerName,
             color:resolveColor(ent, dLayerName, ctx),
             rawAci:first(p,'62',null),
             rawTrueColor:first(p,'420',null),
+            dimensionStyle:dstyle,
+            insertPath:(ctx&&Array.isArray(ctx.insertPath)?ctx.insertPath:[]).concat(String(first(p,'5','')||'')),
+            blockHandle:dblock&&dblock.handle?String(dblock.handle):'',
             linetype:resolveLtype(ent, dLayerName, ctx),
             matrix:ctx && ctx.matrix ? ctx.matrix : matIdentity(),
             dimensionTextRotationDeg:cblDimensionTextRotationDegV2(p),
@@ -24059,6 +24106,18 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     stats.totalInsertCount = Number(stats.insertCount || 0) + stats.nestedInsertCount;
     stats.mainEntityCount = mainEntities.length;
     stats.ms = Math.round((performance && performance.now ? performance.now() : Date.now()) - t0);
+
+    var sourcePathMapped=0,sourcePathMissing=0,byLayer=0,byBlock=0,trueColors=0,explicitAcis=0,dimensionOverrides=0,unresolved=0,perColor={},missingSamples=[];
+    shapes.forEach(function(s){
+      if(s&&s.sourcePath)sourcePathMapped++;else{sourcePathMissing++;if(missingSamples.length<20)missingSamples.push({type:s&&s.rawDxfType||s&&s.type||'',handle:s&&s.sourceHandle||'',block:s&&s.cblBlockName||''});}
+      var src=String(s&&s.cblEffectiveColorSource||'');if(src==='ByLayer')byLayer++;else if(src==='ByBlock')byBlock++;
+      if(s&&s.cblRawTrueColor!==null&&s.cblRawTrueColor!==undefined&&s.cblRawTrueColor!=='')trueColors++;
+      var aci=Number(s&&s.cblRawAci);if(Number.isFinite(aci)&&aci>=1&&aci<=255)explicitAcis++;
+      if(s&&s.cblDimensionText===true)dimensionOverrides++;
+      var ec=String(s&&s.cblEffectiveColor||'');if(!ec)unresolved++;else perColor[ec]=(perColor[ec]||0)+1;
+    });
+    window.CBL_DWG_COLOR_INTEGRITY_V1={layerTableCount:Object.keys(layerDefs).length,entityMetadataCount:mainEntities.length+Object.keys(blocks).reduce(function(total,k){return total+((blocks[k]&&blocks[k].ents)||[]).length;},0),sourcePathMappedCount:sourcePathMapped,sourcePathMissingCount:sourcePathMissing,byLayerCount:byLayer,byBlockCount:byBlock,trueColorCount:trueColors,explicitAciCount:explicitAcis,dimensionOverrideCount:dimensionOverrides,unresolvedColorCount:unresolved,perEffectiveColorCounts:perColor,missingSamples:missingSamples};
+    stats.colorIntegrity=window.CBL_DWG_COLOR_INTEGRITY_V1;
 
     return {
       shapes:shapes,
@@ -25165,7 +25224,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
   function parsePairs(txt){var raw=String(txt||'').replace(/\r/g,'').split('\n'),pairs=[];for(var i=0;i<raw.length-1;i+=2){var code=String(raw[i]||'').trim(),value=String(raw[i+1]==null?'':raw[i+1]).trim();if(code===''&&value==='')continue;pairs.push({code:code,value:value});}return pairs;}
   function first(fields,code,fallback){code=String(code);for(var i=0;i<fields.length;i++)if(fields[i].code===code)return fields[i].value;return fallback;}
-  function readDxfMeta(txt){var pairs=parsePairs(txt),layersMeta={},entityMeta=[],inTables=false,inTable='',inEnt=false;for(var i=0;i<pairs.length;i++){var a=pairs[i];if(a.code==='0'&&a.value==='SECTION'){var sec=pairs[i+1]&&pairs[i+1].code==='2'?String(pairs[i+1].value||'').toUpperCase():'';if(sec==='TABLES'){inTables=true;inEnt=false;inTable='';i++;continue;}if(sec==='ENTITIES'){inEnt=true;inTables=false;inTable='';i++;continue;}}if(a.code==='0'&&a.value==='ENDSEC'){inTables=false;inEnt=false;inTable='';continue;}if(inTables){if(a.code==='0'&&a.value==='TABLE'){inTable=pairs[i+1]&&pairs[i+1].code==='2'?String(pairs[i+1].value||'').toUpperCase():'';i++;continue;}if(a.code==='0'&&a.value==='ENDTAB'){inTable='';continue;}if(a.code==='0'&&a.value==='LAYER'&&inTable==='LAYER'){var f=[];i++;while(i<pairs.length&&pairs[i].code!=='0'){f.push(pairs[i]);i++;}i--;var name=cleanLayerName(first(f,2,'0'));var aciRaw=parseInt(first(f,62,'7'),10);if(!Number.isFinite(aciRaw))aciRaw=7;var flags=parseInt(first(f,70,'0'),10)||0;var trueColor=first(f,420,null);var rawLT=first(f,6,'Continuous');var lw=parseLW(first(f,370,null),'default',null);layersMeta[name.toLowerCase()]={name:name,color:intToHex(trueColor)||aciToHex(aciRaw),visible:aciRaw>=0,locked:!!(flags&4),rawLineType:rawLT,lineType:canonicalLT(rawLT),lineWeightKind:lw.kind==='mm'?'mm':'default',lineWeightMm:lw.mm,rawLineWeight:lw.raw};continue;}}if(inEnt&&a.code==='0'){var type=String(a.value||'').toUpperCase();if(!type||type==='ENDSEC'||type==='SEQEND'||type==='VERTEX')continue;var ef=[];i++;while(i<pairs.length&&pairs[i].code!=='0'){ef.push(pairs[i]);i++;}i--;var lname=cleanLayerName(first(ef,8,'0'));var entLT=first(ef,6,null);var entLW=first(ef,370,null);var trueC=first(ef,420,null);var aci=first(ef,62,null);entityMeta.push({type:type,layer:lname,rawLineType:entLT,lineType:entLT&&String(entLT).toUpperCase()!=='BYLAYER'?canonicalLT(entLT):null,lineWeight:parseLW(entLW,'bylayer',null),color:intToHex(trueC)||(aci!==null&&parseInt(aci,10)!==256&&parseInt(aci,10)!==0?aciToHex(aci):null)});}}return {layers:layersMeta,entities:entityMeta};}
+  function readDxfMeta(txt){var pairs=parsePairs(txt),layersMeta={},entityMeta=[],inTables=false,inTable='',inEnt=false;for(var i=0;i<pairs.length;i++){var a=pairs[i];if(a.code==='0'&&a.value==='SECTION'){var sec=pairs[i+1]&&pairs[i+1].code==='2'?String(pairs[i+1].value||'').toUpperCase():'';if(sec==='TABLES'){inTables=true;inEnt=false;inTable='';i++;continue;}if(sec==='ENTITIES'){inEnt=true;inTables=false;inTable='';i++;continue;}}if(a.code==='0'&&a.value==='ENDSEC'){inTables=false;inEnt=false;inTable='';continue;}if(inTables){if(a.code==='0'&&a.value==='TABLE'){inTable=pairs[i+1]&&pairs[i+1].code==='2'?String(pairs[i+1].value||'').toUpperCase():'';i++;continue;}if(a.code==='0'&&a.value==='ENDTAB'){inTable='';continue;}if(a.code==='0'&&a.value==='LAYER'&&inTable==='LAYER'){var f=[];i++;while(i<pairs.length&&pairs[i].code!=='0'){f.push(pairs[i]);i++;}i--;var name=cleanLayerName(first(f,2,'0'));var aciRaw=parseInt(first(f,62,'7'),10);if(!Number.isFinite(aciRaw))aciRaw=7;var flags=parseInt(first(f,70,'0'),10)||0;var trueColor=first(f,420,null);var rawLT=first(f,6,'Continuous');var lw=parseLW(first(f,370,null),'default',null);layersMeta[name.toLowerCase()]={name:name,aci:aciRaw,trueColor:trueColor,transparency:first(f,440,null),plot:parseInt(first(f,290,'1'),10)!==0,color:intToHex(trueColor)||aciToHex(aciRaw),visible:aciRaw>=0,locked:!!(flags&4),rawLineType:rawLT,lineType:canonicalLT(rawLT),lineWeightKind:lw.kind==='mm'?'mm':'default',lineWeightMm:lw.mm,rawLineWeight:lw.raw};continue;}}if(inEnt&&a.code==='0'){var type=String(a.value||'').toUpperCase();if(!type||type==='ENDSEC'||type==='SEQEND'||type==='VERTEX')continue;var ef=[];i++;while(i<pairs.length&&pairs[i].code!=='0'){ef.push(pairs[i]);i++;}i--;var lname=cleanLayerName(first(ef,8,'0'));var entLT=first(ef,6,null);var entLW=first(ef,370,null);var trueC=first(ef,420,null);var aci=first(ef,62,null);entityMeta.push({handle:String(first(ef,5,'')||''),owner:String(first(ef,330,'')||''),type:type,layer:lname,rawAci:aci,rawTrueColor:trueC,transparency:first(ef,440,null),rawLineType:entLT,lineType:entLT&&String(entLT).toUpperCase()!=='BYLAYER'?canonicalLT(entLT):null,lineWeight:parseLW(entLW,'bylayer',null),color:intToHex(trueC)||(aci!==null&&parseInt(aci,10)!==256&&parseInt(aci,10)!==0?aciToHex(aci):null)});}}return {layers:layersMeta,entities:entityMeta};}
   function layerByName(name){name=cleanLayerName(name).toLowerCase();return getLayers().find(function(l){return cleanLayerName(l&&l.name).toLowerCase()===name;})||null;}
   function layerById(id){id=Number(id||1);var ls=getLayers();return ls.find(function(l){return Number(l.id)===id;})||ls[0]||null;}
   function createLayer(name){var ls=getLayers();var maxId=ls.reduce(function(m,l){return Math.max(m,Number(l&&l.id)||0);},0);var l={id:maxId+1,name:cleanLayerName(name),color:'#ffffff',visible:true,locked:false,cblLineType:'Continuous',cblRawLineType:'Continuous',cblLineWeightKind:'default',cblLineWeightRaw:-3,lineType:'Continuous',lineWidth:0,lineweight:-3};ls.push(l);try{var lc=g('layCtr',1);if(Number(lc)<=l.id)sg('layCtr',l.id+1);}catch(e){}return l;}
@@ -25173,7 +25232,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
   function normalizeLayer(l){if(!l)return null;if(!l.name)l.name='0';if(!l.color)l.color='#ffffff';var rawLT=l.cblRawLineType||l.rawFromOriginalDxf||l.cblLineType||l.lineType||l.linetype||l.dash||'Continuous';l.cblRawLineType=String(rawLT||'Continuous');l.cblLineType=canonicalLT(rawLT);l.lineType=l.cblLineType;l.linetype=l.cblLineType;l.dash=l.cblLineType;if(l.cblLineWeightKind==='mm'){var mm=Number(l.cblLineWeightMm);if(!Number.isFinite(mm))mm=Number(l.lineWidth||0);l.cblLineWeightMm=Math.round(mm*100)/100;l.cblLineWeightRaw=Math.round(l.cblLineWeightMm*100);l.lineWidth=l.cblLineWeightMm;l.lineweight=l.cblLineWeightMm;}else{l.cblLineWeightKind='default';l.cblLineWeightMm=null;l.cblLineWeightRaw=-3;l.lineWidth=0;l.lineweight=-3;}if(typeof l.visible==='undefined')l.visible=true;if(typeof l.locked==='undefined')l.locked=false;return l;}
   function normalizeLayers(){var ls=getLayers();if(!ls.length)ls.push({id:1,name:'0',color:'#ffffff',visible:true,locked:false,cblRawLineType:'Continuous',cblLineType:'Continuous',cblLineWeightKind:'default',cblLineWeightRaw:-3,lineType:'Continuous',lineWidth:0,lineweight:-3});ls.forEach(normalizeLayer);var maxId=ls.reduce(function(m,l){return Math.max(m,Number(l&&l.id)||0);},0);try{var lc=g('layCtr',1);if(Number(lc)<=maxId)sg('layCtr',maxId+1);}catch(e){}var act=g('actLay',ls[0].id);if(!layerById(act))sg('actLay',ls[0].id);}
 
-  function applyMetaToLayers(meta,result){meta=meta||{layers:{},entities:[]};var lm=meta.layers||{};Object.keys(lm).forEach(function(k){var m=lm[k];var l=getOrCreateLayer(m.name);l.color=m.color||l.color||'#ffffff';l.visible=m.visible!==false;l.locked=!!m.locked;l.cblRawLineType=m.rawLineType||m.lineType||'Continuous';l.cblLineType=canonicalLT(l.cblRawLineType);l.rawFromOriginalDxf=l.cblRawLineType;l.cblLineWeightKind=m.lineWeightKind==='mm'?'mm':'default';l.cblLineWeightMm=m.lineWeightKind==='mm'?Number(m.lineWeightMm||0):null;l.cblLineWeightRaw=m.rawLineWeight;normalizeLayer(l);});var arr=Array.isArray(result)?result:getShapes();var ents=meta.entities||[];for(var i=0;i<arr.length;i++){var s=arr[i];if(!s||typeof s!=='object')continue;var l=layerById(s.layId);if(l)normalizeLayer(l);var em=ents[i]||null;if(em&&em.layer){var el=layerByName(em.layer);if(el){l=el;s.layId=el.id;}}if(!l)continue;var resolved=s.cblEffectiveColor||s.stroke||s.color||l.color||'#ffffff';s.stroke=resolved;s.color=resolved;s.cblLineType=em&&em.lineType?em.lineType:l.cblLineType;s.cblRawLineType=em&&em.rawLineType?em.rawLineType:l.cblRawLineType;s.lineType=s.cblLineType;s.dash=s.cblLineType;if(em&&em.lineWeight&&em.lineWeight.kind==='mm'){s.cblLineWeightKind='mm';s.cblLineWeightMm=em.lineWeight.mm;s.cblLineWeightRaw=em.lineWeight.raw;s.lineweight=em.lineWeight.mm;s.lineWidth=mmToPx(em.lineWeight.mm);}else{var lw=effectiveLayerLW(l);s.cblLineWeightKind=lw.kind;s.cblLineWeightMm=lw.mm;s.cblLineWeightRaw=lw.raw;s.lineweight=lw.kind==='mm'?lw.mm:-3;s.lineWidth=lw.kind==='mm'?mmToPx(lw.mm):1;}}refreshAllSoon(true);try{console.log('✅ CBL DWG layer original style applied',getLayers().map(function(l){normalizeLayer(l);return {name:l.name,lt:l.cblRawLineType,lw:l.cblLineWeightKind==='mm'?l.cblLineWeightMm:'Default'};}));}catch(e){}}
+  function applyMetaToLayers(meta,result){meta=meta||{layers:{},entities:[]};var lm=meta.layers||{};Object.keys(lm).forEach(function(k){var m=lm[k];var l=getOrCreateLayer(m.name);l.color=m.color||l.color||'#ffffff';l.visible=m.visible!==false;l.locked=!!m.locked;l.cblRawLineType=m.rawLineType||m.lineType||'Continuous';l.cblLineType=canonicalLT(l.cblRawLineType);l.rawFromOriginalDxf=l.cblRawLineType;l.cblLineWeightKind=m.lineWeightKind==='mm'?'mm':'default';l.cblLineWeightMm=m.lineWeightKind==='mm'?Number(m.lineWeightMm||0):null;l.cblLineWeightRaw=m.rawLineWeight;normalizeLayer(l);});var arr=Array.isArray(result)?result:getShapes();var entityByHandle={};(meta.entities||[]).forEach(function(item){var h=String(item&&item.handle||'').trim().replace(/^0x/i,'').toUpperCase().replace(/^0+/,'');if(h)entityByHandle[h]=item;});for(var i=0;i<arr.length;i++){var s=arr[i];if(!s||typeof s!=='object')continue;var l=layerById(s.layId);if(l)normalizeLayer(l);var shapeHandle=String(s.sourceHandle||s.originalHandle||'').trim().replace(/^0x/i,'').toUpperCase().replace(/^0+/,'');var em=shapeHandle?entityByHandle[shapeHandle]||null:null;if(em&&em.layer){var el=layerByName(em.layer);if(el){l=el;s.layId=el.id;}}if(!l)continue;var resolved=s.cblEffectiveColor||s.stroke||s.color||l.color||'#ffffff';s.stroke=resolved;s.color=resolved;s.cblLineType=em&&em.lineType?em.lineType:l.cblLineType;s.cblRawLineType=em&&em.rawLineType?em.rawLineType:l.cblRawLineType;s.lineType=s.cblLineType;s.dash=s.cblLineType;if(em&&em.lineWeight&&em.lineWeight.kind==='mm'){s.cblLineWeightKind='mm';s.cblLineWeightMm=em.lineWeight.mm;s.cblLineWeightRaw=em.lineWeight.raw;s.lineweight=em.lineWeight.mm;s.lineWidth=mmToPx(em.lineWeight.mm);}else{var lw=effectiveLayerLW(l);s.cblLineWeightKind=lw.kind;s.cblLineWeightMm=lw.mm;s.cblLineWeightRaw=lw.raw;s.lineweight=lw.kind==='mm'?lw.mm:-3;s.lineWidth=lw.kind==='mm'?mmToPx(lw.mm):1;}}refreshAllSoon(true);try{console.log('✅ CBL DWG layer original style applied',getLayers().map(function(l){normalizeLayer(l);return {name:l.name,lt:l.cblRawLineType,lw:l.cblLineWeightKind==='mm'?l.cblLineWeightMm:'Default'};}));}catch(e){}}
   function ltOptions(cur){cur=canonicalLT(cur);var list=BASE_LT.slice();if(list.map(function(x){return x.toUpperCase();}).indexOf(String(cur).toUpperCase())<0)list.unshift(cur);return list.map(function(x){return '<option value="'+esc(x)+'" '+(String(x).toUpperCase()===String(cur).toUpperCase()?'selected':'')+'>'+esc(x)+'</option>';}).join('');}
   function lwOptions(l){normalizeLayer(l);var html='<option value="__DEFAULT__" '+(l.cblLineWeightKind!=='mm'?'selected':'')+'>Default</option>';var cur=Number(l.cblLineWeightMm);var list=BASE_LW.slice();if(l.cblLineWeightKind==='mm'&&Number.isFinite(cur)&&!list.some(function(w){return Math.abs(w-cur)<0.001;}))list.unshift(cur);html+=list.map(function(w){return '<option value="'+w+'" '+(l.cblLineWeightKind==='mm'&&Math.abs(w-cur)<0.001?'selected':'')+'>'+Number(w).toFixed(2)+'</option>';}).join('');return html;}
   function setLayerProp(id,key,value){normalizeLayers();var l=layerById(id);if(!l)return;if(key==='color')l.color=value||'#ffffff';if(key==='lineType'){l.cblRawLineType=value||'Continuous';l.cblLineType=canonicalLT(value);}if(key==='lineWidth'){if(value==='__DEFAULT__'||value==='Default'||value===''||value==null){l.cblLineWeightKind='default';l.cblLineWeightMm=null;l.cblLineWeightRaw=-3;}else{var mm=Number(value);if(!Number.isFinite(mm))mm=0;l.cblLineWeightKind='mm';l.cblLineWeightMm=Math.round(mm*100)/100;l.cblLineWeightRaw=Math.round(l.cblLineWeightMm*100);}}if(key==='visible')l.visible=!!value;if(key==='locked')l.locked=!!value;normalizeLayer(l);applyLayerToShapes(l);syncStyleFromActive();refreshAllSoon(true);try{if(typeof saveH==='function')saveH();}catch(e){}}
@@ -44740,6 +44799,7 @@ window.cblSnapResidueGateStatusV12 = function(){
   }
   function prepareDwgSaveCommitV1(result){
     result=result||{};
+    var saveStatus=window.CBL_NATIVE_FILE_STATUS_V1||null;
     var bytes=result.bytes instanceof Uint8Array?result.bytes:(result.bytes?new Uint8Array(result.bytes):null);
     if(bytes&&bytes.length&&String.fromCharCode.apply(null,Array.prototype.slice.call(bytes,0,6))!=='AC1018')throw new Error('저장 확정 대상이 AC1018이 아닙니다.');
     var handle=result.handle||window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1||window.CBL_FREE_DWG_NATIVE_FILE_HANDLE||null;
@@ -44758,10 +44818,10 @@ window.cblSnapResidueGateStatusV12 = function(){
       return snap;
     });}
     catch(e){
-      nativeStatus.snapshotDiagnostics={snapshotShapeCount:committedShapes.length,mappedShapeCount:committedBaseline?committedBaseline.length:0,missingHandleShapes:missing,rendererOnlyCount:rendererOnly,baselineCount:Array.isArray(window.CBL_FREE_DWG_ORIGINAL_SHAPES)?window.CBL_FREE_DWG_ORIGINAL_SHAPES.length:0,failingShape:failing,failingOpIndex:null,outputHandles:nativeStatus.outputHandles||null,clientShapeId:failing&&failing.shape&&failing.shape.clientShapeId||null,error:String(e&&e.message||e)};
+      if(saveStatus)saveStatus.snapshotDiagnostics={snapshotShapeCount:committedShapes.length,mappedShapeCount:committedBaseline?committedBaseline.length:0,missingHandleShapes:missing,rendererOnlyCount:rendererOnly,baselineCount:Array.isArray(window.CBL_FREE_DWG_ORIGINAL_SHAPES)?window.CBL_FREE_DWG_ORIGINAL_SHAPES.length:0,failingShape:failing,failingOpIndex:null,outputHandles:saveStatus.outputHandles||null,clientShapeId:failing&&failing.shape&&failing.shape.clientShapeId||null,error:String(e&&e.message||e)};
       throw new Error('저장 기준 스냅샷 생성에 실패했습니다.');
     }
-    nativeStatus.snapshotDiagnostics={snapshotShapeCount:committedShapes.length,mappedShapeCount:committedBaseline.length,missingHandleShapes:missing,rendererOnlyCount:rendererOnly,baselineCount:Array.isArray(window.CBL_FREE_DWG_ORIGINAL_SHAPES)?window.CBL_FREE_DWG_ORIGINAL_SHAPES.length:0,failingShape:null,failingOpIndex:null,outputHandles:nativeStatus.outputHandles||null,clientShapeId:null};
+    if(saveStatus)saveStatus.snapshotDiagnostics={snapshotShapeCount:committedShapes.length,mappedShapeCount:committedBaseline.length,missingHandleShapes:missing,rendererOnlyCount:rendererOnly,baselineCount:Array.isArray(window.CBL_FREE_DWG_ORIGINAL_SHAPES)?window.CBL_FREE_DWG_ORIGINAL_SHAPES.length:0,failingShape:null,failingOpIndex:null,outputHandles:saveStatus.outputHandles||null,clientShapeId:null};
     if(missing.length)throw new Error('신규 편집 객체의 저장 후 handle이 없어 저장 기준을 확정할 수 없습니다.');
     return {bytes:bytes,handle:handle,filename:filename,baseline:committedBaseline,shapes:committedShapes,
       layers:Array.isArray(window.layers)?window.layers.map(function(l){return String(l&&l.name||'');}):[],
