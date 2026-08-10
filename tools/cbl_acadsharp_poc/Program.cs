@@ -230,7 +230,10 @@ internal static class Program
                 {
                     name = layer.Name,
                     handle = Hex(layer.Handle),
-                    owner = layer.Owner == null ? null : Hex(layer.Owner.Handle)
+                    owner = layer.Owner == null ? null : Hex(layer.Owner.Handle),
+                    aci = layer.Color.Index,
+                    trueColor = layer.Color.IsTrueColor ? (int?)layer.Color.TrueColor : null,
+                    linetype = layer.LineType == null ? null : layer.LineType.Name,
                 })
                 .OrderBy(layer => layer.handle, StringComparer.Ordinal)
                 .ToArray();
@@ -932,14 +935,13 @@ internal static class Program
             blocks++;
             foreach (var entity in block.Entities) Add(entity, counts, texts, regions);
         }
-        var modelSpaceEntities = document.ModelSpace.Entities
-            .Select(entity => new
-            {
-                handle = entity.Handle.ToString("X"),
-                entity = entity.GetType().Name,
-                text = entity is TextEntity textEntity ? textEntity.Value : entity is MText mtextEntity ? mtextEntity.Value : null
-            })
-            .ToArray();
+        // Keep the same semantic fields for TEXT and MTEXT that the metadata
+        // manifest uses.  The old abbreviated projection only emitted text
+        // and type, which made a reader-side TEXT/MTEXT representation change
+        // look like a source text loss and could not validate position,
+        // rotation, or height.
+        var modelSpaceRecords = new List<object>();
+        AddMetadata(document.ModelSpace.Entities, "ModelSpace", modelSpaceRecords);
         var layerRecords = document.Layers
             .Select(x => new { name = x.Name, handle = x.Handle.ToString("X"), owner = x.Owner?.Handle.ToString("X") })
             .OrderBy(x => x.name, StringComparer.Ordinal)
@@ -948,7 +950,7 @@ internal static class Program
             .Select(x => new { name = x.Name, filename = x.Filename, bigFontFilename = x.BigFontFilename })
             .OrderBy(x => x.name, StringComparer.Ordinal)
             .ToArray();
-        return new SnapshotData(model, blocks, counts, texts.Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToArray(), layerRecords.Select(x => x.name).ToArray(), layerRecords, textStyles, regions, modelSpaceEntities);
+        return new SnapshotData(model, blocks, counts, texts.Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToArray(), layerRecords.Select(x => x.name).ToArray(), layerRecords, textStyles, regions, modelSpaceRecords.ToArray());
     }
 
     private static void Add(Entity entity, Dictionary<string, int> counts, List<string> texts, List<object> regions)

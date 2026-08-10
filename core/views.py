@@ -24469,13 +24469,65 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
     def handle(item):
         return canonical_ref(item.get("handle"))
 
-    def text_counts(document):
-        result = {}
+    def normalize_text_value(value):
+        # TEXT and MTEXT may encode the same line breaks differently.  Only
+        # representation noise is normalized; actual content remains strict.
+        return str(value or "").replace("\r\n", "\n").replace("\r", "\n").replace("\\P", "\n")
+
+    def number(value, default=None):
+        try:
+            if value is None:
+                return default
+            return round(float(value), 7)
+        except (TypeError, ValueError):
+            return default
+
+    def point(value):
+        if isinstance(value, dict):
+            value = value.get("point", value.get("position", value.get("insert")))
+        if isinstance(value, (list, tuple)):
+            return tuple(number(value[index], 0.0) for index in range(min(3, len(value)))) + tuple(0.0 for _ in range(max(0, 3 - len(value))))
+        return None
+
+    def text_family(item):
+        raw_type = str(item.get("entity", item.get("type", ""))).strip().upper()
+        if raw_type in {"TEXT", "TEXTENTITY", "MTEXT", "MTEXTENTITY", "ATTRIB", "ATTDEF"}:
+            insert = item.get("insert") or {}
+            if not isinstance(insert, dict):
+                insert = {"point": insert}
+            return {
+                "family": "TEXT",
+                "text": normalize_text_value(item.get("text", item.get("value", ""))),
+                "point": point(insert.get("point", insert.get("position"))),
+                "rotation": number(insert.get("rotation", item.get("rotation")), 0.0),
+                "height": number(insert.get("height", item.get("height", item.get("textHeight"))), None),
+            }
+        return None
+
+    def text_fingerprints(document):
+        values = []
         for item in entities(document):
-            if item.get("entity") not in ("TEXT", "MTEXT"):
-                continue
-            value = item.get("text", item.get("value", ""))
-            result[value] = result.get(value, 0) + 1
+            fingerprint = text_family(item)
+            if fingerprint:
+                values.append(fingerprint)
+        return values
+
+    def acad_text_fingerprints(report_document):
+        values = []
+        for item in (report_document or {}).get("ModelSpaceEntities", []):
+            fingerprint = text_family(item)
+            if fingerprint:
+                values.append(fingerprint)
+        return values
+
+    def fingerprint_key(value):
+        return _cbl_json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+    def fingerprint_counter(values):
+        result = {}
+        for value in values:
+            key = fingerprint_key(value)
+            result[key] = result.get(key, 0) + 1
         return result
 
     def named_objects(document, object_type):
@@ -24498,7 +24550,7 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
     expected = dict(before)
     operation_deltas = {}
     operation_sources = []
-    expected_texts = text_counts(original_json)
+    expected_texts = fingerprint_counter(text_fingerprints(original_json))
     expected_layers = named_objects(original_json, "LAYER")
     expected_blocks = named_objects(original_json, "BLOCK_HEADER")
 
@@ -24584,8 +24636,19 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
             add_delta(entity_type, 1, op_index, kind)
             add_semantic_delta(entity_type, 1)
             if kind in ("add_text", "add_mtext"):
-                value = op.get("text", op.get("value", ""))
-                expected_texts[value] = expected_texts.get(value, 0) + 1
+                expected_texts[fingerprint_key({
+                    "family": "TEXT",
+                    "text": normalize_text_value(op.get("text", op.get("value", ""))),
+                    "point": point(op.get("insert")),
+                    "rotation": number(op.get("rotation"), 0.0),
+                    "height": number(op.get("height"), None),
+                })] = expected_texts.get(fingerprint_key({
+                    "family": "TEXT",
+                    "text": normalize_text_value(op.get("text", op.get("value", ""))),
+                    "point": point(op.get("insert")),
+                    "rotation": number(op.get("rotation"), 0.0),
+                    "height": number(op.get("height"), None),
+                }), 0) + 1
         elif kind == "add_dimension":
             structural_ops["add_dimension"] = True
             # ACadSharp materializes a DIMENSION's anonymous definition block
@@ -24620,8 +24683,10 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
             if not source_space or source_space == "modelspace":
                 add_semantic_delta(source_type, -1)
             if canonical_entity_type(source_type) in ("TEXT", "MTEXT"):
-                value = source.get("text", source.get("value", ""))
-                expected_texts[value] = expected_texts.get(value, 0) - 1
+                source_text = text_family(source)
+                if source_text:
+                    key = fingerprint_key(source_text)
+                    expected_texts[key] = expected_texts.get(key, 0) - 1
         elif kind == "update" and str(op.get("entity", "")).upper() in ("TEXT", "MTEXT"):
             target = canonical_ref(op.get("handle"))
             source = next((item for item in entities(original_json) if handle(item) == target), None)
@@ -24639,10 +24704,21 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
                                and str(item.get("entity", "")) == acad_type), None)
                 if source is None:
                     raise RuntimeError(f"저장 검증 실패: 수정 대상 handle을 찾지 못했습니다: {op.get('handle')}")
-            old_value = source.get("text", source.get("value", ""))
-            new_value = op.get("text", op.get("value", old_value))
-            expected_texts[old_value] = expected_texts.get(old_value, 0) - 1
-            expected_texts[new_value] = expected_texts.get(new_value, 0) + 1
+            old_text = text_family(source)
+            if old_text:
+                old_key = fingerprint_key(old_text)
+                expected_texts[old_key] = expected_texts.get(old_key, 0) - 1
+                new_text = dict(old_text)
+                if "text" in op or "value" in op:
+                    new_text["text"] = normalize_text_value(op.get("text", op.get("value", old_text["text"])))
+                if "insert" in op:
+                    new_text["point"] = point(op.get("insert"))
+                if "rotation" in op:
+                    new_text["rotation"] = number(op.get("rotation"), 0.0)
+                if "height" in op:
+                    new_text["height"] = number(op.get("height"), None)
+                new_key = fingerprint_key(new_text)
+                expected_texts[new_key] = expected_texts.get(new_key, 0) + 1
 
     def semantic_mismatches():
         mismatches = {}
@@ -24819,17 +24895,19 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
         1 for key in before_layers
         if before_layers[key].get("ownerhandle") != after_layers[key].get("ownerhandle")
     )
+    original_text_counter = fingerprint_counter(text_fingerprints(original_json))
+    saved_text_counter = fingerprint_counter(text_fingerprints(saved_json))
     libre_text_differences = {
-        "missing": sorted(
-            (value, count - text_counts(saved_json).get(value, 0))
-            for value, count in text_counts(original_json).items()
-            if count > text_counts(saved_json).get(value, 0)
-        ),
-        "added": sorted(
-            (value, count - text_counts(original_json).get(value, 0))
-            for value, count in text_counts(saved_json).items()
-            if count > text_counts(original_json).get(value, 0)
-        ),
+        "missing": sorted([
+            (_cbl_json.loads(key), count - saved_text_counter.get(key, 0))
+            for key, count in original_text_counter.items()
+            if count > saved_text_counter.get(key, 0)
+        ], key=lambda item: fingerprint_key(item[0])),
+        "added": sorted([
+            (_cbl_json.loads(key), count - original_text_counter.get(key, 0))
+            for key, count in saved_text_counter.items()
+            if count > original_text_counter.get(key, 0)
+        ], key=lambda item: fingerprint_key(item[0])),
     }
     libre_layer_name_differences = [
         {
@@ -24844,13 +24922,74 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
         raise RuntimeError("저장 검증 실패: ACadSharp 재판독 보고서가 없습니다.")
     acad_source = acad_report["source"]
     acad_reread = acad_report["reread"]
-    expected_acad_texts = list(acad_source.get("Texts", []))
+    # ACadSharp may expose the same source text as TextEntity on one read and
+    # MText on another.  Compare one TEXT-family semantic multiset instead of
+    # separate type/string lists, while retaining strict content, position,
+    # rotation, and height checks.
+    source_texts = acad_text_fingerprints(acad_source)
+    reread_texts = acad_text_fingerprints(acad_reread)
+    expected_text_counter = fingerprint_counter(source_texts)
     for op in ops or []:
         kind = str(op.get("type", "")).lower()
         if kind in ("add_text", "add_mtext"):
-            expected_acad_texts.append(str(op.get("text", op.get("value", ""))))
-    if sorted(acad_reread.get("Texts", [])) != sorted(expected_acad_texts):
-        raise RuntimeError("저장 검증 실패: ACadSharp reader 기준 TEXT/MTEXT 원문이 달라졌습니다.")
+            value = {
+                "family": "TEXT",
+                "text": normalize_text_value(op.get("text", op.get("value", ""))),
+                "point": point(op.get("insert")),
+                "rotation": number(op.get("rotation"), 0.0),
+                "height": number(op.get("height"), None),
+            }
+            key = fingerprint_key(value)
+            expected_text_counter[key] = expected_text_counter.get(key, 0) + 1
+        elif kind == "delete":
+            target = canonical_ref(op.get("handle"))
+            source = next((item for item in acad_source.get("ModelSpaceEntities", []) if canonical_ref(item.get("handle")) == target), None)
+            value = text_family(source) if source else None
+            if value:
+                key = fingerprint_key(value)
+                expected_text_counter[key] = expected_text_counter.get(key, 0) - 1
+        elif kind == "update" and str(op.get("entity", "")).upper() in ("TEXT", "MTEXT"):
+            target = canonical_ref(op.get("handle"))
+            source = next((item for item in acad_source.get("ModelSpaceEntities", []) if canonical_ref(item.get("handle")) == target), None)
+            value = text_family(source) if source else None
+            if value:
+                old_key = fingerprint_key(value)
+                expected_text_counter[old_key] = expected_text_counter.get(old_key, 0) - 1
+                value = dict(value)
+                if "text" in op or "value" in op:
+                    value["text"] = normalize_text_value(op.get("text", op.get("value", value["text"])))
+                if "insert" in op:
+                    value["point"] = point(op.get("insert"))
+                if "rotation" in op:
+                    value["rotation"] = number(op.get("rotation"), 0.0)
+                if "height" in op:
+                    value["height"] = number(op.get("height"), None)
+                new_key = fingerprint_key(value)
+                expected_text_counter[new_key] = expected_text_counter.get(new_key, 0) + 1
+    expected_text_counter = {key: count for key, count in expected_text_counter.items() if count}
+    actual_text_counter = fingerprint_counter(reread_texts)
+    if actual_text_counter != expected_text_counter:
+        missing = []
+        extra = []
+        for key, count in expected_text_counter.items():
+            difference = count - actual_text_counter.get(key, 0)
+            if difference > 0:
+                missing.extend([_cbl_json.loads(key)] * difference)
+        for key, count in actual_text_counter.items():
+            difference = count - expected_text_counter.get(key, 0)
+            if difference > 0:
+                extra.extend([_cbl_json.loads(key)] * difference)
+        raise _CBLFreeDwgSaveValidationError(
+            "저장 검증 실패: ACadSharp reader 기준 TEXT/MTEXT 문자 계열이 달라졌습니다.",
+            {
+                "text_family": "TEXT+MTEXT",
+                "original_count": len(source_texts),
+                "expected_count": sum(expected_text_counter.values()),
+                "output_count": len(reread_texts),
+                "missing": missing,
+                "extra": extra,
+            },
+        )
     expected_acad_layers = list(acad_source.get("Layers", []))
     for op in ops or []:
         if str(op.get("type", "")).lower() == "create_layer":
