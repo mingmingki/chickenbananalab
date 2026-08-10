@@ -24060,6 +24060,10 @@ def _cbl_free_dwg_save_local_executable_v1():
 _CBL_FREE_DWG_DOWNLOAD_SALT_V1 = "cbl-free-dwg-download-v1"
 _CBL_FREE_DWG_DOWNLOAD_MAX_AGE_V1 = 15 * 60
 _CBL_FREE_DWG_DOWNLOAD_ROOT_V1 = _cbl_Path(_cbl_tempfile.gettempdir()) / "cbl-free-dwg-download-v1"
+_CBL_FREE_DWG_HANDLE_MAP_ROOT_V1 = _cbl_Path(_cbl_tempfile.gettempdir()) / "cbl-free-dwg-handle-map-v1"
+_CBL_FREE_DWG_HANDLE_MAP_SALT_V1 = "cbl-free-dwg-handle-map-v1"
+_CBL_FREE_DWG_HANDLE_MAP_MAX_AGE_V1 = 15 * 60
+_CBL_FREE_DWG_HANDLE_MAP_INLINE_LIMIT_V1 = 1024
 
 
 def _cbl_free_dwg_download_cleanup_v1():
@@ -24090,9 +24094,70 @@ def _cbl_free_dwg_download_store_v1(payload, filename):
     return token
 
 
+def _cbl_free_dwg_handle_map_cleanup_v1():
+    root = _CBL_FREE_DWG_HANDLE_MAP_ROOT_V1
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    cutoff = _cbl_time.time() - 30 * 60
+    for candidate in root.glob("*"):
+        try:
+            if candidate.is_file() and candidate.stat().st_mtime < cutoff:
+                candidate.unlink()
+        except OSError:
+            continue
+
+
+def _cbl_free_dwg_handle_map_delivery_v1(output_handles):
+    normalized = {
+        str(key): _cbl_normalize_dwg_handle_v1(value)
+        for key, value in (output_handles or {}).items()
+    }
+    normalized = {key: value for key, value in normalized.items() if value}
+    encoded = _cbl_json.dumps(normalized, ensure_ascii=True, separators=(",", ":"))
+    encoded_bytes = len(encoded.encode("ascii"))
+    if encoded_bytes <= _CBL_FREE_DWG_HANDLE_MAP_INLINE_LIMIT_V1:
+        return encoded, encoded_bytes, False
+    _cbl_free_dwg_handle_map_cleanup_v1()
+    file_id = _cbl_secrets.token_hex(16)
+    root = _CBL_FREE_DWG_HANDLE_MAP_ROOT_V1
+    temp_path = root / (file_id + ".tmp")
+    final_path = root / (file_id + ".json")
+    with temp_path.open("w", encoding="ascii") as stream:
+        stream.write(encoded)
+        stream.flush()
+        _cbl_os.fsync(stream.fileno())
+    _cbl_os.chmod(temp_path, 0o600)
+    _cbl_os.replace(temp_path, final_path)
+    token = _cbl_signing.dumps({"id": file_id}, salt=_CBL_FREE_DWG_HANDLE_MAP_SALT_V1)
+    return "handle-map-token:" + token, len(("handle-map-token:" + token).encode("ascii")), True
+
+
 def cblcad_free_dwg_download_api(request, token):
     if request.method != "GET" or not _cbl_is_free_dwg_request(request):
         return _cbl_JsonResponse({"ok": False, "error": "다운로드를 찾을 수 없습니다."}, status=404)
+    if request.GET.get("handle-map") == "1":
+        try:
+            data = _cbl_signing.loads(
+                token,
+                salt=_CBL_FREE_DWG_HANDLE_MAP_SALT_V1,
+                max_age=_CBL_FREE_DWG_HANDLE_MAP_MAX_AGE_V1,
+            )
+        except _cbl_signing.SignatureExpired:
+            return _cbl_JsonResponse({"ok": False, "error": "handle mapping이 만료되었습니다."}, status=410)
+        except _cbl_signing.BadSignature:
+            return _cbl_JsonResponse({"ok": False, "error": "유효하지 않은 handle mapping입니다."}, status=404)
+        file_id = str(data.get("id", ""))
+        if not _cbl_re.fullmatch(r"[0-9a-f]{32}", file_id):
+            return _cbl_JsonResponse({"ok": False, "error": "유효하지 않은 handle mapping입니다."}, status=404)
+        map_path = _CBL_FREE_DWG_HANDLE_MAP_ROOT_V1 / (file_id + ".json")
+        try:
+            if not map_path.is_file():
+                return _cbl_JsonResponse({"ok": False, "error": "handle mapping을 찾을 수 없습니다."}, status=404)
+            mapping = _cbl_json.loads(map_path.read_text(encoding="ascii"))
+            if not isinstance(mapping, dict):
+                return _cbl_JsonResponse({"ok": False, "error": "handle mapping 형식이 올바르지 않습니다."}, status=404)
+            return _cbl_JsonResponse({"ok": True, "output_handles": mapping}, json_dumps_params={"ensure_ascii": True})
+        except (OSError, ValueError, TypeError, _cbl_json.JSONDecodeError):
+            return _cbl_JsonResponse({"ok": False, "error": "handle mapping을 읽을 수 없습니다."}, status=404)
     try:
         data = _cbl_signing.loads(
             token,
@@ -24305,10 +24370,19 @@ def _cbl_normalize_free_dwg_ops_v1(original_json, ops):
     """
     entities = [item for item in original_json.get("OBJECTS", []) if item.get("entity")]
     index = {}
+    packed_index = {}
     for item in entities:
         handle = _cbl_normalize_dwg_handle_v1(item.get("handle"))
         if handle:
             index.setdefault(handle, item)
+        packed = item.get("handle")
+        if isinstance(packed, (list, tuple)) and packed:
+            try:
+                packed_value = int(packed[-1])
+            except (TypeError, ValueError):
+                packed_value = None
+            if packed_value is not None:
+                packed_index.setdefault(packed_value & 0xFFFF, []).append(item)
     block_names = {
         _cbl_normalize_dwg_handle_v1(item.get("handle")): str(item.get("name") or "")
         for item in original_json.get("OBJECTS", [])
@@ -24390,11 +24464,36 @@ def _cbl_normalize_free_dwg_ops_v1(original_json, ops):
             if owner and owner in index:
                 handle = owner
                 source = index[owner]
+        if source is None and handle:
+            # LibreDWG's JSON handle representation can retain only the low
+            # 16-bit component in a packed array, while the ACadSharp report
+            # and browser operation carry the full canonical hex handle.  Use
+            # this only when the low component maps to exactly one entity of
+            # the requested type; ambiguous values remain rejected.
+            try:
+                packed_candidates = packed_index.get(int(handle, 16) & 0xFFFF, [])
+            except ValueError:
+                packed_candidates = []
+            entity_type = str(raw.get("entity") or "").upper()
+            if entity_type:
+                packed_candidates = [
+                    candidate for candidate in packed_candidates
+                    if str(candidate.get("entity") or "").upper() == entity_type
+                ]
+            if len(packed_candidates) == 1:
+                source = packed_candidates[0]
         if source is None:
             identity_matches = resolve_by_identity(raw)
             if len(identity_matches) == 1:
                 source = identity_matches[0]
-                handle = _cbl_normalize_dwg_handle_v1(source.get("handle"))
+                # LibreDWG JSON may expose handles as a packed numeric array,
+                # while ACadSharp and the browser use the canonical hex
+                # string.  When the exact geometry identity match is unique,
+                # retain the caller's canonical handle for ACadSharp instead
+                # of converting that packed representation to an empty
+                # handle.  Ambiguous or handle-less matches remain rejected.
+                resolved_handle = _cbl_normalize_dwg_handle_v1(source.get("handle"))
+                handle = resolved_handle or handle
         if source is None:
             fields = {
                 key: raw.get(key)
@@ -25032,6 +25131,42 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
     }
 
 
+def _cbl_free_dwg_output_handles_v1(acad_report, ops):
+    """Expose ACadSharp's actual handles for newly-created operations."""
+    report = acad_report if isinstance(acad_report, dict) else {}
+    edit_report = report.get("editReport")
+    applied = edit_report.get("applied") if isinstance(edit_report, dict) else None
+    if not isinstance(applied, list) or not isinstance(ops, list):
+        return {}
+    output_handles = {}
+    seen_handles = set()
+    for op_index, operation in enumerate(ops):
+        if not isinstance(operation, dict):
+            continue
+        operation_type = str(operation.get("type") or "").strip().lower()
+        if not operation_type.startswith("add_"):
+            continue
+        if op_index >= len(applied) or not isinstance(applied[op_index], dict):
+            raise _CBLFreeDwgSaveValidationError(
+                "저장 검증 실패: 신규 operation의 출력 handle을 확인할 수 없습니다.",
+                {"op_index": op_index, "operation_type": operation_type},
+            )
+        handle = _cbl_normalize_dwg_handle_v1(applied[op_index].get("handle"))
+        if not handle:
+            raise _CBLFreeDwgSaveValidationError(
+                "저장 검증 실패: 신규 operation의 출력 handle이 비어 있습니다.",
+                {"op_index": op_index, "operation_type": operation_type},
+            )
+        if handle in seen_handles:
+            raise _CBLFreeDwgSaveValidationError(
+                "저장 검증 실패: 신규 operation의 출력 handle이 중복됩니다.",
+                {"op_index": op_index, "operation_type": operation_type, "handle": handle},
+            )
+        seen_handles.add(handle)
+        output_handles[str(op_index)] = handle
+    return output_handles
+
+
 @_cbl_csrf_exempt
 def cblcad_free_dwg_save_local_api(request):
     if request.method == "GET":
@@ -25174,6 +25309,8 @@ def cblcad_free_dwg_save_local_api(request):
                               "libredwg_text_differences": {"missing": [], "added": []},
                           })
             payload = output.read_bytes()
+            output_handles = _cbl_free_dwg_output_handles_v1(acad_report, ops)
+            output_handles_value, output_handles_size, output_handles_is_token = _cbl_free_dwg_handle_map_delivery_v1(output_handles)
             is_explicit_download_name = bool(request.POST.get("download_name"))
             base_name = _cbl_os.path.splitext(requested_name)[0] or "drawing"
             name = requested_name if is_explicit_download_name else base_name + "_ACADSHARP_AC1018.dwg"
@@ -25191,6 +25328,9 @@ def cblcad_free_dwg_save_local_api(request):
                     "ok": True, "saved": True, "filename": local_target_path.name,
                     "size": len(payload), "version": "AC1018", "file_token": target_token,
                     "data": _cbl_base64.b64encode(payload).decode("ascii"),
+                    "output_handles": output_handles_value,
+                    "output_handles_size": output_handles_size,
+                    "output_handles_is_token": output_handles_is_token,
                     "backup": str(local_target_path.name + ".cblcad.bak"),
                     "converter": "free-acadsharp-dwg-writer", "oda_used": False, "v29_used": False,
                 }, json_dumps_params={"ensure_ascii": False})
@@ -25203,6 +25343,9 @@ def cblcad_free_dwg_save_local_api(request):
                     "size": len(payload),
                     "version": "AC1018",
                     "download_url": "/api/cblcad/free-dwg-download/" + quote(token, safe="") + "/?mode=free-dwg",
+                    "output_handles": output_handles_value,
+                    "output_handles_size": output_handles_size,
+                    "output_handles_is_token": output_handles_is_token,
                     "converter": "free-acadsharp-dwg-writer",
                     "oda_used": False,
                     "v29_used": False,
@@ -25221,6 +25364,10 @@ def cblcad_free_dwg_save_local_api(request):
             response["X-CBL-FREE-DWG-CONVERTER"] = "free-acadsharp-dwg-writer"
             response["X-CBL-ODA-USED"] = "0"
             response["X-CBL-V29-USED"] = "0"
+            if output_handles_value:
+                response["X-CBL-FREE-DWG-OUTPUT-HANDLES"] = output_handles_value
+                response["X-CBL-FREE-DWG-OUTPUT-HANDLES-SIZE"] = str(output_handles_size)
+                response["X-CBL-FREE-DWG-OUTPUT-HANDLES-TOKEN"] = "1" if output_handles_is_token else "0"
             response["X-CBL-FREE-DWG-SAVE-MS"] = f"{(_cbl_time.perf_counter() - started) * 1000:.2f}"
             _cbl_dwg_dxf_emit_log_v1(
                 "CBLCAD_FREE_DWG_SAVE_LOCAL endpoint=free-dwg-save event=success oda_executed=0 ops=%s region=%s minsert=%s acadsharp_texts_validated=%s acadsharp_layers_validated=%s libredwg_layer_owner_differences=%s libredwg_layer_name_differences=%s libredwg_text_differences=%s endpoint_ms=%.2f",
