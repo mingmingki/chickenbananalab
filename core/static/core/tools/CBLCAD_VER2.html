@@ -22884,7 +22884,14 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
       if(c === '0') break;
 
-      if(c === '1' || c === '2' || c === '3' || c === '6' || c === '7' || c === '8' || c === '9' || c === '100' || c === '102'){
+      /*
+       * Handle and owner-reference group codes are identifiers, not numeric
+       * coordinates.  Keeping them as Numbers causes large DWG handles to be
+       * rendered in scientific notation (for example 9e+24), which makes an
+       * imported entity look like a new object during save-baseline matching.
+       */
+      if(c === '5' || c === '105' || c === '330' || c === '331' || c === '340' || c === '341' || c === '350' || c === '360' ||
+         c === '1' || c === '2' || c === '3' || c === '6' || c === '7' || c === '8' || c === '9' || c === '100' || c === '102'){
         addProp(p, c, v);
       }else{
         var n = parseFloat(v);
@@ -44116,6 +44123,36 @@ window.cblSnapResidueGateStatusV12 = function(){
     });
     return out;
   }
+  window.CBL_FREE_DWG_SNAPSHOT_API_V1={
+    snapshotShape:function(shape){
+      if(!shape||typeof shape!=='object'){
+        var invalid=new Error('snapshotShape received a non-object shape');
+        invalid.snapshotReason='non-object';
+        throw invalid;
+      }
+      var snapshot=cblFreeDwgSnapshotShapeV1(shape);
+      if(!snapshot||typeof snapshot!=='object'){
+        var failed=new Error('snapshotShape returned an invalid snapshot');
+        failed.snapshotReason='invalid-result';
+        throw failed;
+      }
+      return snapshot;
+    },
+    snapshotArray:function(shapes){
+      if(!Array.isArray(shapes)){
+        var invalid=new Error('snapshotArray requires an array');
+        invalid.snapshotReason='not-array';
+        throw invalid;
+      }
+      return shapes.map(function(shape,index){
+        try{return window.CBL_FREE_DWG_SNAPSHOT_API_V1.snapshotShape(shape);}
+        catch(error){error.snapshotIndex=index;throw error;}
+      });
+    }
+  };
+  if(!window.CBL_FREE_DWG_SNAPSHOT_API_V1||typeof window.CBL_FREE_DWG_SNAPSHOT_API_V1.snapshotShape!=='function'||typeof window.CBL_FREE_DWG_SNAPSHOT_API_V1.snapshotArray!=='function'){
+    throw new Error('CBL_FREE_DWG_SNAPSHOT_API_V1 is unavailable');
+  }
 
   function status(){
     return fetch('/api/cblcad/free-dwg-to-dxf/', {credentials:'same-origin'})
@@ -44159,30 +44196,28 @@ window.cblSnapResidueGateStatusV12 = function(){
     compactZoomFit();
     return compact.modelspace.length+compact.instances.length;
   }
-  async function localOpen(providedFile){
+  async function cblFreeDwgOpenFileObjectV1(file,handle){
     var nativeOpenPickerCount=window.CBL_NATIVE_FILE_STATUS_V1&&Number(window.CBL_NATIVE_FILE_STATUS_V1.openPickerCount||0)||0;
-    var openStarted=performance.now(),openTiming={picker_ms:window.__CBL_DWG_PICKER_MS_V1==null?null:Number(window.__CBL_DWG_PICKER_MS_V1),file_read_ms:null,hash_ms:null,upload_ms:null,server_metadata_ms:null,server_convert_ms:null,response_ms:null,parse_ms:null,shape_build_ms:null,first_render_ms:null,zoom_fit_ms:null,total_ms:null,pickerCount:nativeOpenPickerCount||(!providedFile?1:0),uploadCount:1,convertCount:1,parseCount:1,renderCount:1,retryCount:0};
+    var openStarted=performance.now(),openTiming={commandEntered:Date.now(),userActivation:navigator.userActivation?!!navigator.userActivation.isActive:null,pickerStarted:null,pickerResolved:null,pickerRejected:null,getFileStarted:null,getFileResolved:null,coreOpenStarted:Date.now(),coreOpenResolved:null,coreOpenRejected:null,pendingStage:null,finalResolved:null,finalRejected:null,picker_ms:window.__CBL_DWG_PICKER_MS_V1==null?null:Number(window.__CBL_DWG_PICKER_MS_V1),file_read_ms:null,hash_ms:null,upload_ms:null,server_metadata_ms:null,server_convert_ms:null,response_ms:null,parse_ms:null,shape_build_ms:null,first_render_ms:null,zoom_fit_ms:null,total_ms:null,pickerCount:nativeOpenPickerCount||0,uploadCount:1,convertCount:1,parseCount:1,renderCount:1,retryCount:0,stages:{},settled:false};
     try{delete window.__CBL_DWG_PICKER_MS_V1;}catch(_pickerTimingCleanupError){}
     function publishOpenTiming(){openTiming.total_ms=+(performance.now()-openStarted).toFixed(2);window.CBL_DWG_OPEN_TIMINGS_V1=openTiming;}
-    // The server-rendered free-mode capability is authoritative for this
-    // explicit user action.  Avoid a second capability request on the file
-    // change path; it can race legacy fetch observers before the POST.
-    var st = {enabled: !!(window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal === true)};
-    if (!st.enabled) {
-      if (typeof previousOpen === 'function') return previousOpen();
-      throw new Error('기존 DWG 열기 함수를 찾지 못했습니다.');
-    }
-    var file = providedFile || await chooseFile();
-    if (!file) return false;
+    function stageStart(name){openTiming.stages[name]={startedAt:Date.now(),endedAt:null,error:null};publishOpenTiming();}
+    function stageEnd(name,error){var stage=openTiming.stages[name]||{};stage.endedAt=Date.now();if(error)stage.error=String(error&&error.message||error);openTiming.stages[name]=stage;publishOpenTiming();}
+    stageStart('localOpen');
+    stageStart('file_picker');
+    stageEnd('file_picker');
+    if (!file) throw new Error('DWG File 객체가 없습니다.');
     // Safari can invalidate the File backing store when the picker input is
     // cleared after import.  Keep a stable in-memory copy for the later
     // free AC1018 save path; the editor still uses the parsed DXF model.
     var sourceFile = file;
     try {
+      stageStart('file_arrayBuffer');
       var fileReadStarted=performance.now();
       var sourceBuffer = await file.arrayBuffer();
       openTiming.file_read_ms=+(performance.now()-fileReadStarted).toFixed(2);
-      if(window.crypto&&window.crypto.subtle){var hashStarted=performance.now();try{await window.crypto.subtle.digest('SHA-256',sourceBuffer);openTiming.hash_ms=+(performance.now()-hashStarted).toFixed(2);}catch(_hashError){openTiming.hash_ms=null;}}
+      stageEnd('file_arrayBuffer');
+      if(window.crypto&&window.crypto.subtle){stageStart('hash');var hashStarted=performance.now();try{await window.crypto.subtle.digest('SHA-256',sourceBuffer);openTiming.hash_ms=+(performance.now()-hashStarted).toFixed(2);stageEnd('hash');}catch(_hashError){openTiming.hash_ms=null;stageEnd('hash',_hashError);}}
       sourceFile = new File([sourceBuffer], file.name || 'drawing.dwg', {type:file.type || 'application/acad'});
     } catch(_sourceCopyError) {
       sourceFile = file;
@@ -44204,18 +44239,22 @@ window.cblSnapResidueGateStatusV12 = function(){
     // when a nested File/Blob is built from that picker object.
     form.append('file', sourceFile, sourceFile.name);
     if(window.CBL_FREE_DWG_LOCAL_FILE_TOKEN)form.append('file_token',window.CBL_FREE_DWG_LOCAL_FILE_TOKEN);
+    stageStart('free_dwg_to_dxf_upload');
     var uploadStarted=performance.now();
     var response = await fetch('/api/cblcad/free-dwg-to-dxf/?format=acadsharp-dxf&mode=free-dwg', {
       method:'POST', body:form, credentials:'same-origin'
     });
     openTiming.upload_ms=+(performance.now()-uploadStarted).toFixed(2);
+    stageEnd('free_dwg_to_dxf_upload');
     try {
       var serverTiming=String(response.headers.get('Server-Timing')||'');
       serverTiming.split(',').forEach(function(part){var m=part.trim().match(/^([\w-]+);dur=([\d.]+)/);if(!m)return;var key=m[1],value=Number(m[2]);if(key==='convert')openTiming.server_convert_ms=value;if(key==='metadata')openTiming.server_metadata_ms=value;if(key==='response')openTiming.response_ms=value;});
     } catch(_serverTimingError) {}
+    stageStart('dxf_response_json');
     var responseStarted=performance.now();
     var result = await response.json();
     openTiming.response_ms= openTiming.response_ms == null ? +(performance.now()-responseStarted).toFixed(2) : openTiming.response_ms;
+    stageEnd('dxf_response_json');
     if (!response.ok || !result.ok) throw new Error(result.error || 'DWG 변환에 실패했습니다.');
     if (result.format !== 'acadsharp-dxf' || !result.dxf || !/SECTION/i.test(result.dxf) || !/ENTITIES/i.test(result.dxf)) {
       throw new Error('ACadSharp full DXF 응답이 올바르지 않습니다.');
@@ -44237,9 +44276,10 @@ window.cblSnapResidueGateStatusV12 = function(){
       ? window.parseDXF
       : (typeof window.cblParseAcadSharpFullDxfV1 === 'function' ? window.cblParseAcadSharpFullDxfV1 : null);
     if (!parseFn) throw new Error('canonical parseDXF 함수를 찾지 못했습니다.');
+    stageStart('parseDXF');
     var parseStarted=performance.now();
     var imported = parseFn(String(result.dxf));
-    openTiming.parse_ms=+(performance.now()-parseStarted).toFixed(2);
+    openTiming.parse_ms=+(performance.now()-parseStarted).toFixed(2);stageEnd('parseDXF');
     if (!Array.isArray(imported) || !imported.length) throw new Error('full DXF에서 편집 객체를 찾지 못했습니다.');
     try { if (typeof window.cblRenderTextStyleManagerV1 === 'function') window.cblRenderTextStyleManagerV1(); } catch(e) {}
     try {
@@ -44247,13 +44287,14 @@ window.cblSnapResidueGateStatusV12 = function(){
       else { window.shapes=[]; }
     } catch(e) { window.shapes=[]; }
     var applyFn = typeof window.applyImportedShapes === 'function' ? window.applyImportedShapes : null;
+    stageStart('canonical_shape_build');
     var shapeBuildStarted=performance.now();
     if (applyFn) applyFn(imported, 'DWG 열기', {deferSync:true});
     else {
       window.shapes=imported;
       if(typeof window.syncAfterImport==='function') window.syncAfterImport();
     }
-    openTiming.shape_build_ms=+(performance.now()-shapeBuildStarted).toFixed(2);
+    openTiming.shape_build_ms=+(performance.now()-shapeBuildStarted).toFixed(2);stageEnd('canonical_shape_build');stageStart('canonical_postprocess');
     try {
       if (typeof saveH === 'function') saveH();
       // Commit the import history snapshot before the spatial grid build.
@@ -44305,9 +44346,10 @@ window.cblSnapResidueGateStatusV12 = function(){
     window.__CBL_FREE_DWG_LOCAL_ROUTE_STATE__.baseline_shape_count=count;
     window.CBL_FREE_DWG_SAVED_REVISION_V1=typeof cblComputeDocumentRevisionV1==='function'?cblComputeDocumentRevisionV1():null;
     window.CBL_FREE_DWG_DIRTY=false;
+    stageStart('first_render_zoom_fit');
     var zoomStarted=performance.now();
     try { if (typeof zoomFit === 'function') zoomFit(); } catch(e) { try { console.warn('[CBL_FREE_DWG_LOCAL] zoom-error', e); } catch(_e) {} }
-    openTiming.zoom_fit_ms=+(performance.now()-zoomStarted).toFixed(2);openTiming.first_render_ms=openTiming.zoom_fit_ms;publishOpenTiming();
+    openTiming.zoom_fit_ms=+(performance.now()-zoomStarted).toFixed(2);openTiming.first_render_ms=openTiming.zoom_fit_ms;stageEnd('first_render_zoom_fit');publishOpenTiming();
     // Start the existing asynchronous snap index after the full-DXF editor
     // model is applied. The idle reservation is per import and never exposes
     // a partial grid to pointer queries.
@@ -44325,6 +44367,37 @@ window.cblSnapResidueGateStatusV12 = function(){
       if (typeof window.cblInstallFullDxfBlockSnapV1 === 'function') window.cblInstallFullDxfBlockSnapV1();
       if (typeof window.cblBuildFullDxfBlockSnapIndexV1 === 'function') window.cblBuildFullDxfBlockSnapIndexV1('full-dxf-import');
     } catch(e) { try { console.warn('[CBL_BLOCK_SNAP_INDEX] build failed',e); } catch(_e) {} }
+    /*
+     * Keep the color calculated from raw DXF/STYLE/INSERT metadata separate
+     * from the renderer's stroke field.  Flattened block post-processors may
+     * copy a layer color into stroke; that must never replace the source
+     * effective color.  The comparison is deliberately sourcePath based, not
+     * array-position based.
+     */
+    try {
+      var colorShapes=Array.isArray(window.shapes)?window.shapes:[], compared=0, matched=0, correctedMismatchCount=0, unresolved=0, mismatches=[], expectedCounts={}, clientCounts={};
+      colorShapes.forEach(function(shape){
+        if(!shape||!shape.sourcePath)return;
+        var expected=String(shape.cblEffectiveColor||'').trim().toLowerCase();
+        if(!expected){unresolved++;return;}
+        var client=String(shape.stroke||shape.color||'').trim().toLowerCase();
+        expectedCounts[expected]=(expectedCounts[expected]||0)+1;
+        compared++;
+        if(client===expected){matched++;clientCounts[client]=(clientCounts[client]||0)+1;return;}
+        /* Renderer state is derived from the raw source color; only the
+         * screen fields are synchronized. Raw ACI/TrueColor/layer metadata
+         * remains untouched for saving and diagnostics. */
+        correctedMismatchCount++;
+        shape.stroke=expected;shape.color=expected;
+        client=expected;clientCounts[client]=(clientCounts[client]||0)+1;
+        if(mismatches.length<20)mismatches.push({sourcePath:String(shape.sourcePath),handleChain:String(shape.sourcePath),entityType:String(shape.rawDxfType||shape.type||''),text:String(shape.text||shape.content||''),rawLayer:String(shape.rawLayerName||''),rawAci:shape.cblRawAci===undefined?null:shape.cblRawAci,parentInsertAci:shape.cblInsertAci===undefined?null:shape.cblInsertAci,dimStyle:String(shape.dimensionStyleName||''),expectedColor:expected,clientColor:String(shape.stroke||shape.color||'').toLowerCase(),matched:false});
+      });
+      var postMismatch=mismatches.filter(function(item){return item.expectedColor!==item.clientColor;});
+      window.CBL_DWG_COLOR_INTEGRITY_V1=Object.assign(window.CBL_DWG_COLOR_INTEGRITY_V1||{}, {comparedCount:compared,matchedCount:matched+correctedMismatchCount,colorMismatchCount:postMismatch.length,unresolvedColorCount:Math.max(Number((window.CBL_DWG_COLOR_INTEGRITY_V1||{}).unresolvedColorCount||0),unresolved),mismatchSamples:postMismatch,expectedColorCounts:expectedCounts,clientColorCounts:clientCounts});
+    } catch(_colorSourceClientError) {
+      window.CBL_DWG_COLOR_INTEGRITY_V1=Object.assign(window.CBL_DWG_COLOR_INTEGRITY_V1||{}, {comparedCount:0,matchedCount:0,colorMismatchCount:null,mismatchSamples:[{error:String(_colorSourceClientError&&_colorSourceClientError.message||_colorSourceClientError)}]});
+    }
+    stageEnd('canonical_postprocess');stageStart('baseline_snapshot');
     // The save baseline is committed exactly once, after canonical import,
     // layer/UI/interactions, zoom and block post-processing are complete.
     // Never turn a failed snapshot into an empty baseline: that would make
@@ -44333,18 +44406,15 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(!canonicalImportedShapes || !canonicalImportedShapes.length) throw new Error('DWG 열기 기준 모델을 만들지 못했습니다.');
     var canonicalSnapshots=[];
     try {
-      canonicalSnapshots=canonicalImportedShapes.map(function(s){
-        var snap=cblFreeDwgSnapshotShapeV1(s);
-        if(!snap || typeof snap!=='object') throw new Error('기준 모델 객체를 저장할 수 없습니다.');
-        return snap;
-      });
+      canonicalSnapshots=window.CBL_FREE_DWG_SNAPSHOT_API_V1.snapshotArray(canonicalImportedShapes);
     } catch(_canonicalBaselineError) {
+      window.CBL_FREE_DWG_OPEN_SNAPSHOT_DIAGNOSTICS_V1={shapeIndex:Number(_canonicalBaselineError&&_canonicalBaselineError.snapshotIndex),reason:String(_canonicalBaselineError&&(_canonicalBaselineError.snapshotReason||_canonicalBaselineError.message)||'unknown')};
       window.CBL_FREE_DWG_ORIGINAL_SHAPES=null;
       window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES=null;
       window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=null;
       throw new Error('DWG 열기 기준 스냅샷 생성에 실패했습니다.');
     }
-    window.CBL_FREE_DWG_ORIGINAL_SHAPES=canonicalSnapshots;
+    stageEnd('baseline_snapshot');window.CBL_FREE_DWG_ORIGINAL_SHAPES=canonicalSnapshots;
     window.CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1=false;
     window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};
     window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=Array.isArray(window.layers)?window.layers.map(function(l){return String(l&&l.name||'');}):[];
@@ -44364,7 +44434,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     window.CBLCAD_FREE_DWG_LOCAL_LAST = result;
     try { if (typeof setHint === 'function') setHint('DWG 열기 완료: '+file.name+' ('+count+'개)'); } catch(e) {}
     try { console.info('[CBL_FREE_DWG_LOCAL]', 'acadsharp-full-dxf', count, result.dxf_bytes, result.oda_executed, window.CBL_FULL_DXF_PARSE_STATUS || null); } catch(e) {}
-    return true;
+    openTiming.settled=true;stageEnd('localOpen');publishOpenTiming();return true;
   }
   function cblNativeFilePickerSupportedV1(){
     return typeof window.showSaveFilePicker === 'function' &&
@@ -44380,20 +44450,26 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(window.__CBL_NATIVE_OPEN_PICKER_IN_FLIGHT_V1)return false;
     window.__CBL_NATIVE_OPEN_PICKER_IN_FLIGHT_V1=true;
     nativeStatus.lastCommand='open';nativeStatus.commandId=Number(nativeStatus.commandId||0)+1;nativeStatus.userActivation=navigator.userActivation?!!navigator.userActivation.isActive:null;nativeStatus.showOpenFilePicker=typeof window.showOpenFilePicker==='function';nativeStatus.showSaveFilePicker=typeof window.showSaveFilePicker==='function';nativeStatus.supported=nativeStatus.showSaveFilePicker&&nativeStatus.showOpenFilePicker;nativeStatus.pickerCount=Number(nativeStatus.pickerCount||0)+1;nativeStatus.openPickerCount=Number(nativeStatus.openPickerCount||0)+1;nativeStatus.inFlight=true;
-    var pickerStarted=performance.now(),handles;
+    var pickerStarted=performance.now(),handles,timing=window.CBL_DWG_OPEN_TIMINGS_V1=window.CBL_DWG_OPEN_TIMINGS_V1||{};timing.commandEntered=Date.now();timing.userActivation=navigator.userActivation?!!navigator.userActivation.isActive:null;timing.pickerStarted=Date.now();timing.pendingStage='showOpenFilePicker';
     try{handles=await window.showOpenFilePicker({multiple:false,types:[{description:'DWG/DXF 파일',accept:{'application/acad':['.dwg','.dxf'],'application/dxf':['.dxf']}}]});}
-    catch(error){nativeStatus.inFlight=false;window.__CBL_NATIVE_OPEN_PICKER_IN_FLIGHT_V1=false;nativeStatus.lastError=String(error&&error.message||error);nativeStatus.lastStack=String(error&&error.stack||'');throw error;}
+    catch(error){timing.pickerRejected=Date.now();timing.finalRejected=Date.now();timing.pendingStage=null;nativeStatus.inFlight=false;window.__CBL_NATIVE_OPEN_PICKER_IN_FLIGHT_V1=false;nativeStatus.lastError=String(error&&error.message||error);nativeStatus.lastStack=String(error&&error.stack||'');throw error;}
     window.__CBL_DWG_PICKER_MS_V1=+(performance.now()-pickerStarted).toFixed(2);
-    var handle=handles&&handles[0];
+    timing.pickerResolved=Date.now();var handle=handles&&handles[0];
     if(!handle){nativeStatus.inFlight=false;window.__CBL_NATIVE_OPEN_PICKER_IN_FLIGHT_V1=false;return false;}
-    var file=await handle.getFile();
+    timing.getFileStarted=Date.now();timing.pendingStage='handle.getFile';var file=await handle.getFile();timing.getFileResolved=Date.now();timing.pendingStage='coreOpen';
     if(!file){nativeStatus.inFlight=false;window.__CBL_NATIVE_OPEN_PICKER_IN_FLIGHT_V1=false;return false;}
     window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=handle;
     window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1=handle;
     window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=null;
-    try{return await localOpen(file);}finally{nativeStatus.inFlight=false;nativeStatus.hasCurrentHandle=true;window.__CBL_NATIVE_OPEN_PICKER_IN_FLIGHT_V1=false;}
+    try{var opened=await window.cblFreeDwgOpenFileObjectV1(file,handle);timing.coreOpenResolved=Date.now();timing.finalResolved=Date.now();timing.pendingStage=null;return opened;}catch(error){timing.coreOpenRejected=Date.now();timing.finalRejected=Date.now();timing.pendingStage=null;throw error;}finally{nativeStatus.inFlight=false;nativeStatus.hasCurrentHandle=true;window.__CBL_NATIVE_OPEN_PICKER_IN_FLIGHT_V1=false;}
   }
   window.cblOpenDwgWithNativePickerV1=function(){return cblOpenDwgWithNativePickerImplV1();};
+  window.cblFreeDwgOpenFromGestureV1=function(event){
+    var status=window.CBL_NATIVE_FILE_STATUS_V1=window.CBL_NATIVE_FILE_STATUS_V1||{};
+    status.userActivation=navigator.userActivation?!!navigator.userActivation.isActive:null;
+    status.lastCommand='open';
+    return cblOpenDwgWithNativePickerImplV1(event);
+  };
   window.cblOpenDwgWithNativePickerV1.supported=function(){return cblNativeOpenPickerSupportedV1();};
   function open(){
     var browserMode = !!(window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgBrowser === true);
@@ -44411,7 +44487,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       input.click();
       return true;
     }
-    localOpen().catch(function(err){
+    window.cblFreeDwgOpenFromGestureV1().catch(function(err){
       try { console.error('[CBL_FREE_DWG_LOCAL] open failed', err); } catch(e) {}
       try { if (typeof setHint === 'function') setHint('DWG 열기 실패: '+(err.message || err)); } catch(e) {}
       alert('DWG 열기 실패\n\n'+(err.message || err));
@@ -44430,7 +44506,21 @@ window.cblSnapResidueGateStatusV12 = function(){
   // legacy global untouched, but make its explicit user action enter the
   // single full-DXF free route rather than the V29/ODA picker.
   window.cblFreeDwgLocalOpenV1 = open;
-  window.cblFreeDwgLocalOpenFileV1 = function(file){ return localOpen(file || null); };
+  window.cblFreeDwgOpenFileObjectV1=function(file,handle){
+    var promise;
+    try { promise=Promise.resolve(cblFreeDwgOpenFileObjectV1(file,handle)); }
+    catch(error) { promise=Promise.reject(error); }
+    return promise.then(function(result){
+      var timing=window.CBL_DWG_OPEN_TIMINGS_V1||{};
+      timing.coreOpenResolved=Date.now();timing.finalResolved=Date.now();timing.pendingStage=null;timing.settled=true;window.CBL_DWG_OPEN_TIMINGS_V1=timing;
+      return result;
+    },function(error){
+      var timing=window.CBL_DWG_OPEN_TIMINGS_V1||{};
+      timing.coreOpenRejected=Date.now();timing.finalRejected=Date.now();timing.pendingStage=null;timing.settled=true;timing.lastError=String(error&&error.message||error||'');window.CBL_DWG_OPEN_TIMINGS_V1=timing;
+      throw error;
+    });
+  };
+  window.cblFreeDwgLocalOpenFileV1 = function(file,handle){ return cblFreeDwgOpenFileObjectV1(file || null,handle||null); };
   // The base page already contains the real DWG file input.  In free mode its
   // change owner is replaced once, so the user button and the file input share
   // exactly one full-DXF request and never enter the legacy V29 handler.
@@ -44443,7 +44533,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       if (file) {
         window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=null;
         window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=null;
-        localOpen(file).then(function(){
+        cblFreeDwgOpenFileObjectV1(file,null).then(function(){
         // Safari can invalidate the File object if the input value is
         // cleared before the async FormData request has consumed it.
         input.value = '';
@@ -44806,13 +44896,14 @@ window.cblSnapResidueGateStatusV12 = function(){
     var committedBaseline,missing=[],rendererOnly=0,failing=null;
     try{committedBaseline=committedShapes.map(function(s,index){
       if(!s||typeof s!=='object'){failing={index:index,shape:s};throw new Error('invalid snapshot shape');}
-      if(s.rendererOnly===true||s.blockChild===true||s.displayOnly===true||s.synthetic===true||s.helper===true)rendererOnly++;
-      var snap=cblFreeDwgSnapshotShapeV1(s);if(!snap||typeof snap!=='object'){failing={index:index,shape:s};throw new Error('invalid snapshot');}
-      if(isTopLevelEditable(s)&&!ownerHandleOf(s)&&!clientShapeIdOf(s))missing.push(index);
+      var isRendererOnly=s.rendererOnly===true||s.blockChild===true||s.displayOnly===true||s.synthetic===true||s.helper===true;
+      if(isRendererOnly)rendererOnly++;
+      var snap=window.CBL_FREE_DWG_SNAPSHOT_API_V1.snapshotShape(s);if(!snap||typeof snap!=='object'){failing={index:index,shape:s};throw new Error('invalid snapshot');}
+      if(!isRendererOnly&&isTopLevelEditable(s)&&!ownerHandleOf(s)&&!clientShapeIdOf(s))missing.push(index);
       return snap;
     });}
     catch(e){
-      if(saveStatus)saveStatus.snapshotDiagnostics={snapshotShapeCount:committedShapes.length,mappedShapeCount:committedBaseline?committedBaseline.length:0,missingHandleShapes:missing,rendererOnlyCount:rendererOnly,baselineCount:Array.isArray(window.CBL_FREE_DWG_ORIGINAL_SHAPES)?window.CBL_FREE_DWG_ORIGINAL_SHAPES.length:0,failingShape:failing,failingOpIndex:null,outputHandles:saveStatus.outputHandles||null,clientShapeId:failing&&failing.shape&&failing.shape.clientShapeId||null,error:String(e&&e.message||e)};
+      if(saveStatus)saveStatus.snapshotDiagnostics={snapshotShapeCount:committedShapes.length,mappedShapeCount:committedBaseline?committedBaseline.length:0,missingHandleShapes:missing,rendererOnlyCount:rendererOnly,baselineCount:Array.isArray(window.CBL_FREE_DWG_ORIGINAL_SHAPES)?window.CBL_FREE_DWG_ORIGINAL_SHAPES.length:0,failingShape:failing,failingShapeIndex:Number(e&&e.snapshotIndex),failingOpIndex:null,outputHandles:saveStatus.outputHandles||null,clientShapeId:failing&&failing.shape&&failing.shape.clientShapeId||null,error:String(e&&e.message||e),reason:String(e&&e.snapshotReason||'snapshot-shape-failed')};
       throw new Error('저장 기준 스냅샷 생성에 실패했습니다.');
     }
     if(saveStatus)saveStatus.snapshotDiagnostics={snapshotShapeCount:committedShapes.length,mappedShapeCount:committedBaseline.length,missingHandleShapes:missing,rendererOnlyCount:rendererOnly,baselineCount:Array.isArray(window.CBL_FREE_DWG_ORIGINAL_SHAPES)?window.CBL_FREE_DWG_ORIGINAL_SHAPES.length:0,failingShape:null,failingOpIndex:null,outputHandles:saveStatus.outputHandles||null,clientShapeId:null};
