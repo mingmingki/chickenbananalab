@@ -23431,7 +23431,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       var color = resolveColor(ent, layerName, ctx);
       var lt = resolveLtype(ent, layerName, ctx);
 
-      return {
+      var sourceHandle = String(first(ent && ent.p || {}, '5', '') || '');
+      var style = {
         layId:ly.id,
         stroke:color || ly.color || '#e5e7eb',
         cblSourceLayerName:layerName,
@@ -23443,8 +23444,16 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         dash:ltToDash(lt),
         lineType:lt,
         rawLayerName:layerName,
-        rawDxfType:ent.type
+        rawDxfType:ent.type,
+        sourceHandle:sourceHandle,
+        originalHandle:sourceHandle,
+        handle:sourceHandle
       };
+      // Keep renderer-expanded identity out of the operation stream while
+      // allowing the expanded geometry to remain in the canonical render
+      // model.  The context is consumed by pushShape below.
+      if(ctx) style.__cblRenderContext = ctx;
+      return style;
     }
 
     function pt(ent, xCode, yCode, m){
@@ -23661,6 +23670,22 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
     function pushShape(s){
       if(!s) return;
+      var renderCtx = s.__cblRenderContext;
+      if(renderCtx){
+        delete s.__cblRenderContext;
+        s.rendererOnly = true;
+        s.displayOnly = true;
+        s.synthetic = true;
+        s.blockChild = true;
+        s.isBlockChild = true;
+        s.fromBlock = true;
+        s.ownerSourceHandle = String(renderCtx.ownerSourceHandle || renderCtx.parentSourceHandle || '');
+        s.parentSourceHandle = s.ownerSourceHandle;
+        s.parentHandle = s.ownerSourceHandle;
+        s.parentBlockName = String(renderCtx.parentBlockName || renderCtx.blockName || '');
+        s.parentInsertName = String(renderCtx.parentInsertName || renderCtx.blockName || '');
+        s.blockName = s.blockName || String(renderCtx.blockName || '');
+      }
       shapes.push(s);
       stats.flattenedEntityCount++;
     }
@@ -23863,6 +23888,30 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         var bn = normName(first(p,'2',''));
         var block = blocks[bn];
 
+        // The source INSERT is the single editable DWG entity.  Its expanded
+        // block children are render-only and must never become add/update/
+        // delete operations.
+        if(!ctx){
+          var ip = pt(ent, '10', '20', null);
+          pushShape(Object.assign({}, style, {
+            type:'blockref',
+            name:bn,
+            blockName:bn,
+            x:ip.x,
+            y:ip.y,
+            scaleX:num(first(p,'41',1),1),
+            scaleY:num(first(p,'42',1),1),
+            scaleZ:num(first(p,'43',1),1),
+            scale:num(first(p,'41',1),1),
+            rotation:num(first(p,'50',0),0) * Math.PI / 180,
+            rows:Math.max(1, Math.floor(num(first(p,'71',1),1))),
+            cols:Math.max(1, Math.floor(num(first(p,'70',1),1))),
+            rowSpacing:num(first(p,'45',0),0),
+            colSpacing:num(first(p,'44',0),0),
+            rawDxfType:'INSERT'
+          }));
+        }
+
         if(!block){
           addSkipped('INSERT_MISSING_BLOCK_' + bn);
           return;
@@ -23873,7 +23922,15 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
           layer:layerName,
           color:resolveColor(ent, layerName, ctx),
           linetype:resolveLtype(ent, layerName, ctx),
-          matrix:makeInsertMatrix(ent, block)
+          matrix:makeInsertMatrix(ent, block),
+          ownerSourceHandle:ctx && (ctx.ownerSourceHandle || ctx.parentSourceHandle) || String(first(p,'5','') || ''),
+          parentSourceHandle:ctx && (ctx.ownerSourceHandle || ctx.parentSourceHandle) || String(first(p,'5','') || ''),
+          parentBlockName:bn,
+          parentInsertName:bn,
+          blockName:bn,
+          blockChild:true,
+          displayOnly:true,
+          rendererOnly:true
         };
 
         if(ctx && ctx.matrix){
@@ -23915,7 +23972,15 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
             linetype:resolveLtype(ent, dLayerName, ctx),
             matrix:ctx && ctx.matrix ? ctx.matrix : matIdentity(),
             dimensionTextRotationDeg:cblDimensionTextRotationDegV2(p),
-            dimensionHandle:first(p,'5','')
+            dimensionHandle:first(p,'5',''),
+            ownerSourceHandle:ctx && (ctx.ownerSourceHandle || ctx.parentSourceHandle) || String(first(p,'5','') || ''),
+            parentSourceHandle:ctx && (ctx.ownerSourceHandle || ctx.parentSourceHandle) || String(first(p,'5','') || ''),
+            parentBlockName:dbn,
+            parentInsertName:dbn,
+            blockName:dbn,
+            blockChild:true,
+            displayOnly:true,
+            rendererOnly:true
           };
 
           dblock.ents.forEach(function(be){
@@ -44106,27 +44171,6 @@ window.cblSnapResidueGateStatusV12 = function(){
     openTiming.parse_ms=+(performance.now()-parseStarted).toFixed(2);
     if (!Array.isArray(imported) || !imported.length) throw new Error('full DXF에서 편집 객체를 찾지 못했습니다.');
     try { if (typeof window.cblRenderTextStyleManagerV1 === 'function') window.cblRenderTextStyleManagerV1(); } catch(e) {}
-    // Keep a private immutable baseline for the free AC1018 Save As path.
-    // The canonical editor model remains the only render/selection model.
-    try {
-      window.CBL_FREE_DWG_ORIGINAL_SHAPES = imported.map(function(s){
-        try{return cblFreeDwgSnapshotShapeV1(s);}catch(_snapshotError){
-          return {type:s&&s.type,rawDxfType:s&&s.rawDxfType,sourceHandle:s&&s.sourceHandle,originalHandle:s&&s.originalHandle,
-            x:s&&s.x,y:s&&s.y,x1:s&&s.x1,y1:s&&s.y1,x2:s&&s.x2,y2:s&&s.y2,cx:s&&s.cx,cy:s&&s.cy,r:s&&s.r,
-            name:s&&s.name,blockName:s&&s.blockName,rotation:s&&s.rotation,rot:s&&s.rot,scale:s&&s.scale,scaleX:s&&s.scaleX,scaleY:s&&s.scaleY,
-            layId:s&&s.layId,rawLayerName:s&&s.rawLayerName,text:s&&s.text,content:s&&s.content,size:s&&s.size,pts:s&&s.pts};
-        }
-      });
-      window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES = {};
-      window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES = Array.isArray(window.layers) ? window.layers.map(function(l){return String(l.name||'');}) : [];
-      window.CBL_FREE_DWG_ORIGINAL_SHAPES.forEach(function(s){
-        var originalHandle=String(s&& (s.sourceHandle||s.originalHandle) || '').trim().replace(/^0x/i,'').toUpperCase().replace(/^0+/, '');
-        if (originalHandle) window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES[originalHandle] = true;
-      });
-    } catch(e) {
-      window.CBL_FREE_DWG_ORIGINAL_SHAPES = [];
-      window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES = {};
-    }
     try {
       if (typeof window.setShapes === 'function') window.setShapes([]);
       else { window.shapes=[]; }
@@ -44139,31 +44183,6 @@ window.cblSnapResidueGateStatusV12 = function(){
       if(typeof window.syncAfterImport==='function') window.syncAfterImport();
     }
     openTiming.shape_build_ms=+(performance.now()-shapeBuildStarted).toFixed(2);
-    // The parser result is not necessarily the final canonical editor model:
-    // import application can attach layer metadata and dimension/block display
-    // helpers.  Capture the save baseline only after that model is complete,
-    // otherwise source-less imported helpers are emitted as new operations.
-    try {
-      var canonicalImportedShapes=Array.isArray(window.shapes)?window.shapes:[];
-      window.CBL_FREE_DWG_ORIGINAL_SHAPES=canonicalImportedShapes.map(function(s){return cblFreeDwgSnapshotShapeV1(s);});
-      window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};
-      window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=Array.isArray(window.layers)?window.layers.map(function(l){return String(l&&l.name||'');}):[];
-      window.CBL_FREE_DWG_ORIGINAL_SHAPES.forEach(function(s){
-        var originalHandle=normHandle(s&&((s.sourceHandle||s.originalHandle)||''));
-        if(originalHandle) window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES[originalHandle]=true;
-      });
-      try {
-        var integrity=window.CBL_DWG_OPEN_INTEGRITY_V1;
-        if(integrity&&typeof integrity==='object'){
-          integrity.finalShapeCount=canonicalImportedShapes.length;
-          integrity.lastStage='final-canonical-model';
-        }
-      } catch(_integrityFinalError) {}
-    } catch(_canonicalBaselineError) {
-      window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];
-      window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};
-      window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=[];
-    }
     try {
       if (typeof saveH === 'function') saveH();
       // Commit the import history snapshot before the spatial grid build.
@@ -44235,6 +44254,41 @@ window.cblSnapResidueGateStatusV12 = function(){
       if (typeof window.cblInstallFullDxfBlockSnapV1 === 'function') window.cblInstallFullDxfBlockSnapV1();
       if (typeof window.cblBuildFullDxfBlockSnapIndexV1 === 'function') window.cblBuildFullDxfBlockSnapIndexV1('full-dxf-import');
     } catch(e) { try { console.warn('[CBL_BLOCK_SNAP_INDEX] build failed',e); } catch(_e) {} }
+    // The save baseline is committed exactly once, after canonical import,
+    // layer/UI/interactions, zoom and block post-processing are complete.
+    // Never turn a failed snapshot into an empty baseline: that would make
+    // every imported renderer shape look like a newly-created entity.
+    var canonicalImportedShapes=Array.isArray(window.shapes)?window.shapes:null;
+    if(!canonicalImportedShapes || !canonicalImportedShapes.length) throw new Error('DWG 열기 기준 모델을 만들지 못했습니다.');
+    var canonicalSnapshots=[];
+    try {
+      canonicalSnapshots=canonicalImportedShapes.map(function(s){
+        var snap=cblFreeDwgSnapshotShapeV1(s);
+        if(!snap || typeof snap!=='object') throw new Error('기준 모델 객체를 저장할 수 없습니다.');
+        return snap;
+      });
+    } catch(_canonicalBaselineError) {
+      window.CBL_FREE_DWG_ORIGINAL_SHAPES=null;
+      window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES=null;
+      window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=null;
+      throw new Error('DWG 열기 기준 스냅샷 생성에 실패했습니다.');
+    }
+    window.CBL_FREE_DWG_ORIGINAL_SHAPES=canonicalSnapshots;
+    window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};
+    window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=Array.isArray(window.layers)?window.layers.map(function(l){return String(l&&l.name||'');}):[];
+    canonicalSnapshots.forEach(function(s){
+      // localOpen is a separate integration scope from the save-operation
+      // scope below; do not call its private normHandle implementation here.
+      var originalHandle=String(s&&((s.sourceHandle||s.originalHandle)||'')||'').trim().replace(/^0x/i,'').toUpperCase().replace(/^0+/, '');
+      if(originalHandle) window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES[originalHandle]=true;
+    });
+    try {
+      var integrity=window.CBL_DWG_OPEN_INTEGRITY_V1;
+      if(integrity&&typeof integrity==='object'){
+        integrity.finalShapeCount=canonicalImportedShapes.length;
+        integrity.lastStage='final-canonical-model-baseline-committed';
+      }
+    } catch(_integrityFinalError) {}
     window.CBLCAD_FREE_DWG_LOCAL_LAST = result;
     try { if (typeof setHint === 'function') setHint('DWG 열기 완료: '+file.name+' ('+count+'개)'); } catch(e) {}
     try { console.info('[CBL_FREE_DWG_LOCAL]', 'acadsharp-full-dxf', count, result.dxf_bytes, result.oda_executed, window.CBL_FULL_DXF_PARSE_STATUS || null); } catch(e) {}
@@ -44488,13 +44542,23 @@ window.cblSnapResidueGateStatusV12 = function(){
   }
   function isTopLevelEditable(s){
     if(!s)return false;
+    if(s.rendererOnly===true||s.displayOnly===true||s.synthetic===true||s.helper===true||s.isDisplayOnly===true)return false;
     if(s.parentBlockName||s.parentInsertName|| (s.blockName&&String(s.type||'').toLowerCase()!=='blockref'))return false;
     if(s.blockChild===true||s.isBlockChild===true||s.fromBlock===true)return false;
     return String(s.type||'').toLowerCase()!=='group';
   }
   function buildOps(){
-    var base=Array.isArray(window.CBL_FREE_DWG_ORIGINAL_SHAPES)?window.CBL_FREE_DWG_ORIGINAL_SHAPES:[];
+    var importedFullDxf=window.CBL_ACADSHARP_FULL_DXF_ACTIVE===true;
+    var baselineReady=Array.isArray(window.CBL_FREE_DWG_ORIGINAL_SHAPES);
+    if(importedFullDxf&&!baselineReady)throw new Error('저장 기준 baseline이 준비되지 않았습니다. DWG를 다시 연 뒤 저장해 주세요.');
+    var base=baselineReady?window.CBL_FREE_DWG_ORIGINAL_SHAPES:[];
     var before={},after={},ops=[],ss=shapes(),topLevelHandles={};
+    var sourceHandles={},rendererOnlyCount=0,blockChildCount=0,newEditableCount=0;
+    ss.forEach(function(s){
+      var source=sourceHandleOf(s);if(source)sourceHandles[source]=true;
+      if(s&&(s.rendererOnly===true||s.displayOnly===true||s.synthetic===true||s.helper===true||s.isDisplayOnly===true))rendererOnlyCount++;
+      if(s&&(s.blockChild===true||s.isBlockChild===true||s.fromBlock===true||s.parentBlockName||s.parentInsertName))blockChildCount++;
+    });
     base.forEach(function(s){var h=ownerHandleOf(s);if(isTopLevelEditable(s)&&h){before[h]=s;topLevelHandles[h]=true;}});
     ss.forEach(function(s){var h=ownerHandleOf(s);if(isTopLevelEditable(s)&&h)after[h]=s;});
     Object.keys(before).forEach(function(h){if(!after[h])ops.push(deleteOpForShape(before[h],h));else if(!sameGeometry(before[h],after[h])){var u=opForShape(after[h],true);if(u&&topLevelHandles[h])ops.push(u);}});
@@ -44505,6 +44569,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       // baseline it is persisted and must not be emitted as a second create.
       var alreadyPersisted=base.some(function(b){return isTopLevelEditable(b)&&sameGeometry(b,s);});
       if(alreadyPersisted)return;
+      newEditableCount++;
       var o=opForShape(s,false);if(o)newOps.push(o);
     });
     var used={};newOps.forEach(function(o){if(o.layer)used[o.layer]=true;});
@@ -44523,7 +44588,9 @@ window.cblSnapResidueGateStatusV12 = function(){
       }
       normalized.push(o);
     });
-    return {ops:normalized,textStyles:textStyles,shapeCount:ss.length,sourceCount:base.length};
+    var diagnostics={shapesCount:ss.length,baselineCount:base.length,sourceHandleCount:Object.keys(sourceHandles).length,rendererOnlyCount:rendererOnlyCount,blockChildCount:blockChildCount,newEditableCount:newEditableCount,opsCount:normalized.length};
+    window.CBL_DWG_BUILD_OPS_DIAGNOSTICS_V1=diagnostics;
+    return {ops:normalized,textStyles:textStyles,shapeCount:ss.length,sourceCount:base.length,diagnostics:diagnostics};
   }
   function safeName(value){
     var s=String(value||'').trim().replace(/[\\/:*?"<>|]/g,'_');
@@ -44637,6 +44704,18 @@ window.cblSnapResidueGateStatusV12 = function(){
     var filename=safeName(result.filename||((handle&&handle.name)||window.CBL_FREE_DWG_CURRENT_FILENAME||'ChickenBananaCAD.dwg'));
     if(handle&&handle.name)filename=safeName(handle.name)||filename;
     if(!filename)filename='ChickenBananaCAD.dwg';
+    var committedShapes=Array.isArray(window.shapes)?window.shapes:null;
+    if(!committedShapes||!committedShapes.length)throw new Error('저장 기준 모델이 없어 저장 상태를 확정할 수 없습니다.');
+    var committedBaseline;
+    try {
+      committedBaseline=committedShapes.map(function(s){
+        var snap=cblFreeDwgSnapshotShapeV1(s);
+        if(!snap||typeof snap!=='object')throw new Error('기준 모델 객체를 저장할 수 없습니다.');
+        return snap;
+      });
+    } catch(_commitBaselineError) {
+      throw new Error('저장 기준 스냅샷 생성에 실패했습니다.');
+    }
     window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1=handle;
     window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=handle;
     window.CBL_FREE_DWG_CURRENT_FILENAME=filename;
@@ -44651,7 +44730,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     }
     try{curFile=filename;}catch(e){}
     try{window.curFile=filename;}catch(e){}
-    try{window.CBL_FREE_DWG_ORIGINAL_SHAPES=(Array.isArray(window.shapes)?window.shapes:[]).map(function(s){return cblFreeDwgSnapshotShapeV1(s);});}catch(e){window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];}
+    window.CBL_FREE_DWG_ORIGINAL_SHAPES=committedBaseline;
     window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};
     window.CBL_FREE_DWG_ORIGINAL_SHAPES.forEach(function(s){var h=normHandle(s&&((s.sourceHandle||s.originalHandle)||''));if(h)window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES[h]=true;});
     window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=Array.isArray(window.layers)?window.layers.map(function(l){return String(l&&l.name||'');}):[];
@@ -44702,7 +44781,11 @@ window.cblSnapResidueGateStatusV12 = function(){
     }
     freeDwgSaveInFlightV1=true;
     try{
-    var pack=buildOps(), fd=new FormData(), source=window.CBLCAD_V29_LAST_DWG_FILE;
+    var pack=buildOps();
+    if(window.CBL_NATIVE_FILE_STATUS_V1){
+      window.CBL_NATIVE_FILE_STATUS_V1.buildOpsDiagnostics=pack.diagnostics||window.CBL_DWG_BUILD_OPS_DIAGNOSTICS_V1||null;
+    }
+    var fd=new FormData(), source=window.CBLCAD_V29_LAST_DWG_FILE;
     fd.append('target_version','AC1018'); fd.append('filename',requested); fd.append('download_name',requested);
     var nativeBinary=browserMode()&&!!nativeHandle&&!options.exportOnly;
     var deliveryMode=options.targetFileToken?'local':(nativeBinary?'binary':'token');
