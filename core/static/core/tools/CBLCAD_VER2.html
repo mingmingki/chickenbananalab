@@ -44525,23 +44525,46 @@ window.cblSnapResidueGateStatusV12 = function(){
      */
     try {
       var finalTextColorAudit={dimensionTextColorMismatchCount:0,gridBubbleTextColorMismatchCount:0,correctedDimensionTextColorCount:0,correctedGridBubbleTextColorCount:0,corrected:0,unresolved:0};
-      (Array.isArray(window.shapes)?window.shapes:[]).forEach(function(shape){
-        if(!shape||!shape.sourcePath)return;
+      function restoreImportedTextColor(shape,inherited){
+        if(!shape)return;
+        inherited=inherited||{};
+        var inheritedDimension=!!(inherited.dimensionHandle||inherited.dimensionStyleName||inherited.dimensionText);
+        var inheritedGrid=!!(inherited.blockChild||inherited.parentBlockName||inherited.cblBlockName);
+        var isDimension=shape.cblDimensionText===true||!!shape.dimensionHandle||!!shape.cblDimensionStyleName||inheritedDimension;
+        var isGridBubble=!!(shape.blockChild||shape.isBlockChild||shape.fromBlock||shape.cblBlockName||shape.parentBlockName||inheritedGrid) && !isDimension;
+        var nextInherited={
+          dimensionHandle:shape.dimensionHandle||inherited.dimensionHandle,
+          dimensionStyleName:shape.dimensionStyleName||shape.cblDimensionStyleName||inherited.dimensionStyleName,
+          dimensionText:shape.cblDimensionText===true||inherited.dimensionText,
+          blockChild:shape.blockChild===true||inherited.blockChild,
+          parentBlockName:shape.parentBlockName||inherited.parentBlockName,
+          cblBlockName:shape.cblBlockName||inherited.cblBlockName,
+          expected:shape.cblDimensionTextColor||inherited.expected
+        };
         var rawType=String(shape.rawDxfType||shape.sourceEntityType||shape.type||'').toUpperCase();
-        if(!/^(TEXT|MTEXT|ATTRIB|ATTDEF|TEXTENTITY)$/.test(rawType))return;
-        var expected=String(shape.cblDimensionTextColor||shape.cblEffectiveColor||'').trim().toLowerCase();
-        if(!expected){finalTextColorAudit.unresolved++;return;}
-        var current=String(shape.stroke||shape.color||'').trim().toLowerCase();
-        var isDimension=shape.cblDimensionText===true||!!shape.dimensionHandle||!!shape.cblDimensionStyleName;
-        var isGridBubble=!!(shape.blockChild||shape.isBlockChild||shape.fromBlock||shape.cblBlockName||shape.parentBlockName) && !isDimension;
-        if(current!==expected){
-          if(isDimension)finalTextColorAudit.correctedDimensionTextColorCount++;
-          if(isGridBubble)finalTextColorAudit.correctedGridBubbleTextColorCount++;
-          finalTextColorAudit.corrected++;
-          shape.stroke=expected;
-          shape.color=expected;
+        if(/^(TEXT|MTEXT|ATTRIB|ATTDEF|TEXTENTITY)$/.test(rawType)){
+          if(!shape.sourcePath){finalTextColorAudit.unresolved++;}
+          else{
+            var expected=String(shape.cblDimensionTextColor||shape.cblEffectiveColor||((isDimension||isGridBubble)?inherited.expected:'')||'').trim().toLowerCase();
+            if(!expected)finalTextColorAudit.unresolved++;
+            else{
+              var current=String((isDimension||isGridBubble)?(shape.textCol||shape.stroke||shape.color||''):(shape.stroke||shape.color||'')).trim().toLowerCase();
+              if(current!==expected){
+                if(isDimension)finalTextColorAudit.correctedDimensionTextColorCount++;
+                if(isGridBubble)finalTextColorAudit.correctedGridBubbleTextColorCount++;
+                finalTextColorAudit.corrected++;
+                shape.stroke=expected;
+                shape.color=expected;
+              }
+              // drawText() gives textCol precedence for dimension lettering;
+              // retain the same derived field for block text as well.
+              if(isDimension||isGridBubble)shape.textCol=expected;
+            }
+          }
         }
-      });
+        if(Array.isArray(shape.ch))shape.ch.forEach(function(child){restoreImportedTextColor(child,nextInherited);});
+      }
+      (Array.isArray(window.shapes)?window.shapes:[]).forEach(function(shape){restoreImportedTextColor(shape,{});});
       window.CBL_DWG_COLOR_INTEGRITY_V1=Object.assign(window.CBL_DWG_COLOR_INTEGRITY_V1||{},finalTextColorAudit);
       window.CBL_DWG_FINAL_TEXT_COLOR_AUDIT_V1=finalTextColorAudit;
     } catch(_finalTextColorError) {
