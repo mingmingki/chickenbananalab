@@ -277,6 +277,29 @@
     }
   }
   window.cblPrepareNativeDwgWritableV1=prepareNativeWritableV1;
+  function isInvalidNativeHandleStateV1(error){
+    var name=String(error&&error.name||''),message=String(error&&error.message||'');
+    return name==='InvalidStateError'||/state cached|state had changed since it was read from disk/i.test(message);
+  }
+  function discardCanonicalNativeHandleV1(handle){
+    var current=window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1||window.CBL_FREE_DWG_NATIVE_FILE_HANDLE||null;
+    if(!handle||current===handle||current===null){
+      window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1=null;
+      window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=null;
+      nativeStatus.hasCurrentHandle=false;
+    }
+  }
+  async function pickReplacementNativeHandleV1(filename){
+    trace.pickerCalls++;
+    nativeStatus.pickerCount=Number(nativeStatus.pickerCount||0)+1;
+    nativeStatus.savePickerCount=Number(nativeStatus.savePickerCount||0)+1;
+    nativeStatus.inFlight=true;
+    var replacement=await window.showSaveFilePicker(pickerOptions(filename));
+    if(!replacement)throw new Error('저장 파일을 선택하지 못했습니다.');
+    var prepared=prepareNativeWritableV1(replacement,null);
+    await prepared.promise;
+    return {handle:replacement,prepared:prepared};
+  }
   window.cblNativeDwgSaveFromGestureV1=function(saveAs,event){
     var as=!!saveAs;
     try{
@@ -310,7 +333,21 @@
     if(existing&&typeof window.cblFreeDwgSaveAC1018V1==='function'){
       var existingPrepared;
       try{existingPrepared=prepareNativeWritableV1(existing,event);}catch(existingPrepareError){nativeStatus.lastError=String(existingPrepareError&&existingPrepareError.message||existingPrepareError||'');nativeStatus.lastStack=String(existingPrepareError&&existingPrepareError.stack||'');nativeStatus.inFlight=false;resetOnError(existingPrepareError);return Promise.resolve(false);}
-      dispatcherCommandPromiseV1=Promise.resolve(window.cblFreeDwgSaveAC1018V1({saveAs:false,nativeHandle:existing,preparedWritable:existingPrepared}));
+      var existingTarget=Promise.resolve(existingPrepared.promise).then(function(){return {handle:existing,prepared:existingPrepared};}).catch(function(existingStateError){
+        if(!isInvalidNativeHandleStateV1(existingStateError))throw existingStateError;
+        nativeStatus.staleHandleReplacementCount=Number(nativeStatus.staleHandleReplacementCount||0)+1;
+        nativeStatus.lastError=String(existingStateError&&existingStateError.message||existingStateError||'');
+        nativeStatus.lastStack=String(existingStateError&&existingStateError.stack||'');
+        discardCanonicalNativeHandleV1(existing);
+        return pickReplacementNativeHandleV1(currentName());
+      });
+      dispatcherCommandPromiseV1=existingTarget.then(function(target){
+        return window.cblFreeDwgSaveAC1018V1({saveAs:false,nativeHandle:target.handle,preparedWritable:target.prepared});
+      }).catch(function(error){
+        nativeStatus.lastError=String(error&&error.message||error||'');
+        nativeStatus.lastStack=String(error&&error.stack||'');
+        return resetOnError(error);
+      });
       dispatcherInFlight=dispatcherCommandPromiseV1.finally(finishNativeDwgDispatcherV1);
       dispatcherCommandPromiseV1=dispatcherInFlight;
       return dispatcherInFlight;
@@ -45067,6 +45104,12 @@ window.cblSnapResidueGateStatusV12 = function(){
     }
     if(browserMode()&&nativeHandle&&!options.preparedWritable&&typeof window.cblPrepareNativeDwgWritableV1==='function'){
       options.preparedWritable=window.cblPrepareNativeDwgWritableV1(nativeHandle,options.gestureEvent||null);
+    }
+    if(browserMode()&&nativeHandle&&options.preparedWritable){
+      // A native writable must be fully acquired before any network work.  In
+      // particular, never let the POST race a cached FileSystem handle whose
+      // state Chrome/Edge may reject after it was read from disk.
+      await options.preparedWritable.promise;
     }
     freeDwgSaveInFlightV1=true;
     var writeCompleted=false;
