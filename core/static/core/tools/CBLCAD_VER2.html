@@ -171,6 +171,7 @@
   if(window.__CBL_FREE_DWG_SAVE_AS_V1__)return;
   window.__CBL_FREE_DWG_SAVE_AS_V1__=true;
   window.CBL_FREE_DWG_SAVE_AS_STATUS_V1={installed:true,installCount:1,dialogOpened:false,requestedName:null,downloadedName:null,saveStarted:false,saveCompleted:false,odaUsed:false,v29Used:false,lastError:null};
+  window.CBL_NATIVE_FILE_STATUS_V1=window.CBL_NATIVE_FILE_STATUS_V1||{staleHandleRecoveryCount:0,staleHandleRecovered:false,createWritableErrorName:null};
   function free(){return !!(window.CBL_CAD_RUNTIME_CONFIG&&window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal===true);}
   function clean(v){var s=String(v||'').trim().replace(/[\\/:*?"<>|]/g,'_').replace(/\s+/g,' ').trim();while(/\.(dwg|wcd|dxf)$/i.test(s))s=s.replace(/\.(dwg|wcd|dxf)$/i,'').trim();if(!s||/^(untitled|drawing)$/i.test(s))return '';return s+'.dwg';}
   function current(){return clean(window.CBL_FREE_DWG_CURRENT_FILENAME||window.curFile||window.CBLCAD_V29_ORIGINAL_FILE_NAME||'')||'ChickenBananaCAD.dwg';}
@@ -4066,7 +4067,9 @@ function cblTextStyleGetV1(name){
       if(st.backward||((flags&2)!==0))ctx.scale(-1,1);
       if(st.upsideDown||((flags&4)!==0))ctx.scale(1,-1);
       if(ob)ctx.transform(1,0,-Math.tan(ob*Math.PI/180),1,0,0);
-      ctx.strokeStyle=isSel?'#ffffff':(s.stroke||s.color||'#ffffff');
+      ctx.strokeStyle=isSel?'#ffffff':(s.cblDimensionText===true
+        ? (s.textCol||((typeof dimStyle!=='undefined'&&dimStyle.textCol)?dimStyle.textCol:'#ffffff'))
+        : (s.stroke||s.color||'#ffffff'));
       ctx.lineWidth=Math.max(0.25,1/((typeof vScale==='number'&&vScale)||1));
       ctx.setLineDash([]);
       var penX=0;
@@ -4082,7 +4085,9 @@ function cblTextStyleGetV1(name){
           ctx.save();
           ctx.translate(penX,0);ctx.scale(1,-1);
           ctx.font=fs+'px '+cblTextFontFamilyV1(s);
-          ctx.fillStyle=isSel?'#ffffff':(s.stroke||s.color||'#ffffff');
+          ctx.fillStyle=isSel?'#ffffff':(s.cblDimensionText===true
+            ? (s.textCol||((typeof dimStyle!=='undefined'&&dimStyle.textCol)?dimStyle.textCol:'#ffffff'))
+            : (s.stroke||s.color||'#ffffff'));
           ctx.textAlign='left';ctx.textBaseline='alphabetic';
           var fallbackChar=String.fromCodePoint?String.fromCodePoint(code):String.fromCharCode(code);
           ctx.fillText(fallbackChar,0,0);
@@ -4237,7 +4242,9 @@ function cblDrawRotatedTextRenderFixV5(s,isSel){
   ctx.translate(x, -y);
   if (Math.abs(rot) > 1e-9) ctx.rotate(-rot);
 
-  ctx.fillStyle = isSel ? '#fff' : (s.stroke || s.color || (typeof styl !== 'undefined' ? styl.stroke : '#ffffff') || '#ffffff');
+  ctx.fillStyle = isSel ? '#fff' : (s.cblDimensionText === true
+    ? (s.textCol || (typeof dimStyle !== 'undefined' && dimStyle.textCol) || s.stroke || s.color || '#ffffff')
+    : (s.stroke || s.color || (typeof styl !== 'undefined' ? styl.stroke : '#ffffff') || '#ffffff'));
   ctx.globalAlpha = (s.opacity !== undefined) ? s.opacity : 1;
   ctx.setLineDash([]);
   ctx.font = fs + 'px ' + cblTextFontFamilyV1(s);
@@ -4255,7 +4262,9 @@ function cblDrawRotatedTextRenderFixV5(s,isSel){
     ctx.lineWidth = 1/sc;
     ctx.setLineDash([]);
     ctx.strokeRect(-2/sc, -fs-2/sc, tw+4/sc, th+4/sc);
-    ctx.fillStyle = s.stroke || s.color || (typeof styl !== 'undefined' ? styl.stroke : '#ffffff') || '#ffffff';
+    ctx.fillStyle = s.cblDimensionText === true
+      ? (s.textCol || (typeof dimStyle !== 'undefined' && dimStyle.textCol) || s.stroke || s.color || '#ffffff')
+      : (s.stroke || s.color || (typeof styl !== 'undefined' ? styl.stroke : '#ffffff') || '#ffffff');
   }
 
   cblTextRenderLinesV1.forEach(function(line,idx){ctx.fillText(line,0,idx*fs*1.3);});
@@ -7505,7 +7514,7 @@ function drawCadGrid(s,isSel){
   ctx.fillStyle=isSel?'rgba(245,158,11,0.2)':'rgba(6,182,212,0.13)';
   ctx.fill();ctx.stroke();
   ctx.save();ctx.scale(1,-1);
-  ctx.fillStyle=lc;
+  ctx.fillStyle=s.textCol||((typeof dimStyle!=='undefined'&&dimStyle.textCol)?dimStyle.textCol:lc);
   ctx.font='bold '+(11/vScale)+'px Segoe UI';
   ctx.textAlign='center';ctx.textBaseline='middle';
   ctx.fillText(s.label||'?',bx,-by);
@@ -8895,6 +8904,28 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
     }, 1000);
   }
 
+  function cblRecoverableNativeHandleStateErrorV1(error){
+    var name=String(error&&error.name||''),message=String(error&&error.message||'');
+    return name==='InvalidStateError'||/state cached|state had changed since it was read from disk/i.test(message);
+  }
+
+  async function cblCreateWritableWithStateRefreshV1(handle){
+    var status=window.CBL_NATIVE_FILE_STATUS_V1=window.CBL_NATIVE_FILE_STATUS_V1||{};
+    try{return await handle.createWritable();}
+    catch(error){
+      status.createWritableErrorName=String(error&&error.name||'');
+      if(!cblRecoverableNativeHandleStateErrorV1(error)||typeof handle.getFile!=='function')throw error;
+      status.staleHandleRecoveryCount=Number(status.staleHandleRecoveryCount||0)+1;
+      status.staleHandleRecovered=false;
+      await handle.getFile();
+      var writable=await handle.createWritable();
+      status.staleHandleRecovered=true;
+      status.createWritableErrorName=null;
+      return writable;
+    }
+  }
+  window.cblCreateWritableWithStateRefreshV1=cblCreateWritableWithStateRefreshV1;
+
   async function captureBottomDwgSaveBlob() {
     return new Promise(function (resolve) {
       var btn = findBottomDwgSaveButton();
@@ -9015,9 +9046,10 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
       return;
     }
 
+    var writable=null;
     try {
       if (fileHandle) {
-        var writable = await fileHandle.createWritable();
+        writable = await cblCreateWritableWithStateRefreshV1(fileHandle);
         await writable.write(result.blob);
         await writable.close();
         console.log("[CBL] 다른이름 저장 완료: 파일 선택창 저장");
@@ -9026,6 +9058,7 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
         console.log("[CBL] 다른이름 저장 완료: 파일명 지정 다운로드");
       }
     } catch (e) {
+      try { if (writable && typeof writable.abort === "function") await writable.abort(); } catch (_abortError) {}
       alert("DWG 다른이름 저장 실패: " + String(e && e.message || e));
     }
   }
@@ -44730,6 +44763,7 @@ window.cblSnapResidueGateStatusV12 = function(){
   }
   function isTopLevelEditable(s){
     if(!s)return false;
+    if(s.cblFromHatch===true||String(s.rawDxfType||'').toUpperCase()==='HATCH')return false;
     if(s.rendererOnly===true||s.displayOnly===true||s.synthetic===true||s.helper===true||s.isDisplayOnly===true)return false;
     if(s.parentBlockName||s.parentInsertName|| (s.blockName&&String(s.type||'').toLowerCase()!=='blockref'))return false;
     if(s.blockChild===true||s.isBlockChild===true||s.fromBlock===true)return false;
