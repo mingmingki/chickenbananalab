@@ -3954,7 +3954,17 @@ function cblCadShapeLineType(s){
 function apSt(s,isSel){
  var ly=cblCadLayerOfShape(s);
 
- var stroke=(s&&(s.stroke||s.color))||(ly&&(ly.color||ly.stroke))||styl.stroke||'#ffffff';
+ /*
+  * Imported full-DXF shapes carry the source-resolved screen color separately
+  * from raw DWG ACI/TrueColor fields.  drawShape closes over this lexical
+  * apSt() (the later window.apSt compatibility hook is not used here), so
+  * block children and nested INSERT primitives must read the resolved screen
+  * value at the final CanvasRenderingContext2D boundary.
+  *
+  * cblEffectiveColor is derived/render-only metadata; it is never serialized
+  * into save operations and never overwrites raw source color fields.
+  */
+ var stroke=(s&&(s.cblEffectiveColor||s.stroke||s.color))||(ly&&(ly.color||ly.stroke))||styl.stroke||'#ffffff';
  var fill=(s&&s.fill&&s.fill!=='none')?s.fill:'rgba(0,0,0,0)';
  var lw=Number(s&&(s.lineWidth||s.lineweight));
  var lyw=Number(ly&&(ly.lineWidth||ly.lineweight));
@@ -4253,7 +4263,7 @@ function cblDrawRotatedTextRenderFixV5(s,isSel){
   var cblTextStyleForShxV1=cblTextStyleGetV1(s.textStyleName||s.textStyle||'STANDARD')||{};
   if((/\.shx$/i.test(String(cblTextStyleForShxV1.fontFile||''))||/\.shx$/i.test(String(cblTextStyleForShxV1.bigFontFile||'')))&&typeof window.cblDrawShxTextV1==='function'&&window.cblDrawShxTextV1(s,isSel))return;
   var cblTextRenderLinesV1 = txt.split(/\r?\n/);
-  var cblImportedSpecialTextV1 = !!(s.blockChild === true || s.isBlockChild === true || s.fromBlock === true);
+  var cblImportedSpecialTextV1 = !!(s.blockChild === true || s.isBlockChild === true || s.fromBlock === true || s.cblEffectiveColor);
   var cblScreenTextColorV1 = (s.textCol || s.cblDimensionTextColor || s.cblEffectiveColor || s.stroke || s.color || '#ffffff');
 
   var x = Number(s.x);
@@ -18079,7 +18089,7 @@ function cblLtAliasV3InstallApSt(){
       var ly = cblLtAliasV3LayerOfShape(s);
 
       var stroke =
-        (s && (s.stroke || s.color)) ||
+        (s && (s.cblEffectiveColor || s.stroke || s.color)) ||
         (ly && (ly.color || ly.stroke)) ||
         (typeof styl !== "undefined" && styl.stroke) ||
         "#ffffff";
@@ -26884,7 +26894,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     // Rotated imported dimension/bubble text is intercepted by this wrapper.
     // Its screen color is resolved independently from raw ACI/TrueColor;
     // do not fall back to the stale flattened stroke (often white).
-    if(s && (s.cblDimensionText === true || s.blockChild === true || s.isBlockChild === true || s.fromBlock === true)){
+    if(s && (s.cblDimensionText === true || s.blockChild === true || s.isBlockChild === true || s.fromBlock === true || s.cblEffectiveColor)){
       return (s.textCol || s.cblDimensionTextColor || s.cblEffectiveColor || s.stroke || s.color || '#ffffff');
     }
     return (s && (s.stroke || s.color || s.cblStroke || s.cblColor)) || '#ffffff';
@@ -27674,7 +27684,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       ctx.rotate(-rot);
       ctx.setLineDash([]);
       ctx.globalAlpha = s.opacity !== undefined ? s.opacity : 1;
-      ctx.fillStyle = (s.cblDimensionText === true || s.blockChild === true || s.isBlockChild === true || s.fromBlock === true)
+      ctx.fillStyle = (s.cblDimensionText === true || s.blockChild === true || s.isBlockChild === true || s.fromBlock === true || s.cblEffectiveColor)
         ? (s.textCol || s.cblDimensionTextColor || s.cblEffectiveColor || s.stroke || s.color || '#ffffff')
         : (s.stroke || s.color || (typeof styl !== 'undefined' ? styl.stroke : '#ffffff') || '#ffffff');
       ctx.font = fs + 'px ' + cblTextFontFamilyV1(s);
@@ -27684,7 +27694,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         var tw = ctx.measureText(txt).width;
         ctx.fillStyle = 'rgba(59,130,246,.18)';
         ctx.fillRect(-tw/2 - 2/(vScale||1), -fs/2 - 2/(vScale||1), tw + 4/(vScale||1), fs + 4/(vScale||1));
-        ctx.fillStyle = (s.cblDimensionText === true || s.blockChild === true || s.isBlockChild === true || s.fromBlock === true)
+        ctx.fillStyle = (s.cblDimensionText === true || s.blockChild === true || s.isBlockChild === true || s.fromBlock === true || s.cblEffectiveColor)
           ? (s.textCol || s.cblDimensionTextColor || s.cblEffectiveColor || s.stroke || s.color || '#ffffff')
           : (s.stroke || s.color || '#ffffff');
       }
