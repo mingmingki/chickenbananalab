@@ -6522,7 +6522,7 @@ function parseDXF(txt){
    var cblKnownFontV1=cblStyleKnownFontV1(font),cblPrimaryShxV1=/\.shx$/i.test(font),cblBigShxV1=/\.shx$/i.test(big),cblMissingFontV1=cblPrimaryShxV1||!font||!cblKnownFontV1;
    cblTextStylesByNameV1[nm]={name:nm,fontFile:font,bigFontFile:big,fixedHeight:num(p,'40',0),widthFactor:num(p,'41',1),obliqueAngle:num(p,'50',0),flags:num(p,'71',0),vertical:!!(num(p,'70',0)&4),backward:!!(num(p,'71',0)&2),upsideDown:!!(num(p,'71',0)&4),handle:String(value(p,'5','')),resolvedFontFamily:cblStyleFamilyV1(font),fontMissing:cblMissingFontV1,fallbackUsed:cblMissingFontV1,shxStatus:cblPrimaryShxV1?'누락':'연결 안 됨',bigFontStatus:cblBigShxV1?'누락':(big?'지정 없음':'지정 없음'),bigFontMissing:cblBigShxV1};
   } else if(p._type==='DIMSTYLE'){
-   var dn=String(value(p,'2','STANDARD'));cblDimStylesByNameV1[dn]={name:dn,textStyleName:String(value(p,'3','STANDARD')),textHeight:num(p,'140',0)};
+   var dn=String(value(p,'2','STANDARD'));cblDimStylesByNameV1[dn]={name:dn,textStyleName:String(value(p,'3','STANDARD')),textHeight:num(p,'140',0),lineAci:num(p,'176',256),extensionAci:num(p,'177',256),textAci:num(p,'178',256)};
   }
  });
  if(!Object.keys(cblTextStylesByNameV1).some(function(k){return k.toLowerCase()==='standard';}))cblTextStylesByNameV1.STANDARD={name:'STANDARD',fontFile:'',bigFontFile:'',fixedHeight:0,widthFactor:1,obliqueAngle:0,flags:0,vertical:false,backward:false,upsideDown:false,handle:'',resolvedFontFamily:'Segoe UI, Apple SD Gothic Neo, Malgun Gothic, sans-serif',fontMissing:true,fallbackUsed:true};
@@ -23491,6 +23491,14 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
       var aci = first(p,'62', null);
 
+      var dimTextType=String(ent.type||'').toUpperCase();
+      var dimTextAci=ctx&&ctx.dimensionStyle&&/^(TEXT|MTEXT|ATTRIB|ATTDEF)$/.test(dimTextType)
+        ? Number(ctx.dimensionStyle.text) : NaN;
+      if(tc === null && Number.isFinite(dimTextAci) && dimTextAci !== 256){
+        if(dimTextAci === 0 && ctx && ctx.color) return {color:ctx.color,source:'DimensionStyle-ByBlock',rawAci:dimTextAci,rawTrueColor:null};
+        if(dimTextAci >= 1 && dimTextAci <= 255) return {color:aciToColor(dimTextAci),source:'DimensionStyle',rawAci:dimTextAci,rawTrueColor:null};
+      }
+
       if(aci !== null && aci !== undefined){
         aci = Number(aci);
 
@@ -23565,6 +23573,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         cblRawTrueColor:colorMeta.rawTrueColor,
         cblEffectiveColorSource:colorMeta.source,
         cblEffectiveColor:color,
+        cblDimensionStyleName:ctx&&ctx.dimensionStyle&&ctx.dimensionStyle.name?String(ctx.dimensionStyle.name):'',
+        cblDimensionTextColor:(ctx&&ctx.dimensionStyle&&String(ent.type||'').toUpperCase().match(/^(TEXT|MTEXT|ATTRIB|ATTDEF)$/))?color:null,
         cblBlockName:ctx&&ctx.blockName?String(ctx.blockName):'',
         cblInsertLayer:ctx&&ctx.layer?String(ctx.layer):layerName,
         cblInsertAci:ctx&&ctx.rawAci!==undefined?ctx.rawAci:null,
@@ -23931,6 +23941,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
           rot:rot,
           tw:Math.max(String(tx).length * Math.max(2, num(first(p,'40',14),14) * sc3) * 0.7, 20),
           cblDimensionText:dimRot !== null,
+          dimensionStyleName:ctx&&ctx.dimensionStyle&&ctx.dimensionStyle.name?String(ctx.dimensionStyle.name):'',
+          dimensionTextColor:style.cblDimensionTextColor||null,
           dimensionHandle:ctx && ctx.dimensionHandle ? ctx.dimensionHandle : null,
           rawDxfType:type
         }));
@@ -24178,6 +24190,26 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     stats.totalInsertCount = Number(stats.insertCount || 0) + stats.nestedInsertCount;
     stats.mainEntityCount = mainEntities.length;
     stats.ms = Math.round((performance && performance.now ? performance.now() : Date.now()) - t0);
+
+    // Keep the source DIMSTYLE color overrides observable for the imported
+    // document.  This is diagnostic metadata only; raw DXF values remain
+    // unchanged and the save pipeline never serializes effective colors.
+    try {
+      var cblDimStyleAuditV1 = {};
+      Object.keys(dimensionStyleDefs).forEach(function(key){
+        var ds = dimensionStyleDefs[key] || {};
+        cblDimStyleAuditV1[key] = {
+          name: ds.name || key,
+          DIMCLRD: ds.line,
+          DIMCLRE: ds.extension,
+          DIMCLRT: ds.text,
+          DIMTXSTY: ds.textStyle || ''
+        };
+      });
+      window.CBL_CAD_DIM_STYLES_V1 = cblDimStyleAuditV1;
+    } catch(_dimensionStyleAuditError) {
+      window.CBL_CAD_DIM_STYLES_V1 = {};
+    }
 
     var sourcePathMapped=0,sourcePathMissing=0,byLayer=0,byBlock=0,trueColors=0,explicitAcis=0,dimensionOverrides=0,unresolved=0,perColor={},missingSamples=[];
     shapes.forEach(function(s){
@@ -44484,6 +44516,36 @@ window.cblSnapResidueGateStatusV12 = function(){
       window.CBL_DWG_COLOR_INTEGRITY_V1=Object.assign(window.CBL_DWG_COLOR_INTEGRITY_V1||{}, {comparedCount:compared,matchedCount:matched+correctedMismatchCount,colorMismatchCount:postMismatch.length,unresolvedColorCount:Math.max(Number((window.CBL_DWG_COLOR_INTEGRITY_V1||{}).unresolvedColorCount||0),unresolved),mismatchSamples:postMismatch,expectedColorCounts:expectedCounts,clientColorCounts:clientCounts});
     } catch(_colorSourceClientError) {
       window.CBL_DWG_COLOR_INTEGRITY_V1=Object.assign(window.CBL_DWG_COLOR_INTEGRITY_V1||{}, {comparedCount:0,matchedCount:0,colorMismatchCount:null,mismatchSamples:[{error:String(_colorSourceClientError&&_colorSourceClientError.message||_colorSourceClientError)}]});
+    }
+    /*
+     * This is intentionally the last text-color pass.  The generic source
+     * color synchronizer above can run after parser/block cleanup and must
+     * not turn DIMSTYLE or block-inherited text white.  Only screen fields
+     * are changed; raw source color fields remain untouched.
+     */
+    try {
+      var finalTextColorAudit={dimensionTextColorMismatchCount:0,gridBubbleTextColorMismatchCount:0,correctedDimensionTextColorCount:0,correctedGridBubbleTextColorCount:0,corrected:0,unresolved:0};
+      (Array.isArray(window.shapes)?window.shapes:[]).forEach(function(shape){
+        if(!shape||!shape.sourcePath)return;
+        var rawType=String(shape.rawDxfType||shape.sourceEntityType||shape.type||'').toUpperCase();
+        if(!/^(TEXT|MTEXT|ATTRIB|ATTDEF|TEXTENTITY)$/.test(rawType))return;
+        var expected=String(shape.cblDimensionTextColor||shape.cblEffectiveColor||'').trim().toLowerCase();
+        if(!expected){finalTextColorAudit.unresolved++;return;}
+        var current=String(shape.stroke||shape.color||'').trim().toLowerCase();
+        var isDimension=shape.cblDimensionText===true||!!shape.dimensionHandle||!!shape.cblDimensionStyleName;
+        var isGridBubble=!!(shape.blockChild||shape.isBlockChild||shape.fromBlock||shape.cblBlockName||shape.parentBlockName) && !isDimension;
+        if(current!==expected){
+          if(isDimension)finalTextColorAudit.correctedDimensionTextColorCount++;
+          if(isGridBubble)finalTextColorAudit.correctedGridBubbleTextColorCount++;
+          finalTextColorAudit.corrected++;
+          shape.stroke=expected;
+          shape.color=expected;
+        }
+      });
+      window.CBL_DWG_COLOR_INTEGRITY_V1=Object.assign(window.CBL_DWG_COLOR_INTEGRITY_V1||{},finalTextColorAudit);
+      window.CBL_DWG_FINAL_TEXT_COLOR_AUDIT_V1=finalTextColorAudit;
+    } catch(_finalTextColorError) {
+      window.CBL_DWG_FINAL_TEXT_COLOR_AUDIT_V1={error:String(_finalTextColorError&&(_finalTextColorError.message||_finalTextColorError))};
     }
     stageEnd('canonical_postprocess');stageStart('baseline_snapshot');
     // The save baseline is committed exactly once, after canonical import,

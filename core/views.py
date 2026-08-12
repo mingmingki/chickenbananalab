@@ -23972,7 +23972,11 @@ def _cbl_build_original_source_layer_manifest_v1(report, dxf_text=""):
     while i < len(pairs):
         code, value = pairs[i]
         if code == "0" and value == "SECTION":
-            section = pairs[i + 2][1].upper() if i + 2 < len(pairs) and pairs[i + 1][0] == "2" else None
+            # The SECTION name is the value in the pair immediately after
+            # the 0/SECTION pair.  Using i+2 skipped the 2/section-name
+            # pair, which silently dropped DIMSTYLE and layer records from
+            # the independent source manifest.
+            section = pairs[i + 1][1].upper() if i + 1 < len(pairs) and pairs[i + 1][0] == "2" else None
             i += 1
         elif code == "0" and value == "ENDSEC":
             section = table = None
