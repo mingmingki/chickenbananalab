@@ -6426,11 +6426,38 @@ function parseDXF(txt){
  if(!isFinite(cblPointDisplayModeV1))cblPointDisplayModeV1=0;
  cblPointDisplaySizeV1=parseFloat(headerValue('$PDSIZE','0'));
  if(!isFinite(cblPointDisplaySizeV1))cblPointDisplaySizeV1=0;
+ var CBL_ACI_PALETTE_V1={
+  1:'#ff0000',2:'#ffff00',3:'#00ff00',4:'#00ffff',5:'#0000ff',6:'#ff00ff',7:'#ffffff',8:'#808080',9:'#c0c0c0',
+  10:'#ff0000',11:'#ff7f7f',12:'#a50000',13:'#a55252',14:'#7f0000',15:'#7f3f3f',16:'#4c0000',17:'#4c2626',18:'#260000',19:'#261313',
+  20:'#ff3f00',21:'#ff9f7f',22:'#a52900',23:'#a56752',24:'#7f1f00',25:'#7f4f3f',26:'#4c1300',27:'#4c2f26',28:'#260900',29:'#261713',
+  30:'#ff7f00',31:'#ffbf7f',32:'#a55200',33:'#a57c52',34:'#7f3f00',35:'#7f5f3f',36:'#4c2600',37:'#4c3926',38:'#261300',39:'#261c13',
+  40:'#ffbf00',41:'#ffdf7f',42:'#a57c00',43:'#a59152',44:'#7f5f00',45:'#7f6f3f',46:'#4c3900',47:'#4c4226',48:'#261c00',49:'#262113',
+  50:'#ffff00',51:'#ffff7f',52:'#a5a500',53:'#a5a552',54:'#7f7f00',55:'#7f7f3f',56:'#4c4c00',57:'#4c4c26',58:'#262600',59:'#262613',
+  60:'#bfff00',61:'#dfff7f',62:'#7ca500',63:'#91a552',64:'#5f7f00',65:'#6f7f3f',66:'#394c00',67:'#424c26',68:'#1c2600',69:'#212613',
+  70:'#7fff00',71:'#bfff7f',72:'#52a500',73:'#7ca552',74:'#3f7f00',75:'#5f7f3f',76:'#264c00',77:'#394c26',78:'#132600',79:'#1c2613',
+  80:'#3fff00',81:'#9fff7f',82:'#29a500',83:'#67a552',84:'#1f7f00',85:'#4f7f3f',86:'#134c00',87:'#2f4c26',88:'#092600',89:'#172613',
+  90:'#00ff00',91:'#7fff7f',92:'#00a500',93:'#52a552',94:'#007f00',95:'#3f7f3f',96:'#004c00',97:'#264c26',98:'#002600',99:'#132613',
+  100:'#00ff3f',101:'#7fff9f',102:'#00a529',103:'#52a567',104:'#007f1f',105:'#3f7f4f',106:'#004c13',107:'#264c2f',108:'#002609',109:'#135817',
+  110:'#00ff7f',111:'#7fffbf',112:'#00a552',113:'#52a57c',114:'#007f3f',115:'#3f7f5f',116:'#004c26',117:'#264c39',118:'#002613',119:'#13581c',
+  120:'#00ffbf',121:'#7fffdf',122:'#00a57c',123:'#52a591',124:'#007f5f',125:'#3f7f6f',126:'#004c39',127:'#264c42',128:'#00261c',129:'#135858',
+  130:'#00ffff',131:'#7fffff',132:'#00a5a5',133:'#52a5a5',134:'#007f7f',135:'#3f7f7f',136:'#004c4c',137:'#264c4c',138:'#002626',139:'#135858',
+  140:'#00bfff',141:'#7fdfff',142:'#007ca5',143:'#5291a5',144:'#005f7f',145:'#3f6f7f',146:'#00394c',147:'#26427e',148:'#001c26',149:'#135858',
+  150:'#007fff',151:'#7fbfff',152:'#0052a5',153:'#527ca5',154:'#003f7f',155:'#3f5f7f',156:'#00264c',157:'#26397e',158:'#001326',159:'#131c58',
+  160:'#003fff',161:'#7f9fff',162:'#0029a5',163:'#5267a5',164:'#001f7f',165:'#3f4f7f',166:'#00134c',167:'#262f7e',168:'#000926',169:'#131758',
+  170:'#0000ff',171:'#7f7fff',172:'#0000a5',173:'#5252a5',174:'#00007f',175:'#3f3f7f',176:'#00004c',177:'#26267e',178:'#000026',179:'#131358',
+  180:'#3f00ff',181:'#9f7fff',182:'#2900a5',183:'#6752a5',184:'#1f007f',185:'#4f3f7f',186:'#13004c',187:'#2f267e',188:'#090026',189:'#171358',
+  190:'#7f00ff',191:'#bf7fff',192:'#5200a5',193:'#7c52a5',194:'#3f007f',195:'#5f3f7f',196:'#26004c',197:'#39267e',198:'#130026',199:'#1c1358',
+  200:'#bf00ff',201:'#df7fff',202:'#7c00a5',203:'#9152a5',204:'#5f007f',205:'#6f3f7f',206:'#39004c',207:'#42264c',208:'#1c0026',209:'#581358',
+  210:'#ff00ff',211:'#ff7fff',212:'#a500a5',213:'#a552a5',214:'#7f007f',215:'#7f3f7f',216:'#4c004c',217:'#4c264c',218:'#260026',219:'#581358',
+  220:'#ff00bf',221:'#ff7fdf',222:'#a5007c',223:'#a55291',224:'#7f005f',225:'#7f3f6f',226:'#4c0039',227:'#4c2642',228:'#26001c',229:'#581358',
+  230:'#ff007f',231:'#ff7fbf',232:'#a50052',233:'#a5527c',234:'#7f003f',235:'#7f3f5f',236:'#4c0026',237:'#4c2639',238:'#260013',239:'#58131c',
+  240:'#ff003f',241:'#ff7f9f',242:'#a50029',243:'#a55267',244:'#7f001f',245:'#7f3f4f',246:'#4c0013',247:'#4c262f',248:'#260009',249:'#581317',
+ 250:'#000000',251:'#656565',252:'#666666',253:'#999999',254:'#cccccc',255:'#ffffff'
+ };
+ window.CBL_ACI_PALETTE_V1=CBL_ACI_PALETTE_V1;
  function aciColor(n){
-  var map={1:'#ff0000',2:'#ffff00',3:'#00ff00',4:'#00ffff',5:'#0000ff',6:'#ff00ff',7:'#ffffff',8:'#808080',9:'#c0c0c0'};
-  n=Math.abs(parseInt(n,10)||7); if(map[n])return map[n];
-  var r=(n*53)%256,g=(n*97)%256,b=(n*193)%256;
-  return '#'+[r,g,b].map(function(x){return x.toString(16).padStart(2,'0');}).join('');
+  n=Math.abs(parseInt(n,10)||7);
+  return CBL_ACI_PALETTE_V1[n]||'#ffffff';
  }
  function trueColor(n){
   n=parseInt(n,10); if(!isFinite(n)||n<0)return null;
@@ -6440,7 +6467,7 @@ function parseDXF(txt){
  layerDefs.forEach(function(p,idx){
   var name=String(value(p,'2','0')), color=trueColor(value(p,'420',''))||aciColor(value(p,'62',7));
   var layerFlags=num(p,'70',0),layerAci=num(p,'62',7);
-  var l={id:idx+1,name:name,color:color,aci:Math.abs(layerAci),trueColor:trueColor(value(p,'420','')),lineType:String(value(p,'6','Continuous')),lineWeight:num(p,'370',0),visible:!(layerAci<0)&&!(layerFlags&1),frozen:!!(layerFlags&1),locked:!!(layerFlags&4),plottable:num(p,'290',1)!==0,rawFlags:layerFlags};
+  var l={id:idx+1,name:name,color:color,aci:Math.abs(layerAci),rawAci:layerAci,cblRawAci:layerAci,trueColor:trueColor(value(p,'420','')),rawTrueColor:value(p,'420',null),cblRawTrueColor:value(p,'420',null),lineType:String(value(p,'6','Continuous')),lineWeight:num(p,'370',0),visible:!(layerAci<0)&&!(layerFlags&1),frozen:!!(layerFlags&1),locked:!!(layerFlags&4),plottable:num(p,'290',1)!==0,rawFlags:layerFlags};
   layerByName[name]=l;layerArr.push(l);
  });
  if(layerArr.length){
@@ -22773,7 +22800,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     if(aci === 4) return '#00ffff';
     if(aci === 5) return '#0000ff';
     if(aci === 6) return '#ff00ff';
-    if(aci === 7) return '#e5e7eb';
+    if(aci === 7) return '#ffffff';
     if(aci === 8) return '#808080';
     if(aci === 9) return '#c0c0c0';
     return '#e5e7eb';
@@ -44396,6 +44423,39 @@ window.cblSnapResidueGateStatusV12 = function(){
       window.CBL_DWG_COLOR_INTEGRITY_V1=Object.assign(window.CBL_DWG_COLOR_INTEGRITY_V1||{}, {comparedCount:compared,matchedCount:matched+correctedMismatchCount,colorMismatchCount:postMismatch.length,unresolvedColorCount:Math.max(Number((window.CBL_DWG_COLOR_INTEGRITY_V1||{}).unresolvedColorCount||0),unresolved),mismatchSamples:postMismatch,expectedColorCounts:expectedCounts,clientColorCounts:clientCounts});
     } catch(_colorSourceClientError) {
       window.CBL_DWG_COLOR_INTEGRITY_V1=Object.assign(window.CBL_DWG_COLOR_INTEGRITY_V1||{}, {comparedCount:0,matchedCount:0,colorMismatchCount:null,mismatchSamples:[{error:String(_colorSourceClientError&&_colorSourceClientError.message||_colorSourceClientError)}]});
+    }
+    try {
+      var sourceLayers=Array.isArray(result.source_layer_manifest)?result.source_layer_manifest:null;
+      var clientLayers=Array.isArray(window.layers)?window.layers:[];
+      if(result.source!=='acadsharp-original-dwg'||!sourceLayers){
+        window.CBL_DWG_LAYER_COLOR_INTEGRITY_V1={source:'browser-parse-unverified',originalLayerCount:sourceLayers?sourceLayers.length:null,clientLayerCount:clientLayers.length,matchedLayerCount:0,missingLayers:[],extraLayers:[],colorMismatchCount:null,mismatches:[{error:'독립 원본 레이어 manifest가 없습니다.'}]};
+      }else{
+        var sourceByName={},clientByName={};sourceLayers.forEach(function(layer){sourceByName[String(layer.name||'')]=layer;});clientLayers.forEach(function(layer){clientByName[String(layer.name||'')]=layer;});
+        var missingLayers=sourceLayers.filter(function(layer){return !clientByName[String(layer.name||'')];}).map(function(layer){return String(layer.name||'');});
+        var extraLayers=clientLayers.filter(function(layer){return !sourceByName[String(layer.name||'')];}).map(function(layer){return String(layer.name||'');});
+        function sourceCss(layer){
+          if(layer.trueColor!==null&&layer.trueColor!==undefined&&layer.trueColor!==''){
+            var n=Number(layer.trueColor);if(Number.isFinite(n))return '#'+('000000'+(n>>>0).toString(16)).slice(-6);
+          }
+          return (window.CBL_ACI_PALETTE_V1||{})[Math.abs(Number(layer.rawAci))] || '#ffffff';
+        }
+        var mismatches=[];var mismatchCount=0;var matchedLayerCount=0;
+        sourceLayers.forEach(function(sourceLayer){
+          var name=String(sourceLayer.name||''),clientLayer=clientByName[name];if(!clientLayer)return;
+          clientLayer.cblRawAci=sourceLayer.rawAci;clientLayer.rawAci=sourceLayer.rawAci;clientLayer.cblRawTrueColor=sourceLayer.trueColor;clientLayer.rawTrueColor=sourceLayer.trueColor;clientLayer.cblLayerColorSource='acadsharp-original-dwg';clientLayer.color=sourceCss(sourceLayer);
+          var sourceAci=sourceLayer.rawAci===undefined?null:sourceLayer.rawAci;
+          var clientAci=clientLayer.cblRawAci!==undefined?clientLayer.cblRawAci:(clientLayer.rawAci!==undefined?clientLayer.rawAci:clientLayer.aci);
+          var sourceTrue=sourceLayer.trueColor===undefined?null:sourceLayer.trueColor;
+          var clientTrue=clientLayer.cblRawTrueColor!==undefined?clientLayer.cblRawTrueColor:(clientLayer.rawTrueColor!==undefined?clientLayer.rawTrueColor:null);
+          var expectedCss=sourceCss(sourceLayer),renderedCss=String(clientLayer.color||'').toLowerCase();
+          var sameAci=String(sourceAci)===String(clientAci),sameTrue=String(sourceTrue==null?'':sourceTrue)===String(clientTrue==null?'':clientTrue),sameCss=expectedCss.toLowerCase()===renderedCss;
+          if(sameAci&&sameTrue&&sameCss){matchedLayerCount++;return;}
+          mismatchCount++;if(mismatches.length<50)mismatches.push({name:name,originalAci:sourceAci,clientAci:clientAci,originalTrueColor:sourceTrue,clientTrueColor:clientTrue,expectedCss:expectedCss,renderedCss:renderedCss});
+        });
+        window.CBL_DWG_LAYER_COLOR_INTEGRITY_V1={source:'acadsharp-original-dwg',originalLayerCount:sourceLayers.length,clientLayerCount:clientLayers.length,matchedLayerCount:matchedLayerCount,missingLayers:missingLayers,extraLayers:extraLayers,colorMismatchCount:mismatchCount+missingLayers.length+extraLayers.length,mismatches:mismatches};
+      }
+    } catch(_layerColorIntegrityError) {
+      window.CBL_DWG_LAYER_COLOR_INTEGRITY_V1={source:'acadsharp-original-dwg-error',originalLayerCount:null,clientLayerCount:Array.isArray(window.layers)?window.layers.length:0,matchedLayerCount:0,missingLayers:[],extraLayers:[],colorMismatchCount:null,mismatches:[{error:String(_layerColorIntegrityError&&_layerColorIntegrityError.message||_layerColorIntegrityError)}]};
     }
     stageEnd('canonical_postprocess');stageStart('baseline_snapshot');
     // The save baseline is committed exactly once, after canonical import,
