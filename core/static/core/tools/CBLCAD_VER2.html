@@ -4253,6 +4253,8 @@ function cblDrawRotatedTextRenderFixV5(s,isSel){
   var cblTextStyleForShxV1=cblTextStyleGetV1(s.textStyleName||s.textStyle||'STANDARD')||{};
   if((/\.shx$/i.test(String(cblTextStyleForShxV1.fontFile||''))||/\.shx$/i.test(String(cblTextStyleForShxV1.bigFontFile||'')))&&typeof window.cblDrawShxTextV1==='function'&&window.cblDrawShxTextV1(s,isSel))return;
   var cblTextRenderLinesV1 = txt.split(/\r?\n/);
+  var cblImportedSpecialTextV1 = !!(s.blockChild === true || s.isBlockChild === true || s.fromBlock === true);
+  var cblScreenTextColorV1 = (s.textCol || s.cblDimensionTextColor || s.cblEffectiveColor || s.stroke || s.color || '#ffffff');
 
   var x = Number(s.x);
   var y = Number(s.y);
@@ -4280,8 +4282,8 @@ function cblDrawRotatedTextRenderFixV5(s,isSel){
   ctx.translate(x, -y);
   if (Math.abs(rot) > 1e-9) ctx.rotate(-rot);
 
-  ctx.fillStyle = isSel ? '#fff' : (s.cblDimensionText === true
-    ? (s.textCol || (typeof dimStyle !== 'undefined' && dimStyle.textCol) || s.stroke || s.color || '#ffffff')
+  ctx.fillStyle = isSel ? '#fff' : (s.cblDimensionText === true || cblImportedSpecialTextV1
+    ? (s.textCol || (typeof dimStyle !== 'undefined' && s.cblDimensionText === true ? dimStyle.textCol : null) || cblScreenTextColorV1)
     : (s.stroke || s.color || (typeof styl !== 'undefined' ? styl.stroke : '#ffffff') || '#ffffff'));
   ctx.globalAlpha = (s.opacity !== undefined) ? s.opacity : 1;
   ctx.setLineDash([]);
@@ -4300,8 +4302,8 @@ function cblDrawRotatedTextRenderFixV5(s,isSel){
     ctx.lineWidth = 1/sc;
     ctx.setLineDash([]);
     ctx.strokeRect(-2/sc, -fs-2/sc, tw+4/sc, th+4/sc);
-    ctx.fillStyle = s.cblDimensionText === true
-      ? (s.textCol || (typeof dimStyle !== 'undefined' && dimStyle.textCol) || s.stroke || s.color || '#ffffff')
+    ctx.fillStyle = s.cblDimensionText === true || cblImportedSpecialTextV1
+      ? (s.textCol || (typeof dimStyle !== 'undefined' && s.cblDimensionText === true ? dimStyle.textCol : null) || cblScreenTextColorV1)
       : (s.stroke || s.color || (typeof styl !== 'undefined' ? styl.stroke : '#ffffff') || '#ffffff');
   }
 
@@ -26879,6 +26881,12 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
   function styleOfText(s, isSel){
     if(isSel) return '#ffffff';
+    // Rotated imported dimension/bubble text is intercepted by this wrapper.
+    // Its screen color is resolved independently from raw ACI/TrueColor;
+    // do not fall back to the stale flattened stroke (often white).
+    if(s && (s.cblDimensionText === true || s.blockChild === true || s.isBlockChild === true || s.fromBlock === true)){
+      return (s.textCol || s.cblDimensionTextColor || s.cblEffectiveColor || s.stroke || s.color || '#ffffff');
+    }
     return (s && (s.stroke || s.color || s.cblStroke || s.cblColor)) || '#ffffff';
   }
 
@@ -27666,7 +27674,9 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       ctx.rotate(-rot);
       ctx.setLineDash([]);
       ctx.globalAlpha = s.opacity !== undefined ? s.opacity : 1;
-      ctx.fillStyle = s.stroke || s.color || (typeof styl !== 'undefined' ? styl.stroke : '#ffffff') || '#ffffff';
+      ctx.fillStyle = (s.cblDimensionText === true || s.blockChild === true || s.isBlockChild === true || s.fromBlock === true)
+        ? (s.textCol || s.cblDimensionTextColor || s.cblEffectiveColor || s.stroke || s.color || '#ffffff')
+        : (s.stroke || s.color || (typeof styl !== 'undefined' ? styl.stroke : '#ffffff') || '#ffffff');
       ctx.font = fs + 'px ' + cblTextFontFamilyV1(s);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -27674,7 +27684,9 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         var tw = ctx.measureText(txt).width;
         ctx.fillStyle = 'rgba(59,130,246,.18)';
         ctx.fillRect(-tw/2 - 2/(vScale||1), -fs/2 - 2/(vScale||1), tw + 4/(vScale||1), fs + 4/(vScale||1));
-        ctx.fillStyle = s.stroke || s.color || '#ffffff';
+        ctx.fillStyle = (s.cblDimensionText === true || s.blockChild === true || s.isBlockChild === true || s.fromBlock === true)
+          ? (s.textCol || s.cblDimensionTextColor || s.cblEffectiveColor || s.stroke || s.color || '#ffffff')
+          : (s.stroke || s.color || '#ffffff');
       }
       ctx.fillText(txt,0,0);
       state.drawInterceptCount++;
