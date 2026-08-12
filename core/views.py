@@ -24004,14 +24004,11 @@ def cblcad_free_dwg_local_api(request):
                     # Korean STYLE names and text are not replaced by �.
                     code_page = dxf_bytes[:4096].lower()
                     dxf_text = dxf_bytes.decode("cp949" if b"kcs5601" in code_page else "utf-8", errors="replace")
-            original_layer_manifest = _cbl_free_dwg_original_layer_manifest_from_dxf_v1(dxf_text)
             response = _cbl_JsonResponse({
                 "ok": True, "format": "acadsharp-dxf", "converter": "free-acadsharp",
                 "oda_used": False, "v29_used": False, "oda_executed": False,
                 "file_sha256": hashlib.sha256(upload_data).hexdigest(),
                 "dxf_bytes": len(dxf_text.encode("utf-8")), "dxf": dxf_text,
-                "source": "acadsharp-original-dwg",
-                "source_layer_manifest": original_layer_manifest,
             }, json_dumps_params={"ensure_ascii": False})
             response["Server-Timing"] = "convert;dur=%.2f,response;dur=%.2f" % (
                 (_cbl_time.perf_counter() - convert_started) * 1000,
@@ -24214,85 +24211,6 @@ def _cbl_free_dwg_acadsharp_metadata_v1(path):
     if report.get("status") != "read":
         raise RuntimeError("ACadSharp metadata 재판독 상태가 올바르지 않습니다.")
     return report
-
-
-def _cbl_free_dwg_original_layer_manifest_from_dxf_v1(dxf_text):
-    """Extract the original layer table from the ACadSharp read of the DWG.
-
-    This is deliberately server-side source metadata.  The browser's parsed
-    shapes are never used to invent the expected layer colors.
-    """
-    lines = str(dxf_text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    pairs = []
-    for index in range(0, len(lines) - 1, 2):
-        code = lines[index].strip()
-        value = lines[index + 1].strip()
-        if code:
-            pairs.append((code, value))
-
-    def first(record, code, default=None):
-        for item_code, item_value in record:
-            if item_code == code:
-                return item_value
-        return default
-
-    def integer(value, default=0):
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return default
-
-    layers = []
-    in_tables = False
-    table_name = ""
-    index = 0
-    while index < len(pairs):
-        code, value = pairs[index]
-        upper = value.upper()
-        if code == "0" and upper == "SECTION":
-            next_pair = pairs[index + 1] if index + 1 < len(pairs) else (None, None)
-            in_tables = next_pair[1].upper() == "TABLES" if next_pair[0] == "2" else False
-            index += 1
-        elif code == "0" and upper == "ENDSEC":
-            in_tables = False
-            table_name = ""
-        elif in_tables and code == "0" and upper == "TABLE":
-            next_pair = pairs[index + 1] if index + 1 < len(pairs) else (None, "")
-            table_name = next_pair[1].upper() if next_pair[0] == "2" else ""
-            index += 1
-        elif in_tables and code == "0" and upper == "ENDTAB":
-            table_name = ""
-        elif in_tables and table_name == "LAYER" and code == "0" and upper == "LAYER":
-            end = index + 1
-            while end < len(pairs) and pairs[end][0] != "0":
-                end += 1
-            record = pairs[index + 1:end]
-            raw_aci = first(record, "62")
-            try:
-                aci = int(raw_aci) if raw_aci is not None else 7
-            except (TypeError, ValueError):
-                aci = 7
-            raw_true_color = first(record, "420")
-            try:
-                true_color = int(raw_true_color) if raw_true_color not in (None, "") else None
-            except (TypeError, ValueError):
-                true_color = None
-            layers.append({
-                "handle": str(first(record, "5", "")),
-                "name": str(first(record, "2", "")),
-                "rawAci": aci,
-                "trueColor": true_color,
-                "colorMethod": "trueColor" if true_color is not None else ("aci" if aci else "byLayer"),
-                "off": aci < 0,
-                "frozen": bool(integer(first(record, "70", "0")) & 1),
-                "locked": bool(integer(first(record, "70", "0")) & 4),
-                "plot": str(first(record, "290", "1")) != "0",
-                "linetype": str(first(record, "6", "Continuous")),
-                "lineweight": first(record, "370"),
-            })
-            index = end - 1
-        index += 1
-    return layers
 
 
 def _cbl_free_dwg_save_local_json_v1(path, dwgread):
