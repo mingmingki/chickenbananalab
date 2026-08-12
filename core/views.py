@@ -23946,6 +23946,132 @@ def _cbl_free_dwg_local_convert_v1(data, original_name):
         }
 
 
+def _cbl_build_original_source_layer_manifest_v1(report, dxf_text=""):
+    """Build an independent, handle-keyed source manifest for browser audit.
+
+    This is diagnostic/source metadata only.  It is deliberately derived from
+    the ACadSharp metadata pass and never from browser shapes or array order.
+    """
+    report = report if isinstance(report, dict) else {}
+    layer_rows = report.get("layers") if isinstance(report.get("layers"), list) else []
+    entities = report.get("entities") if isinstance(report.get("entities"), list) else []
+    semantic = report.get("semanticManifest") if isinstance(report.get("semanticManifest"), dict) else {}
+    block_rows = semantic.get("blocks") if isinstance(semantic.get("blocks"), list) else []
+    block_by_name = {str(x.get("name")): x for x in block_rows if isinstance(x, dict) and x.get("name")}
+
+    # Signed layer ACI and table-only flags are read from the full DXF when it
+    # is available.  Handles and all other values remain strings unless they
+    # are explicitly documented numeric properties.
+    dxf_layers = {}
+    dimstyles = {}
+    lines = str(dxf_text or "").replace("\r", "").split("\n")
+    pairs = [(str(lines[i]).strip(), str(lines[i + 1]).strip())
+             for i in range(0, max(0, len(lines) - 1), 2)]
+    section = table = None
+    i = 0
+    while i < len(pairs):
+        code, value = pairs[i]
+        if code == "0" and value == "SECTION":
+            section = pairs[i + 2][1].upper() if i + 2 < len(pairs) and pairs[i + 1][0] == "2" else None
+            i += 1
+        elif code == "0" and value == "ENDSEC":
+            section = table = None
+        elif section == "TABLES" and code == "0" and value == "TABLE":
+            table = pairs[i + 1][1].upper() if i + 1 < len(pairs) and pairs[i + 1][0] == "2" else None
+        elif section == "TABLES" and code == "0" and value == "ENDTAB":
+            table = None
+        elif section == "TABLES" and table in {"LAYER", "DIMSTYLE"} and code == "0" and value in {"LAYER", "DIMSTYLE"}:
+            fields = {}
+            j = i + 1
+            while j < len(pairs) and pairs[j][0] != "0":
+                fields.setdefault(pairs[j][0], pairs[j][1])
+                j += 1
+            if value == "LAYER":
+                name = fields.get("2", "0")
+                try:
+                    signed_aci = int(fields.get("62", "7"))
+                except (TypeError, ValueError):
+                    signed_aci = 7
+                dxf_layers[str(name)] = {
+                    "signedAci": signed_aci,
+                    "rawAci": abs(signed_aci),
+                    "trueColor": fields.get("420"),
+                    "transparency": fields.get("440"),
+                    "linetype": fields.get("6", "Continuous"),
+                    "lineweight": fields.get("370"),
+                    "flags": fields.get("70", "0"),
+                    "plottable": fields.get("290", "1"),
+                }
+            else:
+                name = fields.get("2", "STANDARD")
+                dimstyles[str(name)] = {
+                    "handle": fields.get("105"), "name": str(name),
+                    "DIMCLRD": fields.get("176"), "DIMCLRE": fields.get("177"),
+                    "DIMCLRT": fields.get("178"), "DIMTXSTY": fields.get("3"),
+                }
+            i = j - 1
+        i += 1
+
+    layers = []
+    for layer in layer_rows:
+        if not isinstance(layer, dict):
+            continue
+        name = str(layer.get("name") or "0")
+        raw = dxf_layers.get(name, {})
+        try:
+            aci = int(raw.get("signedAci", layer.get("aci", 7)))
+        except (TypeError, ValueError):
+            aci = 7
+        flags = int(raw.get("flags", 0) or 0)
+        layers.append({
+            "handle": str(layer.get("handle") or ""), "name": name,
+            "signedAci": aci, "rawAci": abs(aci),
+            "trueColor": raw.get("trueColor", layer.get("trueColor")),
+            "transparency": raw.get("transparency"),
+            "linetype": layer.get("linetype") or raw.get("linetype", "Continuous"),
+            "lineweight": layer.get("lineweight") if layer.get("lineweight") is not None else raw.get("lineweight"),
+            "off": aci < 0, "frozen": bool(flags & 1),
+            "locked": bool(flags & 4), "plottable": str(raw.get("plottable", "1")) != "0",
+            "ownerHandle": str(layer.get("owner") or ""),
+        })
+    layer_by_name = {x["name"].lower(): x for x in layers}
+
+    entity_rows = []
+    inserts = []
+    for item in entities:
+        if not isinstance(item, dict):
+            continue
+        layer = item.get("layer") if isinstance(item.get("layer"), dict) else {}
+        block = item.get("block") if isinstance(item.get("block"), dict) else {}
+        row = {
+            "handle": str(item.get("handle") or ""), "ownerHandle": str(item.get("owner") or ""),
+            "entityType": str(item.get("type") or ""), "space": str(item.get("space") or ""),
+            "layerHandle": str(layer.get("handle") or ""), "layerName": str(layer.get("name") or "0"),
+            "rawAci": item.get("aci"), "trueColor": item.get("trueColor"),
+            "linetype": item.get("linetype"), "lineweight": item.get("lineweight"),
+            "transparency": item.get("transparency"),
+            "blockHandle": str(block.get("handle") or ""), "blockName": str(block.get("name") or ""),
+        }
+        entity_rows.append(row)
+        if row["entityType"].upper() == "INSERT":
+            ins = item.get("insert") if isinstance(item.get("insert"), dict) else {}
+            inserts.append({
+                "insertHandle": row["handle"], "referencedBlockHandle": row["blockHandle"],
+                "referencedBlockName": row["blockName"], "parentInsertHandle": None,
+                "layer": row["layerName"], "rawAci": row["rawAci"], "trueColor": row["trueColor"],
+                "rotation": ins.get("rotation"), "scale": ins.get("scale"),
+            })
+    return {
+        "schema": "cbl-original-source-layer-manifest-v1", "source": "acadsharp-original-dwg",
+        "codePage": report.get("codePage"), "layers": layers, "entities": entity_rows,
+        "inserts": inserts, "blocks": block_rows, "dimstyles": list(dimstyles.values()),
+        "dimensionAnonymousBlocks": [x for x in block_rows if str(x.get("name", "")).startswith("*D")],
+        "counts": {"layers": len(layers), "entities": len(entity_rows), "inserts": len(inserts),
+                   "dimensions": sum(1 for x in entities if str(x.get("type", "")).upper().startswith("DIMENSION")),
+                   "blocks": len(block_rows), "blockChildren": sum(int(x.get("childCount", 0) or 0) for x in block_rows)},
+    }
+
+
 @_cbl_csrf_exempt
 def cblcad_free_dwg_local_api(request):
     endpoint_started = _cbl_time.perf_counter()
@@ -23995,6 +24121,7 @@ def cblcad_free_dwg_local_api(request):
                     detail = run.stderr.decode("utf-8", errors="replace")[-1200:]
                     raise RuntimeError("ACadSharp full DXF 변환 실패: " + detail)
                 dxf_bytes = output.read_bytes()
+                source_metadata = _cbl_free_dwg_acadsharp_metadata_v1(source)
                 try:
                     dxf_text = dxf_bytes.decode("utf-8")
                 except UnicodeDecodeError:
@@ -24009,6 +24136,7 @@ def cblcad_free_dwg_local_api(request):
                 "oda_used": False, "v29_used": False, "oda_executed": False,
                 "file_sha256": hashlib.sha256(upload_data).hexdigest(),
                 "dxf_bytes": len(dxf_text.encode("utf-8")), "dxf": dxf_text,
+                "source_layer_manifest": _cbl_build_original_source_layer_manifest_v1(source_metadata, dxf_text),
             }, json_dumps_params={"ensure_ascii": False})
             response["Server-Timing"] = "convert;dur=%.2f,response;dur=%.2f" % (
                 (_cbl_time.perf_counter() - convert_started) * 1000,
