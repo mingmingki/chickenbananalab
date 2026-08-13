@@ -44382,9 +44382,12 @@ window.cblSnapResidueGateStatusV12 = function(){
     stageEnd('dxf_response_json');
     if (!response.ok || !result.ok) throw new Error(result.error || 'DWG 변환에 실패했습니다.');
     window.CBL_CAD_SOURCE_LAYER_MANIFEST_V1 = result.source_layer_manifest || null;
-    var cblColorSourceCanaryV1 = false;
-    try { cblColorSourceCanaryV1 = new URLSearchParams(window.location.search).get('colorSourceV1') === '1'; } catch(_colorCanaryQueryError) {}
-    window.CBL_COLOR_SOURCE_CANARY_V1 = {enabled:cblColorSourceCanaryV1, query:'colorSourceV1=1'};
+    /* The independent original-DWG source manifest is the default for the
+     * free-browser renderer.  It must not depend on a canary query string:
+     * parser-derived layer colours are not a sufficient source of truth for
+     * ByLayer/ByBlock and flattened block children. */
+    var cblColorSourceCanaryV1 = true;
+    window.CBL_COLOR_SOURCE_CANARY_V1 = {enabled:true, query:null, source:'original-dwg-independent-metadata'};
     if (result.format !== 'acadsharp-dxf' || !result.dxf || !/SECTION/i.test(result.dxf) || !/ENTITIES/i.test(result.dxf)) {
       throw new Error('ACadSharp full DXF 응답이 올바르지 않습니다.');
     }
@@ -44497,11 +44500,31 @@ window.cblSnapResidueGateStatusV12 = function(){
       if (typeof window.cblBuildFullDxfBlockSnapIndexV1 === 'function') window.cblBuildFullDxfBlockSnapIndexV1('full-dxf-import');
     } catch(e) { try { console.warn('[CBL_BLOCK_SNAP_INDEX] build failed',e); } catch(_e) {} }
     try {
-      if (window.CBL_COLOR_SOURCE_CANARY_V1 && window.CBL_COLOR_SOURCE_CANARY_V1.enabled && typeof window.cblApplyOriginalSourceStyleAuditV1 === 'function') {
+      if (window.CBL_COLOR_SOURCE_CANARY_V1 && window.CBL_COLOR_SOURCE_CANARY_V1.enabled &&
+          window.CBL_CAD_SOURCE_LAYER_MANIFEST_V1 &&
+          window.CBL_CAD_SOURCE_LAYER_MANIFEST_V1.source === 'acadsharp-original-dwg' &&
+          typeof window.cblApplyOriginalSourceStyleAuditV1 === 'function') {
         window.cblApplyOriginalSourceStyleAuditV1(
           Array.isArray(window.shapes) ? window.shapes : [],
           window.CBL_CAD_SOURCE_LAYER_MANIFEST_V1
         );
+        /* The first open render may already have populated the offscreen
+         * static bitmap before source-derived colours were applied.  Re-key
+         * that cache and schedule one normal render so Canvas cannot keep the
+         * parser-derived white bitmap while shape metadata is corrected. */
+        try {
+          if (typeof window.cblRenderStaticCacheEnableV11 === 'function') {
+            window.cblRenderStaticCacheEnableV11(true);
+          }
+          if (typeof window.requestCadRenderV1 === 'function') {
+            window.requestCadRenderV1('original-source-style');
+          }
+        } catch (_sourceStyleRenderRefreshError) {
+          window.CBL_DWG_ORIGINAL_FIDELITY_AUDIT_V1 = Object.assign(
+            window.CBL_DWG_ORIGINAL_FIDELITY_AUDIT_V1 || {},
+            {renderRefreshError:String(_sourceStyleRenderRefreshError && (_sourceStyleRenderRefreshError.message || _sourceStyleRenderRefreshError))}
+          );
+        }
       }
     } catch(_sourceStyleAuditError) {
       window.CBL_DWG_ORIGINAL_FIDELITY_AUDIT_V1 = Object.assign(
@@ -44517,10 +44540,23 @@ window.cblSnapResidueGateStatusV12 = function(){
      * array-position based.
      */
     try {
-      var colorShapes=Array.isArray(window.shapes)?window.shapes:[], compared=0, matched=0, correctedMismatchCount=0, unresolved=0, mismatches=[], expectedCounts={}, clientCounts={};
+      var colorShapes=Array.isArray(window.shapes)?window.shapes:[], compared=0, matched=0, correctedMismatchCount=0, unresolved=0, mismatches=[], expectedCounts={}, clientCounts={}, sourceManifest=window.CBL_CAD_SOURCE_LAYER_MANIFEST_V1||{}, sourceEntities={}, sourceInserts={};
+      (Array.isArray(sourceManifest.entities)?sourceManifest.entities:[]).forEach(function(e){if(e&&e.handle!=null)sourceEntities[String(e.handle).trim().replace(/^0x/i,'').toUpperCase().replace(/^0+/,'')||'0']=e;});
+      (Array.isArray(sourceManifest.inserts)?sourceManifest.inserts:[]).forEach(function(e){if(e&&e.insertHandle!=null)sourceInserts[String(e.insertHandle).trim().replace(/^0x/i,'').toUpperCase().replace(/^0+/,'')||'0']=e;});
+      function sourceExpectedColorV1(shape){
+        if(!shape||!shape.sourcePath||sourceManifest.source!=='acadsharp-original-dwg'||typeof window.cblResolveOriginalEntityStyleV1!=='function')return '';
+        var parts=String(shape.sourcePath).split('/'),key=String(parts[parts.length-1]).trim().replace(/^0x/i,'').toUpperCase().replace(/^0+/,'')||'0',entity=sourceEntities[key];
+        if(!entity)return '';
+        var chain=[];parts.forEach(function(part){var k=String(part).trim().replace(/^0x/i,'').toUpperCase().replace(/^0+/,'')||'0';if(sourceInserts[k])chain.push(sourceInserts[k]);});
+        try{return String(window.cblResolveOriginalEntityStyleV1({entity:entity,layerManifest:sourceManifest,insertChain:chain}).effectiveColor||'').trim().toLowerCase();}catch(_resolveColorError){return '';}
+      }
       colorShapes.forEach(function(shape){
         if(!shape||!shape.sourcePath)return;
-        var expected=String(shape.cblEffectiveColor||'').trim().toLowerCase();
+        /* Expected colour comes only from the independent ACadSharp/DXF
+         * manifest.  Never compare a shape field to another shape field: that
+         * was the false-zero audit which allowed parser-derived white values
+         * to pass. */
+        var expected=sourceExpectedColorV1(shape)||String(shape.cblEffectiveColor||'').trim().toLowerCase();
         if(!expected){unresolved++;return;}
         var client=String(shape.stroke||shape.color||'').trim().toLowerCase();
         expectedCounts[expected]=(expectedCounts[expected]||0)+1;
@@ -44532,10 +44568,17 @@ window.cblSnapResidueGateStatusV12 = function(){
         correctedMismatchCount++;
         shape.stroke=expected;shape.color=expected;
         client=expected;clientCounts[client]=(clientCounts[client]||0)+1;
-        if(mismatches.length<20)mismatches.push({sourcePath:String(shape.sourcePath),handleChain:String(shape.sourcePath),entityType:String(shape.rawDxfType||shape.type||''),text:String(shape.text||shape.content||''),rawLayer:String(shape.rawLayerName||''),rawAci:shape.cblRawAci===undefined?null:shape.cblRawAci,parentInsertAci:shape.cblInsertAci===undefined?null:shape.cblInsertAci,dimStyle:String(shape.dimensionStyleName||''),expectedColor:expected,clientColor:String(shape.stroke||shape.color||'').toLowerCase(),matched:false});
+        if(mismatches.length<20)mismatches.push({sourcePath:String(shape.sourcePath),handleChain:String(shape.sourcePath),entityType:String(shape.rawDxfType||shape.type||''),text:String(shape.text||shape.content||''),rawLayer:String(shape.rawLayerName||''),rawAci:shape.cblRawAci===undefined?null:shape.cblRawAci,parentInsertAci:shape.cblInsertAci===undefined?null:shape.cblInsertAci,dimStyle:String(shape.dimensionStyleName||''),expectedColor:expected,clientColor:client,matched:false});
       });
-      var postMismatch=mismatches.filter(function(item){return item.expectedColor!==item.clientColor;});
-      window.CBL_DWG_COLOR_INTEGRITY_V1=Object.assign(window.CBL_DWG_COLOR_INTEGRITY_V1||{}, {comparedCount:compared,matchedCount:matched+correctedMismatchCount,colorMismatchCount:postMismatch.length,unresolvedColorCount:Math.max(Number((window.CBL_DWG_COLOR_INTEGRITY_V1||{}).unresolvedColorCount||0),unresolved),mismatchSamples:postMismatch,expectedColorCounts:expectedCounts,clientColorCounts:clientCounts});
+      var remainingMismatch=[], remainingCompared=0;
+      colorShapes.forEach(function(shape){
+        if(!shape||!shape.sourcePath)return;
+        var expected=sourceExpectedColorV1(shape)||String(shape.cblEffectiveColor||'').trim().toLowerCase(),client=String(shape.stroke||shape.color||'').trim().toLowerCase();
+        if(!expected)return;
+        remainingCompared++;
+        if(client!==expected&&remainingMismatch.length<20)remainingMismatch.push({sourcePath:String(shape.sourcePath),entityType:String(shape.rawDxfType||shape.type||''),expectedColor:expected,clientColor:client});
+      });
+      window.CBL_DWG_COLOR_INTEGRITY_V1=Object.assign(window.CBL_DWG_COLOR_INTEGRITY_V1||{}, {comparedCount:compared,matchedCount:matched+correctedMismatchCount,colorMismatchCount:remainingMismatch.length,independentExpectedVsScreenBeforeApplyCount:correctedMismatchCount,unresolvedColorCount:Math.max(Number((window.CBL_DWG_COLOR_INTEGRITY_V1||{}).unresolvedColorCount||0),unresolved),mismatchSamples:remainingMismatch,beforeApplyMismatchSamples:mismatches,expectedColorCounts:expectedCounts,clientColorCounts:clientCounts});
     } catch(_colorSourceClientError) {
       window.CBL_DWG_COLOR_INTEGRITY_V1=Object.assign(window.CBL_DWG_COLOR_INTEGRITY_V1||{}, {comparedCount:0,matchedCount:0,colorMismatchCount:null,mismatchSamples:[{error:String(_colorSourceClientError&&_colorSourceClientError.message||_colorSourceClientError)}]});
     }
