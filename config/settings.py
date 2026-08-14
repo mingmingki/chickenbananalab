@@ -18,7 +18,8 @@ SECRET_KEY = os.getenv(
     "django-insecure-j+*2gox^lvvm(@_*5s9d8e7^x3^jh&pv)$p$_pc4!m&v94puom"
 )
 
-DEBUG = os.getenv("DJANGO_DEBUG", "True") == "True"
+# Production must be non-debug unless a local developer explicitly opts in.
+DEBUG = os.getenv("DJANGO_DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = [
     "*",

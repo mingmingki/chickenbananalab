@@ -10238,6 +10238,17 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
         const status = document.getElementById("cblVideoUploadStatus");
         const submitButton = document.getElementById("cblVideoSubmitButton");
 
+        function cblVideoCsrfToken() {
+            const tokenInput = form && form.querySelector('input[name="csrfmiddlewaretoken"]');
+            if (tokenInput && tokenInput.value) return tokenInput.value;
+            const cookie = document.cookie.split(";").map(function (part) {
+                return part.trim();
+            }).find(function (part) {
+                return part.indexOf("csrftoken=") === 0;
+            });
+            return cookie ? decodeURIComponent(cookie.slice("csrftoken=".length)) : "";
+        }
+
         setVideoUploadSource("file");
 
         if (titleInput && previewTitle) {
@@ -10287,8 +10298,12 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
                 try {
                     const response = await fetch(targetUrl, {
                         method: "POST",
+                        credentials: "same-origin",
                         body: new FormData(form),
-                        headers: { "X-Requested-With": "XMLHttpRequest" }
+                        headers: {
+                            "X-Requested-With": "XMLHttpRequest",
+                            "X-CSRFToken": cblVideoCsrfToken()
+                        }
                     });
                     const data = await response.json().catch(function () {
                         return {
