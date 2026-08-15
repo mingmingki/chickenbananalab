@@ -69,6 +69,10 @@ class AdminPostEditThumbnailTests(TestCase):
         self.assertIn('URL.createObjectURL(file)', html)
         self.assertIn('thumbnailInput.addEventListener("change"', html)
         self.assertNotIn('cblPostSubmitFetch', html)
+        self.assertIn('new XMLHttpRequest()', html)
+        self.assertIn('xhr.withCredentials = true', html)
+        self.assertIn('xhr.setRequestHeader("X-CSRFToken", csrfInput.value)', html)
+        self.assertIn('xhr.send(formData)', html)
 
         old_name = self.post.thumbnail.name
         response = self.client.post(
@@ -78,6 +82,26 @@ class AdminPostEditThumbnailTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.post.refresh_from_db()
         self.assertEqual(self.post.thumbnail.name, old_name)
+
+    def test_header_csrf_allows_multipart_without_body_token(self):
+        self.client.force_login(self.user)
+        token = self._form_token()
+        payload = self._payload(
+            token,
+            SimpleUploadedFile("header-only.png", _png((30, 180, 80)), content_type="image/png"),
+        )
+        payload.pop("csrfmiddlewaretoken")
+
+        response = self.client.post(
+            self.url,
+            payload,
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.post.refresh_from_db()
+        self.assertTrue(self.post.thumbnail.name.endswith("header-only.png"))
 
     def test_csrf_multipart_replaces_thumbnail_on_actual_edit_endpoint(self):
         self.client.force_login(self.user)
