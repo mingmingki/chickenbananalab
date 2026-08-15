@@ -69,6 +69,7 @@ class AdminPostEditThumbnailTests(TestCase):
         self.assertIn('id="thumbnailPreviewImage"', html)
         self.assertIn('URL.createObjectURL(file)', html)
         self.assertIn('thumbnailInput.addEventListener("change"', html)
+        self.assertIn('cblCurrentCsrfCookie', html)
         self.assertNotIn('cblPostSubmitFetch', html)
 
         old_name = self.post.thumbnail.name
