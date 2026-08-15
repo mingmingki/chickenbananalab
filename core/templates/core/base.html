@@ -9891,6 +9891,32 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
         font-size: 16px;
     }
 
+    .cbl-video-thumbnail-preview {
+        display: flex;
+        min-height: 72px;
+        margin-top: 9px;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        background: #fff;
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    .cbl-video-thumbnail-preview:empty {
+        display: none;
+    }
+
+    .cbl-video-thumbnail-preview img {
+        display: block;
+        width: 100%;
+        max-height: 150px;
+        object-fit: contain;
+    }
+
     .cbl-video-preview p,
     .cbl-video-status {
         color: #64748b;
@@ -10034,6 +10060,7 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
                     <div class="cbl-video-field">
                         <label for="cblVideoThumbnail">썸네일</label>
                         <input id="cblVideoThumbnail" name="thumbnail" type="file" accept="image/jpeg,image/png,image/webp,image/gif">
+                        <div id="cblVideoThumbnailPreview" class="cbl-video-thumbnail-preview" aria-live="polite"></div>
                     </div>
 
                     <label class="cbl-video-publish">
@@ -10089,6 +10116,13 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
 
         const status = document.getElementById("cblVideoUploadStatus");
         if (status) status.textContent = "";
+
+        if (window.cblVideoThumbnailObjectUrlV1) {
+            URL.revokeObjectURL(window.cblVideoThumbnailObjectUrlV1);
+            window.cblVideoThumbnailObjectUrlV1 = "";
+        }
+        const thumbnailPreview = document.getElementById("cblVideoThumbnailPreview");
+        if (thumbnailPreview) thumbnailPreview.replaceChildren();
 
         form.reset();
 
@@ -10194,6 +10228,18 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
                 }
 
                 if (status) status.textContent = "새 파일을 선택하지 않으면 기존 영상이 유지됩니다.";
+                const tokenInput = form && form.querySelector('input[name="csrfmiddlewaretoken"]');
+                if (tokenInput && data.csrf_token) tokenInput.value = data.csrf_token;
+                const thumbnailPreview = document.getElementById("cblVideoThumbnailPreview");
+                if (thumbnailPreview) {
+                    thumbnailPreview.replaceChildren();
+                    if (data.thumbnail_url) {
+                        const image = document.createElement("img");
+                        image.src = data.thumbnail_url;
+                        image.alt = "현재 썸네일";
+                        thumbnailPreview.appendChild(image);
+                    }
+                }
             })
             .catch(function (error) {
                 if (status) status.textContent = error.message || "정보를 불러오지 못했습니다.";
@@ -10235,6 +10281,7 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
         const thumbnailInput = document.getElementById("cblVideoThumbnail");
         const previewBox = document.getElementById("cblVideoPreviewBox");
         const previewTitle = document.getElementById("cblVideoPreviewTitle");
+        const thumbnailPreview = document.getElementById("cblVideoThumbnailPreview");
         const status = document.getElementById("cblVideoUploadStatus");
         const submitButton = document.getElementById("cblVideoSubmitButton");
 
@@ -10274,18 +10321,33 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
         if (thumbnailInput && previewBox) {
             thumbnailInput.addEventListener("change", function () {
                 const file = thumbnailInput.files && thumbnailInput.files[0];
-                if (!file || (fileInput && fileInput.files && fileInput.files[0])) return;
+                if (!file) return;
+                if (!file.type || file.type.indexOf("image/") !== 0) {
+                    thumbnailInput.value = "";
+                    if (status) status.textContent = "PNG, JPG, WEBP, GIF 이미지만 선택할 수 있습니다.";
+                    return;
+                }
+                if (window.cblVideoThumbnailObjectUrlV1) {
+                    URL.revokeObjectURL(window.cblVideoThumbnailObjectUrlV1);
+                }
+                window.cblVideoThumbnailObjectUrlV1 = URL.createObjectURL(file);
                 const image = document.createElement("img");
-                image.src = URL.createObjectURL(file);
+                image.src = window.cblVideoThumbnailObjectUrlV1;
                 image.alt = "선택한 썸네일";
-                previewBox.innerHTML = "";
-                previewBox.appendChild(image);
+                if (thumbnailPreview) {
+                    thumbnailPreview.replaceChildren(image);
+                } else {
+                    previewBox.innerHTML = "";
+                    previewBox.appendChild(image);
+                }
             });
         }
 
         if (form) {
             form.addEventListener("submit", async function (event) {
                 event.preventDefault();
+                if (form.dataset.cblSubmitInFlight === "1") return;
+                form.dataset.cblSubmitInFlight = "1";
                 const isEdit = form.dataset.cblMode === "edit";
                 const targetUrl = isEdit ? (form.dataset.cblEditUpdateUrl || form.action) : form.action;
 
@@ -10296,6 +10358,17 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
                 }
 
                 try {
+                    if (isEdit) {
+                        // Existing-post edits use the browser's native multipart
+                        // form submission. This avoids page-wide fetch/FormData
+                        // shims and lets Safari/Chrome send the CSRF hidden field
+                        // and selected file as one standard request.
+                        form.action = targetUrl;
+                        form.method = "post";
+                        form.enctype = "multipart/form-data";
+                        HTMLFormElement.prototype.submit.call(form);
+                        return;
+                    }
                     const response = await fetch(targetUrl, {
                         method: "POST",
                         credentials: "same-origin",
@@ -10324,6 +10397,8 @@ html body[data-cbl-url-name="home"] .cblx-categories.cbl-cat-hard-reset em{
                         submitButton.disabled = false;
                         submitButton.textContent = isEdit ? "수정 저장" : "동영상 등록";
                     }
+                } finally {
+                    delete form.dataset.cblSubmitInFlight;
                 }
             });
         }

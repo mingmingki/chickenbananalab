@@ -32,6 +32,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import strip_tags
+from django.middleware.csrf import get_token
 from django.views.decorators.http import require_POST
 from django.utils.text import slugify
 
@@ -23407,6 +23408,7 @@ def video_post_edit_data_api(request, pk):
         "video_url": video_url,
         "youtube_url": youtube_url,
         "thumbnail_url": _cbl_video_file_url(getattr(post, "thumbnail", None)),
+        "csrf_token": get_token(request),
     })
 
 
@@ -23449,6 +23451,9 @@ def video_post_update_api(request, pk):
 
     if request.FILES.get("video_file") and old_video_file_name != (post.video_file.name if post.video_file else ""):
         delete_file_safely(old_video_file_name)
+
+    if request.headers.get("X-Requested-With") != "XMLHttpRequest":
+        return redirect("post_detail", pk=post.pk)
 
     return JsonResponse({
         "ok": True,
