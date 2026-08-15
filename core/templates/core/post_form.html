@@ -1986,108 +1986,90 @@ function performLocationSearch() {
     const thumbnailPreviewText = document.getElementById("thumbnailPreviewText");
     const thumbnailPreviewEmpty = document.getElementById("thumbnailPreviewEmpty");
 
-    if (thumbnailInput) {
-        thumbnailInput.addEventListener("change", function () {
-            const file = thumbnailInput.files[0];
+    let cblThumbnailObjectUrl = "";
+    let cblThumbnailSelectionKey = "";
 
+    function cblShowThumbnailPreview(file) {
+        if (!thumbnailPreviewImage || !file) {
+            return;
+        }
+
+        if (!String(file.type || "").toLowerCase().startsWith("image/")) {
+            if (thumbnailPreviewEmpty) {
+                thumbnailPreviewEmpty.textContent = "이미지 파일만 첨부할 수 있습니다.";
+                thumbnailPreviewEmpty.style.display = "block";
+            }
+            return;
+        }
+
+        const nextUrl = URL.createObjectURL(file);
+        const previousUrl = cblThumbnailObjectUrl;
+        const previousSrc = thumbnailPreviewImage.src;
+
+        thumbnailPreviewImage.onload = function () {
+            if (thumbnailPreviewImage.naturalWidth <= 0) {
+                thumbnailPreviewImage.src = previousSrc;
+                URL.revokeObjectURL(nextUrl);
+                return;
+            }
+            cblThumbnailObjectUrl = nextUrl;
+            if (previousUrl) {
+                URL.revokeObjectURL(previousUrl);
+            }
+            thumbnailPreviewImage.style.display = "block";
+            if (thumbnailPreviewEmpty) {
+                thumbnailPreviewEmpty.style.display = "none";
+            }
+        };
+        thumbnailPreviewImage.onerror = function () {
+            thumbnailPreviewImage.src = previousSrc;
+            URL.revokeObjectURL(nextUrl);
+        };
+        thumbnailPreviewImage.src = nextUrl;
+    }
+
+    if (thumbnailInput) {
+        function handleThumbnailSelection() {
+            const file = thumbnailInput.files && thumbnailInput.files[0];
             if (!file) {
                 return;
             }
-
-            const reader = new FileReader();
-
-            reader.onload = function (event) {
-                if (thumbnailPreviewImage) {
-                    thumbnailPreviewImage.src = event.target.result;
-                    thumbnailPreviewImage.style.display = "block";
-                }
-
-                if (thumbnailPreviewEmpty) {
-                    thumbnailPreviewEmpty.style.display = "none";
-                }
-            };
-
-            reader.readAsDataURL(file);
-        });
-    }
-
-    /*
-     * Safari의 native multipart POST가 오래 열린 수정 화면에서 CSRF
-     * cookie와 hidden token을 어긋나게 보내는 경우가 있어, 이 실제 글
-     * 수정 form만 최신 token을 헤더로 명시해 전송합니다. FormData가
-     * multipart boundary를 직접 덮어쓰지 않도록 Content-Type은 지정하지
-     * 않습니다.
-     */
-    if (form) {
-        const submitStatus = document.getElementById("cblPostEditorSubmitStatus");
-
-        function cblReadCookie(name) {
-            const prefix = name + "=";
-            const found = document.cookie.split(";").map(function (part) {
-                return part.trim();
-            }).find(function (part) {
-                return part.indexOf(prefix) === 0;
-            });
-            return found ? decodeURIComponent(found.slice(prefix.length)) : "";
-        }
-
-        form.addEventListener("submit", async function (event) {
-            if (form.dataset.cblPostSubmitInFlight === "1") {
-                event.preventDefault();
+            const selectionKey = [file.name, file.size, file.lastModified, file.type].join(":");
+            if (selectionKey === cblThumbnailSelectionKey) {
                 return;
             }
+            cblThumbnailSelectionKey = selectionKey;
+            cblShowThumbnailPreview(file);
+        }
 
-            event.preventDefault();
+        thumbnailInput.addEventListener("change", handleThumbnailSelection);
+        thumbnailInput.addEventListener("input", handleThumbnailSelection);
+    }
+
+    if (form) {
+        // Keep the browser's native multipart POST. Only the submit button is
+        // disabled after the first submit; the file input and form are not
+        // reset, replaced, or serialized by JavaScript.
+        form.addEventListener("submit", function () {
+            if (form.dataset.cblPostSubmitInFlight === "1") {
+                return;
+            }
             form.dataset.cblPostSubmitInFlight = "1";
-
             const button = form.querySelector("button[type='submit']");
-            const csrfInput = form.querySelector("input[name='csrfmiddlewaretoken']");
-            const csrfToken = cblReadCookie("csrftoken") || (csrfInput && csrfInput.value) || "";
-            if (csrfInput && csrfToken) csrfInput.value = csrfToken;
-
             if (button) {
                 button.disabled = true;
                 button.dataset.cblOriginalText = button.textContent;
                 button.textContent = "저장 중...";
             }
-            if (submitStatus) submitStatus.textContent = "저장 중입니다...";
-
-            try {
-                if (!csrfToken) throw new Error("CSRF 토큰을 확인하지 못했습니다.");
-                const formData = new FormData(form);
-                // Safari에서 다른 submit listener보다 먼저 FormData를
-                // 만들면 숨겨진 본문 필드가 비어 있을 수 있으므로,
-                // 현재 편집기 내용을 명시적으로 보완합니다.
-                if (editor && hiddenContent && !String(formData.get("content") || "").trim()) {
-                    formData.set("content", editor.innerHTML);
-                }
-                const response = await fetch(form.action || window.location.href, {
-                    method: "POST",
-                    body: formData,
-                    credentials: "same-origin",
-                    headers: {
-                        "X-CSRFToken": csrfToken,
-                        "X-Requested-With": "XMLHttpRequest"
-                    },
-                    redirect: "follow"
-                });
-
-                if (!response.ok) {
-                    throw new Error("저장에 실패했습니다. (HTTP " + response.status + ")");
-                }
-
-                if (submitStatus) submitStatus.textContent = "저장되었습니다.";
-                window.location.assign(response.url || form.action);
-            } catch (error) {
-                delete form.dataset.cblPostSubmitInFlight;
-                if (button) {
-                    button.disabled = false;
-                    button.textContent = button.dataset.cblOriginalText || "수정 저장";
-                }
-                if (submitStatus) submitStatus.textContent = error.message || "저장에 실패했습니다.";
-            }
         });
     }
+
+    window.addEventListener("beforeunload", function () {
+        if (cblThumbnailObjectUrl) {
+            URL.revokeObjectURL(cblThumbnailObjectUrl);
+            cblThumbnailObjectUrl = "";
+        }
+    });
 
     if (thumbnailTextInput) {
         thumbnailTextInput.addEventListener("input", function () {

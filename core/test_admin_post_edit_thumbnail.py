@@ -66,6 +66,9 @@ class AdminPostEditThumbnailTests(TestCase):
         self.assertIn('name="csrfmiddlewaretoken"', html)
         self.assertIn('id="id_thumbnail"', html)
         self.assertIn('id="thumbnailPreviewImage"', html)
+        self.assertIn('URL.createObjectURL(file)', html)
+        self.assertIn('thumbnailInput.addEventListener("change"', html)
+        self.assertNotIn('cblPostSubmitFetch', html)
 
         old_name = self.post.thumbnail.name
         response = self.client.post(
