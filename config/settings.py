@@ -20,6 +20,7 @@ SECRET_KEY = os.getenv(
 
 # Production must be non-debug unless a local developer explicitly opts in.
 DEBUG = os.getenv("DJANGO_DEBUG", "False") == "True"
+CSRF_FAILURE_VIEW = "core.csrf_diagnostics.csrf_failure"
 
 ALLOWED_HOSTS = [
     "*",
