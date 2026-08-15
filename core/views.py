@@ -33,7 +33,6 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import strip_tags
 from django.middleware.csrf import get_token
-from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 from django.utils.text import slugify
 
@@ -1346,7 +1345,6 @@ def video_post_upload(request):
 
 
 @user_passes_test(admin_required)
-@ensure_csrf_cookie
 def post_update(request, pk):
     post = get_object_or_404(Post, pk=pk)
 

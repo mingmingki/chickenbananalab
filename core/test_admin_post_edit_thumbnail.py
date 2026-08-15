@@ -61,7 +61,6 @@ class AdminPostEditThumbnailTests(TestCase):
         self.client.force_login(self.user)
         response = self.client.get(self.url)
         html = response.content.decode()
-        self.assertIn("csrftoken", self.client.cookies)
         self.assertIn('id="cblPostEditorForm"', html)
         self.assertIn('enctype="multipart/form-data"', html)
         self.assertIn('name="csrfmiddlewaretoken"', html)
@@ -69,8 +68,6 @@ class AdminPostEditThumbnailTests(TestCase):
         self.assertIn('id="thumbnailPreviewImage"', html)
         self.assertIn('URL.createObjectURL(file)', html)
         self.assertIn('thumbnailInput.addEventListener("change"', html)
-        self.assertIn('cblCurrentCsrfCookie', html)
-        self.assertIn('document.cookie = "csrftoken="', html)
         self.assertNotIn('cblPostSubmitFetch', html)
 
         old_name = self.post.thumbnail.name

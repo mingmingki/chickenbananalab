@@ -1987,7 +1987,6 @@ function performLocationSearch() {
     const thumbnailPreviewEmpty = document.getElementById("thumbnailPreviewEmpty");
 
     let cblThumbnailObjectUrl = "";
-    let cblThumbnailSelectionKey = "";
 
     function cblShowThumbnailPreview(file) {
         if (!thumbnailPreviewImage || !file) {
@@ -2034,51 +2033,11 @@ function performLocationSearch() {
             if (!file) {
                 return;
             }
-            const selectionKey = [file.name, file.size, file.lastModified, file.type].join(":");
-            if (selectionKey === cblThumbnailSelectionKey) {
-                return;
-            }
-            cblThumbnailSelectionKey = selectionKey;
             cblShowThumbnailPreview(file);
         }
 
         thumbnailInput.addEventListener("change", handleThumbnailSelection);
         thumbnailInput.addEventListener("input", handleThumbnailSelection);
-    }
-
-    if (form) {
-        // Keep the browser's native multipart POST. Only the submit button is
-        // disabled after the first submit; the file input and form are not
-        // reset, replaced, or serialized by JavaScript.
-        function cblCurrentCsrfCookie() {
-            const part = document.cookie.split(";").map(function (value) {
-                return value.trim();
-            }).find(function (value) {
-                return value.indexOf("csrftoken=") === 0;
-            });
-            return part ? decodeURIComponent(part.slice("csrftoken=".length)) : "";
-        }
-
-        form.addEventListener("submit", function () {
-            if (form.dataset.cblPostSubmitInFlight === "1") {
-                return;
-            }
-            form.dataset.cblPostSubmitInFlight = "1";
-            const csrfInput = form.querySelector("input[name='csrfmiddlewaretoken']");
-            if (csrfInput && csrfInput.value) {
-                document.cookie = "csrftoken=" + encodeURIComponent(csrfInput.value) + "; path=/; SameSite=Lax; Secure";
-            }
-            const csrfCookie = cblCurrentCsrfCookie();
-            if (csrfInput && csrfCookie) {
-                csrfInput.value = csrfCookie;
-            }
-            const button = form.querySelector("button[type='submit']");
-            if (button) {
-                button.disabled = true;
-                button.dataset.cblOriginalText = button.textContent;
-                button.textContent = "저장 중...";
-            }
-        });
     }
 
     window.addEventListener("beforeunload", function () {
