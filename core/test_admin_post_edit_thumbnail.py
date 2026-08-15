@@ -61,6 +61,7 @@ class AdminPostEditThumbnailTests(TestCase):
         self.client.force_login(self.user)
         response = self.client.get(self.url)
         html = response.content.decode()
+        self.assertIn("csrftoken", self.client.cookies)
         self.assertIn('id="cblPostEditorForm"', html)
         self.assertIn('enctype="multipart/form-data"', html)
         self.assertIn('name="csrfmiddlewaretoken"', html)
