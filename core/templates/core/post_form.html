@@ -2088,6 +2088,7 @@ function performLocationSearch() {
             }
 
             const xhr = new XMLHttpRequest();
+            xhr._cblPostEditorNativeSubmit = true;
             xhr.open("POST", form.action || window.location.href, true);
             xhr.withCredentials = true;
             xhr.setRequestHeader("X-CSRFToken", csrfInput.value);

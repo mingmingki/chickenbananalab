@@ -73,6 +73,8 @@ class AdminPostEditThumbnailTests(TestCase):
         self.assertIn('xhr.withCredentials = true', html)
         self.assertIn('xhr.setRequestHeader("X-CSRFToken", csrfInput.value)', html)
         self.assertIn('xhr.send(formData)', html)
+        self.assertIn('xhr._cblPostEditorNativeSubmit = true', html)
+        self.assertIn('if (this._cblPostEditorNativeSubmit === true)', html)
 
         old_name = self.post.thumbnail.name
         response = self.client.post(

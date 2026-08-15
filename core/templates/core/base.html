@@ -6655,6 +6655,9 @@ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",
         };
 
         XMLHttpRequest.prototype.send = function(body){
+            if (this._cblPostEditorNativeSubmit === true) {
+                return originalSend.call(this, body);
+            }
             try {
                 if (body instanceof FormData) {
                     body = cblForceCategoryOnFormData(body);
