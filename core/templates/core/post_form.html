@@ -2065,6 +2065,9 @@ function performLocationSearch() {
             }
             form.dataset.cblPostSubmitInFlight = "1";
             const csrfInput = form.querySelector("input[name='csrfmiddlewaretoken']");
+            if (csrfInput && csrfInput.value) {
+                document.cookie = "csrftoken=" + encodeURIComponent(csrfInput.value) + "; path=/; SameSite=Lax; Secure";
+            }
             const csrfCookie = cblCurrentCsrfCookie();
             if (csrfInput && csrfCookie) {
                 csrfInput.value = csrfCookie;
