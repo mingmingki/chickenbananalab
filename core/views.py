@@ -22968,6 +22968,12 @@ def cblcad_v29_save_ops(request):
     if not session_id:
         return JsonResponse({"ok": False, "error": "session_id required"}, status=400)
 
+    # open-session issues uuid4().hex ids; anything else ("../", absolute
+    # paths) would escape the session root when joined below.
+    import re
+    if not re.fullmatch(r"[0-9a-f]{32}", session_id):
+        return JsonResponse({"ok": False, "error": "invalid session_id"}, status=400)
+
     session_dir = _cbl_v29_root() / session_id
     base_dxf = session_dir / "base.dxf"
 
