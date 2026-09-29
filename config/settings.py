@@ -60,7 +60,8 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
-    "django.contrib.staticfiles",
+    # staticfiles with the CAD app HTML excluded from collectstatic (members-only via /tools/cad/)
+    "core.apps.CblStaticFilesConfig",
 
     "django.contrib.sites",
     "django.contrib.sitemaps",
@@ -80,6 +81,9 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+
+    # ChickenBananaCAD API는 로그인 사용자만 (/api/cblcad/*)
+    "core.middleware.CadLoginRequiredMiddleware",
 
     "core.middleware.VisitLogMiddleware",
 

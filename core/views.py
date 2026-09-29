@@ -7944,6 +7944,7 @@ def webcad_tool(request):
 
 
 # CBL_CAD_DIRECT_VIEW_START
+@login_required
 def cblcad_direct_view(request):
     from pathlib import Path
     from django.conf import settings

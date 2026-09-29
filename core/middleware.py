@@ -1,6 +1,7 @@
 import hashlib
 
 from django.conf import settings
+from django.http import JsonResponse
 
 from .models import VisitLog
 
@@ -134,3 +135,27 @@ class VisitLogMiddleware:
             data["is_bot"] = is_bot
 
         VisitLog.objects.create(**data)
+
+
+CAD_API_PREFIX = "/api/cblcad/"
+
+
+class CadLoginRequiredMiddleware:
+    """ChickenBananaCAD is members-only: reject anonymous calls to every CAD API.
+
+    Enforced by URL prefix rather than per view because the CAD views are
+    redefined and re-wrapped many times in views.py and routed from both
+    config/urls.py and core/urls.py.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.path_info.startswith(CAD_API_PREFIX) and not request.user.is_authenticated:
+            return JsonResponse(
+                {"ok": False, "error": "login_required", "message": "로그인 후 이용할 수 있습니다."},
+                status=401,
+                json_dumps_params={"ensure_ascii": False},
+            )
+        return self.get_response(request)
