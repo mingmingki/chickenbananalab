@@ -22646,6 +22646,55 @@ def _cbl_v29_root():
     root.mkdir(parents=True, exist_ok=True)
     return root
 
+_CBL_V29_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
+_CBL_V29_PRUNE_INTERVAL_SECONDS = 60 * 60
+
+def _cbl_v29_prune_expired_sessions(root, now=None, ttl=_CBL_V29_SESSION_TTL_SECONDS):
+    """Delete V29 session dirs (uuid4 hex names) untouched for `ttl` seconds."""
+    import re
+    import shutil
+    from pathlib import Path
+
+    root = Path(root)
+    if not root.is_dir():
+        return []
+    now = _cbl_time.time() if now is None else now
+    removed = []
+    for entry in sorted(root.iterdir()):
+        if entry.is_symlink() or not entry.is_dir() or not re.fullmatch(r"[0-9a-f]{32}", entry.name):
+            continue
+        try:
+            # save-ops writes edited/converted files into the session, so the
+            # newest direct child marks the last time the drawing was used.
+            newest = max([entry.stat().st_mtime] + [child.lstat().st_mtime for child in entry.iterdir()])
+        except OSError:
+            continue
+        if now - newest > ttl:
+            shutil.rmtree(entry, ignore_errors=True)
+            removed.append(entry.name)
+    return removed
+
+def _cbl_v29_maybe_prune_sessions(root, now=None):
+    """Prune at most once per interval across gunicorn workers (marker file in root)."""
+    from pathlib import Path
+
+    root = Path(root)
+    now = _cbl_time.time() if now is None else now
+    marker = root / ".last_prune"
+    try:
+        if marker.exists() and now - marker.stat().st_mtime < _CBL_V29_PRUNE_INTERVAL_SECONDS:
+            return None
+        if root.is_dir():
+            marker.touch()
+            os.utime(marker, (now, now))
+        removed = _cbl_v29_prune_expired_sessions(root, now=now)
+        if removed:
+            print("[CBL_V29_SESSION_PRUNE]", {"removed": len(removed)})
+        return removed
+    except Exception as e:
+        print("[CBL_V29_SESSION_PRUNE] failed:", repr(e))
+        return None
+
 def _cbl_v29_find_oda():
     from pathlib import Path
     candidates = [
@@ -22828,6 +22877,8 @@ def cblcad_v29_open_session(request):
         return JsonResponse({"ok": False, "error": "file field required"}, status=400)
 
     endpoint_started = _cbl_time.perf_counter()
+
+    _cbl_v29_maybe_prune_sessions(_cbl_v29_root())
 
     session_id = uuid.uuid4().hex
     session_dir = _cbl_v29_root() / session_id
