@@ -24444,6 +24444,7 @@ def _cbl_free_dwg_save_local_json_v1(path, dwgread):
         return {
             "OBJECTS": objects,
             "semanticManifest": report.get("semanticManifest"),
+            "acadsharpEntities": report.get("entities", []),
             "_cbl_validation_source": "acadsharp-metadata",
         }
     result = _cbl_subprocess.run(
@@ -25216,11 +25217,21 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
         raise RuntimeError("저장 검증 실패: ACadSharp 재판독 보고서가 없습니다.")
     acad_source = acad_report["source"]
     acad_reread = acad_report["reread"]
+    # The writer snapshots "source" after ApplyOperations, so it already
+    # contains the edits.  The TEXT expectations below start from the
+    # pre-edit original read by the same ACadSharp reader instead; otherwise
+    # every add_text/add_mtext is counted twice and rejected.
+    original_entities = original_json.get("acadsharpEntities")
+    if original_entities is None:
+        original_entities = _cbl_free_dwg_acadsharp_metadata_v1(original).get("entities", [])
+    acad_original = {"ModelSpaceEntities": [
+        item for item in original_entities if str(item.get("space", "")).lower() == "modelspace"
+    ]}
     # ACadSharp may expose the same source text as TextEntity on one read and
     # MText on another.  Compare one TEXT-family semantic multiset instead of
     # separate type/string lists, while retaining strict content, position,
     # rotation, and height checks.
-    source_texts = acad_text_fingerprints(acad_source)
+    source_texts = acad_text_fingerprints(acad_original)
     reread_texts = acad_text_fingerprints(acad_reread)
     expected_text_counter = fingerprint_counter(source_texts)
     for op in ops or []:
@@ -25237,27 +25248,34 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
             expected_text_counter[key] = expected_text_counter.get(key, 0) + 1
         elif kind == "delete":
             target = canonical_ref(op.get("handle"))
-            source = next((item for item in acad_source.get("ModelSpaceEntities", []) if canonical_ref(item.get("handle")) == target), None)
+            source = next((item for item in acad_original.get("ModelSpaceEntities", []) if canonical_ref(item.get("handle")) == target), None)
             value = text_family(source) if source else None
             if value:
                 key = fingerprint_key(value)
                 expected_text_counter[key] = expected_text_counter.get(key, 0) - 1
         elif kind == "update" and str(op.get("entity", "")).upper() in ("TEXT", "MTEXT"):
             target = canonical_ref(op.get("handle"))
-            source = next((item for item in acad_source.get("ModelSpaceEntities", []) if canonical_ref(item.get("handle")) == target), None)
+            source = next((item for item in acad_original.get("ModelSpaceEntities", []) if canonical_ref(item.get("handle")) == target), None)
             value = text_family(source) if source else None
             if value:
                 old_key = fingerprint_key(value)
                 expected_text_counter[old_key] = expected_text_counter.get(old_key, 0) - 1
-                value = dict(value)
-                if "text" in op or "value" in op:
-                    value["text"] = normalize_text_value(op.get("text", op.get("value", value["text"])))
-                if "insert" in op:
-                    value["point"] = point(op.get("insert"))
-                if "rotation" in op:
-                    value["rotation"] = number(op.get("rotation"), 0.0)
-                if "height" in op:
-                    value["height"] = number(op.get("height"), None)
+                # The updated value is what the writer applied in memory
+                # (post-edit "source"); reread must then match it on disk.
+                applied = next((item for item in acad_source.get("ModelSpaceEntities", []) if canonical_ref(item.get("handle")) == target), None)
+                applied_value = text_family(applied) if applied else None
+                if applied_value:
+                    value = applied_value
+                else:
+                    value = dict(value)
+                    if "text" in op or "value" in op:
+                        value["text"] = normalize_text_value(op.get("text", op.get("value", value["text"])))
+                    if "insert" in op:
+                        value["point"] = point(op.get("insert"))
+                    if "rotation" in op:
+                        value["rotation"] = number(op.get("rotation"), 0.0)
+                    if "height" in op:
+                        value["height"] = number(op.get("height"), None)
                 new_key = fingerprint_key(value)
                 expected_text_counter[new_key] = expected_text_counter.get(new_key, 0) + 1
     expected_text_counter = {key: count for key, count in expected_text_counter.items() if count}
