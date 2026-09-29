@@ -54,13 +54,16 @@ def _rendered(shape, **overrides):
     return current
 
 
-@skipUnless(NODE, "node is required to execute the CAD save helpers")
-class CadDwgSavePropertyTests(SimpleTestCase):
+class _SaveHelpersRunner:
     def run_cases(self, cases):
         script = HARNESS % {"helpers": _save_helpers_source(), "cases": json.dumps(cases, ensure_ascii=False)}
         run = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=60)
         self.assertEqual(run.returncode, 0, run.stderr)
         return json.loads(run.stdout)
+
+
+@skipUnless(NODE, "node is required to execute the CAD save helpers")
+class CadDwgSavePropertyTests(_SaveHelpersRunner, SimpleTestCase):
 
     def test_display_only_rewrites_are_not_treated_as_edits(self):
         hidden = _imported_line()
@@ -103,3 +106,44 @@ class CadDwgSavePropertyTests(SimpleTestCase):
         self.assertEqual(add["type"], "add_line")
         self.assertEqual(add["linetype"], "Continuous")
         self.assertEqual(add["aci"], 256)
+
+
+def _imported_text(**overrides):
+    # A TEXT from the full-DXF import carries no style fields; the DWG keeps
+    # its own style (e.g. 돋움체) and width factor (e.g. 0.9).
+    shape = {
+        "type": "text", "handle": "B6D", "sourceHandle": "B6D", "layId": 1, "rawLayerName": "TEX",
+        "rawDxfType": "TEXT", "text": "지하주차장 기초구조평면도", "x": 153365.09, "y": 13900.13, "size": 600, "rot": 0,
+        "cblRawLineType": "ByLayer", "cblRawAci": 256, "cblRawTrueColor": None, "cblRawLineWeight": -1,
+    }
+    shape.update(overrides)
+    return shape
+
+
+@skipUnless(NODE, "node is required to execute the CAD save helpers")
+class CadDwgTextStyleSaveTests(_SaveHelpersRunner, SimpleTestCase):
+    def test_moving_imported_text_does_not_reset_its_dwg_style(self):
+        text = _imported_text()
+        result = self.run_cases({"moved": {"base": text, "current": dict(text, x=153395.09)}})
+        update = result["moved"]["update"]
+        self.assertEqual((update["type"], update["handle"]), ("update", "B6D"))
+        self.assertEqual(update["insert"][0], 153395.09)
+        # Unknown style values are omitted so the writer keeps the DWG's own.
+        for key in ("textStyle", "widthFactor", "obliqueAngle"):
+            self.assertNotIn(key, update)
+
+    def test_style_chosen_in_the_editor_is_still_sent(self):
+        text = _imported_text(textStyleName="HAUD01", textStyle="HAUD01", widthFactor=0.8, obliqueAngle=15)
+        result = self.run_cases({"styled": {"base": _imported_text(), "current": text}})
+        update = result["styled"]["update"]
+        self.assertEqual(update["textStyle"], "HAUD01")
+        self.assertEqual(update["widthFactor"], 0.8)
+        self.assertEqual(update["obliqueAngle"], 15)
+
+    def test_new_editor_text_keeps_standard_defaults(self):
+        drawn = {"type": "text", "layId": 1, "text": "NEW", "x": 0, "y": 0, "size": 14}
+        add = self.run_cases({"drawn": {"base": drawn, "current": drawn}})["drawn"]["add"]
+        self.assertEqual(add["type"], "add_text")
+        self.assertEqual(add["textStyle"], "STANDARD")
+        self.assertEqual(add["widthFactor"], 1)
+        self.assertEqual(add["obliqueAngle"], 0)

@@ -44940,7 +44940,18 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(t==='circle')return Object.assign(base,{type:mode?'update':'add_circle',handle:h,center:p(s.cx,s.cy),radius:Math.abs(n(s.r)),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
     if(t==='polyline')return Object.assign(base,{type:mode?'update':'add_lwpolyline',handle:h,points:(s.pts||[]).map(function(q){return p(q.x,q.y);}),closed:!!s.closed,clientShapeId:mode?'':ensureClientShapeIdV1(s)});
     if(t==='rect'||t==='rectangle')return Object.assign(base,{type:mode?'update':'add_lwpolyline',handle:h,points:[[n(s.x),n(s.y)],[n(s.x)+n(s.w||s.width),n(s.y)],[n(s.x)+n(s.w||s.width),n(s.y)+n(s.h||s.height)],[n(s.x),n(s.y)+n(s.h||s.height)]],closed:true,clientShapeId:mode?'':ensureClientShapeIdV1(s)});
-    if(t==='text'||t==='mtext')return Object.assign(base,{type:mode?'update':'add_text',handle:h,entity:String(s.rawDxfType||(t==='mtext'?'MTEXT':'TEXT')).toUpperCase(),text:String(s.text||s.content||''),insert:p(s.x,s.y),height:n(firstShapeValue(s,['size','height','textHeight'],250),250),rotation:shapeRotation(s),textStyle:String(s.textStyleName||s.textStyle||'STANDARD'),widthFactor:n(s.widthFactor,1),obliqueAngle:n(s.obliqueAngle,0),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
+    if(t==='text'||t==='mtext'){
+      var textOp=Object.assign(base,{type:mode?'update':'add_text',handle:h,entity:String(s.rawDxfType||(t==='mtext'?'MTEXT':'TEXT')).toUpperCase(),text:String(s.text||s.content||''),insert:p(s.x,s.y),height:n(firstShapeValue(s,['size','height','textHeight'],250),250),rotation:shapeRotation(s),textStyle:String(s.textStyleName||s.textStyle||'STANDARD'),widthFactor:n(s.widthFactor,1),obliqueAngle:n(s.obliqueAngle,0),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
+      if(mode){
+        // Imported DWG text carries no style fields; sending the defaults
+        // would reset e.g. 돋움체/width 0.9 to STANDARD/1.  Omit what the
+        // editor does not know so the writer keeps the DWG's own values.
+        if(!(s.textStyleName||s.textStyle))delete textOp.textStyle;
+        if(s.widthFactor===undefined||s.widthFactor===null||s.widthFactor==='')delete textOp.widthFactor;
+        if(s.obliqueAngle===undefined||s.obliqueAngle===null||s.obliqueAngle==='')delete textOp.obliqueAngle;
+      }
+      return textOp;
+    }
     if(t==='dimaligned'||t==='dimlinear'||t==='dimension'){
       var x1=n(s.x1),y1=n(s.y1),x2=n(s.x2),y2=n(s.y2),dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy)||1;
       var ux=dx/len,uy=dy/len,nx=-uy,ny=ux,off=n(s.off,25),kind=t==='dimaligned'?'aligned':'linear';
