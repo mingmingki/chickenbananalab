@@ -6832,9 +6832,11 @@ function execCmd(val){
 document.addEventListener('keydown',function(e){
  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA'||e.target.isContentEditable)return;
  if(e.ctrlKey||e.metaKey){
-  if(e.key==='z'){e.preventDefault();doUndo();}else if(e.key==='y'){e.preventDefault();doRedo();}
-  else if(e.key==='d'){e.preventDefault();dupSel();}else if(e.key==='g'){e.preventDefault();groupSel();}
-  else if(e.key==='G'){e.preventDefault();ungroupSel();}else if(e.key==='a'){e.preventDefault();sel=shapes.slice();updUI();render();}
+  // macOS의 Cmd+Shift+문자는 e.key가 소문자로 오므로 Shift는 e.shiftKey로 판단한다.
+  var kLower=String(e.key||'').toLowerCase();
+  if(kLower==='z'){e.preventDefault();if(e.shiftKey)doRedo();else doUndo();}else if(e.key==='y'){e.preventDefault();doRedo();}
+  else if(e.key==='d'){e.preventDefault();dupSel();}else if(kLower==='g'){e.preventDefault();if(e.shiftKey)ungroupSel();else groupSel();}
+  else if(e.key==='a'){e.preventDefault();sel=shapes.slice();updUI();render();}
   else if(e.key==='c')copySel();else if(e.key==='v')pasteSel();
   else if(e.key==='s'){e.preventDefault();fileSave();}else if(e.key==='S'){e.preventDefault();fileSaveAs();}
   else if(e.key==='o'){e.preventDefault();fileOpen();}else if(e.key==='n'){e.preventDefault();fileNew();}
