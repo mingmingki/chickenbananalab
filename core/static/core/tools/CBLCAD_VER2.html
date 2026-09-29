@@ -44883,15 +44883,33 @@ window.cblSnapResidueGateStatusV12 = function(){
     try{if(typeof cblLtAliasV3Norm==='function')return cblLtAliasV3Norm(raw);}catch(e){}
     return raw;
   }
-  function shapeLineType(s){return canonicalDwgLineTypeV1(firstShapeValue(s,['linetype','lineType','lineTypeName','lt','cblRawLineType','rawLineType'],''));}
-  function color(s){var v=firstShapeValue(s,['aci','cblAciColor','colorIndex','color'],256);var x=Number(v);return Number.isFinite(x)?x:256;}
+  // Shapes imported from a DWG keep the entity's own properties in cblRaw*.
+  // Renderer/layer patches later rewrite linetype/dash/stroke for display
+  // (e.g. HID -> "solid"), so save change-detection and update ops must read
+  // the raw DWG values; the raw linetype name is sent as-is because aliases
+  // such as "Hidden" may not exist in the drawing's linetype table.
+  function rawDwgLineType(s){
+    var raw=firstShapeValue(s,['cblRawLineType','cblRawLinetype'],null);
+    if(raw===null||String(raw).trim()==='')return null;
+    raw=String(raw).trim();
+    var key=raw.toUpperCase().replace(/[\s_\-.]/g,'');
+    if(key==='BYLAYER')return 'ByLayer';
+    if(key==='BYBLOCK')return 'ByBlock';
+    if(key==='CONTINUOUS')return 'Continuous';
+    return raw;
+  }
+  function rawDwgNumber(s,key){if(!s||s[key]===undefined||s[key]===null||s[key]==='')return null;var x=Number(s[key]);return Number.isFinite(x)?x:null;}
+  function shapeLineType(s){var raw=rawDwgLineType(s);if(raw)return raw;return canonicalDwgLineTypeV1(firstShapeValue(s,['linetype','lineType','lineTypeName','lt','cblRawLineType','rawLineType'],''));}
+  function color(s){var raw=rawDwgNumber(s,'cblRawAci');if(raw!==null)return raw;var v=firstShapeValue(s,['aci','cblAciColor','colorIndex','color'],256);var x=Number(v);return Number.isFinite(x)?x:256;}
+  function shapeTrueColor(s){if(s&&Object.prototype.hasOwnProperty.call(s,'cblRawTrueColor'))return rawDwgNumber(s,'cblRawTrueColor');return firstShapeValue(s,['trueColor','truecolor','rgb','colorRgb'],null);}
+  function shapeLineWeight(s){var raw=rawDwgNumber(s,'cblRawLineWeight');if(raw!==null)return raw;return firstShapeValue(s,['lineweight','lineWeight','lineWidth','lw'],null);}
   function shapeVisualProperties(s){
     return {
       aci:color(s),
       color:color(s),
-      trueColor:firstShapeValue(s,['trueColor','truecolor','rgb','colorRgb'],null),
+      trueColor:shapeTrueColor(s),
       linetype:shapeLineType(s),
-      lineweight:firstShapeValue(s,['lineweight','lineWeight','lineWidth','lw'],null)
+      lineweight:shapeLineWeight(s)
     };
   }
   function cblShapeSaveSignatureV1(s){
