@@ -2385,6 +2385,34 @@ function cblPolylineTraceV1(s){
  });
  return out;
 }
+// Point halfway along an arc (CCW a1 -> a2).
+function cblArcMidPointV1(a){
+ var TAU=Math.PI*2,t=a.a1+(((a.a2-a.a1)%TAU+TAU)%TAU)/2;
+ return{x:a.cx+a.r*Math.cos(t),y:a.cy+a.r*Math.sin(t)};
+}
+// Nearest point of an arc to p; outside the sweep it is the nearer end point.
+function cblArcNearestPointV1(a,p){
+ var TAU=Math.PI*2,t=Math.atan2(p.y-a.cy,p.x-a.cx);
+ if(((t-a.a1)%TAU+TAU)%TAU<=((a.a2-a.a1)%TAU+TAU)%TAU)return{x:a.cx+a.r*Math.cos(t),y:a.cy+a.r*Math.sin(t)};
+ var e1={x:a.cx+a.r*Math.cos(a.a1),y:a.cy+a.r*Math.sin(a.a1)},e2={x:a.cx+a.r*Math.cos(a.a2),y:a.cy+a.r*Math.sin(a.a2)};
+ return Math.hypot(p.x-e1.x,p.y-e1.y)<=Math.hypot(p.x-e2.x,p.y-e2.y)?e1:e2;
+}
+function cblPolylineLengthV1(s){
+ var t=0;
+ cblPolylineSegmentsV1(s).forEach(function(g){t+=g.arc?g.arc.r*Math.abs(4*Math.atan(g.p1.bulge)):Math.hypot(g.p2.x-g.p1.x,g.p2.y-g.p1.y);});
+ return t;
+}
+// Enclosed area with arc segments; an open polyline is closed by a straight
+// line, like AutoCAD AREA.
+function cblPolylineAreaV1(s){
+ var segs=cblPolylineSegmentsV1(s),a=0;
+ if(!segs.length)return 0;
+ var pts=[segs[0].p1].concat(segs.map(function(g){return g.p2;}));
+ for(var i=0;i<pts.length;i++){var j=(i+1)%pts.length;a+=pts[i].x*pts[j].y-pts[j].x*pts[i].y;}
+ a/=2;
+ segs.forEach(function(g){if(g.arc){var th=4*Math.atan(g.p1.bulge);a+=g.arc.r*g.arc.r/2*(th-Math.sin(th));}});
+ return Math.abs(a);
+}
 function getBB(s){
  try{
   if(!cblIsDisplayableShapeV1(s))return null;
@@ -2488,8 +2516,27 @@ function cblSnapGridGetBBV5(s){
     var raw = getBB(s);
     if (!raw) return null;
     var x1 = raw.x, y1 = raw.y, x2 = raw.x + raw.w, y2 = raw.y + raw.h;
-    return { x1: Math.min(x1,x2), y1: Math.min(y1,y2), x2: Math.max(x1,x2), y2: Math.max(y1,y2) };
+    var bb = { x1: Math.min(x1,x2), y1: Math.min(y1,y2), x2: Math.max(x1,x2), y2: Math.max(y1,y2) };
+    // Arc and polyline-bulge centers can lie far outside the drawn bounds.
+    // Index those points on their own so a center snap still finds the shape.
+    if (s && (s.type === 'arc' || s.type === 'polyline') && typeof getCP === 'function') {
+      (getCP(s) || []).forEach(function(p){
+        if (p && isFinite(p.x) && isFinite(p.y) && (p.x < bb.x1 || p.x > bb.x2 || p.y < bb.y1 || p.y > bb.y2)) (bb.pts || (bb.pts = [])).push(p);
+      });
+    }
+    return bb;
   } catch(e) { return null; }
+}
+
+function cblSnapGridAddPointsV5(cells, bb, shape, minX, minY, cell){
+  if (!bb || !bb.pts) return 0;
+  var added = 0;
+  bb.pts.forEach(function(p){
+    var key = Math.floor((p.x-minX)/cell) + '_' + Math.floor((p.y-minY)/cell), arr = cells.get(key);
+    if (!arr){ arr=[]; cells.set(key, arr); }
+    if (arr.indexOf(shape) < 0){ arr.push(shape); added++; }
+  });
+  return added;
 }
 
 function cblSnapGridBuildV5(){
@@ -2541,6 +2588,7 @@ function cblSnapGridBuildV5(){
         arr.push(shapes[j]);
       }
     }
+    cblSnapGridAddPointsV5(g.cells, bbj, shapes[j], minX, minY, cell);
   }
 
   g.built = true;
@@ -2580,6 +2628,7 @@ function cblSnapGridBuildAsyncV5(reason){
       var cx1=Math.floor((bb.x1-minX)/g.cellSize),cx2=Math.floor((bb.x2-minX)/g.cellSize),cy1=Math.floor((bb.y1-minY)/g.cellSize),cy2=Math.floor((bb.y2-minY)/g.cellSize);
       var cells=(cx2-cx1+1)*(cy2-cy1+1);
       if(!Number.isFinite(cells)||cells<1){g.invalidCount++;continue;}
+      g.referenceCount+=cblSnapGridAddPointsV5(g.cells,bb,source[i],minX,minY,g.cellSize);
       // Keep large geometry queryable without copying it into every cell.
       if(cells>256){g.oversize.push({shape:source[i],bbox:bb});continue;}
       for(var cx=cx1;cx<=cx2;cx++)for(var cy=cy1;cy<=cy2;cy++){
@@ -2842,6 +2891,7 @@ function getMP(s){
 }
 function getCP(s){
  if(s.type==='circle'||s.type==='arc')return[{x:s.cx,y:s.cy}];
+ if(s.type==='polyline')return cblPolylineSegmentsV1(s).filter(function(g){return g.arc;}).map(function(g){return{x:g.arc.cx,y:g.arc.cy};});
  if(s.type==='rect')return[{x:s.x+s.w/2,y:s.y+s.h/2}];
  return[];
 }
@@ -6197,8 +6247,8 @@ function cblEscHtml(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c
 function updBlkList(){if(document.getElementById('blockModal')&&document.getElementById('blockModal').classList.contains('on'))refreshBlkGrid();var ns=Object.keys(blocks),el=document.getElementById('blkList');if(!el)return;el.innerHTML=ns.length?ns.map(function(n,i){return '<div style="display:flex;align-items:center;gap:5px;padding:4px 7px;border-radius:3px;background:var(--bg);border:1px solid var(--br);margin-bottom:2px;cursor:pointer;font-size:11px" data-cbl-blk-index="'+i+'"><span class="cbl-icon-only" data-cbl-command-key="block-create"></span> '+cblEscHtml(n)+' <span class="otg">'+blocks[n].shapes.length+'개</span></div>';}).join(''):'<div style="font-size:11px;color:var(--mu)">없음</div>';Array.prototype.forEach.call(el.querySelectorAll('[data-cbl-blk-index]'),function(row){var n=ns[+row.getAttribute('data-cbl-blk-index')];row.onclick=function(){blkIns={name:n};tool='blockinsert';setHint('"'+n+'" 삽입위치 클릭');};});if(typeof cblApplyMonoIconsV2==='function')cblApplyMonoIconsV2(el);}
 
 // ===== CALC =====
-function calcArea(s){if(s.type==='rect')return Math.abs(s.w*s.h);if(s.type==='circle')return Math.PI*s.r*s.r;if(s.type==='polyline'&&s.pts&&s.pts.length>2){var a=0;for(var i=0;i<s.pts.length;i++){var j=(i+1)%s.pts.length;a+=s.pts[i].x*s.pts[j].y-s.pts[j].x*s.pts[i].y;}return Math.abs(a)/2;}if(s.type==='group')return s.ch.reduce(function(t,c){return t+calcArea(c);},0);return 0;}
-function calcPeri(s){if(s.type==='rect')return 2*(Math.abs(s.w)+Math.abs(s.h));if(s.type==='circle')return 2*Math.PI*s.r;if(s.type==='line')return dst({x:s.x1,y:s.y1},{x:s.x2,y:s.y2});if(s.type==='polyline'&&s.pts){var t=0;for(var i=0;i<s.pts.length-1;i++)t+=dst(s.pts[i],s.pts[i+1]);return t;}return 0;}
+function calcArea(s){if(s.type==='rect')return Math.abs(s.w*s.h);if(s.type==='circle')return Math.PI*s.r*s.r;if(s.type==='polyline'&&s.pts&&s.pts.length>1)return cblPolylineAreaV1(s);if(s.type==='group')return s.ch.reduce(function(t,c){return t+calcArea(c);},0);return 0;}
+function calcPeri(s){if(s.type==='rect')return 2*(Math.abs(s.w)+Math.abs(s.h));if(s.type==='circle')return 2*Math.PI*s.r;if(s.type==='line')return dst({x:s.x1,y:s.y1},{x:s.x2,y:s.y2});if(s.type==='polyline'&&s.pts)return cblPolylineLengthV1(s);return 0;}
 function runCalc(){var h=parseFloat(document.getElementById('calcH').value)||1,u=parseFloat(document.getElementById('calcU').value)||1,tgt=sel.length?sel:shapes;var cs=document.getElementById('calcSel');if(cs)cs.textContent=tgt.length+'개';if(!tgt.length){var cr=document.getElementById('calcRes');if(cr)cr.textContent='객체를 선택하세요';return;}var html='',totA=0,totP=0,totV=0;var tn={line:'선',rect:'사각형',circle:'원',polyline:'폴리선',arc:'호',group:'그룹',dimlinear:'치수',text:'텍스트',blockref:'블록'};tgt.forEach(function(s,i){var a=calcArea(s)*Math.pow(u,2),p=calcPeri(s)*u,v=a*h*u;totA+=a;totP+=p;totV+=v;html+='<div class="crow"><b>'+(i+1)+'. '+(tn[s.type]||s.type)+'</b></div>';if(a>0)html+='<div class="crow"><span style="color:var(--mu)"> 면적</span><span class="cv">'+a.toFixed(3)+'</span></div>';if(p>0)html+='<div class="crow"><span style="color:var(--mu)"> 둘레</span><span class="cv">'+p.toFixed(3)+'</span></div>';if(v>0)html+='<div class="crow"><span style="color:var(--mu)"> 체적</span><span class="cv">'+v.toFixed(3)+'</span></div>';if(i<tgt.length-1)html+='<hr style="border-color:var(--br);margin:3px 0">';});var cr2=document.getElementById('calcRes');if(cr2)cr2.innerHTML=html||'결과없음';var ct=document.getElementById('calcTot');if(ct)ct.innerHTML='<div class="crow"><span>총면적</span><span>'+totA.toFixed(3)+'</span></div><div class="crow"><span>총둘레</span><span>'+totP.toFixed(3)+'</span></div><div class="crow cv"><b>총체적</b><b>'+totV.toFixed(3)+'</b></div>';}
 function exportCalc(){var txt=(document.getElementById('calcRes')||{}).innerText||'';txt+=(document.getElementById('calcTot')||{}).innerText||'';var b=new Blob([txt],{type:'text/plain'});var u=URL.createObjectURL(b);var a=document.createElement('a');a.href=u;a.download='calc.txt';a.click();URL.revokeObjectURL(u);}
 
@@ -7179,7 +7229,7 @@ function updDim(){
   info+='둘레: '+(2*Math.PI*s.r).toFixed(3)+'<br>넓이: '+(Math.PI*s.r*s.r).toFixed(3)+'<br>';
   info+='중심: ('+s.cx.toFixed(2)+', '+s.cy.toFixed(2)+')';
  } else if(s.type==='polyline'&&s.pts){
-  var tl=0;for(var i=0;i<s.pts.length-1;i++)tl+=dst(s.pts[i],s.pts[i+1]);
+  var tl=cblPolylineLengthV1(s);
   info+='점수: '+s.pts.length+'<br>총길이: '+tl.toFixed(3);
  } else if(s.type==='arc'){
   info+='반지름: '+s.r.toFixed(3)+'<br>시작각: '+(s.a1*180/Math.PI).toFixed(1)+'°<br>끝각: '+(s.a2*180/Math.PI).toFixed(1)+'°';
@@ -7404,7 +7454,7 @@ function updAcProps(){
   rows.push(['둘레',(2*Math.PI*s.r).toFixed(3)]);
   rows.push(['넓이',(Math.PI*s.r*s.r).toFixed(3)]);
  } else if(s.type==='polyline'&&s.pts){
-  var tl=0;for(var i=0;i<s.pts.length-1;i++)tl+=dst(s.pts[i],s.pts[i+1]);
+  var tl=cblPolylineLengthV1(s);
   rows.push(['─── 기하 ───','']);
   rows.push(['점수',s.pts.length]);
   rows.push(['총길이',tl.toFixed(3)]);
@@ -42524,8 +42574,15 @@ window.cblSnapResidueGateStatusV12 = function(){
     if (!a) return [];
     return a.map(function(p){
       if (!p) return null;
-      return point(p.x !== undefined ? p.x : p[0], p.y !== undefined ? p.y : p[1]);
+      var q = point(p.x !== undefined ? p.x : p[0], p.y !== undefined ? p.y : p[1]);
+      if (q && Number(p.bulge)) q.bulge = Number(p.bulge);
+      return q;
     }).filter(Boolean);
+  }
+
+  // Arc of a bulged polyline segment [a, b] (bulge on a), or null.
+  function segArc(seg){
+    return typeof cblBulgeArcV1 === 'function' && seg[0].bulge ? cblBulgeArcV1(seg[0], seg[1], seg[0].bulge) : null;
   }
 
   function isClosed(s, ps){
@@ -42643,7 +42700,8 @@ window.cblSnapResidueGateStatusV12 = function(){
     }
     if (type==='polyline' || type==='lwpolyline' || type==='poly') {
       return polySegments(s).map(function(seg){
-        return {x:(seg[0].x+seg[1].x)/2,y:(seg[0].y+seg[1].y)/2};
+        var arc=segArc(seg);
+        return arc ? cblArcMidPointV1(arc) : {x:(seg[0].x+seg[1].x)/2,y:(seg[0].y+seg[1].y)/2};
       });
     }
     if (type==='rect' || type==='rectangle') {
@@ -42671,7 +42729,10 @@ window.cblSnapResidueGateStatusV12 = function(){
     }
     if (type==='polyline' || type==='lwpolyline' || type==='poly') {
       var segs=polySegments(s), cand=[];
-      for (var i=0;i<segs.length;i++) cand.push(segNearest(p,segs[i][0],segs[i][1]));
+      for (var i=0;i<segs.length;i++) {
+        var arc=segArc(segs[i]);
+        cand.push(arc ? cblArcNearestPointV1(arc,p) : segNearest(p,segs[i][0],segs[i][1]));
+      }
       return bestPoint(p,cand);
     }
     if (type==='rect' || type==='rectangle') {
@@ -42717,6 +42778,16 @@ window.cblSnapResidueGateStatusV12 = function(){
       for (var i=1;i<ps.length;i++) {
         if (ps[i].x<minx)minx=ps[i].x;if(ps[i].x>maxx)maxx=ps[i].x;
         if (ps[i].y<miny)miny=ps[i].y;if(ps[i].y>maxy)maxy=ps[i].y;
+      }
+      // Arc segments reach past their vertices; include the arc and its center.
+      if (ps.some(function(q){return q.bulge;})) {
+        polySegments(s).forEach(function(seg){
+          var arc=segArc(seg);
+          if (!arc) return;
+          var b=cblArcBoundsV1(arc);
+          minx=Math.min(minx,b.x,arc.cx);maxx=Math.max(maxx,b.x+b.w,arc.cx);
+          miny=Math.min(miny,b.y,arc.cy);maxy=Math.max(maxy,b.y+b.h,arc.cy);
+        });
       }
     } else {
       try {

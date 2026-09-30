@@ -175,3 +175,192 @@ class CadPolylineBulgeTests(SimpleTestCase):
         # Snapping keeps the real vertices, not sampled arc points.
         snap = html[html.index("if(t==='polyline'){ps=cblSelectionPolylinePointsV1(s);for(i=0;i<ps.length;i++)cblBlockSnapAddPointV1"):]
         self.assertTrue(snap)
+
+
+CALC_HELPERS = HELPERS[:6] + ["function cblPolylineLengthV1(s){", "function cblPolylineAreaV1(s){",
+                              "function calcArea(s){", "function calcPeri(s){"]
+
+
+@skipUnless(NODE, "node is required to execute the CAD editor helpers")
+class CadPolylineBulgeMeasureTests(SimpleTestCase):
+    """Length and area of a polyline include its arc segments."""
+
+    def run_js(self, body):
+        html = _html()
+        script = HARNESS % {"helpers": "\n".join(_editor_function(html, sig) for sig in CALC_HELPERS), "body": body}
+        run = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return json.loads(run.stdout)
+
+    def measure(self, poly):
+        return self.run_js("var s=%s; return [calcPeri(s), calcArea(s)];" % json.dumps(poly))
+
+    def test_half_circle_segment(self):
+        peri, area = self.measure(_poly([(0, 0, 1), (10, 0), (10, 10)]))
+        self.assertAlmostEqual(peri, 5 * math.pi + 10)
+        # An open polyline is measured as if closed by a straight line (like AutoCAD AREA).
+        self.assertAlmostEqual(area, 12.5 * math.pi + 50)
+
+    def test_polyline_circle(self):
+        peri, area = self.measure(_poly([(0, 0, 1), (10, 0, 1), (0, 0)], closed=True))
+        self.assertAlmostEqual(peri, 10 * math.pi)
+        self.assertAlmostEqual(area, 25 * math.pi)
+
+    def test_square_with_a_bulged_side_outward_and_inward(self):
+        out_ccw = _poly([(0, 0, 1), (10, 0), (10, 10), (0, 10)], closed=True)
+        in_ccw = _poly([(0, 0, -1), (10, 0), (10, 10), (0, 10)], closed=True)
+        out_cw = _poly([(0, 0), (0, 10), (10, 10), (10, 0, -1)], closed=True)
+        self.assertAlmostEqual(self.measure(out_ccw)[1], 100 + 12.5 * math.pi)
+        self.assertAlmostEqual(self.measure(in_ccw)[1], 100 - 12.5 * math.pi)
+        self.assertAlmostEqual(self.measure(out_cw)[1], 100 + 12.5 * math.pi)
+        self.assertAlmostEqual(self.measure(out_ccw)[0], 30 + 5 * math.pi)
+
+    def test_small_bulge_arc_length(self):
+        b = 0.1
+        theta = 4 * math.atan(b)
+        r = 10 * (1 + b * b) / (4 * b)
+        self.assertAlmostEqual(self.measure(_poly([(0, 0, b), (10, 0)]))[0], r * theta)
+
+    def test_closing_segment_counts_for_closed_polylines(self):
+        peri, area = self.measure(_poly([(0, 0), (10, 0), (10, 10)], closed=True))
+        self.assertAlmostEqual(peri, 20 + math.sqrt(200))
+        self.assertAlmostEqual(area, 50)
+
+    def test_plain_open_polyline_is_unchanged(self):
+        self.assertEqual(self.measure(_poly([(0, 0), (10, 0), (10, 10)])), [20, 50])
+
+    def test_property_panels_show_the_curved_length(self):
+        html = _html()
+        for sig in ("function updDim(){", "function updAcProps(){"):
+            body = _editor_function(html, sig)
+            block = body[body.index("s.type==='polyline'&&s.pts"):]
+            block = block[:block.index("} else if")]
+            self.assertIn("cblPolylineLengthV1(s)", block, sig)
+
+
+SNAP_HARNESS = """
+var window = globalThis;
+console.log = function(){};
+var shapes = %(shapes)s, SNAP_M = %(modes)s, snapOn = true, vScale = 1, SNAP_R = 15, layers = [{id: 1, visible: true}];
+function snpG(p){ return p; }
+function getLayerFastV1(){ return layers[0]; }
+function cblIsDisplayableShapeV1(){ return true; }
+function cblSelectionTypeV1(s){ return s.type; }
+%(helpers)s
+%(module)s
+process.stdout.write(JSON.stringify((function(){ %(body)s })()));
+"""
+
+SNAP_HELPERS = HELPERS[:6] + ["function cblArcMidPointV1(a){", "function cblArcNearestPointV1(a,p){",
+                              "function getEP(s){", "function getMP(s){", "function getCP(s){", "function getNP(s,p){",
+                              "function findSnap(wp){"]
+
+
+def _snap_module(html):
+    start = html.index('<script id="CBL_HIDDEN_DASHED_SNAP_V1">') + len('<script id="CBL_HIDDEN_DASHED_SNAP_V1">')
+    return html[start:html.index("</script>", start)]
+
+
+@skipUnless(NODE, "node is required to execute the CAD editor helpers")
+class CadPolylineBulgeSnapTests(SimpleTestCase):
+    """Mid, center and nearest snaps sit on the drawn arc of a bulged segment."""
+
+    def run_snap(self, shapes, body, modes=None):
+        html = _html()
+        script = SNAP_HARNESS % {
+            "shapes": json.dumps(shapes),
+            "modes": json.dumps(modes or {"end": True, "mid": True, "cen": True, "nea": False}),
+            "helpers": "\n".join(_editor_function(html, sig) for sig in SNAP_HELPERS),
+            "module": _snap_module(html),
+            "body": body,
+        }
+        run = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return json.loads(run.stdout)
+
+    HALF = _poly([(0, 0, 1), (100, 0), (100, 30)])
+    SMALL = _poly([(0, 0, 0.1), (10, 0)])
+
+    def assertPoint(self, got, x, y):
+        self.assertAlmostEqual(got["x"], x, places=6, msg=got)
+        self.assertAlmostEqual(got["y"], y, places=6, msg=got)
+
+    def test_mid_points_are_on_the_arc(self):
+        mids = self.run_snap([], "return getMP(%s);" % json.dumps(self.HALF))
+        self.assertPoint(mids[0], 50, -50)
+        self.assertPoint(mids[1], 100, 15)
+        self.assertPoint(self.run_snap([], "return getMP(%s);" % json.dumps(self.SMALL))[0], 5, -0.5)
+
+    def test_centers_of_bulged_segments(self):
+        centers = self.run_snap([], "return getCP(%s);" % json.dumps(self.HALF))
+        self.assertEqual(len(centers), 1)
+        self.assertPoint(centers[0], 50, 0)
+
+    def test_nearest_point_follows_the_arc(self):
+        near = self.run_snap([], "return [getNP(s,{x:50,y:-60}), getNP(s,{x:20,y:-10})];".replace("s,", "%s," % json.dumps(self.HALF)))
+        self.assertPoint(near[0], 50, -50)
+        d = math.hypot(20 - 50, -10)
+        self.assertPoint(near[1], 50 + (20 - 50) * 50 / d, -10 * 50 / d)
+
+    def test_find_snap_picks_the_arc_mid_point(self):
+        snap = self.run_snap([self.HALF], "return findSnap({x:51,y:-49});")
+        self.assertEqual(snap["type"], "mid")
+        self.assertPoint(snap["pt"], 50, -50)
+
+    def test_find_snap_reaches_a_center_outside_the_vertices(self):
+        # Small bulge: the center (5, 24.75) is far from the chord's vertex box.
+        snap = self.run_snap([self.SMALL], "return findSnap({x:5.5,y:24});")
+        self.assertEqual(snap["type"], "cen")
+        self.assertPoint(snap["pt"], 5, 24.75)
+
+    def test_find_snap_nearest_on_the_arc(self):
+        snap = self.run_snap([self.HALF], "return findSnap({x:20,y:-41});", modes={"end": False, "mid": False, "cen": False, "nea": True})
+        self.assertEqual(snap["type"], "nea")
+        self.assertAlmostEqual(math.hypot(snap["pt"]["x"] - 50, snap["pt"]["y"]), 50, places=6)
+
+
+GRID_HARNESS = """
+var window = globalThis, vScale = 1;
+function cblIsDisplayableShapeV1(){ return true; }
+%(helpers)s
+var shapes = %(shapes)s;
+window.cblGetCanonicalShapesV1 = function(){ return shapes; };
+%(grid)s
+(async function(){
+  var out = {};
+  cblSnapGridBuildV5();
+  out.sync = (cblSnapGridQueryV5(%(at)s, 1) || []).indexOf(shapes[0]) >= 0;
+  cblSnapGridInvalidateV5('test'); cblSnapGridBuildAsyncV5('test');
+  for (var i = 0; i < 100 && !cblSnapGridV5.built; i++) await new Promise(function(r){ setTimeout(r, 5); });
+  out.async = (cblSnapGridQueryV5(%(at)s, 1) || []).indexOf(shapes[0]) >= 0;
+  out.cells = cblSnapGridV5.cells.size;
+  process.stdout.write(JSON.stringify(out));
+})();
+"""
+
+
+@skipUnless(NODE, "node is required to execute the CAD editor helpers")
+class CadSnapGridCenterTests(SimpleTestCase):
+    """The live-draw snap index must offer an arc when the cursor is at its center."""
+
+    def run_grid(self, first, at):
+        html = _html()
+        grid = html[html.index("// CBL_FINDSNAP_SPATIAL_GRID_V5_START"):html.index("// CBL_FINDSNAP_SPATIAL_GRID_V5_END")]
+        helpers = HELPERS[:6] + ["function cblPolylineBoundsV1(s){", "function getCP(s){", "function getBB(s){"]
+        # Many small lines make the cells much smaller than the arc radius.
+        filler = [{"type": "line", "x1": i * 10, "y1": 0, "x2": i * 10 + 1, "y2": 1} for i in range(400)]
+        script = GRID_HARNESS % {"helpers": "\n".join(_editor_function(html, sig) for sig in helpers),
+                                 "shapes": json.dumps([first] + filler), "grid": grid, "at": json.dumps(at)}
+        run = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return json.loads(run.stdout)
+
+    def test_arc_center_is_found(self):
+        arc = {"type": "arc", "cx": 2000, "cy": 0, "r": 1500, "a1": math.radians(60), "a2": math.radians(120)}
+        result = self.run_grid(arc, {"x": 2000, "y": 0})
+        self.assertEqual((result["sync"], result["async"]), (True, True), result)
+
+    def test_bulged_polyline_center_is_found(self):
+        poly = _poly([(1000, 0, 0.1), (3000, 0)])  # center (2000, 4950)
+        result = self.run_grid(poly, {"x": 2000, "y": 4950})
+        self.assertEqual((result["sync"], result["async"]), (True, True), result)
