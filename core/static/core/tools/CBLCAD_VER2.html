@@ -45104,7 +45104,9 @@ window.cblSnapResidueGateStatusV12 = function(){
   // the raw DWG values; the raw linetype name is sent as-is because aliases
   // such as "Hidden" may not exist in the drawing's linetype table.
   function rawDwgLineType(s){
-    var raw=firstShapeValue(s,['cblRawLineType','cblRawLinetype'],null);
+    // cblRawLinetype comes only from the original DWG metadata; the open-integrity
+    // patch later rewrites cblRawLineType to the effective (display) linetype.
+    var raw=firstShapeValue(s,['cblRawLinetype','cblRawLineType'],null);
     if(raw===null||String(raw).trim()==='')return null;
     raw=String(raw).trim();
     var key=raw.toUpperCase().replace(/[\s_\-.]/g,'');
@@ -45452,7 +45454,8 @@ window.cblSnapResidueGateStatusV12 = function(){
       var isRendererOnly=s.rendererOnly===true||s.blockChild===true||s.displayOnly===true||s.synthetic===true||s.helper===true;
       if(isRendererOnly)rendererOnly++;
       var snap=window.CBL_FREE_DWG_SNAPSHOT_API_V1.snapshotShape(s);if(!snap||typeof snap!=='object'){failing={index:index,shape:s};throw new Error('invalid snapshot');}
-      if(!isRendererOnly&&isTopLevelEditable(s)&&!ownerHandleOf(s)&&!clientShapeIdOf(s))missing.push(index);
+      // A copied block's attribute text is written by cloning its INSERT, so it gets no handle of its own.
+      if(!isRendererOnly&&isTopLevelEditable(s)&&!ownerHandleOf(s)&&!clientShapeIdOf(s)&&!s.cblAttribCopy)missing.push(index);
       return snap;
     });}
     catch(e){

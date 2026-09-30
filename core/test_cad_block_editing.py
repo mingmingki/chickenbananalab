@@ -180,3 +180,56 @@ class CadAttributeBlockTransformTests(_BuildOpsRunner, SimpleTestCase):
         result = self.run_cases({"t": {"base": [_insert("34"), _attrib("34")],
                                        "shapes": [_insert("34", x=5.0), _attrib("34", dx=5.0)]}})["t"]
         self.assertEqual(self.kinds(result), [("update", "34")])
+
+
+COMMIT_HARNESS = """
+const window = {layers: [{id: 1, name: '0'}], CBL_ACADSHARP_FULL_DXF_ACTIVE: true, CBL_CAD_TEXT_STYLES_V1: {},
+                CBL_FREE_DWG_SNAPSHOT_API_V1: {snapshotShape: function(s){ return JSON.parse(JSON.stringify(s)); }}};
+function cblRevisionCleanV1(x){ return x; } function cblComputeDocumentRevisionV1(){ return 'r'; }
+%(helpers)s
+try { prepareDwgSaveCommitV1({shapes: %(shapes)s}); process.stdout.write(JSON.stringify({ok: true})); }
+catch (e) { process.stdout.write(JSON.stringify({error: String(e.message)})); }
+"""
+
+
+@skipUnless(NODE, "node is required to execute the CAD save helpers")
+class CadCopiedAttributeCommitTests(SimpleTestCase):
+    """A copied block's attribute text has no op of its own; the save commit must not wait for its handle."""
+
+    def commit(self, shapes):
+        html = _html()
+        script = html.index('<script id="CBL_FREE_DWG_AC1018_SAVE_V1_SCRIPT">')
+        start = html.index("  function shapes(){try{if(Array.isArray(window.shapes))", script)
+        helpers = html[start:html.index("  function name(options){", start)]
+        commit_start = html.index("  function prepareDwgSaveCommitV1(result){", script)
+        helpers += html[commit_start:html.index("  var freeDwgSaveInFlightV1=false;", commit_start)]
+        run = subprocess.run([NODE, "-e", COMMIT_HARNESS % {"helpers": helpers, "shapes": json.dumps(shapes)}],
+                             capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return json.loads(run.stdout)
+
+    def test_copied_attribute_text_does_not_block_the_commit(self):
+        copy_attrib = _attrib("34", dx=50.0, cblBlockKey="copy-1", cblAttribCopy=True)
+        for key in ("handle", "sourceHandle", "originalHandle"):
+            copy_attrib.pop(key)
+        self.assertEqual(self.commit([_insert("34"), _attrib("34"), copy_attrib]), {"ok": True})
+
+    def test_a_new_shape_without_handle_still_blocks_the_commit(self):
+        self.assertIn("error", self.commit([_line(x=10.0)]))
+
+
+@skipUnless(NODE, "node is required to execute the CAD save helpers")
+class CadRawLinetypeOverwriteTests(_BuildOpsRunner, SimpleTestCase):
+    """The open-integrity patch rewrites cblRawLineType to the effective linetype after the save baseline
+    is taken; the DWG's own value stays in cblRawLinetype, and an untouched INSERT must not be updated."""
+
+    def test_overwritten_display_linetype_is_not_an_edit(self):
+        base = _insert("34", cblRawLineType="ByLayer", cblRawLinetype="ByLayer")
+        live = _insert("34", cblRawLineType="Continuous", cblRawLinetype="ByLayer")
+        self.assertEqual(self.run_cases({"l": {"base": [base], "shapes": [live]}})["l"], {"ops": []})
+
+    def test_moved_insert_keeps_its_dwg_linetype(self):
+        base = _insert("34", cblRawLineType="ByLayer", cblRawLinetype="ByLayer")
+        live = _insert("34", x=5.0, cblRawLineType="Continuous", cblRawLinetype="ByLayer")
+        op = self.run_cases({"m": {"base": [base], "shapes": [live]}})["m"]["ops"][0]
+        self.assertEqual(op["linetype"], "ByLayer")
