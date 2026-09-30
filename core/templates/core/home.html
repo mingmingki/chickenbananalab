@@ -405,7 +405,12 @@ body.cbl-webcad-lock{
 
 {% extends "core/base.html" %}
 {% load static %}
-{% block title %}ChickenBanana Lab | 건설·BIM·IT 자동화
+{% block title %}ChickenBanana Lab | 건설·BIM·IT 자동화{% endblock %}
+{% comment %}
+  아래 5개 패치(홈 4카드 한 줄, 두 번째 줄 정렬, 달력 색상/종일, 달력 등록 색상,
+  달력 연결 막대)는 title 블록 안에 잘못 들어가 <title> 글자로만 출력됐고
+  CSS/스크립트로 적용된 적이 없다. 화면을 지금과 같게 유지하려고 주석으로 둔다.
+  적용하려면 화면 영향을 검토한 뒤 content 블록 안으로 옮길 것.
 <!-- CBL_HOME_4CARDS_ONELINE_TUNE_START -->
 <style>
 /* PC: 수량산출 / AI건설 구인구직 / 프로그램 / 달력 4개 한 줄 */
@@ -1210,7 +1215,7 @@ body[data-cbl-url-name="home"] .cbl-second-calendar-event-mini {
 })();
 </script>
 <!-- CBL_CALENDAR_CONNECTED_BAR_PREVIEW_FIX_END -->
-{% endblock %}
+{% endcomment %}
 {% block meta_description %}건설 실무, BIM, IT 자동화, 직접 만든 프로그램과 자료를 공유하는 ChickenBanana Lab입니다.{% endblock %}
 
 {% block content %}
