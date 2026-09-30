@@ -25137,7 +25137,14 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
                 "operation_deltas": operation_deltas,
             },
         )
-    if not after or after.get("REGION", 0) != before.get("REGION", 0):
+    # An empty model space is only acceptable when the ops removed every entity
+    # and the saved file was read (it still has its tables); otherwise treat it
+    # as a failed read, as before.
+    expected_entity_total = sum(int(value) for value in expected.values() if value)
+    saved_readable = bool((saved_json or {}).get("OBJECTS"))
+    if not after and (expected_entity_total or not saved_readable):
+        raise RuntimeError("저장 검증 실패: REGION 보존 수가 달라졌습니다.")
+    if after.get("REGION", 0) != before.get("REGION", 0):
         raise RuntimeError("저장 검증 실패: REGION 보존 수가 달라졌습니다.")
     if after.get("MINSERT", 0) != before.get("MINSERT", 0):
         raise RuntimeError("저장 검증 실패: MINSERT 보존 수가 달라졌습니다.")

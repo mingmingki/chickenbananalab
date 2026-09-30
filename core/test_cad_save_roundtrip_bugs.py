@@ -358,7 +358,7 @@ class CadEmptyDrawingSaveTests(SimpleTestCase):
         html = _html()
         script = BUILD_OPS_HARNESS % {"helpers": _build_ops_source(html), "cases": _json.dumps(cases)}
         script = script.replace("out[name] = {ops: buildOps().ops};",
-                                "var pk = buildOps(); out[name] = {ops: pk.ops.map(function(o){return o.type;}), empties: pk.emptiesDrawing};")
+                                "var pk = buildOps(); out[name] = {ops: pk.ops.map(function(o){return o.type;}), empties: pk.emptiesDrawing, empty: pk.emptyModel};")
         run = _subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=60)
         self.assertEqual(run.returncode, 0, run.stderr)
         return _json.loads(run.stdout)
@@ -367,9 +367,10 @@ class CadEmptyDrawingSaveTests(SimpleTestCase):
         result = self.empties({"all": {"base": [_line("A1"), _arc("A2")], "shapes": []},
                                "some": {"base": [_line("A1"), _arc("A2")], "shapes": [_arc("A2")]},
                                "blank": {"base": [], "shapes": []}})
-        self.assertEqual(result["all"], {"ops": ["delete", "delete"], "empties": True})
-        self.assertEqual(result["some"], {"ops": ["delete"], "empties": False})
-        self.assertEqual(result["blank"], {"ops": [], "empties": False})
+        # Only emptying a drawing that had entities needs the confirmation; an already empty one saves as is.
+        self.assertEqual(result["all"], {"ops": ["delete", "delete"], "empties": True, "empty": True})
+        self.assertEqual(result["some"], {"ops": ["delete"], "empties": False, "empty": False})
+        self.assertEqual(result["blank"], {"ops": [], "empties": False, "empty": True})
 
     def test_commit_of_an_empty_model_needs_the_confirmation(self):
         html = _html()
@@ -390,7 +391,7 @@ class CadEmptyDrawingSaveTests(SimpleTestCase):
         flow = html[start:start + 6000]
         self.assertIn("if(pack.emptiesDrawing&&", flow)
         self.assertIn("window.confirm(", flow[:flow.index("var fd=new FormData()")])
-        self.assertEqual(html.count("shapes:pack.mappedShapes,allowEmpty:pack.emptiesDrawing===true"), 3)
+        self.assertEqual(html.count("shapes:pack.mappedShapes,allowEmpty:pack.emptyModel===true"), 3)
 
 
 @skipUnless(NODE, "node is required to execute the CAD save helpers")

@@ -55,3 +55,36 @@ class CadDwgSaveValidationZeroCountTests(SimpleTestCase):
         ])
         self.assertIn("CIRCLE", types)
         self.assertNotIn("INSERT", types)
+
+    def test_deleting_every_entity_passes_validation(self):
+        # Without blocks the saved model space is empty; that is the expected result, not a failed read.
+        original = self.tmp / "lines_only.dwg"
+        create = self.tmp / "create_lines.json"
+        create.write_text(json.dumps({"ops": [
+            {"type": "add_line", "layer": "0", "start": [0, 0, 0], "end": [100, 0, 0]},
+            {"type": "add_line", "layer": "0", "start": [0, 10, 0], "end": [100, 10, 0]},
+        ]}), encoding="utf-8")
+        _run_writer(["--create", original, "AC1018", create])
+        handles = [item["handle"] for item in core_views._cbl_free_dwg_acadsharp_metadata_v1(original)["entities"]]
+        self.assertEqual(len(handles), 2)
+        types = self.save(original, [{"type": "delete", "handle": h, "entity": "LINE"} for h in handles])
+        self.assertEqual(types, [])
+
+    def test_losing_every_entity_unexpectedly_still_fails(self):
+        original = self.tmp / "lines_only2.dwg"
+        create = self.tmp / "create_lines2.json"
+        create.write_text(json.dumps({"ops": [
+            {"type": "add_line", "layer": "0", "start": [0, 0, 0], "end": [100, 0, 0]},
+            {"type": "add_line", "layer": "0", "start": [0, 10, 0], "end": [100, 10, 0]},
+        ]}), encoding="utf-8")
+        _run_writer(["--create", original, "AC1018", create])
+        handles = [item["handle"] for item in core_views._cbl_free_dwg_acadsharp_metadata_v1(original)["entities"]]
+        # The writer deletes both lines, but the ops given to the validator claim only one delete.
+        original_for_ops = core_views._cbl_free_dwg_save_local_json_v1(original, None)
+        writer_ops = core_views._cbl_normalize_free_dwg_ops_v1(original_for_ops, [{"type": "delete", "handle": h, "entity": "LINE"} for h in handles])
+        ops_path = self.tmp / "ops.json"
+        ops_path.write_text(json.dumps({"ops": writer_ops}), encoding="utf-8")
+        output = self.tmp / "saved.dwg"
+        report = _run_writer([original, output, "AC1018", ops_path])
+        with self.assertRaises(Exception):
+            core_views._cbl_free_dwg_save_local_validate_v1(original, output, None, writer_ops[:1], report)

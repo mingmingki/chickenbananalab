@@ -45582,7 +45582,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     var diagnostics={shapesCount:ss.length,baselineCount:base.length,sourceHandleCount:Object.keys(sourceHandles).length,rendererOnlyCount:rendererOnlyCount,blockChildCount:blockChildCount,newEditableCount:newEditableCount,opsCount:normalized.length};
     window.CBL_DWG_BUILD_OPS_DIAGNOSTICS_V1=diagnostics;
     return {ops:normalized,textStyles:textStyles,shapeCount:ss.length,sourceCount:base.length,diagnostics:diagnostics,pendingAddRefs:pendingAddRefs,
-      emptiesDrawing:!ss.length&&base.some(function(b){return isTopLevelEditable(b);})};
+      emptyModel:!ss.length,emptiesDrawing:!ss.length&&base.some(function(b){return isTopLevelEditable(b);})};
   }
   function safeName(value){
     var s=String(value||'').trim().replace(/[\\/:*?"<>|]/g,'_');
@@ -45874,7 +45874,8 @@ window.cblSnapResidueGateStatusV12 = function(){
     try{
     var pack=buildOps();
     // Deleting every entity is a real edit, but it looks exactly like a model
-    // lost to a bug, so the user confirms it before the file is emptied.
+    // lost to a bug, so the user confirms it before the file is emptied.  An
+    // already empty drawing has nothing left to delete and saves as is.
     if(pack.emptiesDrawing&&!window.confirm('도면의 모든 객체를 지운 상태로 저장합니다. 계속할까요?'))throw new Error('모든 객체를 지운 저장을 취소했습니다.');
     if(window.CBL_NATIVE_FILE_STATUS_V1){
       window.CBL_NATIVE_FILE_STATUS_V1.buildOpsDiagnostics=pack.diagnostics||window.CBL_DWG_BUILD_OPS_DIAGNOSTICS_V1||null;
@@ -45903,7 +45904,7 @@ window.cblSnapResidueGateStatusV12 = function(){
         var binaryOutputHandles=res.headers.get('X-CBL-FREE-DWG-OUTPUT-HANDLES')||'';
         if(window.CBL_NATIVE_FILE_STATUS_V1)window.CBL_NATIVE_FILE_STATUS_V1.outputHandles=binaryOutputHandles||null;
         await applyOutputHandlesV1(binaryOutputHandles,pack);
-        var binaryPrepared=prepareDwgSaveCommitV1({bytes:binaryBytes,filename:nativeHandle.name||requested,handle:nativeHandle,shapes:pack.mappedShapes,allowEmpty:pack.emptiesDrawing===true});
+        var binaryPrepared=prepareDwgSaveCommitV1({bytes:binaryBytes,filename:nativeHandle.name||requested,handle:nativeHandle,shapes:pack.mappedShapes,allowEmpty:pack.emptyModel===true});
         try{
           await writeNativeDwgBytesV1(binaryBytes,requested,nativeHandle,options.preparedWritable||null);
         }catch(writeError){
@@ -45943,7 +45944,7 @@ window.cblSnapResidueGateStatusV12 = function(){
         var stableSavedFile=new File([savedBytes],delivery.filename,{type:'application/acad'});
         window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=delivery.file_token||options.targetFileToken||window.CBL_FREE_DWG_LOCAL_FILE_TOKEN;
         writeCompleted=true;
-        var savedPrepared=prepareDwgSaveCommitV1({bytes:savedBytes,filename:delivery.filename,handle:options.nativeHandle||window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1||null,shapes:pack.mappedShapes,allowEmpty:pack.emptiesDrawing===true});
+        var savedPrepared=prepareDwgSaveCommitV1({bytes:savedBytes,filename:delivery.filename,handle:options.nativeHandle||window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1||null,shapes:pack.mappedShapes,allowEmpty:pack.emptyModel===true});
         var commitResult=window.cblCommitSuccessfulDwgSaveV1({prepared:savedPrepared});pack.restoreOutputHandlesV1=null;
         if(typeof setHint==='function')setHint('저장 완료: '+commitResult.filename);
         if(options.saveAs&&window.CBL_FREE_DWG_SAVE_AS_STATUS_V1){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=false;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.downloadedName=delivery.filename;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveCompleted=true;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;}
@@ -45952,7 +45953,7 @@ window.cblSnapResidueGateStatusV12 = function(){
         if(!delivery.download_url)throw new Error('DWG 내보내기 주소를 받지 못했습니다.');
         var nativeSaved=browserMode()&&!!nativeHandle&&await saveTokenToNativePickerV1(delivery,delivery.filename,nativeHandle,options.preparedWritable||null);
         if(nativeSaved)writeCompleted=true;
-        var tokenPrepared=prepareDwgSaveCommitV1({filename:(nativeSaved&&nativeHandle&&nativeHandle.name)||delivery.filename,handle:nativeSaved?nativeHandle:null,shapes:pack.mappedShapes,allowEmpty:pack.emptiesDrawing===true});
+        var tokenPrepared=prepareDwgSaveCommitV1({filename:(nativeSaved&&nativeHandle&&nativeHandle.name)||delivery.filename,handle:nativeSaved?nativeHandle:null,shapes:pack.mappedShapes,allowEmpty:pack.emptyModel===true});
         var commitResult=window.cblCommitSuccessfulDwgSaveV1({prepared:tokenPrepared});pack.restoreOutputHandlesV1=null;
         if(options.saveAs&&window.CBL_FREE_DWG_SAVE_AS_STATUS_V1){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=false;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.downloadedName=delivery.filename;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveCompleted=true;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;}
         if(nativeSaved){
