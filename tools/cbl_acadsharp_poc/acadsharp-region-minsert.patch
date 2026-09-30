@@ -1,0 +1,186 @@
+diff --git a/src/ACadSharp/Entities/Entity.cs b/src/ACadSharp/Entities/Entity.cs
+--- a/src/ACadSharp/Entities/Entity.cs
++++ b/src/ACadSharp/Entities/Entity.cs
+@@ -282,7 +282,8 @@ public abstract class Entity : CadObject, IEntity
+ 		doc.LineTypes.OnRemove += this.tableOnRemove;
+ 
+ 		//TODO: Ensure the event is set after the document is read or modified
+-		doc.Materials?.OnRemove += this.tableOnRemove;
++		if (doc.Materials != null)
++			doc.Materials.OnRemove += this.tableOnRemove;
+ 	}
+ 
+ 	internal override void UnassignDocument()
+@@ -290,7 +291,8 @@ public abstract class Entity : CadObject, IEntity
+ 		this.Document.Layers.OnRemove -= this.tableOnRemove;
+ 		this.Document.LineTypes.OnRemove -= this.tableOnRemove;
+ 
+-		this.Document.Materials?.OnRemove -= this.tableOnRemove;
++		if (this.Document.Materials != null)
++			this.Document.Materials.OnRemove -= this.tableOnRemove;
+ 
+ 		base.UnassignDocument();
+ 
+diff --git a/src/ACadSharp/Entities/Insert.cs b/src/ACadSharp/Entities/Insert.cs
+index 9750dae6..ce0eedf9 100644
+--- a/src/ACadSharp/Entities/Insert.cs
++++ b/src/ACadSharp/Entities/Insert.cs
+@@ -68 +68,7 @@ public class Insert : Entity
+-	public bool IsMultiple { get { return this.RowCount > 1 || this.ColumnCount > 1; } }
++	/// <summary>
++	/// Gets whether this insert was read from a DWG MINSERT object.
++	/// This preserves the source entity type even when its array is 1x1.
++	/// </summary>
++	public bool WasReadAsMInsert { get; internal set; }
++
++	public bool IsMultiple { get { return this.WasReadAsMInsert || this.RowCount > 1 || this.ColumnCount > 1; } }
+@@ -84,5 +90,5 @@ public class Insert : Entity
+ 	{
+ 		get
+ 		{
+-			if (this.RowCount > 1 || this.ColumnCount > 1)
++			if (this.IsMultiple)
+ 			{
+ 				return ObjectType.MINSERT;
+ 			}
+diff --git a/src/ACadSharp/Entities/ModelerGeometry.cs b/src/ACadSharp/Entities/ModelerGeometry.cs
+--- a/src/ACadSharp/Entities/ModelerGeometry.cs
++++ b/src/ACadSharp/Entities/ModelerGeometry.cs
+@@ -47,6 +47,15 @@ namespace ACadSharp.Entities
+ 		/// </remarks>
+ 		public byte[] AcisData { get; set; }
+ 
++		/// <summary>Original on-disk ACIS bytes when read from an embedded DWG payload.</summary>
++		public byte[] RawAcisData { get; internal set; }
++
++		/// <summary>Original AC1018 SAT block boundaries and bytes.</summary>
++		public List<byte[]> RawAcisBlocks { get; } = new();
++
++		/// <summary>Embedded ACIS payload format version read from DWG.</summary>
++		public short RawAcisVersion { get; internal set; }
++
+ 		/// <summary>
+ 		/// Flag that indicates if <see cref="AcisData"/> contains a binary SAB
+ 		/// payload instead of SAT text.
+diff --git a/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgObjectReader.cs b/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgObjectReader.cs
+--- a/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgObjectReader.cs
++++ b/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgObjectReader.cs
+@@ -3618,5 +3618,6 @@ namespace ACadSharp.IO.DWG
+ 
+ 			//Version BS Can be 1 or 2.
+ 			short version = this._mergedReaders.ReadBitShort();
++			template.CadObject.RawAcisVersion = version;
+ 
+ 			switch (version)
+@@ -3628,11 +3629,15 @@ namespace ACadSharp.IO.DWG
+ 				//convert to a space.
+ 				case 1:
+ 					using (MemoryStream stream = new MemoryStream())
++					using (MemoryStream rawStream = new MemoryStream())
+ 					{
+ 						int blockSize = this._mergedReaders.ReadBitLong();
+ 						while (blockSize > 0)
+ 						{
+-							byte[] block = AcisTextCodec.Decode(this._mergedReaders.ReadBytes(blockSize));
++							byte[] rawBlock = this._mergedReaders.ReadBytes(blockSize);
++							template.CadObject.RawAcisBlocks.Add(rawBlock);
++							rawStream.Write(rawBlock, 0, rawBlock.Length);
++							byte[] block = AcisTextCodec.Decode(rawBlock);
+ 							stream.Write(block, 0, block.Length);
+ 
+ 							blockSize = this._mergedReaders.ReadBitLong();
+@@ -3641,5 +3646,6 @@ namespace ACadSharp.IO.DWG
+ 						if (stream.Length > 0)
+ 						{
+ 							template.CadObject.AcisData = stream.ToArray();
++							template.CadObject.RawAcisData = rawStream.ToArray();
+ 						}
+ 					}
+@@ -3660,5 +3666,6 @@ namespace ACadSharp.IO.DWG
+ 					if (remainingBytes > 0)
+ 					{
+ 						byte[] data = this._mergedReaders.ReadBytes(remainingBytes);
+-						template.CadObject.AcisData = AcisTextCodec.TrimAtAcisEnd(data);
++						template.CadObject.RawAcisData = AcisTextCodec.TrimAtAcisEnd(data);
++						template.CadObject.AcisData = template.CadObject.RawAcisData;
+ 					}
+@@ -6288,6 +6295,7 @@ namespace ACadSharp.IO.DWG
+ 		private CadTemplate readMInsert()
+ 		{
+ 			Insert insert = new Insert();
++			insert.WasReadAsMInsert = true;
+ 			CadInsertTemplate template = new CadInsertTemplate(insert);
+ 
+ 			this.readInsertCommonData(template);
+diff --git a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Entities.cs b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Entities.cs
+--- a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Entities.cs
++++ b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Entities.cs
+@@ -3,4 +3,5 @@ using ACadSharp.Objects;
+ using CSMath;
+ using System;
+ using System.Collections.Generic;
++using System.IO;
+ using System.Linq;
+@@ -588,5 +589,8 @@ internal partial class DwgObjectWriter : DwgSectionIO
+ 				this.writeSolid(solid);
+ 				break;
+ 			case Solid3D solid3d:
+-				this.writeSolid3D(solid3d);
++				this.writeModelerGeometry(solid3d);
++				break;
++			case Region region:
++				this.writeModelerGeometry(region);
+ 				break;
+@@ -2174,6 +2178,40 @@ internal partial class DwgObjectWriter : DwgSectionIO
+ 		this._writer.WriteBitExtrusion(solid.Normal);
+ 	}
+ 
+-	private void writeSolid3D(Solid3D solid)
++	private void writeModelerGeometry(ModelerGeometry geometry)
+ 	{
++		if (geometry.AcisData == null || geometry.AcisData.Length == 0)
++			throw new InvalidDataException($"Modeler geometry {geometry.ObjectName} has no ACIS payload");
++		if (this.R2010Plus)
++			throw new NotSupportedException($"Embedded ACIS writer only supports AC1018 and earlier R2000+ files: {this._version}");
++
++		this._writer.WriteBit(false);
++		this._writer.WriteBit(false);
++		short acisVersion = geometry.RawAcisVersion == 2 ? (short)2 : (short)1;
++		this._writer.WriteBitShort(acisVersion);
++		byte[] encoded = geometry.RawAcisData ?? AcisTextCodec.Decode(geometry.AcisData);
++		if (acisVersion == 2)
++		{
++			this._writer.WriteBytes(encoded);
++			return;
++		}
++		if (geometry.RawAcisBlocks.Count > 0)
++		{
++			foreach (byte[] block in geometry.RawAcisBlocks)
++			{
++				this._writer.WriteBitLong(block.Length);
++				this._writer.WriteBytes(block);
++			}
++		}
++		else
++		{
++			const int chunkSize = 0x4000;
++			for (int offset = 0; offset < encoded.Length; offset += chunkSize)
++			{
++				int count = Math.Min(chunkSize, encoded.Length - offset);
++				this._writer.WriteBitLong(count);
++				this._writer.WriteBytes(encoded, offset, count);
++			}
++		}
++		this._writer.WriteBitLong(0);
+ 	}
+diff --git a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.cs b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.cs
+--- a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.cs
++++ b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.cs
+@@ -111,7 +111,6 @@ internal partial class DwgObjectWriter : DwgSectionIO
+ 			case ProxyEntity:
+ 			case Solid3D:
+ 			case CadBody:
+-			case Region:
+ 				this.notify($"Entity type not implemented {entity.GetType().FullName}", NotificationType.NotImplemented);
+ 				return false;
+ 			default:

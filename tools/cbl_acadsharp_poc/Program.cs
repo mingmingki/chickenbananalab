@@ -381,6 +381,12 @@ internal static class Program
                     rotation = text.Rotation,
                     widthFactor = text.WidthFactor
                 };
+                record["alignment"] = new
+                {
+                    point = new[] { text.AlignmentPoint.X, text.AlignmentPoint.Y, text.AlignmentPoint.Z },
+                    horizontal = (int)text.HorizontalAlignment,
+                    vertical = (int)text.VerticalAlignment
+                };
             }
             else if (entity is MText mtext)
             {
@@ -703,7 +709,18 @@ internal static class Program
                 break;
             case TextEntity text:
                 if (op.TryGetProperty("text", out var value)) text.Value = value.GetString() ?? string.Empty;
-                if (op.TryGetProperty("insert", out _)) text.InsertPoint = ReadPoint(op, "insert");
+                if (op.TryGetProperty("insert", out _))
+                {
+                    var insert = ReadPoint(op, "insert");
+                    // AutoCAD places justified TEXT by its alignment point (DXF 11),
+                    // so move it with the insertion point or the text stays put there.
+                    if (text.HorizontalAlignment != TextHorizontalAlignment.Left ||
+                        text.VerticalAlignment != TextVerticalAlignmentType.Baseline)
+                    {
+                        text.AlignmentPoint += insert - text.InsertPoint;
+                    }
+                    text.InsertPoint = insert;
+                }
                 if (op.TryGetProperty("height", out _)) text.Height = ReadDouble(op, "height", text.Height);
                 if (op.TryGetProperty("rotation", out _)) text.Rotation = ReadDouble(op, "rotation", text.Rotation);
                 if (op.TryGetProperty("widthFactor", out _)) text.WidthFactor = ReadDouble(op, "widthFactor", text.WidthFactor);

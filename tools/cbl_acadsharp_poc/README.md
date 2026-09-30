@@ -31,6 +31,26 @@ ACADSHARP_SOURCE_ROOT=/private/tmp/ACadSharp-3.6.51-poc \
   ./tools/cbl_acadsharp_poc/build_runtime.sh
 ```
 
+Reproducible setup (2026-09-30 rebuild; `/private/tmp` is wiped on reboot, so
+keep the SDK and fork outside it):
+
+```sh
+# .NET 9 SDK, user-local (no sudo)
+curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+bash dotnet-install.sh --channel 9.0 --install-dir "$HOME/.dotnet" --no-path
+
+# ACadSharp v3.6.51 + this repo's REGION/MINSERT patch
+git clone https://github.com/DomCR/ACadSharp.git ~/chickenbanana-work/_build/ACadSharp-3.6.51-cbl
+git -C ~/chickenbanana-work/_build/ACadSharp-3.6.51-cbl checkout 219e5fc4a6def2b2d22fbbc1c2597d8e588df6c8
+git -C ~/chickenbanana-work/_build/ACadSharp-3.6.51-cbl submodule update --init --recursive
+./tools/cbl_acadsharp_poc/apply_acadsharp_region_minsert_patch.sh ~/chickenbanana-work/_build/ACadSharp-3.6.51-cbl
+```
+
+Build from a clean copy of `CblAcadSharpPoc.csproj` + `Program.cs`: stale
+`obj/` output in this folder is compiled in again and fails with duplicate
+assembly attributes. After a rebuild, compare old vs new runtime output on
+real drawings (`--metadata` and an empty-ops save) before committing.
+
 The Save As endpoint is `/api/cblcad/free-dwg-save/`. It accepts an uploaded
 original DWG and a JSON `ops` array, writes a temporary AC1018 file, rereads
 it with LibreDWG, and returns it only after REGION/MINSERT validation.
