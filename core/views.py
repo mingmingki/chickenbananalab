@@ -25017,6 +25017,9 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
 
     def semantic_mismatches():
         mismatches = {}
+        # Deleting the last entity of a type leaves a 0 in the expectation, while
+        # the output index lists only types that exist.
+        expected_semantic_counts = {k: v for k, v in expected_counts_all.items() if v}
         if expected_semantic_counts != saved_semantic_index["modelspace"]:
             mismatches["modelspace.typeCounts"] = {
                 "original": original_semantic_index["modelspace"],
@@ -25102,6 +25105,7 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
             mismatches["inserts.unresolvedCount"] = {"output": saved_semantic_index["inserts"].get("unresolvedCount")}
         return mismatches
 
+    expected_counts_all = expected_semantic_counts
     semantic_structure_mismatches = semantic_mismatches()
     if semantic_structure_mismatches:
         raise _CBLFreeDwgSaveValidationError(

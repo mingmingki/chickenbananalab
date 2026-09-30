@@ -319,3 +319,23 @@ class CadEditorCommandTests(SimpleTestCase):
         helpers = ["function cblZoomLabelV1(scale){"]
         self.assertEqual(self.run_editor(helpers, "return [cblZoomLabelV1(0.0032), cblZoomLabelV1(0.05), cblZoomLabelV1(1.5)];"),
                          ["0.32%", "5.0%", "150%"])
+
+
+class CadFreeDwgShortcutFocusTests(SimpleTestCase):
+    """After typing a command the focus stays in the command line; Cmd+S must still save the DWG."""
+
+    def test_legacy_json_shortcuts_step_aside_in_free_dwg_mode(self):
+        html = _html()
+        start = html.index("<!-- CBLCAD_BETA_V255_BOX_V1_START -->")
+        block = html[start:html.index("<!-- CBLCAD_BETA_V255_BOX_V1_END -->", start)]
+        handler = block[block.index("document.addEventListener('keydown', function(e){"):block.index("cblBottomSaveJSON();", block.index("document.addEventListener('keydown', function(e){"))]
+        self.assertIn("freeDwgLocal === true", handler)
+
+    def test_free_dwg_shortcuts_work_from_the_command_line(self):
+        html = _html()
+        for marker in ("window.cblNativeDwgSaveFromGestureV1.__cblChromeDispatcherV1=true;",
+                       "  function newNow(ev){return resetNew();}"):
+            start = html.index(marker)
+            handler = html[html.index("document.addEventListener('keydown',function(ev){", start):]
+            handler = handler[:handler.index("},true);")]
+            self.assertIn("'cminp'", handler)

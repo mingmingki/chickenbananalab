@@ -705,7 +705,10 @@ internal static class Program
                 break;
             case TextEntity text: text.InsertPoint += delta; break;
             case MText mtext: mtext.InsertPoint += delta; break;
-            case Insert insert: insert.InsertPoint += delta; break;
+            case Insert insert:
+                insert.InsertPoint += delta;
+                MoveAttributes(insert, delta);
+                break;
             default: throw new NotSupportedException($"Move is not supported for {entity.GetType().Name}");
         }
     }
@@ -770,15 +773,29 @@ internal static class Program
                 ApplyTextStyle(document, mtext, op);
                 break;
             case Insert insert:
-                if (op.TryGetProperty("insert", out _)) insert.InsertPoint = ReadPoint(op, "insert");
-                if (op.TryGetProperty("rotation", out _)) insert.Rotation = ReadDouble(op, "rotation", insert.Rotation);
+            {
+                var previous = insert.InsertPoint;
+                double rotation = insert.Rotation, xs = insert.XScale, ys = insert.YScale, zs = insert.ZScale;
+                if (op.TryGetProperty("rotation", out _)) rotation = ReadDouble(op, "rotation", insert.Rotation);
                 if (op.TryGetProperty("scale", out var scale) && scale.ValueKind == JsonValueKind.Array)
                 {
-                    if (scale.GetArrayLength() > 0) insert.XScale = ReadDouble(scale, 0);
-                    if (scale.GetArrayLength() > 1) insert.YScale = ReadDouble(scale, 1);
-                    if (scale.GetArrayLength() > 2) insert.ZScale = ReadDouble(scale, 2);
+                    if (scale.GetArrayLength() > 0) xs = ReadDouble(scale, 0);
+                    if (scale.GetArrayLength() > 1) ys = ReadDouble(scale, 1);
+                    if (scale.GetArrayLength() > 2) zs = ReadDouble(scale, 2);
                 }
+                if (insert.Attributes.Any() &&
+                    (Math.Abs(rotation - insert.Rotation) > 1e-9 || Math.Abs(xs - insert.XScale) > 1e-9 ||
+                     Math.Abs(ys - insert.YScale) > 1e-9 || Math.Abs(zs - insert.ZScale) > 1e-9))
+                    throw new NotSupportedException("rotating or scaling an INSERT with attributes is not supported");
+                if (op.TryGetProperty("insert", out _)) insert.InsertPoint = ReadPoint(op, "insert");
+                insert.Rotation = rotation;
+                insert.XScale = xs;
+                insert.YScale = ys;
+                insert.ZScale = zs;
+                // Attributes are separate entities placed in world space; move them with the block.
+                MoveAttributes(insert, insert.InsertPoint - previous);
                 break;
+            }
             case DimensionLinear linear:
                 UpdateDimension(linear, document, op);
                 break;
@@ -786,6 +803,15 @@ internal static class Program
                 UpdateDimension(aligned, document, op);
                 break;
             default: throw new NotSupportedException($"Update is not supported for {entity.GetType().Name}");
+        }
+    }
+
+    private static void MoveAttributes(Insert insert, XYZ delta)
+    {
+        foreach (var attribute in insert.Attributes)
+        {
+            attribute.InsertPoint += delta;
+            attribute.AlignmentPoint += delta;
         }
     }
 
@@ -834,12 +860,7 @@ internal static class Program
             foreach (var attribute in insert.Attributes) attribute.ApplyTransform(transform);
             return insert;
         }
-        var delta = insert.InsertPoint - previous;
-        foreach (var attribute in insert.Attributes)
-        {
-            attribute.InsertPoint += delta;
-            attribute.AlignmentPoint += delta;
-        }
+        MoveAttributes(insert, insert.InsertPoint - previous);
         return insert;
     }
 

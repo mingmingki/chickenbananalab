@@ -375,12 +375,15 @@
   window.fileSaveAs=function(ev){return window.cblNativeDwgSaveFromGestureV1(true,ev);};
   try{cblBottomSaveDWG=window.cblBottomSaveDWG;fileSave=window.fileSave;fileSaveAs=window.fileSaveAs;}catch(e){}
   document.addEventListener('keydown',function(ev){
-    if(!free()||!ev||ev.target&&(ev.target.tagName==='INPUT'||ev.target.tagName==='TEXTAREA'||ev.target.isContentEditable))return;
+    if(!free()||!ev)return;
     var key=String(ev.key||'').toLowerCase();
-    if((ev.metaKey||ev.ctrlKey)&&key==='s'){
-      ev.preventDefault();ev.stopPropagation();if(ev.stopImmediatePropagation)ev.stopImmediatePropagation();
-      window.cblNativeDwgSaveFromGestureV1(!!ev.shiftKey,ev);
-    }
+    if(!((ev.metaKey||ev.ctrlKey)&&key==='s'))return;
+    // The command line keeps focus after a typed command, so Cmd+S there still saves.
+    // In other text fields only keep the browser's "Save page" dialog away.
+    var t=ev.target,typing=t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable);
+    ev.preventDefault();ev.stopPropagation();if(ev.stopImmediatePropagation)ev.stopImmediatePropagation();
+    if(typing&&t.id!=='cminp'){if(typeof setHint==='function')setHint('입력을 마친 뒤(Enter/Esc) 저장해 주세요');return;}
+    window.cblNativeDwgSaveFromGestureV1(!!ev.shiftKey,ev);
   },true);
 })();
 </script>
@@ -4862,6 +4865,68 @@ function cblSelectionPriorityV1(s,p){
  if(t==='blockref'||t==='group')return 1000+(Number.isFinite(d)?d:0);
  return Number.isFinite(d)?d:0;
 }
+// ===== DWG BLOCK GROUPS =====
+// An imported INSERT is one top-level blockref plus its flattened display
+// children (linked by ownerSourceHandle).  Only the INSERT is written to the
+// DWG, so the editor treats the whole group as one object like AutoCAD does:
+// selecting any part selects the block, and edits move the INSERT with it.
+function cblIsBlockChildV1(s){return !!(s&&(s.blockChild===true||s.isBlockChild===true||s.fromBlock===true||s.parentBlockName||s.parentInsertName));}
+function cblBlockKeyV1(s){
+ if(!s)return '';
+ if(s.cblBlockKey)return String(s.cblBlockKey);
+ if(cblIsBlockChildV1(s))return String(s.ownerSourceHandle||s.parentSourceHandle||'');
+ // Attribute texts (ATTRIB) belong to their INSERT.
+ if(s.cblAttribOwnerHandle)return String(s.cblAttribOwnerHandle);
+ if(cblSelectionTypeV1(s)==='blockref'&&s.sourceHandle)return String(s.sourceHandle);
+ return '';
+}
+function cblBlockGroupsV1(){
+ var groups={};
+ (Array.isArray(shapes)?shapes:[]).forEach(function(s){var k=cblBlockKeyV1(s);if(!k)return;var g=groups[k]||(groups[k]={owner:null,members:[]});g.members.push(s);if(!cblIsBlockChildV1(s)&&cblSelectionTypeV1(s)==='blockref')g.owner=s;});
+ return groups;
+}
+// Groups without their INSERT (should not happen) are left as they are.
+function cblExpandBlockSelectionV1(list,groups){
+ var out=[],seen=new Set();
+ function add(s){if(!seen.has(s)){seen.add(s);out.push(s);}}
+ (list||[]).forEach(function(s){
+  var k=cblBlockKeyV1(s);if(!k){add(s);return;}
+  groups=groups||cblBlockGroupsV1();
+  var g=groups[k];if(!g||!g.owner){add(s);return;}
+  add(g.owner);g.members.forEach(add);
+ });
+ return out;
+}
+// Window selection takes a block only when all of it is inside; crossing takes any block it touches.
+function cblWindowSelectBlocksV1(list,crossing){
+ var groups=cblBlockGroupsV1(),picked=new Set(list),out=[],seen=new Set(),done={};
+ function add(s){if(!seen.has(s)){seen.add(s);out.push(s);}}
+ list.forEach(function(s){
+  var k=cblBlockKeyV1(s),g=k&&groups[k];
+  if(!g||!g.owner){add(s);return;}
+  if(done[k])return;done[k]=true;
+  var kids=g.members.filter(cblIsBlockChildV1);
+  if(crossing||(kids.length&&kids.every(function(m){return picked.has(m);}))){add(g.owner);g.members.forEach(add);}
+ });
+ return out;
+}
+// Copies of a block group get their own key so they do not select with the original.
+var cblBlockCopySeqV1=0;
+function cblRekeyCopiedBlocksV1(copies){
+ var map={};
+ (copies||[]).forEach(function(c){var k=cblBlockKeyV1(c);if(!k)return;if(!map[k])map[k]='copy-'+Date.now().toString(36)+'-'+(++cblBlockCopySeqV1);c.cblBlockKey=map[k];});
+ return copies;
+}
+// Text rotation: the renderer reads rot (radians) before a bare rotation (degrees),
+// while DWG save reads rotation as radians, so keep both in radians.
+function cblSetTextRotationV1(s,rad){s.rot=rad;s.rotation=rad;if(s.rotationRad!=null)s.rotationRad=rad;}
+// Exploded block contents become standalone entities that are saved on their own.
+function cblMakeStandaloneShapeV1(s){
+ ['blockChild','isBlockChild','fromBlock','parentBlockName','parentInsertName','blockName','cblBlockName','ownerSourceHandle','parentSourceHandle','parentHandle','ownerHandle','blockHandle','cblBlockKey',
+  'rendererOnly','displayOnly','synthetic','isDisplayOnly','helper','cblAttribOwnerHandle','cblAttribCopy',
+  'sourceHandle','originalHandle','handle','sourcePath','cblRenderIdentity','clientShapeId','objectId'].forEach(function(k){delete s[k];});
+ return s;
+}
 function hitAll(wp){
  var hits=[];
  for(var i=shapes.length-1;i>=0;i--){
@@ -5683,14 +5748,14 @@ cvs.addEventListener('mousedown',function(e){
  if(tool==='copy'){
   if(!sel.length&&!copyState){setHint('CO: 복사할 객체 선택 후 사용');return;}
   if(!copyState){copyState={origShapes:sel.map(cloneJ),basePt:wp};setHint('목적지 클릭 (반복가능, ESC=종료)');}
-  else{var dx=wp.x-copyState.basePt.x,dy=wp.y-copyState.basePt.y;var cps=copyState.origShapes.map(function(s){var c=cloneJ(s);mvS(c,dx,dy);return c;});cps.forEach(function(c){shapes.push(c);});saveH();updUI();render();}
+  else{var dx=wp.x-copyState.basePt.x,dy=wp.y-copyState.basePt.y;var cps=cblRekeyCopiedBlocksV1(copyState.origShapes.map(function(s){var c=cloneJ(s);mvS(c,dx,dy);return c;}));cps.forEach(function(c){shapes.push(c);});saveH();updUI();render();}
   return;
  }
  // MIRROR tool
  if(tool==='mirror'){
   if(!mirrorState||!mirrorState.shapes)return;
   if(!mirrorState.pt1){mirrorState.pt1=wp;setHint('미러 2번째점 클릭');}
-  else{var mir=applyMirror(mirrorState.shapes,mirrorState.pt1,wp);mir.forEach(function(s){shapes.push(s);});sel=mir;mirrorState=null;saveH();updUI();setTool('select');render();}
+  else{var mir=cblRekeyCopiedBlocksV1(applyMirror(mirrorState.shapes,mirrorState.pt1,wp));mir.forEach(function(s){shapes.push(s);});sel=mir;mirrorState=null;saveH();updUI();setTool('select');render();}
   return;
  }
  // MOVE tool (point-click)
@@ -5710,8 +5775,9 @@ cvs.addEventListener('mousedown',function(e){
  if(tool==='select'){
   var hit=hitAll(rawWp);
   if(hit){
-   if(e.shiftKey){if(sel.indexOf(hit)>=0)sel=sel.filter(function(s){return s!==hit;});else sel.push(hit);}
-   else if(sel.indexOf(hit)<0)sel=[hit];
+   var hitGroup=cblExpandBlockSelectionV1([hit]);
+   if(e.shiftKey){if(sel.indexOf(hit)>=0)sel=sel.filter(function(s){return hitGroup.indexOf(s)<0;});else hitGroup.forEach(function(s){if(sel.indexOf(s)<0)sel.push(s);});}
+   else if(sel.indexOf(hit)<0)sel=hitGroup;
    isMoving=true;mvStart={x:mp.x,y:mp.y};mvSnaps=sel.map(cloneJ);updUI();
   } else {if(!e.shiftKey)sel=[];isDragSel=true;dsStart={x:mp.x,y:mp.y};}
   render();return;
@@ -5780,6 +5846,7 @@ cvs.addEventListener('mouseup',function(e){
    if(isCrs)return bb.x<rxMx&&(bb.x+bb.w)>rxMn&&bb.y<ryMx&&(bb.y+bb.h)>ryMn;
    return bb.x>=rxMn&&(bb.x+bb.w)<=rxMx&&bb.y>=ryMn&&(bb.y+bb.h)<=ryMx;
   });
+  sel=cblWindowSelectBlocksV1(sel,isCrs);
   updUI();render();
  }
 });
@@ -5800,7 +5867,8 @@ cvs.addEventListener('dblclick',function(e){
   e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();
   var ep=eventToCanvasPoint(e);mp=ep;cblUpdateOrangePointerV1(e);var wp=toW(ep.x,ep.y),hit=cblImportedTextHitV1(wp)||hitAll(wp);
   if(hit&&(String(hit.rawDxfType||'').toUpperCase()==='ATTRIB'||String(hit.rawDxfType||'').toUpperCase()==='ATTDEF')){setHint('블록 속성 문자 편집은 아직 지원되지 않습니다');return;}
-  if(hit&&(String(hit.type||'').toLowerCase()==='text'||String(hit.type||'').toLowerCase()==='mtext')&&String(hit.rawDxfType||'').toUpperCase()!=='DIMENSION'){sel=[hit];showTed(wp,hit);render();return;}
+  if(hit&&(String(hit.type||'').toLowerCase()==='text'||String(hit.type||'').toLowerCase()==='mtext')&&String(hit.rawDxfType||'').toUpperCase()!=='DIMENSION'&&!cblBlockKeyV1(hit)){sel=[hit];showTed(wp,hit);render();return;}
+  if(hit&&cblBlockKeyV1(hit)&&cblIsBlockChildV1(hit)&&(String(hit.type||'').toLowerCase()==='text'||String(hit.type||'').toLowerCase()==='mtext')){setHint('블록 안의 글자는 분해(X)한 뒤 수정할 수 있습니다');return;}
   // 그리드 버블 더블클릭 → 라벨 수정
   if(hit&&hit.type==='cadgrid'){
    var br=14/vScale;
@@ -5889,11 +5957,11 @@ function distribute(axis){
 function orderSel(dir){if(!sel.length)return;var s=sel[0],idx=shapes.indexOf(s);if(idx<0)return;shapes.splice(idx,1);if(dir==='front')shapes.push(s);else if(dir==='back')shapes.unshift(s);else if(dir==='forward')shapes.splice(Math.min(idx+1,shapes.length),0,s);else shapes.splice(Math.max(idx-1,0),0,s);saveH();updUI();requestCadRenderV1();}
 function groupSel(){if(sel.length<2){setHint('그룹화: 2개 이상 선택');return;}var grp={type:'group',ch:sel.slice(),layId:actLay,stroke:sel[0].stroke,fill:'none',opacity:1,lineWidth:1,dash:'solid'};var idxs=sel.map(function(s){return shapes.indexOf(s);}).filter(function(i){return i>=0;}).sort(function(a,b){return a-b;});shapes=shapes.filter(function(s){return sel.indexOf(s)<0;});shapes.splice(idxs[0],0,grp);sel=[grp];saveH();updUI();requestCadRenderV1();}
 function ungroupSel(){var gs=sel.filter(function(s){return s.type==='group';});if(!gs.length)return;gs.forEach(function(g){var i=shapes.indexOf(g);if(i>=0)shapes.splice.apply(shapes,[i,1].concat(g.ch));});sel=[];saveH();updUI();requestCadRenderV1();}
-function dupSel(){if(!sel.length)return;var d=sel.map(function(s){var c=cloneJ(s);mvS(c,20,-20);return c;});d.forEach(function(c){shapes.push(c);});sel=d;saveH();updUI();requestCadRenderV1();}
-function doArrayDup(){if(!sel.length){setHint('배열복제: 객체 선택');return;}var cols=parseInt(document.getElementById('arrC').value)||3,rows=parseInt(document.getElementById('arrR').value)||3,gx=parseFloat(document.getElementById('arrGX').value)||20,gy=parseFloat(document.getElementById('arrGY').value)||20,orig=sel.slice(),bb=getBB(orig[0]),news=[];for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){if(r===0&&c===0)continue;orig.forEach(function(s){var d=cloneJ(s);mvS(d,c*(bb.w+gx),-r*(bb.h+gy));news.push(d);});}news.forEach(function(d){shapes.push(d);});saveH();updUI();requestCadRenderV1();}
+function dupSel(){if(!sel.length)return;var d=cblRekeyCopiedBlocksV1(sel.map(function(s){var c=cloneJ(s);mvS(c,20,-20);return c;}));d.forEach(function(c){shapes.push(c);});sel=d;saveH();updUI();requestCadRenderV1();}
+function doArrayDup(){if(!sel.length){setHint('배열복제: 객체 선택');return;}var cols=parseInt(document.getElementById('arrC').value)||3,rows=parseInt(document.getElementById('arrR').value)||3,gx=parseFloat(document.getElementById('arrGX').value)||20,gy=parseFloat(document.getElementById('arrGY').value)||20,orig=sel.slice(),bb=getBB(orig[0]),news=[];for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){if(r===0&&c===0)continue;news=news.concat(cblRekeyCopiedBlocksV1(orig.map(function(s){var d=cloneJ(s);mvS(d,c*(bb.w+gx),-r*(bb.h+gy));return d;})));}news.forEach(function(d){shapes.push(d);});saveH();updUI();requestCadRenderV1();}
 function delSel(){if(!sel.length)return;shapes=shapes.filter(function(s){return sel.indexOf(s)<0;});sel=[];saveH();updUI();requestCadRenderV1();}
 function copySel(){clip=cloneJ(sel);setHint(clip.length+'개 복사됨');}
-function pasteSel(){if(!clip.length)return;var d=clip.map(function(s){var c=cloneJ(s);mvS(c,20,-20);return c;});d.forEach(function(c){shapes.push(c);});sel=d;saveH();updUI();requestCadRenderV1();}
+function pasteSel(){if(!clip.length)return;var d=cblRekeyCopiedBlocksV1(clip.map(function(s){var c=cloneJ(s);mvS(c,20,-20);return c;}));d.forEach(function(c){shapes.push(c);});sel=d;saveH();updUI();requestCadRenderV1();}
 function startCopy(){if(!sel.length){setHint('CO: 복사할 객체 선택 후 사용');return;}copyState=null;setTool('copy');setHint('1단계: 기준점 클릭');}
 function startMirror(){if(!sel.length){setHint('MI: 미러할 객체 선택 후 사용');return;}mirrorState={shapes:sel.slice(),pt1:null};tool='mirror';setHint('미러 기준선 1번째점 클릭');}
 function applyMirror(shps,pt1,pt2){
@@ -5910,6 +5978,9 @@ function applyMirror(shps,pt1,pt2){
    // Keep text readable (AutoCAD MIRRTEXT=0): mirror the middle of its baseline, keep the direction.
    var rot=Number(c.rotation!=null?c.rotation:c.rot)||0,half=(Number(c.tw)||0)/2,ux=Math.cos(rot),uy=Math.sin(rot);
    var mid=mPt({x:c.x+ux*half,y:c.y+uy*half});c.x=mid.x-ux*half;c.y=mid.y-uy*half;}
+  // INSERT: reflect(2θ)·rot(r)·scale(sx,sy) = rot(2θ-r)·scale(sx,-sy).
+  else if(c.type==='blockref'){var bp=mPt({x:c.x,y:c.y});c.x=bp.x;c.y=bp.y;c.rotation=2*ang-(Number(c.rotation)||0);
+   var bs=c.scale!=null?Number(c.scale):1;if(c.scaleX==null)c.scaleX=bs;c.scaleY=-(c.scaleY!=null?Number(c.scaleY):bs);}
   else if(c.type==='group'){c.ch=c.ch.map(mS);}
   return c;
  }var ang=Math.atan2(dy,dx);return shps.map(mS);
@@ -5923,8 +5994,11 @@ function rotateSelected(angle){
  function rS(s){
   if(s.type==='line'){var a=rPt({x:s.x1,y:s.y1}),b=rPt({x:s.x2,y:s.y2});s.x1=a.x;s.y1=a.y;s.x2=b.x;s.y2=b.y;}
   else if(s.type==='rect'){var nc=rPt({x:s.x+s.w/2,y:s.y+s.h/2});s.x=nc.x-s.w/2;s.y=nc.y-s.h/2;}
-  else if(s.type==='circle'||s.type==='arc'){var nc2=rPt({x:s.cx,y:s.cy});s.cx=nc2.x;s.cy=nc2.y;}
-  else if(s.type==='polyline'&&s.pts){s.pts=s.pts.map(rPt);}
+  else if(s.type==='circle'||s.type==='arc'){var nc2=rPt({x:s.cx,y:s.cy});s.cx=nc2.x;s.cy=nc2.y;if(s.type==='arc'){s.a1+=rad;s.a2+=rad;}}
+  else if(s.type==='polyline'&&s.pts){s.pts=s.pts.map(function(q){var r=rPt(q);if(q.bulge)r.bulge=q.bulge;return r;});}
+  else if(s.type==='text'||s.type==='mtext'){var tp=rPt({x:s.x,y:s.y});s.x=tp.x;s.y=tp.y;cblSetTextRotationV1(s,cblTextRotationRadRenderFixV5(s)+rad);}
+  // DWG INSERT (its display children are rotated as members of the selection).
+  else if(s.type==='blockref'){var bp=rPt({x:s.x,y:s.y});s.x=bp.x;s.y=bp.y;s.rotation=(Number(s.rotation)||0)+rad;}
   else if(s.type==='group'){s.ch.forEach(rS);}
  }
  sel.forEach(rS);saveH();requestCadRenderV1();
@@ -5939,7 +6013,9 @@ function scaleDialog(){
   if(s.type==='line'){var a=sP({x:s.x1,y:s.y1}),b=sP({x:s.x2,y:s.y2});s.x1=a.x;s.y1=a.y;s.x2=b.x;s.y2=b.y;}
   else if(s.type==='rect'){var nc=sP({x:s.x,y:s.y});s.x=nc.x;s.y=nc.y;s.w*=f;s.h*=f;}
   else if(s.type==='circle'||s.type==='arc'){var nc2=sP({x:s.cx,y:s.cy});s.cx=nc2.x;s.cy=nc2.y;s.r*=f;}
-  else if(s.type==='polyline'&&s.pts){s.pts=s.pts.map(sP);}
+  else if(s.type==='polyline'&&s.pts){s.pts=s.pts.map(function(q){var r=sP(q);if(q.bulge)r.bulge=q.bulge;return r;});}
+  else if(s.type==='text'||s.type==='mtext'){var tp=sP({x:s.x,y:s.y});s.x=tp.x;s.y=tp.y;['size','height','textHeight','tw'].forEach(function(k){if(Number(s[k]))s[k]*=f;});}
+  else if(s.type==='blockref'){var bp=sP({x:s.x,y:s.y});s.x=bp.x;s.y=bp.y;['scaleX','scaleY','scaleZ','scale'].forEach(function(k){if(s[k]!=null&&isFinite(Number(s[k])))s[k]=Number(s[k])*f;});if(s.scaleX==null&&s.scale==null)s.scale=f;}
   else if(s.type==='group'){s.ch.forEach(sS);}
  }
  sel.forEach(sS);saveH();requestCadRenderV1();
@@ -5947,15 +6023,17 @@ function scaleDialog(){
 function offsetDialog(){
  if(!sel.length){setHint('O: 오프셋할 객체 선택');return;}
  var dist=parseFloat(prompt('오프셋 거리:','10'));if(isNaN(dist))return;
- var news=[];
+ var news=[],inBlock=0;
  sel.forEach(function(s){
+  // Block contents are saved only through their INSERT; explode the block first.
+  if(cblBlockKeyV1(s)){inBlock++;return;}
   var ns=null;
   if(s.type==='line'){var dx=s.x2-s.x1,dy=s.y2-s.y1,len=Math.hypot(dx,dy)||1,nx=-dy/len*dist,ny=dx/len*dist;ns=Object.assign(cloneJ(s),{x1:s.x1+nx,y1:s.y1+ny,x2:s.x2+nx,y2:s.y2+ny});}
   else if(s.type==='circle')ns=Object.assign(cloneJ(s),{r:Math.max(0.1,s.r+dist)});
   else if(s.type==='rect')ns=Object.assign(cloneJ(s),{x:s.x-dist,y:s.y-dist,w:s.w+dist*2,h:s.h+dist*2});
   if(ns)news.push(ns);
  });
- if(!news.length){setHint('오프셋 지원: 선, 원, 사각형');return;}
+ if(!news.length){setHint(inBlock?'블록은 분해(X)한 뒤 오프셋할 수 있습니다':'오프셋 지원: 선, 원, 사각형');return;}
  news.forEach(function(s){shapes.push(s);});sel=news;saveH();updUI();requestCadRenderV1();
 }
 
@@ -5995,7 +6073,10 @@ function updLayDrop(){
 // ===== BLOCKS =====
 function makeBlock(){if(!sel.length){setHint('B: 블록으로 만들 객체 선택');return;}var name=prompt('블록 이름:','BLK'+(Object.keys(blocks).length+1));if(!name)return;var bbs=sel.map(getBB);var cx=(Math.min.apply(null,bbs.map(function(b){return b.x;}))+Math.max.apply(null,bbs.map(function(b){return b.x+b.w;})))/2;var cy=(Math.min.apply(null,bbs.map(function(b){return b.y;}))+Math.max.apply(null,bbs.map(function(b){return b.y+b.h;})))/2;blocks[name]={shapes:sel.map(function(s){var c=cloneJ(s);mvS(c,-cx,-cy);return c;})};shapes=shapes.filter(function(s){return sel.indexOf(s)<0;});shapes.push({type:'blockref',name:name,x:cx,y:cy,scale:1,layId:actLay,stroke:'#3b82f6',fill:'none',lineWidth:1,opacity:1,dash:'solid'});sel=[];saveH();updUI();updBlkList();requestCadRenderV1();setHint('블록 "'+name+'" 생성');}
 function startInsert(){var ns=Object.keys(blocks);if(!ns.length){setHint('정의된 블록 없음');return;}var name=prompt('삽입할 블록:\n'+ns.join(', '),ns[0]);if(!name||!blocks[name]){setHint('블록 없음: '+name);return;}blkIns={name:name};tool='blockinsert';setHint('"'+name+'" 삽입 위치 클릭');}
-function explode(){var te=sel.filter(function(s){return s.type==='blockref'||s.type==='group';});if(!te.length){setHint('분해할 블록/그룹 선택');return;}te.forEach(function(s){var idx=shapes.indexOf(s);if(idx<0)return;if(s.type==='group')shapes.splice.apply(shapes,[idx,1].concat(s.ch));else if(s.type==='blockref'&&blocks[s.name])shapes.splice.apply(shapes,[idx,1].concat(blocks[s.name].shapes.map(function(bs){var c=cloneJ(bs);mvS(c,s.x,s.y);c.layId=s.layId;return c;})));});sel=[];saveH();updUI();requestCadRenderV1();}
+function explode(){var te=sel.filter(function(s){return s.type==='blockref'||s.type==='group';});if(!te.length){setHint('분해할 블록/그룹 선택');return;}var dwgGroups=cblBlockGroupsV1();te.forEach(function(s){var idx=shapes.indexOf(s);if(idx<0)return;var dg=dwgGroups[cblBlockKeyV1(s)];if(s.type==='group')shapes.splice.apply(shapes,[idx,1].concat(s.ch));
+ // DWG INSERT: drop it and keep its drawn contents (and attribute values) in place as standalone entities.
+ else if(s.type==='blockref'&&dg&&dg.owner===s&&dg.members.length>1){var drop=[s];dg.members.forEach(function(m){if(m===s)return;if(String(m.rawDxfType||'').toUpperCase()==='ATTDEF'){drop.push(m);return;}cblMakeStandaloneShapeV1(m);});shapes=shapes.filter(function(m){return drop.indexOf(m)<0;});}
+ else if(s.type==='blockref'&&blocks[s.name])shapes.splice.apply(shapes,[idx,1].concat(blocks[s.name].shapes.map(function(bs){var c=cloneJ(bs);mvS(c,s.x,s.y);c.layId=s.layId;return c;})));});sel=[];saveH();updUI();requestCadRenderV1();}
 // 블록 이름은 DWG/DXF 파일에서 오므로 HTML로 해석되지 않게 이스케이프한다.
 function cblEscHtml(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function updBlkList(){if(document.getElementById('blockModal')&&document.getElementById('blockModal').classList.contains('on'))refreshBlkGrid();var ns=Object.keys(blocks),el=document.getElementById('blkList');if(!el)return;el.innerHTML=ns.length?ns.map(function(n,i){return '<div style="display:flex;align-items:center;gap:5px;padding:4px 7px;border-radius:3px;background:var(--bg);border:1px solid var(--br);margin-bottom:2px;cursor:pointer;font-size:11px" data-cbl-blk-index="'+i+'"><span class="cbl-icon-only" data-cbl-command-key="block-create"></span> '+cblEscHtml(n)+' <span class="otg">'+blocks[n].shapes.length+'개</span></div>';}).join(''):'<div style="font-size:11px;color:var(--mu)">없음</div>';Array.prototype.forEach.call(el.querySelectorAll('[data-cbl-blk-index]'),function(row){var n=ns[+row.getAttribute('data-cbl-blk-index')];row.onclick=function(){blkIns={name:n};tool='blockinsert';setHint('"'+n+'" 삽입위치 클릭');};});if(typeof cblApplyMonoIconsV2==='function')cblApplyMonoIconsV2(el);}
@@ -6745,7 +6826,7 @@ window.CBL_IMPORTED_TEXT_EDIT_STATUS_V1=cblImportedTextEditStatusV1;
 function cblImportedTextEditIdV1(s){return String(s&&s.sourceHandle||s&&s.handle||s&&s.id||'');}
 function cblImportedTextHitV1(wp){
  var best=null,bestD=Infinity,tol=8/vScale;
- (Array.isArray(shapes)?shapes:[]).forEach(function(s){if(!s)return;var raw=String(s.rawDxfType||'').toUpperCase(),t=String(s.type||'').toLowerCase();if(raw==='ATTRIB'||raw==='ATTDEF'||raw==='DIMENSION'||t==='group'||(t!=='text'&&t!=='mtext'&&raw!=='TEXT'&&raw!=='MTEXT'))return;var ly=cblSelectionLayerV1(s);if(!ly||ly.visible===false||ly.locked)return;var bb=getBB(s);if(!bb||!Number.isFinite(bb.x)||!Number.isFinite(bb.y))return;var dx=wp.x<bb.x?bb.x-wp.x:wp.x>bb.x+bb.w?wp.x-(bb.x+bb.w):0,dy=wp.y<bb.y?bb.y-wp.y:wp.y>bb.y+bb.h?wp.y-(bb.y+bb.h):0,d=Math.hypot(dx,dy);if(d<=tol&&(d<bestD||(d===bestD&&best&&String(s.sourceHandle||'')>String(best.sourceHandle||'')))){best=s;bestD=d;}});return best;
+ (Array.isArray(shapes)?shapes:[]).forEach(function(s){if(!s)return;var raw=String(s.rawDxfType||'').toUpperCase(),t=String(s.type||'').toLowerCase();if(raw==='ATTRIB'||raw==='ATTDEF'||raw==='DIMENSION'||t==='group'||(t!=='text'&&t!=='mtext'&&raw!=='TEXT'&&raw!=='MTEXT'))return;if(cblBlockKeyV1(s))return;var ly=cblSelectionLayerV1(s);if(!ly||ly.visible===false||ly.locked)return;var bb=getBB(s);if(!bb||!Number.isFinite(bb.x)||!Number.isFinite(bb.y))return;var dx=wp.x<bb.x?bb.x-wp.x:wp.x>bb.x+bb.w?wp.x-(bb.x+bb.w):0,dy=wp.y<bb.y?bb.y-wp.y:wp.y>bb.y+bb.h?wp.y-(bb.y+bb.h):0,d=Math.hypot(dx,dy);if(d<=tol&&(d<bestD||(d===bestD&&best&&String(s.sourceHandle||'')>String(best.sourceHandle||'')))){best=s;bestD=d;}});return best;
 }
 // Zoom label: large mm drawings fit at well under 1%, which rounded to "0%".
 function cblZoomLabelV1(scale){var p=Number(scale)*100;if(!(p>0)||!isFinite(p))return '0%';return (p>=10?String(Math.round(p)):p>=1?p.toFixed(1):p.toPrecision(2))+'%';}
@@ -8632,6 +8713,8 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
  };
 
  document.addEventListener('keydown', function(e){
+  // Free-DWG mode has its own file shortcuts; these legacy JSON ones would save a .wcd instead.
+  if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal === true) return;
   var key = String(e.key || '').toLowerCase();
 
   if ((e.ctrlKey || e.metaKey) && key === 's') {
@@ -23651,6 +23734,17 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         originalHandle:sourceHandle,
         handle:sourceHandle
       };
+      // A model-space ATTRIB belongs to the INSERT named by its owner code 330
+      // (the one outside a 102 {...} reactor group); the editor keeps it with that block.
+      if(!ctx && String(ent && ent.type || '').toUpperCase() === 'ATTRIB'){
+        var inGroup = false, owner = '';
+        ((ent.p && ent.p.__pairs) || []).some(function(pair){
+          if(pair[0] === '102'){ inGroup = String(pair[1]).charAt(0) === '{'; return false; }
+          if(pair[0] === '330' && !inGroup){ owner = String(pair[1] || '').trim(); return true; }
+          return false;
+        });
+        if(owner) style.cblAttribOwnerHandle = owner;
+      }
       // Keep renderer-expanded identity out of the operation stream while
       // allowing the expanded geometry to remain in the canonical render
       // model.  The context is consumed by pushShape below.
@@ -33525,6 +33619,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
   function nearestSeg(wp, opts){
     opts=opts||{}; var best=null, bd=Infinity, arr=shapesArr();
     for(var i=arr.length-1;i>=0;i--){ var s=arr[i]; if(!usable(s))continue; if(opts.exclude&&opts.exclude.indexOf(s)>=0)continue;
+      // Lines inside a block are saved only through the INSERT; they can bound but not be trimmed.
+      if(opts.targetOnly&&typeof cblBlockKeyV1==="function"&&cblBlockKeyV1(s))continue;
       var segs=segsOf(s); for(var j=0;j<segs.length;j++){ var sg=segs[j]; if(opts.targetOnly&&!(sg.type==="line"||sg.type==="polyline"))continue; var d=dSeg(wp,sg.a,sg.b); if(d<bd){bd=d;best=sg;} }
     }
     if(!best||bd>tol())return null; best.hitDistance=bd; return best;
@@ -33811,6 +33907,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     for(var i=ss.length-1;i>=0;i--){
       var s=ss[i];
       if(!isLine(s)) continue;
+      // Lines inside a block are saved only through the INSERT; explode the block first.
+      if(typeof cblBlockKeyV1 === 'function' && cblBlockKeyV1(s)) continue;
       try {
         var ly = (typeof getLayerFastV1 === 'function') ? getLayerFastV1(s.layId||1) : null;
         if(ly && (ly.visible===false || ly.locked===true)) continue;
@@ -44975,6 +45073,8 @@ window.cblSnapResidueGateStatusV12 = function(){
   function detachCopiedIdentityV1(s,sourceHandle){
     ['sourceHandle','originalHandle','handle','sourcePath','cblRenderIdentity','clientShapeId','objectId'].forEach(function(k){delete s[k];});
     if(String(s.type||'').toLowerCase()==='blockref')s.cblCopiedFromHandle=sourceHandle;
+    // An attribute of a copied block is cloned by the writer together with its INSERT.
+    if(s.cblAttribOwnerHandle)s.cblAttribCopy=true;
   }
   function p(x,y,z){return [n(x),n(y),n(z)];}
   function layerName(s){var ls=layers(), id=s&&(s.layId||s.layerId);for(var i=0;i<ls.length;i++)if(String(ls[i].id)===String(id))return String(ls[i].name||'0');return String(s&&(s.rawLayerName||s.layer)||'0');}
@@ -45131,7 +45231,11 @@ window.cblSnapResidueGateStatusV12 = function(){
     var sourceHandles={},rendererOnlyCount=0,blockChildCount=0,newEditableCount=0,unsupported={};
     var claimed={};
     ss.forEach(function(s){if(!isTopLevelEditable(s))return;var h=sourceHandleOf(s);if(!h)return;if(claimed[h])detachCopiedIdentityV1(s,h);else claimed[h]=true;});
-    var kindNames={cadgrid:'그리드',grid:'그리드',dimangle2:'각도치수',ellipse:'타원',hatch:'해치',point:'점',spline:'스플라인',raw:'원본 객체',group:'그룹'};
+    var kindNames={cadgrid:'그리드',grid:'그리드',dimangle2:'각도치수',ellipse:'타원',hatch:'해치',point:'점',spline:'스플라인',raw:'원본 객체',group:'그룹',blockref:'블록'};
+    // The writer cannot yet place attributes under a rotated, scaled or mirrored
+    // INSERT, so refuse those edits of attributed blocks here, in Korean.
+    var attributed={};base.forEach(function(b){if(b&&b.cblAttribOwnerHandle)attributed[normHandle(b.cblAttribOwnerHandle)]=true;});
+    function sameTransform(a,b){var x=[shapeRotation(a),shapeScale(a,'scaleX',0),shapeScale(a,'scaleY',1),shapeScale(a,'scaleZ',2)],y=[shapeRotation(b),shapeScale(b,'scaleX',0),shapeScale(b,'scaleY',1),shapeScale(b,'scaleZ',2)];return x.every(function(v,i){return Math.abs(v-y[i])<=1e-9;});}
     function refuse(prefix,s){var t=String(s&&(s.type||s.rawDxfType)||'unknown').toLowerCase(),k=prefix+' '+(kindNames[t]?kindNames[t]+'('+t+')':t);unsupported[k]=(unsupported[k]||0)+1;}
     ss.forEach(function(s){
       var source=sourceHandleOf(s);if(source)sourceHandles[source]=true;
@@ -45140,15 +45244,27 @@ window.cblSnapResidueGateStatusV12 = function(){
     });
     base.forEach(function(s){var h=ownerHandleOf(s);if(isTopLevelEditable(s)&&h){before[h]=s;topLevelHandles[h]=true;}});
     ss.forEach(function(s){var h=ownerHandleOf(s);if(isTopLevelEditable(s)&&h)after[h]=s;});
-    Object.keys(before).forEach(function(h){if(!after[h])ops.push(deleteOpForShape(before[h],h));else if(!sameGeometry(before[h],after[h])){var u=opForShape(after[h],true);if(!u)refuse('수정된',after[h]);else if(topLevelHandles[h])ops.push(u);}});
+    // Attribute texts are written through their INSERT: when the block moved or
+    // was deleted they follow it; editing one on its own is not supported yet.
+    var attribSkip={};
+    Object.keys(before).forEach(function(h){
+      var b=before[h],owner=b&&b.cblAttribOwnerHandle?normHandle(b.cblAttribOwnerHandle):'';if(!owner)return;attribSkip[h]=true;
+      if(!before[owner]||!after[owner]||!sameGeometry(before[owner],after[owner]))return;
+      if(!after[h])refuse('삭제된 블록 속성',b);else if(!sameGeometry(b,after[h]))refuse('수정된 블록 속성',after[h]);
+    });
+    Object.keys(before).forEach(function(h){if(attribSkip[h])return;if(!after[h])ops.push(deleteOpForShape(before[h],h));else if(!sameGeometry(before[h],after[h])){if(attributed[h]&&String(after[h].type||'').toLowerCase()==='blockref'&&!sameTransform(before[h],after[h])){refuse('회전·크기를 바꾼 속성',after[h]);return;}var u=opForShape(after[h],true);if(!u)refuse('수정된',after[h]);else if(topLevelHandles[h])ops.push(u);}});
     var newOps=[],newOpShapes=[],usedClientIds={};ss.forEach(function(s){
-      if(!isTopLevelEditable(s)||sourceHandleOf(s))return;
+      if(!isTopLevelEditable(s)||sourceHandleOf(s)||s.cblAttribCopy)return;
       // A newly-created entity has no source handle in the browser model even
       // after the first DWG save.  If its geometry is already in the committed
       // baseline it is persisted and must not be emitted as a second create.
-      var alreadyPersisted=base.some(function(b){return isTopLevelEditable(b)&&sameGeometry(b,s);});
+      // Baseline entities deleted by this save, and attributes (never standalone
+      // entities in the DWG), cannot stand in for it.
+      var alreadyPersisted=base.some(function(b){var bh=ownerHandleOf(b);return isTopLevelEditable(b)&&!(bh&&!after[bh])&&!b.cblAttribOwnerHandle&&sameGeometry(b,s);});
       if(alreadyPersisted)return;
       newEditableCount++;
+      var copied=String(s.type||'').toLowerCase()==='blockref'?normHandle(s.cblCopiedFromHandle||''):'';
+      if(copied&&attributed[copied]&&before[copied]&&!sameTransform(before[copied],s)){refuse('회전·크기를 바꾼 속성',s);return;}
       var o=opForShape(s,false);
       if(!o){refuse('새',s);return;}
       // Pasting a new shape twice clones its clientShapeId; each add needs its own.
@@ -45718,7 +45834,8 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(kind==='new'){if(dirty())return dialog('new',newNow);return newNow(ev);}
   },true);
   document.addEventListener('keydown',function(ev){
-    if(ev.target&&(ev.target.tagName==='INPUT'||ev.target.tagName==='TEXTAREA'||ev.target.isContentEditable))return;
+    // The command line keeps focus after a typed command; file shortcuts still apply there.
+    if(ev.target&&ev.target.id!=='cminp'&&(ev.target.tagName==='INPUT'||ev.target.tagName==='TEXTAREA'||ev.target.isContentEditable))return;
     var k=String(ev.key||'').toLowerCase();if(!(ev.ctrlKey||ev.metaKey))return;
     if(k==='n'||k==='o'||k==='s'){
       ev.preventDefault();ev.stopPropagation();if(ev.stopImmediatePropagation)ev.stopImmediatePropagation();

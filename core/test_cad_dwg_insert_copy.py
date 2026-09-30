@@ -75,3 +75,19 @@ class CadDwgInsertCopyTests(SimpleTestCase):
         run = self.save([{"type": "add_insert", "entity": "INSERT", "blockName": "NOPE", "layer": "0",
                           "insert": [0, 0, 0]}], expect_ok=False)
         self.assertNotEqual(run.returncode, 0)
+
+    def test_moving_an_insert_moves_its_attributes(self):
+        msp = self.save([{"type": "update", "handle": "34", "entity": "INSERT", "blockName": "BLK", "layer": "0",
+                          "insert": [130, 110, 0], "rotation": 0, "scale": [1, 1, 1]}])
+        self.assertEqual(self.inserts(msp), [("BLK", 130.0, 110.0, [("TAG", "ROOM-1", 130.0, 95.0)])])
+
+    def test_move_op_moves_attributes(self):
+        msp = self.save([{"type": "move", "handle": "34", "delta": [-20, 5, 0]}])
+        self.assertEqual(self.inserts(msp), [("BLK", 80.0, 105.0, [("TAG", "ROOM-1", 80.0, 90.0)])])
+
+    def test_rotating_an_insert_with_attributes_is_refused(self):
+        run = self.save([{"type": "update", "handle": "34", "entity": "INSERT", "blockName": "BLK", "layer": "0",
+                          "insert": [100, 100, 0], "rotation": 1.5707963267948966, "scale": [1, 1, 1]}],
+                        expect_ok=False)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("attribute", run.stderr.decode("utf-8", "replace").lower())
