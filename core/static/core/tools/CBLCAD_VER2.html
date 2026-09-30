@@ -1353,7 +1353,9 @@ canvas,
 <script id="CBL_DARK_MONO_SVG_ICON_SYSTEM_V1_SCRIPT">
 (function(){
   'use strict';
-  function svg(name){if(!name)return '';return '<svg class="cbl-ribbon-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><use href="#cbl-icon-'+name+'" xlink:href="#cbl-icon-'+name+'"></use></svg>';}
+  // data-cbl-icon holds a V2 command key (e.g. mirror); resolve it through the V2
+  // manifest so this repaint draws the same symbol as V2 instead of a missing one.
+  function svg(name){if(!name)return '';var m=window.CBL_CAD_ICON_MANIFEST_V2,id=(m&&m[name])||name;return '<svg class="cbl-ribbon-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><use href="#cbl-icon-'+id+'" xlink:href="#cbl-icon-'+id+'"></use></svg>';}
   window.cblSvgIconMarkupV1=svg;
   function key(el){
     if(!el||!el.getAttribute)return null;
@@ -7890,9 +7892,25 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
  .cbl-bottom-tools input[type=file] {
   display: none !important;
  }
+
+ /*
+   하단 기능 박스는 CBLCAD_HIDE_BOTTOM_ACTION_BOX_V1이 DOMContentLoaded에 화면 밖으로 숨긴다.
+   그 전(큰 HTML을 받는 동안)에 오른쪽 아래에 잠깐 보이지 않도록 같은 숨김을 처음부터 적용한다.
+ */
+ .cbl-bottom-tools.cbl-bottom-action-box-hidden-v1 {
+  position: fixed !important;
+  left: -99999px !important;
+  bottom: -99999px !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+  z-index: -1 !important;
+ }
 </style>
 
-<div class="cbl-bottom-tools" id="cblBottomTools">
+<div class="cbl-bottom-tools cbl-bottom-action-box-hidden-v1" id="cblBottomTools" data-cbl-bottom-action-box-hidden-v1="1">
  <input id="cblOpenDwgInput" type="file" accept=".dwg">
  <input id="cblOpenDxfInput" type="file" accept=".dxf">
  <input id="cblOpenJsonInput" type="file" accept=".json,.wcd">
@@ -33563,7 +33581,11 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     var old=document.querySelector('[data-cbl-te-v3="'+mode+'"],[data-cbl-te-v2="'+mode+'"],[data-cbl-te-v1="'+mode+'"],[data-tool="'+mode+'"]');
     if(old){ old.setAttribute("data-cbl-te-v3",mode); old.setAttribute("data-tool",mode); old.setAttribute("onclick","window.cblTrimExtendStartV3('"+mode+"');return false;"); return; }
     var b=document.createElement("button"); b.className="rl"; b.type="button"; b.setAttribute("data-cbl-te-v3",mode); b.setAttribute("data-tool",mode); b.setAttribute("onclick","window.cblTrimExtendStartV3('"+mode+"');return false;");
-    b.innerHTML='<span class="ic">'+icon+'</span>'+label+'<span class="kk">'+key+'</span>';
+    // The icon scripts have already run when this button is added, so draw the ribbon SVG here
+    // (the text glyph is only a fallback; .rl .ic hides text with font-size:0).
+    var svgIcon=typeof window.cblSvgIconMarkupV1==="function"?window.cblSvgIconMarkupV1(mode):"";
+    b.setAttribute("data-cbl-icon",mode);
+    b.innerHTML='<span class="ic" data-cbl-command-key="'+mode+'" data-cbl-icon="'+mode+'">'+(svgIcon||icon)+'</span>'+label+'<span class="kk">'+key+'</span>';
     var anchor=document.querySelector('[data-tool="move"],[data-tool="copy"]'); var box=anchor&&anchor.parentElement;
     if(box){ var after=document.querySelector('[onclick*="offsetDialog"]')||document.querySelector('[data-tool="copy"]')||anchor; if(after&&after.parentElement===box)box.insertBefore(b,after.nextSibling); else box.appendChild(b); }
     else { var home=document.getElementById("rt-home"); if(home)home.appendChild(b); }
