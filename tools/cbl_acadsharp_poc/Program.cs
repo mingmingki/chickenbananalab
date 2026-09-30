@@ -158,6 +158,7 @@ internal static class Program
             var type = typeProperty.GetString() ?? string.Empty;
             if (type.Equals("add_line", StringComparison.OrdinalIgnoreCase) ||
                 type.Equals("add_circle", StringComparison.OrdinalIgnoreCase) ||
+                type.Equals("add_arc", StringComparison.OrdinalIgnoreCase) ||
                 type.Equals("add_lwpolyline", StringComparison.OrdinalIgnoreCase) ||
                 type.Equals("add_text", StringComparison.OrdinalIgnoreCase) ||
                 type.Equals("add_mtext", StringComparison.OrdinalIgnoreCase))
@@ -537,11 +538,32 @@ internal static class Program
                     applied.Add(new { type, handle = circle.Handle.ToString("X") });
                     break;
                 }
+                case "add_arc":
+                {
+                    var layer = ResolveLayer(document, op);
+                    // Angles are radians, counter-clockwise from start to end (DXF convention).
+                    var arc = new Arc(ReadPoint(op, "center"), ReadDouble(op, "radius", 1),
+                        ReadDouble(op, "startAngle", 0), ReadDouble(op, "endAngle", Math.PI)) { Layer = layer };
+                    ApplyEntityDisplayProperties(document, arc, op);
+                    document.ModelSpace.Entities.Add(arc);
+                    applied.Add(new { type, handle = arc.Handle.ToString("X") });
+                    break;
+                }
+                case "add_insert":
+                {
+                    var insert = CreateInsert(document, op);
+                    insert.Layer = ResolveLayer(document, op);
+                    ApplyEntityDisplayProperties(document, insert, op);
+                    document.ModelSpace.Entities.Add(insert);
+                    applied.Add(new { type, handle = insert.Handle.ToString("X") });
+                    break;
+                }
                 case "add_lwpolyline":
                 {
                     var points = op.GetProperty("points").EnumerateArray()
                         .Select(x => new LwPolyline.Vertex(ReadDouble(x, 0), ReadDouble(x, 1))).ToArray();
                     if (points.Length < 2) throw new InvalidDataException("add_lwpolyline requires two points");
+                    ApplyBulges(points, op, null);
                     var poly = new LwPolyline(points) { IsClosed = ReadBool(op, "closed") };
                     poly.Layer = ResolveLayer(document, op);
                     ApplyEntityDisplayProperties(document, poly, op);
@@ -698,6 +720,13 @@ internal static class Program
                 if (op.TryGetProperty("start", out _)) line.StartPoint = ReadPoint(op, "start");
                 if (op.TryGetProperty("end", out _)) line.EndPoint = ReadPoint(op, "end");
                 break;
+            // Arc derives from Circle, so it must be matched first.
+            case Arc arc:
+                if (op.TryGetProperty("center", out _)) arc.Center = ReadPoint(op, "center");
+                if (op.TryGetProperty("radius", out _)) arc.Radius = ReadDouble(op, "radius", arc.Radius);
+                if (op.TryGetProperty("startAngle", out _)) arc.StartAngle = ReadDouble(op, "startAngle", arc.StartAngle);
+                if (op.TryGetProperty("endAngle", out _)) arc.EndAngle = ReadDouble(op, "endAngle", arc.EndAngle);
+                break;
             case Circle circle:
                 if (op.TryGetProperty("center", out _)) circle.Center = ReadPoint(op, "center");
                 if (op.TryGetProperty("radius", out _)) circle.Radius = ReadDouble(op, "radius", circle.Radius);
@@ -708,6 +737,7 @@ internal static class Program
                     var vertices = points.EnumerateArray()
                         .Select(x => new LwPolyline.Vertex(ReadDouble(x, 0), ReadDouble(x, 1))).ToArray();
                     if (vertices.Length < 2) throw new InvalidDataException("update lwpolyline requires two points");
+                    ApplyBulges(vertices, op, poly.Vertices.Select(x => x.Bulge).ToArray());
                     poly.Vertices.Clear();
                     foreach (var vertex in vertices) poly.Vertices.Add(vertex);
                 }
@@ -757,6 +787,60 @@ internal static class Program
                 break;
             default: throw new NotSupportedException($"Update is not supported for {entity.GetType().Name}");
         }
+    }
+
+    // A copy ("copyOf") clones the source INSERT so attribute values and XData stay;
+    // otherwise a fresh INSERT of the named block is created.
+    private static Insert CreateInsert(CadDocument document, JsonElement op)
+    {
+        var copyOf = op.TryGetProperty("copyOf", out var copyProperty) ? copyProperty.GetString() : null;
+        var fresh = string.IsNullOrEmpty(copyOf);
+        Insert insert;
+        if (!fresh)
+        {
+            var source = FindModelEntity(document, copyOf) as Insert
+                ?? throw new InvalidDataException($"copy source is not an INSERT: {copyOf}");
+            insert = (Insert)source.Clone();
+        }
+        else
+        {
+            var name = RequiredString(op, "blockName");
+            var block = document.BlockRecords.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidDataException($"block not found: {name}");
+            insert = new Insert(block);
+        }
+        var previous = insert.InsertPoint;
+        var rotation = ReadDouble(op, "rotation", insert.Rotation);
+        double xs = insert.XScale, ys = insert.YScale, zs = insert.ZScale;
+        if (op.TryGetProperty("scale", out var scale) && scale.ValueKind == JsonValueKind.Array)
+        {
+            if (scale.GetArrayLength() > 0) xs = ReadDouble(scale, 0);
+            if (scale.GetArrayLength() > 1) ys = ReadDouble(scale, 1);
+            if (scale.GetArrayLength() > 2) zs = ReadDouble(scale, 2);
+        }
+        if (!fresh && insert.Attributes.Any() &&
+            (Math.Abs(rotation - insert.Rotation) > 1e-9 || Math.Abs(xs - insert.XScale) > 1e-9 ||
+             Math.Abs(ys - insert.YScale) > 1e-9 || Math.Abs(zs - insert.ZScale) > 1e-9))
+            throw new NotSupportedException("rotating or scaling a copied INSERT with attributes is not supported");
+        insert.InsertPoint = ReadPoint(op, "insert");
+        insert.Rotation = rotation;
+        insert.XScale = xs;
+        insert.YScale = ys;
+        insert.ZScale = zs;
+        if (fresh)
+        {
+            // new Insert(block) builds the attributes at the origin; place them with the insert.
+            var transform = insert.GetTransform();
+            foreach (var attribute in insert.Attributes) attribute.ApplyTransform(transform);
+            return insert;
+        }
+        var delta = insert.InsertPoint - previous;
+        foreach (var attribute in insert.Attributes)
+        {
+            attribute.InsertPoint += delta;
+            attribute.AlignmentPoint += delta;
+        }
+        return insert;
     }
 
     private static Dimension CreateDimension(CadDocument document, JsonElement op)
@@ -911,6 +995,27 @@ internal static class Program
     private static double ReadDouble(JsonElement obj, string name, double fallback) => obj.TryGetProperty(name, out var value) && value.TryGetDouble(out var result) && double.IsFinite(result) ? result : fallback;
     private static double ReadDouble(JsonElement value, int index) => value.ValueKind == JsonValueKind.Array && value.GetArrayLength() > index && value[index].TryGetDouble(out var result) ? result : throw new InvalidDataException("invalid point");
     private static XYZ ReadPoint(JsonElement obj, string name) { var value = obj.GetProperty(name); return new XYZ(ReadDouble(value, 0), ReadDouble(value, 1), value.ValueKind == JsonValueKind.Array && value.GetArrayLength() > 2 ? ReadDouble(value, 2) : 0); }
+
+    // "bulges" holds one bulge per vertex (arc segment to the next vertex).  Clients
+    // that send only points keep the entity's existing bulges when the vertex count
+    // is unchanged, so an update never flattens arc segments it did not mention.
+    private static void ApplyBulges(LwPolyline.Vertex[] vertices, JsonElement op, double[]? existing)
+    {
+        if (op.TryGetProperty("bulges", out var bulges) && bulges.ValueKind == JsonValueKind.Array)
+        {
+            if (bulges.GetArrayLength() != vertices.Length)
+                throw new InvalidDataException("lwpolyline bulges must match the point count");
+            for (var i = 0; i < vertices.Length; i++)
+            {
+                var bulge = ReadDouble(bulges, i);
+                if (!double.IsFinite(bulge)) throw new InvalidDataException("invalid lwpolyline bulge");
+                vertices[i].Bulge = bulge;
+            }
+            return;
+        }
+        if (existing != null && existing.Length == vertices.Length)
+            for (var i = 0; i < vertices.Length; i++) vertices[i].Bulge = existing[i];
+    }
 
     private static CadDocument Read(string path, List<object> notifications)
     {

@@ -1738,8 +1738,7 @@ canvas,
   <div id="ted">
    <div id="tedtb">
     <span style="font-size:9px;color:var(--mu)">크기:</span>
-    <input type="number" id="tedSz" value="14" min="4" max="300" style="width:38px;background:var(--bg);border:1px solid var(--br);border-radius:2px;color:var(--tx);font-size:10px;padding:1px 3px;text-align:center" onchange="tedUpdateSz()">
-    <span style="font-size:9px;color:var(--mu)">px</span>
+    <input type="number" id="tedSz" value="14" min="0" step="any" title="글자 높이(도면 단위)" style="width:56px;background:var(--bg);border:1px solid var(--br);border-radius:2px;color:var(--tx);font-size:10px;padding:1px 3px;text-align:center" onchange="tedUpdateSz()">
     <button class="ttb ok" onclick="tedConfirm()"><span class="cbl-icon-only" data-cbl-command-key="confirm"></span>Enter</button>
     <button class="ttb" onclick="tedCancel()"><span class="cbl-icon-only" data-cbl-command-key="close"></span>Esc</button>
     <span style="font-size:9px;color:var(--mu);margin-left:4px">더블클릭=수정</span>
@@ -5796,10 +5795,7 @@ cvs.addEventListener('contextmenu',function(e){
 });
 
 cvs.addEventListener('dblclick',function(e){
- if(tool==='polyline'&&polyPts.length>=2){
-  shapes.push(Object.assign({},styl,{type:'polyline',pts:polyPts.slice(),layId:actLay}));
-  polyPts=[];drawing=false;saveH();updUI();render();return;
- }
+ if(tool==='polyline'&&polyPts.length>=2){finishPolylineV1();return;}
  if(tool==='select'){
   e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();
   var ep=eventToCanvasPoint(e);mp=ep;cblUpdateOrangePointerV1(e);var wp=toW(ep.x,ep.y),hit=cblImportedTextHitV1(wp)||hitAll(wp);
@@ -5830,7 +5826,7 @@ cvs.addEventListener('wheel',function(e){
  vOff.x=mx-(mx-vOff.x)*f;
  vOff.y=my-cvs.height/2-(my-vOff.y-cvs.height/2)*f;
  vScale=ns;
- var sz=document.getElementById('stZoom');if(sz)sz.textContent=Math.round(vScale*100)+'%';
+ var sz=document.getElementById('stZoom');if(sz)sz.textContent=cblZoomLabelV1(vScale);
  if(mode==='2d'){
   if(typeof cblF5NavPreviewV1==='function')cblF5NavPreviewV1('wheel');
   else requestCadRenderV1();
@@ -5850,9 +5846,20 @@ function finishShape(a,b){
  shapes.push(s);sel=[s];saveH();updUI();
  requestAnimationFrame(function(){try{render();}catch(e){try{console.error('[CBL_DRAW_COMMIT_RENDER]',e);}catch(_e){}}});
 }
+// Double-click and Enter/Space end PLINE like AutoCAD.  A double-click also
+// delivers two clicks on the last point, so drop vertices repeated there.
+function finishPolylineV1(){
+ var pts=polyPts.slice();
+ while(pts.length>=2){var a=pts[pts.length-1],b=pts[pts.length-2];if(Math.hypot(a.x-b.x,a.y-b.y)*vScale<2)pts.pop();else break;}
+ if(pts.length<2){setHint('폴리라인: 최소 2점 필요');return false;}
+ shapes.push(Object.assign({},styl,{type:'polyline',pts:pts,layId:actLay}));
+ polyPts=[];drawing=false;saveH();updUI();render();setHint('폴리라인 완료');
+ return true;
+}
 function closePolyline(){
  if(polyPts.length<3){setHint('폴리라인 닫기: 최소 3점 필요');return;}
- shapes.push(Object.assign({},styl,{type:'polyline',pts:polyPts.concat([{x:polyPts[0].x,y:polyPts[0].y}]),layId:actLay}));
+ // The repeated first vertex draws the closing segment; closed marks it for DWG.
+ shapes.push(Object.assign({},styl,{type:'polyline',pts:polyPts.concat([{x:polyPts[0].x,y:polyPts[0].y}]),closed:true,layId:actLay}));
  polyPts=[];drawing=false;saveH();updUI();
  requestAnimationFrame(function(){try{render();}catch(e){try{console.error('[CBL_DRAW_COMMIT_RENDER]',e);}catch(_e){}}});
  setHint('폴리라인 닫기 완료');
@@ -5895,11 +5902,17 @@ function applyMirror(shps,pt1,pt2){
  function mS(s){var c=cloneJ(s);
   if(c.type==='line'){var a=mPt({x:c.x1,y:c.y1}),b=mPt({x:c.x2,y:c.y2});c.x1=a.x;c.y1=a.y;c.x2=b.x;c.y2=b.y;}
   else if(c.type==='rect'){var cs=[{x:c.x,y:c.y},{x:c.x+c.w,y:c.y},{x:c.x,y:c.y+c.h},{x:c.x+c.w,y:c.y+c.h}];var ms=cs.map(mPt);var xs=ms.map(function(p){return p.x;}),ys=ms.map(function(p){return p.y;});c.x=Math.min.apply(null,xs);c.y=Math.min.apply(null,ys);c.w=Math.max.apply(null,xs)-c.x;c.h=Math.max.apply(null,ys)-c.y;}
-  else if(c.type==='circle'||c.type==='arc'){var nc=mPt({x:c.cx,y:c.cy});c.cx=nc.x;c.cy=nc.y;}
-  else if(c.type==='polyline'&&c.pts){c.pts=c.pts.map(mPt);}
+  else if(c.type==='circle'||c.type==='arc'){var nc=mPt({x:c.cx,y:c.cy});c.cx=nc.x;c.cy=nc.y;
+   // A reflection reverses direction: the arc a1->a2 becomes (2θ-a2)->(2θ-a1).
+   if(c.type==='arc'){var a1=c.a1,a2=c.a2;c.a1=2*ang-a2;c.a2=2*ang-a1;}}
+  else if(c.type==='polyline'&&c.pts){c.pts=c.pts.map(function(q){var r=mPt(q);if(q.bulge)r.bulge=-q.bulge;return r;});}
+  else if(c.type==='text'||c.type==='mtext'){
+   // Keep text readable (AutoCAD MIRRTEXT=0): mirror the middle of its baseline, keep the direction.
+   var rot=Number(c.rotation!=null?c.rotation:c.rot)||0,half=(Number(c.tw)||0)/2,ux=Math.cos(rot),uy=Math.sin(rot);
+   var mid=mPt({x:c.x+ux*half,y:c.y+uy*half});c.x=mid.x-ux*half;c.y=mid.y-uy*half;}
   else if(c.type==='group'){c.ch=c.ch.map(mS);}
   return c;
- }return shps.map(mS);
+ }var ang=Math.atan2(dy,dx);return shps.map(mS);
 }
 function rotateSelected(angle){
  if(!sel.length)return;var rad=angle*Math.PI/180;
@@ -6734,11 +6747,23 @@ function cblImportedTextHitV1(wp){
  var best=null,bestD=Infinity,tol=8/vScale;
  (Array.isArray(shapes)?shapes:[]).forEach(function(s){if(!s)return;var raw=String(s.rawDxfType||'').toUpperCase(),t=String(s.type||'').toLowerCase();if(raw==='ATTRIB'||raw==='ATTDEF'||raw==='DIMENSION'||t==='group'||(t!=='text'&&t!=='mtext'&&raw!=='TEXT'&&raw!=='MTEXT'))return;var ly=cblSelectionLayerV1(s);if(!ly||ly.visible===false||ly.locked)return;var bb=getBB(s);if(!bb||!Number.isFinite(bb.x)||!Number.isFinite(bb.y))return;var dx=wp.x<bb.x?bb.x-wp.x:wp.x>bb.x+bb.w?wp.x-(bb.x+bb.w):0,dy=wp.y<bb.y?bb.y-wp.y:wp.y>bb.y+bb.h?wp.y-(bb.y+bb.h):0,d=Math.hypot(dx,dy);if(d<=tol&&(d<bestD||(d===bestD&&best&&String(s.sourceHandle||'')>String(best.sourceHandle||'')))){best=s;bestD=d;}});return best;
 }
+// Zoom label: large mm drawings fit at well under 1%, which rounded to "0%".
+function cblZoomLabelV1(scale){var p=Number(scale)*100;if(!(p>0)||!isFinite(p))return '0%';return (p>=10?String(Math.round(p)):p>=1?p.toFixed(1):p.toPrecision(2))+'%';}
 // ===== TEXT EDITOR =====
+// New text height in drawing units: the drawing's typical text height, or about
+// 14 screen pixels when it has no text yet (a fixed 14 is invisible in mm plans).
+function cblDefaultTextSizeV1(){
+ var sizes=[];
+ (Array.isArray(shapes)?shapes:[]).forEach(function(s){if(s&&(s.type==='text'||s.type==='mtext')){var h=Number(s.size||s.height||s.textHeight);if(h>0&&isFinite(h))sizes.push(h);}});
+ if(sizes.length){sizes.sort(function(a,b){return a-b;});return Number(sizes[Math.floor(sizes.length/2)].toPrecision(3));}
+ var vs=Number(vScale)||1;if(vs>=0.5)return 14;
+ var w=14/vs,step=Math.pow(10,Math.floor(Math.log10(w)));return Math.round(w/step)*step;
+}
+function cblTextSizeInputV1(){var v=parseFloat(document.getElementById('tedSz').value);return v>0&&isFinite(v)?v:cblDefaultTextSizeV1();}
 function showTed(wp,existing){
  var sc=toSc(wp.x,wp.y);
  var ed=document.getElementById('ted'),inp=document.getElementById('tedIn'),szI=document.getElementById('tedSz');
- var sz=existing?(existing.size||14):14;
+ var sz=existing?(existing.size||cblDefaultTextSizeV1()):cblDefaultTextSizeV1();
  inp.style.fontSize=Math.max(10,Math.min(sz*vScale,52))+'px';
  inp.style.color=existing?(existing.stroke||styl.stroke):styl.stroke;
  szI.value=sz;inp.value=existing?(existing.text||existing.content||''):'';
@@ -6748,9 +6773,9 @@ function showTed(wp,existing){
  ed.classList.add('on');inp.focus();inp.select();
  setHint('텍스트 입력 후 Enter=확정 Esc=취소 더블클릭=수정');
 }
-function tedUpdateSz(){var sz=parseInt(document.getElementById('tedSz').value)||14;document.getElementById('tedIn').style.fontSize=Math.max(10,Math.min(sz*vScale,52))+'px';}
+function tedUpdateSz(){var sz=cblTextSizeInputV1();document.getElementById('tedIn').style.fontSize=Math.max(10,Math.min(sz*vScale,52))+'px';}
 function tedConfirm(){
- var inp=document.getElementById('tedIn'),sz=parseInt(document.getElementById('tedSz').value)||14;
+ var inp=document.getElementById('tedIn'),sz=cblTextSizeInputV1();
  var txt=String(inp.value||'').replace(/^\n+|\n+$/g,'');
  if(!teState)return;
  if(teState.existing){
@@ -6804,6 +6829,7 @@ function handleCmdKey(e){
   e.preventDefault();
   var v=document.getElementById('cminp').value.trim();
   if(v){execCmd(v);document.getElementById('cminp').value='';}
+  else if(tool==='polyline'&&polyPts.length>=2)finishPolylineV1();
   cmdBuf='';
  } else if(e.key==='Escape'){
   // 인쇄 창선택 취소
@@ -6873,7 +6899,8 @@ document.addEventListener('keydown',function(e){
  if(e.key===' '||e.key==='Enter'){
   if(cmdBuf&&document.activeElement!==document.getElementById('cminp')){
    e.preventDefault();execCmd(cmdBuf);cmdBuf='';var ci3=document.getElementById('cminp');if(ci3)ci3.value='';
-  }return;
+  }else if(!cmdBuf&&tool==='polyline'&&polyPts.length>=2){e.preventDefault();finishPolylineV1();}
+  return;
  }
  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)&&sel.length){
   e.preventDefault();var dd=e.shiftKey?10:1;var ddx=e.key==='ArrowLeft'?-dd:e.key==='ArrowRight'?dd:0;var ddy=e.key==='ArrowUp'?dd:e.key==='ArrowDown'?-dd:0;sel.forEach(function(s){mvS(s,ddx,ddy);});saveH();render();return;
@@ -7058,14 +7085,14 @@ function zoomFit(){
  vOff.x=cvs.width/2-cx*vScale;
  vOff.y=cy*vScale; // Y축 반전 보정
  var sz2=document.getElementById('stZoom');
- if(sz2)sz2.textContent=Math.round(vScale*100)+'%';
+ if(sz2)sz2.textContent=cblZoomLabelV1(vScale);
  render();
  setHint('전체보기: '+validCnt+'개 객체 ('+cw.toFixed(1)+'x'+ch.toFixed(1)+')');
 }
 function setZoomSpeed(v){ZOOM_SPEED=parseFloat(v);updateZspUI();}
 function setZoomSpeedRaw(v){ZOOM_SPEED=v;var sel=document.getElementById('zspSel');if(sel){var opt=Array.from(sel.options).find(function(o){return Math.abs(parseFloat(o.value)-v)<0.0005;});sel.value=opt?opt.value:sel.value;}updateZspUI();}
 function updateZspUI(){var pct=Math.round((1-Math.pow(ZOOM_SPEED,100))*100);var sp=document.getElementById('zspVal');if(sp)sp.textContent='~'+pct+'%/노치';var sl=document.getElementById('zspSlider');if(sl)sl.value=ZOOM_SPEED;}
-function setZoom(f){var mx=cvs.width/2,my=cvs.height/2;vOff.x=mx-(mx-vOff.x)*f;vOff.y=my-cvs.height/2-(my-vOff.y-cvs.height/2)*f;vScale*=f;var sz=document.getElementById('stZoom');if(sz)sz.textContent=Math.round(vScale*100)+'%';render();}
+function setZoom(f){var mx=cvs.width/2,my=cvs.height/2;vOff.x=mx-(mx-vOff.x)*f;vOff.y=my-cvs.height/2-(my-vOff.y-cvs.height/2)*f;vScale*=f;var sz=document.getElementById('stZoom');if(sz)sz.textContent=cblZoomLabelV1(vScale);render();}
 function setMode(m){mode='2d';render();}
 
 // CTX MENU
@@ -9077,6 +9104,10 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
   }
 
   async function runRealSaveAs(ev) {
+    // Free-DWG mode has its own Save As (native file picker + ACadSharp writer).
+    // This legacy path would click the bottom Save button, which there saves over
+    // the currently open file, so leave the event to the free-mode handlers.
+    if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal === true) return;
     if (ev) {
       ev.preventDefault();
       ev.stopPropagation();
@@ -23637,12 +23668,19 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     }
 
     function ptsFromEnt(ent, m){
+      // A vertex bulge (42) is the arc of the segment that starts there.  Keep it
+      // so saving an edited polyline does not flatten its arcs; a mirroring
+      // transform reverses the arc direction.
+      var flip = m && (m[0]*m[3] - m[2]*m[1]) < 0 ? -1 : 1;
       if(ent && Array.isArray(ent.vertices) && ent.vertices.length){
         var vp = [];
         ent.vertices.forEach(function(ve){
           var pp = ve.p || {};
           var q = {x:num(first(pp, '10', 0)), y:num(first(pp, '20', 0))};
-          vp.push(m ? matPoint(m, q.x, q.y) : q);
+          var r = m ? matPoint(m, q.x, q.y) : q;
+          var vb = num(first(pp, '42', 0));
+          if(vb) r.bulge = vb * flip;
+          vp.push(r);
         });
         return vp;
       }
@@ -23657,6 +23695,17 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         var q = {x:num(xs[i]), y:num(ys[i])};
         out.push(m ? matPoint(m, q.x, q.y) : q);
       }
+
+      // LWPOLYLINE writes 42 only after the vertices that have a bulge, so read
+      // the pairs in order to attach each bulge to its vertex.
+      var vi = -1;
+      (Array.isArray(p.__pairs) ? p.__pairs : []).forEach(function(pair){
+        if(pair[0] === '10') vi++;
+        else if(pair[0] === '42' && vi >= 0 && vi < out.length){
+          var b = num(pair[1]);
+          if(b) out[vi].bulge = b * flip;
+        }
+      });
 
       return out;
     }
@@ -41599,7 +41648,7 @@ window.cblSnapResidueGateStatusV12 = function(){
           y:Number(snap.centerY||0)*vScale
         };
         var zoomEl = byId('stZoom');
-        if (zoomEl) zoomEl.textContent = Math.round(vScale*100)+'%';
+        if (zoomEl) zoomEl.textContent = cblZoomLabelV1(vScale);
         if (typeof render === 'function') render();
         state.printViewRestoreCountV1=(state.printViewRestoreCountV1||0)+1;
         state.printViewLastRestoreReasonV1=String(reason||'restore');
@@ -44914,8 +44963,18 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(!s||typeof s!=='object')return '';
     var existing=clientShapeIdOf(s)||String(s.objectId||s.id||'');
     if(existing){s.clientShapeId=existing;return existing;}
+    return assignFreshClientShapeIdV1(s);
+  }
+  function assignFreshClientShapeIdV1(s){
     cblClientShapeSeqV1+=1;window.CBL_CLIENT_SHAPE_SEQ_V1=cblClientShapeSeqV1;
     s.clientShapeId='cbl-shape-'+String(cblClientShapeSeqV1);return s.clientShapeId;
+  }
+  // Copy/paste/duplicate clone the whole shape, DWG identity included.  The first
+  // shape holding a handle stays that DWG entity; later holders are new entities
+  // (a copied INSERT remembers its source so the writer can clone its attributes).
+  function detachCopiedIdentityV1(s,sourceHandle){
+    ['sourceHandle','originalHandle','handle','sourcePath','cblRenderIdentity','clientShapeId','objectId'].forEach(function(k){delete s[k];});
+    if(String(s.type||'').toLowerCase()==='blockref')s.cblCopiedFromHandle=sourceHandle;
   }
   function p(x,y,z){return [n(x),n(y),n(z)];}
   function layerName(s){var ls=layers(), id=s&&(s.layId||s.layerId);for(var i=0;i<ls.length;i++)if(String(ls[i].id)===String(id))return String(ls[i].name||'0');return String(s&&(s.rawLayerName||s.layer)||'0');}
@@ -44985,16 +45044,31 @@ window.cblSnapResidueGateStatusV12 = function(){
     else if(t==='text'||t==='mtext'||t==='attrib'||t==='attdef')sig.geometry={text:String(s.text||s.content||''),insert:[q(s.x),q(s.y),q(s.z)],height:q(firstShapeValue(s,['size','height','textHeight'],0)),rotation:q(shapeRotation(s)),style:String(firstShapeValue(s,['textStyleName','textStyle'],'')||''),widthFactor:q(firstShapeValue(s,['widthFactor'],1)),obliqueAngle:q(firstShapeValue(s,['obliqueAngle','oblique'],0))};
     else if(t==='blockref'||t==='insert')sig.geometry={block:String(firstShapeValue(s,['name','blockName'],'')||''),insert:[q(s.x),q(s.y),q(s.z)],rotation:q(shapeRotation(s)),scaleX:q(shapeScale(s,'scaleX',0)),scaleY:q(shapeScale(s,'scaleY',1)),scaleZ:q(shapeScale(s,'scaleZ',2))};
     else if(t==='dimaligned'||t==='dimlinear'||t==='dimension')sig.geometry={first:point(s.firstPoint||[s.x1,s.y1,0]),second:point(s.secondPoint||[s.x2,s.y2,0]),definition:point(s.definitionPoint),textPosition:point(s.textPosition),rotation:q(shapeRotation(s)),text:String(s.overrideText||s.dimText||''),style:String(firstShapeValue(s,['dimensionStyleName','dimensionStyle'],'')||''),lineColor:q(firstShapeValue(s,['lineAci','lineColor'],7)),extensionColor:q(firstShapeValue(s,['extAci','extensionColor'],7)),textColor:q(firstShapeValue(s,['textAci','textColor'],3)),textHeight:q(firstShapeValue(s,['textHeight'],20)),arrowSize:q(firstShapeValue(s,['arrowSize'],11))};
-    else sig.geometry={x:q(s.x),y:q(s.y),rotation:q(shapeRotation(s))};
+    else{
+      // Types without a writer mapping: compare every geometric field so an edit
+      // is noticed (and refused) instead of being mistaken for "unchanged".
+      sig.geometry={rotation:q(shapeRotation(s))};
+      ['x','y','z','x1','y1','x2','y2','cx','cy','r','rx','ry','a1','a2','w','h','width','height','ratio','startAngle','endAngle'].forEach(function(k){if(s[k]!==undefined&&s[k]!==null&&s[k]!=='')sig.geometry[k]=q(s[k]);});
+      ['pts','points','controlPoints','fitPoints','vertices'].forEach(function(k){if(Array.isArray(s[k]))sig.geometry[k]=s[k].map(function(v){return v&&typeof v==='object'?[q(v.x),q(v.y),q(v.z),q(v.bulge||0)]:q(v);});});
+    }
     return JSON.stringify(sig);
   }
   window.cblShapeSaveSignatureV1=cblShapeSaveSignatureV1;
+  // The importer repeats the first vertex at the end of a closed polyline so it
+  // draws closed; the DWG entity stores it once (the closed flag adds the segment).
+  function polylineSaveVerticesV1(s){
+    var pts=(s&&Array.isArray(s.pts)?s.pts:[]).slice();
+    if(s&&s.closed&&pts.length>2){var a=pts[0],b=pts[pts.length-1];if(a&&b&&Math.abs(n(a.x)-n(b.x))<=1e-9&&Math.abs(n(a.y)-n(b.y))<=1e-9)pts.pop();}
+    return pts;
+  }
   function opForShape(s, mode){
     if(!s)return null; var t=String(s.type||'').toLowerCase(), h=ownerHandleOf(s);
     var base=Object.assign({type:mode||'add_line',layer:layerName(s)},shapeVisualProperties(s));
     if(t==='line')return Object.assign(base,{type:mode?'update':'add_line',handle:h,start:p(s.x1,s.y1),end:p(s.x2,s.y2),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
     if(t==='circle')return Object.assign(base,{type:mode?'update':'add_circle',handle:h,center:p(s.cx,s.cy),radius:Math.abs(n(s.r)),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
-    if(t==='polyline')return Object.assign(base,{type:mode?'update':'add_lwpolyline',handle:h,points:(s.pts||[]).map(function(q){return p(q.x,q.y);}),closed:!!s.closed,clientShapeId:mode?'':ensureClientShapeIdV1(s)});
+    // Arc angles are radians, counter-clockwise from a1 to a2 like DXF.
+    if(t==='arc')return Object.assign(base,{type:mode?'update':'add_arc',handle:h,center:p(s.cx,s.cy),radius:Math.abs(n(s.r)),startAngle:n(firstShapeValue(s,['startAngle','a1'],0)),endAngle:n(firstShapeValue(s,['endAngle','a2'],Math.PI)),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
+    if(t==='polyline'){var vs=polylineSaveVerticesV1(s);return Object.assign(base,{type:mode?'update':'add_lwpolyline',handle:h,points:vs.map(function(q){return p(q.x,q.y);}),bulges:vs.map(function(q){return n(q.bulge,0);}),closed:!!s.closed,clientShapeId:mode?'':ensureClientShapeIdV1(s)});}
     if(t==='rect'||t==='rectangle')return Object.assign(base,{type:mode?'update':'add_lwpolyline',handle:h,points:[[n(s.x),n(s.y)],[n(s.x)+n(s.w||s.width),n(s.y)],[n(s.x)+n(s.w||s.width),n(s.y)+n(s.h||s.height)],[n(s.x),n(s.y)+n(s.h||s.height)]],closed:true,clientShapeId:mode?'':ensureClientShapeIdV1(s)});
     if(t==='text'||t==='mtext'){
       var textOp=Object.assign(base,{type:mode?'update':'add_text',handle:h,entity:String(s.rawDxfType||(t==='mtext'?'MTEXT':'TEXT')).toUpperCase(),text:String(s.text||s.content||''),insert:p(s.x,s.y),height:n(firstShapeValue(s,['size','height','textHeight'],250),250),rotation:shapeRotation(s),textStyle:String(s.textStyleName||s.textStyle||'STANDARD'),widthFactor:n(s.widthFactor,1),obliqueAngle:n(s.obliqueAngle,0),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
@@ -45024,6 +45098,8 @@ window.cblSnapResidueGateStatusV12 = function(){
         textHeight:n(ds.textSz,20),arrowSize:n(ds.arrowSz,11),textStyle:String(s.textStyleName||s.textStyle||'STANDARD'),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
     }
     if((t==='blockref'||t==='insert')&&mode)return Object.assign(base,{type:'update',handle:h,sourceHandle:h,entity:'INSERT',blockName:String(s.name||s.blockName||''),insert:p(s.x,s.y),rotation:shapeRotation(s),scale:[shapeScale(s,'scaleX',0),shapeScale(s,'scaleY',1),shapeScale(s,'scaleZ',2)]});
+    // A copied INSERT is cloned from its source entity by the writer so attribute values survive.
+    if(t==='blockref'||t==='insert')return Object.assign(base,{type:'add_insert',entity:'INSERT',copyOf:normHandle(s.cblCopiedFromHandle||''),blockName:String(s.name||s.blockName||''),insert:p(s.x,s.y),rotation:shapeRotation(s),scale:[shapeScale(s,'scaleX',0),shapeScale(s,'scaleY',1),shapeScale(s,'scaleZ',2)],clientShapeId:ensureClientShapeIdV1(s)});
     return null;
   }
   function deleteOpForShape(s,h){
@@ -45052,7 +45128,11 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(importedFullDxf&&!baselineReady)throw new Error('저장 기준 baseline이 준비되지 않았습니다. DWG를 다시 연 뒤 저장해 주세요.');
     var base=baselineReady?window.CBL_FREE_DWG_ORIGINAL_SHAPES:[];
     var before={},after={},ops=[],ss=shapes(),topLevelHandles={};
-    var sourceHandles={},rendererOnlyCount=0,blockChildCount=0,newEditableCount=0;
+    var sourceHandles={},rendererOnlyCount=0,blockChildCount=0,newEditableCount=0,unsupported={};
+    var claimed={};
+    ss.forEach(function(s){if(!isTopLevelEditable(s))return;var h=sourceHandleOf(s);if(!h)return;if(claimed[h])detachCopiedIdentityV1(s,h);else claimed[h]=true;});
+    var kindNames={cadgrid:'그리드',grid:'그리드',dimangle2:'각도치수',ellipse:'타원',hatch:'해치',point:'점',spline:'스플라인',raw:'원본 객체',group:'그룹'};
+    function refuse(prefix,s){var t=String(s&&(s.type||s.rawDxfType)||'unknown').toLowerCase(),k=prefix+' '+(kindNames[t]?kindNames[t]+'('+t+')':t);unsupported[k]=(unsupported[k]||0)+1;}
     ss.forEach(function(s){
       var source=sourceHandleOf(s);if(source)sourceHandles[source]=true;
       if(s&&(s.rendererOnly===true||s.displayOnly===true||s.synthetic===true||s.helper===true||s.isDisplayOnly===true))rendererOnlyCount++;
@@ -45060,8 +45140,8 @@ window.cblSnapResidueGateStatusV12 = function(){
     });
     base.forEach(function(s){var h=ownerHandleOf(s);if(isTopLevelEditable(s)&&h){before[h]=s;topLevelHandles[h]=true;}});
     ss.forEach(function(s){var h=ownerHandleOf(s);if(isTopLevelEditable(s)&&h)after[h]=s;});
-    Object.keys(before).forEach(function(h){if(!after[h])ops.push(deleteOpForShape(before[h],h));else if(!sameGeometry(before[h],after[h])){var u=opForShape(after[h],true);if(u&&topLevelHandles[h])ops.push(u);}});
-    var newOps=[],newOpShapes=[];ss.forEach(function(s){
+    Object.keys(before).forEach(function(h){if(!after[h])ops.push(deleteOpForShape(before[h],h));else if(!sameGeometry(before[h],after[h])){var u=opForShape(after[h],true);if(!u)refuse('수정된',after[h]);else if(topLevelHandles[h])ops.push(u);}});
+    var newOps=[],newOpShapes=[],usedClientIds={};ss.forEach(function(s){
       if(!isTopLevelEditable(s)||sourceHandleOf(s))return;
       // A newly-created entity has no source handle in the browser model even
       // after the first DWG save.  If its geometry is already in the committed
@@ -45069,8 +45149,15 @@ window.cblSnapResidueGateStatusV12 = function(){
       var alreadyPersisted=base.some(function(b){return isTopLevelEditable(b)&&sameGeometry(b,s);});
       if(alreadyPersisted)return;
       newEditableCount++;
-      var o=opForShape(s,false);if(o){newOps.push(o);newOpShapes.push(s);}
+      var o=opForShape(s,false);
+      if(!o){refuse('새',s);return;}
+      // Pasting a new shape twice clones its clientShapeId; each add needs its own.
+      if(o.clientShapeId&&usedClientIds[o.clientShapeId])o.clientShapeId=assignFreshClientShapeIdV1(s);
+      usedClientIds[o.clientShapeId]=true;
+      newOps.push(o);newOpShapes.push(s);
     });
+    var refused=Object.keys(unsupported);
+    if(refused.length)throw new Error('DWG로 저장할 수 없는 편집이 있어 저장을 멈췄습니다: '+refused.map(function(k){return k+' '+unsupported[k]+'개';}).join(', ')+'. 해당 객체를 지우거나 편집을 되돌린 뒤 다시 저장해 주세요.');
     var used={};newOps.forEach(function(o){if(o.layer)used[o.layer]=true;});
     var originalLayers=window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES||[];
     layers().forEach(function(l){if(used[l.name]&&originalLayers.indexOf(String(l.name))<0)ops.unshift({type:'create_layer',name:String(l.name),color:Number(l.aci)||256,linetype:l.lineType||'Continuous'});});
@@ -45204,7 +45291,15 @@ window.cblSnapResidueGateStatusV12 = function(){
     var handles=await resolveOutputHandlesV1(outputHandles),applied=0,seen={};
     var pending=(pack&&pack.pendingAddRefs)||[];
     var current=Array.isArray(window.shapes)?window.shapes:[],mapped=current.slice();
+    // The live shapes get their new handles before the file is written.  If the
+    // save then fails, a leftover handle makes the next save treat the shape as
+    // already in the DWG and silently skip it, so remember how to undo this.
+    var restore=[],identityKeys=['sourceHandle','originalHandle','handle'];
+    if(pack)pack.restoreOutputHandlesV1=function(){
+      restore.splice(0).forEach(function(r){identityKeys.forEach(function(k){if(r.own[k])r.shape[k]=r.values[k];else delete r.shape[k];});});
+    };
     pending.forEach(function(ref){
+      if(ref&&ref.shape){var own={},values={};identityKeys.forEach(function(k){own[k]=Object.prototype.hasOwnProperty.call(ref.shape,k);values[k]=ref.shape[k];});restore.push({shape:ref.shape,own:own,values:values});}
       var handle=normHandle(handles[String(ref.opIndex)]||'');
       if(!handle||!ref.shape)throw new Error('신규 객체의 저장 후 handle을 확인하지 못했습니다: op '+String(ref.opIndex));
       if(seen[handle])throw new Error('신규 객체의 저장 후 handle이 중복됩니다: '+handle);
@@ -45416,6 +45511,7 @@ window.cblSnapResidueGateStatusV12 = function(){
               window.CBL_NATIVE_FILE_STATUS_V1.lastSaveState='file-dirty';
               window.CBL_NATIVE_FILE_STATUS_V1.stateSyncFailed=false;
             }
+            if(typeof pack.restoreOutputHandlesV1==='function')pack.restoreOutputHandlesV1();
             resetFreeDwgSaveStateV1();
             if(typeof setHint==='function')setHint('원본 파일이 다른 프로그램에서 사용 중입니다. 파일을 닫은 후 저장을 다시 누르세요.');
             return false;
@@ -45423,7 +45519,7 @@ window.cblSnapResidueGateStatusV12 = function(){
           throw writeError;
         }
         writeCompleted=true;
-        var commitResult=window.cblCommitSuccessfulDwgSaveV1({prepared:binaryPrepared});
+        var commitResult=window.cblCommitSuccessfulDwgSaveV1({prepared:binaryPrepared});pack.restoreOutputHandlesV1=null;
         window.CBL_FREE_DWG_LAST_SAVE={converter:'free-acadsharp-dwg-writer',targetVersion:'AC1018',oda_used:false,v29_used:false,ops:pack.ops.length,bytes:binaryBytes.byteLength,saved:true,nativePicker:true,delivery:'binary'};
         if(typeof setHint==='function')setHint('DWG 저장 완료: '+commitResult.filename);
         resetFreeDwgSaveStateV1();
@@ -45441,7 +45537,7 @@ window.cblSnapResidueGateStatusV12 = function(){
         window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=delivery.file_token||options.targetFileToken||window.CBL_FREE_DWG_LOCAL_FILE_TOKEN;
         writeCompleted=true;
         var savedPrepared=prepareDwgSaveCommitV1({bytes:savedBytes,filename:delivery.filename,handle:options.nativeHandle||window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1||null,shapes:pack.mappedShapes});
-        var commitResult=window.cblCommitSuccessfulDwgSaveV1({prepared:savedPrepared});
+        var commitResult=window.cblCommitSuccessfulDwgSaveV1({prepared:savedPrepared});pack.restoreOutputHandlesV1=null;
         if(typeof setHint==='function')setHint('저장 완료: '+commitResult.filename);
         if(options.saveAs&&window.CBL_FREE_DWG_SAVE_AS_STATUS_V1){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=false;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.downloadedName=delivery.filename;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveCompleted=true;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;}
         window.CBL_FREE_DWG_LAST_SAVE={converter:'free-acadsharp-dwg-writer',targetVersion:'AC1018',oda_used:false,v29_used:false,ops:pack.ops.length,bytes:Number(delivery.size),saved:true,localPath:true};
@@ -45450,7 +45546,7 @@ window.cblSnapResidueGateStatusV12 = function(){
         var nativeSaved=browserMode()&&!!nativeHandle&&await saveTokenToNativePickerV1(delivery,delivery.filename,nativeHandle,options.preparedWritable||null);
         if(nativeSaved)writeCompleted=true;
         var tokenPrepared=prepareDwgSaveCommitV1({filename:(nativeSaved&&nativeHandle&&nativeHandle.name)||delivery.filename,handle:nativeSaved?nativeHandle:null,shapes:pack.mappedShapes});
-        var commitResult=window.cblCommitSuccessfulDwgSaveV1({prepared:tokenPrepared});
+        var commitResult=window.cblCommitSuccessfulDwgSaveV1({prepared:tokenPrepared});pack.restoreOutputHandlesV1=null;
         if(options.saveAs&&window.CBL_FREE_DWG_SAVE_AS_STATUS_V1){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=false;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.downloadedName=delivery.filename;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveCompleted=true;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;}
         if(nativeSaved){
           if(typeof setHint==='function')setHint('DWG 저장 완료: '+commitResult.filename);
@@ -45463,7 +45559,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       }
       resetFreeDwgSaveStateV1();
         return true;
-    }catch(e){try{if(!writeCompleted)await abortPreparedNativeWritableV1(options.preparedWritable||null);}catch(_abortPreparedError){}resetFreeDwgSaveStateV1();if(e&&e.name==='AbortError')return false;console.error('[CBL_FREE_DWG_AC1018_SAVE]',e);if(window.CBL_FREE_DWG_SAVE_AS_STATUS_V1)window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.lastError=String(e&&e.message||e);if(window.CBL_NATIVE_FILE_STATUS_V1){window.CBL_NATIVE_FILE_STATUS_V1.lastError=String(e&&e.message||e);window.CBL_NATIVE_FILE_STATUS_V1.lastStack=String(e&&e.stack||'');window.CBL_NATIVE_FILE_STATUS_V1.writeCompleted=writeCompleted;window.CBL_NATIVE_FILE_STATUS_V1.stateSyncFailed=!!writeCompleted;}var syncFailure=writeCompleted;var message=syncFailure?'파일 저장은 완료됐지만 편집 상태 동기화 실패—파일을 다시 여십시오':'DWG 저장 실패: '+String(e&&e.message||e);if(syncFailure)window.CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1=true;if(typeof setHint==='function')setHint(message);var life=document.getElementById('cblFreeBrowserLifecycleDialogV1');if(life){var card=life.querySelector('.cbl-life-card');if(card){var oldErr=card.querySelector('.cbl-life-error');if(oldErr)oldErr.remove();var er=document.createElement('p');er.className='cbl-life-error';er.style.cssText='margin:12px 0 0;color:#f2a7ad;overflow-wrap:anywhere';er.textContent=message;card.appendChild(er);}}return false;}
+    }catch(e){if(pack&&typeof pack.restoreOutputHandlesV1==='function')pack.restoreOutputHandlesV1();try{if(!writeCompleted)await abortPreparedNativeWritableV1(options.preparedWritable||null);}catch(_abortPreparedError){}resetFreeDwgSaveStateV1();if(e&&e.name==='AbortError')return false;console.error('[CBL_FREE_DWG_AC1018_SAVE]',e);if(window.CBL_FREE_DWG_SAVE_AS_STATUS_V1)window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.lastError=String(e&&e.message||e);if(window.CBL_NATIVE_FILE_STATUS_V1){window.CBL_NATIVE_FILE_STATUS_V1.lastError=String(e&&e.message||e);window.CBL_NATIVE_FILE_STATUS_V1.lastStack=String(e&&e.stack||'');window.CBL_NATIVE_FILE_STATUS_V1.writeCompleted=writeCompleted;window.CBL_NATIVE_FILE_STATUS_V1.stateSyncFailed=!!writeCompleted;}var syncFailure=writeCompleted;var message=syncFailure?'파일 저장은 완료됐지만 편집 상태 동기화 실패—파일을 다시 여십시오':'DWG 저장 실패: '+String(e&&e.message||e);if(syncFailure)window.CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1=true;if(typeof setHint==='function')setHint(message);var life=document.getElementById('cblFreeBrowserLifecycleDialogV1');if(life){var card=life.querySelector('.cbl-life-card');if(card){var oldErr=card.querySelector('.cbl-life-error');if(oldErr)oldErr.remove();var er=document.createElement('p');er.className='cbl-life-error';er.style.cssText='margin:12px 0 0;color:#f2a7ad;overflow-wrap:anywhere';er.textContent=message;card.appendChild(er);}}return false;}
   };
   window.cblFreeDwgExportAC1018V1=function(options){
     options=Object.assign({},options||{},{exportOnly:true,saveAs:false});
