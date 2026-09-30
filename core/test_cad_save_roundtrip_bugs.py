@@ -332,3 +332,83 @@ class CadGroupSaveCycleTests(SimpleTestCase):
         base = [_line("A1"), _line("A2", y=50.0)]
         live = [_group(_line("A1"), _line("A2", y=50.0))]
         self.assertEqual(self.cycle(base, live, "window.shapes = [];"), {"first": [], "second": ["delete:A1", "delete:A2"]})
+
+
+from .test_cad_dwg_save_integrity import BUILD_OPS_HARNESS, _build_ops_source
+
+EMPTY_COMMIT_HARNESS = """
+const window = {layers: [{id: 1, name: '0'}], CBL_ACADSHARP_FULL_DXF_ACTIVE: true, CBL_CAD_TEXT_STYLES_V1: {},
+                CBL_FREE_DWG_SNAPSHOT_API_V1: {snapshotShape: function(s){ return JSON.parse(JSON.stringify(s)); }}};
+function cblRevisionCleanV1(x){ return x; } function cblComputeDocumentRevisionV1(){ return 'r'; }
+%(helpers)s
+const out = {};
+for (const allow of [false, true]) {
+  try { out[String(allow)] = prepareDwgSaveCommitV1({shapes: [], allowEmpty: allow}).baseline; }
+  catch (e) { out[String(allow)] = 'error: ' + e.message; }
+}
+process.stdout.write(JSON.stringify(out));
+"""
+
+
+@skipUnless(NODE, "node is required to execute the CAD save helpers")
+class CadEmptyDrawingSaveTests(SimpleTestCase):
+    """Deleting every entity is a real edit: save it after the user confirms, never silently."""
+
+    def empties(self, cases):
+        html = _html()
+        script = BUILD_OPS_HARNESS % {"helpers": _build_ops_source(html), "cases": _json.dumps(cases)}
+        script = script.replace("out[name] = {ops: buildOps().ops};",
+                                "var pk = buildOps(); out[name] = {ops: pk.ops.map(function(o){return o.type;}), empties: pk.emptiesDrawing};")
+        run = _subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return _json.loads(run.stdout)
+
+    def test_deleting_everything_is_flagged(self):
+        result = self.empties({"all": {"base": [_line("A1"), _arc("A2")], "shapes": []},
+                               "some": {"base": [_line("A1"), _arc("A2")], "shapes": [_arc("A2")]},
+                               "blank": {"base": [], "shapes": []}})
+        self.assertEqual(result["all"], {"ops": ["delete", "delete"], "empties": True})
+        self.assertEqual(result["some"], {"ops": ["delete"], "empties": False})
+        self.assertEqual(result["blank"], {"ops": [], "empties": False})
+
+    def test_commit_of_an_empty_model_needs_the_confirmation(self):
+        html = _html()
+        script = html.index('<script id="CBL_FREE_DWG_AC1018_SAVE_V1_SCRIPT">')
+        start = html.index("  function shapes(){try{if(Array.isArray(window.shapes))", script)
+        helpers = html[start:html.index("  function name(options){", start)]
+        commit_start = html.index("  function prepareDwgSaveCommitV1(result){", script)
+        helpers += html[commit_start:html.index("  var freeDwgSaveInFlightV1=false;", commit_start)]
+        run = _subprocess.run([NODE, "-e", EMPTY_COMMIT_HARNESS % {"helpers": helpers}], capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        result = _json.loads(run.stdout)
+        self.assertIn("저장 기준 모델이 없어", result["false"])
+        self.assertEqual(result["true"], [])
+
+    def test_save_flow_asks_before_emptying_the_drawing(self):
+        html = _html()
+        start = html.index("    var pack=buildOps();")
+        flow = html[start:start + 6000]
+        self.assertIn("if(pack.emptiesDrawing&&", flow)
+        self.assertIn("window.confirm(", flow[:flow.index("var fd=new FormData()")])
+        self.assertEqual(html.count("shapes:pack.mappedShapes,allowEmpty:pack.emptiesDrawing===true"), 3)
+
+
+@skipUnless(NODE, "node is required to execute the CAD save helpers")
+class CadDuplicateShapeSaveTests(_BuildOpsRunner, SimpleTestCase):
+    """Drawing the same line twice makes two entities; a saved twin must not swallow the new one."""
+
+    DRAWN = {"type": "line", "layId": 1, "x1": 0.0, "y1": 200.0, "x2": 100.0, "y2": 200.0, "stroke": "#fff"}
+
+    def test_duplicate_of_a_saved_line_is_added(self):
+        saved = dict(self.DRAWN, handle="B6", sourceHandle="B6", originalHandle="B6")
+        result = self.run_cases({"d": {"base": [saved], "shapes": [dict(saved), dict(self.DRAWN)]}})["d"]
+        self.assertEqual(self.kinds(result), [("add_line", None)])
+
+    def test_unhandled_imported_shape_is_still_recognised(self):
+        # A top-level shape read without a handle stays in the baseline without one; it is not new.
+        result = self.run_cases({"u": {"base": [dict(self.DRAWN)], "shapes": [dict(self.DRAWN)]}})["u"]
+        self.assertEqual(result, {"ops": []})
+
+    def test_one_unhandled_baseline_shape_stands_in_for_one_live_shape(self):
+        result = self.run_cases({"u": {"base": [dict(self.DRAWN)], "shapes": [dict(self.DRAWN), dict(self.DRAWN)]}})["u"]
+        self.assertEqual(self.kinds(result), [("add_line", None)])

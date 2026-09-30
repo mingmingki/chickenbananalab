@@ -45535,14 +45535,16 @@ window.cblSnapResidueGateStatusV12 = function(){
       if(!after[h])refuse('삭제된 블록 속성',b);else if(!sameGeometry(b,after[h]))refuse('수정된 블록 속성',after[h]);
     });
     Object.keys(before).forEach(function(h){if(attribSkip[h])return;if(!after[h])ops.push(deleteOpForShape(before[h],h));else if(!sameGeometry(before[h],after[h])){if(attributed[h]&&String(after[h].type||'').toLowerCase()==='blockref'&&!sameTransform(before[h],after[h])){refuse('회전·크기를 바꾼 속성',after[h]);return;}var u=opForShape(after[h],true);if(!u)refuse('수정된',after[h]);else if(topLevelHandles[h])ops.push(u);}});
+    var unhandledBase=base.filter(function(b){return isTopLevelEditable(b)&&!ownerHandleOf(b)&&!b.cblAttribOwnerHandle;}),usedUnhandledBase=[];
     var newOps=[],newOpShapes=[],usedClientIds={};ss.forEach(function(s){
       if(!isTopLevelEditable(s)||sourceHandleOf(s)||s.cblAttribCopy)return;
-      // A newly-created entity has no source handle in the browser model even
-      // after the first DWG save.  If its geometry is already in the committed
-      // baseline it is persisted and must not be emitted as a second create.
-      // Baseline entities deleted by this save, and attributes (never standalone
-      // entities in the DWG), cannot stand in for it.
-      var alreadyPersisted=base.some(function(b){var bh=ownerHandleOf(b);return isTopLevelEditable(b)&&!(bh&&!after[bh])&&!b.cblAttribOwnerHandle&&sameGeometry(b,s);});
+      // A shape read from the file without a handle stays handle-less in the
+      // baseline; its twin in the live model is that entity, not a new one.
+      // A baseline entity with a handle is matched by that handle, so an equal
+      // handle-less shape next to it is a second entity the user drew.  Each
+      // baseline shape stands in for one live shape only; attributes (never
+      // standalone entities in the DWG) stand in for none.
+      var alreadyPersisted=unhandledBase.some(function(b){if(usedUnhandledBase.indexOf(b)>=0||!sameGeometry(b,s))return false;usedUnhandledBase.push(b);return true;});
       if(alreadyPersisted)return;
       newEditableCount++;
       var copied=String(s.type||'').toLowerCase()==='blockref'?normHandle(s.cblCopiedFromHandle||''):'';
@@ -45579,7 +45581,8 @@ window.cblSnapResidueGateStatusV12 = function(){
     });
     var diagnostics={shapesCount:ss.length,baselineCount:base.length,sourceHandleCount:Object.keys(sourceHandles).length,rendererOnlyCount:rendererOnlyCount,blockChildCount:blockChildCount,newEditableCount:newEditableCount,opsCount:normalized.length};
     window.CBL_DWG_BUILD_OPS_DIAGNOSTICS_V1=diagnostics;
-    return {ops:normalized,textStyles:textStyles,shapeCount:ss.length,sourceCount:base.length,diagnostics:diagnostics,pendingAddRefs:pendingAddRefs};
+    return {ops:normalized,textStyles:textStyles,shapeCount:ss.length,sourceCount:base.length,diagnostics:diagnostics,pendingAddRefs:pendingAddRefs,
+      emptiesDrawing:!ss.length&&base.some(function(b){return isTopLevelEditable(b);})};
   }
   function safeName(value){
     var s=String(value||'').trim().replace(/[\\/:*?"<>|]/g,'_');
@@ -45727,7 +45730,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(!filename)filename='ChickenBananaCAD.dwg';
     var committedShapes=Array.isArray(result.shapes)?result.shapes:(Array.isArray(window.shapes)?window.shapes:null);
     if(!committedShapes)throw new Error('저장 기준 모델이 없어 저장 상태를 확정할 수 없습니다.');
-    if(window.CBL_ACADSHARP_FULL_DXF_ACTIVE===true&&!committedShapes.length)throw new Error('저장 기준 모델이 없어 저장 상태를 확정할 수 없습니다.');
+    if(window.CBL_ACADSHARP_FULL_DXF_ACTIVE===true&&!committedShapes.length&&result.allowEmpty!==true)throw new Error('저장 기준 모델이 없어 저장 상태를 확정할 수 없습니다.');
     var committedBaseline,missing=[],rendererOnly=0,failing=null;
     // The snapshot keeps no children, so the baseline lists group members one
     // by one; buildOps compares entity by entity anyway.
@@ -45870,6 +45873,9 @@ window.cblSnapResidueGateStatusV12 = function(){
     var writeCompleted=false;
     try{
     var pack=buildOps();
+    // Deleting every entity is a real edit, but it looks exactly like a model
+    // lost to a bug, so the user confirms it before the file is emptied.
+    if(pack.emptiesDrawing&&!window.confirm('도면의 모든 객체를 지운 상태로 저장합니다. 계속할까요?'))throw new Error('모든 객체를 지운 저장을 취소했습니다.');
     if(window.CBL_NATIVE_FILE_STATUS_V1){
       window.CBL_NATIVE_FILE_STATUS_V1.buildOpsDiagnostics=pack.diagnostics||window.CBL_DWG_BUILD_OPS_DIAGNOSTICS_V1||null;
     }
@@ -45897,7 +45903,7 @@ window.cblSnapResidueGateStatusV12 = function(){
         var binaryOutputHandles=res.headers.get('X-CBL-FREE-DWG-OUTPUT-HANDLES')||'';
         if(window.CBL_NATIVE_FILE_STATUS_V1)window.CBL_NATIVE_FILE_STATUS_V1.outputHandles=binaryOutputHandles||null;
         await applyOutputHandlesV1(binaryOutputHandles,pack);
-        var binaryPrepared=prepareDwgSaveCommitV1({bytes:binaryBytes,filename:nativeHandle.name||requested,handle:nativeHandle,shapes:pack.mappedShapes});
+        var binaryPrepared=prepareDwgSaveCommitV1({bytes:binaryBytes,filename:nativeHandle.name||requested,handle:nativeHandle,shapes:pack.mappedShapes,allowEmpty:pack.emptiesDrawing===true});
         try{
           await writeNativeDwgBytesV1(binaryBytes,requested,nativeHandle,options.preparedWritable||null);
         }catch(writeError){
@@ -45937,7 +45943,7 @@ window.cblSnapResidueGateStatusV12 = function(){
         var stableSavedFile=new File([savedBytes],delivery.filename,{type:'application/acad'});
         window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=delivery.file_token||options.targetFileToken||window.CBL_FREE_DWG_LOCAL_FILE_TOKEN;
         writeCompleted=true;
-        var savedPrepared=prepareDwgSaveCommitV1({bytes:savedBytes,filename:delivery.filename,handle:options.nativeHandle||window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1||null,shapes:pack.mappedShapes});
+        var savedPrepared=prepareDwgSaveCommitV1({bytes:savedBytes,filename:delivery.filename,handle:options.nativeHandle||window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1||null,shapes:pack.mappedShapes,allowEmpty:pack.emptiesDrawing===true});
         var commitResult=window.cblCommitSuccessfulDwgSaveV1({prepared:savedPrepared});pack.restoreOutputHandlesV1=null;
         if(typeof setHint==='function')setHint('저장 완료: '+commitResult.filename);
         if(options.saveAs&&window.CBL_FREE_DWG_SAVE_AS_STATUS_V1){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=false;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.downloadedName=delivery.filename;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveCompleted=true;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;}
@@ -45946,7 +45952,7 @@ window.cblSnapResidueGateStatusV12 = function(){
         if(!delivery.download_url)throw new Error('DWG 내보내기 주소를 받지 못했습니다.');
         var nativeSaved=browserMode()&&!!nativeHandle&&await saveTokenToNativePickerV1(delivery,delivery.filename,nativeHandle,options.preparedWritable||null);
         if(nativeSaved)writeCompleted=true;
-        var tokenPrepared=prepareDwgSaveCommitV1({filename:(nativeSaved&&nativeHandle&&nativeHandle.name)||delivery.filename,handle:nativeSaved?nativeHandle:null,shapes:pack.mappedShapes});
+        var tokenPrepared=prepareDwgSaveCommitV1({filename:(nativeSaved&&nativeHandle&&nativeHandle.name)||delivery.filename,handle:nativeSaved?nativeHandle:null,shapes:pack.mappedShapes,allowEmpty:pack.emptiesDrawing===true});
         var commitResult=window.cblCommitSuccessfulDwgSaveV1({prepared:tokenPrepared});pack.restoreOutputHandlesV1=null;
         if(options.saveAs&&window.CBL_FREE_DWG_SAVE_AS_STATUS_V1){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=false;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.downloadedName=delivery.filename;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveCompleted=true;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.dialogOpened=false;}
         if(nativeSaved){
