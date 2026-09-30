@@ -2309,13 +2309,24 @@ function cblIsDisplayableShapeV1(s){
   return !(ly && (ly.visible===false || ly.frozen===true || ly.plottable===false));
  }catch(e){return true;}
 }
+// Bounds of the drawn part of an arc: its end points plus each of 0/90/180/270°
+// that the counter-clockwise sweep a1 -> a2 passes (same angles as ctx.arc).
+function cblArcBoundsV1(s){
+ var cx=Number(s.cx)||0,cy=Number(s.cy)||0,r=Math.abs(Number(s.r)||0),a1=Number(s.a1),a2=Number(s.a2),TAU=Math.PI*2;
+ if(!isFinite(a1)||!isFinite(a2)||a2-a1>=TAU-1e-9)return{x:cx-r,y:cy-r,w:r*2,h:r*2};
+ var sweep=((a2-a1)%TAU+TAU)%TAU,xs=[cx+r*Math.cos(a1),cx+r*Math.cos(a2)],ys=[cy+r*Math.sin(a1),cy+r*Math.sin(a2)];
+ [[r,0],[0,r],[-r,0],[0,-r]].forEach(function(q,k){if(((k*Math.PI/2-a1)%TAU+TAU)%TAU<=sweep){xs.push(cx+q[0]);ys.push(cy+q[1]);}});
+ var x0=Math.min.apply(null,xs),y0=Math.min.apply(null,ys);
+ return{x:x0,y:y0,w:Math.max.apply(null,xs)-x0||1,h:Math.max.apply(null,ys)-y0||1};
+}
 function getBB(s){
  try{
   if(!cblIsDisplayableShapeV1(s))return null;
   if(s.type==='group'){var bs=s.ch.filter(cblIsDisplayableShapeV1).map(getBB).filter(Boolean);if(!bs.length)return null;var xs=bs.reduce(function(a,b){return a.concat([b.x,b.x+b.w]);},[]);var ys=bs.reduce(function(a,b){return a.concat([b.y,b.y+b.h]);},[]);return{x:Math.min.apply(null,xs),y:Math.min.apply(null,ys),w:Math.max.apply(null,xs)-Math.min.apply(null,xs)||1,h:Math.max.apply(null,ys)-Math.min.apply(null,ys)||1};}
   if(s.type==='line')return{x:Math.min(s.x1,s.x2),y:Math.min(s.y1,s.y2),w:Math.abs(s.x2-s.x1)||1,h:Math.abs(s.y2-s.y1)||1};
   if(s.type==='rect')return{x:s.x,y:s.y,w:Math.abs(s.w)||1,h:Math.abs(s.h)||1};
-  if(s.type==='circle'||s.type==='arc')return{x:s.cx-s.r,y:s.cy-s.r,w:s.r*2,h:s.r*2};
+  if(s.type==='circle')return{x:s.cx-s.r,y:s.cy-s.r,w:s.r*2,h:s.r*2};
+  if(s.type==='arc')return cblArcBoundsV1(s);
   if(s.type==='point')return{x:s.cx,y:s.cy,w:0,h:0,point:true};
   if(s.type==='ellipse'){var er=Math.max(Math.abs(s.mx||1),Math.abs((s.mx||1)*(s.ratio||1)));return{x:s.cx-er,y:s.cy-er,w:er*2,h:er*2};}
   if(s.type==='hatch'&&s.boundary&&s.boundary.length){var hxs=s.boundary.map(function(p){return p.x;}),hys=s.boundary.map(function(p){return p.y;});var hxmin=Math.min.apply(null,hxs),hymin=Math.min.apply(null,hys);return{x:hxmin,y:hymin,w:Math.max(1,Math.max.apply(null,hxs)-hxmin),h:Math.max(1,Math.max.apply(null,hys)-hymin)};}

@@ -172,3 +172,64 @@ class CadArcToolSaveTests(_BuildOpsRunner, SimpleTestCase):
         self.assertEqual(op["radius"], 10)
         self.assertAlmostEqual(op["startAngle"], math.pi)
         self.assertEqual(op["endAngle"], 0)
+
+
+BOUNDS_HARNESS = """
+var vScale = 1;
+function cblIsDisplayableShapeV1(){ return true; }
+%(helpers)s
+process.stdout.write(JSON.stringify((function(){ %(body)s })()));
+"""
+
+
+@skipUnless(NODE, "node is required to execute the CAD editor helpers")
+class CadArcBoundsTests(SimpleTestCase):
+    """The selection box of an arc covers only the drawn part, not the whole circle."""
+
+    def bounds(self, arcs, fn="cblArcBoundsV1"):
+        html = _html()
+        source = "\n".join(_editor_function(html, sig) for sig in ["function cblArcBoundsV1(s){", "function getBB(s){"])
+        body = "return %s.map(function(s){ return %s(s); });" % (json.dumps(arcs), fn)
+        script = BOUNDS_HARNESS % {"helpers": source, "body": body}
+        run = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return json.loads(run.stdout)
+
+    @staticmethod
+    def arc(a1_deg, a2_deg, cx=0, cy=0, r=10):
+        return {"type": "arc", "cx": cx, "cy": cy, "r": r, "a1": math.radians(a1_deg), "a2": math.radians(a2_deg)}
+
+    def assertBox(self, box, x, y, w, h):
+        for key, want in (("x", x), ("y", y), ("w", w), ("h", h)):
+            self.assertAlmostEqual(box[key], want, places=6, msg="%s: %r" % (key, box))
+
+    def test_upper_half(self):
+        self.assertBox(self.bounds([self.arc(0, 180)])[0], -10, 0, 20, 10)
+
+    def test_quarter_arc(self):
+        self.assertBox(self.bounds([self.arc(0, 90)])[0], 0, 0, 10, 10)
+
+    def test_arc_through_zero_degrees(self):
+        self.assertBox(self.bounds([self.arc(270, 90)])[0], 0, -10, 10, 20)
+
+    def test_short_arc_uses_only_its_end_points(self):
+        c30, c60 = 10 * math.cos(math.radians(30)), 10 * math.cos(math.radians(60))
+        self.assertBox(self.bounds([self.arc(30, 60, cx=100, cy=50)])[0], 100 + c60, 50 + c60, c30 - c60, c30 - c60)
+
+    def test_major_arc_below(self):
+        # The arc drawn in the production check: 161.565° -> 18.435° through 270°.
+        top = 10 * math.sin(math.radians(18.435))
+        self.assertBox(self.bounds([self.arc(161.565, 18.435)])[0], -10, -10, 20, 10 + top)
+
+    def test_angles_outside_0_to_360(self):
+        boxes = self.bounds([self.arc(-90, 90), self.arc(360, 450)])
+        self.assertBox(boxes[0], 0, -10, 10, 20)
+        self.assertBox(boxes[1], 0, 0, 10, 10)
+
+    def test_full_turn_is_the_whole_circle(self):
+        self.assertBox(self.bounds([self.arc(0, 360)])[0], -10, -10, 20, 20)
+
+    def test_get_bb_uses_the_arc_bounds_and_keeps_circles(self):
+        boxes = self.bounds([self.arc(0, 180), {"type": "circle", "cx": 0, "cy": 0, "r": 10}], fn="getBB")
+        self.assertBox(boxes[0], -10, 0, 20, 10)
+        self.assertBox(boxes[1], -10, -10, 20, 20)
