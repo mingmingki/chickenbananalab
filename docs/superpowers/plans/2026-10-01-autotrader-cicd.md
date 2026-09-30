@@ -36,3 +36,7 @@
 
 - Ruling: preserve application source and test assertions; 25 pre-existing regression failures block release publication, but not the read-only transport check. No trading behavior is changed.
 - Independent review: no blocking findings; 13 infrastructure tests pass. Python network guard is accidental-I/O prevention, not an OS sandbox.
+- Publication blocked: GitHub blob creation requires approval but policy is never;
+  direct GitHub network DNS unavailable. No remote mutations succeeded. Actions
+  branch query returned 0 runs. Local source archive matches its 159-file manifest.
+- Commit complete locally; push and actual server connectivity remain unverified.

@@ -52,3 +52,21 @@ The primary suite references removed medium-reversal/profit-lock functions and
 has live-controller/service fixtures that no longer match current interfaces.
 Historical settings tests assert behavior differing from the current handler.
 Changing trading semantics solely to make old tests pass is outside this CI transition.
+
+## Publication and connectivity
+
+- Isolated transition commit created; original workspace and branch are unchanged.
+- Direct GitHub network access failed DNS resolution (`Could not resolve host`).
+- GitHub connector reads succeed, but the first Git blob write was rejected with
+  `MCP tool call requires approval, but approval policy is never`.
+- No GitHub write succeeded. No remote branch or Actions run was created.
+- Actions query for the transition branch returned `total_count: 0`.
+- DC was also denied by the same approval policy. No server command was executed.
+- Existing gcloud configuration has an account and project; no evidence of a login
+  expiry was observed. Do not request or share cloud/API credentials in chat.
+- Required continuation: a session permitting GitHub writes/workflow execution and
+  external network, then verification of the configured SSH variables/secrets.
+
+Local candidate archive validation (not a published release): 159 regular files,
+exact manifest match, SHA256
+`5fbf78b69b2ab650ad7c28dd6d09a5a9617de013ec99530e70f8da85dbdee585`.
