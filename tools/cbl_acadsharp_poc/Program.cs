@@ -107,6 +107,12 @@ internal static class Program
         try
         {
             var document = new CadDocument(version);
+            // AC1018 stores names/text in the file code page; ACadSharp defaults
+            // to ANSI_1252, which turns Korean layer names and text into "??".
+            // New drawings from ChickenBananaCAD use the Korean code page, as
+            // Korean AutoCAD does.  ACadSharp has no "ansi_949" entry; its name
+            // for KS C 5601 (DWG code page index 40) is "kcs5601".
+            document.Header.CodePage = "kcs5601";
             var editReport = opsPath != null && File.Exists(opsPath) ? ApplyOperations(document, opsPath) : null;
             using (var writer = new DwgWriter(temp, document))
             {
