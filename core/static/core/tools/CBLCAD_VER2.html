@@ -44325,6 +44325,25 @@ window.cblSnapResidueGateStatusV12 = function(){
     compactZoomFit();
     return compact.modelspace.length+compact.instances.length;
   }
+  // A DWG with no model-space entities (e.g. a new or cleared drawing) is
+  // valid.  An empty import is accepted only when the DXF's ENTITIES section
+  // really has no model-space record (paper-space group 67=1 is ignored), so
+  // a parser failure on a non-empty drawing still fails loudly.
+  function cblDxfHasNoModelSpaceEntitiesV1(dxf){
+    var lines=String(dxf==null?'':dxf).replace(/\r\n?/g,'\n').split('\n'),start=-1,i;
+    for(i=0;i+1<lines.length;i+=2){if(lines[i].trim()==='2'&&lines[i+1].trim()==='ENTITIES'){start=i+2;break;}}
+    if(start<0)return false;
+    var inEntity=false,paperSpace=false,modelSpaceCount=0;
+    for(i=start;i+1<lines.length;i+=2){
+      var code=lines[i].trim(),value=lines[i+1].trim();
+      if(code==='0'){
+        if(inEntity&&!paperSpace)modelSpaceCount++;
+        if(value==='ENDSEC')return modelSpaceCount===0;
+        inEntity=true;paperSpace=false;
+      }else if(code==='67'&&value==='1'){paperSpace=true;}
+    }
+    return false;
+  }
   async function cblFreeDwgOpenFileObjectV1(file,handle){
     var nativeOpenPickerCount=window.CBL_NATIVE_FILE_STATUS_V1&&Number(window.CBL_NATIVE_FILE_STATUS_V1.openPickerCount||0)||0;
     var openStarted=performance.now(),openTiming={commandEntered:Date.now(),userActivation:navigator.userActivation?!!navigator.userActivation.isActive:null,pickerStarted:null,pickerResolved:null,pickerRejected:null,getFileStarted:null,getFileResolved:null,coreOpenStarted:Date.now(),coreOpenResolved:null,coreOpenRejected:null,pendingStage:null,finalResolved:null,finalRejected:null,picker_ms:window.__CBL_DWG_PICKER_MS_V1==null?null:Number(window.__CBL_DWG_PICKER_MS_V1),file_read_ms:null,hash_ms:null,upload_ms:null,server_metadata_ms:null,server_convert_ms:null,response_ms:null,parse_ms:null,shape_build_ms:null,first_render_ms:null,zoom_fit_ms:null,total_ms:null,pickerCount:nativeOpenPickerCount||0,uploadCount:1,convertCount:1,parseCount:1,renderCount:1,retryCount:0,stages:{},settled:false};
@@ -44416,7 +44435,8 @@ window.cblSnapResidueGateStatusV12 = function(){
     var parseStarted=performance.now();
     var imported = parseFn(String(result.dxf));
     openTiming.parse_ms=+(performance.now()-parseStarted).toFixed(2);stageEnd('parseDXF');
-    if (!Array.isArray(imported) || !imported.length) throw new Error('full DXF에서 편집 객체를 찾지 못했습니다.');
+    var emptyDrawing = Array.isArray(imported) && !imported.length && cblDxfHasNoModelSpaceEntitiesV1(result.dxf);
+    if (!Array.isArray(imported) || (!imported.length && !emptyDrawing)) throw new Error('full DXF에서 편집 객체를 찾지 못했습니다.');
     try { if (typeof window.cblRenderTextStyleManagerV1 === 'function') window.cblRenderTextStyleManagerV1(); } catch(e) {}
     try {
       if (typeof window.setShapes === 'function') window.setShapes([]);
@@ -44425,7 +44445,20 @@ window.cblSnapResidueGateStatusV12 = function(){
     var applyFn = typeof window.applyImportedShapes === 'function' ? window.applyImportedShapes : null;
     stageStart('canonical_shape_build');
     var shapeBuildStarted=performance.now();
-    if (applyFn) applyFn(imported, 'DWG 열기', {deferSync:true});
+    if (emptyDrawing) {
+      // applyImportedShapes() rejects an empty list with an alert.  An empty
+      // DWG opens with no shapes and only the DWG's own layers (active "0"),
+      // otherwise the editor's default layer would look like an original
+      // layer and a line drawn on it would be saved without create_layer.
+      var dwgLayerNames = ((window.CBL_CAD_SOURCE_LAYER_MANIFEST_V1 || {}).layers || []).map(function(l){ return String(l && l.name != null ? l.name : l); });
+      var keptLayers = (Array.isArray(window.layers) ? window.layers : []).filter(function(l){ return dwgLayerNames.indexOf(String(l && l.name)) >= 0; });
+      if (keptLayers.length) {
+        var activeLayer = keptLayers.find(function(l){ return String(l.name) === '0'; }) || keptLayers[0];
+        window.layers = keptLayers; try { layers = window.layers; } catch(e) {}
+        window.actLay = activeLayer.id; try { actLay = activeLayer.id; } catch(e) {}
+      }
+    }
+    else if (applyFn) applyFn(imported, 'DWG 열기', {deferSync:true});
     else {
       window.shapes=imported;
       if(typeof window.syncAfterImport==='function') window.syncAfterImport();
@@ -44643,9 +44676,10 @@ window.cblSnapResidueGateStatusV12 = function(){
     // The save baseline is committed exactly once, after canonical import,
     // layer/UI/interactions, zoom and block post-processing are complete.
     // Never turn a failed snapshot into an empty baseline: that would make
-    // every imported renderer shape look like a newly-created entity.
+    // every imported renderer shape look like a newly-created entity.  A
+    // drawing verified empty above legitimately has an empty baseline.
     var canonicalImportedShapes=Array.isArray(window.shapes)?window.shapes:null;
-    if(!canonicalImportedShapes || !canonicalImportedShapes.length) throw new Error('DWG 열기 기준 모델을 만들지 못했습니다.');
+    if(!canonicalImportedShapes || (!canonicalImportedShapes.length && !emptyDrawing)) throw new Error('DWG 열기 기준 모델을 만들지 못했습니다.');
     var canonicalSnapshots=[];
     try {
       canonicalSnapshots=window.CBL_FREE_DWG_SNAPSHOT_API_V1.snapshotArray(canonicalImportedShapes);
