@@ -697,9 +697,11 @@ def _run_shadow_verification(
 # ETH/BTC short가 GPT timeout으로 fail-closed 취소된 사고 재현: 기존엔 openai
 # 클라이언트에 max_retries를 지정하지 않아 SDK 기본값(2, 최대 3회 시도)이 그대로
 # 적용됐고, 10초 timeout이 최대 3번 겹쳐 실제로는 30초 이상 걸렸다. GPT_ENTRY_MAX_RETRIES=0
-# 으로 SDK 자동재시도를 완전히 꺼서, 전체 wall-clock budget이 정확히
-# GPT_ENTRY_TIMEOUT_SECONDS 하나로 제한되게 한다("timeout 발생 시 즉시 fail-closed").
-GPT_ENTRY_TIMEOUT_SECONDS = 15.0
+# 으로 SDK 자동재시도를 완전히 끈다. 2026-10-01 운영 latency 500건에서 15초
+# 제한은 timeout 15.2%, 성공 p95 약 14.53초로 여유가 부족했다. Entry Gate의 단일
+# 요청 timeout을 25초로 늘리되 retry=0은 유지한다. SDK timeout은 네트워크 구간별
+# 제한이므로 전체 함수 wall-clock의 절대 상한으로 간주하지 않는다.
+GPT_ENTRY_TIMEOUT_SECONDS = 25.0
 GPT_ENTRY_MAX_RETRIES = 0
 
 
@@ -717,8 +719,10 @@ def _gpt_entry_gate(
     재시도"하는 별도 지연 로직은 일부러 만들지 않았다 - 다음 사이클의 최신 시장 데이터로
     처음부터 다시 평가하는 게 더 정확하다).
 
-    Shadow 검증(20초 timeout)과 달리 실제 주문을 지연시키는 동기 호출이라 더 짧은
-    timeout(GPT_ENTRY_TIMEOUT_SECONDS)을 쓴다.
+    실제 주문을 지연시키는 동기 호출이므로 Entry Gate 전용
+    timeout(GPT_ENTRY_TIMEOUT_SECONDS)을 쓴다. 2026-10-01 운영 latency 근거로 25초,
+    SDK 자동 retry는 0회다. 늦게 도착한 approve_now는 주문 직전 시장/안전상태를 다시
+    검증하여 후보가 오래됐으면 fail-closed한다.
 
     GPT Entry Gate는 CORE 신규 주문의 실제 최종 게이트다(2026-08-29, 사용자 지시로
     override 경로 완전 제거 - 아래 참고). approve_now만 진입을 허용하고, wait/reject/
@@ -3256,12 +3260,77 @@ def _long_entry_timing_context(structures: dict | None) -> str:
     return "\n".join(lines)
 
 
+
+GPT_APPROVED_ENTRY_MAX_PRICE_DRIFT_RATIO = 0.002
+
+
+def _approved_entry_still_valid_after_gpt(
+    cfg, client: OkxClient, symbol: str, reviewed_price: float, stage: str,
+) -> bool:
+    """Revalidate mutable safety state after a synchronous GPT approval.
+
+    The 0.2% price-drift boundary is not a new strategy threshold: reversal entries
+    already used this exact guard before/after their irreversible close. Reuse the
+    same rule for ordinary GPT-gated entries so a response that arrives near the
+    extended timeout cannot submit a stale candidate. Any read/shape failure is
+    fail-closed for this cycle only.
+    """
+    import symbol_entry_control
+
+    if symbol_entry_control.is_paused(cfg.user_dir, symbol):
+        cfg.logger.warning("[%s] ENTRY_REVALIDATION_ABORT %s: symbol entry pause active", symbol, stage)
+        return False
+    if core_kill_switch.is_active(cfg.user_dir):
+        cfg.logger.warning(
+            "[%s] ENTRY_REVALIDATION_ABORT %s: core kill switch active (%s)",
+            symbol, stage, core_kill_switch.get_reason(cfg.user_dir),
+        )
+        return False
+
+    guard = getattr(cfg, "_core_loss_guards", {}).get(symbol)
+    if guard is None:
+        cfg.logger.warning("[%s] ENTRY_REVALIDATION_ABORT %s: daily loss guard unavailable", symbol, stage)
+        return False
+
+    try:
+        equity_now = client.fetch_usdt_equity()
+        if not guard.allow_new_entry(equity_now):
+            cfg.logger.warning("[%s] ENTRY_REVALIDATION_ABORT %s: daily loss guard blocked", symbol, stage)
+            return False
+        current_price = client.fetch_last_price()
+        reviewed = float(reviewed_price)
+        current = float(current_price)
+    except Exception:
+        cfg.logger.exception("[%s] ENTRY_REVALIDATION_ABORT %s: revalidation read failed", symbol, stage)
+        return False
+
+    if (
+        not math.isfinite(reviewed) or reviewed <= 0
+        or not math.isfinite(current) or current <= 0
+    ):
+        cfg.logger.warning(
+            "[%s] ENTRY_REVALIDATION_ABORT %s: invalid reviewed/current price reviewed=%s current=%s",
+            symbol, stage, reviewed_price, current_price,
+        )
+        return False
+
+    drift = abs(current / reviewed - 1)
+    if drift > GPT_APPROVED_ENTRY_MAX_PRICE_DRIFT_RATIO:
+        cfg.logger.info(
+            "[%s] ENTRY_REVALIDATION_ABORT %s: reviewed=%s fresh=%s price drift=%.4f%% > %.2f%%",
+            symbol, stage, reviewed, current, drift * 100,
+            GPT_APPROVED_ENTRY_MAX_PRICE_DRIFT_RATIO * 100,
+        )
+        return False
+    return True
+
 def _execute_approved_entry_with_optional_reversal(
     cfg, state, client: OkxClient, symbol: str, action: str, amount: float,
     last_price: float, sl_price: float, tp_price: float, *,
     reversal_position: dict | None,
     market_regime=None, regime_confidence=None, trade_alignment=None,
     decision_id=None, decision=None, short_level_ctx=None, gpt_result=None,
+    revalidate_after_gpt: bool = False,
 ) -> bool:
     """Execute an already-approved entry; for reversals, close only after approval.
 
@@ -3272,6 +3341,10 @@ def _execute_approved_entry_with_optional_reversal(
     or another CORE symbol cannot interleave an account mutation between them.
     """
     if reversal_position is None:
+        if revalidate_after_gpt and not _approved_entry_still_valid_after_gpt(
+            cfg, client, symbol, last_price, "post_gpt",
+        ):
+            return False
         return _execute_entry(
             cfg, state, client, symbol, action, amount, last_price, sl_price, tp_price,
             market_regime=market_regime, regime_confidence=regime_confidence,
@@ -3282,41 +3355,9 @@ def _execute_approved_entry_with_optional_reversal(
     import symbol_entry_control
 
     def _replacement_entry_allowed(stage: str) -> bool:
-        """Fail-closed revalidation around the irreversible reversal close."""
-        if symbol_entry_control.is_paused(cfg.user_dir, symbol):
-            cfg.logger.warning("[%s] REVERSAL_ABORT %s: symbol entry pause active", symbol, stage)
-            return False
-        if core_kill_switch.is_active(cfg.user_dir):
-            cfg.logger.warning(
-                "[%s] REVERSAL_ABORT %s: core kill switch active (%s)",
-                symbol, stage, core_kill_switch.get_reason(cfg.user_dir),
-            )
-            return False
-        guard = getattr(cfg, "_core_loss_guards", {}).get(symbol)
-        if guard is None:
-            cfg.logger.warning("[%s] REVERSAL_ABORT %s: daily loss guard unavailable", symbol, stage)
-            return False
-        try:
-            equity_now = client.fetch_usdt_equity()
-            if not guard.allow_new_entry(equity_now):
-                cfg.logger.warning("[%s] REVERSAL_ABORT %s: daily loss guard blocked", symbol, stage)
-                return False
-            current_price = client.fetch_last_price()
-        except Exception:
-            cfg.logger.exception("[%s] REVERSAL_ABORT %s: revalidation read failed", symbol, stage)
-            return False
-        if (
-            not isinstance(current_price, (int, float))
-            or not math.isfinite(current_price)
-            or current_price <= 0
-            or abs(current_price / last_price - 1) > .002
-        ):
-            cfg.logger.info(
-                "[%s] REVERSAL_ABORT %s: reviewed=%s fresh=%s price drift >0.2%%",
-                symbol, stage, last_price, current_price,
-            )
-            return False
-        return True
+        return _approved_entry_still_valid_after_gpt(
+            cfg, client, symbol, last_price, stage,
+        )
 
     with cc_ownership.account_order_lock(cfg.user_dir):
         actual = client.fetch_position()
@@ -3627,6 +3668,7 @@ def _handle_new_entry(
         reversal_position=reversal_position,
         market_regime=market_regime, regime_confidence=regime_confidence, trade_alignment=trade_alignment,
         decision_id=decision_id, decision=decision, short_level_ctx=short_level_ctx, gpt_result=gpt_result,
+        revalidate_after_gpt=True,
     )
     try:
         audit_row = {
