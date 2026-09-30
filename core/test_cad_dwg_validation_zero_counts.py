@@ -88,3 +88,35 @@ class CadDwgSaveValidationZeroCountTests(SimpleTestCase):
         report = _run_writer([original, output, "AC1018", ops_path])
         with self.assertRaises(Exception):
             core_views._cbl_free_dwg_save_local_validate_v1(original, output, None, writer_ops[:1], report)
+
+    def test_creating_a_layer_and_drawing_on_it_passes_validation(self):
+        original = self.tmp / "layers.dwg"
+        create = self.tmp / "create_layers.json"
+        create.write_text(json.dumps({"ops": [
+            {"type": "add_line", "layer": "0", "start": [0, 0, 0], "end": [100, 0, 0]},
+        ]}), encoding="utf-8")
+        _run_writer(["--create", original, "AC1018", create])
+        types = self.save(original, [
+            {"type": "create_layer", "name": "레이어 37", "color": 5, "linetype": "Continuous"},
+            {"type": "add_line", "layer": "레이어 37", "start": [0, 10, 0], "end": [100, 10, 0]},
+        ])
+        self.assertEqual(sorted(types), ["LINE", "LINE"])
+
+    def test_an_unexpected_new_layer_still_fails(self):
+        original = self.tmp / "layers2.dwg"
+        create = self.tmp / "create_layers2.json"
+        create.write_text(json.dumps({"ops": [
+            {"type": "add_line", "layer": "0", "start": [0, 0, 0], "end": [100, 0, 0]},
+        ]}), encoding="utf-8")
+        _run_writer(["--create", original, "AC1018", create])
+        writer_ops = [{"type": "create_layer", "name": "SURPRISE", "color": 5},
+                      {"type": "add_line", "layer": "0", "start": [0, 10, 0], "end": [100, 10, 0]}]
+        original_for_ops = core_views._cbl_free_dwg_save_local_json_v1(original, None)
+        writer_ops = core_views._cbl_normalize_free_dwg_ops_v1(original_for_ops, writer_ops)
+        ops_path = self.tmp / "ops2.json"
+        ops_path.write_text(json.dumps({"ops": writer_ops}), encoding="utf-8")
+        output = self.tmp / "saved2.dwg"
+        report = _run_writer([original, output, "AC1018", ops_path])
+        # The validator is told only about the line: the extra layer is not expected.
+        with self.assertRaises(Exception):
+            core_views._cbl_free_dwg_save_local_validate_v1(original, output, None, writer_ops[1:], report)

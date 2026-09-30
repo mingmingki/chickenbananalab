@@ -25207,7 +25207,23 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
         return result
     before_layers = layer_records(original_json)
     after_layers = layer_records(saved_json)
-    if set(before_layers) != set(after_layers):
+    # Every original layer keeps its handle; create_layer ops add exactly the
+    # layers they name and nothing else.
+    def layer_name_key(value):
+        return str(value or "").strip().casefold()
+    existing_layer_names = {layer_name_key(item.get("name")) for item in before_layers.values()}
+    created_layer_names = {
+        layer_name_key(operation.get("name"))
+        for operation in ops or []
+        if isinstance(operation, dict) and operation.get("type") == "create_layer" and layer_name_key(operation.get("name"))
+    } - existing_layer_names
+    added_layer_handles = set(after_layers) - set(before_layers)
+    added_layer_names = {layer_name_key(after_layers[h].get("name")) for h in added_layer_handles}
+    if (
+        set(before_layers) - set(after_layers)
+        or len(added_layer_names) != len(added_layer_handles)
+        or added_layer_names != created_layer_names
+    ):
         raise RuntimeError("저장 검증 실패: 레이어 handle이 달라졌습니다.")
     # Entity references can legitimately change for add/delete/update ops and
     # ACadSharp may normalize the owner payload while retaining the layer
