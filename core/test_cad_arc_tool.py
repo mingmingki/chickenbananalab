@@ -233,3 +233,54 @@ class CadArcBoundsTests(SimpleTestCase):
         boxes = self.bounds([self.arc(0, 180), {"type": "circle", "cx": 0, "cy": 0, "r": 10}], fn="getBB")
         self.assertBox(boxes[0], -10, 0, 20, 10)
         self.assertBox(boxes[1], -10, -10, 20, 20)
+
+
+HIT_HARNESS = """
+var vScale = 1;
+function cblSelectionTypeV1(s){ return s.type; }
+function dst(a, b){ return Math.hypot(a.x - b.x, a.y - b.y); }
+%(helpers)s
+process.stdout.write(JSON.stringify((function(){ %(body)s })()));
+"""
+
+
+@skipUnless(NODE, "node is required to execute the CAD editor helpers")
+class CadArcClickSelectionTests(SimpleTestCase):
+    """Clicking the empty side of an arc's circle must not select the arc."""
+
+    def run_hit(self, body):
+        html = _html()
+        sigs = ["function cblArcDistanceV1(s,p){", "function hitTest(s,p,depth){", "function cblSelectionPrimitiveDistanceV1(s,p){"]
+        script = HIT_HARNESS % {"helpers": "\n".join(_editor_function(html, sig) for sig in sigs), "body": body}
+        run = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return json.loads(run.stdout)
+
+    def hits(self, a1_deg, a2_deg, points):
+        arc = {"type": "arc", "cx": 0, "cy": 0, "r": 10, "a1": math.radians(a1_deg), "a2": math.radians(a2_deg)}
+        return self.run_hit("var s=%s; return %s.map(function(p){ return hitTest(s,{x:p[0],y:p[1]}); });"
+                            % (json.dumps(arc), json.dumps(points)))
+
+    def test_upper_half_is_hit_only_on_the_drawn_side(self):
+        self.assertEqual(self.hits(0, 180, [[0, 10], [0, 12], [0, -10], [0, -12]]), [True, True, False, False])
+
+    def test_end_points_keep_the_click_tolerance(self):
+        self.assertEqual(self.hits(0, 180, [[10, -3], [-10, -3], [10, -9]]), [True, True, False])
+
+    def test_arc_through_zero_degrees(self):
+        self.assertEqual(self.hits(270, 90, [[10, 0], [-10, 0], [0, -10], [0, 10]]), [True, False, True, True])
+
+    def test_full_turn_is_hit_all_around(self):
+        self.assertEqual(self.hits(0, 360, [[0, -10], [-10, 0]]), [True, True])
+
+    def test_circles_still_hit_inside(self):
+        result = self.run_hit("var c={type:'circle',cx:0,cy:0,r:10}; return [hitTest(c,{x:0,y:-10}), hitTest(c,{x:1,y:1})];")
+        self.assertEqual(result, [True, True])
+
+    def test_nearest_pick_measures_to_the_drawn_arc(self):
+        result = self.run_hit("""
+            var s={type:'arc',cx:0,cy:0,r:10,a1:0,a2:Math.PI};
+            return [cblSelectionPrimitiveDistanceV1(s,{x:0,y:13}), cblSelectionPrimitiveDistanceV1(s,{x:0,y:-10})];
+        """)
+        self.assertAlmostEqual(result[0], 3)
+        self.assertAlmostEqual(result[1], math.hypot(10, 10))

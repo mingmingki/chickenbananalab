@@ -2319,6 +2319,15 @@ function cblArcBoundsV1(s){
  var x0=Math.min.apply(null,xs),y0=Math.min.apply(null,ys);
  return{x:x0,y:y0,w:Math.max.apply(null,xs)-x0||1,h:Math.max.apply(null,ys)-y0||1};
 }
+// Distance from p to the drawn part of an arc; outside the sweep it is the
+// distance to the nearer end point.
+function cblArcDistanceV1(s,p){
+ var cx=Number(s.cx)||0,cy=Number(s.cy)||0,r=Math.abs(Number(s.r)||0),a1=Number(s.a1),a2=Number(s.a2),TAU=Math.PI*2;
+ var dr=Math.abs(Math.hypot(p.x-cx,p.y-cy)-r);
+ if(!isFinite(a1)||!isFinite(a2)||a2-a1>=TAU-1e-9)return dr;
+ if(((Math.atan2(p.y-cy,p.x-cx)-a1)%TAU+TAU)%TAU<=((a2-a1)%TAU+TAU)%TAU)return dr;
+ return Math.min(Math.hypot(p.x-cx-r*Math.cos(a1),p.y-cy-r*Math.sin(a1)),Math.hypot(p.x-cx-r*Math.cos(a2),p.y-cy-r*Math.sin(a2)));
+}
 function getBB(s){
  try{
   if(!cblIsDisplayableShapeV1(s))return null;
@@ -4869,7 +4878,8 @@ function cblSelectionPrimitiveDistanceV1(s,p){
  var t=cblSelectionTypeV1(s),ep,pts,d;
  if(t==='line'||t==='cadgrid'){ep=cblSelectionLineEndpointsV1(s);return ep?dSeg(p,ep[0],ep[1]):Infinity;}
  if(t==='polyline'){pts=cblSelectionPolylinePointsV1(s);d=Infinity;for(var i=0;i<pts.length-1;i++)d=Math.min(d,dSeg(p,pts[i],pts[i+1]));return d;}
- if(t==='circle'||t==='arc')return Math.abs(dst(p,{x:Number(s.cx),y:Number(s.cy)})-Math.abs(Number(s.r)||0));
+ if(t==='circle')return Math.abs(dst(p,{x:Number(s.cx),y:Number(s.cy)})-Math.abs(Number(s.r)||0));
+ if(t==='arc')return cblArcDistanceV1(s,p);
  return 0;
 }
 function cblSelectionPriorityV1(s,p){
@@ -4960,7 +4970,7 @@ function hitTest(s,p,depth){
  if(type==='rect')return p.x>=s.x-t&&p.x<=s.x+s.w+t&&p.y>=s.y-t&&p.y<=s.y+s.h+t;
  if(type==='circle'){var d=dst(p,{x:s.cx,y:s.cy});return Math.abs(d-s.r)<t||d<s.r;}
  if(type==='polyline'){var pts=cblSelectionPolylinePointsV1(s);for(var i=0;i<pts.length-1;i++){if(dSeg(p,pts[i],pts[i+1])<t)return true;}return false;}
- if(type==='arc')return Math.abs(dst(p,{x:s.cx,y:s.cy})-s.r)<t;
+ if(type==='arc')return cblArcDistanceV1(s,p)<t;
  if(type==='text'||type==='mtext'){var bb=getBB(s);return !!(bb&&p.x>=bb.x-t&&p.x<=bb.x+bb.w+t&&p.y>=bb.y-t&&p.y<=bb.y+bb.h+t);}
  if(type==='cadgrid'){var ge=cblSelectionLineEndpointsV1(s);return !!(ge&&dSeg(p,ge[0],ge[1])<t);}
  if(type==='dimangle2')return Math.abs(dst(p,{x:s.cx,y:s.cy})-s.r)<t;
