@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>회원 관리</title>
+<style>
+  :root {
+    --bg1: #eef3ff; --bg2: #fdf0f7; --bg3: #eafbf3;
+    --panel: rgba(255,255,255,0.68); --panel-border: rgba(255,255,255,0.75);
+    --text: #33344a; --muted: #82849c;
+    --blue: #7fb0f7; --blue-strong: #5b93ea;
+    --green: #6fd4a3; --green-strong: #3fbd82;
+    --red: #f3a0a6; --red-strong: #ea767e;
+    --shadow: 0 10px 30px rgba(120,130,180,0.14);
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    background: linear-gradient(150deg, var(--bg1) 0%, var(--bg3) 45%, var(--bg2) 100%) fixed;
+    color: var(--text); margin:0; padding:16px; max-width:900px; margin:0 auto;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { font-size:19px; font-weight:700; display:flex; justify-content:space-between; align-items:center; }
+  h1 a { font-size:13px; color:var(--muted); text-decoration:none; font-weight:600; }
+  h1 a:hover { color:var(--red-strong); }
+  .panel {
+    background:var(--panel); backdrop-filter: blur(24px) saturate(160%); -webkit-backdrop-filter: blur(24px) saturate(160%);
+    border:1px solid var(--panel-border); border-radius:18px; padding:16px 18px; margin:12px 0;
+    box-shadow: var(--shadow);
+  }
+  .panel h2 { font-size:14px; margin:0 0 12px; font-weight:700; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { border-bottom:1px solid rgba(130,132,156,0.15); padding:8px 6px; text-align:left; }
+  th { color:var(--muted); font-weight:600; }
+  .badge { font-size:11px; font-weight:700; padding:3px 9px; border-radius:7px; }
+  .badge.admin { background:rgba(127,176,247,0.25); color:#345a8f; }
+  .badge.running { background:rgba(111,212,163,0.28); color:#1f7a4d; }
+  .badge.stopped { background:rgba(130,132,156,0.15); color:var(--muted); }
+  .badge.approved { background:rgba(91,147,234,0.22); color:var(--blue-strong); }
+  .badge.pending { background:rgba(243,160,166,0.25); color:var(--red-strong); }
+  .hint { font-size:12px; color:var(--muted); }
+  button.approve-btn {
+    font-size:12px; font-weight:700; padding:5px 12px; border-radius:8px; border:none;
+    background:linear-gradient(135deg, var(--blue), var(--blue-strong)); color:white; cursor:pointer;
+  }
+  button.approve-btn:hover { opacity:0.9; }
+</style>
+</head>
+<body>
+<h1>🐔 회원 관리 <a href="/">← 대시보드로</a></h1>
+
+<div class="panel">
+  <h2>가입한 계정 목록</h2>
+  <p class="hint">각 계정은 서로 다른 API 키로 완전히 독립적으로 매매합니다. 여기서는 아이디/가입일/실행 상태만 볼 수 있고, 다른 계정의 API 키나 거래 내역은 볼 수 없습니다.</p>
+  <table>
+    <thead><tr><th>아이디</th><th>가입일</th><th>권한</th><th>승인상태</th><th>상태</th></tr></thead>
+    <tbody id="user-table"><tr><td colspan="5" class="hint">불러오는 중...</td></tr></tbody>
+  </table>
+</div>
+
+<script>
+async function loadUsers() {
+  let res;
+  try { res = await fetch("/api/admin/users"); } catch (e) { return; }
+  if (!res.ok) return;
+  const data = await res.json();
+  const tbody = document.getElementById("user-table");
+  tbody.innerHTML = "";
+  data.users.forEach(u => {
+    const tr = document.createElement("tr");
+    const created = u.created_at ? u.created_at.replace("T", " ") : "-";
+    const adminBadge = u.is_admin ? '<span class="badge admin">관리자</span>' : "";
+    const statusBadge = u.running ? '<span class="badge running">실행 중</span>' : '<span class="badge stopped">중지됨</span>';
+    const approvalCell = u.approved
+      ? '<span class="badge approved">승인됨</span>'
+      : `<span class="badge pending">승인요청</span> <button class="approve-btn" onclick="approveUser('${u.username}', this)">승인</button>`;
+    tr.innerHTML = `<td>${u.username}</td><td>${created}</td><td>${adminBadge}</td>` +
+                   `<td>${approvalCell}</td><td>${statusBadge}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+async function approveUser(username, btn) {
+  btn.disabled = true;
+  btn.textContent = "승인 중...";
+  try {
+    const res = await fetch("/api/admin/approve", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({username}),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      alert(data.error || "승인 실패");
+      btn.disabled = false;
+      btn.textContent = "승인";
+      return;
+    }
+  } catch (e) {
+    alert("승인 요청 중 오류: " + e);
+    btn.disabled = false;
+    btn.textContent = "승인";
+    return;
+  }
+  loadUsers();
+}
+
+loadUsers();
+setInterval(loadUsers, 5000);
+</script>
+</body>
+</html>

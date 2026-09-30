@@ -50,3 +50,29 @@ ai_auto_writer.log
 /fix_highlight_v3_one_click.py
 # Local logs
 /ai_auto_writer.log
+
+# Autotrader runtime: credentials, accounts, trading records and generated files.
+.venv*/
+.superpowers/
+/dist-autotrader/
+/autotrader/.deploy-test-project/
+/autotrader/users*/
+/autotrader/logs/
+/autotrader/data/
+/autotrader/*.json
+/autotrader/*.jsonl
+/autotrader/*.csv
+/autotrader/*.log
+/autotrader/*.key
+/autotrader/*.pem
+/autotrader/*.sqlite*
+/autotrader/*.db*
+/autotrader/.pytest_cache/
+/autotrader/**/__pycache__/
+/autotrader/**/*.jsonl
+/autotrader/**/*.csv
+/autotrader/**/*.sqlite*
+/autotrader/**/*.db*
+/autotrader/**/*.key
+/autotrader/**/*.pem
+gha-creds-*.json
