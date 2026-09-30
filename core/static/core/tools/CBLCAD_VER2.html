@@ -2125,6 +2125,7 @@ var cvs=document.getElementById('c2d'),ctx=cvs.getContext('2d');
 var mode='2d',tool='select',shapes=[],sel=[];
 var drawing=false,startPt=null,mp={x:0,y:0};
 var arcMidPt=null; // ARC: 호 위의 두 번째 점
+var dimAlignPt2=null; // DAL: 두 번째 점
 // CBL_ORANGE_POINTER_STATE_V1: the snap/cursor marker must use the most
 // recent canvas event, never the initial {0,0} mouse state or a stale render.
 var cblOrangePointerStateV1={valid:false,rawCanvas:null,rawWorld:null,activeWorld:null,snap:null,updatedAt:0,raf:0};
@@ -2451,7 +2452,13 @@ function getBB(s){
       var mny=Math.min.apply(null,ys)-pad,mxy=Math.max.apply(null,ys)+pad;
       return{x:mnx,y:mny,w:(mxx-mnx)||1,h:(mxy-mny)||1};
     }
-    if(s.type==='dimaligned')return{x:Math.min(s.x1,s.x2),y:Math.min(s.y1,s.y2)-(s.off||25),w:Math.abs(s.x2-s.x1)||1,h:(s.off||25)+Math.abs(s.y2-s.y1)+10};
+    if(s.type==='dimaligned'){
+      // Both measured points and the dimension line, on whichever side it sits.
+      var ax=Number(s.x1)||0,ay=Number(s.y1)||0,bx=Number(s.x2)||0,by=Number(s.y2)||0,al=Math.hypot(bx-ax,by-ay)||1,ao=Number(s.off||25);
+      var anx=-(by-ay)/al*ao,any=(bx-ax)/al*ao,apad=12/(vScale||1);
+      var axs=[ax,bx,ax+anx,bx+anx],ays=[ay,by,ay+any,by+any],amx=Math.min.apply(null,axs),amy=Math.min.apply(null,ays);
+      return{x:amx-apad,y:amy-apad,w:Math.max.apply(null,axs)-amx+apad*2,h:Math.max.apply(null,ays)-amy+apad*2};
+    }
   if(s.type==='blockref'){
     /*
       Block extents are also used while building the snap grid.  A malformed
@@ -3719,7 +3726,8 @@ function render(){
    ctx.beginPath();ctx.arc(startPt.x,startPt.y,gr2,0,Math.PI*2);ctx.stroke();
    ctx.beginPath();ctx.arc(gp.x,gp.y,gr2,0,Math.PI*2);ctx.stroke();
   }
-  else if(tool==='dimlinear'||tool==='dimaligned'){ctx.strokeStyle='#f59e0b';ctx.setLineDash([4/vScale,3/vScale]);ctx.beginPath();ctx.moveTo(startPt.x,startPt.y);ctx.lineTo(cur.x,cur.y);ctx.stroke();}
+  else if(tool==='dimaligned')cblDimAlignedPreviewV1(cur);
+  else if(tool==='dimlinear'){ctx.strokeStyle='#f59e0b';ctx.setLineDash([4/vScale,3/vScale]);ctx.beginPath();ctx.moveTo(startPt.x,startPt.y);ctx.lineTo(cur.x,cur.y);ctx.stroke();}
   ctx.restore();
   var d2=dst(startPt,cur),tip='';
   if(tool==='line')tip='d='+fmtD(d2);
@@ -5935,6 +5943,8 @@ cvs.addEventListener('mousedown',function(e){
  if(tool==='text'){showTed(wp,null);return;}
  // ARC: 시작점 → 호 위의 점 → 끝점 (AutoCAD 3점 호)
  if(tool==='arc'){cblArcClickV1(wp);return;}
+ // DAL: 첫 점 → 두 번째 점 → 치수선 위치
+ if(tool==='dimaligned'){cblDimAlignedClickV1(wp);return;}
  // Other drawing tools
  if(!drawing){drawing=true;startPt=wp;}
  else{var cur6=apOrtho(sn.pt,startPt);finishShape(startPt,cur6);drawing=false;startPt=null;}
@@ -6059,6 +6069,29 @@ function cblArcClickV1(p){
  saveH();updUI();setHint('호 완료');
  requestAnimationFrame(function(){try{render();}catch(e){try{console.error('[CBL_DRAW_COMMIT_RENDER]',e);}catch(_e){}}});
 }
+// DAL: signed distance of p from the line p1->p2 along its left normal, the
+// side drawDimAligned and the DWG op use for s.off.
+function cblDimAlignedOffsetV1(p1,p2,p){
+ var dx=p2.x-p1.x,dy=p2.y-p1.y,len=Math.hypot(dx,dy)||1;
+ return ((p.x-p1.x)*-dy+(p.y-p1.y)*dx)/len;
+}
+function cblDimAlignedClickV1(p){
+ if(!drawing||!startPt){drawing=true;startPt=p;dimAlignPt2=null;setHint('사선치수: 두 번째 점 클릭 (ESC=취소)');render();return;}
+ if(!dimAlignPt2){
+  if(Math.hypot(p.x-startPt.x,p.y-startPt.y)*vScale<2)return;
+  dimAlignPt2=p;setHint('사선치수: 치수선 위치 클릭 (ESC=취소)');render();return;
+ }
+ var s=Object.assign({},styl,{layId:actLay,type:'dimaligned',x1:startPt.x,y1:startPt.y,x2:dimAlignPt2.x,y2:dimAlignPt2.y,off:cblDimAlignedOffsetV1(startPt,dimAlignPt2,p),fill:'none'});
+ shapes.push(s);sel=[s];drawing=false;startPt=null;dimAlignPt2=null;
+ saveH();updUI();setHint('사선치수 완료');
+ requestAnimationFrame(function(){try{render();}catch(e){try{console.error('[CBL_DRAW_COMMIT_RENDER]',e);}catch(_e){}}});
+}
+// Dashed line to the cursor, then the dimension with its line at the cursor.
+function cblDimAlignedPreviewV1(cur){
+ if(!startPt)return;
+ if(!dimAlignPt2){ctx.save();ctx.strokeStyle='#f59e0b';ctx.setLineDash([4/vScale,3/vScale]);ctx.beginPath();ctx.moveTo(startPt.x,startPt.y);ctx.lineTo(cur.x,cur.y);ctx.stroke();ctx.restore();return;}
+ drawDimAligned({x1:startPt.x,y1:startPt.y,x2:dimAlignPt2.x,y2:dimAlignPt2.y,off:cblDimAlignedOffsetV1(startPt,dimAlignPt2,cur)},false);
+}
 // Rubber band to the cursor, then the arc through start, second point and cursor.
 function cblArcPreviewV1(c,cur){
  if(!startPt)return;
@@ -6074,7 +6107,6 @@ function finishShape(a,b){
  else if(tool==='rect')s=Object.assign(s,{type:'rect',x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(b.x-a.x)||10,h:Math.abs(b.y-a.y)||10});
  else if(tool==='circle'){var r=dst(a,b);if(r<2)return;s=Object.assign(s,{type:'circle',cx:a.x,cy:a.y,r:r});}
  else if(tool==='dimlinear'){startDimWorkflow(a);return;} // 3점 방식으로
- else if(tool==='dimaligned')s=Object.assign(s,{type:'dimaligned',x1:a.x,y1:a.y,x2:b.x,y2:b.y,off:25,fill:'none'});
  else return;
  shapes.push(s);sel=[s];saveH();updUI();
  requestAnimationFrame(function(){try{render();}catch(e){try{console.error('[CBL_DRAW_COMMIT_RENDER]',e);}catch(_e){}}});
@@ -6134,7 +6166,7 @@ function applyMirror(shps,pt1,pt2){
  function mPt(p){var t=((p.x-pt1.x)*dx+(p.y-pt1.y)*dy)/len2;return{x:2*(pt1.x+t*dx)-p.x,y:2*(pt1.y+t*dy)-p.y};}
  function mS(s){var c=cloneJ(s);
   if(c.type==='line'){var a=mPt({x:c.x1,y:c.y1}),b=mPt({x:c.x2,y:c.y2});c.x1=a.x;c.y1=a.y;c.x2=b.x;c.y2=b.y;}
-  else if(c.type==='rect'){var cs=[{x:c.x,y:c.y},{x:c.x+c.w,y:c.y},{x:c.x,y:c.y+c.h},{x:c.x+c.w,y:c.y+c.h}];var ms=cs.map(mPt);var xs=ms.map(function(p){return p.x;}),ys=ms.map(function(p){return p.y;});c.x=Math.min.apply(null,xs);c.y=Math.min.apply(null,ys);c.w=Math.max.apply(null,xs)-c.x;c.h=Math.max.apply(null,ys)-c.y;}
+  else if(c.type==='rect')cblRectMapV1(c,mPt,Math.abs(Math.sin(4*Math.atan2(dy,dx)))<1e-9);
   else if(c.type==='circle'||c.type==='arc'){var nc=mPt({x:c.cx,y:c.cy});c.cx=nc.x;c.cy=nc.y;
    // A reflection reverses direction: the arc a1->a2 becomes (2θ-a2)->(2θ-a1).
    if(c.type==='arc'){var a1=c.a1,a2=c.a2;c.a1=2*ang-a2;c.a2=2*ang-a1;}}
@@ -6150,6 +6182,20 @@ function applyMirror(shps,pt1,pt2){
   return c;
  }var ang=Math.atan2(dy,dx);return shps.map(mS);
 }
+// Map a rectangle's corners.  A quarter turn (or a 45° mirror) keeps it a
+// rectangle; any other angle makes it a closed polyline, which is how it is
+// saved to the DWG (LWPOLYLINE) anyway.
+function cblRectMapV1(s,f,keepRect){
+ var x=Number(s.x)||0,y=Number(s.y)||0,w=Number(s.w)||0,h=Number(s.h)||0;
+ var ps=[{x:x,y:y},{x:x+w,y:y},{x:x+w,y:y+h},{x:x,y:y+h}].map(f);
+ if(keepRect){
+  var xs=ps.map(function(p){return p.x;}),ys=ps.map(function(p){return p.y;});
+  s.x=Math.min.apply(null,xs);s.y=Math.min.apply(null,ys);s.w=Math.max.apply(null,xs)-s.x;s.h=Math.max.apply(null,ys)-s.y;
+  return s;
+ }
+ s.type='polyline';s.pts=ps;s.closed=true;delete s.x;delete s.y;delete s.w;delete s.h;
+ return s;
+}
 function rotateSelected(angle){
  if(!sel.length)return;var rad=angle*Math.PI/180;
  var bbs=sel.map(getBB);
@@ -6158,7 +6204,7 @@ function rotateSelected(angle){
  function rPt(p){var dx=p.x-cx,dy=p.y-cy;return{x:cx+dx*Math.cos(rad)-dy*Math.sin(rad),y:cy+dx*Math.sin(rad)+dy*Math.cos(rad)};}
  function rS(s){
   if(s.type==='line'){var a=rPt({x:s.x1,y:s.y1}),b=rPt({x:s.x2,y:s.y2});s.x1=a.x;s.y1=a.y;s.x2=b.x;s.y2=b.y;}
-  else if(s.type==='rect'){var nc=rPt({x:s.x+s.w/2,y:s.y+s.h/2});s.x=nc.x-s.w/2;s.y=nc.y-s.h/2;}
+  else if(s.type==='rect')cblRectMapV1(s,rPt,Math.abs(Math.sin(2*rad))<1e-9);
   else if(s.type==='circle'||s.type==='arc'){var nc2=rPt({x:s.cx,y:s.cy});s.cx=nc2.x;s.cy=nc2.y;if(s.type==='arc'){s.a1+=rad;s.a2+=rad;}}
   else if(s.type==='polyline'&&s.pts){s.pts=s.pts.map(function(q){var r=rPt(q);if(q.bulge)r.bulge=q.bulge;return r;});}
   else if(s.type==='text'||s.type==='mtext'){var tp=rPt({x:s.x,y:s.y});s.x=tp.x;s.y=tp.y;cblSetTextRotationV1(s,cblTextRotationRadRenderFixV5(s)+rad);}
@@ -7006,6 +7052,10 @@ function cblDefaultTextSizeV1(){
  var w=14/vs,step=Math.pow(10,Math.floor(Math.log10(w)));return Math.round(w/step)*step;
 }
 function cblTextSizeInputV1(){var v=parseFloat(document.getElementById('tedSz').value);return v>0&&isFinite(v)?v:cblDefaultTextSizeV1();}
+// Keep the text box inside the drawing area; past its edge the box is cut off.
+function cblTextEditorPositionV1(x,y,boxW,boxH,areaW,areaH){
+ return{left:Math.max(8,Math.min(x,areaW-boxW-8)),top:Math.max(10,Math.min(y-68,areaH-boxH-8))};
+}
 function showTed(wp,existing){
  var sc=toSc(wp.x,wp.y);
  var ed=document.getElementById('ted'),inp=document.getElementById('tedIn'),szI=document.getElementById('tedSz');
@@ -7015,8 +7065,9 @@ function showTed(wp,existing){
  szI.value=sz;inp.value=existing?(existing.text||existing.content||''):'';
  teState={wp:wp,existing:existing};
  if(existing){cblImportedTextEditStateV1.lastSelectedType=String(existing.rawDxfType||existing.type||'').toUpperCase();cblImportedTextEditStateV1.lastSelectedId=cblImportedTextEditIdV1(existing);cblImportedTextEditStateV1.lastEditApplied=false;cblImportedTextEditStateV1.duplicateCreated=false;}
- ed.style.left=sc.x+'px';ed.style.top=Math.max(10,(sc.y-68))+'px';
- ed.classList.add('on');inp.focus();inp.select();
+ ed.classList.add('on');
+ var host=ed.offsetParent||ed.parentElement,pos=cblTextEditorPositionV1(sc.x,sc.y,ed.offsetWidth,ed.offsetHeight,host?host.clientWidth:window.innerWidth,host?host.clientHeight:window.innerHeight);
+ ed.style.left=pos.left+'px';ed.style.top=pos.top+'px';inp.focus();inp.select();
  setHint('텍스트 입력 후 Enter=확정 Esc=취소 더블클릭=수정');
 }
 function tedUpdateSz(){var sz=cblTextSizeInputV1();document.getElementById('tedIn').style.fontSize=Math.max(10,Math.min(sz*vScale,52))+'px';}
@@ -7159,10 +7210,11 @@ document.addEventListener('keydown',function(e){
 },false);
 
 // ===== UI =====
-var TNAMES={select:'선택',dimangle2:'각도치수',cadgrid:'그리드라인',dimlinear:'선형치수',move:'이동',line:'선',rect:'사각형',circle:'원',polyline:'폴리선',arc:'호',dimlinear:'선형치수',dimaligned:'각도치수',text:'텍스트',copy:'복사이동',mirror:'미러',blockinsert:'블록삽입'};
+var TNAMES={select:'선택',dimangle2:'각도치수',cadgrid:'그리드라인',dimlinear:'선형치수',move:'이동',line:'선',rect:'사각형',circle:'원',polyline:'폴리선',arc:'호',dimlinear:'선형치수',dimaligned:'사선치수',text:'텍스트',copy:'복사이동',mirror:'미러',blockinsert:'블록삽입'};
 function setTool(t){
- tool=t;drawing=false;startPt=null;arcMidPt=null;polyPts=[];
+ tool=t;drawing=false;startPt=null;arcMidPt=null;dimAlignPt2=null;polyPts=[];
  if(t==='arc')setHint('호: 시작점 클릭 (시작점 → 호 위의 점 → 끝점)');
+ if(t==='dimaligned')setHint('사선치수: 첫 번째 점 클릭 (첫 점 → 두 번째 점 → 치수선 위치)');
  if(t!=='dimangle2'){
   _angPts=[];_angHover=null;_angHoverStamp={x:NaN,y:NaN,stage:-1};
  }else{
@@ -7214,7 +7266,7 @@ function updDim(){
  if(pOp){pOp.value=s.opacity||1;var ov=document.getElementById('pOpval');if(ov)ov.textContent=Math.round((s.opacity||1)*100)+'%';}
  if(pD)pD.value=s.dash||'solid';
  // 객체 정보
- var tn={line:'선',rect:'사각형',circle:'원',polyline:'폴리선',arc:'호',group:'그룹',dimlinear:'선형치수',dimaligned:'각도치수',text:'텍스트',blockref:'블록참조'};
+ var tn={line:'선',rect:'사각형',circle:'원',polyline:'폴리선',arc:'호',group:'그룹',dimlinear:'선형치수',dimaligned:'사선치수',text:'텍스트',blockref:'블록참조'};
  var info='<b style="color:var(--a2)">'+(tn[s.type]||s.type)+'</b><br>';
  if(s.type==='line'){
   var L=dst({x:s.x1,y:s.y1},{x:s.x2,y:s.y2});
@@ -7248,7 +7300,7 @@ function updDim(){
 }
 function updObjList(){
  var list=document.getElementById('objList');if(!list)return;list.innerHTML='';
- var tn={line:'선',rect:'사각형',circle:'원',polyline:'폴리선',arc:'호',group:'그룹',dimlinear:'치수',dimaligned:'각도치수',text:'텍스트',blockref:'블록'};
+ var tn={line:'선',rect:'사각형',circle:'원',polyline:'폴리선',arc:'호',group:'그룹',dimlinear:'치수',dimaligned:'사선치수',text:'텍스트',blockref:'블록'};
  shapes.forEach(function(s,i){
   var li=document.createElement('li');li.className='oi'+(sel.indexOf(s)>=0?' sel':'');
   var dot=document.createElement('div');dot.className='odot';dot.style.background=s.stroke;
@@ -7421,7 +7473,7 @@ function updAcProps(){
  }
  var s=sel[0];
  var tn={line:'선',rect:'사각형',circle:'원',polyline:'폴리선',arc:'호',group:'그룹',
-  dimlinear:'선형치수',dimaligned:'각도치수',text:'텍스트',blockref:'블록참조'};
+  dimlinear:'선형치수',dimaligned:'사선치수',text:'텍스트',blockref:'블록참조'};
  var sl=getLayerFastV1(s.layId||1)||layers[0];
  var rows=[
   ['유형','<b style="color:var(--a2)">'+(tn[s.type]||s.type)+'</b>'],
@@ -25919,7 +25971,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
     var s = selected[0];
     var l = layerById(s && s.layId);
-    var tn = {line:'선',rect:'사각형',circle:'원',polyline:'폴리선',arc:'호',group:'그룹',dimlinear:'선형치수',dimaligned:'각도치수',text:'텍스트',blockref:'블록참조',cadgrid:'보조선'};
+    var tn = {line:'선',rect:'사각형',circle:'원',polyline:'폴리선',arc:'호',group:'그룹',dimlinear:'선형치수',dimaligned:'사선치수',text:'텍스트',blockref:'블록참조',cadgrid:'보조선'};
     var lw = shapeWeightInfo(s,l);
     var lt = shapeLTLabel(s,l);
     var c = colorOf(s,l);
@@ -39136,10 +39188,9 @@ window.cblF5CursorOverlayResetV1 = function(){
         ctx.beginPath();
         ctx.arc(gp.x, gp.y, gr, 0, Math.PI * 2);
         ctx.stroke();
-      } else if (
-        (tool === 'dimlinear' || tool === 'dimaligned') &&
-        ref
-      ) {
+      } else if (tool === 'dimaligned' && ref) {
+        cblDimAlignedPreviewV1(cur);
+      } else if (tool === 'dimlinear' && ref) {
         ctx.strokeStyle = '#f59e0b';
         ctx.setLineDash([4 / vScale, 3 / vScale]);
         ctx.beginPath();
@@ -45262,6 +45313,21 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(s.cblAttribOwnerHandle)s.cblAttribCopy=true;
   }
   function p(x,y,z){return [n(x),n(y),n(z)];}
+  // The editor draws dimension text at a fixed screen size (dimStyle.textSz px),
+  // so the DWG gets a height in drawing units: the drawing's own dimension text,
+  // else its usual text height.
+  function dimensionTextHeightV1(){
+    var dim=[],txt=[];
+    shapes().forEach(function(s){var t=String(s&&s.type||'').toLowerCase();if(t!=='text'&&t!=='mtext')return;var z=Math.abs(n(s.size));if(z>0)(s.cblDimensionText?dim:txt).push(z);});
+    var list=dim.length?dim:txt;
+    if(list.length){list.sort(function(a,b){return a-b;});return list[Math.floor(list.length/2)];}
+    var f=typeof window.cblDefaultTextSizeV1==='function'?Number(window.cblDefaultTextSizeV1()):NaN;
+    return f>0?f:2.5;
+  }
+  function dimensionArrowRatioV1(ds){
+    var st=window.dimStyle&&typeof window.dimStyle==='object'?window.dimStyle:(ds||{}),a=Number(st.arrowSz),t=Number(st.textSz);
+    return a>0&&t>0?a/t:11/20;
+  }
   function layerName(s){var ls=layers(), id=s&&(s.layId||s.layerId);for(var i=0;i<ls.length;i++)if(String(ls[i].id)===String(id))return String(ls[i].name||'0');return String(s&&(s.rawLayerName||s.layer)||'0');}
   function firstShapeValue(s,keys,fallback){for(var i=0;i<keys.length;i++){if(s&&s[keys[i]]!==undefined&&s[keys[i]]!==null)return s[keys[i]];}return fallback;}
   function shapeNumber(s,keys,fallback){var v=firstShapeValue(s,keys,null);if(v===null||v==='')return fallback;var x=Number(v);return Number.isFinite(x)?x:fallback;}
@@ -45382,7 +45448,7 @@ window.cblSnapResidueGateStatusV12 = function(){
         lineColor:Number(s.lineAci!=null?s.lineAci:(ds.lineAci!=null?ds.lineAci:7))||7,
         extensionColor:Number(s.extAci!=null?s.extAci:(ds.extAci!=null?ds.extAci:7))||7,
         textColor:Number(s.textAci!=null?s.textAci:(ds.textAci!=null?ds.textAci:3))||3,
-        textHeight:n(ds.textSz,20),arrowSize:n(ds.arrowSz,11),textStyle:String(s.textStyleName||s.textStyle||'STANDARD'),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
+        textHeight:dimensionTextHeightV1(),arrowSize:dimensionTextHeightV1()*dimensionArrowRatioV1(ds),textStyle:String(s.textStyleName||s.textStyle||'STANDARD'),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
     }
     if((t==='blockref'||t==='insert')&&mode)return Object.assign(base,{type:'update',handle:h,sourceHandle:h,entity:'INSERT',blockName:String(s.name||s.blockName||''),insert:p(s.x,s.y),rotation:shapeRotation(s),scale:[shapeScale(s,'scaleX',0),shapeScale(s,'scaleY',1),shapeScale(s,'scaleZ',2)]});
     // A copied INSERT is cloned from its source entity by the writer so attribute values survive.
@@ -45409,21 +45475,50 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(s.blockChild===true||s.isBlockChild===true||s.fromBlock===true)return false;
     return String(s.type||'').toLowerCase()!=='group';
   }
+  // A group made with Cmd+G exists only in the editor; its members are DWG
+  // entities.  Groups read from the file (a DIMENSION drawn as lines and text)
+  // carry DWG identity and stay whole.
+  function isEditorGroupV1(s){
+    return !!(s&&String(s.type||'').toLowerCase()==='group'&&Array.isArray(s.ch)&&!s.rawDxfType&&!s.dimensionHandle&&!sourceHandleOf(s));
+  }
+  function flattenGroupsV1(list){
+    var out=[];
+    function add(s){if(isEditorGroupV1(s))s.ch.forEach(add);else out.push(s);}
+    (Array.isArray(list)?list:[]).forEach(add);
+    return out;
+  }
   function buildOps(){
     var importedFullDxf=window.CBL_ACADSHARP_FULL_DXF_ACTIVE===true;
     var baselineReady=Array.isArray(window.CBL_FREE_DWG_ORIGINAL_SHAPES);
     if(importedFullDxf&&!baselineReady)throw new Error('저장 기준 baseline이 준비되지 않았습니다. DWG를 다시 연 뒤 저장해 주세요.');
-    var base=baselineReady?window.CBL_FREE_DWG_ORIGINAL_SHAPES:[];
-    var before={},after={},ops=[],ss=shapes(),topLevelHandles={};
+    var base=flattenGroupsV1(baselineReady?window.CBL_FREE_DWG_ORIGINAL_SHAPES:[]);
+    var before={},after={},ops=[],ss=flattenGroupsV1(shapes()),topLevelHandles={};
     var sourceHandles={},rendererOnlyCount=0,blockChildCount=0,newEditableCount=0,unsupported={};
     var claimed={};
     ss.forEach(function(s){if(!isTopLevelEditable(s))return;var h=sourceHandleOf(s);if(!h)return;if(claimed[h])detachCopiedIdentityV1(s,h);else claimed[h]=true;});
     var kindNames={cadgrid:'그리드',grid:'그리드',dimangle2:'각도치수',ellipse:'타원',hatch:'해치',point:'점',spline:'스플라인',raw:'원본 객체',group:'그룹',blockref:'블록'};
+    var restoredRefusals=[];
+    // A handle missing from the committed baseline is no longer in the DWG: an
+    // earlier save deleted it and undo brought the shape back.  Write it again
+    // as a new entity instead of treating it as saved.  A restored INSERT is
+    // re-inserted by block name; with attributes the values would reset, so
+    // that case stops the save.
+    var baseHandles={};base.forEach(function(b){var bh=ownerHandleOf(b);if(bh&&isTopLevelEditable(b))baseHandles[bh]=true;});
+    ss.forEach(function(s){
+      if(!isTopLevelEditable(s)||s.cblAttribOwnerHandle||s.cblAttribCopy)return;
+      var h=sourceHandleOf(s);if(!h||baseHandles[h])return;
+      var isInsert=String(s.type||'').toLowerCase()==='blockref';
+      if(isInsert&&ss.some(function(o){return o&&normHandle(o.cblAttribOwnerHandle)===h&&!o.cblAttribCopy;})){restoredRefusals.push(s);return;}
+      if(isInsert&&!s.cblBlockKey)s.cblBlockKey=h;
+      detachCopiedIdentityV1(s,h);
+      delete s.cblCopiedFromHandle;
+    });
     // The writer cannot yet place attributes under a rotated, scaled or mirrored
     // INSERT, so refuse those edits of attributed blocks here, in Korean.
     var attributed={};base.forEach(function(b){if(b&&b.cblAttribOwnerHandle)attributed[normHandle(b.cblAttribOwnerHandle)]=true;});
     function sameTransform(a,b){var x=[shapeRotation(a),shapeScale(a,'scaleX',0),shapeScale(a,'scaleY',1),shapeScale(a,'scaleZ',2)],y=[shapeRotation(b),shapeScale(b,'scaleX',0),shapeScale(b,'scaleY',1),shapeScale(b,'scaleZ',2)];return x.every(function(v,i){return Math.abs(v-y[i])<=1e-9;});}
     function refuse(prefix,s){var t=String(s&&(s.type||s.rawDxfType)||'unknown').toLowerCase(),k=prefix+' '+(kindNames[t]?kindNames[t]+'('+t+')':t);unsupported[k]=(unsupported[k]||0)+1;}
+    restoredRefusals.forEach(function(s){refuse('되돌리기로 되살린 속성',s);});
     ss.forEach(function(s){
       var source=sourceHandleOf(s);if(source)sourceHandles[source]=true;
       if(s&&(s.rendererOnly===true||s.displayOnly===true||s.synthetic===true||s.helper===true||s.isDisplayOnly===true))rendererOnlyCount++;
@@ -45634,7 +45729,9 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(!committedShapes)throw new Error('저장 기준 모델이 없어 저장 상태를 확정할 수 없습니다.');
     if(window.CBL_ACADSHARP_FULL_DXF_ACTIVE===true&&!committedShapes.length)throw new Error('저장 기준 모델이 없어 저장 상태를 확정할 수 없습니다.');
     var committedBaseline,missing=[],rendererOnly=0,failing=null;
-    try{committedBaseline=committedShapes.map(function(s,index){
+    // The snapshot keeps no children, so the baseline lists group members one
+    // by one; buildOps compares entity by entity anyway.
+    try{committedBaseline=flattenGroupsV1(committedShapes).map(function(s,index){
       if(!s||typeof s!=='object'){failing={index:index,shape:s};throw new Error('invalid snapshot shape');}
       var isRendererOnly=s.rendererOnly===true||s.blockChild===true||s.displayOnly===true||s.synthetic===true||s.helper===true;
       if(isRendererOnly)rendererOnly++;

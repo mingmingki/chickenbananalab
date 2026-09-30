@@ -25086,8 +25086,24 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
                     }
             elif before_layout != after_layout:
                 mismatches[f"layouts.{name}"] = {"original": before_layout, "output": after_layout}
-        if original_semantic_index["styles"] != saved_semantic_index["styles"]:
-                mismatches["styles"] = {"original": original_semantic_index["styles"], "output": saved_semantic_index["styles"]}
+        # add_dimension/update ops may create their named dimension style
+        # (CBL_DIMSTYLE); any other style change is still a mismatch.
+        expected_styles = dict(original_semantic_index["styles"] or {})
+        dimension_styles = list(expected_styles.get("dimension") or [])
+        known_dimension_styles = {str(name).casefold() for name in dimension_styles}
+        for operation in ops or []:
+            style_name = str((operation or {}).get("dimensionStyle") or "").strip() if isinstance(operation, dict) else ""
+            if style_name and style_name.casefold() not in known_dimension_styles:
+                dimension_styles.append(style_name)
+                known_dimension_styles.add(style_name.casefold())
+        saved_styles = dict(saved_semantic_index["styles"] or {})
+        expected_styles["dimension"] = dimension_styles
+        style_keys = set(expected_styles) | set(saved_styles)
+        expected_style_sets = {key: sorted(expected_styles.get(key) or []) for key in style_keys}
+        saved_style_sets = {key: sorted(saved_styles.get(key) or []) for key in style_keys}
+        if expected_style_sets != saved_style_sets:
+                mismatches["styles"] = {"original": original_semantic_index["styles"], "expected": expected_style_sets,
+                                        "output": saved_semantic_index["styles"]}
         if not ops and original_semantic_index["inserts"] != saved_semantic_index["inserts"]:
             mismatches["inserts.exact"] = {
                 "original": original_semantic_index["inserts"],
