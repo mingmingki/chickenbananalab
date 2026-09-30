@@ -2328,6 +2328,63 @@ function cblArcDistanceV1(s,p){
  if(((Math.atan2(p.y-cy,p.x-cx)-a1)%TAU+TAU)%TAU<=((a2-a1)%TAU+TAU)%TAU)return dr;
  return Math.min(Math.hypot(p.x-cx-r*Math.cos(a1),p.y-cy-r*Math.sin(a1)),Math.hypot(p.x-cx-r*Math.cos(a2),p.y-cy-r*Math.sin(a2)));
 }
+// A polyline vertex bulge is tan(θ/4) of the arc from that vertex to the next;
+// positive turns counter-clockwise.  Returned like an ARC (CCW a1 -> a2) plus
+// the travel angles start/end, or null for a straight segment.
+function cblBulgeArcV1(p1,p2,b){
+ b=Number(b)||0;
+ var dx=p2.x-p1.x,dy=p2.y-p1.y;
+ if(Math.abs(b)<1e-9||!(dx||dy))return null;
+ var k=(1-b*b)/(4*b),cx=(p1.x+p2.x)/2-dy*k,cy=(p1.y+p2.y)/2+dx*k;
+ var s=Math.atan2(p1.y-cy,p1.x-cx),e=Math.atan2(p2.y-cy,p2.x-cx);
+ return{cx:cx,cy:cy,r:Math.hypot(p1.x-cx,p1.y-cy),start:s,end:e,ccw:b>0,a1:b>0?s:e,a2:b>0?e:s};
+}
+// Drawn segments of a polyline, straight or arc, including the closing one.
+function cblPolylineSegmentsV1(s){
+ var src=s&&(s.pts||s.points||s.vertices),pts=[],segs=[];
+ if(!Array.isArray(src))return segs;
+ src.forEach(function(q){var v=Array.isArray(q)?{x:Number(q[0]),y:Number(q[1]),bulge:0}:{x:Number(q&&q.x),y:Number(q&&q.y),bulge:Number(q&&q.bulge)||0};if(isFinite(v.x)&&isFinite(v.y))pts.push(v);});
+ for(var i=0;i<pts.length-1;i++)segs.push({p1:pts[i],p2:pts[i+1],arc:cblBulgeArcV1(pts[i],pts[i+1],pts[i].bulge)});
+ var a=pts[0],z=pts[pts.length-1];
+ if(pts.length>1&&(s.closed||s.close||s.isClosed)&&(a.x!==z.x||a.y!==z.y))segs.push({p1:z,p2:a,arc:cblBulgeArcV1(z,a,z.bulge)});
+ return segs;
+}
+function cblPolylinePathV1(c,s){
+ var segs=cblPolylineSegmentsV1(s);
+ if(!segs.length)return;
+ c.moveTo(segs[0].p1.x,segs[0].p1.y);
+ segs.forEach(function(g){if(g.arc)c.arc(g.arc.cx,g.arc.cy,g.arc.r,g.arc.start,g.arc.end,!g.arc.ccw);else c.lineTo(g.p2.x,g.p2.y);});
+ if(s.closed||s.close||s.isClosed)c.closePath();
+}
+function cblPolylineBoundsV1(s){
+ var segs=cblPolylineSegmentsV1(s),xs=[],ys=[];
+ if(!segs.length)return null;
+ segs.forEach(function(g){xs.push(g.p1.x,g.p2.x);ys.push(g.p1.y,g.p2.y);if(g.arc){var b=cblArcBoundsV1(g.arc);xs.push(b.x,b.x+b.w);ys.push(b.y,b.y+b.h);}});
+ var x0=Math.min.apply(null,xs),y0=Math.min.apply(null,ys);
+ return{x:x0,y:y0,w:Math.max.apply(null,xs)-x0||1,h:Math.max.apply(null,ys)-y0||1};
+}
+function cblPolylineDistanceV1(s,p){
+ var d=Infinity;
+ cblPolylineSegmentsV1(s).forEach(function(g){d=Math.min(d,g.arc?cblArcDistanceV1(g.arc,p):dSeg(p,g.p1,g.p2));});
+ return d;
+}
+// Points along the drawn polyline, arcs sampled at most every 5°, for window
+// and crossing selection.
+function cblPolylineTraceV1(s){
+ var segs=cblPolylineSegmentsV1(s);
+ if(!segs.length)return cblSelectionPolylinePointsV1(s);
+ var out=[{x:segs[0].p1.x,y:segs[0].p1.y}];
+ segs.forEach(function(g){
+  var a=g.arc;
+  if(a){
+   var sw=a.end-a.start;
+   if(a.ccw&&sw<0)sw+=Math.PI*2;else if(!a.ccw&&sw>0)sw-=Math.PI*2;
+   for(var k=1,n=Math.max(2,Math.ceil(Math.abs(sw)/(Math.PI/36)));k<n;k++){var t=a.start+sw*k/n;out.push({x:a.cx+a.r*Math.cos(t),y:a.cy+a.r*Math.sin(t)});}
+  }
+  out.push({x:g.p2.x,y:g.p2.y});
+ });
+ return out;
+}
 function getBB(s){
  try{
   if(!cblIsDisplayableShapeV1(s))return null;
@@ -2339,6 +2396,7 @@ function getBB(s){
   if(s.type==='point')return{x:s.cx,y:s.cy,w:0,h:0,point:true};
   if(s.type==='ellipse'){var er=Math.max(Math.abs(s.mx||1),Math.abs((s.mx||1)*(s.ratio||1)));return{x:s.cx-er,y:s.cy-er,w:er*2,h:er*2};}
   if(s.type==='hatch'&&s.boundary&&s.boundary.length){var hxs=s.boundary.map(function(p){return p.x;}),hys=s.boundary.map(function(p){return p.y;});var hxmin=Math.min.apply(null,hxs),hymin=Math.min.apply(null,hys);return{x:hxmin,y:hymin,w:Math.max(1,Math.max.apply(null,hxs)-hxmin),h:Math.max(1,Math.max.apply(null,hys)-hymin)};}
+  if(s.type==='polyline'&&s.pts&&s.pts.length>1){var pb=cblPolylineBoundsV1(s);if(pb)return pb;}
   if(s.type==='polyline'&&s.pts&&s.pts.length){var xs2=s.pts.map(function(p){return p.x;});var ys2=s.pts.map(function(p){return p.y;});return{x:Math.min.apply(null,xs2),y:Math.min.apply(null,ys2),w:Math.max.apply(null,xs2)-Math.min.apply(null,xs2)||1,h:Math.max.apply(null,ys2)-Math.min.apply(null,ys2)||1};}
   if(s.type==='text'||s.type==='mtext'){
     var cblTextLinesV1=String(s.text||s.content||'').split(/\r?\n/),cblTextSizeV1=Math.abs(Number(s.size)||14),cblTextWfV1=Number(s.widthFactor)||1;
@@ -4444,7 +4502,7 @@ function drawShape(s,isSel,blockPath){
   ctx.restore();
  }
  else if(s.type==='ellipse'){ctx.beginPath();ctx.ellipse(s.cx,s.cy,Math.abs(s.mx||s.r||1),Math.abs((s.mx||s.r||1)*(s.ratio||1)),0,0,Math.PI*2);ctx.stroke();}
- else if(s.type==='polyline'&&s.pts&&s.pts.length>1){ctx.beginPath();ctx.moveTo(s.pts[0].x,s.pts[0].y);for(var i=1;i<s.pts.length;i++)ctx.lineTo(s.pts[i].x,s.pts[i].y);if(s.closed||s.close||s.isClosed)ctx.closePath();ctx.stroke();}
+ else if(s.type==='polyline'&&s.pts&&s.pts.length>1){ctx.beginPath();cblPolylinePathV1(ctx,s);ctx.stroke();}
  else if(s.type==='arc'){ctx.beginPath();ctx.arc(s.cx,s.cy,s.r,s.a1,s.a2);ctx.stroke();}
  else if(s.type==='hatch'&&s.boundary&&s.boundary.length>1){ctx.beginPath();ctx.moveTo(s.boundary[0].x,s.boundary[0].y);for(var hi=1;hi<s.boundary.length;hi++)ctx.lineTo(s.boundary[hi].x,s.boundary[hi].y);ctx.closePath();if(s.solid){ctx.fill();}ctx.stroke();}
  else if(s.type==='dimlinear'){drawDimLinear(s,isSel);}
@@ -4811,7 +4869,7 @@ function cblShapeCrossesSelectionRectV1(s,x1,y1,x2,y2){
   var ep=cblSelectionLineEndpointsV1(s);return !!(ep&&cblSegmentIntersectsRectV1(ep[0],ep[1],x1,y1,x2,y2));
  }
  if(t==='polyline'){
-  var ps=cblSelectionPolylinePointsV1(s);for(var i=0;i<ps.length-1;i++)if(cblSegmentIntersectsRectV1(ps[i],ps[i+1],x1,y1,x2,y2))return true;
+  var ps=cblPolylineTraceV1(s);for(var i=0;i<ps.length-1;i++)if(cblSegmentIntersectsRectV1(ps[i],ps[i+1],x1,y1,x2,y2))return true;
   if(s.closed&&ps.length>2&&cblSegmentIntersectsRectV1(ps[ps.length-1],ps[0],x1,y1,x2,y2))return true;
   return false;
  }
@@ -4851,7 +4909,7 @@ function cblSelectionBlockChildSegmentsV1(s,fn,depth){
   if(t==='line'||t==='cadgrid'){
    var ep=cblSelectionLineEndpointsV1(ch);if(ep)fn(cblSelectionBlockRefTransformPointV1(s,ep[0],col,row),cblSelectionBlockRefTransformPointV1(s,ep[1],col,row),ch);
   }else if(t==='polyline'){
-   var ps=cblSelectionPolylinePointsV1(ch);for(var i=0;i<ps.length-1;i++)fn(cblSelectionBlockRefTransformPointV1(s,ps[i],col,row),cblSelectionBlockRefTransformPointV1(s,ps[i+1],col,row),ch);
+   var ps=cblPolylineTraceV1(ch);for(var i=0;i<ps.length-1;i++)fn(cblSelectionBlockRefTransformPointV1(s,ps[i],col,row),cblSelectionBlockRefTransformPointV1(s,ps[i+1],col,row),ch);
    if(ch.closed&&ps.length>2)fn(cblSelectionBlockRefTransformPointV1(s,ps[ps.length-1],col,row),cblSelectionBlockRefTransformPointV1(s,ps[0],col,row),ch);
   }else if(t==='blockref'){
    // Nested INSERTs are intentionally represented by their own transformed
@@ -4877,7 +4935,7 @@ function cblDrawSelectionBlockRefOutlineV1(s){
 function cblSelectionPrimitiveDistanceV1(s,p){
  var t=cblSelectionTypeV1(s),ep,pts,d;
  if(t==='line'||t==='cadgrid'){ep=cblSelectionLineEndpointsV1(s);return ep?dSeg(p,ep[0],ep[1]):Infinity;}
- if(t==='polyline'){pts=cblSelectionPolylinePointsV1(s);d=Infinity;for(var i=0;i<pts.length-1;i++)d=Math.min(d,dSeg(p,pts[i],pts[i+1]));return d;}
+ if(t==='polyline')return cblPolylineDistanceV1(s,p);
  if(t==='circle')return Math.abs(dst(p,{x:Number(s.cx),y:Number(s.cy)})-Math.abs(Number(s.r)||0));
  if(t==='arc')return cblArcDistanceV1(s,p);
  return 0;
@@ -4969,7 +5027,7 @@ function hitTest(s,p,depth){
  if(type==='line'){var ep=cblSelectionLineEndpointsV1(s);return !!(ep&&dSeg(p,ep[0],ep[1])<t);}
  if(type==='rect')return p.x>=s.x-t&&p.x<=s.x+s.w+t&&p.y>=s.y-t&&p.y<=s.y+s.h+t;
  if(type==='circle'){var d=dst(p,{x:s.cx,y:s.cy});return Math.abs(d-s.r)<t||d<s.r;}
- if(type==='polyline'){var pts=cblSelectionPolylinePointsV1(s);for(var i=0;i<pts.length-1;i++){if(dSeg(p,pts[i],pts[i+1])<t)return true;}return false;}
+ if(type==='polyline')return cblPolylineDistanceV1(s,p)<t;
  if(type==='arc')return cblArcDistanceV1(s,p)<t;
  if(type==='text'||type==='mtext'){var bb=getBB(s);return !!(bb&&p.x>=bb.x-t&&p.x<=bb.x+bb.w+t&&p.y>=bb.y-t&&p.y<=bb.y+bb.h+t);}
  if(type==='cadgrid'){var ge=cblSelectionLineEndpointsV1(s);return !!(ge&&dSeg(p,ge[0],ge[1])<t);}
@@ -5862,7 +5920,7 @@ cvs.addEventListener('mouseup',function(e){
     return ep[0].x>=rxMn&&ep[0].x<=rxMx&&ep[0].y>=ryMn&&ep[0].y<=ryMx&&ep[1].x>=rxMn&&ep[1].x<=rxMx&&ep[1].y>=ryMn&&ep[1].y<=ryMx;
    }
    if(type==='polyline'){
-    var pts=cblSelectionPolylinePointsV1(s),inside=pts.filter(function(p){return p.x>=rxMn&&p.x<=rxMx&&p.y>=ryMn&&p.y<=ryMx;}).length;
+    var pts=cblPolylineTraceV1(s),inside=pts.filter(function(p){return p.x>=rxMn&&p.x<=rxMx&&p.y>=ryMn&&p.y<=ryMx;}).length;
     if(isCrs)return cblShapeCrossesSelectionRectV1(s,rxMn,ryMn,rxMx,ryMx)||inside>0;
     return pts.length>0&&inside===pts.length;
    }
@@ -6284,7 +6342,7 @@ function refreshBlkGrid(){
      if(s.type==='line'){ctx3.beginPath();ctx3.moveTo(s.x1,s.y1);ctx3.lineTo(s.x2,s.y2);ctx3.stroke();}
      else if(s.type==='rect'){ctx3.beginPath();ctx3.rect(s.x,s.y,s.w,s.h);ctx3.fill();ctx3.stroke();}
      else if(s.type==='circle'){ctx3.beginPath();ctx3.arc(s.cx,s.cy,s.r,0,Math.PI*2);ctx3.fill();ctx3.stroke();}
-     else if(s.type==='polyline'&&s.pts&&s.pts.length>1){ctx3.beginPath();ctx3.moveTo(s.pts[0].x,s.pts[0].y);for(var i=1;i<s.pts.length;i++)ctx3.lineTo(s.pts[i].x,s.pts[i].y);if(s.closed||s.close||s.isClosed)ctx3.closePath();ctx3.stroke();}
+     else if(s.type==='polyline'&&s.pts&&s.pts.length>1){ctx3.beginPath();cblPolylinePathV1(ctx3,s);ctx3.stroke();}
      ctx3.restore();
     });
     ctx3.restore();
@@ -6441,7 +6499,7 @@ function updatePrintPreview(){
   if(s.type==='line'){px.beginPath();px.moveTo(s.x1,s.y1);px.lineTo(s.x2,s.y2);px.stroke();}
   else if(s.type==='rect'){px.beginPath();px.rect(s.x,s.y,s.w,s.h);px.fill();px.stroke();}
   else if(s.type==='circle'){px.beginPath();px.arc(s.cx,s.cy,s.r,0,Math.PI*2);px.fill();px.stroke();}
-  else if(s.type==='polyline'&&s.pts&&s.pts.length>1){px.beginPath();px.moveTo(s.pts[0].x,s.pts[0].y);for(var i=1;i<s.pts.length;i++)px.lineTo(s.pts[i].x,s.pts[i].y);if(s.closed||s.close||s.isClosed)px.closePath();px.stroke();}
+  else if(s.type==='polyline'&&s.pts&&s.pts.length>1){px.beginPath();cblPolylinePathV1(px,s);px.stroke();}
   else if(s.type==='arc'){px.beginPath();px.arc(s.cx,s.cy,s.r,s.a1,s.a2);px.stroke();}
   px.restore();
  });
@@ -6498,7 +6556,7 @@ function doPrint(){
   if(s.type==='line'){ox.beginPath();ox.moveTo(s.x1,s.y1);ox.lineTo(s.x2,s.y2);ox.stroke();}
   else if(s.type==='rect'){ox.beginPath();ox.rect(s.x,s.y,s.w,s.h);ox.fill();ox.stroke();}
   else if(s.type==='circle'){ox.beginPath();ox.arc(s.cx,s.cy,s.r,0,Math.PI*2);ox.fill();ox.stroke();}
-  else if(s.type==='polyline'&&s.pts&&s.pts.length>1){ox.beginPath();ox.moveTo(s.pts[0].x,s.pts[0].y);for(var i=1;i<s.pts.length;i++)ox.lineTo(s.pts[i].x,s.pts[i].y);if(s.closed||s.close||s.isClosed)ox.closePath();ox.stroke();}
+  else if(s.type==='polyline'&&s.pts&&s.pts.length>1){ox.beginPath();cblPolylinePathV1(ox,s);ox.stroke();}
   else if(s.type==='arc'){ox.beginPath();ox.arc(s.cx,s.cy,s.r,s.a1,s.a2);ox.stroke();}
   ox.restore();
  });
@@ -6565,7 +6623,7 @@ function filePrintFit(){
   if(s.type==='line'){ox.beginPath();ox.moveTo(s.x1,s.y1);ox.lineTo(s.x2,s.y2);ox.stroke();}
   else if(s.type==='rect'){ox.beginPath();ox.rect(s.x,s.y,s.w,s.h);ox.fill();ox.stroke();}
   else if(s.type==='circle'){ox.beginPath();ox.arc(s.cx,s.cy,s.r,0,Math.PI*2);ox.fill();ox.stroke();}
-  else if(s.type==='polyline'&&s.pts&&s.pts.length>1){ox.beginPath();ox.moveTo(s.pts[0].x,s.pts[0].y);for(var i=1;i<s.pts.length;i++)ox.lineTo(s.pts[i].x,s.pts[i].y);if(s.closed||s.close||s.isClosed)ox.closePath();ox.stroke();}
+  else if(s.type==='polyline'&&s.pts&&s.pts.length>1){ox.beginPath();cblPolylinePathV1(ox,s);ox.stroke();}
   ox.restore();});
  ox.restore();ox.fillStyle='#999';ox.font='10px Arial';ox.fillText('ChickenBananaCAD 1:'+(1/sc).toFixed(2),mg,ph-mg/3);
  var pu=oc.toDataURL('image/png');var pw2=window.open('','_blank');if(!pw2){alert('팝업을 허용하세요');return;}
