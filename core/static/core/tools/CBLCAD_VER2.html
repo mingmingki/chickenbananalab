@@ -2124,6 +2124,7 @@ canvas,
 var cvs=document.getElementById('c2d'),ctx=cvs.getContext('2d');
 var mode='2d',tool='select',shapes=[],sel=[];
 var drawing=false,startPt=null,mp={x:0,y:0};
+var arcMidPt=null; // ARC: 호 위의 두 번째 점
 // CBL_ORANGE_POINTER_STATE_V1: the snap/cursor marker must use the most
 // recent canvas event, never the initial {0,0} mouse state or a stale render.
 var cblOrangePointerStateV1={valid:false,rawCanvas:null,rawWorld:null,activeWorld:null,snap:null,updatedAt:0,raf:0};
@@ -3580,7 +3581,7 @@ function render(){
   if(tool==='line'){ctx.beginPath();ctx.moveTo(startPt.x,startPt.y);ctx.lineTo(cur.x,cur.y);ctx.stroke();}
   else if(tool==='rect'){ctx.beginPath();ctx.rect(startPt.x,startPt.y,cur.x-startPt.x,cur.y-startPt.y);ctx.fill();ctx.stroke();}
   else if(tool==='circle'){var r=dst(startPt,cur);ctx.beginPath();ctx.arc(startPt.x,startPt.y,r,0,Math.PI*2);ctx.fill();ctx.stroke();}
-  else if(tool==='arc'){ctx.beginPath();ctx.arc(startPt.x,startPt.y,dst(startPt,cur),0,Math.PI);ctx.stroke();}
+  else if(tool==='arc')cblArcPreviewV1(ctx,cur);
   else if(tool==='cadgrid'){
    // 그리드 미리보기: 직교 강제
    var gp=apOrtho(cur,startPt);
@@ -5803,6 +5804,8 @@ cvs.addEventListener('mousedown',function(e){
  if(tool==='cadgrid'){startCadGrid(wp);return;}
  // TEXT
  if(tool==='text'){showTed(wp,null);return;}
+ // ARC: 시작점 → 호 위의 점 → 끝점 (AutoCAD 3점 호)
+ if(tool==='arc'){cblArcClickV1(wp);return;}
  // Other drawing tools
  if(!drawing){drawing=true;startPt=wp;}
  else{var cur6=apOrtho(sn.pt,startPt);finishShape(startPt,cur6);drawing=false;startPt=null;}
@@ -5902,12 +5905,45 @@ cvs.addEventListener('wheel',function(e){
 },{passive:false});
 
 // ===== OPERATIONS =====
+// Arc through three points, stored like DXF: counter-clockwise from a1 to a2
+// (radians, 0..2π).  Null when the points are on one line.
+function cblArcFrom3PointsV1(p1,p2,p3){
+ var bx=p2.x-p1.x,by=p2.y-p1.y,cx=p3.x-p1.x,cy=p3.y-p1.y;
+ var cross=bx*cy-by*cx,scale=Math.hypot(bx,by)*Math.hypot(cx,cy);
+ if(!(scale>0)||Math.abs(cross)<=scale*1e-9)return null;
+ var b2=bx*bx+by*by,c2=cx*cx+cy*cy,d=2*cross;
+ var ux=(cy*b2-by*c2)/d,uy=(bx*c2-cx*b2)/d;
+ var TAU=Math.PI*2,ang=function(p){var a=Math.atan2(p.y-p1.y-uy,p.x-p1.x-ux);if(a<0)a+=TAU;return TAU-a<1e-12?0:a;};
+ var from=cross>0?p1:p3,to=cross>0?p3:p1;
+ return {cx:p1.x+ux,cy:p1.y+uy,r:Math.hypot(ux,uy),a1:ang(from),a2:ang(to)};
+}
+function cblArcClickV1(p){
+ if(!drawing||!startPt){drawing=true;startPt=p;arcMidPt=null;setHint('호: 호 위의 두 번째 점 클릭 (ESC=취소)');render();return;}
+ if(!arcMidPt){
+  if(Math.hypot(p.x-startPt.x,p.y-startPt.y)*vScale<2)return;
+  arcMidPt=p;setHint('호: 끝점 클릭 (ESC=취소)');render();return;
+ }
+ var g=cblArcFrom3PointsV1(startPt,arcMidPt,p);
+ if(!g){setHint('호: 세 점이 한 직선 위에 있습니다. 다른 끝점을 클릭하세요');return;}
+ var s=Object.assign({},styl,{layId:actLay,type:'arc'},g);
+ shapes.push(s);sel=[s];drawing=false;startPt=null;arcMidPt=null;
+ saveH();updUI();setHint('호 완료');
+ requestAnimationFrame(function(){try{render();}catch(e){try{console.error('[CBL_DRAW_COMMIT_RENDER]',e);}catch(_e){}}});
+}
+// Rubber band to the cursor, then the arc through start, second point and cursor.
+function cblArcPreviewV1(c,cur){
+ if(!startPt)return;
+ var g=arcMidPt?cblArcFrom3PointsV1(startPt,arcMidPt,cur):null;
+ c.beginPath();
+ if(g)c.arc(g.cx,g.cy,g.r,g.a1,g.a2);
+ else{c.moveTo(startPt.x,startPt.y);if(arcMidPt)c.lineTo(arcMidPt.x,arcMidPt.y);c.lineTo(cur.x,cur.y);}
+ c.stroke();
+}
 function finishShape(a,b){
  var s=Object.assign({},styl,{layId:actLay});
  if(tool==='line')s=Object.assign(s,{type:'line',x1:a.x,y1:a.y,x2:b.x,y2:b.y});
  else if(tool==='rect')s=Object.assign(s,{type:'rect',x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(b.x-a.x)||10,h:Math.abs(b.y-a.y)||10});
  else if(tool==='circle'){var r=dst(a,b);if(r<2)return;s=Object.assign(s,{type:'circle',cx:a.x,cy:a.y,r:r});}
- else if(tool==='arc')s=Object.assign(s,{type:'arc',cx:a.x,cy:a.y,r:dst(a,b),a1:0,a2:Math.PI});
  else if(tool==='dimlinear'){startDimWorkflow(a);return;} // 3점 방식으로
  else if(tool==='dimaligned')s=Object.assign(s,{type:'dimaligned',x1:a.x,y1:a.y,x2:b.x,y2:b.y,off:25,fill:'none'});
  else return;
@@ -6996,7 +7032,8 @@ document.addEventListener('keydown',function(e){
 // ===== UI =====
 var TNAMES={select:'선택',dimangle2:'각도치수',cadgrid:'그리드라인',dimlinear:'선형치수',move:'이동',line:'선',rect:'사각형',circle:'원',polyline:'폴리선',arc:'호',dimlinear:'선형치수',dimaligned:'각도치수',text:'텍스트',copy:'복사이동',mirror:'미러',blockinsert:'블록삽입'};
 function setTool(t){
- tool=t;drawing=false;startPt=null;polyPts=[];
+ tool=t;drawing=false;startPt=null;arcMidPt=null;polyPts=[];
+ if(t==='arc')setHint('호: 시작점 클릭 (시작점 → 호 위의 점 → 끝점)');
  if(t!=='dimangle2'){
   _angPts=[];_angHover=null;_angHoverStamp={x:NaN,y:NaN,stage:-1};
  }else{
@@ -38952,9 +38989,7 @@ window.cblF5CursorOverlayResetV1 = function(){
         if (ctx.fillStyle !== 'rgba(0,0,0,0)') ctx.fill();
         ctx.stroke();
       } else if (tool === 'arc' && ref) {
-        ctx.beginPath();
-        ctx.arc(ref.x, ref.y, dst(ref, cur), 0, Math.PI);
-        ctx.stroke();
+        cblArcPreviewV1(ctx, cur);
       } else if (tool === 'cadgrid' && ref) {
         var gp = cur;
         try { gp = apOrtho(cur, ref); } catch(e) {}
