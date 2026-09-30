@@ -24,7 +24,7 @@ jobs:
           python-version: '3.11'
       - run: python -m unittest discover -s infra/autotrader/tests -v
       - run: python infra/autotrader/check_sources.py
-      - run: bash -n infra/autotrader/verify.sh infra/autotrader/probe.sh
+      - run: bash -n infra/autotrader/verify.sh infra/autotrader/probe.sh infra/autotrader/forced-probe.sh
   regression:
     needs: source-safety
     runs-on: ubuntu-latest
@@ -75,13 +75,25 @@ jobs:
     needs: source-safety
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/infra/autotrader-cicd'
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Verify read-only SSH access to existing GCP VM
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: ${{ vars.AUTOTRADER_GCP_PROJECT }}
+          workload_identity_provider: ${{ vars.AUTOTRADER_WIF_PROVIDER }}
+          service_account: ${{ vars.AUTOTRADER_GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+      - name: Verify read-only SSH access through GCP IAP
         env:
+          AUTOTRADER_GCP_PROJECT: ${{ vars.AUTOTRADER_GCP_PROJECT }}
+          AUTOTRADER_GCP_ZONE: ${{ vars.AUTOTRADER_GCP_ZONE }}
+          AUTOTRADER_GCP_INSTANCE: ${{ vars.AUTOTRADER_GCP_INSTANCE }}
           AUTOTRADER_SSH_HOST: ${{ vars.AUTOTRADER_SSH_HOST }}
           AUTOTRADER_SSH_USER: ${{ vars.AUTOTRADER_SSH_USER }}
           AUTOTRADER_SSH_KEY: ${{ secrets.AUTOTRADER_SSH_KEY }}
