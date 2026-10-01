@@ -88,3 +88,17 @@ def test_clipboard_failure_message_typo_is_fixed():
     text = HTML.read_text()
     assert '클립보드 복사에 실패했습니다.' in text
     assert '실패했습닄' not in text
+
+
+def test_clipboard_failure_opens_in_page_recovery_instead_of_focus_error_alert():
+    text = HTML.read_text()
+    assert 'function showClipboardRecovery(text, btn, primaryError)' in text
+    copy = text.split('async function copyToClipboard(text, btn)', 1)[1].split('function copyTradeRecord', 1)[0]
+    assert 'showClipboardRecovery(text, btn, primaryError)' in copy
+    assert 'alert("클립보드 복사에 실패했습니다.' not in copy
+    recovery = text.split('function showClipboardRecovery(text, btn, primaryError)', 1)[1].split('async function copyToClipboard', 1)[0]
+    assert 'textarea.value = text' in recovery
+    assert 'textarea.focus()' in recovery
+    assert 'textarea.select()' in recovery
+    assert '다시 복사' in recovery
+    assert '⌘C' in recovery

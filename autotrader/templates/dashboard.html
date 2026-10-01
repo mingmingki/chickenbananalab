@@ -3767,11 +3767,98 @@ function copyTextWithSelectionFallback(text) {
   }
 }
 
+function showClipboardRecovery(text, btn, primaryError) {
+  const previous = document.getElementById("clipboard-recovery-overlay");
+  if (previous) previous.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "clipboard-recovery-overlay";
+  Object.assign(overlay.style, {
+    position: "fixed", inset: "0", zIndex: "100000",
+    background: "rgba(0,0,0,.55)", display: "flex",
+    alignItems: "center", justifyContent: "center", padding: "16px",
+  });
+
+  const panel = document.createElement("div");
+  Object.assign(panel.style, {
+    width: "min(920px, 96vw)", maxHeight: "88vh", overflow: "auto",
+    background: "#fff", color: "#111", borderRadius: "12px", padding: "16px",
+    boxShadow: "0 18px 60px rgba(0,0,0,.35)",
+  });
+
+  const title = document.createElement("div");
+  title.textContent = "클립보드 복사에 실패했습니다. 리포트는 생성됐지만 브라우저가 자동 복사를 막았습니다.";
+  title.style.fontWeight = "700";
+  title.style.marginBottom = "8px";
+
+  const guide = document.createElement("div");
+  guide.textContent = "아래 내용은 전체 선택되어 있습니다. ‘다시 복사’를 누르거나, 계속 막히면 ⌘C(Ctrl+C)로 복사하세요.";
+  guide.style.marginBottom = "10px";
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("aria-label", "복사할 리포트 원문");
+  Object.assign(textarea.style, {
+    width: "100%", height: "52vh", boxSizing: "border-box",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    fontSize: "12px", whiteSpace: "pre",
+  });
+
+  const status = document.createElement("div");
+  status.style.minHeight = "1.4em";
+  status.style.marginTop = "8px";
+  if (primaryError) status.textContent = "자동 복사 실패 사유: " + primaryError;
+
+  const actions = document.createElement("div");
+  Object.assign(actions.style, { display: "flex", gap: "8px", marginTop: "10px" });
+
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.textContent = "다시 복사";
+  retry.addEventListener("click", async () => {
+    let copied = false;
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        await navigator.clipboard.writeText(textarea.value);
+        copied = true;
+      }
+    } catch (_error) {
+      copied = false;
+    }
+    if (!copied) copied = copyTextWithSelectionFallback(textarea.value);
+    if (copied) {
+      const original = btn.textContent;
+      btn.textContent = "복사됨!";
+      setTimeout(() => { btn.textContent = original; }, 1500);
+      overlay.remove();
+      return;
+    }
+    textarea.focus();
+    textarea.select();
+    status.textContent = "자동 복사가 계속 차단됩니다. 선택된 내용을 ⌘C(Ctrl+C)로 복사하세요.";
+  });
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.textContent = "닫기";
+  close.addEventListener("click", () => overlay.remove());
+
+  actions.append(retry, close);
+  panel.append(title, guide, textarea, status, actions);
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+  textarea.focus();
+  textarea.select();
+}
+
 async function copyToClipboard(text, btn) {
   const original = btn.textContent;
   let copied = false;
   let primaryError = null;
   try {
+    if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+      throw new Error("Clipboard API unavailable");
+    }
     await navigator.clipboard.writeText(text);
     copied = true;
   } catch (e) {
@@ -3779,7 +3866,7 @@ async function copyToClipboard(text, btn) {
     copied = copyTextWithSelectionFallback(text);
   }
   if (!copied) {
-    alert("클립보드 복사에 실패했습니다. 화면을 다시 활성화한 뒤 재시도해 주세요: " + primaryError);
+    showClipboardRecovery(text, btn, primaryError);
     return false;
   }
   btn.textContent = "복사됨!";
