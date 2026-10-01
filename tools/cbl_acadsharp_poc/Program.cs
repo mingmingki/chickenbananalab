@@ -239,7 +239,7 @@ internal static class Program
                     handle = Hex(layer.Handle),
                     owner = layer.Owner == null ? null : Hex(layer.Owner.Handle),
                     aci = layer.Color.Index,
-                    trueColor = layer.Color.IsTrueColor ? (int?)layer.Color.TrueColor : null,
+                    trueColor = RgbOf(layer.Color),
                     linetype = layer.LineType == null ? null : layer.LineType.Name,
                 })
                 .OrderBy(layer => layer.handle, StringComparer.Ordinal)
@@ -367,7 +367,7 @@ internal static class Program
                 ["owner"] = entity.Owner == null ? null : Hex(entity.Owner.Handle),
                 ["space"] = space,
                 ["aci"] = entity.Color.Index,
-                ["trueColor"] = entity.Color.IsTrueColor ? entity.Color.TrueColor : null,
+                ["trueColor"] = RgbOf(entity.Color),
                 ["linetype"] = entity.LineType == null ? null : entity.LineType.Name,
                 ["lineweight"] = entity.LineWeight.ToString(),
                 ["layer"] = entity.Layer == null ? null : new
@@ -1039,6 +1039,15 @@ internal static class Program
     // Color.FromTrueColor takes its own little-endian 0xBBGGRR value.
     private static Color ColorFromRgb(uint rgb) =>
         new Color((byte)((rgb >> 16) & 0xFF), (byte)((rgb >> 8) & 0xFF), (byte)(rgb & 0xFF));
+
+    // Metadata reports true colour in the same 0xRRGGBB order, because the
+    // editor shows it and sends it back unchanged in update ops.
+    private static int? RgbOf(Color color)
+    {
+        if (!color.IsTrueColor) return null;
+        var rgb = color.GetTrueColorRgb();
+        return rgb[0] << 16 | rgb[1] << 8 | rgb[2];
+    }
 
     private static string CanonicalLineTypeName(string? raw)
     {
