@@ -27216,6 +27216,9 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         var s = textShapes[j];
         var st = ntext(s.text);
         if(st !== cand.text) continue;
+        // Only a text that came out of this block; a model-space TEXT with the
+        // same content nearby is its own entity and keeps its rotation.
+        if(String(s.cblBlockName || '').toUpperCase() !== String(cand.block || '').toUpperCase()) continue;
         var d = dist2(s, cand);
         if(d < bestD){ bestD = d; best = s; bestIdx = j; }
       }
@@ -27800,12 +27803,24 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     var changed = 0;
     var matched = 0;
     var samples = [];
+    // Same rule as CBL_DIM_MTEXT_ROTATION_ENGINE_V9_1: a DXF MTEXT with a
+    // handle belongs only to the shape with that handle; text-and-distance
+    // matching is kept for shapes without handles.
+    var byHandle = Object.create(null);
+    texts.forEach(function(s, j){
+      var h = String(s.handle == null ? '' : s.handle).toUpperCase();
+      if(h) byHandle[h] = j;
+    });
 
     dirs.forEach(function(d, idx){
       var best = null, bestJ = -1, bestScore = Infinity;
-      for(var j=0;j<texts.length;j++){
+      var own = d.handle ? byHandle[String(d.handle).toUpperCase()] : undefined;
+      if(own !== undefined){
+        if(!used.has(own)){ best = texts[own]; bestJ = own; bestScore = dist2(best.x, best.y, d.x, d.y); }
+      } else for(var j=0;j<texts.length;j++){
         if(used.has(j)) continue;
         var s = texts[j];
+        if(s.handle != null && String(s.handle) !== '') continue;
         var t = textOf(s);
         if(t !== d.text) continue;
         var ly = layerOf(s).toUpperCase();
@@ -28040,12 +28055,25 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     var matched = 0;
     var changed = 0;
     var samples = [];
+    // A DXF MTEXT with a handle belongs only to the shape with that handle.
+    // Matching by text and distance alone gave other entities with the same
+    // text (a TEXT "6,600") another dimension's direction, and a no-edit save
+    // wrote that rotation.  Shapes without handles keep the old matching.
+    var byHandle = Object.create(null);
+    texts.forEach(function(s, j){
+      var h = String(s.handle == null ? '' : s.handle).toUpperCase();
+      if(h) byHandle[h] = j;
+    });
 
     dirs.forEach(function(d){
       var best = null, bestJ = -1, bestScore = Infinity;
-      for(var j=0; j<texts.length; j++){
+      var own = d.handle ? byHandle[String(d.handle).toUpperCase()] : undefined;
+      if(own !== undefined){
+        if(!used.has(own)){ best = texts[own]; bestJ = own; bestScore = dist2(best.x, best.y, d.x, d.y); }
+      } else for(var j=0; j<texts.length; j++){
         if(used.has(j)) continue;
         var s = texts[j];
+        if(s.handle != null && String(s.handle) !== '') continue;
         if(textOf(s) !== d.text) continue;
         var ly = layerOf(s).toUpperCase();
         if(ly && ly.indexOf('DIM') < 0) continue;
