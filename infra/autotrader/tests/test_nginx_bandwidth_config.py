@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_autotrader_nginx_gzip_config_compresses_json_and_varies():
-    path = Path('infra/autotrader/nginx-json-gzip.conf')
+    path = Path(__file__).resolve().parents[1] / 'nginx-json-gzip.conf'
     assert path.exists()
     text = path.read_text(encoding='utf-8')
     assert not any(line.strip() == 'gzip on;' for line in text.splitlines())
