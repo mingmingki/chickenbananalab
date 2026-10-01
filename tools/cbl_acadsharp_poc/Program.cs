@@ -1093,7 +1093,13 @@ internal static class Program
     private static CadDocument Read(string path, List<object> notifications)
     {
         NotificationEventHandler callback = (_, e) => notifications.Add(new { phase = "read", type = e.NotificationType.ToString(), e.Message, exception = e.Exception?.ToString() });
-        return DwgReader.Read(path, callback);
+        var document = DwgReader.Read(path, callback);
+        // Some converters write a code page index ACadSharp does not list
+        // (45); it reads such strings as UTF-8 and leaves CodePage null, so
+        // the DXF (open) and DWG (save) writers threw.  Use the Korean code
+        // page, as for new drawings; \U+XXXX covers anything outside it.
+        if (string.IsNullOrWhiteSpace(document.Header.CodePage)) document.Header.CodePage = "kcs5601";
+        return document;
     }
 
     private static FileStream AcquireLock(string path, TimeSpan timeout)

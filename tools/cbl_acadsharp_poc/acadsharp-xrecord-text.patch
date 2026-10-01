@@ -1,0 +1,68 @@
+diff --git a/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgStreamReaderBase.cs b/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgStreamReaderBase.cs
+--- a/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgStreamReaderBase.cs
++++ b/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgStreamReaderBase.cs
+@@ -870,12 +870,33 @@
+ 			}
+ 			else
+ 			{
+-				value = this.ReadString(textLength, TextEncoding.GetListedEncoding((CodePage)encodingKey));
++				value = this.ReadString(textLength, this.textEncodingFor(encodingKey));
+ 			}
+ 
+ 			return value;
+ 		}
+ 
++		// The byte after the length is a DWG code page index (as in the file
++		// header), not a Windows code page number.  Reading it as a number
++		// decoded Korean XRECORD/extended-data strings as UTF-8 garbage.
++		// Unknown indexes keep the old behaviour.
++		private Encoding textEncodingFor(int index)
++		{
++			CodePage code = CadUtils.GetCodePage(index);
++			if (code != CodePage.Unknown)
++			{
++				if (this.Encoding != null && this.Encoding.CodePage == (int)code)
++					return this.Encoding;
++				try
++				{
++					return Encoding.GetEncoding((int)code);
++				}
++				catch (Exception) { }
++			}
++
++			return TextEncoding.GetListedEncoding((CodePage)index);
++		}
++
+ 		/// <summary>
+ 		/// Pre-2007 strings hold characters outside the code page as \U+XXXX
+ 		/// (written so by AutoCAD and by our writer); turn them back into the
+diff --git a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Common.cs b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Common.cs
+--- a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Common.cs
++++ b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Common.cs
+@@ -434,7 +434,8 @@
+ 								var encodingIndex = CadUtils.GetCodeIndex((CSUtilities.Text.CodePage)this._writer.Encoding.CodePage);
+ 								byte[] bytes = UnicodeEscapeEncoderFallback.WithoutEscapes(this._writer.Encoding).GetBytes(string.IsNullOrEmpty(str.Value) ? string.Empty : str.Value);
+ 
+-								mstream.Write(LittleEndianConverter.Instance.GetBytes((ushort)str.Value.Length), 0, 2);
++								// The length counts bytes: Korean takes two per character.
++								mstream.Write(LittleEndianConverter.Instance.GetBytes((ushort)bytes.Length), 0, 2);
+ 								mstream.WriteByte((byte)encodingIndex);
+ 								mstream.Write(bytes, 0, bytes.Length);
+ 							}
+diff --git a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Objects.cs b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Objects.cs
+--- a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Objects.cs
++++ b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Objects.cs
+@@ -1555,9 +1555,11 @@
+ 		}
+ 		else
+ 		{
+-			ms.Write<short>((short)text.Length);
++			// The length counts bytes: Korean takes two per character.
++			byte[] bytes = UnicodeEscapeEncoderFallback.WithoutEscapes(this._writer.Encoding).GetBytes(text);
++			ms.Write<short>((short)bytes.Length);
+ 			ms.Write((byte)CadUtils.GetCodeIndex((CodePage)this._writer.Encoding.CodePage));
+-			ms.Write(text, UnicodeEscapeEncoderFallback.WithoutEscapes(this._writer.Encoding));
++			ms.WriteBytes(bytes);
+ 		}
+ 	}
+ 

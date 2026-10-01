@@ -24027,6 +24027,54 @@ def _cbl_decode_dxf_unicode_escapes_v1(text):
     return _CBL_DXF_UNICODE_ESCAPE_RE_V1.sub(replace, text)
 
 
+_CBL_DXF_CODEPAGE_SPECIAL_V1 = {
+    "kcs5601": "cp949", "ansi_949": "cp949", "johab": "johab", "gb2312": "gbk", "ansi_936": "gbk",
+    "big5": "cp950", "ascii": "ascii", "mac-roman": "mac_roman",
+}
+
+
+def _cbl_dxf_codepage_codec_v1(name):
+    """Python codec for a $DWGCODEPAGE name the runtime writes, or None."""
+    import codecs as _cbl_codecs
+    key = str(name or "").strip().lower()
+    codec = _CBL_DXF_CODEPAGE_SPECIAL_V1.get(key)
+    if codec is None:
+        match = _cbl_re.match(r"^(?:ansi_?|dos)(\d{3,4})$", key)
+        if match:
+            codec = "cp" + match.group(1)
+        else:
+            match = _cbl_re.match(r"^iso8859-?(\d{1,2})$", key)
+            codec = "iso8859-" + match.group(1) if match else None
+    if codec is None:
+        return None
+    try:
+        _cbl_codecs.lookup(codec)
+    except LookupError:
+        return None
+    return codec
+
+
+def _cbl_free_dwg_dxf_text_v1(dxf_bytes):
+    """Decode the runtime's DXF for the editor.
+
+    R2007+ DXF is UTF-8.  Older DXF is written in the drawing code page
+    ($DWGCODEPAGE): KS C 5601 for Korean drawings, Windows-1252 for Western
+    ones, whose "Ø ± ° é" used to become U+FFFD when read as UTF-8.  An
+    unknown code page keeps the old UTF-8 reading.
+    """
+    end = dxf_bytes.find(b"ENDSEC", 0, 65536)
+    head = dxf_bytes[:end if end > 0 else 65536].decode("latin-1")
+    version = _cbl_re.search(r"\$ACADVER\s*\r?\n\s*1\s*\r?\n\s*(AC\d{4})", head)
+    page = _cbl_re.search(r"\$DWGCODEPAGE\s*\r?\n\s*3\s*\r?\n([^\r\n]*)", head)
+    codec = "utf-8"
+    if version and version.group(1) < "AC1021" and page:
+        codec = _cbl_dxf_codepage_codec_v1(page.group(1)) or "utf-8"
+    try:
+        return dxf_bytes.decode(codec)
+    except UnicodeDecodeError:
+        return dxf_bytes.decode(codec, errors="replace")
+
+
 def _cbl_build_original_source_layer_manifest_v1(report, dxf_text=""):
     """Build an independent, handle-keyed source manifest for browser audit.
 
@@ -24207,16 +24255,7 @@ def cblcad_free_dwg_local_api(request):
                     raise RuntimeError("ACadSharp full DXF 변환 실패: " + detail)
                 dxf_bytes = output.read_bytes()
                 source_metadata = _cbl_free_dwg_acadsharp_metadata_v1(source)
-                try:
-                    dxf_text = dxf_bytes.decode("utf-8")
-                except UnicodeDecodeError:
-                    # ACadSharp preserves the source KSC-5601 code page in
-                    # saved DWGs.  Its DXF writer may emit that code page
-                    # rather than UTF-8; decode it before JSON transport so
-                    # Korean STYLE names and text are not replaced by �.
-                    code_page = dxf_bytes[:4096].lower()
-                    dxf_text = dxf_bytes.decode("cp949" if b"kcs5601" in code_page else "utf-8", errors="replace")
-                dxf_text = _cbl_decode_dxf_unicode_escapes_v1(dxf_text)
+                dxf_text = _cbl_decode_dxf_unicode_escapes_v1(_cbl_free_dwg_dxf_text_v1(dxf_bytes))
             response = _cbl_JsonResponse({
                 "ok": True, "format": "acadsharp-dxf", "converter": "free-acadsharp",
                 "oda_used": False, "v29_used": False, "oda_executed": False,
@@ -25448,6 +25487,11 @@ def _cbl_free_dwg_writer_error_message_v1(detail):
     if missing_linetype:
         return (f"도면에 없는 선종류({missing_linetype.group(1).strip()})는 저장할 수 없습니다. "
                 "도면에 있는 선종류로 바꾸거나 변경을 되돌려 주세요.")
+    if "REGION has no ACIS payload" in (detail or ""):
+        # AutoCAD 2013+ keeps REGION geometry where ACadSharp cannot read it;
+        # the writer refuses instead of dropping the REGION.
+        return ("이 도면의 면 영역(REGION) 객체는 무료 DWG 저장에서 보존할 수 없어 저장을 중단했습니다. "
+                "원본 파일은 바뀌지 않았습니다. (AutoCAD 2013 이후 형식의 REGION은 아직 지원하지 않습니다.)")
     return "ACadSharp Save As 실패: " + (detail or "")
 
 

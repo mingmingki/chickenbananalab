@@ -110,6 +110,16 @@ class CadWriterErrorMessageTests(SimpleTestCase):
         message = core_views._cbl_free_dwg_writer_error_message_v1(detail)
         self.assertIn("도면에 없는 선종류(Dashed)", message)
 
+    def test_region_without_payload_is_explained_in_korean(self):
+        # AutoCAD 2013+ drawings keep REGION geometry where ACadSharp cannot
+        # read it; the writer refuses rather than drop the REGION.
+        detail = ('{"status": "failed", "error": "System.IO.InvalidDataException: Modeler geometry REGION '
+                  'has no ACIS payload\\n   at ACadSharp.IO.DWG.DwgObjectWriter.writeModelerGeometry"}')
+        message = core_views._cbl_free_dwg_writer_error_message_v1(detail)
+        self.assertIn("면 영역(REGION)", message)
+        self.assertIn("원본 파일은 바뀌지 않았습니다", message)
+        self.assertNotIn("ACadSharp", message)
+
     def test_other_failures_keep_the_writer_detail(self):
         message = core_views._cbl_free_dwg_writer_error_message_v1("boom")
         self.assertEqual(message, "ACadSharp Save As 실패: boom")
