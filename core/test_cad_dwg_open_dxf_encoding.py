@@ -72,3 +72,63 @@ class CadDxfCodePageCodecTests(SimpleTestCase):
         self.assertEqual(text((head % ("AC1032", "ansi_1252")).encode("ascii") + "café 한글".encode("utf-8")).splitlines()[-1], "café 한글")
         # Unknown code page: UTF-8 as before, invalid bytes replaced.
         self.assertEqual(text((head % ("AC1018", "")).encode("ascii") + b"caf\xe9").splitlines()[-1], "caf�")
+
+
+@skipUnless(EXECUTABLE is not None, "ACadSharp runtime is required")
+class CadOpenDxfExportTests(SimpleTestCase):
+    def test_dxf_export_does_not_read_its_output_back(self):
+        # Reading the DXF back only fed a report nothing uses, and took most of
+        # the open time on large drawings (9 of 15 s on a 6.4 MB plan).  The
+        # open API checks the file itself and the editor parses it.
+        tmp = Path(tempfile.mkdtemp(prefix="cbl-dxf-export-"))
+        try:
+            import subprocess
+            run = subprocess.run([str(EXECUTABLE), "--dxf", str(WESTERN), str(tmp / "out.dxf")], capture_output=True, timeout=300)
+            self.assertEqual(run.returncode, 0, run.stderr[-400:])
+            report = json.loads(run.stdout.decode("utf-8", "replace"), strict=False)
+            self.assertEqual(report["status"], "dxf_written")
+            self.assertNotIn("reread", report)
+            self.assertTrue(core_views._cbl_free_dwg_local_valid_dxf_v1(tmp / "out.dxf"))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_dxf_export_can_write_the_metadata_from_the_same_read(self):
+        # One DWG read instead of two for the open API (2.3 of 7 s on a 6.4 MB plan).
+        import subprocess
+        tmp = Path(tempfile.mkdtemp(prefix="cbl-dxf-meta-"))
+        try:
+            for source in (WESTERN, FIXTURES / "korean_xrecord_ac1018.dwg", FIXTURES / "codepage45_ac1032.dwg"):
+                run = subprocess.run([str(EXECUTABLE), "--dxf", str(source), str(tmp / "out.dxf"), str(tmp / "meta.json")],
+                                     capture_output=True, timeout=300)
+                self.assertEqual(run.returncode, 0, run.stderr[-400:])
+                combined = json.loads((tmp / "meta.json").read_text(encoding="utf-8"), strict=False)
+                self.assertEqual(combined, core_views._cbl_free_dwg_acadsharp_metadata_v1(source), source.name)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+@skipUnless(EXECUTABLE is not None, "ACadSharp runtime is required")
+class CadOpenApiSpeedTests(SimpleTestCase):
+    def test_open_api_reads_the_drawing_once(self):
+        def separate_read(path):
+            raise AssertionError("the open API ran a second metadata read")
+        with patch.object(core_views, "_cbl_free_dwg_acadsharp_metadata_v1", side_effect=separate_read):
+            dxf = _open(WESTERN)
+        self.assertIn("Ø25 ±0.5 50°C café", dxf)
+
+    def test_open_api_response_is_gzipped(self):
+        # nginx compresses only text/html; the DXF JSON (30 MB on a large plan)
+        # shrinks about 18x.
+        import gzip
+        request = RequestFactory().post(
+            "/api/cblcad/free-dwg-to-dxf/?format=acadsharp-dxf&mode=free-dwg",
+            {"file": SimpleUploadedFile(WESTERN.name, WESTERN.read_bytes(), content_type="application/acad")},
+            HTTP_ACCEPT_ENCODING="gzip, deflate, br")
+        with patch.object(core_views, "_cbl_is_free_dwg_request", return_value=True):
+            response = core_views.cblcad_free_dwg_local_api(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get("Content-Encoding"), "gzip")
+        data = json.loads(gzip.decompress(response.content))
+        self.assertIn("Ø25 ±0.5 50°C café", data["dxf"])
+        self.assertTrue(getattr(core_views.cblcad_free_dwg_local_api, "csrf_exempt", False))
+

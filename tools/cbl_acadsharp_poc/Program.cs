@@ -20,8 +20,8 @@ internal static class Program
             return CreateNew(args[1], args[2], args.Length >= 4 ? args[3] : null);
         if (args.Length == 2 && string.Equals(args[0], "--metadata", StringComparison.OrdinalIgnoreCase))
             return WriteMetadata(args[1]);
-        if (args.Length == 3 && string.Equals(args[0], "--dxf", StringComparison.OrdinalIgnoreCase))
-            return WriteDxfFromDwg(args[1], args[2]);
+        if ((args.Length == 3 || args.Length == 4) && string.Equals(args[0], "--dxf", StringComparison.OrdinalIgnoreCase))
+            return WriteDxfFromDwg(args[1], args[2], args.Length == 4 ? args[3] : null);
         if (args.Length < 2 || args.Length > 5)
         {
             Console.Error.WriteLine("usage: CblAcadSharpPoc <input.dwg> <output.dwg> [AC1018|AC2004]");
@@ -167,7 +167,7 @@ internal static class Program
         return false;
     }
 
-    private static int WriteDxfFromDwg(string inputPath, string outputPath)
+    private static int WriteDxfFromDwg(string inputPath, string outputPath, string? metadataPath = null)
     {
         var input = Path.GetFullPath(inputPath);
         var output = Path.GetFullPath(outputPath);
@@ -182,6 +182,11 @@ internal static class Program
         {
             using var lockStream = AcquireLock(lockPath, TimeSpan.FromSeconds(DefaultTimeoutSeconds));
             var document = Read(input, notifications);
+            // The open API needs the --metadata JSON too; build it from this
+            // read (before the DXF writer touches the document) instead of
+            // reading the DWG a second time.
+            if (metadataPath != null)
+                File.WriteAllText(Path.GetFullPath(metadataPath), JsonSerializer.Serialize(BuildMetadata(document, input, notifications), new JsonSerializerOptions { WriteIndented = true }));
             DxfWriter.Write(temp, document, false, notification: (_, e) => notifications.Add(new
             {
                 phase = "write-dxf", type = e.NotificationType.ToString(), e.Message,
@@ -190,19 +195,15 @@ internal static class Program
             if (!File.Exists(temp) || new FileInfo(temp).Length < 1024)
                 throw new InvalidDataException("DxfWriter produced an empty or implausibly small DXF");
             File.Move(temp, output, true);
-            var rereadNotifications = new List<object>();
-            var reread = DxfReader.Read(output, (_, e) => rereadNotifications.Add(new
-            {
-                phase = "read-dxf", type = e.NotificationType.ToString(), e.Message,
-                exception = e.Exception?.ToString()
-            }));
+            // No DxfReader pass over the output: it only fed this report, which
+            // nothing reads, and took most of the open time on large drawings.
+            // The open API checks the file and the editor parses it.
             var report = new
             {
                 input, output, sourceSha256 = Sha256(input), outputSha256 = Sha256(output),
                 sourceBytes = new FileInfo(input).Length, outputBytes = new FileInfo(output).Length,
                 elapsedMs = sw.Elapsed.TotalMilliseconds, source = Snapshot(document),
-                reread = Snapshot(reread), notifications, rereadNotifications,
-                status = "dxf_written_and_reread"
+                notifications, status = "dxf_written"
             };
             Console.WriteLine(JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
             return 0;
@@ -224,39 +225,7 @@ internal static class Program
         try
         {
             var document = Read(input, notifications);
-            var entities = new List<object>();
-            AddMetadata(document.ModelSpace.Entities, "modelspace", entities);
-            foreach (var block in document.BlockRecords)
-            {
-                if (block.Name.StartsWith("*Model", StringComparison.OrdinalIgnoreCase) ||
-                    block.Name.StartsWith("*Paper", StringComparison.OrdinalIgnoreCase)) continue;
-                AddMetadata(block.Entities, $"block:{block.Name}", entities);
-            }
-            var layers = document.Layers
-                .Select(layer => new
-                {
-                    name = layer.Name,
-                    handle = Hex(layer.Handle),
-                    owner = layer.Owner == null ? null : Hex(layer.Owner.Handle),
-                    aci = layer.Color.Index,
-                    trueColor = RgbOf(layer.Color),
-                    linetype = layer.LineType == null ? null : layer.LineType.Name,
-                })
-                .OrderBy(layer => layer.handle, StringComparer.Ordinal)
-                .ToArray();
-            var semanticManifest = BuildSemanticManifest(document, entities);
-            var result = new
-            {
-                mode = "metadata",
-                input,
-                codePage = document.Header.CodePage,
-                layers,
-                entities,
-                semanticManifest,
-                notifications,
-                status = "read"
-            };
-            Console.WriteLine(JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }));
+            Console.WriteLine(JsonSerializer.Serialize(BuildMetadata(document, input, notifications), new JsonSerializerOptions { WriteIndented = true }));
             return 0;
         }
         catch (Exception ex)
@@ -264,6 +233,43 @@ internal static class Program
             Console.Error.WriteLine(JsonSerializer.Serialize(new { input, mode = "metadata", status = "failed", error = ex.ToString() }, new JsonSerializerOptions { WriteIndented = true }));
             return 1;
         }
+    }
+
+    private static object BuildMetadata(CadDocument document, string input, List<object> notifications)
+    {
+        var entities = new List<object>();
+        AddMetadata(document.ModelSpace.Entities, "modelspace", entities);
+        foreach (var block in document.BlockRecords)
+        {
+            if (block.Name.StartsWith("*Model", StringComparison.OrdinalIgnoreCase) ||
+                block.Name.StartsWith("*Paper", StringComparison.OrdinalIgnoreCase)) continue;
+            AddMetadata(block.Entities, $"block:{block.Name}", entities);
+        }
+        var layers = document.Layers
+            .Select(layer => new
+            {
+                name = layer.Name,
+                handle = Hex(layer.Handle),
+                owner = layer.Owner == null ? null : Hex(layer.Owner.Handle),
+                aci = layer.Color.Index,
+                trueColor = RgbOf(layer.Color),
+                linetype = layer.LineType == null ? null : layer.LineType.Name,
+            })
+            .OrderBy(layer => layer.handle, StringComparer.Ordinal)
+            .ToArray();
+        var semanticManifest = BuildSemanticManifest(document, entities);
+        var result = new
+        {
+            mode = "metadata",
+            input,
+            codePage = document.Header.CodePage,
+            layers,
+            entities,
+            semanticManifest,
+            notifications,
+            status = "read"
+        };
+        return result;
     }
 
     private static object BuildSemanticManifest(CadDocument document, List<object> metadataEntities)

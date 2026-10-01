@@ -23539,6 +23539,7 @@ from django.http import JsonResponse as _cbl_JsonResponse
 from django.http import FileResponse as _cbl_FileResponse
 from django.core import signing as _cbl_signing
 from django.views.decorators.csrf import csrf_exempt as _cbl_csrf_exempt
+from django.views.decorators.gzip import gzip_page as _cbl_gzip_page
 
 # CBL_FREE_DWG_LOCAL_INTEGRATION_V1_START
 # Local-only LibreDWG -> structured/display-flat DXF path.
@@ -24206,6 +24207,7 @@ def _cbl_build_original_source_layer_manifest_v1(report, dxf_text=""):
 
 
 @_cbl_csrf_exempt
+@_cbl_gzip_page
 def cblcad_free_dwg_local_api(request):
     endpoint_started = _cbl_time.perf_counter()
     if request.method == "GET":
@@ -24243,10 +24245,13 @@ def cblcad_free_dwg_local_api(request):
                 tmp_path = _cbl_Path(tmp)
                 source = tmp_path / "input.dwg"
                 output = tmp_path / "output.dxf"
+                metadata_path = tmp_path / "metadata.json"
                 source.write_bytes(upload_data)
                 convert_started = _cbl_time.perf_counter()
+                # One runtime run writes the DXF and the --metadata JSON from a
+                # single DWG read (a second read took ~2 s on large plans).
                 run = _cbl_subprocess.run(
-                    [str(executable), "--dxf", str(source), str(output)],
+                    [str(executable), "--dxf", str(source), str(output), str(metadata_path)],
                     stdout=_cbl_subprocess.PIPE, stderr=_cbl_subprocess.PIPE,
                     timeout=600, check=False,
                 )
@@ -24254,7 +24259,9 @@ def cblcad_free_dwg_local_api(request):
                     detail = run.stderr.decode("utf-8", errors="replace")[-1200:]
                     raise RuntimeError("ACadSharp full DXF 변환 실패: " + detail)
                 dxf_bytes = output.read_bytes()
-                source_metadata = _cbl_free_dwg_acadsharp_metadata_v1(source)
+                source_metadata = _cbl_json.loads(metadata_path.read_text(encoding="utf-8", errors="replace"), strict=False)
+                if source_metadata.get("status") != "read":
+                    raise RuntimeError("ACadSharp metadata 상태가 올바르지 않습니다.")
                 dxf_text = _cbl_decode_dxf_unicode_escapes_v1(_cbl_free_dwg_dxf_text_v1(dxf_bytes))
             response = _cbl_JsonResponse({
                 "ok": True, "format": "acadsharp-dxf", "converter": "free-acadsharp",
