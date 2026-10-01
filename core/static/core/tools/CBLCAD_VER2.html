@@ -6697,7 +6697,7 @@ window.cblBuildFullDxfBlockSnapIndexV1=cblBuildFullDxfBlockSnapIndexV1;
 window.cblInstallFullDxfBlockSnapV1=cblInstallFullDxfBlockSnapV1;
 
 // ===== FILE =====
-function fileNew(){if(!confirm('새 파일? 저장되지 않은 내용이 사라집니다.'))return;shapes=[];sel=[];hist=[];hIdx=-1;layers=[{id:1,name:'기본',color:'#3b82f6',visible:true,locked:false,lineType:'Continuous',lineWidth:0.25}];actLay=1;blocks={};curFile='untitled.wcd';if(window.CBL_CAD_RUNTIME_CONFIG&&window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal===true){window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=[];window.CBLCAD_V29_LAST_DWG_FILE=null;window.CBL_FREE_DWG_CURRENT_FILENAME='';}saveH();updUI();updLayers();updBlkList();requestCadRenderV1();}
+function fileNew(){if(!confirm('새 파일? 저장되지 않은 내용이 사라집니다.'))return;shapes=[];sel=[];hist=[];hIdx=-1;layers=[{id:1,name:'기본',color:'#3b82f6',visible:true,locked:false,lineType:'Continuous',lineWidth:0.25}];actLay=1;blocks={};curFile='untitled.wcd';if(window.CBL_CAD_RUNTIME_CONFIG&&window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal===true){window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];window.CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1={};window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=[];window.CBLCAD_V29_LAST_DWG_FILE=null;window.CBL_FREE_DWG_CURRENT_FILENAME='';}saveH();updUI();updLayers();updBlkList();requestCadRenderV1();}
 function fileOpen(){var inp=document.createElement('input');inp.type='file';inp.accept='.wcd,.json';inp.onchange=function(e){var f=e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(ev){try{var d=JSON.parse(ev.target.result);shapes=d.shapes||[];layers=d.layers||[{id:1,name:'기본',color:'#3b82f6',visible:true,locked:false,lineType:'Continuous',lineWidth:0.25}];blocks=d.blocks||{};actLay=1;curFile=f.name;saveH();updUI();updLayers();updBlkList();setTimeout(zoomFit,50);setHint('열기 완료: '+f.name+' ('+shapes.length+'개)');}catch(err){alert('파일 오류: '+err.message);}};r.readAsText(f);};inp.click();}
 function fileSave(){var d=JSON.stringify({shapes:shapes,layers:layers,blocks:blocks,v:'4'},null,2);var b=new Blob([d],{type:'application/json'});var u=URL.createObjectURL(b);var a=document.createElement('a');a.href=u;a.download=curFile.replace(/\.[^.]+$/,'')+'.wcd';a.click();URL.revokeObjectURL(u);setHint('저장 완료');}
 function fileSaveAs(){var n=prompt('파일 이름:',curFile.replace(/\.[^.]+$/,'')||'untitled');if(!n)return;curFile=n+'.wcd';fileSave();}
@@ -10302,11 +10302,25 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
     if (!s.layId) s.layId = l.id;
     if (Number(s.layId) !== Number(l.id)) return;
 
-    s.stroke = l.color;
-    s.lineWidth = Number(l.lineWidth || 1.5);
-    s.dash = l.linetype || "solid";
-    s.linetype = l.linetype || "solid";
-    s.lineWeightLabel = l.lineWeightLabel || cblWeightLabel(l.lineWidth);
+    // Only ByLayer properties follow the layer.  A DWG object with its own
+    // colour, linetype or lineweight (or one set in the property panel)
+    // keeps it, as in AutoCAD.
+    const rawAci = s.cblRawAci == null ? 256 : Number(s.cblRawAci);
+    const ownColor = (rawAci !== 256 && rawAci !== 0) || (s.cblRawTrueColor != null && s.cblRawTrueColor !== "");
+    const rawLinetype = String(s.cblRawLinetype != null ? s.cblRawLinetype : (s.cblRawLineType != null ? s.cblRawLineType : "ByLayer"));
+    const ownLinetype = !/^(bylayer|byblock)?$/i.test(rawLinetype.trim());
+    const rawLineWeight = s.cblRawLineWeight == null ? -1 : Number(s.cblRawLineWeight);
+    const ownLineWeight = rawLineWeight !== -1 && rawLineWeight !== -2;
+
+    if (!ownColor) s.stroke = l.color;
+    if (!ownLineWeight) {
+      s.lineWidth = Number(l.lineWidth || 1.5);
+      s.lineWeightLabel = l.lineWeightLabel || cblWeightLabel(l.lineWidth);
+    }
+    if (!ownLinetype) {
+      s.dash = l.linetype || "solid";
+      s.linetype = l.linetype || "solid";
+    }
   }
 
   function cblSyncShapesByLayer(layerId) {
@@ -10533,9 +10547,50 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
       if (typeof setHint === "function") setHint("레이어 추가 완료");
     };
 
+    // A linetype picked for selected DWG objects becomes their own linetype
+    // (the save writes it; a name the drawing lacks is refused there).
+    function cblSetObjectLinetypeV1(list, value) {
+      const name = String(value || "Continuous");
+      (function walk(items) {
+        items.forEach(function (s) {
+          if (!s) return;
+          if (s.type === "group" && Array.isArray(s.ch)) { walk(s.ch); return; }
+          s.cblRawLinetype = name;
+          s.cblRawLineType = name;
+          s.cblLineType = name;
+          s.lineType = name;
+          s.dash = cblNormLineType(name);
+          s.linetype = s.dash;
+        });
+      })(list);
+    }
+
     if (typeof syncSt === "function" && !syncSt.__cblLayerWideWrapped) {
       const originalSyncSt = syncSt;
       const wrappedSyncSt = function (key, value) {
+        // With objects selected the panel edits those objects, never the
+        // current layer.  In a DWG the colour and linetype become the
+        // objects' own (saved); a lineweight has no DWG value for the panel's
+        // pixel width, so it is left to the layer panel.
+        const picked = Array.isArray(sel) ? sel.filter(Boolean) : [];
+        if (picked.length && (key === "stroke" || key === "lineWidth" || key === "dash")) {
+          if (window.CBL_ACADSHARP_FULL_DXF_ACTIVE === true) {
+            if (key === "stroke" && typeof window.cblSetObjectColorV1 === "function") {
+              window.cblSetObjectColorV1(picked, value);
+            } else if (key === "dash") {
+              cblSetObjectLinetypeV1(picked, value);
+            } else {
+              if (typeof setHint === "function") setHint("선택한 객체의 선두께는 아직 DWG에 저장할 수 없어 바꾸지 않았습니다. 레이어 패널에서 바꿔 주세요.");
+              return;
+            }
+            if (typeof saveH === "function") saveH();
+            if (typeof render === "function") render();
+            if (typeof setHint === "function") setHint("선택한 객체 " + picked.length + "개에 적용했습니다.");
+            return;
+          }
+          return originalSyncSt.apply(this, arguments);
+        }
+
         const result = originalSyncSt.apply(this, arguments);
 
         if (key === "stroke" || key === "lineWidth" || key === "dash") {
@@ -45096,6 +45151,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       throw new Error('DWG 열기 기준 스냅샷 생성에 실패했습니다.');
     }
     stageEnd('baseline_snapshot');window.CBL_FREE_DWG_ORIGINAL_SHAPES=canonicalSnapshots;
+    try{window.CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1=typeof window.cblLayerPropsSnapshotV1==='function'?window.cblLayerPropsSnapshotV1(window.layers):null;}catch(_layerSnapError){window.CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1=null;}
     window.CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1=false;
     window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};
     window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=Array.isArray(window.layers)?window.layers.map(function(l){return String(l&&l.name||'');}):[];
@@ -45313,6 +45369,57 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(s.cblAttribOwnerHandle)s.cblAttribCopy=true;
   }
   function p(x,y,z){return [n(x),n(y),n(z)];}
+  // ACI 1-9 have exact RGB; any other picked colour is saved as true colour
+  // (0xRRGGBB, the writer's convention).
+  var CBL_ACI_EXACT_V1={'#ff0000':1,'#ffff00':2,'#00ff00':3,'#00ffff':4,'#0000ff':5,'#ff00ff':6,'#ffffff':7,'#808080':8,'#c0c0c0':9};
+  function colorFieldsV1(hex){
+    var h=String(hex||'').trim().toLowerCase();
+    if(/^#[0-9a-f]{3}$/.test(h))h='#'+h[1]+h[1]+h[2]+h[2]+h[3]+h[3];
+    if(!/^#[0-9a-f]{6}$/.test(h))return null;
+    return CBL_ACI_EXACT_V1[h]?{aci:CBL_ACI_EXACT_V1[h],trueColor:null}:{aci:null,trueColor:parseInt(h.slice(1),16)};
+  }
+  // Give the selected objects their own DWG colour (not ByLayer) so the
+  // layer colour no longer overrides it and the save writes it.
+  function cblSetObjectColorV1(list,hex){
+    var c=colorFieldsV1(hex),count=0;if(!c)return 0;
+    flattenGroupsV1(list).forEach(function(s){
+      if(!s||typeof s!=='object')return;
+      var h=String(hex).toLowerCase();
+      s.stroke=h;s.color=h;s.cblEffectiveColor=h;s.cblColorResolved=true;
+      s.cblRawAci=c.aci!=null?c.aci:256;s.cblRawTrueColor=c.trueColor;s.cblEffectiveColorSource=c.trueColor!=null?'TrueColor':'ACI';
+      count++;
+    });
+    return count;
+  }
+  window.cblSetObjectColorV1=cblSetObjectColorV1;
+  // Layer panel edits (colour, linetype, lineweight, on/off, lock) are
+  // compared with the layers as they were opened or last saved.
+  function cblLayerSavePropsV1(l){
+    return {name:String(l&&l.name||''),color:String(l&&l.color||'').toLowerCase(),linetype:String(l&&l.cblRawLineType||'Continuous'),
+      lineweight:Number(l&&l.cblLineWeightRaw!=null?l.cblLineWeightRaw:-3),on:!(l&&l.visible===false),locked:!!(l&&l.locked)};
+  }
+  function cblLayerPropsSnapshotV1(list){
+    var out={};(Array.isArray(list)?list:[]).forEach(function(l){var lp=cblLayerSavePropsV1(l);if(lp.name)out[lp.name.toLowerCase()]=lp;});return out;
+  }
+  window.cblLayerPropsSnapshotV1=cblLayerPropsSnapshotV1;
+  function layerUpdateOpsV1(createdNames){
+    var snap=window.CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1;
+    if(!snap||typeof snap!=='object')return [];
+    var out=[];
+    layers().forEach(function(l){
+      var cur=cblLayerSavePropsV1(l),key=cur.name.toLowerCase();if(!key)return;
+      var was=snap[key],fresh=!was;
+      if(fresh&&!createdNames[key])return;
+      var op={type:'update_layer',name:cur.name},changed=false;
+      if(fresh||cur.color!==was.color){var c=colorFieldsV1(cur.color);if(c){if(c.trueColor!=null)op.trueColor=c.trueColor;else op.aci=c.aci;changed=true;}}
+      if(fresh?cur.linetype.toLowerCase()!=='continuous':cur.linetype!==was.linetype){op.linetype=cur.linetype;changed=true;}
+      if(fresh?cur.lineweight!==-3:cur.lineweight!==was.lineweight){op.lineweight=cur.lineweight;changed=true;}
+      if(fresh?!cur.on:cur.on!==was.on){op.on=cur.on;changed=true;}
+      if(fresh?cur.locked:cur.locked!==was.locked){op.locked=cur.locked;changed=true;}
+      if(changed)out.push(op);
+    });
+    return out;
+  }
   // The editor draws dimension text at a fixed screen size (dimStyle.textSz px),
   // so the DWG gets a height in drawing units: the drawing's own dimension text,
   // else its usual text height.
@@ -45558,9 +45665,11 @@ window.cblSnapResidueGateStatusV12 = function(){
     });
     var refused=Object.keys(unsupported);
     if(refused.length)throw new Error('DWG로 저장할 수 없는 편집이 있어 저장을 멈췄습니다: '+refused.map(function(k){return k+' '+unsupported[k]+'개';}).join(', ')+'. 해당 객체를 지우거나 편집을 되돌린 뒤 다시 저장해 주세요.');
-    var used={};newOps.forEach(function(o){if(o.layer)used[o.layer]=true;});
-    var originalLayers=window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES||[];
-    layers().forEach(function(l){if(used[l.name]&&originalLayers.indexOf(String(l.name))<0)ops.unshift({type:'create_layer',name:String(l.name),color:Number(l.aci)||256,linetype:l.lineType||'Continuous'});});
+    var used={};ops.concat(newOps).forEach(function(o){var k=String(o&&o.type||'').toLowerCase();if(o&&o.layer&&k!=='delete')used[o.layer]=true;});
+    var originalLayers=window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES||[],createdNames={};
+    layers().forEach(function(l){if(used[l.name]&&originalLayers.indexOf(String(l.name))<0){ops.unshift({type:'create_layer',name:String(l.name),color:Number(l.aci)||256,linetype:l.lineType||'Continuous'});createdNames[String(l.name).toLowerCase()]=true;}});
+    var createCount=ops.filter(function(o){return o.type==='create_layer';}).length;
+    Array.prototype.splice.apply(ops,[createCount,0].concat(layerUpdateOpsV1(createdNames)));
     var textStyles=Object.keys(window.CBL_CAD_TEXT_STYLES_V1||{}).map(function(k){var st=window.CBL_CAD_TEXT_STYLES_V1[k]||{};return {handle:String(st.handle||''),name:String(st.name||k),fontFile:String(st.fontFile||''),bigFontFile:String(st.bigFontFile||''),fixedHeight:n(st.fixedHeight,0),widthFactor:n(st.widthFactor,1),obliqueAngle:n(st.obliqueAngle,0),flags:Number(st.flags||0)};}).filter(function(st){return st.handle||st.name;});
     var merged=ops.concat(newOps),seenDelete={},seenMutation={},normalized=[];
     merged.forEach(function(o){
@@ -45806,6 +45915,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     try{curFile=filename;}catch(e){}
     try{window.curFile=filename;}catch(e){}
     window.CBL_FREE_DWG_ORIGINAL_SHAPES=committedBaseline;
+    window.CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1=cblLayerPropsSnapshotV1(window.layers);
     window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};
     window.CBL_FREE_DWG_ORIGINAL_SHAPES.forEach(function(s){var h=normHandle(s&&((s.sourceHandle||s.originalHandle)||''));if(h)window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES[h]=true;});
     window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=prepared.layers.slice();
@@ -46081,7 +46191,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     try{window.sel=[];sel=[];window.hist=[];hist=[];window.hIdx=-1;hIdx=-1;}catch(e){}
     try{window.layers=[{id:1,name:'기본',color:'#3b82f6',visible:true,locked:false,lineType:'Continuous',lineWidth:0.25}];layers=window.layers;window.actLay=1;actLay=1;}catch(e){}
     try{window.blocks={};blocks=window.blocks;}catch(e){}
-    window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];window.CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1=false;window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=['기본'];window.CBL_FREE_DWG_SAVED_REVISION_V1=typeof window.cblComputeDocumentRevisionV1==='function'?window.cblComputeDocumentRevisionV1():null;window.CBL_FREE_DWG_DIRTY=false;window.CBLCAD_V29_LAST_DWG_FILE=null;window.CBLCAD_V29_LAST_DWG_FILE_NAME='ChickenBananaCAD.dwg';window.CBL_FREE_DWG_CURRENT_FILENAME='ChickenBananaCAD.dwg';window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=null;window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1=null;window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=null;window.CBLCAD_V29_SESSION_ID=null;window.CBLCAD_V29_BASE_SHAPE_COUNT=0;window.CBLCAD_FREE_DWG_LOCAL_DOCUMENT={loaded:true,mode:'blank',baseline_count:0,primitive_count:0,shapes:0};
+    window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];window.CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1={};window.CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1=false;window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=['기본'];window.CBL_FREE_DWG_SAVED_REVISION_V1=typeof window.cblComputeDocumentRevisionV1==='function'?window.cblComputeDocumentRevisionV1():null;window.CBL_FREE_DWG_DIRTY=false;window.CBLCAD_V29_LAST_DWG_FILE=null;window.CBLCAD_V29_LAST_DWG_FILE_NAME='ChickenBananaCAD.dwg';window.CBL_FREE_DWG_CURRENT_FILENAME='ChickenBananaCAD.dwg';window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=null;window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1=null;window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=null;window.CBLCAD_V29_SESSION_ID=null;window.CBLCAD_V29_BASE_SHAPE_COUNT=0;window.CBLCAD_FREE_DWG_LOCAL_DOCUMENT={loaded:true,mode:'blank',baseline_count:0,primitive_count:0,shapes:0};
     try{curFile='ChickenBananaCAD.dwg';}catch(e){}try{if(typeof saveH==='function')saveH();if(typeof updUI==='function')updUI();if(typeof updLayers==='function')updLayers();if(typeof updBlkList==='function')updBlkList();if(typeof requestCadRenderV1==='function')requestCadRenderV1();}catch(e){status.lastError=String(e&&e.message||e);}
     status.lastCommand='new';return true;
   }

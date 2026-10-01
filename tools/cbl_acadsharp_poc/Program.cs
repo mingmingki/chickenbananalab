@@ -520,6 +520,44 @@ internal static class Program
                     applied.Add(new { type, name, created = true });
                     break;
                 }
+                case "update_layer":
+                {
+                    // Layer colour, linetype, lineweight, on/off and lock edited in the layer panel.
+                    var name = SafeName(RequiredString(op, "name"));
+                    var layer = document.Layers.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))
+                        ?? throw new InvalidDataException($"Layer not found: {name}");
+                    if (op.TryGetProperty("trueColor", out var trueColor) && trueColor.ValueKind == JsonValueKind.Number &&
+                        trueColor.TryGetUInt32(out var rgb))
+                    {
+                        layer.Color = ColorFromRgb(rgb);
+                    }
+                    else if (op.TryGetProperty("aci", out var aciValue) && aciValue.ValueKind == JsonValueKind.Number)
+                    {
+                        var aci = aciValue.GetInt32();
+                        if (aci < 1 || aci > 255) throw new InvalidDataException($"Layer colour must be ACI 1-255: {aci}");
+                        layer.Color = new Color((short)aci);
+                    }
+                    if (op.TryGetProperty("linetype", out var lineTypeValue) && lineTypeValue.ValueKind == JsonValueKind.String)
+                    {
+                        var lineTypeName = CanonicalLineTypeName(lineTypeValue.GetString());
+                        var lineType = document.LineTypes.FirstOrDefault(x => string.Equals(x.Name, lineTypeName, StringComparison.OrdinalIgnoreCase))
+                            ?? throw new InvalidDataException($"Linetype not found: {lineTypeName}");
+                        layer.LineType = lineType;
+                    }
+                    if (op.TryGetProperty("lineweight", out var lineWeightValue) && lineWeightValue.ValueKind == JsonValueKind.Number)
+                    {
+                        var lineWeight = (LineWeightType)lineWeightValue.GetInt32();
+                        if (!Enum.IsDefined(lineWeight) || lineWeight == LineWeightType.ByLayer || lineWeight == LineWeightType.ByBlock)
+                            throw new InvalidDataException($"Invalid layer lineweight: {lineWeightValue.GetInt32()}");
+                        layer.LineWeight = lineWeight;
+                    }
+                    if (op.TryGetProperty("on", out var onValue) && (onValue.ValueKind == JsonValueKind.True || onValue.ValueKind == JsonValueKind.False))
+                        layer.IsOn = onValue.GetBoolean();
+                    if (op.TryGetProperty("locked", out var lockedValue) && (lockedValue.ValueKind == JsonValueKind.True || lockedValue.ValueKind == JsonValueKind.False))
+                        layer.Flags = lockedValue.GetBoolean() ? layer.Flags | LayerFlags.Locked : layer.Flags & ~LayerFlags.Locked;
+                    applied.Add(new { type, name });
+                    break;
+                }
                 case "add_line":
                 {
                     var layer = ResolveLayer(document, op);
@@ -971,7 +1009,7 @@ internal static class Program
         if (op.TryGetProperty("trueColor", out var trueColor) &&
             trueColor.ValueKind == JsonValueKind.Number && trueColor.TryGetUInt32(out var rgb))
         {
-            entity.Color = Color.FromTrueColor(rgb);
+            entity.Color = ColorFromRgb(rgb);
         }
         else if (op.TryGetProperty("aci", out _) || op.TryGetProperty("color", out _))
         {
@@ -996,6 +1034,11 @@ internal static class Program
             else if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numeric)) entity.LineWeight = (LineWeightType)numeric;
         }
     }
+
+    // Ops carry true colour like DXF group 420 (0xRRGGBB); ACadSharp's
+    // Color.FromTrueColor takes its own little-endian 0xBBGGRR value.
+    private static Color ColorFromRgb(uint rgb) =>
+        new Color((byte)((rgb >> 16) & 0xFF), (byte)((rgb >> 8) & 0xFF), (byte)(rgb & 0xFF));
 
     private static string CanonicalLineTypeName(string? raw)
     {
