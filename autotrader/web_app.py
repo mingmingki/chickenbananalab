@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import logging
 import math
 import os
@@ -121,6 +122,7 @@ class LogRingBuffer(logging.Handler):
     def __init__(self, maxlen=500):
         super().__init__()
         self.buffer = deque(maxlen=maxlen)
+        self._sequence = 0
         # 주의: logging.Handler.__init__()이 이미 self.lock(자체 재진입 락)을 만들어 쓰고
         # emit() 호출 전후로 스스로 acquire/release한다. 여기서 또 self.lock이라는 이름으로
         # 새 락을 만들면 그 내부 락을 덮어써서, emit() 안에서 같은 락을 다시 잡으려다
@@ -130,11 +132,33 @@ class LogRingBuffer(logging.Handler):
     def emit(self, record):
         msg = self.format(record)
         with self._buf_lock:
-            self.buffer.append(msg)
+            self._sequence += 1
+            self.buffer.append((self._sequence, msg))
 
     def get_all(self):
         with self._buf_lock:
-            return list(self.buffer)
+            return [msg for _seq, msg in self.buffer]
+
+    def get_since(self, cursor=None):
+        """Return only log lines newer than a monotonic cursor.
+
+        When the client fell behind the deque rotation (or the service restarted and
+        the old cursor is now ahead), reset=True tells the browser to replace its
+        local copy with the current ring instead of appending it.
+        """
+        with self._buf_lock:
+            current = self._sequence
+            if cursor is None:
+                return [msg for _seq, msg in self.buffer], current, True
+            try:
+                cursor = int(cursor)
+            except (TypeError, ValueError):
+                cursor = -1
+            first_seq = self.buffer[0][0] if self.buffer else current + 1
+            reset = cursor < first_seq - 1 or cursor > current
+            if reset:
+                return [msg for _seq, msg in self.buffer], current, True
+            return [msg for seq, msg in self.buffer if seq > cursor], current, False
 
 
 _LOG_FORMATTER = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S")
@@ -710,6 +734,20 @@ def api_pnl_summary():
     })
 
 
+def _conditional_json(payload):
+    """JSON response with a strong ETag so unchanged heavy panels can return 304."""
+    response = jsonify(payload)
+    etag = hashlib.sha256(response.get_data()).hexdigest()
+    if request.if_none_match.contains(etag):
+        not_modified = app.response_class(status=304)
+        not_modified.set_etag(etag)
+        not_modified.headers["Cache-Control"] = "private, no-cache"
+        return not_modified
+    response.set_etag(etag)
+    response.headers["Cache-Control"] = "private, no-cache"
+    return response
+
+
 @app.route("/api/trades")
 @login_required
 def api_trades():
@@ -765,7 +803,7 @@ def api_trades_filtered():
     )
     baseline = ctx.state.snapshot().get("baseline_equity")
     margin = okx_margin_return.cached_summary(ctx.dir)
-    return jsonify({
+    return _conditional_json({
         "trades": records,
         "period": period,
         "baseline_equity": baseline,
@@ -787,7 +825,7 @@ def api_shadow():
     """
     ctx = get_context(session["username"])
     stats = gpt_shadow_log.summary(ctx.dir)
-    return jsonify({
+    return _conditional_json({
         "recent": gpt_shadow_log.recent_by_mode(ctx.dir, "entry_gate", limit=100),
         "entry_gate_count": stats["gate_count"],
         "historical_shadow_count": stats["shadow_mode_count"],
@@ -2045,10 +2083,12 @@ def api_logs():
     ctx = get_context(session["username"])
     import core_kill_switch
     from log_readability import readable_logs, safety_reason
-    logs=ctx.log_handler.get_all()
+    cursor = request.args.get("cursor")
+    logs, next_cursor, reset = ctx.log_handler.get_since(cursor if cursor is not None else None)
     stopped=core_kill_switch.is_active(ctx.cfg.user_dir)
     status=('CORE 신규진입 안전정지 · '+safety_reason(core_kill_switch.get_reason(ctx.cfg.user_dir))) if stopped else ''
     return jsonify({"logs": logs, "readable_logs": readable_logs(logs),
+                    "next_cursor": next_cursor, "reset": reset,
                     "status_text":status,"safety_stopped":stopped})
 
 

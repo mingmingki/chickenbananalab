@@ -3399,10 +3399,11 @@ function _currentSubFilters() {
 async function refreshTradesFiltered() {
   const { symbol, variant } = _currentSubFilters();
   const qs = new URLSearchParams({ group: groupFilter, symbol, variant }).toString();
-  let res;
-  try { res = await fetchWithTimeout("/api/trades_filtered?" + qs); } catch (e) { return; }
-  if (!res.ok) return;
-  const data = await res.json();
+  const url = "/api/trades_filtered?" + qs;
+  let result;
+  try { result = await fetchJsonConditional(url); } catch (e) { return; }
+  if (result.notModified || !result.response.ok) return;
+  const data = result.data;
 
   allTrades = data.trades;
   fixedMarginTotal = data.fixed_margin_total || null;
@@ -3582,10 +3583,10 @@ function errorReasonSentence(pipelineContext, errorReason) {
 }
 
 async function refreshShadow() {
-  let res;
-  try { res = await fetchWithTimeout("/api/shadow"); } catch (e) { return; }
-  if (!res.ok) return;
-  const data = await res.json();
+  let result;
+  try { result = await fetchJsonConditional("/api/shadow"); } catch (e) { return; }
+  if (result.notModified || !result.response.ok) return;
+  const data = result.data;
   const tbody = document.getElementById("shadow-table");
   tbody.innerHTML = "";
   (data.recent || []).slice(0, 30).forEach(r => {
@@ -3722,6 +3723,7 @@ async function refreshMarketStructure() {
 }
 
 let latestLogData = {logs:[],readable_logs:[]};
+let logCursor = null;
 let showRawLogs = false;
 function renderLogs() {
   const box = document.getElementById('log-box');
@@ -3738,11 +3740,22 @@ function renderLogs() {
 }
 function toggleLogView() { showRawLogs = !showRawLogs; renderLogs(); }
 async function refreshLogs() {
+  const url = logCursor === null ? "/api/logs" : `/api/logs?cursor=${encodeURIComponent(logCursor)}`;
   let res;
-  try { res = await fetchWithTimeout("/api/logs"); } catch (e) { return; }
+  try { res = await fetchWithTimeout(url); } catch (e) { return; }
   if (!res.ok) return;
   const data = await res.json();
-  latestLogData = data;
+  if (logCursor === null || data.reset) {
+    latestLogData = data;
+  } else {
+    latestLogData = {
+      logs: [...(latestLogData.logs || []), ...(data.logs || [])].slice(-500),
+      readable_logs: [...(latestLogData.readable_logs || []), ...(data.readable_logs || [])].slice(-500),
+      status_text: data.status_text || "",
+      safety_stopped: !!data.safety_stopped,
+    };
+  }
+  if (data.next_cursor !== undefined && data.next_cursor !== null) logCursor = data.next_cursor;
   renderLogs();
 }
 
@@ -4241,6 +4254,19 @@ async function fetchWithTimeout(url, options, timeoutMs = FETCH_TIMEOUT_MS) {
   }
 }
 
+const responseEtags = new Map();
+async function fetchJsonConditional(url, timeoutMs = FETCH_TIMEOUT_MS) {
+  const headers = {};
+  const previousEtag = responseEtags.get(url);
+  if (previousEtag) headers["If-None-Match"] = previousEtag;
+  const response = await fetchWithTimeout(url, { headers }, timeoutMs);
+  if (response.status === 304) return { response, data: null, notModified: true };
+  const etag = response.headers.get("ETag");
+  if (etag) responseEtags.set(url, etag);
+  if (!response.ok) return { response, data: null, notModified: false };
+  return { response, data: await response.json(), notModified: false };
+}
+
 // fn을 intervalMs마다 반복 호출하되, 이전 호출이 아직 진행 중이면(느린 응답/네트워크
 // 지연 등) 이번 차례는 건너뛴다 - 이게 "동시 호출 겹침"을 원천적으로 막는 핵심 가드다.
 function guardedPoll(fn, intervalMs) {
@@ -4259,13 +4285,14 @@ function guardedPoll(fn, intervalMs) {
 }
 
 guardedPoll(refreshState, 2000);
-guardedPoll(refreshLogs, 2000);
-// 거래기록은 응답이 수백 KB이고 완전청산 시에만 바뀌므로 2초 폴링이 불필요하다.
-// Shadow도 5분 판단 결과 위주라 10초면 충분하다. 두 항목을 완화해 웹 워커 포화를 막는다.
-guardedPoll(refreshTradesFiltered, 10000);
-guardedPoll(refreshShadow, 10000);
+// 로그는 cursor 이후 delta만 받는다. 전체 ring-buffer를 2초마다 재전송하던 구조를 제거한다.
+guardedPoll(refreshLogs, 10000);
+// 거래기록은 완전청산 때만, GPT gate shadow는 후보 판단 때만 바뀐다. ETag 304와 함께
+// 긴 주기로 내려 네트워크 비용을 줄이되 매매/주문 실행 주기에는 전혀 관여하지 않는다.
+guardedPoll(refreshTradesFiltered, 60000);
+guardedPoll(refreshShadow, 30000);
 guardedPoll(refreshFxRate, 1800000); // 서버가 하루 1회만 실제로 외부 호출하므로 30분 간격이면 충분
-guardedPoll(refreshPnlSummary, 5000);
+guardedPoll(refreshPnlSummary, 15000);
 guardedPoll(refreshCandidateC, 5000);
 
 // 제목 옆 수동 새로고침 버튼(사용자 지시 2026-08-28) - 위 guardedPoll들과 똑같은

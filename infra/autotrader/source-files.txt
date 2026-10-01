@@ -76,6 +76,7 @@ cost_accounting.py
 deployment_resume.py
 derived_candles.py
 entry_counterfactual_shadow.py
+entry_quality_shadow.py
 entry_overextension_guard.py
 entry_tf_daily_backfill.py
 entry_veto_outcome.py
