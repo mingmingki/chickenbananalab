@@ -77,8 +77,9 @@ def summarize_compact(df: pd.DataFrame, tf_label: str, lookback: int = 20) -> st
     atr_pct = (atr / close * 100) if close else 0.0
 
     return (
-        f"[{tf_label}] RSI {rsi:.1f}({rsi_dir}), {trend}, MACD {macd_state}, "
-        f"최근 {len(window)}개 구간 변화율 {change_pct:+.2f}%, ATR {atr_pct:.2f}%"
+        f"[{tf_label}] 현재가 {close:.12g}, EMA20 {ema20:.12g}, EMA50 {ema50:.12g}, "
+        f"RSI {rsi:.1f}({rsi_dir}), {trend}, MACD {macd_state}, "
+        f"최근 {len(window)}개 구간 변화율 {change_pct:+.2f}%, ATR {atr:.12g} ({atr_pct:.2f}%)"
     )
 
 

@@ -48,6 +48,22 @@ def latest_at_or_before(records: list[dict], symbol: str, cutoff: dt.datetime):
     return max(eligible, key=lambda pair: pair[0])[1] if eligible else None
 
 
+def successful_entry_gate_near(records: list[dict], symbol: str, cutoff: dt.datetime, slop_seconds: float = 10.0):
+    candidates = []
+    for row in records:
+        if row.get('symbol') != symbol:
+            continue
+        if row.get('mode') != 'entry_gate' or row.get('event_type') != 'entry' or row.get('order_success') is not True:
+            continue
+        stamp = _parse_time(row.get('time'))
+        if stamp is None:
+            continue
+        delta = abs((stamp - cutoff).total_seconds())
+        if delta <= slop_seconds:
+            candidates.append((delta, stamp, row))
+    return min(candidates, key=lambda item: (item[0], item[1]))[2] if candidates else None
+
+
 def classify_tf_state(tf_payload: dict | None) -> str:
     closed = (tf_payload or {}).get('closed') or {}
     explicit = closed.get('trend') or closed.get('structure') or closed.get('state')
@@ -128,7 +144,7 @@ def enrich_lifecycle(user_dir: str, lifecycle: dict, sources: dict | None = None
     daily = (sources.get('daily_by_trade') or {}).get(trade_id)
     market = latest_at_or_before(sources.get('market', []), symbol, cutoff)
     candle = latest_at_or_before(sources.get('candle', []), symbol, cutoff)
-    gpt = latest_at_or_before(sources.get('gpt', []), symbol, cutoff)
+    gpt = successful_entry_gate_near(sources.get('gpt', []), symbol, cutoff) or latest_at_or_before(sources.get('gpt', []), symbol, cutoff)
     posai = latest_at_or_before(sources.get('posai', []), symbol, cutoff)
     indicators = (candle or {}).get('indicators') or {}
     for name in _TFS:

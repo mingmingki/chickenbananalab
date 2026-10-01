@@ -102,3 +102,14 @@ def test_clipboard_failure_opens_in_page_recovery_instead_of_focus_error_alert()
     assert 'textarea.select()' in recovery
     assert '다시 복사' in recovery
     assert '⌘C' in recovery
+
+
+def test_full_report_temporarily_opens_collapsed_analysis_zone_before_innertext_copy():
+    text = HTML.read_text()
+    body = text.split('async function copyFullReport(btn) {', 1)[1].split('let currentPeriodView', 1)[0]
+    assert 'const analysisZone = document.getElementById("analysis-zone")' in body
+    assert 'const analysisWasOpen = analysisZone.open' in body
+    assert 'analysisZone.open = true' in body
+    assert body.index('analysisZone.open = true') < body.index('document.getElementById("trade-table").innerText')
+    assert 'analysisZone.open = analysisWasOpen' in body
+    assert body.index('analysisZone.open = analysisWasOpen') < body.index('copyToClipboard(lines.join("\\n"), btn)')

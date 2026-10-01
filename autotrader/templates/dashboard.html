@@ -4056,6 +4056,13 @@ async function copyFullReport(btn) {
   await refreshMarketStructure();
   await refreshLogs();
 
+  // innerText reflects rendered text. The analytics section is a closed <details> by
+  // default, so temporarily render it while collecting report sections and then restore
+  // the user's open/closed state before touching the clipboard.
+  const analysisZone = document.getElementById("analysis-zone");
+  const analysisWasOpen = analysisZone.open;
+  analysisZone.open = true;
+
   const lines = [];
   lines.push(`===== 자동매매 전체 리포트 (${new Date().toLocaleString("ko-KR")}) =====`);
 
@@ -4126,6 +4133,7 @@ async function copyFullReport(btn) {
   lines.push("", "----- 실행 로그 -----");
   lines.push(document.getElementById("log-box").textContent);
 
+  analysisZone.open = analysisWasOpen;
   copyToClipboard(lines.join("\n"), btn);
 }
 

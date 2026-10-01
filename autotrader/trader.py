@@ -5499,11 +5499,23 @@ def _extract_core_adaptive_market_features(closed_dfs):
             if row.get("low") is not None: lows.append(float(row["low"]))
             if row.get("high") is not None: highs.append(float(row["high"]))
         except (TypeError,ValueError): pass
+        timestamp_recorded = False
         for key in ("close_time_ms","timestamp_ms","time_ms"):
             if row.get(key) is not None:
-                try: stamps.append(int(row[key]))
-                except (TypeError,ValueError): pass
+                try:
+                    stamps.append(int(row[key])); timestamp_recorded = True
+                except (TypeError,ValueError):
+                    pass
                 break
+        if not timestamp_recorded and row.get("timestamp") is not None:
+            value = row["timestamp"]
+            try:
+                if hasattr(value, "value"):
+                    stamps.append(int(value.value // 1_000_000))
+                elif isinstance(value, datetime.datetime):
+                    stamps.append(int(value.timestamp() * 1000))
+            except (TypeError, ValueError, OverflowError):
+                pass
     if lows:
         result.update(structural_support=min(lows),near_support=max(lows),continuation_support=min(lows))
     if highs:
