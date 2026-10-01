@@ -10184,6 +10184,24 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
 </style>
 
 <script>
+// Only ByLayer properties follow the layer.  A DWG object with its own
+// colour, linetype or lineweight (from the file or set in the property
+// panel) keeps it, as in AutoCAD.  Every layer panel/toolbar module asks
+// this.  cblRawLineType is not used: layer passes rewrite it on every shape.
+function cblShapeOwnStyleV1(s){
+  s=s||{};
+  var aci=s.cblRawAci==null||s.cblRawAci===''?256:Number(s.cblRawAci);
+  var lt=String(s.cblRawLinetype==null?'':s.cblRawLinetype).trim();
+  var lw=s.cblRawLineWeight==null||s.cblRawLineWeight===''?-1:Number(s.cblRawLineWeight);
+  return {
+    color:(Number.isFinite(aci)&&aci!==256&&aci!==0)||(s.cblRawTrueColor!=null&&s.cblRawTrueColor!==''),
+    linetype:!/^(bylayer|byblock)?$/i.test(lt),
+    lineweight:Number.isFinite(lw)&&lw!==-1&&lw!==-2
+  };
+}
+</script>
+
+<script>
 (function () {
   if (window.__cblCadLayerManagerWideV1) return;
   window.__cblCadLayerManagerWideV1 = true;
@@ -10302,22 +10320,13 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
     if (!s.layId) s.layId = l.id;
     if (Number(s.layId) !== Number(l.id)) return;
 
-    // Only ByLayer properties follow the layer.  A DWG object with its own
-    // colour, linetype or lineweight (or one set in the property panel)
-    // keeps it, as in AutoCAD.
-    const rawAci = s.cblRawAci == null ? 256 : Number(s.cblRawAci);
-    const ownColor = (rawAci !== 256 && rawAci !== 0) || (s.cblRawTrueColor != null && s.cblRawTrueColor !== "");
-    const rawLinetype = String(s.cblRawLinetype != null ? s.cblRawLinetype : (s.cblRawLineType != null ? s.cblRawLineType : "ByLayer"));
-    const ownLinetype = !/^(bylayer|byblock)?$/i.test(rawLinetype.trim());
-    const rawLineWeight = s.cblRawLineWeight == null ? -1 : Number(s.cblRawLineWeight);
-    const ownLineWeight = rawLineWeight !== -1 && rawLineWeight !== -2;
-
-    if (!ownColor) s.stroke = l.color;
-    if (!ownLineWeight) {
+    const own = cblShapeOwnStyleV1(s);
+    if (!own.color) s.stroke = l.color;
+    if (!own.lineweight) {
       s.lineWidth = Number(l.lineWidth || 1.5);
       s.lineWeightLabel = l.lineWeightLabel || cblWeightLabel(l.lineWidth);
     }
-    if (!ownLinetype) {
+    if (!own.linetype) {
       s.dash = l.linetype || "solid";
       s.linetype = l.linetype || "solid";
     }
@@ -10946,9 +10955,10 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
     if(!layer) return;
 
     shapeEachInLayer(layer.id, function(s){
-      s.stroke = layer.color;
-      s.lineWidth = lwToPx(layer.lineWidth);
-      s.dash = ltNorm(layer.lineType);
+      var own = cblShapeOwnStyleV1(s);
+      if(!own.color) s.stroke = layer.color;
+      if(!own.lineweight) s.lineWidth = lwToPx(layer.lineWidth);
+      if(!own.linetype) s.dash = ltNorm(layer.lineType);
     });
   }
 
@@ -11510,10 +11520,13 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
       if(!s) return;
 
       if(Number(s.layId || 1) === Number(l.id)){
-        s.stroke = l.color;
-        s.lineType = normLT(l.lineType);
-        s.dash = normLT(l.lineType);
-        s.lineWidth = lwToPx(l.lineWidth);
+        var own = cblShapeOwnStyleV1(s);
+        if(!own.color) s.stroke = l.color;
+        if(!own.linetype){
+          s.lineType = normLT(l.lineType);
+          s.dash = normLT(l.lineType);
+        }
+        if(!own.lineweight) s.lineWidth = lwToPx(l.lineWidth);
       }
 
       if(s.type === 'group' && Array.isArray(s.ch)){
@@ -25790,7 +25803,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
   function ltOptions(cur){cur=canonicalLT(cur);var list=BASE_LT.slice();if(list.map(function(x){return x.toUpperCase();}).indexOf(String(cur).toUpperCase())<0)list.unshift(cur);return list.map(function(x){return '<option value="'+esc(x)+'" '+(String(x).toUpperCase()===String(cur).toUpperCase()?'selected':'')+'>'+esc(x)+'</option>';}).join('');}
   function lwOptions(l){normalizeLayer(l);var html='<option value="__DEFAULT__" '+(l.cblLineWeightKind!=='mm'?'selected':'')+'>Default</option>';var cur=Number(l.cblLineWeightMm);var list=BASE_LW.slice();if(l.cblLineWeightKind==='mm'&&Number.isFinite(cur)&&!list.some(function(w){return Math.abs(w-cur)<0.001;}))list.unshift(cur);html+=list.map(function(w){return '<option value="'+w+'" '+(l.cblLineWeightKind==='mm'&&Math.abs(w-cur)<0.001?'selected':'')+'>'+Number(w).toFixed(2)+'</option>';}).join('');return html;}
   function setLayerProp(id,key,value){normalizeLayers();var l=layerById(id);if(!l)return;if(key==='color')l.color=value||'#ffffff';if(key==='lineType'){l.cblRawLineType=value||'Continuous';l.cblLineType=canonicalLT(value);}if(key==='lineWidth'){if(value==='__DEFAULT__'||value==='Default'||value===''||value==null){l.cblLineWeightKind='default';l.cblLineWeightMm=null;l.cblLineWeightRaw=-3;}else{var mm=Number(value);if(!Number.isFinite(mm))mm=0;l.cblLineWeightKind='mm';l.cblLineWeightMm=Math.round(mm*100)/100;l.cblLineWeightRaw=Math.round(l.cblLineWeightMm*100);}}if(key==='visible')l.visible=!!value;if(key==='locked')l.locked=!!value;normalizeLayer(l);applyLayerToShapes(l);syncStyleFromActive();refreshAllSoon(true);try{if(typeof saveH==='function')saveH();}catch(e){}}
-  function applyLayerToShapes(l){if(!l)return;normalizeLayer(l);getShapes().forEach(function(s){if(!s)return;function one(o){if(!o)return;if(Number(o.layId||1)!==Number(l.id))return;o.stroke=l.color;o.color=l.color;o.cblLineType=l.cblLineType;o.cblRawLineType=l.cblRawLineType;o.lineType=l.cblLineType;o.dash=l.cblLineType;var lw=effectiveLayerLW(l);o.cblLineWeightKind=lw.kind;o.cblLineWeightMm=lw.mm;o.cblLineWeightRaw=lw.raw;o.lineweight=lw.kind==='mm'?lw.mm:-3;o.lineWidth=lw.kind==='mm'?mmToPx(lw.mm):1;}if(s.type==='group'&&Array.isArray(s.ch))s.ch.forEach(one);one(s);});}
+  function applyLayerToShapes(l){if(!l)return;normalizeLayer(l);getShapes().forEach(function(s){if(!s)return;function one(o){if(!o)return;if(Number(o.layId||1)!==Number(l.id))return;var own=cblShapeOwnStyleV1(o);if(!own.color){o.stroke=l.color;o.color=l.color;}if(!own.linetype){o.cblLineType=l.cblLineType;o.cblRawLineType=l.cblRawLineType;o.lineType=l.cblLineType;o.dash=l.cblLineType;}if(!own.lineweight){var lw=effectiveLayerLW(l);o.cblLineWeightKind=lw.kind;o.cblLineWeightMm=lw.mm;o.cblLineWeightRaw=lw.raw;o.lineweight=lw.kind==='mm'?lw.mm:-3;o.lineWidth=lw.kind==='mm'?mmToPx(lw.mm):1;}}if(s.type==='group'&&Array.isArray(s.ch))s.ch.forEach(one);one(s);});}
   function applyAllLayerStyles(){normalizeLayers();getLayers().forEach(applyLayerToShapes);}
   function syncStyleFromActive(){normalizeLayers();var l=layerById(g('actLay',1));if(!l)return;normalizeLayer(l);try{var styl=g('styl',null);if(styl&&typeof styl==='object'){styl.stroke=l.color;styl.dash=l.cblLineType;styl.lineWidth=effectiveLayerLW(l).kind==='mm'?mmToPx(l.cblLineWeightMm):1;}}catch(e){}[['rS',l.color],['pS',l.color]].forEach(function(p){var el=E(p[0]);if(el)el.value=p[1];});var px=effectiveLayerLW(l).kind==='mm'?mmToPx(l.cblLineWeightMm):1;[['rW',px],['pW',px],['pW2',px]].forEach(function(p){var el=E(p[0]);if(el)el.value=p[1];});['rD','pD','layLTDrop','cblTopLayerLtV3','cblTopLayDash'].forEach(function(id){var el=E(id);if(el){el.innerHTML=ltOptions(l.cblLineType);try{el.value=l.cblLineType;}catch(e){}}});['layLWDrop','cblTopLayerLwV3','cblTopLayWeight'].forEach(function(id){var el=E(id);if(el){el.innerHTML=lwOptions(l);try{el.value=l.cblLineWeightKind==='mm'?String(l.cblLineWeightMm):'__DEFAULT__';}catch(e){}}});['layColorPick','cblTopLayerColorV3','cblTopLayColor'].forEach(function(id){var el=E(id);if(el)el.value=l.color;});}
   function renderLayerRows(){normalizeLayers();var list=E('layList');if(!list)return;var parent=list.parentNode;if(parent){var oldNotes=parent.querySelectorAll('.cbl-lay-style-note-v1,.cbl-lay-style-head-v1,.cbl-layer-original-note-v2,.cbl-layer-original-head-v2');Array.prototype.forEach.call(oldNotes,function(n){try{n.remove();}catch(e){}});var note=document.createElement('div');note.className='cbl-layer-original-note-v2';note.textContent='DWG/DXF LAYER 원본값 적용: 선종류는 원본명 유지, 선두께 -3/없음은 Default로 표시';parent.insertBefore(note,list);var head=document.createElement('div');head.className='cbl-layer-original-head-v2';head.innerHTML='<span>색</span><span>레이어</span><span>선종류</span><span>선두께</span><span>ON</span><span>잠금</span>';parent.insertBefore(head,list);}list.innerHTML='';var act=Number(g('actLay',1));Array.from(getLayers()).reverse().forEach(function(l){normalizeLayer(l);var li=document.createElement('li');li.className='cbl-layer-original-row-v2'+(Number(l.id)===act?' cur':'')+(l.visible===false?' off':'');li.title='레이어 선택: '+l.name;li.innerHTML='<input type="color" value="'+esc(l.color)+'" title="선색"><span class="lay-name" title="'+esc(l.name)+'">'+esc(l.name)+'</span><select class="lt" title="선종류">'+ltOptions(l.cblLineType)+'</select><select class="lw" title="선두께">'+lwOptions(l)+'</select><button type="button" class="vis" title="표시">'+(l.visible===false?'OFF':'ON')+'</button><button type="button" class="lock" title="잠금">'+(l.locked?'🔒':'')+'</button>';li.onclick=function(){sg('actLay',Number(l.id));syncStyleFromActive();renderLayerRows();refreshDropdowns();try{if(typeof render==='function')render();}catch(e){}};var color=li.querySelector('input[type=color]');color.onclick=function(ev){ev.stopPropagation();};color.oninput=function(ev){ev.stopPropagation();setLayerProp(l.id,'color',this.value);};var lt=li.querySelector('select.lt');lt.onclick=function(ev){ev.stopPropagation();};lt.onchange=function(ev){ev.stopPropagation();setLayerProp(l.id,'lineType',this.value);};var lw=li.querySelector('select.lw');lw.onclick=function(ev){ev.stopPropagation();};lw.onchange=function(ev){ev.stopPropagation();setLayerProp(l.id,'lineWidth',this.value);};var vb=li.querySelector('button.vis');vb.onclick=function(ev){ev.stopPropagation();setLayerProp(l.id,'visible',!(l.visible!==false));};var lb=li.querySelector('button.lock');lb.onclick=function(ev){ev.stopPropagation();setLayerProp(l.id,'locked',!l.locked);};list.appendChild(li);});}

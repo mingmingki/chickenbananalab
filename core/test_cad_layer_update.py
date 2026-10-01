@@ -118,6 +118,7 @@ class CadWriterErrorMessageTests(SimpleTestCase):
 import shutil as _shutil
 
 from .test_cad_dwg_save_integrity import _build_ops_source, _html, _line
+from .test_cad_layer_own_style import _function
 
 NODE = _shutil.which("node")
 
@@ -213,6 +214,7 @@ class CadLayerFollowTests(SimpleTestCase):
         body = html[start:html.index("\n  function cblSyncShapesByLayer", start)]
         weight = html.index("  function cblWeightLabel(width) {")
         helpers = html[weight:html.index("\n  function ", weight + 10)] + "\n" + body
+        helpers = _function(html, "function cblShapeOwnStyleV1(s){") + "\n" + helpers
         script = APPLY_HARNESS % {"helpers": helpers, "shapes": json.dumps(shapes)}
         run = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=60)
         self.assertEqual(run.returncode, 0, run.stderr)
