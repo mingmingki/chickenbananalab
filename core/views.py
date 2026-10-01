@@ -24009,6 +24009,24 @@ def _cbl_free_dwg_local_convert_v1(data, original_name):
         }
 
 
+_CBL_DXF_UNICODE_ESCAPE_RE_V1 = _cbl_re.compile(r"\\U\+([0-9A-Fa-f]{4})")
+
+
+def _cbl_decode_dxf_unicode_escapes_v1(text):
+    """Turn \\U+XXXX back into characters for the editor.
+
+    A drawing whose code page cannot hold a character (Korean in an
+    ANSI_1252 DWG) stores it as \\U+XXXX, as AutoCAD does.  ASCII and
+    surrogate values stay as written so no DXF syntax (newlines) appears.
+    """
+    def replace(match):
+        code = int(match.group(1), 16)
+        if code < 0x80 or 0xD800 <= code <= 0xDFFF:
+            return match.group(0)
+        return chr(code)
+    return _CBL_DXF_UNICODE_ESCAPE_RE_V1.sub(replace, text)
+
+
 def _cbl_build_original_source_layer_manifest_v1(report, dxf_text=""):
     """Build an independent, handle-keyed source manifest for browser audit.
 
@@ -24198,6 +24216,7 @@ def cblcad_free_dwg_local_api(request):
                     # Korean STYLE names and text are not replaced by �.
                     code_page = dxf_bytes[:4096].lower()
                     dxf_text = dxf_bytes.decode("cp949" if b"kcs5601" in code_page else "utf-8", errors="replace")
+                dxf_text = _cbl_decode_dxf_unicode_escapes_v1(dxf_text)
             response = _cbl_JsonResponse({
                 "ok": True, "format": "acadsharp-dxf", "converter": "free-acadsharp",
                 "oda_used": False, "v29_used": False, "oda_executed": False,

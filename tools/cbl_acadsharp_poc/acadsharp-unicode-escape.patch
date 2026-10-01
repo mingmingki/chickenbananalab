@@ -1,0 +1,153 @@
+diff --git a/src/ACadSharp/IO/CadWriterBase.cs b/src/ACadSharp/IO/CadWriterBase.cs
+--- a/src/ACadSharp/IO/CadWriterBase.cs
++++ b/src/ACadSharp/IO/CadWriterBase.cs
+@@ -74,14 +74,14 @@
+ #if !NET48
+ 				Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+ #endif
+-				return Encoding.GetEncoding((int)code);
++				return UnicodeEscapeEncoderFallback.Apply(Encoding.GetEncoding((int)code));
+ 			}
+ 			catch (Exception ex)
+ 			{
+ 				this.triggerNotification($"Encoding with code {code} not found, using Windows-1252 as default", NotificationType.Warning, ex);
+ 			}
+ 
+-			return TextEncoding.Windows1252();
++			return UnicodeEscapeEncoderFallback.Apply(TextEncoding.Windows1252());
+ 		}
+ 
+ 		protected void triggerNotification(string message, NotificationType notificationType, Exception ex = null)
+@@ -102,4 +102,72 @@
+ 			}
+ 		}
+ 	}
+-}
+\ No newline at end of file
++
++	/// <summary>
++	/// Writes a character the drawing code page cannot hold as \U+XXXX, the
++	/// notation AutoCAD uses in pre-2007 DWG/DXF strings, instead of '?'.
++	/// </summary>
++	internal sealed class UnicodeEscapeEncoderFallback : EncoderFallback
++	{
++		public static Encoding Apply(Encoding encoding)
++		{
++			var clone = (Encoding)encoding.Clone();
++			clone.EncoderFallback = new UnicodeEscapeEncoderFallback();
++			return clone;
++		}
++
++		/// <summary>
++		/// The code page encoding as it was before <see cref="Apply"/>.  For
++		/// strings whose length is written as a character count (XRECORD and
++		/// extended data), where a 7-byte \U+XXXX would break the length.
++		/// </summary>
++		public static Encoding WithoutEscapes(Encoding encoding)
++		{
++			return encoding.EncoderFallback is UnicodeEscapeEncoderFallback ? Encoding.GetEncoding(encoding.CodePage) : encoding;
++		}
++
++		public override int MaxCharCount => 7;
++
++		public override EncoderFallbackBuffer CreateFallbackBuffer() => new Buffer();
++
++		private sealed class Buffer : EncoderFallbackBuffer
++		{
++			private string _text = string.Empty;
++			private int _index;
++
++			public override int Remaining => this._text.Length - this._index;
++
++			public override bool Fallback(char charUnknown, int index)
++			{
++				// A lone surrogate has no \U+ form, and U+FFFD marks a string the
++				// reader could not decode; both keep the old '?'.
++				this._text = char.IsSurrogate(charUnknown) || charUnknown == '\uFFFD' ? "?" : $"\\U+{(int)charUnknown:X4}";
++				this._index = 0;
++				return true;
++			}
++
++			public override bool Fallback(char charUnknownHigh, char charUnknownLow, int index)
++			{
++				// \U+ has four hex digits (BMP only), as in AutoCAD.
++				this._text = "?";
++				this._index = 0;
++				return true;
++			}
++
++			public override char GetNextChar() => this._index < this._text.Length ? this._text[this._index++] : '\0';
++
++			public override bool MovePrevious()
++			{
++				if (this._index == 0) return false;
++				this._index--;
++				return true;
++			}
++
++			public override void Reset()
++			{
++				this._text = string.Empty;
++				this._index = 0;
++			}
++		}
++	}
++}
+diff --git a/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgStreamReaderBase.cs b/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgStreamReaderBase.cs
+--- a/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgStreamReaderBase.cs
++++ b/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgStreamReaderBase.cs
+@@ -876,6 +876,21 @@
+ 			return value;
+ 		}
+ 
++		/// <summary>
++		/// Pre-2007 strings hold characters outside the code page as \U+XXXX
++		/// (written so by AutoCAD and by our writer); turn them back into the
++		/// characters.  ASCII and surrogate values stay as written.
++		/// </summary>
++		internal static string DecodeUnicodeEscapes(string value)
++		{
++			if (value.IndexOf("\\U+", StringComparison.Ordinal) < 0) return value;
++			return System.Text.RegularExpressions.Regex.Replace(value, @"\\U\+([0-9A-Fa-f]{4})", m =>
++			{
++				int code = Convert.ToInt32(m.Groups[1].Value, 16);
++				return code < 0x80 || (code >= 0xD800 && code <= 0xDFFF) ? m.Value : ((char)code).ToString();
++			});
++		}
++
+ 		/// <inheritdoc/>
+ 		public virtual string ReadVariableText()
+ 		{
+@@ -883,7 +898,7 @@
+ 			string str;
+ 			if (length > 0)
+ 			{
+-				str = this.ReadString(length, this.Encoding).Replace("\0", "");
++				str = DecodeUnicodeEscapes(this.ReadString(length, this.Encoding).Replace("\0", ""));
+ 			}
+ 			else
+ 				str = string.Empty;
+diff --git a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Common.cs b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Common.cs
+--- a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Common.cs
++++ b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Common.cs
+@@ -432,7 +432,7 @@
+ 							else
+ 							{
+ 								var encodingIndex = CadUtils.GetCodeIndex((CSUtilities.Text.CodePage)this._writer.Encoding.CodePage);
+-								byte[] bytes = this._writer.Encoding.GetBytes(string.IsNullOrEmpty(str.Value) ? string.Empty : str.Value);
++								byte[] bytes = UnicodeEscapeEncoderFallback.WithoutEscapes(this._writer.Encoding).GetBytes(string.IsNullOrEmpty(str.Value) ? string.Empty : str.Value);
+ 
+ 								mstream.Write(LittleEndianConverter.Instance.GetBytes((ushort)str.Value.Length), 0, 2);
+ 								mstream.WriteByte((byte)encodingIndex);
+diff --git a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Objects.cs b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Objects.cs
+--- a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Objects.cs
++++ b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Objects.cs
+@@ -1557,7 +1557,7 @@
+ 		{
+ 			ms.Write<short>((short)text.Length);
+ 			ms.Write((byte)CadUtils.GetCodeIndex((CodePage)this._writer.Encoding.CodePage));
+-			ms.Write(text, this._writer.Encoding);
++			ms.Write(text, UnicodeEscapeEncoderFallback.WithoutEscapes(this._writer.Encoding));
+ 		}
+ 	}
+ 

@@ -82,3 +82,11 @@ MINSERT는 실제 DWG object type이 MINSERT일 때만 `WasReadAsMInsert`를 설
 따라서 1x1 MINSERT의 배열 필드·spacing을 보존하고, 새 1x1 Insert는 일반 INSERT로
 남는다. 재현용 패치는 `acadsharp-region-minsert.patch`, 적용 스크립트는
 `apply_acadsharp_region_minsert_patch.sh`이다.
+
+## 코드페이지 밖 문자 (`acadsharp-unicode-escape.patch`)
+
+AC1018 문자열은 도면 코드페이지로 저장된다. ANSI_1252 도면의 한글처럼 코드페이지에
+없는 문자는 원래 `?`로 바뀌었다. 이 패치는 AutoCAD와 같이 `\U+XXXX`로 쓰고, DWG를
+읽을 때 다시 문자로 푼다(DXF는 서버 열기 API가 푼다). XRECORD·확장데이터 문자열은
+길이를 글자 수로 적으므로 예전 인코딩(`?`)을 그대로 쓴다. U+FFFD(읽기 실패 표시)와
+BMP 밖 문자도 `?`로 남는다. 같은 적용 스크립트가 두 패치를 차례로 적용한다.

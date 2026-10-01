@@ -2,7 +2,10 @@
 set -eu
 
 fork_root=${1:?usage: $0 /path/to/ACadSharp-v3.6.51}
-patch_file=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/acadsharp-region-minsert.patch
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
-patch -d "$fork_root" -p1 --forward < "$patch_file"
-printf '%s\n' "Applied ACadSharp REGION/MINSERT POC patch to $fork_root"
+# REGION/MINSERT first, then \U+XXXX for characters outside the code page.
+for patch_file in "$here/acadsharp-region-minsert.patch" "$here/acadsharp-unicode-escape.patch"; do
+  patch -d "$fork_root" -p1 --forward < "$patch_file"
+done
+printf '%s\n' "Applied ACadSharp REGION/MINSERT and unicode-escape patches to $fork_root"
