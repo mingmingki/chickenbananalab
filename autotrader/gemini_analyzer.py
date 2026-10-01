@@ -13,6 +13,53 @@ import usage_log
 logger = logging.getLogger("trader.gemini")
 GEMINI_REQUEST_TIMEOUT_MS = 20_000
 
+EXIT_PRICE_SCHEMA = {
+    "type": "OBJECT",
+    "nullable": True,
+    "properties": {
+        "stop_loss_price": {"type": "NUMBER", "nullable": True, "description": "Scenario invalidation price."},
+        "take_profit_1_price": {"type": "NUMBER", "nullable": True, "description": "First meaningful profit-taking price."},
+        "take_profit_2_price": {"type": "NUMBER", "nullable": True, "description": "Optional trend-extension target price."},
+        "confidence": {"type": "NUMBER", "nullable": True, "minimum": 0, "maximum": 1},
+        "reasoning": {"type": "STRING", "description": "Concise Korean price rationale in 1-2 sentences."},
+    },
+    "required": ["stop_loss_price", "take_profit_1_price", "take_profit_2_price", "confidence", "reasoning"],
+}
+
+GEMINI_DECISION_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "action": {"type": "STRING", "enum": ["long", "short", "close", "hold"]},
+        "confidence": {"type": "NUMBER", "minimum": 0, "maximum": 1},
+        "market_regime": {"type": "STRING", "enum": ["bullish", "bearish", "neutral", "transition"]},
+        "regime_confidence": {"type": "NUMBER", "minimum": 0, "maximum": 1},
+        "trade_alignment": {"type": "STRING", "enum": ["with_regime", "counter_regime", "neutral"]},
+        "exit_plan": EXIT_PRICE_SCHEMA,
+        "reasoning": {"type": "STRING", "description": "Concrete Korean decision rationale in 2-3 concise sentences."},
+    },
+    "required": ["action", "confidence", "market_regime", "regime_confidence", "trade_alignment", "exit_plan", "reasoning"],
+}
+
+ENTRY_EXIT_PLAN_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "confidence": {"type": "NUMBER", "minimum": 0, "maximum": 1},
+        "exit_plan": EXIT_PRICE_SCHEMA,
+        "reasoning": {"type": "STRING", "description": "Concise Korean overall price-plan rationale."},
+    },
+    "required": ["confidence", "exit_plan", "reasoning"],
+}
+
+POSITION_REVIEW_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "assessment": {"type": "STRING", "enum": ["thesis_intact", "weakening", "invalidated"]},
+        "confidence": {"type": "NUMBER", "minimum": 0, "maximum": 1},
+        "reasoning": {"type": "STRING", "description": "Concrete Korean thesis review in 2-3 concise sentences."},
+    },
+    "required": ["assessment", "confidence", "reasoning"],
+}
+
 
 def _get_client(cfg) -> genai.Client:
     # 계정마다 Gemini 키가 다르므로 클라이언트도 cfg 인스턴스에 붙여서 계정별로 캐싱한다.
@@ -103,26 +150,9 @@ take_profit_2_price가 있으면 take_profit_1_price 이하가 될 수 없습니
 stop_loss_price > 현재가격 > take_profit_1_price 이고 take_profit_2_price가 있으면
 take_profit_1_price 이상이 될 수 없습니다. close/hold이면 세 가격은 null로 답하세요.
 
-반드시 아래 JSON 형식으로만 답하세요. 다른 텍스트는 포함하지 마세요.
-{{
-  "action": "long" | "short" | "close" | "hold",
-  "confidence": 0.0에서 1.0 사이 숫자,
-  "market_regime": "bullish" | "bearish" | "neutral" | "transition",
-  "regime_confidence": 0.0에서 1.0 사이 숫자 (market_regime 판단에 대한 확신도),
-  "trade_alignment": "with_regime" | "counter_regime" | "neutral",
-  "exit_plan": {{
-    "stop_loss_price": 숫자 | null,
-    "take_profit_1_price": 숫자 | null,
-    "take_profit_2_price": 숫자 | null,
-    "confidence": 0.0에서 1.0 사이 숫자 | null,
-    "reasoning": "왜 이 손절/익절 가격이 적절한지 1~2문장"
-  }},
-  "reasoning": "판단 근거를 2~3문장으로"
-}}
-trade_alignment: 이번 action이 market_regime과 같은 방향이면 "with_regime"(예: bullish
-레짐에서 long, 또는 bullish 레짐에서 기존 long을 hold/유지), 반대 방향이면
-"counter_regime"(예: bullish 레짐에서 short 또는 기존 long을 close), 방향성이 없는
-행동(hold+무포지션 등)이면 "neutral"로 답하세요.
+응답은 제공된 response schema와 일치하는 JSON만 반환하세요. reasoning은 지금 해당되는
+근거를 2~3문장으로 구체적으로 쓰고, trade_alignment는 이번 행동이 시장 레짐과 같은
+방향이면 with_regime, 반대면 counter_regime, 무포지션 hold처럼 방향성이 없으면 neutral로 답하세요.
 """
 
 
@@ -136,18 +166,7 @@ Candidate C의 진입 방향은 규칙 엔진이 이미 확정했으며 당신�
 규칙 엔진 기준 보호가격(참고용): stop={baseline_stop}, target={baseline_target}
 {exit_price_contract}
 현재 구조/변동성/지지저항을 사용해 고정 퍼센트를 기계적으로 복사하지 말고 가격을 제안하세요.
-반드시 JSON만 반환하세요:
-{{
-  "confidence": 0.0에서 1.0 사이 숫자,
-  "exit_plan": {{
-    "stop_loss_price": 숫자,
-    "take_profit_1_price": 숫자,
-    "take_profit_2_price": 숫자 | null,
-    "confidence": 0.0에서 1.0 사이 숫자,
-    "reasoning": "가격 근거 1~2문장"
-  }},
-  "reasoning": "전체 가격계획 근거 1~2문장"
-}}
+응답은 제공된 response schema와 일치하는 JSON만 반환하고 가격 근거는 1~2문장으로 간결하게 쓰세요.
 """
 
 
@@ -169,6 +188,7 @@ def propose_entry_exit_plan(cfg, symbol: str, side: str, tf_list: list, candle_s
         model=cfg.GEMINI_MODEL, contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
+            response_schema=ENTRY_EXIT_PLAN_SCHEMA,
             thinking_config=types.ThinkingConfig(thinking_level="low"),
         ),
     )
@@ -178,6 +198,7 @@ def propose_entry_exit_plan(cfg, symbol: str, side: str, tf_list: list, candle_s
             usage_log.record_usage(
                 cfg.user_dir, symbol, usage.prompt_token_count or 0,
                 (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0),
+                purpose="candidate_exit_plan",
             )
         except Exception:
             log.exception("Candidate C Gemini exit-plan 토큰 사용량 기록 실패")
@@ -222,6 +243,7 @@ def analyze(cfg, symbol: str, tf_list: list, candle_summary: str, position: dict
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
+            response_schema=GEMINI_DECISION_SCHEMA,
             # Gemini 3.8 Flash는 thinking_budget 대신 thinking_level을 사용한다.
             # 실시간 매매 판단은 지연을 억제하면서도 3.8의 추론을 쓰도록 LOW로 고정한다.
             thinking_config=types.ThinkingConfig(thinking_level="low"),
@@ -236,7 +258,9 @@ def analyze(cfg, symbol: str, tf_list: list, candle_summary: str, position: dict
         # "생각(thinking)" 토큰도 실제로는 출력 토큰과 같이 과금되므로 합산한다.
         output_tokens = (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0)
         try:
-            usage_log.record_usage(cfg.user_dir, symbol, input_tokens, output_tokens)
+            usage_log.record_usage(
+                cfg.user_dir, symbol, input_tokens, output_tokens, purpose="core_primary_decision"
+            )
         except Exception:
             log.exception("토큰 사용량 기록 실패")
 
@@ -315,12 +339,7 @@ POSITION_REVIEW_PROMPT_TEMPLATE = """당신은 암호화폐 선물 트레이딩 
 - "invalidated": 처음 포지션을 유지한 근거가 사실상 무너졌다 (추세 반전, 구조 붕괴,
   명확한 역행 신호).
 
-반드시 아래 JSON 형식으로만 답하세요. 다른 텍스트는 포함하지 마세요.
-{{
-  "assessment": "thesis_intact" | "weakening" | "invalidated",
-  "confidence": 0.0에서 1.0 사이 숫자,
-  "reasoning": "판단 근거를 2~3문장으로"
-}}
+응답은 제공된 response schema와 일치하는 JSON만 반환하고 판단 근거는 2~3문장으로 구체적으로 쓰세요.
 """
 
 
@@ -398,6 +417,7 @@ def analyze_held_position(
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
+            response_schema=POSITION_REVIEW_SCHEMA,
             thinking_config=types.ThinkingConfig(thinking_level="low"),
         ),
     )

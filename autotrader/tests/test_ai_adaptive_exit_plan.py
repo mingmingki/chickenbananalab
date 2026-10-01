@@ -106,7 +106,10 @@ def test_apply_ai_price_plan_supports_short_direction():
 
 
 def test_gemini_and_gpt_prompts_include_ai_exit_price_contract():
-    assert '"exit_plan"' in gemini_analyzer.PROMPT_TEMPLATE
+    gemini_exit = gemini_analyzer.GEMINI_DECISION_SCHEMA["properties"]["exit_plan"]["properties"]
+    assert "stop_loss_price" in gemini_exit
+    assert "take_profit_1_price" in gemini_exit
+    assert "take_profit_2_price" in gemini_exit
     assert "stop_loss_price" in gemini_analyzer.PROMPT_TEMPLATE
     assert "take_profit_1_price" in gemini_analyzer.PROMPT_TEMPLATE
     assert "exit_plan_decision" in openai_analyzer.PROMPT_TEMPLATE
@@ -124,5 +127,9 @@ def test_trader_applies_verified_ai_exit_plan_only_after_gpt_gate():
 
 
 def test_ai_exit_plan_json_braces_are_safe_for_python_format_templates():
-    assert '"exit_plan": {{' in gemini_analyzer.PROMPT_TEMPLATE
+    rendered = gemini_analyzer.PROMPT_TEMPLATE.format(
+        symbol="BTC/USDT:USDT", timeframes_desc="1m, 5m", candle_summary="compact", position_desc="없음"
+    )
+    assert "response schema" in rendered
+    assert "exit_plan" in gemini_analyzer.GEMINI_DECISION_SCHEMA["properties"]
     assert '"exit_plan": {{' in openai_analyzer.PROMPT_TEMPLATE

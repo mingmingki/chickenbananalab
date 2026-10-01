@@ -109,17 +109,90 @@ def _read_only_self_learning_snapshot(user_dir):
     }
 
 
+def _project(row, fields):
+    if not isinstance(row, dict):
+        return {}
+    return {key: row[key] for key in fields if key in row and row[key] is not None}
+
+
+def _compact_trade(row):
+    out = _project(row, ('trade_id','symbol','side','strategy_group','entry_time','exit_time',
+                         'net_pnl','holding_minutes','final_close_reason'))
+    features = row.get('features') or {}
+    compact_features = _project(features, (
+        'market_regime','trade_alignment','short_level','correction_active','entry_kind',
+        'gemini_confidence_bucket','gpt_confidence_bucket','entry_hour_kst','weekday'))
+    tf = features.get('tf') or {}
+    tf_state = {name: (tf.get(name) or {}).get('state') for name in ('1m','3m','5m','1h','4h','1d')
+                if (tf.get(name) or {}).get('state') not in (None, 'unknown')}
+    if tf_state:
+        compact_features['tf_state'] = tf_state
+    if compact_features:
+        out['features'] = compact_features
+    return out
+
+
+def _compact_metric(row):
+    return _project(row, ('completed_trades','condition','dimension','value','count','wins','losses','win_rate',
+                          'profit_factor','net_pnl','avg_net_pnl','avg_win','avg_loss',
+                          'median_net_pnl','max_single_trade_loss','coverage_ratio',
+                          'sample_class','validated'))
+
+
+def _compact_hypothesis(row):
+    out = _project(row, ('hypothesis_id','sample_count','trend','sample_class','status','data_quality'))
+    out['condition'] = _project(row.get('condition') or {}, ('dimension','value','label'))
+    out['metrics'] = _project(row.get('metrics') or {}, ('win_rate','profit_factor','net_pnl','count','coverage_ratio'))
+    previous = _project(row.get('previous_metrics') or {}, ('win_rate','profit_factor','net_pnl','count','coverage_ratio'))
+    if previous:
+        out['previous_metrics'] = previous
+    return out
+
+
+def _compact_self_learning(row):
+    out = _project(row, ('window_id','duplicate_checkpoint','safe','state_counts','resolved_counterfactuals',
+                         'shadow_benefit_net','mode'))
+    out['transitions'] = [_project(x, ('pattern_id','old_state','new_state','reason'))
+                          for x in (row.get('transitions') or [])[-10:]]
+    out['recent_interventions'] = [_project(x, ('decision_id','symbol','side','timestamp','matched_patterns',
+        'learner_action','confidence_delta','live_applied','baseline_order_executed','upstream_blocked','reason'))
+        for x in (row.get('recent_interventions') or [])[:8]]
+    out['recent_counterfactuals'] = [_project(x, ('decision_id','lifecycle_id','symbol','side','decision_time',
+        'matched_patterns','learner_action','live_applied','actual_net_pnl','policy_benefit_net','outcome'))
+        for x in (row.get('recent_counterfactuals') or [])[:8]]
+    evidence = row.get('evidence') or {}
+    out['evidence'] = [dict(pattern_id=pid, **_project(ev, ('dimension','value','label','sample_count','coverage',
+        'resolved_count','shadow_benefit_net','recent_benefit_net','recent_direction','long_direction',
+        'outlier_share','profit_factor','data_integrity_issue'))) for pid, ev in sorted(evidence.items())[:20]]
+    exit_shadow = row.get('exit_reentry_shadow') or {}
+    out['exit_reentry_shadow'] = _project(exit_shadow, ('mode','live_authority','state_counts','samples_created'))
+    exit_evidence = exit_shadow.get('evidence') or {}
+    if exit_evidence:
+        out['exit_reentry_shadow']['evidence'] = [dict(pattern_id=pid, **_project(ev, (
+            'sample_count','resolved_count','coverage','churn_cycle_net','recent_direction','positive_count','negative_count')))
+            for pid, ev in sorted(exit_evidence.items())[:20]]
+    return out
+
+
 def _compact_payload(user_dir,start,end,analysis,self_learning):
     trades=[]
     for row in analysis.get('trades',[]):
         stamp=_parse_kst(row.get('exit_time'))
         if stamp is not None and start <= stamp < end:
-            trades.append({'trade_id':row.get('trade_id'),'symbol':row.get('symbol'),'side':row.get('side'),'net_pnl':row.get('net_pnl'),'features':row.get('features')})
+            trades.append(_compact_trade(row))
     groups=analysis.get('groups') or []
-    established=[g for g in groups if g.get('sample_class')=='established_sample'][:30]
-    watch=[g for g in groups if g.get('sample_class')=='watch'][:30]
-    hypotheses=list(strategy_learning.latest_hypotheses(user_dir).values())
-    return {'window_start':start.isoformat(),'window_end':end.isoformat(),'completed_trades':trades,'patterns_established':established,'patterns_watch':watch,'coverage':analysis.get('coverage') or {},'hypotheses':hypotheses[:50],'self_learning':self_learning}
+    rank=lambda g: (-int(g.get('count') or 0), str(g.get('condition') or ''))
+    established=[_compact_metric(g) for g in sorted((g for g in groups if g.get('sample_class')=='established_sample'), key=rank)[:12]]
+    watch=[_compact_metric(g) for g in sorted((g for g in groups if g.get('sample_class')=='watch'), key=rank)[:12]]
+    hypotheses=sorted(strategy_learning.latest_hypotheses(user_dir).values(),
+                      key=lambda h: (-int(h.get('sample_count') or 0), str(h.get('hypothesis_id') or '')))
+    return {
+        'payload_version':'strategy_review_compact_v2', 'window_start':start.isoformat(), 'window_end':end.isoformat(),
+        'summary':_compact_metric(analysis.get('summary') or {}), 'completed_trades':trades[-40:],
+        'patterns_established':established, 'patterns_watch':watch, 'coverage':analysis.get('coverage') or {},
+        'hypotheses':[_compact_hypothesis(h) for h in hypotheses[:20]],
+        'self_learning':_compact_self_learning(self_learning or {}),
+    }
 
 def _normalize(result):
     result=result if isinstance(result,dict) else {}
