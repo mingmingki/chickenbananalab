@@ -30,6 +30,7 @@ import exchange_fee_ledger
 import exchange_funding_ledger
 import exit_reentry_shadow
 import entry_counterfactual_shadow
+import entry_quality_shadow
 import candidate_c_early_exit_shadow
 import fee_aware_entry_shadow
 import low_follow_through_shadow
@@ -1246,6 +1247,7 @@ def _analysis_report_snapshot(ctx, analysis_payload):
         'fee_aware_entry_shadow': fee_aware_entry_shadow.summarize(ctx.dir, trade_learning_lifecycle.build_completed_lifecycles(ctx.dir), limit=150),
         'low_follow_through_shadow': low_follow_through_shadow.summary(ctx.dir, 150),
         'score4_pullback_shadow': score4_pullback_shadow.summary(ctx.dir, 150),
+        'entry_quality_shadow': entry_quality_shadow.summary(ctx.dir),
     }
 
 

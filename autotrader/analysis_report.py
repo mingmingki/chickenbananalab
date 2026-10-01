@@ -344,6 +344,31 @@ def _score4_pullback_lines(data: dict):
     return lines
 
 
+def _entry_quality_lines(data: dict):
+    if not data:
+        return ["- 데이터 없음"]
+    status = data.get("sample_status") or "insufficient"
+    lines = [
+        f"Shadow only · 실전 영향 없음 · 기준 {data.get('cohort_start_kst','-')} KST · "
+        f"CORE 자동 표본 {int(((data.get('cohorts') or {}).get('auto_core') or {}).get('count') or 0)}/"
+        f"{int(data.get('sample_target_min') or 20)} · 상태 {status}",
+    ]
+    for key, label in (("auto_core","CORE 자동"),("candidate_c_rule","Candidate C"),("manual_core","수동 CORE"),("core_unknown","CORE 미분류")):
+        row=(data.get("cohorts") or {}).get(key) or {}
+        pf=row.get("profit_factor"); pf_text="-" if pf is None else f"{pf:.2f}"
+        lines.append(f"- {label} | n={int(row.get('count') or 0)} | Net {_num(row.get('actual_net'),2,True)} | PF {pf_text}")
+    for name,row in (data.get("rules") or {}).items():
+        pf=row.get("profit_factor"); pf_text="-" if pf is None else f"{pf:.2f}"
+        lines.append(f"- {name} | 통과 {int(row.get('passed_count') or 0)} · 차단 {int(row.get('blocked_count') or 0)} · 미해결 {int(row.get('unresolved_count') or 0)} | 필터후 Net {_num(row.get('filtered_actual_net'),2,True)} | 개선 {_num(row.get('net_improvement_if_blocked'),2,True)} | PF {pf_text}")
+    if data.get("conditions"):
+        lines.append("개별 조건:")
+        for name,row in (data.get("conditions") or {}).items():
+            lines.append(f"- {name} | 통과 {int(row.get('passed_count') or 0)} · 차단 {int(row.get('blocked_count') or 0)} · 미해결 {int(row.get('unresolved_count') or 0)}")
+    lines.append("※ 진입 시점에 이미 알 수 있던 조건만 gate input으로 사용하고 MFE/MAE/실제손익은 사후 평가 라벨로만 사용합니다.")
+    lines.append("※ 20건 미만은 탐색 표본이며 어떤 rule도 실전 진입 차단 권한이 없습니다.")
+    return lines
+
+
 def _review_lines(review: dict):
     if not review:
         return ["구간: - · 정기 전략리뷰 상태 -", "Gemini: -", "GPT: -", "공통 의견: -", "충돌 의견: -"]
@@ -500,6 +525,9 @@ def build_report(snapshot: dict, previous: dict | None = None, now: dt.datetime 
         "",
         "[23. Score=4 Pullback-confirm Shadow]",
         *_score4_pullback_lines(snapshot.get("score4_pullback_shadow") or {}),
+        "",
+        "[24. Post-deploy Entry Quality Shadow]",
+        *_entry_quality_lines(snapshot.get("entry_quality_shadow") or {}),
         "",
         "※ 이 리포트는 과거 로그의 관찰 결과이며 인과관계를 의미하지 않습니다. 표본수와 데이터 누락률을 함께 해석하세요.",
     ]
