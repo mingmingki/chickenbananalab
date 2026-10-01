@@ -25423,6 +25423,15 @@ def _cbl_free_dwg_output_handles_v1(acad_report, ops):
     return output_handles
 
 
+def _cbl_free_dwg_writer_error_message_v1(detail):
+    """Explain writer failures the user can fix; keep the raw detail otherwise."""
+    missing_linetype = _cbl_re.search(r"Linetype not found: ([^\\\"\r\n]+)", detail or "")
+    if missing_linetype:
+        return (f"도면에 없는 선종류({missing_linetype.group(1).strip()})는 저장할 수 없습니다. "
+                "도면에 있는 선종류로 바꾸거나 변경을 되돌려 주세요.")
+    return "ACadSharp Save As 실패: " + (detail or "")
+
+
 @_cbl_csrf_exempt
 def cblcad_free_dwg_save_local_api(request):
     if request.method == "GET":
@@ -25545,7 +25554,7 @@ def cblcad_free_dwg_save_local_api(request):
                                       stderr=_cbl_subprocess.PIPE, timeout=900, check=False)
             if run.returncode != 0 or not output.is_file() or output.stat().st_size < 1024:
                 detail = (run.stderr or run.stdout).decode("utf-8", errors="replace")[-1800:]
-                raise RuntimeError("ACadSharp Save As 실패: " + detail)
+                raise RuntimeError(_cbl_free_dwg_writer_error_message_v1(detail))
 
             try:
                 acad_report = _cbl_json.loads(run.stdout.decode("utf-8", errors="replace"), strict=False)
