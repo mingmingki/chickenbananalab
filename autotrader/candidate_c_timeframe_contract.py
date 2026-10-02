@@ -19,6 +19,7 @@ import mtf_asof
 STEP_5M = 5 * 60 * 1000
 STEP_10M = 10 * 60 * 1000
 DONCHIAN_LOOKBACK_10M = 20
+DONCHIAN_ENTRY_PROXIMITY_PCT = 1.0
 
 
 class ActionTimestampNotConfirmedError(Exception):
@@ -90,15 +91,20 @@ def build_as_of_snapshot(
 
 
 def donchian_setup_condition(snapshot: AsOfSnapshot, side: str) -> bool:
-    """candidate_c_preregistration_v2.json 5.3 - 현재 확정 10분봉을 제외한 이전
-    20개 확정 10분봉으로 Donchian boundary를 계산한다(현재 10분봉은 채널
-    계산에서 제외 - Task 4 요구사항). side는 'long' 또는 'short'."""
+    """Donchian boundary의 1% 이내 접근도 Candidate C setup으로 인정한다.
+
+    채널은 기존과 동일하게 현재 확정 10분봉을 제외한 이전 20개 확정
+    10분봉으로 계산한다. 4H 방향/overextension/risk gate는 호출부에서 그대로
+    적용된다.
+    """
     prior_highs = [b["high"] for b in snapshot.bars_10m_prior_20]
     prior_lows = [b["low"] for b in snapshot.bars_10m_prior_20]
+    close = float(snapshot.bar_10m_current["close"])
+    proximity = DONCHIAN_ENTRY_PROXIMITY_PCT / 100.0
     if side == "long":
-        return snapshot.bar_10m_current["close"] > max(prior_highs)
+        return close >= float(max(prior_highs)) * (1.0 - proximity)
     if side == "short":
-        return snapshot.bar_10m_current["close"] < min(prior_lows)
+        return close <= float(min(prior_lows)) * (1.0 + proximity)
     raise ValueError(f"알 수 없는 side: {side}")
 
 
