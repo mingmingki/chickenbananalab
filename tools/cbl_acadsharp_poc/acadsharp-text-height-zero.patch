@@ -1,0 +1,41 @@
+diff --git a/src/ACadSharp/Entities/TextEntity.cs b/src/ACadSharp/Entities/TextEntity.cs
+--- a/src/ACadSharp/Entities/TextEntity.cs
++++ b/src/ACadSharp/Entities/TextEntity.cs
+@@ -39,6 +39,16 @@
+ 			else
+ 				this._height = value;
+ 		}
++	}
++
++	/// <summary>
++	/// Height as stored in a file.  AutoCAD keeps TEXT with height 0 ("use
++	/// the style height"); the <see cref="Height"/> setter rejects 0, which
++	/// made the DWG reader drop such entities and every save lose them.
++	/// </summary>
++	internal void SetStoredHeight(double value)
++	{
++		this._height = value;
+ 	}
+ 
+ 	/// <summary>
+diff --git a/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgObjectReader.cs b/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgObjectReader.cs
+--- a/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgObjectReader.cs
++++ b/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgObjectReader.cs
+@@ -6075,7 +6075,7 @@
+ 				//Rotation ang BD 50
+ 				text.Rotation = this._objectReader.ReadBitDouble();
+ 				//Height BD 40
+-				text.Height = this._objectReader.ReadBitDouble();
++				text.SetStoredHeight(this._objectReader.ReadBitDouble());
+ 				//Width factor BD 41
+ 				text.WidthFactor = this._objectReader.ReadBitDouble();
+ 				//Text value TV 1
+@@ -6124,7 +6124,7 @@
+ 			if ((dataFlags & 0x8) == 0)
+ 				text.Rotation = this._objectReader.ReadDouble();
+ 			//Height RD 40
+-			text.Height = this._objectReader.ReadDouble();
++			text.SetStoredHeight(this._objectReader.ReadDouble());
+ 			//Width factor RD 41 present if !(DataFlags & 0x10)
+ 			if ((dataFlags & 0x10) == 0)
+ 				text.WidthFactor = this._objectReader.ReadDouble();

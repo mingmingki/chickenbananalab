@@ -44845,6 +44845,17 @@ window.cblSnapResidueGateStatusV12 = function(){
     }
     return false;
   }
+  // Objects the converter could not read are missing from the editor and
+  // would be dropped by a save, so the server refuses to save such a drawing;
+  // tell the user when it opens.
+  function cblUnreadableObjectsMessageV1(counts){
+    var parts=Object.keys(counts||{}).filter(function(k){return Number(counts[k])>0;})
+      .sort(function(a,b){return Number(counts[b])-Number(counts[a])||(a<b?-1:a>b?1:0);})
+      .map(function(k){return k+' '+Number(counts[k])+'개';});
+    if(!parts.length)return '';
+    return '이 도면에는 무료 DWG 변환기가 읽지 못한 객체('+parts.join(', ')+')가 있어 화면에 표시되지 않습니다. '+
+      '저장하면 이 객체들이 사라지므로 이 도면은 저장할 수 없습니다. 원본 파일은 바뀌지 않습니다.';
+  }
   async function cblFreeDwgOpenFileObjectV1(file,handle){
     var nativeOpenPickerCount=window.CBL_NATIVE_FILE_STATUS_V1&&Number(window.CBL_NATIVE_FILE_STATUS_V1.openPickerCount||0)||0;
     var openStarted=performance.now(),openTiming={commandEntered:Date.now(),userActivation:navigator.userActivation?!!navigator.userActivation.isActive:null,pickerStarted:null,pickerResolved:null,pickerRejected:null,getFileStarted:null,getFileResolved:null,coreOpenStarted:Date.now(),coreOpenResolved:null,coreOpenRejected:null,pendingStage:null,finalResolved:null,finalRejected:null,picker_ms:window.__CBL_DWG_PICKER_MS_V1==null?null:Number(window.__CBL_DWG_PICKER_MS_V1),file_read_ms:null,hash_ms:null,upload_ms:null,server_metadata_ms:null,server_convert_ms:null,response_ms:null,parse_ms:null,shape_build_ms:null,first_render_ms:null,zoom_fit_ms:null,total_ms:null,pickerCount:nativeOpenPickerCount||0,uploadCount:1,convertCount:1,parseCount:1,renderCount:1,retryCount:0,stages:{},settled:false};
@@ -45211,6 +45222,11 @@ window.cblSnapResidueGateStatusV12 = function(){
     } catch(_integrityFinalError) {}
     window.CBLCAD_FREE_DWG_LOCAL_LAST = result;
     try { if (typeof setHint === 'function') setHint('DWG 열기 완료: '+file.name+' ('+count+'개)'); } catch(e) {}
+    var unreadableMessage=cblUnreadableObjectsMessageV1(result.unreadable_objects);
+    if(unreadableMessage){
+      try { if (typeof setHint === 'function') setHint(unreadableMessage); } catch(e) {}
+      try { alert(unreadableMessage); } catch(e) {}
+    }
     try { console.info('[CBL_FREE_DWG_LOCAL]', 'acadsharp-full-dxf', count, result.dxf_bytes, result.oda_executed, window.CBL_FULL_DXF_PARSE_STATUS || null); } catch(e) {}
     openTiming.settled=true;stageEnd('localOpen');publishOpenTiming();return true;
   }

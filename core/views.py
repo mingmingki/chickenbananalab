@@ -24076,6 +24076,31 @@ def _cbl_free_dwg_dxf_text_v1(dxf_bytes):
         return dxf_bytes.decode(codec, errors="replace")
 
 
+_CBL_UNREADABLE_OBJECT_RE_V1 = _cbl_re.compile(r"^Could not read (\S+?)(?: number \d+)? with handle")
+
+
+def _cbl_free_dwg_unreadable_objects_v1(notifications):
+    """{type: count} of objects the ACadSharp reader skipped ("Could not read ...").
+
+    Such objects are missing from the model, so the editor never shows them
+    and a save would write the drawing without them.
+    """
+    counts = {}
+    for item in notifications or []:
+        if not isinstance(item, dict):
+            continue
+        match = _CBL_UNREADABLE_OBJECT_RE_V1.match(str(item.get("Message") or item.get("message") or ""))
+        if match:
+            counts[match.group(1)] = counts.get(match.group(1), 0) + 1
+    return counts
+
+
+def _cbl_free_dwg_unreadable_message_v1(counts):
+    parts = ", ".join(f"{name} {count}개" for name, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+    return (f"이 도면에는 무료 DWG 변환기가 읽지 못한 객체({parts})가 있어, 저장하면 이 객체들이 사라지므로 "
+            "저장을 중단했습니다. 원본 파일은 바뀌지 않았습니다.")
+
+
 def _cbl_build_original_source_layer_manifest_v1(report, dxf_text=""):
     """Build an independent, handle-keyed source manifest for browser audit.
 
@@ -24269,6 +24294,7 @@ def cblcad_free_dwg_local_api(request):
                 "file_sha256": hashlib.sha256(upload_data).hexdigest(),
                 "dxf_bytes": len(dxf_text.encode("utf-8")), "dxf": dxf_text,
                 "source_layer_manifest": _cbl_build_original_source_layer_manifest_v1(source_metadata, dxf_text),
+                "unreadable_objects": _cbl_free_dwg_unreadable_objects_v1(source_metadata.get("notifications")),
             }, json_dumps_params={"ensure_ascii": False})
             response["Server-Timing"] = "convert;dur=%.2f,response;dur=%.2f" % (
                 (_cbl_time.perf_counter() - convert_started) * 1000,
@@ -24787,6 +24813,12 @@ def _cbl_normalize_free_dwg_ops_v1(original_json, ops):
 
 
 def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, acad_report=None):
+    # The writer saves only what ACadSharp read; an object it could not read
+    # would silently disappear, and the checks below (ACadSharp on both
+    # sides) would not notice.
+    unreadable = _cbl_free_dwg_unreadable_objects_v1((acad_report or {}).get("notifications"))
+    if unreadable:
+        raise RuntimeError(_cbl_free_dwg_unreadable_message_v1(unreadable))
     original_json = _cbl_free_dwg_save_local_json_v1(original, dwgread)
     saved_json = _cbl_free_dwg_save_local_json_v1(saved, dwgread)
 

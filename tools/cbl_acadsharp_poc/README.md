@@ -97,3 +97,10 @@ AC1018의 XRECORD·확장데이터 문자열은 길이(바이트 수)와 코드�
 저장한다. 원래 reader는 순번(예: 40)을 Windows 코드페이지 번호로 읽어 한글을
 UTF-8로 풀어 깨뜨렸고, writer는 길이를 글자 수로 적었다. 이 패치는 순번을
 실제 코드페이지로 바꿔 읽고(모르는 순번은 예전 동작), 길이를 바이트 수로 쓴다.
+
+## 높이 0인 TEXT (`acadsharp-text-height-zero.patch`)
+
+AutoCAD는 높이 0인 TEXT(문자 스타일 높이를 따름)를 저장한다. ACadSharp의 `Height`
+setter는 0을 거부해서 DWG reader가 그 객체를 "Could not read TEXT"로 버렸고, 저장할
+때마다 사라졌다. 이 패치는 reader가 저장된 높이를 그대로 넣는다. 그래도 읽지 못한
+객체가 남으면 서버가 저장을 거부하고 편집기가 열 때 알린다.
