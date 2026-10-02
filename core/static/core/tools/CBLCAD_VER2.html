@@ -45750,6 +45750,23 @@ window.cblSnapResidueGateStatusV12 = function(){
     return {ops:normalized,textStyles:textStyles,shapeCount:ss.length,sourceCount:base.length,diagnostics:diagnostics,pendingAddRefs:pendingAddRefs,
       emptyModel:!ss.length,emptiesDrawing:!ss.length&&base.some(function(b){return isTopLevelEditable(b);})};
   }
+  // Unsaved changes are exactly what a save would send.  A whole-model
+  // snapshot (cblIsDocumentDirtyV1) also sees the post-open display fixes, so
+  // it called a just-opened drawing dirty.  An edit the save would refuse
+  // (buildOps throws) is unsaved as well.
+  function hasUnsavedChangesV1(){
+    var live=Array.isArray(window.shapes)?window.shapes:[];
+    if(!Array.isArray(window.CBL_FREE_DWG_ORIGINAL_SHAPES)&&!live.length)return false;
+    try{return buildOps().ops.length>0;}catch(e){return true;}
+  }
+  window.cblFreeDwgHasUnsavedChangesV1=hasUnsavedChangesV1;
+  // A failed save must not pass unnoticed in the status line: alert as well,
+  // unless the new/open-file dialog already shows the error inside it.
+  function notifySaveFailureV1(message){
+    if(typeof setHint==='function')setHint(message);
+    if(document.getElementById('cblFreeBrowserLifecycleDialogV1'))return;
+    try{alert(message);}catch(e){}
+  }
   function safeName(value){
     var s=String(value||'').trim().replace(/[\\/:*?"<>|]/g,'_');
     s=s.replace(/\s+/g,' ').trim();
@@ -45994,8 +46011,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     window.CBL_FREE_DWG_LAST_FAILED_NATIVE_BYTES_V1=null;
     window.CBL_FREE_DWG_LAST_FAILED_NATIVE_FILENAME_V1=null;
     if(window.CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1){
-      if(typeof setHint==='function')setHint('파일 저장은 완료됐지만 편집 상태 동기화 실패—파일을 다시 여십시오');
-      return false;
+      notifySaveFailureV1('파일 저장은 완료됐지만 편집 상태 동기화 실패—파일을 다시 여십시오');return false;
     }
     if(browserMode() && !options.nativeHandle && !options.saveAs && !window.CBL_FREE_DWG_LOCAL_FILE_TOKEN && !window.CBL_FREE_DWG_CURRENT_FILENAME){
       if(typeof window.cblFreeDwgSaveAsV1==='function')return window.cblFreeDwgSaveAsV1();
@@ -46088,7 +46104,7 @@ window.cblSnapResidueGateStatusV12 = function(){
             }
             if(typeof pack.restoreOutputHandlesV1==='function')pack.restoreOutputHandlesV1();
             resetFreeDwgSaveStateV1();
-            if(typeof setHint==='function')setHint('원본 파일이 다른 프로그램에서 사용 중입니다. 파일을 닫은 후 저장을 다시 누르세요.');
+            notifySaveFailureV1('원본 파일이 다른 프로그램에서 사용 중입니다. 파일을 닫은 후 저장을 다시 누르세요.');
             return false;
           }
           throw writeError;
@@ -46134,7 +46150,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       }
       resetFreeDwgSaveStateV1();
         return true;
-    }catch(e){if(pack&&typeof pack.restoreOutputHandlesV1==='function')pack.restoreOutputHandlesV1();try{if(!writeCompleted)await abortPreparedNativeWritableV1(options.preparedWritable||null);}catch(_abortPreparedError){}resetFreeDwgSaveStateV1();if(e&&e.name==='AbortError')return false;console.error('[CBL_FREE_DWG_AC1018_SAVE]',e);if(window.CBL_FREE_DWG_SAVE_AS_STATUS_V1)window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.lastError=String(e&&e.message||e);if(window.CBL_NATIVE_FILE_STATUS_V1){window.CBL_NATIVE_FILE_STATUS_V1.lastError=String(e&&e.message||e);window.CBL_NATIVE_FILE_STATUS_V1.lastStack=String(e&&e.stack||'');window.CBL_NATIVE_FILE_STATUS_V1.writeCompleted=writeCompleted;window.CBL_NATIVE_FILE_STATUS_V1.stateSyncFailed=!!writeCompleted;}var syncFailure=writeCompleted;var message=syncFailure?'파일 저장은 완료됐지만 편집 상태 동기화 실패—파일을 다시 여십시오':'DWG 저장 실패: '+String(e&&e.message||e);if(syncFailure)window.CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1=true;if(typeof setHint==='function')setHint(message);var life=document.getElementById('cblFreeBrowserLifecycleDialogV1');if(life){var card=life.querySelector('.cbl-life-card');if(card){var oldErr=card.querySelector('.cbl-life-error');if(oldErr)oldErr.remove();var er=document.createElement('p');er.className='cbl-life-error';er.style.cssText='margin:12px 0 0;color:#f2a7ad;overflow-wrap:anywhere';er.textContent=message;card.appendChild(er);}}return false;}
+    }catch(e){if(pack&&typeof pack.restoreOutputHandlesV1==='function')pack.restoreOutputHandlesV1();try{if(!writeCompleted)await abortPreparedNativeWritableV1(options.preparedWritable||null);}catch(_abortPreparedError){}resetFreeDwgSaveStateV1();if(e&&e.name==='AbortError')return false;console.error('[CBL_FREE_DWG_AC1018_SAVE]',e);if(window.CBL_FREE_DWG_SAVE_AS_STATUS_V1)window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.lastError=String(e&&e.message||e);if(window.CBL_NATIVE_FILE_STATUS_V1){window.CBL_NATIVE_FILE_STATUS_V1.lastError=String(e&&e.message||e);window.CBL_NATIVE_FILE_STATUS_V1.lastStack=String(e&&e.stack||'');window.CBL_NATIVE_FILE_STATUS_V1.writeCompleted=writeCompleted;window.CBL_NATIVE_FILE_STATUS_V1.stateSyncFailed=!!writeCompleted;}var syncFailure=writeCompleted;var message=syncFailure?'파일 저장은 완료됐지만 편집 상태 동기화 실패—파일을 다시 여십시오':'DWG 저장 실패: '+String(e&&e.message||e);if(syncFailure)window.CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1=true;notifySaveFailureV1(message);var life=document.getElementById('cblFreeBrowserLifecycleDialogV1');if(life){var card=life.querySelector('.cbl-life-card');if(card){var oldErr=card.querySelector('.cbl-life-error');if(oldErr)oldErr.remove();var er=document.createElement('p');er.className='cbl-life-error';er.style.cssText='margin:12px 0 0;color:#f2a7ad;overflow-wrap:anywhere';er.textContent=message;card.appendChild(er);}}return false;}
   };
   window.cblFreeDwgExportAC1018V1=function(options){
     options=Object.assign({},options||{},{exportOnly:true,saveAs:false});
@@ -46170,6 +46186,15 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(typeof window.cblNativeDwgSaveFromGestureV1==='function')window.cblNativeDwgSaveFromGestureV1(true,ev);
     else window.cblFreeDwgSaveAC1018V1();
   },true);
+  // Closing or reloading the page with changes a save would still send asks
+  // the browser to confirm, so edits are not lost after a failed save.
+  window.addEventListener('beforeunload',function(ev){
+    if(!freeMode())return;
+    var unsaved=false;
+    try{unsaved=window.cblFreeDwgHasUnsavedChangesV1();}catch(e){unsaved=false;}
+    if(!unsaved)return;
+    ev.preventDefault();ev.returnValue='';return '';
+  });
 })();
 </script>
 <script id="CBL_CHROME_NATIVE_SAVE_DISPATCHER_V1_FINALIZE_SCRIPT">
@@ -46206,6 +46231,9 @@ window.cblSnapResidueGateStatusV12 = function(){
     });return o;
   }
   function dirty(){
+    if(typeof window.cblFreeDwgHasUnsavedChangesV1==='function'){
+      try{return !!window.cblFreeDwgHasUnsavedChangesV1();}catch(e){status.lastError=String(e&&e.message||e);}
+    }
     if(typeof window.cblIsDocumentDirtyV1==='function'){
       try{return !!window.cblIsDocumentDirtyV1();}catch(e){status.lastError=String(e&&e.message||e);}
     }
