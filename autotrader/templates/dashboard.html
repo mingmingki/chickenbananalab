@@ -2820,8 +2820,8 @@ function fmtQty(n) {
 // 표에는 더 이상 API비용을 근사 배분해 섞지 않고, 여기서 전체 누적 기준 실측치로만 본다.
 function updateAiCostPanel(tradeStats, usageStats, accountContribution) {
   if (!tradeStats) return;
-  const tradePnl = tradeStats.total_pnl || 0;
-  const tradeFee = tradeStats.total_fee || 0;
+  const tradePnl = (tradeStats.gross_pnl !== undefined ? tradeStats.gross_pnl : tradeStats.total_pnl) || 0;
+  const tradeFee = (tradeStats.fee !== undefined ? tradeStats.fee : tradeStats.total_fee) || 0;
   const tradeNet = (tradeStats.net_pnl !== undefined && tradeStats.net_pnl !== null) ? tradeStats.net_pnl : (tradePnl - tradeFee);
   const contribution = (typeof accountContribution === "number" && Number.isFinite(accountContribution))
     ? accountContribution : null;
@@ -3027,7 +3027,7 @@ async function refreshState() {
     `</div>`;
 
   lastUsageStats = s.usage_stats || null;
-  updateAiCostPanel(s.trade_stats, s.usage_stats, totalProfit);
+  updateAiCostPanel(s.economic_trade_stats, s.usage_stats, totalProfit);
 
   const shadow = s.shadow_stats;
   const shadowPanel = document.getElementById("shadow-panel");

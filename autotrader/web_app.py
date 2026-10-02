@@ -604,6 +604,7 @@ def api_state():
     # 발견 - 258=LEGACY 253+CORE 5라 FAST 19건이 통째로 빠져있었음). 상단
     # 실현손익 요약/기간별 수익률과 동일한 pnl_reconciliation 계산 경로로 통일한다.
     trade_stats = pnl_reconciliation.canonical_trade_stats(ctx.dir)
+    economic_trade_stats = account_reconciliation_bridge.realized_economic_summary(ctx.dir)["total"]
     usage_stats = usage_log.summary(ctx.dir)
     shadow_stats = gpt_shadow_log.summary(ctx.dir)
     adaptive_symbols = list(config.CORE_SYMBOLS) + list(getattr(cfg, "CANDIDATE_C_SYMBOLS", None) or [])
@@ -681,6 +682,7 @@ def api_state():
                 else "off"
             ),
             "trade_stats": trade_stats,
+            "economic_trade_stats": economic_trade_stats,
             "usage_stats": usage_stats,
             "shadow_stats": shadow_stats,
             "candidate_c_breakout_shadow": candidate_c_breakout_shadow.summary(ctx.dir),

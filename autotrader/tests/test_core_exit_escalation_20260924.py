@@ -164,7 +164,7 @@ def test_exit_escalation_invalidated_with_multitf_breakdown_bypasses_gpt(monkeyp
     assert gpt_calls == []
 
 
-def test_exit_escalation_without_multitf_breakdown_keeps_gpt_authority(monkeypatch, tmp_path):
+def test_low_confidence_exit_escalation_without_multitf_breakdown_keeps_gpt_authority(monkeypatch, tmp_path):
     class Cfg:
         user_dir = str(tmp_path)
         OPENAI_API_KEY = 'test'
@@ -175,7 +175,7 @@ def test_exit_escalation_without_multitf_breakdown_keeps_gpt_authority(monkeypat
         EXECUTION_MODE = 'LIVE'
         logger = type('L', (), {'info':lambda *a,**k:None,'warning':lambda *a,**k:None,'exception':lambda *a,**k:None})()
     state=TraderState(); position={'side':'long','contracts':2.0,'entry_price':100.0}
-    monkeypatch.setattr(trader.gemini_analyzer,'analyze_held_position',lambda *a,**k:{'assessment':'invalidated','confidence':0.9,'reasoning':'broken'})
+    monkeypatch.setattr(trader.gemini_analyzer,'analyze_held_position',lambda *a,**k:{'assessment':'invalidated','confidence':0.75,'reasoning':'broken'})
     monkeypatch.setattr(trader,'_exit_escalation_multitf_invalidated',lambda *a,**k:False)
     gpt_calls=[]
     monkeypatch.setattr(trader.openai_analyzer,'verify_position_management',lambda *a,**k:gpt_calls.append(1) or {'action':'HOLD','confidence':.9,'reasoning':'wait'})

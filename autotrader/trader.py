@@ -1499,11 +1499,10 @@ def _reduce_v2_stage2_conditions_met(side: str, sv: dict, raw_dfs: dict) -> tupl
 
     조건: 스테이지1 이후 새로 확정된 1시간봉이 최소 1개 있어야 하고, 가격이 2개 연속
     확정 1시간봉에서 EMA20 기준 불리한 쪽이며, 1시간 MACD가 그 2개 봉 모두 불리한
-    방향으로 지속돼야(sustained) 하고, 스테이지1 때보다 "더 강해진"(단순 반복이 아닌)
-    약화여야 하며, 4시간 추세가 아직 완전히 무효화되지 않아야(4시간 종가가 여전히
-    EMA50 기준 유리한 쪽) 한다. 이 중 하나라도 미충족이면 스테이지1과 똑같은 단기
-    약화 신호가 반복 중인 것으로 보고 실행하지 않는다(REDUCE_V2_BLOCKED
-    same_signal_persisting)."""
+    방향으로 지속돼야(sustained) 하고, 4시간 추세가 아직 완전히 무효화되지 않아야
+    (4시간 종가가 여전히 EMA50 기준 유리한 쪽) 한다. 스테이지1보다 MACD 절대값이
+    더 나빠져야 한다는 조건은 두지 않는다. 동일 약세가 새 확정 1시간봉에서도
+    지속되는 것 자체를 추가 위험 증거로 본다."""
     sign = _side_sign(side)
     tail_1h = _closed_indicator_tail(raw_dfs, "1h", n=2)
     if tail_1h is None:
@@ -1528,12 +1527,6 @@ def _reduce_v2_stage2_conditions_met(side: str, sv: dict, raw_dfs: dict) -> tupl
     macd_bearish_both = sign * prev1h["macd"] < 0 and sign * cur1h["macd"] < 0
     if not (below_ema20_both and macd_bearish_both):
         return False, None
-
-    stage1_macd = sv.get("stage1_1h_macd")
-    if not isinstance(stage1_macd, (int, float)):
-        return False, None
-    if not (sign * (cur1h["macd"] - stage1_macd) < 0):
-        return False, None  # 스테이지1 시점보다 더 강해진 약화가 아니라 단순 반복
 
     tail_4h = _closed_indicator_tail(raw_dfs, "4h", n=1)
     if tail_4h is None:
@@ -2592,6 +2585,30 @@ def _handle_position_ai_review(
             position_ai_log.record_event(
                 cfg.user_dir, 'position_ai_close_all', symbol, review_id,
                 executed=bool(executed), reason='deterministic_exit_escalation',
+            )
+            return
+
+        high_confidence_invalidated = bool(
+            decision.get('action') == 'close'
+            and gemini_review.get('assessment') == 'invalidated'
+            and isinstance(gemini_confidence, (int, float))
+            and not isinstance(gemini_confidence, bool)
+            and max(cfg.MIN_CONFIDENCE, 0.80) <= gemini_confidence <= 1
+        )
+        if high_confidence_invalidated and getattr(cfg, 'POSITION_AI_LIVE_EXECUTE', False):
+            logger.warning(
+                '[%s] EXIT_ESCALATION thesis invalidated(%.2f) - GPT downgrade 없이 전량 청산',
+                symbol, gemini_confidence,
+            )
+            executed = _execute_close(
+                cfg, state, client, symbol,
+                dict(position, _approval_started_at=approval_started_at, _gemini_assessment='invalidated'),
+                reason='position_ai_close_all',
+            )
+            position_ai_log.record_event(
+                cfg.user_dir, 'position_ai_close_all', symbol, review_id,
+                executed=bool(executed), reason='high_confidence_invalidated',
+                gemini_confidence=gemini_confidence,
             )
             return
 
