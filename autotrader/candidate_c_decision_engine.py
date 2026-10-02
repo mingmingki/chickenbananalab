@@ -422,26 +422,22 @@ def _decide_legacy(
         current_bar_open_ms = snap.bar_10m_current["open_time_ms"]
         would_be_id = st.make_setup_id(ctx.symbol, side, current_bar_open_ms)
         transitioned = setup_tracker.current_state(ctx.symbol, side) != condition_true
-        retry_setup_id = None
-        if not transitioned:
-            if not condition_true:
-                continue  # 조건 자체가 꺼져 있고 전이도 없음 - 재검토 대상도 아님
-            # [2026-09-16, 사용자 직접 지시 - timeout 1회 재검토 정책, 기본 OFF]
-            # 전이는 없지만(조건이 계속 True) *바로 이 확정 10분봉*이 이전에
-            # timeout으로 arm된 재검토 대상 봉과 정확히 일치하면, 원 setup_id로
-            # 딱 한 번 다시 판단한다. wait/reject는 여기 오지 않는다(오케스트
-            # 레이터가 그 경우엔 애초에 arm하지 않음 - 이 함수는 그저 확인만
-            # 한다). 이 대체 경로가 없으면(정책 OFF 포함, arm된 적 없음 포함)
-            # 기존 동작과 100% 동일하게 continue한다.
-            retry_setup_id = setup_tracker.pending_timeout_retry_for_bar(
-                ctx.symbol, side, current_bar_open_ms,
-            )
-            if retry_setup_id is None:
-                continue
-        elif not condition_true:
-            continue  # True->False 전이는 setup을 만들지 않음(기존 동작 그대로)
+        if not condition_true:
+            continue
+        retry_setup_id = setup_tracker.pending_timeout_retry_for_bar(
+            ctx.symbol, side, current_bar_open_ms,
+        )
+        # 같은 확정 10분봉은 setup_id로 정확히 한 번만 처리한다. 반대로 조건이
+        # 계속 True여도 다음 확정 10분봉은 새로운 setup_id이므로 다시 평가한다.
+        # timeout 1회 재검토는 기존 setup_id를 우선 사용해 원래 계약을 보존한다.
+        if retry_setup_id is None and setup_tracker.setup_metadata(would_be_id) is not None:
+            continue
         effective_setup_id = retry_setup_id or would_be_id
-        reason = "timeout_retry_edge_triggered" if retry_setup_id else "setup_edge_triggered"
+        reason = (
+            "timeout_retry_edge_triggered" if retry_setup_id
+            else "setup_edge_triggered" if transitioned
+            else "setup_bar_recheck"
+        )
         direction_ok = (side == "long" and direction_4h == "LONG") or (side == "short" and direction_4h == "SHORT")
         idem = make_idempotency_key(
             account_id=ctx.account_id, symbol=ctx.symbol, strategy_id=ctx.strategy_id,

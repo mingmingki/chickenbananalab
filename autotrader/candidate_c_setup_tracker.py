@@ -1,14 +1,14 @@
-"""Phase 3.5 Task 4 - Candidate C 10분봉 setup edge-trigger + 재시작 내구성.
+"""Phase 3.5 Task 4 - Candidate C 확정 10분봉 setup 추적 + 재시작 내구성.
 
 Donchian 채널 비교 자체는 여기서 하지 않는다 - 호출부(Task 5/실행 루프)가
 candidate_c_timeframe_contract.AsOfSnapshot의 bar_10m_current/bars_10m_prior_20으로
 직접 "이번 10분봉에서 이 (symbol, side) 조건이 True인가"를 판정해 넘겨준다.
-이 모듈은 순수하게 "False->True 전이 감지"와 "생성된 setup_id의 소비(entry
-attempt) 완결 여부"만 append-only JSONL 로그로 추적한다.
+이 모듈은 조건이 True인 각 확정 10분봉의 setup_id와 그 setup의 소비(entry
+attempt) 완결 여부를 append-only JSONL 로그로 추적한다.
 
 두 종류의 레코드만 기록한다.
-- {"type": "state", ...}: (symbol, side) 조건의 상태 전이(True<->False) 기록.
-  False->True 전이 순간에만 새 setup_id를 함께 기록한다.
+- {"type": "state", ...}: (symbol, side) 조건 상태와 qualifying 10분봉 기록.
+  조건이 True인 새 확정 10분봉마다 setup_id를 하나씩 기록한다.
 - {"type": "attempt_outcome", "setup_id":, "outcome":, ...}: 그 setup_id로 실제
   진행한 entry attempt의 최종 결과(accepted/rejected/...) 기록.
 
@@ -96,24 +96,38 @@ class SetupTracker:
             os.fsync(f.fileno())
 
     def observe(self, symbol: str, side: str, timestamp_ms: int, condition_true: bool) -> str | None:
-        """False->True 전이 순간에만 새 setup_id를 생성해 즉시 영속화하고
-        반환한다. 그 외(계속 True 유지, False 유지, True->False)는 필요한
-        경우에만 상태를 갱신하고 None을 반환한다 - 같은 True가 몇 번을 이어져도
-        재발급하지 않는다."""
+        """조건이 True인 새 확정 10분봉마다 setup_id를 정확히 하나 생성한다.
+
+        같은 (symbol, side, timestamp) 봉은 몇 번 관측돼도 setup_id를 재발급하지
+        않는다. False는 기존처럼 True->False 상태 전이만 기록한다. 이 계약으로
+        조건이 여러 10분봉 동안 계속 True여도 다음 확정봉에서 한 번씩 다시
+        진입 검토할 수 있고, 같은 봉 중복 주문은 setup_id가 막는다.
+        """
         key = (symbol, side)
         prev = self._last_state.get(key, False)
-        if condition_true == prev:
-            return None  # 상태 변화 없음 - 기록할 것도, 새로 낼 setup도 없음.
 
-        setup_id = make_setup_id(symbol, side, timestamp_ms) if condition_true else None
+        if condition_true:
+            setup_id = make_setup_id(symbol, side, timestamp_ms)
+            if setup_id in self._all_setup_ids:
+                return None
+            self._append({
+                "type": "state", "symbol": symbol, "side": side, "timestamp": timestamp_ms,
+                "new_state": True, "setup_id": setup_id,
+            })
+            self._last_state[key] = True
+            self._all_setup_ids[setup_id] = {
+                "symbol": symbol, "side": side, "timestamp": timestamp_ms,
+            }
+            return setup_id
+
+        if not prev:
+            return None
         self._append({
             "type": "state", "symbol": symbol, "side": side, "timestamp": timestamp_ms,
-            "new_state": condition_true, "setup_id": setup_id,
+            "new_state": False, "setup_id": None,
         })
-        self._last_state[key] = condition_true
-        if setup_id:
-            self._all_setup_ids[setup_id] = {"symbol": symbol, "side": side, "timestamp": timestamp_ms}
-        return setup_id
+        self._last_state[key] = False
+        return None
 
     def record_attempt_outcome(self, setup_id: str, outcome: str) -> None:
         """setup_id로 진행한 entry attempt의 최종 결과(예: 'accepted',

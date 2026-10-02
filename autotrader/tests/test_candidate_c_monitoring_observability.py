@@ -89,3 +89,28 @@ def test_dashboard_contains_separate_breakout_failure_shadow_card():
     assert 'id="cc-breakout-shadow-card"' in text
     assert '관찰용 · 실주문 영향 없음' in text
     assert 'cc-breakout-shadow-summary' in text
+
+
+def test_monitor_true_setup_waits_for_next_confirmed_10m_recheck(monkeypatch):
+    from types import SimpleNamespace
+    snap = SimpleNamespace(
+        bars_10m_prior_20=[{"high": 102.0, "low": 98.0}] * 20,
+        bar_10m_current={"close": 101.5},
+    )
+    monkeypatch.setattr(adapter.tfc, "build_as_of_snapshot", lambda *a, **k: snap)
+    monkeypatch.setattr(adapter.tfc, "donchian_setup_condition", lambda *a, **k: True)
+    monkeypatch.setattr(adapter.dec, "direction_from_4h_indicators", lambda **k: "LONG")
+    monitor = adapter._candidate_c_monitor_telemetry(
+        "DOGE/USDT:USDT",
+        bars_4h=[{"close_time_ms": 1_000}],
+        bars_1h=[{"close_time_ms": 1_000}],
+        bars_5m=[{"open_time_ms": 500, "close_time_ms": 1_000, "close": 101.5}],
+        indicator_fn=lambda bars, donchian_n: [{"ema_20": 90.0, "ema_50": 80.0, "close": 101.5}],
+        result={"intent_kind": "NoAction", "reason_code": "no_setup"},
+        blockers=[], live_execute=True,
+    )
+    assert monitor["stage_text"] == "Donchian 조건 유지 · 다음 확정 10분봉 재검토"
+
+
+def test_per_bar_recheck_reason_is_human_readable():
+    assert adapter._candidate_c_monitor_reason_text("setup_bar_recheck") == "조건 유지 · 새 확정 10분봉 재검토"

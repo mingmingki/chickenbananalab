@@ -58,3 +58,21 @@ def test_live_overextension_rejection_consumes_setup(tmp_path):
     assert consumed is True
     assert tracker.pending_setup_ids() == []
     assert tracker.is_attempted(setup_id) is True
+
+
+def test_current_bar_direction_mismatch_consumes_setup(tmp_path):
+    tracker = st.SetupTracker.load(str(tmp_path / "setup.jsonl"))
+    setup_id = tracker.observe("DOGE/USDT:USDT", "long", 456000, True)
+    intent = SimpleNamespace(
+        symbol="DOGE/USDT:USDT", side="long", setup_id=setup_id,
+        reason_code="setup_direction_mismatch_or_no_atr",
+    )
+    cfg = SimpleNamespace(logger=None)
+
+    consumed = cycle._consume_overextension_no_action(
+        cfg, "DOGE/USDT:USDT", tracker, intent, 456000,
+    )
+
+    assert consumed is True
+    assert tracker.pending_setup_ids() == []
+    assert tracker.is_attempted(setup_id) is True

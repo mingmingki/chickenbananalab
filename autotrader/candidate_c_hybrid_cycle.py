@@ -100,17 +100,35 @@ def _consume_overextension_no_action(
     cfg, symbol: str, setup_tracker: "st.SetupTracker", intent,
     source_bar_10m_open_time_ms: int | None,
 ) -> bool:
-    if not intent.setup_id or intent.reason_code not in (
+    """확정적으로 주문 전 NoAction이 된 setup을 완료 처리한다.
+
+    과거에는 overextension만 소비했지만, Candidate C가 조건 True인 새 10분봉마다
+    setup_id를 발급하므로 현재 봉의 방향/ATR/정책/리스크 거절도 pending으로 남기면
+    재시작 때 stale setup이 불필요하게 누적된다. timeout retry는 기존 원 setup_id
+    계약을 그대로 보존한다.
+    """
+    if not intent.setup_id:
+        return False
+
+    current_setup_id = None
+    if source_bar_10m_open_time_ms is not None and intent.side:
+        current_setup_id = st.make_setup_id(
+            intent.symbol, intent.side, source_bar_10m_open_time_ms,
+        )
+    is_current_bar_setup = intent.setup_id == current_setup_id
+    is_overextension = intent.reason_code in (
         entry_overextension_guard.BLOCK_REASON,
         entry_overextension_guard.DATA_REASON,
-    ):
-        return False
-    if (
+    )
+    is_timeout_retry = (
         source_bar_10m_open_time_ms is not None
         and setup_tracker.pending_timeout_retry_for_bar(
             intent.symbol, intent.side, source_bar_10m_open_time_ms,
         ) == intent.setup_id
-    ):
+    )
+    if not is_current_bar_setup and not (is_overextension and is_timeout_retry):
+        return False
+    if is_timeout_retry:
         setup_tracker.mark_timeout_retry_consumed(intent.setup_id)
     _safe_record_attempt_outcome(
         cfg, symbol, setup_tracker, intent.setup_id,
@@ -878,7 +896,7 @@ def _prepare_steady_state_decision_locked(
             state.epoch_store.save(current_position["position_id"], epoch_for_weakening)
 
     # decide()는 setup_tracker를 직접 갱신하지 않는다 - 포지션이 없을 때는 이번
-    # tick의 실제 조건을 매번 관측해 둬야 다음 tick의 edge 판정이 정확하다
+    # tick의 실제 조건을 매번 관측해 둬야 다음 확정봉의 setup 중복 판정이 정확하다
     # (candidate_c_backtest_signal_adapter.py와 동일한, 이미 검증된 패턴).
     snap = None
     if current_position is None:
