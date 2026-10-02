@@ -82,8 +82,18 @@ def _correction_short_reversal_allowed(position: dict | None, action: str, corre
     )
 
 
+CORE_SHORT_CHASE_30M_DROP_PCT = 0.50
+
+
 def _core_entry_overextension_gate(closed_dfs: dict, side: str, entry_price: float) -> dict:
-    """Evaluate the shared extreme-chase guard from confirmed CORE candles only."""
+    """Evaluate extreme extension plus the data-backed CORE short chase guard.
+
+    A new short is blocked when price has already fallen at least 0.50% versus
+    the last confirmed 5m close at-or-before 30 minutes ago. Historical CORE
+    shorts matching this pattern had sharply worse outcomes, so the guard waits
+    for the 30m extension to cool instead of chasing the move.
+    """
+    short_30m_drop_pct = None
     try:
         one_h = closed_dfs.get("1h")
         four_h = closed_dfs.get("4h")
@@ -97,12 +107,40 @@ def _core_entry_overextension_gate(closed_dfs: dict, side: str, entry_price: flo
         reference_24h_price = float(refs.iloc[-1]["close"]) if len(refs) else None
         ema20_1h = float(last_1h["ema_20"])
         atr14_4h = float(last_4h["atr_14"])
+
+        if side == "short":
+            five_m = closed_dfs.get("5m")
+            if five_m is None or len(five_m) == 0:
+                raise ValueError("missing confirmed 5m data for short chase guard")
+            last_5m_ts = five_m["timestamp"].iloc[-1]
+            cutoff_30m = last_5m_ts - datetime.timedelta(minutes=30)
+            refs_30m = five_m[five_m["timestamp"] <= cutoff_30m]
+            if len(refs_30m) == 0:
+                raise ValueError("missing 30m short chase reference")
+            reference_30m_price = float(refs_30m.iloc[-1]["close"])
+            if reference_30m_price <= 0:
+                raise ValueError("invalid 30m short chase reference")
+            short_30m_drop_pct = max(
+                0.0, (reference_30m_price - float(entry_price)) / reference_30m_price * 100.0,
+            )
     except Exception:
         ema20_1h = atr14_4h = reference_24h_price = None
-    return entry_overextension_guard.evaluate(
+
+    result = entry_overextension_guard.evaluate(
         side=side, entry_price=entry_price, ema20_1h=ema20_1h,
         atr14_4h=atr14_4h, reference_24h_price=reference_24h_price,
     )
+    result["short_30m_drop_pct"] = short_30m_drop_pct
+    result.setdefault("thresholds", {})["short_chase_30m_drop_pct"] = CORE_SHORT_CHASE_30M_DROP_PCT
+    if (
+        result.get("allowed")
+        and side == "short"
+        and short_30m_drop_pct is not None
+        and short_30m_drop_pct >= CORE_SHORT_CHASE_30M_DROP_PCT
+    ):
+        result["allowed"] = False
+        result["reason"] = "short_chase_30m_drop"
+    return result
 
 
 def setup_logging(project_dir: str):
@@ -4486,9 +4524,11 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
         overextension = _core_entry_overextension_gate(closed_dfs, action, last_price)
         if not overextension["allowed"]:
             logger.info(
-                "[%s] BLOCK entry_overextension_guard: reason=%s extension_atr=%s directional_24h_pct=%s",
+                "[%s] BLOCK entry_overextension_guard: reason=%s extension_atr=%s "
+                "directional_24h_pct=%s short_30m_drop_pct=%s",
                 symbol, overextension["reason"], overextension.get("extension_atr"),
                 overextension.get("directional_24h_pct"),
+                overextension.get("short_30m_drop_pct"),
             )
             if _veto_shadow_is_candidate:
                 _record_veto_shadow_gate_outcome(
