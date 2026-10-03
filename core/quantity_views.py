@@ -1724,6 +1724,75 @@ def _point_in_polygon(pt, poly):
     return inside
 
 
+def _outline_vertices(pts):
+    """폐곡선 꼭짓점에서 마지막 닫는 점과 연속 중복점을 뺀다."""
+    out = []
+    for p in pts:
+        if not out or (p[0], p[1]) != out[-1]:
+            out.append((p[0], p[1]))
+    if len(out) > 1 and out[0] == out[-1]:
+        out.pop()
+    return out
+
+
+def _same_outline(pts_a, pts_b):
+    """같은 외곽선을 두 번 그린 것인지: 시작점·방향과 상관없이 꼭짓점이 모두 겹친다."""
+    a, b = _outline_vertices(pts_a), _outline_vertices(pts_b)
+    if len(a) != len(b) or not a:
+        return False
+    xs = [p[0] for p in a]
+    ys = [p[1] for p in a]
+    tol = 1e-6 * max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
+    return all(any(abs(p[0] - q[0]) <= tol and abs(p[1] - q[1]) <= tol for q in b) for p in a)
+
+
+def _drop_duplicate_outlines(sorted_polys):
+    """면적 내림차순 폐곡선에서 겹쳐 그린 같은 외곽선은 하나만 남긴다.
+
+    두 벌이 남으면 좌표 끝자리 차이로 한쪽이 다른 쪽의 "개구부"가 되어 면적이
+    통째로 빠지거나(변환기마다 결과가 달랐다), 면적이 같으면 두 번 더해졌다.
+    """
+    def box(pts):
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        return min(xs), min(ys), max(xs), max(ys)
+
+    def scale_tol(bbox):
+        return 1e-6 * max(bbox[2] - bbox[0], bbox[3] - bbox[1], 1.0)
+
+    kept = []
+    i, n = 0, len(sorted_polys)
+    while i < n:
+        # 면적이 사실상 같은 폐곡선끼리만 겹쳤을 수 있다.
+        j = i + 1
+        while j < n and sorted_polys[j - 1][1] - sorted_polys[j][1] <= 1e-6 * sorted_polys[j - 1][1]:
+            j += 1
+        band = sorted_polys[i:j]
+        i = j
+        if len(band) == 1:
+            kept.append(band[0])
+            continue
+        # 같은 크기의 기둥 수천 개처럼 면적만 같은 경우를 위해 왼쪽 아래 모서리로
+        # 격자를 나눠 근처 것끼리만 비교한다(칸 크기 >= 허용 오차).
+        boxes = [box(pts) for pts, _ in band]
+        cell = max(scale_tol(b) for b in boxes)
+        grid = {}
+        for (pts, area), bbox in zip(band, boxes):
+            tol = scale_tol(bbox)
+            gx, gy = math.floor(bbox[0] / cell), math.floor(bbox[1] / cell)
+            duplicate = any(
+                abs(k_area - area) <= 1e-6 * max(k_area, area)
+                and all(abs(u - v) <= tol for u, v in zip(bbox, k_bbox))
+                and _same_outline(pts, k_pts)
+                for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                for k_pts, k_area, k_bbox in grid.get((gx + dx, gy + dy), ())
+            )
+            if not duplicate:
+                grid.setdefault((gx, gy), []).append((pts, area, bbox))
+                kept.append((pts, area))
+    return kept
+
+
 def _split_outer_and_holes(polys):
     """
     같은 레이어의 폐곡선 리스트를 콘크리트 외곽선(outer)과 그 안에 뚫린
@@ -1735,7 +1804,7 @@ def _split_outer_and_holes(polys):
     if not polys:
         return 0.0, 0.0, 0
     # 면적 큰 순서로 정렬 — 더 큰 폴리곤이 outer 후보
-    sorted_polys = sorted(polys, key=lambda p: p[1], reverse=True)
+    sorted_polys = _drop_duplicate_outlines(sorted(polys, key=lambda p: p[1], reverse=True))
     is_hole = [False] * len(sorted_polys)
 
     for i, (pts_i, area_i) in enumerate(sorted_polys):
