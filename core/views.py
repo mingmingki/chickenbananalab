@@ -24520,6 +24520,30 @@ def _cbl_free_dwg_acadsharp_metadata_v1(path):
     return report
 
 
+def _cbl_free_dwg_to_dxf_text_v1(path, timeout=600):
+    """(DXF text, metadata) of a DWG through the free ACadSharp runtime.
+
+    The text is what the editor gets from the open API: decoded with the
+    drawing's code page and with \\U+XXXX turned back into characters.  The
+    metadata comes from the same read.  Used by the quantity tool.
+    """
+    executable = _cbl_free_dwg_save_local_executable_v1()
+    if executable is None:
+        raise RuntimeError("ACadSharp DXF runtime을 찾지 못했습니다.")
+    with _cbl_tempfile.TemporaryDirectory(prefix=".cbl-acadsharp-dxf-") as tmp:
+        output = _cbl_Path(tmp) / "output.dxf"
+        metadata_path = _cbl_Path(tmp) / "metadata.json"
+        run = _cbl_subprocess.run(
+            [str(executable), "--dxf", str(path), str(output), str(metadata_path)],
+            stdout=_cbl_subprocess.PIPE, stderr=_cbl_subprocess.PIPE,
+            timeout=timeout, check=False,
+        )
+        if run.returncode != 0 or not output.is_file() or not _cbl_free_dwg_local_valid_dxf_v1(output):
+            raise RuntimeError("ACadSharp DXF 변환 실패: " + run.stderr.decode("utf-8", errors="replace")[-800:])
+        metadata = _cbl_json.loads(metadata_path.read_text(encoding="utf-8", errors="replace"), strict=False)
+        return _cbl_decode_dxf_unicode_escapes_v1(_cbl_free_dwg_dxf_text_v1(output.read_bytes())), metadata
+
+
 def _cbl_free_dwg_save_local_json_v1(path, dwgread):
     if not dwgread:
         report = _cbl_free_dwg_acadsharp_metadata_v1(path)

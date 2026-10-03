@@ -1,6 +1,4 @@
-import io
 import subprocess
-import zipfile
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -10,11 +8,6 @@ from django.urls import URLResolver, get_resolver
 
 from . import quantity_views
 from . import views as core_views
-
-try:
-    import ezdxf
-except ImportError:  # pragma: no cover - verification dependency only
-    ezdxf = None
 
 # ODA File Converter must not be part of any ChickenBananaCAD feature (license).
 # These routes ran it; they now answer 410 without starting anything.
@@ -98,28 +91,8 @@ class CadOdaWindowHideTests(SimpleTestCase):
         self.assertFalse(getattr(subprocess, "_cbl_oda_hide_safe_v2_installed", False))
 
 
-class QuantityDwgWithoutOdaTests(SimpleTestCase):
-    def zip_with(self, members):
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w") as archive:
-            for name, data in members.items():
-                archive.writestr(name, data)
-        return buffer.getvalue()
-
-    def test_dwg_asks_for_dxf_and_never_starts_a_converter(self):
-        members = {"S-101 구조평면도.dwg": b"AC1018 fake"}
-        if ezdxf:
-            doc = ezdxf.new("R2010")
-            doc.modelspace().add_line((0, 0), (1000, 0))
-            text = io.StringIO()
-            doc.write(text)
-            members["S-102 구조평면도.dxf"] = text.getvalue().encode("utf-8")
-        with patch.object(subprocess, "Popen", side_effect=AssertionError("a process was started")):
-            result = quantity_views.parse_dwg_from_zip(self.zip_with(members))
-        message = result["S-101 구조평면도.dwg"]["error"]
-        self.assertIn("DXF로 내보내", message)
-        self.assertNotIn("ODA", message)
-        if ezdxf:
-            self.assertNotIn("error", result["S-102 구조평면도.dxf"])
+class QuantityWithoutOdaTests(SimpleTestCase):
+    def test_quantity_tool_has_no_oda_converter(self):
+        # DWG goes through the free converter (test_quantity_free_dwg).
         self.assertFalse(hasattr(quantity_views, "_convert_dwg_folder_to_dxf"))
         self.assertFalse(hasattr(quantity_views, "_find_oda_converter"))

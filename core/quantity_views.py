@@ -24,6 +24,7 @@ import zipfile
 from functools import wraps
 
 import ezdxf
+from ezdxf.lldxf.encoding import decode_mif_to_unicode, has_mif_encoding
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from pdf2image import convert_from_bytes, pdfinfo_from_bytes
@@ -40,7 +41,7 @@ from django.views.decorators.http import require_POST
 from google import genai
 from google.genai import types
 
-from .views import admin_required
+from .views import admin_required, _cbl_free_dwg_to_dxf_text_v1, _cbl_free_dwg_unreadable_objects_v1
 from .quantity_calc import compute_structural_quantities, compute_massing_model, REBAR_UNIT_WEIGHT
 
 logger = logging.getLogger(__name__)
@@ -1662,12 +1663,16 @@ def api_check_zip(request):
 
 
 # ─────────────────────────────────────────────
-#  DWG: ODA File Converter는 라이선스 때문에 쓰지 않는다. 물량산출 도구가
-#  치킨바나나캐드의 무료 변환기로 DWG를 읽게 될 때까지 DWG는 DXF로 올려 달라고
-#  알리고, DXF만 파싱한다.
+#  DWG: 치킨바나나캐드와 같은 무료 변환기(ACadSharp)로 DXF로 바꿔 읽는다.
+#  ODA File Converter는 라이선스 때문에 쓰지 않는다.
+#  예전 ODA 일괄 변환처럼 ZIP 하나의 DWG 변환 시간에 상한을 둔다
+#  (요청 안에서 바로 도는 api_check_zip이 nginx 제한에 걸리지 않게).
 # ─────────────────────────────────────────────
-QUANTITY_DWG_NOT_SUPPORTED_MESSAGE = (
-    "DWG 파일은 지금 바로 읽을 수 없습니다. CAD에서 DXF로 내보내서 다시 업로드해 주세요."
+DWG_CONVERT_TIME_BUDGET_SECONDS = 90
+QUANTITY_DWG_UNREADABLE_MESSAGE = "DWG를 읽지 못했습니다. CAD에서 DXF로 내보내서 다시 업로드해 주세요."
+QUANTITY_DWG_TIME_BUDGET_MESSAGE = (
+    f"DWG 변환 시간(ZIP당 {DWG_CONVERT_TIME_BUDGET_SECONDS}초)을 넘겨 이 파일은 읽지 못했습니다. "
+    "파일 수를 줄이거나 DXF로 내보내서 다시 업로드해 주세요."
 )
 
 
@@ -1807,7 +1812,10 @@ def _extract_dxf_quantities(doc):
                 if t and t.strip():
                     texts.append(t.strip()[:200])
             elif dxftype == "DIMENSION":
-                val = entity.dxf.actual_measurement
+                # 무료 변환기의 DXF에는 측정값(코드 42)이 없어 정의점으로 잰다.
+                val = entity.dxf.get("actual_measurement")
+                if val is None:
+                    val = entity.get_measurement()
                 dimensions.append(round(val, 2))
         except Exception:
             pass
@@ -1856,14 +1864,14 @@ def _extract_dxf_quantities(doc):
 DWG_ZIP_PARSE_MAX_FILES = 60
 
 
-def parse_dwg_from_zip(zip_bytes, keywords=None):
+def parse_dwg_from_zip(zip_bytes, keywords=None, time_budget=DWG_CONVERT_TIME_BUDGET_SECONDS):
     """
     ZIP 바이트에서 DWG/DXF 파일을 찾아 파싱한다.
     keywords가 None이면 ZIP 안의 모든 .dwg/.dxf 파일이 대상(최대 DWG_ZIP_PARSE_MAX_FILES개).
     keywords가 주어지면 파일명(공백 무시, 대소문자 무시)에 그 중 하나라도 포함된 파일만
     대상으로 한다.
-    DWG(바이너리 AutoCAD 포맷)는 ezdxf가 직접 읽지 못하므로 DXF로 올려 달라는
-    오류로 돌려준다(ODA File Converter는 쓰지 않는다).
+    DWG(바이너리 AutoCAD 포맷)는 ezdxf가 직접 읽지 못하므로 치킨바나나캐드의 무료
+    변환기로 DXF로 바꿔 파싱한다(ZIP당 time_budget초 안에서, ODA는 쓰지 않는다).
     Returns: { filename: { layers, layer_geometry, block_counts, texts, dimensions, ... } | {"error": ...} }
     """
     result = {}
@@ -1895,21 +1903,48 @@ def parse_dwg_from_zip(zip_bytes, keywords=None):
         )
         matched_members = matched_members[:DWG_ZIP_PARSE_MAX_FILES]
 
+    deadline = time.monotonic() + time_budget
     with tempfile.TemporaryDirectory(prefix="cbl_qty_") as work_dir:
         for idx, (info, member) in enumerate(matched_members):
             ext = os.path.splitext(member)[1].lower()
             # 전체 ZIP 경로를 키로 유지해 구조/건축/XRef의 동명 파일이 서로 덮어쓰지 않게 한다.
             out_name = member
-            if ext == ".dwg":
-                result[out_name] = {"error": QUANTITY_DWG_NOT_SUPPORTED_MESSAGE}
-                continue
             # 파일명 충돌 방지를 위해 인덱스 접두어 사용
-            dxf_path = os.path.join(work_dir, f"{idx:03d}_{os.path.basename(member)}")
-            with open(dxf_path, "wb") as f:
+            local_path = os.path.join(work_dir, f"{idx:03d}_{os.path.basename(member)}")
+            with open(local_path, "wb") as f:
                 f.write(zf.read(info))
 
+            if ext == ".dwg":
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    result[out_name] = {"error": QUANTITY_DWG_TIME_BUDGET_MESSAGE}
+                    continue
+                try:
+                    dxf_text, metadata = _cbl_free_dwg_to_dxf_text_v1(local_path, timeout=remaining)
+                    # 편집기(decodeMplus)처럼 \M+ 코드로 남은 한글도 문자로 푼다.
+                    if has_mif_encoding(dxf_text):
+                        dxf_text = decode_mif_to_unicode(dxf_text)
+                    doc = ezdxf.read(io.StringIO(dxf_text))
+                except subprocess.TimeoutExpired:
+                    result[out_name] = {"error": QUANTITY_DWG_TIME_BUDGET_MESSAGE}
+                    continue
+                except Exception as e:
+                    logger.warning("quantity_dwg_convert_failed member=%s error=%s", member, str(e)[:300])
+                    result[out_name] = {"error": QUANTITY_DWG_UNREADABLE_MESSAGE}
+                    continue
+                try:
+                    result[out_name] = _extract_dxf_quantities(doc)
+                except Exception as e:
+                    result[out_name] = {"error": str(e)}
+                    continue
+                # 변환기가 읽지 못한 객체는 물량에서 빠져 있다(편집기도 열 때 알린다).
+                unreadable = _cbl_free_dwg_unreadable_objects_v1(metadata.get("notifications"))
+                if unreadable:
+                    result[out_name]["unreadable_objects"] = unreadable
+                continue
+
             try:
-                doc = ezdxf.readfile(dxf_path)
+                doc = ezdxf.readfile(local_path)
                 result[out_name] = _extract_dxf_quantities(doc)
             except Exception as e:
                 result[out_name] = {"error": str(e)}
@@ -1928,7 +1963,7 @@ def _check_critical_content(zip_bytes):
     - exists=False: 파일명 매칭 자체가 안 됨(파일이 없음)
     - content_verified=True: 파일을 열어봤고 예상 키워드를 실제로 찾음
     - content_verified=False: 파일은 열었지만 예상 키워드를 못 찾음(엉뚱한 내용일 가능성)
-    - content_verified=None: 파일은 있는데 열어보지 못함(DWG라 DXF로 올려야 하는 경우 등) — 이
+    - content_verified=None: 파일은 있는데 열어보지 못함(DWG를 변환하지 못한 경우 등) — 이
       경우 "확인 안 됨"을 "확인됨"으로 속이지 않고 정직하게 이유를 남긴다."""
     try:
         # ZIP 안의 모든 dwg/dxf를 한 번만 파싱해서 각 항목이 재사용한다
