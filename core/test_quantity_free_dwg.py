@@ -1,4 +1,5 @@
 import io
+import re
 import subprocess
 import zipfile
 from pathlib import Path
@@ -9,6 +10,7 @@ from django.conf import settings
 from django.test import SimpleTestCase
 
 from . import quantity_views
+from . import views as core_views
 from .test_cad_dwg_text_validation import EXECUTABLE
 
 try:
@@ -99,6 +101,70 @@ class QuantityMifTextTests(SimpleTestCase):
         with patch.object(quantity_views, "_cbl_free_dwg_to_dxf_text_v1", return_value=(stream.getvalue(), {"notifications": []})):
             result = quantity_views.parse_dwg_from_zip(_zip({"a.dwg": b"AC1018"}))
         self.assertEqual(result["a.dwg"]["texts"], ["기초 F1"])
+
+
+@skipUnless(ezdxf is not None, "ezdxf is required")
+class QuantityDxfTextTests(SimpleTestCase):
+    def test_dxf_names_and_texts_are_read_as_the_editor_shows_them(self):
+        # A pre-2007 DXF keeps Korean outside its code page as \\U+XXXX (AutoCAD)
+        # or \\M+ codes (ODA); ezdxf leaves both as they are.
+        doc = ezdxf.new("R2000")
+        doc.layers.add("SLABX")
+        doc.blocks.new("BLKX").add_line((0, 0), (1, 0))
+        msp = doc.modelspace()
+        msp.add_line((0, 0), (1000, 0), dxfattribs={"layer": "SLABX"})
+        msp.add_blockref("BLKX", (0, 0), dxfattribs={"layer": "SLABX"})
+        msp.add_text("TEXTX F1", dxfattribs={"layer": "SLABX"})
+        stream = io.StringIO()
+        doc.write(stream)
+        text = (stream.getvalue().replace("SLABX", "\\U+C2AC\\U+B798\\U+BE0C")
+                .replace("BLKX", "\\M+3B1E2\\M+3C3CA").replace("TEXTX", "\\U+AE30\\U+CD08"))
+        result = quantity_views.parse_dwg_from_zip(_zip({"a.dxf": text.encode("cp1252")}))["a.dxf"]
+        self.assertIn("슬래브", result["layers"])
+        self.assertEqual(result["layer_geometry"]["슬래브"]["total_length"], 1000.0)
+        self.assertEqual(result["block_counts"], {"기초": 1})
+        self.assertEqual(result["texts"], ["기초 F1"])
+
+
+class QuantityConverterUseTests(SimpleTestCase):
+    def convert_calls(self, **kwargs):
+        calls = []
+
+        def fake(path, timeout=600, wait=60, background=False):
+            calls.append({"timeout": timeout, "wait": wait, "background": background})
+            raise RuntimeError("not converted in this test")
+
+        with patch.object(quantity_views, "_cbl_free_dwg_to_dxf_text_v1", side_effect=fake):
+            result = quantity_views.parse_dwg_from_zip(_zip({"a.dwg": b"AC1018"}), **kwargs)
+        return calls, result
+
+    def test_requests_and_background_jobs_use_their_own_budget_and_slot(self):
+        calls, _ = self.convert_calls()
+        self.assertFalse(calls[0]["background"])
+        self.assertLessEqual(calls[0]["timeout"], quantity_views.DWG_CONVERT_TIME_BUDGET_SECONDS)
+        calls, _ = self.convert_calls(background=True)
+        self.assertTrue(calls[0]["background"])
+        self.assertGreater(calls[0]["timeout"], quantity_views.DWG_CONVERT_TIME_BUDGET_SECONDS)
+        self.assertLessEqual(calls[0]["timeout"], quantity_views.DWG_CONVERT_BACKGROUND_TIME_BUDGET_SECONDS)
+
+    def test_background_jobs_ask_for_the_background_budget(self):
+        import inspect
+        for job in (quantity_views._run_quantity_job, quantity_views.extract_drawing_coordination):
+            calls = re.findall(r"parse_dwg_from_zip\(([^)]*)\)", inspect.getsource(job))
+            self.assertTrue(calls, job.__name__)
+            self.assertTrue(all("background=True" in c for c in calls), (job.__name__, calls))
+        recorded = []
+        with patch.object(quantity_views, "parse_dwg_from_zip", side_effect=lambda *a, **k: recorded.append(k) or {}):
+            quantity_views._parse_precheck_candidates([{"path": "a.dwg", "data": b"AC1018", "content_sha256": "x"}], background=True)
+            quantity_views._parse_precheck_candidates([{"path": "a.dwg", "data": b"AC1018", "content_sha256": "x"}])
+        self.assertEqual([k.get("background", False) for k in recorded], [True, False])
+        self.assertIn("background=True", inspect.getsource(quantity_views._run_general_notes_job))
+
+    def test_busy_converter_is_reported_per_file(self):
+        with patch.object(quantity_views, "_cbl_free_dwg_to_dxf_text_v1",
+                          side_effect=core_views._CBLAcadSharpBusy(core_views._CBL_ACADSHARP_BUSY_MESSAGE_V1)):
+            result = quantity_views.parse_dwg_from_zip(_zip({"a.dwg": b"AC1018"}))
+        self.assertIn("잠시 후 다시", result["a.dwg"]["error"])
 
 
 class QuantityDimensionMeasurementTests(SimpleTestCase):

@@ -41,7 +41,8 @@ from django.views.decorators.http import require_POST
 from google import genai
 from google.genai import types
 
-from .views import admin_required, _cbl_free_dwg_to_dxf_text_v1, _cbl_free_dwg_unreadable_objects_v1
+from .views import (admin_required, _CBLAcadSharpBusy, _cbl_decode_dxf_unicode_escapes_v1,
+                    _cbl_free_dwg_to_dxf_text_v1, _cbl_free_dwg_unreadable_objects_v1)
 from .quantity_calc import compute_structural_quantities, compute_massing_model, REBAR_UNIT_WEIGHT
 
 logger = logging.getLogger(__name__)
@@ -1396,7 +1397,7 @@ def _collect_cad_precheck_inventory(uploaded_files):
     }
 
 
-def _parse_precheck_candidates(candidate_records):
+def _parse_precheck_candidates(candidate_records, background=False):
     """체크리스트 후보를 먼저 배치하고, 그 후보에만 DWG 파싱 안전 상한을 적용한다."""
     selected = candidate_records[:DWG_ZIP_PARSE_MAX_FILES]
     capped = len(candidate_records) > len(selected)
@@ -1416,7 +1417,7 @@ def _parse_precheck_candidates(candidate_records):
             zf.writestr(synthetic_path, record["data"])
             synthetic_to_record[synthetic_path] = record
     try:
-        parsed_raw = parse_dwg_from_zip(buffer.getvalue())
+        parsed_raw = parse_dwg_from_zip(buffer.getvalue(), background=background)
     except Exception as exc:
         logger.warning("quantity_cad_precheck_content_parse_failed error=%s", str(exc)[:200])
         parsed_raw = {}
@@ -1665,15 +1666,27 @@ def api_check_zip(request):
 # ─────────────────────────────────────────────
 #  DWG: 치킨바나나캐드와 같은 무료 변환기(ACadSharp)로 DXF로 바꿔 읽는다.
 #  ODA File Converter는 라이선스 때문에 쓰지 않는다.
-#  예전 ODA 일괄 변환처럼 ZIP 하나의 DWG 변환 시간에 상한을 둔다
-#  (요청 안에서 바로 도는 api_check_zip이 nginx 제한에 걸리지 않게).
+#  ZIP 하나의 DWG 변환 시간에 상한을 둔다: 요청 안에서 바로 도는 api_check_zip은
+#  예전 ODA 일괄 변환처럼 90초(nginx 제한 안), 백그라운드 작업은 600초.
+#  백그라운드 작업은 변환기 첫 슬롯만 써서 편집기 열기/저장 몫을 남긴다.
 # ─────────────────────────────────────────────
 DWG_CONVERT_TIME_BUDGET_SECONDS = 90
+DWG_CONVERT_BACKGROUND_TIME_BUDGET_SECONDS = 600
 QUANTITY_DWG_UNREADABLE_MESSAGE = "DWG를 읽지 못했습니다. CAD에서 DXF로 내보내서 다시 업로드해 주세요."
-QUANTITY_DWG_TIME_BUDGET_MESSAGE = (
-    f"DWG 변환 시간(ZIP당 {DWG_CONVERT_TIME_BUDGET_SECONDS}초)을 넘겨 이 파일은 읽지 못했습니다. "
-    "파일 수를 줄이거나 DXF로 내보내서 다시 업로드해 주세요."
-)
+QUANTITY_DWG_BUSY_MESSAGE = "DWG 변환기가 다른 도면을 처리하느라 이 파일은 읽지 못했습니다. 잠시 후 다시 시도해 주세요."
+
+
+def _quantity_dwg_time_budget_message(time_budget):
+    return (f"DWG 변환 시간(ZIP당 {time_budget:g}초)을 넘겨 이 파일은 읽지 못했습니다. "
+            "파일 수를 줄이거나 DXF로 내보내서 다시 업로드해 주세요.")
+
+
+def _cad_text(value):
+    """편집기에 보이는 대로: \\U+XXXX와 \\M+ 코드로 남은 글자를 푼다."""
+    if "\\" not in value:
+        return value
+    value = _cbl_decode_dxf_unicode_escapes_v1(value)
+    return decode_mif_to_unicode(value) if has_mif_encoding(value) else value
 
 
 # ─────────────────────────────────────────────
@@ -1834,7 +1847,7 @@ def _extract_dxf_quantities(doc):
     """
     msp = doc.modelspace()
 
-    layer_names = [l.dxf.name for l in doc.layers]
+    layer_names = [_cad_text(l.dxf.name) for l in doc.layers]
     texts = []
     dimensions = []
     block_counts = {}
@@ -1846,7 +1859,7 @@ def _extract_dxf_quantities(doc):
 
     for entity in msp:
         dxftype = entity.dxftype()
-        layer = getattr(entity.dxf, "layer", "0")
+        layer = _cad_text(getattr(entity.dxf, "layer", "0"))
         s = stat(layer)
         s["count"] += 1
 
@@ -1875,11 +1888,12 @@ def _extract_dxf_quantities(doc):
                 except Exception:
                     pass
             elif dxftype == "INSERT":
-                block_counts[entity.dxf.name] = block_counts.get(entity.dxf.name, 0) + 1
+                name = _cad_text(entity.dxf.name)
+                block_counts[name] = block_counts.get(name, 0) + 1
             elif dxftype in ("TEXT", "MTEXT"):
                 t = entity.dxf.text if dxftype == "TEXT" else entity.text
                 if t and t.strip():
-                    texts.append(t.strip()[:200])
+                    texts.append(_cad_text(t.strip())[:200])
             elif dxftype == "DIMENSION":
                 # 무료 변환기의 DXF에는 측정값(코드 42)이 없어 정의점으로 잰다.
                 val = entity.dxf.get("actual_measurement")
@@ -1933,7 +1947,7 @@ def _extract_dxf_quantities(doc):
 DWG_ZIP_PARSE_MAX_FILES = 60
 
 
-def parse_dwg_from_zip(zip_bytes, keywords=None, time_budget=DWG_CONVERT_TIME_BUDGET_SECONDS):
+def parse_dwg_from_zip(zip_bytes, keywords=None, time_budget=None, background=False):
     """
     ZIP 바이트에서 DWG/DXF 파일을 찾아 파싱한다.
     keywords가 None이면 ZIP 안의 모든 .dwg/.dxf 파일이 대상(최대 DWG_ZIP_PARSE_MAX_FILES개).
@@ -1941,6 +1955,7 @@ def parse_dwg_from_zip(zip_bytes, keywords=None, time_budget=DWG_CONVERT_TIME_BU
     대상으로 한다.
     DWG(바이너리 AutoCAD 포맷)는 ezdxf가 직접 읽지 못하므로 치킨바나나캐드의 무료
     변환기로 DXF로 바꿔 파싱한다(ZIP당 time_budget초 안에서, ODA는 쓰지 않는다).
+    background=True는 백그라운드 작업용: 예산이 길고 변환기 첫 슬롯만 쓴다.
     Returns: { filename: { layers, layer_geometry, block_counts, texts, dimensions, ... } | {"error": ...} }
     """
     result = {}
@@ -1972,6 +1987,8 @@ def parse_dwg_from_zip(zip_bytes, keywords=None, time_budget=DWG_CONVERT_TIME_BU
         )
         matched_members = matched_members[:DWG_ZIP_PARSE_MAX_FILES]
 
+    if time_budget is None:
+        time_budget = DWG_CONVERT_BACKGROUND_TIME_BUDGET_SECONDS if background else DWG_CONVERT_TIME_BUDGET_SECONDS
     deadline = time.monotonic() + time_budget
     with tempfile.TemporaryDirectory(prefix="cbl_qty_") as work_dir:
         for idx, (info, member) in enumerate(matched_members):
@@ -1986,16 +2003,17 @@ def parse_dwg_from_zip(zip_bytes, keywords=None, time_budget=DWG_CONVERT_TIME_BU
             if ext == ".dwg":
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    result[out_name] = {"error": QUANTITY_DWG_TIME_BUDGET_MESSAGE}
+                    result[out_name] = {"error": _quantity_dwg_time_budget_message(time_budget)}
                     continue
                 try:
-                    dxf_text, metadata = _cbl_free_dwg_to_dxf_text_v1(local_path, timeout=remaining)
-                    # 편집기(decodeMplus)처럼 \M+ 코드로 남은 한글도 문자로 푼다.
-                    if has_mif_encoding(dxf_text):
-                        dxf_text = decode_mif_to_unicode(dxf_text)
+                    dxf_text, metadata = _cbl_free_dwg_to_dxf_text_v1(
+                        local_path, timeout=remaining, wait=remaining, background=background)
                     doc = ezdxf.read(io.StringIO(dxf_text))
                 except subprocess.TimeoutExpired:
-                    result[out_name] = {"error": QUANTITY_DWG_TIME_BUDGET_MESSAGE}
+                    result[out_name] = {"error": _quantity_dwg_time_budget_message(time_budget)}
+                    continue
+                except _CBLAcadSharpBusy:
+                    result[out_name] = {"error": QUANTITY_DWG_BUSY_MESSAGE}
                     continue
                 except Exception as e:
                     logger.warning("quantity_dwg_convert_failed member=%s error=%s", member, str(e)[:300])
@@ -5852,7 +5870,7 @@ def _run_general_notes_job(job_id, review_id, structural_pdf_bytes, structural_p
         rec = _review_get(review_id) or {}
         cad_context = []
         if cad_candidate_records:
-            parsed, attempted, capped = _parse_precheck_candidates(cad_candidate_records)
+            parsed, attempted, capped = _parse_precheck_candidates(cad_candidate_records, background=True)
             for record in cad_candidate_records:
                 info = parsed.get(record.get("content_sha256")) or {}
                 if "error" in info:
@@ -6467,7 +6485,7 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                     # 2026-07-27: REQUIRED_ARCHITECTURAL의 임의 코드(A-001 등)로 필터링하면
                     # 실제 프로젝트 파일명과 안 맞아 매칭 0건이 될 수 있으므로, ZIP 안의
                     # 모든 dwg/dxf를 대상으로 한다(코드 목록에 의존하지 않음).
-                    arch_dwg_data = parse_dwg_from_zip(architectural_zip_bytes)
+                    arch_dwg_data = parse_dwg_from_zip(architectural_zip_bytes, background=True)
 
                 if architectural_pdf_bytes:
                     try:
@@ -6522,7 +6540,7 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                     # 크다(구조 PDF 기반 Gemini 추출은 그대로 진행되지만, ZIP으로 올린 DWG의
                     # 기하 데이터가 보조 자료로 전혀 반영되지 않고 조용히 버려진 것). 도면번호
                     # 목록에 의존하지 않고 ZIP 안의 모든 dwg/dxf를 대상으로 바꾼다.
-                    dwg_data = parse_dwg_from_zip(structural_zip_bytes)
+                    dwg_data = parse_dwg_from_zip(structural_zip_bytes, background=True)
 
                 # structural_pdf_bytes는 이미 파라미터로 받은 원본 바이트 그대로 사용한다 —
                 # 여기서 미리 전부 이미지로 렌더링하지 않는다(대형 도면집을 한꺼번에
@@ -7998,7 +8016,7 @@ def extract_drawing_coordination(structural_pdf_bytes, architectural_pdf_bytes,
             cad_diagnostics[label] = {"provided": False, "parsed": 0}
             continue
         try:
-            parsed_cad = parse_dwg_from_zip(cad_bytes)
+            parsed_cad = parse_dwg_from_zip(cad_bytes, background=True)
             cad_diagnostics[label] = {
                 "provided": True,
                 "parsed": sum(1 for value in parsed_cad.values() if "error" not in value),

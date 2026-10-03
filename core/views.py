@@ -23789,16 +23789,78 @@ def _cbl_free_dwg_local_find_minsert_helper_v1():
     return None
 
 
+# ============================================================
+# CBL_ACADSHARP_SLOTS_V1
+# A converter run takes up to ~700 MB on a large drawing and the server has
+# 2 GB.  Every run takes one of CBLCAD_ACADSHARP_SLOTS cross-process slots
+# (flock, released when the process dies); quantity jobs in the background
+# use only the first slot so editor opens and saves keep the others.
+# ============================================================
+import contextlib as _cbl_contextlib
+import fcntl as _cbl_fcntl
+
+
+class _CBLAcadSharpBusy(RuntimeError):
+    pass
+
+
+_CBL_ACADSHARP_BUSY_MESSAGE_V1 = "DWG 변환기가 다른 도면을 처리하고 있습니다. 잠시 후 다시 시도해 주세요."
+_CBL_ACADSHARP_SLOT_ROOT_V1 = _cbl_Path(_cbl_tempfile.gettempdir()) / "cbl-acadsharp-slots-v1"
+_CBL_ACADSHARP_WAIT_V1 = 60
+
+
+def _cbl_acadsharp_slot_count_v1():
+    try:
+        return max(1, int(getattr(settings, "CBLCAD_ACADSHARP_SLOTS", 2)))
+    except (TypeError, ValueError):
+        return 2
+
+
+@_cbl_contextlib.contextmanager
+def _cbl_acadsharp_slot_v1(wait=_CBL_ACADSHARP_WAIT_V1, background=False):
+    """Hold a converter slot (its index) for the block; _CBLAcadSharpBusy after `wait` seconds."""
+    root = _CBL_ACADSHARP_SLOT_ROOT_V1
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    slots = range(1 if background else _cbl_acadsharp_slot_count_v1())
+    started = _cbl_time.monotonic()
+    while True:
+        for index in slots:
+            handle = open(root / f"slot-{index}.lock", "a+")
+            try:
+                _cbl_fcntl.flock(handle, _cbl_fcntl.LOCK_EX | _cbl_fcntl.LOCK_NB)
+            except OSError:
+                handle.close()
+                continue
+            try:
+                waited = _cbl_time.monotonic() - started
+                if waited >= 1:
+                    _cbl_dwg_dxf_emit_log_v1("CBLCAD_ACADSHARP_SLOT event=waited slot=%s wait_ms=%.0f background=%s",
+                                             index, waited * 1000, int(background))
+                yield index
+            finally:
+                _cbl_fcntl.flock(handle, _cbl_fcntl.LOCK_UN)
+                handle.close()
+            return
+        if _cbl_time.monotonic() - started >= wait:
+            _cbl_dwg_dxf_emit_log_v1("CBLCAD_ACADSHARP_SLOT event=busy wait_ms=%.0f background=%s",
+                                     wait * 1000, int(background))
+            raise _CBLAcadSharpBusy(_CBL_ACADSHARP_BUSY_MESSAGE_V1)
+        _cbl_time.sleep(0.25)
+
+
+def _cbl_acadsharp_run_v1(command, timeout, wait=_CBL_ACADSHARP_WAIT_V1, background=False):
+    """subprocess.run of the ACadSharp converter inside a slot (stdout/stderr captured)."""
+    with _cbl_acadsharp_slot_v1(wait=wait, background=background):
+        return _cbl_subprocess.run(command, stdout=_cbl_subprocess.PIPE, stderr=_cbl_subprocess.PIPE,
+                                   timeout=timeout, check=False)
+
+
 def _cbl_free_dwg_local_acadsharp_metadata_v1(path):
     executable = _cbl_free_dwg_save_local_executable_v1()
     if executable is None:
         return None, {"status": "executable_missing"}
     try:
-        result = _cbl_subprocess.run(
-            [str(executable), "--metadata", str(path)],
-            stdout=_cbl_subprocess.PIPE, stderr=_cbl_subprocess.PIPE,
-            timeout=300, check=False,
-        )
+        result = _cbl_acadsharp_run_v1([str(executable), "--metadata", str(path)], timeout=300)
         if result.returncode != 0 or not result.stdout.strip():
             return None, {"status": "metadata_read_failed", "error": result.stderr.decode(errors="replace")[-500:]}
         return _cbl_json.loads(result.stdout.decode("utf-8", errors="replace"), strict=False), {"status": "read"}
@@ -24295,11 +24357,8 @@ def cblcad_free_dwg_local_api(request):
                 convert_started = _cbl_time.perf_counter()
                 # One runtime run writes the DXF and the --metadata JSON from a
                 # single DWG read (a second read took ~2 s on large plans).
-                run = _cbl_subprocess.run(
-                    [str(executable), "--dxf", str(source), str(output), str(metadata_path)],
-                    stdout=_cbl_subprocess.PIPE, stderr=_cbl_subprocess.PIPE,
-                    timeout=600, check=False,
-                )
+                run = _cbl_acadsharp_run_v1(
+                    [str(executable), "--dxf", str(source), str(output), str(metadata_path)], timeout=600)
                 if run.returncode != 0 or not output.is_file() or not _cbl_free_dwg_local_valid_dxf_v1(output):
                     detail = run.stderr.decode("utf-8", errors="replace")[-1200:]
                     raise RuntimeError("ACadSharp full DXF 변환 실패: " + detail)
@@ -24332,6 +24391,8 @@ def cblcad_free_dwg_local_api(request):
         return _cbl_JsonResponse({"ok": True, "converter": "free-libredwg",
                                   "oda_used": False, "v29_used": False,
                                   **payload}, json_dumps_params={"ensure_ascii": False})
+    except _CBLAcadSharpBusy as exc:
+        return _cbl_JsonResponse({"ok": False, "busy": True, "oda_executed": False, "error": str(exc)}, status=503)
     except Exception as exc:
         _cbl_dwg_dxf_emit_log_v1("CBLCAD_FREE_DWG_LOCAL endpoint=free-dwg-local event=error oda_executed=0 error=%s", str(exc)[:300])
         return _cbl_JsonResponse({"ok": False, "oda_executed": False, "error": str(exc)}, status=500)
@@ -24507,11 +24568,7 @@ def _cbl_free_dwg_acadsharp_metadata_v1(path):
     executable = _cbl_free_dwg_save_local_executable_v1()
     if executable is None:
         raise RuntimeError("ACadSharp metadata runtime을 찾지 못했습니다.")
-    result = _cbl_subprocess.run(
-        [str(executable), "--metadata", str(path)],
-        stdout=_cbl_subprocess.PIPE, stderr=_cbl_subprocess.PIPE,
-        timeout=300, check=False,
-    )
+    result = _cbl_acadsharp_run_v1([str(executable), "--metadata", str(path)], timeout=300)
     if result.returncode != 0 or not result.stdout.strip():
         raise RuntimeError("ACadSharp 저장본 metadata 재판독 실패: " + result.stderr.decode(errors="replace")[-800:])
     report = _cbl_json.loads(result.stdout.decode("utf-8", errors="replace"), strict=False)
@@ -24520,12 +24577,13 @@ def _cbl_free_dwg_acadsharp_metadata_v1(path):
     return report
 
 
-def _cbl_free_dwg_to_dxf_text_v1(path, timeout=600):
+def _cbl_free_dwg_to_dxf_text_v1(path, timeout=600, wait=_CBL_ACADSHARP_WAIT_V1, background=False):
     """(DXF text, metadata) of a DWG through the free ACadSharp runtime.
 
     The text is what the editor gets from the open API: decoded with the
     drawing's code page and with \\U+XXXX turned back into characters.  The
-    metadata comes from the same read.  Used by the quantity tool.
+    metadata comes from the same read.  Used by the quantity tool; `wait` and
+    `background` go to the converter slot (_cbl_acadsharp_slot_v1).
     """
     executable = _cbl_free_dwg_save_local_executable_v1()
     if executable is None:
@@ -24533,11 +24591,8 @@ def _cbl_free_dwg_to_dxf_text_v1(path, timeout=600):
     with _cbl_tempfile.TemporaryDirectory(prefix=".cbl-acadsharp-dxf-") as tmp:
         output = _cbl_Path(tmp) / "output.dxf"
         metadata_path = _cbl_Path(tmp) / "metadata.json"
-        run = _cbl_subprocess.run(
-            [str(executable), "--dxf", str(path), str(output), str(metadata_path)],
-            stdout=_cbl_subprocess.PIPE, stderr=_cbl_subprocess.PIPE,
-            timeout=timeout, check=False,
-        )
+        run = _cbl_acadsharp_run_v1([str(executable), "--dxf", str(path), str(output), str(metadata_path)],
+                                    timeout=timeout, wait=wait, background=background)
         if run.returncode != 0 or not output.is_file() or not _cbl_free_dwg_local_valid_dxf_v1(output):
             raise RuntimeError("ACadSharp DXF 변환 실패: " + run.stderr.decode("utf-8", errors="replace")[-800:])
         metadata = _cbl_json.loads(metadata_path.read_text(encoding="utf-8", errors="replace"), strict=False)
@@ -25697,8 +25752,7 @@ def cblcad_free_dwg_save_local_api(request):
                 # real AC1018 document from the editor operations; no DXF
                 # extension trick or paid/ODA conversion is involved.
                 command = [str(executable), "--create", str(output), "AC1018", str(ops_path)]
-            run = _cbl_subprocess.run(command, stdout=_cbl_subprocess.PIPE,
-                                      stderr=_cbl_subprocess.PIPE, timeout=900, check=False)
+            run = _cbl_acadsharp_run_v1(command, timeout=900)
             if run.returncode != 0 or not output.is_file() or output.stat().st_size < 1024:
                 detail = (run.stderr or run.stdout).decode("utf-8", errors="replace")[-1800:]
                 raise RuntimeError(_cbl_free_dwg_writer_error_message_v1(detail))
@@ -25800,6 +25854,9 @@ def cblcad_free_dwg_save_local_api(request):
         if isinstance(getattr(exc, "diagnostics", None), dict):
             payload["validation"] = exc.diagnostics
         return _cbl_JsonResponse(payload, status=400, json_dumps_params={"ensure_ascii": False})
+    except _CBLAcadSharpBusy as exc:
+        return _cbl_JsonResponse({"ok": False, "busy": True, "oda_executed": False, "error": str(exc)},
+                                 status=503, json_dumps_params={"ensure_ascii": False})
     except Exception as exc:
         _cbl_dwg_dxf_emit_log_v1(
             "CBLCAD_FREE_DWG_SAVE_LOCAL endpoint=free-dwg-save event=error oda_executed=0 error=%s",
