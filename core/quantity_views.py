@@ -15,7 +15,6 @@ import logging
 import math
 import os
 import re
-import shutil
 import subprocess
 import tempfile
 import threading
@@ -1663,44 +1662,13 @@ def api_check_zip(request):
 
 
 # ─────────────────────────────────────────────
-#  DWG → DXF 변환: ODA File Converter 연동
-#  (core/views.py의 cblcad_dwg_to_dxf_api 와 동일한 탐색 방식을 재사용)
+#  DWG: ODA File Converter는 라이선스 때문에 쓰지 않는다. 물량산출 도구가
+#  치킨바나나캐드의 무료 변환기로 DWG를 읽게 될 때까지 DWG는 DXF로 올려 달라고
+#  알리고, DXF만 파싱한다.
 # ─────────────────────────────────────────────
-def _find_oda_converter():
-    """서버에 설치된 ODA File Converter 실행 파일 경로를 찾는다. 없으면 None."""
-    candidates = [
-        "/Applications/ODAFileConverter.app/Contents/MacOS/ODAFileConverter",
-        "/Applications/ODA File Converter.app/Contents/MacOS/ODAFileConverter",
-        "/Applications/ODAFileConverter 26.10.app/Contents/MacOS/ODAFileConverter",
-        "/Applications/ODAFileConverter 25.12.app/Contents/MacOS/ODAFileConverter",
-        "/Applications/ODAFileConverter 24.12.app/Contents/MacOS/ODAFileConverter",
-        shutil.which("ODAFileConverter"),
-        shutil.which("ODAFileConverter.exe"),
-    ]
-    for c in candidates:
-        if c and os.path.exists(c):
-            return c
-    return None
-
-
-def _convert_dwg_folder_to_dxf(dwg_dir, out_dir, timeout=90):
-    """
-    dwg_dir 안의 모든 .dwg 파일을 ODA File Converter로 일괄 변환해 out_dir에 저장.
-    변환기가 없거나 실패하면 (False, 메시지) 반환.
-    """
-    import subprocess
-
-    converter = _find_oda_converter()
-    if not converter:
-        return False, "ODA_NOT_FOUND"
-
-    cmd = [converter, dwg_dir, out_dir, "ACAD2004", "DXF", "0", "1"]
-    try:
-        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
-    except Exception as e:
-        return False, f"CONVERT_EXCEPTION: {e}"
-
-    return True, "OK"
+QUANTITY_DWG_NOT_SUPPORTED_MESSAGE = (
+    "DWG 파일은 지금 바로 읽을 수 없습니다. CAD에서 DXF로 내보내서 다시 업로드해 주세요."
+)
 
 
 # ─────────────────────────────────────────────
@@ -1894,8 +1862,8 @@ def parse_dwg_from_zip(zip_bytes, keywords=None):
     keywords가 None이면 ZIP 안의 모든 .dwg/.dxf 파일이 대상(최대 DWG_ZIP_PARSE_MAX_FILES개).
     keywords가 주어지면 파일명(공백 무시, 대소문자 무시)에 그 중 하나라도 포함된 파일만
     대상으로 한다.
-    DWG(바이너리 AutoCAD 포맷)는 ezdxf가 직접 읽지 못하므로,
-    서버에 ODA File Converter가 설치돼 있으면 자동으로 DXF로 변환 후 파싱한다.
+    DWG(바이너리 AutoCAD 포맷)는 ezdxf가 직접 읽지 못하므로 DXF로 올려 달라는
+    오류로 돌려준다(ODA File Converter는 쓰지 않는다).
     Returns: { filename: { layers, layer_geometry, block_counts, texts, dimensions, ... } | {"error": ...} }
     """
     result = {}
@@ -1928,50 +1896,17 @@ def parse_dwg_from_zip(zip_bytes, keywords=None):
         matched_members = matched_members[:DWG_ZIP_PARSE_MAX_FILES]
 
     with tempfile.TemporaryDirectory(prefix="cbl_qty_") as work_dir:
-        dwg_dir = os.path.join(work_dir, "dwg_in")
-        dxf_out_dir = os.path.join(work_dir, "dxf_out")
-        os.makedirs(dwg_dir, exist_ok=True)
-        os.makedirs(dxf_out_dir, exist_ok=True)
-
-        # 1차: 원본 그대로 풀어두기 (파일명 충돌 방지를 위해 인덱스 접두어 사용)
-        member_to_local = {}
-        dwg_present = False
         for idx, (info, member) in enumerate(matched_members):
             ext = os.path.splitext(member)[1].lower()
-            local_name = f"{idx:03d}_{os.path.basename(member)}"
-            local_path = os.path.join(dwg_dir if ext == ".dwg" else work_dir, local_name)
-            with open(local_path, "wb") as f:
-                f.write(zf.read(info))
-            member_to_local[member] = (ext, local_path, local_name)
-            if ext == ".dwg":
-                dwg_present = True
-
-        oda_ok, oda_msg = (False, "SKIPPED")
-        if dwg_present:
-            oda_ok, oda_msg = _convert_dwg_folder_to_dxf(dwg_dir, dxf_out_dir)
-
-        for _, member in matched_members:
-            ext, local_path, local_name = member_to_local[member]
             # 전체 ZIP 경로를 키로 유지해 구조/건축/XRef의 동명 파일이 서로 덮어쓰지 않게 한다.
             out_name = member
-
-            if ext == ".dxf":
-                dxf_path = local_path
-            else:
-                # 변환된 DXF 찾기 (확장자만 dxf로 바뀌고 파일명은 동일)
-                converted_name = os.path.splitext(local_name)[0] + ".dxf"
-                dxf_path = os.path.join(dxf_out_dir, converted_name)
-                if not oda_ok:
-                    result[out_name] = {
-                        "error": (
-                            "DWG 파일은 서버에 설치된 ODA File Converter가 있어야 자동 변환됩니다. "
-                            f"(사유: {oda_msg}) DXF로 내보내서 다시 업로드하거나, 서버에 ODA File Converter를 설치해 주세요."
-                        )
-                    }
-                    continue
-                if not os.path.exists(dxf_path):
-                    result[out_name] = {"error": "DWG → DXF 변환에 실패했습니다 (변환 결과 파일 없음)."}
-                    continue
+            if ext == ".dwg":
+                result[out_name] = {"error": QUANTITY_DWG_NOT_SUPPORTED_MESSAGE}
+                continue
+            # 파일명 충돌 방지를 위해 인덱스 접두어 사용
+            dxf_path = os.path.join(work_dir, f"{idx:03d}_{os.path.basename(member)}")
+            with open(dxf_path, "wb") as f:
+                f.write(zf.read(info))
 
             try:
                 doc = ezdxf.readfile(dxf_path)
@@ -1993,7 +1928,7 @@ def _check_critical_content(zip_bytes):
     - exists=False: 파일명 매칭 자체가 안 됨(파일이 없음)
     - content_verified=True: 파일을 열어봤고 예상 키워드를 실제로 찾음
     - content_verified=False: 파일은 열었지만 예상 키워드를 못 찾음(엉뚱한 내용일 가능성)
-    - content_verified=None: 파일은 있는데 열어보지 못함(DWG인데 ODA 미설치 등) — 이
+    - content_verified=None: 파일은 있는데 열어보지 못함(DWG라 DXF로 올려야 하는 경우 등) — 이
       경우 "확인 안 됨"을 "확인됨"으로 속이지 않고 정직하게 이유를 남긴다."""
     try:
         # ZIP 안의 모든 dwg/dxf를 한 번만 파싱해서 각 항목이 재사용한다

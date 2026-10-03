@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, SimpleTestCase, TestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase
 
 from . import views as core_views
 
@@ -79,12 +79,14 @@ class CadV29SessionPruneTests(SimpleTestCase):
 class CadV29OpenSessionPruneHookTests(TestCase):
     def test_open_session_prunes_old_sessions(self):
         user = get_user_model().objects.create_user(username="cad-pruner", password="test-password")
-        client = Client()
-        client.force_login(user)
         with tempfile.TemporaryDirectory() as tmp, \
              patch.object(core_views, "_cbl_v29_root", return_value=Path(tmp)), \
              patch.object(core_views, "_cbl_v29_maybe_prune_sessions") as maybe_prune, \
              patch.object(core_views, "_cbl_v29_oda_convert", side_effect=RuntimeError("no converter in tests")):
+            # The route answers 410 since ODA left ChickenBananaCAD; the view is
+            # still checked in case it is routed again.
             upload = SimpleUploadedFile("drawing.dwg", b"AC1018 fake", content_type="application/acad")
-            client.post("/api/cblcad/v29/open-session/", {"file": upload})
+            request = RequestFactory().post("/api/cblcad/v29/open-session/", {"file": upload})
+            request.user = user
+            core_views.cblcad_v29_open_session(request)
             maybe_prune.assert_called_once_with(Path(tmp))

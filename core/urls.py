@@ -24,20 +24,20 @@ from . import views as cbl_views
 from . import views as cbl_views_v21_2
 
 urlpatterns = [
-    path("api/cblcad/v29/open-session/", views.cblcad_v29_open_session, name="cblcad_v29_open_session"),
+    path("api/cblcad/v29/open-session/", views.cblcad_oda_removed_api, name="cblcad_v29_open_session"),
     path("api/cblcad/free-dwg-to-dxf/", views.cblcad_free_dwg_local_api, name="cblcad_free_dwg_local_api"),
     path("api/cblcad/free-dwg-native-open/", views.cblcad_free_dwg_native_open_api, name="cblcad_free_dwg_native_open_api"),
     path("api/cblcad/free-dwg-native-save-path/", views.cblcad_free_dwg_native_save_path_api, name="cblcad_free_dwg_native_save_path_api"),
     path("api/cblcad/free-dwg-save/", views.cblcad_free_dwg_save_local_api, name="cblcad_free_dwg_save_local_api"),
     path("api/cblcad/free-dwg-download/<str:token>/", views.cblcad_free_dwg_download_api, name="cblcad_free_dwg_download_api"),
-    path("api/cblcad/v29/save-ops/", views.cblcad_v29_save_ops, name="cblcad_v29_save_ops"),
+    path("api/cblcad/v29/save-ops/", views.cblcad_oda_removed_api, name="cblcad_v29_save_ops"),
 
 cbl_path("api/cblcad/csrf/", cbl_views.cblcad_csrf, name="cblcad_csrf"),
     # CBL CAD DWG BEST DXF URLS V1 START
     # 기존 프론트가 /api/cblcad/dwg-to-dxf/ 를 호출하면 이 새 백엔드가 먼저 잡는다.
-    path("api/cblcad/dwg-to-dxf/", views.cblcad_dwg_to_best_dxf_api, name="cblcad_dwg_to_dxf_best_v1"),
+    path("api/cblcad/dwg-to-dxf/", views.cblcad_oda_removed_api, name="cblcad_dwg_to_dxf_best_v1"),
     # 직접 테스트용 별도 엔드포인트
-    path("api/cblcad/dwg-to-best-dxf/", views.cblcad_dwg_to_best_dxf_api, name="cblcad_dwg_to_best_dxf_v1"),
+    path("api/cblcad/dwg-to-best-dxf/", views.cblcad_oda_removed_api, name="cblcad_dwg_to_best_dxf_v1"),
     # CBL CAD DWG BEST DXF URLS V1 END
 
     path('quantity/', quantity_views.quantity_main, name='quantity_main'),
@@ -62,11 +62,11 @@ cbl_path("api/cblcad/csrf/", cbl_views.cblcad_csrf, name="cblcad_csrf"),
     path("api/job/analyze/", api_analyze_interview, name="api_job_analyze"),
     path("api/job/download-report/", api_download_report, name="api_job_download_report"),
 
-    path("api/cblcad/dxf-to-dwg/", views.cblcad_dxf_to_dwg_save_api, name="cblcad_dxf_to_dwg_save_api"),
-    path("api/cblcad/dxf-to-dwg", views.cblcad_dxf_to_dwg_save_api, name="cblcad_dxf_to_dwg_save_api_no_slash"),
+    path("api/cblcad/dxf-to-dwg/", views.cblcad_oda_removed_api, name="cblcad_dxf_to_dwg_save_api"),
+    path("api/cblcad/dxf-to-dwg", views.cblcad_oda_removed_api, name="cblcad_dxf_to_dwg_save_api_no_slash"),
 
-    path("api/cblcad/dwg-to-dxf/", views.cblcad_dwg_to_dxf_clean_api, name="cblcad_dwg_to_dxf_clean_api"),
-    path("api/cblcad/dwg-to-dxf", views.cblcad_dwg_to_best_dxf_api, name="cblcad_dwg_to_dxf_best_v21_5_no_slash"),
+    path("api/cblcad/dwg-to-dxf/", views.cblcad_oda_removed_api, name="cblcad_dwg_to_dxf_clean_api"),
+    path("api/cblcad/dwg-to-dxf", views.cblcad_oda_removed_api, name="cblcad_dwg_to_dxf_best_v21_5_no_slash"),
 
 
 

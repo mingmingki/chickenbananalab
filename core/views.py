@@ -7830,6 +7830,13 @@ def webcad_tool(request):
     local_free_mode = _cbl_is_safe_local_free_dwg_request(request)
     browser_free_mode = _cbl_is_browser_free_dwg_request(request)
     free_mode = local_free_mode or browser_free_mode
+    if (not free_mode and request.GET.get("mode") != "free-dwg"
+            and bool(getattr(getattr(request, "user", None), "is_authenticated", False))):
+        # Without the mode the editor opened and saved DWG through the ODA
+        # routes, which are gone (cblcad_oda_removed_api): use the free mode.
+        query = request.GET.copy()
+        query["mode"] = "free-dwg"
+        return redirect(request.path + "?" + query.urlencode())
     if free_mode:
         from pathlib import Path
         from django.conf import settings as _cbl_settings
@@ -7946,24 +7953,9 @@ def webcad_tool(request):
 # CBL_CAD_DIRECT_VIEW_START
 @login_required
 def cblcad_direct_view(request):
-    from pathlib import Path
-    from django.conf import settings
-    from django.http import HttpResponse, Http404
-
-    base = Path(settings.BASE_DIR)
-
-    candidates = [
-        base / "core" / "static" / "core" / "tools" / "CBLCAD_VER2.html",
-        base / "static" / "core" / "tools" / "CBLCAD_VER2.html",
-        base / "CBLCAD_VER2.html",
-    ]
-
-    for path in candidates:
-        if path.exists():
-            html = path.read_text(encoding="utf-8", errors="ignore")
-            return HttpResponse(html, content_type="text/html; charset=utf-8")
-
-    raise Http404("CBLCAD_VER2.html file not found")
+    # This page opened the editor without the free mode, i.e. on the ODA
+    # routes, which are gone (cblcad_oda_removed_api).
+    return redirect("/tools/cad/?mode=free-dwg")
 # CBL_CAD_DIRECT_VIEW_END
 
 
@@ -10081,7 +10073,8 @@ def _cbl_install_oda_window_hide_safe_v2():
         pass
 
 
-_cbl_install_oda_window_hide_safe_v2()
+# Not installed: no CAD route runs ODA any more, and the wrapper left 90
+# osascripts behind per ODA run wherever ODA was run with this module loaded.
 # CBLCAD_ODA_HIDE_WINDOW_SAFE_V2_END
 
 
@@ -23618,6 +23611,20 @@ def _cbl_is_browser_free_dwg_request(request):
 
 def _cbl_is_free_dwg_request(request):
     return _cbl_is_safe_local_free_dwg_request(request) or _cbl_is_browser_free_dwg_request(request)
+
+
+@_cbl_csrf_exempt
+def cblcad_oda_removed_api(request, *args, **kwargs):
+    """The routes that ran ODA File Converter.
+
+    ODA is not part of ChickenBananaCAD (license): DWG goes through the free
+    ACadSharp pipeline (?mode=free-dwg).  Nothing is read or started here.
+    """
+    return JsonResponse({
+        "ok": False,
+        "error": "oda_removed",
+        "message": "이 DWG 변환 경로는 더 이상 제공하지 않습니다. 무료 DWG 모드(/tools/cad/?mode=free-dwg)를 사용해 주세요.",
+    }, status=410, json_dumps_params={"ensure_ascii": False})
 
 
 def _cbl_free_dwg_upload_limit_v1():

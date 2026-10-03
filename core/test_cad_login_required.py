@@ -64,9 +64,9 @@ class CadLoginRequiredTests(TestCase):
 
     def test_logged_in_member_reaches_cad_api(self):
         self.client.force_login(self.user)
-        response = self.client.get("/api/cblcad/dwg-to-best-dxf/")
+        response = self.client.get("/api/cblcad/csrf/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["endpoint"], "cblcad_dwg_to_best_dxf_api")
+        self.assertEqual(response.json(), {"ok": True})
 
     def test_anonymous_cad_pages_redirect_to_login(self):
         for path in ("/cblcad/", "/tools/cad/"):
@@ -77,7 +77,8 @@ class CadLoginRequiredTests(TestCase):
 
     def test_logged_in_member_opens_cblcad_page(self):
         self.client.force_login(self.user)
-        response = self.client.get("/cblcad/")
+        response = self.client.get("/cblcad/", HTTP_HOST="www.chickenbananalab.com", follow=True)
+        self.assertEqual(response.redirect_chain, [("/tools/cad/?mode=free-dwg", 302)])
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"ChickenBananaCAD", response.content)
 
