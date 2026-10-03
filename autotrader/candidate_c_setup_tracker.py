@@ -33,6 +33,10 @@ class SetupTracker:
     _last_state: dict = field(default_factory=dict)       # (symbol, side) -> bool
     _all_setup_ids: dict = field(default_factory=dict)     # setup_id -> {"symbol","side","timestamp"}
     _attempted_setup_ids: dict = field(default_factory=dict)  # setup_id -> outcome
+    # Start of the current uninterrupted True setup run.  Unlike individual
+    # per-bar setup_ids this timestamp does not advance while the condition
+    # remains True, so a restart cannot make an old setup look fresh again.
+    _active_true_started_ms: dict = field(default_factory=dict)  # (symbol, side) -> first True timestamp
     # [2026-09-16, 사용자 직접 지시 - timeout 1회 재검토 정책] 최초 GPT 결과가
     # timeout일 때만, 원 setup의 바로 다음 확정 10분봉에서 딱 한 번 재검토할
     # 기회를 durable하게 기록한다. wait/reject는 대상이 아니다(오케스트레이터가
@@ -69,7 +73,13 @@ class SetupTracker:
     def _apply(self, rec: dict) -> None:
         if rec["type"] == "state":
             key = (rec["symbol"], rec["side"])
-            self._last_state[key] = rec["new_state"]
+            previous = self._last_state.get(key, False)
+            new_state = bool(rec["new_state"])
+            if new_state and not previous:
+                self._active_true_started_ms[key] = rec["timestamp"]
+            elif not new_state:
+                self._active_true_started_ms.pop(key, None)
+            self._last_state[key] = new_state
             if rec.get("setup_id"):
                 self._all_setup_ids[rec["setup_id"]] = {
                     "symbol": rec["symbol"], "side": rec["side"], "timestamp": rec["timestamp"],
@@ -114,6 +124,8 @@ class SetupTracker:
                 "type": "state", "symbol": symbol, "side": side, "timestamp": timestamp_ms,
                 "new_state": True, "setup_id": setup_id,
             })
+            if not prev:
+                self._active_true_started_ms[key] = timestamp_ms
             self._last_state[key] = True
             self._all_setup_ids[setup_id] = {
                 "symbol": symbol, "side": side, "timestamp": timestamp_ms,
@@ -127,7 +139,12 @@ class SetupTracker:
             "new_state": False, "setup_id": None,
         })
         self._last_state[key] = False
+        self._active_true_started_ms.pop(key, None)
         return None
+
+    def continuous_true_started_ms(self, symbol: str, side: str) -> int | None:
+        """First bar timestamp of the uninterrupted current True setup run."""
+        return self._active_true_started_ms.get((symbol, side))
 
     def record_attempt_outcome(self, setup_id: str, outcome: str) -> None:
         """setup_id로 진행한 entry attempt의 최종 결과(예: 'accepted',

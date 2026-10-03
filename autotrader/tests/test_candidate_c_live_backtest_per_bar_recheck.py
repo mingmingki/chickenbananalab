@@ -24,7 +24,7 @@ def _indicators(bars, donchian_n=20):
 
 
 def _snapshot(as_of_ms):
-    bar_open = 0 if as_of_ms < TEN_MIN else TEN_MIN
+    bar_open = (as_of_ms // TEN_MIN) * TEN_MIN
     return SimpleNamespace(
         bar_5m={"close_time_ms": as_of_ms + 300_000, "close": 110.0},
         bar_1h={"close": 105.0},
@@ -185,3 +185,33 @@ def test_runtime_parity_evidence_covers_per_bar_recheck_sources():
     }
     # The preregistration evidence is intentionally deployment-only and is not in Git.
     assert mismatched <= {"candidate_c_preregistration_v3.json"}
+
+
+def test_live_expires_continuous_setup_after_thirty_minutes(monkeypatch, tmp_path):
+    _patch_shared_inputs(monkeypatch)
+    state = _state(tmp_path)
+    action_opens = [300_000, 900_000, 1_500_000, 2_100_000]
+    for index, action_open in enumerate(action_opens):
+        prepared = _prepare_live(monkeypatch, tmp_path, state, action_open)
+        assert prepared["branch"] == "entry_live"
+        assert prepared["intent"].reason_code == (
+            "setup_edge_triggered" if index == 0 else "setup_bar_recheck"
+        )
+        _reject_live(tmp_path, state, prepared)
+
+    stale = _prepare_live(monkeypatch, tmp_path, state, 2_700_000)
+    assert stale["result"]["intent_kind"] == dec.INTENT_NO_ACTION
+    assert stale["result"]["reason_code"] == "setup_stale_after_30m"
+
+
+def test_continuous_setup_age_survives_restart_and_resets_after_false(tmp_path):
+    path = tmp_path / "durable_setup.jsonl"
+    tracker = st.SetupTracker.load(str(path))
+    tracker.observe(SYMBOL, "long", 0, True)
+    tracker.observe(SYMBOL, "long", TEN_MIN, True)
+    reloaded = st.SetupTracker.load(str(path))
+    assert reloaded.continuous_true_started_ms(SYMBOL, "long") == 0
+
+    reloaded.observe(SYMBOL, "long", 2 * TEN_MIN, False)
+    reloaded.observe(SYMBOL, "long", 3 * TEN_MIN, True)
+    assert reloaded.continuous_true_started_ms(SYMBOL, "long") == 3 * TEN_MIN

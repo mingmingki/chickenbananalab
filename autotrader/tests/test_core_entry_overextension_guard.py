@@ -68,3 +68,20 @@ def test_core_short_allows_sub_half_percent_30m_drop_when_other_guards_allow():
     result = trader._core_entry_overextension_gate(frames, "short", 99.51)
     assert result["allowed"] is True
     assert result["short_30m_drop_pct"] == pytest.approx(0.49)
+
+
+def test_core_long_blocks_when_confirmed_30m_rise_is_at_least_half_percent():
+    frames = _frames(ema20=100.5, atr14=2.0, reference=100.0)
+    frames = _add_five_minute_history(frames, start_price=100.0, end_price=100.6)
+    result = trader._core_entry_overextension_gate(frames, "long", 100.6)
+    assert result["allowed"] is False
+    assert result["reason"] == "long_chase_30m_rise"
+    assert result["long_30m_rise_pct"] == pytest.approx(0.6)
+
+
+def test_core_long_allows_sub_half_percent_30m_rise_when_other_guards_allow():
+    frames = _frames(ema20=100.5, atr14=2.0, reference=100.0)
+    frames = _add_five_minute_history(frames, start_price=100.0, end_price=100.49)
+    result = trader._core_entry_overextension_gate(frames, "long", 100.49)
+    assert result["allowed"] is True
+    assert result["long_30m_rise_pct"] == pytest.approx(0.49)

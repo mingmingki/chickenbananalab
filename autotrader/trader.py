@@ -83,17 +83,18 @@ def _correction_short_reversal_allowed(position: dict | None, action: str, corre
 
 
 CORE_SHORT_CHASE_30M_DROP_PCT = 0.50
+CORE_LONG_CHASE_30M_RISE_PCT = 0.50
 
 
 def _core_entry_overextension_gate(closed_dfs: dict, side: str, entry_price: float) -> dict:
-    """Evaluate extreme extension plus the data-backed CORE short chase guard.
+    """Block extreme extension and symmetric 30-minute CORE chasing.
 
-    A new short is blocked when price has already fallen at least 0.50% versus
-    the last confirmed 5m close at-or-before 30 minutes ago. Historical CORE
-    shorts matching this pattern had sharply worse outcomes, so the guard waits
-    for the 30m extension to cool instead of chasing the move.
+    A short is stale after a >=0.50% confirmed 30m drop; a long is stale after
+    a >=0.50% confirmed 30m rise.  This is deliberately symmetric so the bot
+    does not buy a local top while only protecting against late shorts.
     """
     short_30m_drop_pct = None
+    long_30m_rise_pct = None
     try:
         one_h = closed_dfs.get("1h")
         four_h = closed_dfs.get("4h")
@@ -108,38 +109,49 @@ def _core_entry_overextension_gate(closed_dfs: dict, side: str, entry_price: flo
         ema20_1h = float(last_1h["ema_20"])
         atr14_4h = float(last_4h["atr_14"])
 
-        if side == "short":
-            five_m = closed_dfs.get("5m")
-            if five_m is None or len(five_m) == 0:
-                raise ValueError("missing confirmed 5m data for short chase guard")
+    except Exception:
+        ema20_1h = atr14_4h = reference_24h_price = None
+
+    # The new 30m anti-chase check is additive.  Missing 5m history must not
+    # erase valid 1h/4h context used by the pre-existing extreme-extension guard.
+    try:
+        five_m = closed_dfs.get("5m")
+        if five_m is not None and len(five_m) > 0:
             last_5m_ts = five_m["timestamp"].iloc[-1]
             cutoff_30m = last_5m_ts - datetime.timedelta(minutes=30)
             refs_30m = five_m[five_m["timestamp"] <= cutoff_30m]
-            if len(refs_30m) == 0:
-                raise ValueError("missing 30m short chase reference")
-            reference_30m_price = float(refs_30m.iloc[-1]["close"])
-            if reference_30m_price <= 0:
-                raise ValueError("invalid 30m short chase reference")
-            short_30m_drop_pct = max(
-                0.0, (reference_30m_price - float(entry_price)) / reference_30m_price * 100.0,
-            )
+            if len(refs_30m) > 0:
+                reference_30m_price = float(refs_30m.iloc[-1]["close"])
+                if reference_30m_price > 0:
+                    if side == "short":
+                        short_30m_drop_pct = max(
+                            0.0, (reference_30m_price - float(entry_price)) / reference_30m_price * 100.0,
+                        )
+                    elif side == "long":
+                        long_30m_rise_pct = max(
+                            0.0, (float(entry_price) - reference_30m_price) / reference_30m_price * 100.0,
+                        )
     except Exception:
-        ema20_1h = atr14_4h = reference_24h_price = None
+        short_30m_drop_pct = None
+        long_30m_rise_pct = None
 
     result = entry_overextension_guard.evaluate(
         side=side, entry_price=entry_price, ema20_1h=ema20_1h,
         atr14_4h=atr14_4h, reference_24h_price=reference_24h_price,
     )
     result["short_30m_drop_pct"] = short_30m_drop_pct
-    result.setdefault("thresholds", {})["short_chase_30m_drop_pct"] = CORE_SHORT_CHASE_30M_DROP_PCT
-    if (
-        result.get("allowed")
-        and side == "short"
-        and short_30m_drop_pct is not None
-        and short_30m_drop_pct >= CORE_SHORT_CHASE_30M_DROP_PCT
-    ):
+    result["long_30m_rise_pct"] = long_30m_rise_pct
+    thresholds = result.setdefault("thresholds", {})
+    thresholds["short_chase_30m_drop_pct"] = CORE_SHORT_CHASE_30M_DROP_PCT
+    thresholds["long_chase_30m_rise_pct"] = CORE_LONG_CHASE_30M_RISE_PCT
+    if (result.get("allowed") and side == "short" and short_30m_drop_pct is not None
+            and short_30m_drop_pct >= CORE_SHORT_CHASE_30M_DROP_PCT):
         result["allowed"] = False
         result["reason"] = "short_chase_30m_drop"
+    if (result.get("allowed") and side == "long" and long_30m_rise_pct is not None
+            and long_30m_rise_pct >= CORE_LONG_CHASE_30M_RISE_PCT):
+        result["allowed"] = False
+        result["reason"] = "long_chase_30m_rise"
     return result
 
 
@@ -1231,11 +1243,61 @@ def _fast_reduce_stage1_conditions_met(side, confidence, gemini_assessment, raw_
     return (True, diagnostics['closed_5m_ts']) if met else (False, None)
 
 
-def _fast_reduce_numeric_diagnostics(side, raw_dfs, last_price, entry_price):
-    import math
+CORE_PROFIT_LOCK_R = 1.0
+CORE_PROFIT_PROTECT_R = 0.50
+
+
+def _position_profit_r(side, last_price, entry_price, stop_loss_pct):
+    if side not in ('long', 'short'):
+        return None
+    values = (last_price, entry_price, stop_loss_pct)
+    if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(float(v)) for v in values):
+        return None
+    if entry_price <= 0 or stop_loss_pct <= 0:
+        return None
+    risk_distance = float(entry_price) * float(stop_loss_pct) / 100.0
+    if risk_distance <= 0:
+        return None
+    sign = _side_sign(side)
+    return sign * (float(last_price) - float(entry_price)) / risk_distance
+
+
+def _profit_lock_eligible(side, last_price, entry_price, stop_loss_pct, overextension):
+    """Strong profit lock: >=1R profit while the move itself is already extreme."""
+    profit_r = _position_profit_r(side, last_price, entry_price, stop_loss_pct)
+    return bool(
+        profit_r is not None and profit_r >= CORE_PROFIT_LOCK_R
+        and isinstance(overextension, dict)
+        and overextension.get('allowed') is False
+        and overextension.get('reason') == entry_overextension_guard.BLOCK_REASON
+    )
+
+
+def _profit_protect_reduce_gate(*, gpt_confidence, gemini_confidence, diagnostics):
+    """Permit only stage-1 profit protection without requiring thesis invalidation.
+
+    Both AIs must still be confident.  The deterministic market proof is >=0.5R
+    current profit plus two confirmed 5m MACD/RSI weakening observations.  This
+    never authorizes CLOSE_ALL and never bypasses the existing 50% cumulative cap.
+    """
+    def _confident(value):
+        return (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and 0.75 <= float(value) <= 1.0)
+    return bool(
+        _confident(gpt_confidence) and _confident(gemini_confidence)
+        and diagnostics.get('profit_protect_eligible')
+        and diagnostics.get('closed_5m_fresh')
+        and diagnostics.get('two_macd_weakening')
+        and diagnostics.get('two_rsi_adverse')
+    )
+
+
+def _fast_reduce_numeric_diagnostics(side, raw_dfs, last_price, entry_price, stop_loss_pct=None):
     sign = _side_sign(side)
     rows = _closed_indicator_tail(raw_dfs, '5m', n=3) or []
-    htf = _closed_indicator_tail(raw_dfs, '1h', n=1) or []
+    htf_long = _closed_indicator_tail(raw_dfs, '1h', n=25) or []
+    htf = htf_long[-1:] if htf_long else []
+    four_h = _closed_indicator_tail(raw_dfs, '4h', n=1) or []
     valid = len(rows) == 3 and all(math.isfinite(r[k]) for r in rows for k in ('macd', 'rsi_14'))
     macd_weak = valid and all(sign * (rows[i]['macd'] - rows[i - 1]['macd']) < 0 for i in (1, 2))
     rsi_weak = valid and all(sign * (rows[i]['rsi_14'] - 50) < 0 for i in (1, 2))
@@ -1250,9 +1312,32 @@ def _fast_reduce_numeric_diagnostics(side, raw_dfs, last_price, entry_price):
         except (ValueError, TypeError):
             pass
     fresh = age is not None and 0 <= age <= 360
+
+    profit_r = _position_profit_r(side, last_price, entry_price, stop_loss_pct)
+    profit_protect_eligible = bool(profit_r is not None and profit_r >= CORE_PROFIT_PROTECT_R)
+    overextension = {'allowed': True, 'reason': 'profit_lock_context_unavailable'}
+    try:
+        if last_price and htf_long and four_h:
+            overextension = entry_overextension_guard.evaluate(
+                side=side,
+                entry_price=float(last_price),
+                ema20_1h=float(htf_long[-1]['ema_20']),
+                atr14_4h=float(four_h[-1]['atr_14']),
+                reference_24h_price=(float(htf_long[0]['close']) if len(htf_long) >= 25 else None),
+            )
+    except Exception:
+        overextension = {'allowed': True, 'reason': 'profit_lock_context_unavailable'}
+    profit_lock_eligible = _profit_lock_eligible(
+        side, last_price, entry_price, stop_loss_pct, overextension,
+    )
+
     rows = [dict(row, macd_delta=(row['macd'] - rows[i - 1]['macd']) if i else None,
                  macd_weakening=bool(i and sign * (row['macd'] - rows[i - 1]['macd']) < 0),
                  rsi_adverse=bool(sign * (row['rsi_14'] - 50) < 0)) for i, row in enumerate(rows)]
+    numeric_met = bool(
+        macd_weak and rsi_weak and fresh
+        and (adverse or profit_protect_eligible or profit_lock_eligible)
+    )
     return {
         'evaluated_at': time.time(), 'side': side, 'closed_5m_rows': rows,
         'closed_5m_ts': rows[-1]['ts'] if rows else None,
@@ -1261,7 +1346,11 @@ def _fast_reduce_numeric_diagnostics(side, raw_dfs, last_price, entry_price):
         'last_price': last_price, 'entry_price': entry_price, 'adverse_last_price': adverse,
         'htf_1h': htf, 'htf_1h_required_stage1': False,
         'closed_5m_age_seconds': age, 'closed_5m_fresh': fresh,
-        'numeric_conditions_met': bool(macd_weak and rsi_weak and adverse and fresh),
+        'stop_loss_pct': stop_loss_pct, 'profit_r': profit_r,
+        'profit_protect_eligible': profit_protect_eligible,
+        'profit_lock_eligible': profit_lock_eligible,
+        'profit_lock_overextension': overextension,
+        'numeric_conditions_met': numeric_met,
     }
 
 
@@ -2276,12 +2365,47 @@ def _execute_position_ai_reduce_50_locked(
         condition_gate = _fast_reduce_stage1_conditions_met if fast_path else _reduce_v2_stage1_conditions_met
         met, candle_ts = condition_gate(side, confidence, gemini_assessment, raw_dfs)
         last_price = client.fetch_last_price()
-        diagnostics = _fast_reduce_numeric_diagnostics(side, raw_dfs, last_price, position['entry_price'])
+
+        # Profit-protection uses the live exchange stop distance as R.  If the
+        # exact owned protection cannot be proven, the override stays disabled
+        # and the legacy REDUCE gate remains authoritative.
+        expected_close_side = 'sell' if side == 'long' else 'buy'
+        stage1_protection = client.fetch_current_protection(expected_close_side)
+        stop_loss_pct = None
+        if (stage1_protection is not None
+                and abs(float(stage1_protection.get('sz', 0)) - float(position['contracts'])) <= 1e-8):
+            try:
+                live_sl = float(stage1_protection['sl_price'])
+                stop_loss_pct = abs(live_sl - float(position['entry_price'])) / float(position['entry_price']) * 100.0
+            except (TypeError, ValueError, ZeroDivisionError):
+                stop_loss_pct = None
+
+        diagnostics = _fast_reduce_numeric_diagnostics(
+            side, raw_dfs, last_price, position['entry_price'], stop_loss_pct=stop_loss_pct,
+        )
         diagnostics.update(gpt_confidence=confidence, gemini_assessment=gemini_assessment)
+        profit_protect_override = bool(
+            not fast_path
+            and _profit_protect_reduce_gate(
+                gpt_confidence=confidence,
+                gemini_confidence=approval.get('gemini_confidence'),
+                diagnostics=diagnostics,
+            )
+        )
+        diagnostics['profit_protect_override'] = profit_protect_override
         state.update_symbol(symbol, reduce_v2_diagnostics=diagnostics)
         logger.info('CORE_FAST_REDUCE_NUMERIC symbol=%s diagnostics=%s', symbol, diagnostics)
-        met = met and (diagnostics['numeric_conditions_met'] if fast_path else True)
-        block_reason = 'stage1_numeric_or_ai_conditions' if fast_path else 'stage1_5m_or_ai_conditions'
+        if profit_protect_override:
+            met = True
+            candle_ts = diagnostics['closed_5m_ts']
+            block_reason = 'stage1_profit_protect_conditions'
+            logger.warning(
+                '[%s] CORE_PROFIT_PROTECT_TRIGGERED profit_r=%.2f - thesis 유지 중이어도 최초 25%% 감축 허용',
+                symbol, diagnostics['profit_r'],
+            )
+        else:
+            met = met and (diagnostics['numeric_conditions_met'] if fast_path else True)
+            block_reason = 'stage1_numeric_or_ai_conditions' if fast_path else 'stage1_5m_or_ai_conditions'
         tf_for_dedup = "5m"
         target_stage = 1
     elif stage == 1:
@@ -4525,10 +4649,10 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
         if not overextension["allowed"]:
             logger.info(
                 "[%s] BLOCK entry_overextension_guard: reason=%s extension_atr=%s "
-                "directional_24h_pct=%s short_30m_drop_pct=%s",
+                "directional_24h_pct=%s short_30m_drop_pct=%s long_30m_rise_pct=%s",
                 symbol, overextension["reason"], overextension.get("extension_atr"),
                 overextension.get("directional_24h_pct"),
-                overextension.get("short_30m_drop_pct"),
+                overextension.get("short_30m_drop_pct"), overextension.get("long_30m_rise_pct"),
             )
             if _veto_shadow_is_candidate:
                 _record_veto_shadow_gate_outcome(

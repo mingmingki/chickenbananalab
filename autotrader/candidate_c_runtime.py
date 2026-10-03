@@ -155,9 +155,9 @@ def holdout_evidence() -> dict:
 # backtest adapter를 함께 실행하는 test_candidate_c_live_backtest_per_bar_recheck.py로
 # 새 봉 재검토/setup_id/동일봉 dedup을 검증한 뒤 변경된 파일만 재고정한다.
 BACKTEST_LIVE_PARITY_VERIFIED_SOURCE_HASHES = {
-    "candidate_c_decision_engine.py": "9788cbfd647471231b3fc1b291c7fa52773e9dfcaa601e10e0547cd8c697d490",
+    "candidate_c_decision_engine.py": "e096e7f7e5af6bc94a3f5b4998eb90f85e3a17dbd96c813e6659245b6e352849",
     "candidate_c_backtest_signal_adapter.py": "055c510358fd4dbc26c16c4c237927cac34bf90cd2ab132d79bd4a95ca87d625",
-    "candidate_c_setup_tracker.py": "de90dd5c5932a44c888ab7c6d1a89abc8be5875eb949717fe7657ed2382e4429",
+    "candidate_c_setup_tracker.py": "57764355b03db70d4880b9acf30ce3f03e76ee88fa76698248ea6e925c8ca0bb",
     "backtest_engine.py": "85b35df2f99efff4dc0a879d7d2e32974af20e5965ae50cac5073cc5103b54e9",
     "candidate_c_hybrid_live_adapter.py": "d78bc6e2eb7c2191c7b749532559d96bb055196c23cb0bcf23828845a5396678",
     "candidate_c_indicator_contract.py": "54e01dae85dc0fd7eb8af27763ad8417f0832cd9e99597e367127fc9e0b62ee6",
@@ -165,7 +165,7 @@ BACKTEST_LIVE_PARITY_VERIFIED_SOURCE_HASHES = {
     "entry_overextension_guard.py": "a2452e4565fa5631249bd4079429767be8fff2dbc360ecb863182b1ba395818a",
     "candidate_c_hybrid_cycle.py": "77859bab04800ff5512018d6bdf5ddc1dd023d632f19b5d7920181e287ec092d",
     "candidate_c_manual_close.py": "2646d9b458d708581188824778b0b92089b15ab04f33f6f41761715a0cc0b234",
-    "candidate_c_trader_adapter.py": "29fa4baf4b8596110dd095e623074d91cf2f7b331265782ffbd66184c9248d78",
+    "candidate_c_trader_adapter.py": "733c11bb8ee210b397030395e4830d6f2a92650490210f18a7888419c68e03d8",
     "candidate_c_notification_delivery.py": "b09c215c7ad13b69c58a7326b0b9cd8e14f429cc8c36468569acad5177e7ea78",
     "candidate_c_strategy_policy.py": "3702ca6a159daec673b8632c057614b16859e5c67473fda8f01d9d19874b8d6b",
     "candidate_c_preregistration_v3.json": "faa635c379885addaaed5747f0f53e253365f527ac0b979562ba0220d5b451f0",
@@ -273,7 +273,10 @@ VARIABLE_RISK_SIZING_VALIDATION_SCOPE = (
     "setup_bar_recheck를 다시 내고 같은 10분봉에서는 중복 발급하지 않음을 확인했다. 같은 두 봉을 "
     "candidate_c_backtest_signal_adapter로 실행해 setup_id와 reason_code가 동일함도 확인했다. "
     "candidate_c_setup_tracker.py를 hash-pin 대상에 새로 포함했다. 과거 10-test fixture는 이번 라운드의 "
-    "재실행 근거로 주장하지 않으며, 변경되지 않은 파일의 기존 hash 증거만 그대로 유지한다."
+    "재실행 근거로 주장하지 않으며, 변경되지 않은 파일의 기존 hash 증거만 그대로 유지한다. "
+    "2026-10-03 freshness 보완: 연속 setup은 0/10/20/30분까지만 재검토하고 40분부터 "
+    "setup_stale_after_30m으로 차단한다. 최초 True 시각은 setup tracker journal에서 재시작 후에도 "
+    "복구되고 False 관측 후에만 새 freshness window가 시작됨을 parity 회귀 테스트로 검증한다."
 )
 
 

@@ -450,6 +450,17 @@ def _decide_legacy(
             decision_timestamp=as_of_ms, source_candle_close_timestamp=snap.bar_5m["close_time_ms"],
             side=side, idempotency_key=idem, input_snapshot_hash=input_snapshot_hash,
         )
+
+        # A continuous Donchian condition is an opportunity window, not an
+        # evergreen permission to enter.  Keep rechecking through 30 minutes
+        # (0/10/20/30), then require the setup to turn False and form again.
+        active_since = setup_tracker.continuous_true_started_ms(ctx.symbol, side)
+        if active_since is None:
+            active_since = current_bar_open_ms
+        setup_age_ms = max(0, current_bar_open_ms - int(active_since))
+        if setup_age_ms > SETUP_RECHECK_MAX_AGE_MS:
+            return Intent(kind=INTENT_NO_ACTION, reason_code="setup_stale_after_30m", **common)
+
         if not direction_ok or atr_4h is None:
             return Intent(kind=INTENT_NO_ACTION, reason_code="setup_direction_mismatch_or_no_atr", **common)
         if policy is None:
@@ -614,6 +625,9 @@ def _adaptive_shadow_plan(
         source_candle_timestamps=tuple(int(b.get("close_time_ms")) for b in (bars1[-2:] + bars4[-2:]) if b.get("close_time_ms") is not None),
     )
     return AdaptiveExitEngine(policy).plan(a_ctx)
+
+
+SETUP_RECHECK_MAX_AGE_MS = 30 * 60 * 1000
 
 
 def decide(

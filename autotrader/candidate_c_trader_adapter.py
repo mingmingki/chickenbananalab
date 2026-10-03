@@ -58,6 +58,7 @@ CANDIDATE_C_POLL_INTERVAL_SECONDS = 30
 _CANDIDATE_C_MONITOR_REASON_TEXT = {
     "no_setup": "Donchian setup 대기",
     "setup_bar_recheck": "조건 유지 · 새 확정 10분봉 재검토",
+    "setup_stale_after_30m": "조건 30분 초과 · 새 setup 형성 대기",
     "setup_direction_mismatch_or_no_atr": "setup 발생 · 4H 방향 불일치 또는 ATR 확인 필요",
     "strategy_policy_missing_or_invalid": "전략 정책 확인 필요",
     "no_risk_per_trade_pct_configured": "위험 설정 확인 필요",
