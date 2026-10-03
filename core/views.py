@@ -24095,6 +24095,19 @@ def _cbl_free_dwg_unreadable_objects_v1(notifications):
     return counts
 
 
+# Start of the ACadSharp reader's notice for pre-2007 XRECORD/extended-data
+# strings stored with their character count where the byte count belongs, as
+# our writer did before 2026-10-01.  The reader reads them in full; AutoCAD and
+# ODA stop on such a file unless they repair it, and a save writes byte counts.
+_CBL_LEGACY_TEXT_LENGTH_PREFIX_V1 = "Legacy character-count string lengths read in"
+
+
+def _cbl_free_dwg_legacy_text_lengths_v1(notifications):
+    """Number of XRECORD/extended-data blocks read with character-count lengths."""
+    return sum(1 for item in notifications or [] if isinstance(item, dict) and str(
+        item.get("Message") or item.get("message") or "").startswith(_CBL_LEGACY_TEXT_LENGTH_PREFIX_V1))
+
+
 def _cbl_free_dwg_unreadable_message_v1(counts):
     parts = ", ".join(f"{name} {count}개" for name, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])))
     return (f"이 도면에는 무료 DWG 변환기가 읽지 못한 객체({parts})가 있어, 저장하면 이 객체들이 사라지므로 "
@@ -24295,6 +24308,7 @@ def cblcad_free_dwg_local_api(request):
                 "dxf_bytes": len(dxf_text.encode("utf-8")), "dxf": dxf_text,
                 "source_layer_manifest": _cbl_build_original_source_layer_manifest_v1(source_metadata, dxf_text),
                 "unreadable_objects": _cbl_free_dwg_unreadable_objects_v1(source_metadata.get("notifications")),
+                "legacy_text_lengths": _cbl_free_dwg_legacy_text_lengths_v1(source_metadata.get("notifications")),
             }, json_dumps_params={"ensure_ascii": False})
             response["Server-Timing"] = "convert;dur=%.2f,response;dur=%.2f" % (
                 (_cbl_time.perf_counter() - convert_started) * 1000,

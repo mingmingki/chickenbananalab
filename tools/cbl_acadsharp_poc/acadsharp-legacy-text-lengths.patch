@@ -1,0 +1,347 @@
+--- a/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgStreamReaderBase.cs
++++ b/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgStreamReaderBase.cs
+@@ -874,6 +874,36 @@
+ 			}
+ 
+ 			return value;
++		}
++
++		/// <summary>
++		/// Reads a pre-2007 XRECORD/extended-data string whose length is a
++		/// character count, as ACadSharp wrote them before our 2026-10-01 fix:
++		/// Korean takes two bytes per character, so the bytes ran past it.
++		/// </summary>
++		internal string ReadTextUnicodeByCharacters()
++		{
++			int charCount = this.ReadShort();
++			int encodingKey = this.ReadByte();
++			if (charCount <= 0)
++			{
++				return string.Empty;
++			}
++
++			Encoding encoding = this.textEncodingFor(encodingKey);
++			Decoder decoder = encoding.GetDecoder();
++			var bytes = new System.Collections.Generic.List<byte>();
++			byte[] one = new byte[1];
++			char[] chars = new char[4];
++			int read = 0;
++			while (read < charCount && bytes.Count < charCount * 4)
++			{
++				one[0] = this.ReadByte();
++				bytes.Add(one[0]);
++				read += decoder.GetChars(one, 0, 1, chars, 0, false);
++			}
++
++			return encoding.GetString(bytes.ToArray());
+ 		}
+ 
+ 		// The byte after the length is a DWG code page index (as in the file
+--- a/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgObjectReader.cs
++++ b/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgObjectReader.cs
+@@ -531,9 +531,65 @@
+ 				size = this._objectReader.ReadBitShort();
+ 			}
+ 		}
++
++		/// <summary>
++		/// Start of the notice for pre-2007 strings read by character count
++		/// (see <see cref="DwgStreamReaderBase.ReadTextUnicodeByCharacters"/>).
++		/// </summary>
++		internal const string LegacyTextLengthNotice = "Legacy character-count string lengths read in";
+ 
++		private bool legacyTextLengthsPossible => !this.R2007Plus && this._objectReader is DwgStreamReaderBase;
++
+ 		private List<ExtendedDataRecord> readExtendedDataRecords(long endPos)
+ 		{
++			if (!this.legacyTextLengthsPossible)
++			{
++				return this.readExtendedDataRecords(endPos, false, true, out _);
++			}
++
++			// Strings saved by ACadSharp before our 2026-10-01 fix carry their
++			// character count where the byte count belongs; with Korean text the
++			// rest of the data then reads as garbage.  Data that does not read
++			// cleanly is read again with those lengths before giving up.
++			long start = this._objectReader.PositionInBits();
++			List<ExtendedDataRecord> records = null;
++			bool clean;
++			try
++			{
++				records = this.readExtendedDataRecords(endPos, false, false, out clean);
++			}
++			catch (Exception)
++			{
++				clean = false;
++			}
++
++			if (clean)
++			{
++				return records;
++			}
++
++			this._objectReader.SetPositionInBits(start);
++			try
++			{
++				records = this.readExtendedDataRecords(endPos, true, false, out clean);
++			}
++			catch (Exception)
++			{
++				clean = false;
++			}
++
++			if (clean)
++			{
++				this._builder.Notify($"{LegacyTextLengthNotice} extended data", NotificationType.Warning);
++				return records;
++			}
++
++			this._objectReader.SetPositionInBits(start);
++			return this.readExtendedDataRecords(endPos, false, true, out _);
++		}
++
++		private List<ExtendedDataRecord> readExtendedDataRecords(long endPos, bool characterLengths, bool notify, out bool clean)
++		{
+ 			List<ExtendedDataRecord> records = new List<ExtendedDataRecord>();
+ 
+ 			while (this._objectReader.Position < endPos)
+@@ -553,7 +609,9 @@
+ 						//1 (1001) This one seems to be invalid; can't even use as a string inside braces.
+ 						//This would be a registered application that this data relates to, but we've already had that above,
+ 						//so it would be redundant or irrelevant here.
+-						record = new ExtendedDataString(this._objectReader.ReadTextUnicode());
++						record = new ExtendedDataString(characterLengths
++							? ((DwgStreamReaderBase)this._objectReader).ReadTextUnicodeByCharacters()
++							: this._objectReader.ReadTextUnicode());
+ 						break;
+ 					case DxfCode.ExtendedDataControlString:
+ 						//2 (1002) A '{' or '}'; 1 byte; ASCII 0 means '{', ASCII 1 means '}'
+@@ -643,13 +701,18 @@
+ 						break;
+ 					default:
+ 						this._objectReader.ReadBytes((int)(endPos - this._objectReader.Position));
+-						this._builder.Notify($"Unknown code for extended data: {dxfCode}", NotificationType.Warning);
++						if (notify)
++						{
++							this._builder.Notify($"Unknown code for extended data: {dxfCode}", NotificationType.Warning);
++						}
++						clean = false;
+ 						return records;
+ 				}
+ 
+ 				records.Add(record);
+ 			}
+ 
++			clean = this._objectReader.Position == endPos;
+ 			return records;
+ 		}
+ 
+@@ -7360,7 +7423,109 @@
+ 			//Common:
+ 			//Numdatabytes BL number of databytes
+ 			long offset = this._objectReader.ReadBitLong() + this._objectReader.Position;
++
++			var items = new List<(int Code, object Value, bool Handle)>();
++			var warnings = new List<string>();
++			bool characterLengths = false;
++			if (!this.legacyTextLengthsPossible)
++			{
++				this.readXRecordData(xRecord, offset, false, items, warnings);
++			}
++			else
++			{
++				// Character-count string lengths, as in readExtendedDataRecords.
++				long start = this._objectReader.PositionInBits();
++				bool clean;
++				try
++				{
++					clean = this.readXRecordData(xRecord, offset, false, items, warnings);
++				}
++				catch (Exception)
++				{
++					clean = false;
++				}
+ 
++				if (!clean)
++				{
++					var legacyItems = new List<(int Code, object Value, bool Handle)>();
++					var legacyWarnings = new List<string>();
++					this._objectReader.SetPositionInBits(start);
++					try
++					{
++						clean = this.readXRecordData(xRecord, offset, true, legacyItems, legacyWarnings);
++					}
++					catch (Exception)
++					{
++						clean = false;
++					}
++
++					if (clean)
++					{
++						items = legacyItems;
++						warnings = legacyWarnings;
++						characterLengths = true;
++					}
++					else
++					{
++						items.Clear();
++						warnings.Clear();
++						this._objectReader.SetPositionInBits(start);
++						this.readXRecordData(xRecord, offset, false, items, warnings);
++					}
++				}
++			}
++
++			foreach (var item in items)
++			{
++				if (item.Handle)
++				{
++					template.AddHandleReference(item.Code, (ulong)item.Value);
++				}
++				else
++				{
++					xRecord.CreateEntry(item.Code, item.Value);
++				}
++			}
++
++			foreach (string warning in warnings)
++			{
++				this.notify(warning, NotificationType.Warning);
++			}
++
++			if (characterLengths)
++			{
++				this._builder.Notify($"{LegacyTextLengthNotice} XRECORD {xRecord.Handle:X}", NotificationType.Warning);
++			}
++
++			//R2000+:
++			if (this.R2000Plus)
++			{
++				//Cloning flag BS 280
++				xRecord.CloningFlags = (DictionaryCloningFlags)this._objectReader.ReadBitShort();
++			}
++
++			long size = this._objectInitialPos + (long)(this._size * 8U) - 7L;
++			while (this._handlesReader.PositionInBits() < size)
++			{
++				//Handle refs H parenthandle (soft pointer)
++				//[Reactors(soft pointer)]
++				//xdictionary(hard owner)
++				//objid object handles, as many as you can read until you run out of data
++				this.handleReference();
++			}
++
++			return template;
++		}
++
++		/// <summary>
++		/// Reads the XRECORD data up to <paramref name="offset"/>; true when it
++		/// read cleanly and ended exactly there.
++		/// </summary>
++		private bool readXRecordData(XRecord xRecord, long offset, bool characterLengths,
++			List<(int Code, object Value, bool Handle)> items, List<string> warnings)
++		{
++			bool clean = true;
++
+ 			//Databytes X databytes, however many there are to the handles
+ 			while (this._objectReader.Position < offset)
+ 			{
+@@ -7380,80 +7545,66 @@
+ 				{
+ 					case GroupCodeValueType.String:
+ 					case GroupCodeValueType.ExtendedDataString:
+-						xRecord.CreateEntry(code, this._objectReader.ReadTextUnicode());
++						items.Add((code, characterLengths
++							? ((DwgStreamReaderBase)this._objectReader).ReadTextUnicodeByCharacters()
++							: this._objectReader.ReadTextUnicode(), false));
+ 						break;
+ 					case GroupCodeValueType.Point3D:
+-						xRecord.CreateEntry(code,
++						items.Add((code,
+ 							new XYZ(
+ 								this._objectReader.ReadDouble(),
+ 								this._objectReader.ReadDouble(),
+ 								this._objectReader.ReadDouble()
+-								));
++								), false));
+ 						break;
+ 					case GroupCodeValueType.Double:
+ 					case GroupCodeValueType.ExtendedDataDouble:
+-						xRecord.CreateEntry(code, this._objectReader.ReadDouble());
++						items.Add((code, this._objectReader.ReadDouble(), false));
+ 						break;
+ 					case GroupCodeValueType.Byte:
+-						xRecord.CreateEntry(code, this._objectReader.ReadByte());
++						items.Add((code, this._objectReader.ReadByte(), false));
+ 						break;
+ 					case GroupCodeValueType.Int16:
+ 					case GroupCodeValueType.ExtendedDataInt16:
+-						xRecord.CreateEntry(code, this._objectReader.ReadShort());
++						items.Add((code, this._objectReader.ReadShort(), false));
+ 						break;
+ 					case GroupCodeValueType.Int32:
+ 					case GroupCodeValueType.ExtendedDataInt32:
+-						xRecord.CreateEntry(code, this._objectReader.ReadRawLong());
++						items.Add((code, this._objectReader.ReadRawLong(), false));
+ 						break;
+ 					case GroupCodeValueType.Int64:
+-						xRecord.CreateEntry(code, this._objectReader.ReadRawULong());
++						items.Add((code, this._objectReader.ReadRawULong(), false));
+ 						break;
+ 					case GroupCodeValueType.Handle:
+ 						string hex = this._objectReader.ReadTextUnicode();
+ 						if (ulong.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ulong result))
+ 						{
+-							template.AddHandleReference(code, result);
++							items.Add((code, result, true));
+ 						}
+ 						else
+ 						{
+-							this.notify($"Failed to parse {hex} to handle", NotificationType.Warning);
++							warnings.Add($"Failed to parse {hex} to handle");
+ 						}
+ 						break;
+ 					case GroupCodeValueType.Bool:
+-						xRecord.CreateEntry(code, this._objectReader.ReadByte() > 0);
++						items.Add((code, this._objectReader.ReadByte() > 0, false));
+ 						break;
+ 					case GroupCodeValueType.Chunk:
+ 					case GroupCodeValueType.ExtendedDataChunk:
+-						xRecord.CreateEntry(code, this._objectReader.ReadBytes(this._objectReader.ReadByte()));
++						items.Add((code, this._objectReader.ReadBytes(this._objectReader.ReadByte()), false));
+ 						break;
+ 					case GroupCodeValueType.ObjectId:
+ 					case GroupCodeValueType.ExtendedDataHandle:
+-						template.AddHandleReference(code, this._objectReader.ReadRawULong());
++						items.Add((code, this._objectReader.ReadRawULong(), true));
+ 						break;
+ 					default:
+-						this.notify($"Unidentified GroupCodeValueType {code} for XRecord [{xRecord.Handle}]", NotificationType.Warning);
++						warnings.Add($"Unidentified GroupCodeValueType {code} for XRecord [{xRecord.Handle}]");
++						clean = false;
+ 						break;
+ 				}
+ 			}
+ 
+-			//R2000+:
+-			if (this.R2000Plus)
+-			{
+-				//Cloning flag BS 280
+-				xRecord.CloningFlags = (DictionaryCloningFlags)this._objectReader.ReadBitShort();
+-			}
+-
+-			long size = this._objectInitialPos + (long)(this._size * 8U) - 7L;
+-			while (this._handlesReader.PositionInBits() < size)
+-			{
+-				//Handle refs H parenthandle (soft pointer)
+-				//[Reactors(soft pointer)]
+-				//xdictionary(hard owner)
+-				//objid object handles, as many as you can read until you run out of data
+-				this.handleReference();
+-			}
+-
+-			return template;
++			return clean && this._objectReader.Position == offset;
+ 		}
+ 
+ 		private CadTemplate readDbColor()

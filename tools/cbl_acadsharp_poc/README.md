@@ -104,3 +104,22 @@ AutoCAD는 높이 0인 TEXT(문자 스타일 높이를 따름)를 저장한다. 
 setter는 0을 거부해서 DWG reader가 그 객체를 "Could not read TEXT"로 버렸고, 저장할
 때마다 사라졌다. 이 패치는 reader가 저장된 높이를 그대로 넣는다. 그래도 읽지 못한
 객체가 남으면 서버가 저장을 거부하고 편집기가 열 때 알린다.
+
+## SORTENTSTABLE 사전 키 (`acadsharp-sortents-key.patch`)
+
+SORTENTSTABLE은 자기 이름 없이 사전에 등록된 키만 갖는데, ACadSharp 생성자가 이름을
+"ACAD_SORTENTS"로 정해 두어 reader가 그 이름으로 사전에 넣었다. DGN을 거친 도면은
+ACAD_DGNLINESTYLECOMP에 블록 없는 SORTENTSTABLE 수천 개를 각자의 키로 두는데,
+첫 개만 잘못된 키로 남고 나머지는 저장할 때 사라졌다("Error when trying to add the
+entry ACAD_SORTENTS"). 이 패치는 파일에 적힌 키를 쓴다. 블록의 그리기 순서
+(블록 확장 사전의 ACAD_SORTENTS)는 원래 보존됐다.
+
+## 글자 수로 적힌 문자열 길이 (`acadsharp-legacy-text-lengths.patch`)
+
+2026-10-01 이전 writer는 XRECORD·확장데이터 문자열 길이를 글자 수로 적었다. 한글은
+두 바이트라 그 뒤 데이터가 어긋나서, AutoCAD·ODA는 복구 없이는 파일을 열지 못하고
+reader는 문자열을 잘라 읽었다("Unknown code for extended data"). 이 패치는 2007 이전
+도면에서 데이터가 깨끗하게 읽히지 않을 때만 길이를 글자 수로 보고 다시 읽고, 끝까지
+정확히 맞으면 그 결과를 쓰며 "Legacy character-count string lengths read in ..." 알림을
+남긴다. 서버 열기 API가 그 수를 `legacy_text_lengths`로 돌려주고 편집기가 저장하면
+바로잡힌다고 알린다. 저장할 때는 바이트 수로 적는다.

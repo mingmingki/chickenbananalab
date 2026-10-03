@@ -1,0 +1,18 @@
+--- a/src/ACadSharp/IO/Templates/CadDictionaryTemplate.cs
++++ b/src/ACadSharp/IO/Templates/CadDictionaryTemplate.cs
+@@ -43,6 +43,15 @@
+ 					{
+ 						entry.Name = item.Key;
+ 					}
++					// A SORTENTSTABLE has no name of its own, only the key it is
++					// filed under, but its constructor names it "ACAD_SORTENTS".
++					// Drawings that came through DGN keep thousands of them under
++					// other keys in ACAD_DGNLINESTYLECOMP: filed by the default
++					// name, all but the first were dropped.
++					else if (entry is SortEntitiesTable && !string.IsNullOrEmpty(item.Key))
++					{
++						entry.Name = item.Key;
++					}
+ 
+ 					try
+ 					{

@@ -44856,6 +44856,12 @@ window.cblSnapResidueGateStatusV12 = function(){
     return '이 도면에는 무료 DWG 변환기가 읽지 못한 객체('+parts.join(', ')+')가 있어 화면에 표시되지 않습니다. '+
       '저장하면 이 객체들이 사라지므로 이 도면은 저장할 수 없습니다. 원본 파일은 바뀌지 않습니다.';
   }
+  function cblLegacyTextLengthsMessageV1(count){
+    count=Number(count)||0;
+    if(count<=0)return '';
+    return '이 도면에는 한글 확장데이터의 길이가 잘못 기록된 곳이 '+count+'곳 있어 AutoCAD 등에서 열 때 오류가 나거나 복구를 요구할 수 있습니다'+
+      '(10월 1일 이전 무료 DWG 저장의 오류). 내용은 온전히 읽었으니 한 번 저장하면 바로잡힙니다.';
+  }
   async function cblFreeDwgOpenFileObjectV1(file,handle){
     var nativeOpenPickerCount=window.CBL_NATIVE_FILE_STATUS_V1&&Number(window.CBL_NATIVE_FILE_STATUS_V1.openPickerCount||0)||0;
     var openStarted=performance.now(),openTiming={commandEntered:Date.now(),userActivation:navigator.userActivation?!!navigator.userActivation.isActive:null,pickerStarted:null,pickerResolved:null,pickerRejected:null,getFileStarted:null,getFileResolved:null,coreOpenStarted:Date.now(),coreOpenResolved:null,coreOpenRejected:null,pendingStage:null,finalResolved:null,finalRejected:null,picker_ms:window.__CBL_DWG_PICKER_MS_V1==null?null:Number(window.__CBL_DWG_PICKER_MS_V1),file_read_ms:null,hash_ms:null,upload_ms:null,server_metadata_ms:null,server_convert_ms:null,response_ms:null,parse_ms:null,shape_build_ms:null,first_render_ms:null,zoom_fit_ms:null,total_ms:null,pickerCount:nativeOpenPickerCount||0,uploadCount:1,convertCount:1,parseCount:1,renderCount:1,retryCount:0,stages:{},settled:false};
@@ -45223,9 +45229,11 @@ window.cblSnapResidueGateStatusV12 = function(){
     window.CBLCAD_FREE_DWG_LOCAL_LAST = result;
     try { if (typeof setHint === 'function') setHint('DWG 열기 완료: '+file.name+' ('+count+'개)'); } catch(e) {}
     var unreadableMessage=cblUnreadableObjectsMessageV1(result.unreadable_objects);
-    if(unreadableMessage){
-      try { if (typeof setHint === 'function') setHint(unreadableMessage); } catch(e) {}
-      try { alert(unreadableMessage); } catch(e) {}
+    // A drawing that cannot be saved gets only that notice: saving is what repairs legacy lengths.
+    var openNotice=unreadableMessage||cblLegacyTextLengthsMessageV1(result.legacy_text_lengths);
+    if(openNotice){
+      try { if (typeof setHint === 'function') setHint(openNotice); } catch(e) {}
+      try { alert(openNotice); } catch(e) {}
     }
     try { console.info('[CBL_FREE_DWG_LOCAL]', 'acadsharp-full-dxf', count, result.dxf_bytes, result.oda_executed, window.CBL_FULL_DXF_PARSE_STATUS || null); } catch(e) {}
     openTiming.settled=true;stageEnd('localOpen');publishOpenTiming();return true;
