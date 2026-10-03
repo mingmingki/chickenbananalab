@@ -148,17 +148,24 @@ def holdout_evidence() -> dict:
 # 이 해시 검증과 무관하다(플래그를 참조하는 곳은 config.py와
 # candidate_c_hybrid_cycle.py의 재검토 무장 함수뿐이고, live_activation_blockers()
 # 어디에도 연결돼 있지 않다 - 이 블로커는 소스 파일 동일성만 본다).
+# 2026-10-03 per-bar 재검토 변경은 decision_engine/hybrid_cycle/setup_tracker/
+# trader_adapter를 수정했다. 과거 /tmp의 10-test fixture는 현재 production의 후속
+# leverage/protection/partial-TP 계약을 따라가지 못해 변경 전 production에서도 실패함을
+# 재현했으므로 hash만 임의 갱신하지 않았다. 대신 현재 소스의 Live 오케스트레이터와
+# backtest adapter를 함께 실행하는 test_candidate_c_live_backtest_per_bar_recheck.py로
+# 새 봉 재검토/setup_id/동일봉 dedup을 검증한 뒤 변경된 파일만 재고정한다.
 BACKTEST_LIVE_PARITY_VERIFIED_SOURCE_HASHES = {
-    "candidate_c_decision_engine.py": "d033401b862463ce293cc5fe0756755050d15a401e08192ab792a33e2787709f",
+    "candidate_c_decision_engine.py": "9788cbfd647471231b3fc1b291c7fa52773e9dfcaa601e10e0547cd8c697d490",
     "candidate_c_backtest_signal_adapter.py": "055c510358fd4dbc26c16c4c237927cac34bf90cd2ab132d79bd4a95ca87d625",
+    "candidate_c_setup_tracker.py": "de90dd5c5932a44c888ab7c6d1a89abc8be5875eb949717fe7657ed2382e4429",
     "backtest_engine.py": "85b35df2f99efff4dc0a879d7d2e32974af20e5965ae50cac5073cc5103b54e9",
     "candidate_c_hybrid_live_adapter.py": "d78bc6e2eb7c2191c7b749532559d96bb055196c23cb0bcf23828845a5396678",
     "candidate_c_indicator_contract.py": "54e01dae85dc0fd7eb8af27763ad8417f0832cd9e99597e367127fc9e0b62ee6",
     "candidate_c_exit_management.py": "2f5593a2daf102bfc2e4da793c5b337aeab5e9bbaf4988bd5233e5816f1203d3",
     "entry_overextension_guard.py": "a2452e4565fa5631249bd4079429767be8fff2dbc360ecb863182b1ba395818a",
-    "candidate_c_hybrid_cycle.py": "162705a2eb21fd2f3269b0582796da982befb8d1ec9735cf9a23df3553da1dbf",
+    "candidate_c_hybrid_cycle.py": "77859bab04800ff5512018d6bdf5ddc1dd023d632f19b5d7920181e287ec092d",
     "candidate_c_manual_close.py": "2646d9b458d708581188824778b0b92089b15ab04f33f6f41761715a0cc0b234",
-    "candidate_c_trader_adapter.py": "c37e5479b301b7299dfb94f152898c9ea6f2e58db8ce992cfae489c4c594f694",
+    "candidate_c_trader_adapter.py": "29fa4baf4b8596110dd095e623074d91cf2f7b331265782ffbd66184c9248d78",
     "candidate_c_notification_delivery.py": "b09c215c7ad13b69c58a7326b0b9cd8e14f429cc8c36468569acad5177e7ea78",
     "candidate_c_strategy_policy.py": "3702ca6a159daec673b8632c057614b16859e5c67473fda8f01d9d19874b8d6b",
     "candidate_c_preregistration_v3.json": "faa635c379885addaaed5747f0f53e253365f527ac0b979562ba0220d5b451f0",
@@ -260,7 +267,13 @@ VARIABLE_RISK_SIZING_VALIDATION_SCOPE = (
     "고정 증거금 값은 최대 증거금 상한으로 사용한다. "
     "tests/test_candidate_c_variable_risk_sizing.py의 stop-risk 1%, 최대증거금 cap, "
     "legacy fixed-margin 회귀, 최소수량 fail-closed, config/runtime/UI 계약을 검증했고, "
-    "현재 test_candidate_c*.py 전체를 재실행해 84/84 통과한 소스 해시로 재고정했다."
+    "현재 test_candidate_c*.py 전체를 재실행해 84/84 통과한 소스 해시로 재고정했다. "
+    "2026-10-03 per-bar recheck 재검증: tests/test_candidate_c_live_backtest_per_bar_recheck.py에서 "
+    "Live 오케스트레이터가 확정 거절 후 FLAT으로 복귀한 다음 조건이 계속 True인 새 10분봉에서 "
+    "setup_bar_recheck를 다시 내고 같은 10분봉에서는 중복 발급하지 않음을 확인했다. 같은 두 봉을 "
+    "candidate_c_backtest_signal_adapter로 실행해 setup_id와 reason_code가 동일함도 확인했다. "
+    "candidate_c_setup_tracker.py를 hash-pin 대상에 새로 포함했다. 과거 10-test fixture는 이번 라운드의 "
+    "재실행 근거로 주장하지 않으며, 변경되지 않은 파일의 기존 hash 증거만 그대로 유지한다."
 )
 
 
