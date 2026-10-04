@@ -1,3 +1,4 @@
+import re
 import subprocess
 from unittest.mock import patch
 
@@ -95,6 +96,18 @@ class CadOdaCodeRemovedTests(SimpleTestCase):
         for name in ("cblcad_dxf_to_dwg_save_api", "cblcad_dwg_to_best_dxf_api", "cblcad_v29_open_session",
                      "_cbl_v29_find_oda", "_cbl_install_oda_window_hide_safe_v2"):
             self.assertFalse(hasattr(core_views, name), name)
+
+    def test_editor_never_calls_the_oda_routes(self):
+        # The editor's ODA/V29 scripts were removed on 2026-10-04; its DWG
+        # buttons hand over to the free open/save.
+        from pathlib import Path
+        from django.conf import settings
+        html = (Path(settings.BASE_DIR) / "core" / "static" / "core" / "tools" / "CBLCAD_VER2.html").read_text(encoding="utf-8")
+        self.assertEqual(re.findall(r"/api/cblcad/(?:dwg-to-dxf|dwg-to-best-dxf|dxf-to-dwg|v29/)", html), [])
+        for script_id in ("CBL_V29_REAL_SAVE_V1_SCRIPT", "CBL_V29_AUTO_SESSION_ANY_OPEN_V1_SCRIPT", "CBL_CAD_ROUNDTRIP_SMART_SAVE_V22_SCRIPT"):
+            self.assertNotIn(script_id, html)
+        self.assertIn("window.cblBottomSaveDWG = function(){\n  if (typeof window.cblFreeDwgSaveAC1018V1 === 'function')", html)
+        self.assertIn("window.cblBottomOpenDWG = function(){\n  if (typeof window.cblOpenDwgWithNativePickerV1 === 'function')", html)
 
 
 class CadOdaWindowHideTests(SimpleTestCase):
