@@ -1,6 +1,5 @@
 import os
-import tempfile
-from pathlib import Path
+import subprocess
 from unittest.mock import patch
 
 from django.apps import apps
@@ -9,8 +8,6 @@ from django.contrib.staticfiles.finders import get_finders
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, SimpleTestCase, TestCase
 from django.urls import URLResolver, get_resolver
-
-from . import views as core_views
 
 
 def _cad_api_paths():
@@ -54,13 +51,11 @@ class CadLoginRequiredTests(TestCase):
                     self.assertFalse(response.json()["ok"])
 
     def test_anonymous_upload_never_reaches_the_converter(self):
-        with tempfile.TemporaryDirectory() as tmp, \
-             patch.object(core_views, "_cbl_v29_root", return_value=Path(tmp)), \
-             patch.object(core_views, "_cbl_v29_oda_convert", side_effect=AssertionError("converter ran")):
-            upload = SimpleUploadedFile("drawing.dwg", b"AC1018 fake", content_type="application/acad")
-            response = self.client.post("/api/cblcad/v29/open-session/", {"file": upload})
-            self.assertEqual(response.status_code, 401)
-            self.assertEqual(list(Path(tmp).iterdir()), [])
+        with patch.object(subprocess, "Popen", side_effect=AssertionError("a process was started")):
+            for path in ("/api/cblcad/free-dwg-to-dxf/", "/api/cblcad/free-dwg-save/", "/api/cblcad/v29/open-session/"):
+                upload = SimpleUploadedFile("drawing.dwg", b"AC1018 fake", content_type="application/acad")
+                response = self.client.post(path, {"file": upload, "original_dwg": upload})
+                self.assertEqual(response.status_code, 401, path)
 
     def test_logged_in_member_reaches_cad_api(self):
         self.client.force_login(self.user)

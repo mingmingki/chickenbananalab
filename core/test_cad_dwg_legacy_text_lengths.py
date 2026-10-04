@@ -14,6 +14,7 @@ from . import views as core_views
 from .test_cad_dwg_save_integrity import NODE, _html
 from .test_cad_dwg_text_validation import EXECUTABLE, _run_writer
 from .test_cad_dwg_xrecord_text import XDATA, XRECORD, _mif
+from .test_oda_review import find_oda
 
 FIXTURES = Path(settings.BASE_DIR) / "core" / "test_fixtures" / "cad"
 # korean_xrecord_ac1018.dwg re-saved by a throwaway program built on the
@@ -24,7 +25,7 @@ FIXTURES = Path(settings.BASE_DIR) / "core" / "test_fixtures" / "cad"
 # short ("Unknown code for extended data") and a save kept them cut.
 LEGACY = FIXTURES / "korean_xrecord_legacy_lengths_ac1018.dwg"
 WELL_FORMED = FIXTURES / "korean_xrecord_ac1018.dwg"
-ODA = core_views._cbl_v29_find_oda()
+ODA = find_oda()
 
 
 def _legacy_notes(meta):

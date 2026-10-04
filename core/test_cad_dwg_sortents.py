@@ -10,6 +10,7 @@ from django.test import SimpleTestCase
 
 from . import views as core_views
 from .test_cad_dwg_text_validation import EXECUTABLE, _run_writer
+from .test_oda_review import find_oda
 
 # ezdxf + ODA AC1018 drawing.  Three overlapping SOLIDs 2F (red), 30 (green)
 # and 31 (blue) whose draw order (model space SORTENTS) is 30, 31, 2F, unlike
@@ -21,7 +22,7 @@ from .test_cad_dwg_text_validation import EXECUTABLE, _run_writer
 FIXTURE = Path(settings.BASE_DIR) / "core" / "test_fixtures" / "cad" / "sortents_dgn_ac1018.dwg"
 DGN_KEYS = ["PLAN.dgn-StrokePattern-1", "PLAN.dgn-StrokePattern-2", "PLAN.dgn-StrokePattern-3"]
 DRAW_ORDER = {"2F": "300", "30": "100", "31": "200"}
-ODA = core_views._cbl_v29_find_oda()
+ODA = find_oda()
 
 
 def _objects(dxf_text):

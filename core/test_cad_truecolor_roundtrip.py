@@ -10,6 +10,7 @@ from django.test import SimpleTestCase
 
 from . import views as core_views
 from .test_cad_dwg_text_validation import EXECUTABLE, _run_writer
+from .test_oda_review import find_oda
 
 try:
     import ezdxf
@@ -21,7 +22,7 @@ FIXTURE = Path(settings.BASE_DIR) / "core" / "test_fixtures" / "cad" / "truecolo
 # depend on our runtime: layer TC = 0x8844CC; on TC, LINE 30 = 0x3B82F6,
 # LINE 31 = 0xFF8000, LINE 32 = ByLayer.
 FILE_COLOURS = {"30": 0x3B82F6, "31": 0xFF8000, "32": None}
-ODA = core_views._cbl_v29_find_oda()
+ODA = find_oda()
 
 
 @skipUnless(EXECUTABLE is not None and ezdxf is not None, "ACadSharp runtime and ezdxf are required")

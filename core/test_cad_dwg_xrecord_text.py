@@ -11,6 +11,7 @@ from django.test import SimpleTestCase
 
 from . import views as core_views
 from .test_cad_dwg_text_validation import EXECUTABLE, _run_writer
+from .test_oda_review import find_oda
 
 try:
     import ezdxf
@@ -24,7 +25,7 @@ except ImportError:  # pragma: no cover - verification dependency only
 FIXTURE = Path(settings.BASE_DIR) / "core" / "test_fixtures" / "cad" / "korean_xrecord_ac1018.dwg"
 XRECORD = "\\\\Nas\\프로젝트\\경로 1"
 XDATA = "한글 확장데이터 ABC"
-ODA = core_views._cbl_v29_find_oda()
+ODA = find_oda()
 
 
 def _mif(text):

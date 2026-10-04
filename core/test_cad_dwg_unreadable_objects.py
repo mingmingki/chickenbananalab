@@ -13,6 +13,7 @@ from django.test import RequestFactory, SimpleTestCase
 from . import views as core_views
 from .test_cad_dwg_save_integrity import NODE, _html
 from .test_cad_dwg_text_validation import EXECUTABLE, _run_writer
+from .test_oda_review import find_oda
 
 try:
     import ezdxf
@@ -25,7 +26,7 @@ FIXTURES = Path(settings.BASE_DIR) / "core" / "test_fixtures" / "cad"
 # ODA reads them).  ACadSharp's Height setter threw on 0, so the reader
 # skipped them ("Could not read TEXT") and every save dropped them.
 HEIGHT_ZERO = FIXTURES / "text_height_zero_ac1018.dwg"
-ODA = core_views._cbl_v29_find_oda()
+ODA = find_oda()
 
 
 def _texts(meta):

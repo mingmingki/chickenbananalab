@@ -54,8 +54,7 @@ class CadOdaRoutesRemovedTests(TestCase):
         self.client.force_login(get_user_model().objects.create_user(username="cad-no-oda", password="test-password"))
 
     def test_oda_routes_answer_410_without_starting_a_converter(self):
-        with patch.object(core_views, "_cbl_v29_oda_convert", side_effect=AssertionError("ODA ran")), \
-             patch.object(subprocess, "Popen", side_effect=AssertionError("a process was started")):
+        with patch.object(subprocess, "Popen", side_effect=AssertionError("a process was started")):
             for path in ODA_ROUTES:
                 for method in ("get", "post"):
                     with self.subTest(path=path, method=method):
@@ -82,6 +81,20 @@ class CadOdaRoutesRemovedTests(TestCase):
         response = self.client.get("/tools/cad/?mode=free-dwg", HTTP_HOST=HOST)
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'"freeDwgBrowser":true', response.content)
+
+
+class CadOdaCodeRemovedTests(SimpleTestCase):
+    def test_product_code_never_names_the_oda_converter(self):
+        # The old ODA routes, their V21-V29 patches and the window-hide
+        # wrapper were removed from views.py on 2026-10-04.
+        from pathlib import Path
+        for module in (core_views, quantity_views):
+            source = Path(module.__file__).read_text(encoding="utf-8")
+            self.assertNotIn("ODAFileConverter", source, module.__name__)
+            self.assertNotIn("oda_convert", source, module.__name__)
+        for name in ("cblcad_dxf_to_dwg_save_api", "cblcad_dwg_to_best_dxf_api", "cblcad_v29_open_session",
+                     "_cbl_v29_find_oda", "_cbl_install_oda_window_hide_safe_v2"):
+            self.assertFalse(hasattr(core_views, name), name)
 
 
 class CadOdaWindowHideTests(SimpleTestCase):

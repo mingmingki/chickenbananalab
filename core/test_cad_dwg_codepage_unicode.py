@@ -12,6 +12,7 @@ from django.test import RequestFactory, SimpleTestCase
 
 from . import views as core_views
 from .test_cad_dwg_text_validation import EXECUTABLE, _run_writer
+from .test_oda_review import find_oda
 
 try:
     import ezdxf
@@ -20,7 +21,7 @@ except ImportError:  # pragma: no cover - verification dependency only
 
 # ANSI_1252 drawing (ezdxf + ODA): Korean has no byte in its code page.
 ANSI_FIXTURE = Path(settings.BASE_DIR) / "core" / "test_fixtures" / "cad" / "truecolor_oda_ac1018.dwg"
-ODA = core_views._cbl_v29_find_oda()
+ODA = find_oda()
 LAYER = "한글레이어"
 TEXT = "검증 한글 ABC"
 
