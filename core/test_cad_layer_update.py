@@ -196,7 +196,8 @@ class CadPropertyPanelWiringTests(SimpleTestCase):
         html = _html()
         self.assertIn("window.CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1=typeof window.cblLayerPropsSnapshotV1==='function'", html)
         self.assertIn("window.CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1=cblLayerPropsSnapshotV1(window.layers);", html)
-        self.assertEqual(html.count("window.CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1={};"), 2)
+        # New drawing, and a drawing detached from its DWG (JSON open, new tab).
+        self.assertEqual(html.count("window.CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1={};"), 3)
 
     def test_save_api_keeps_its_csrf_exemption(self):
         # The browser posts DWG saves without a CSRF token; the view must stay exempt.

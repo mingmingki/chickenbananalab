@@ -118,10 +118,12 @@ class CadUnreadableObjectGuardTests(SimpleTestCase):
 class CadUnreadableObjectEditorTests(SimpleTestCase):
     def test_open_message(self):
         html = _html()
-        start = html.index("function cblUnreadableObjectsMessageV1(counts){")
+        # The message and the count helper it uses.
+        start = html.index("function cblObjectCountsTextV1(counts){")
         line_start = html.rfind("\n", 0, start) + 1
         indent = html[line_start:start]
-        end = html.index("\n" + indent + "}", start) + len(indent) + 2
+        message = html.index("function cblUnreadableObjectsMessageV1(counts){", start)
+        end = html.index("\n" + indent + "}", message) + len(indent) + 2
         script = html[line_start:end] + """
 process.stdout.write(JSON.stringify([cblUnreadableObjectsMessageV1({TEXT: 359, MTEXT: 1}),
                                      cblUnreadableObjectsMessageV1({}), cblUnreadableObjectsMessageV1(null)]));"""
@@ -137,6 +139,6 @@ process.stdout.write(JSON.stringify([cblUnreadableObjectsMessageV1({TEXT: 359, M
         html = _html()
         body = html[html.index("async function cblFreeDwgOpenFileObjectV1(file,handle){"):]
         body = body[:body.index("function cblNativeFilePickerSupportedV1(){")]
-        done = body.index("setHint('DWG 열기 완료: '")
+        done = body.index("'DWG 열기 완료: '")
         warn = body.index("cblUnreadableObjectsMessageV1(result.unreadable_objects)")
         self.assertLess(done, warn)

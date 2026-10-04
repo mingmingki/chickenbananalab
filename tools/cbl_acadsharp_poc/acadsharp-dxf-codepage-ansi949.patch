@@ -1,0 +1,14 @@
+diff --git a/src/ACadSharp/CadUtils.cs b/src/ACadSharp/CadUtils.cs
+index 7dc0c773..3bde1dbf 100644
+--- a/src/ACadSharp/CadUtils.cs
++++ b/src/ACadSharp/CadUtils.cs
+@@ -36,6 +36,9 @@ internal static class CadUtils
+ 		{"ansi_874"  ,CodePage.Windows874},
+ 		{"ansi_932"  ,CodePage.Shift_jis},
+ 		{"ansi_936"  ,CodePage.Gb2312},
++		// Korean AutoCAD writes $DWGCODEPAGE ANSI_949 in DXF files; without this
++		// entry the reader decoded their KS C 5601 strings as Windows-1252.
++		{"ansi_949"  ,CodePage.Ksc5601},
+ 		{"ansi_950"  ,CodePage.big5},
+ 		{"ansi_1250" ,CodePage.Windows1250},
+ 		{"ansi1250"  ,CodePage.Windows1250},

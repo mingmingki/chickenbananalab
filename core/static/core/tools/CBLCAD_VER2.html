@@ -6727,7 +6727,7 @@ function filePrintFit(){
 }
 
 // ===== DXF =====
-function fileOpenDXF(){var inp=document.createElement('input');inp.type='file';inp.accept='.dxf';inp.onchange=function(e){var f=e.target.files[0];if(!f)return;var reader=new FileReader();reader.onload=function(ev){try{var imp=parseDXF(ev.target.result);if(!imp.length){alert('DXF에서 객체를 찾지 못했습니다.');return;}shapes=shapes.concat(imp);saveH();updUI();setTimeout(zoomFit,50);setHint('DXF 가져오기: '+imp.length+'개 객체');}catch(err){alert('DXF 읽기 오류: '+err.message);}};reader.readAsText(f);};inp.click();}
+function fileOpenDXF(){if(window.CBL_CAD_RUNTIME_CONFIG&&window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal===true&&typeof window.cblFreeDwgLocalOpenV1==='function')return window.cblFreeDwgLocalOpenV1();var inp=document.createElement('input');inp.type='file';inp.accept='.dxf';inp.onchange=function(e){var f=e.target.files[0];if(!f)return;var reader=new FileReader();reader.onload=function(ev){try{var imp=parseDXF(ev.target.result);if(!imp.length){alert('DXF에서 객체를 찾지 못했습니다.');return;}shapes=shapes.concat(imp);saveH();updUI();setTimeout(zoomFit,50);setHint('DXF 가져오기: '+imp.length+'개 객체');}catch(err){alert('DXF 읽기 오류: '+err.message);}};reader.readAsText(f);};inp.click();}
 function fileSaveDXF(){
  var ents=[];
  function lname(s){var l=getLayerFastV1(s.layId||1);return l?l.name.replace(/\s+/g,'_'):'0';}
@@ -8405,6 +8405,10 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
   try { window.curFile = data.name || data.fileName || 'drawing.wcd'; } catch(e) {}
   try { curFile = data.name || data.fileName || 'drawing.wcd'; } catch(e) {}
 
+  // A drawing restored from JSON has no DWG behind it: its first DWG save is
+  // a Save As of a new file, never a write into the DWG open before.
+  if (typeof window.cblFreeDwgDetachSourceV1 === 'function') window.cblFreeDwgDetachSourceV1(data.name || data.fileName || 'drawing.wcd', {unsaved: true});
+
   syncAfterImport();
   hint('CBL JSON 열기 완료');
  }
@@ -8465,6 +8469,17 @@ setHint('V선택 L선 PL폴리 C원 REC사각 CO복사 MI미러 RO회전 E삭제
  }
 
  window.cblBottomOpenDXF = function(){
+  // Free mode opens a DXF as a new DWG made from it (blocks and dimensions
+  // kept).  Adding its shapes to the open drawing saved them into that DWG.
+  if (typeof window.cblFreeDwgOpenFileObjectV1 === 'function') {
+   openFileInput('cblOpenDxfInput', function(file){
+    window.cblFreeDwgOpenFileObjectV1(file, null).catch(function(e){
+     hint('DXF 열기 실패: ' + (e && e.message || e));
+     alert('DXF 열기 실패\n\n' + (e && e.message || e));
+    });
+   });
+   return;
+  }
   openFileInput('cblOpenDxfInput', function(file){
    var fr = new FileReader();
    fr.onload = function(){
@@ -24830,11 +24845,15 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
   function overrideUiFunctions(){window.updLayers=function(){applyAllLayerStyles();renderLayerRows();refreshDropdowns();};try{updLayers=window.updLayers;}catch(e){}window.updLayDrop=function(){refreshDropdowns();};try{updLayDrop=window.updLayDrop;}catch(e){}window.updLayerDrop=function(){refreshDropdowns();};try{updLayerDrop=window.updLayerDrop;}catch(e){}window.cblLayerSyncBridgeV4=function(){normalizeLayers();renderLayerRows();refreshDropdowns();return true;};window.cblLayerSetBridgeV4=setLayerProp;window.cblLayerSetV3=setLayerProp;window.setActLayer=function(id){sg('actLay',Number(id));syncStyleFromActive();renderLayerRows();refreshDropdowns();try{if(typeof render==='function')render();}catch(e){}};try{setActLayer=window.setActLayer;}catch(e){}window.ribbonLayColor=function(v){setLayerProp(g('actLay',1),'color',v);};window.ribbonLayLT=function(v){setLayerProp(g('actLay',1),'lineType',v);};window.ribbonLayLW=function(v){setLayerProp(g('actLay',1),'lineWidth',v);};window.layCurrentToggle=function(){var l=layerById(g('actLay',1));if(!l)return;setLayerProp(l.id,'visible',!(l.visible!==false));};}
 
   function n(v){v=Number(v);if(!Number.isFinite(v))v=0;return v.toFixed(6);}function p(out,code,value){out.push(String(code));out.push(String(value==null?'':value));}
+  // The header says ANSI_949 but the file is saved as UTF-8, so AutoCAD and
+  // other readers turned Korean into garbage.  Characters outside ASCII are
+  // written as \U+XXXX, which DXF readers decode whatever the code page.
+  function asciiDxf(text){return String(text).replace(/[\ud800-\udbff][\udc00-\udfff]/g,'?').replace(/[^\x00-\x7f]/g,function(ch){return '\\U+'+('000'+ch.charCodeAt(0).toString(16).toUpperCase()).slice(-4);});}
   function collectUsedLayers(){normalizeLayers();var used={};getLayers().forEach(function(l){normalizeLayer(l);used[cleanLayerName(l.name).toLowerCase()]={name:cleanLayerName(l.name),color:l.color||'#ffffff',visible:l.visible!==false,locked:!!l.locked,lineType:l.cblLineType||'Continuous',rawLineType:l.cblRawLineType||l.cblLineType||'Continuous',lw:effectiveLayerLW(l)};});getShapes().forEach(function(s){var l=layerById(s&&s.layId);if(!l)return;normalizeLayer(l);var key=cleanLayerName(l.name).toLowerCase();if(!used[key])used[key]={name:cleanLayerName(l.name),color:l.color||'#ffffff',visible:l.visible!==false,locked:!!l.locked,lineType:l.cblLineType,rawLineType:l.cblRawLineType,lw:effectiveLayerLW(l)};});if(!Object.keys(used).length)used['0']={name:'0',color:'#ffffff',visible:true,locked:false,lineType:'Continuous',rawLineType:'Continuous',lw:{kind:'default',raw:-3,mm:null}};return used;}
   function addLtypes(out,used){var names={};Object.keys(used).forEach(function(k){var name=dxfLTName(used[k].rawLineType||used[k].lineType);if(name!=='CONTINUOUS')names[name]=true;});var all=['CONTINUOUS'].concat(Object.keys(names));p(out,0,'TABLE');p(out,2,'LTYPE');p(out,70,all.length);all.forEach(function(name){var bucket=ltBucket(name),pat=[];if(bucket==='hidden')pat=[0.25,-0.125];else if(bucket==='dashed')pat=[0.5,-0.25];else if(bucket==='dotted')pat=[0.0,-0.2];else if(bucket==='dashdot')pat=[0.5,-0.2,0.0,-0.2];else if(bucket==='dashdotdot')pat=[0.5,-0.15,0.0,-0.15,0.0,-0.15];else if(bucket==='center')pat=[1.25,-0.25,0.25,-0.25];else if(bucket==='phantom')pat=[1.25,-0.25,0.25,-0.25,0.25,-0.25];else if(bucket==='border')pat=[0.5,-0.2,0.0,-0.2,0.5,-0.2];var total=pat.reduce(function(a,b){return a+Math.abs(Number(b)||0);},0);p(out,0,'LTYPE');p(out,2,name);p(out,70,0);p(out,3,name);p(out,72,65);p(out,73,pat.length);p(out,40,n(total));pat.forEach(function(x){p(out,49,n(x));p(out,74,0);});});p(out,0,'ENDTAB');}
   function layerNameOf(s){var l=layerById(s&&s.layId);return cleanLayerName(l&&l.name?l.name:'0');}function shapeColor(s){var l=layerById(s&&s.layId);return (s&&(s.color||s.stroke))||(l&&l.color)||'#ffffff';}function shapeLT(s){var l=layerById(s&&s.layId);return (s&&(s.cblRawLineType||s.cblLineType))||(l&&(l.cblRawLineType||l.cblLineType))||'Continuous';}function shapeLWRaw(s){var l=layerById(s&&s.layId);var lw=effectiveShapeLW(s,l);return lw.kind==='mm'?Math.round(Number(lw.mm||0)*100):-1;}function entCommon(out,s){var c=shapeColor(s);p(out,8,layerNameOf(s));p(out,62,colorToAci(c));p(out,420,trueColorInt(c));var lt=shapeLT(s);if(canonicalLT(lt)!=='ByLayer')p(out,6,dxfLTName(lt));p(out,370,shapeLWRaw(s));}
   function exportShape(out,s){if(!s||!s.type)return;if(s.type==='group'&&Array.isArray(s.ch)){s.ch.forEach(function(c){if(c.layId==null)c.layId=s.layId;exportShape(out,c);});return;}if(s.type==='line'||s.type==='dimlinear'||s.type==='dimaligned'||s.type==='cadgrid'){p(out,0,'LINE');entCommon(out,s);p(out,10,n(s.x1));p(out,20,n(s.y1));p(out,30,0);p(out,11,n(s.x2));p(out,21,n(s.y2));p(out,31,0);return;}if(s.type==='rect'){var x=Number(s.x)||0,y=Number(s.y)||0,w=Number(s.w)||0,h=Number(s.h)||0;[[x,y,x+w,y],[x+w,y,x+w,y+h],[x+w,y+h,x,y+h],[x,y+h,x,y]].forEach(function(a){p(out,0,'LINE');entCommon(out,s);p(out,10,n(a[0]));p(out,20,n(a[1]));p(out,30,0);p(out,11,n(a[2]));p(out,21,n(a[3]));p(out,31,0);});return;}if(s.type==='circle'){p(out,0,'CIRCLE');entCommon(out,s);p(out,10,n(s.cx));p(out,20,n(s.cy));p(out,30,0);p(out,40,n(Math.abs(Number(s.r)||1)));return;}if(s.type==='arc'){p(out,0,'ARC');entCommon(out,s);p(out,10,n(s.cx));p(out,20,n(s.cy));p(out,30,0);p(out,40,n(Math.abs(Number(s.r)||1)));p(out,50,n((Number(s.a1)||0)*180/Math.PI));p(out,51,n((Number(s.a2)||0)*180/Math.PI));return;}if(s.type==='polyline'&&Array.isArray(s.pts)&&s.pts.length>1){p(out,0,'LWPOLYLINE');entCommon(out,s);p(out,90,s.pts.length);p(out,70,0);s.pts.forEach(function(pt){p(out,10,n(pt.x));p(out,20,n(pt.y));});return;}if(s.type==='text'||s.type==='mtext'){var txt=String(s.text||s.content||'').trim();if(!txt)return;var ent=String(s.rawDxfType||s.type).toUpperCase()==='MTEXT'?'MTEXT':'TEXT';p(out,0,ent);entCommon(out,s);p(out,10,n(s.x));p(out,20,n(s.y));p(out,30,0);p(out,40,n(s.size||14));p(out,1,ent==='MTEXT'?txt.replace(/\r?\n/g,'\\P'):txt.replace(/\r?\n/g,' '));p(out,50,n((Number(s.rot)||0)*180/Math.PI));p(out,7,s.textStyle||'STANDARD');return;}}
-  function buildDXF(){applyAllLayerStyles();var used=collectUsedLayers();var layerList=Object.keys(used).map(function(k){return used[k];});var out=[];p(out,0,'SECTION');p(out,2,'HEADER');p(out,9,'$ACADVER');p(out,1,'AC1015');p(out,9,'$DWGCODEPAGE');p(out,3,'ANSI_949');p(out,9,'$INSUNITS');p(out,70,4);p(out,0,'ENDSEC');p(out,0,'SECTION');p(out,2,'TABLES');addLtypes(out,used);p(out,0,'TABLE');p(out,2,'LAYER');p(out,70,layerList.length);layerList.forEach(function(l){var aci=colorToAci(l.color);if(l.visible===false)aci=-Math.abs(aci);p(out,0,'LAYER');p(out,2,cleanLayerName(l.name));p(out,70,l.locked?4:0);p(out,62,aci);p(out,420,trueColorInt(l.color));p(out,6,dxfLTName(l.rawLineType||l.lineType));p(out,370,l.lw&&l.lw.kind==='mm'?Math.round(Number(l.lw.mm||0)*100):-3);});p(out,0,'ENDTAB');p(out,0,'TABLE');p(out,2,'STYLE');p(out,70,1);p(out,0,'STYLE');p(out,2,'STANDARD');p(out,70,0);p(out,40,0);p(out,41,1);p(out,50,0);p(out,71,0);p(out,42,2.5);p(out,3,'');p(out,4,'');p(out,0,'ENDTAB');p(out,0,'ENDSEC');p(out,0,'SECTION');p(out,2,'BLOCKS');p(out,0,'ENDSEC');p(out,0,'SECTION');p(out,2,'ENTITIES');getShapes().forEach(function(s){exportShape(out,s);});p(out,0,'ENDSEC');p(out,0,'EOF');return out.join('\r\n')+'\r\n';}
+  function buildDXF(){applyAllLayerStyles();var used=collectUsedLayers();var layerList=Object.keys(used).map(function(k){return used[k];});var out=[];p(out,0,'SECTION');p(out,2,'HEADER');p(out,9,'$ACADVER');p(out,1,'AC1015');p(out,9,'$DWGCODEPAGE');p(out,3,'ANSI_949');p(out,9,'$INSUNITS');p(out,70,4);p(out,0,'ENDSEC');p(out,0,'SECTION');p(out,2,'TABLES');addLtypes(out,used);p(out,0,'TABLE');p(out,2,'LAYER');p(out,70,layerList.length);layerList.forEach(function(l){var aci=colorToAci(l.color);if(l.visible===false)aci=-Math.abs(aci);p(out,0,'LAYER');p(out,2,cleanLayerName(l.name));p(out,70,l.locked?4:0);p(out,62,aci);p(out,420,trueColorInt(l.color));p(out,6,dxfLTName(l.rawLineType||l.lineType));p(out,370,l.lw&&l.lw.kind==='mm'?Math.round(Number(l.lw.mm||0)*100):-3);});p(out,0,'ENDTAB');p(out,0,'TABLE');p(out,2,'STYLE');p(out,70,1);p(out,0,'STYLE');p(out,2,'STANDARD');p(out,70,0);p(out,40,0);p(out,41,1);p(out,50,0);p(out,71,0);p(out,42,2.5);p(out,3,'');p(out,4,'');p(out,0,'ENDTAB');p(out,0,'ENDSEC');p(out,0,'SECTION');p(out,2,'BLOCKS');p(out,0,'ENDSEC');p(out,0,'SECTION');p(out,2,'ENTITIES');getShapes().forEach(function(s){exportShape(out,s);});p(out,0,'ENDSEC');p(out,0,'EOF');return asciiDxf(out.join('\r\n')+'\r\n');}
   function wrapParse(){var fn=g('parseDXF',null);if(typeof fn!=='function')return false;if(fn.__cblLayerOriginalStyleV2)return true;var old=fn;var wrapped=function(txt){var meta=readDxfMeta(txt);var res=old.apply(this,arguments);try{applyMetaToLayers(meta,Array.isArray(res)?res:null);}catch(e){console.warn('CBL layer original style V2 apply failed',e);}try{window.cblLastLayerOriginalStyleV2=meta;}catch(e){}return res;};wrapped.__cblLayerOriginalStyleV2=true;wrapped.__originalParseDXF=old;sg('parseDXF',wrapped);return true;}
   function install(){overrideUiFunctions();wrapParse();window.cblBuildLayeredDXF=buildDXF;window.cblMakeLayeredRoundtripDXF=buildDXF;window.cblBuildOdaSafeDXFV2=buildDXF;window.cblBuildUltraSafeDXFV3=buildDXF;window.cblBuildDxfOriginalStyleV2=buildDXF;window.fileSaveDXF=function(){try{var dxf=buildDXF();var blob=new Blob([dxf],{type:'application/dxf;charset=utf-8'});var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download=String(g('curFile','drawing')||'drawing').replace(/\.[^.]+$/,'')+'.dxf';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1000);try{if(typeof setHint==='function')setHint('DXF 저장 완료: 레이어 원본 선종류/Default 선두께 유지');}catch(e){}}catch(e){alert('DXF 저장 오류: '+e.message);}};try{fileSaveDXF=window.fileSaveDXF;}catch(e){}applyAllLayerStyles();renderLayerRows();refreshDropdowns();}
   document.addEventListener('change',function(ev){if(ev&&ev.target&&ev.target.closest&&ev.target.closest('#pp-layer')){setTimeout(function(){install();refreshAllSoon(true);},0);setTimeout(function(){install();refreshAllSoon(true);},120);setTimeout(function(){install();refreshAllSoon(true);},300);}},true);
@@ -28857,6 +28876,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     try { st.UNITS = UNITS || 'mm'; } catch(e){ st.UNITS = 'mm'; }
     try { st.SCALE_F = SCALE_F || 1; } catch(e){ st.SCALE_F = 1; }
     st.curFile = getFile();
+    // The free DWG source of this tab (file, handle, save baseline); not cloned.
+    try { if (typeof window.cblFreeDwgDocumentStateV1 === 'function') st.freeDwg = window.cblFreeDwgDocumentStateV1(); } catch(e){}
     return st;
   }
   function blankState(name){
@@ -28888,6 +28909,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     try { SCALE_F = st.SCALE_F || 1; window.SCALE_F = SCALE_F; } catch(e) {}
     setFile(st.curFile || 'untitled.wcd');
     try { drawing=false; startPt=null; polyPts=[]; isPan=false; isMoving=false; isDragSel=false; copyState=null; mirrorState=null; blkIns=null; moveState=null; layISObak=null; } catch(e) {}
+    // A new tab has no DWG: its first DWG save is a Save As of a new file.
+    try { if (typeof window.cblFreeDwgRestoreDocumentStateV1 === 'function') window.cblFreeDwgRestoreDocumentStateV1(st.freeDwg || null, st.curFile); } catch(e) {}
   }
   function activeTab(){ return tabs.find(function(t){ return t.id === activeId; }) || null; }
   function saveActive(){
@@ -39391,13 +39414,22 @@ window.cblSnapResidueGateStatusV12 = function(){
   // Objects the converter could not read are missing from the editor and
   // would be dropped by a save, so the server refuses to save such a drawing;
   // tell the user when it opens.
-  function cblUnreadableObjectsMessageV1(counts){
-    var parts=Object.keys(counts||{}).filter(function(k){return Number(counts[k])>0;})
+  function cblObjectCountsTextV1(counts){
+    return Object.keys(counts||{}).filter(function(k){return Number(counts[k])>0;})
       .sort(function(a,b){return Number(counts[b])-Number(counts[a])||(a<b?-1:a>b?1:0);})
-      .map(function(k){return k+' '+Number(counts[k])+'개';});
-    if(!parts.length)return '';
-    return '이 도면에는 무료 DWG 변환기가 읽지 못한 객체('+parts.join(', ')+')가 있어 화면에 표시되지 않습니다. '+
+      .map(function(k){return k+' '+Number(counts[k])+'개';}).join(', ');
+  }
+  function cblUnreadableObjectsMessageV1(counts){
+    var parts=cblObjectCountsTextV1(counts);
+    if(!parts)return '';
+    return '이 도면에는 무료 DWG 변환기가 읽지 못한 객체('+parts+')가 있어 화면에 표시되지 않습니다. '+
       '저장하면 이 객체들이 사라지므로 이 도면은 저장할 수 없습니다. 원본 파일은 바뀌지 않습니다.';
+  }
+  function cblDxfDroppedObjectsMessageV1(counts){
+    var parts=cblObjectCountsTextV1(counts);
+    if(!parts)return '';
+    return '이 DXF에는 무료 변환기가 DWG로 옮기지 못한 객체('+parts+')가 있어 화면에 표시되지 않습니다. '+
+      '저장하면 이 객체들이 사라지므로 이 도면은 저장할 수 없습니다. 원본 DXF 파일은 바뀌지 않습니다.';
   }
   function cblLegacyTextLengthsMessageV1(count){
     count=Number(count)||0;
@@ -39431,11 +39463,6 @@ window.cblSnapResidueGateStatusV12 = function(){
     } catch(_sourceCopyError) {
       sourceFile = file;
     }
-    try { curFile = file.name || 'drawing.dwg'; } catch(e) {}
-    try { window.CBL_FREE_DWG_CURRENT_FILENAME = file.name || 'drawing.dwg'; } catch(e) {}
-    window.CBLCAD_V29_LAST_DWG_FILE = sourceFile;
-    window.CBLCAD_V29_LAST_DWG_FILE_NAME = sourceFile.name || 'drawing.dwg';
-    window.CBLCAD_V29_ORIGINAL_FILE_NAME = sourceFile.name || 'drawing.dwg';
     window.CBLCAD_V29_BASE_SHAPE_COUNT = 0;
     window.__CBL_FREE_DWG_LOCAL_ROUTE_STATE__ = {
       last_open_route:'free-dwg-to-dxf', original_file_name:file.name || 'drawing.dwg',
@@ -39475,6 +39502,30 @@ window.cblSnapResidueGateStatusV12 = function(){
     if (result.format !== 'acadsharp-dxf' || !result.dxf || !/SECTION/i.test(result.dxf) || !/ENTITIES/i.test(result.dxf)) {
       throw new Error('ACadSharp full DXF 응답이 올바르지 않습니다.');
     }
+    // The save target changes only now that the server has read the new
+    // file: a failed open keeps the previous drawing's file, handle and name.
+    // A DXF comes back as a new AC1018 DWG made from it and no file handle,
+    // so its first save asks where to save the .dwg and never writes into
+    // the .dxf or the drawing that was open before.
+    var openedName = file.name || 'drawing.dwg';
+    window.CBL_FREE_DWG_SAVE_BLOCKED_V1 = null;
+    if (result.converted_from_dxf) {
+      var convertedRaw = atob(String(result.converted_dwg_base64 || '')), convertedBytes = new Uint8Array(convertedRaw.length);
+      for (var ci = 0; ci < convertedRaw.length; ci++) convertedBytes[ci] = convertedRaw.charCodeAt(ci);
+      if (String.fromCharCode.apply(null, Array.prototype.slice.call(convertedBytes, 0, 6)) !== 'AC1018') throw new Error('DXF에서 만든 DWG가 올바르지 않습니다.');
+      openedName = result.converted_dwg_name || String(openedName).replace(/\.[^.]*$/, '') + '.dwg';
+      sourceFile = new File([convertedBytes], openedName, {type:'application/acad'});
+      handle = null;
+      window.CBL_FREE_DWG_LOCAL_FILE_TOKEN = null;
+      window.CBL_FREE_DWG_SAVE_BLOCKED_V1 = cblDxfDroppedObjectsMessageV1(result.dxf_dropped_objects) || null;
+    }
+    try { curFile = openedName; } catch(e) {}
+    window.CBL_FREE_DWG_CURRENT_FILENAME = openedName;
+    window.CBLCAD_V29_LAST_DWG_FILE = sourceFile;
+    window.CBLCAD_V29_LAST_DWG_FILE_NAME = openedName;
+    window.CBLCAD_V29_ORIGINAL_FILE_NAME = openedName;
+    window.CBL_FREE_DWG_NATIVE_FILE_HANDLE = handle || null;
+    window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1 = handle || null;
     // Full DXF path deliberately clears compact state and enters the
     // canonical shapes/render/edit pipeline.  No second canvas is used.
     compactState = null;
@@ -39770,8 +39821,8 @@ window.cblSnapResidueGateStatusV12 = function(){
       }
     } catch(_integrityFinalError) {}
     window.CBLCAD_FREE_DWG_LOCAL_LAST = result;
-    try { if (typeof setHint === 'function') setHint('DWG 열기 완료: '+file.name+' ('+count+'개)'); } catch(e) {}
-    var unreadableMessage=cblUnreadableObjectsMessageV1(result.unreadable_objects);
+    try { if (typeof setHint === 'function') setHint(result.converted_from_dxf ? 'DXF 열기 완료: '+file.name+' ('+count+'개) - 저장하면 새 DWG 파일('+openedName+')로 저장됩니다.' : 'DWG 열기 완료: '+file.name+' ('+count+'개)'); } catch(e) {}
+    var unreadableMessage=window.CBL_FREE_DWG_SAVE_BLOCKED_V1||cblUnreadableObjectsMessageV1(result.unreadable_objects);
     // A drawing that cannot be saved gets only that notice: saving is what repairs legacy lengths.
     var openNotice=unreadableMessage||cblLegacyTextLengthsMessageV1(result.legacy_text_lengths);
     if(openNotice){
@@ -39803,8 +39854,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(!handle){nativeStatus.inFlight=false;window.__CBL_NATIVE_OPEN_PICKER_IN_FLIGHT_V1=false;return false;}
     timing.getFileStarted=Date.now();timing.pendingStage='handle.getFile';var file=await handle.getFile();timing.getFileResolved=Date.now();timing.pendingStage='coreOpen';
     if(!file){nativeStatus.inFlight=false;window.__CBL_NATIVE_OPEN_PICKER_IN_FLIGHT_V1=false;return false;}
-    window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=handle;
-    window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1=handle;
+    // The open makes this handle the save target once the server has read the file.
     window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=null;
     try{var opened=await window.cblFreeDwgOpenFileObjectV1(file,handle);timing.coreOpenResolved=Date.now();timing.finalResolved=Date.now();timing.pendingStage=null;return opened;}catch(error){timing.coreOpenRejected=Date.now();timing.finalRejected=Date.now();timing.pendingStage=null;throw error;}finally{nativeStatus.inFlight=false;nativeStatus.hasCurrentHandle=true;window.__CBL_NATIVE_OPEN_PICKER_IN_FLIGHT_V1=false;}
   }
@@ -39866,6 +39916,40 @@ window.cblSnapResidueGateStatusV12 = function(){
     });
   };
   window.cblFreeDwgLocalOpenFileV1 = function(file,handle){ return cblFreeDwgOpenFileObjectV1(file || null,handle||null); };
+  // What a drawing's DWG save depends on: the file it came from, its file
+  // handle and the baseline its edits are measured against.  Document tabs
+  // keep one set per tab, so a save in one tab never writes another tab's file.
+  var CBL_FREE_DWG_DOCUMENT_KEYS_V1=['CBLCAD_V29_LAST_DWG_FILE','CBLCAD_V29_LAST_DWG_FILE_NAME','CBLCAD_V29_ORIGINAL_FILE_NAME',
+    'CBL_FREE_DWG_CURRENT_FILENAME','CBL_FREE_DWG_NATIVE_FILE_HANDLE','CBL_NATIVE_DWG_CURRENT_HANDLE_V1','CBL_FREE_DWG_LOCAL_FILE_TOKEN',
+    'CBL_FREE_DWG_CURRENT_BUFFER_V1','CBL_FREE_DWG_ORIGINAL_SHAPES','CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1','CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES',
+    'CBL_FREE_DWG_ORIGINAL_LAYER_NAMES','CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1','CBL_FREE_DWG_SAVED_REVISION_V1','CBL_FREE_DWG_DIRTY',
+    'CBL_FREE_DWG_SAVE_BLOCKED_V1','CBL_FREE_DWG_SAVE_BASELINE_METADATA_V1','CBL_CAD_SOURCE_LAYER_MANIFEST_V1','CBL_CAD_TEXT_STYLES_V1',
+    'CBL_ACADSHARP_FULL_DXF_ACTIVE','CBLCAD_FREE_DWG_LOCAL_DOCUMENT','CBLCAD_V29_SESSION_ID','CBLCAD_V29_BASE_SHAPE_COUNT'];
+  window.cblFreeDwgDocumentStateV1=function(){
+    var state={};
+    CBL_FREE_DWG_DOCUMENT_KEYS_V1.forEach(function(key){state[key]=window[key];});
+    return state;
+  };
+  // The current shapes stop belonging to any DWG: the next DWG save is a
+  // Save As of a new file.  options.unsaved marks them as not saved yet.
+  window.cblFreeDwgDetachSourceV1=function(name,options){
+    var dwgName=String(name||'ChickenBananaCAD').replace(/^.*[\\\/]/,'').replace(/\.[^.]*$/,'')+'.dwg';
+    window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];window.CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1={};window.CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1=false;
+    window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=[];window.CBL_FREE_DWG_SAVE_BLOCKED_V1=null;
+    window.CBL_FREE_DWG_SAVE_BASELINE_METADATA_V1=null;window.CBL_FREE_DWG_CURRENT_BUFFER_V1=null;
+    window.CBLCAD_V29_LAST_DWG_FILE=null;window.CBLCAD_V29_LAST_DWG_FILE_NAME=dwgName;window.CBLCAD_V29_ORIGINAL_FILE_NAME=dwgName;
+    window.CBL_FREE_DWG_CURRENT_FILENAME=dwgName;window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=null;window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1=null;
+    window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=null;window.CBLCAD_V29_SESSION_ID=null;window.CBLCAD_V29_BASE_SHAPE_COUNT=0;
+    window.CBLCAD_FREE_DWG_LOCAL_DOCUMENT={loaded:true,mode:'detached',baseline_count:0,primitive_count:0,shapes:Array.isArray(window.shapes)?window.shapes.length:0};
+    var unsaved=!!(options&&options.unsaved);
+    window.CBL_FREE_DWG_SAVED_REVISION_V1=unsaved?null:(typeof window.cblComputeDocumentRevisionV1==='function'?window.cblComputeDocumentRevisionV1():null);
+    window.CBL_FREE_DWG_DIRTY=unsaved;
+    return dwgName;
+  };
+  window.cblFreeDwgRestoreDocumentStateV1=function(state,name){
+    if(!state||typeof state!=='object'){window.cblFreeDwgDetachSourceV1(name);return;}
+    CBL_FREE_DWG_DOCUMENT_KEYS_V1.forEach(function(key){window[key]=state[key];});
+  };
   // The base page already contains the real DWG file input.  In free mode its
   // change owner is replaced once, so the user button and the file input share
   // exactly one full-DXF request and never enter the legacy V29 handler.
@@ -39876,7 +39960,6 @@ window.cblSnapResidueGateStatusV12 = function(){
     input.onchange = function(){
       var file = input.files && input.files[0];
       if (file) {
-        window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=null;
         window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=null;
         cblFreeDwgOpenFileObjectV1(file,null).then(function(){
         // Safari can invalidate the File object if the input value is
@@ -40564,6 +40647,8 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(window.CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1){
       notifySaveFailureV1('파일 저장은 완료됐지만 편집 상태 동기화 실패—파일을 다시 여십시오');return false;
     }
+    // Set when a DXF's objects did not all reach the DWG made from it.
+    if(window.CBL_FREE_DWG_SAVE_BLOCKED_V1){notifySaveFailureV1(String(window.CBL_FREE_DWG_SAVE_BLOCKED_V1));return false;}
     if(browserMode() && !options.nativeHandle && !options.saveAs && !window.CBL_FREE_DWG_LOCAL_FILE_TOKEN && !window.CBL_FREE_DWG_CURRENT_FILENAME){
       if(typeof window.cblFreeDwgSaveAsV1==='function')return window.cblFreeDwgSaveAsV1();
       throw new Error('먼저 다른 이름으로 저장할 파일명을 정해야 합니다.');

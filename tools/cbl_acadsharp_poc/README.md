@@ -123,3 +123,10 @@ reader는 문자열을 잘라 읽었다("Unknown code for extended data"). 이 �
 정확히 맞으면 그 결과를 쓰며 "Legacy character-count string lengths read in ..." 알림을
 남긴다. 서버 열기 API가 그 수를 `legacy_text_lengths`로 돌려주고 편집기가 저장하면
 바로잡힌다고 알린다. 저장할 때는 바이트 수로 적는다.
+
+## DXF 코드 페이지 ANSI_949 (`acadsharp-dxf-codepage-ansi949.patch`)
+
+한국어 AutoCAD는 DXF의 `$DWGCODEPAGE`를 ANSI_949로 적는데 ACadSharp의 이름 표에는
+`kcs5601`만 있어서, 2007 이전 DXF의 한글을 Windows-1252로 읽어 깨뜨렸다. 이 패치는
+ANSI_949를 KS C 5601로 읽는다. 편집기가 DXF를 열 때 서버가 `--dwg-from-dxf`로 먼저
+AC1018 DWG를 만들기 때문에 필요하다.

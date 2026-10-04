@@ -126,7 +126,7 @@ process.stdout.write(JSON.stringify([cblLegacyTextLengthsMessageV1(2), cblLegacy
         html = _html()
         body = html[html.index("async function cblFreeDwgOpenFileObjectV1(file,handle){"):]
         body = body[:body.index("function cblNativeFilePickerSupportedV1(){")]
-        done = body.index("setHint('DWG 열기 완료: '")
+        done = body.index("'DWG 열기 완료: '")
         legacy = body.index("cblLegacyTextLengthsMessageV1(result.legacy_text_lengths)")
         self.assertLess(done, legacy)
         self.assertLess(body.index("cblUnreadableObjectsMessageV1(result.unreadable_objects)"), legacy)

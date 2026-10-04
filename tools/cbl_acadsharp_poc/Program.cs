@@ -22,6 +22,8 @@ internal static class Program
             return WriteMetadata(args[1]);
         if ((args.Length == 3 || args.Length == 4) && string.Equals(args[0], "--dxf", StringComparison.OrdinalIgnoreCase))
             return WriteDxfFromDwg(args[1], args[2], args.Length == 4 ? args[3] : null);
+        if (args.Length == 3 && string.Equals(args[0], "--dwg-from-dxf", StringComparison.OrdinalIgnoreCase))
+            return WriteDwgFromDxf(args[1], args[2]);
         if (args.Length < 2 || args.Length > 5)
         {
             Console.Error.WriteLine("usage: CblAcadSharpPoc <input.dwg> <output.dwg> [AC1018|AC2004]");
@@ -215,6 +217,128 @@ internal static class Program
             return 1;
         }
         finally { TryDelete(lockPath); }
+    }
+
+    // A DXF opened in the editor becomes an AC1018 DWG first: the editor
+    // edits and saves DWGs only, and its own DXF parse keeps neither block
+    // definitions nor dimensions.  The report lists, by type, objects the DXF
+    // reader skipped and objects missing after the DWG write and reread.
+    private static int WriteDwgFromDxf(string inputPath, string outputPath)
+    {
+        var input = Path.GetFullPath(inputPath);
+        var output = Path.GetFullPath(outputPath);
+        if (!File.Exists(input)) return Fail($"input does not exist: {input}");
+        if (string.Equals(input, output, StringComparison.OrdinalIgnoreCase)) return Fail("refusing to overwrite input");
+        Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+        var temp = output + $".tmp.{Environment.ProcessId}.{Guid.NewGuid():N}";
+        var utf8Copy = temp + ".utf8.dxf";
+        var lockPath = output + ".lock";
+        var notifications = new List<object>();
+        var dropped = new Dictionary<string, int>(StringComparer.Ordinal);
+        void Drop(string type, int count) => dropped[type] = (dropped.TryGetValue(type, out var n) ? n : 0) + count;
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            using var lockStream = AcquireLock(lockPath, TimeSpan.FromSeconds(DefaultTimeoutSeconds));
+            var data = File.ReadAllBytes(input);
+            var declaresCodePage = data.AsSpan().IndexOf("$DWGCODEPAGE"u8) >= 0;
+            var utf8CodePage = declaresCodePage ? DeclaredCodePageOfUtf8Dxf(data) : null;
+            var readPath = input;
+            if (utf8CodePage != null)
+            {
+                readPath = utf8Copy;
+                File.WriteAllBytes(readPath, WithoutDxfCodePage(data));
+            }
+            // CreateDefaults adds missing table entries: ChickenBananaCAD's own
+            // DXF exports have only a LAYER table, and the DWG writer needs the
+            // "Standard" text and dimension styles.  Entries in the file are kept.
+            var document = DxfReader.Read(readPath, new DxfReaderConfiguration { CreateDefaults = true }, (_, e) =>
+            {
+                notifications.Add(new { phase = "read-dxf", type = e.NotificationType.ToString(), e.Message, exception = e.Exception?.ToString() });
+                var message = e.Message ?? string.Empty;
+                if (message.StartsWith("Entity not supported", StringComparison.Ordinal))
+                {
+                    var name = message[(message.LastIndexOf(':') + 1)..].Trim();
+                    Drop(name.Length > 0 ? name : "ENTITY", 1);
+                }
+                else if (e.NotificationType == NotificationType.Error && message.StartsWith("Error while reading an entity", StringComparison.Ordinal)) Drop("ENTITY", 1);
+                else if (e.NotificationType == NotificationType.Error && message.StartsWith("Error while reading a block", StringComparison.Ordinal)) Drop("BLOCK", 1);
+            });
+            if (utf8CodePage != null) document.Header.CodePage = utf8CodePage;
+            var sourceVersion = document.Header.Version.ToString();
+            var sourceCodePage = document.Header.CodePage;
+            // A DXF without $DWGCODEPAGE (ChickenBananaCAD's own exports) is read
+            // as UTF-8 and keeps ACadSharp's ANSI_1252 default; it gets the
+            // Korean code page, as new drawings do.
+            if (!declaresCodePage || string.IsNullOrWhiteSpace(document.Header.CodePage)) document.Header.CodePage = "kcs5601";
+            document.Header.Version = ACadVersion.AC1018;
+            var before = Snapshot(document);
+            using (var writer = new DwgWriter(temp, document))
+            {
+                writer.Configuration.CloseStream = true;
+                writer.OnNotification += (_, e) => notifications.Add(new { phase = "write", type = e.NotificationType.ToString(), e.Message, exception = e.Exception?.ToString() });
+                writer.Write();
+            }
+            if (!File.Exists(temp) || new FileInfo(temp).Length < 256)
+                throw new InvalidDataException("writer produced an empty or implausibly small DWG");
+            var rereadNotifications = new List<object>();
+            var after = Snapshot(Read(temp, rereadNotifications));
+            foreach (var (type, count) in before.Counts)
+            {
+                var written = after.Counts.TryGetValue(type, out var n) ? n : 0;
+                if (written < count) Drop(type.ToUpperInvariant(), count - written);
+            }
+            File.Move(temp, output, true);
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                input, output, sourceVersion, sourceCodePage, readAsUtf8 = utf8CodePage != null, codePage = document.Header.CodePage,
+                outputBytes = new FileInfo(output).Length, elapsedMs = sw.Elapsed.TotalMilliseconds,
+                source = before, reread = after, dropped, notifications, rereadNotifications, status = "dwg_written"
+            }, new JsonSerializerOptions { WriteIndented = true }));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            TryDelete(temp);
+            Console.Error.WriteLine(JsonSerializer.Serialize(new { input, output, status = "failed", error = ex.ToString(), elapsedMs = sw.Elapsed.TotalMilliseconds }, new JsonSerializerOptions { WriteIndented = true }));
+            return 1;
+        }
+        finally { TryDelete(lockPath); TryDelete(utf8Copy); }
+    }
+
+    // ChickenBananaCAD's DXF export wrote UTF-8 bytes under $DWGCODEPAGE
+    // ANSI_949 until 2026-10-04, so its Korean read as garbage.  A text DXF
+    // that declares a code page but is valid UTF-8 with non-ASCII bytes is
+    // read as UTF-8 (KS C 5601 text is practically never valid UTF-8).  DXF
+    // 2007 and later are UTF-8 anyway.  Returns the declared code page, or
+    // null when the file is read as is.
+    private static string? DeclaredCodePageOfUtf8Dxf(byte[] data)
+    {
+        var bytes = data.AsSpan();
+        if (bytes.StartsWith("AutoCAD Binary DXF"u8)) return null;
+        if (string.CompareOrdinal(DxfHeaderValue(data, "$ACADVER"u8), "AC1021") >= 0) return null;
+        if (bytes.IndexOfAnyInRange((byte)0x80, (byte)0xFF) < 0 || !System.Text.Unicode.Utf8.IsValid(bytes)) return null;
+        var codePage = DxfHeaderValue(data, "$DWGCODEPAGE"u8);
+        return codePage.Length > 0 ? codePage : null;
+    }
+
+    // Value of a one-value HEADER variable: name, group code, value lines.
+    private static string DxfHeaderValue(byte[] data, ReadOnlySpan<byte> name)
+    {
+        var at = data.AsSpan().IndexOf(name);
+        if (at < 0) return string.Empty;
+        var lines = System.Text.Encoding.ASCII.GetString(data, at, Math.Min(200, data.Length - at)).Split('\n');
+        return lines.Length >= 3 ? lines[2].Trim() : string.Empty;
+    }
+
+    // The copy read hides $DWGCODEPAGE (same length, so nothing else moves),
+    // which leaves the DXF reader on UTF-8.
+    private static byte[] WithoutDxfCodePage(byte[] data)
+    {
+        var copy = (byte[])data.Clone();
+        var at = copy.AsSpan().IndexOf("$DWGCODEPAGE"u8);
+        "$CBLUTF8PAGE"u8.CopyTo(copy.AsSpan(at));
+        return copy;
     }
 
     private static int WriteMetadata(string inputPath)

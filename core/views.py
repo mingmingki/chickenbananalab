@@ -9001,6 +9001,40 @@ def _cbl_build_original_source_layer_manifest_v1(report, dxf_text=""):
     }
 
 
+# A DXF picked in the editor opens as a new AC1018 DWG made from it
+# (--dwg-from-dxf): the editor edits and saves DWGs only, and its own DXF parse
+# keeps neither block definitions nor dimensions.  The DWG goes back to the
+# editor as the drawing's source, so the first save is a Save As of a new .dwg
+# and never writes into the .dxf or the drawing that was open before.
+_CBL_DXF_TEXT_START_RE_V1 = _cbl_re.compile(rb"\A(?:\xef\xbb\xbf)?\s*(?:0\s*\r?\n\s*SECTION\b|999\s*\r?\n)")
+
+
+def _cbl_free_dwg_is_dxf_upload_v1(data, name):
+    if data[:3] == b"AC1":  # a DWG starts with its version (AC1009 ... AC1032)
+        return False
+    return (data.startswith(b"AutoCAD Binary DXF") or bool(_CBL_DXF_TEXT_START_RE_V1.match(data[:256]))
+            or str(name or "").lower().endswith(".dxf"))
+
+
+def _cbl_free_dwg_dwg_from_dxf_v1(executable, dxf_path, dwg_path):
+    """Write dwg_path (AC1018) from dxf_path; returns the converter report."""
+    run = _cbl_acadsharp_run_v1([str(executable), "--dwg-from-dxf", str(dxf_path), str(dwg_path)], timeout=600)
+    if run.returncode != 0 or not dwg_path.is_file() or dwg_path.read_bytes()[:6] != b"AC1018":
+        detail = run.stderr.decode("utf-8", errors="replace")
+        try:
+            detail = str(_cbl_json.loads(detail, strict=False).get("error") or detail)
+        except ValueError:
+            pass
+        raise RuntimeError("이 DXF 파일을 무료 변환기로 읽지 못했습니다. (" + detail.strip().splitlines()[0][:300] + ")"
+                           if detail.strip() else "이 DXF 파일을 무료 변환기로 읽지 못했습니다.")
+    return _cbl_json.loads(run.stdout.decode("utf-8", errors="replace"), strict=False)
+
+
+def _cbl_free_dwg_converted_name_v1(name):
+    stem = _cbl_os.path.splitext(_cbl_os.path.basename(str(name or "")))[0].strip()
+    return (stem or "drawing") + ".dwg"
+
+
 @_cbl_csrf_exempt
 @_cbl_gzip_page
 def cblcad_free_dwg_local_api(request):
@@ -9036,13 +9070,25 @@ def cblcad_free_dwg_local_api(request):
             executable = _cbl_free_dwg_save_local_executable_v1()
             if executable is None:
                 raise RuntimeError("로컬 ACadSharp DxfWriter 실행 파일이 설치되지 않았습니다.")
+            upload_name = getattr(upload, "name", "") or "drawing.dwg"
+            converted = None
             with _cbl_tempfile.TemporaryDirectory(prefix=".cbl-acadsharp-dxf-") as tmp:
                 tmp_path = _cbl_Path(tmp)
                 source = tmp_path / "input.dwg"
                 output = tmp_path / "output.dxf"
                 metadata_path = tmp_path / "metadata.json"
-                source.write_bytes(upload_data)
                 convert_started = _cbl_time.perf_counter()
+                if _cbl_free_dwg_is_dxf_upload_v1(upload_data, upload_name):
+                    dxf_source = tmp_path / "input.dxf"
+                    dxf_source.write_bytes(upload_data)
+                    dxf_report = _cbl_free_dwg_dwg_from_dxf_v1(executable, dxf_source, source)
+                    converted = {
+                        "converted_dwg_base64": _cbl_base64.b64encode(source.read_bytes()).decode("ascii"),
+                        "converted_dwg_name": _cbl_free_dwg_converted_name_v1(upload_name),
+                        "dxf_dropped_objects": dxf_report.get("dropped") or {},
+                    }
+                else:
+                    source.write_bytes(upload_data)
                 # One runtime run writes the DXF and the --metadata JSON from a
                 # single DWG read (a second read took ~2 s on large plans).
                 run = _cbl_acadsharp_run_v1(
@@ -9063,14 +9109,15 @@ def cblcad_free_dwg_local_api(request):
                 "source_layer_manifest": _cbl_build_original_source_layer_manifest_v1(source_metadata, dxf_text),
                 "unreadable_objects": _cbl_free_dwg_unreadable_objects_v1(source_metadata.get("notifications")),
                 "legacy_text_lengths": _cbl_free_dwg_legacy_text_lengths_v1(source_metadata.get("notifications")),
+                "converted_from_dxf": converted is not None, **(converted or {}),
             }, json_dumps_params={"ensure_ascii": False})
             response["Server-Timing"] = "convert;dur=%.2f,response;dur=%.2f" % (
                 (_cbl_time.perf_counter() - convert_started) * 1000,
                 (_cbl_time.perf_counter() - endpoint_started) * 1000,
             )
             _cbl_dwg_dxf_emit_log_v1(
-                "CBLCAD_FREE_DWG_LOCAL endpoint=free-dwg-local event=acadsharp_dxf upload_bytes=%s dxf_bytes=%s convert_ms=%.2f endpoint_ms=%.2f oda_executed=0",
-                len(upload_data), len(dxf_text.encode("utf-8")),
+                "CBLCAD_FREE_DWG_LOCAL endpoint=free-dwg-local event=acadsharp_dxf upload_bytes=%s from_dxf=%s dxf_bytes=%s convert_ms=%.2f endpoint_ms=%.2f oda_executed=0",
+                len(upload_data), int(converted is not None), len(dxf_text.encode("utf-8")),
                 (_cbl_time.perf_counter() - convert_started) * 1000,
                 (_cbl_time.perf_counter() - endpoint_started) * 1000,
             )
