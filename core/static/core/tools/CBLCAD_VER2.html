@@ -2514,8 +2514,10 @@ function mvS(s,dx,dy){
 var cblSnapGridV5 = { built:false, building:false, cellSize:0, minX:0, minY:0, cells:null, oversize:[], shapesRef:null, shapesLen:-1, buildMs:0, builds:0, lastCandCount:0, lastQueryMs:0, lastBuildReason:'', candidateCount:0, excludedCount:0, invalidCount:0, referenceCount:0, importIdleScheduled:false };
 function cblSnapCanonicalShapesV5(){try{return typeof window.cblGetCanonicalShapesV1==='function'?window.cblGetCanonicalShapesV1():[];}catch(e){return[];}}
 
+// Every build and invalidation starts a new generation; batches of an older
+// build stop instead of writing into (or reading the cleared map of) a newer one.
 function cblSnapGridInvalidateV5(reason){
-  try { cblSnapGridV5.built = false; cblSnapGridV5.building=false; cblSnapGridV5.lastBuildReason=String(reason||'invalidate'); } catch(e) {}
+  try { cblSnapGridV5.built = false; cblSnapGridV5.building=false; cblSnapGridV5.generation=(cblSnapGridV5.generation||0)+1; cblSnapGridV5.lastBuildReason=String(reason||'invalidate'); } catch(e) {}
 }
 
 function cblSnapGridGetBBV5(s){
@@ -2551,6 +2553,8 @@ function cblSnapGridBuildV5(){
   var t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 
   g.built = false;
+  g.building = false;
+  g.generation = (g.generation || 0) + 1;
   g.cells = new Map();
   g.shapesRef = shapes;
   g.shapesLen = Array.isArray(shapes) ? shapes.length : 0;
@@ -2614,9 +2618,11 @@ function cblSnapGridBuildAsyncV5(reason){
   if(!Array.isArray(source)||!source.length){g.built=true;g.shapesRef=source;g.shapesLen=0;return true;}
   var n=source.length, started=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
   var bbs=new Array(n), i=0, invalid=0, minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  var gen=g.generation=(g.generation||0)+1, cells=null, cellSize=0, oversize=[], references=0;
   g.built=false;g.building=true;g.cells=null;g.oversize=[];g.shapesRef=source;g.shapesLen=n;g.lastBuildReason=String(reason||'async-build');
   function yieldNext(fn){if(typeof requestAnimationFrame==='function')requestAnimationFrame(fn);else setTimeout(fn,0);}
   function readBatch(){
+    if(g.generation!==gen)return;
     var end=Math.min(i+100,n);
     for(;i<end;i++){
       var bb=cblSnapGridGetBBV5(source[i]);
@@ -2625,24 +2631,26 @@ function cblSnapGridBuildAsyncV5(reason){
     }
     if(i<n){yieldNext(readBatch);return;}
     if(![minX,minY,maxX,maxY].every(Number.isFinite)){g.building=false;g.invalidCount=invalid;g.lastBuildReason='invalid-bbox';return;}
-    g.minX=minX;g.minY=minY;g.cellSize=Math.max(Math.max(maxX-minX,maxY-minY)/Math.max(Math.sqrt(n),8),1e-6);g.cells=new Map();g.oversize=[];g.referenceCount=0;g.invalidCount=invalid;
+    cellSize=Math.max(Math.max(maxX-minX,maxY-minY)/Math.max(Math.sqrt(n),8),1e-6);cells=new Map();
     i=0;insertBatch();
   }
   function insertBatch(){
+    if(g.generation!==gen)return;
     var end=Math.min(i+100,n);
     for(;i<end;i++){
       var bb=bbs[i];if(!bb)continue;
-      var cx1=Math.floor((bb.x1-minX)/g.cellSize),cx2=Math.floor((bb.x2-minX)/g.cellSize),cy1=Math.floor((bb.y1-minY)/g.cellSize),cy2=Math.floor((bb.y2-minY)/g.cellSize);
-      var cells=(cx2-cx1+1)*(cy2-cy1+1);
-      if(!Number.isFinite(cells)||cells<1){g.invalidCount++;continue;}
-      g.referenceCount+=cblSnapGridAddPointsV5(g.cells,bb,source[i],minX,minY,g.cellSize);
+      var cx1=Math.floor((bb.x1-minX)/cellSize),cx2=Math.floor((bb.x2-minX)/cellSize),cy1=Math.floor((bb.y1-minY)/cellSize),cy2=Math.floor((bb.y2-minY)/cellSize);
+      var count=(cx2-cx1+1)*(cy2-cy1+1);
+      if(!Number.isFinite(count)||count<1){invalid++;continue;}
+      references+=cblSnapGridAddPointsV5(cells,bb,source[i],minX,minY,cellSize);
       // Keep large geometry queryable without copying it into every cell.
-      if(cells>256){g.oversize.push({shape:source[i],bbox:bb});continue;}
+      if(count>256){oversize.push({shape:source[i],bbox:bb});continue;}
       for(var cx=cx1;cx<=cx2;cx++)for(var cy=cy1;cy<=cy2;cy++){
-        var key=cx+'_'+cy,arr=g.cells.get(key);if(!arr){arr=[];g.cells.set(key,arr);}arr.push(source[i]);g.referenceCount++;
+        var key=cx+'_'+cy,arr=cells.get(key);if(!arr){arr=[];cells.set(key,arr);}arr.push(source[i]);references++;
       }
     }
     if(i<n){yieldNext(insertBatch);return;}
+    g.minX=minX;g.minY=minY;g.cellSize=cellSize;g.cells=cells;g.oversize=oversize;g.referenceCount=references;g.invalidCount=invalid;
     g.building=false;g.built=true;g.builds++;g.buildMs=((typeof performance!=='undefined'&&performance.now)?performance.now():Date.now())-started;
   }
   readBatch();return true;
@@ -5038,7 +5046,10 @@ function cblExpandBlockSelectionV1(list,groups){
  (list||[]).forEach(function(s){
   var k=cblBlockKeyV1(s);if(!k){add(s);return;}
   groups=groups||cblBlockGroupsV1();
-  var g=groups[k];if(!g||!g.owner){add(s);return;}
+  var g=groups[k];
+  // A DIMENSION, LEADER, MULTILEADER or HATCH has no owner shape: its pieces go together.
+  if(g&&!g.owner&&s.cblOwnerTypeV1){g.members.forEach(add);return;}
+  if(!g||!g.owner){add(s);return;}
   add(g.owner);g.members.forEach(add);
  });
  return out;
@@ -5049,6 +5060,11 @@ function cblWindowSelectBlocksV1(list,crossing){
  function add(s){if(!seen.has(s)){seen.add(s);out.push(s);}}
  list.forEach(function(s){
   var k=cblBlockKeyV1(s),g=k&&groups[k];
+  if(g&&!g.owner&&s.cblOwnerTypeV1){
+   if(done[k])return;done[k]=true;
+   if(crossing||g.members.every(function(m){return picked.has(m);}))g.members.forEach(add);
+   return;
+  }
   if(!g||!g.owner){add(s);return;}
   if(done[k])return;done[k]=true;
   var kids=g.members.filter(cblIsBlockChildV1);
@@ -5069,7 +5085,7 @@ function cblSetTextRotationV1(s,rad){s.rot=rad;s.rotation=rad;if(s.rotationRad!=
 // Exploded block contents become standalone entities that are saved on their own.
 function cblMakeStandaloneShapeV1(s){
  ['blockChild','isBlockChild','fromBlock','parentBlockName','parentInsertName','blockName','cblBlockName','ownerSourceHandle','parentSourceHandle','parentHandle','ownerHandle','blockHandle','cblBlockKey',
-  'rendererOnly','displayOnly','synthetic','isDisplayOnly','helper','cblAttribOwnerHandle','cblAttribCopy',
+  'rendererOnly','displayOnly','synthetic','isDisplayOnly','helper','cblAttribOwnerHandle','cblAttribCopy','cblOwnerTypeV1','cblPieceIdV1',
   'sourceHandle','originalHandle','handle','sourcePath','cblRenderIdentity','clientShapeId','objectId'].forEach(function(k){delete s[k];});
  return s;
 }
@@ -22718,6 +22734,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     var layerOrder = [];
     var blocks = {};
     var mainEntities = [];
+    var cblPieceSeqV1 = {};
     var stats = {
       dxfLength:String(text || '').length,
       layerCount:0,
@@ -22834,7 +22851,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
             }
             if(c2 === '0' && tableName === 'DIMSTYLE' && v2 === 'DIMSTYLE'){
               var dimEnt=readEntityAnyFixed(lines,i),dp=dimEnt.p||{},dimName=String(first(dp,'2','STANDARD')).toUpperCase();
-              dimensionStyleDefs[dimName]={name:String(first(dp,'2','STANDARD')),line:first(dp,'176',256),extension:first(dp,'177',256),text:first(dp,'178',256),textStyle:String(first(dp,'3','STANDARD'))};
+              dimensionStyleDefs[dimName]={name:String(first(dp,'2','STANDARD')),line:first(dp,'176',256),extension:first(dp,'177',256),text:first(dp,'178',256),textStyle:String(first(dp,'3','STANDARD')),textHeight:num(first(dp,'140',0)),arrowSize:num(first(dp,'41',0)),scale:num(first(dp,'40',1),1)};
               i=dimEnt.end;continue;
             }
 
@@ -23390,6 +23407,13 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         s.parentBlockName = String(renderCtx.parentBlockName || renderCtx.blockName || '');
         s.parentInsertName = String(renderCtx.parentInsertName || renderCtx.blockName || '');
         s.blockName = s.blockName || String(renderCtx.blockName || '');
+        // CBL_OWNED_PIECES_V1: a piece of a top-level DIMENSION, LEADER,
+        // MULTILEADER or HATCH; the save turns its changes into that object's.
+        if(renderCtx.ownerType){
+          s.cblOwnerTypeV1 = String(renderCtx.ownerType).toUpperCase();
+          cblPieceSeqV1[s.ownerSourceHandle] = (cblPieceSeqV1[s.ownerSourceHandle] || 0) + 1;
+          s.cblPieceIdV1 = cblPieceSeqV1[s.ownerSourceHandle];
+        }
       }
       shapes.push(s);
       stats.flattenedEntityCount++;
@@ -23415,6 +23439,264 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       var fallback=first(p,'50',null);
       return finite(fallback)?Number(fallback):0;
     }
+
+    /* CBL_ENTITY_DISPLAY_V2_START: SPLINE curves, LEADER, MULTILEADER and a
+       DIMENSION without its block are drawn as render-only children of the
+       source entity, which stays the one DWG object edits refer to. */
+    function cblNumsV2(p, c){
+      return arr(p, c).map(function(v){ return Number(v); });
+    }
+
+    function cblPointListV2(xs, ys){
+      var out = [];
+      for(var i = 0; i < Math.min(xs.length, ys.length); i++){
+        if(Number.isFinite(xs[i]) && Number.isFinite(ys[i])) out.push({x:xs[i], y:ys[i]});
+      }
+      return out;
+    }
+
+    // Points along a SPLINE: its B-spline (de Boor; rational with weights) when
+    // the control points and knots agree, else the control or fit points.  The
+    // control polygon alone is not the curve, and fit-point-only splines were
+    // not drawn at all.
+    function cblSplinePointsV2(p){
+      var ctrl = cblPointListV2(cblNumsV2(p, '10'), cblNumsV2(p, '20'));
+      var degree = Math.max(1, Math.floor(num(first(p, '71', 3), 3)));
+      var knots = cblNumsV2(p, '40'), weights = cblNumsV2(p, '41');
+      if(ctrl.length > degree && knots.length === ctrl.length + degree + 1 && knots.every(Number.isFinite) && knots[ctrl.length] > knots[degree]){
+        var rational = weights.length === ctrl.length && weights.every(function(w){ return Number.isFinite(w) && w > 0; });
+        var at = function(u){
+          var k = degree;
+          while(k < ctrl.length - 1 && u >= knots[k + 1]) k++;
+          var d = [];
+          for(var j = 0; j <= degree; j++){
+            var c = ctrl[k - degree + j], w = rational ? weights[k - degree + j] : 1;
+            d.push({x:c.x * w, y:c.y * w, w:w});
+          }
+          for(var r = 1; r <= degree; r++){
+            for(var jj = degree; jj >= r; jj--){
+              var i0 = k - degree + jj, den = knots[i0 + degree - r + 1] - knots[i0];
+              var a = den > 0 ? (u - knots[i0]) / den : 0;
+              d[jj] = {x:(1 - a) * d[jj - 1].x + a * d[jj].x, y:(1 - a) * d[jj - 1].y + a * d[jj].y, w:(1 - a) * d[jj - 1].w + a * d[jj].w};
+            }
+          }
+          return {x:d[degree].x / d[degree].w, y:d[degree].y / d[degree].w};
+        };
+        var spans = 0;
+        for(var sp = degree; sp < ctrl.length; sp++) if(knots[sp + 1] > knots[sp]) spans++;
+        var per = Math.max(2, Math.min(16, Math.floor(400 / Math.max(1, spans))));
+        var out = [];
+        for(var sq = degree; sq < ctrl.length; sq++){
+          var u0 = knots[sq], u1 = knots[sq + 1];
+          if(!(u1 > u0)) continue;
+          for(var t = 0; t < per; t++) out.push(at(u0 + (u1 - u0) * t / per));
+        }
+        out.push(at(knots[ctrl.length]));
+        if(out.every(function(q){ return Number.isFinite(q.x) && Number.isFinite(q.y); })) return cblSimplifyV2(out);
+      }
+      if(ctrl.length >= 2) return ctrl;
+      return cblThroughPointsV2(cblPointListV2(cblNumsV2(p, '11'), cblNumsV2(p, '21')));
+    }
+
+    // Drop points the curve does not need (Ramer-Douglas-Peucker, 0.2% of its
+    // size): large drawings have thousands of splines.
+    function cblSimplifyV2(pts){
+      if(pts.length < 3) return pts;
+      var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      pts.forEach(function(q){ minX = Math.min(minX, q.x); minY = Math.min(minY, q.y); maxX = Math.max(maxX, q.x); maxY = Math.max(maxY, q.y); });
+      var tol = Math.hypot(maxX - minX, maxY - minY) * 0.002;
+      if(!(tol > 0)) return [pts[0], pts[pts.length - 1]];
+      var keep = new Array(pts.length), stack = [[0, pts.length - 1]];
+      keep[0] = keep[pts.length - 1] = true;
+      while(stack.length){
+        var seg = stack.pop(), a = pts[seg[0]], b = pts[seg[1]], dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy), far = -1, idx = -1;
+        for(var i = seg[0] + 1; i < seg[1]; i++){
+          var d = len > 0 ? Math.abs(dy * (pts[i].x - a.x) - dx * (pts[i].y - a.y)) / len : Math.hypot(pts[i].x - a.x, pts[i].y - a.y);
+          if(d > far){ far = d; idx = i; }
+        }
+        if(far > tol){ keep[idx] = true; stack.push([seg[0], idx], [idx, seg[1]]); }
+      }
+      return pts.filter(function(_, i){ return keep[i]; });
+    }
+
+    // A smooth curve through fit points (centripetal Catmull-Rom), as a
+    // fit-point spline passes through each of them.
+    function cblThroughPointsV2(pts){
+      if(pts.length < 3) return pts;
+      var out = [pts[0]], per = Math.max(2, Math.min(12, Math.floor(400 / pts.length)));
+      var knot = function(a, b){ return Math.pow(Math.hypot(b.x - a.x, b.y - a.y), 0.5) || 1e-9; };
+      for(var i = 0; i < pts.length - 1; i++){
+        var p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || pts[i + 1];
+        var t1 = knot(p0, p1), t2 = t1 + knot(p1, p2), t3 = t2 + knot(p2, p3);
+        for(var k = 1; k <= per; k++){
+          var t = t1 + (t2 - t1) * k / per;
+          var lerp = function(a, b, ta, tb){ var w = tb - ta > 0 ? (t - ta) / (tb - ta) : 0; return {x:a.x + (b.x - a.x) * w, y:a.y + (b.y - a.y) * w}; };
+          var a1 = lerp(p0, p1, 0, t1), a2 = lerp(p1, p2, t1, t2), a3 = lerp(p2, p3, t2, t3);
+          var b1 = lerp(a1, a2, 0, t2), b2 = lerp(a2, a3, t1, t3);
+          out.push(k === per ? p2 : lerp(b1, b2, t1, t2));
+        }
+      }
+      return cblSimplifyV2(out);
+    }
+
+    function cblFakeEntV2(type, props){
+      var p = {__pairs:[]};
+      Object.keys(props).forEach(function(k){ p[k] = Array.isArray(props[k]) ? props[k] : [props[k]]; });
+      // Layer 0 and colour ByBlock: the child takes the source entity's.
+      if(p['8'] === undefined) p['8'] = ['0'];
+      if(p['62'] === undefined) p['62'] = [0];
+      return {type:type, p:p};
+    }
+
+    function cblFakeLineV2(a, b){
+      return cblFakeEntV2('LINE', {'10':a.x, '20':a.y, '11':b.x, '21':b.y});
+    }
+
+    function cblFakePolylineV2(pts){
+      return cblFakeEntV2('LWPOLYLINE', {'10':pts.map(function(q){ return q.x; }), '20':pts.map(function(q){ return q.y; }), '70':0});
+    }
+
+    function cblFakeTextV2(text, at, height, rotationDeg){
+      return cblFakeEntV2('MTEXT', {'1':String(text), '10':at.x, '20':at.y, '40':height, '50':rotationDeg || 0});
+    }
+
+    // Two strokes of an open arrowhead whose tip points away from `from`.
+    function cblArrowEntsV2(tip, from, size){
+      var dx = tip.x - from.x, dy = tip.y - from.y, len = Math.hypot(dx, dy);
+      if(!(len > 0) || !(size > 0)) return [];
+      var ux = dx / len, uy = dy / len, bx = tip.x - ux * size, by = tip.y - uy * size, hw = size / 6;
+      return [cblFakeLineV2(tip, {x:bx - uy * hw, y:by + ux * hw}), cblFakeLineV2(tip, {x:bx + uy * hw, y:by - ux * hw})];
+    }
+
+    function cblOwnedCtxV2(ent, ctx){
+      var p = ent.p || {}, handle = String(first(p, '5', '') || ''), layerName = resolveLayerName(ent, ctx);
+      var owner = ctx && (ctx.ownerSourceHandle || ctx.parentSourceHandle) || handle;
+      return {
+        layer:layerName,
+        color:resolveColor(ent, layerName, ctx),
+        rawAci:first(p, '62', null),
+        rawTrueColor:first(p, '420', null),
+        insertPath:(ctx && Array.isArray(ctx.insertPath) ? ctx.insertPath : []).concat(handle),
+        blockHandle:'',
+        linetype:resolveLtype(ent, layerName, ctx),
+        matrix:ctx && ctx.matrix ? ctx.matrix : matIdentity(),
+        ownerSourceHandle:owner,
+        parentSourceHandle:owner,
+        parentBlockName:ctx && ctx.blockName ? ctx.blockName : '',
+        parentInsertName:ctx && ctx.blockName ? ctx.blockName : '',
+        blockName:ctx && ctx.blockName ? ctx.blockName : '',
+        blockChild:true,
+        displayOnly:true,
+        rendererOnly:true,
+        ownerType:ctx ? (ctx.ownerType || '') : String(ent.type || '')
+      };
+    }
+
+    function cblStyleSizesV2(p){
+      var ds = dimensionStyleDefs[String(first(p, '3', 'STANDARD')).toUpperCase()] || dimensionStyleDefs.STANDARD || {};
+      var scale = Number(ds.scale) > 0 ? Number(ds.scale) : 1;
+      var text = Number(ds.textHeight) > 0 ? Number(ds.textHeight) * scale : 2.5;
+      var arrow = Number(ds.arrowSize) > 0 ? Number(ds.arrowSize) * scale : text;
+      return {text:text, arrow:arrow};
+    }
+
+    // A linear or aligned DIMENSION whose block is missing (older
+    // ChickenBananaCAD saves wrote none) from its definition points: extension
+    // lines, dimension line, arrowheads and the measured value.
+    function cblDimensionFromPointsV2(p){
+      var f = function(c){ var v = Number(first(p, c, NaN)); return Number.isFinite(v) ? v : NaN; };
+      var ok = function(q){ return Number.isFinite(q.x) && Number.isFinite(q.y); };
+      var kind = (Number(first(p, '70', 0)) || 0) & 7;
+      var e1 = {x:f('13'), y:f('23')}, e2 = {x:f('14'), y:f('24')}, d = {x:f('10'), y:f('20')}, mid = {x:f('11'), y:f('21')};
+      if((kind !== 0 && kind !== 1) || !ok(e1) || !ok(e2) || !ok(d)) return null;
+      var dir;
+      if(kind === 1){
+        var len = Math.hypot(e2.x - e1.x, e2.y - e1.y);
+        if(!(len > 0)) return null;
+        dir = {x:(e2.x - e1.x) / len, y:(e2.y - e1.y) / len};
+      }else{
+        var ang = (Number(first(p, '50', 0)) || 0) * Math.PI / 180;
+        dir = {x:Math.cos(ang), y:Math.sin(ang)};
+      }
+      var onLine = function(q){ var t = (q.x - d.x) * dir.x + (q.y - d.y) * dir.y; return {x:d.x + dir.x * t, y:d.y + dir.y * t}; };
+      var a = onLine(e1), b = onLine(e2), measure = Math.hypot(b.x - a.x, b.y - a.y);
+      var value = String(Math.round(measure * 100) / 100), raw = String(first(p, '1', '') || '');
+      var text = raw ? raw.replace('<>', value) : value;
+      var sizes = cblStyleSizesV2(p), h = sizes.text;
+      var deg = Math.atan2(dir.y, dir.x) * 180 / Math.PI;
+      if(deg > 90.0001) deg -= 180;
+      if(deg <= -90.0001) deg += 180;
+      var rad = deg * Math.PI / 180, w = String(text).length * h * 0.7;
+      var c = ok(mid) ? mid : {x:(a.x + b.x) / 2, y:(a.y + b.y) / 2};
+      var at = {x:c.x - Math.cos(rad) * w / 2 + Math.sin(rad) * h / 2, y:c.y - Math.sin(rad) * w / 2 - Math.cos(rad) * h / 2};
+      return [cblFakeLineV2(e1, a), cblFakeLineV2(e2, b), cblFakeLineV2(a, b)]
+        .concat(cblArrowEntsV2(a, b, sizes.arrow), cblArrowEntsV2(b, a, sizes.arrow), [cblFakeTextV2(text, at, h, deg)]);
+    }
+
+    function cblLeaderEntsV2(p){
+      var pts = cblPointListV2(cblNumsV2(p, '10'), cblNumsV2(p, '20'));
+      if(pts.length < 2) return null;
+      var out = [cblFakePolylineV2(pts)];
+      if(Number(first(p, '71', 1)) !== 0) out = out.concat(cblArrowEntsV2(pts[0], pts[1], cblStyleSizesV2(p).arrow));
+      return out;
+    }
+
+    // MULTILEADER CONTEXT_DATA: the text and each LEADER{ connection point,
+    // direction, dogleg, LEADER_LINE{ vertices } }.  Block content is not in the
+    // DXF the converter writes, so only its leader is drawn.
+    function cblMultiLeaderEntsV2(p){
+      var pairs = Array.isArray(p.__pairs) ? p.__pairs : [];
+      var inContext = false, leader = null, line = null, x = null, text = '', textAt = {}, height = 0, arrow = 0, rotation = 0;
+      var leaders = [];
+      pairs.forEach(function(pair){
+        var c = String(pair[0]), v = pair[1], sv = String(v == null ? '' : v).trim();
+        if(c === '300' && sv === 'CONTEXT_DATA{'){ inContext = true; return; }
+        if(!inContext) return;
+        if(c === '301' && sv === '}'){ inContext = false; return; }
+        if(c === '302' && sv === 'LEADER{'){ leader = {conn:null, dir:null, dogleg:0, lines:[]}; return; }
+        if(c === '303' && sv === '}'){ if(leader) leaders.push(leader); leader = null; return; }
+        if(c === '304' && sv === 'LEADER_LINE{'){ line = []; return; }
+        if(c === '305' && sv === '}'){ if(leader && line) leader.lines.push(line); line = null; return; }
+        var n = Number(v);
+        if(line){
+          if(c === '10') x = n;
+          else if(c === '20' && x !== null){ line.push({x:x, y:n}); x = null; }
+          return;
+        }
+        if(leader){
+          if(c === '10') leader.conn = {x:n, y:NaN};
+          else if(c === '20' && leader.conn) leader.conn.y = n;
+          else if(c === '11') leader.dir = {x:n, y:NaN};
+          else if(c === '21' && leader.dir) leader.dir.y = n;
+          else if(c === '40') leader.dogleg = n;
+          return;
+        }
+        if(c === '304') text = String(v == null ? '' : v);
+        else if(c === '12') textAt.x = n;
+        else if(c === '22') textAt.y = n;
+        else if(c === '41') height = n;
+        else if(c === '140') arrow = n;
+        else if(c === '42') rotation = n;
+      });
+      var out = [], ok = function(q){ return q && Number.isFinite(q.x) && Number.isFinite(q.y); };
+      leaders.forEach(function(l){
+        l.lines.forEach(function(vs){
+          var pts = vs.filter(ok).concat(ok(l.conn) ? [l.conn] : []);
+          if(pts.length >= 2){
+            out.push(cblFakePolylineV2(pts));
+            out = out.concat(cblArrowEntsV2(pts[0], pts[1], arrow));
+          }
+        });
+        if(ok(l.conn) && ok(l.dir) && l.dogleg > 0) out.push(cblFakeLineV2(l.conn, {x:l.conn.x + l.dir.x * l.dogleg, y:l.conn.y + l.dir.y * l.dogleg}));
+      });
+      if(text && ok(textAt)){
+        var h = height > 0 ? height : 2.5;
+        // The MTEXT insertion is its top-left corner; the editor draws from the baseline.
+        out.push(cblFakeTextV2(text, {x:textAt.x, y:textAt.y - h}, h, rotation * 180 / Math.PI));
+      }
+      return out.length ? out : null;
+    }
+    /* CBL_ENTITY_DISPLAY_V2_END */
 
     function convertEnt(ent, ctx, depth){
       if(!ent || !ent.type) return;
@@ -23581,7 +23863,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       }
 
       if(type === 'SPLINE'){
-        var sp = ptsFromEnt(ent, m);
+        var sp = cblSplinePointsV2(p).map(function(q){ return m ? matPoint(m, q.x, q.y) : q; });
         if(sp.length >= 2){
           pushShape(Object.assign({}, style, {type:'polyline', pts:sp, closed:false, rawDxfType:type}));
         }else{
@@ -23697,14 +23979,21 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
             blockName:dbn,
             blockChild:true,
             displayOnly:true,
-            rendererOnly:true
+            rendererOnly:true,
+            ownerType:ctx ? (ctx.ownerType || '') : 'DIMENSION'
           };
 
           dblock.ents.forEach(function(be){
             convertEnt(be, dCtx, depth + 1);
           });
         }else{
-          addSkipped('DIMENSION_NO_BLOCK');
+          var dimEnts = cblDimensionFromPointsV2(p);
+          if(dimEnts){
+            var dimCtx = cblOwnedCtxV2(ent, ctx);
+            dimEnts.forEach(function(de){ convertEnt(de, dimCtx, depth + 1); });
+          }else{
+            addSkipped('DIMENSION_NO_BLOCK');
+          }
         }
 
         return;
@@ -23713,7 +24002,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
       /* CBL_HATCH_POINT_CONVERT_V1_START */
       if(type === 'HATCH'){
-        var hc = cblImportHatchBoundaryV1(ent, style, m);
+        var hc = cblImportHatchBoundaryV1(ent, ctx ? style : baseStyle(ent, cblOwnedCtxV2(ent, null)), m);
         if(!hc) addSkipped('HATCH_EMPTY');
         return;
       }
@@ -23731,6 +24020,17 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         return;
       }
       /* CBL_HATCH_POINT_CONVERT_V1_END */
+
+      if(type === 'LEADER' || type === 'MULTILEADER'){
+        var leaderEnts = type === 'LEADER' ? cblLeaderEntsV2(p) : cblMultiLeaderEntsV2(p);
+        if(leaderEnts){
+          var leaderCtx = cblOwnedCtxV2(ent, ctx);
+          leaderEnts.forEach(function(le){ convertEnt(le, leaderCtx, depth + 1); });
+        }else{
+          addSkipped(type + '_EMPTY');
+        }
+        return;
+      }
 
       addSkipped(type);
     }
@@ -39474,6 +39774,11 @@ window.cblSnapResidueGateStatusV12 = function(){
   // valid.  An empty import is accepted only when the DXF's ENTITIES section
   // really has no model-space record (paper-space group 67=1 is ignored), so
   // a parser failure on a non-empty drawing still fails loudly.
+  // A DXF the converter finished writing: an ENTITIES section and the final EOF.
+  function cblDxfIsCompleteV1(dxf){
+    var text=String(dxf||'');
+    return /(^|\n)\s*0\s*\r?\n\s*SECTION\s*\r?\n\s*2\s*\r?\n\s*ENTITIES\s*\r?\n/.test(text)&&/(^|\n)\s*0\s*\r?\n\s*EOF\s*$/.test(text);
+  }
   function cblDxfHasNoModelSpaceEntitiesV1(dxf){
     var lines=String(dxf==null?'':dxf).replace(/\r\n?/g,'\n').split('\n'),start=-1,i;
     for(i=0;i+1<lines.length;i+=2){if(lines[i].trim()==='2'&&lines[i+1].trim()==='ENTITIES'){start=i+2;break;}}
@@ -39514,6 +39819,18 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(count<=0)return '';
     return '이 도면에는 한글 확장데이터의 길이가 잘못 기록된 곳이 '+count+'곳 있어 AutoCAD 등에서 열 때 오류가 나거나 복구를 요구할 수 있습니다'+
       '(10월 1일 이전 무료 DWG 저장의 오류). 내용은 온전히 읽었으니 한 번 저장하면 바로잡힙니다.';
+  }
+  // Objects the editor cannot draw yet; they stay in the DWG.
+  function cblUndisplayedObjectsMessageV1(skipped){
+    var names={LEADER:'지시선',MULTILEADER:'다중 지시선',MLINE:'다중선',XLINE:'무한선',RAY:'반무한선',WIPEOUT:'가림막(WIPEOUT)',REGION:'영역(REGION)','3DSOLID':'3D 솔리드',BODY:'바디',IMAGE:'이미지',OLE2FRAME:'OLE 객체',ACAD_TABLE:'표',MESH:'메쉬',DIMENSION_NO_BLOCK:'치수',SPLINE_NO_PTS:'스플라인'};
+    var ignore={SEQEND:1,VERTEX:1,ENDBLK:1,VIEWPORT:1,ATTDEF:1};
+    var parts=[];
+    Object.keys(skipped||{}).forEach(function(k){
+      var n=Number(skipped[k])||0,key=String(k).toUpperCase();
+      if(n<=0||ignore[key]||/_EMPTY$|_NO_PTS$/.test(key)&&!names[key])return;
+      parts.push((names[key]||key)+' '+n+'개');
+    });
+    return parts.length?'화면에 표시하지 못한 객체 '+parts.join(', ')+' (DWG에는 그대로 남고 저장해도 유지됩니다)':'';
   }
   function cblMisdeclaredUtf8MessageV1(count){
     count=Number(count)||0;
@@ -39631,7 +39948,10 @@ window.cblSnapResidueGateStatusV12 = function(){
     var parseStarted=performance.now();
     var imported = parseFn(String(result.dxf));
     openTiming.parse_ms=+(performance.now()-parseStarted).toFixed(2);stageEnd('parseDXF');
-    var emptyDrawing = Array.isArray(imported) && !imported.length && cblDxfHasNoModelSpaceEntitiesV1(result.dxf);
+    // A complete DXF with nothing drawable (only kinds the editor cannot show)
+    // opens like an empty drawing: the objects stay in the DWG and a save keeps
+    // them.  A cut-off or garbled DXF still fails.
+    var emptyDrawing = Array.isArray(imported) && !imported.length && (cblDxfHasNoModelSpaceEntitiesV1(result.dxf) || cblDxfIsCompleteV1(result.dxf));
     if (!Array.isArray(imported) || (!imported.length && !emptyDrawing)) throw new Error('full DXF에서 편집 객체를 찾지 못했습니다.');
     try { if (typeof window.cblRenderTextStyleManagerV1 === 'function') window.cblRenderTextStyleManagerV1(); } catch(e) {}
     try {
@@ -39905,7 +40225,9 @@ window.cblSnapResidueGateStatusV12 = function(){
       }
     } catch(_integrityFinalError) {}
     window.CBLCAD_FREE_DWG_LOCAL_LAST = result;
-    try { if (typeof setHint === 'function') setHint(result.converted_from_dxf ? 'DXF 열기 완료: '+file.name+' ('+count+'개) - 저장하면 새 DWG 파일('+openedName+')로 저장됩니다.' : 'DWG 열기 완료: '+file.name+' ('+count+'개)'); } catch(e) {}
+    var importStats = window.cblSingleModelImportStatsV1;
+    var undisplayed = importStats && importStats.dxfLength === String(result.dxf || '').length ? cblUndisplayedObjectsMessageV1(importStats.skipped) : '';
+    try { if (typeof setHint === 'function') setHint((result.converted_from_dxf ? 'DXF 열기 완료: '+file.name+' ('+count+'개) - 저장하면 새 DWG 파일('+openedName+')로 저장됩니다.' : 'DWG 열기 완료: '+file.name+' ('+count+'개)')+(undisplayed ? ' · '+undisplayed : '')); } catch(e) {}
     var unreadableMessage=window.CBL_FREE_DWG_SAVE_BLOCKED_V1||cblUnreadableObjectsMessageV1(result.unreadable_objects);
     // A drawing that cannot be saved gets only that notice: saving is what repairs legacy lengths.
     var openNotice=unreadableMessage||cblLegacyTextLengthsMessageV1(result.legacy_text_lengths)||cblMisdeclaredUtf8MessageV1(result.misdeclared_utf8_texts);
@@ -40349,6 +40671,26 @@ window.cblSnapResidueGateStatusV12 = function(){
   function sameGeometry(a,b){
     return !!a&&!!b&&cblShapeSaveSignatureV1(a)===cblShapeSaveSignatureV1(b);
   }
+  // The offset by which `to` is `from` moved, or null when `to` is not a pure
+  // translation of it (rotated, scaled, edited, other layer or colour).  With
+  // geometryOnly the layer, colour and text rotation are not compared:
+  // render-only pieces get display values rewritten after the open (linetype
+  // "Continuous" -> "solid", dimension text rotation) that are never saved.
+  function cblPieceOffsetV1(from,to,geometryOnly){
+    if(!from||!to)return null;
+    var t=String(from.type||'').toLowerCase(),d=null;
+    if(t==='line')d={x:n(to.x1)-n(from.x1),y:n(to.y1)-n(from.y1)};
+    else if(t==='polyline'&&Array.isArray(from.pts)&&from.pts.length&&Array.isArray(to.pts)&&to.pts.length)d={x:n(to.pts[0].x)-n(from.pts[0].x),y:n(to.pts[0].y)-n(from.pts[0].y)};
+    else if(t==='circle'||t==='arc')d={x:n(to.cx)-n(from.cx),y:n(to.cy)-n(from.cy)};
+    else if(t==='text'||t==='mtext'||t==='blockref')d={x:n(to.x)-n(from.x),y:n(to.y)-n(from.y)};
+    if(!d||!Number.isFinite(d.x)||!Number.isFinite(d.y))return null;
+    var moved=JSON.parse(JSON.stringify(from));
+    if(typeof mvS==='function')mvS(moved,d.x,d.y);else return null;
+    // A piece's text rotation is recomputed for display after the open (the
+    // dimension text modules); a rotated object shows in its other pieces.
+    var sig=function(x){var o=cblShapeSaveSignatureV1(x);if(!geometryOnly)return o;o=JSON.parse(o);var g=o.geometry||{};if(o.type==='text'||o.type==='mtext')delete g.rotation;return JSON.stringify({type:o.type,geometry:g});};
+    return sig(moved)===sig(to)?d:null;
+  }
   function isTopLevelEditable(s){
     if(!s)return false;
     if(s.cblFromHatch===true||String(s.rawDxfType||'').toUpperCase()==='HATCH')return false;
@@ -40378,7 +40720,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     var sourceHandles={},rendererOnlyCount=0,blockChildCount=0,newEditableCount=0,unsupported={};
     var claimed={};
     ss.forEach(function(s){if(!isTopLevelEditable(s))return;var h=sourceHandleOf(s);if(!h)return;if(claimed[h])detachCopiedIdentityV1(s,h);else claimed[h]=true;});
-    var kindNames={cadgrid:'그리드',grid:'그리드',dimangle2:'각도치수',ellipse:'타원',hatch:'해치',point:'점',spline:'스플라인',raw:'원본 객체',group:'그룹',blockref:'블록'};
+    var kindNames={cadgrid:'그리드',grid:'그리드',dimangle2:'각도치수',ellipse:'타원',hatch:'해치',point:'점',spline:'스플라인',raw:'원본 객체',group:'그룹',blockref:'블록',dimension:'치수',leader:'지시선',multileader:'다중 지시선',solid:'솔리드',trace:'솔리드','3dface':'3D 면'};
     var restoredRefusals=[];
     // A handle missing from the committed baseline is no longer in the DWG: an
     // earlier save deleted it and undo brought the shape back.  Write it again
@@ -40416,6 +40758,40 @@ window.cblSnapResidueGateStatusV12 = function(){
       if(!before[owner]||!after[owner]||!sameGeometry(before[owner],after[owner]))return;
       if(!after[h])refuse('삭제된 블록 속성',b);else if(!sameGeometry(b,after[h]))refuse('수정된 블록 속성',after[h]);
     });
+    // Kinds the editor draws but cannot rebuild (SPLINE, ELLIPSE, SOLID, 3DFACE,
+    // POINT): the writer can move them; other edits are refused here instead of
+    // failing in the writer.
+    var moveOnlyKinds={SPLINE:1,ELLIPSE:1,SOLID:1,TRACE:1,'3DFACE':1,POINT:1};
+    Object.keys(before).forEach(function(h){
+      var a=after[h],raw=String(a&&a.rawDxfType||'').toUpperCase();
+      if(!a||!moveOnlyKinds[raw]||sameGeometry(before[h],a))return;
+      var d=cblPieceOffsetV1(before[h],a);
+      if(!d)refuse('수정된',{type:raw.toLowerCase()});
+      else if(topLevelHandles[h])ops.push({type:'move',handle:h,sourceHandle:h,entity:raw,delta:[d.x,d.y,0]});
+      attribSkip[h]=true;
+    });
+    // CBL_OWNED_PIECES_V1: a DIMENSION, LEADER, MULTILEADER or HATCH is drawn as
+    // render-only pieces of one DWG object.  It is deleted when all its pieces
+    // are gone and moved when all of them moved by one offset; any other change
+    // (rotation, scaling, a copy, a single piece) is refused instead of being
+    // silently left out of the save.
+    function ownedPiecesV1(list){var g={};(list||[]).forEach(function(s){if(!s||!s.cblOwnerTypeV1)return;var h=normHandle(s.ownerSourceHandle||'');if(!h)return;(g[h]||(g[h]={type:String(s.cblOwnerTypeV1),pieces:[]})).pieces.push(s);});return g;}
+    var ownedBefore=ownedPiecesV1(base),ownedAfter=ownedPiecesV1(ss);
+    Object.keys(ownedBefore).forEach(function(h){
+      var b=ownedBefore[h],a=ownedAfter[h],kind={type:b.type.toLowerCase()};
+      if(!a){ops.push({type:'delete',handle:h,sourceHandle:h,entity:b.type});return;}
+      var byId={},seen={},dx=null,dy=null,same=a.pieces.length===b.pieces.length;
+      b.pieces.forEach(function(q){byId[q.cblPieceIdV1]=q;});
+      a.pieces.forEach(function(q){
+        if(!same)return;
+        var o=byId[q.cblPieceIdV1];if(!o||seen[q.cblPieceIdV1]){same=false;return;}seen[q.cblPieceIdV1]=true;
+        var d=cblPieceOffsetV1(o,q,true);if(!d){same=false;return;}
+        if(dx===null){dx=d.x;dy=d.y;}else if(Math.abs(d.x-dx)>1e-6||Math.abs(d.y-dy)>1e-6)same=false;
+      });
+      if(!same){refuse('수정된',kind);return;}
+      if(Math.abs(dx)>1e-9||Math.abs(dy)>1e-9)ops.push({type:'move',handle:h,sourceHandle:h,entity:b.type,delta:[dx,dy,0]});
+    });
+    Object.keys(ownedAfter).forEach(function(h){if(!ownedBefore[h])refuse('새',{type:ownedAfter[h].type.toLowerCase()});});
     Object.keys(before).forEach(function(h){if(attribSkip[h])return;if(!after[h])ops.push(deleteOpForShape(before[h],h));else if(!sameGeometry(before[h],after[h])){if(attributed[h]&&String(after[h].type||'').toLowerCase()==='blockref'&&!sameTransform(before[h],after[h])){refuse('회전·크기를 바꾼 속성',after[h]);return;}var u=opForShape(after[h],true);if(!u)refuse('수정된',after[h]);else if(topLevelHandles[h])ops.push(u);}});
     var unhandledBase=base.filter(function(b){return isTopLevelEditable(b)&&!ownerHandleOf(b)&&!b.cblAttribOwnerHandle;}),usedUnhandledBase=[];
     var newOps=[],newOpShapes=[],usedClientIds={};ss.forEach(function(s){

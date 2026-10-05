@@ -1,0 +1,33 @@
+--- a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Entities.cs
++++ b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Entities.cs
+@@ -1649,7 +1649,13 @@
+ 		//  293 Enable Annotation Scale/Is annotative
+ 		this._writer.WriteBit(multiLeader.EnableAnnotationScale);
+ 
+-		//	R2007pre not supported
++		//	R2007-: BL number of arrowheads, each B is default + H arrowhead.  The
++		//	reader expects the count (without it the rest of the MLEADER was read
++		//	shifted and the object was lost); the list is not kept, so it is empty.
++		if (this.R2007Pre)
++		{
++			this._writer.WriteBitLong(0);
++		}
+ 
+ 		//	BL Number of Block Labels
+ 		int blockLabelCount = multiLeader.BlockAttributes.Count;
+@@ -1802,9 +1808,14 @@
+ 			//	B	Unknown
+ 			this._writer.WriteBit(false);
+ 		}
+-		else if (annotContext.HasContentsBlock)
++		else
+ 		{
++			//	The has-contents-block bit is read whenever there is no text.
+ 			this._writer.WriteBit(annotContext.HasContentsBlock);
++		}
++
++		if (!annotContext.HasTextContents && annotContext.HasContentsBlock)
++		{
+ 
+ 			//B	296	Has contents block
+ 			//IF Has contents block

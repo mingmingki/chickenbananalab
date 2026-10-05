@@ -9914,6 +9914,9 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
     expected_semantic_counts = dict(original_semantic_index["modelspace"])
     semantic_deltas = {}
     structural_ops = {"add_dimension": False}
+    # Kinds the manifest lists as unsupported that delete ops removed.
+    deleted_unsupported = {}
+    unsupported_names = {"_3DFACE": "FACE3D", "3DFACE": "FACE3D", "MLEADER": "MULTILEADER"}
 
     def add_delta(entity_type, amount, op_index, operation_type):
         entity_type = canonical_entity_type(entity_type)
@@ -9994,6 +9997,9 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
             if source is None:
                 raise RuntimeError(f"저장 검증 실패: 삭제 대상 handle을 찾지 못했습니다: {op.get('handle')}")
             source_type = source.get("entity")
+            raw_type = str(source_type or "").upper()
+            raw_type = unsupported_names.get(raw_type, raw_type)
+            deleted_unsupported[raw_type] = deleted_unsupported.get(raw_type, 0) + 1
             add_delta(source_type, -1, op_index, kind)
             source_space = str(source.get("space") or "").lower()
             if not source_space or source_space == "modelspace":
@@ -10136,7 +10142,8 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
                 "output": saved_semantic_index["unsupported"],
             }
         for type_name, count in original_semantic_index["unsupported"].items():
-            if int(saved_semantic_index["unsupported"].get(type_name, 0)) < int(count):
+            # A deleted SPLINE/ELLIPSE/LEADER... is gone on purpose.
+            if int(saved_semantic_index["unsupported"].get(type_name, 0)) < int(count) - deleted_unsupported.get(str(type_name).upper(), 0):
                 mismatches[f"unsupported.{type_name}"] = {"original": count, "output": saved_semantic_index["unsupported"].get(type_name, 0)}
         if int((saved_semantic_index["inserts"] or {}).get("unresolvedCount", 0)):
             mismatches["inserts.unresolvedCount"] = {"output": saved_semantic_index["inserts"].get("unresolvedCount")}
@@ -10461,7 +10468,26 @@ def _cbl_free_dwg_writer_error_message_v1(detail):
         # the writer refuses instead of dropping the REGION.
         return ("이 도면의 면 영역(REGION) 객체는 무료 DWG 저장에서 보존할 수 없어 저장을 중단했습니다. "
                 "원본 파일은 바뀌지 않았습니다. (AutoCAD 2013 이후 형식의 REGION은 아직 지원하지 않습니다.)")
+    refused = _cbl_re.search(r"NotSupportedException: (Move|Update) is not supported for ([A-Za-z0-9]+)(?=[\\\"\r\n]|$)", detail or "")
+    if refused:
+        action = "이동" if refused.group(1) == "Move" else "수정"
+        kind = _CBL_FREE_DWG_KIND_NAMES_V1.get(refused.group(2), refused.group(2))
+        return (f"{kind} {action}은 아직 DWG로 저장할 수 없어 저장을 멈췄습니다. 원본 파일은 바뀌지 않았습니다. "
+                "그 편집을 되돌린 뒤 다시 저장해 주세요.")
+    if "NotSupportedException" in (detail or ""):
+        return "이 편집은 아직 DWG로 저장할 수 없어 저장을 멈췄습니다. 원본 파일은 바뀌지 않았습니다. 그 편집을 되돌린 뒤 다시 저장해 주세요."
     return "ACadSharp Save As 실패: " + (detail or "")
+
+
+_CBL_FREE_DWG_KIND_NAMES_V1 = {
+    "Spline": "스플라인", "Ellipse": "타원", "Hatch": "해치", "Solid": "솔리드(SOLID)", "Face3D": "3D 면",
+    "Point": "점", "Leader": "지시선", "MultiLeader": "다중 지시선", "Wipeout": "가림막(WIPEOUT)",
+    "MLine": "다중선", "Ray": "반무한선", "XLine": "무한선", "Region": "영역(REGION)", "Solid3D": "3D 솔리드",
+    "DimensionLinear": "치수", "DimensionAligned": "치수", "DimensionRadius": "반지름 치수",
+    "DimensionDiameter": "지름 치수", "DimensionAngular2Line": "각도 치수", "DimensionAngular3Pt": "각도 치수",
+    "DimensionOrdinate": "좌표 치수", "Arc": "호", "Circle": "원", "Line": "선", "LwPolyline": "폴리선",
+    "Polyline2D": "폴리선", "TextEntity": "문자", "MText": "문자", "Insert": "블록",
+}
 
 
 @_cbl_csrf_exempt

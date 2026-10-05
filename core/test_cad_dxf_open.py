@@ -121,6 +121,37 @@ class CadDxfToDwgRuntimeTests(SimpleTestCase):
         self.assertEqual(meta["codePage"].lower(), "kcs5601")
         self.assertEqual(_texts(meta), ["기초 F1"])
 
+    def test_header_naming_missing_entries_falls_back_to_the_defaults(self):
+        # ezdxf.new() writes $DIMSTYLE "ISO-25" without that style, and other
+        # programs leave header names of removed layers/styles; the DWG writer
+        # looked them up and every such DXF was refused.
+        import ezdxf
+
+        cases = {"ezdxf default": None, "$CLAYER": "없는레이어", "$CELTYPE": "NOLT", "$TEXTSTYLE": "NOSTYLE",
+                 "$CMLSTYLE": "NOML", "$DIMTXSTY": "NOSTYLE"}
+        for variable, value in cases.items():
+            with self.subTest(variable):
+                doc = ezdxf.new("R2010")
+                doc.modelspace().add_line((0, 0), (1000, 0))
+                doc.modelspace().add_text("기초 F1", height=200)
+                if value:
+                    doc.header[variable] = value
+                path = self.tmp / "header.dxf"
+                doc.saveas(path)
+                report, meta = self.convert(path)
+                self.assertEqual(report["dropped"], {})
+                self.assertEqual(_model_counts(meta), {"LINE": 1, "TEXTENTITY": 1})
+                self.assertEqual(_texts(meta), ["기초 F1"])
+                fixed = [n["Message"] for n in report["notifications"] if "missing entry" in (n.get("Message") or "")]
+                self.assertTrue(any("$DIMSTYLE" in m and "'ISO-25'" in m for m in fixed), fixed)
+                if value:
+                    self.assertTrue(any(variable in m and f"'{value}'" in m for m in fixed), fixed)
+                source = self.tmp / "header.dwg"
+                ops_path = self.tmp / "ops.json"
+                ops_path.write_text('{"ops": []}', encoding="utf-8")
+                writer_report = _run_writer([source, self.tmp / "saved.dwg", "AC1018", ops_path])
+                core_views._cbl_free_dwg_save_local_validate_v1(source, self.tmp / "saved.dwg", None, [], writer_report)
+
     def test_not_a_dxf_is_refused(self):
         bad = self.tmp / "bad.dxf"
         bad.write_bytes(b"not a drawing")

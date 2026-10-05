@@ -1,14 +1,14 @@
 {
-  "release": "acadsharp-runtime-20261006",
-  "built_from": "tools/cbl_acadsharp_poc/Program.cs + the 10 fork patches (apply_acadsharp_region_minsert_patch.sh), 2026-10-06",
+  "release": "acadsharp-runtime-20261006-2",
+  "built_from": "tools/cbl_acadsharp_poc/Program.cs + the 11 fork patches (apply_acadsharp_region_minsert_patch.sh), 2026-10-06",
   "platforms": {
     "linux-x64": {
       "asset": "CblAcadSharpPoc-linux-x64.bin",
-      "sha256": "ac78371ee30c4e2f9bf91015b1c90cdb7b325a8ef9aa53db28ee15313b82b5b0"
+      "sha256": "de100aeaecec615383c75c73f0de90473897678899ed26d55a1bf6fef959339b"
     },
     "macos-arm64": {
       "asset": "CblAcadSharpPoc-macos-arm64.bin",
-      "sha256": "e11f5cd52cde435bc1116b0b12517723dc779dad98ba7022fc4c9d9eed8733de"
+      "sha256": "7bc9e5a68054ddbba0c0d9d038bccd185115b1d13242a0ab7ad3bf5e0aadf496"
     }
   }
 }

@@ -2711,24 +2711,23 @@ _CBL_GLOBAL_MATCH_WORDS_V28 = {
     ],
 }
 
+# Feeds the production server can read.  Autodesk's AEC blog feed answers 403
+# to every client and CISA's advisories feed to the server's cloud address, so
+# every news refresh logged an error for them (2026-09-29).
 _CBL_GLOBAL_OFFICIAL_FEEDS_V28 = {
     "construction_work": [
         ("buildingSMART", "https://www.buildingsmart.org/feed/"),
     ],
     "construction_tech": [
-        ("Autodesk AEC", "https://www.autodesk.com/blogs/aec/feed/"),
         ("buildingSMART", "https://www.buildingsmart.org/feed/"),
     ],
     "construction_real": [],
     "bim": [
-        ("Autodesk AEC", "https://www.autodesk.com/blogs/aec/feed/"),
         ("buildingSMART", "https://www.buildingsmart.org/feed/"),
     ],
     "dynamo_automation": [
-        ("Autodesk AEC", "https://www.autodesk.com/blogs/aec/feed/"),
     ],
     "four_d_five_d": [
-        ("Autodesk AEC", "https://www.autodesk.com/blogs/aec/feed/"),
         ("buildingSMART", "https://www.buildingsmart.org/feed/"),
     ],
     "tech_ai_development": [
@@ -2737,7 +2736,6 @@ _CBL_GLOBAL_OFFICIAL_FEEDS_V28 = {
         ("GitHub", "https://github.blog/feed/"),
     ],
     "tech_data_security": [
-        ("CISA", "https://www.cisa.gov/cybersecurity-advisories/all.xml"),
         ("Cloudflare", "https://blog.cloudflare.com/rss/"),
     ],
     "tech_server_software": [

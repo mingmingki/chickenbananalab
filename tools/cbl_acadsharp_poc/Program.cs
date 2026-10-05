@@ -249,6 +249,29 @@ internal static class Program
     // edits and saves DWGs only, and its own DXF parse keeps neither block
     // definitions nor dimensions.  The report lists, by type, objects the DXF
     // reader skipped and objects missing after the DWG write and reread.
+    // A DXF header can name a layer, line type or style its tables do not have
+    // (ezdxf writes $DIMSTYLE "ISO-25" without that style); the DWG writer looks
+    // the names up and threw, so the whole DXF was refused.  Like AutoCAD on
+    // open, those names fall back to the default entries.
+    private static void FixMissingHeaderReferences(CadDocument document, List<object> notifications)
+    {
+        var header = document.Header;
+        void Fix(string variable, string name, Func<string, bool> exists, string fallback, IEnumerable<string> names, Action<string> set)
+        {
+            if (name != null && exists(name)) return;
+            var target = exists(fallback) ? fallback : names.FirstOrDefault();
+            if (target == null) return;
+            set(target);
+            notifications.Add(new { phase = "read-dxf", type = "Warning", Message = $"Header {variable} names a missing entry '{name}'; using '{target}'", exception = (string?)null });
+        }
+        Fix("$CLAYER", header.CurrentLayerName, document.Layers.Contains, "0", document.Layers.Select(x => x.Name), v => header.CurrentLayerName = v);
+        Fix("$CELTYPE", header.CurrentLineTypeName, document.LineTypes.Contains, "ByLayer", document.LineTypes.Select(x => x.Name), v => header.CurrentLineTypeName = v);
+        Fix("$TEXTSTYLE", header.CurrentTextStyleName, document.TextStyles.Contains, "Standard", document.TextStyles.Select(x => x.Name), v => header.CurrentTextStyleName = v);
+        Fix("$DIMSTYLE", header.CurrentDimensionStyleName, document.DimensionStyles.Contains, "Standard", document.DimensionStyles.Select(x => x.Name), v => header.CurrentDimensionStyleName = v);
+        Fix("$DIMTXSTY", header.DimensionTextStyleName, document.TextStyles.Contains, "Standard", document.TextStyles.Select(x => x.Name), v => header.DimensionTextStyleName = v);
+        Fix("$CMLSTYLE", header.CurrentMLineStyleName, document.MLineStyles.ContainsKey, "Standard", document.MLineStyles.Select(x => x.Name), v => header.CurrentMLineStyleName = v);
+    }
+
     private static int WriteDwgFromDxf(string inputPath, string outputPath)
     {
         var input = Path.GetFullPath(inputPath);
@@ -291,6 +314,7 @@ internal static class Program
                 else if (e.NotificationType == NotificationType.Error && message.StartsWith("Error while reading a block", StringComparison.Ordinal)) Drop("BLOCK", 1);
             });
             if (utf8CodePage != null) document.Header.CodePage = utf8CodePage;
+            FixMissingHeaderReferences(document, notifications);
             var sourceVersion = document.Header.Version.ToString();
             var sourceCodePage = document.Header.CodePage;
             // A DXF without $DWGCODEPAGE (ChickenBananaCAD's own exports) is read
@@ -903,8 +927,132 @@ internal static class Program
                 insert.InsertPoint += delta;
                 MoveAttributes(insert, delta);
                 break;
+            // The kinds below are drawn by the editor but not rebuilt by it, so a
+            // move is all it can ask for.  Only points move; ACadSharp's
+            // ApplyTransform is not used because it also translates direction
+            // vectors (spline tangents, the ellipse minor axis, the hatch
+            // pattern axis) and does nothing for a MULTILEADER.
+            case Spline spline:
+                for (int i = 0; i < spline.ControlPoints.Count; i++) spline.ControlPoints[i] += delta;
+                for (int i = 0; i < spline.FitPoints.Count; i++) spline.FitPoints[i] += delta;
+                break;
+            case Ellipse ellipse: ellipse.Center += delta; break;
+            case Solid solid:
+                RequirePlanNormal(solid.Normal, solid);
+                solid.FirstCorner += delta; solid.SecondCorner += delta; solid.ThirdCorner += delta; solid.FourthCorner += delta;
+                break;
+            case Face3D face:
+                face.FirstCorner += delta; face.SecondCorner += delta; face.ThirdCorner += delta; face.FourthCorner += delta;
+                break;
+            case Point point: point.Location += delta; break;
+            case Leader leader:
+                for (int i = 0; i < leader.Vertices.Count; i++) leader.Vertices[i] += delta;
+                break;
+            case Hatch hatch: MoveHatch(hatch, delta); break;
+            case Dimension dimension: MoveDimension(dimension, delta); break;
+            case MultiLeader multiLeader: MoveMultiLeader(multiLeader, delta); break;
             default: throw new NotSupportedException($"Move is not supported for {entity.GetType().Name}");
         }
+    }
+
+    // Corners and boundaries are stored in the entity's own plane (OCS); a plan
+    // move of a tilted one would need that transform, which is not done here.
+    private static void RequirePlanNormal(XYZ normal, Entity entity)
+    {
+        if (Math.Abs(normal.X) > 1e-9 || Math.Abs(normal.Y) > 1e-9 || normal.Z < 0)
+            throw new NotSupportedException($"Move is not supported for {entity.GetType().Name} outside the XY plane");
+    }
+
+    private static void MoveHatch(Hatch hatch, XYZ delta)
+    {
+        RequirePlanNormal(hatch.Normal, hatch);
+        var d = new XY(delta.X, delta.Y);
+        var d3 = new XYZ(delta.X, delta.Y, 0);
+        foreach (var path in hatch.Paths)
+        {
+            foreach (var edge in path.Edges)
+            {
+                switch (edge)
+                {
+                    case Hatch.BoundaryPath.Line line: line.Start += d; line.End += d; break;
+                    case Hatch.BoundaryPath.Arc arc: arc.Center += d; break;
+                    case Hatch.BoundaryPath.Ellipse ellipseEdge: ellipseEdge.Center += d; break;
+                    case Hatch.BoundaryPath.Spline splineEdge:
+                        // Z of a spline edge control point is its weight.
+                        for (int i = 0; i < splineEdge.ControlPoints.Count; i++) splineEdge.ControlPoints[i] += d3;
+                        for (int i = 0; i < splineEdge.FitPoints.Count; i++) splineEdge.FitPoints[i] += d;
+                        break;
+                    case Hatch.BoundaryPath.Polyline polyline:
+                        // Z of a polyline path vertex is its bulge.
+                        for (int i = 0; i < polyline.Vertices.Count; i++) polyline.Vertices[i] += d3;
+                        break;
+                    default: throw new NotSupportedException($"Move is not supported for hatch edge {edge.GetType().Name}");
+                }
+            }
+        }
+        for (int i = 0; i < hatch.SeedPoints.Count; i++) hatch.SeedPoints[i] += d;
+        // The pattern lines start at their base points; they move with the boundary.
+        foreach (var line in hatch.Pattern.Lines) line.BasePoint += d;
+    }
+
+    // Every definition point moves, and so does the dimension's own block: that
+    // block is what AutoCAD draws.
+    private static void MoveDimension(Dimension dimension, XYZ delta)
+    {
+        foreach (var property in dimension.GetType().GetProperties())
+        {
+            if (property.PropertyType != typeof(XYZ) || !property.CanRead || !property.CanWrite || property.Name == nameof(Dimension.Normal)) continue;
+            property.SetValue(dimension, (XYZ)property.GetValue(dimension)! + delta);
+        }
+        var block = dimension.Block;
+        if (block == null) return;
+        var document = dimension.Document;
+        if (document != null && document.Entities.OfType<Dimension>().Count(d => ReferenceEquals(d.Block, block)) > 1)
+            throw new NotSupportedException("Move is not supported for a dimension whose block other dimensions share");
+        foreach (var entity in block.Entities.ToList()) MoveEntity(entity, delta);
+    }
+
+    private static void MoveMultiLeader(MultiLeader leader, XYZ delta)
+    {
+        var context = leader.ContextData;
+        var oldBlockLocation = context.BlockContentLocation;
+        context.ContentBasePoint += delta;
+        context.TextLocation += delta;
+        context.BlockContentLocation += delta;
+        context.BasePoint += delta;
+        foreach (var root in context.LeaderRoots)
+        {
+            root.ConnectionPoint += delta;
+            ShiftPairs(root.BreakStartEndPointsPairs, delta);
+            foreach (var line in root.Lines)
+            {
+                for (int i = 0; i < line.Points.Count; i++) line.Points[i] += delta;
+                ShiftPairs(line.StartEndPoints, delta);
+            }
+        }
+        if (context.HasContentsBlock)
+        {
+            // The block content transform carries the content location as its
+            // translation; which triple holds it depends on how it was read.
+            var m = context.TransformationMatrix;
+            bool Near(double a, double b) => Math.Abs(a - b) <= 1e-6 * Math.Max(1, Math.Abs(b));
+            if (Near(m.M03, oldBlockLocation.X) && Near(m.M13, oldBlockLocation.Y) && Near(m.M23, oldBlockLocation.Z))
+            {
+                m.M03 += delta.X; m.M13 += delta.Y; m.M23 += delta.Z;
+            }
+            else if (Near(m.M30, oldBlockLocation.X) && Near(m.M31, oldBlockLocation.Y) && Near(m.M32, oldBlockLocation.Z))
+            {
+                m.M30 += delta.X; m.M31 += delta.Y; m.M32 += delta.Z;
+            }
+            else throw new NotSupportedException("Move is not supported for a MULTILEADER whose block transform does not match its location");
+            context.TransformationMatrix = m;
+        }
+    }
+
+    private static void ShiftPairs(IList<ACadSharp.Objects.MultiLeaderObjectContextData.StartEndPointPair> pairs, XYZ delta)
+    {
+        for (int i = 0; i < pairs.Count; i++)
+            pairs[i] = new ACadSharp.Objects.MultiLeaderObjectContextData.StartEndPointPair(pairs[i].StartPoint + delta, pairs[i].EndPoint + delta);
     }
 
     private static void UpdateEntity(CadDocument document, Entity entity, JsonElement op)

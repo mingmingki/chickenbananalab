@@ -190,3 +190,28 @@ ACadSharp DWG writer는 블록 정의마다 모델 공간의 모든 객체를 �
 뒤 저장본을 읽는다(두 도면이 동시에 메모리에 있지 않게). 서버 저장은 원본 메타데이터(편집 대상 확인용)를
 검증에도 다시 쓰므로, dwgread가 없는 운영 서버에서 변환기를 4번이 아니라 2번 실행한다.
 S-501-16(6.1MB): 맥 기준 저장 11.7초 → 7.2초, writer 최대 메모리 720MB → 449MB.
+
+## 표에 없는 이름을 가리키는 DXF 헤더 (`Program.cs` `FixMissingHeaderReferences`)
+
+ezdxf가 만든 DXF는 `$DIMSTYLE`이 표에 없는 "ISO-25"를 가리키고, 다른 프로그램도 지운 레이어·스타일 이름을
+`$CLAYER`/`$CELTYPE`/`$TEXTSTYLE`/`$DIMTXSTY`/`$CMLSTYLE`에 남긴다. ACadSharp DWG writer가 그 이름으로 표를
+찾다가 KeyNotFoundException을 던져 DXF 열기 전체가 거절됐다. `--dwg-from-dxf`는 읽은 뒤 없는 이름을 기본
+항목(0, ByLayer, Standard)으로 바꾸고 "Header $X names a missing entry" 알림을 남긴다(AutoCAD도 열 때 이렇게
+바로잡는다).
+
+## AC1018 다중 지시선 (`acadsharp-mleader-ac1018.patch`)
+
+ACadSharp는 2007 이전 형식 MLEADER에서 읽기가 기대하는 화살촉 개수(BL)를 쓰지 않았고("R2007pre not supported"),
+문자가 없는 문맥에서 "블록 내용 있음" 비트를 블록이 있을 때만 썼다. 저장본을 다시 읽으면 MLEADER가 어긋나 사라져
+(ODA는 파일 전체를 "Object improperly read: AcDbMLeader"로 거절) 다중 지시선이 있는 도면은 저장이 거절됐다.
+화살촉 목록은 읽을 때 보관되지 않으므로 0개를 쓴다(기본 화살촉 342는 그대로). `core/test_fixtures/cad/mleader_ac1032.dwg`
+(ezdxf + ODA, 문자형·블록형 하나씩)로 저장·재저장·ODA 재판독을 확인한다.
+
+## 이동할 수 있는 객체 (`Program.cs` `MoveEntity`)
+
+편집기는 SPLINE·ELLIPSE·SOLID·3DFACE·POINT·LEADER·HATCH·DIMENSION·MULTILEADER를 그리지만 다시 만들지는 못하므로,
+이동만 `move` op로 보낸다(다른 편집은 편집기가 저장 전에 거절). writer는 점만 옮긴다: ACadSharp의 ApplyTransform은
+방향 벡터(스플라인 접선, 타원 짧은 축, 해치 무늬 축)까지 평행이동하고 MULTILEADER에서는 아무것도 하지 않기 때문이다.
+해치는 경계 요소·씨앗점·무늬 선 기준점을, 치수는 모든 정의점(XYZ 속성, Normal 제외)과 치수 블록의 객체를,
+MULTILEADER는 문맥 데이터(내용 기준점, 문자 위치, 지시선 꼭짓점·연결점, 블록 위치와 변환 행렬)를 옮긴다.
+`core/test_fixtures/cad/move_kinds_ac1032.dwg`(ezdxf + ODA)로 종류마다 확인하고 ODA(검토용)로 다시 읽는다.
