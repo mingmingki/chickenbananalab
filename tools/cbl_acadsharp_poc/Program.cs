@@ -24,6 +24,16 @@ internal static class Program
             return WriteDxfFromDwg(args[1], args[2], args.Length == 4 ? args[3] : null);
         if (args.Length == 3 && string.Equals(args[0], "--dwg-from-dxf", StringComparison.OrdinalIgnoreCase))
             return WriteDwgFromDxf(args[1], args[2]);
+        // "--reread-metadata <path>": also write the --metadata report of the
+        // reread output, so the server does not start a process to read it again.
+        string? rereadMetadataPath = null;
+        var metadataFlag = Array.FindIndex(args, x => string.Equals(x, "--reread-metadata", StringComparison.OrdinalIgnoreCase));
+        if (metadataFlag >= 0)
+        {
+            if (metadataFlag + 1 >= args.Length) return Fail("--reread-metadata needs a path");
+            rereadMetadataPath = Path.GetFullPath(args[metadataFlag + 1]);
+            args = args.Where((_, index) => index != metadataFlag && index != metadataFlag + 1).ToArray();
+        }
         if (args.Length < 2 || args.Length > 5)
         {
             Console.Error.WriteLine("usage: CblAcadSharpPoc <input.dwg> <output.dwg> [AC1018|AC2004]");
@@ -49,26 +59,18 @@ internal static class Program
         try
         {
             using var lockStream = AcquireLock(lockPath, TimeSpan.FromSeconds(DefaultTimeoutSeconds));
-            var document = Read(input, notifications);
-            var storedAcis = AttachStoredAcis(document);
-            document.Header.Version = version;
-            var editReport = opsPath != null
-                ? ApplyOperations(document, opsPath)
-                : edit ? ApplyEdits(document) : null;
-            var before = Snapshot(document);
-
-            using (var writer = new DwgWriter(temp, document))
-            {
-                writer.Configuration.CloseStream = true;
-                writer.OnNotification += (_, e) => notifications.Add(new { phase = "write", type = e.NotificationType.ToString(), e.Message, exception = e.Exception?.ToString() });
-                writer.Write();
-            }
+            var (before, editReport, storedAcis, sourceCodePage) = WriteEdited(input, temp, version, opsPath, edit, notifications);
+            // The edited source is gone with WriteEdited; collect it before the
+            // reread so the two drawings are not in memory together.
+            GC.Collect();
 
             if (!File.Exists(temp) || new FileInfo(temp).Length < 1024) throw new InvalidDataException("writer produced an empty or implausibly small DWG");
             var rereadNotifications = new List<object>();
             var reread = Read(temp, rereadNotifications);
             var after = Snapshot(reread);
             if (after.EntityTotal == 0 && before.EntityTotal > 0) throw new InvalidDataException("writer reread has no entities");
+            if (rereadMetadataPath != null)
+                File.WriteAllText(rereadMetadataPath, JsonSerializer.Serialize(BuildMetadata(reread, output, rereadNotifications), new JsonSerializerOptions { WriteIndented = true }));
             File.Move(temp, output, true);
             var report = new
             {
@@ -80,7 +82,7 @@ internal static class Program
                 sourceBytes = new FileInfo(input).Length,
                 outputBytes = new FileInfo(output).Length,
                 elapsedMs = sw.Elapsed.TotalMilliseconds,
-                sourceHeaderCodePage = document.Header.CodePage,
+                sourceHeaderCodePage = sourceCodePage,
                 rereadHeaderCodePage = reread.Header.CodePage,
                 source = before,
                 reread = after,
@@ -100,6 +102,28 @@ internal static class Program
             return 1;
         }
         finally { TryDelete(lockPath); }
+    }
+
+    // Read, edit and write the drawing; only plain report data leaves, so the
+    // document can be collected before the output is reread.
+    private static (SnapshotData before, object? editReport, int storedAcis, string sourceCodePage) WriteEdited(
+        string input, string temp, ACadVersion version, string? opsPath, bool edit, List<object> notifications)
+    {
+        var document = Read(input, notifications);
+        var storedAcis = AttachStoredAcis(document);
+        document.Header.Version = version;
+        object? editReport = opsPath != null
+            ? ApplyOperations(document, opsPath)
+            : edit ? ApplyEdits(document) : null;
+        var before = Snapshot(document);
+
+        using (var writer = new DwgWriter(temp, document))
+        {
+            writer.Configuration.CloseStream = true;
+            writer.OnNotification += (_, e) => notifications.Add(new { phase = "write", type = e.NotificationType.ToString(), e.Message, exception = e.Exception?.ToString() });
+            writer.Write();
+        }
+        return (before, editReport, storedAcis, document.Header.CodePage);
     }
 
     private static int CreateNew(string outputPath, string versionName, string? opsPath)

@@ -9388,43 +9388,7 @@ def _cbl_free_dwg_to_dxf_text_v1(path, timeout=600, wait=_CBL_ACADSHARP_WAIT_V1,
 
 def _cbl_free_dwg_save_local_json_v1(path, dwgread):
     if not dwgread:
-        report = _cbl_free_dwg_acadsharp_metadata_v1(path)
-        type_map = {
-            "DIMENSIONALIGNED": "DIMENSION_ALIGNED",
-            "DIMENSIONLINEAR": "DIMENSION_LINEAR",
-            "DIMENSIONANGULAR": "DIMENSION_ANGULAR",
-            "DIMENSIONRADIUS": "DIMENSION_RADIUS",
-            "DIMENSIONDIAMETER": "DIMENSION_DIAMETER",
-        }
-        objects = []
-        for layer in report.get("layers", []):
-            objects.append({
-                "object": "LAYER", "handle": layer.get("handle"),
-                "name": layer.get("name"), "ownerhandle": layer.get("owner"),
-            })
-        for item in report.get("entities", []):
-            entity = str(item.get("type") or "").upper()
-            entity = type_map.get(entity, entity)
-            row = {
-                "entity": entity, "handle": item.get("handle"),
-                "ownerhandle": item.get("owner"),
-                "space": item.get("space"),
-            }
-            layer = item.get("layer") or {}
-            if layer.get("handle") is not None:
-                row["layer"] = layer.get("handle")
-            if "text" in item:
-                row["text"] = item.get("text")
-            if item.get("block"):
-                row["block_header"] = (item.get("block") or {}).get("handle")
-                row["block_name"] = (item.get("block") or {}).get("name")
-            objects.append(row)
-        return {
-            "OBJECTS": objects,
-            "semanticManifest": report.get("semanticManifest"),
-            "acadsharpEntities": report.get("entities", []),
-            "_cbl_validation_source": "acadsharp-metadata",
-        }
+        return _cbl_free_dwg_acadsharp_json_v1(_cbl_free_dwg_acadsharp_metadata_v1(path))
     result = _cbl_subprocess.run(
         [dwgread, "-O", "JSON", str(path)],
         stdout=_cbl_subprocess.PIPE,
@@ -9445,6 +9409,61 @@ def _cbl_free_dwg_save_local_json_v1(path, dwgread):
     # must survive repeated saves.
     parsed["semanticManifest"] = _cbl_free_dwg_acadsharp_metadata_v1(path).get("semanticManifest")
     return parsed
+
+
+def _cbl_free_dwg_acadsharp_json_v1(report):
+    """An ACadSharp metadata report in the LibreDWG JSON shape the save checks use."""
+    type_map = {
+        "DIMENSIONALIGNED": "DIMENSION_ALIGNED",
+        "DIMENSIONLINEAR": "DIMENSION_LINEAR",
+        "DIMENSIONANGULAR": "DIMENSION_ANGULAR",
+        "DIMENSIONRADIUS": "DIMENSION_RADIUS",
+        "DIMENSIONDIAMETER": "DIMENSION_DIAMETER",
+    }
+    objects = []
+    for layer in report.get("layers", []):
+        objects.append({
+            "object": "LAYER", "handle": layer.get("handle"),
+            "name": layer.get("name"), "ownerhandle": layer.get("owner"),
+        })
+    for item in report.get("entities", []):
+        entity = str(item.get("type") or "").upper()
+        entity = type_map.get(entity, entity)
+        row = {
+            "entity": entity, "handle": item.get("handle"),
+            "ownerhandle": item.get("owner"),
+            "space": item.get("space"),
+        }
+        layer = item.get("layer") or {}
+        if layer.get("handle") is not None:
+            row["layer"] = layer.get("handle")
+        if "text" in item:
+            row["text"] = item.get("text")
+        if item.get("block"):
+            row["block_header"] = (item.get("block") or {}).get("handle")
+            row["block_name"] = (item.get("block") or {}).get("name")
+        objects.append(row)
+    return {
+        "OBJECTS": objects,
+        "semanticManifest": report.get("semanticManifest"),
+        "acadsharpEntities": report.get("entities", []),
+        "_cbl_validation_source": "acadsharp-metadata",
+    }
+
+
+def _cbl_free_dwg_reread_metadata_json_v1(path):
+    """The validation JSON of the writer's own reread (--reread-metadata), or None.
+
+    It is the --metadata report of the saved file, made by the read the writer
+    does anyway, so the save needs no separate process to read it again.
+    """
+    try:
+        report = _cbl_json.loads(_cbl_Path(path).read_text(encoding="utf-8", errors="replace"), strict=False)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(report, dict) or report.get("status") != "read":
+        return None
+    return _cbl_free_dwg_acadsharp_json_v1(report)
 
 
 class _CBLFreeDwgSaveValidationError(ValueError):
@@ -9699,15 +9718,24 @@ def _cbl_normalize_free_dwg_ops_v1(original_json, ops):
     return normalized
 
 
-def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, acad_report=None):
+def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, acad_report=None,
+                                         original_json=None, saved_json=None):
+    """Refuse a saved DWG that lost or changed anything the edits do not explain.
+
+    `original_json` / `saved_json` are reads the caller already has (the edit
+    target read of the original; the writer's own reread of the saved file);
+    without them both files are read here.
+    """
     # The writer saves only what ACadSharp read; an object it could not read
     # would silently disappear, and the checks below (ACadSharp on both
     # sides) would not notice.
     unreadable = _cbl_free_dwg_unreadable_objects_v1((acad_report or {}).get("notifications"))
     if unreadable:
         raise RuntimeError(_cbl_free_dwg_unreadable_message_v1(unreadable))
-    original_json = _cbl_free_dwg_save_local_json_v1(original, dwgread)
-    saved_json = _cbl_free_dwg_save_local_json_v1(saved, dwgread)
+    if original_json is None:
+        original_json = _cbl_free_dwg_save_local_json_v1(original, dwgread)
+    if saved_json is None:
+        saved_json = _cbl_free_dwg_save_local_json_v1(saved, dwgread)
 
     def canonical_entity_type(value):
         raw = str(value or "").strip().upper()
@@ -10547,8 +10575,10 @@ def cblcad_free_dwg_save_local_api(request):
                 else:
                     operations_payload = ops
             ops_path.write_text(_cbl_json.dumps(operations_payload, ensure_ascii=False), encoding="utf-8")
+            reread_metadata = temp_root / "saved_metadata.json"
             if upload is not None or local_source_path is not None:
-                command = [str(executable), str(original), str(output), "AC1018", str(ops_path)]
+                command = [str(executable), str(original), str(output), "AC1018", str(ops_path),
+                           "--reread-metadata", str(reread_metadata)]
             else:
                 # A new free document has no source DWG.  ACadSharp creates a
                 # real AC1018 document from the editor operations; no DXF
@@ -10563,7 +10593,11 @@ def cblcad_free_dwg_save_local_api(request):
                 acad_report = _cbl_json.loads(run.stdout.decode("utf-8", errors="replace"), strict=False)
             except Exception as exc:
                 raise RuntimeError("ACadSharp 재판독 보고서 파싱 실패: " + str(exc)) from exc
-            validation = (_cbl_free_dwg_save_local_validate_v1(original, output, dwgread, ops, acad_report)
+            # Without LibreDWG both sides are ACadSharp reads: the original's
+            # was made for the edit targets, the saved file's by the writer.
+            validation = (_cbl_free_dwg_save_local_validate_v1(
+                              original, output, dwgread, ops, acad_report, original_json=original_for_ops,
+                              saved_json=None if dwgread else _cbl_free_dwg_reread_metadata_json_v1(reread_metadata))
                           if upload is not None or local_source_path is not None else {
                               "before_entities": 0,
                               "after_entities": int((acad_report.get("reread") or {}).get("EntityTotal", 0)),

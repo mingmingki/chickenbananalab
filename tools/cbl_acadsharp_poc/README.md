@@ -177,3 +177,16 @@ AutoCAD 2013 이후 형식(ZWCAD 포함)은 REGION/3DSOLID의 ACIS 데이터를 
 `core/test_fixtures/cad/region_acds_ac1032.dwg`에서 ODA(검토용)가 원본과 저장본의 REGION을 같은
 데이터로 읽었다. 3DSOLID/BODY는 ACadSharp writer가 원래 쓰지 않아 저장 검증이 거절한다(변경 없음).
 
+
+## 쓰기 속도 (`acadsharp-writer-lookups.patch`)와 저장 한 번의 변환기 실행
+
+ACadSharp DWG writer는 블록 정의마다 모델 공간의 모든 객체를 두 번 훑어 그 블록의 INSERT를 찾았고
+(블록 수 × 객체 수), DXF 클래스마다 문서의 모든 객체를 다시 셌다(클래스 수 × 객체 수). 치수마다
+블록이 하나씩 생기므로, 치수 1,500개·객체 59,000개 합성 도면은 쓰기만 3.9초가 걸렸다. 이 패치는 둘 다
+쓰기 한 번에 한 번만 만든다(INSERT 순서와 출력 바이트는 같다).
+
+`Program.cs` writer는 `--reread-metadata <path>`를 받으면 저장본을 다시 읽은 그 결과로 `--metadata`와
+똑같은 보고서를 남기고(서버가 저장본을 다시 읽으려 프로세스를 또 띄우지 않게), 편집한 원본 문서를 놓아준
+뒤 저장본을 읽는다(두 도면이 동시에 메모리에 있지 않게). 서버 저장은 원본 메타데이터(편집 대상 확인용)를
+검증에도 다시 쓰므로, dwgread가 없는 운영 서버에서 변환기를 4번이 아니라 2번 실행한다.
+S-501-16(6.1MB): 맥 기준 저장 11.7초 → 7.2초, writer 최대 메모리 720MB → 449MB.

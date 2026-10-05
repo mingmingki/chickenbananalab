@@ -2950,28 +2950,36 @@ function getLayerFastV1(id){
 
 var cblRafDirtyV1 = false;
 var cblRafStartedV1 = false;
+var cblRafPendingV1 = false;
+
+// A frame is asked for only when something has to be drawn.  A loop that asked
+// for every frame kept the page, GPU and browser busy while the drawing sat still.
+function cblRafScheduleV1(){
+  if (!cblRafStartedV1 || cblRafPendingV1) return;
+  cblRafPendingV1 = true;
+  requestAnimationFrame(cblRafFrameV1);
+}
+
+function cblRafFrameV1(){
+  cblRafPendingV1 = false;
+  if (!cblRafDirtyV1) return;
+  cblRafDirtyV1 = false;
+  try {
+    render();
+  } catch(e) {
+    console.error("[CBL_SPEED_CORE_SAFE_V1] render error:", e);
+  }
+}
 
 function requestCadRenderV1(){
   cblRafDirtyV1 = true;
+  cblRafScheduleV1();
 }
 
 function startCadRafLoopV1(){
   if (cblRafStartedV1) return;
   cblRafStartedV1 = true;
-
-  function loop(){
-    if (cblRafDirtyV1) {
-      cblRafDirtyV1 = false;
-      try {
-        render();
-      } catch(e) {
-        console.error("[CBL_SPEED_CORE_SAFE_V1] render error:", e);
-      }
-    }
-    requestAnimationFrame(loop);
-  }
-
-  requestAnimationFrame(loop);
+  if (cblRafDirtyV1) cblRafScheduleV1();
 }
 
 startCadRafLoopV1();

@@ -1,0 +1,111 @@
+--- a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.cs
++++ b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.cs
+@@ -92,6 +92,41 @@
+ 		this.writeObjects();
+ 	}
+ 
++	private Dictionary<string, List<Insert>> _modelSpaceInserts;
++
++	// The model space INSERTs of a block, in model space order.  Built once per
++	// write: scanning every model space entity for each block record took
++	// seconds on drawings with many blocks (dimensions each have one).
++	private IEnumerable<Insert> modelSpaceInsertsOf(BlockRecord record)
++	{
++		if (record.Name == null)
++		{
++			return this._document.Entities.OfType<Insert>().Where(i => i.Block?.Name == null);
++		}
++
++		if (this._modelSpaceInserts == null)
++		{
++			this._modelSpaceInserts = new Dictionary<string, List<Insert>>(StringComparer.Ordinal);
++			foreach (Insert insert in this._document.Entities.OfType<Insert>())
++			{
++				string name = insert.Block?.Name;
++				if (name == null)
++				{
++					continue;
++				}
++
++				if (!this._modelSpaceInserts.TryGetValue(name, out List<Insert> list))
++				{
++					list = new List<Insert>();
++					this._modelSpaceInserts.Add(name, list);
++				}
++				list.Add(insert);
++			}
++		}
++
++		return this._modelSpaceInserts.TryGetValue(record.Name, out List<Insert> inserts) ? inserts : Enumerable.Empty<Insert>();
++	}
++
+ 	private Entity[] getCompatibleEntities(IEnumerable<Entity> entities)
+ 	{
+ 		return entities.Where(e => this.isEntitySupported(e)).ToArray();
+@@ -273,8 +308,7 @@
+ 		if (this.R2000Plus)
+ 		{
+ 			//Insert Count RC A sequence of zero or more non-zero RC’s, followed by a terminating 0 RC.The total number of these indicates how many insert handles will be present.
+-			foreach (var item in this._document.Entities.OfType<Insert>()
+-				.Where(i => i.Block?.Name == record?.Name))
++			foreach (var item in this.modelSpaceInsertsOf(record))
+ 			{
+ 				this._writer.WriteByte(1);
+ 			}
+@@ -341,8 +375,7 @@
+ 		//R2000+:
+ 		if (this.R2000Plus)
+ 		{
+-			foreach (var item in this._document.Entities.OfType<Insert>()
+-				.Where(i => i.Block?.Name == record.Name))
++			foreach (var item in this.modelSpaceInsertsOf(record))
+ 			{
+ 				this._writer.HandleReference(DwgReferenceType.SoftPointer, item);
+ 			}
+--- a/src/ACadSharp/CadDocument.cs
++++ b/src/ACadSharp/CadDocument.cs
+@@ -577,9 +577,31 @@
+ 			this.Classes.Clear();
+ 		}
+ 
+-		this.Classes.UpdateDxfClasses();
++		// Count every object type once instead of scanning all objects for
++		// each class (seconds on drawings with tens of thousands of objects).
++		this._instanceCounts = new Dictionary<string, int>(StringComparer.Ordinal);
++		try
++		{
++			foreach (CadObject item in this._cadObjects.Values.OfType<CadObject>())
++			{
++				string name = item.ObjectName;
++				if (name != null)
++				{
++					this._instanceCounts.TryGetValue(name, out int count);
++					this._instanceCounts[name] = count + 1;
++				}
++			}
++
++			this.Classes.UpdateDxfClasses();
++		}
++		finally
++		{
++			this._instanceCounts = null;
++		}
+ 	}
+ 
++	private Dictionary<string, int> _instanceCounts;
++
+ 	/// <summary>
+ 	/// Gets the number of instances of a specific DXF object type in the document.
+ 	/// </summary>
+@@ -587,6 +609,11 @@
+ 	/// <returns>The number of instances of the specified DXF object type.</returns>
+ 	public int GetInstanceCount(string dxfName)
+ 	{
++		if (this._instanceCounts != null && dxfName != null)
++		{
++			return this._instanceCounts.TryGetValue(dxfName, out int count) ? count : 0;
++		}
++
+ 		return this._cadObjects.Values
+ 			.OfType<CadObject>()
+ 			.Count(c => c.ObjectName == dxfName);
