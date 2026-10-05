@@ -49,7 +49,31 @@ git -C ~/chickenbanana-work/_build/ACadSharp-3.6.51-cbl submodule update --init 
 Build from a clean copy of `CblAcadSharpPoc.csproj` + `Program.cs`: stale
 `obj/` output in this folder is compiled in again and fails with duplicate
 assembly attributes. After a rebuild, compare old vs new runtime output on
-real drawings (`--metadata` and an empty-ops save) before committing.
+real drawings (`--metadata`, `--dxf` and an empty-ops save) before committing.
+
+### 런타임 파일은 git이 아니라 GitHub Release에 둔다
+
+`runtime/*/CblAcadSharpPoc.bin`(각 약 70MB)은 git에 넣지 않는다(2026-10-05까지
+빌드할 때마다 저장소가 약 150MB씩 커졌다). `runtime/RUNTIME.json`이 릴리스 이름과
+플랫폼별 SHA-256을 적고, `fetch_runtime.py`가 체크섬이 다른 파일만 내려받아 검증한 뒤
+바꾼다(다르면 설치된 파일을 그대로 둔다).
+
+```sh
+./tools/cbl_acadsharp_poc/fetch_runtime.py            # 이 컴퓨터용
+./tools/cbl_acadsharp_poc/fetch_runtime.py all        # 두 플랫폼 모두
+```
+
+새 런타임을 내보낼 때: 두 플랫폼을 빌드해 `runtime/*/`에 넣고 비교한 뒤,
+
+```sh
+cp runtime/linux-x64/CblAcadSharpPoc.bin /tmp/CblAcadSharpPoc-linux-x64.bin
+cp runtime/macos-arm64/CblAcadSharpPoc.bin /tmp/CblAcadSharpPoc-macos-arm64.bin
+gh release create acadsharp-runtime-YYYYMMDD /tmp/CblAcadSharpPoc-*.bin --title ... --notes ...
+```
+
+`RUNTIME.json`의 release와 sha256을 고쳐 커밋한다(`core/test_acadsharp_runtime_manifest.py`가
+설치된 파일과 목록이 다르면 실패한다). 서버 배포는 `git merge` 다음에
+`tools/cbl_acadsharp_poc/fetch_runtime.py linux-x64`를 실행한다.
 
 The Save As endpoint is `/api/cblcad/free-dwg-save/`. It accepts an uploaded
 original DWG and a JSON `ops` array, writes a temporary AC1018 file, rereads
