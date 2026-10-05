@@ -8865,6 +8865,25 @@ def _cbl_free_dwg_legacy_text_lengths_v1(notifications):
         item.get("Message") or item.get("message") or "").startswith(_CBL_LEGACY_TEXT_LENGTH_PREFIX_V1))
 
 
+# Notice of the runtime when strings stored as UTF-8 under a different code
+# page (an older pipeline's S-501 saves) were read as UTF-8; a save writes them
+# in the code page, which repairs them for AutoCAD.
+_CBL_MISDECLARED_UTF8_PREFIX_V1 = "Misdeclared UTF-8 strings read:"
+
+
+def _cbl_free_dwg_misdeclared_utf8_v1(notifications):
+    """Number of strings the runtime read as UTF-8 against the drawing's code page."""
+    total = 0
+    for item in notifications or []:
+        message = str(item.get("Message") or item.get("message") or "") if isinstance(item, dict) else ""
+        if message.startswith(_CBL_MISDECLARED_UTF8_PREFIX_V1):
+            try:
+                total += int(message[len(_CBL_MISDECLARED_UTF8_PREFIX_V1):].strip())
+            except ValueError:
+                pass
+    return total
+
+
 def _cbl_free_dwg_unreadable_message_v1(counts):
     parts = ", ".join(f"{name} {count}개" for name, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])))
     return (f"이 도면에는 무료 DWG 변환기가 읽지 못한 객체({parts})가 있어, 저장하면 이 객체들이 사라지므로 "
@@ -9109,6 +9128,7 @@ def cblcad_free_dwg_local_api(request):
                 "source_layer_manifest": _cbl_build_original_source_layer_manifest_v1(source_metadata, dxf_text),
                 "unreadable_objects": _cbl_free_dwg_unreadable_objects_v1(source_metadata.get("notifications")),
                 "legacy_text_lengths": _cbl_free_dwg_legacy_text_lengths_v1(source_metadata.get("notifications")),
+                "misdeclared_utf8_texts": _cbl_free_dwg_misdeclared_utf8_v1(source_metadata.get("notifications")),
                 "converted_from_dxf": converted is not None, **(converted or {}),
             }, json_dumps_params={"ensure_ascii": False})
             response["Server-Timing"] = "convert;dur=%.2f,response;dur=%.2f" % (
@@ -9232,6 +9252,38 @@ def _cbl_free_dwg_handle_map_delivery_v1(output_handles):
     _cbl_os.replace(temp_path, final_path)
     token = _cbl_signing.dumps({"id": file_id}, salt=_CBL_FREE_DWG_HANDLE_MAP_SALT_V1)
     return "handle-map-token:" + token, len(("handle-map-token:" + token).encode("ascii")), True
+
+
+def _cbl_free_dwg_dxf_export_v1(dwg_path, work_dir):
+    """(DXF bytes, {type: count} not written) of a saved AC1018 DWG.
+
+    Written by the runtime the open uses: blocks, dimensions and styles come
+    through as they are in the DWG; text is in the drawing's code page.
+    ACadSharp names the Korean code page "kcs5601"; the header gets AutoCAD's
+    name for it, ANSI_949.  ACadSharp's DXF writer has no REGION/3DSOLID;
+    those stay in the DWG and are counted for the editor to tell.
+    """
+    executable = _cbl_free_dwg_save_local_executable_v1()
+    if executable is None:
+        raise RuntimeError("ACadSharp DXF runtime을 찾지 못했습니다.")
+    output = _cbl_Path(work_dir) / "export.dxf"
+    run = _cbl_acadsharp_run_v1([str(executable), "--dxf", str(dwg_path), str(output)], timeout=600)
+    if run.returncode != 0 or not output.is_file() or not _cbl_free_dwg_local_valid_dxf_v1(output):
+        raise RuntimeError("DXF 변환 실패: " + run.stderr.decode("utf-8", errors="replace")[-600:])
+    skipped = {}
+    try:
+        notifications = _cbl_json.loads(run.stdout.decode("utf-8", errors="replace"), strict=False).get("notifications") or []
+    except ValueError:
+        notifications = []
+    for item in notifications:
+        message = str(item.get("Message") or "") if isinstance(item, dict) else ""
+        match = _cbl_re.match(r"Entity type not implemented ACadSharp\.Entities\.(\w+)", message)
+        if match:
+            name = match.group(1).upper()
+            skipped[name] = skipped.get(name, 0) + 1
+    payload = _cbl_re.sub(rb"(\$DWGCODEPAGE\r?\n\s*3\r?\n)kcs5601(?=\r?\n)", rb"\1ANSI_949",
+                          output.read_bytes(), count=1, flags=_cbl_re.IGNORECASE)
+    return payload, skipped
 
 
 def cblcad_free_dwg_download_api(request, token):
@@ -9760,15 +9812,24 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
     def named_objects(document, object_type):
         return sorted(item.get("name", "") for item in document.get("OBJECTS", []) if item.get("object") == object_type and item.get("name") is not None)
 
+    # R2013+ drawings keep REGION ACIS data in the AcDs section, which LibreDWG
+    # reads as empty; the save writes it into the entity.  Those payloads are
+    # compared on the ACadSharp report (dataSha256) below instead.
+    stored_region_payloads = {
+        _cbl_json.dumps(item.get("handle")) for item in entities(original_json)
+        if item.get("entity") == "REGION" and not any(item.get("acis_data") or [])
+    }
+
     def region_signatures(document):
         values = []
         for item in entities(document):
             if item.get("entity") != "REGION":
                 continue
+            stored = _cbl_json.dumps(item.get("handle")) in stored_region_payloads
             values.append(_cbl_json.dumps({
                 "layer": item.get("layer"),
                 "ownerhandle": canonical_ref(item.get("ownerhandle")),
-                "acis_data": item.get("acis_data"),
+                "acis_data": None if stored else item.get("acis_data"),
             }, sort_keys=True, ensure_ascii=False, separators=(",", ":")))
         return sorted(values)
 
@@ -10192,6 +10253,12 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
         raise RuntimeError("저장 검증 실패: ACadSharp 재판독 보고서가 없습니다.")
     acad_source = acad_report["source"]
     acad_reread = acad_report["reread"]
+    # Every REGION keeps its ACIS payload, including one the writer took from
+    # the AcDs section of an R2013+ drawing.
+    reread_regions = {str(item.get("handle")): item for item in acad_reread.get("Regions") or []}
+    for item in acad_source.get("Regions") or []:
+        if item.get("dataSha256") and (reread_regions.get(str(item.get("handle"))) or {}).get("dataSha256") != item["dataSha256"]:
+            raise RuntimeError("저장 검증 실패: REGION ACIS payload가 달라졌습니다.")
     # The writer snapshots "source" after ApplyOperations, so it already
     # contains the edits.  The TEXT expectations below start from the
     # pre-edit original read by the same ACadSharp reader instead; otherwise
@@ -10515,6 +10582,29 @@ def cblcad_free_dwg_save_local_api(request):
             is_explicit_download_name = bool(request.POST.get("download_name"))
             base_name = _cbl_os.path.splitext(requested_name)[0] or "drawing"
             name = requested_name if is_explicit_download_name else base_name + "_ACADSHARP_AC1018.dwg"
+            if str(request.POST.get("delivery", "")).strip().lower() == "dxf":
+                # "DXF 저장": the validated DWG as DXF.  Nothing is written to a
+                # local file and no download token is made; the editor keeps
+                # its save target and baseline.
+                dxf_payload, dxf_skipped = _cbl_free_dwg_dxf_export_v1(output, temp_root)
+                dxf_name = base_name + ".dxf"
+                from urllib.parse import quote
+                response = _cbl_HttpResponse(dxf_payload, content_type="application/dxf")
+                ascii_name = dxf_name.encode("ascii", "ignore").decode("ascii") or "drawing.dxf"
+                response["Content-Disposition"] = (
+                    f'attachment; filename="{ascii_name.replace(chr(34), "")}"; '
+                    f"filename*=UTF-8''{quote(dxf_name, safe='')}"
+                )
+                response["Cache-Control"] = "no-store"
+                response["Content-Length"] = str(len(dxf_payload))
+                response["X-CBL-FREE-DWG-SAVE-VALIDATED"] = "1"
+                response["X-CBL-ODA-USED"] = "0"
+                response["X-CBL-DXF-SKIPPED"] = _cbl_json.dumps(dxf_skipped, separators=(",", ":"))
+                _cbl_dwg_dxf_emit_log_v1(
+                    "CBLCAD_FREE_DWG_SAVE_LOCAL endpoint=free-dwg-save event=dxf_export oda_executed=0 ops=%s bytes=%s endpoint_ms=%.2f",
+                    len(ops), len(dxf_payload), (_cbl_time.perf_counter() - started) * 1000,
+                )
+                return response
             if local_target_path is not None:
                 _cbl_atomic_replace_local_file_v1(local_target_path, payload)
                 updated = _cbl_local_file_fingerprint_v1(local_target_path)

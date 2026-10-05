@@ -6231,10 +6231,74 @@ function scaleDialog(){
  }
  sel.forEach(sS);saveH();requestCadRenderV1();
 }
+// OFFSET of a polyline: straight segments move along their normal, bulged
+// ones keep their centre and change radius, and neighbours meet where their
+// offsets cross (tangent joints already meet).  Positive dist is outward for
+// a closed polyline and to the left of the drawing direction for an open one,
+// as for lines.  Self-overlaps are not trimmed.  null when an arc would vanish.
+function cblOffsetPolylineV1(s,dist){
+ var closed=!!(s.closed||s.close||s.isClosed),segs=cblPolylineSegmentsV1(s).filter(function(g){return Math.hypot(g.p2.x-g.p1.x,g.p2.y-g.p1.y)>1e-9;});
+ if(!segs.length)return null;
+ var side=dist;
+ if(closed){var area=0;segs.forEach(function(g){area+=g.p1.x*g.p2.y-g.p2.x*g.p1.y;});if(area>0)side=-dist;}
+ var off=[];
+ for(var i=0;i<segs.length;i++){
+  var g=segs[i];
+  if(!g.arc){var dx=g.p2.x-g.p1.x,dy=g.p2.y-g.p1.y,len=Math.hypot(dx,dy),nx=-dy/len*side,ny=dx/len*side;
+   off.push({line:true,p1:{x:g.p1.x+nx,y:g.p1.y+ny},p2:{x:g.p2.x+nx,y:g.p2.y+ny}});continue;}
+  var a=g.arc,r=a.ccw?a.r-side:a.r+side;  // a counter-clockwise arc has its centre on the left
+  if(!(r>1e-9))return null;
+  var k=r/a.r;
+  off.push({cx:a.cx,cy:a.cy,r:r,ccw:a.ccw,p1:{x:a.cx+(g.p1.x-a.cx)*k,y:a.cy+(g.p1.y-a.cy)*k},p2:{x:a.cx+(g.p2.x-a.cx)*k,y:a.cy+(g.p2.y-a.cy)*k}});
+ }
+ function lineCross(A,B){
+  var d1x=A.p2.x-A.p1.x,d1y=A.p2.y-A.p1.y,d2x=B.p2.x-B.p1.x,d2y=B.p2.y-B.p1.y,den=d1x*d2y-d1y*d2x;
+  if(Math.abs(den)<1e-12*Math.hypot(d1x,d1y)*Math.hypot(d2x,d2y))return null;
+  var t=((B.p1.x-A.p1.x)*d2y-(B.p1.y-A.p1.y)*d2x)/den;return {x:A.p1.x+d1x*t,y:A.p1.y+d1y*t};
+ }
+ function circleCross(L,C,near){  // L: line piece or circle, C: circle
+  var pts=[];
+  if(L.line){var dx=L.p2.x-L.p1.x,dy=L.p2.y-L.p1.y,fx=L.p1.x-C.cx,fy=L.p1.y-C.cy,qa=dx*dx+dy*dy,qb=2*(fx*dx+fy*dy),qc=fx*fx+fy*fy-C.r*C.r,disc=qb*qb-4*qa*qc;
+   if(disc<0)return null;[-1,1].forEach(function(sg){var t=(-qb+sg*Math.sqrt(disc))/(2*qa);pts.push({x:L.p1.x+dx*t,y:L.p1.y+dy*t});});}
+  else{var dx2=C.cx-L.cx,dy2=C.cy-L.cy,d=Math.hypot(dx2,dy2);if(d<1e-12||d>L.r+C.r||d<Math.abs(L.r-C.r))return null;
+   var aa=(L.r*L.r-C.r*C.r+d*d)/(2*d),h=Math.sqrt(Math.max(0,L.r*L.r-aa*aa)),mx=L.cx+dx2*aa/d,my=L.cy+dy2*aa/d;
+   pts.push({x:mx+h*dy2/d,y:my-h*dx2/d},{x:mx-h*dy2/d,y:my+h*dx2/d});}
+  pts.sort(function(u,v){return Math.hypot(u.x-near.x,u.y-near.y)-Math.hypot(v.x-near.x,v.y-near.y);});
+  return pts[0];
+ }
+ // Where piece A ends and B starts: a point, or a gap bridged by a straight segment.
+ function join(A,B){
+  var mid={x:(A.p2.x+B.p1.x)/2,y:(A.p2.y+B.p1.y)/2};
+  if(Math.hypot(A.p2.x-B.p1.x,A.p2.y-B.p1.y)<1e-7*(1+Math.abs(dist)))return {pt:mid};
+  var x=A.line&&B.line?lineCross(A,B):A.line?circleCross(A,B,mid):B.line?circleCross(B,A,mid):circleCross(A,B,mid);
+  return x?{pt:x}:{a:A.p2,b:B.p1};
+ }
+ function bulge(P,S,E){
+  if(P.line)return 0;
+  var s0=Math.atan2(S.y-P.cy,S.x-P.cx),e0=Math.atan2(E.y-P.cy,E.x-P.cx),tau=2*Math.PI,sweep;
+  if(P.ccw){sweep=((e0-s0)%tau+tau)%tau;}else{sweep=-(((s0-e0)%tau+tau)%tau);}
+  return Math.tan(sweep/4);
+ }
+ var n=off.length,joints=[];
+ for(var j=0;j<n;j++){if(j>0)joints[j]=join(off[j-1],off[j]);else if(closed)joints[0]=join(off[n-1],off[0]);}
+ var pts=[];
+ for(var m=0;m<n;m++){
+  var jin=joints[m],jout=m+1<n?joints[m+1]:(closed?joints[0]:null);
+  var S=jin?(jin.pt||jin.b):off[m].p1,E=jout?(jout.pt||jout.a):off[m].p2;
+  pts.push({x:S.x,y:S.y,bulge:bulge(off[m],S,E)});
+  if(jout&&!jout.pt&&(m+1<n))pts.push({x:jout.a.x,y:jout.a.y,bulge:0});
+  if(!closed&&m===n-1)pts.push({x:E.x,y:E.y,bulge:0});
+ }
+ if(closed&&joints[0]&&!joints[0].pt)pts.push({x:joints[0].a.x,y:joints[0].a.y,bulge:0});
+ var result=cloneJ(s);
+ ['handle','sourceHandle','originalHandle','cblSourceHandle','clientShapeId'].forEach(function(k){delete result[k];});
+ result.pts=pts;if(closed)result.closed=true;
+ return result;
+}
 function offsetDialog(){
  if(!sel.length){setHint('O: 오프셋할 객체 선택');return;}
  var dist=parseFloat(prompt('오프셋 거리:','10'));if(isNaN(dist))return;
- var news=[],inBlock=0;
+ var news=[],inBlock=0,collapsed=0;
  sel.forEach(function(s){
   // Block contents are saved only through their INSERT; explode the block first.
   if(cblBlockKeyV1(s)){inBlock++;return;}
@@ -6242,9 +6306,11 @@ function offsetDialog(){
   if(s.type==='line'){var dx=s.x2-s.x1,dy=s.y2-s.y1,len=Math.hypot(dx,dy)||1,nx=-dy/len*dist,ny=dx/len*dist;ns=Object.assign(cloneJ(s),{x1:s.x1+nx,y1:s.y1+ny,x2:s.x2+nx,y2:s.y2+ny});}
   else if(s.type==='circle')ns=Object.assign(cloneJ(s),{r:Math.max(0.1,s.r+dist)});
   else if(s.type==='rect')ns=Object.assign(cloneJ(s),{x:s.x-dist,y:s.y-dist,w:s.w+dist*2,h:s.h+dist*2});
+  else if(s.type==='arc'&&s.r+dist>0.1)ns=Object.assign(cloneJ(s),{r:s.r+dist});
+  else if(s.type==='polyline'){ns=cblOffsetPolylineV1(s,dist);if(!ns)collapsed++;}
   if(ns)news.push(ns);
  });
- if(!news.length){setHint(inBlock?'블록은 분해(X)한 뒤 오프셋할 수 있습니다':'오프셋 지원: 선, 원, 사각형');return;}
+ if(!news.length){setHint(inBlock?'블록은 분해(X)한 뒤 오프셋할 수 있습니다':collapsed?'오프셋 거리가 곡선 구간의 반지름보다 커서 만들 수 없습니다':'오프셋 지원: 선, 원, 호, 사각형, 폴리선');return;}
  news.forEach(function(s){shapes.push(s);});sel=news;saveH();updUI();requestCadRenderV1();
 }
 
@@ -24855,7 +24921,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
   function exportShape(out,s){if(!s||!s.type)return;if(s.type==='group'&&Array.isArray(s.ch)){s.ch.forEach(function(c){if(c.layId==null)c.layId=s.layId;exportShape(out,c);});return;}if(s.type==='line'||s.type==='dimlinear'||s.type==='dimaligned'||s.type==='cadgrid'){p(out,0,'LINE');entCommon(out,s);p(out,10,n(s.x1));p(out,20,n(s.y1));p(out,30,0);p(out,11,n(s.x2));p(out,21,n(s.y2));p(out,31,0);return;}if(s.type==='rect'){var x=Number(s.x)||0,y=Number(s.y)||0,w=Number(s.w)||0,h=Number(s.h)||0;[[x,y,x+w,y],[x+w,y,x+w,y+h],[x+w,y+h,x,y+h],[x,y+h,x,y]].forEach(function(a){p(out,0,'LINE');entCommon(out,s);p(out,10,n(a[0]));p(out,20,n(a[1]));p(out,30,0);p(out,11,n(a[2]));p(out,21,n(a[3]));p(out,31,0);});return;}if(s.type==='circle'){p(out,0,'CIRCLE');entCommon(out,s);p(out,10,n(s.cx));p(out,20,n(s.cy));p(out,30,0);p(out,40,n(Math.abs(Number(s.r)||1)));return;}if(s.type==='arc'){p(out,0,'ARC');entCommon(out,s);p(out,10,n(s.cx));p(out,20,n(s.cy));p(out,30,0);p(out,40,n(Math.abs(Number(s.r)||1)));p(out,50,n((Number(s.a1)||0)*180/Math.PI));p(out,51,n((Number(s.a2)||0)*180/Math.PI));return;}if(s.type==='polyline'&&Array.isArray(s.pts)&&s.pts.length>1){p(out,0,'LWPOLYLINE');entCommon(out,s);p(out,90,s.pts.length);p(out,70,0);s.pts.forEach(function(pt){p(out,10,n(pt.x));p(out,20,n(pt.y));});return;}if(s.type==='text'||s.type==='mtext'){var txt=String(s.text||s.content||'').trim();if(!txt)return;var ent=String(s.rawDxfType||s.type).toUpperCase()==='MTEXT'?'MTEXT':'TEXT';p(out,0,ent);entCommon(out,s);p(out,10,n(s.x));p(out,20,n(s.y));p(out,30,0);p(out,40,n(s.size||14));p(out,1,ent==='MTEXT'?txt.replace(/\r?\n/g,'\\P'):txt.replace(/\r?\n/g,' '));p(out,50,n((Number(s.rot)||0)*180/Math.PI));p(out,7,s.textStyle||'STANDARD');return;}}
   function buildDXF(){applyAllLayerStyles();var used=collectUsedLayers();var layerList=Object.keys(used).map(function(k){return used[k];});var out=[];p(out,0,'SECTION');p(out,2,'HEADER');p(out,9,'$ACADVER');p(out,1,'AC1015');p(out,9,'$DWGCODEPAGE');p(out,3,'ANSI_949');p(out,9,'$INSUNITS');p(out,70,4);p(out,0,'ENDSEC');p(out,0,'SECTION');p(out,2,'TABLES');addLtypes(out,used);p(out,0,'TABLE');p(out,2,'LAYER');p(out,70,layerList.length);layerList.forEach(function(l){var aci=colorToAci(l.color);if(l.visible===false)aci=-Math.abs(aci);p(out,0,'LAYER');p(out,2,cleanLayerName(l.name));p(out,70,l.locked?4:0);p(out,62,aci);p(out,420,trueColorInt(l.color));p(out,6,dxfLTName(l.rawLineType||l.lineType));p(out,370,l.lw&&l.lw.kind==='mm'?Math.round(Number(l.lw.mm||0)*100):-3);});p(out,0,'ENDTAB');p(out,0,'TABLE');p(out,2,'STYLE');p(out,70,1);p(out,0,'STYLE');p(out,2,'STANDARD');p(out,70,0);p(out,40,0);p(out,41,1);p(out,50,0);p(out,71,0);p(out,42,2.5);p(out,3,'');p(out,4,'');p(out,0,'ENDTAB');p(out,0,'ENDSEC');p(out,0,'SECTION');p(out,2,'BLOCKS');p(out,0,'ENDSEC');p(out,0,'SECTION');p(out,2,'ENTITIES');getShapes().forEach(function(s){exportShape(out,s);});p(out,0,'ENDSEC');p(out,0,'EOF');return asciiDxf(out.join('\r\n')+'\r\n');}
   function wrapParse(){var fn=g('parseDXF',null);if(typeof fn!=='function')return false;if(fn.__cblLayerOriginalStyleV2)return true;var old=fn;var wrapped=function(txt){var meta=readDxfMeta(txt);var res=old.apply(this,arguments);try{applyMetaToLayers(meta,Array.isArray(res)?res:null);}catch(e){console.warn('CBL layer original style V2 apply failed',e);}try{window.cblLastLayerOriginalStyleV2=meta;}catch(e){}return res;};wrapped.__cblLayerOriginalStyleV2=true;wrapped.__originalParseDXF=old;sg('parseDXF',wrapped);return true;}
-  function install(){overrideUiFunctions();wrapParse();window.cblBuildLayeredDXF=buildDXF;window.cblMakeLayeredRoundtripDXF=buildDXF;window.cblBuildOdaSafeDXFV2=buildDXF;window.cblBuildUltraSafeDXFV3=buildDXF;window.cblBuildDxfOriginalStyleV2=buildDXF;window.fileSaveDXF=function(){try{var dxf=buildDXF();var blob=new Blob([dxf],{type:'application/dxf;charset=utf-8'});var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download=String(g('curFile','drawing')||'drawing').replace(/\.[^.]+$/,'')+'.dxf';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1000);try{if(typeof setHint==='function')setHint('DXF 저장 완료: 레이어 원본 선종류/Default 선두께 유지');}catch(e){}}catch(e){alert('DXF 저장 오류: '+e.message);}};try{fileSaveDXF=window.fileSaveDXF;}catch(e){}applyAllLayerStyles();renderLayerRows();refreshDropdowns();}
+  function install(){overrideUiFunctions();wrapParse();window.cblBuildLayeredDXF=buildDXF;window.cblMakeLayeredRoundtripDXF=buildDXF;window.cblBuildOdaSafeDXFV2=buildDXF;window.cblBuildUltraSafeDXFV3=buildDXF;window.cblBuildDxfOriginalStyleV2=buildDXF;window.cblSimpleDxfSaveV1=function(){try{var dxf=buildDXF();var blob=new Blob([dxf],{type:'application/dxf;charset=utf-8'});var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download=String(g('curFile','drawing')||'drawing').replace(/\.[^.]+$/,'')+'.dxf';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1000);try{if(typeof setHint==='function')setHint('DXF 저장 완료: 레이어 원본 선종류/Default 선두께 유지');}catch(e){}}catch(e){alert('DXF 저장 오류: '+e.message);}};window.fileSaveDXF=function(){if(window.CBL_CAD_RUNTIME_CONFIG&&window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal===true&&typeof window.cblFreeDwgExportDxfV1==='function')return window.cblFreeDwgExportDxfV1();return window.cblSimpleDxfSaveV1();};try{fileSaveDXF=window.fileSaveDXF;}catch(e){}applyAllLayerStyles();renderLayerRows();refreshDropdowns();}
   document.addEventListener('change',function(ev){if(ev&&ev.target&&ev.target.closest&&ev.target.closest('#pp-layer')){setTimeout(function(){install();refreshAllSoon(true);},0);setTimeout(function(){install();refreshAllSoon(true);},120);setTimeout(function(){install();refreshAllSoon(true);},300);}},true);
   document.addEventListener('click',function(ev){if(ev&&ev.target&&ev.target.closest&&ev.target.closest('#pp-layer')){setTimeout(function(){install();refreshAllSoon(false);},0);setTimeout(function(){install();refreshAllSoon(false);},120);}},true);
   window.cblLayerOriginalStyleV2=function(){install();refreshAllSoon(true);console.log('CBL layer original style V2',getLayers().map(function(l){normalizeLayer(l);return {name:l.name,lineType:l.cblRawLineType,lineWeight:l.cblLineWeightKind==='mm'?l.cblLineWeightMm:'Default',color:l.color};}));return true;};
@@ -25254,7 +25320,11 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     };
   }
 
+  // Diagnostics only: the raw DXF is scanned when this is called, not on
+  // every open (the regex scans of a large DXF took ~0.7 s per open).
+  var lastDxf = null;
   window.cblTextMissingDiagV1Status = function(){
+    if (lastDxf != null) { try { scanRawDxf(lastDxf); } catch(e){ console.warn('CBL_TEXT_MISSING_DIAG_V1 raw scan failed', e); } }
     var st = Object.assign({ok:true, version:VERSION}, window.__cblTextMissingDiagV1Raw || {rawNotCapturedYet:true}, scanShapes());
     console.log('🔎 CBL_TEXT_MISSING_DIAG_V1 상태:', st);
     return st;
@@ -25265,10 +25335,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     if(window.parseDXF.__cblTextMissingDiagV1) return true;
     var old = window.parseDXF;
     var wrapped = function(dxf){
-      try { scanRawDxf(dxf); } catch(e){ console.warn('CBL_TEXT_MISSING_DIAG_V1 raw scan failed', e); }
-      var ret = old.apply(this, arguments);
-      setTimeout(function(){ try { window.cblTextMissingDiagV1Status(); } catch(e){} }, 250);
-      return ret;
+      lastDxf = dxf;
+      return old.apply(this, arguments);
     };
     wrapped.__cblTextMissingDiagV1 = true;
     wrapped.__cblOriginalParseDXF = old;
@@ -27483,6 +27551,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
   window.cblMakeDwgSavePackV1 = makeSavePack;
 
   window.cblBottomSaveDXF = function(){
+    // Free mode saves DXF from the validated DWG (blocks and dimensions kept).
+    if (window.CBL_CAD_RUNTIME_CONFIG && window.CBL_CAD_RUNTIME_CONFIG.freeDwgLocal === true && typeof window.cblFreeDwgExportDxfV1 === 'function') return window.cblFreeDwgExportDxfV1();
     var pack = makeSavePack();
 
     if (!pack.entityCount) {
@@ -39437,6 +39507,12 @@ window.cblSnapResidueGateStatusV12 = function(){
     return '이 도면에는 한글 확장데이터의 길이가 잘못 기록된 곳이 '+count+'곳 있어 AutoCAD 등에서 열 때 오류가 나거나 복구를 요구할 수 있습니다'+
       '(10월 1일 이전 무료 DWG 저장의 오류). 내용은 온전히 읽었으니 한 번 저장하면 바로잡힙니다.';
   }
+  function cblMisdeclaredUtf8MessageV1(count){
+    count=Number(count)||0;
+    if(count<=0)return '';
+    return '이 도면의 문자 '+count+'곳은 예전 저장 과정에서 잘못된 인코딩(UTF-8)으로 기록되어 AutoCAD 등에서는 깨져 보입니다. '+
+      'UTF-8로 읽었으니 한 번 저장하면 AutoCAD에서도 이 편집기와 같은 글자로 보입니다(그 전에 이미 깨진 채 기록된 글자는 되살릴 수 없습니다).';
+  }
   async function cblFreeDwgOpenFileObjectV1(file,handle){
     var nativeOpenPickerCount=window.CBL_NATIVE_FILE_STATUS_V1&&Number(window.CBL_NATIVE_FILE_STATUS_V1.openPickerCount||0)||0;
     var openStarted=performance.now(),openTiming={commandEntered:Date.now(),userActivation:navigator.userActivation?!!navigator.userActivation.isActive:null,pickerStarted:null,pickerResolved:null,pickerRejected:null,getFileStarted:null,getFileResolved:null,coreOpenStarted:Date.now(),coreOpenResolved:null,coreOpenRejected:null,pendingStage:null,finalResolved:null,finalRejected:null,picker_ms:window.__CBL_DWG_PICKER_MS_V1==null?null:Number(window.__CBL_DWG_PICKER_MS_V1),file_read_ms:null,hash_ms:null,upload_ms:null,server_metadata_ms:null,server_convert_ms:null,response_ms:null,parse_ms:null,shape_build_ms:null,first_render_ms:null,zoom_fit_ms:null,total_ms:null,pickerCount:nativeOpenPickerCount||0,uploadCount:1,convertCount:1,parseCount:1,renderCount:1,retryCount:0,stages:{},settled:false};
@@ -39824,7 +39900,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     try { if (typeof setHint === 'function') setHint(result.converted_from_dxf ? 'DXF 열기 완료: '+file.name+' ('+count+'개) - 저장하면 새 DWG 파일('+openedName+')로 저장됩니다.' : 'DWG 열기 완료: '+file.name+' ('+count+'개)'); } catch(e) {}
     var unreadableMessage=window.CBL_FREE_DWG_SAVE_BLOCKED_V1||cblUnreadableObjectsMessageV1(result.unreadable_objects);
     // A drawing that cannot be saved gets only that notice: saving is what repairs legacy lengths.
-    var openNotice=unreadableMessage||cblLegacyTextLengthsMessageV1(result.legacy_text_lengths);
+    var openNotice=unreadableMessage||cblLegacyTextLengthsMessageV1(result.legacy_text_lengths)||cblMisdeclaredUtf8MessageV1(result.misdeclared_utf8_texts);
     if(openNotice){
       try { if (typeof setHint === 'function') setHint(openNotice); } catch(e) {}
       try { alert(openNotice); } catch(e) {}
@@ -40792,6 +40868,50 @@ window.cblSnapResidueGateStatusV12 = function(){
     options=Object.assign({},options||{},{exportOnly:true,saveAs:false});
     return window.cblFreeDwgSaveAC1018V1(options);
   };
+  // Objects the DXF writer cannot hold (REGION, 3DSOLID); the DWG keeps them.
+  function cblDxfSkippedMessageV1(header){
+    var counts={};
+    try{counts=JSON.parse(String(header||'{}'))||{};}catch(_parseError){return '';}
+    var parts=Object.keys(counts).filter(function(k){return Number(counts[k])>0;}).map(function(k){return k+' '+Number(counts[k])+'개';});
+    if(!parts.length)return '';
+    return 'DXF에는 '+parts.join(', ')+'를 쓰지 못했습니다(무료 변환기의 DXF 형식이 지원하지 않음). DWG로 저장하면 그대로 남습니다.';
+  }
+  // "DXF 저장": the same ops as a DWG save, sent with delivery=dxf; the server
+  // validates the DWG and returns it as DXF (blocks, dimensions, styles and
+  // Korean text kept).  The drawing's file, handle and save baseline stay as
+  // they are, so a later DWG save still writes every edit into its own file.
+  window.cblFreeDwgExportDxfV1=async function(){
+    if(!freeMode())return false;
+    if(window.CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1){notifySaveFailureV1('파일 저장은 완료됐지만 편집 상태 동기화 실패—파일을 다시 여십시오');return false;}
+    if(window.CBL_FREE_DWG_SAVE_BLOCKED_V1){notifySaveFailureV1(String(window.CBL_FREE_DWG_SAVE_BLOCKED_V1));return false;}
+    if(freeDwgSaveInFlightV1)return false;
+    var base=safeName(String(window.CBL_FREE_DWG_CURRENT_FILENAME||window.curFile||'ChickenBananaCAD.dwg')).replace(/\.[^.]*$/,'')||'ChickenBananaCAD';
+    freeDwgSaveInFlightV1=true;
+    try{
+      var pack=buildOps();
+      var fd=new FormData(), source=window.CBLCAD_V29_LAST_DWG_FILE;
+      fd.append('target_version','AC1018'); fd.append('filename',base+'.dwg'); fd.append('download_name',base+'.dwg');
+      fd.append('delivery','dxf'); fd.append('ops',JSON.stringify({ops:pack.ops,textStyles:pack.textStyles||[]}));
+      if(source instanceof File)fd.append('original_dwg',source,source.name||'drawing.dwg');
+      if(typeof setHint==='function')setHint('DXF 저장 중...');
+      var res=await fetch('/api/cblcad/free-dwg-save/?mode=free-dwg',{method:'POST',body:fd,credentials:'same-origin'});
+      if(!res.ok){var ep=null;try{ep=await res.json();}catch(_jsonError){}throw new Error(ep&&ep.error?String(ep.error):('HTTP '+res.status));}
+      var blob=await res.blob();
+      if(!/SECTION/.test(await blob.slice(0,64).text()))throw new Error('DXF 응답이 올바르지 않습니다.');
+      var url=URL.createObjectURL(new Blob([blob],{type:'application/dxf'}));
+      var link=document.createElement('a');link.href=url;link.download=base+'.dxf';document.body.appendChild(link);link.click();link.remove();
+      setTimeout(function(){URL.revokeObjectURL(url);},1000);
+      var skippedMessage=cblDxfSkippedMessageV1(res.headers.get('X-CBL-DXF-SKIPPED'));
+      if(typeof setHint==='function')setHint(skippedMessage||('DXF 저장 완료: '+base+'.dxf'));
+      if(skippedMessage){try{alert(skippedMessage);}catch(_alertError){}}
+      return true;
+    }catch(error){
+      var message='DXF 저장 실패: '+String(error&&error.message||error);
+      if(typeof setHint==='function')setHint(message);
+      if(window.confirm(message+'\n\n블록과 치수를 풀어서 쓰는 간이 DXF로 저장할까요?')&&typeof window.cblSimpleDxfSaveV1==='function')window.cblSimpleDxfSaveV1();
+      return false;
+    }finally{resetFreeDwgSaveStateV1();}
+  };
   try{
     var exportButton=document.getElementById('cblDwgExportButtonV1');
     if(exportButton)exportButton.style.display='';
@@ -40933,10 +41053,14 @@ window.cblSnapResidueGateStatusV12 = function(){
  function hex(v){if(v==null||String(v).trim()==="")return null;var n=Number(v);if(!Number.isFinite(n))return null;return '#'+(n&0xffffff).toString(16).padStart(6,'0');}
  function rows(v){return Array.isArray(v)?v:[];}
  function by(rows,key){var m={};rows.forEach(function(x){if(x&&x[key]!=null)m[norm(x[key])]=x;});return m;}
+ // resolve() runs once per shape; its layer and insert maps are built once per
+ // manifest (set once per open, never changed) instead of on every call.
+ var manifestMaps=typeof WeakMap==='function'?new WeakMap():null;
+ function mapsOf(m){var cached=manifestMaps&&manifestMaps.get(m);if(cached)return cached;cached={ls:layersOf(m),ins:by(rows(m.inserts),'insertHandle')};if(manifestMaps)manifestMaps.set(m,cached);return cached;}
  function layersOf(m){var o={};rows(m&&m.layers).forEach(function(x){if(x&&x.name!=null)o[String(x.name).toLowerCase()]=x;});return o;}
  function layerColor(l){if(!l)return '#ffffff';return hex(l.trueColor)||ACI[Math.abs(parseInt(l.rawAci!=null?l.rawAci:l.signedAci,10)||7)]||'#ffffff';}
  function parentChain(path,ins){return String(path||'').split('/').map(norm).filter(function(k){return !!ins[k];}).map(function(k){return ins[k];});}
- function resolve(a){a=a||{};var e=a.entity||{},m=a.layerManifest||window.CBL_CAD_SOURCE_LAYER_MANIFEST_V1||{},ls=layersOf(m),ins=by(rows(m.inserts),'insertHandle'),chain=rows(a.insertChain),parent=chain.length?chain[chain.length-1]:null,rawLayer=String(e.layerName||'0'),effLayer=rawLayer;if(rawLayer==='0'&&parent&&parent.layer)effLayer=String(parent.layer);var l=ls[effLayer.toLowerCase()]||ls[rawLayer.toLowerCase()],rawAci=e.rawAci==null?256:parseInt(e.rawAci,10),tc=hex(e.trueColor),color,reason='ByLayer';if(tc){color=tc;reason='TrueColor';}else if(rawAci>=1&&rawAci<=255){color=ACI[rawAci]||'#ffffff';reason='explicitAci';}else if(rawAci===0&&parent){var pTc=hex(parent.trueColor),pA=parseInt(parent.rawAci,10);color=pTc||((pA>=1&&pA<=255)?(ACI[pA]||'#ffffff'):layerColor(ls[String(parent.layer||'').toLowerCase()]));reason='ByBlock';}else color=layerColor(l);var rawLt=String(e.linetype||'ByLayer'),effLt=rawLt;if(/^BYBLOCK$/i.test(rawLt))effLt=parent&&parent.linetype||l&&l.linetype||'Continuous';else if(/^BYLAYER$/i.test(rawLt)||!rawLt)effLt=l&&l.linetype||'Continuous';return{rawLayer:rawLayer,rawAci:rawAci,rawTrueColor:e.trueColor==null?null:e.trueColor,rawLinetype:rawLt,rawLineweight:e.lineweight==null?null:e.lineweight,effectiveLayer:effLayer,effectiveAci:rawAci,effectiveColor:color||'#ffffff',effectiveLinetype:effLt,effectiveLineweight:e.lineweight==null?(l&&l.lineweight):e.lineweight,colorReason:reason};}
+ function resolve(a){a=a||{};var e=a.entity||{},m=a.layerManifest||window.CBL_CAD_SOURCE_LAYER_MANIFEST_V1||{},maps=mapsOf(m),ls=maps.ls,ins=maps.ins,chain=rows(a.insertChain),parent=chain.length?chain[chain.length-1]:null,rawLayer=String(e.layerName||'0'),effLayer=rawLayer;if(rawLayer==='0'&&parent&&parent.layer)effLayer=String(parent.layer);var l=ls[effLayer.toLowerCase()]||ls[rawLayer.toLowerCase()],rawAci=e.rawAci==null?256:parseInt(e.rawAci,10),tc=hex(e.trueColor),color,reason='ByLayer';if(tc){color=tc;reason='TrueColor';}else if(rawAci>=1&&rawAci<=255){color=ACI[rawAci]||'#ffffff';reason='explicitAci';}else if(rawAci===0&&parent){var pTc=hex(parent.trueColor),pA=parseInt(parent.rawAci,10);color=pTc||((pA>=1&&pA<=255)?(ACI[pA]||'#ffffff'):layerColor(ls[String(parent.layer||'').toLowerCase()]));reason='ByBlock';}else color=layerColor(l);var rawLt=String(e.linetype||'ByLayer'),effLt=rawLt;if(/^BYBLOCK$/i.test(rawLt))effLt=parent&&parent.linetype||l&&l.linetype||'Continuous';else if(/^BYLAYER$/i.test(rawLt)||!rawLt)effLt=l&&l.linetype||'Continuous';return{rawLayer:rawLayer,rawAci:rawAci,rawTrueColor:e.trueColor==null?null:e.trueColor,rawLinetype:rawLt,rawLineweight:e.lineweight==null?null:e.lineweight,effectiveLayer:effLayer,effectiveAci:rawAci,effectiveColor:color||'#ffffff',effectiveLinetype:effLt,effectiveLineweight:e.lineweight==null?(l&&l.lineweight):e.lineweight,colorReason:reason};}
  window.cblResolveOriginalEntityStyleV1=function(a){return resolve(a);};
  window.cblApplyOriginalSourceStyleAuditV1=function(shapes,manifest){
   if(!manifest||manifest.source!=='acadsharp-original-dwg')throw new Error('독립 원본 layer manifest가 없습니다.');

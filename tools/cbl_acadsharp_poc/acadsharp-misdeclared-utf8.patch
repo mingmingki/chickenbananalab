@@ -1,0 +1,105 @@
+diff -ru a/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgStreamReaderBase.cs b/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgStreamReaderBase.cs
+--- a/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgStreamReaderBase.cs	2026-10-05 09:24:09
++++ b/src/ACadSharp/IO/DWG/DwgStreamReaders/DwgStreamReaderBase.cs	2026-10-05 09:45:08
+@@ -942,6 +942,65 @@
+ 			});
+ 		}
+ 
++		private static readonly Encoding strictUtf8 = new UTF8Encoding(false, true);
++
++		/// <summary>
++		/// An older ChickenBananaCAD pipeline saved pre-2007 strings as UTF-8 in
++		/// drawings whose code page is KS C 5601: decoded with the code page they
++		/// were garbage, and every save turned part of them into "?".  Bytes that
++		/// are valid UTF-8 and decode to Korean text (Hangul plus drawing symbols,
++		/// nothing else) are read as UTF-8; KS C 5601 text practically never is
++		/// valid UTF-8.  Mixed scripts are left alone: re-encoded old garbage can
++		/// form valid UTF-8 ("李⑷", "誘명몴湲"), and taking it would change text
++		/// between a save and its reread.  <see cref="DwgReader.MisdeclaredUtf8Strings"/>
++		/// counts them; with <see cref="DwgReader.PreferMisdeclaredUtf8"/> symbol-only
++		/// strings ("900×400") are taken too.  A save writes them in the code page.
++		/// </summary>
++		internal static string DecodeVariableText(byte[] bytes, Encoding encoding)
++		{
++			if (encoding.CodePage != Encoding.UTF8.CodePage && Array.Exists(bytes, b => b >= 0x80))
++			{
++				try
++				{
++					string utf8 = strictUtf8.GetString(bytes);
++					if (isKoreanText(utf8, DwgReader.PreferMisdeclaredUtf8))
++					{
++						System.Threading.Interlocked.Increment(ref DwgReader.misdeclaredUtf8Strings);
++						return utf8;
++					}
++				}
++				catch (DecoderFallbackException) { }
++			}
++
++			return encoding.GetString(bytes);
++		}
++
++		private const string drawingSymbols = "×°±·²³µ¼½¾ØøΦφ∅≤≥※→←↑↓∼";
++
++		private static bool isKoreanText(string text, bool symbolsOnly)
++		{
++			bool hangul = false;
++			foreach (char c in text)
++			{
++				if (c < 0x80)
++					continue;
++				if ((c >= '\uAC00' && c <= '\uD7A3') || (c >= '\u1100' && c <= '\u11FF') || (c >= '\u3130' && c <= '\u318F'))
++				{
++					hangul = true;
++					continue;
++				}
++				bool symbol = drawingSymbols.IndexOf(c) >= 0
++					|| (c >= '\u2460' && c <= '\u24FF')   // ① ⒜
++					|| (c >= '\u3000' && c <= '\u303F')   // CJK symbols and punctuation
++					|| (c >= '\u3380' && c <= '\u33FF')   // ㎡ ㎜
++					|| (c >= '\uFF01' && c <= '\uFF5E');  // fullwidth forms
++				if (!symbol)
++					return false;
++			}
++
++			return hangul || symbolsOnly;
++		}
++
+ 		/// <inheritdoc/>
+ 		public virtual string ReadVariableText()
+ 		{
+@@ -949,7 +1008,7 @@
+ 			string str;
+ 			if (length > 0)
+ 			{
+-				str = DecodeUnicodeEscapes(this.ReadString(length, this.Encoding).Replace("\0", ""));
++				str = DecodeUnicodeEscapes(DecodeVariableText(this.ReadBytes(length), this.Encoding).Replace("\0", ""));
+ 			}
+ 			else
+ 				str = string.Empty;
+diff -ru a/src/ACadSharp/IO/DwgReader.cs b/src/ACadSharp/IO/DwgReader.cs
+--- a/src/ACadSharp/IO/DwgReader.cs	2026-10-05 09:24:09
++++ b/src/ACadSharp/IO/DwgReader.cs	2026-10-05 09:45:08
+@@ -19,6 +19,23 @@
+ /// </summary>
+ public class DwgReader : CadReaderBase<DwgReaderConfiguration>
+ {
++	internal static int misdeclaredUtf8Strings;
++
++	/// <summary>
++	/// Pre-2007 strings read as UTF-8 although the drawing's code page is a
++	/// different one, since the last <see cref="ResetMisdeclaredUtf8Strings"/>.
++	/// </summary>
++	public static int MisdeclaredUtf8Strings => misdeclaredUtf8Strings;
++
++	public static void ResetMisdeclaredUtf8Strings() => System.Threading.Interlocked.Exchange(ref misdeclaredUtf8Strings, 0);
++
++	/// <summary>
++	/// Also read symbol-only UTF-8 pre-2007 strings as UTF-8, without Hangul
++	/// ("900×400": UTF-8 C3 97 is "횞" in KS C 5601).  For a second read of a
++	/// drawing whose Hangul strings showed that it holds UTF-8.
++	/// </summary>
++	public static bool PreferMisdeclaredUtf8 { get; set; }
++
+ 	private DwgDocumentBuilder _builder;
+ 
+ 	private DwgFileHeader _fileHeader;

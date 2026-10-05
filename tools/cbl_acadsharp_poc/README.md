@@ -154,3 +154,26 @@ reader는 문자열을 잘라 읽었다("Unknown code for extended data"). 이 �
 `kcs5601`만 있어서, 2007 이전 DXF의 한글을 Windows-1252로 읽어 깨뜨렸다. 이 패치는
 ANSI_949를 KS C 5601로 읽는다. 편집기가 DXF를 열 때 서버가 `--dwg-from-dxf`로 먼저
 AC1018 DWG를 만들기 때문에 필요하다.
+
+## 코드 페이지와 다른 UTF-8 문자열 (`acadsharp-misdeclared-utf8.patch`)
+
+예전 ChickenBananaCAD 저장 경로는 코드 페이지가 KS C 5601(ANSI_949)인 2007 이전 DWG에
+문자열을 UTF-8 바이트로 썼다(S-501 (2차보완)-29~32 등). 코드 페이지로 읽으면 "湲곗큹 F1"처럼
+깨지고, 저장할 때마다 그중 일부가 "?"가 되어 되살릴 수 없었다. 이 패치는 바이트가 올바른 UTF-8이고
+풀었을 때 한글 음절이 나오면 UTF-8로 읽는다(KS C 5601 한글은 사실상 올바른 UTF-8이 되지 않는다).
+그런 문자열이 하나라도 있는 도면은 `DwgReader.PreferMisdeclaredUtf8`로 한 번 더 읽어 올바른 UTF-8
+문자열을 모두 UTF-8로 읽는다("900×400"의 UTF-8 C3 97은 KS C 5601로도 "횞"라는 글자라 문자열 하나만
+보고는 가릴 수 없다). 이미 바이트 일부가 "?"로 바뀐 문자열은 되살리지 못하고 예전처럼 읽는다.
+`DwgReader.MisdeclaredUtf8Strings`가 그 수를 세고, `Program.cs`가 "Misdeclared UTF-8 strings read: N"
+알림을 남기며, 서버 열기 API가 `misdeclared_utf8_texts`로 돌려준다. 저장하면 코드 페이지로 바로 쓴다.
+
+## R2013+ 도면의 REGION (`acadsharp-region-sab.patch`)
+
+AutoCAD 2013 이후 형식(ZWCAD 포함)은 REGION/3DSOLID의 ACIS 데이터를 엔티티가 아니라 AcDs
+데이터 영역에 이진(SAB, "ACIS BinaryFile" 또는 "ASM BinaryFile4")으로 둔다. ACadSharp는 그 영역을
+읽기만 하고 엔티티에 붙이지 않아, AC1018 저장이 "has no ACIS payload"로 거절됐다(사무동 1~5층).
+`Program.cs`의 `AttachStoredAcis`가 저장할 때 SAB를 엔티티에 붙이고(다른 형식이면 붙이지 않아 예전처럼
+거절), 이 패치는 그 SAB를 AC1018 엔티티의 version 2 데이터로 그대로 쓴다. 사무동 도면과
+`core/test_fixtures/cad/region_acds_ac1032.dwg`에서 ODA(검토용)가 원본과 저장본의 REGION을 같은
+데이터로 읽었다. 3DSOLID/BODY는 ACadSharp writer가 원래 쓰지 않아 저장 검증이 거절한다(변경 없음).
+

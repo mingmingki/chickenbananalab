@@ -50,6 +50,7 @@ internal static class Program
         {
             using var lockStream = AcquireLock(lockPath, TimeSpan.FromSeconds(DefaultTimeoutSeconds));
             var document = Read(input, notifications);
+            var storedAcis = AttachStoredAcis(document);
             document.Header.Version = version;
             var editReport = opsPath != null
                 ? ApplyOperations(document, opsPath)
@@ -86,6 +87,7 @@ internal static class Program
                 notifications,
                 rereadNotifications,
                 editReport,
+                storedAcis,
                 status = "written_and_reread"
             };
             Console.WriteLine(JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
@@ -1222,14 +1224,60 @@ internal static class Program
 
     private static CadDocument Read(string path, List<object> notifications)
     {
-        NotificationEventHandler callback = (_, e) => notifications.Add(new { phase = "read", type = e.NotificationType.ToString(), e.Message, exception = e.Exception?.ToString() });
-        var document = DwgReader.Read(path, callback);
+        var readNotifications = new List<object>();
+        var document = ReadOnce(path, readNotifications, false);
+        if (DwgReader.MisdeclaredUtf8Strings > 0)
+        {
+            // Hangul strings stored as UTF-8 under the drawing's code page show
+            // that an older pipeline saved it (acadsharp-misdeclared-utf8.patch).
+            // Read it again taking every valid UTF-8 string as UTF-8, so
+            // "900×400" does not come out as "900횞400".  A save writes them in
+            // the code page; the open API reports the count.
+            readNotifications.Clear();
+            document = ReadOnce(path, readNotifications, true);
+        }
+        notifications.AddRange(readNotifications);
+        if (DwgReader.MisdeclaredUtf8Strings > 0)
+            notifications.Add(new { phase = "read", type = "Warning", Message = $"Misdeclared UTF-8 strings read: {DwgReader.MisdeclaredUtf8Strings}", exception = (string?)null });
         // Some converters write a code page index ACadSharp does not list
         // (45); it reads such strings as UTF-8 and leaves CodePage null, so
         // the DXF (open) and DWG (save) writers threw.  Use the Korean code
         // page, as for new drawings; \U+XXXX covers anything outside it.
         if (string.IsNullOrWhiteSpace(document.Header.CodePage)) document.Header.CodePage = "kcs5601";
         return document;
+    }
+
+    // R2013+ drawings keep REGION/3DSOLID/BODY ACIS data in the AcDs data
+    // section; ACadSharp reads that section but leaves the entities without
+    // it, so the AC1018 writer refused ("has no ACIS payload").  Give each
+    // entity its stored SAB, which the patched writer stores as version 2
+    // (acadsharp-region-sab.patch).  Data in any other form is not attached,
+    // so such a drawing is still refused rather than written wrong.
+    private static int AttachStoredAcis(CadDocument document)
+    {
+        if (document.DataStorage == null) return 0;
+        static bool IsSab(byte[] data) => data.AsSpan().StartsWith("ACIS BinaryFile"u8) || data.AsSpan().StartsWith("ASM BinaryFile"u8);
+        var attached = 0;
+        foreach (var geometry in document.ModelSpace.Entities.OfType<ModelerGeometry>()
+                     .Concat(document.BlockRecords.SelectMany(block => block.Entities.OfType<ModelerGeometry>())).Distinct())
+        {
+            if (geometry.AcisData != null && geometry.AcisData.Length > 0) continue;
+            if (document.DataStorage.TryGetDataByHandle(geometry.Handle, out var data) && data != null && IsSab(data))
+            {
+                geometry.AcisData = data;
+                attached++;
+            }
+        }
+        return attached;
+    }
+
+    private static CadDocument ReadOnce(string path, List<object> notifications, bool preferUtf8)
+    {
+        NotificationEventHandler callback = (_, e) => notifications.Add(new { phase = "read", type = e.NotificationType.ToString(), e.Message, exception = e.Exception?.ToString() });
+        DwgReader.ResetMisdeclaredUtf8Strings();
+        DwgReader.PreferMisdeclaredUtf8 = preferUtf8;
+        try { return DwgReader.Read(path, callback); }
+        finally { DwgReader.PreferMisdeclaredUtf8 = false; }
     }
 
     private static FileStream AcquireLock(string path, TimeSpan timeout)

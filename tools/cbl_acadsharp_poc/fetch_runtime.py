@@ -15,6 +15,8 @@ import platform
 import shutil
 import sys
 import tempfile
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -41,6 +43,20 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def open_asset(url):
+    # GitHub's CDN varies on Accept; with urllib's default headers a 404 seen
+    # just before a release was published stayed cached for a while.
+    request = urllib.request.Request(url, headers={"Accept": "application/octet-stream",
+                                                   "User-Agent": "chickenbananalab-fetch-runtime"})
+    for attempt in range(3):
+        try:
+            return urllib.request.urlopen(request, timeout=600)
+        except urllib.error.HTTPError as error:
+            if attempt == 2 or error.code not in (404, 500, 502, 503, 504):
+                raise
+            time.sleep(5 * (attempt + 1))
+
+
 def install(name, entry, release):
     target = RUNTIME_DIR / name / "CblAcadSharpPoc.bin"
     if target.is_file() and sha256(target) == entry["sha256"]:
@@ -50,7 +66,7 @@ def install(name, entry, release):
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, temp = tempfile.mkstemp(dir=target.parent, prefix=".download-")
     try:
-        with os.fdopen(fd, "wb") as out, urllib.request.urlopen(url, timeout=600) as response:
+        with os.fdopen(fd, "wb") as out, open_asset(url) as response:
             shutil.copyfileobj(response, out)
         got = sha256(temp)
         if got != entry["sha256"]:

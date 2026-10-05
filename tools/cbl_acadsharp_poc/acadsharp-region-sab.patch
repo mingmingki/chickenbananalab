@@ -1,0 +1,38 @@
+diff -ru a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Entities.cs b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Entities.cs
+--- a/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Entities.cs	2026-10-05 09:31:56
++++ b/src/ACadSharp/IO/DWG/DwgStreamWriters/DwgObjectWriter.Entities.cs	2026-10-05 09:50:53
+@@ -2178,6 +2178,17 @@
+ 		this._writer.WriteBitExtrusion(solid.Normal);
+ 	}
+ 
++	private static bool isBinaryAcis(byte[] data)
++	{
++		foreach (string signature in new[] { "ACIS BinaryFile", "ASM BinaryFile" })
++		{
++			if (data != null && data.Length >= signature.Length && System.Text.Encoding.ASCII.GetString(data, 0, signature.Length) == signature)
++				return true;
++		}
++
++		return false;
++	}
++
+ 	private void writeModelerGeometry(ModelerGeometry geometry)
+ 	{
+ 		if (geometry.AcisData == null || geometry.AcisData.Length == 0)
+@@ -2187,9 +2198,14 @@
+ 
+ 		this._writer.WriteBit(false);
+ 		this._writer.WriteBit(false);
+-		short acisVersion = geometry.RawAcisVersion == 2 ? (short)2 : (short)1;
++		// R2013+ drawings keep the ACIS payload in the AcDs data section as SAB
++		// ("ACIS BinaryFile", or "ASM BinaryFile4" from AutoCAD's kernel);
++		// attached to the entity it has no raw DWG bytes.  The pre-2010 entity
++		// stores SAB as version 2, written as it is.
++		bool binary = geometry.RawAcisData == null && isBinaryAcis(geometry.AcisData);
++		short acisVersion = geometry.RawAcisVersion == 2 || binary ? (short)2 : (short)1;
+ 		this._writer.WriteBitShort(acisVersion);
+-		byte[] encoded = geometry.RawAcisData ?? AcisTextCodec.Decode(geometry.AcisData);
++		byte[] encoded = geometry.RawAcisData ?? (binary ? geometry.AcisData : AcisTextCodec.Decode(geometry.AcisData));
+ 		if (acisVersion == 2)
+ 		{
+ 			this._writer.WriteBytes(encoded);
