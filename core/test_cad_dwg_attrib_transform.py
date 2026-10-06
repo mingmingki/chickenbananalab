@@ -26,16 +26,7 @@ def _r(point):
     return (round(point[0], 4), round(point[1], 4))
 
 
-@skipUnless(EXECUTABLE is not None, "ACadSharp runtime is required")
-class CadDwgAttribTransformTests(SimpleTestCase):
-    """Rotating, scaling, mirroring and copying a block with attributes.
-
-    The save refused these edits ("회전·크기를 바꾼 속성"): ATTRIBs are separate
-    entities in world space and the writer only moved them.  The editor now
-    sends where it shows each attribute; the writer places it there, keeping
-    the alignment point of justified text at the same spot of the text.
-    """
-
+class _AttribFixture:
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="cbl-attrib-transform-"))
         self.addCleanup(shutil.rmtree, self.tmp, True)
@@ -84,6 +75,16 @@ class CadDwgAttribTransformTests(SimpleTestCase):
     def placed(self, msp):
         insert = next(i for i in msp.query("INSERT") if i.dxf.handle == self.insert.dxf.handle)
         return insert, {a.dxf.tag: a for a in insert.attribs}
+
+@skipUnless(EXECUTABLE is not None, "ACadSharp runtime is required")
+class CadDwgAttribTransformTests(_AttribFixture, SimpleTestCase):
+    """Rotating, scaling, mirroring and copying a block with attributes.
+
+    The save refused these edits ("회전·크기를 바꾼 속성"): ATTRIBs are separate
+    entities in world space and the writer only moved them.  The editor now
+    sends where it shows each attribute; the writer places it there, keeping
+    the alignment point of justified text at the same spot of the text.
+    """
 
     def test_rotated_block_keeps_its_attributes_on_the_block(self):
         # Rotated 90 degrees about the insertion point (100, 100), as the editor shows it.
@@ -174,3 +175,37 @@ class CadDwgAttribTransformTests(SimpleTestCase):
         inserts = ezdxf.readfile(target / "out.dxf").modelspace().query("INSERT")
         self.assertEqual(len(inserts), 2)
         self.assertEqual(sorted(a.dxf.text for i in inserts for a in i.attribs), ["A-101", "A-101", "LOBBY", "LOBBY"])
+
+
+@skipUnless(EXECUTABLE is not None, "ACadSharp runtime is required")
+class CadDwgAttribValueTests(_AttribFixture, SimpleTestCase):
+    """Editing an attribute's value (a door number, a room name) is saved.
+
+    It was refused ("수정된 블록 속성") when the block stayed put, and lost
+    when the block was moved or turned in the same edit: only positions were
+    sent.  The placements now carry the new value of an edited attribute.
+    """
+
+    def test_values_of_a_block_that_stays_or_moves(self):
+        no, name = self.attribs["NO"], self.attribs["NAME"]
+        still = [self.placement("NO", _r(no.dxf.insert), 0, 5, text="B-202"), self.placement("NAME", _r(name.dxf.insert), 0, 4)]
+        msp, _ = self.save([self.insert_op((100, 100), 0, (1, 1, 1), still)])
+        _, attribs = self.placed(msp)
+        self.assertEqual([attribs[t].dxf.text for t in ("NO", "NAME")], ["B-202", "LOBBY"])
+        self.assertEqual(_r(attribs["NO"].dxf.align_point), (100, 85))
+        moved = [self.placement("NO", (95, 75), 0, 5, text="B-202"), self.placement("NAME", (98, 102), 0, 4, text="HALL")]
+        msp, _ = self.save([self.insert_op((110, 90), 0, (1, 1, 1), moved)])
+        insert, attribs = self.placed(msp)
+        self.assertEqual(_r(insert.dxf.insert), (110, 90))
+        self.assertEqual([(attribs[t].dxf.text, _r(attribs[t].dxf.insert)) for t in ("NO", "NAME")], [("B-202", (95, 75)), ("HALL", (98, 102))])
+
+    def test_value_of_a_copied_block(self):
+        op = {"type": "add_insert", "entity": "INSERT", "copyOf": self.insert.dxf.handle, "blockName": "TAGBLK", "layer": "0",
+              "insert": [300, 100, 0], "rotation": 0, "scale": [1, 1, 1], "clientShapeId": "copy-1", "attributes": [
+                  self.placement("NO", (285, 85), 0, 5, handle="", sourceHandle=self.attribs["NO"].dxf.handle, text="A-102"),
+                  self.placement("NAME", (288, 112), 0, 4, handle="", sourceHandle=self.attribs["NAME"].dxf.handle)]}
+        msp, _ = self.save([op])
+        copy = next(i for i in msp.query("INSERT") if i.dxf.handle != self.insert.dxf.handle)
+        self.assertEqual(sorted(a.dxf.text for a in copy.attribs), ["A-102", "LOBBY"])
+        _, original = self.placed(msp)
+        self.assertEqual(original["NO"].dxf.text, "A-101")

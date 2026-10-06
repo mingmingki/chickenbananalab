@@ -40845,13 +40845,49 @@ window.cblSnapResidueGateStatusV12 = function(){
     // its block group (cblBlockKeyV1: the INSERT's handle, or a copy's
     // "copy-..." key).  When the block turned (rotation, scale, mirror) the save
     // sends where each attribute is shown; the writer puts it there.
-    function attribsOfInsertV1(ins,list){var key=ins&&typeof cblBlockKeyV1==='function'?cblBlockKeyV1(ins):'';if(!key)return [];return (list||[]).filter(function(a){return !!(a&&a.cblAttribOwnerHandle&&cblBlockKeyV1(a)===key);});}
+    // cblBlockKeyV1 of the editor; the same rule when it is not loaded, so an
+    // attribute edit is never silently left out.
+    function attribGroupKeyV1(s){
+      if(typeof cblBlockKeyV1==='function')return cblBlockKeyV1(s);
+      if(!s)return '';if(s.cblBlockKey)return String(s.cblBlockKey);if(s.cblAttribOwnerHandle)return String(s.cblAttribOwnerHandle);
+      return String(s.type||'').toLowerCase()==='blockref'&&s.sourceHandle?String(s.sourceHandle):'';
+    }
+    function attribsOfInsertV1(ins,list){var key=ins?attribGroupKeyV1(ins):'';if(!key)return [];return (list||[]).filter(function(a){return !!(a&&a.cblAttribOwnerHandle&&attribGroupKeyV1(a)===key);});}
     function attribPlacementV1(a){return {handle:a.cblAttribCopy?'':sourceHandleOf(a),sourceHandle:a.cblAttribCopy?normHandle(a.cblAttribCopyOfHandleV1||''):sourceHandleOf(a),tag:String(a.cblAttribTagV1||''),insert:p(a.x,a.y),rotation:shapeRotation(a),height:n(firstShapeValue(a,['size','height','textHeight'],0))};}
-    // The attributes of a turned INSERT, or a refusal when one is gone.
+    // The attribute an attribute shows (or was copied from): by handle, else
+    // by its tag when that is unique.
+    function attribOriginV1(a,from){
+      var key=a.cblAttribCopy?normHandle(a.cblAttribCopyOfHandleV1||''):sourceHandleOf(a);
+      for(var i=0;key&&i<from.length;i++)if(sourceHandleOf(from[i])===key)return from[i];
+      var tag=String(a.cblAttribTagV1||'');if(!tag)return null;
+      var same=from.filter(function(o){return String(o.cblAttribTagV1||'')===tag;});return same.length===1?same[0]:null;
+    }
+    // Whether a block's attributes are no longer what moving the block makes
+    // of them: an edited value, an attribute moved, turned or resized on its
+    // own, or one gone.  Then the save sends each attribute.
+    function attribsEditedV1(fromIns,toIns,fromList){
+      var from=attribsOfInsertV1(fromIns,fromList),to=attribsOfInsertV1(toIns,ss);
+      if(!from.length&&!to.length)return false;
+      if(from.length!==to.length)return true;
+      var dx=n(toIns.x)-n(fromIns.x),dy=n(toIns.y)-n(fromIns.y);
+      return to.some(function(a){
+        var o=attribOriginV1(a,from);if(!o)return true;
+        var tol=1e-7*Math.max(1,Math.abs(n(o.x)),Math.abs(n(o.y)))+1e-6,size=function(x){return n(firstShapeValue(x,['size','height','textHeight'],0));};
+        return String(o.text||'')!==String(a.text||'')||Math.abs(n(a.x)-n(o.x)-dx)>tol||Math.abs(n(a.y)-n(o.y)-dy)>tol||
+          Math.abs(shapeRotation(a)-shapeRotation(o))>1e-9||Math.abs(size(a)-size(o))>tol;
+      });
+    }
+    // The attributes of an INSERT, with the values edited since, or a
+    // refusal when one is gone.
     function placeAttribsV1(op,before,after,beforeList){
       var had=attribsOfInsertV1(before,beforeList||base);if(!had.length)return true;
       var has=attribsOfInsertV1(after,ss);if(has.length!==had.length){refuse('삭제된 블록 속성',after);return false;}
-      op.attributes=has.map(attribPlacementV1);return true;
+      op.attributes=has.map(function(a){
+        var placed=attribPlacementV1(a),o=attribOriginV1(a,had);
+        if(o&&String(o.text||'')!==String(a.text||''))placed.text=String(a.text||'');
+        return placed;
+      });
+      return true;
     }
     function sameTransform(a,b){var x=[shapeRotation(a),shapeScale(a,'scaleX',0),shapeScale(a,'scaleY',1),shapeScale(a,'scaleZ',2)],y=[shapeRotation(b),shapeScale(b,'scaleX',0),shapeScale(b,'scaleY',1),shapeScale(b,'scaleZ',2)];return x.every(function(v,i){return Math.abs(v-y[i])<=1e-9;});}
     function refuse(prefix,s){var t=String(s&&(s.type||s.rawDxfType)||'unknown').toLowerCase(),k=prefix+' '+(kindNames[t]?kindNames[t]+'('+t+')':t);unsupported[k]=(unsupported[k]||0)+1;}
@@ -40863,13 +40899,12 @@ window.cblSnapResidueGateStatusV12 = function(){
     });
     base.forEach(function(s){var h=ownerHandleOf(s);if(isTopLevelEditable(s)&&h){before[h]=s;topLevelHandles[h]=true;}});
     ss.forEach(function(s){var h=ownerHandleOf(s);if(isTopLevelEditable(s)&&h)after[h]=s;});
-    // Attribute texts are written through their INSERT: when the block moved or
-    // was deleted they follow it; editing one on its own is not supported yet.
+    // Attribute texts are written through their INSERT: they follow a moved or
+    // deleted block, and an edited value or place goes with the INSERT's
+    // update (CBL_ATTRIB_PLACEMENT_V1).
     var attribSkip={};
     Object.keys(before).forEach(function(h){
-      var b=before[h],owner=b&&b.cblAttribOwnerHandle?normHandle(b.cblAttribOwnerHandle):'';if(!owner)return;attribSkip[h]=true;
-      if(!before[owner]||!after[owner]||!sameGeometry(before[owner],after[owner]))return;
-      if(!after[h])refuse('삭제된 블록 속성',b);else if(!sameGeometry(b,after[h]))refuse('수정된 블록 속성',after[h]);
+      var b=before[h],owner=b&&b.cblAttribOwnerHandle?normHandle(b.cblAttribOwnerHandle):'';if(owner)attribSkip[h]=true;
     });
     // Kinds the editor draws but cannot rebuild (SPLINE, ELLIPSE, SOLID, 3DFACE,
     // POINT): the writer moves, rotates, scales and mirrors them; other edits
@@ -40925,7 +40960,16 @@ window.cblSnapResidueGateStatusV12 = function(){
       if(fromOpened)copyOp.fromOpened=true;
       ownedCopies.push({op:copyOp,marker:{clientShapeId:key,cblOwnedPiecesV1:a.pieces}});
     });
-    Object.keys(before).forEach(function(h){if(attribSkip[h])return;if(!after[h])ops.push(deleteOpForShape(before[h],h));else if(!sameGeometry(before[h],after[h])){var u=opForShape(after[h],true);if(!u){refuse('수정된',after[h]);return;}if(String(after[h].type||'').toLowerCase()==='blockref'&&!sameTransform(before[h],after[h])&&!placeAttribsV1(u,before[h],after[h]))return;if(topLevelHandles[h])ops.push(u);}});
+    Object.keys(before).forEach(function(h){
+      if(attribSkip[h])return;
+      if(!after[h]){ops.push(deleteOpForShape(before[h],h));return;}
+      // A block whose attributes were edited is updated even when it stayed put.
+      var placeAttribs=String(after[h].type||'').toLowerCase()==='blockref'&&(!sameTransform(before[h],after[h])||attribsEditedV1(before[h],after[h],base));
+      if(sameGeometry(before[h],after[h])&&!placeAttribs)return;
+      var u=opForShape(after[h],true);if(!u){refuse('수정된',after[h]);return;}
+      if(placeAttribs&&!placeAttribsV1(u,before[h],after[h]))return;
+      if(topLevelHandles[h])ops.push(u);
+    });
     var unhandledBase=base.filter(function(b){return isTopLevelEditable(b)&&!ownerHandleOf(b)&&!b.cblAttribOwnerHandle;}),usedUnhandledBase=[];
     var newOps=[],newOpShapes=[],usedClientIds={};ss.forEach(function(s){
       if(!isTopLevelEditable(s)||sourceHandleOf(s)||s.cblAttribCopy)return;
@@ -40961,11 +41005,11 @@ window.cblSnapResidueGateStatusV12 = function(){
       }
       var o=opForShape(s,false);
       if(!o){refuse('새',s);return;}
-      if(copied&&before[copied]&&!sameTransform(before[copied],s)&&!placeAttribsV1(o,before[copied],s))return;
+      if(copied&&before[copied]&&(!sameTransform(before[copied],s)||attribsEditedV1(before[copied],s,base))&&!placeAttribsV1(o,before[copied],s))return;
       if(String(s.type||'').toLowerCase()==='blockref'&&restoredFrom&&opened[restoredFrom]){
         // A restored block is cloned from the opened drawing: attribute values stay.
         o.copyOf=restoredFrom;o.fromOpened=true;
-        if(!sameTransform(opened[restoredFrom],s)&&!placeAttribsV1(o,opened[restoredFrom],s,openedShapes))return;
+        if((!sameTransform(opened[restoredFrom],s)||attribsEditedV1(opened[restoredFrom],s,openedShapes))&&!placeAttribsV1(o,opened[restoredFrom],s,openedShapes))return;
       }
       // Pasting a new shape twice clones its clientShapeId; each add needs its own.
       if(o.clientShapeId&&usedClientIds[o.clientShapeId])o.clientShapeId=assignFreshClientShapeIdV1(s);

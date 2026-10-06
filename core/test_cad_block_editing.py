@@ -138,10 +138,11 @@ class CadBlockGroupSaveTests(_BuildOpsRunner, SimpleTestCase):
         result = self.run_cases({"m": {"base": base, "shapes": moved}})["m"]
         self.assertEqual(self.kinds(result), [("update", "34")])
 
-    def test_editing_an_attribute_alone_is_refused(self):
+    def test_editing_an_attribute_alone_is_saved_with_its_block(self):
         result = self.run_cases({"a": {"base": [_insert("34"), _attrib("34")],
                                        "shapes": [_insert("34"), _attrib("34", text="ROOM-2")]}})["a"]
-        self.assertIn("블록 속성", result["error"])
+        self.assertEqual(self.kinds(result), [("update", "34")])
+        self.assertEqual([a.get("text") for a in result["ops"][0]["attributes"]], ["ROOM-2"])
 
     def test_copied_block_adds_one_insert_and_no_attribute_text(self):
         base = [_insert("34"), _child("34"), _attrib("34")]
@@ -194,6 +195,29 @@ class CadAttributeBlockTransformTests(_BuildOpsRunner, SimpleTestCase):
     def test_a_turned_block_missing_an_attribute_is_refused(self):
         result = self.run_cases({"d": {"base": [_insert("34"), _attrib("34")], "shapes": [_insert("34", rotation=1.0)]}})["d"]
         self.assertIn("삭제된 블록 속성", result["error"])
+
+    def test_edited_attribute_values_are_saved(self):
+        # The value (a door number, a room name) was refused when the block
+        # stayed put and silently lost when it moved in the same edit.
+        base = [_insert("34"), _attrib("34")]
+        out = self.run_cases({
+            "value": {"base": base, "shapes": [_insert("34"), _attrib("34", text="ROOM-2")]},
+            "value_and_move": {"base": base, "shapes": [_insert("34", x=5.0), _attrib("34", dx=5.0, text="ROOM-2")]},
+            "attribute_moved": {"base": base, "shapes": [_insert("34"), _attrib("34", dx=3.0)]},
+            "copy_value": {"base": base, "shapes": base + [_insert("34", x=50.0, cblBlockKey="copy-1"), _attrib("34", dx=50.0, cblBlockKey="copy-1", text="ROOM-3")]},
+            "unchanged": {"base": base, "shapes": [_insert("34"), _attrib("34")]},
+            "attribute_deleted": {"base": base, "shapes": [_insert("34")]},
+        })
+        placed = lambda name: [(a["handle"], a.get("text"), a["insert"]) for a in out[name]["ops"][0]["attributes"]]
+        self.assertEqual(self.kinds(out["value"]), [("update", "34")])
+        self.assertEqual(placed("value"), [("36", "ROOM-2", [100, 85, 0])])
+        self.assertEqual(placed("value_and_move"), [("36", "ROOM-2", [105, 85, 0])])
+        self.assertEqual(placed("attribute_moved"), [("36", None, [103, 85, 0])])
+        op = out["copy_value"]["ops"][0]
+        self.assertEqual((op["type"], op["copyOf"]), ("add_insert", "34"))
+        self.assertEqual(placed("copy_value"), [("", "ROOM-3", [150, 85, 0])])
+        self.assertEqual(out["unchanged"], {"ops": []})
+        self.assertIn("삭제된 블록 속성", out["attribute_deleted"]["error"])
 
     def test_moving_a_block_with_attributes_is_still_saved(self):
         result = self.run_cases({"t": {"base": [_insert("34"), _attrib("34")],

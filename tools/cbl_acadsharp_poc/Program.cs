@@ -1546,8 +1546,9 @@ internal static class Program
                 insert.YScale = ys;
                 insert.ZScale = zs;
                 // Attributes are separate entities placed in world space: they move
-                // with the block, and go where the editor shows them when it turned.
-                if (insert.Attributes.Any() && turned) PlaceAttributes(insert, null, placedAttributes);
+                // with the block, and go where the editor shows them (with their
+                // edited values) when it sends them.
+                if (insert.Attributes.Any() && placed) PlaceAttributes(insert, null, placedAttributes);
                 else MoveAttributes(insert, insert.InsertPoint - previous);
                 break;
             }
@@ -1610,6 +1611,14 @@ internal static class Program
             used.Add(found);
             var entry = entries[found];
             PlaceText(attribute, ReadPoint(entry, "insert"), ReadDouble(entry, "rotation", attribute.Rotation), ReadDouble(entry, "height", attribute.Height));
+            // An edited value; a multiline attribute keeps its text in an MTEXT
+            // the editor does not show, so its value is not changed here.
+            if (entry.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String && text.GetString() != attribute.Value)
+            {
+                if (attribute.AttributeType != AttributeType.SingleLine)
+                    throw new NotSupportedException("Update is not supported for AttributeEntity (multiline value)");
+                attribute.Value = text.GetString() ?? string.Empty;
+            }
         }
     }
 
@@ -1668,7 +1677,7 @@ internal static class Program
             foreach (var attribute in insert.Attributes) attribute.ApplyTransform(transform);
             return insert;
         }
-        if (insert.Attributes.Any() && turned) PlaceAttributes(insert, (Insert)(FromOpened(op) ? FindRestoredEntity(op) : FindModelEntity(document, copyOf!)), placedAttributes);
+        if (insert.Attributes.Any() && placed) PlaceAttributes(insert, (Insert)(FromOpened(op) ? FindRestoredEntity(op) : FindModelEntity(document, copyOf!)), placedAttributes);
         else MoveAttributes(insert, insert.InsertPoint - previous);
         return insert;
     }

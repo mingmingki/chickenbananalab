@@ -10507,6 +10507,8 @@ def _cbl_free_dwg_writer_error_message_v1(detail):
                       "ordinate rotated": "회전·대칭(좌표 치수)", "scaled with alternate units": "크기 변경(보조 단위)",
                       "measurement text not found": "크기 변경(치수 글자에서 값을 찾지 못함)",
                       "mirrored upside down or at a slant": "대칭(위아래·기울어진 축)"}.get(refused.group(3) or "", action)
+        elif refused.group(3) == "multiline value":
+            action = "값 수정(여러 줄 속성)"
         kind = _CBL_FREE_DWG_KIND_NAMES_V1.get(refused.group(2), refused.group(2))
         return (f"{kind} {action}은 아직 DWG로 저장할 수 없어 저장을 멈췄습니다. 원본 파일은 바뀌지 않았습니다. "
                 "그 편집을 되돌린 뒤 다시 저장해 주세요.")
@@ -10522,7 +10524,7 @@ _CBL_FREE_DWG_KIND_NAMES_V1 = {
     "Dimension": "치수", "DimensionLinear": "치수", "DimensionAligned": "치수", "DimensionRadius": "반지름 치수",
     "DimensionDiameter": "지름 치수", "DimensionAngular2Line": "각도 치수", "DimensionAngular3Pt": "각도 치수",
     "DimensionOrdinate": "좌표 치수", "Arc": "호", "Circle": "원", "Line": "선", "LwPolyline": "폴리선",
-    "Polyline2D": "폴리선", "TextEntity": "문자", "MText": "문자", "Insert": "블록",
+    "Polyline2D": "폴리선", "TextEntity": "문자", "MText": "문자", "Insert": "블록", "AttributeEntity": "블록 속성",
 }
 
 
