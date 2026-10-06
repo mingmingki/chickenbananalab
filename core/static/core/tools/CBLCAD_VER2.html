@@ -2429,8 +2429,10 @@ function getBB(s){
   if(s.type==='polyline'&&s.pts&&s.pts.length){var xs2=s.pts.map(function(p){return p.x;});var ys2=s.pts.map(function(p){return p.y;});return{x:Math.min.apply(null,xs2),y:Math.min.apply(null,ys2),w:Math.max.apply(null,xs2)-Math.min.apply(null,xs2)||1,h:Math.max.apply(null,ys2)-Math.min.apply(null,ys2)||1};}
   if(s.type==='text'||s.type==='mtext'){
     var cblTextLinesV1=String(s.text||s.content||'').split(/\r?\n/),cblTextSizeV1=Math.abs(Number(s.size)||14),cblTextWfV1=Number(s.widthFactor)||1;
-    var cblTextW0V1=Math.max(1,Math.max.apply(null,cblTextLinesV1.map(function(v){return String(v).length;}))*cblTextSizeV1*0.65*cblTextWfV1),cblTextH0V1=Math.max(1,cblTextLinesV1.length*cblTextSizeV1*1.3),cblTextAngV1=Number(s.rot)||0;
-    var cblTextCaV1=Math.cos(cblTextAngV1),cblTextSaV1=Math.sin(cblTextAngV1),cblTextPtsV1=[[0,0],[cblTextW0V1,0],[cblTextW0V1,cblTextH0V1],[0,cblTextH0V1]],cblTextXsV1=[],cblTextYsV1=[];
+    var cblTextW0V1=Math.max(1,Math.max.apply(null,cblTextLinesV1.map(function(v){return String(v).length;}))*cblTextSizeV1*0.65*cblTextWfV1),cblTextH0V1=Math.max(1,cblTextSizeV1*1.3),cblTextAngV1=Number(s.rot)||0;
+    // The first line sits on the shape's point; the renderer draws later lines below it.
+    var cblTextDownV1=-(cblTextLinesV1.length-1)*cblTextSizeV1*1.3;
+    var cblTextCaV1=Math.cos(cblTextAngV1),cblTextSaV1=Math.sin(cblTextAngV1),cblTextPtsV1=[[0,cblTextDownV1],[cblTextW0V1,cblTextDownV1],[cblTextW0V1,cblTextH0V1],[0,cblTextH0V1]],cblTextXsV1=[],cblTextYsV1=[];
     cblTextPtsV1.forEach(function(q){cblTextXsV1.push(s.x+q[0]*cblTextCaV1-q[1]*cblTextSaV1);cblTextYsV1.push(s.y+q[0]*cblTextSaV1+q[1]*cblTextCaV1);});
     return{x:Math.min.apply(null,cblTextXsV1),y:Math.min.apply(null,cblTextYsV1),w:Math.max.apply(null,cblTextXsV1)-Math.min.apply(null,cblTextXsV1),h:Math.max.apply(null,cblTextYsV1)-Math.min.apply(null,cblTextYsV1)};
   }
@@ -4277,9 +4279,11 @@ function cblTextStyleGetV1(name){
         : (s.stroke||s.color||'#ffffff'));
       ctx.lineWidth=Math.max(0.25,1/((typeof vScale==='number'&&vScale)||1));
       ctx.setLineDash([]);
-      var penX=0;
+      var penX=0,penY=0;
       for(var i=0;i<text.length;i++){
         var code=text.codePointAt(i);if(code>0xffff)i++;
+        if(code===13)continue;
+        if(code===10){penX=0;penY-=fs*1.3;continue;}
         var bigCode=cp949Code(big,code),f=has(primary,code)?primary:(has(big,bigCode)?big:null);
         var glyphCode=f===big?bigCode:code,shape=glyph(f,glyphCode,fs);
         if(!shape){
@@ -4288,7 +4292,7 @@ function cblTextStyleGetV1(name){
            * rewrite.  Keep the SHX geometry and draw only this code point
            * with the resolved browser fallback font. */
           ctx.save();
-          ctx.translate(penX,0);ctx.scale(1,-1);
+          ctx.translate(penX,penY);ctx.scale(1,-1);
           ctx.font=fs+'px '+cblTextFontFamilyV1(s);
           ctx.fillStyle=isSel?'#ffffff':(s.cblDimensionText===true
             ? (s.textCol||((typeof dimStyle!=='undefined'&&dimStyle.textCol)?dimStyle.textCol:'#ffffff'))
@@ -4307,7 +4311,7 @@ function cblTextStyleGetV1(name){
           if(!Array.isArray(line)||!line.length)return;
           ctx.beginPath();
           line.forEach(function(p,j){
-            var px=penX+Number(p.x||0),py=Number(p.y||0);
+            var px=penX+Number(p.x||0),py=penY+Number(p.y||0);
             if(j===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
           });
           ctx.stroke();
@@ -23255,6 +23259,13 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       arr(p, '3').forEach(function(v){ if(v !== undefined && v !== null) parts.push(v); });
       return cleanDxfTextValue(parts.join(''));
     }
+    // An MTEXT's lines: its paragraph breaks (\P) kept as line breaks.
+    function dxfMTextFromProps(p){
+      var parts = [];
+      arr(p, '3').forEach(function(v){ if(v !== undefined && v !== null) parts.push(v); });
+      arr(p, '1').forEach(function(v){ if(v !== undefined && v !== null) parts.push(v); });
+      return String(parts.join('')).split(/\\P/).map(cleanDxfTextValue).join('\n').replace(/^\n+|\n+$/g, '');
+    }
     /* CBL_SINGLE_MODEL_V1_TEXT_ENTITY_FIX_END */
 
 
@@ -23875,8 +23886,11 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
           if(Number.isFinite(mtextDirX) && Number.isFinite(mtextDirY) && Math.hypot(mtextDirX, mtextDirY) > 1e-9) mtextDeg = Math.atan2(mtextDirY, mtextDirX) * 180 / Math.PI;
         }
         var rot = (mtextDeg !== null ? mtextDeg : dimRot !== null ? dimRot : num(first(p,'50',0))) * Math.PI / 180 + (m ? matRot(m) : 0);
-        var tx = dxfTextFromProps(p);
-        var textSize = Math.max(2, num(first(p,'40',14),14) * sc3), textWidth = Math.max(String(tx).length * textSize * 0.7, 20);
+        var tx = type === 'MTEXT' ? dxfMTextFromProps(p) : dxfTextFromProps(p);
+        var textLines = String(tx).split('\n'), textSize = Math.max(2, num(first(p,'40',14),14) * sc3);
+        var textWidth = Math.max(Math.max.apply(null, textLines.map(function(l){ return l.length; })) * textSize * 0.7, 20);
+        // The editor draws the lines 1.3 heights apart, the first one at the shape.
+        var textHeight = textSize * (1 + 1.3 * (textLines.length - 1));
         // CBL_MTEXT_ATTACHMENT_V1: an MTEXT's insertion point is its attachment
         // point (71: top/middle/bottom x left/centre/right).  The editor draws
         // a text from the start of its baseline, so the shape starts there and
@@ -23885,7 +23899,9 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         // the editor's own pieces (no 71) are placed by their own modules.
         var mtextAnchor = null;
         if(type === 'MTEXT' && dimRot === null && first(p,'71',null) !== null){
-          var attach = Math.min(9, Math.max(1, Math.round(num(first(p,'71',1),1)))), fx = ((attach - 1) % 3) / 2, fy = 1 - Math.floor((attach - 1) / 3) / 2;
+          // fy: the first baseline below the attachment point, in text heights
+          // (one height below the top; the block's middle or bottom for more lines).
+          var attach = Math.min(9, Math.max(1, Math.round(num(first(p,'71',1),1)))), fx = ((attach - 1) % 3) / 2, fy = (textSize - Math.floor((attach - 1) / 3) * textHeight / 2) / textSize;
           var adx = -fx * textWidth, ady = -fy * textSize;
           q = {x:q.x + Math.cos(rot) * adx - Math.sin(rot) * ady, y:q.y + Math.sin(rot) * adx + Math.cos(rot) * ady};
           mtextAnchor = [fx, fy];
@@ -24661,7 +24677,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     txt = txt.replace(/\\M[+-][0-9A-Fa-f]{4,6}/g, '');
     txt = txt.replace(/\bM\+[0-9A-Fa-f]{4,6}\b/g, '');
 
-    txt = txt.replace(/\s+/g, ' ').trim();
+    // Spaces collapse; an MTEXT's line breaks stay (the editor draws its lines).
+    txt = txt.split('\n').map(function(line){ return line.replace(/\s+/g, ' ').trim(); }).join('\n').replace(/^\n+|\n+$/g, '');
     return txt;
   }
 
@@ -26917,19 +26934,24 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     ctx.textBaseline = s.cblTextBaseline || s.textBaseline || 'alphabetic';
     ctx.fillStyle = styleOfText(s, isSel);
 
+    var lines = txt.split(/\r?\n/), down = (lines.length - 1) * fs * 1.3;
     if(isSel){
       var tw = 0;
-      try { tw = ctx.measureText(txt).width || 0; } catch(e){ tw = txt.length * fs * 0.65; }
+      lines.forEach(function(line){
+        var w = 0;
+        try { w = ctx.measureText(line).width || 0; } catch(e){ w = line.length * fs * 0.65; }
+        tw = Math.max(tw, w);
+      });
       var sc = (typeof window.vScale === 'number' && window.vScale) ? window.vScale : 1;
       ctx.fillStyle = 'rgba(59,130,246,.18)';
-      ctx.fillRect(-2/sc, -fs-2/sc, tw+4/sc, fs+6/sc);
+      ctx.fillRect(-2/sc, -fs-2/sc, tw+4/sc, fs+6/sc+down);
       ctx.strokeStyle = 'rgba(59,130,246,.65)';
       ctx.lineWidth = 1/sc;
-      ctx.strokeRect(-2/sc, -fs-2/sc, tw+4/sc, fs+6/sc);
+      ctx.strokeRect(-2/sc, -fs-2/sc, tw+4/sc, fs+6/sc+down);
       ctx.fillStyle = styleOfText(s, false);
     }
 
-    ctx.fillText(txt, 0, 0);
+    lines.forEach(function(line, idx){ ctx.fillText(line, 0, idx * fs * 1.3); });
     ctx.restore();
     ctx.globalAlpha = 1;
     return true;
@@ -40589,7 +40611,7 @@ window.cblSnapResidueGateStatusV12 = function(){
   // (a copied INSERT remembers its source so the writer can clone its attributes).
   function detachCopiedIdentityV1(s,sourceHandle){
     ['sourceHandle','originalHandle','handle','sourcePath','cblRenderIdentity','clientShapeId','objectId'].forEach(function(k){delete s[k];});
-    if(String(s.type||'').toLowerCase()==='blockref'||{SPLINE:1,ELLIPSE:1,SOLID:1,TRACE:1,'3DFACE':1,POINT:1}[String(s.rawDxfType||'').toUpperCase()])s.cblCopiedFromHandle=sourceHandle;
+    if(String(s.type||'').toLowerCase()==='blockref'||{SPLINE:1,ELLIPSE:1,SOLID:1,TRACE:1,'3DFACE':1,POINT:1,MTEXT:1}[String(s.rawDxfType||'').toUpperCase()])s.cblCopiedFromHandle=sourceHandle;
     // An attribute of a copied block is cloned by the writer together with its
     // INSERT; it remembers the attribute it copies to be placed after a turn.
     if(s.cblAttribOwnerHandle){s.cblAttribCopy=true;if(!s.cblAttribCopyOfHandleV1)s.cblAttribCopyOfHandleV1=sourceHandle;}
@@ -40768,7 +40790,12 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(t==='polyline'){var vs=polylineSaveVerticesV1(s);return Object.assign(base,{type:mode?'update':'add_lwpolyline',handle:h,points:vs.map(function(q){return p(q.x,q.y);}),bulges:vs.map(function(q){return n(q.bulge,0);}),closed:!!s.closed,clientShapeId:mode?'':ensureClientShapeIdV1(s)});}
     if(t==='rect'||t==='rectangle')return Object.assign(base,{type:mode?'update':'add_lwpolyline',handle:h,points:[[n(s.x),n(s.y)],[n(s.x)+n(s.w||s.width),n(s.y)],[n(s.x)+n(s.w||s.width),n(s.y)+n(s.h||s.height)],[n(s.x),n(s.y)+n(s.h||s.height)]],closed:true,clientShapeId:mode?'':ensureClientShapeIdV1(s)});
     if(t==='text'||t==='mtext'){
-      var textOp=Object.assign(base,{type:mode?'update':'add_text',handle:h,entity:String(s.rawDxfType||(t==='mtext'?'MTEXT':'TEXT')).toUpperCase(),text:String(s.text||s.content||''),insert:textInsertV1(s),height:n(firstShapeValue(s,['size','height','textHeight'],250),250),rotation:shapeRotation(s),textStyle:String(s.textStyleName||s.textStyle||'STANDARD'),widthFactor:n(s.widthFactor,1),obliqueAngle:n(s.obliqueAngle,0),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
+      var textEntity=String(s.rawDxfType||(t==='mtext'?'MTEXT':'TEXT')).toUpperCase(),textValue=String(s.text||s.content||'');
+      // An update keeps the MTEXT (its line breaks are \P, its insertion point
+      // the attachment point); an add makes a one-line TEXT where the text starts.
+      if(mode&&textEntity==='MTEXT')textValue=textValue.replace(/\r?\n/g,'\\P');
+      if(!mode)textValue=textValue.replace(/\s*\r?\n\s*/g,' ');
+      var textOp=Object.assign(base,{type:mode?'update':'add_text',handle:h,entity:textEntity,text:textValue,insert:mode?textInsertV1(s):p(s.x,s.y),height:n(firstShapeValue(s,['size','height','textHeight'],250),250),rotation:shapeRotation(s),textStyle:String(s.textStyleName||s.textStyle||'STANDARD'),widthFactor:n(s.widthFactor,1),obliqueAngle:n(s.obliqueAngle,0),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
       if(mode){
         // Imported DWG text carries no style fields; sending the defaults
         // would reset e.g. 돋움체/width 0.9 to STANDARD/1.  Omit what the
@@ -41099,6 +41126,18 @@ window.cblSnapResidueGateStatusV12 = function(){
         usedClientIds[restoreOp.clientShapeId]=true;
         newOps.push(restoreOp);newOpShapes.push(s);
         return;
+      }
+      // A copied MTEXT (moved or scaled, same text) is cloned: it keeps its
+      // lines, attachment and formatting.  Otherwise it is added as a TEXT.
+      if(copiedFrom&&copiedRaw==='MTEXT'&&before[copiedFrom]){
+        var textSim=cblShapeSimilarityV1([[before[copiedFrom],s]],false);
+        if(textSim&&!textSim.mirror&&Math.abs(shapeRotation(before[copiedFrom])-shapeRotation(s))<=1e-9){
+          var textCopy={type:'add_copy',copyOf:copiedFrom,entity:'MTEXT',matrix:textSim.matrix,clientShapeId:ensureClientShapeIdV1(s)};
+          if(usedClientIds[textCopy.clientShapeId])textCopy.clientShapeId=assignFreshClientShapeIdV1(s);
+          usedClientIds[textCopy.clientShapeId]=true;
+          newOps.push(textCopy);newOpShapes.push(s);
+          return;
+        }
       }
       if(copiedFrom&&moveOnlyKinds[copiedRaw]){
         // A copied SPLINE/ELLIPSE/SOLID/3DFACE/POINT stays that kind.

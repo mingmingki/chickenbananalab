@@ -10338,8 +10338,20 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
     source_texts = acad_text_fingerprints(acad_original)
     reread_texts = acad_text_fingerprints(acad_reread)
     expected_text_counter = fingerprint_counter(source_texts)
-    for op in ops or []:
+    applied_ops = ((acad_report or {}).get("editReport") or {}).get("applied") or []
+    for op_index, op in enumerate(ops or []):
         kind = str(op.get("type", "")).lower()
+        if kind == "add_copy":
+            # A copied TEXT/MTEXT is the writer's clone of its source: one more
+            # text, as it applied it in memory (the reread must match it).
+            applied_entry = applied_ops[op_index] if op_index < len(applied_ops) and isinstance(applied_ops[op_index], dict) else {}
+            copied = canonical_ref(applied_entry.get("handle"))
+            applied = next((item for item in acad_source.get("ModelSpaceEntities", []) if canonical_ref(item.get("handle")) == copied), None) if copied else None
+            value = text_family(applied) if applied else None
+            if value:
+                key = fingerprint_key(value)
+                expected_text_counter[key] = expected_text_counter.get(key, 0) + 1
+            continue
         if kind in ("add_text", "add_mtext"):
             value = {
                 "family": "TEXT",
