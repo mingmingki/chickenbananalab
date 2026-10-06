@@ -40898,7 +40898,9 @@ window.cblSnapResidueGateStatusV12 = function(){
     // own, or one gone.  Then the save sends each attribute.
     function attribsEditedV1(fromIns,toIns,fromList){
       var from=attribsOfInsertV1(fromIns,fromList),to=attribsOfInsertV1(toIns,ss);
-      if(!from.length&&!to.length)return false;
+      // A block the file has without attributes has none to place: an
+      // attribute text is never written on its own.
+      if(!from.length)return false;
       if(from.length!==to.length)return true;
       var dx=n(toIns.x)-n(fromIns.x),dy=n(toIns.y)-n(fromIns.y);
       return to.some(function(a){
