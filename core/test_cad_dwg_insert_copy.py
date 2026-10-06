@@ -65,7 +65,7 @@ class CadDwgInsertCopyTests(SimpleTestCase):
         self.assertEqual(sorted(names), [("BLK", 0.0, 2.0), ("BLK", 100.0, 1.0)])
 
     def test_rotated_copy_with_attributes_is_refused(self):
-        # Attribute placement under rotation/mirroring is not implemented; fail instead of misplacing text.
+        # Without the editor's attribute placements ("attributes") the writer fails instead of misplacing text.
         run = self.save([{"type": "add_insert", "entity": "INSERT", "copyOf": "34", "blockName": "BLK", "layer": "0",
                           "insert": [150, 100, 0], "rotation": 1.5707963267948966, "scale": [1, 1, 1]}], expect_ok=False)
         self.assertNotEqual(run.returncode, 0)

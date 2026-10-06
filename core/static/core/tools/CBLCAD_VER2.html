@@ -23780,14 +23780,17 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         var q = pt(ent, '10', '20', m);
         var sc3 = m ? matScaleAvg(m) : 1;
         var dimRot = ctx && Number.isFinite(Number(ctx.dimensionTextRotationDeg)) ? Number(ctx.dimensionTextRotationDeg) : null;
-        // A dimension block's MTEXT is the text as AutoCAD draws it: its direction
-        // vector wins over the DIMENSION record, whose text rotation 0 only means
-        // "the default direction" (along the line, or level with DIMTIH).
-        if(dimRot !== null && type === 'MTEXT'){
-          var dimDirX = Number(first(p, '11', NaN)), dimDirY = Number(first(p, '21', NaN));
-          if(Number.isFinite(dimDirX) && Number.isFinite(dimDirY) && Math.hypot(dimDirX, dimDirY) > 1e-9) dimRot = Math.atan2(dimDirY, dimDirX) * 180 / Math.PI;
+        // An MTEXT keeps its rotation as the direction of its x axis (DXF 11/21;
+        // a rotated MTEXT has no group 50).  In a dimension block it is the text
+        // as AutoCAD draws it: it wins over the DIMENSION record, whose text
+        // rotation 0 only means "the default direction" (along the line, or
+        // level with DIMTIH).
+        var mtextDeg = null;
+        if(type === 'MTEXT'){
+          var mtextDirX = Number(first(p, '11', NaN)), mtextDirY = Number(first(p, '21', NaN));
+          if(Number.isFinite(mtextDirX) && Number.isFinite(mtextDirY) && Math.hypot(mtextDirX, mtextDirY) > 1e-9) mtextDeg = Math.atan2(mtextDirY, mtextDirX) * 180 / Math.PI;
         }
-        var rot = (dimRot !== null ? dimRot : num(first(p,'50',0))) * Math.PI / 180 + (m ? matRot(m) : 0);
+        var rot = (mtextDeg !== null ? mtextDeg : dimRot !== null ? dimRot : num(first(p,'50',0))) * Math.PI / 180 + (m ? matRot(m) : 0);
         var tx = dxfTextFromProps(p);
 
         pushShape(Object.assign({}, style, {
@@ -23802,6 +23805,8 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
           dimensionStyleName:ctx&&ctx.dimensionStyle&&ctx.dimensionStyle.name?String(ctx.dimensionStyle.name):'',
           dimensionTextColor:style.cblDimensionTextColor||null,
           dimensionHandle:ctx && ctx.dimensionHandle ? ctx.dimensionHandle : null,
+          // The tag finds a copied block's attribute when the save places it.
+          cblAttribTagV1:type === 'ATTRIB' ? String(first(p,'2','') || '') : undefined,
           rawDxfType:type
         }));
         return;
@@ -40478,8 +40483,9 @@ window.cblSnapResidueGateStatusV12 = function(){
   function detachCopiedIdentityV1(s,sourceHandle){
     ['sourceHandle','originalHandle','handle','sourcePath','cblRenderIdentity','clientShapeId','objectId'].forEach(function(k){delete s[k];});
     if(String(s.type||'').toLowerCase()==='blockref'||{SPLINE:1,ELLIPSE:1,SOLID:1,TRACE:1,'3DFACE':1,POINT:1}[String(s.rawDxfType||'').toUpperCase()])s.cblCopiedFromHandle=sourceHandle;
-    // An attribute of a copied block is cloned by the writer together with its INSERT.
-    if(s.cblAttribOwnerHandle)s.cblAttribCopy=true;
+    // An attribute of a copied block is cloned by the writer together with its
+    // INSERT; it remembers the attribute it copies to be placed after a turn.
+    if(s.cblAttribOwnerHandle){s.cblAttribCopy=true;if(!s.cblAttribCopyOfHandleV1)s.cblAttribCopyOfHandleV1=sourceHandle;}
   }
   function p(x,y,z){return [n(x),n(y),n(z)];}
   // ACI 1-9 have exact RGB; any other picked colour is saved as true colour
@@ -40789,9 +40795,18 @@ window.cblSnapResidueGateStatusV12 = function(){
       detachCopiedIdentityV1(s,h);
       delete s.cblCopiedFromHandle;
     });
-    // The writer cannot yet place attributes under a rotated, scaled or mirrored
-    // INSERT, so refuse those edits of attributed blocks here, in Korean.
-    var attributed={};base.forEach(function(b){if(b&&b.cblAttribOwnerHandle)attributed[normHandle(b.cblAttribOwnerHandle)]=true;});
+    // CBL_ATTRIB_PLACEMENT_V1: an INSERT's attributes are the ATTRIB texts of
+    // its block group (cblBlockKeyV1: the INSERT's handle, or a copy's
+    // "copy-..." key).  When the block turned (rotation, scale, mirror) the save
+    // sends where each attribute is shown; the writer puts it there.
+    function attribsOfInsertV1(ins,list){var key=ins&&typeof cblBlockKeyV1==='function'?cblBlockKeyV1(ins):'';if(!key)return [];return (list||[]).filter(function(a){return !!(a&&a.cblAttribOwnerHandle&&cblBlockKeyV1(a)===key);});}
+    function attribPlacementV1(a){return {handle:a.cblAttribCopy?'':sourceHandleOf(a),sourceHandle:normHandle(a.cblAttribCopyOfHandleV1||''),tag:String(a.cblAttribTagV1||''),insert:p(a.x,a.y),rotation:shapeRotation(a),height:n(firstShapeValue(a,['size','height','textHeight'],0))};}
+    // The attributes of a turned INSERT, or a refusal when one is gone.
+    function placeAttribsV1(op,before,after){
+      var had=attribsOfInsertV1(before,base);if(!had.length)return true;
+      var has=attribsOfInsertV1(after,ss);if(has.length!==had.length){refuse('삭제된 블록 속성',after);return false;}
+      op.attributes=has.map(attribPlacementV1);return true;
+    }
     function sameTransform(a,b){var x=[shapeRotation(a),shapeScale(a,'scaleX',0),shapeScale(a,'scaleY',1),shapeScale(a,'scaleZ',2)],y=[shapeRotation(b),shapeScale(b,'scaleX',0),shapeScale(b,'scaleY',1),shapeScale(b,'scaleZ',2)];return x.every(function(v,i){return Math.abs(v-y[i])<=1e-9;});}
     function refuse(prefix,s){var t=String(s&&(s.type||s.rawDxfType)||'unknown').toLowerCase(),k=prefix+' '+(kindNames[t]?kindNames[t]+'('+t+')':t);unsupported[k]=(unsupported[k]||0)+1;}
     restoredRefusals.forEach(function(s){refuse('되돌리기로 되살린 속성',s);});
@@ -40858,7 +40873,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       if(ownedLimitV1(a.type,sim)){refuse(ownedLimitV1(a.type,sim),{type:a.type.toLowerCase()});return;}
       ownedCopies.push({op:{type:'add_copy',copyOf:a.owner,entity:a.type,matrix:sim.matrix,clientShapeId:key},marker:{clientShapeId:key,cblOwnedPiecesV1:a.pieces}});
     });
-    Object.keys(before).forEach(function(h){if(attribSkip[h])return;if(!after[h])ops.push(deleteOpForShape(before[h],h));else if(!sameGeometry(before[h],after[h])){if(attributed[h]&&String(after[h].type||'').toLowerCase()==='blockref'&&!sameTransform(before[h],after[h])){refuse('회전·크기를 바꾼 속성',after[h]);return;}var u=opForShape(after[h],true);if(!u)refuse('수정된',after[h]);else if(topLevelHandles[h])ops.push(u);}});
+    Object.keys(before).forEach(function(h){if(attribSkip[h])return;if(!after[h])ops.push(deleteOpForShape(before[h],h));else if(!sameGeometry(before[h],after[h])){var u=opForShape(after[h],true);if(!u){refuse('수정된',after[h]);return;}if(String(after[h].type||'').toLowerCase()==='blockref'&&!sameTransform(before[h],after[h])&&!placeAttribsV1(u,before[h],after[h]))return;if(topLevelHandles[h])ops.push(u);}});
     var unhandledBase=base.filter(function(b){return isTopLevelEditable(b)&&!ownerHandleOf(b)&&!b.cblAttribOwnerHandle;}),usedUnhandledBase=[];
     var newOps=[],newOpShapes=[],usedClientIds={};ss.forEach(function(s){
       if(!isTopLevelEditable(s)||sourceHandleOf(s)||s.cblAttribCopy)return;
@@ -40872,7 +40887,6 @@ window.cblSnapResidueGateStatusV12 = function(){
       if(alreadyPersisted)return;
       newEditableCount++;
       var copied=String(s.type||'').toLowerCase()==='blockref'?normHandle(s.cblCopiedFromHandle||''):'';
-      if(copied&&attributed[copied]&&before[copied]&&!sameTransform(before[copied],s)){refuse('회전·크기를 바꾼 속성',s);return;}
       var copiedRaw=String(s.rawDxfType||'').toUpperCase(),copiedFrom=normHandle(s.cblCopiedFromHandle||'');
       if(copiedFrom&&moveOnlyKinds[copiedRaw]){
         // A copied SPLINE/ELLIPSE/SOLID/3DFACE/POINT stays that kind.
@@ -40886,6 +40900,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       }
       var o=opForShape(s,false);
       if(!o){refuse('새',s);return;}
+      if(copied&&before[copied]&&!sameTransform(before[copied],s)&&!placeAttribsV1(o,before[copied],s))return;
       // Pasting a new shape twice clones its clientShapeId; each add needs its own.
       if(o.clientShapeId&&usedClientIds[o.clientShapeId])o.clientShapeId=assignFreshClientShapeIdV1(s);
       usedClientIds[o.clientShapeId]=true;

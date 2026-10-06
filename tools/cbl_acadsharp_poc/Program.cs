@@ -1408,20 +1408,8 @@ internal static class Program
                 break;
             case TextEntity text:
                 if (op.TryGetProperty("text", out var value)) text.Value = value.GetString() ?? string.Empty;
-                if (op.TryGetProperty("insert", out _))
-                {
-                    var insert = ReadPoint(op, "insert");
-                    // AutoCAD places justified TEXT by its alignment point (DXF 11),
-                    // so move it with the insertion point or the text stays put there.
-                    if (text.HorizontalAlignment != TextHorizontalAlignment.Left ||
-                        text.VerticalAlignment != TextVerticalAlignmentType.Baseline)
-                    {
-                        text.AlignmentPoint += insert - text.InsertPoint;
-                    }
-                    text.InsertPoint = insert;
-                }
-                if (op.TryGetProperty("height", out _)) text.Height = ReadDouble(op, "height", text.Height);
-                if (op.TryGetProperty("rotation", out _)) text.Rotation = ReadDouble(op, "rotation", text.Rotation);
+                PlaceText(text, op.TryGetProperty("insert", out _) ? ReadPoint(op, "insert") : text.InsertPoint,
+                    ReadDouble(op, "rotation", text.Rotation), ReadDouble(op, "height", text.Height));
                 if (op.TryGetProperty("widthFactor", out _)) text.WidthFactor = ReadDouble(op, "widthFactor", text.WidthFactor);
                 if (op.TryGetProperty("obliqueAngle", out _)) text.ObliqueAngle = ReadDouble(op, "obliqueAngle", text.ObliqueAngle);
                 ApplyTextStyle(document, text, op);
@@ -1430,6 +1418,12 @@ internal static class Program
                 if (op.TryGetProperty("text", out var mvalue)) mtext.Value = mvalue.GetString() ?? string.Empty;
                 if (op.TryGetProperty("insert", out _)) mtext.InsertPoint = ReadPoint(op, "insert");
                 if (op.TryGetProperty("height", out _)) mtext.Height = ReadDouble(op, "height", mtext.Height);
+                // An MTEXT keeps its rotation as the direction of its x axis (DXF 11).
+                if (op.TryGetProperty("rotation", out _))
+                {
+                    var turn = ReadDouble(op, "rotation", mtext.Rotation);
+                    mtext.AlignmentPoint = new XYZ(Math.Cos(turn), Math.Sin(turn), 0);
+                }
                 ApplyTextStyle(document, mtext, op);
                 break;
             case Insert insert:
@@ -1443,17 +1437,20 @@ internal static class Program
                     if (scale.GetArrayLength() > 1) ys = ReadDouble(scale, 1);
                     if (scale.GetArrayLength() > 2) zs = ReadDouble(scale, 2);
                 }
-                if (insert.Attributes.Any() &&
-                    (Math.Abs(rotation - insert.Rotation) > 1e-9 || Math.Abs(xs - insert.XScale) > 1e-9 ||
-                     Math.Abs(ys - insert.YScale) > 1e-9 || Math.Abs(zs - insert.ZScale) > 1e-9))
+                var turned = Math.Abs(rotation - insert.Rotation) > 1e-9 || Math.Abs(xs - insert.XScale) > 1e-9 ||
+                             Math.Abs(ys - insert.YScale) > 1e-9 || Math.Abs(zs - insert.ZScale) > 1e-9;
+                var placed = op.TryGetProperty("attributes", out var placedAttributes) && placedAttributes.ValueKind == JsonValueKind.Array;
+                if (insert.Attributes.Any() && turned && !placed)
                     throw new NotSupportedException("rotating or scaling an INSERT with attributes is not supported");
                 if (op.TryGetProperty("insert", out _)) insert.InsertPoint = ReadPoint(op, "insert");
                 insert.Rotation = rotation;
                 insert.XScale = xs;
                 insert.YScale = ys;
                 insert.ZScale = zs;
-                // Attributes are separate entities placed in world space; move them with the block.
-                MoveAttributes(insert, insert.InsertPoint - previous);
+                // Attributes are separate entities placed in world space: they move
+                // with the block, and go where the editor shows them when it turned.
+                if (insert.Attributes.Any() && turned) PlaceAttributes(insert, null, placedAttributes);
+                else MoveAttributes(insert, insert.InsertPoint - previous);
                 break;
             }
             case DimensionLinear linear:
@@ -1463,6 +1460,58 @@ internal static class Program
                 UpdateDimension(aligned, document, op);
                 break;
             default: throw new NotSupportedException($"Update is not supported for {entity.GetType().Name}");
+        }
+    }
+
+    // Puts a TEXT (or ATTRIB) at the insertion point, rotation and height the
+    // editor shows.  AutoCAD places justified text by its alignment point
+    // (DXF 11), so that point keeps its place on the text: it turns and scales
+    // with the text around the insertion point.
+    private static void PlaceText(TextEntity text, XYZ insert, double rotation, double height)
+    {
+        if (text.HorizontalAlignment != TextHorizontalAlignment.Left ||
+            text.VerticalAlignment != TextVerticalAlignmentType.Baseline)
+        {
+            var offset = text.AlignmentPoint - text.InsertPoint;
+            var k = text.Height > 0 && height > 0 ? height / text.Height : 1;
+            double c = Math.Cos(rotation - text.Rotation) * k, s = Math.Sin(rotation - text.Rotation) * k;
+            text.AlignmentPoint = new XYZ(insert.X + c * offset.X - s * offset.Y, insert.Y + s * offset.X + c * offset.Y, insert.Z + offset.Z);
+        }
+        text.InsertPoint = insert;
+        text.Rotation = rotation;
+        text.Height = height;
+    }
+
+    // The attributes of a rotated, scaled or mirrored INSERT, where the editor
+    // shows them ("attributes": insert, rotation, height).  Each is found by
+    // its handle, for a copy by the handle of the source's attribute at the
+    // same place, else by its tag when that is unique.  An attribute the
+    // editor did not place is refused rather than left where it was.
+    private static void PlaceAttributes(Insert insert, Insert? source, JsonElement placed)
+    {
+        var entries = placed.ValueKind == JsonValueKind.Array ? placed.EnumerateArray().ToList() : new List<JsonElement>();
+        var attributes = insert.Attributes.ToList();
+        var sourceAttributes = source?.Attributes.ToList();
+        var used = new HashSet<int>();
+        string EntryHandle(JsonElement entry, string name) =>
+            entry.TryGetProperty(name, out var h) && h.ValueKind == JsonValueKind.String ? NormalizeHandle(h.GetString()) : "";
+        for (var i = 0; i < attributes.Count; i++)
+        {
+            var attribute = attributes[i];
+            var own = attribute.Handle != 0 ? NormalizeHandle(attribute.Handle.ToString("X")) : "";
+            var from = sourceAttributes != null && i < sourceAttributes.Count ? NormalizeHandle(sourceAttributes[i].Handle.ToString("X")) : "";
+            var found = Enumerable.Range(0, entries.Count).FirstOrDefault(j => !used.Contains(j) &&
+                ((own.Length > 0 && EntryHandle(entries[j], "handle") == own) || (from.Length > 0 && EntryHandle(entries[j], "sourceHandle") == from)), -1);
+            if (found < 0 && attributes.Count(a => string.Equals(a.Tag, attribute.Tag, StringComparison.OrdinalIgnoreCase)) == 1)
+            {
+                var tagged = Enumerable.Range(0, entries.Count).Where(j => !used.Contains(j) &&
+                    entries[j].TryGetProperty("tag", out var tag) && string.Equals(tag.GetString(), attribute.Tag, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (tagged.Count == 1) found = tagged[0];
+            }
+            if (found < 0) throw new NotSupportedException("Transform is not supported for Insert (attributes not placed)");
+            used.Add(found);
+            var entry = entries[found];
+            PlaceText(attribute, ReadPoint(entry, "insert"), ReadDouble(entry, "rotation", attribute.Rotation), ReadDouble(entry, "height", attribute.Height));
         }
     }
 
@@ -1504,9 +1553,10 @@ internal static class Program
             if (scale.GetArrayLength() > 1) ys = ReadDouble(scale, 1);
             if (scale.GetArrayLength() > 2) zs = ReadDouble(scale, 2);
         }
-        if (!fresh && insert.Attributes.Any() &&
-            (Math.Abs(rotation - insert.Rotation) > 1e-9 || Math.Abs(xs - insert.XScale) > 1e-9 ||
-             Math.Abs(ys - insert.YScale) > 1e-9 || Math.Abs(zs - insert.ZScale) > 1e-9))
+        var turned = Math.Abs(rotation - insert.Rotation) > 1e-9 || Math.Abs(xs - insert.XScale) > 1e-9 ||
+                     Math.Abs(ys - insert.YScale) > 1e-9 || Math.Abs(zs - insert.ZScale) > 1e-9;
+        var placed = op.TryGetProperty("attributes", out var placedAttributes) && placedAttributes.ValueKind == JsonValueKind.Array;
+        if (!fresh && insert.Attributes.Any() && turned && !placed)
             throw new NotSupportedException("rotating or scaling a copied INSERT with attributes is not supported");
         insert.InsertPoint = ReadPoint(op, "insert");
         insert.Rotation = rotation;
@@ -1520,7 +1570,8 @@ internal static class Program
             foreach (var attribute in insert.Attributes) attribute.ApplyTransform(transform);
             return insert;
         }
-        MoveAttributes(insert, insert.InsertPoint - previous);
+        if (insert.Attributes.Any() && turned) PlaceAttributes(insert, (Insert)FindModelEntity(document, copyOf!), placedAttributes);
+        else MoveAttributes(insert, insert.InsertPoint - previous);
         return insert;
     }
 

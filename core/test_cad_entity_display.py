@@ -16,6 +16,7 @@ from .test_cad_dwg_text_validation import EXECUTABLE
 FIXTURES = Path(settings.BASE_DIR) / "core" / "test_fixtures" / "cad"
 MLEADER = FIXTURES / "mleader_ac1032.dwg"
 KINDS = FIXTURES / "move_kinds_ac1032.dwg"
+ATTRIBS = FIXTURES / "attrib_justified_ac1032.dwg"
 
 HARNESS = """
 var window = globalThis; window.CBL_DXF_SINGLE_MODEL_IMPORT_V1 = true;
@@ -27,7 +28,7 @@ console.log = () => {};
 const parsed = window.cblParseDxfSingleModelV1(require('fs').readFileSync(process.argv[2], 'utf8'));
 process.stdout.write(JSON.stringify({skipped: parsed.stats.skipped, shapes: parsed.shapes.map(s => ({
   type: s.type, raw: s.rawDxfType, owner: s.ownerSourceHandle || '', handle: s.sourceHandle || '',
-  displayOnly: !!s.displayOnly, text: s.text, size: s.size, rot: s.rot, x: s.x, y: s.y,
+  displayOnly: !!s.displayOnly, text: s.text, size: s.size, rot: s.rot, x: s.x, y: s.y, tag: s.cblAttribTagV1, attribOwner: s.cblAttribOwnerHandle,
   x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2, pts: s.pts}))}));
 """
 
@@ -185,6 +186,25 @@ class CadEntityDisplayTests(SimpleTestCase):
                 self.assertAlmostEqual(new["y"], old["x"], places=4)
         # A dimension the file already had at 31 degrees showed level text as well.
         self.assertAlmostEqual(next(c for c in self.owned_by(after, "A2") if c["type"] == "text")["rot"], math.atan2(60, 100), places=6)
+
+    def test_attribute_tags_and_rotated_mtext(self):
+        # The save finds a turned block's attributes by tag when they have no
+        # handle yet (copies); a rotated MTEXT keeps its rotation only as the
+        # direction of its x axis (no group 50) and showed level.
+        ops = self.tmp / "ops.json"
+        meta = core_views._cbl_free_dwg_acadsharp_metadata_v1(ATTRIBS)
+        mtext = next(e["handle"] for e in meta["entities"] if e["type"] == "MTEXT")
+        ops.write_text(json.dumps({"ops": [{"type": "update", "handle": mtext, "entity": "MTEXT", "insert": [0, 0, 0], "rotation": math.pi / 2, "height": 5}]}))
+        rotated = self.tmp / "rotated.dwg"
+        run = subprocess.run([str(EXECUTABLE), str(ATTRIBS), str(rotated), "AC1018", str(ops)], capture_output=True, timeout=300)
+        self.assertEqual(run.returncode, 0, run.stderr[-800:])
+        parsed = self.parse_dwg(rotated)
+        attribs = {s["tag"]: s for s in parsed["shapes"] if s["raw"] == "ATTRIB"}
+        self.assertEqual(sorted(attribs), ["NAME", "NO"])
+        self.assertEqual(attribs["NO"]["text"], "A-101")
+        self.assertTrue(attribs["NO"]["attribOwner"])
+        note = next(s for s in parsed["shapes"] if s["raw"] == "MTEXT")
+        self.assertAlmostEqual(note["rot"], math.pi / 2, places=6)
 
 @skipUnless(NODE, "node is required to execute the CAD editor helpers")
 class CadUndisplayedNoticeTests(SimpleTestCase):

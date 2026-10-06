@@ -25,6 +25,9 @@ const base = %(base)s;
 const clone = (list) => JSON.parse(JSON.stringify(list));
 const copyOf = (list, dx, dy) => cblRekeyCopiedBlocksV1(list.map((s) => { const c = cloneJ(s); mvS(c, dx, dy); return c; }));
 const mirrorX = (list, x) => cblRekeyCopiedBlocksV1(applyMirror(list, {x: x, y: 0}, {x: x, y: 10}));
+// The block groups of cblBlockGroupsV1, over a given list (the editor reads its global shapes).
+const groupsOf = (all) => { const g = {}; all.forEach((s) => { const k = cblBlockKeyV1(s); if (!k) return; const x = g[k] || (g[k] = {owner: null, members: []}); x.members.push(s); if (!cblIsBlockChildV1(s) && cblSelectionTypeV1(s) === 'blockref') x.owner = s; }); return g; };
+const expand = (all, s) => cblExpandBlockSelectionV1([s], groupsOf(all));
 const pick = (list, handle) => list.filter((s) => (s.ownerSourceHandle || s.sourceHandle) === handle);
 const out = {};
 function run(name, shapes) {
@@ -43,7 +46,7 @@ EDITOR_COMMANDS = ("function mvS(s,dx,dy){", "function cloneJ(x){", "function cb
                    "function cblSetTextRotationV1(s,rad){", "function applyMirror(shps,pt1,pt2){",
                    "function cblRectMapV1(s,f,keepRect){", "function rotateSelected(angle){", "function scaleDialog(){",
                    "function cblSelectionTypeV1(s){", "function cblIsBlockChildV1(s){", "function cblBlockKeyV1(s){",
-                   "function cblRekeyCopiedBlocksV1(copies){")
+                   "function cblRekeyCopiedBlocksV1(copies){", "function cblExpandBlockSelectionV1(list,groups){")
 
 
 def _hatch(owner="5A"):
@@ -75,12 +78,12 @@ class CadTransformCopyEditTests(SimpleTestCase):
     source), which the writer applies to the DWG object itself.
     """
 
-    def run_body(self, body, with_handles=False):
+    def run_body(self, body, with_handles=False, base=None):
         html = _html()
         helpers = "\n".join(_editor_function(html, sig) for sig in EDITOR_COMMANDS) + "\n" + _build_ops_source(html)
         if with_handles:
             helpers += _output_handles_source(html)
-        script = HARNESS % {"helpers": helpers, "base": json.dumps(BASE), "body": body}
+        script = HARNESS % {"helpers": helpers, "base": json.dumps(BASE if base is None else base), "body": body}
         run = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=60)
         self.assertEqual(run.returncode, 0, run.stderr)
         return json.loads(run.stdout)
@@ -196,3 +199,68 @@ class CadTransformCopyEditTests(SimpleTestCase):
         self.assertIn(out["spline"][0], ("1F0", "1F1"))
         self.assertEqual(out["second"], [])
         self.assertEqual(out["restored"], [["9C", "copy-"]] * 3)
+
+
+def _attrib(owner, handle, tag, x, y, size=5.0, **extra):
+    shape = {"type": "text", "text": tag + "-1", "x": x, "y": y, "size": size, "rot": 0, "rotation": 0, "tw": 20,
+             "layId": 1, "rawLayerName": "0", "cblRawAci": 256, "cblRawLineType": "ByLayer", "rawDxfType": "ATTRIB",
+             "handle": handle, "sourceHandle": handle, "originalHandle": handle, "cblAttribOwnerHandle": owner, "cblAttribTagV1": tag}
+    shape.update(extra)
+    return shape
+
+
+ATTRIB_BASE = [dict(BLOCK, x=0, y=0), _attrib("C1", "A7", "NO", -15, -15), _attrib("C1", "A8", "NAME", -12, 12, size=4.0)]
+
+
+@skipUnless(NODE, "node is required to execute the CAD editor helpers")
+class CadAttribBlockEditTests(SimpleTestCase):
+    """A block with attributes can be rotated, scaled, mirrored and copied.
+
+    The save stopped with "회전·크기를 바꾼 속성": the writer only moved
+    attributes.  It now sends where the editor shows each attribute.
+    """
+
+    run_body = CadTransformCopyEditTests.run_body
+    only_op = CadTransformCopyEditTests.only_op
+
+    def test_rotating_scaling_and_mirroring_place_the_attributes(self):
+        out = self.run_body("""
+          var s = clone(base); sel = expand(s, s[0]); rotateSelected(90); run('rotated', s);
+          s = clone(base); sel = expand(s, s[0]); scaleDialog(); run('scaled', s);
+          s = clone(base); mvS(s[0], 10, 0); mvS(s[1], 10, 0); mvS(s[2], 10, 0); run('moved', s);
+          s = clone(base); sel = expand(s, s[0]); rotateSelected(90); s.splice(2, 1); run('attribute_deleted', s);
+        """, base=ATTRIB_BASE)
+        op = self.only_op(out["rotated"])
+        self.assertEqual((op["type"], op["handle"], op["entity"]), ("update", "C1", "INSERT"))
+        self.assertAlmostEqual(op["rotation"], math.pi / 2)
+        placed = {a["tag"]: a for a in op["attributes"]}
+        self.assertEqual(sorted(placed), ["NAME", "NO"])
+        self.assertEqual((placed["NO"]["handle"], placed["NO"]["sourceHandle"]), ("A7", ""))
+        self.assertEqual([round(v, 6) for v in placed["NO"]["insert"]], [15, -15, 0])
+        self.assertAlmostEqual(placed["NO"]["rotation"], math.pi / 2)
+        self.assertEqual(placed["NO"]["height"], 5)
+        placed = {a["tag"]: a for a in self.only_op(out["scaled"])["attributes"]}
+        self.assertEqual([round(v, 6) for v in placed["NAME"]["insert"]], [-24, 24, 0])
+        self.assertEqual(placed["NAME"]["height"], 8)
+        # A plain move keeps the writer moving the attributes with the block.
+        self.assertNotIn("attributes", self.only_op(out["moved"]))
+        self.assertIn("삭제된 블록 속성", out["attribute_deleted"]["error"])
+
+    def test_copies_of_a_block_with_attributes(self):
+        out = self.run_body("""
+          var s = clone(base), c = copyOf(expand(s, s[0]), 20, -20); s.push(...c); sel = c; rotateSelected(90); run('copy_rotated', s);
+          s = clone(base); s.push(...mirrorX(expand(s, s[0]), 100)); run('copy_mirrored', s);
+          s = clone(base); s.push(...copyOf(expand(s, s[0]), 20, -20)); run('copy_moved', s);
+        """, base=ATTRIB_BASE)
+        op = self.only_op(out["copy_rotated"])
+        self.assertEqual((op["type"], op["copyOf"]), ("add_insert", "C1"))
+        placed = {a["tag"]: a for a in op["attributes"]}
+        self.assertEqual((placed["NO"]["handle"], placed["NO"]["sourceHandle"]), ("", "A7"))
+        self.assertAlmostEqual(placed["NO"]["rotation"], math.pi / 2)
+        op = self.only_op(out["copy_mirrored"])
+        self.assertEqual(op["scale"][1], -1)
+        placed = {a["tag"]: a for a in op["attributes"]}
+        # The mirror command keeps text readable: same direction, mirrored place.
+        self.assertEqual(placed["NO"]["rotation"], 0)
+        self.assertEqual(placed["NAME"]["sourceHandle"], "A8")
+        self.assertNotIn("attributes", self.only_op(out["copy_moved"]))
