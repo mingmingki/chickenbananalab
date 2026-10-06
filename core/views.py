@@ -10501,7 +10501,7 @@ def _cbl_free_dwg_writer_error_message_v1(detail):
         if refused.group(1) == "Transform":
             # The writer names which part of the transform it refused.
             action = {"mirrored pattern": "대칭(무늬 해치)", "scaled or mirrored": "크기 변경·대칭",
-                      "mirrored or with block content": "대칭(또는 블록 내용)", "mirrored": "대칭",
+                      "mirrored or with block content": "대칭(블록 내용)", "mirrored": "대칭",
                       "mirrored or with attributes": "대칭(또는 속성)", "shared block": "회전·크기 변경(공유 블록)",
                       "attributes not placed": "회전·크기 변경·대칭(블록 속성 위치 없음)",
                       "ordinate rotated": "회전·대칭(좌표 치수)", "scaled with alternate units": "크기 변경(보조 단위)",

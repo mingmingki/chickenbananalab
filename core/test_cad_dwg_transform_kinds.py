@@ -16,6 +16,7 @@ from .test_oda_review import find_oda
 
 FIXTURES = Path(settings.BASE_DIR) / "core" / "test_fixtures" / "cad"
 KINDS = FIXTURES / "move_kinds_ac1032.dwg"
+MLEADERS = FIXTURES / "mleader_ac1032.dwg"   # MULTILEADER 8B with text, 90 with block content
 # ezdxf + ODA: LINE 8A, ordinate DIMENSION 8B ("12000", the style multiplies
 # lengths by 100) and angular DIMENSION 96.
 ORDINATE = FIXTURES / "dim_ordinate_ac1032.dwg"
@@ -138,10 +139,9 @@ class CadDwgTransformKindsTests(SimpleTestCase):
 
     def test_changes_that_would_show_wrong_values_are_refused(self):
         # The message names the edit that cannot be saved (a mirror is not a "rotation").
-        cases = [(self.handles("DIMENSIONLINEAR")[0], MIRROR, "치수 대칭은"),
-                 # Upside down the text would sit on the other side of its landing
-                 # than in the editor; AutoCAD rebuilds it from the landing.
-                 (self.handles("MULTILEADER")[0], FLIP, "다중 지시선 대칭(위아래·기울어진 축)은")]
+        # Upside down or at a slant a multileader's text goes where the editor
+        # shows it ("textLocation"); without it the save stops.
+        cases = [(self.handles("MULTILEADER")[0], FLIP, "다중 지시선 대칭(위아래·기울어진 축)은")]
         for handle, matrix, message in cases:
             with self.subTest(message):
                 ops_path = self.tmp / "ops.json"
@@ -258,3 +258,67 @@ class CadDwgTransformKindsTests(SimpleTestCase):
         for h in handles:
             with self.subTest(hatch=h):
                 self.check(both, before[h], after[h])
+
+    def test_mirrored_dimensions(self):
+        # Mirrored, a dimension keeps its measurement; its text stays readable
+        # at the mirrored text point (AutoCAD's MIRRTEXT 0).
+        dims = self.handles("DIMENSIONLINEAR")
+        ops = [{"type": "add_copy", "copyOf": dims[0], "matrix": [-1, 0, 0, 1, 3000, 0], "clientShapeId": "c1"}]
+        ops += [{"type": "transform", "handle": h, "matrix": MIRROR} for h in dims]
+        before, after, report = self.save(ops)
+        copy = after[core_views._cbl_free_dwg_output_handles_v1(report, ops)["0"]]
+        for matrix, h, dim in ((MIRROR, dims[0], after[dims[0]]), (MIRROR, dims[1], after[dims[1]]), ([-1, 0, 0, 1, 3000, 0], dims[0], copy)):
+            with self.subTest(h):
+                self.check(matrix, before[h], dim)
+                self.assertEqual(self.dim_text(dim), self.dim_text(before[h]))
+                text = lambda d: next(e for e in d.get_geometry_block() if e.dxftype() == "MTEXT")
+                self.assertEqual(_r(text(dim).dxf.insert), _apply(matrix, text(before[h]).dxf.insert))
+                # Along the mirrored dimension line, turned to read left to right.
+                d = text(before[h]).dxf.text_direction
+                angle = (180 - math.degrees(math.atan2(d[1], d[0]))) % 360
+                angle = angle - 180 if 90 < angle <= 270 else angle
+                self.assertEqual(_r(text(dim).dxf.text_direction), _r((math.cos(math.radians(angle)), math.sin(math.radians(angle)))))
+        ops_path = self.tmp / "ops.json"
+        ops_path.write_text(json.dumps({"ops": [{"type": "transform", "handle": "8B", "matrix": FLIP}]}))
+        run = subprocess.run([str(EXECUTABLE), str(ORDINATE), str(self.tmp / "x.dwg"), "AC1018", str(ops_path)], capture_output=True, timeout=300)
+        self.assertIn("치수 회전·대칭(좌표 치수)은", core_views._cbl_free_dwg_writer_error_message_v1(run.stderr.decode("utf-8", "replace")))
+
+    def test_multileader_mirrored_upside_down_goes_where_the_editor_shows_it(self):
+        h = self.handles("MULTILEADER")[0]
+        before, after, _ = self.save([{"type": "transform", "handle": h, "matrix": FLIP, "textLocation": [2100, -88, 0]}])
+        a, b = before[h].context, after[h].context
+        self.assertEqual(_r(b.mtext.insert), (2100, -88))
+        self.assertEqual(_r(b.mtext.text_direction), _r(a.mtext.text_direction))
+        self.assertEqual(after[h].dxf.text_attachment_point, before[h].dxf.text_attachment_point)
+        for la, lb in zip(a.leaders, b.leaders):
+            for va, vb in zip(la.lines, lb.lines):
+                self.assertEqual([_r(v) for v in vb.vertices], [_apply(FLIP, v) for v in va.vertices])
+
+    def test_multileader_with_block_content_turns_and_scales(self):
+        matrix = [0.0, 2.0, -2.0, 0.0, 1000.0, 0.0]   # 90 degrees, twice the size
+        before, after, _ = self.save([{"type": "transform", "handle": "90", "matrix": matrix}], source=MLEADERS)
+        a, b = before["90"].context, after["90"].context
+        for la, lb in zip(a.leaders, b.leaders):
+            self.assertEqual(_r(lb.last_leader_point), _apply(matrix, la.last_leader_point))
+            for va, vb in zip(la.lines, lb.lines):
+                self.assertEqual([_r(v) for v in vb.vertices], [_apply(matrix, v) for v in va.vertices])
+        # Moving it works too (its block transform here carries no location).
+        self.save([{"type": "move", "handle": "90", "delta": [10, 0, 0]}], source=MLEADERS)
+
+    @skipUnless(find_oda(), "ODA File Converter is only used for local review")
+    def test_another_reader_sees_the_turned_block_content(self):
+        import ezdxf
+
+        # The runtime's own DXF does not write a multileader's block content
+        # place; ODA reads it from the DWG.  Content at (2500, 800).
+        self.save([{"type": "transform", "handle": "90", "matrix": [0.0, 2.0, -2.0, 0.0, 1000.0, 0.0]}], source=MLEADERS)
+        source, target = self.tmp / "oda-in", self.tmp / "oda-out"
+        source.mkdir()
+        target.mkdir()
+        shutil.copy(self.tmp / "out.dwg", source / "out.dwg")
+        subprocess.run([find_oda(), str(source), str(target), "ACAD2018", "DXF", "0", "1"], capture_output=True, timeout=300)
+        self.assertFalse(list(target.glob("*.err")))
+        block = ezdxf.readfile(target / "out.dxf").entitydb["90"].context.block
+        self.assertEqual(_r(block.insert), (-600, 5000))
+        self.assertEqual(_r(block.scale), (2, 2))
+        self.assertAlmostEqual(math.degrees(block.rotation) % 360, 90, places=4)

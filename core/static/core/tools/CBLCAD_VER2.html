@@ -6197,8 +6197,11 @@ function applyMirror(shps,pt1,pt2){
   else if(c.type==='polyline'&&c.pts){c.pts=c.pts.map(function(q){var r=mPt(q);if(q.bulge)r.bulge=-q.bulge;return r;});}
   else if(c.type==='text'||c.type==='mtext'){
    // Keep text readable (AutoCAD MIRRTEXT=0): mirror the middle of its baseline, keep the direction.
-   var rot=Number(c.rotation!=null?c.rotation:c.rot)||0,half=(Number(c.tw)||0)/2,ux=Math.cos(rot),uy=Math.sin(rot);
-   var mid=mPt({x:c.x+ux*half,y:c.y+uy*half});c.x=mid.x-ux*half;c.y=mid.y-uy*half;}
+   // A dimension's text sits at its text point: that point is mirrored and
+   // the text runs along the mirrored dimension, turned the readable way.
+   var rot=Number(c.rotation!=null?c.rotation:c.rot)||0,half=c.cblDimensionText?0:(Number(c.tw)||0)/2,ux=Math.cos(rot),uy=Math.sin(rot);
+   var mid=mPt({x:c.x+ux*half,y:c.y+uy*half});c.x=mid.x-ux*half;c.y=mid.y-uy*half;
+   if(c.cblDimensionText){var mr=(((2*ang-rot)%(2*Math.PI))+2*Math.PI)%(2*Math.PI);if(mr>Math.PI/2+1e-9&&mr<=3*Math.PI/2+1e-9)mr-=Math.PI;cblSetTextRotationV1(c,mr);}}
   // INSERT: reflect(2θ)·rot(r)·scale(sx,sy) = rot(2θ-r)·scale(sx,-sy).
   else if(c.type==='blockref'){var bp=mPt({x:c.x,y:c.y});c.x=bp.x;c.y=bp.y;c.rotation=2*ang-(Number(c.rotation)||0);
    var bs=c.scale!=null?Number(c.scale):1;if(c.scaleX==null)c.scaleX=bs;c.scaleY=-(c.scaleY!=null?Number(c.scaleY):bs);}
@@ -23770,9 +23773,11 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         // on the other side).  The editor draws from the start of the baseline,
         // one text height below, across the (rotated) text; the width is the
         // editor's own estimate for the text (as its tw).
-        var tw = Math.max(String(dxfTextFromProps({'1':String(text)})).length * Math.max(2, h) * 0.7, 20);
-        var dx = attach === 3 ? -tw : attach === 2 ? -tw / 2 : 0, dy = -h;
-        out.push(cblFakeTextV2(text, {x:textAt.x + Math.cos(rotation) * dx - Math.sin(rotation) * dy, y:textAt.y + Math.sin(rotation) * dx + Math.cos(rotation) * dy}, h, rotation * 180 / Math.PI));
+        // The text import places it by that attachment (top row: 1, 2, 3) and
+        // keeps it, so a mirrored leader can send its text's insertion point.
+        var fake = cblFakeTextV2(text, {x:textAt.x, y:textAt.y}, h, rotation * 180 / Math.PI);
+        fake.p['71'] = [attach === 3 ? 3 : attach === 2 ? 2 : 1];
+        out.push(fake);
       }
       return out.length ? out : null;
     }
@@ -41022,7 +41027,15 @@ window.cblSnapResidueGateStatusV12 = function(){
     // A mirrored DIMENSION would show its text mirrored; the writer refuses it
     // too.  (A scaled dimension shows its new length; a mirrored multileader
     // keeps its text readable on the other side of its landing.)
-    function ownedLimitV1(type,sim){return type==='DIMENSION'&&sim.mirror?'대칭한':'';}
+    function ownedLimitV1(type,sim){return '';}
+    // Where a mirrored multileader's text is shown: the writer puts it there
+    // when the mirror does not just turn the text around.
+    function ownedTextLocationV1(type,sim,pieces,op){
+      if(type!=='MULTILEADER'||!sim.mirror)return op;
+      var text=pieces.filter(function(q){return Array.isArray(q.cblMTextAnchorV1);})[0];
+      if(text){op.textLocation=textInsertV1(text);op.textRotation=shapeRotation(text);}
+      return op;
+    }
     var ownedBefore=ownedPiecesV1(base),ownedAfter=ownedPiecesV1(ss),ownedCopies=[];
     Object.keys(ownedBefore).forEach(function(h){
       var b=ownedBefore[h],a=ownedAfter[h],kind={type:b.type.toLowerCase()};
@@ -41030,7 +41043,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       var sim=ownedSimilarityV1(b.pieces,a.pieces);
       if(!sim){refuse('수정된',kind);return;}
       if(ownedLimitV1(b.type,sim)){refuse(ownedLimitV1(b.type,sim),kind);return;}
-      var op=cblSimilarityOpV1(h,b.type,sim);if(op)ops.push(op);
+      var op=cblSimilarityOpV1(h,b.type,sim);if(op)ops.push(ownedTextLocationV1(b.type,sim,a.pieces,op));
     });
     var openedOwned=ownedPiecesV1(openedShapes);
     Object.keys(ownedAfter).forEach(function(key){
@@ -41041,7 +41054,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       var sim=source?ownedSimilarityV1(source.pieces,a.pieces):null;
       if(!sim){refuse('새',{type:a.type.toLowerCase()});return;}
       if(ownedLimitV1(a.type,sim)){refuse(ownedLimitV1(a.type,sim),{type:a.type.toLowerCase()});return;}
-      var copyOp={type:'add_copy',copyOf:a.owner,entity:a.type,matrix:sim.matrix,clientShapeId:key};
+      var copyOp=ownedTextLocationV1(a.type,sim,a.pieces,{type:'add_copy',copyOf:a.owner,entity:a.type,matrix:sim.matrix,clientShapeId:key});
       if(fromOpened)copyOp.fromOpened=true;
       ownedCopies.push({op:copyOp,marker:{clientShapeId:key,cblOwnedPiecesV1:a.pieces}});
     });

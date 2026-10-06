@@ -841,7 +841,7 @@ internal static class Program
                 {
                     // Rotate / scale / mirror from the editor, as one plan similarity.
                     var entity = FindModelEntity(document, RequiredString(op, "handle"), op);
-                    TransformEntity(entity, ReadSimilarity(op));
+                    TransformEntity(entity, ReadSimilarity(op), TextLocationOf(op), TextRotationOf(op));
                     applied.Add(new { type, handle = entity.Handle.ToString("X") });
                     break;
                 }
@@ -851,7 +851,7 @@ internal static class Program
                     // the source is cloned, added and placed by the copy's transform.
                     var source = FromOpened(op) ? FindRestoredEntity(op) : FindModelEntity(document, RequiredString(op, "copyOf"), op);
                     var copy = CopyEntity(document, source);
-                    TransformEntity(copy, ReadSimilarity(op));
+                    TransformEntity(copy, ReadSimilarity(op), TextLocationOf(op), TextRotationOf(op));
                     applied.Add(new { type, handle = copy.Handle.ToString("X"), copyOf = source.Handle.ToString("X"), sourceBlock = (source as Dimension)?.Block?.Name });
                     break;
                 }
@@ -1013,7 +1013,11 @@ internal static class Program
         return t;
     }
 
-    private static void TransformEntity(Entity entity, Similarity m)
+    // Where the editor shows a mirrored multileader's text ("textLocation").
+    private static XYZ? TextLocationOf(JsonElement op) => op.TryGetProperty("textLocation", out var value) && value.ValueKind == JsonValueKind.Array ? ReadPoint(op, "textLocation") : null;
+    private static double? TextRotationOf(JsonElement op) => op.TryGetProperty("textRotation", out var value) && value.TryGetDouble(out var r) && double.IsFinite(r) ? r : null;
+
+    private static void TransformEntity(Entity entity, Similarity m, XYZ? textLocation = null, double? textRotation = null)
     {
         if (m.Linear)
         {
@@ -1079,31 +1083,45 @@ internal static class Program
                 for (int i = 0; i < leader.Vertices.Count; i++) leader.Vertices[i] = m.Point(leader.Vertices[i]);
                 leader.HorizontalDirection = m.Vector(leader.HorizontalDirection).Normalize();
                 break;
+            // Mirrored (a dimension's text), a text stays readable (AutoCAD's
+            // MIRRTEXT 0): its points are mirrored and it runs along the mirrored
+            // direction, turned the readable way round -- the editor's mirror
+            // command does the same.
             case TextEntity text:
-                if (m.Mirror) throw new NotSupportedException("Transform is not supported for TextEntity (mirrored)");
                 text.InsertPoint = m.Point(text.InsertPoint);
                 text.AlignmentPoint = m.Point(text.AlignmentPoint);
-                text.Rotation += m.Rotation;
+                text.Rotation = m.Mirror ? ReadableAngle(m.Angle(text.Rotation)) : text.Rotation + m.Rotation;
                 text.Height *= s;
                 break;
             case MText mtext:
-                if (m.Mirror) throw new NotSupportedException("Transform is not supported for MText (mirrored)");
+            {
                 mtext.InsertPoint = m.Point(mtext.InsertPoint);
-                mtext.AlignmentPoint = m.Vector(mtext.AlignmentPoint).Normalize();
+                var direction = m.Mirror ? ReadableAngle(m.Angle(mtext.Rotation)) : mtext.Rotation + m.Rotation;
+                mtext.AlignmentPoint = new XYZ(Math.Cos(direction), Math.Sin(direction), 0);
                 mtext.Height *= s;
                 mtext.RectangleWidth *= s;
                 break;
+            }
             case Insert insert:
-                if (m.Mirror || insert.Attributes.Any()) throw new NotSupportedException("Transform is not supported for Insert (mirrored or with attributes)");
+                // A mirror of a block reference: reflect(φ)·rot(r)·scale(x, y) =
+                // rot(φ - r)·scale(x, -y), as the editor's mirror command does.
+                if (insert.Attributes.Any()) throw new NotSupportedException("Transform is not supported for Insert (mirrored or with attributes)");
                 insert.InsertPoint = m.Point(insert.InsertPoint);
-                insert.Rotation += m.Rotation;
-                insert.XScale *= s; insert.YScale *= s; insert.ZScale *= s;
+                insert.Rotation = m.Angle(insert.Rotation);
+                insert.XScale *= s; insert.YScale *= m.Mirror ? -s : s; insert.ZScale *= s;
                 break;
             case Hatch hatch: TransformHatch(hatch, m); break;
             case Dimension dimension: TransformDimension(dimension, m); break;
-            case MultiLeader multiLeader: TransformMultiLeader(multiLeader, m); break;
+            case MultiLeader multiLeader: TransformMultiLeader(multiLeader, m, textLocation, textRotation); break;
             default: throw new NotSupportedException($"Transform is not supported for {entity.GetType().Name}");
         }
+    }
+
+    // A text direction turned to read left to right (in (-90, 90] degrees).
+    private static double ReadableAngle(double angle)
+    {
+        var a = NormalizeAngle(angle);
+        return a > Math.PI / 2 + 1e-9 && a <= 3 * Math.PI / 2 + 1e-9 ? a - Math.PI : a;
     }
 
     private static double NormalizeAngle(double angle)
@@ -1201,11 +1219,10 @@ internal static class Program
     // direction may change; scaled or mirrored it would show a wrong value.
     private static void TransformDimension(Dimension dimension, Similarity m)
     {
-        if (m.Mirror) throw new NotSupportedException("Transform is not supported for Dimension (mirrored)");
         // An ordinate dimension measures along the drawing's axes from its
-        // origin: turned, its number would be wrong.
+        // origin: turned or mirrored, its number would be wrong.
         var turn = NormalizeAngle(m.Rotation);
-        if (dimension is DimensionOrdinate && Math.Min(turn, 2 * Math.PI - turn) > 1e-9)
+        if (dimension is DimensionOrdinate && (m.Mirror || Math.Min(turn, 2 * Math.PI - turn) > 1e-9))
             throw new NotSupportedException("Transform is not supported for Dimension (ordinate rotated)");
         var scaled = Math.Abs(m.Scale - 1) > 1e-9;
         var style = dimension.GetActiveDimensionStyle();
@@ -1220,8 +1237,9 @@ internal static class Program
             if (property.PropertyType != typeof(XYZ) || !property.CanRead || !property.CanWrite || property.Name == nameof(Dimension.Normal)) continue;
             property.SetValue(dimension, m.Point((XYZ)property.GetValue(dimension)!));
         }
-        if (dimension is DimensionLinear linear) linear.Rotation += m.Rotation;
-        if (Math.Abs(dimension.TextRotation) > 1e-12) dimension.TextRotation += m.Rotation;
+        // Mirrored, the measured direction is mirrored and the text stays readable.
+        if (dimension is DimensionLinear linear) linear.Rotation = m.Angle(linear.Rotation);
+        if (Math.Abs(dimension.TextRotation) > 1e-12 && !m.Mirror) dimension.TextRotation += m.Rotation;
         var block = dimension.Block;
         if (block == null) return;
         var document = dimension.Document;
@@ -1274,23 +1292,36 @@ internal static class Program
         Write(target, text[..token.Index] + formatted + text[(token.Index + token.Length)..]);
     }
 
-    private static void TransformMultiLeader(MultiLeader leader, Similarity m)
+    private static void TransformMultiLeader(MultiLeader leader, Similarity m, XYZ? textLocation = null, double? textRotation = null)
     {
         var context = leader.ContextData;
-        if (context.HasContentsBlock)
+        if (context.HasContentsBlock && m.Mirror)
             throw new NotSupportedException("Transform is not supported for MultiLeader (mirrored or with block content)");
-        // Mirrored, the text stays readable (AutoCAD's MIRRTEXT 0): it keeps its
-        // direction and goes to the other side of the mirrored landing, its
-        // left and right attachment swapped -- the mirror of the text box when
-        // the mirror turns the text direction around.  Upside down or at a
-        // slant AutoCAD rebuilds the text from the landing; that is refused.
-        if (m.Mirror && (m.Vector(context.Direction).Normalize() + context.Direction.Normalize()).GetLength() > 1e-6)
+        // Mirrored, the text stays readable (AutoCAD's MIRRTEXT 0) and keeps its
+        // direction.  When the mirror turns the text direction around it goes
+        // to the other side of the mirrored landing, its left and right
+        // attachment swapped -- the mirror of the text box.  Upside down or at
+        // a slant it goes where the editor shows it (textLocation), with its
+        // attachment; without that place the save stops.
+        var turnsAround = (m.Vector(context.Direction).Normalize() + context.Direction.Normalize()).GetLength() <= 1e-6;
+        if (m.Mirror && !turnsAround && textLocation == null)
             throw new NotSupportedException("Transform is not supported for MultiLeader (mirrored upside down or at a slant)");
         double s = m.Scale;
+        if (context.HasContentsBlock) TransformMultiLeaderBlock(leader, m);
         context.ContentBasePoint = m.Point(context.ContentBasePoint);
-        context.TextLocation = m.Point(context.TextLocation);
+        context.TextLocation = m.Mirror && !turnsAround ? textLocation!.Value : m.Point(context.TextLocation);
         context.BasePoint = m.Point(context.BasePoint);
-        if (m.Mirror)
+        if (m.Mirror && !turnsAround)
+        {
+            // The editor placed the text (and turned it, when a rotation came
+            // with the mirror); its attachment is kept.
+            if (textRotation.HasValue)
+            {
+                context.TextRotation = textRotation.Value;
+                context.Direction = new XYZ(Math.Cos(textRotation.Value), Math.Sin(textRotation.Value), 0);
+            }
+        }
+        else if (m.Mirror)
         {
             static TextAttachmentPointType Side(TextAttachmentPointType t) => t == TextAttachmentPointType.Left ? TextAttachmentPointType.Right : t == TextAttachmentPointType.Right ? TextAttachmentPointType.Left : t;
             static TextAlignmentType Align(TextAlignmentType t) => t == TextAlignmentType.Left ? TextAlignmentType.Right : t == TextAlignmentType.Right ? TextAlignmentType.Left : t;
@@ -1326,6 +1357,45 @@ internal static class Program
         }
         leader.ArrowheadSize *= s;
         leader.LandingDistance *= s;
+    }
+
+    // Block content of a turned or scaled multileader (no mirror): its place,
+    // rotation and scale, and the transform AutoCAD draws it with.  Which
+    // triple of that matrix holds the translation depends on how it was read
+    // (as for a move); its 3x3 part turns and scales with the content.
+    private static void TransformMultiLeaderBlock(MultiLeader leader, Similarity m)
+    {
+        var context = leader.ContextData;
+        var location = context.BlockContentLocation;
+        var t = context.TransformationMatrix;
+        bool Near(double a, double b) => Math.Abs(a - b) <= 1e-6 * Math.Max(1, Math.Abs(b));
+        // A matrix without any translation (as ezdxf writes it) does not carry
+        // the location; only its 3x3 part turns.
+        var bare = t.M03 == 0 && t.M13 == 0 && t.M23 == 0 && t.M30 == 0 && t.M31 == 0 && t.M32 == 0;
+        var columns = bare || (Near(t.M03, location.X) && Near(t.M13, location.Y) && Near(t.M23, location.Z));
+        var rows = !columns && Near(t.M30, location.X) && Near(t.M31, location.Y) && Near(t.M32, location.Z);
+        if (!columns && !rows)
+            throw new NotSupportedException("Transform is not supported for MultiLeader (mirrored or with block content)");
+        double[,] turn = { { m.A, m.C, 0 }, { m.B, m.D, 0 }, { 0, 0, m.Scale } };
+        double[,] old = { { t.M00, t.M01, t.M02 }, { t.M10, t.M11, t.M12 }, { t.M20, t.M21, t.M22 } };
+        var next = new double[3, 3];
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 3; j++)
+                for (int k = 0; k < 3; k++)
+                    next[i, j] += columns ? turn[i, k] * old[k, j] : old[i, k] * turn[j, k];
+        t.M00 = next[0, 0]; t.M01 = next[0, 1]; t.M02 = next[0, 2];
+        t.M10 = next[1, 0]; t.M11 = next[1, 1]; t.M12 = next[1, 2];
+        t.M20 = next[2, 0]; t.M21 = next[2, 1]; t.M22 = next[2, 2];
+        var moved = m.Point(location);
+        if (bare) { }
+        else if (columns) { t.M03 = moved.X; t.M13 = moved.Y; t.M23 = moved.Z; }
+        else { t.M30 = moved.X; t.M31 = moved.Y; t.M32 = moved.Z; }
+        context.TransformationMatrix = t;
+        context.BlockContentLocation = moved;
+        context.BlockContentRotation += m.Rotation;
+        context.BlockContentScale = new XYZ(context.BlockContentScale.X * m.Scale, context.BlockContentScale.Y * m.Scale, context.BlockContentScale.Z * m.Scale);
+        leader.BlockContentRotation += m.Rotation;
+        leader.BlockContentScale = new XYZ(leader.BlockContentScale.X * m.Scale, leader.BlockContentScale.Y * m.Scale, leader.BlockContentScale.Z * m.Scale);
     }
 
     private static string? RestoreSourcePath;
@@ -1452,7 +1522,9 @@ internal static class Program
             // translation; which triple holds it depends on how it was read.
             var m = context.TransformationMatrix;
             bool Near(double a, double b) => Math.Abs(a - b) <= 1e-6 * Math.Max(1, Math.Abs(b));
-            if (Near(m.M03, oldBlockLocation.X) && Near(m.M13, oldBlockLocation.Y) && Near(m.M23, oldBlockLocation.Z))
+            // A matrix without any translation (as ezdxf writes it) does not carry the location.
+            if (m.M03 == 0 && m.M13 == 0 && m.M23 == 0 && m.M30 == 0 && m.M31 == 0 && m.M32 == 0) { }
+            else if (Near(m.M03, oldBlockLocation.X) && Near(m.M13, oldBlockLocation.Y) && Near(m.M23, oldBlockLocation.Z))
             {
                 m.M03 += delta.X; m.M13 += delta.Y; m.M23 += delta.Z;
             }

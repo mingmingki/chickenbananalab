@@ -149,7 +149,10 @@ class CadTransformCopyEditTests(SimpleTestCase):
         self.assertEqual((op["type"], op["copyOf"], op["entity"]), ("add_copy", "5A", "HATCH"))
         self.assertMatrix(op["matrix"], [-1, 0, 0, 1, 600, 0])
         # The mirror command keeps text readable; the writer cannot mirror these.
-        self.assertIn("대칭한 치수(dimension) 1개", out["dimension_mirrored_copy"]["error"])
+        # A mirrored dimension is saved (its text readable at the mirrored point).
+        op = self.only_op(out["dimension_mirrored_copy"])
+        self.assertEqual((op["type"], op["copyOf"], op["entity"]), ("add_copy", "9C", "DIMENSION"))
+        self.assertMatrix(op["matrix"], [-1, 0, 0, 1, 600, 0])
         # A mirrored multileader keeps its text readable on the other side.
         op = self.only_op(out["mleader_mirrored_copy"])
         self.assertEqual((op["type"], op["copyOf"], op["entity"]), ("add_copy", "B1", "MULTILEADER"))
@@ -314,3 +317,31 @@ class CadRestoreEditTests(SimpleTestCase):
         self.assertEqual(len(out["restored"]["pending"]), 3)
         # Without the opened drawing (an older session) the old refusal stays.
         self.assertIn("새 치수(dimension) 1개", out["without_opened"]["error"])
+
+
+@skipUnless(NODE, "node is required to execute the CAD editor helpers")
+class CadRareMirrorEditTests(SimpleTestCase):
+    """A multileader mirrored upside down sends where the editor shows its text."""
+
+    run_body = CadTransformCopyEditTests.run_body
+    only_op = CadTransformCopyEditTests.only_op
+    assertMatrix = CadTransformCopyEditTests.assertMatrix
+
+    def test_multileader_mirrored_upside_down(self):
+        # The text piece starts at its baseline and keeps its MTEXT attachment
+        # (top left: one height above the start is the insertion point).
+        leader = [_piece("B1", "MULTILEADER", 1, {"type": "polyline", "closed": False, "pts": [{"x": 0, "y": 0}, {"x": 20, "y": 20}, {"x": 40, "y": 20}]}),
+                  _piece("B1", "MULTILEADER", 2, {"type": "text", "x": 42, "y": 13, "text": "NOTE", "size": 5, "rot": 0, "tw": 20, "cblMTextAnchorV1": [0, 1]})]
+        out = self.run_body("""
+          var s = clone(base); s.splice(0, s.length, ...applyMirror(s, {x: 0, y: 0}, {x: 10, y: 0})); run('flipped', s);
+          s = clone(base); s.push(...cblRekeyCopiedBlocksV1(applyMirror(s, {x: 0, y: 50}, {x: 10, y: 50}))); run('flipped_copy', s);
+        """, base=leader)
+        op = self.only_op(out["flipped"])
+        self.assertEqual((op["type"], op["handle"], op["entity"]), ("transform", "B1", "MULTILEADER"))
+        self.assertMatrix(op["matrix"], [1, 0, 0, -1, 0, 0])
+        # Mirrored baseline middle (52, 13) -> (52, -13); start (42, -13); one height up.
+        self.assertEqual([round(v, 6) for v in op["textLocation"]], [42, -8, 0])
+        self.assertEqual(op["textRotation"], 0)
+        op = self.only_op(out["flipped_copy"])
+        self.assertEqual((op["type"], op["copyOf"]), ("add_copy", "B1"))
+        self.assertEqual([round(v, 6) for v in op["textLocation"]], [42, 92, 0])
