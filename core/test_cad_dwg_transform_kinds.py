@@ -16,6 +16,9 @@ from .test_oda_review import find_oda
 
 FIXTURES = Path(settings.BASE_DIR) / "core" / "test_fixtures" / "cad"
 KINDS = FIXTURES / "move_kinds_ac1032.dwg"
+# ezdxf + ODA: LINE 8A, ordinate DIMENSION 8B ("12000", the style multiplies
+# lengths by 100) and angular DIMENSION 96.
+ORDINATE = FIXTURES / "dim_ordinate_ac1032.dwg"
 ROTATE = [0.0, 1.0, -1.0, 0.0, 1000.0, 0.0]   # 90 degrees about the origin, then +1000 in x
 SCALE = [2.0, 0.0, 0.0, 2.0, 0.0, 0.0]
 MIRROR = [-1.0, 0.0, 0.0, 1.0, 0.0, 0.0]      # about the Y axis
@@ -65,13 +68,17 @@ class CadDwgTransformKindsTests(SimpleTestCase):
         self.assertEqual(run.returncode, 0, run.stderr[-800:])
         return ezdxf.read(io.StringIO(out.read_bytes().decode("cp949", errors="replace")))
 
-    def save(self, ops):
+    def save(self, ops, source=KINDS):
         ops_path = self.tmp / "ops.json"
         ops_path.write_text(json.dumps({"ops": ops}), encoding="utf-8")
         output = self.tmp / "out.dwg"
-        report = _run_writer([KINDS, output, "AC1018", ops_path])
-        core_views._cbl_free_dwg_save_local_validate_v1(KINDS, output, None, ops, report)
-        return self.read(KINDS).entitydb, self.read(output).entitydb, report
+        report = _run_writer([source, output, "AC1018", ops_path])
+        core_views._cbl_free_dwg_save_local_validate_v1(source, output, None, ops, report)
+        return self.read(source).entitydb, self.read(output).entitydb, report
+
+    @staticmethod
+    def dim_text(dimension):
+        return [e.plain_text() if e.dxftype() == "MTEXT" else e.dxf.text for e in dimension.get_geometry_block() if e.dxftype() in ("MTEXT", "TEXT")]
 
     def check(self, matrix, before, after):
         kind = before.dxftype()
@@ -95,7 +102,9 @@ class CadDwgTransformKindsTests(SimpleTestCase):
                 self.assertEqual(_r(after.dxf.get(attr)), _apply(matrix, before.dxf.get(attr)), attr)
             lines = lambda dim: sorted((_r(e.dxf.start), _r(e.dxf.end)) for e in dim.get_geometry_block() if e.dxftype() == "LINE")
             moved = sorted((_apply(matrix, a), _apply(matrix, b)) for a, b in lines(before))
-            self.assertEqual(lines(after), moved)
+            self.assertEqual(len(lines(after)), len(moved))
+            for (a, b), (c, d) in zip(lines(after), moved):
+                self.assertLess(max(math.dist(a, c), math.dist(b, d)), 1e-3, (a, b, c, d))
         elif kind == "MULTILEADER":
             a, b = before.context, after.context
             self.assertEqual(_r(b.base_point), _apply(matrix, a.base_point))
@@ -127,7 +136,7 @@ class CadDwgTransformKindsTests(SimpleTestCase):
 
     def test_changes_that_would_show_wrong_values_are_refused(self):
         # The message names the edit that cannot be saved (a mirror is not a "rotation").
-        cases = [(self.handles("DIMENSIONLINEAR")[0], SCALE, "치수 크기 변경·대칭은"),
+        cases = [(self.handles("DIMENSIONLINEAR")[0], MIRROR, "치수 대칭은"),
                  (self.handles("HATCH")[0], MIRROR, "해치 대칭(무늬 해치)은"),
                  (self.handles("MULTILEADER")[0], MIRROR, "다중 지시선 대칭(또는 블록 내용)은")]
         for handle, matrix, message in cases:
@@ -169,3 +178,37 @@ class CadDwgTransformKindsTests(SimpleTestCase):
         self.assertEqual(len(msp.query("DIMENSION")), 4)
         self.assertEqual(len(msp.query("MULTILEADER")), 2)
         self.assertEqual(len(msp.query("HATCH")), 2)
+
+    def test_scaled_dimensions_show_their_new_length(self):
+        # As AutoCAD regenerates a scaled dimension: the number is the new
+        # length in the style's format (two decimals, trailing zeros hidden:
+        # 11661.90 showed as 11661.9).
+        dims = self.handles("DIMENSIONLINEAR")
+        # The editor sends a copy before the edits of its source.
+        ops = [{"type": "add_copy", "copyOf": dims[0], "matrix": [2, 0, 0, 2, 0, 500], "clientShapeId": "c1"}]
+        ops += [{"type": "transform", "handle": h, "matrix": SCALE} for h in dims]
+        before, after, report = self.save(ops)
+        self.assertEqual([self.dim_text(before[h]) for h in dims], [["20000"], ["11661.9"]])
+        self.assertEqual([self.dim_text(after[h]) for h in dims], [["40000"], ["23323.81"]])
+        for h in dims:
+            self.check(SCALE, before[h], after[h])
+        copy = after[core_views._cbl_free_dwg_output_handles_v1(report, ops)["0"]]
+        self.assertEqual(self.dim_text(copy), ["40000"])
+
+    def test_ordinate_and_angular_dimensions(self):
+        before, after, _ = self.save([{"type": "transform", "handle": "8B", "matrix": SCALE},
+                                      {"type": "transform", "handle": "96", "matrix": SCALE}], source=ORDINATE)
+        self.assertEqual(self.dim_text(before["8B"]), ["12000"])
+        self.assertEqual(self.dim_text(after["8B"]), ["24000"])
+        # An angle does not change with the size.  (Its degree sign is lost in
+        # any AC1018 save of this ANSI_1252 drawing; a separate issue.)
+        self.assertEqual([t[:3] for t in self.dim_text(after["96"])], ["315"])
+        self.assertEqual([t[:3] for t in self.dim_text(before["96"])], ["315"])
+        self.assertEqual(_r(after["96"].dxf.defpoint), _apply(SCALE, before["96"].dxf.defpoint))
+        # An ordinate dimension measures along the drawing's axes: turned, it
+        # would show a wrong value, so the save refuses.
+        ops_path = self.tmp / "ops.json"
+        ops_path.write_text(json.dumps({"ops": [{"type": "transform", "handle": "8B", "matrix": ROTATE}]}))
+        run = subprocess.run([str(EXECUTABLE), str(ORDINATE), str(self.tmp / "x.dwg"), "AC1018", str(ops_path)], capture_output=True, timeout=300)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("치수 회전·대칭(좌표 치수)은", core_views._cbl_free_dwg_writer_error_message_v1(run.stderr.decode("utf-8", "replace")))

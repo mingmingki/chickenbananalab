@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.IO;
@@ -1192,8 +1193,20 @@ internal static class Program
     // direction may change; scaled or mirrored it would show a wrong value.
     private static void TransformDimension(Dimension dimension, Similarity m)
     {
-        if (m.Mirror || Math.Abs(m.Scale - 1) > 1e-9)
-            throw new NotSupportedException("Transform is not supported for Dimension (scaled or mirrored)");
+        if (m.Mirror) throw new NotSupportedException("Transform is not supported for Dimension (mirrored)");
+        // An ordinate dimension measures along the drawing's axes from its
+        // origin: turned, its number would be wrong.
+        var turn = NormalizeAngle(m.Rotation);
+        if (dimension is DimensionOrdinate && Math.Min(turn, 2 * Math.PI - turn) > 1e-9)
+            throw new NotSupportedException("Transform is not supported for Dimension (ordinate rotated)");
+        var scaled = Math.Abs(m.Scale - 1) > 1e-9;
+        var style = dimension.GetActiveDimensionStyle();
+        // ACadSharp's IsAngular reads the type as flags (an ordinate or diameter
+        // dimension counts as angular), so the angle kinds are named here; its
+        // own measurement text is used only where that flag is right.
+        var angular = dimension is DimensionAngular2Line || dimension is DimensionAngular3Pt;
+        var oldText = scaled && !angular ? (dimension.IsAngular ? "" : dimension.GetMeasurementText(style)) : null;
+        var oldValue = dimension.Measurement;
         foreach (var property in dimension.GetType().GetProperties())
         {
             if (property.PropertyType != typeof(XYZ) || !property.CanRead || !property.CanWrite || property.Name == nameof(Dimension.Normal)) continue;
@@ -1207,6 +1220,50 @@ internal static class Program
         if (document != null && document.Entities.OfType<Dimension>().Count(d => ReferenceEquals(d.Block, block)) > 1)
             throw new NotSupportedException("Transform is not supported for Dimension (shared block)");
         foreach (var entity in block.Entities.ToList()) TransformEntity(entity, m);
+        if (oldText != null) UpdateMeasurementText(dimension, style, oldText, oldValue);
+    }
+
+    // A scaled dimension shows its new length, as when AutoCAD regenerates it:
+    // the number in its block text that is the old measurement becomes the new
+    // one, in the same format (the style's own text, or the drawing's digits,
+    // decimals and thousands commas).  A text override without "<>" stays, as
+    // in AutoCAD; a number that cannot be found is refused, not left wrong.
+    private static void UpdateMeasurementText(Dimension dimension, DimensionStyle style, string oldText, double oldValue)
+    {
+        if (!string.IsNullOrEmpty(dimension.Text) && !dimension.Text.Contains("<>")) return;
+        if (style.AlternateUnitDimensioning)
+            throw new NotSupportedException("Transform is not supported for Dimension (scaled with alternate units)");
+        var texts = dimension.Block!.Entities.Where(e => e is MText || e is TextEntity).ToList();
+        string Read(Entity e) => e is MText mt ? mt.Value : ((TextEntity)e).Value;
+        void Write(Entity e, string value) { if (e is MText mt) mt.Value = value; else ((TextEntity)e).Value = value; }
+        Regex Standalone(string token) => new Regex(@"(?<![\d.,])" + Regex.Escape(token) + @"(?![\d,]|\.\d)");
+        var newText = oldText.Length > 0 ? dimension.GetMeasurementText(style) : "";
+        var found = oldText.Length > 0 ? texts.SelectMany(e => Standalone(oldText).Matches(Read(e)).Select(x => (e, x))).ToList() : new();
+        if (oldText.Length > 0 && found.Count == 1)
+        {
+            var (entity, match) = found[0];
+            var value = Read(entity);
+            Write(entity, value[..match.Index] + newText + value[(match.Index + match.Length)..]);
+            return;
+        }
+        // The drawing's own format (e.g. "4,780"): the one number equal to the
+        // old measurement at its decimals, rewritten at the same decimals.
+        double before = style.ApplyRounding(oldValue) * style.LinearScaleFactor;
+        double after = style.ApplyRounding(dimension.Measurement) * style.LinearScaleFactor;
+        var number = new Regex(@"(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(?![\d,]|\.\d)");
+        var candidates = texts.SelectMany(e => number.Matches(Read(e)).Where(x =>
+        {
+            var decimals = x.Groups[2].Success ? x.Groups[2].Length : 0;
+            var parsed = double.Parse(x.Value.Replace(",", ""), CultureInfo.InvariantCulture);
+            return Math.Abs(parsed - Math.Round(before, decimals)) <= 0.5 * Math.Pow(10, -decimals) + 1e-9;
+        }).Select(x => (e, x))).ToList();
+        if (candidates.Count != 1)
+            throw new NotSupportedException("Transform is not supported for Dimension (measurement text not found)");
+        var (target, token) = candidates[0];
+        var places = token.Groups[2].Success ? token.Groups[2].Length : 0;
+        var formatted = Math.Round(after, places).ToString((token.Groups[1].Value.Contains(',') ? "N" : "F") + places, CultureInfo.InvariantCulture);
+        var text = Read(target);
+        Write(target, text[..token.Index] + formatted + text[(token.Index + token.Length)..]);
     }
 
     private static void TransformMultiLeader(MultiLeader leader, Similarity m)

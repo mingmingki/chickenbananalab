@@ -28,7 +28,7 @@ console.log = () => {};
 const parsed = window.cblParseDxfSingleModelV1(require('fs').readFileSync(process.argv[2], 'utf8'));
 process.stdout.write(JSON.stringify({skipped: parsed.stats.skipped, shapes: parsed.shapes.map(s => ({
   type: s.type, raw: s.rawDxfType, owner: s.ownerSourceHandle || '', handle: s.sourceHandle || '',
-  displayOnly: !!s.displayOnly, text: s.text, size: s.size, rot: s.rot, x: s.x, y: s.y, tag: s.cblAttribTagV1, attribOwner: s.cblAttribOwnerHandle,
+  displayOnly: !!s.displayOnly, text: s.text, size: s.size, rot: s.rot, x: s.x, y: s.y, tag: s.cblAttribTagV1, attribOwner: s.cblAttribOwnerHandle, scalable: s.cblDimScalableV1,
   x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2, pts: s.pts}))}));
 """
 
@@ -205,6 +205,16 @@ class CadEntityDisplayTests(SimpleTestCase):
         self.assertTrue(attribs["NO"]["attribOwner"])
         note = next(s for s in parsed["shapes"] if s["raw"] == "MTEXT")
         self.assertAlmostEqual(note["rot"], math.pi / 2, places=6)
+
+    def test_dimension_numbers_that_follow_a_scale(self):
+        # The scale command updates a dimension's number when it measures a
+        # length (linear, aligned, ordinate) and is not a typed text.
+        texts = lambda parsed, handle: [s.get("scalable") for s in self.owned_by(parsed, handle) if s["type"] == "text"]
+        kinds = self.parse_dwg(KINDS)
+        self.assertEqual(texts(kinds, "93"), [True])
+        ordinate = self.parse_dwg(FIXTURES / "dim_ordinate_ac1032.dwg")
+        self.assertEqual(texts(ordinate, "8B"), [True])
+        self.assertEqual(texts(ordinate, "96"), [False])
 
 @skipUnless(NODE, "node is required to execute the CAD editor helpers")
 class CadUndisplayedNoticeTests(SimpleTestCase):

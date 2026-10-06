@@ -46,7 +46,8 @@ EDITOR_COMMANDS = ("function mvS(s,dx,dy){", "function cloneJ(x){", "function cb
                    "function cblSetTextRotationV1(s,rad){", "function applyMirror(shps,pt1,pt2){",
                    "function cblRectMapV1(s,f,keepRect){", "function rotateSelected(angle){", "function scaleDialog(){",
                    "function cblSelectionTypeV1(s){", "function cblIsBlockChildV1(s){", "function cblBlockKeyV1(s){",
-                   "function cblRekeyCopiedBlocksV1(copies){", "function cblExpandBlockSelectionV1(list,groups){")
+                   "function cblRekeyCopiedBlocksV1(copies){", "function cblExpandBlockSelectionV1(list,groups){",
+                   "function cblScaleDimTextV1(text,f){")
 
 
 def _hatch(owner="5A"):
@@ -102,6 +103,8 @@ class CadTransformCopyEditTests(SimpleTestCase):
         out = self.run_body("""
           var s = clone(base); sel = pick(s, '9C'); rotateSelected(90); run('dimension_rotated', s);
           s = clone(base); sel = pick(s, '9C'); scaleDialog(); run('dimension_scaled', s);
+          s = clone(base); pick(s, '9C')[2].cblDimScalableV1 = true; base[2].cblDimScalableV1 = true; sel = pick(s, '9C'); scaleDialog(); run('dimension_scaled_number', s); out.scaledText = pick(s, '9C')[2].text;
+          s = clone(base); sel = pick(s, '9C'); scaleDialog(); pick(s, '9C')[2].text = '999'; run('dimension_scaled_text_edited', s); delete base[2].cblDimScalableV1;
           s = clone(base); sel = pick(s, '5A'); scaleDialog(); run('hatch_scaled', s);
           s = clone(base); sel = pick(s, 'B1'); rotateSelected(45); run('mleader_rotated', s);
           s = clone(base); s.splice(s.indexOf(pick(s, '5A')[0]), 1, ...applyMirror(pick(s, '5A').slice(0, 1), {x: 0, y: 0}, {x: 0, y: 10})); run('hatch_one_piece_mirrored', s);
@@ -109,7 +112,14 @@ class CadTransformCopyEditTests(SimpleTestCase):
         op = self.only_op(out["dimension_rotated"])
         self.assertEqual({k: op[k] for k in ("type", "handle", "entity")}, {"type": "transform", "handle": "9C", "entity": "DIMENSION"})
         self.assertMatrix(op["matrix"], [0, 1, -1, 0, 0, 0])
-        self.assertIn("크기를 바꾸거나 대칭한 치수(dimension) 1개", out["dimension_scaled"]["error"])
+        # A scaled dimension is saved; its number becomes the new length (the
+        # editor shows it at once, the writer writes the same in the DWG).
+        op = self.only_op(out["dimension_scaled"])
+        self.assertEqual((op["type"], op["handle"]), ("transform", "9C"))
+        self.assertMatrix(op["matrix"], [2, 0, 0, 2, 0, 0])
+        self.assertEqual(out["scaledText"], "200")
+        self.assertMatrix(self.only_op(out["dimension_scaled_number"])["matrix"], [2, 0, 0, 2, 0, 0])
+        self.assertIn("수정된 치수(dimension) 1개", out["dimension_scaled_text_edited"]["error"])
         op = self.only_op(out["hatch_scaled"])
         self.assertEqual((op["type"], op["handle"], op["entity"]), ("transform", "5A", "HATCH"))
         self.assertMatrix(op["matrix"], [2, 0, 0, 2, 0, 0])
@@ -139,8 +149,8 @@ class CadTransformCopyEditTests(SimpleTestCase):
         self.assertEqual((op["type"], op["copyOf"], op["entity"]), ("add_copy", "5A", "HATCH"))
         self.assertMatrix(op["matrix"], [-1, 0, 0, 1, 600, 0])
         # The mirror command keeps text readable; the writer cannot mirror these.
-        self.assertIn("크기를 바꾸거나 대칭한 치수(dimension) 1개", out["dimension_mirrored_copy"]["error"])
-        self.assertIn("크기를 바꾸거나 대칭한 다중 지시선(multileader) 1개", out["mleader_mirrored_copy"]["error"])
+        self.assertIn("대칭한 치수(dimension) 1개", out["dimension_mirrored_copy"]["error"])
+        self.assertIn("대칭한 다중 지시선(multileader) 1개", out["mleader_mirrored_copy"]["error"])
         self.assertIn("새 해치(hatch) 1개", out["hatch_copy_edited"]["error"])
         # The copy is cloned before its source is deleted.
         self.assertEqual([(o["type"], o.get("copyOf") or o.get("handle")) for o in out["original_deleted"]["ops"]],

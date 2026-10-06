@@ -6239,6 +6239,16 @@ function rotateSelected(angle){
  sel.forEach(rS);saveH();requestCadRenderV1();
 }
 function rotateDialog(){if(!sel.length){setHint('RO: 회전할 객체 선택');return;}var a=parseFloat(prompt('회전 각도 (도, 반시계+):','90'));if(!isNaN(a))rotateSelected(a);}
+// A dimension's number after the dimension is scaled by f: its only number,
+// in the same format (decimals, thousands commas), as AutoCAD regenerates a
+// scaled dimension.  A text with no number or several numbers stays.
+function cblScaleDimTextV1(text,f){
+ var t=String(text==null?'':text),m=t.match(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?/g);
+ if(!m||m.length!==1||!(f>0))return t;
+ var tok=m[0],dot=tok.indexOf('.'),dec=dot<0?0:tok.length-dot-1,out=(Number(tok.replace(/,/g,''))*f).toFixed(dec);
+ if(tok.indexOf(',')>=0){var parts=out.split('.');parts[0]=parts[0].replace(/\B(?=(\d{3})+(?!\d))/g,',');out=parts.join('.');}
+ return t.replace(tok,out);
+}
 function scaleDialog(){
  if(!sel.length){setHint('SC: 크기조정할 객체 선택');return;}
  var f=parseFloat(prompt('배율 (2=2배, 0.5=반절):','2'));if(isNaN(f)||f<=0)return;
@@ -6249,7 +6259,7 @@ function scaleDialog(){
   else if(s.type==='rect'){var nc=sP({x:s.x,y:s.y});s.x=nc.x;s.y=nc.y;s.w*=f;s.h*=f;}
   else if(s.type==='circle'||s.type==='arc'){var nc2=sP({x:s.cx,y:s.cy});s.cx=nc2.x;s.cy=nc2.y;s.r*=f;}
   else if(s.type==='polyline'&&s.pts){s.pts=s.pts.map(function(q){var r=sP(q);if(q.bulge)r.bulge=q.bulge;return r;});}
-  else if(s.type==='text'||s.type==='mtext'){var tp=sP({x:s.x,y:s.y});s.x=tp.x;s.y=tp.y;['size','height','textHeight','tw'].forEach(function(k){if(Number(s[k]))s[k]*=f;});}
+  else if(s.type==='text'||s.type==='mtext'){var tp=sP({x:s.x,y:s.y});s.x=tp.x;s.y=tp.y;['size','height','textHeight','tw'].forEach(function(k){if(Number(s[k]))s[k]*=f;});if(s.cblDimScalableV1)s.text=cblScaleDimTextV1(s.text,f);}
   else if(s.type==='blockref'){var bp=sP({x:s.x,y:s.y});s.x=bp.x;s.y=bp.y;['scaleX','scaleY','scaleZ','scale'].forEach(function(k){if(s[k]!=null&&isFinite(Number(s[k])))s[k]=Number(s[k])*f;});if(s.scaleX==null&&s.scale==null)s.scale=f;}
   else if(s.type==='group'){s.ch.forEach(sS);}
  }
@@ -23419,6 +23429,13 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       stats.flattenedEntityCount++;
     }
 
+    // A dimension's number follows a scale when it measures a length (linear,
+    // aligned, diameter, radius, ordinate; not an angle) and is the
+    // measurement (no text typed over it, "<>" keeps the measurement).
+    function cblDimensionNumberScalesV2(p){
+      var kind=(Number(first(p,'70',0))||0)&7,typed=String(first(p,'1','')||'');
+      return kind!==2&&kind!==5&&(!typed||typed.indexOf('<>')>=0);
+    }
     function cblDimensionTextRotationDegV2(p){
       p=p||{};
       var finite=function(v){return Number.isFinite(Number(v));};
@@ -23802,6 +23819,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
           rot:rot,
           tw:Math.max(String(tx).length * Math.max(2, num(first(p,'40',14),14) * sc3) * 0.7, 20),
           cblDimensionText:dimRot !== null,
+          cblDimScalableV1:!!(ctx && ctx.dimensionNumberScalesV1),
           dimensionStyleName:ctx&&ctx.dimensionStyle&&ctx.dimensionStyle.name?String(ctx.dimensionStyle.name):'',
           dimensionTextColor:style.cblDimensionTextColor||null,
           dimensionHandle:ctx && ctx.dimensionHandle ? ctx.dimensionHandle : null,
@@ -23984,6 +24002,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
             linetype:resolveLtype(ent, dLayerName, ctx),
             matrix:ctx && ctx.matrix ? ctx.matrix : matIdentity(),
             dimensionTextRotationDeg:cblDimensionTextRotationDegV2(p),
+            dimensionNumberScalesV1:cblDimensionNumberScalesV2(p),
             dimensionHandle:first(p,'5',''),
             ownerSourceHandle:ctx && (ctx.ownerSourceHandle || ctx.parentSourceHandle) || String(first(p,'5','') || ''),
             parentSourceHandle:ctx && (ctx.ownerSourceHandle || ctx.parentSourceHandle) || String(first(p,'5','') || ''),
@@ -24003,6 +24022,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
           var dimEnts = cblDimensionFromPointsV2(p);
           if(dimEnts){
             var dimCtx = cblOwnedCtxV2(ent, ctx);
+            dimCtx.dimensionNumberScalesV1 = cblDimensionNumberScalesV2(p);
             dimEnts.forEach(function(de){ convertEnt(de, dimCtx, depth + 1); });
           }else{
             addSkipped('DIMENSION_NO_BLOCK');
@@ -40699,7 +40719,7 @@ window.cblSnapResidueGateStatusV12 = function(){
   // render-only pieces get display values rewritten after the open (linetype
   // "Continuous" -> "solid", dimension text rotation) that are never saved.
   function cblShapeSimilarityV1(pairs,geometryOnly){
-    var src=[],dst=[],sizes=[],bulges=[],arcs=[],texts=[],ok=true;
+    var src=[],dst=[],sizes=[],bulges=[],arcs=[],texts=[],dimNumbers=[],ok=true;
     function textPoints(s){var r=shapeRotation(s),half=n(s.tw,0)/2;return {insert:[n(s.x),n(s.y)],mid:[n(s.x)+Math.cos(r)*half,n(s.y)+Math.sin(r)*half]};}
     function arcPoints(s){var a1=n(firstShapeValue(s,['startAngle','a1'],0)),a2=n(firstShapeValue(s,['endAngle','a2'],0)),span=((a2-a1)%(2*Math.PI)+2*Math.PI)%(2*Math.PI),r=n(s.r),cx=n(s.cx),cy=n(s.cy),at=function(t){return [cx+r*Math.cos(t),cy+r*Math.sin(t)];};return {ends:[at(a1),at(a2)],mid:at(a1+span/2)};}
     (pairs||[]).forEach(function(pr){
@@ -40710,7 +40730,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       else if(t==='polyline'){var pa=a.pts||[],pb=b.pts||[];if(!pa.length||pa.length!==pb.length||!!a.closed!==!!b.closed){ok=false;return;}pa.forEach(function(q,i){src.push([n(q.x),n(q.y)]);dst.push([n(pb[i].x),n(pb[i].y)]);bulges.push([n(q.bulge,0),n(pb[i].bulge,0)]);});}
       else if(t==='circle'){src.push([n(a.cx),n(a.cy)]);dst.push([n(b.cx),n(b.cy)]);if(!a.cblFromPoint)sizes.push([n(a.r),n(b.r)]);}
       else if(t==='arc'){src.push([n(a.cx),n(a.cy)]);dst.push([n(b.cx),n(b.cy)]);sizes.push([n(a.r),n(b.r)]);arcs.push([arcPoints(a),arcPoints(b)]);}
-      else if(t==='text'||t==='mtext'){if(String(a.text||a.content||'')!==String(b.text||b.content||'')){ok=false;return;}texts.push([textPoints(a),textPoints(b)]);sizes.push([n(firstShapeValue(a,['size','height','textHeight'],0)),n(firstShapeValue(b,['size','height','textHeight'],0))]);}
+      else if(t==='text'||t==='mtext'){var ta=String(a.text||a.content||''),tb=String(b.text||b.content||'');if(ta!==tb){if(!(geometryOnly&&a.cblDimScalableV1)){ok=false;return;}dimNumbers.push([ta,tb]);}texts.push([textPoints(a),textPoints(b)]);sizes.push([n(firstShapeValue(a,['size','height','textHeight'],0)),n(firstShapeValue(b,['size','height','textHeight'],0))]);}
       else ok=false;
     });
     if(!ok)return null;
@@ -40735,6 +40755,8 @@ window.cblSnapResidueGateStatusV12 = function(){
       sizes.forEach(function(z){if(Math.abs(z[0]*scale-z[1])>tol)good=false;});
       bulges.forEach(function(z){if(Math.abs((mirror?-z[0]:z[0])-z[1])>1e-6)good=false;});
       texts.forEach(function(z){if(!near(map(m,z[0].insert),z[1].insert)&&!(mirror&&near(map(m,z[0].mid),z[1].mid)))good=false;});
+      // A scaled dimension's number is its new length (the scale command's own rule).
+      dimNumbers.forEach(function(z){if(typeof cblScaleDimTextV1!=='function'||cblScaleDimTextV1(z[0],scale)!==z[1])good=false;});
       arcs.forEach(function(z){var e0=map(m,z[0].ends[0]),e1=map(m,z[0].ends[1]),ends=z[1].ends;if(!near(map(m,z[0].mid),z[1].mid)||!((near(e0,ends[0])&&near(e1,ends[1]))||(near(e0,ends[1])&&near(e1,ends[0]))))good=false;});
       if(good){
         var translation=Math.abs(m[0]-1)<=1e-9&&Math.abs(m[1])<=1e-9&&Math.abs(m[2])<=1e-9&&Math.abs(m[3]-1)<=1e-9;
@@ -40853,9 +40875,9 @@ window.cblSnapResidueGateStatusV12 = function(){
       for(var i=0;i<toPieces.length;i++){var q=toPieces[i],o=byId[q.cblPieceIdV1];if(!o||seen[q.cblPieceIdV1])return null;seen[q.cblPieceIdV1]=true;pairs.push([o,q]);}
       return cblShapeSimilarityV1(pairs,true);
     }
-    // A DIMENSION keeps its measurement only when rotated or moved, and a
-    // MULTILEADER's text cannot be mirrored; the writer refuses those too.
-    function ownedLimitV1(type,sim){return (type==='DIMENSION'&&(sim.mirror||Math.abs(sim.scale-1)>1e-9))||(type==='MULTILEADER'&&sim.mirror)?'크기를 바꾸거나 대칭한':'';}
+    // A mirrored DIMENSION or MULTILEADER would show its text mirrored; the
+    // writer refuses those too.  (A scaled dimension shows its new length.)
+    function ownedLimitV1(type,sim){return (type==='DIMENSION'||type==='MULTILEADER')&&sim.mirror?'대칭한':'';}
     var ownedBefore=ownedPiecesV1(base),ownedAfter=ownedPiecesV1(ss),ownedCopies=[];
     Object.keys(ownedBefore).forEach(function(h){
       var b=ownedBefore[h],a=ownedAfter[h],kind={type:b.type.toLowerCase()};
