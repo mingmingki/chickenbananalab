@@ -66,11 +66,9 @@ class CadDwgTransformKindsTests(SimpleTestCase):
         return [e["handle"] for e in self.meta["entities"] if e.get("space") == "modelspace" and e["type"] in kinds]
 
     def read(self, dwg):
+        # As the open API reads it: the DXF in the drawing's own code page.
         import ezdxf
-        out = self.tmp / (dwg.stem + ".dxf")
-        run = subprocess.run([str(EXECUTABLE), "--dxf", str(dwg), str(out)], capture_output=True, timeout=300)
-        self.assertEqual(run.returncode, 0, run.stderr[-800:])
-        return ezdxf.read(io.StringIO(out.read_bytes().decode("cp949", errors="replace")))
+        return ezdxf.read(io.StringIO(core_views._cbl_free_dwg_to_dxf_text_v1(dwg)[0]))
 
     def save(self, ops, source=KINDS):
         ops_path = self.tmp / "ops.json"
@@ -205,10 +203,10 @@ class CadDwgTransformKindsTests(SimpleTestCase):
                                       {"type": "transform", "handle": "96", "matrix": SCALE}], source=ORDINATE)
         self.assertEqual(self.dim_text(before["8B"]), ["12000"])
         self.assertEqual(self.dim_text(after["8B"]), ["24000"])
-        # An angle does not change with the size.  (Its degree sign is lost in
-        # any AC1018 save of this ANSI_1252 drawing; a separate issue.)
-        self.assertEqual([t[:3] for t in self.dim_text(after["96"])], ["315"])
-        self.assertEqual([t[:3] for t in self.dim_text(before["96"])], ["315"])
+        # An angle does not change with the size; its degree sign (0xB0 in this
+        # ANSI_1252 drawing, saved from AC1032) stays.
+        self.assertEqual(self.dim_text(after["96"]), ["315°"])
+        self.assertEqual(self.dim_text(before["96"]), ["315°"])
         self.assertEqual(_r(after["96"].dxf.defpoint), _apply(SCALE, before["96"].dxf.defpoint))
         # An ordinate dimension measures along the drawing's axes: turned, it
         # would show a wrong value, so the save refuses.
