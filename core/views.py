@@ -9407,7 +9407,12 @@ def _cbl_free_dwg_save_local_json_v1(path, dwgread):
     # LibreDWG remains the source for its rich handle/object JSON, while the
     # ACadSharp metadata pass supplies the block/layout/style structure that
     # must survive repeated saves.
-    parsed["semanticManifest"] = _cbl_free_dwg_acadsharp_metadata_v1(path).get("semanticManifest")
+    metadata = _cbl_free_dwg_acadsharp_metadata_v1(path)
+    parsed["semanticManifest"] = metadata.get("semanticManifest")
+    # The writer names a copied DIMENSION's block as ACadSharp reads it (*D3);
+    # LibreDWG names every anonymous dimension block "*D".  The block's
+    # contents are counted from these entities, as without dwgread.
+    parsed["acadsharpEntities"] = metadata.get("entities", [])
     return parsed
 
 
