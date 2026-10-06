@@ -23237,6 +23237,9 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       txt = txt.replace(/\\Q[^;]*;/g, '');
       txt = txt.replace(/\\C[0-9]+;/g, '');
       txt = txt.replace(/\\[Ff][^;]*;/g, '');
+      txt = txt.replace(/\\p[^;]*;/g, '');
+      txt = txt.replace(/\\T[^;]*;/g, '');
+      txt = txt.replace(/\\[LlOoKk]/g, '');
       txt = txt.replace(/\\S([^;]+);/g, '$1');
       txt = txt.replace(/[{}]/g, '');
       txt = txt.replace(/\s+/g, ' ').trim();
@@ -23819,15 +23822,32 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         }
         var rot = (mtextDeg !== null ? mtextDeg : dimRot !== null ? dimRot : num(first(p,'50',0))) * Math.PI / 180 + (m ? matRot(m) : 0);
         var tx = dxfTextFromProps(p);
+        var textSize = Math.max(2, num(first(p,'40',14),14) * sc3), textWidth = Math.max(String(tx).length * textSize * 0.7, 20);
+        // CBL_MTEXT_ATTACHMENT_V1: an MTEXT's insertion point is its attachment
+        // point (71: top/middle/bottom x left/centre/right).  The editor draws
+        // a text from the start of its baseline, so the shape starts there and
+        // keeps the attachment as fractions of its width and height; the save
+        // turns that back into the DWG insertion point.  Dimension texts and
+        // the editor's own pieces (no 71) are placed by their own modules.
+        var mtextAnchor = null;
+        if(type === 'MTEXT' && dimRot === null && first(p,'71',null) !== null){
+          var attach = Math.min(9, Math.max(1, Math.round(num(first(p,'71',1),1)))), fx = ((attach - 1) % 3) / 2, fy = 1 - Math.floor((attach - 1) / 3) / 2;
+          var adx = -fx * textWidth, ady = -fy * textSize;
+          q = {x:q.x + Math.cos(rot) * adx - Math.sin(rot) * ady, y:q.y + Math.sin(rot) * adx + Math.cos(rot) * ady};
+          mtextAnchor = [fx, fy];
+        }
 
         pushShape(Object.assign({}, style, {
           type:'text',
           x:q.x,
           y:q.y,
           text:tx,
-          size:Math.max(2, num(first(p,'40',14),14) * sc3),
+          size:textSize,
           rot:rot,
-          tw:Math.max(String(tx).length * Math.max(2, num(first(p,'40',14),14) * sc3) * 0.7, 20),
+          tw:textWidth,
+          cblMTextAnchorV1:mtextAnchor || undefined,
+          // The DWG height: the editor shows texts lower than 2 at 2.
+          cblRawTextHeightV1:num(first(p,'40',14),14) * sc3,
           cblDimensionText:dimRot !== null,
           cblDimScalableV1:!!(ctx && ctx.dimensionNumberScalesV1),
           dimensionStyleName:ctx&&ctx.dimensionStyle&&ctx.dimensionStyle.name?String(ctx.dimensionStyle.name):'',
@@ -40673,6 +40693,17 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(s&&s.closed&&pts.length>2){var a=pts[0],b=pts[pts.length-1];if(a&&b&&Math.abs(n(a.x)-n(b.x))<=1e-9&&Math.abs(n(a.y)-n(b.y))<=1e-9)pts.pop();}
     return pts;
   }
+  // The DWG insertion point of a text: an MTEXT shape starts at its baseline
+  // and keeps its attachment point as fractions of its width and height
+  // (CBL_MTEXT_ATTACHMENT_V1).
+  function textInsertV1(s){
+    var a=s&&s.cblMTextAnchorV1;if(!Array.isArray(a))return p(s.x,s.y);
+    var r=shapeRotation(s),h=n(firstShapeValue(s,['size','height','textHeight'],0)),w=n(s.tw,Math.max(String(s.text||'').length*Math.max(2,h)*0.7,20));
+    var dx=n(a[0])*w,dy=n(a[1])*h;
+    return p(n(s.x)+Math.cos(r)*dx-Math.sin(r)*dy,n(s.y)+Math.sin(r)*dx+Math.cos(r)*dy);
+  }
+  // A text's DWG height: the editor shows texts lower than 2 at 2.
+  function rawTextHeightV1(s){var r=Number(s&&s.cblRawTextHeightV1);return Number.isFinite(r)&&r>0?r:n(firstShapeValue(s,['size','height','textHeight'],0));}
   function opForShape(s, mode){
     if(!s)return null; var t=String(s.type||'').toLowerCase(), h=ownerHandleOf(s);
     var base=Object.assign({type:mode||'add_line',layer:layerName(s)},shapeVisualProperties(s));
@@ -40683,7 +40714,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(t==='polyline'){var vs=polylineSaveVerticesV1(s);return Object.assign(base,{type:mode?'update':'add_lwpolyline',handle:h,points:vs.map(function(q){return p(q.x,q.y);}),bulges:vs.map(function(q){return n(q.bulge,0);}),closed:!!s.closed,clientShapeId:mode?'':ensureClientShapeIdV1(s)});}
     if(t==='rect'||t==='rectangle')return Object.assign(base,{type:mode?'update':'add_lwpolyline',handle:h,points:[[n(s.x),n(s.y)],[n(s.x)+n(s.w||s.width),n(s.y)],[n(s.x)+n(s.w||s.width),n(s.y)+n(s.h||s.height)],[n(s.x),n(s.y)+n(s.h||s.height)]],closed:true,clientShapeId:mode?'':ensureClientShapeIdV1(s)});
     if(t==='text'||t==='mtext'){
-      var textOp=Object.assign(base,{type:mode?'update':'add_text',handle:h,entity:String(s.rawDxfType||(t==='mtext'?'MTEXT':'TEXT')).toUpperCase(),text:String(s.text||s.content||''),insert:p(s.x,s.y),height:n(firstShapeValue(s,['size','height','textHeight'],250),250),rotation:shapeRotation(s),textStyle:String(s.textStyleName||s.textStyle||'STANDARD'),widthFactor:n(s.widthFactor,1),obliqueAngle:n(s.obliqueAngle,0),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
+      var textOp=Object.assign(base,{type:mode?'update':'add_text',handle:h,entity:String(s.rawDxfType||(t==='mtext'?'MTEXT':'TEXT')).toUpperCase(),text:String(s.text||s.content||''),insert:textInsertV1(s),height:n(firstShapeValue(s,['size','height','textHeight'],250),250),rotation:shapeRotation(s),textStyle:String(s.textStyleName||s.textStyle||'STANDARD'),widthFactor:n(s.widthFactor,1),obliqueAngle:n(s.obliqueAngle,0),clientShapeId:mode?'':ensureClientShapeIdV1(s)});
       if(mode){
         // Imported DWG text carries no style fields; sending the defaults
         // would reset e.g. 돋움체/width 0.9 to STANDARD/1.  Omit what the
@@ -40720,7 +40751,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       o.entity='INSERT';o.blockName=String(s.name||s.blockName||'');o.insert=p(s.x,s.y);o.rotation=n(s.rotation,s.rot);o.scale=[n(s.scaleX,s.scale==null?1:s.scale),n(s.scaleY,s.scale==null?1:s.scale)];
     }else if(t==='line'){o.start=p(s.x1,s.y1);o.end=p(s.x2,s.y2);}
     else if(t==='circle'){o.center=p(s.cx,s.cy);o.radius=Math.abs(n(s.r));}
-    else if(t==='text'||t==='mtext'){o.text=String(s.text||s.content||'');o.insert=p(s.x,s.y);}
+    else if(t==='text'||t==='mtext'){o.text=String(s.text||s.content||'');o.insert=textInsertV1(s);}
     return o;
   }
   function sameGeometry(a,b){
@@ -40885,6 +40916,9 @@ window.cblSnapResidueGateStatusV12 = function(){
       op.attributes=has.map(function(a){
         var placed=attribPlacementV1(a),o=attribOriginV1(a,had);
         if(o&&String(o.text||'')!==String(a.text||''))placed.text=String(a.text||'');
+        // The DWG height, scaled with the shown one (shown at 2 when lower).
+        var size=function(x){return n(firstShapeValue(x,['size','height','textHeight'],0));};
+        placed.height=o&&size(o)>0?rawTextHeightV1(o)*size(a)/size(o):rawTextHeightV1(a);
         return placed;
       });
       return true;
@@ -40967,6 +41001,15 @@ window.cblSnapResidueGateStatusV12 = function(){
       var placeAttribs=String(after[h].type||'').toLowerCase()==='blockref'&&(!sameTransform(before[h],after[h])||attribsEditedV1(before[h],after[h],base));
       if(sameGeometry(before[h],after[h])&&!placeAttribs)return;
       var u=opForShape(after[h],true);if(!u){refuse('수정된',after[h]);return;}
+      var kind=String(after[h].type||'').toLowerCase();
+      if(kind==='text'||kind==='mtext'){
+        // The editor shows a cleaned text (an MTEXT on one line, without its
+        // formatting) and texts lower than 2 at 2: an update sends the value
+        // and the height only when they were edited, so a move keeps them.
+        if(String(before[h].text||before[h].content||'')===String(after[h].text||after[h].content||''))delete u.text;
+        var sizeBefore=n(firstShapeValue(before[h],['size','height','textHeight'],0)),sizeAfter=n(firstShapeValue(after[h],['size','height','textHeight'],0));
+        if(Math.abs(sizeBefore-sizeAfter)<=1e-9)delete u.height;else if(sizeBefore>0)u.height=rawTextHeightV1(before[h])*sizeAfter/sizeBefore;
+      }
       if(placeAttribs&&!placeAttribsV1(u,before[h],after[h]))return;
       if(topLevelHandles[h])ops.push(u);
     });
