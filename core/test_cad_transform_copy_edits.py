@@ -150,7 +150,10 @@ class CadTransformCopyEditTests(SimpleTestCase):
         self.assertMatrix(op["matrix"], [-1, 0, 0, 1, 600, 0])
         # The mirror command keeps text readable; the writer cannot mirror these.
         self.assertIn("대칭한 치수(dimension) 1개", out["dimension_mirrored_copy"]["error"])
-        self.assertIn("대칭한 다중 지시선(multileader) 1개", out["mleader_mirrored_copy"]["error"])
+        # A mirrored multileader keeps its text readable on the other side.
+        op = self.only_op(out["mleader_mirrored_copy"])
+        self.assertEqual((op["type"], op["copyOf"], op["entity"]), ("add_copy", "B1", "MULTILEADER"))
+        self.assertMatrix(op["matrix"], [-1, 0, 0, 1, 600, 0])
         self.assertIn("새 해치(hatch) 1개", out["hatch_copy_edited"]["error"])
         # The copy is cloned before its source is deleted.
         self.assertEqual([(o["type"], o.get("copyOf") or o.get("handle")) for o in out["original_deleted"]["ops"]],

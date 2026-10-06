@@ -19,9 +19,13 @@ KINDS = FIXTURES / "move_kinds_ac1032.dwg"
 # ezdxf + ODA: LINE 8A, ordinate DIMENSION 8B ("12000", the style multiplies
 # lengths by 100) and angular DIMENSION 96.
 ORDINATE = FIXTURES / "dim_ordinate_ac1032.dwg"
+# ezdxf + ODA: HATCH 2F (ANSI31, counter-clockwise arc edge), 30 (solid,
+# clockwise arc edge) and 31 (solid, elliptic edge).
+HATCH_EDGES = FIXTURES / "hatch_edges_ac1032.dwg"
 ROTATE = [0.0, 1.0, -1.0, 0.0, 1000.0, 0.0]   # 90 degrees about the origin, then +1000 in x
 SCALE = [2.0, 0.0, 0.0, 2.0, 0.0, 0.0]
 MIRROR = [-1.0, 0.0, 0.0, 1.0, 0.0, 0.0]      # about the Y axis
+FLIP = [1.0, 0.0, 0.0, -1.0, 0.0, 0.0]        # about the X axis
 
 
 def _apply(matrix, point):
@@ -137,8 +141,9 @@ class CadDwgTransformKindsTests(SimpleTestCase):
     def test_changes_that_would_show_wrong_values_are_refused(self):
         # The message names the edit that cannot be saved (a mirror is not a "rotation").
         cases = [(self.handles("DIMENSIONLINEAR")[0], MIRROR, "치수 대칭은"),
-                 (self.handles("HATCH")[0], MIRROR, "해치 대칭(무늬 해치)은"),
-                 (self.handles("MULTILEADER")[0], MIRROR, "다중 지시선 대칭(또는 블록 내용)은")]
+                 # Upside down the text would sit on the other side of its landing
+                 # than in the editor; AutoCAD rebuilds it from the landing.
+                 (self.handles("MULTILEADER")[0], FLIP, "다중 지시선 대칭(위아래·기울어진 축)은")]
         for handle, matrix, message in cases:
             with self.subTest(message):
                 ops_path = self.tmp / "ops.json"
@@ -212,3 +217,46 @@ class CadDwgTransformKindsTests(SimpleTestCase):
         run = subprocess.run([str(EXECUTABLE), str(ORDINATE), str(self.tmp / "x.dwg"), "AC1018", str(ops_path)], capture_output=True, timeout=300)
         self.assertNotEqual(run.returncode, 0)
         self.assertIn("치수 회전·대칭(좌표 치수)은", core_views._cbl_free_dwg_writer_error_message_v1(run.stderr.decode("utf-8", "replace")))
+
+    def test_mirrored_pattern_hatch_and_multileader(self):
+        hatch, mleader = self.handles("HATCH")[0], self.handles("MULTILEADER")[0]
+        ops = [{"type": "add_copy", "copyOf": h, "matrix": [-1, 0, 0, 1, 3000, 0], "clientShapeId": "c%d" % i} for i, h in enumerate((hatch, mleader))]
+        ops += [{"type": "transform", "handle": h, "matrix": MIRROR} for h in (hatch, mleader)]
+        before, after, report = self.save(ops)
+        copies = core_views._cbl_free_dwg_output_handles_v1(report, ops)
+        for matrix, h, copy in ((MIRROR, hatch, after[hatch]), ([-1, 0, 0, 1, 3000, 0], hatch, after[copies["0"]])):
+            self.check(matrix, before[h], copy)
+            # The pattern is mirrored too: its lines turn the other way.
+            for a, b in zip(before[h].pattern.lines, copy.pattern.lines):
+                self.assertAlmostEqual((180 - a.angle) % 360, b.angle % 360, places=6)
+                self.assertEqual(_r(b.base_point), _apply(matrix, a.base_point))
+                self.assertEqual(_r(b.offset), _r((-a.offset[0], a.offset[1])))
+        for matrix, copy in ((MIRROR, after[mleader]), ([-1, 0, 0, 1, 3000, 0], after[copies["1"]])):
+            a, b = before[mleader].context, copy.context
+            self.assertEqual(_r(b.mtext.insert), _apply(matrix, a.mtext.insert))
+            for la, lb in zip(a.leaders, b.leaders):
+                self.assertEqual(_r(lb.last_leader_point), _apply(matrix, la.last_leader_point))
+                self.assertEqual(_r(lb.dogleg_vector), _r((-la.dogleg_vector[0], la.dogleg_vector[1])))
+            # The text reads as before, on the other side of the landing.
+            self.assertEqual(_r(b.mtext.text_direction), _r(a.mtext.text_direction))
+            self.assertEqual((before[mleader].dxf.text_attachment_point, copy.dxf.text_attachment_point), (1, 3))
+
+    def test_arc_and_elliptic_hatch_edges(self):
+        # A clockwise edge stores its angles negated: rotating it turned it
+        # the wrong way, and a mirrored elliptic edge came out on the other side.
+        handles = ["2F", "30", "31"]
+        for matrix in (ROTATE, MIRROR, SCALE):
+            before, after, _ = self.save([{"type": "transform", "handle": h, "matrix": matrix} for h in handles], source=HATCH_EDGES)
+            for h in handles:
+                with self.subTest(matrix=matrix, hatch=h):
+                    self.check(matrix, before[h], after[h])
+        # Mirrored, then rotated in a later save: the mirrored edges run clockwise.
+        mirrored = self.tmp / "mirrored.dwg"
+        self.save([{"type": "transform", "handle": h, "matrix": MIRROR} for h in handles], source=HATCH_EDGES)
+        shutil.copy(self.tmp / "out.dwg", mirrored)
+        before = self.read(HATCH_EDGES).entitydb
+        _, after, _ = self.save([{"type": "transform", "handle": h, "matrix": ROTATE} for h in handles], source=mirrored)
+        both = [0.0, -1.0, -1.0, 0.0, 1000.0, 0.0]   # ROTATE after MIRROR
+        for h in handles:
+            with self.subTest(hatch=h):
+                self.check(both, before[h], after[h])

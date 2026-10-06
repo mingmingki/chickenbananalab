@@ -23348,7 +23348,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
                 imported++; madeInLoop++;
               }
             }else if(edgeType === 2){
-              var cx=null, cy=null, r=null, a1=null, a2=null;
+              var cx=null, cy=null, r=null, a1=null, a2=null, ccw=1;
               seg.forEach(function(pa){
                 var pc = String(pa[0]);
                 if(pc === '10') cx = pa[1];
@@ -23356,7 +23356,11 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
                 else if(pc === '40') r = pa[1];
                 else if(pc === '50') a1 = pa[1];
                 else if(pc === '51') a2 = pa[1];
+                else if(pc === '73') ccw = cblPairNumber(pa[1], 1);
               });
+              // A clockwise edge (73 = 0) stores its angles negated: it runs
+              // clockwise from -a1 to -a2, the counter-clockwise arc -a2 -> -a1.
+              if(!ccw && a1 !== null && a2 !== null){ var cwStart = a1; a1 = -cblPairNumber(a2, 0); a2 = -cblPairNumber(cwStart, 0); }
               if(cx !== null && cy !== null && r !== null){
                 var cp = cblPairPoint(cx,cy,mtx);
                 var sca = mtx ? matScaleAvg(mtx) : 1;
@@ -23663,7 +23667,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     // DXF the converter writes, so only its leader is drawn.
     function cblMultiLeaderEntsV2(p){
       var pairs = Array.isArray(p.__pairs) ? p.__pairs : [];
-      var inContext = false, leader = null, line = null, x = null, text = '', textAt = {}, height = 0, arrow = 0, rotation = 0;
+      var inContext = false, leader = null, line = null, x = null, text = '', textAt = {}, height = 0, arrow = 0, rotation = 0, attach = 1;
       var leaders = [];
       pairs.forEach(function(pair){
         var c = String(pair[0]), v = pair[1], sv = String(v == null ? '' : v).trim();
@@ -23694,6 +23698,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         else if(c === '41') height = n;
         else if(c === '140') arrow = n;
         else if(c === '42') rotation = n;
+        else if(c === '171') attach = n;
       });
       var out = [], ok = function(q){ return q && Number.isFinite(q.x) && Number.isFinite(q.y); };
       leaders.forEach(function(l){
@@ -23708,9 +23713,14 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       });
       if(text && ok(textAt)){
         var h = height > 0 ? height : 2.5;
-        // The MTEXT insertion is its top-left corner; the editor draws from the
-        // baseline, one text height below it across the (rotated) text.
-        out.push(cblFakeTextV2(text, {x:textAt.x + Math.sin(rotation) * h, y:textAt.y - Math.cos(rotation) * h}, h, rotation * 180 / Math.PI));
+        // The MTEXT insertion is its top-left corner, or top-centre / top-right
+        // with a centre or right attachment (171; a mirrored leader's text sits
+        // on the other side).  The editor draws from the start of the baseline,
+        // one text height below, across the (rotated) text; the width is the
+        // editor's own estimate for the text (as its tw).
+        var tw = Math.max(String(dxfTextFromProps({'1':String(text)})).length * Math.max(2, h) * 0.7, 20);
+        var dx = attach === 3 ? -tw : attach === 2 ? -tw / 2 : 0, dy = -h;
+        out.push(cblFakeTextV2(text, {x:textAt.x + Math.cos(rotation) * dx - Math.sin(rotation) * dy, y:textAt.y + Math.sin(rotation) * dx + Math.cos(rotation) * dy}, h, rotation * 180 / Math.PI));
       }
       return out.length ? out : null;
     }
@@ -40889,9 +40899,10 @@ window.cblSnapResidueGateStatusV12 = function(){
       for(var i=0;i<toPieces.length;i++){var q=toPieces[i],o=byId[q.cblPieceIdV1];if(!o||seen[q.cblPieceIdV1])return null;seen[q.cblPieceIdV1]=true;pairs.push([o,q]);}
       return cblShapeSimilarityV1(pairs,true);
     }
-    // A mirrored DIMENSION or MULTILEADER would show its text mirrored; the
-    // writer refuses those too.  (A scaled dimension shows its new length.)
-    function ownedLimitV1(type,sim){return (type==='DIMENSION'||type==='MULTILEADER')&&sim.mirror?'대칭한':'';}
+    // A mirrored DIMENSION would show its text mirrored; the writer refuses it
+    // too.  (A scaled dimension shows its new length; a mirrored multileader
+    // keeps its text readable on the other side of its landing.)
+    function ownedLimitV1(type,sim){return type==='DIMENSION'&&sim.mirror?'대칭한':'';}
     var ownedBefore=ownedPiecesV1(base),ownedAfter=ownedPiecesV1(ss),ownedCopies=[];
     Object.keys(ownedBefore).forEach(function(h){
       var b=ownedBefore[h],a=ownedAfter[h],kind={type:b.type.toLowerCase()};

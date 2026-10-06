@@ -1116,7 +1116,6 @@ internal static class Program
     {
         RequirePlanNormal(hatch.Normal, hatch);
         bool patterned = !hatch.IsSolid && hatch.Pattern.Lines.Count > 0;
-        if (patterned && m.Mirror) throw new NotSupportedException("Transform is not supported for Hatch (mirrored pattern)");
         double s = m.Scale;
         foreach (var path in hatch.Paths)
         {
@@ -1126,29 +1125,26 @@ internal static class Program
                 {
                     case Hatch.BoundaryPath.Line line: line.Start = m.Point(line.Start); line.End = m.Point(line.End); break;
                     case Hatch.BoundaryPath.Arc arc:
+                    {
+                        // A clockwise edge stores its angles negated (AutoCAD; ACadSharp's
+                        // own transform reads them so): turn the real angles, and a
+                        // mirror makes the edge run the other way.
                         arc.Center = m.Point(arc.Center);
                         arc.Radius *= s;
-                        if (m.Mirror)
-                        {
-                            arc.StartAngle = m.Angle(arc.StartAngle);
-                            arc.EndAngle = m.Angle(arc.EndAngle);
-                            arc.CounterClockWise = !arc.CounterClockWise;
-                        }
-                        else
-                        {
-                            arc.StartAngle += m.Rotation;
-                            arc.EndAngle += m.Rotation;
-                        }
+                        double start = m.Angle(arc.CounterClockWise ? arc.StartAngle : -arc.StartAngle);
+                        double end = m.Angle(arc.CounterClockWise ? arc.EndAngle : -arc.EndAngle);
+                        arc.CounterClockWise ^= m.Mirror;
+                        arc.StartAngle = arc.CounterClockWise ? start : -start;
+                        arc.EndAngle = arc.CounterClockWise ? end : -end;
                         break;
+                    }
                     case Hatch.BoundaryPath.Ellipse ellipseEdge:
+                        // Parameters are measured from the (moved) major axis.  A
+                        // mirror reverses them and the direction; with the negated
+                        // storage of clockwise edges the stored values stay.
                         ellipseEdge.Center = m.Point(ellipseEdge.Center);
                         ellipseEdge.MajorAxisEndPoint = m.Vector(ellipseEdge.MajorAxisEndPoint);
-                        if (m.Mirror)
-                        {
-                            ellipseEdge.StartAngle = -ellipseEdge.StartAngle;
-                            ellipseEdge.EndAngle = -ellipseEdge.EndAngle;
-                            ellipseEdge.CounterClockWise = !ellipseEdge.CounterClockWise;
-                        }
+                        ellipseEdge.CounterClockWise ^= m.Mirror;
                         break;
                     case Hatch.BoundaryPath.Spline splineEdge:
                         // Z of a spline edge control point is its weight.
@@ -1178,15 +1174,18 @@ internal static class Program
         for (int i = 0; i < hatch.SeedPoints.Count; i++) hatch.SeedPoints[i] = m.Point(hatch.SeedPoints[i]);
         if (patterned)
         {
+            // Each pattern line family turns (a mirror reverses its angle): the
+            // lines go through the moved base point, spaced by the moved offset;
+            // the dashes run along the line from the base point as before.
             foreach (var line in hatch.Pattern.Lines)
             {
-                line.Angle += m.Rotation;
+                line.Angle = m.Angle(line.Angle);
                 line.BasePoint = m.Point(line.BasePoint);
                 line.Offset = m.Vector(line.Offset);
                 for (int i = 0; i < line.DashLengths.Count; i++) line.DashLengths[i] *= s;
             }
             // The PatternAngle/PatternScale setters rebuild the lines; set the values only.
-            SetField(hatch, "_patternAngle", hatch.PatternAngle + m.Rotation);
+            SetField(hatch, "_patternAngle", NormalizeAngle(m.Angle(hatch.PatternAngle)));
             SetField(hatch, "_patternScale", hatch.PatternScale * s);
         }
     }
@@ -1278,16 +1277,35 @@ internal static class Program
     private static void TransformMultiLeader(MultiLeader leader, Similarity m)
     {
         var context = leader.ContextData;
-        if (m.Mirror || context.HasContentsBlock)
+        if (context.HasContentsBlock)
             throw new NotSupportedException("Transform is not supported for MultiLeader (mirrored or with block content)");
+        // Mirrored, the text stays readable (AutoCAD's MIRRTEXT 0): it keeps its
+        // direction and goes to the other side of the mirrored landing, its
+        // left and right attachment swapped -- the mirror of the text box when
+        // the mirror turns the text direction around.  Upside down or at a
+        // slant AutoCAD rebuilds the text from the landing; that is refused.
+        if (m.Mirror && (m.Vector(context.Direction).Normalize() + context.Direction.Normalize()).GetLength() > 1e-6)
+            throw new NotSupportedException("Transform is not supported for MultiLeader (mirrored upside down or at a slant)");
         double s = m.Scale;
         context.ContentBasePoint = m.Point(context.ContentBasePoint);
         context.TextLocation = m.Point(context.TextLocation);
         context.BasePoint = m.Point(context.BasePoint);
-        context.Direction = m.Vector(context.Direction).Normalize();
-        context.BaseDirection = m.Vector(context.BaseDirection).Normalize();
-        context.BaseVertical = m.Vector(context.BaseVertical).Normalize();
-        context.TextRotation += m.Rotation;
+        if (m.Mirror)
+        {
+            static TextAttachmentPointType Side(TextAttachmentPointType t) => t == TextAttachmentPointType.Left ? TextAttachmentPointType.Right : t == TextAttachmentPointType.Right ? TextAttachmentPointType.Left : t;
+            static TextAlignmentType Align(TextAlignmentType t) => t == TextAlignmentType.Left ? TextAlignmentType.Right : t == TextAlignmentType.Right ? TextAlignmentType.Left : t;
+            context.TextAttachmentPoint = Side(context.TextAttachmentPoint);
+            leader.TextAttachmentPoint = Side(leader.TextAttachmentPoint);
+            context.TextAlignment = Align(context.TextAlignment);
+            leader.TextAlignment = Align(leader.TextAlignment);
+        }
+        else
+        {
+            context.Direction = m.Vector(context.Direction).Normalize();
+            context.BaseDirection = m.Vector(context.BaseDirection).Normalize();
+            context.BaseVertical = m.Vector(context.BaseVertical).Normalize();
+            context.TextRotation += m.Rotation;
+        }
         context.TextHeight *= s;
         context.ArrowheadSize *= s;
         context.LandingGap *= s;
@@ -1310,8 +1328,6 @@ internal static class Program
         leader.LandingDistance *= s;
     }
 
-    // The copy of a model-space entity, added to model space.  A dimension gets
-    // its own copy of its block, as every dimension owns one.
     private static string? RestoreSourcePath;
     private static CadDocument? RestoreDocument;
 
@@ -1326,6 +1342,8 @@ internal static class Program
         return FindModelEntity(RestoreDocument, RequiredString(op, "copyOf"), op);
     }
 
+    // The copy of a model-space entity, added to model space.  A dimension gets
+    // its own copy of its block, as every dimension owns one.
     private static Entity CopyEntity(CadDocument document, Entity source)
     {
         var copy = (Entity)source.Clone();

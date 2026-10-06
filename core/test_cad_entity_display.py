@@ -29,7 +29,7 @@ const parsed = window.cblParseDxfSingleModelV1(require('fs').readFileSync(proces
 process.stdout.write(JSON.stringify({skipped: parsed.stats.skipped, shapes: parsed.shapes.map(s => ({
   type: s.type, raw: s.rawDxfType, owner: s.ownerSourceHandle || '', handle: s.sourceHandle || '',
   displayOnly: !!s.displayOnly, text: s.text, size: s.size, rot: s.rot, x: s.x, y: s.y, tag: s.cblAttribTagV1, attribOwner: s.cblAttribOwnerHandle, scalable: s.cblDimScalableV1,
-  x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2, pts: s.pts}))}));
+  x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2, pts: s.pts, cx: s.cx, cy: s.cy, r: s.r, a1: s.a1, a2: s.a2}))}));
 """
 
 
@@ -215,6 +215,41 @@ class CadEntityDisplayTests(SimpleTestCase):
         ordinate = self.parse_dwg(FIXTURES / "dim_ordinate_ac1032.dwg")
         self.assertEqual(texts(ordinate, "8B"), [True])
         self.assertEqual(texts(ordinate, "96"), [False])
+
+    def test_mirrored_multileader_text_ends_at_its_landing(self):
+        # Mirrored left to right, the text is attached by its right side (171 = 3)
+        # and drawn to the left of its insertion point, as in the editor.
+        ops = self.tmp / "ops.json"
+        ops.write_text(json.dumps({"ops": [{"type": "transform", "handle": "B1", "matrix": [-1, 0, 0, 1, 0, 0]}]}))
+        mirrored = self.tmp / "mirrored.dwg"
+        run = subprocess.run([str(EXECUTABLE), str(KINDS), str(mirrored), "AC1018", str(ops)], capture_output=True, timeout=300)
+        self.assertEqual(run.returncode, 0, run.stderr[-800:])
+        before = next(c for c in self.owned_by(self.parse_dwg(KINDS), "B1") if c["type"] == "text")
+        after = next(c for c in self.owned_by(self.parse_dwg(mirrored), "B1") if c["type"] == "text")
+        width = max(len(before["text"]) * max(2, before["size"]) * 0.7, 20)
+        # The editor's mirror keeps the direction and mirrors the middle of the baseline.
+        self.assertAlmostEqual(after["x"], -(before["x"] + width / 2) - width / 2, places=4)
+        self.assertAlmostEqual(after["y"], before["y"], places=4)
+        self.assertEqual(after["rot"], before["rot"])
+
+    def test_clockwise_hatch_arc_edges(self):
+        # A clockwise arc edge stores its angles negated (DXF 73 = 0); it was
+        # drawn as the other arc of the circle, bulging the wrong way.
+        # Rotated a quarter turn first: the stored angles of the fixture's arcs
+        # are symmetric about the x axis, where both readings agree.
+        ops = self.tmp / "ops.json"
+        ops.write_text(json.dumps({"ops": [{"type": "transform", "handle": h, "matrix": [0, 1, -1, 0, 1000, 0]} for h in ("2F", "30")]}))
+        rotated = self.tmp / "rotated.dwg"
+        run = subprocess.run([str(EXECUTABLE), str(FIXTURES / "hatch_edges_ac1032.dwg"), str(rotated), "AC1018", str(ops)], capture_output=True, timeout=300)
+        self.assertEqual(run.returncode, 0, run.stderr[-800:])
+        parsed = self.parse_dwg(rotated)
+        def middle(handle):
+            arc = next(s for s in self.owned_by(parsed, handle) if s["type"] == "arc")
+            mid = (arc["a1"] + ((arc["a2"] - arc["a1"]) % (2 * math.pi)) / 2)
+            return (round(arc["cx"] + arc["r"] * math.cos(mid), 6), round(arc["cy"] + arc["r"] * math.sin(mid), 6))
+        # (50, 50) and (350, 50) turned about the origin and moved 1000 to the right.
+        self.assertEqual(middle("2F"), (950, 50))   # counter-clockwise: the left half
+        self.assertEqual(middle("30"), (950, 350))  # clockwise: the right half
 
 @skipUnless(NODE, "node is required to execute the CAD editor helpers")
 class CadUndisplayedNoticeTests(SimpleTestCase):
