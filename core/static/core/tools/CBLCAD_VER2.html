@@ -39964,6 +39964,9 @@ window.cblSnapResidueGateStatusV12 = function(){
     try { curFile = openedName; } catch(e) {}
     window.CBL_FREE_DWG_CURRENT_FILENAME = openedName;
     window.CBLCAD_V29_LAST_DWG_FILE = sourceFile;
+    // The drawing as opened: an object a later save deletes and undo brings
+    // back is cloned from it (CBL_RESTORE_FROM_OPENED_V1).
+    window.CBL_FREE_DWG_OPENED_FILE_V1 = sourceFile;
     window.CBLCAD_V29_LAST_DWG_FILE_NAME = openedName;
     window.CBLCAD_V29_ORIGINAL_FILE_NAME = openedName;
     window.CBL_FREE_DWG_NATIVE_FILE_HANDLE = handle || null;
@@ -40247,7 +40250,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=null;
       throw new Error('DWG 열기 기준 스냅샷 생성에 실패했습니다.');
     }
-    stageEnd('baseline_snapshot');window.CBL_FREE_DWG_ORIGINAL_SHAPES=canonicalSnapshots;
+    stageEnd('baseline_snapshot');window.CBL_FREE_DWG_ORIGINAL_SHAPES=canonicalSnapshots;window.CBL_FREE_DWG_OPENED_SHAPES_V1=canonicalSnapshots;
     try{window.CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1=typeof window.cblLayerPropsSnapshotV1==='function'?window.cblLayerPropsSnapshotV1(window.layers):null;}catch(_layerSnapError){window.CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1=null;}
     window.CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1=false;
     window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};
@@ -40383,7 +40386,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     var dwgName=String(name||'ChickenBananaCAD').replace(/^.*[\\\/]/,'').replace(/\.[^.]*$/,'')+'.dwg';
     window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];window.CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1={};window.CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1=false;
     window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=[];window.CBL_FREE_DWG_SAVE_BLOCKED_V1=null;
-    window.CBL_FREE_DWG_SAVE_BASELINE_METADATA_V1=null;window.CBL_FREE_DWG_CURRENT_BUFFER_V1=null;
+    window.CBL_FREE_DWG_SAVE_BASELINE_METADATA_V1=null;window.CBL_FREE_DWG_CURRENT_BUFFER_V1=null;window.CBL_FREE_DWG_OPENED_FILE_V1=null;window.CBL_FREE_DWG_OPENED_SHAPES_V1=null;
     window.CBLCAD_V29_LAST_DWG_FILE=null;window.CBLCAD_V29_LAST_DWG_FILE_NAME=dwgName;window.CBLCAD_V29_ORIGINAL_FILE_NAME=dwgName;
     window.CBL_FREE_DWG_CURRENT_FILENAME=dwgName;window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=null;window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1=null;
     window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=null;window.CBLCAD_V29_SESSION_ID=null;window.CBLCAD_V29_BASE_SHAPE_COUNT=0;
@@ -40802,6 +40805,13 @@ window.cblSnapResidueGateStatusV12 = function(){
     ss.forEach(function(s){if(!isTopLevelEditable(s))return;var h=sourceHandleOf(s);if(!h)return;if(claimed[h])detachCopiedIdentityV1(s,h);else claimed[h]=true;});
     var kindNames={cadgrid:'그리드',grid:'그리드',dimangle2:'각도치수',ellipse:'타원',hatch:'해치',point:'점',spline:'스플라인',raw:'원본 객체',group:'그룹',blockref:'블록',dimension:'치수',leader:'지시선',multileader:'다중 지시선',solid:'솔리드',trace:'솔리드','3dface':'3D 면'};
     var restoredRefusals=[];
+    // CBL_RESTORE_FROM_OPENED_V1: an object an earlier save deleted and undo
+    // brought back is no longer in the DWG.  The kinds the editor cannot
+    // rebuild (and blocks with attributes) are cloned from the drawing as it
+    // was opened ("fromOpened"), so they keep their kind and values.
+    var openedShapes=Array.isArray(window.CBL_FREE_DWG_OPENED_SHAPES_V1)?flattenGroupsV1(window.CBL_FREE_DWG_OPENED_SHAPES_V1):[];
+    var opened={};openedShapes.forEach(function(o){var oh=ownerHandleOf(o);if(oh&&isTopLevelEditable(o))opened[oh]=o;});
+    var restoreKinds={SPLINE:1,ELLIPSE:1,SOLID:1,TRACE:1,'3DFACE':1,POINT:1};
     // A handle missing from the committed baseline is no longer in the DWG: an
     // earlier save deleted it and undo brought the shape back.  Write it again
     // as a new entity instead of treating it as saved.  A restored INSERT is
@@ -40812,20 +40822,24 @@ window.cblSnapResidueGateStatusV12 = function(){
       if(!isTopLevelEditable(s)||s.cblAttribOwnerHandle||s.cblAttribCopy)return;
       var h=sourceHandleOf(s);if(!h||baseHandles[h])return;
       var isInsert=String(s.type||'').toLowerCase()==='blockref';
-      if(isInsert&&ss.some(function(o){return o&&normHandle(o.cblAttribOwnerHandle)===h&&!o.cblAttribCopy;})){restoredRefusals.push(s);return;}
+      var restorable=!!opened[h]&&(isInsert||!!restoreKinds[String(s.rawDxfType||'').toUpperCase()]);
+      if(isInsert&&!restorable&&ss.some(function(o){return o&&normHandle(o.cblAttribOwnerHandle)===h&&!o.cblAttribCopy;})){restoredRefusals.push(s);return;}
       if(isInsert&&!s.cblBlockKey)s.cblBlockKey=h;
+      // A restored block's attributes are cloned with it, like a copy's.
+      if(restorable&&isInsert)attribsOfInsertV1(s,ss).forEach(function(a){var ah=sourceHandleOf(a);if(ah)detachCopiedIdentityV1(a,ah);});
       detachCopiedIdentityV1(s,h);
       delete s.cblCopiedFromHandle;
+      if(restorable)s.cblRestoredFromV1=h;else delete s.cblRestoredFromV1;
     });
     // CBL_ATTRIB_PLACEMENT_V1: an INSERT's attributes are the ATTRIB texts of
     // its block group (cblBlockKeyV1: the INSERT's handle, or a copy's
     // "copy-..." key).  When the block turned (rotation, scale, mirror) the save
     // sends where each attribute is shown; the writer puts it there.
     function attribsOfInsertV1(ins,list){var key=ins&&typeof cblBlockKeyV1==='function'?cblBlockKeyV1(ins):'';if(!key)return [];return (list||[]).filter(function(a){return !!(a&&a.cblAttribOwnerHandle&&cblBlockKeyV1(a)===key);});}
-    function attribPlacementV1(a){return {handle:a.cblAttribCopy?'':sourceHandleOf(a),sourceHandle:normHandle(a.cblAttribCopyOfHandleV1||''),tag:String(a.cblAttribTagV1||''),insert:p(a.x,a.y),rotation:shapeRotation(a),height:n(firstShapeValue(a,['size','height','textHeight'],0))};}
+    function attribPlacementV1(a){return {handle:a.cblAttribCopy?'':sourceHandleOf(a),sourceHandle:a.cblAttribCopy?normHandle(a.cblAttribCopyOfHandleV1||''):sourceHandleOf(a),tag:String(a.cblAttribTagV1||''),insert:p(a.x,a.y),rotation:shapeRotation(a),height:n(firstShapeValue(a,['size','height','textHeight'],0))};}
     // The attributes of a turned INSERT, or a refusal when one is gone.
-    function placeAttribsV1(op,before,after){
-      var had=attribsOfInsertV1(before,base);if(!had.length)return true;
+    function placeAttribsV1(op,before,after,beforeList){
+      var had=attribsOfInsertV1(before,beforeList||base);if(!had.length)return true;
       var has=attribsOfInsertV1(after,ss);if(has.length!==had.length){refuse('삭제된 블록 속성',after);return false;}
       op.attributes=has.map(attribPlacementV1);return true;
     }
@@ -40887,13 +40901,18 @@ window.cblSnapResidueGateStatusV12 = function(){
       if(ownedLimitV1(b.type,sim)){refuse(ownedLimitV1(b.type,sim),kind);return;}
       var op=cblSimilarityOpV1(h,b.type,sim);if(op)ops.push(op);
     });
+    var openedOwned=ownedPiecesV1(openedShapes);
     Object.keys(ownedAfter).forEach(function(key){
       var a=ownedAfter[key];
       if(ownedBefore[key])return;
-      var source=a.copy?ownedBefore[a.owner]:null,sim=source?ownedSimilarityV1(source.pieces,a.pieces):null;
+      var source=a.copy?ownedBefore[a.owner]:null,fromOpened=false;
+      if(!source&&openedOwned[a.owner]){source=openedOwned[a.owner];fromOpened=true;}
+      var sim=source?ownedSimilarityV1(source.pieces,a.pieces):null;
       if(!sim){refuse('새',{type:a.type.toLowerCase()});return;}
       if(ownedLimitV1(a.type,sim)){refuse(ownedLimitV1(a.type,sim),{type:a.type.toLowerCase()});return;}
-      ownedCopies.push({op:{type:'add_copy',copyOf:a.owner,entity:a.type,matrix:sim.matrix,clientShapeId:key},marker:{clientShapeId:key,cblOwnedPiecesV1:a.pieces}});
+      var copyOp={type:'add_copy',copyOf:a.owner,entity:a.type,matrix:sim.matrix,clientShapeId:key};
+      if(fromOpened)copyOp.fromOpened=true;
+      ownedCopies.push({op:copyOp,marker:{clientShapeId:key,cblOwnedPiecesV1:a.pieces}});
     });
     Object.keys(before).forEach(function(h){if(attribSkip[h])return;if(!after[h])ops.push(deleteOpForShape(before[h],h));else if(!sameGeometry(before[h],after[h])){var u=opForShape(after[h],true);if(!u){refuse('수정된',after[h]);return;}if(String(after[h].type||'').toLowerCase()==='blockref'&&!sameTransform(before[h],after[h])&&!placeAttribsV1(u,before[h],after[h]))return;if(topLevelHandles[h])ops.push(u);}});
     var unhandledBase=base.filter(function(b){return isTopLevelEditable(b)&&!ownerHandleOf(b)&&!b.cblAttribOwnerHandle;}),usedUnhandledBase=[];
@@ -40909,7 +40928,16 @@ window.cblSnapResidueGateStatusV12 = function(){
       if(alreadyPersisted)return;
       newEditableCount++;
       var copied=String(s.type||'').toLowerCase()==='blockref'?normHandle(s.cblCopiedFromHandle||''):'';
-      var copiedRaw=String(s.rawDxfType||'').toUpperCase(),copiedFrom=normHandle(s.cblCopiedFromHandle||'');
+      var copiedRaw=String(s.rawDxfType||'').toUpperCase(),copiedFrom=normHandle(s.cblCopiedFromHandle||''),restoredFrom=normHandle(s.cblRestoredFromV1||'');
+      if(restoredFrom&&opened[restoredFrom]&&moveOnlyKinds[copiedRaw]){
+        var restoreSim=cblShapeSimilarityV1([[opened[restoredFrom],s]],false);
+        if(!restoreSim){refuse('새',{type:copiedRaw.toLowerCase()});return;}
+        var restoreOp={type:'add_copy',copyOf:restoredFrom,fromOpened:true,entity:copiedRaw,matrix:restoreSim.matrix,clientShapeId:ensureClientShapeIdV1(s)};
+        if(usedClientIds[restoreOp.clientShapeId])restoreOp.clientShapeId=assignFreshClientShapeIdV1(s);
+        usedClientIds[restoreOp.clientShapeId]=true;
+        newOps.push(restoreOp);newOpShapes.push(s);
+        return;
+      }
       if(copiedFrom&&moveOnlyKinds[copiedRaw]){
         // A copied SPLINE/ELLIPSE/SOLID/3DFACE/POINT stays that kind.
         var copySim=before[copiedFrom]?cblShapeSimilarityV1([[before[copiedFrom],s]],false):null;
@@ -40923,6 +40951,11 @@ window.cblSnapResidueGateStatusV12 = function(){
       var o=opForShape(s,false);
       if(!o){refuse('새',s);return;}
       if(copied&&before[copied]&&!sameTransform(before[copied],s)&&!placeAttribsV1(o,before[copied],s))return;
+      if(String(s.type||'').toLowerCase()==='blockref'&&restoredFrom&&opened[restoredFrom]){
+        // A restored block is cloned from the opened drawing: attribute values stay.
+        o.copyOf=restoredFrom;o.fromOpened=true;
+        if(!sameTransform(opened[restoredFrom],s)&&!placeAttribsV1(o,opened[restoredFrom],s,openedShapes))return;
+      }
       // Pasting a new shape twice clones its clientShapeId; each add needs its own.
       if(o.clientShapeId&&usedClientIds[o.clientShapeId])o.clientShapeId=assignFreshClientShapeIdV1(s);
       usedClientIds[o.clientShapeId]=true;
@@ -41305,6 +41338,11 @@ window.cblSnapResidueGateStatusV12 = function(){
     if(options.targetFileToken)fd.append('target_file_token',options.targetFileToken);
     if(window.CBL_FREE_DWG_SAVE_AS_STATUS_V1){window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.saveStarted=true;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.requestedName=requested;window.CBL_FREE_DWG_SAVE_AS_STATUS_V1.lastError=null;}
     if(source instanceof File)fd.append('original_dwg',source,source.name||'drawing.dwg');
+    if(pack.ops.some(function(o){return o&&o.fromOpened===true;})){
+      var openedFile=window.CBL_FREE_DWG_OPENED_FILE_V1;
+      if(!(openedFile instanceof File))throw new Error('되돌린 객체를 저장하려면 처음 연 도면이 필요합니다. 도면을 다시 연 뒤 저장해 주세요.');
+      fd.append('restore_dwg',openedFile,openedFile.name||'opened.dwg');
+    }
       if(typeof setHint==='function')setHint('DWG 저장 중...');
       if(window.CBL_NATIVE_FILE_STATUS_V1)window.CBL_NATIVE_FILE_STATUS_V1.postStartedAt=typeof performance!=='undefined'&&performance.now?performance.now():Date.now();
       if(window.CBL_NATIVE_FILE_STATUS_V1)window.CBL_NATIVE_FILE_STATUS_V1.postCount++;
@@ -41412,6 +41450,7 @@ window.cblSnapResidueGateStatusV12 = function(){
       fd.append('target_version','AC1018'); fd.append('filename',base+'.dwg'); fd.append('download_name',base+'.dwg');
       fd.append('delivery','dxf'); fd.append('ops',JSON.stringify({ops:pack.ops,textStyles:pack.textStyles||[]}));
       if(source instanceof File)fd.append('original_dwg',source,source.name||'drawing.dwg');
+      if(pack.ops.some(function(o){return o&&o.fromOpened===true;})&&window.CBL_FREE_DWG_OPENED_FILE_V1 instanceof File)fd.append('restore_dwg',window.CBL_FREE_DWG_OPENED_FILE_V1,'opened.dwg');
       if(typeof setHint==='function')setHint('DXF 저장 중...');
       var res=await fetch('/api/cblcad/free-dwg-save/?mode=free-dwg',{method:'POST',body:fd,credentials:'same-origin'});
       if(!res.ok){var ep=null;try{ep=await res.json();}catch(_jsonError){}throw new Error(ep&&ep.error?String(ep.error):('HTTP '+res.status));}
@@ -41551,6 +41590,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     try{window.sel=[];sel=[];window.hist=[];hist=[];window.hIdx=-1;hIdx=-1;}catch(e){}
     try{window.layers=[{id:1,name:'기본',color:'#3b82f6',visible:true,locked:false,lineType:'Continuous',lineWidth:0.25}];layers=window.layers;window.actLay=1;actLay=1;}catch(e){}
     try{window.blocks={};blocks=window.blocks;}catch(e){}
+    window.CBL_FREE_DWG_OPENED_FILE_V1=null;window.CBL_FREE_DWG_OPENED_SHAPES_V1=null;
     window.CBL_FREE_DWG_ORIGINAL_SHAPES=[];window.CBL_FREE_DWG_ORIGINAL_LAYER_PROPS_V1={};window.CBL_FREE_DWG_SAVE_STATE_SYNC_FAILED_V1=false;window.CBL_FREE_DWG_ORIGINAL_SOURCE_HANDLES={};window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES=['기본'];window.CBL_FREE_DWG_SAVED_REVISION_V1=typeof window.cblComputeDocumentRevisionV1==='function'?window.cblComputeDocumentRevisionV1():null;window.CBL_FREE_DWG_DIRTY=false;window.CBLCAD_V29_LAST_DWG_FILE=null;window.CBLCAD_V29_LAST_DWG_FILE_NAME='ChickenBananaCAD.dwg';window.CBL_FREE_DWG_CURRENT_FILENAME='ChickenBananaCAD.dwg';window.CBL_FREE_DWG_NATIVE_FILE_HANDLE=null;window.CBL_NATIVE_DWG_CURRENT_HANDLE_V1=null;window.CBL_FREE_DWG_LOCAL_FILE_TOKEN=null;window.CBLCAD_V29_SESSION_ID=null;window.CBLCAD_V29_BASE_SHAPE_COUNT=0;window.CBLCAD_FREE_DWG_LOCAL_DOCUMENT={loaded:true,mode:'blank',baseline_count:0,primitive_count:0,shapes:0};
     try{curFile='ChickenBananaCAD.dwg';}catch(e){}try{if(typeof saveH==='function')saveH();if(typeof updUI==='function')updUI();if(typeof updLayers==='function')updLayers();if(typeof updBlkList==='function')updBlkList();if(typeof requestCadRenderV1==='function')requestCadRenderV1();}catch(e){status.lastError=String(e&&e.message||e);}
     status.lastCommand='new';return true;

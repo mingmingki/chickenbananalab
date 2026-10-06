@@ -245,7 +245,7 @@ class CadAttribBlockEditTests(SimpleTestCase):
         self.assertAlmostEqual(op["rotation"], math.pi / 2)
         placed = {a["tag"]: a for a in op["attributes"]}
         self.assertEqual(sorted(placed), ["NAME", "NO"])
-        self.assertEqual((placed["NO"]["handle"], placed["NO"]["sourceHandle"]), ("A7", ""))
+        self.assertEqual((placed["NO"]["handle"], placed["NO"]["sourceHandle"]), ("A7", "A7"))
         self.assertEqual([round(v, 6) for v in placed["NO"]["insert"]], [15, -15, 0])
         self.assertAlmostEqual(placed["NO"]["rotation"], math.pi / 2)
         self.assertEqual(placed["NO"]["height"], 5)
@@ -274,3 +274,40 @@ class CadAttribBlockEditTests(SimpleTestCase):
         self.assertEqual(placed["NO"]["rotation"], 0)
         self.assertEqual(placed["NAME"]["sourceHandle"], "A8")
         self.assertNotIn("attributes", self.only_op(out["copy_moved"]))
+
+
+@skipUnless(NODE, "node is required to execute the CAD editor helpers")
+class CadRestoreEditTests(SimpleTestCase):
+    """Undo after a save that deleted an object: it comes back as its own kind.
+
+    The object is no longer in the DWG, so the save clones it from the
+    drawing as it was opened ("fromOpened"); before, a spline came back as a
+    polyline and a dimension or a block with attributes stopped the save.
+    """
+
+    run_body = CadTransformCopyEditTests.run_body
+    assertMatrix = CadTransformCopyEditTests.assertMatrix
+
+    def test_restored_objects_are_cloned_from_the_opened_drawing(self):
+        opened = BASE + ATTRIB_BASE[1:]
+        committed = [s for s in opened if (s.get("ownerSourceHandle") or s.get("sourceHandle")) not in ("9C", "A1", "C1")
+                     and s.get("cblAttribOwnerHandle") != "C1"]
+        out = self.run_body("""
+          function restore(name, live, openedList) {
+            window.shapes = live; window.CBL_FREE_DWG_ORIGINAL_SHAPES = committed; window.CBL_FREE_DWG_OPENED_SHAPES_V1 = openedList;
+            try { const r = buildOps(); out[name] = {ops: r.ops, pending: r.pendingAddRefs.map((p) => p.opIndex)}; }
+            catch (e) { out[name] = {error: String(e && e.message || e)}; }
+          }
+          var committed = %s, opened = %s;
+          var live = clone(opened); mvS(pick(live, 'A1')[0], 5, 0);
+          restore('restored', live, opened);
+          restore('without_opened', clone(opened), null);
+        """ % (json.dumps(committed), json.dumps(opened)), base=committed)
+        ops = {(o["type"], o.get("copyOf")): o for o in out["restored"]["ops"]}
+        self.assertEqual(sorted(ops), [("add_copy", "9C"), ("add_copy", "A1"), ("add_insert", "C1")])
+        self.assertTrue(all(o["fromOpened"] for o in ops.values()))
+        self.assertMatrix(ops[("add_copy", "A1")]["matrix"], [1, 0, 0, 1, 5, 0])
+        self.assertEqual(ops[("add_copy", "9C")]["entity"], "DIMENSION")
+        self.assertEqual(len(out["restored"]["pending"]), 3)
+        # Without the opened drawing (an older session) the old refusal stays.
+        self.assertIn("새 치수(dimension) 1개", out["without_opened"]["error"])

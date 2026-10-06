@@ -9719,7 +9719,7 @@ def _cbl_normalize_free_dwg_ops_v1(original_json, ops):
 
 
 def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, acad_report=None,
-                                         original_json=None, saved_json=None):
+                                         original_json=None, saved_json=None, restore_json=None):
     """Refuse a saved DWG that lost or changed anything the edits do not explain.
 
     `original_json` / `saved_json` are reads the caller already has (the edit
@@ -9990,9 +9990,13 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
             add_semantic_delta(dimension_entity, 1)
         elif kind == "add_copy":
             # A copy of an existing entity: one more of its kind (a copied
-            # DIMENSION also brings its own anonymous block).
+            # DIMENSION also brings its own anonymous block).  An object an
+            # earlier save deleted is copied from the drawing as opened.
             target = canonical_ref(op.get("copyOf"))
-            source = next((item for item in entities(original_json) if handle(item) == target), None)
+            copied_from = restore_json if op.get("fromOpened") is True else original_json
+            if copied_from is None:
+                raise RuntimeError("저장 검증 실패: 되돌린 객체의 처음 연 도면이 없습니다.")
+            source = next((item for item in entities(copied_from) if handle(item) == target), None)
             if source is None:
                 raise RuntimeError(f"저장 검증 실패: 복사 원본 handle을 찾지 못했습니다: {op.get('copyOf')}")
             source_type = source.get("entity")
@@ -10007,7 +10011,7 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
                 # from the original file, once more for the copy.
                 applied = ((acad_report or {}).get("editReport") or {}).get("applied") or []
                 source_block = str((applied[op_index] or {}).get("sourceBlock") or "") if op_index < len(applied) and isinstance(applied[op_index], dict) else ""
-                for item in (original_json.get("acadsharpEntities") or []):
+                for item in (copied_from.get("acadsharpEntities") or []):
                     if source_block and str(item.get("space") or "") == "block:" + source_block:
                         add_delta(item.get("type"), 1, op_index, kind)
         elif kind == "create_layer":
@@ -10544,6 +10548,9 @@ def cblcad_free_dwg_save_local_api(request):
     # Touch FILES before POST parsing so an oversized original is rejected
     # before any save operation or converter subprocess can be reached.
     upload = request.FILES.get("original_dwg")
+    # The drawing as the editor opened it, sent with objects an earlier save
+    # deleted and undo brought back (ops with "fromOpened").
+    restore_upload = request.FILES.get("restore_dwg")
     source_token = str(request.POST.get("file_token") or request.POST.get("source_file_token") or "")
     target_token = str(request.POST.get("target_file_token") or source_token)
     local_source_path = None
@@ -10563,6 +10570,8 @@ def cblcad_free_dwg_save_local_api(request):
     except _CBLFreeDwgSaveValidationError as exc:
         return _cbl_JsonResponse({"ok": False, "error": str(exc)}, status=409)
     max_upload = _cbl_free_dwg_upload_limit_v1()
+    if restore_upload is not None and int(getattr(restore_upload, "size", 0) or 0) > max_upload:
+        return _cbl_JsonResponse({"ok": False, "error": "DWG 업로드 제한을 초과했습니다.", "max_bytes": max_upload, "oda_executed": False}, status=413)
     if upload is not None and int(getattr(upload, "size", 0) or 0) > max_upload:
         _cbl_dwg_dxf_emit_log_v1(
             "CBLCAD_FREE_DWG_SAVE_LOCAL endpoint=free-dwg-save event=upload_too_large bytes=%s limit=%s",
@@ -10598,6 +10607,11 @@ def cblcad_free_dwg_save_local_api(request):
             raise ValueError("ops는 배열이어야 합니다.")
     except Exception as exc:
         return _cbl_JsonResponse({"ok": False, "error": f"편집 명령이 올바르지 않습니다: {exc}"}, status=400)
+    restores = any(isinstance(op, dict) and op.get("fromOpened") is True for op in ops)
+    if restores and restore_upload is None:
+        return _cbl_JsonResponse({"ok": False, "oda_executed": False,
+                                  "error": "되돌린 객체를 저장하려면 처음 연 도면이 필요합니다. 도면을 다시 연 뒤 저장해 주세요."},
+                                 status=400, json_dumps_params={"ensure_ascii": False})
 
     started = _cbl_time.perf_counter()
     try:
@@ -10633,9 +10647,17 @@ def cblcad_free_dwg_save_local_api(request):
                     operations_payload = ops
             ops_path.write_text(_cbl_json.dumps(operations_payload, ensure_ascii=False), encoding="utf-8")
             reread_metadata = temp_root / "saved_metadata.json"
+            restore_json = None
             if upload is not None or local_source_path is not None:
                 command = [str(executable), str(original), str(output), "AC1018", str(ops_path),
                            "--reread-metadata", str(reread_metadata)]
+                if restores:
+                    opened = temp_root / "opened.dwg"
+                    opened.write_bytes(b"".join(restore_upload.chunks()))
+                    if opened.stat().st_size < 1024:
+                        raise ValueError("처음 연 도면이 비어 있거나 비정상적으로 작습니다.")
+                    command += ["--restore-from", str(opened)]
+                    restore_json = _cbl_free_dwg_save_local_json_v1(opened, dwgread)
             else:
                 # A new free document has no source DWG.  ACadSharp creates a
                 # real AC1018 document from the editor operations; no DXF
@@ -10654,7 +10676,8 @@ def cblcad_free_dwg_save_local_api(request):
             # was made for the edit targets, the saved file's by the writer.
             validation = (_cbl_free_dwg_save_local_validate_v1(
                               original, output, dwgread, ops, acad_report, original_json=original_for_ops,
-                              saved_json=None if dwgread else _cbl_free_dwg_reread_metadata_json_v1(reread_metadata))
+                              saved_json=None if dwgread else _cbl_free_dwg_reread_metadata_json_v1(reread_metadata),
+                              restore_json=restore_json)
                           if upload is not None or local_source_path is not None else {
                               "before_entities": 0,
                               "after_entities": int((acad_report.get("reread") or {}).get("EntityTotal", 0)),

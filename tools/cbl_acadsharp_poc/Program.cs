@@ -35,6 +35,15 @@ internal static class Program
             rereadMetadataPath = Path.GetFullPath(args[metadataFlag + 1]);
             args = args.Where((_, index) => index != metadataFlag && index != metadataFlag + 1).ToArray();
         }
+        // "--restore-from <path>": the drawing as the editor opened it, for
+        // objects an earlier save deleted and undo brought back ("fromOpened").
+        var restoreFlag = Array.FindIndex(args, x => string.Equals(x, "--restore-from", StringComparison.OrdinalIgnoreCase));
+        if (restoreFlag >= 0)
+        {
+            if (restoreFlag + 1 >= args.Length) return Fail("--restore-from needs a path");
+            RestoreSourcePath = Path.GetFullPath(args[restoreFlag + 1]);
+            args = args.Where((_, index) => index != restoreFlag && index != restoreFlag + 1).ToArray();
+        }
         if (args.Length < 2 || args.Length > 5)
         {
             Console.Error.WriteLine("usage: CblAcadSharpPoc <input.dwg> <output.dwg> [AC1018|AC2004]");
@@ -840,7 +849,7 @@ internal static class Program
                 {
                     // A copy keeps the source's kind (hatch, spline, dimension ...):
                     // the source is cloned, added and placed by the copy's transform.
-                    var source = FindModelEntity(document, RequiredString(op, "copyOf"), op);
+                    var source = FromOpened(op) ? FindRestoredEntity(op) : FindModelEntity(document, RequiredString(op, "copyOf"), op);
                     var copy = CopyEntity(document, source);
                     TransformEntity(copy, ReadSimilarity(op));
                     applied.Add(new { type, handle = copy.Handle.ToString("X"), copyOf = source.Handle.ToString("X"), sourceBlock = (source as Dimension)?.Block?.Name });
@@ -1303,6 +1312,20 @@ internal static class Program
 
     // The copy of a model-space entity, added to model space.  A dimension gets
     // its own copy of its block, as every dimension owns one.
+    private static string? RestoreSourcePath;
+    private static CadDocument? RestoreDocument;
+
+    private static bool FromOpened(JsonElement op) => op.TryGetProperty("fromOpened", out var value) && value.ValueKind == JsonValueKind.True;
+
+    // An object an earlier save deleted is no longer in this DWG: it is cloned
+    // from the drawing as the editor opened it (--restore-from).
+    private static Entity FindRestoredEntity(JsonElement op)
+    {
+        if (RestoreSourcePath == null) throw new InvalidDataException("restore source is required for fromOpened");
+        RestoreDocument ??= Read(RestoreSourcePath, new List<object>());
+        return FindModelEntity(RestoreDocument, RequiredString(op, "copyOf"), op);
+    }
+
     private static Entity CopyEntity(CadDocument document, Entity source)
     {
         var copy = (Entity)source.Clone();
@@ -1590,7 +1613,7 @@ internal static class Program
         Insert insert;
         if (!fresh)
         {
-            var source = FindModelEntity(document, copyOf) as Insert
+            var source = (FromOpened(op) ? FindRestoredEntity(op) : FindModelEntity(document, copyOf)) as Insert
                 ?? throw new InvalidDataException($"copy source is not an INSERT: {copyOf}");
             insert = (Insert)source.Clone();
         }
@@ -1627,7 +1650,7 @@ internal static class Program
             foreach (var attribute in insert.Attributes) attribute.ApplyTransform(transform);
             return insert;
         }
-        if (insert.Attributes.Any() && turned) PlaceAttributes(insert, (Insert)FindModelEntity(document, copyOf!), placedAttributes);
+        if (insert.Attributes.Any() && turned) PlaceAttributes(insert, (Insert)(FromOpened(op) ? FindRestoredEntity(op) : FindModelEntity(document, copyOf!)), placedAttributes);
         else MoveAttributes(insert, insert.InsertPoint - previous);
         return insert;
     }
