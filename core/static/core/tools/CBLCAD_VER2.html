@@ -23267,12 +23267,15 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     }
 
     function cblSliceUntilNextLoopOrEnd(pairs, start){
-      var out = [];
+      var out = [], edge = 0, fitCount = false;
       for(var ii=start; ii<pairs.length; ii++){
         var cc = String(pairs[ii][0]);
         if(ii > start && (cc === '92' || cc === '75' || cc === '76' || cc === '98')) break;
         out.push(pairs[ii]);
-        if(cc === '97') break;
+        if(cc === '72'){ edge = Math.floor(cblPairNumber(pairs[ii][1], 0)); fitCount = false; }
+        // A spline edge counts its fit points with 97 as well; the loop's own
+        // 97 (its source objects) follows its last edge.
+        if(cc === '97'){ if(edge === 4 && !fitCount){ fitCount = true; continue; } break; }
       }
       return out;
     }
@@ -23321,17 +23324,20 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       for(var i=0; i<pairs.length; i++){
         if(String(pairs[i][0]) !== '92') continue;
         var loopPairs = cblSliceUntilNextLoopOrEnd(pairs, i);
-        var hasLineEnd = loopPairs.some(function(pa){ return String(pa[0]) === '11' || String(pa[0]) === '21'; });
+        // An edge loop (92 without the polyline bit 2) is read edge by edge,
+        // also when it has no line edge (arcs only, a spline and arcs ...).
+        var hasLineEnd = !(Math.floor(cblPairNumber(pairs[i][1], 0)) & 2) || loopPairs.some(function(pa){ return String(pa[0]) === '11' || String(pa[0]) === '21'; });
         var madeInLoop = 0;
 
         if(hasLineEnd){
           for(var k=0; k<loopPairs.length; k++){
             if(String(loopPairs[k][0]) !== '72') continue;
             var edgeType = Math.floor(cblPairNumber(loopPairs[k][1], 0));
-            var seg = [];
+            var seg = [], fitSeen = false;
             for(var s=k+1; s<loopPairs.length; s++){
               var sc = String(loopPairs[s][0]);
-              if(s > k+1 && (sc === '72' || sc === '97' || sc === '92')) break;
+              if(s > k+1 && (sc === '72' || sc === '92')) break;
+              if(s > k+1 && sc === '97'){ if(edgeType === 4 && !fitSeen){ fitSeen = true; seg.push(loopPairs[s]); continue; } break; }
               seg.push(loopPairs[s]);
             }
 
@@ -23374,6 +23380,49 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
                   a2:cblPairNumber(a2,360) * Math.PI / 180 + addRot,
                   cblFromHatch:true
                 }));
+                imported++; madeInLoop++;
+              }
+            }else if(edgeType === 3){
+              // An elliptic edge: centre, major axis end (relative to it), axis
+              // ratio and start/end parameters in degrees; a clockwise edge
+              // (73 = 0) stores them negated.  Drawn as a polyline through it.
+              var ex=null, ey=null, mx=null, my=null, ratio=1, e1=0, e2=360, eccw=1;
+              seg.forEach(function(pa){
+                var pc = String(pa[0]);
+                if(pc === '10') ex = pa[1]; else if(pc === '20') ey = pa[1];
+                else if(pc === '11') mx = pa[1]; else if(pc === '21') my = pa[1];
+                else if(pc === '40') ratio = cblPairNumber(pa[1], 1);
+                else if(pc === '50') e1 = cblPairNumber(pa[1], 0); else if(pc === '51') e2 = cblPairNumber(pa[1], 360);
+                else if(pc === '73') eccw = cblPairNumber(pa[1], 1);
+              });
+              if(ex !== null && ey !== null && mx !== null && my !== null){
+                var ecx = cblPairNumber(ex, 0), ecy = cblPairNumber(ey, 0), emx = cblPairNumber(mx, 0), emy = cblPairNumber(my, 0);
+                var ea = Math.hypot(emx, emy), eb = ea * ratio, erot = Math.atan2(emy, emx);
+                var es = eccw ? e1 : -e2, ee = eccw ? e2 : -e1, espan = ((ee - es) % 360 + 360) % 360;
+                if(espan < 1e-9) espan = 360;
+                var esteps = Math.max(8, Math.ceil(espan / 5)), epts = [];
+                for(var ei = 0; ei <= esteps; ei++){
+                  var et = (es + espan * ei / esteps) * Math.PI / 180, elx = ea * Math.cos(et), ely = eb * Math.sin(et);
+                  epts.push(cblPairPoint(ecx + elx * Math.cos(erot) - ely * Math.sin(erot), ecy + elx * Math.sin(erot) + ely * Math.cos(erot), mtx));
+                }
+                if(ea > 0){
+                  pushShape(Object.assign({}, style, {type:'polyline', pts:epts, closed:false, cblFromHatch:true}));
+                  imported++; madeInLoop++;
+                }
+              }
+            }else if(edgeType === 4){
+              // A spline edge (94 degree, 40 knots, 10/20 control points, 42
+              // weights, 11/21 fit points), drawn as the SPLINE entity is.
+              var sp = {'71':[3], '40':[], '10':[], '20':[], '41':[], '11':[], '21':[]};
+              seg.forEach(function(pa){
+                var pc = String(pa[0]);
+                if(pc === '94') sp['71'] = [pa[1]];
+                else if(pc === '40' || pc === '10' || pc === '20' || pc === '11' || pc === '21') sp[pc].push(pa[1]);
+                else if(pc === '42') sp['41'].push(pa[1]);
+              });
+              var spts = cblSplinePointsV2(sp).map(function(q){ return cblPairPoint(q.x, q.y, mtx); });
+              if(spts.length >= 2){
+                pushShape(Object.assign({}, style, {type:'polyline', pts:spts, closed:false, cblFromHatch:true}));
                 imported++; madeInLoop++;
               }
             }

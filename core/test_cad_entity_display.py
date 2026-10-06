@@ -1,3 +1,4 @@
+import io
 import json
 import math
 import shutil
@@ -250,6 +251,43 @@ class CadEntityDisplayTests(SimpleTestCase):
         # (50, 50) and (350, 50) turned about the origin and moved 1000 to the right.
         self.assertEqual(middle("2F"), (950, 50))   # counter-clockwise: the left half
         self.assertEqual(middle("30"), (950, 350))  # clockwise: the right half
+
+    def test_elliptic_and_spline_hatch_edges_are_drawn(self):
+        # Only line and arc edges were drawn: an elliptic or spline edge left a
+        # gap in the hatch boundary.
+        import ezdxf
+
+        def on(pts, point, tol=0.5):
+            # Distance to the drawn polyline (its segments, not only its vertices).
+            def gap(a, b):
+                dx, dy = b["x"] - a["x"], b["y"] - a["y"]
+                t = max(0, min(1, ((point[0] - a["x"]) * dx + (point[1] - a["y"]) * dy) / ((dx * dx + dy * dy) or 1)))
+                return math.hypot(a["x"] + t * dx - point[0], a["y"] + t * dy - point[1])
+            return min(gap(a, b) for a, b in zip(pts, pts[1:])) < tol
+
+        def curve(parsed, handle):
+            return next(s for s in self.owned_by(parsed, handle) if s["type"] == "polyline")["pts"]
+
+        # Elliptic edge 0 -> 180 degrees, centre (550, 0), half axes 50 and 30.
+        edge = curve(self.parse_dwg(FIXTURES / "hatch_edges_ac1032.dwg"), "31")
+        for point in ((600, 0), (550, 30), (500, 0)):
+            self.assertTrue(on(edge, point), point)
+        self.assertFalse(on(edge, (550, -30)))
+        # Mirrored by the writer it runs clockwise (stored negated): still the upper half.
+        ops = self.tmp / "ops.json"
+        ops.write_text(json.dumps({"ops": [{"type": "transform", "handle": "31", "matrix": [-1, 0, 0, 1, 0, 0]}]}))
+        mirrored = self.tmp / "mirrored.dwg"
+        run = subprocess.run([str(EXECUTABLE), str(FIXTURES / "hatch_edges_ac1032.dwg"), str(mirrored), "AC1018", str(ops)], capture_output=True, timeout=300)
+        self.assertEqual(run.returncode, 0, run.stderr[-800:])
+        edge = curve(self.parse_dwg(mirrored), "31")
+        for point in ((-600, 0), (-550, 30), (-500, 0)):
+            self.assertTrue(on(edge, point), point)
+        # A spline edge follows the curve (compared with ezdxf's own evaluation).
+        source = FIXTURES / "hatch_spline_edge_ac1032.dwg"
+        doc = ezdxf.read(io.StringIO(core_views._cbl_free_dwg_to_dxf_text_v1(source)[0]))
+        expected = [tuple(v)[:2] for v in doc.entitydb["2F"].paths[0].edges[0].construction_tool().approximate(50)]
+        edge = curve(self.parse_dwg(source), "2F")
+        self.assertTrue(all(on(edge, point, 1.0) for point in expected))
 
 @skipUnless(NODE, "node is required to execute the CAD editor helpers")
 class CadUndisplayedNoticeTests(SimpleTestCase):
