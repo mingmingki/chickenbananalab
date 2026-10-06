@@ -224,9 +224,10 @@ class CadUndisplayedNoticeTests(SimpleTestCase):
 class CadTextDedupeTests(SimpleTestCase):
     """The open removes repeated texts, but never a TEXT the user can edit.
 
-    A TEXT entity drawn exactly over a dimension's (or block's) text was
-    hidden as a "duplicate" of that render-only piece: it stayed in the DWG
-    but could not be selected, moved or deleted.
+    A TEXT entity drawn exactly over a dimension's (or block's) text, or over
+    another TEXT entity, was hidden as a "duplicate": it stayed in the DWG but
+    could not be selected, moved or deleted, so deleting the visible one left
+    it in the saved file and it came back on the next open.
     """
 
     def test_a_render_only_piece_does_not_hide_an_editable_text(self):
@@ -237,11 +238,14 @@ class CadTextDedupeTests(SimpleTestCase):
                  "displayOnly": True, "blockChild": True, "ownerSourceHandle": "1F60"}
         entity = {"type": "text", "text": "8,000", "x": 10, "y": 20, "size": 600, "rot": 0.5, "layId": 3,
                   "sourceHandle": "36CB8", "rawDxfType": "TEXT"}
-        cases = {"piece_first": [piece, entity], "entity_first": [entity, piece], "two_pieces": [piece, piece]}
+        twin = dict(entity, sourceHandle="36CBB")
+        cases = {"piece_first": [piece, entity], "entity_first": [entity, piece], "two_pieces": [piece, piece],
+                 "two_entities": [entity, twin], "same_entity_twice": [entity, entity]}
         script = ("var window = globalThis; var console = {log(){}, error(){}};\n"
                   "var cases = %s, current = null;\nwindow.parseDXF = function(){ return JSON.parse(JSON.stringify(current)); };\n"
                   "%s\nvar out = {};\nfor (var k in cases) { current = cases[k]; out[k] = window.parseDXF().map(function(s){ return s.sourceHandle || 'piece'; }); }\n"
                   "process.stdout.write(JSON.stringify(out));") % (json.dumps(cases), module)
         run = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=60)
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(json.loads(run.stdout), {"piece_first": ["piece", "36CB8"], "entity_first": ["36CB8"], "two_pieces": ["piece"]})
+        self.assertEqual(json.loads(run.stdout), {"piece_first": ["piece", "36CB8"], "entity_first": ["36CB8"], "two_pieces": ["piece"],
+                                                  "two_entities": ["36CB8", "36CBB"], "same_entity_twice": ["36CB8"]})

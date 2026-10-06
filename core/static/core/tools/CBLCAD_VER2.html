@@ -24644,16 +24644,18 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       }
 
       var key = textKey(s);
-      // A TEXT with its own DWG handle is an object the user edits; a
-      // render-only piece (block or dimension content) at the same place
-      // must not hide it.
+      // A TEXT with its own DWG handle is an object the user edits: neither a
+      // render-only piece (block or dimension content) nor another TEXT entity
+      // at the same place may hide it, or deleting the visible one leaves it in
+      // the saved DWG.  Only the same entity read twice is dropped.
       var editable = !!(s.sourceHandle && !s.displayOnly && !s.rendererOnly && !s.synthetic && !s.blockChild && !s.isBlockChild && !s.fromBlock);
-      if (seen.has(key) && (!editable || seenEditable.has(key))) {
+      var entityKey = editable ? key + '|' + String(s.sourceHandle).toUpperCase() : '';
+      if (editable ? seenEditable.has(entityKey) : seen.has(key)) {
         stats.removedDuplicateText++;
         continue;
       }
       seen.add(key);
-      if (editable) seenEditable.add(key);
+      if (editable) seenEditable.add(entityKey);
 
       out.push(s);
     }
