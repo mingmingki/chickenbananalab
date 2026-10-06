@@ -23691,8 +23691,9 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       });
       if(text && ok(textAt)){
         var h = height > 0 ? height : 2.5;
-        // The MTEXT insertion is its top-left corner; the editor draws from the baseline.
-        out.push(cblFakeTextV2(text, {x:textAt.x, y:textAt.y - h}, h, rotation * 180 / Math.PI));
+        // The MTEXT insertion is its top-left corner; the editor draws from the
+        // baseline, one text height below it across the (rotated) text.
+        out.push(cblFakeTextV2(text, {x:textAt.x + Math.sin(rotation) * h, y:textAt.y - Math.cos(rotation) * h}, h, rotation * 180 / Math.PI));
       }
       return out.length ? out : null;
     }
@@ -23779,6 +23780,13 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         var q = pt(ent, '10', '20', m);
         var sc3 = m ? matScaleAvg(m) : 1;
         var dimRot = ctx && Number.isFinite(Number(ctx.dimensionTextRotationDeg)) ? Number(ctx.dimensionTextRotationDeg) : null;
+        // A dimension block's MTEXT is the text as AutoCAD draws it: its direction
+        // vector wins over the DIMENSION record, whose text rotation 0 only means
+        // "the default direction" (along the line, or level with DIMTIH).
+        if(dimRot !== null && type === 'MTEXT'){
+          var dimDirX = Number(first(p, '11', NaN)), dimDirY = Number(first(p, '21', NaN));
+          if(Number.isFinite(dimDirX) && Number.isFinite(dimDirY) && Math.hypot(dimDirX, dimDirY) > 1e-9) dimRot = Math.atan2(dimDirY, dimDirX) * 180 / Math.PI;
+        }
         var rot = (dimRot !== null ? dimRot : num(first(p,'50',0))) * Math.PI / 180 + (m ? matRot(m) : 0);
         var tx = dxfTextFromProps(p);
 
@@ -24592,6 +24600,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
 
     var out = [];
     var seen = new Set();
+    var seenEditable = new Set();
     var stats = {
       before: shapes.length,
       after: 0,
@@ -24635,11 +24644,16 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       }
 
       var key = textKey(s);
-      if (seen.has(key)) {
+      // A TEXT with its own DWG handle is an object the user edits; a
+      // render-only piece (block or dimension content) at the same place
+      // must not hide it.
+      var editable = !!(s.sourceHandle && !s.displayOnly && !s.rendererOnly && !s.synthetic && !s.blockChild && !s.isBlockChild && !s.fromBlock);
+      if (seen.has(key) && (!editable || seenEditable.has(key))) {
         stats.removedDuplicateText++;
         continue;
       }
       seen.add(key);
+      if (editable) seenEditable.add(key);
 
       out.push(s);
     }
@@ -40461,7 +40475,7 @@ window.cblSnapResidueGateStatusV12 = function(){
   // (a copied INSERT remembers its source so the writer can clone its attributes).
   function detachCopiedIdentityV1(s,sourceHandle){
     ['sourceHandle','originalHandle','handle','sourcePath','cblRenderIdentity','clientShapeId','objectId'].forEach(function(k){delete s[k];});
-    if(String(s.type||'').toLowerCase()==='blockref')s.cblCopiedFromHandle=sourceHandle;
+    if(String(s.type||'').toLowerCase()==='blockref'||{SPLINE:1,ELLIPSE:1,SOLID:1,TRACE:1,'3DFACE':1,POINT:1}[String(s.rawDxfType||'').toUpperCase()])s.cblCopiedFromHandle=sourceHandle;
     // An attribute of a copied block is cloned by the writer together with its INSERT.
     if(s.cblAttribOwnerHandle)s.cblAttribCopy=true;
   }
@@ -40671,25 +40685,61 @@ window.cblSnapResidueGateStatusV12 = function(){
   function sameGeometry(a,b){
     return !!a&&!!b&&cblShapeSaveSignatureV1(a)===cblShapeSaveSignatureV1(b);
   }
-  // The offset by which `to` is `from` moved, or null when `to` is not a pure
-  // translation of it (rotated, scaled, edited, other layer or colour).  With
-  // geometryOnly the layer, colour and text rotation are not compared:
+  // CBL_SIMILARITY_EDITS_V1: the plan similarity (move, rotation, uniform scale,
+  // mirror) that takes every `from` shape onto its `to` shape, or null.  With
+  // geometryOnly the layer and colour are not compared, nor a text's rotation:
   // render-only pieces get display values rewritten after the open (linetype
   // "Continuous" -> "solid", dimension text rotation) that are never saved.
-  function cblPieceOffsetV1(from,to,geometryOnly){
-    if(!from||!to)return null;
-    var t=String(from.type||'').toLowerCase(),d=null;
-    if(t==='line')d={x:n(to.x1)-n(from.x1),y:n(to.y1)-n(from.y1)};
-    else if(t==='polyline'&&Array.isArray(from.pts)&&from.pts.length&&Array.isArray(to.pts)&&to.pts.length)d={x:n(to.pts[0].x)-n(from.pts[0].x),y:n(to.pts[0].y)-n(from.pts[0].y)};
-    else if(t==='circle'||t==='arc')d={x:n(to.cx)-n(from.cx),y:n(to.cy)-n(from.cy)};
-    else if(t==='text'||t==='mtext'||t==='blockref')d={x:n(to.x)-n(from.x),y:n(to.y)-n(from.y)};
-    if(!d||!Number.isFinite(d.x)||!Number.isFinite(d.y))return null;
-    var moved=JSON.parse(JSON.stringify(from));
-    if(typeof mvS==='function')mvS(moved,d.x,d.y);else return null;
-    // A piece's text rotation is recomputed for display after the open (the
-    // dimension text modules); a rotated object shows in its other pieces.
-    var sig=function(x){var o=cblShapeSaveSignatureV1(x);if(!geometryOnly)return o;o=JSON.parse(o);var g=o.geometry||{};if(o.type==='text'||o.type==='mtext')delete g.rotation;return JSON.stringify({type:o.type,geometry:g});};
-    return sig(moved)===sig(to)?d:null;
+  function cblShapeSimilarityV1(pairs,geometryOnly){
+    var src=[],dst=[],sizes=[],bulges=[],arcs=[],texts=[],ok=true;
+    function textPoints(s){var r=shapeRotation(s),half=n(s.tw,0)/2;return {insert:[n(s.x),n(s.y)],mid:[n(s.x)+Math.cos(r)*half,n(s.y)+Math.sin(r)*half]};}
+    function arcPoints(s){var a1=n(firstShapeValue(s,['startAngle','a1'],0)),a2=n(firstShapeValue(s,['endAngle','a2'],0)),span=((a2-a1)%(2*Math.PI)+2*Math.PI)%(2*Math.PI),r=n(s.r),cx=n(s.cx),cy=n(s.cy),at=function(t){return [cx+r*Math.cos(t),cy+r*Math.sin(t)];};return {ends:[at(a1),at(a2)],mid:at(a1+span/2)};}
+    (pairs||[]).forEach(function(pr){
+      var a=pr&&pr[0],b=pr&&pr[1];if(!ok)return;if(!a||!b){ok=false;return;}
+      var t=String(a.type||'').toLowerCase();if(t!==String(b.type||'').toLowerCase()){ok=false;return;}
+      if(!geometryOnly){var sa=JSON.parse(cblShapeSaveSignatureV1(a)),sb=JSON.parse(cblShapeSaveSignatureV1(b));delete sa.geometry;delete sb.geometry;if(JSON.stringify(sa)!==JSON.stringify(sb)){ok=false;return;}}
+      if(t==='line'){src.push([n(a.x1),n(a.y1)],[n(a.x2),n(a.y2)]);dst.push([n(b.x1),n(b.y1)],[n(b.x2),n(b.y2)]);}
+      else if(t==='polyline'){var pa=a.pts||[],pb=b.pts||[];if(!pa.length||pa.length!==pb.length||!!a.closed!==!!b.closed){ok=false;return;}pa.forEach(function(q,i){src.push([n(q.x),n(q.y)]);dst.push([n(pb[i].x),n(pb[i].y)]);bulges.push([n(q.bulge,0),n(pb[i].bulge,0)]);});}
+      else if(t==='circle'){src.push([n(a.cx),n(a.cy)]);dst.push([n(b.cx),n(b.cy)]);if(!a.cblFromPoint)sizes.push([n(a.r),n(b.r)]);}
+      else if(t==='arc'){src.push([n(a.cx),n(a.cy)]);dst.push([n(b.cx),n(b.cy)]);sizes.push([n(a.r),n(b.r)]);arcs.push([arcPoints(a),arcPoints(b)]);}
+      else if(t==='text'||t==='mtext'){if(String(a.text||a.content||'')!==String(b.text||b.content||'')){ok=false;return;}texts.push([textPoints(a),textPoints(b)]);sizes.push([n(firstShapeValue(a,['size','height','textHeight'],0)),n(firstShapeValue(b,['size','height','textHeight'],0))]);}
+      else ok=false;
+    });
+    if(!ok)return null;
+    // Only texts: their insertion points carry the move (a lone text cannot show a rotation).
+    if(!src.length)texts.forEach(function(z){src.push(z[0].insert);dst.push(z[1].insert);});
+    if(!src.length)return null;
+    var extent=1;src.concat(dst).forEach(function(q){extent=Math.max(extent,Math.abs(q[0]),Math.abs(q[1]));});
+    var tol=1e-7*extent+1e-6,far=0,fd=0;
+    src.forEach(function(q,i){var d=Math.hypot(q[0]-src[0][0],q[1]-src[0][1]);if(d>fd){fd=d;far=i;}});
+    var candidates=[];
+    if(fd<=tol)candidates.push([1,0,0,1,dst[0][0]-src[0][0],dst[0][1]-src[0][1]]);
+    else [false,true].forEach(function(mirror){
+      var ux=src[far][0]-src[0][0],uy=(mirror?-1:1)*(src[far][1]-src[0][1]),vx=dst[far][0]-dst[0][0],vy=dst[far][1]-dst[0][1],uu=ux*ux+uy*uy;
+      var a=(vx*ux+vy*uy)/uu,b=(vy*ux-vx*uy)/uu,c=mirror?b:-b,d=mirror?-a:a;
+      candidates.push([a,b,c,d,dst[0][0]-(a*src[0][0]+c*src[0][1]),dst[0][1]-(b*src[0][0]+d*src[0][1])]);
+    });
+    function map(m,q){return [m[0]*q[0]+m[2]*q[1]+m[4],m[1]*q[0]+m[3]*q[1]+m[5]];}
+    function near(p,q){return Math.abs(p[0]-q[0])<=tol&&Math.abs(p[1]-q[1])<=tol;}
+    for(var ci=0;ci<candidates.length;ci++){
+      var m=candidates[ci],det=m[0]*m[3]-m[1]*m[2],scale=Math.sqrt(Math.abs(det)),mirror=det<0,good=true;
+      for(var i=0;i<src.length&&good;i++)if(!near(map(m,src[i]),dst[i]))good=false;
+      sizes.forEach(function(z){if(Math.abs(z[0]*scale-z[1])>tol)good=false;});
+      bulges.forEach(function(z){if(Math.abs((mirror?-z[0]:z[0])-z[1])>1e-6)good=false;});
+      texts.forEach(function(z){if(!near(map(m,z[0].insert),z[1].insert)&&!(mirror&&near(map(m,z[0].mid),z[1].mid)))good=false;});
+      arcs.forEach(function(z){var e0=map(m,z[0].ends[0]),e1=map(m,z[0].ends[1]),ends=z[1].ends;if(!near(map(m,z[0].mid),z[1].mid)||!((near(e0,ends[0])&&near(e1,ends[1]))||(near(e0,ends[1])&&near(e1,ends[0]))))good=false;});
+      if(good){
+        var translation=Math.abs(m[0]-1)<=1e-9&&Math.abs(m[1])<=1e-9&&Math.abs(m[2])<=1e-9&&Math.abs(m[3]-1)<=1e-9;
+        return {matrix:m,translation:translation,identity:translation&&Math.abs(m[4])<=tol&&Math.abs(m[5])<=tol,scale:scale,mirror:mirror};
+      }
+    }
+    return null;
+  }
+  // The operation for an edit described by a similarity: none, a move or a transform.
+  function cblSimilarityOpV1(h,entity,sim){
+    if(!sim||sim.identity)return null;
+    if(sim.translation)return {type:'move',handle:h,sourceHandle:h,entity:entity,delta:[sim.matrix[4],sim.matrix[5],0]};
+    return {type:'transform',handle:h,sourceHandle:h,entity:entity,matrix:sim.matrix};
   }
   function isTopLevelEditable(s){
     if(!s)return false;
@@ -40759,39 +40809,53 @@ window.cblSnapResidueGateStatusV12 = function(){
       if(!after[h])refuse('삭제된 블록 속성',b);else if(!sameGeometry(b,after[h]))refuse('수정된 블록 속성',after[h]);
     });
     // Kinds the editor draws but cannot rebuild (SPLINE, ELLIPSE, SOLID, 3DFACE,
-    // POINT): the writer can move them; other edits are refused here instead of
-    // failing in the writer.
+    // POINT): the writer moves, rotates, scales and mirrors them; other edits
+    // (a dragged vertex, a new colour) are refused here instead of failing in
+    // the writer.
     var moveOnlyKinds={SPLINE:1,ELLIPSE:1,SOLID:1,TRACE:1,'3DFACE':1,POINT:1};
     Object.keys(before).forEach(function(h){
       var a=after[h],raw=String(a&&a.rawDxfType||'').toUpperCase();
       if(!a||!moveOnlyKinds[raw]||sameGeometry(before[h],a))return;
-      var d=cblPieceOffsetV1(before[h],a);
-      if(!d)refuse('수정된',{type:raw.toLowerCase()});
-      else if(topLevelHandles[h])ops.push({type:'move',handle:h,sourceHandle:h,entity:raw,delta:[d.x,d.y,0]});
+      var sim=cblShapeSimilarityV1([[before[h],a]],false);
+      if(!sim)refuse('수정된',{type:raw.toLowerCase()});
+      else{var op=cblSimilarityOpV1(h,raw,sim);if(op&&topLevelHandles[h])ops.push(op);}
       attribSkip[h]=true;
     });
     // CBL_OWNED_PIECES_V1: a DIMENSION, LEADER, MULTILEADER or HATCH is drawn as
     // render-only pieces of one DWG object.  It is deleted when all its pieces
-    // are gone and moved when all of them moved by one offset; any other change
-    // (rotation, scaling, a copy, a single piece) is refused instead of being
-    // silently left out of the save.
-    function ownedPiecesV1(list){var g={};(list||[]).forEach(function(s){if(!s||!s.cblOwnerTypeV1)return;var h=normHandle(s.ownerSourceHandle||'');if(!h)return;(g[h]||(g[h]={type:String(s.cblOwnerTypeV1),pieces:[]})).pieces.push(s);});return g;}
-    var ownedBefore=ownedPiecesV1(base),ownedAfter=ownedPiecesV1(ss);
+    // are gone, moved / rotated / scaled / mirrored when all of them changed by
+    // one similarity, and copied (as the same kind) when a copy of its pieces
+    // appears; any other change (a single piece) is refused instead of being
+    // silently left out of the save.  A copy's pieces carry the copy's own
+    // block key ("copy-...") next to the source's owner handle.
+    function ownedPiecesV1(list){var g={};(list||[]).forEach(function(s){if(!s||!s.cblOwnerTypeV1)return;var h=normHandle(s.ownerSourceHandle||'');if(!h)return;var key=s.cblBlockKey&&/^copy-/.test(String(s.cblBlockKey))?String(s.cblBlockKey):h;(g[key]||(g[key]={type:String(s.cblOwnerTypeV1),owner:h,copy:key!==h,pieces:[]})).pieces.push(s);});return g;}
+    function ownedSimilarityV1(fromPieces,toPieces){
+      var byId={},seen={},pairs=[];
+      if(fromPieces.length!==toPieces.length)return null;
+      fromPieces.forEach(function(q){byId[q.cblPieceIdV1]=q;});
+      for(var i=0;i<toPieces.length;i++){var q=toPieces[i],o=byId[q.cblPieceIdV1];if(!o||seen[q.cblPieceIdV1])return null;seen[q.cblPieceIdV1]=true;pairs.push([o,q]);}
+      return cblShapeSimilarityV1(pairs,true);
+    }
+    // A DIMENSION keeps its measurement only when rotated or moved, and a
+    // MULTILEADER's text cannot be mirrored; the writer refuses those too.
+    function ownedLimitV1(type,sim){return (type==='DIMENSION'&&(sim.mirror||Math.abs(sim.scale-1)>1e-9))||(type==='MULTILEADER'&&sim.mirror)?'크기를 바꾸거나 대칭한':'';}
+    var ownedBefore=ownedPiecesV1(base),ownedAfter=ownedPiecesV1(ss),ownedCopies=[];
     Object.keys(ownedBefore).forEach(function(h){
       var b=ownedBefore[h],a=ownedAfter[h],kind={type:b.type.toLowerCase()};
       if(!a){ops.push({type:'delete',handle:h,sourceHandle:h,entity:b.type});return;}
-      var byId={},seen={},dx=null,dy=null,same=a.pieces.length===b.pieces.length;
-      b.pieces.forEach(function(q){byId[q.cblPieceIdV1]=q;});
-      a.pieces.forEach(function(q){
-        if(!same)return;
-        var o=byId[q.cblPieceIdV1];if(!o||seen[q.cblPieceIdV1]){same=false;return;}seen[q.cblPieceIdV1]=true;
-        var d=cblPieceOffsetV1(o,q,true);if(!d){same=false;return;}
-        if(dx===null){dx=d.x;dy=d.y;}else if(Math.abs(d.x-dx)>1e-6||Math.abs(d.y-dy)>1e-6)same=false;
-      });
-      if(!same){refuse('수정된',kind);return;}
-      if(Math.abs(dx)>1e-9||Math.abs(dy)>1e-9)ops.push({type:'move',handle:h,sourceHandle:h,entity:b.type,delta:[dx,dy,0]});
+      var sim=ownedSimilarityV1(b.pieces,a.pieces);
+      if(!sim){refuse('수정된',kind);return;}
+      if(ownedLimitV1(b.type,sim)){refuse(ownedLimitV1(b.type,sim),kind);return;}
+      var op=cblSimilarityOpV1(h,b.type,sim);if(op)ops.push(op);
     });
-    Object.keys(ownedAfter).forEach(function(h){if(!ownedBefore[h])refuse('새',{type:ownedAfter[h].type.toLowerCase()});});
+    Object.keys(ownedAfter).forEach(function(key){
+      var a=ownedAfter[key];
+      if(ownedBefore[key])return;
+      var source=a.copy?ownedBefore[a.owner]:null,sim=source?ownedSimilarityV1(source.pieces,a.pieces):null;
+      if(!sim){refuse('새',{type:a.type.toLowerCase()});return;}
+      if(ownedLimitV1(a.type,sim)){refuse(ownedLimitV1(a.type,sim),{type:a.type.toLowerCase()});return;}
+      ownedCopies.push({op:{type:'add_copy',copyOf:a.owner,entity:a.type,matrix:sim.matrix,clientShapeId:key},marker:{clientShapeId:key,cblOwnedPiecesV1:a.pieces}});
+    });
     Object.keys(before).forEach(function(h){if(attribSkip[h])return;if(!after[h])ops.push(deleteOpForShape(before[h],h));else if(!sameGeometry(before[h],after[h])){if(attributed[h]&&String(after[h].type||'').toLowerCase()==='blockref'&&!sameTransform(before[h],after[h])){refuse('회전·크기를 바꾼 속성',after[h]);return;}var u=opForShape(after[h],true);if(!u)refuse('수정된',after[h]);else if(topLevelHandles[h])ops.push(u);}});
     var unhandledBase=base.filter(function(b){return isTopLevelEditable(b)&&!ownerHandleOf(b)&&!b.cblAttribOwnerHandle;}),usedUnhandledBase=[];
     var newOps=[],newOpShapes=[],usedClientIds={};ss.forEach(function(s){
@@ -40807,6 +40871,17 @@ window.cblSnapResidueGateStatusV12 = function(){
       newEditableCount++;
       var copied=String(s.type||'').toLowerCase()==='blockref'?normHandle(s.cblCopiedFromHandle||''):'';
       if(copied&&attributed[copied]&&before[copied]&&!sameTransform(before[copied],s)){refuse('회전·크기를 바꾼 속성',s);return;}
+      var copiedRaw=String(s.rawDxfType||'').toUpperCase(),copiedFrom=normHandle(s.cblCopiedFromHandle||'');
+      if(copiedFrom&&moveOnlyKinds[copiedRaw]){
+        // A copied SPLINE/ELLIPSE/SOLID/3DFACE/POINT stays that kind.
+        var copySim=before[copiedFrom]?cblShapeSimilarityV1([[before[copiedFrom],s]],false):null;
+        if(!copySim){refuse('새',{type:copiedRaw.toLowerCase()});return;}
+        var copyOp={type:'add_copy',copyOf:copiedFrom,entity:copiedRaw,matrix:copySim.matrix,clientShapeId:ensureClientShapeIdV1(s)};
+        if(usedClientIds[copyOp.clientShapeId])copyOp.clientShapeId=assignFreshClientShapeIdV1(s);
+        usedClientIds[copyOp.clientShapeId]=true;
+        newOps.push(copyOp);newOpShapes.push(s);
+        return;
+      }
       var o=opForShape(s,false);
       if(!o){refuse('새',s);return;}
       // Pasting a new shape twice clones its clientShapeId; each add needs its own.
@@ -40814,15 +40889,23 @@ window.cblSnapResidueGateStatusV12 = function(){
       usedClientIds[o.clientShapeId]=true;
       newOps.push(o);newOpShapes.push(s);
     });
+    // Copies of owned objects: the writer reports each copy's handle, which the
+    // copy's pieces take as their owner after the save.
+    ownedCopies.forEach(function(c){newOps.push(c.op);newOpShapes.push(c.marker);});
     var refused=Object.keys(unsupported);
     if(refused.length)throw new Error('DWG로 저장할 수 없는 편집이 있어 저장을 멈췄습니다: '+refused.map(function(k){return k+' '+unsupported[k]+'개';}).join(', ')+'. 해당 객체를 지우거나 편집을 되돌린 뒤 다시 저장해 주세요.');
     var used={};ops.concat(newOps).forEach(function(o){var k=String(o&&o.type||'').toLowerCase();if(o&&o.layer&&k!=='delete')used[o.layer]=true;});
     var originalLayers=window.CBL_FREE_DWG_ORIGINAL_LAYER_NAMES||[],createdNames={};
     layers().forEach(function(l){if(used[l.name]&&originalLayers.indexOf(String(l.name))<0){ops.unshift({type:'create_layer',name:String(l.name),color:Number(l.aci)||256,linetype:l.lineType||'Continuous'});createdNames[String(l.name).toLowerCase()]=true;}});
     var createCount=ops.filter(function(o){return o.type==='create_layer';}).length;
-    Array.prototype.splice.apply(ops,[createCount,0].concat(layerUpdateOpsV1(createdNames)));
+    var layerUpdates=layerUpdateOpsV1(createdNames),layerOpCount=createCount+layerUpdates.length;
+    Array.prototype.splice.apply(ops,[createCount,0].concat(layerUpdates));
     var textStyles=Object.keys(window.CBL_CAD_TEXT_STYLES_V1||{}).map(function(k){var st=window.CBL_CAD_TEXT_STYLES_V1[k]||{};return {handle:String(st.handle||''),name:String(st.name||k),fontFile:String(st.fontFile||''),bigFontFile:String(st.bigFontFile||''),fixedHeight:n(st.fixedHeight,0),widthFactor:n(st.widthFactor,1),obliqueAngle:n(st.obliqueAngle,0),flags:Number(st.flags||0)};}).filter(function(st){return st.handle||st.name;});
-    var merged=ops.concat(newOps),seenDelete={},seenMutation={},normalized=[];
+    // A copy (add_copy, a copied INSERT) is cloned from its source, so it goes
+    // before the edits of that source: a deleted or moved original still copies
+    // as it was.
+    var copyOps=newOps.filter(function(o){return !!(o&&o.copyOf);});
+    var merged=ops.slice(0,layerOpCount).concat(copyOps,ops.slice(layerOpCount),newOps.filter(function(o){return !(o&&o.copyOf);})),seenDelete={},seenMutation={},normalized=[];
     merged.forEach(function(o){
       if(!o||!o.type){return;}
       var k=String(o.type).toLowerCase();
@@ -40974,7 +41057,7 @@ window.cblSnapResidueGateStatusV12 = function(){
     // already in the DWG and silently skip it, so remember how to undo this.
     var restore=[],identityKeys=['sourceHandle','originalHandle','handle'];
     if(pack)pack.restoreOutputHandlesV1=function(){
-      restore.splice(0).forEach(function(r){identityKeys.forEach(function(k){if(r.own[k])r.shape[k]=r.values[k];else delete r.shape[k];});});
+      restore.splice(0).forEach(function(r){(r.keys||identityKeys).forEach(function(k){if(r.own[k])r.shape[k]=r.values[k];else delete r.shape[k];});});
     };
     pending.forEach(function(ref){
       if(ref&&ref.shape){var own={},values={};identityKeys.forEach(function(k){own[k]=Object.prototype.hasOwnProperty.call(ref.shape,k);values[k]=ref.shape[k];});restore.push({shape:ref.shape,own:own,values:values});}
@@ -40984,6 +41067,19 @@ window.cblSnapResidueGateStatusV12 = function(){
       seen[handle]=true;
       var operation=pack.ops&&pack.ops[ref.opIndex],expectedClient=String(operation&&operation.clientShapeId||'');
       if(expectedClient&&clientShapeIdOf(ref.shape)!==expectedClient)throw new Error('신규 객체의 clientShapeId가 operation과 일치하지 않습니다: '+expectedClient);
+      if(ref.shape.cblOwnedPiecesV1){
+        // A copied DIMENSION/LEADER/MULTILEADER/HATCH: its pieces now belong to the copy.
+        ref.shape.cblOwnedPiecesV1.forEach(function(piece){
+          var ownKeys=['ownerSourceHandle','parentSourceHandle','parentHandle','cblBlockKey'],own={},values={};
+          ownKeys.forEach(function(k){own[k]=Object.prototype.hasOwnProperty.call(piece,k);values[k]=piece[k];});
+          restore.push({shape:piece,own:own,values:values,keys:ownKeys});
+          piece.ownerSourceHandle=handle;piece.parentSourceHandle=handle;piece.parentHandle=handle;delete piece.cblBlockKey;
+          var pieceIndex=current.indexOf(piece);
+          if(pieceIndex>=0){var pieceCopy=Object.assign({},piece);mapped[pieceIndex]=pieceCopy;}
+        });
+        applied++;
+        return;
+      }
       ref.shape.sourceHandle=handle;
       ref.shape.originalHandle=handle;
       ref.shape.handle=handle;

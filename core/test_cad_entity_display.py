@@ -1,4 +1,5 @@
 import json
+import math
 import shutil
 import subprocess
 import tempfile
@@ -14,6 +15,7 @@ from .test_cad_dwg_text_validation import EXECUTABLE
 
 FIXTURES = Path(settings.BASE_DIR) / "core" / "test_fixtures" / "cad"
 MLEADER = FIXTURES / "mleader_ac1032.dwg"
+KINDS = FIXTURES / "move_kinds_ac1032.dwg"
 
 HARNESS = """
 var window = globalThis; window.CBL_DXF_SINGLE_MODEL_IMPORT_V1 = true;
@@ -163,6 +165,27 @@ class CadEntityDisplayTests(SimpleTestCase):
         self.assertEqual(sum(1 for c in children if c["type"] == "line"), 7)
 
 
+    def test_rotated_dimension_and_multileader_text_turn_with_the_object(self):
+        # Saved by the writer's "transform" (the editor's rotate command).  The
+        # dimension text stood horizontal after the reopen (its DIMENSION
+        # record's text rotation 0 means "along the dimension line", not 0
+        # degrees) and the multileader text slid down by its height.
+        ops = self.tmp / "ops.json"
+        ops.write_text(json.dumps({"ops": [{"type": "transform", "handle": h, "matrix": [0, 1, -1, 0, 1000, 0]} for h in ("93", "B1")]}))
+        rotated = self.tmp / "rotated.dwg"
+        run = subprocess.run([str(EXECUTABLE), str(KINDS), str(rotated), "AC1018", str(ops)], capture_output=True, timeout=300)
+        self.assertEqual(run.returncode, 0, run.stderr[-800:])
+        before, after = self.parse_dwg(KINDS), self.parse_dwg(rotated)
+        for handle in ("93", "B1"):
+            with self.subTest(handle):
+                old = next(c for c in self.owned_by(before, handle) if c["type"] == "text")
+                new = next(c for c in self.owned_by(after, handle) if c["type"] == "text")
+                self.assertAlmostEqual(new["rot"], old["rot"] + math.pi / 2, places=6)
+                self.assertAlmostEqual(new["x"], 1000 - old["y"], places=4)
+                self.assertAlmostEqual(new["y"], old["x"], places=4)
+        # A dimension the file already had at 31 degrees showed level text as well.
+        self.assertAlmostEqual(next(c for c in self.owned_by(after, "A2") if c["type"] == "text")["rot"], math.atan2(60, 100), places=6)
+
 @skipUnless(NODE, "node is required to execute the CAD editor helpers")
 class CadUndisplayedNoticeTests(SimpleTestCase):
     def message(self, skipped):
@@ -195,3 +218,30 @@ class CadUndisplayedNoticeTests(SimpleTestCase):
         run = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=60)
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(json.loads(run.stdout), {"complete": True, "crlf": True, "cut_off": False, "garbage": False})
+
+
+@skipUnless(NODE, "node is required to execute the CAD editor helpers")
+class CadTextDedupeTests(SimpleTestCase):
+    """The open removes repeated texts, but never a TEXT the user can edit.
+
+    A TEXT entity drawn exactly over a dimension's (or block's) text was
+    hidden as a "duplicate" of that render-only piece: it stayed in the DWG
+    but could not be selected, moved or deleted.
+    """
+
+    def test_a_render_only_piece_does_not_hide_an_editable_text(self):
+        html = _html()
+        start = html.index("<!-- CBL_TEXT_CLEANUP_DEDUPE_V1 -->")
+        module = html[html.index("<script>", start) + len("<script>"):html.index("</script>", start)]
+        piece = {"type": "text", "text": "8,000", "x": 10, "y": 20, "size": 600, "rot": 0.5, "layId": 3,
+                 "displayOnly": True, "blockChild": True, "ownerSourceHandle": "1F60"}
+        entity = {"type": "text", "text": "8,000", "x": 10, "y": 20, "size": 600, "rot": 0.5, "layId": 3,
+                  "sourceHandle": "36CB8", "rawDxfType": "TEXT"}
+        cases = {"piece_first": [piece, entity], "entity_first": [entity, piece], "two_pieces": [piece, piece]}
+        script = ("var window = globalThis; var console = {log(){}, error(){}};\n"
+                  "var cases = %s, current = null;\nwindow.parseDXF = function(){ return JSON.parse(JSON.stringify(current)); };\n"
+                  "%s\nvar out = {};\nfor (var k in cases) { current = cases[k]; out[k] = window.parseDXF().map(function(s){ return s.sourceHandle || 'piece'; }); }\n"
+                  "process.stdout.write(JSON.stringify(out));") % (json.dumps(cases), module)
+        run = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(json.loads(run.stdout), {"piece_first": ["piece", "36CB8"], "entity_first": ["36CB8"], "two_pieces": ["piece"]})

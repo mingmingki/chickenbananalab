@@ -827,6 +827,24 @@ internal static class Program
                     applied.Add(new { type, kind = dimension is DimensionLinear ? "linear" : "aligned", handle = dimension.Handle.ToString("X") });
                     break;
                 }
+                case "transform":
+                {
+                    // Rotate / scale / mirror from the editor, as one plan similarity.
+                    var entity = FindModelEntity(document, RequiredString(op, "handle"), op);
+                    TransformEntity(entity, ReadSimilarity(op));
+                    applied.Add(new { type, handle = entity.Handle.ToString("X") });
+                    break;
+                }
+                case "add_copy":
+                {
+                    // A copy keeps the source's kind (hatch, spline, dimension ...):
+                    // the source is cloned, added and placed by the copy's transform.
+                    var source = FindModelEntity(document, RequiredString(op, "copyOf"), op);
+                    var copy = CopyEntity(document, source);
+                    TransformEntity(copy, ReadSimilarity(op));
+                    applied.Add(new { type, handle = copy.Handle.ToString("X"), copyOf = source.Handle.ToString("X"), sourceBlock = (source as Dimension)?.Block?.Name });
+                    break;
+                }
                 case "move":
                 case "update":
                 case "delete":
@@ -952,6 +970,306 @@ internal static class Program
             case Dimension dimension: MoveDimension(dimension, delta); break;
             case MultiLeader multiLeader: MoveMultiLeader(multiLeader, delta); break;
             default: throw new NotSupportedException($"Move is not supported for {entity.GetType().Name}");
+        }
+    }
+
+    // A plan similarity x' = a·x + c·y + e, y' = b·x + d·y + f: the editor's
+    // rotate, uniform scale and mirror (with any move), never a shear.
+    private readonly struct Similarity
+    {
+        public readonly double A, B, C, D, E, F;
+        public Similarity(double a, double b, double c, double d, double e, double f) { A = a; B = b; C = c; D = d; E = e; F = f; }
+        public double Determinant => A * D - B * C;
+        public double Scale => Math.Sqrt(Math.Abs(Determinant));
+        public bool Mirror => Determinant < 0;
+        public double Rotation => Math.Atan2(B, A);
+        public bool Linear => Math.Abs(A - 1) < 1e-12 && Math.Abs(B) < 1e-12 && Math.Abs(C) < 1e-12 && Math.Abs(D - 1) < 1e-12;
+        public XYZ Point(XYZ p) => new XYZ(A * p.X + C * p.Y + E, B * p.X + D * p.Y + F, p.Z);
+        public XY Point(XY p) => new XY(A * p.X + C * p.Y + E, B * p.X + D * p.Y + F);
+        public XYZ Vector(XYZ v) => new XYZ(A * v.X + C * v.Y, B * v.X + D * v.Y, v.Z);
+        public XY Vector(XY v) => new XY(A * v.X + C * v.Y, B * v.X + D * v.Y);
+        // The image of an angle measured from the X axis (radians).
+        public double Angle(double angle) => Rotation + (Mirror ? -angle : angle);
+    }
+
+    private static Similarity ReadSimilarity(JsonElement op)
+    {
+        var m = op.GetProperty("matrix");
+        if (m.GetArrayLength() != 6) throw new InvalidDataException("matrix needs [a, b, c, d, e, f]");
+        var t = new Similarity(ReadDouble(m, 0), ReadDouble(m, 1), ReadDouble(m, 2), ReadDouble(m, 3), ReadDouble(m, 4), ReadDouble(m, 5));
+        double u = t.A * t.A + t.B * t.B, v = t.C * t.C + t.D * t.D;
+        if (u < 1e-24 || Math.Abs(u - v) > 1e-9 * Math.Max(u, v) || Math.Abs(t.A * t.C + t.B * t.D) > 1e-9 * Math.Max(u, v))
+            throw new NotSupportedException("Transform is not supported for a non-uniform scale or shear");
+        return t;
+    }
+
+    private static void TransformEntity(Entity entity, Similarity m)
+    {
+        if (m.Linear)
+        {
+            if (Math.Abs(m.E) > 0 || Math.Abs(m.F) > 0) MoveEntity(entity, new XYZ(m.E, m.F, 0));
+            return;
+        }
+        double s = m.Scale;
+        switch (entity)
+        {
+            case Line line: line.StartPoint = m.Point(line.StartPoint); line.EndPoint = m.Point(line.EndPoint); break;
+            case Arc arc:
+            {
+                RequirePlanNormal(arc.Normal, arc);
+                double start = arc.StartAngle, end = arc.EndAngle;
+                arc.Center = m.Point(arc.Center);
+                arc.Radius *= s;
+                // A mirrored counter-clockwise arc runs the other way: swap its ends.
+                arc.StartAngle = m.Mirror ? m.Angle(end) : m.Angle(start);
+                arc.EndAngle = m.Mirror ? m.Angle(start) : m.Angle(end);
+                break;
+            }
+            case Circle circle: RequirePlanNormal(circle.Normal, circle); circle.Center = m.Point(circle.Center); circle.Radius *= s; break;
+            case LwPolyline poly:
+                RequirePlanNormal(poly.Normal, poly);
+                foreach (var vertex in poly.Vertices)
+                {
+                    vertex.Location = m.Point(vertex.Location);
+                    if (m.Mirror) vertex.Bulge = -vertex.Bulge;
+                }
+                break;
+            case Spline spline:
+                for (int i = 0; i < spline.ControlPoints.Count; i++) spline.ControlPoints[i] = m.Point(spline.ControlPoints[i]);
+                for (int i = 0; i < spline.FitPoints.Count; i++) spline.FitPoints[i] = m.Point(spline.FitPoints[i]);
+                spline.StartTangent = m.Vector(spline.StartTangent);
+                spline.EndTangent = m.Vector(spline.EndTangent);
+                break;
+            case Ellipse ellipse:
+            {
+                RequirePlanNormal(ellipse.Normal, ellipse);
+                double start = ellipse.StartParameter, end = ellipse.EndParameter;
+                ellipse.Center = m.Point(ellipse.Center);
+                ellipse.MajorAxisEndPoint = m.Vector(ellipse.MajorAxisEndPoint);
+                // Mirrored, the point at parameter t is at -t of the new axes.
+                if (m.Mirror)
+                {
+                    // Keep the span: a full ellipse stays 0..2π.
+                    ellipse.StartParameter = NormalizeAngle(-end);
+                    ellipse.EndParameter = ellipse.StartParameter + (end - start);
+                }
+                break;
+            }
+            case Solid solid:
+                RequirePlanNormal(solid.Normal, solid);
+                solid.FirstCorner = m.Point(solid.FirstCorner); solid.SecondCorner = m.Point(solid.SecondCorner);
+                solid.ThirdCorner = m.Point(solid.ThirdCorner); solid.FourthCorner = m.Point(solid.FourthCorner);
+                break;
+            case Face3D face:
+                face.FirstCorner = m.Point(face.FirstCorner); face.SecondCorner = m.Point(face.SecondCorner);
+                face.ThirdCorner = m.Point(face.ThirdCorner); face.FourthCorner = m.Point(face.FourthCorner);
+                break;
+            case Point point: point.Location = m.Point(point.Location); break;
+            case Leader leader:
+                for (int i = 0; i < leader.Vertices.Count; i++) leader.Vertices[i] = m.Point(leader.Vertices[i]);
+                leader.HorizontalDirection = m.Vector(leader.HorizontalDirection).Normalize();
+                break;
+            case TextEntity text:
+                if (m.Mirror) throw new NotSupportedException("Transform is not supported for TextEntity (mirrored)");
+                text.InsertPoint = m.Point(text.InsertPoint);
+                text.AlignmentPoint = m.Point(text.AlignmentPoint);
+                text.Rotation += m.Rotation;
+                text.Height *= s;
+                break;
+            case MText mtext:
+                if (m.Mirror) throw new NotSupportedException("Transform is not supported for MText (mirrored)");
+                mtext.InsertPoint = m.Point(mtext.InsertPoint);
+                mtext.AlignmentPoint = m.Vector(mtext.AlignmentPoint).Normalize();
+                mtext.Height *= s;
+                mtext.RectangleWidth *= s;
+                break;
+            case Insert insert:
+                if (m.Mirror || insert.Attributes.Any()) throw new NotSupportedException("Transform is not supported for Insert (mirrored or with attributes)");
+                insert.InsertPoint = m.Point(insert.InsertPoint);
+                insert.Rotation += m.Rotation;
+                insert.XScale *= s; insert.YScale *= s; insert.ZScale *= s;
+                break;
+            case Hatch hatch: TransformHatch(hatch, m); break;
+            case Dimension dimension: TransformDimension(dimension, m); break;
+            case MultiLeader multiLeader: TransformMultiLeader(multiLeader, m); break;
+            default: throw new NotSupportedException($"Transform is not supported for {entity.GetType().Name}");
+        }
+    }
+
+    private static double NormalizeAngle(double angle)
+    {
+        angle %= 2 * Math.PI;
+        return angle < 0 ? angle + 2 * Math.PI : angle;
+    }
+
+    private static void TransformHatch(Hatch hatch, Similarity m)
+    {
+        RequirePlanNormal(hatch.Normal, hatch);
+        bool patterned = !hatch.IsSolid && hatch.Pattern.Lines.Count > 0;
+        if (patterned && m.Mirror) throw new NotSupportedException("Transform is not supported for Hatch (mirrored pattern)");
+        double s = m.Scale;
+        foreach (var path in hatch.Paths)
+        {
+            foreach (var edge in path.Edges)
+            {
+                switch (edge)
+                {
+                    case Hatch.BoundaryPath.Line line: line.Start = m.Point(line.Start); line.End = m.Point(line.End); break;
+                    case Hatch.BoundaryPath.Arc arc:
+                        arc.Center = m.Point(arc.Center);
+                        arc.Radius *= s;
+                        if (m.Mirror)
+                        {
+                            arc.StartAngle = m.Angle(arc.StartAngle);
+                            arc.EndAngle = m.Angle(arc.EndAngle);
+                            arc.CounterClockWise = !arc.CounterClockWise;
+                        }
+                        else
+                        {
+                            arc.StartAngle += m.Rotation;
+                            arc.EndAngle += m.Rotation;
+                        }
+                        break;
+                    case Hatch.BoundaryPath.Ellipse ellipseEdge:
+                        ellipseEdge.Center = m.Point(ellipseEdge.Center);
+                        ellipseEdge.MajorAxisEndPoint = m.Vector(ellipseEdge.MajorAxisEndPoint);
+                        if (m.Mirror)
+                        {
+                            ellipseEdge.StartAngle = -ellipseEdge.StartAngle;
+                            ellipseEdge.EndAngle = -ellipseEdge.EndAngle;
+                            ellipseEdge.CounterClockWise = !ellipseEdge.CounterClockWise;
+                        }
+                        break;
+                    case Hatch.BoundaryPath.Spline splineEdge:
+                        // Z of a spline edge control point is its weight.
+                        for (int i = 0; i < splineEdge.ControlPoints.Count; i++)
+                        {
+                            var p = splineEdge.ControlPoints[i];
+                            var q = m.Point(new XY(p.X, p.Y));
+                            splineEdge.ControlPoints[i] = new XYZ(q.X, q.Y, p.Z);
+                        }
+                        for (int i = 0; i < splineEdge.FitPoints.Count; i++) splineEdge.FitPoints[i] = m.Point(splineEdge.FitPoints[i]);
+                        splineEdge.StartTangent = m.Vector(splineEdge.StartTangent);
+                        splineEdge.EndTangent = m.Vector(splineEdge.EndTangent);
+                        break;
+                    case Hatch.BoundaryPath.Polyline polyline:
+                        // Z of a polyline path vertex is its bulge.
+                        for (int i = 0; i < polyline.Vertices.Count; i++)
+                        {
+                            var v = polyline.Vertices[i];
+                            var q = m.Point(new XY(v.X, v.Y));
+                            polyline.Vertices[i] = new XYZ(q.X, q.Y, m.Mirror ? -v.Z : v.Z);
+                        }
+                        break;
+                    default: throw new NotSupportedException($"Transform is not supported for hatch edge {edge.GetType().Name}");
+                }
+            }
+        }
+        for (int i = 0; i < hatch.SeedPoints.Count; i++) hatch.SeedPoints[i] = m.Point(hatch.SeedPoints[i]);
+        if (patterned)
+        {
+            foreach (var line in hatch.Pattern.Lines)
+            {
+                line.Angle += m.Rotation;
+                line.BasePoint = m.Point(line.BasePoint);
+                line.Offset = m.Vector(line.Offset);
+                for (int i = 0; i < line.DashLengths.Count; i++) line.DashLengths[i] *= s;
+            }
+            // The PatternAngle/PatternScale setters rebuild the lines; set the values only.
+            SetField(hatch, "_patternAngle", hatch.PatternAngle + m.Rotation);
+            SetField(hatch, "_patternScale", hatch.PatternScale * s);
+        }
+    }
+
+    private static void SetField(object target, string name, object value)
+    {
+        var field = target.GetType().GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new MissingFieldException(target.GetType().Name, name);
+        field.SetValue(target, value);
+    }
+
+    // A dimension shows its stored measurement, so only its position and
+    // direction may change; scaled or mirrored it would show a wrong value.
+    private static void TransformDimension(Dimension dimension, Similarity m)
+    {
+        if (m.Mirror || Math.Abs(m.Scale - 1) > 1e-9)
+            throw new NotSupportedException("Transform is not supported for Dimension (scaled or mirrored)");
+        foreach (var property in dimension.GetType().GetProperties())
+        {
+            if (property.PropertyType != typeof(XYZ) || !property.CanRead || !property.CanWrite || property.Name == nameof(Dimension.Normal)) continue;
+            property.SetValue(dimension, m.Point((XYZ)property.GetValue(dimension)!));
+        }
+        if (dimension is DimensionLinear linear) linear.Rotation += m.Rotation;
+        if (Math.Abs(dimension.TextRotation) > 1e-12) dimension.TextRotation += m.Rotation;
+        var block = dimension.Block;
+        if (block == null) return;
+        var document = dimension.Document;
+        if (document != null && document.Entities.OfType<Dimension>().Count(d => ReferenceEquals(d.Block, block)) > 1)
+            throw new NotSupportedException("Transform is not supported for Dimension (shared block)");
+        foreach (var entity in block.Entities.ToList()) TransformEntity(entity, m);
+    }
+
+    private static void TransformMultiLeader(MultiLeader leader, Similarity m)
+    {
+        var context = leader.ContextData;
+        if (m.Mirror || context.HasContentsBlock)
+            throw new NotSupportedException("Transform is not supported for MultiLeader (mirrored or with block content)");
+        double s = m.Scale;
+        context.ContentBasePoint = m.Point(context.ContentBasePoint);
+        context.TextLocation = m.Point(context.TextLocation);
+        context.BasePoint = m.Point(context.BasePoint);
+        context.Direction = m.Vector(context.Direction).Normalize();
+        context.BaseDirection = m.Vector(context.BaseDirection).Normalize();
+        context.BaseVertical = m.Vector(context.BaseVertical).Normalize();
+        context.TextRotation += m.Rotation;
+        context.TextHeight *= s;
+        context.ArrowheadSize *= s;
+        context.LandingGap *= s;
+        context.BoundaryWidth *= s;
+        foreach (var root in context.LeaderRoots)
+        {
+            root.ConnectionPoint = m.Point(root.ConnectionPoint);
+            root.Direction = m.Vector(root.Direction).Normalize();
+            root.LandingDistance *= s;
+            for (int i = 0; i < root.BreakStartEndPointsPairs.Count; i++)
+                root.BreakStartEndPointsPairs[i] = new ACadSharp.Objects.MultiLeaderObjectContextData.StartEndPointPair(m.Point(root.BreakStartEndPointsPairs[i].StartPoint), m.Point(root.BreakStartEndPointsPairs[i].EndPoint));
+            foreach (var line in root.Lines)
+            {
+                for (int i = 0; i < line.Points.Count; i++) line.Points[i] = m.Point(line.Points[i]);
+                for (int i = 0; i < line.StartEndPoints.Count; i++)
+                    line.StartEndPoints[i] = new ACadSharp.Objects.MultiLeaderObjectContextData.StartEndPointPair(m.Point(line.StartEndPoints[i].StartPoint), m.Point(line.StartEndPoints[i].EndPoint));
+            }
+        }
+        leader.ArrowheadSize *= s;
+        leader.LandingDistance *= s;
+    }
+
+    // The copy of a model-space entity, added to model space.  A dimension gets
+    // its own copy of its block, as every dimension owns one.
+    private static Entity CopyEntity(CadDocument document, Entity source)
+    {
+        var copy = (Entity)source.Clone();
+        // Leader.Clone keeps the source's vertex list; the copy needs its own.
+        if (source is Leader sourceLeader && copy is Leader copyLeader)
+            copyLeader.Vertices = new List<XYZ>(sourceLeader.Vertices);
+        if (source is Dimension sourceDimension && copy is Dimension copyDimension && sourceDimension.Block != null)
+        {
+            var block = new BlockRecord(NextAnonymousDimensionBlockName(document));
+            foreach (var entity in sourceDimension.Block.Entities) block.Entities.Add((Entity)entity.Clone());
+            document.BlockRecords.Add(block);
+            copyDimension.Block = block;
+        }
+        document.ModelSpace.Entities.Add(copy);
+        return copy;
+    }
+
+    private static string NextAnonymousDimensionBlockName(CadDocument document)
+    {
+        var used = new HashSet<string>(document.BlockRecords.Select(b => b.Name), StringComparer.OrdinalIgnoreCase);
+        for (int i = 1; ; i++)
+        {
+            var name = "*D" + i.ToString(CultureInfo.InvariantCulture);
+            if (!used.Contains(name)) return name;
         }
     }
 

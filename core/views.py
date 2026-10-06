@@ -9634,7 +9634,7 @@ def _cbl_normalize_free_dwg_ops_v1(original_json, ops):
             raise _CBLFreeDwgSaveValidationError(
                 f"편집 명령 {op_index}의 형식이 올바르지 않습니다.")
         kind = str(raw.get("type", "")).strip().lower()
-        if kind not in {"delete", "update", "move"}:
+        if kind not in {"delete", "update", "move", "transform"}:
             normalized.append(raw)
             continue
         handle = _cbl_normalize_dwg_handle_v1(
@@ -9916,6 +9916,7 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
     structural_ops = {"add_dimension": False}
     # Kinds the manifest lists as unsupported that delete ops removed.
     deleted_unsupported = {}
+    copied_unsupported = {}
     unsupported_names = {"_3DFACE": "FACE3D", "3DFACE": "FACE3D", "MLEADER": "MULTILEADER"}
 
     def add_delta(entity_type, amount, op_index, operation_type):
@@ -9987,6 +9988,28 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
             for generated_type, amount in generated.items():
                 add_delta(generated_type, amount, op_index, kind)
             add_semantic_delta(dimension_entity, 1)
+        elif kind == "add_copy":
+            # A copy of an existing entity: one more of its kind (a copied
+            # DIMENSION also brings its own anonymous block).
+            target = canonical_ref(op.get("copyOf"))
+            source = next((item for item in entities(original_json) if handle(item) == target), None)
+            if source is None:
+                raise RuntimeError(f"저장 검증 실패: 복사 원본 handle을 찾지 못했습니다: {op.get('copyOf')}")
+            source_type = source.get("entity")
+            raw_type = str(source_type or "").upper()
+            raw_type = unsupported_names.get(raw_type, raw_type)
+            copied_unsupported[raw_type] = copied_unsupported.get(raw_type, 0) + 1
+            add_delta(source_type, 1, op_index, kind)
+            add_semantic_delta(source_type, 1)
+            if canonical_entity_type(source_type).startswith("DIMENSION"):
+                structural_ops["add_dimension"] = True
+                # The writer names the source's block; its contents are counted
+                # from the original file, once more for the copy.
+                applied = ((acad_report or {}).get("editReport") or {}).get("applied") or []
+                source_block = str((applied[op_index] or {}).get("sourceBlock") or "") if op_index < len(applied) and isinstance(applied[op_index], dict) else ""
+                for item in (original_json.get("acadsharpEntities") or []):
+                    if source_block and str(item.get("space") or "") == "block:" + source_block:
+                        add_delta(item.get("type"), 1, op_index, kind)
         elif kind == "create_layer":
             name = str(op.get("name", ""))
             if name not in expected_layers:
@@ -10143,7 +10166,7 @@ def _cbl_free_dwg_save_local_validate_v1(original, saved, dwgread, ops=None, aca
             }
         for type_name, count in original_semantic_index["unsupported"].items():
             # A deleted SPLINE/ELLIPSE/LEADER... is gone on purpose.
-            if int(saved_semantic_index["unsupported"].get(type_name, 0)) < int(count) - deleted_unsupported.get(str(type_name).upper(), 0):
+            if int(saved_semantic_index["unsupported"].get(type_name, 0)) < int(count) - deleted_unsupported.get(str(type_name).upper(), 0) + copied_unsupported.get(str(type_name).upper(), 0):
                 mismatches[f"unsupported.{type_name}"] = {"original": count, "output": saved_semantic_index["unsupported"].get(type_name, 0)}
         if int((saved_semantic_index["inserts"] or {}).get("unresolvedCount", 0)):
             mismatches["inserts.unresolvedCount"] = {"output": saved_semantic_index["inserts"].get("unresolvedCount")}
@@ -10468,9 +10491,14 @@ def _cbl_free_dwg_writer_error_message_v1(detail):
         # the writer refuses instead of dropping the REGION.
         return ("이 도면의 면 영역(REGION) 객체는 무료 DWG 저장에서 보존할 수 없어 저장을 중단했습니다. "
                 "원본 파일은 바뀌지 않았습니다. (AutoCAD 2013 이후 형식의 REGION은 아직 지원하지 않습니다.)")
-    refused = _cbl_re.search(r"NotSupportedException: (Move|Update) is not supported for ([A-Za-z0-9]+)(?=[\\\"\r\n]|$)", detail or "")
+    refused = _cbl_re.search(r"NotSupportedException: (Move|Update|Transform) is not supported for ([A-Za-z0-9]+)(?=[\\\" (\r\n]|$)(?: \(([^)]*)\))?", detail or "")
     if refused:
-        action = "이동" if refused.group(1) == "Move" else "수정"
+        action = {"Move": "이동", "Update": "수정", "Transform": "회전·크기 변경·대칭"}[refused.group(1)]
+        if refused.group(1) == "Transform":
+            # The writer names which part of the transform it refused.
+            action = {"mirrored pattern": "대칭(무늬 해치)", "scaled or mirrored": "크기 변경·대칭",
+                      "mirrored or with block content": "대칭(또는 블록 내용)", "mirrored": "대칭",
+                      "mirrored or with attributes": "대칭(또는 속성)", "shared block": "회전·크기 변경(공유 블록)"}.get(refused.group(3) or "", action)
         kind = _CBL_FREE_DWG_KIND_NAMES_V1.get(refused.group(2), refused.group(2))
         return (f"{kind} {action}은 아직 DWG로 저장할 수 없어 저장을 멈췄습니다. 원본 파일은 바뀌지 않았습니다. "
                 "그 편집을 되돌린 뒤 다시 저장해 주세요.")
@@ -10483,7 +10511,7 @@ _CBL_FREE_DWG_KIND_NAMES_V1 = {
     "Spline": "스플라인", "Ellipse": "타원", "Hatch": "해치", "Solid": "솔리드(SOLID)", "Face3D": "3D 면",
     "Point": "점", "Leader": "지시선", "MultiLeader": "다중 지시선", "Wipeout": "가림막(WIPEOUT)",
     "MLine": "다중선", "Ray": "반무한선", "XLine": "무한선", "Region": "영역(REGION)", "Solid3D": "3D 솔리드",
-    "DimensionLinear": "치수", "DimensionAligned": "치수", "DimensionRadius": "반지름 치수",
+    "Dimension": "치수", "DimensionLinear": "치수", "DimensionAligned": "치수", "DimensionRadius": "반지름 치수",
     "DimensionDiameter": "지름 치수", "DimensionAngular2Line": "각도 치수", "DimensionAngular3Pt": "각도 치수",
     "DimensionOrdinate": "좌표 치수", "Arc": "호", "Circle": "원", "Line": "선", "LwPolyline": "폴리선",
     "Polyline2D": "폴리선", "TextEntity": "문자", "MText": "문자", "Insert": "블록",
