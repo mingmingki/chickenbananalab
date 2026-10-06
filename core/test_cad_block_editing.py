@@ -6,7 +6,7 @@ from unittest import skipUnless
 
 from django.test import SimpleTestCase
 
-from .test_cad_dwg_save_integrity import _BuildOpsRunner, _html, _line
+from .test_cad_dwg_save_integrity import BUILD_OPS_HARNESS, _BuildOpsRunner, _build_ops_source, _editor_function, _html, _line
 
 NODE = shutil.which("node")
 
@@ -162,24 +162,44 @@ class CadBlockGroupSaveTests(_BuildOpsRunner, SimpleTestCase):
 
 @skipUnless(NODE, "node is required to execute the CAD save helpers")
 class CadAttributeBlockTransformTests(_BuildOpsRunner, SimpleTestCase):
-    """The writer cannot yet place attributes under rotation/scale; say so before sending anything."""
+    """A turned block with attributes is saved with the attribute places the editor shows.
 
-    def test_rotating_a_block_with_attributes_is_refused_in_korean(self):
+    (It was refused, "회전·크기를 바꾼 속성", while the writer only moved attributes.)
+    """
+
+    def run_cases(self, cases):
+        # The save finds a block's attributes by its block group (cblBlockKeyV1).
+        html = _html()
+        helpers = "\n".join(_editor_function(html, sig) for sig in (
+            "function cblSelectionTypeV1(s){", "function cblIsBlockChildV1(s){", "function cblBlockKeyV1(s){"))
+        script = BUILD_OPS_HARNESS % {"helpers": helpers + "\n" + _build_ops_source(html), "cases": json.dumps(cases)}
+        run = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return json.loads(run.stdout)
+
+    def test_rotating_a_block_with_attributes_sends_their_places(self):
         result = self.run_cases({"r": {"base": [_insert("34"), _attrib("34")],
                                        "shapes": [_insert("34", rotation=1.0), _attrib("34", rot=1.0, rotation=1.0)]}})["r"]
-        self.assertIn("속성", result["error"])
-        self.assertIn("회전", result["error"])
+        self.assertEqual(self.kinds(result), [("update", "34")])
+        self.assertEqual(result["ops"][0]["attributes"], [{"handle": "36", "sourceHandle": "36", "tag": "", "insert": [100, 85, 0],
+                                                           "rotation": 1.0, "height": 2.5}])
 
-    def test_mirrored_copy_of_a_block_with_attributes_is_refused(self):
+    def test_mirrored_copy_of_a_block_with_attributes_places_the_copied_ones(self):
         base = [_insert("34"), _attrib("34")]
         copy = [_insert("34", x=50.0, scaleY=-1, cblBlockKey="copy-1"), _attrib("34", dx=50.0, cblBlockKey="copy-1")]
-        result = self.run_cases({"m": {"base": base, "shapes": base + copy}})["m"]
-        self.assertIn("속성", result["error"])
+        op = self.run_cases({"m": {"base": base, "shapes": base + copy}})["m"]["ops"][0]
+        self.assertEqual((op["type"], op["copyOf"]), ("add_insert", "34"))
+        self.assertEqual([(a["handle"], a["sourceHandle"], a["insert"]) for a in op["attributes"]], [("", "36", [150, 85, 0])])
+
+    def test_a_turned_block_missing_an_attribute_is_refused(self):
+        result = self.run_cases({"d": {"base": [_insert("34"), _attrib("34")], "shapes": [_insert("34", rotation=1.0)]}})["d"]
+        self.assertIn("삭제된 블록 속성", result["error"])
 
     def test_moving_a_block_with_attributes_is_still_saved(self):
         result = self.run_cases({"t": {"base": [_insert("34"), _attrib("34")],
                                        "shapes": [_insert("34", x=5.0), _attrib("34", dx=5.0)]}})["t"]
         self.assertEqual(self.kinds(result), [("update", "34")])
+        self.assertNotIn("attributes", result["ops"][0])
 
 
 COMMIT_HARNESS = """
