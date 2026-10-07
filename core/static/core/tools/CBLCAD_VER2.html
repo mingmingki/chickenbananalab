@@ -23385,13 +23385,12 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
               // clockwise from -a1 to -a2, the counter-clockwise arc -a2 -> -a1.
               if(!ccw && a1 !== null && a2 !== null){ var cwStart = a1; a1 = -cblPairNumber(a2, 0); a2 = -cblPairNumber(cwStart, 0); }
               if(cx !== null && cy !== null && r !== null){
-                var cp = cblPairPoint(cx,cy,mtx);
-                var sca = mtx ? matScaleAvg(mtx) : 1;
-                var addRot = mtx ? matRot(mtx) : 0;
+                // Through a mirroring matrix (a mirrored block, a flipped hatch) the arc runs the other way.
+                var edgeArc = cblArcThroughMatrixV1(cblPairNumber(cx,0), cblPairNumber(cy,0), cblPairNumber(r,0), cblPairNumber(a1,0), cblPairNumber(a2,360), mtx || null);
                 pushShape(Object.assign({}, style, {
-                  type:'arc', cx:cp.x, cy:cp.y, r:Math.abs(cblPairNumber(r,0) * sca),
-                  a1:cblPairNumber(a1,0) * Math.PI / 180 + addRot,
-                  a2:cblPairNumber(a2,360) * Math.PI / 180 + addRot,
+                  type:'arc', cx:edgeArc.cx, cy:edgeArc.cy, r:edgeArc.r,
+                  a1:edgeArc.a1,
+                  a2:edgeArc.a2,
                   cblFromHatch:true
                 }));
                 imported++; madeInLoop++;
@@ -23794,6 +23793,90 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
     }
     /* CBL_ENTITY_DISPLAY_V2_END */
 
+    /* CBL_OCS_IMPORT_V1_START: an ARC, CIRCLE, LWPOLYLINE, 2D POLYLINE, TEXT,
+       ATTRIB, ATTDEF, INSERT, SOLID, TRACE or HATCH keeps its points in its own
+       coordinate system (OCS), set by its normal (210/220/230) with AutoCAD's
+       arbitrary axis rule.  With the normal straight down (AutoCAD's 3D mirror)
+       x runs the other way; a tilted one is seen from above as its projection.
+       The editor shows and edits world coordinates; the writer turns them back. */
+    var CBL_OCS_KINDS_V1 = {ARC:1, CIRCLE:1, LWPOLYLINE:1, POLYLINE:1, TEXT:1, ATTRIB:1, ATTDEF:1, INSERT:1, SOLID:1, TRACE:1, HATCH:1};
+    // The plan matrix [a,b,c,d,e,f] taking an object's OCS x/y to world x/y, or
+    // null for a plan object (normal up).  `elevation` is its OCS z.  The result
+    // says whether the normal is tilted (not straight up or down).
+    function cblOcsMatrixV1(nx, ny, nz, elevation){
+      nx = Number(nx) || 0; ny = Number(ny) || 0; nz = Number(nz);
+      if(!Number.isFinite(nz)) nz = 1;
+      var len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      if(!(len > 0)) return null;
+      nx /= len; ny /= len; nz /= len;
+      if(Math.abs(nx) <= 1e-9 && Math.abs(ny) <= 1e-9 && nz > 0) return null;
+      // X = Wy x N near the poles, else Wz x N; Y = N x X.
+      var ax, ay, az;
+      if(Math.abs(nx) < 1 / 64 && Math.abs(ny) < 1 / 64){ ax = nz; ay = 0; az = -nx; }
+      else { ax = -ny; ay = nx; az = 0; }
+      var al = Math.sqrt(ax * ax + ay * ay + az * az);
+      ax /= al; ay /= al; az /= al;
+      var bx = ny * az - nz * ay, by = nz * ax - nx * az;
+      var z = Number(elevation) || 0;
+      var m = [ax, ay, bx, by, nx * z, ny * z];
+      m.cblTilted = !(Math.abs(nx) <= 1e-9 && Math.abs(ny) <= 1e-9);
+      return m;
+    }
+    // The OCS plan matrix of a DXF entity (its properties `p`), or null.  A 3D
+    // POLYLINE or mesh keeps world points.
+    function cblEntityOcsMatrixV1(type, p, first, num){
+      if(!CBL_OCS_KINDS_V1[type]) return null;
+      if(type === 'POLYLINE' && (num(first(p, '70', 0)) & (8 | 16 | 64))) return null;
+      return cblOcsMatrixV1(first(p, '210', 0), first(p, '220', 0), first(p, '230', 1),
+        num(first(p, type === 'LWPOLYLINE' ? '38' : '30', 0)));
+    }
+    // An arc (centre, radius, counter-clockwise start/end in degrees) through a
+    // plan matrix, as the editor's {cx, cy, r, a1, a2} (radians).  A mirroring
+    // matrix runs the arc the other way: each end goes where the matrix takes
+    // its direction, and the image of the end is the new start.
+    function cblArcThroughMatrixV1(cx, cy, r, a1deg, a2deg, m){
+      if(!m) return {cx:cx, cy:cy, r:Math.abs(r), a1:a1deg * Math.PI / 180, a2:a2deg * Math.PI / 180};
+      var sc = (Math.sqrt(m[0] * m[0] + m[1] * m[1]) + Math.sqrt(m[2] * m[2] + m[3] * m[3])) / 2 || 1;
+      var c = {cx:m[0] * cx + m[2] * cy + m[4], cy:m[1] * cx + m[3] * cy + m[5], r:Math.abs(r * sc)};
+      if(m[0] * m[3] - m[1] * m[2] >= 0){
+        var rot = Math.atan2(m[1], m[0]);
+        c.a1 = a1deg * Math.PI / 180 + rot; c.a2 = a2deg * Math.PI / 180 + rot;
+        return c;
+      }
+      c.a1 = cblDirectionThroughMatrixV1(a2deg * Math.PI / 180, m);
+      c.a2 = cblDirectionThroughMatrixV1(a1deg * Math.PI / 180, m);
+      return c;
+    }
+    // Where a plan matrix takes the direction at `angle` (radians).
+    function cblDirectionThroughMatrixV1(angle, m){
+      var x = Math.cos(angle), y = Math.sin(angle);
+      return Math.atan2(m[1] * x + m[3] * y, m[0] * x + m[2] * y);
+    }
+    // A text's direction through a plan matrix: as before for a plain one; a
+    // mirroring matrix takes the direction where it goes (its letters cannot be
+    // shown mirrored).
+    function cblTextRotationThroughMatrixV1(rotation, m){
+      if(!m) return rotation;
+      return m[0] * m[3] - m[1] * m[2] >= 0 ? rotation + Math.atan2(m[1], m[0]) : cblDirectionThroughMatrixV1(rotation, m);
+    }
+    // Points of a circle or arc of an object whose plane is tilted: seen from
+    // above it is (part of) an ellipse.
+    function cblArcPointsThroughMatrixV1(cx, cy, r, a1deg, a2deg, m, full){
+      var a1 = a1deg * Math.PI / 180, span = full ? Math.PI * 2 : ((a2deg - a1deg) % 360 + 360) % 360 * Math.PI / 180;
+      if(!full && span < 1e-12) span = Math.PI * 2;
+      var n = Math.max(12, Math.min(96, Math.ceil(span / (Math.PI * 2) * 72))), out = [];
+      for(var i = 0; i <= n; i++){
+        var t = a1 + span * i / n, x = cx + r * Math.cos(t), y = cy + r * Math.sin(t);
+        out.push({x:m[0] * x + m[2] * y + m[4], y:m[1] * x + m[3] * y + m[5]});
+      }
+      return out;
+    }
+    /* CBL_OCS_IMPORT_V1_END */
+    // The block snap module (CBL_SMALL_DWG_NATIVE_BLOCK_SNAP_SELECT_V1) reads
+    // the same DXF records: it snaps where these draw.
+    window.cblOcsMatrixV1 = cblOcsMatrixV1;
+    window.cblArcThroughMatrixV1 = cblArcThroughMatrixV1;
+
     function convertEnt(ent, ctx, depth){
       if(!ent || !ent.type) return;
 
@@ -23807,6 +23890,9 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       var m = ctx && ctx.matrix ? ctx.matrix : null;
       var p = ent.p || {};
       var style = baseStyle(ent, ctx);
+      // CBL_OCS_IMPORT_V1: an object kept in its own coordinates is drawn through them.
+      var ocs = cblEntityOcsMatrixV1(type, p, first, num);
+      if(ocs) m = m ? matMul(m, ocs) : ocs;
 
       if(type === 'LINE'){
         var a = pt(ent, '10', '20', m);
@@ -23817,6 +23903,20 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
           y1:a.y,
           x2:b.x,
           y2:b.y
+        }));
+        return;
+      }
+
+      // A circle or arc in a tilted plane is seen from above as (part of) an
+      // ellipse: drawn as its points.  The writer refuses to edit it.
+      if((type === 'CIRCLE' || type === 'ARC') && ocs && ocs.cblTilted){
+        var tiltedFull = type === 'CIRCLE';
+        pushShape(Object.assign({}, style, {
+          type:'polyline',
+          pts:cblArcPointsThroughMatrixV1(num(first(p,'10',0)), num(first(p,'20',0)), num(first(p,'40',10)),
+            tiltedFull ? 0 : num(first(p,'50',0)), tiltedFull ? 360 : num(first(p,'51',180)), m, tiltedFull),
+          closed:tiltedFull,
+          cblOcsTiltedV1:true
         }));
         return;
       }
@@ -23834,17 +23934,15 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
       }
 
       if(type === 'ARC'){
-        var c2 = pt(ent, '10', '20', m);
-        var sc2 = m ? matScaleAvg(m) : 1;
-        var addRot = m ? matRot(m) : 0;
-
+        var arcShape = cblArcThroughMatrixV1(num(first(p,'10',0)), num(first(p,'20',0)), num(first(p,'40',10)),
+          num(first(p,'50',0)), num(first(p,'51',180)), m);
         pushShape(Object.assign({}, style, {
           type:'arc',
-          cx:c2.x,
-          cy:c2.y,
-          r:Math.abs(num(first(p,'40',10)) * sc2),
-          a1:num(first(p,'50',0)) * Math.PI / 180 + addRot,
-          a2:num(first(p,'51',180)) * Math.PI / 180 + addRot
+          cx:arcShape.cx,
+          cy:arcShape.cy,
+          r:arcShape.r,
+          a1:arcShape.a1,
+          a2:arcShape.a2
         }));
         return;
       }
@@ -23885,7 +23983,7 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
           var mtextDirX = Number(first(p, '11', NaN)), mtextDirY = Number(first(p, '21', NaN));
           if(Number.isFinite(mtextDirX) && Number.isFinite(mtextDirY) && Math.hypot(mtextDirX, mtextDirY) > 1e-9) mtextDeg = Math.atan2(mtextDirY, mtextDirX) * 180 / Math.PI;
         }
-        var rot = (mtextDeg !== null ? mtextDeg : dimRot !== null ? dimRot : num(first(p,'50',0))) * Math.PI / 180 + (m ? matRot(m) : 0);
+        var rot = cblTextRotationThroughMatrixV1((mtextDeg !== null ? mtextDeg : dimRot !== null ? dimRot : num(first(p,'50',0))) * Math.PI / 180, m);
         var tx = type === 'MTEXT' ? dxfMTextFromProps(p) : dxfTextFromProps(p);
         var textLines = String(tx).split('\n'), textSize = Math.max(2, num(first(p,'40',14),14) * sc3);
         var textWidth = Math.max(Math.max.apply(null, textLines.map(function(l){ return l.length; })) * textSize * 0.7, 20);
@@ -23975,6 +24073,14 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         var len = Math.sqrt(majX * majX + majY * majY) || 1;
         var ux = majX / len, uy = majY / len;
         var vx = -uy * len * ratio, vy = ux * len * ratio;
+        // CBL_OCS_IMPORT_V1: the minor axis is normal x major axis.  Facing down
+        // it points the other way; tilted, it leaves the plan (seen from above).
+        var enx = num(first(p, '210', 0)), eny = num(first(p, '220', 0)), enz = num(first(p, '230', 1), 1);
+        if(!(Math.abs(enx) <= 1e-9 && Math.abs(eny) <= 1e-9 && enz > 0)){
+          var enl = Math.sqrt(enx * enx + eny * eny + enz * enz) || 1, majZ = num(first(p, '31', 0));
+          enx /= enl; eny /= enl; enz /= enl;
+          vx = (eny * majZ - enz * majY) * ratio; vy = (enz * majX - enx * majZ) * ratio;
+        }
         var seg = Math.max(24, Math.min(96, Math.ceil(Math.abs(endParam - startParam) / (Math.PI * 2) * 72)));
         var ep = [];
 
@@ -24012,18 +24118,23 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
         // block children are render-only and must never become add/update/
         // delete operations.
         if(!ctx){
-          var ip = pt(ent, '10', '20', null);
+          var ip = pt(ent, '10', '20', ocs);
+          // Seen from above, a flipped block reference (normal down) at rotation
+          // r with x scale x is the block mirrored: rotation -r, x scale -x.  A
+          // tilted one is placed at its projection; the writer refuses its edits.
+          var insFlip = !!(ocs && !ocs.cblTilted);
           pushShape(Object.assign({}, style, {
             type:'blockref',
             name:bn,
             blockName:bn,
             x:ip.x,
             y:ip.y,
-            scaleX:num(first(p,'41',1),1),
+            scaleX:insFlip ? -num(first(p,'41',1),1) : num(first(p,'41',1),1),
             scaleY:num(first(p,'42',1),1),
             scaleZ:num(first(p,'43',1),1),
-            scale:num(first(p,'41',1),1),
-            rotation:num(first(p,'50',0),0) * Math.PI / 180,
+            scale:insFlip ? -num(first(p,'41',1),1) : num(first(p,'41',1),1),
+            rotation:insFlip ? -(num(first(p,'50',0),0) * Math.PI / 180) : num(first(p,'50',0),0) * Math.PI / 180,
+            cblOcsTiltedV1:ocs && ocs.cblTilted ? true : undefined,
             rows:Math.max(1, Math.floor(num(first(p,'71',1),1))),
             cols:Math.max(1, Math.floor(num(first(p,'70',1),1))),
             rowSpacing:num(first(p,'45',0),0),
@@ -24057,8 +24168,9 @@ function drawText(ctx, affine, matrix, ent, insertLayer, blockLayer, dimensionEn
           rendererOnly:true
         };
 
-        if(ctx && ctx.matrix){
-          insertCtx.matrix = matMul(ctx.matrix, insertCtx.matrix);
+        // The block matrix around it and, for one kept in its own coordinates, its OCS.
+        if(m){
+          insertCtx.matrix = matMul(m, insertCtx.matrix);
         }
 
         var cols = Math.max(1, Math.floor(num(first(p,'70',1),1)));
@@ -36509,9 +36621,21 @@ window.cblSnapResidueGateStatusV12 = function(){
     out.circles.push({c:c,r:r,refIndex:refIndex,blockName:name,a0:a0,a1:a1});
   }
 
+  // CBL_OCS_IMPORT_V1: an arc, circle, polyline or block reference kept in its
+  // own coordinates (normal 210/220/230) snaps where the import draws it.
+  function ocsOf(get,t){
+    if(typeof window.cblOcsMatrixV1!=='function'||!/^(ARC|CIRCLE|LWPOLYLINE|INSERT)$/.test(t))return null;
+    var z=get('230');
+    return window.cblOcsMatrixV1(get('210'),get('220'),z===''?1:z,num(get(t==='LWPOLYLINE'?'38':'30'),0));
+  }
+  function pairGetter(pairs){
+    return function(c){for(var i=0;i<(pairs||[]).length;i++)if(pairs[i]&&String(pairs[i].code)===c)return pairs[i].value;return '';};
+  }
   function collectEntity(out,ent,m,refIndex,name,depth,stack){
     if(!ent||!ent.type||depth>10) return;
     var t=upper(ent.type),p1,p2,i,xs,ys,pts,c,r,a0,a1,am,childName,child,childRef,cm;
+    var ocs=ocsOf(function(code){return code1(ent,code);},t);
+    if(ocs)m=matMul(m,ocs);
     if(t==='LINE'){
       p1=matApply(m,num(code1(ent,'10')),num(code1(ent,'20')));p2=matApply(m,num(code1(ent,'11')),num(code1(ent,'21')));
       addPoint(out,p1,'end',refIndex,name);addPoint(out,p2,'end',refIndex,name);
@@ -36533,7 +36657,11 @@ window.cblSnapResidueGateStatusV12 = function(){
       p1=matApply(m,num(code1(ent,'10'))+num(code1(ent,'40')),num(code1(ent,'20')));
       r=Math.hypot(p1.x-c.x,p1.y-c.y);a0=t==='ARC'?rad(code1(ent,'50')):0;a1=t==='ARC'?rad(code1(ent,'51')):Math.PI*2;
       if(t==='ARC'&&a1<a0)a1+=Math.PI*2;
-      addPoint(out,c,'cen',refIndex,name);addCircle(out,c,r,refIndex,name,a0,a1);
+      // The arc's span as drawn: turned with the block and, mirrored, run the
+      // other way.  Tilted, a circle is an ellipse from above: only its points snap.
+      var wa0=a0,wa1=a1;
+      if(t==='ARC'&&typeof window.cblArcThroughMatrixV1==='function'){var wa=window.cblArcThroughMatrixV1(0,0,1,a0*180/Math.PI,a1*180/Math.PI,m);wa0=wa.a1;wa1=wa.a2;}
+      addPoint(out,c,'cen',refIndex,name);if(!(ocs&&ocs.cblTilted))addCircle(out,c,r,refIndex,name,wa0,wa1);
       if(t==='ARC'){
         p1=matApply(m,num(code1(ent,'10'))+num(code1(ent,'40'))*Math.cos(a0),num(code1(ent,'20'))+num(code1(ent,'40'))*Math.sin(a0));
         p2=matApply(m,num(code1(ent,'10'))+num(code1(ent,'40'))*Math.cos(a1),num(code1(ent,'20'))+num(code1(ent,'40'))*Math.sin(a1));
@@ -36561,7 +36689,8 @@ window.cblSnapResidueGateStatusV12 = function(){
     for(var i=0;i<r.length;i++){
       var ref=r[i],block=d[upper(ref&&ref.blockName)];if(!ref||!block)continue;
       var beforeP=raw.points.length,beforeS=raw.segments.length,beforeC=raw.circles.length;
-      collectBlock(raw,block,insertMatrix(ref,block),i,ref.blockName,0,[upper(ref.blockName)]);
+      var refMatrix=insertMatrix(ref,block),refOcs=ocsOf(pairGetter(ref.rawPairs),'INSERT');
+      collectBlock(raw,block,refOcs?matMul(refOcs,refMatrix):refMatrix,i,ref.blockName,0,[upper(ref.blockName)]);
       var all=[];
       raw.points.slice(beforeP).forEach(function(p){all.push(p);});
       raw.segments.slice(beforeS).forEach(function(s){all.push(s.a,s.b);});

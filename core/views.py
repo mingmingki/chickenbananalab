@@ -10526,6 +10526,9 @@ def _cbl_free_dwg_writer_error_message_v1(detail):
                       "mirrored upside down or at a slant": "대칭(위아래·기울어진 축)"}.get(refused.group(3) or "", action)
         elif refused.group(3) == "multiline value":
             action = "값 수정(여러 줄 속성)"
+        if refused.group(3) == "tilted":
+            # Its plan view is not its own shape (3D); a flipped MTEXT or dimension reads mirrored.
+            action += "(3D로 기울어진·뒤집힌 객체)"
         kind = _CBL_FREE_DWG_KIND_NAMES_V1.get(refused.group(2), refused.group(2))
         return (f"{kind} {action}은 아직 DWG로 저장할 수 없어 저장을 멈췄습니다. 원본 파일은 바뀌지 않았습니다. "
                 "그 편집을 되돌린 뒤 다시 저장해 주세요.")

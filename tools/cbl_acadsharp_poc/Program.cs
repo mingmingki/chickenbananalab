@@ -945,14 +945,21 @@ internal static class Program
         switch (entity)
         {
             case Line line: line.StartPoint += delta; line.EndPoint += delta; break;
-            case Circle circle: circle.Center += delta; break;
+            // The points of an arc, circle, polyline, text, block reference, solid
+            // and hatch are in the entity's own coordinates (OCS): the world move
+            // is turned into them.
+            case Circle circle: circle.Center += ToOcs(delta, circle.Normal); break;
             case LwPolyline poly:
-                foreach (var vertex in poly.Vertices) vertex.Location += new XY(delta.X, delta.Y);
+            {
+                var d = ToOcs(delta, poly.Normal);
+                foreach (var vertex in poly.Vertices) vertex.Location += new XY(d.X, d.Y);
+                poly.Elevation += d.Z;
                 break;
-            case TextEntity text: text.InsertPoint += delta; break;
+            }
+            case TextEntity text: text.InsertPoint += ToOcs(delta, text.Normal); break;
             case MText mtext: mtext.InsertPoint += delta; break;
             case Insert insert:
-                insert.InsertPoint += delta;
+                insert.InsertPoint += ToOcs(delta, insert.Normal);
                 MoveAttributes(insert, delta);
                 break;
             // The kinds below are drawn by the editor but not rebuilt by it, so a
@@ -966,9 +973,11 @@ internal static class Program
                 break;
             case Ellipse ellipse: ellipse.Center += delta; break;
             case Solid solid:
-                RequirePlanNormal(solid.Normal, solid);
-                solid.FirstCorner += delta; solid.SecondCorner += delta; solid.ThirdCorner += delta; solid.FourthCorner += delta;
+            {
+                var d = ToOcs(delta, solid.Normal);
+                solid.FirstCorner += d; solid.SecondCorner += d; solid.ThirdCorner += d; solid.FourthCorner += d;
                 break;
+            }
             case Face3D face:
                 face.FirstCorner += delta; face.SecondCorner += delta; face.ThirdCorner += delta; face.FourthCorner += delta;
                 break;
@@ -1000,6 +1009,9 @@ internal static class Program
         public XY Vector(XY v) => new XY(A * v.X + C * v.Y, B * v.X + D * v.Y);
         // The image of an angle measured from the X axis (radians).
         public double Angle(double angle) => Rotation + (Mirror ? -angle : angle);
+        // The same transform for coordinates whose x runs the other way (the
+        // OCS of an object with the normal (0, 0, -1)): flip, transform, flip.
+        public Similarity Flipped => new Similarity(A, -B, -C, D, -E, F);
     }
 
     private static Similarity ReadSimilarity(JsonElement op)
@@ -1024,13 +1036,20 @@ internal static class Program
             if (Math.Abs(m.E) > 0 || Math.Abs(m.F) > 0) MoveEntity(entity, new XYZ(m.E, m.F, 0));
             return;
         }
+        // An object kept in its own coordinates turns there.  Flipped (normal
+        // straight down), x runs the other way, so the transform is flipped too;
+        // a tilted one cannot be turned in plan.
+        if (OcsNormalOf(entity) is XYZ normal && !IsPlanNormal(normal))
+        {
+            if (!IsFlippedNormal(normal)) throw new NotSupportedException($"Transform is not supported for {entity.GetType().Name} (tilted)");
+            m = m.Flipped;
+        }
         double s = m.Scale;
         switch (entity)
         {
             case Line line: line.StartPoint = m.Point(line.StartPoint); line.EndPoint = m.Point(line.EndPoint); break;
             case Arc arc:
             {
-                RequirePlanNormal(arc.Normal, arc);
                 double start = arc.StartAngle, end = arc.EndAngle;
                 arc.Center = m.Point(arc.Center);
                 arc.Radius *= s;
@@ -1039,9 +1058,8 @@ internal static class Program
                 arc.EndAngle = m.Mirror ? m.Angle(start) : m.Angle(end);
                 break;
             }
-            case Circle circle: RequirePlanNormal(circle.Normal, circle); circle.Center = m.Point(circle.Center); circle.Radius *= s; break;
+            case Circle circle: circle.Center = m.Point(circle.Center); circle.Radius *= s; break;
             case LwPolyline poly:
-                RequirePlanNormal(poly.Normal, poly);
                 foreach (var vertex in poly.Vertices)
                 {
                     vertex.Location = m.Point(vertex.Location);
@@ -1056,7 +1074,10 @@ internal static class Program
                 break;
             case Ellipse ellipse:
             {
-                RequirePlanNormal(ellipse.Normal, ellipse);
+                // Centre and axis are world points; facing down only runs the
+                // parameter the other way round, which a plan transform keeps.
+                if (!IsPlanNormal(ellipse.Normal) && !IsFlippedNormal(ellipse.Normal))
+                    throw new NotSupportedException("Transform is not supported for Ellipse (tilted)");
                 double start = ellipse.StartParameter, end = ellipse.EndParameter;
                 ellipse.Center = m.Point(ellipse.Center);
                 ellipse.MajorAxisEndPoint = m.Vector(ellipse.MajorAxisEndPoint);
@@ -1070,7 +1091,6 @@ internal static class Program
                 break;
             }
             case Solid solid:
-                RequirePlanNormal(solid.Normal, solid);
                 solid.FirstCorner = m.Point(solid.FirstCorner); solid.SecondCorner = m.Point(solid.SecondCorner);
                 solid.ThirdCorner = m.Point(solid.ThirdCorner); solid.FourthCorner = m.Point(solid.FourthCorner);
                 break;
@@ -1132,7 +1152,6 @@ internal static class Program
 
     private static void TransformHatch(Hatch hatch, Similarity m)
     {
-        RequirePlanNormal(hatch.Normal, hatch);
         bool patterned = !hatch.IsSolid && hatch.Pattern.Lines.Count > 0;
         double s = m.Scale;
         foreach (var path in hatch.Paths)
@@ -1441,19 +1460,65 @@ internal static class Program
         }
     }
 
-    // Corners and boundaries are stored in the entity's own plane (OCS); a plan
-    // move of a tilted one would need that transform, which is not done here.
-    private static void RequirePlanNormal(XYZ normal, Entity entity)
+    // An ARC, CIRCLE, LWPOLYLINE, TEXT (and ATTRIB), INSERT, SOLID or HATCH keeps
+    // its points in its own coordinate system (OCS), set by its normal with
+    // AutoCAD's arbitrary axis rule.  With the normal (0, 0, -1) -- AutoCAD's
+    // 3D mirror makes such objects -- the OCS x axis is the world's -x.  The
+    // editor shows and sends world coordinates.
+    private static XYZ? OcsNormalOf(Entity entity) => entity switch
     {
-        if (Math.Abs(normal.X) > 1e-9 || Math.Abs(normal.Y) > 1e-9 || normal.Z < 0)
-            throw new NotSupportedException($"Move is not supported for {entity.GetType().Name} outside the XY plane");
+        Circle circle => circle.Normal,
+        LwPolyline poly => poly.Normal,
+        TextEntity text => text.Normal,
+        Insert insert => insert.Normal,
+        Solid solid => solid.Normal,
+        Hatch hatch => hatch.Normal,
+        _ => null,
+    };
+
+    private static bool IsPlanNormal(XYZ n) => Math.Abs(n.X) <= 1e-9 && Math.Abs(n.Y) <= 1e-9 && n.Z > 0;
+    private static bool IsFlippedNormal(XYZ n) => Math.Abs(n.X) <= 1e-9 && Math.Abs(n.Y) <= 1e-9 && n.Z < 0;
+
+    private static (XYZ X, XYZ Y, XYZ Z) OcsAxes(XYZ normal)
+    {
+        var z = normal.Normalize();
+        var x = (Math.Abs(z.X) < 1.0 / 64 && Math.Abs(z.Y) < 1.0 / 64 ? XYZ.Cross(XYZ.AxisY, z) : XYZ.Cross(XYZ.AxisZ, z)).Normalize();
+        return (x, XYZ.Cross(z, x).Normalize(), z);
     }
+
+    // A world point or vector in the OCS of `normal`, and back.  A plan object's
+    // values are returned unchanged, bit for bit.
+    private static XYZ ToOcs(XYZ v, XYZ normal)
+    {
+        if (IsPlanNormal(normal)) return v;
+        var (x, y, z) = OcsAxes(normal);
+        return new XYZ(v.Dot(x), v.Dot(y), v.Dot(z));
+    }
+
+    private static XYZ FromOcs(XYZ v, XYZ normal)
+    {
+        if (IsPlanNormal(normal)) return v;
+        var (x, y, z) = OcsAxes(normal);
+        return x * v.X + y * v.Y + z * v.Z;
+    }
+
+    // A tilted object's plan view is not its own shape: the editor cannot edit it.
+    private static void RequireAxisNormal(XYZ normal, Entity entity, string action)
+    {
+        if (!IsPlanNormal(normal) && !IsFlippedNormal(normal))
+            throw new NotSupportedException($"{action} is not supported for {entity.GetType().Name} (tilted)");
+    }
+
+    // An angle of the OCS x axis seen from above (the editor's), for a flipped
+    // object: x runs the other way, so the angle is mirrored about the y axis.
+    private static double FlipAngle(double angle) => NormalizeAngle(Math.PI - angle);
 
     private static void MoveHatch(Hatch hatch, XYZ delta)
     {
-        RequirePlanNormal(hatch.Normal, hatch);
-        var d = new XY(delta.X, delta.Y);
-        var d3 = new XYZ(delta.X, delta.Y, 0);
+        var o = ToOcs(delta, hatch.Normal);
+        var d = new XY(o.X, o.Y);
+        var d3 = new XYZ(o.X, o.Y, 0);
+        hatch.Elevation += o.Z;
         foreach (var path in hatch.Paths)
         {
             foreach (var edge in path.Edges)
@@ -1553,24 +1618,43 @@ internal static class Program
                 if (op.TryGetProperty("start", out _)) line.StartPoint = ReadPoint(op, "start");
                 if (op.TryGetProperty("end", out _)) line.EndPoint = ReadPoint(op, "end");
                 break;
-            // Arc derives from Circle, so it must be matched first.
+            // Arc derives from Circle, so it must be matched first.  The editor's
+            // values are seen from above (world); a flipped object keeps them in
+            // its OCS, where x runs the other way.
             case Arc arc:
-                if (op.TryGetProperty("center", out _)) arc.Center = ReadPoint(op, "center");
+                RequireAxisNormal(arc.Normal, arc, "Update");
+                if (op.TryGetProperty("center", out _)) arc.Center = ToOcs(ReadPoint(op, "center"), arc.Normal);
                 if (op.TryGetProperty("radius", out _)) arc.Radius = ReadDouble(op, "radius", arc.Radius);
-                if (op.TryGetProperty("startAngle", out _)) arc.StartAngle = ReadDouble(op, "startAngle", arc.StartAngle);
-                if (op.TryGetProperty("endAngle", out _)) arc.EndAngle = ReadDouble(op, "endAngle", arc.EndAngle);
+                if (IsPlanNormal(arc.Normal))
+                {
+                    if (op.TryGetProperty("startAngle", out _)) arc.StartAngle = ReadDouble(op, "startAngle", arc.StartAngle);
+                    if (op.TryGetProperty("endAngle", out _)) arc.EndAngle = ReadDouble(op, "endAngle", arc.EndAngle);
+                }
+                else
+                {
+                    // Seen from above, a flipped arc runs counter-clockwise from π - end to π - start.
+                    double start = ReadDouble(op, "startAngle", FlipAngle(arc.EndAngle)), end = ReadDouble(op, "endAngle", FlipAngle(arc.StartAngle));
+                    arc.StartAngle = FlipAngle(end);
+                    arc.EndAngle = FlipAngle(start);
+                }
                 break;
             case Circle circle:
-                if (op.TryGetProperty("center", out _)) circle.Center = ReadPoint(op, "center");
+                RequireAxisNormal(circle.Normal, circle, "Update");
+                if (op.TryGetProperty("center", out _)) circle.Center = ToOcs(ReadPoint(op, "center"), circle.Normal);
                 if (op.TryGetProperty("radius", out _)) circle.Radius = ReadDouble(op, "radius", circle.Radius);
                 break;
             case LwPolyline poly:
+                RequireAxisNormal(poly.Normal, poly, "Update");
                 if (op.TryGetProperty("points", out var points))
                 {
+                    var flipped = IsFlippedNormal(poly.Normal);
                     var vertices = points.EnumerateArray()
-                        .Select(x => new LwPolyline.Vertex(ReadDouble(x, 0), ReadDouble(x, 1))).ToArray();
+                        .Select(x => new LwPolyline.Vertex(flipped ? -ReadDouble(x, 0) : ReadDouble(x, 0), ReadDouble(x, 1))).ToArray();
                     if (vertices.Length < 2) throw new InvalidDataException("update lwpolyline requires two points");
                     ApplyBulges(vertices, op, poly.Vertices.Select(x => x.Bulge).ToArray());
+                    // Seen from above, each arc of a flipped polyline turns the other way.
+                    if (flipped && op.TryGetProperty("bulges", out var sentBulges) && sentBulges.ValueKind == JsonValueKind.Array)
+                        foreach (var vertex in vertices) vertex.Bulge = vertex.Bulge == 0 ? 0 : -vertex.Bulge;
                     poly.Vertices.Clear();
                     foreach (var vertex in vertices) poly.Vertices.Add(vertex);
                 }
@@ -1578,13 +1662,16 @@ internal static class Program
                 break;
             case TextEntity text:
                 if (op.TryGetProperty("text", out var value)) text.Value = value.GetString() ?? string.Empty;
-                PlaceText(text, op.TryGetProperty("insert", out _) ? ReadPoint(op, "insert") : text.InsertPoint,
-                    ReadDouble(op, "rotation", text.Rotation), ReadDouble(op, "height", text.Height));
+                PlaceTextSeenFromAbove(text, op.TryGetProperty("insert", out _) ? ReadPoint(op, "insert") : FromOcs(text.InsertPoint, text.Normal),
+                    op.TryGetProperty("rotation", out _) ? ReadDouble(op, "rotation", text.Rotation) : null, ReadDouble(op, "height", text.Height));
                 if (op.TryGetProperty("widthFactor", out _)) text.WidthFactor = ReadDouble(op, "widthFactor", text.WidthFactor);
                 if (op.TryGetProperty("obliqueAngle", out _)) text.ObliqueAngle = ReadDouble(op, "obliqueAngle", text.ObliqueAngle);
                 ApplyTextStyle(document, text, op);
                 break;
             case MText mtext:
+                // Facing away from the plan an MTEXT reads mirrored, and the editor
+                // places it by its attachment as if it did not.
+                if (!IsPlanNormal(mtext.Normal)) throw new NotSupportedException("Update is not supported for MText (tilted)");
                 if (op.TryGetProperty("text", out var mvalue)) mtext.Value = mvalue.GetString() ?? string.Empty;
                 if (op.TryGetProperty("insert", out _)) mtext.InsertPoint = ReadPoint(op, "insert");
                 if (op.TryGetProperty("height", out _)) mtext.Height = ReadDouble(op, "height", mtext.Height);
@@ -1598,12 +1685,13 @@ internal static class Program
                 break;
             case Insert insert:
             {
+                RequireAxisNormal(insert.Normal, insert, "Update");
                 var previous = insert.InsertPoint;
                 double rotation = insert.Rotation, xs = insert.XScale, ys = insert.YScale, zs = insert.ZScale;
-                if (op.TryGetProperty("rotation", out _)) rotation = ReadDouble(op, "rotation", insert.Rotation);
+                if (op.TryGetProperty("rotation", out _)) rotation = InsertRotationSeenFromAbove(insert, ReadDouble(op, "rotation", insert.Rotation));
                 if (op.TryGetProperty("scale", out var scale) && scale.ValueKind == JsonValueKind.Array)
                 {
-                    if (scale.GetArrayLength() > 0) xs = ReadDouble(scale, 0);
+                    if (scale.GetArrayLength() > 0) xs = InsertXScaleSeenFromAbove(insert, ReadDouble(scale, 0));
                     if (scale.GetArrayLength() > 1) ys = ReadDouble(scale, 1);
                     if (scale.GetArrayLength() > 2) zs = ReadDouble(scale, 2);
                 }
@@ -1612,7 +1700,7 @@ internal static class Program
                 var placed = op.TryGetProperty("attributes", out var placedAttributes) && placedAttributes.ValueKind == JsonValueKind.Array;
                 if (insert.Attributes.Any() && turned && !placed)
                     throw new NotSupportedException("rotating or scaling an INSERT with attributes is not supported");
-                if (op.TryGetProperty("insert", out _)) insert.InsertPoint = ReadPoint(op, "insert");
+                if (op.TryGetProperty("insert", out _)) insert.InsertPoint = ToOcs(ReadPoint(op, "insert"), insert.Normal);
                 insert.Rotation = rotation;
                 insert.XScale = xs;
                 insert.YScale = ys;
@@ -1621,13 +1709,15 @@ internal static class Program
                 // with the block, and go where the editor shows them (with their
                 // edited values) when it sends them.
                 if (insert.Attributes.Any() && placed) PlaceAttributes(insert, null, placedAttributes);
-                else MoveAttributes(insert, insert.InsertPoint - previous);
+                else MoveAttributes(insert, FromOcs(insert.InsertPoint - previous, insert.Normal));
                 break;
             }
             case DimensionLinear linear:
+                if (!IsPlanNormal(linear.Normal)) throw new NotSupportedException("Update is not supported for DimensionLinear (tilted)");
                 UpdateDimension(linear, document, op);
                 break;
             case DimensionAligned aligned:
+                if (!IsPlanNormal(aligned.Normal)) throw new NotSupportedException("Update is not supported for DimensionAligned (tilted)");
                 UpdateDimension(aligned, document, op);
                 break;
             default: throw new NotSupportedException($"Update is not supported for {entity.GetType().Name}");
@@ -1682,7 +1772,8 @@ internal static class Program
             if (found < 0) throw new NotSupportedException("Transform is not supported for Insert (attributes not placed)");
             used.Add(found);
             var entry = entries[found];
-            PlaceText(attribute, ReadPoint(entry, "insert"), ReadDouble(entry, "rotation", attribute.Rotation), ReadDouble(entry, "height", attribute.Height));
+            PlaceTextSeenFromAbove(attribute, ReadPoint(entry, "insert"), entry.TryGetProperty("rotation", out _) ? ReadDouble(entry, "rotation", 0) : null,
+                ReadDouble(entry, "height", attribute.Height));
             // An edited value; a multiline attribute keeps its text in an MTEXT
             // the editor does not show, so its value is not changed here.
             if (entry.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String && text.GetString() != attribute.Value)
@@ -1694,12 +1785,14 @@ internal static class Program
         }
     }
 
+    // `delta` is a world move; each attribute keeps its points in its own OCS.
     private static void MoveAttributes(Insert insert, XYZ delta)
     {
         foreach (var attribute in insert.Attributes)
         {
-            attribute.InsertPoint += delta;
-            attribute.AlignmentPoint += delta;
+            var d = ToOcs(delta, attribute.Normal);
+            attribute.InsertPoint += d;
+            attribute.AlignmentPoint += d;
         }
     }
 
@@ -1723,12 +1816,14 @@ internal static class Program
                 ?? throw new InvalidDataException($"block not found: {name}");
             insert = new Insert(block);
         }
+        // A copy keeps its source's normal: the editor's placement is seen from above.
+        RequireAxisNormal(insert.Normal, insert, "Update");
         var previous = insert.InsertPoint;
-        var rotation = ReadDouble(op, "rotation", insert.Rotation);
+        var rotation = op.TryGetProperty("rotation", out _) ? InsertRotationSeenFromAbove(insert, ReadDouble(op, "rotation", insert.Rotation)) : insert.Rotation;
         double xs = insert.XScale, ys = insert.YScale, zs = insert.ZScale;
         if (op.TryGetProperty("scale", out var scale) && scale.ValueKind == JsonValueKind.Array)
         {
-            if (scale.GetArrayLength() > 0) xs = ReadDouble(scale, 0);
+            if (scale.GetArrayLength() > 0) xs = InsertXScaleSeenFromAbove(insert, ReadDouble(scale, 0));
             if (scale.GetArrayLength() > 1) ys = ReadDouble(scale, 1);
             if (scale.GetArrayLength() > 2) zs = ReadDouble(scale, 2);
         }
@@ -1737,7 +1832,7 @@ internal static class Program
         var placed = op.TryGetProperty("attributes", out var placedAttributes) && placedAttributes.ValueKind == JsonValueKind.Array;
         if (!fresh && insert.Attributes.Any() && turned && !placed)
             throw new NotSupportedException("rotating or scaling a copied INSERT with attributes is not supported");
-        insert.InsertPoint = ReadPoint(op, "insert");
+        insert.InsertPoint = ToOcs(ReadPoint(op, "insert"), insert.Normal);
         insert.Rotation = rotation;
         insert.XScale = xs;
         insert.YScale = ys;
@@ -1750,8 +1845,30 @@ internal static class Program
             return insert;
         }
         if (insert.Attributes.Any() && placed) PlaceAttributes(insert, (Insert)(FromOpened(op) ? FindRestoredEntity(op) : FindModelEntity(document, copyOf!)), placedAttributes);
-        else MoveAttributes(insert, insert.InsertPoint - previous);
+        else MoveAttributes(insert, FromOcs(insert.InsertPoint - previous, insert.Normal));
         return insert;
+    }
+
+    // Seen from above, a flipped block reference (normal down) at rotation r with
+    // x scale x is the block mirrored: rotation -r and x scale -x.  These turn
+    // the editor's rotation and x scale back; a plan one's are kept as sent.
+    private static double InsertRotationSeenFromAbove(Insert insert, double rotation) =>
+        IsFlippedNormal(insert.Normal) ? NormalizeAngle(-rotation) : rotation;
+
+    private static double InsertXScaleSeenFromAbove(Insert insert, double xscale) =>
+        IsFlippedNormal(insert.Normal) ? -xscale : xscale;
+
+    // PlaceText for the insertion point and rotation the editor shows (seen from
+    // above); a flipped text keeps them in its OCS.  No rotation keeps the text's.
+    private static void PlaceTextSeenFromAbove(TextEntity text, XYZ insert, double? rotation, double height)
+    {
+        RequireAxisNormal(text.Normal, text, "Update");
+        if (IsPlanNormal(text.Normal))
+        {
+            PlaceText(text, insert, rotation ?? text.Rotation, height);
+            return;
+        }
+        PlaceText(text, ToOcs(insert, text.Normal), rotation is double r ? FlipAngle(r) : text.Rotation, height);
     }
 
     private static Dimension CreateDimension(CadDocument document, JsonElement op)

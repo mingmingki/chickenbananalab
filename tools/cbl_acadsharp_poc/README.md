@@ -252,6 +252,18 @@ MTEXT는 줄바꿈과 서식을 그대로 지킨다. 대칭한 TEXT·MTEXT는 �
 원본의 저장 전 모습에서 만들어진다. `core/test_cad_dwg_transform_kinds.py`, `core/test_cad_dwg_attrib_transform.py`가
 종류마다 확인하고 ODA(검토용)로 다시 읽는다.
 
+## 아래를 향하거나 기울어진 객체 (OCS, `Program.cs` `ToOcs`)
+
+ARC·CIRCLE·LWPOLYLINE·TEXT(ATTRIB)·INSERT·SOLID·HATCH는 점을 자기 좌표계(OCS)에 둔다. OCS는 법선(DXF 210/220/230)에서
+AutoCAD의 임의 축 규칙으로 정해지고, 법선이 (0, 0, −1)이면(AutoCAD 3D 대칭 등) x축이 월드 −x다. 편집기는 이런 객체를 월드
+좌표로 그리고 보낸다(블록 행렬에 OCS 행렬을 곱해 그린다; 반전 행렬의 호는 끝점 방향을 따라가며 시작·끝을 바꾼다). writer는
+월드 값을 OCS로 되돌려 쓴다: 이동량은 OCS로 바꿔 더하고, 수정(`update`)은 x 부호·호 각도(π − 끝 ~ π − 시작)·볼록 값 부호·
+블록 회전(−r)·x 배율(−x)을 바꾸고, 회전·크기·대칭은 행렬을 x 반전으로 감싸(F·M·F) OCS에 적용한다. 속성은 속성마다 자기
+OCS로 옮긴다. 타원은 중심·장축이 월드 값이라 그대로 두고 짧은 축 방향만 법선을 따른다. 법선이 기울어진 객체(3D)는 위에서 본
+투영으로 그리고(호·원은 점으로), 복사·이동은 정확히 옮기지만 수정·회전·크기·대칭은 한국어로 거절한다. 평면 객체의 값은
+비트 단위로 그대로다. `core/test_cad_dwg_ocs_extrusion.py`(ezdxf + `--dwg-from-dxf`로 만든
+`ocs_extrusion_ac1018.dwg`)와 `core/test_cad_ocs_import.py`(편집기 계산, node).
+
 ## 되돌린 객체 (`--restore-from`, `fromOpened`)
 
 앞선 저장에서 지운 객체를 되돌리기로 살리면 그 객체는 DWG에 없다. 편집기는 처음 연 도면(바이트와 기준 도형)을 들고 있다가
