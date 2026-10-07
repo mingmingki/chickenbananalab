@@ -1,0 +1,19 @@
+{
+  "name": "full-final",
+  "tree": "candidate",
+  "command": [
+    "/Users/bagmingi/chickenbanana-work/chickenbananalab/.venv-autotrader/bin/python",
+    "-m",
+    "pytest",
+    "tests",
+    "-q",
+    "--basetemp=/private/tmp/autotrader-entry-final-20261008/test-runtime/full-final",
+    "--junitxml=/private/tmp/autotrader-entry-final-20261008/evidence/full-final.xml"
+  ],
+  "cwd": "/private/tmp/autotrader-entry-final-20261008/candidate",
+  "exit": 0,
+  "duration_seconds": 7.681882858276367,
+  "runtime": "/private/tmp/autotrader-entry-final-20261008/test-runtime",
+  "network": "socket calls blocked by local sitecustomize",
+  "log": "evidence/full-final.log"
+}

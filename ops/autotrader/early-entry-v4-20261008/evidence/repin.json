@@ -1,0 +1,44 @@
+{
+  "previous": {
+    "candidate_c_decision_engine.py": "d922dd41d0b1fb8cd6bdc34fc573869326d925c9bfbc16e261a09d9adb52c1f0",
+    "unified_trade_guard.py": "53e32976f1814a9febb6c8938b50aaae8bae77d04ecd6e2e8aa4857cd1e1f2d0",
+    "candidate_c_backtest_signal_adapter.py": "13639ae8855a4302217bee1b2cadf4e2712707a8bd1b7949cbedd7404c278966",
+    "candidate_c_setup_tracker.py": "2fae18575745d77916f0a8d2ff66af4db9a12dceafe774554634bbb841daddc9",
+    "backtest_engine.py": "dc38fb06e0247fa6a8e52e47ae30b6f80864bfbe64a0c958a00ef1b3d6141e4a",
+    "candidate_c_hybrid_live_adapter.py": "4ea2963139348f9467345dc309104a59eee0bb23e1039bb8e7fcb2d655a7ac6f",
+    "candidate_c_indicator_contract.py": "8947c0232850e58176c041a8ee9a1c3aee5b4e04aab04463b15b106f6d49dfe5",
+    "candidate_c_exit_management.py": "0327b7a71e56617a6ffd9b59924dda8a9aaf48f83acf490844fc888ec5c48f51",
+    "entry_overextension_guard.py": "a2452e4565fa5631249bd4079429767be8fff2dbc360ecb863182b1ba395818a",
+    "candidate_c_hybrid_cycle.py": "1bd29da67f189ce5a999ff8fa4982cad563e043d840ec21844667a4d663d7091",
+    "candidate_c_manual_close.py": "2646d9b458d708581188824778b0b92089b15ab04f33f6f41761715a0cc0b234",
+    "candidate_c_trader_adapter.py": "b0184e099af04a3bb869b32d94232ce20b4be346e9c0153ac213145155f825ce",
+    "candidate_c_notification_delivery.py": "b09c215c7ad13b69c58a7326b0b9cd8e14f429cc8c36468569acad5177e7ea78",
+    "candidate_c_strategy_policy.py": "3702ca6a159daec673b8632c057614b16859e5c67473fda8f01d9d19874b8d6b",
+    "candidate_c_preregistration_v3.json": "faa635c379885addaaed5747f0f53e253365f527ac0b979562ba0220d5b451f0",
+    "candidate_c_forward_paper_trading.py": "93433b2decb68a00a7191b6000d6456b90fee1c0bacd3f7027a69cae847c90fb"
+  },
+  "verified": {
+    "candidate_c_decision_engine.py": "d922dd41d0b1fb8cd6bdc34fc573869326d925c9bfbc16e261a09d9adb52c1f0",
+    "unified_trade_guard.py": "53e32976f1814a9febb6c8938b50aaae8bae77d04ecd6e2e8aa4857cd1e1f2d0",
+    "candidate_c_backtest_signal_adapter.py": "13639ae8855a4302217bee1b2cadf4e2712707a8bd1b7949cbedd7404c278966",
+    "candidate_c_setup_tracker.py": "2fae18575745d77916f0a8d2ff66af4db9a12dceafe774554634bbb841daddc9",
+    "backtest_engine.py": "dc38fb06e0247fa6a8e52e47ae30b6f80864bfbe64a0c958a00ef1b3d6141e4a",
+    "candidate_c_hybrid_live_adapter.py": "abac3d73e50ccdc06f714341ea150a8439eea180b94eeeee8059957aca8c72ae",
+    "candidate_c_indicator_contract.py": "8947c0232850e58176c041a8ee9a1c3aee5b4e04aab04463b15b106f6d49dfe5",
+    "candidate_c_exit_management.py": "0327b7a71e56617a6ffd9b59924dda8a9aaf48f83acf490844fc888ec5c48f51",
+    "entry_overextension_guard.py": "a2452e4565fa5631249bd4079429767be8fff2dbc360ecb863182b1ba395818a",
+    "candidate_c_hybrid_cycle.py": "a9f7a454f6ea367b88e8bda4a3feda42e0facc718a9913fae755854151842f52",
+    "candidate_c_manual_close.py": "2646d9b458d708581188824778b0b92089b15ab04f33f6f41761715a0cc0b234",
+    "candidate_c_trader_adapter.py": "b0184e099af04a3bb869b32d94232ce20b4be346e9c0153ac213145155f825ce",
+    "candidate_c_notification_delivery.py": "b09c215c7ad13b69c58a7326b0b9cd8e14f429cc8c36468569acad5177e7ea78",
+    "candidate_c_strategy_policy.py": "3702ca6a159daec673b8632c057614b16859e5c67473fda8f01d9d19874b8d6b",
+    "candidate_c_preregistration_v3.json": "faa635c379885addaaed5747f0f53e253365f527ac0b979562ba0220d5b451f0",
+    "candidate_c_forward_paper_trading.py": "93433b2decb68a00a7191b6000d6456b90fee1c0bacd3f7027a69cae847c90fb",
+    "adaptive_exit_engine.py": "12639d488865e879632900021050760564f53b74649fd72579ff32e43c30da35"
+  },
+  "evidence": [
+    "parity-confirmed.xml",
+    "native-sol-final-replay.json"
+  ],
+  "scope": "mocked live/backtest tests and native86bar causalSOL replay before pinning"
+}

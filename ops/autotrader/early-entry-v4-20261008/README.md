@@ -1,0 +1,13 @@
+# ChickenBanana early entry v4 validated patch
+
+This is a reviewed deployment overlay, not a replacement for the whole repository. Apply only to `/opt/autotrader-releases/early_entry_risk_rr_repair_v3_20261007T2219KST` whose exact seven baseline file hashes are enforced by `deployment-tools/patch_manifest.json`. The deployment preparation copies that actual immutable source, excludes shared mutable state, applies these source files, and runs full baseline/candidate mock tests with all socket access blocked.
+
+The current repository main has no tracked autotrader source; the other local autotrader worktree predates production. This isolated artifact preserves the exact tested production overlay without mixing earlier unverified repository changes into the release. Existing working-tree CAD changes are untouched.
+
+Validated locally: 1128 tests +27 subtests passed; baseline1093+27;35 new regressions; related132 pass; nativeSOL86 causal morning bars matched live/backtest; no remaining code review blockers. Assertions are preserved. Tests do not submit real exchange orders. CORE uses full exchange OCO TP2 and modeled costs; discretionary protective reductions are not guaranteed TP1 fills.
+
+**Deployment status: not currently verified.** Last direct server check before the interrupted preparation: v3 activePID62120. The prepare command was started, but its session was lost. Never rerun blindly: first inspect `/tmp/autotrader-entry-final-20261008/{validation.json,release-plan.json,verification.json}` and `/opt/autotrader`. The v4 atomic switch/restart was not initiated by this handoff. New server baseline/candidate outcomes, immutable v4 path, current positions/OCO, service PID and resumed strategy state require a fresh server connection.
+
+Current restricted execution blocks Google OAuth token refresh with DNS resolution failure for `oauth2.googleapis.com`; approval escalation is disabled. This is not evidence that gcloud login expired. Required action is a network-enabled execution session (or an authorized existing direct VM connection), not another deployment approval.
+
+Resume with the existing `deploy.py prepare` only if not already complete, then `deploy.py deploy` after validation. Deployment uses systemd stop/start, one-use deployment-resume and an atomic symlink switch; preserves all shared paths/settings/records; verifies exact before/after quantities/side/algoId/SL/TP, current engine heartbeats, source hashes and journal; auto-rolls back to v3 if verification fails. No dashboard Stop, test orders, operator position close, or protection amendments are used.

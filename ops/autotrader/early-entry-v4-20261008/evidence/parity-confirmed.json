@@ -1,0 +1,28 @@
+{
+  "name": "parity-confirmed",
+  "tree": "candidate",
+  "command": [
+    "/Users/bagmingi/chickenbanana-work/chickenbananalab/.venv-autotrader/bin/python",
+    "-m",
+    "pytest",
+    "tests/test_candidate_c_live_backtest_per_bar_recheck.py",
+    "tests/test_candidate_c_adaptive_exit_live_bounded.py",
+    "tests/test_entry_eligible_wide_stop_regression.py",
+    "tests/test_final_entry_submission_regression.py",
+    "tests/test_core_adaptive_exit_live_bounded.py",
+    "tests/test_ai_exit_price_contract.py",
+    "tests/test_ai_adaptive_exit_plan.py",
+    "tests/test_core_long_gpt_final_timing.py",
+    "-q",
+    "-k",
+    "not runtime_parity_evidence",
+    "--basetemp=/private/tmp/autotrader-entry-final-20261008/test-runtime/parity-confirmed",
+    "--junitxml=/private/tmp/autotrader-entry-final-20261008/evidence/parity-confirmed.xml"
+  ],
+  "cwd": "/private/tmp/autotrader-entry-final-20261008/candidate",
+  "exit": 0,
+  "duration_seconds": 2.6059882640838623,
+  "runtime": "/private/tmp/autotrader-entry-final-20261008/test-runtime",
+  "network": "socket calls blocked by local sitecustomize",
+  "log": "evidence/parity-confirmed.log"
+}
