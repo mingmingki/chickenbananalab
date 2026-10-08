@@ -1,0 +1,69 @@
+........................................................F............... [ 92%]
+....F.                                                                   [100%]
+=================================== FAILURES ===================================
+_______ test_pending_receipt_cannot_rebind_a_changed_position_lifecycle ________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-57/test_pending_receipt_cannot_re0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f037a10>
+
+    def test_pending_receipt_cannot_rebind_a_changed_position_lifecycle(tmp_path,monkeypatch):
+        import core_entry_events
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
+        client.response='pending';run(c,s,client,p,d)
+        order=client.orders[0];contracts=order['remaining']/2
+        order.update(filled=contracts,remaining=contracts)
+        client.position=dict(side='short',contracts=contracts,entry_price=100,
+            position_id='original',entry_timestamp_ms=order['lastTradeTimestamp'],last_trade_id='fill-proof-1')
+        client.protection=[dict(instId='ETH-USDT-SWAP',side='buy',state='live',reduceOnly='true',sz=str(contracts),
+            slTriggerPx=str(p['order_args'][2]),tpTriggerPx=str(p['order_args'][3]),algoId='protect-123',algoClOrdId='ca'+order['clientOrderId'][2:])]
+        assert not trader._reconcile_pending_core_entry(c,s,client,SYMBOL)
+>       before=core_entry_events.order_receipt(c.user_dir,'decision-123')['payload']['bound_position_identity']
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'bound_position_identity'
+
+tests/test_core_entry_pipeline.py:382: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6921 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_partial_unprotected_cancel_race_requires_complete_original_trade_proof[False] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-57/test_partial_unprotected_cance0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f26ed50>
+foreign = False
+
+    @pytest.mark.parametrize('foreign',[False,True])
+    def test_partial_unprotected_cancel_race_requires_complete_original_trade_proof(tmp_path,monkeypatch,foreign):
+        import core_entry_events
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'long')
+        original=client.create_position_with_sl_tp
+        def create(*a,**k):
+            row=original(*a,**k);half=row['filled']/2
+            row.update(status='open',filled=half,remaining=half)
+            client.position['contracts']=half;client.protection=[]
+            return row
+        client.create_position_with_sl_tp=create
+        def cancel(order_id,symbol):
+            row=client.orders[0];row.update(status='closed',filled=row['filled']+row['remaining'],remaining=0)
+            client.position.update(contracts=row['filled'],last_trade_id='foreign-fill' if foreign else 'fill-proof-1')
+        client.exchange.cancel_order=cancel
+        closes=[]
+        def close(position,client_order_id):
+            closes.append(client_order_id);client.position=None
+            client.orders.append(dict(id='safety-close',clientOrderId=client_order_id,symbol=SYMBOL,side='sell',status='closed',filled=position['contracts'],remaining=0))
+        client.close_position=close
+        run(c,s,client,p,d)
+        receipt=core_entry_events.order_receipt(c.user_dir,'decision-123')
+        if foreign:
+            assert not closes and client.position is not None and receipt['status']=='ORDER_PENDING'
+        else:
+>           assert len(closes)==1 and client.position is None and receipt['status']=='ORDER_FAILED'
+E           assert (0 == 1)
+E            +  where 0 = len([])
+
+tests/test_core_entry_pipeline.py:512: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6921 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+ERROR    pipeline-test:trader.py:5998 [ETH/USDT:USDT] CORE_EMERGENCY_CLOSE_BLOCKED original lifecycle unconfirmed
+=========================== short test summary info ============================
+FAILED tests/test_core_entry_pipeline.py::test_pending_receipt_cannot_rebind_a_changed_position_lifecycle
+FAILED tests/test_core_entry_pipeline.py::test_partial_unprotected_cancel_race_requires_complete_original_trade_proof[False]
+2 failed, 76 passed in 1.82s

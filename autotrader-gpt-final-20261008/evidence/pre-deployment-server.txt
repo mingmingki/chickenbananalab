@@ -1,0 +1,16 @@
+MainPID=75450
+NRestarts=0
+ExecStart={ path=/opt/autotrader/.venv/bin/python3 ; argv[]=/opt/autotrader/.venv/bin/python3 /opt/autotrader/web_app.py ; ignore_errors=no ; start_time=[Thu 2026-10-08 07:21:22 KST] ; stop_time=[n/a] ; pid=75450 ; code=(null) ; status=0/0 }
+WorkingDirectory=/opt/autotrader
+ActiveState=active
+/opt/autotrader-releases/early_entry_risk_rr_repair_v4_20261008T0156KST
+c6431dd805d8bb7f7f6e729993c89194e27c0b432cda104a86ef94973f74a318  /opt/autotrader/trader.py
+users -> /opt/autotrader-releases/adaptive_exit_width_cap_failclosed_20261004T0834KST/users
+trades_log.jsonl -> /opt/autotrader-releases/adaptive_exit_width_cap_failclosed_20261004T0834KST/trades_log.jsonl
+.env -> /opt/autotrader-releases/adaptive_exit_width_cap_failclosed_20261004T0834KST/.env
+flask_secret.key -> /opt/autotrader-releases/adaptive_exit_width_cap_failclosed_20261004T0834KST/flask_secret.key
+accounts.json -> /opt/autotrader-releases/adaptive_exit_width_cap_failclosed_20261004T0834KST/accounts.json
+vapid_private_key.pem -> /opt/autotrader-releases/adaptive_exit_width_cap_failclosed_20261004T0834KST/vapid_private_key.pem
+.venv -> /opt/autotrader-releases/adaptive_exit_width_cap_failclosed_20261004T0834KST/.venv
+pnl_state.json -> /opt/autotrader-releases/adaptive_exit_width_cap_failclosed_20261004T0834KST/pnl_state.json
+logs -> /opt/autotrader-releases/adaptive_exit_width_cap_failclosed_20261004T0834KST/logs

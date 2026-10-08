@@ -1,0 +1,56 @@
+[
+  {
+    "file": "adaptive_exit_engine.py",
+    "old_baseline": "12639d488865e879632900021050760564f53b74649fd72579ff32e43c30da35",
+    "v4_baseline": "12639d488865e879632900021050760564f53b74649fd72579ff32e43c30da35",
+    "match": true
+  },
+  {
+    "file": "config.py",
+    "old_baseline": "100e4d98a3a0d0c0914cf04cb2c3b1ab6bac4ae6e7fb8f58a5cd0181ec13f45c",
+    "v4_baseline": "532a24a696d1b2a48c41ee745c10f04017177891e71c4126208179fde447188e",
+    "match": false
+  },
+  {
+    "file": "gpt_shadow_log.py",
+    "old_baseline": "719396102d418f803302ab2fb9d56a750c162423ca0b65641796fe961f39e91c",
+    "v4_baseline": "32f81adf5368025dc9bad1d4ee58fd7d570360879714c529a1ff87031a9a728e",
+    "match": false
+  },
+  {
+    "file": "okx_client.py",
+    "old_baseline": "061095b18b9053344e4e2dcd23c11a23c0a9a1028b2cb3dd8230bb1a3ace459e",
+    "v4_baseline": "061095b18b9053344e4e2dcd23c11a23c0a9a1028b2cb3dd8230bb1a3ace459e",
+    "match": true
+  },
+  {
+    "file": "openai_analyzer.py",
+    "old_baseline": "b4cdf0ccfe66b705e19bde888c94334760c1f255008ed8b670559e3af84fd62c",
+    "v4_baseline": "1a688f008c68e80be22337e1ff48591ccfac3f56a384392958452355ec201745",
+    "match": false
+  },
+  {
+    "file": "telegram_notify.py",
+    "old_baseline": "359cb114c8495db9aca37898f7e2109716784d8c669696e9ae71b48f2dc8591e",
+    "v4_baseline": "359cb114c8495db9aca37898f7e2109716784d8c669696e9ae71b48f2dc8591e",
+    "match": true
+  },
+  {
+    "file": "templates/dashboard.html",
+    "old_baseline": "58f1c7ae0398a89ee867ffe618b5ffcae50ec5b36590fe2e64779592983b8ea1",
+    "v4_baseline": "088dc7e5106eedc0fc808158804a78329dfff4d458294d6f38e7e586ab09ab0d",
+    "match": false
+  },
+  {
+    "file": "trader.py",
+    "old_baseline": "c6431dd805d8bb7f7f6e729993c89194e27c0b432cda104a86ef94973f74a318",
+    "v4_baseline": "c6431dd805d8bb7f7f6e729993c89194e27c0b432cda104a86ef94973f74a318",
+    "match": true
+  },
+  {
+    "file": "web_app.py",
+    "old_baseline": "78b081ace8109fd17e1e4cc53bbe42298d65a2ce62a0b5eb3c94a62c45add468",
+    "v4_baseline": "b4267574b068ff1f94a6d520cb41cb31e2776e78f78697ea895c0701f7caeb07",
+    "match": false
+  }
+]

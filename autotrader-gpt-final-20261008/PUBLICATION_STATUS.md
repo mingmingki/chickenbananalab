@@ -1,0 +1,1 @@
+Final candidate deployed and verified. Native Git publication pending at this document creation; actual commit/push verification will replace this status after push. Isolated branch infra/autotrader-core-gpt-recovery-20261008. Root main/CAD/index untouched.

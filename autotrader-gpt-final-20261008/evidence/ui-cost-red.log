@@ -1,0 +1,95 @@
+F.                                                                       [100%]
+=================================== FAILURES ===================================
+____ test_actual_ui_renders_cost_metadata_without_inventing_unknown_retries ____
+
+    def test_actual_ui_renders_cost_metadata_without_inventing_unknown_retries():
+        script=r'''const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict');
+    const elements={};const document={getElementById:id=>elements[id]||(elements[id]={})};
+    const context={document};vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+    context.renderOperatingCosts({usage_log_available:true,server:{},by_model_24h:{'gpt-fixture':{calls:3,input_tokens:100,output_tokens:50}},by_purpose_24h:{entry_gate:{calls:3}},call_metadata_24h:{logged_calls:3,duplicate_request_records:0,repeated_input_calls:1,measured_retry_count:0,unknown_retry_calls:2}});
+    const text=elements['ai-call-metadata'].textContent;
+    a.ok(text.includes('gpt-fixture'));a.ok(text.includes('entry_gate'));a.ok(text.includes('100'));a.ok(text.includes('미확인 2'));a.ok(text.includes('동일 입력 1'));a.ok(text.includes('절감 미측정'));
+    context.renderOperatingCosts({usage_log_available:false});a.ok(elements['ai-call-metadata'].textContent.includes('미측정'));
+    '''
+>       subprocess.run(['node','-e',script,str(ROOT/'static/operating_observability.js')],check=True,capture_output=True)
+
+tests/test_recovery_ui_final.py:15: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = True, timeout = None, check = True
+popenargs = (['node', '-e', "const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict');\nconst elements={}...ludes('미측정'));\n", '/private/tmp/autotrader-gpt-recovery-final-20261008/candidate/static/operating_observability.js'],)
+kwargs = {'stdout': -1, 'stderr': -1}
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output & stderr attributes if those streams
+        were captured.
+    
+        If timeout is given, and the process takes too long, a TimeoutExpired
+        exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+>               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['node', '-e', "const fs=require('node:fs'),vm=require('node:vm'),a=require('node:assert/strict');\nconst elements={};const document={getElementById:id=>elements[id]||(elements[id]={})};\nconst context={document};vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);\ncontext.renderOperatingCosts({usage_log_available:true,server:{},by_model_24h:{'gpt-fixture':{calls:3,input_tokens:100,output_tokens:50}},by_purpose_24h:{entry_gate:{calls:3}},call_metadata_24h:{logged_calls:3,duplicate_request_records:0,repeated_input_calls:1,measured_retry_count:0,unknown_retry_calls:2}});\nconst text=elements['ai-call-metadata'].textContent;\na.ok(text.includes('gpt-fixture'));a.ok(text.includes('entry_gate'));a.ok(text.includes('100'));a.ok(text.includes('미확인 2'));a.ok(text.includes('동일 입력 1'));a.ok(text.includes('절감 미측정'));\ncontext.renderOperatingCosts({usage_log_available:false});a.ok(elements['ai-call-metadata'].textContent.includes('미측정'));\n", '/private/tmp/autotrader-gpt-recovery-final-20261008/candidate/static/operating_observability.js']' returned non-zero exit status 1.
+
+/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/subprocess.py:571: CalledProcessError
+=========================== short test summary info ============================
+FAILED tests/test_recovery_ui_final.py::test_actual_ui_renders_cost_metadata_without_inventing_unknown_retries
+1 failed, 1 passed in 0.13s

@@ -1,0 +1,160 @@
+........................................................................ [  5%]
+........................................................................ [ 11%]
+........................................................................ [ 17%]
+........................................................................ [ 23%]
+.............................FFFFF...................................... [ 29%]
+........................................................................ [ 35%]
+........................................................................ [ 40%]
+........................................................................ [ 46%]
+........................................................................ [ 52%]
+........................................................................ [ 58%]
+........................................................................ [ 64%]
+................................................................. [ 69%]
+.................................................................. [ 74%]
+.................................................................. [ 80%]
+................................................................ [ 85%]
+............................................F........................... [ 91%]
+........................................................................ [ 97%]
+.....................................                                    [100%]
+=================================== FAILURES ===================================
+_ test_approved_core_order_uses_configured_amount_without_historical_score_veto[short-0.6] _
+
+entry_env = (namespace(user_dir='/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-39/test_approv...y_env.<locals>.<lambda> at 0x10ff50a40>), 'PI/USDT:USDT', [{'side': 'short', 'amount': 10.0, 'sl': 104.0, 'tp': 92.0}])
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ff193d0>
+side = 'short', confidence = 0.6
+
+    @pytest.mark.parametrize("side,confidence",[
+        ("short",.6),("short",.75),("short",.78),("long",.75),("long",.78),
+    ])
+    def test_approved_core_order_uses_configured_amount_without_historical_score_veto(entry_env,monkeypatch,side,confidence):
+        seen=invoke(entry_env,monkeypatch,side=side,confidence=confidence)
+        _,state,_,symbol,orders=entry_env
+        assert len(seen)==1
+        assert orders==[{"side":side,"amount":10.,"sl":104. if side=="short" else 96.,
+                        "tp":92. if side=="short" else 108.}]
+        attempt=state.snapshot()["symbols"][symbol]["last_entry_attempt"]
+        assert attempt["status"]=="FILLED"
+>       assert attempt["gpt_confidence"]==confidence
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'gpt_confidence'
+
+tests/test_core_dual_ai_consensus.py:71: KeyError
+_ test_approved_core_order_uses_configured_amount_without_historical_score_veto[short-0.75] _
+
+entry_env = (namespace(user_dir='/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-39/test_approv...y_env.<locals>.<lambda> at 0x10ff50c20>), 'PI/USDT:USDT', [{'side': 'short', 'amount': 10.0, 'sl': 104.0, 'tp': 92.0}])
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1103363d0>
+side = 'short', confidence = 0.75
+
+    @pytest.mark.parametrize("side,confidence",[
+        ("short",.6),("short",.75),("short",.78),("long",.75),("long",.78),
+    ])
+    def test_approved_core_order_uses_configured_amount_without_historical_score_veto(entry_env,monkeypatch,side,confidence):
+        seen=invoke(entry_env,monkeypatch,side=side,confidence=confidence)
+        _,state,_,symbol,orders=entry_env
+        assert len(seen)==1
+        assert orders==[{"side":side,"amount":10.,"sl":104. if side=="short" else 96.,
+                        "tp":92. if side=="short" else 108.}]
+        attempt=state.snapshot()["symbols"][symbol]["last_entry_attempt"]
+        assert attempt["status"]=="FILLED"
+>       assert attempt["gpt_confidence"]==confidence
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'gpt_confidence'
+
+tests/test_core_dual_ai_consensus.py:71: KeyError
+_ test_approved_core_order_uses_configured_amount_without_historical_score_veto[short-0.78] _
+
+entry_env = (namespace(user_dir='/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-39/test_approv...y_env.<locals>.<lambda> at 0x10ff52660>), 'PI/USDT:USDT', [{'side': 'short', 'amount': 10.0, 'sl': 104.0, 'tp': 92.0}])
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ff8ee10>
+side = 'short', confidence = 0.78
+
+    @pytest.mark.parametrize("side,confidence",[
+        ("short",.6),("short",.75),("short",.78),("long",.75),("long",.78),
+    ])
+    def test_approved_core_order_uses_configured_amount_without_historical_score_veto(entry_env,monkeypatch,side,confidence):
+        seen=invoke(entry_env,monkeypatch,side=side,confidence=confidence)
+        _,state,_,symbol,orders=entry_env
+        assert len(seen)==1
+        assert orders==[{"side":side,"amount":10.,"sl":104. if side=="short" else 96.,
+                        "tp":92. if side=="short" else 108.}]
+        attempt=state.snapshot()["symbols"][symbol]["last_entry_attempt"]
+        assert attempt["status"]=="FILLED"
+>       assert attempt["gpt_confidence"]==confidence
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'gpt_confidence'
+
+tests/test_core_dual_ai_consensus.py:71: KeyError
+_ test_approved_core_order_uses_configured_amount_without_historical_score_veto[long-0.75] _
+
+entry_env = (namespace(user_dir='/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-39/test_approv...ry_env.<locals>.<lambda> at 0x10ff520c0>), 'PI/USDT:USDT', [{'side': 'long', 'amount': 10.0, 'sl': 96.0, 'tp': 108.0}])
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1100e7590>
+side = 'long', confidence = 0.75
+
+    @pytest.mark.parametrize("side,confidence",[
+        ("short",.6),("short",.75),("short",.78),("long",.75),("long",.78),
+    ])
+    def test_approved_core_order_uses_configured_amount_without_historical_score_veto(entry_env,monkeypatch,side,confidence):
+        seen=invoke(entry_env,monkeypatch,side=side,confidence=confidence)
+        _,state,_,symbol,orders=entry_env
+        assert len(seen)==1
+        assert orders==[{"side":side,"amount":10.,"sl":104. if side=="short" else 96.,
+                        "tp":92. if side=="short" else 108.}]
+        attempt=state.snapshot()["symbols"][symbol]["last_entry_attempt"]
+        assert attempt["status"]=="FILLED"
+>       assert attempt["gpt_confidence"]==confidence
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'gpt_confidence'
+
+tests/test_core_dual_ai_consensus.py:71: KeyError
+_ test_approved_core_order_uses_configured_amount_without_historical_score_veto[long-0.78] _
+
+entry_env = (namespace(user_dir='/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-39/test_approv...ry_env.<locals>.<lambda> at 0x10ff52520>), 'PI/USDT:USDT', [{'side': 'long', 'amount': 10.0, 'sl': 96.0, 'tp': 108.0}])
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x110093290>
+side = 'long', confidence = 0.78
+
+    @pytest.mark.parametrize("side,confidence",[
+        ("short",.6),("short",.75),("short",.78),("long",.75),("long",.78),
+    ])
+    def test_approved_core_order_uses_configured_amount_without_historical_score_veto(entry_env,monkeypatch,side,confidence):
+        seen=invoke(entry_env,monkeypatch,side=side,confidence=confidence)
+        _,state,_,symbol,orders=entry_env
+        assert len(seen)==1
+        assert orders==[{"side":side,"amount":10.,"sl":104. if side=="short" else 96.,
+                        "tp":92. if side=="short" else 108.}]
+        attempt=state.snapshot()["symbols"][symbol]["last_entry_attempt"]
+        assert attempt["status"]=="FILLED"
+>       assert attempt["gpt_confidence"]==confidence
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'gpt_confidence'
+
+tests/test_core_dual_ai_consensus.py:71: KeyError
+___________ test_gpt_approval_executes_without_historical_risk_veto ____________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-39/test_gpt_approval_executes_wit0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1106944d0>
+
+    def test_gpt_approval_executes_without_historical_risk_veto(tmp_path, monkeypatch):
+        attempt, audit, seen = _core_gate_attempt(tmp_path, monkeypatch)
+        assert audit["gpt_decision"] == "approve_now"
+        assert audit["gate_result"] == "approved"
+        assert attempt["status"] == "FILLED"
+        assert seen["order_amount"] == 10.0
+>       assert attempt["gpt_decision"] == "approve_now"
+               ^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'gpt_decision'
+
+tests/test_report_contract_regression.py:120: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  report_regression:trader.py:4358 [PI/USDT:USDT] AI_EXIT execution contract 생성 실패 - 기존 Adaptive fallback 유지
+Traceback (most recent call last):
+  File "/private/tmp/autotrader-gpt-recovery-final-20261008/candidate/trader.py", line 4356, in _handle_new_entry
+    exit_price_contract['execution_target'] = adaptive_context.execution_target
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'execution_target'
+=========================== short test summary info ============================
+FAILED tests/test_core_dual_ai_consensus.py::test_approved_core_order_uses_configured_amount_without_historical_score_veto[short-0.6]
+FAILED tests/test_core_dual_ai_consensus.py::test_approved_core_order_uses_configured_amount_without_historical_score_veto[short-0.75]
+FAILED tests/test_core_dual_ai_consensus.py::test_approved_core_order_uses_configured_amount_without_historical_score_veto[short-0.78]
+FAILED tests/test_core_dual_ai_consensus.py::test_approved_core_order_uses_configured_amount_without_historical_score_veto[long-0.75]
+FAILED tests/test_core_dual_ai_consensus.py::test_approved_core_order_uses_configured_amount_without_historical_score_veto[long-0.78]
+FAILED tests/test_report_contract_regression.py::test_gpt_approval_executes_without_historical_risk_veto
+6 failed, 1228 passed, 27 subtests passed in 7.28s

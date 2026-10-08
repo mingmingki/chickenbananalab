@@ -1,0 +1,57 @@
+...................................................................F.... [ 98%]
+.                                                                        [100%]
+=================================== FAILURES ===================================
+_ test_unprotected_new_fill_recovers_only_with_original_exchange_trade_proof[none] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-47/test_unprotected_new_fill_reco0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ebabbd0>
+fault = 'none'
+
+    @pytest.mark.parametrize('fault',['none','foreign_trade','foreign_lifecycle','missing_fill','partial','changed_before_close'])
+    def test_unprotected_new_fill_recovers_only_with_original_exchange_trade_proof(tmp_path,monkeypatch,fault):
+        import core_entry_events
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'long')
+        original=client.create_position_with_sl_tp
+        close_calls=[]
+        def create(*a,**k):
+            order=original(*a,**k)
+            now=int(time.time()*1000)
+            order.update(timestamp=now-10,lastTradeTimestamp=now)
+            client.position.update(entry_timestamp_ms=now,last_trade_id='fill-proof-1')
+            client.protection=[]
+            if fault=='foreign_trade':client.position['last_trade_id']='foreign-fill'
+            if fault=='foreign_lifecycle':client.position['entry_timestamp_ms']=now+10000
+            if fault=='partial':order.update(status='open',remaining=1)
+            return order
+        client.create_position_with_sl_tp=create
+        def fills(order_id):
+            if fault=='missing_fill':return []
+            return [dict(id='fill-proof-1',order='exchange-123',symbol=SYMBOL,side='buy',amount=client.orders[0]['filled'],price=100,timestamp=client.orders[0]['lastTradeTimestamp'])]
+        client.fetch_entry_order_fills=fills
+        def close(position,**kwargs):
+            close_calls.append(kwargs['client_order_id'])
+            qty=position['contracts'];client.position=None
+            client.orders.append(dict(id='emergency-1',clientOrderId=kwargs['client_order_id'],symbol=SYMBOL,side='sell',status='closed',filled=qty,remaining=0,average=100))
+        client.close_position=close
+        if fault=='changed_before_close':
+            original_fetch=client.fetch_position
+            reads=[0]
+            def fetch():
+                reads[0]+=1
+                if reads[0]>=4 and client.position:client.position['last_trade_id']='foreign-after-proof'
+                return original_fetch()
+            client.fetch_position=fetch
+        run(c,s,client,p,d)
+        receipt=core_entry_events.order_receipt(c.user_dir,'decision-123')
+        if fault=='none':
+>           assert len(close_calls)==1
+E           assert 0 == 1
+E            +  where 0 = len([])
+
+tests/test_core_entry_pipeline.py:435: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6899 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+ERROR    pipeline-test:trader.py:5980 [ETH/USDT:USDT] CORE_EMERGENCY_CLOSE_BLOCKED original lifecycle unconfirmed
+=========================== short test summary info ============================
+FAILED tests/test_core_entry_pipeline.py::test_unprotected_new_fill_recovers_only_with_original_exchange_trade_proof[none]
+1 failed, 72 passed in 2.13s

@@ -1,0 +1,84 @@
+........................................................................ [ 94%]
+.FFF                                                                     [100%]
+=================================== FAILURES ===================================
+____ test_old_order_receipt_cannot_adopt_foreign_protected_position[False] _____
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-51/test_old_order_receipt_cannot_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1115cea90>
+terminal = False
+
+    @pytest.mark.parametrize('terminal',[False,True])
+    def test_old_order_receipt_cannot_adopt_foreign_protected_position(tmp_path,monkeypatch,terminal):
+        import core_entry_events
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
+        client.response='pending';run(c,s,client,p,d)
+        order=client.orders[0];order.update(filled=order['remaining'],remaining=0 if terminal else 1,status='closed' if terminal else 'open',timestamp=int(time.time()*1000)-20000)
+        client.position=dict(side='short',contracts=order['filled'],entry_price=100,position_id='foreign',entry_timestamp_ms=int(time.time()*1000),last_trade_id='foreign-fill')
+        client.protection=[dict(instId='ETH-USDT-SWAP',side='buy',state='live',reduceOnly='true',sz=str(order['filled']),slTriggerPx=str(p['order_args'][2]),tpTriggerPx=str(p['order_args'][3]),algoId='stale-protection',algoClOrdId='ca'+order['clientOrderId'][2:])]
+        client.fetch_entry_order_fills=lambda oid:[dict(id='original-fill',order=oid,symbol=SYMBOL,side='sell',amount=order['filled'],price=100,timestamp=order['timestamp']+1)]
+        trader._reconcile_pending_core_entry(c,s,client,SYMBOL)
+        receipt=core_entry_events.order_receipt(c.user_dir,'decision-123')
+        assert receipt['status']=='ORDER_PENDING'
+>       assert not receipt['payload'].get('bound_position_identity')
+E       AssertionError: assert not 'foreign:1791462026776:short'
+E        +  where 'foreign:1791462026776:short' = <built-in method get of dict object at 0x1115c6200>('bound_position_identity')
+E        +    where <built-in method get of dict object at 0x1115c6200> = {'side': 'short', 'quantity_coin': 6.578, 'contracts': 65.78, 'sl_price': 107.5, ...}.get
+
+tests/test_core_entry_pipeline.py:457: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6920 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_____ test_old_order_receipt_cannot_adopt_foreign_protected_position[True] _____
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-51/test_old_order_receipt_cannot_1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1113cd090>
+terminal = True
+
+    @pytest.mark.parametrize('terminal',[False,True])
+    def test_old_order_receipt_cannot_adopt_foreign_protected_position(tmp_path,monkeypatch,terminal):
+        import core_entry_events
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
+        client.response='pending';run(c,s,client,p,d)
+        order=client.orders[0];order.update(filled=order['remaining'],remaining=0 if terminal else 1,status='closed' if terminal else 'open',timestamp=int(time.time()*1000)-20000)
+        client.position=dict(side='short',contracts=order['filled'],entry_price=100,position_id='foreign',entry_timestamp_ms=int(time.time()*1000),last_trade_id='foreign-fill')
+        client.protection=[dict(instId='ETH-USDT-SWAP',side='buy',state='live',reduceOnly='true',sz=str(order['filled']),slTriggerPx=str(p['order_args'][2]),tpTriggerPx=str(p['order_args'][3]),algoId='stale-protection',algoClOrdId='ca'+order['clientOrderId'][2:])]
+        client.fetch_entry_order_fills=lambda oid:[dict(id='original-fill',order=oid,symbol=SYMBOL,side='sell',amount=order['filled'],price=100,timestamp=order['timestamp']+1)]
+        trader._reconcile_pending_core_entry(c,s,client,SYMBOL)
+        receipt=core_entry_events.order_receipt(c.user_dir,'decision-123')
+>       assert receipt['status']=='ORDER_PENDING'
+E       AssertionError: assert 'FILLED' == 'ORDER_PENDING'
+E         
+E         - ORDER_PENDING
+E         + FILLED
+
+tests/test_core_entry_pipeline.py:456: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6920 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+__ test_crash_before_terminal_event_retains_recoverable_receipt_and_one_open ___
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-51/test_crash_before_terminal_eve0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1113cca10>
+
+    def test_crash_before_terminal_event_retains_recoverable_receipt_and_one_open(tmp_path,monkeypatch):
+        import core_entry_events
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'long')
+        original=trader._set_core_entry_outcome
+        class ProcessDeath(BaseException):pass
+        def crash(*a,**k):
+            if a[5]=='FILLED':raise ProcessDeath
+            return original(*a,**k)
+        monkeypatch.setattr(trader,'_set_core_entry_outcome',crash)
+        with pytest.raises(ProcessDeath):run(c,s,client,p,d)
+>       assert core_entry_events.pending_order(c.user_dir,SYMBOL) is not None
+E       AssertionError: assert None is not None
+E        +  where None = <function pending_order at 0x1113b1e40>('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-51/test_crash_before_terminal_eve0', 'ETH/USDT:USDT')
+E        +    where <function pending_order at 0x1113b1e40> = <module 'core_entry_events' from '/private/tmp/autotrader-gpt-recovery-final-20261008/candidate/core_entry_events.py'>.pending_order
+E        +    and   '/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-51/test_crash_before_terminal_eve0' = <config.UserConfig object at 0x1113c7190>.user_dir
+
+tests/test_core_entry_pipeline.py:472: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6920 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+=========================== short test summary info ============================
+FAILED tests/test_core_entry_pipeline.py::test_old_order_receipt_cannot_adopt_foreign_protected_position[False]
+FAILED tests/test_core_entry_pipeline.py::test_old_order_receipt_cannot_adopt_foreign_protected_position[True]
+FAILED tests/test_core_entry_pipeline.py::test_crash_before_terminal_event_retains_recoverable_receipt_and_one_open
+3 failed, 73 passed in 1.80s

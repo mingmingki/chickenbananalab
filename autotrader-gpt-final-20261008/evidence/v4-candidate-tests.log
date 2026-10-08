@@ -1,0 +1,965 @@
+........................................................................ [  5%]
+..............F......................................................... [ 11%]
+........................................................................ [ 17%]
+........................................................................ [ 23%]
+.............................FFFFF........F......FFFF................... [ 29%]
+........................................................................ [ 35%]
+........................................................................ [ 40%]
+....................F.......................................FF..FF.F.... [ 46%]
+.....................................F.................................. [ 52%]
+........................................................................ [ 58%]
+.......................................FF....................FFFF....... [ 64%]
+................................................................. [ 69%]
+.................................................................. [ 74%]
+.................................................................. [ 80%]
+................................................................ [ 85%]
+............................................F........................... [ 91%]
+........................................................................ [ 97%]
+.....................................                                    [100%]
+=================================== FAILURES ===================================
+_______________ test_core_gpt_gate_forwards_exit_price_contract ________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1113464d0>
+
+    def test_core_gpt_gate_forwards_exit_price_contract(monkeypatch):
+        import logging, trader
+        captured={}
+        def fake_verify(*args,**kwargs):
+            captured.update(kwargs)
+            return {"decision":"approve_now","confidence":0.8,"reasoning":"ok","exit_plan_decision":"approve","exit_plan":None,"error_reason":None}
+        monkeypatch.setattr(trader.openai_analyzer,"verify",fake_verify)
+        cfg=SimpleNamespace(logger=logging.getLogger("test"))
+        contract=ae.build_ai_price_contract("long",100.0,2.0,production_adaptive_exit_policy())
+        allowed,gate,result=trader._gpt_entry_gate(cfg,"X",["5m"],"summary",None,{"action":"long","confidence":0.8},exit_price_contract=contract)
+>       assert allowed is True and gate == "approved"
+E       assert (False is True)
+
+tests/test_ai_exit_price_contract.py:66: AssertionError
+_ test_approved_core_order_uses_configured_amount_without_historical_score_veto[short-0.6] _
+
+entry_env = (namespace(user_dir='/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_approv...y_env.<locals>.<lambda> at 0x1114f6c00>), 'PI/USDT:USDT', [{'side': 'short', 'amount': 10.0, 'sl': 104.0, 'tp': 92.0}])
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x111647510>
+side = 'short', confidence = 0.6
+
+    @pytest.mark.parametrize("side,confidence",[
+        ("short",.6),("short",.75),("short",.78),("long",.75),("long",.78),
+    ])
+    def test_approved_core_order_uses_configured_amount_without_historical_score_veto(entry_env,monkeypatch,side,confidence):
+        seen=invoke(entry_env,monkeypatch,side=side,confidence=confidence)
+        _,state,_,symbol,orders=entry_env
+        assert len(seen)==1
+        assert orders==[{"side":side,"amount":10.,"sl":104. if side=="short" else 96.,
+                        "tp":92. if side=="short" else 108.}]
+        attempt=state.snapshot()["symbols"][symbol]["last_entry_attempt"]
+>       assert attempt["status"]=="ORDER_EXECUTED"
+E       AssertionError: assert 'FILLED' == 'ORDER_EXECUTED'
+E         
+E         - ORDER_EXECUTED
+E         + FILLED
+
+tests/test_core_dual_ai_consensus.py:70: AssertionError
+_ test_approved_core_order_uses_configured_amount_without_historical_score_veto[short-0.75] _
+
+entry_env = (namespace(user_dir='/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_approv...y_env.<locals>.<lambda> at 0x1114f7e20>), 'PI/USDT:USDT', [{'side': 'short', 'amount': 10.0, 'sl': 104.0, 'tp': 92.0}])
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1118b52d0>
+side = 'short', confidence = 0.75
+
+    @pytest.mark.parametrize("side,confidence",[
+        ("short",.6),("short",.75),("short",.78),("long",.75),("long",.78),
+    ])
+    def test_approved_core_order_uses_configured_amount_without_historical_score_veto(entry_env,monkeypatch,side,confidence):
+        seen=invoke(entry_env,monkeypatch,side=side,confidence=confidence)
+        _,state,_,symbol,orders=entry_env
+        assert len(seen)==1
+        assert orders==[{"side":side,"amount":10.,"sl":104. if side=="short" else 96.,
+                        "tp":92. if side=="short" else 108.}]
+        attempt=state.snapshot()["symbols"][symbol]["last_entry_attempt"]
+>       assert attempt["status"]=="ORDER_EXECUTED"
+E       AssertionError: assert 'FILLED' == 'ORDER_EXECUTED'
+E         
+E         - ORDER_EXECUTED
+E         + FILLED
+
+tests/test_core_dual_ai_consensus.py:70: AssertionError
+_ test_approved_core_order_uses_configured_amount_without_historical_score_veto[short-0.78] _
+
+entry_env = (namespace(user_dir='/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_approv...y_env.<locals>.<lambda> at 0x1114f71a0>), 'PI/USDT:USDT', [{'side': 'short', 'amount': 10.0, 'sl': 104.0, 'tp': 92.0}])
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1114ba7d0>
+side = 'short', confidence = 0.78
+
+    @pytest.mark.parametrize("side,confidence",[
+        ("short",.6),("short",.75),("short",.78),("long",.75),("long",.78),
+    ])
+    def test_approved_core_order_uses_configured_amount_without_historical_score_veto(entry_env,monkeypatch,side,confidence):
+        seen=invoke(entry_env,monkeypatch,side=side,confidence=confidence)
+        _,state,_,symbol,orders=entry_env
+        assert len(seen)==1
+        assert orders==[{"side":side,"amount":10.,"sl":104. if side=="short" else 96.,
+                        "tp":92. if side=="short" else 108.}]
+        attempt=state.snapshot()["symbols"][symbol]["last_entry_attempt"]
+>       assert attempt["status"]=="ORDER_EXECUTED"
+E       AssertionError: assert 'FILLED' == 'ORDER_EXECUTED'
+E         
+E         - ORDER_EXECUTED
+E         + FILLED
+
+tests/test_core_dual_ai_consensus.py:70: AssertionError
+_ test_approved_core_order_uses_configured_amount_without_historical_score_veto[long-0.75] _
+
+entry_env = (namespace(user_dir='/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_approv...ry_env.<locals>.<lambda> at 0x1114f7100>), 'PI/USDT:USDT', [{'side': 'long', 'amount': 10.0, 'sl': 96.0, 'tp': 108.0}])
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x111644990>
+side = 'long', confidence = 0.75
+
+    @pytest.mark.parametrize("side,confidence",[
+        ("short",.6),("short",.75),("short",.78),("long",.75),("long",.78),
+    ])
+    def test_approved_core_order_uses_configured_amount_without_historical_score_veto(entry_env,monkeypatch,side,confidence):
+        seen=invoke(entry_env,monkeypatch,side=side,confidence=confidence)
+        _,state,_,symbol,orders=entry_env
+        assert len(seen)==1
+        assert orders==[{"side":side,"amount":10.,"sl":104. if side=="short" else 96.,
+                        "tp":92. if side=="short" else 108.}]
+        attempt=state.snapshot()["symbols"][symbol]["last_entry_attempt"]
+>       assert attempt["status"]=="ORDER_EXECUTED"
+E       AssertionError: assert 'FILLED' == 'ORDER_EXECUTED'
+E         
+E         - ORDER_EXECUTED
+E         + FILLED
+
+tests/test_core_dual_ai_consensus.py:70: AssertionError
+_ test_approved_core_order_uses_configured_amount_without_historical_score_veto[long-0.78] _
+
+entry_env = (namespace(user_dir='/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_approv...ry_env.<locals>.<lambda> at 0x1114f4d60>), 'PI/USDT:USDT', [{'side': 'long', 'amount': 10.0, 'sl': 96.0, 'tp': 108.0}])
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1114ccb90>
+side = 'long', confidence = 0.78
+
+    @pytest.mark.parametrize("side,confidence",[
+        ("short",.6),("short",.75),("short",.78),("long",.75),("long",.78),
+    ])
+    def test_approved_core_order_uses_configured_amount_without_historical_score_veto(entry_env,monkeypatch,side,confidence):
+        seen=invoke(entry_env,monkeypatch,side=side,confidence=confidence)
+        _,state,_,symbol,orders=entry_env
+        assert len(seen)==1
+        assert orders==[{"side":side,"amount":10.,"sl":104. if side=="short" else 96.,
+                        "tp":92. if side=="short" else 108.}]
+        attempt=state.snapshot()["symbols"][symbol]["last_entry_attempt"]
+>       assert attempt["status"]=="ORDER_EXECUTED"
+E       AssertionError: assert 'FILLED' == 'ORDER_EXECUTED'
+E         
+E         - ORDER_EXECUTED
+E         + FILLED
+
+tests/test_core_dual_ai_consensus.py:70: AssertionError
+____________ test_failed_exchange_submission_is_reported_as_failed _____________
+
+entry_env = (namespace(user_dir='/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_failed...s>.<lambda> at 0x1114f4e00>, fetch_position=<function entry_env.<locals>.<lambda> at 0x1114f5800>), 'PI/USDT:USDT', [])
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1117f8610>
+
+    def test_failed_exchange_submission_is_reported_as_failed(entry_env,monkeypatch):
+        monkeypatch.setattr(trader,"_execute_entry",lambda *a,**k:False)
+        invoke(entry_env,monkeypatch)
+        cfg,state,_,symbol,_=entry_env
+        attempt=state.snapshot()["symbols"][symbol]["last_entry_attempt"]
+>       assert attempt["status"]=="ORDER_FAILED"
+E       AssertionError: assert 'LOCAL_BLOCKED' == 'ORDER_FAILED'
+E         
+E         - ORDER_FAILED
+E         + LOCAL_BLOCKED
+
+tests/test_core_dual_ai_consensus.py:108: AssertionError
+______ test_cycle_market_filters_reach_gpt_for_final_decision[short_none] ______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_cycle_market_filters_reac0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x111864bd0>
+case = 'short_none'
+
+    @pytest.mark.parametrize("case",["short_none","long_1h","correction_long","chase"])
+    def test_cycle_market_filters_reach_gpt_for_final_decision(tmp_path,monkeypatch,case):
+        from test_core_ai_budget_gate_20261004 import cycle_fixture
+        cfg,state,client=cycle_fixture(tmp_path,monkeypatch)
+        side="short" if case=="short_none" else "long"
+        cfg.GPT_ENTRY_GATE_ENABLED=True
+        cfg.OPENAI_API_KEY="fixture"
+        cfg.MIN_CONFIDENCE=.6
+        cfg.POSITION_SIZE_MODE="FIXED"
+        cfg.POSITION_FIXED_USDT=200.
+        cfg.CORE_SHORT_SIZING_MODE="fixed"
+        cfg.CORE_SHORT_MAX_MARGIN_USDT=200.
+        cfg.LEVERAGE=5
+        cfg.REENTRY_COOLDOWN_MINUTES=15
+        cfg.STOP_LOSS_PCT=2.
+        cfg.TAKE_PROFIT_PCT=4.
+        client.fetch_last_price=lambda:100.
+        guard=SimpleNamespace(allow_new_entry=lambda _:True)
+        monkeypatch.setattr(trader.gemini_analyzer,"analyze",lambda *a,**k:{"action":side,"confidence":.72})
+        monkeypatch.setattr(trader.core_long_confirmation,"check_long_confirmation",lambda *a:(False,"one_h_weak"))
+        monkeypatch.setattr(trader.core_short_level,"classify",lambda **kw:
+                            {"level":"NONE","reasons":{"4h_bearish":False},"regime":"bearish","confidence":.72})
+        monkeypatch.setattr(trader,"_core_entry_overextension_gate",lambda *a:
+                            {"allowed":case!="chase","reason":"short_chase_30m_drop" if case=="chase" else "ok"})
+        if case=="correction_long":
+            monkeypatch.setattr(trader.core_post_runup_correction,"evaluate",lambda *a:{"active":True,"runup_24h_pct":3.,"peak_retracement_pct":1.5,"peak_extension_atr":2.})
+        monkeypatch.setattr(trader.risk_manager,"calculate_position_size",lambda *a:10.)
+        monkeypatch.setattr(trader.risk_manager,"quantize_coin_amount_to_market",lambda *a:a[-1])
+        monkeypatch.setattr(trader.risk_manager,"sl_tp_prices",lambda *a:(96.,108.))
+        monkeypatch.setattr(trader,"_run_core_adaptive_entry_shadow",lambda *a,**k:None)
+        monkeypatch.setattr(trader,"_core_adaptive_live_entry_decision",lambda *a,**k:{"active":False})
+        approvals=[];orders=[]
+        def review(*args,**kwargs):
+            approvals.append({"decision":args[5],"short_level":kwargs.get("short_level_ctx")})
+            return {"decision":"approve_now","confidence":.78,"reasoning":"fixture",
+                    "exit_plan_decision":"reject","exit_plan":None,"error_reason":None}
+        monkeypatch.setattr(openai_analyzer,"verify",review)
+        def submit(*args,**kwargs):
+            orders.append((args[4],args[5]))
+            state.update_symbol("BTC/USDT:USDT",position={"side":args[4],"entry_price":100.,"contracts":args[5]})
+            return True
+        monkeypatch.setattr(trader,"_execute_entry",submit)
+        monkeypatch.setattr(trader.ai_exit_plan_audit,"enrich_with_exchange_protection",lambda _c,r:r)
+        trader.run_cycle(cfg,state,client,"BTC/USDT:USDT",guard)
+        assert len(approvals)==1
+        assert orders==[(side,10.)]
+        if case=="short_none":
+            assert approvals[0]["short_level"]["sizing_mode"]=="fixed"
+            assert approvals[0]["short_level"]["selected_margin"]==200.
+>       assert state.snapshot()["symbols"]["BTC/USDT:USDT"]["last_entry_attempt"]["status"]=="ORDER_EXECUTED"
+E       AssertionError: assert 'FILLED' == 'ORDER_EXECUTED'
+E         
+E         - ORDER_EXECUTED
+E         + FILLED
+
+tests/test_core_dual_ai_consensus.py:201: AssertionError
+_______ test_cycle_market_filters_reach_gpt_for_final_decision[long_1h] ________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_cycle_market_filters_reac1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x111645490>
+case = 'long_1h'
+
+    @pytest.mark.parametrize("case",["short_none","long_1h","correction_long","chase"])
+    def test_cycle_market_filters_reach_gpt_for_final_decision(tmp_path,monkeypatch,case):
+        from test_core_ai_budget_gate_20261004 import cycle_fixture
+        cfg,state,client=cycle_fixture(tmp_path,monkeypatch)
+        side="short" if case=="short_none" else "long"
+        cfg.GPT_ENTRY_GATE_ENABLED=True
+        cfg.OPENAI_API_KEY="fixture"
+        cfg.MIN_CONFIDENCE=.6
+        cfg.POSITION_SIZE_MODE="FIXED"
+        cfg.POSITION_FIXED_USDT=200.
+        cfg.CORE_SHORT_SIZING_MODE="fixed"
+        cfg.CORE_SHORT_MAX_MARGIN_USDT=200.
+        cfg.LEVERAGE=5
+        cfg.REENTRY_COOLDOWN_MINUTES=15
+        cfg.STOP_LOSS_PCT=2.
+        cfg.TAKE_PROFIT_PCT=4.
+        client.fetch_last_price=lambda:100.
+        guard=SimpleNamespace(allow_new_entry=lambda _:True)
+        monkeypatch.setattr(trader.gemini_analyzer,"analyze",lambda *a,**k:{"action":side,"confidence":.72})
+        monkeypatch.setattr(trader.core_long_confirmation,"check_long_confirmation",lambda *a:(False,"one_h_weak"))
+        monkeypatch.setattr(trader.core_short_level,"classify",lambda **kw:
+                            {"level":"NONE","reasons":{"4h_bearish":False},"regime":"bearish","confidence":.72})
+        monkeypatch.setattr(trader,"_core_entry_overextension_gate",lambda *a:
+                            {"allowed":case!="chase","reason":"short_chase_30m_drop" if case=="chase" else "ok"})
+        if case=="correction_long":
+            monkeypatch.setattr(trader.core_post_runup_correction,"evaluate",lambda *a:{"active":True,"runup_24h_pct":3.,"peak_retracement_pct":1.5,"peak_extension_atr":2.})
+        monkeypatch.setattr(trader.risk_manager,"calculate_position_size",lambda *a:10.)
+        monkeypatch.setattr(trader.risk_manager,"quantize_coin_amount_to_market",lambda *a:a[-1])
+        monkeypatch.setattr(trader.risk_manager,"sl_tp_prices",lambda *a:(96.,108.))
+        monkeypatch.setattr(trader,"_run_core_adaptive_entry_shadow",lambda *a,**k:None)
+        monkeypatch.setattr(trader,"_core_adaptive_live_entry_decision",lambda *a,**k:{"active":False})
+        approvals=[];orders=[]
+        def review(*args,**kwargs):
+            approvals.append({"decision":args[5],"short_level":kwargs.get("short_level_ctx")})
+            return {"decision":"approve_now","confidence":.78,"reasoning":"fixture",
+                    "exit_plan_decision":"reject","exit_plan":None,"error_reason":None}
+        monkeypatch.setattr(openai_analyzer,"verify",review)
+        def submit(*args,**kwargs):
+            orders.append((args[4],args[5]))
+            state.update_symbol("BTC/USDT:USDT",position={"side":args[4],"entry_price":100.,"contracts":args[5]})
+            return True
+        monkeypatch.setattr(trader,"_execute_entry",submit)
+        monkeypatch.setattr(trader.ai_exit_plan_audit,"enrich_with_exchange_protection",lambda _c,r:r)
+        trader.run_cycle(cfg,state,client,"BTC/USDT:USDT",guard)
+        assert len(approvals)==1
+        assert orders==[(side,10.)]
+        if case=="short_none":
+            assert approvals[0]["short_level"]["sizing_mode"]=="fixed"
+            assert approvals[0]["short_level"]["selected_margin"]==200.
+>       assert state.snapshot()["symbols"]["BTC/USDT:USDT"]["last_entry_attempt"]["status"]=="ORDER_EXECUTED"
+E       AssertionError: assert 'FILLED' == 'ORDER_EXECUTED'
+E         
+E         - ORDER_EXECUTED
+E         + FILLED
+
+tests/test_core_dual_ai_consensus.py:201: AssertionError
+___ test_cycle_market_filters_reach_gpt_for_final_decision[correction_long] ____
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_cycle_market_filters_reac2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1114cfd90>
+case = 'correction_long'
+
+    @pytest.mark.parametrize("case",["short_none","long_1h","correction_long","chase"])
+    def test_cycle_market_filters_reach_gpt_for_final_decision(tmp_path,monkeypatch,case):
+        from test_core_ai_budget_gate_20261004 import cycle_fixture
+        cfg,state,client=cycle_fixture(tmp_path,monkeypatch)
+        side="short" if case=="short_none" else "long"
+        cfg.GPT_ENTRY_GATE_ENABLED=True
+        cfg.OPENAI_API_KEY="fixture"
+        cfg.MIN_CONFIDENCE=.6
+        cfg.POSITION_SIZE_MODE="FIXED"
+        cfg.POSITION_FIXED_USDT=200.
+        cfg.CORE_SHORT_SIZING_MODE="fixed"
+        cfg.CORE_SHORT_MAX_MARGIN_USDT=200.
+        cfg.LEVERAGE=5
+        cfg.REENTRY_COOLDOWN_MINUTES=15
+        cfg.STOP_LOSS_PCT=2.
+        cfg.TAKE_PROFIT_PCT=4.
+        client.fetch_last_price=lambda:100.
+        guard=SimpleNamespace(allow_new_entry=lambda _:True)
+        monkeypatch.setattr(trader.gemini_analyzer,"analyze",lambda *a,**k:{"action":side,"confidence":.72})
+        monkeypatch.setattr(trader.core_long_confirmation,"check_long_confirmation",lambda *a:(False,"one_h_weak"))
+        monkeypatch.setattr(trader.core_short_level,"classify",lambda **kw:
+                            {"level":"NONE","reasons":{"4h_bearish":False},"regime":"bearish","confidence":.72})
+        monkeypatch.setattr(trader,"_core_entry_overextension_gate",lambda *a:
+                            {"allowed":case!="chase","reason":"short_chase_30m_drop" if case=="chase" else "ok"})
+        if case=="correction_long":
+            monkeypatch.setattr(trader.core_post_runup_correction,"evaluate",lambda *a:{"active":True,"runup_24h_pct":3.,"peak_retracement_pct":1.5,"peak_extension_atr":2.})
+        monkeypatch.setattr(trader.risk_manager,"calculate_position_size",lambda *a:10.)
+        monkeypatch.setattr(trader.risk_manager,"quantize_coin_amount_to_market",lambda *a:a[-1])
+        monkeypatch.setattr(trader.risk_manager,"sl_tp_prices",lambda *a:(96.,108.))
+        monkeypatch.setattr(trader,"_run_core_adaptive_entry_shadow",lambda *a,**k:None)
+        monkeypatch.setattr(trader,"_core_adaptive_live_entry_decision",lambda *a,**k:{"active":False})
+        approvals=[];orders=[]
+        def review(*args,**kwargs):
+            approvals.append({"decision":args[5],"short_level":kwargs.get("short_level_ctx")})
+            return {"decision":"approve_now","confidence":.78,"reasoning":"fixture",
+                    "exit_plan_decision":"reject","exit_plan":None,"error_reason":None}
+        monkeypatch.setattr(openai_analyzer,"verify",review)
+        def submit(*args,**kwargs):
+            orders.append((args[4],args[5]))
+            state.update_symbol("BTC/USDT:USDT",position={"side":args[4],"entry_price":100.,"contracts":args[5]})
+            return True
+        monkeypatch.setattr(trader,"_execute_entry",submit)
+        monkeypatch.setattr(trader.ai_exit_plan_audit,"enrich_with_exchange_protection",lambda _c,r:r)
+        trader.run_cycle(cfg,state,client,"BTC/USDT:USDT",guard)
+        assert len(approvals)==1
+        assert orders==[(side,10.)]
+        if case=="short_none":
+            assert approvals[0]["short_level"]["sizing_mode"]=="fixed"
+            assert approvals[0]["short_level"]["selected_margin"]==200.
+>       assert state.snapshot()["symbols"]["BTC/USDT:USDT"]["last_entry_attempt"]["status"]=="ORDER_EXECUTED"
+E       AssertionError: assert 'FILLED' == 'ORDER_EXECUTED'
+E         
+E         - ORDER_EXECUTED
+E         + FILLED
+
+tests/test_core_dual_ai_consensus.py:201: AssertionError
+________ test_cycle_market_filters_reach_gpt_for_final_decision[chase] _________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_cycle_market_filters_reac3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1115ae310>
+case = 'chase'
+
+    @pytest.mark.parametrize("case",["short_none","long_1h","correction_long","chase"])
+    def test_cycle_market_filters_reach_gpt_for_final_decision(tmp_path,monkeypatch,case):
+        from test_core_ai_budget_gate_20261004 import cycle_fixture
+        cfg,state,client=cycle_fixture(tmp_path,monkeypatch)
+        side="short" if case=="short_none" else "long"
+        cfg.GPT_ENTRY_GATE_ENABLED=True
+        cfg.OPENAI_API_KEY="fixture"
+        cfg.MIN_CONFIDENCE=.6
+        cfg.POSITION_SIZE_MODE="FIXED"
+        cfg.POSITION_FIXED_USDT=200.
+        cfg.CORE_SHORT_SIZING_MODE="fixed"
+        cfg.CORE_SHORT_MAX_MARGIN_USDT=200.
+        cfg.LEVERAGE=5
+        cfg.REENTRY_COOLDOWN_MINUTES=15
+        cfg.STOP_LOSS_PCT=2.
+        cfg.TAKE_PROFIT_PCT=4.
+        client.fetch_last_price=lambda:100.
+        guard=SimpleNamespace(allow_new_entry=lambda _:True)
+        monkeypatch.setattr(trader.gemini_analyzer,"analyze",lambda *a,**k:{"action":side,"confidence":.72})
+        monkeypatch.setattr(trader.core_long_confirmation,"check_long_confirmation",lambda *a:(False,"one_h_weak"))
+        monkeypatch.setattr(trader.core_short_level,"classify",lambda **kw:
+                            {"level":"NONE","reasons":{"4h_bearish":False},"regime":"bearish","confidence":.72})
+        monkeypatch.setattr(trader,"_core_entry_overextension_gate",lambda *a:
+                            {"allowed":case!="chase","reason":"short_chase_30m_drop" if case=="chase" else "ok"})
+        if case=="correction_long":
+            monkeypatch.setattr(trader.core_post_runup_correction,"evaluate",lambda *a:{"active":True,"runup_24h_pct":3.,"peak_retracement_pct":1.5,"peak_extension_atr":2.})
+        monkeypatch.setattr(trader.risk_manager,"calculate_position_size",lambda *a:10.)
+        monkeypatch.setattr(trader.risk_manager,"quantize_coin_amount_to_market",lambda *a:a[-1])
+        monkeypatch.setattr(trader.risk_manager,"sl_tp_prices",lambda *a:(96.,108.))
+        monkeypatch.setattr(trader,"_run_core_adaptive_entry_shadow",lambda *a,**k:None)
+        monkeypatch.setattr(trader,"_core_adaptive_live_entry_decision",lambda *a,**k:{"active":False})
+        approvals=[];orders=[]
+        def review(*args,**kwargs):
+            approvals.append({"decision":args[5],"short_level":kwargs.get("short_level_ctx")})
+            return {"decision":"approve_now","confidence":.78,"reasoning":"fixture",
+                    "exit_plan_decision":"reject","exit_plan":None,"error_reason":None}
+        monkeypatch.setattr(openai_analyzer,"verify",review)
+        def submit(*args,**kwargs):
+            orders.append((args[4],args[5]))
+            state.update_symbol("BTC/USDT:USDT",position={"side":args[4],"entry_price":100.,"contracts":args[5]})
+            return True
+        monkeypatch.setattr(trader,"_execute_entry",submit)
+        monkeypatch.setattr(trader.ai_exit_plan_audit,"enrich_with_exchange_protection",lambda _c,r:r)
+        trader.run_cycle(cfg,state,client,"BTC/USDT:USDT",guard)
+        assert len(approvals)==1
+        assert orders==[(side,10.)]
+        if case=="short_none":
+            assert approvals[0]["short_level"]["sizing_mode"]=="fixed"
+            assert approvals[0]["short_level"]["selected_margin"]==200.
+>       assert state.snapshot()["symbols"]["BTC/USDT:USDT"]["last_entry_attempt"]["status"]=="ORDER_EXECUTED"
+E       AssertionError: assert 'FILLED' == 'ORDER_EXECUTED'
+E         
+E         - ORDER_EXECUTED
+E         + FILLED
+
+tests/test_core_dual_ai_consensus.py:201: AssertionError
+_____ test_manual_entry_after_elapsed_cooldown_bypasses_ai_fresh_bar_only ______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_manual_entry_after_elapse0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11164c150>
+
+    def test_manual_entry_after_elapsed_cooldown_bypasses_ai_fresh_bar_only(tmp_path, monkeypatch):
+        cfg = _cfg(tmp_path)
+        state = FakeState()
+        client = FakeClient()
+        record = _expired_confirmed_close(cfg.user_dir)
+        assert core_manual_close.block_reason(record) == "new_closed_bar_required"
+        assert core_manual_close.block_reason(record, require_fresh=False) is None
+    
+        monkeypatch.setattr(trader.cc_ownership, "account_order_lock", lambda _u: contextlib.nullcontext())
+        monkeypatch.setattr(symbol_entry_control, "is_paused", lambda *_: False)
+        monkeypatch.setattr(trader.core_kill_switch, "is_active", lambda *_: False)
+        monkeypatch.setattr(trader.risk_manager, "DailyLossGuard", lambda *a, **k: SimpleNamespace(allow_new_entry=lambda equity: True))
+        monkeypatch.setattr(trader.risk_manager, "calculate_position_size", lambda cfg, equity, price: 1.0)
+        monkeypatch.setattr(trader.risk_manager, "quantize_coin_amount_to_market", lambda client, symbol, amount: amount)
+        position = {"side": "long", "contracts": 1.0, "entry_price": 100.0, "mark_price": 100.0,
+                    "unrealized_pnl": 0.0, "pnl_pct": 0.0}
+        monkeypatch.setattr(trader.order_safety, "verify_protection", lambda *a, **k: {"ok": True, "position": position})
+        monkeypatch.setattr(trader.trade_log, "record_open", lambda *a, **k: None)
+        monkeypatch.setattr(trader.reduce_v2_state, "clear", lambda *a, **k: None)
+        monkeypatch.setattr(trader.reduce_v2_state, "ensure_position", lambda *a, **k: None)
+        monkeypatch.setattr(trader.core_add_position_state, "clear", lambda *a, **k: None)
+        monkeypatch.setattr(trader, "_notify_telegram", lambda *a, **k: None)
+    
+        result = trader.manual_entry_now(cfg, state, client, SYMBOL, "long")
+>       assert result["ok"] is True
+E       assert False is True
+
+tests/test_core_manual_entry_cooldown_ui.py:99: AssertionError
+________ test_thesis_is_advisory_with_gpt_and_local_without_gpt[False] _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x111686410>
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_thesis_is_advisory_with_g0')
+gpt_enabled = False
+
+    @pytest.mark.parametrize("gpt_enabled", [False, True])
+    def test_thesis_is_advisory_with_gpt_and_local_without_gpt(monkeypatch, tmp_path, gpt_enabled):
+        import symbol_entry_control
+    
+        class Cfg(_Cfg):
+            GPT_ENTRY_GATE_ENABLED = True
+            OPENAI_API_KEY = "test"
+            MIN_CONFIDENCE = 0.6
+    
+        monkeypatch.setattr(symbol_entry_control, "is_paused", lambda *a, **k: False)
+        monkeypatch.setattr(trader, "_reentry_blocked", lambda *a, **k: (False, 0.0))
+        monkeypatch.setattr(trader, "_evaluate_ai_close_thesis_entry_gate", lambda *a, **k: {
+            "blocked": True, "reason": "thesis_not_recovered"
+        })
+        gpt_calls = []
+        monkeypatch.setattr(trader, "_gpt_entry_gate", lambda *a, **k: gpt_calls.append(1) or (
+            True, "approved", {"decision":"approve_now","confidence":.78}))
+        orders = []
+        monkeypatch.setattr(trader, "_execute_approved_entry_with_optional_reversal",
+                            lambda *a,**k: orders.append(a[5]) or True)
+        state = TraderState()
+        current_cfg = Cfg(tmp_path)
+        current_cfg.GPT_ENTRY_GATE_ENABLED = gpt_enabled
+        trader._handle_new_entry(
+            current_cfg, state, object(), SYMBOL, "long",
+            {"confidence": 0.9}, "d1", "entry", ["5m", "1h"], "summary", None,
+            100.0, 1.0, 98.0, 104.0, closed_dfs={"1h": _one_h_long(), "5m": _five_m("long", 2)},
+        )
+        assert gpt_calls == ([1] if gpt_enabled else [])
+        assert orders == ([1.0] if gpt_enabled else [])
+        attempt = state.snapshot()["symbols"][SYMBOL]["last_entry_attempt"]
+        assert attempt["status"] == ("ORDER_EXECUTED" if gpt_enabled else "LOCAL_BLOCKED")
+>       assert attempt["reason"] == ("approved" if gpt_enabled else "ai_close_thesis_not_recovered")
+E       AssertionError: assert 'invalid_gemi...try_candidate' == 'ai_close_the...not_recovered'
+E         
+E         - ai_close_thesis_not_recovered
+E         + invalid_gemini_entry_candidate
+
+tests/test_core_reentry_thesis.py:275: AssertionError
+_________ test_thesis_is_advisory_with_gpt_and_local_without_gpt[True] _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x111687590>
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_thesis_is_advisory_with_g1')
+gpt_enabled = True
+
+    @pytest.mark.parametrize("gpt_enabled", [False, True])
+    def test_thesis_is_advisory_with_gpt_and_local_without_gpt(monkeypatch, tmp_path, gpt_enabled):
+        import symbol_entry_control
+    
+        class Cfg(_Cfg):
+            GPT_ENTRY_GATE_ENABLED = True
+            OPENAI_API_KEY = "test"
+            MIN_CONFIDENCE = 0.6
+    
+        monkeypatch.setattr(symbol_entry_control, "is_paused", lambda *a, **k: False)
+        monkeypatch.setattr(trader, "_reentry_blocked", lambda *a, **k: (False, 0.0))
+        monkeypatch.setattr(trader, "_evaluate_ai_close_thesis_entry_gate", lambda *a, **k: {
+            "blocked": True, "reason": "thesis_not_recovered"
+        })
+        gpt_calls = []
+        monkeypatch.setattr(trader, "_gpt_entry_gate", lambda *a, **k: gpt_calls.append(1) or (
+            True, "approved", {"decision":"approve_now","confidence":.78}))
+        orders = []
+        monkeypatch.setattr(trader, "_execute_approved_entry_with_optional_reversal",
+                            lambda *a,**k: orders.append(a[5]) or True)
+        state = TraderState()
+        current_cfg = Cfg(tmp_path)
+        current_cfg.GPT_ENTRY_GATE_ENABLED = gpt_enabled
+        trader._handle_new_entry(
+            current_cfg, state, object(), SYMBOL, "long",
+            {"confidence": 0.9}, "d1", "entry", ["5m", "1h"], "summary", None,
+            100.0, 1.0, 98.0, 104.0, closed_dfs={"1h": _one_h_long(), "5m": _five_m("long", 2)},
+        )
+>       assert gpt_calls == ([1] if gpt_enabled else [])
+E       assert [] == [1]
+E         
+E         Right contains one more item: 1
+E         Use -v to get more diff
+
+tests/test_core_reentry_thesis.py:271: AssertionError
+_________ test_approved_reversal_closes_then_enters_under_same_commit __________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_approved_reversal_closes_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x111610490>
+
+    def test_approved_reversal_closes_then_enters_under_same_commit(tmp_path, monkeypatch):
+        cfg = _cfg(tmp_path)
+        position = _position("long")
+        client = _Client(position)
+        calls = []
+    
+        def fake_close(*args, **kwargs):
+            calls.append("close")
+            client.position = None
+            return True
+    
+        def fake_entry(*args, **kwargs):
+            calls.append("entry")
+            return True
+    
+        monkeypatch.setattr(trader, "_execute_close", fake_close)
+        monkeypatch.setattr(trader, "_execute_entry", fake_entry)
+    
+>       ok = trader._execute_approved_entry_with_optional_reversal(
+            cfg, SimpleNamespace(), client, SYMBOL, "short", 100.0,
+            1.50, 1.53, 1.44, reversal_position=position,
+            decision_id="d2", decision={"action": "short"},
+        )
+
+tests/test_core_reversal_anti_churn.py:94: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+trader.py:4117: in _execute_approved_entry_with_optional_reversal
+    if not _replacement_entry_allowed("pre_close"):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+trader.py:4085: in _replacement_entry_allowed
+    if _reentry_blocked(state,symbol,cfg,action)[0]:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+state = namespace(), symbol = 'XRP/USDT:USDT'
+cfg = namespace(user_dir='/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_approve...S=15, _core_loss_guards={'XRP/USDT:USDT': namespace(allow_new_entry=<function _cfg.<locals>.<lambda> at 0x1115ce3e0>)})
+action = 'short'
+
+    def _reentry_blocked(state, symbol: str, cfg, action: str | None = None) -> tuple[bool, float]:
+        """외부청산 쿨다운 중이면 (True, 남은 분)을, 아니면 (False, 0)을 반환한다.
+    
+        이 쿨다운의 원래 목적은 외부청산 직후 "반대 방향"으로 곧바로 재진입해 휩쏘를
+        맞는 것을 막는 것이다. action이 청산됐던 방향(reentry_block_side)과 같으면(추세
+        지속 재진입) 쿨다운 중이어도 즉시 허용한다 - 그렇지 않으면 롱으로 수익 청산된
+        직후 상승이 계속되는데도 롱 재진입 자체가 막히는 문제가 생긴다(2026-09-11,
+        실거래 ETH 사례). action을 안 넘기는 호출부는 방향 구분 없이 기존처럼 막는다.
+    
+        단, 이 예외는 청산 사유가 stop_loss/take_profit처럼 확실할 때만 적용된다.
+        사유불명(수동으로 거래소에서 직접 청산 등, external_close_unknown)이면 호출부가
+        reentry_block_side를 처음부터 None으로 저장해두므로 위 조건이 성립하지 않아
+        방향 무관하게 쿨다운 전체를 막는다(2026-09-18, 사용자 지시 - 수동 외부청산은
+        봇이 놓친 판단일 수 있어 반대/같은 방향 모두 확인 시간을 두기로 함)."""
+        manual = core_manual_close.get(cfg.user_dir, symbol)
+        if core_manual_close.block_reason(manual, require_fresh=False):
+            manual_close_status(cfg, state, symbol)
+            return True, max(0.0, ((manual.get('release_at') or time.time()) - time.time()) / 60)
+>       symbol_state = state.snapshot()["symbols"].get(symbol, {})
+                       ^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'snapshot'
+
+trader.py:705: AttributeError
+__________ test_reversal_stale_approved_price_keeps_existing_position __________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_reversal_stale_approved_p0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x110d58b10>
+
+    def test_reversal_stale_approved_price_keeps_existing_position(tmp_path, monkeypatch):
+        cfg = _cfg(tmp_path)
+        position = _position("long")
+        client = _Client(position)
+        client.fetch_last_price = lambda: 1.49
+        closes = []
+        monkeypatch.setattr(trader, "_execute_close", lambda *a, **k: closes.append(True) or True)
+    
+>       ok = trader._execute_approved_entry_with_optional_reversal(
+            cfg, SimpleNamespace(), client, SYMBOL, "short", 100.0,
+            1.50, 1.53, 1.44, reversal_position=position,
+        )
+
+tests/test_core_reversal_anti_churn.py:112: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+trader.py:4117: in _execute_approved_entry_with_optional_reversal
+    if not _replacement_entry_allowed("pre_close"):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+trader.py:4085: in _replacement_entry_allowed
+    if _reentry_blocked(state,symbol,cfg,action)[0]:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+state = namespace(), symbol = 'XRP/USDT:USDT'
+cfg = namespace(user_dir='/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_reversa...S=15, _core_loss_guards={'XRP/USDT:USDT': namespace(allow_new_entry=<function _cfg.<locals>.<lambda> at 0x1115cc680>)})
+action = 'short'
+
+    def _reentry_blocked(state, symbol: str, cfg, action: str | None = None) -> tuple[bool, float]:
+        """외부청산 쿨다운 중이면 (True, 남은 분)을, 아니면 (False, 0)을 반환한다.
+    
+        이 쿨다운의 원래 목적은 외부청산 직후 "반대 방향"으로 곧바로 재진입해 휩쏘를
+        맞는 것을 막는 것이다. action이 청산됐던 방향(reentry_block_side)과 같으면(추세
+        지속 재진입) 쿨다운 중이어도 즉시 허용한다 - 그렇지 않으면 롱으로 수익 청산된
+        직후 상승이 계속되는데도 롱 재진입 자체가 막히는 문제가 생긴다(2026-09-11,
+        실거래 ETH 사례). action을 안 넘기는 호출부는 방향 구분 없이 기존처럼 막는다.
+    
+        단, 이 예외는 청산 사유가 stop_loss/take_profit처럼 확실할 때만 적용된다.
+        사유불명(수동으로 거래소에서 직접 청산 등, external_close_unknown)이면 호출부가
+        reentry_block_side를 처음부터 None으로 저장해두므로 위 조건이 성립하지 않아
+        방향 무관하게 쿨다운 전체를 막는다(2026-09-18, 사용자 지시 - 수동 외부청산은
+        봇이 놓친 판단일 수 있어 반대/같은 방향 모두 확인 시간을 두기로 함)."""
+        manual = core_manual_close.get(cfg.user_dir, symbol)
+        if core_manual_close.block_reason(manual, require_fresh=False):
+            manual_close_status(cfg, state, symbol)
+            return True, max(0.0, ((manual.get('release_at') or time.time()) - time.time()) / 60)
+>       symbol_state = state.snapshot()["symbols"].get(symbol, {})
+                       ^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'snapshot'
+
+trader.py:705: AttributeError
+_________ test_post_close_daily_loss_recheck_stays_flat_without_entry __________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_post_close_daily_loss_rec0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x111651610>
+
+    def test_post_close_daily_loss_recheck_stays_flat_without_entry(tmp_path, monkeypatch):
+        class Guard:
+            def __init__(self):
+                self.calls = 0
+            def allow_new_entry(self, equity):
+                self.calls += 1
+                return self.calls == 1
+    
+        guard = Guard()
+        cfg = _cfg(tmp_path, guard=guard)
+        position = _position("long")
+        client = _Client(position)
+        calls = []
+    
+        monkeypatch.setattr(symbol_entry_control, "is_paused", lambda *a: False)
+        monkeypatch.setattr(trader.core_kill_switch, "is_active", lambda *a: False)
+    
+        def fake_close(*args, **kwargs):
+            calls.append("close")
+            client.position = None
+            return True
+    
+        def fake_entry(*args, **kwargs):
+            calls.append("entry")
+            return True
+    
+        monkeypatch.setattr(trader, "_execute_close", fake_close)
+        monkeypatch.setattr(trader, "_execute_entry", fake_entry)
+    
+>       ok = trader._execute_approved_entry_with_optional_reversal(
+            cfg, SimpleNamespace(), client, SYMBOL, "short", 100.0,
+            1.50, 1.53, 1.44, reversal_position=position,
+        )
+
+tests/test_core_reversal_anti_churn.py:173: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+trader.py:4117: in _execute_approved_entry_with_optional_reversal
+    if not _replacement_entry_allowed("pre_close"):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+trader.py:4085: in _replacement_entry_allowed
+    if _reentry_blocked(state,symbol,cfg,action)[0]:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+state = namespace(), symbol = 'XRP/USDT:USDT'
+cfg = namespace(user_dir='/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_post_cl...reversal_anti_churn.test_post_close_daily_loss_recheck_stays_flat_without_entry.<locals>.Guard object at 0x111651b10>})
+action = 'short'
+
+    def _reentry_blocked(state, symbol: str, cfg, action: str | None = None) -> tuple[bool, float]:
+        """외부청산 쿨다운 중이면 (True, 남은 분)을, 아니면 (False, 0)을 반환한다.
+    
+        이 쿨다운의 원래 목적은 외부청산 직후 "반대 방향"으로 곧바로 재진입해 휩쏘를
+        맞는 것을 막는 것이다. action이 청산됐던 방향(reentry_block_side)과 같으면(추세
+        지속 재진입) 쿨다운 중이어도 즉시 허용한다 - 그렇지 않으면 롱으로 수익 청산된
+        직후 상승이 계속되는데도 롱 재진입 자체가 막히는 문제가 생긴다(2026-09-11,
+        실거래 ETH 사례). action을 안 넘기는 호출부는 방향 구분 없이 기존처럼 막는다.
+    
+        단, 이 예외는 청산 사유가 stop_loss/take_profit처럼 확실할 때만 적용된다.
+        사유불명(수동으로 거래소에서 직접 청산 등, external_close_unknown)이면 호출부가
+        reentry_block_side를 처음부터 None으로 저장해두므로 위 조건이 성립하지 않아
+        방향 무관하게 쿨다운 전체를 막는다(2026-09-18, 사용자 지시 - 수동 외부청산은
+        봇이 놓친 판단일 수 있어 반대/같은 방향 모두 확인 시간을 두기로 함)."""
+        manual = core_manual_close.get(cfg.user_dir, symbol)
+        if core_manual_close.block_reason(manual, require_fresh=False):
+            manual_close_status(cfg, state, symbol)
+            return True, max(0.0, ((manual.get('release_at') or time.time()) - time.time()) / 60)
+>       symbol_state = state.snapshot()["symbols"].get(symbol, {})
+                       ^^^^^^^^^^^^^^
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'snapshot'
+
+trader.py:705: AttributeError
+______________ test_core_reentry_thesis_diagnostics_are_rendered _______________
+
+    def test_core_reentry_thesis_diagnostics_are_rendered():
+        text = HTML.read_text()
+>       assert "ai_close_thesis_not_recovered" in text
+E       assert 'ai_close_thesis_not_recovered' in '<!doctype html>\n<html lang="ko">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,..."cert-download-btn" onclick="downloadCertImage()">📥 이미지로 저장</button>\n    </div>\n  </div>\n</div>\n</body>\n</html>\n'
+
+tests/test_dashboard_engine_alignment.py:53: AssertionError
+___ test_real_core_submit_reduces_quantity_after_adverse_quote[long-100.19] ____
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_real_core_submit_reduces_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1110223d0>
+side = 'long', price = 100.19
+
+    @pytest.mark.parametrize('side,price',[('long',100.19),('short',99.81)])
+    def test_real_core_submit_reduces_quantity_after_adverse_quote(tmp_path,monkeypatch,side,price):
+        cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,price)
+>       with pytest.raises(marker):
+E       Failed: DID NOT RAISE ReachedMockOrder
+
+tests/test_final_entry_submission_regression.py:72: Failed
+___ test_real_core_submit_reduces_quantity_after_adverse_quote[short-99.81] ____
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_real_core_submit_reduces_1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11165c590>
+side = 'short', price = 99.81
+
+    @pytest.mark.parametrize('side,price',[('long',100.19),('short',99.81)])
+    def test_real_core_submit_reduces_quantity_after_adverse_quote(tmp_path,monkeypatch,side,price):
+        cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,price)
+>       with pytest.raises(marker):
+E       Failed: DID NOT RAISE ReachedMockOrder
+
+tests/test_final_entry_submission_regression.py:72: Failed
+__________ test_core_gate_disabled_still_wires_final_validation[long] __________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_core_gate_disabled_still_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x111840590>
+side = 'long'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    def test_core_gate_disabled_still_wires_final_validation(tmp_path,monkeypatch,side):
+        cfg,r=proposal(tmp_path,side);cfg.GPT_ENTRY_GATE_ENABLED=False;cfg.OPENAI_API_KEY=''
+        monkeypatch.setattr(trader,'_reentry_blocked',lambda *a,**k:(False,None))
+        monkeypatch.setattr(trader,'_evaluate_ai_close_thesis_entry_gate',lambda *a,**k:{'blocked':False})
+        class Captured(Exception):pass
+        def execute(*args,**kwargs):
+            assert kwargs['decision']['_bounded_entry_validation']['plan'] == r['plan']
+            raise Captured
+        monkeypatch.setattr(trader,'_execute_approved_entry_with_optional_reversal',execute)
+>       with pytest.raises(Captured):
+E       Failed: DID NOT RAISE Captured
+
+tests/test_final_entry_submission_regression.py:170: Failed
+_________ test_core_gate_disabled_still_wires_final_validation[short] __________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_core_gate_disabled_still_1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x111843a10>
+side = 'short'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    def test_core_gate_disabled_still_wires_final_validation(tmp_path,monkeypatch,side):
+        cfg,r=proposal(tmp_path,side);cfg.GPT_ENTRY_GATE_ENABLED=False;cfg.OPENAI_API_KEY=''
+        monkeypatch.setattr(trader,'_reentry_blocked',lambda *a,**k:(False,None))
+        monkeypatch.setattr(trader,'_evaluate_ai_close_thesis_entry_gate',lambda *a,**k:{'blocked':False})
+        class Captured(Exception):pass
+        def execute(*args,**kwargs):
+            assert kwargs['decision']['_bounded_entry_validation']['plan'] == r['plan']
+            raise Captured
+        monkeypatch.setattr(trader,'_execute_approved_entry_with_optional_reversal',execute)
+>       with pytest.raises(Captured):
+E       Failed: DID NOT RAISE Captured
+
+tests/test_final_entry_submission_regression.py:170: Failed
+______ test_core_expired_replacement_never_closes_existing_position[long] ______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_core_expired_replacement_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11120c790>
+side = 'long'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    def test_core_expired_replacement_never_closes_existing_position(tmp_path,monkeypatch,side):
+        cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,100,age=181)
+        existing={'side':'short' if side=='long' else 'long','position_id':'held','entry_timestamp_ms':1000,'entry_price':100}
+        c.fetch_position=lambda:existing
+        monkeypatch.setattr(trader,'_approved_entry_still_valid_after_gpt',lambda *a,**k:True)
+        closed=[]
+        monkeypatch.setattr(trader,'_execute_close',lambda *a,**k:closed.append(True) or True)
+>       assert trader._execute_approved_entry_with_optional_reversal(cfg,None,c,'PI/USDT:USDT',side,args[1],100,args[2],args[3],reversal_position=existing,decision=d) is False
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_final_entry_submission_regression.py:183: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+trader.py:4117: in _execute_approved_entry_with_optional_reversal
+    if not _replacement_entry_allowed("pre_close"):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+trader.py:4085: in _replacement_entry_allowed
+    if _reentry_blocked(state,symbol,cfg,action)[0]:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+state = None, symbol = 'PI/USDT:USDT'
+cfg = namespace(CORE_ORDER_MODE='FIXED_MARGIN_AUTO_EXIT', CORE_EXIT_MODE='AUTO', ADAPTIVE_EXIT_MODE='LIVE_BOUNDED', ADAPTIVE...', _core_loss_guards={'PI/USDT:USDT': namespace(allow_new_entry=<function boundary.<locals>.<lambda> at 0x1117ca020>)})
+action = 'long'
+
+    def _reentry_blocked(state, symbol: str, cfg, action: str | None = None) -> tuple[bool, float]:
+        """외부청산 쿨다운 중이면 (True, 남은 분)을, 아니면 (False, 0)을 반환한다.
+    
+        이 쿨다운의 원래 목적은 외부청산 직후 "반대 방향"으로 곧바로 재진입해 휩쏘를
+        맞는 것을 막는 것이다. action이 청산됐던 방향(reentry_block_side)과 같으면(추세
+        지속 재진입) 쿨다운 중이어도 즉시 허용한다 - 그렇지 않으면 롱으로 수익 청산된
+        직후 상승이 계속되는데도 롱 재진입 자체가 막히는 문제가 생긴다(2026-09-11,
+        실거래 ETH 사례). action을 안 넘기는 호출부는 방향 구분 없이 기존처럼 막는다.
+    
+        단, 이 예외는 청산 사유가 stop_loss/take_profit처럼 확실할 때만 적용된다.
+        사유불명(수동으로 거래소에서 직접 청산 등, external_close_unknown)이면 호출부가
+        reentry_block_side를 처음부터 None으로 저장해두므로 위 조건이 성립하지 않아
+        방향 무관하게 쿨다운 전체를 막는다(2026-09-18, 사용자 지시 - 수동 외부청산은
+        봇이 놓친 판단일 수 있어 반대/같은 방향 모두 확인 시간을 두기로 함)."""
+        manual = core_manual_close.get(cfg.user_dir, symbol)
+        if core_manual_close.block_reason(manual, require_fresh=False):
+            manual_close_status(cfg, state, symbol)
+            return True, max(0.0, ((manual.get('release_at') or time.time()) - time.time()) / 60)
+>       symbol_state = state.snapshot()["symbols"].get(symbol, {})
+                       ^^^^^^^^^^^^^^
+E       AttributeError: 'NoneType' object has no attribute 'snapshot'
+
+trader.py:705: AttributeError
+_____ test_core_expired_replacement_never_closes_existing_position[short] ______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_core_expired_replacement_1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x111fac950>
+side = 'short'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    def test_core_expired_replacement_never_closes_existing_position(tmp_path,monkeypatch,side):
+        cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,100,age=181)
+        existing={'side':'short' if side=='long' else 'long','position_id':'held','entry_timestamp_ms':1000,'entry_price':100}
+        c.fetch_position=lambda:existing
+        monkeypatch.setattr(trader,'_approved_entry_still_valid_after_gpt',lambda *a,**k:True)
+        closed=[]
+        monkeypatch.setattr(trader,'_execute_close',lambda *a,**k:closed.append(True) or True)
+>       assert trader._execute_approved_entry_with_optional_reversal(cfg,None,c,'PI/USDT:USDT',side,args[1],100,args[2],args[3],reversal_position=existing,decision=d) is False
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_final_entry_submission_regression.py:183: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+trader.py:4117: in _execute_approved_entry_with_optional_reversal
+    if not _replacement_entry_allowed("pre_close"):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+trader.py:4085: in _replacement_entry_allowed
+    if _reentry_blocked(state,symbol,cfg,action)[0]:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+state = None, symbol = 'PI/USDT:USDT'
+cfg = namespace(CORE_ORDER_MODE='FIXED_MARGIN_AUTO_EXIT', CORE_EXIT_MODE='AUTO', ADAPTIVE_EXIT_MODE='LIVE_BOUNDED', ADAPTIVE...', _core_loss_guards={'PI/USDT:USDT': namespace(allow_new_entry=<function boundary.<locals>.<lambda> at 0x1117e7ec0>)})
+action = 'short'
+
+    def _reentry_blocked(state, symbol: str, cfg, action: str | None = None) -> tuple[bool, float]:
+        """외부청산 쿨다운 중이면 (True, 남은 분)을, 아니면 (False, 0)을 반환한다.
+    
+        이 쿨다운의 원래 목적은 외부청산 직후 "반대 방향"으로 곧바로 재진입해 휩쏘를
+        맞는 것을 막는 것이다. action이 청산됐던 방향(reentry_block_side)과 같으면(추세
+        지속 재진입) 쿨다운 중이어도 즉시 허용한다 - 그렇지 않으면 롱으로 수익 청산된
+        직후 상승이 계속되는데도 롱 재진입 자체가 막히는 문제가 생긴다(2026-09-11,
+        실거래 ETH 사례). action을 안 넘기는 호출부는 방향 구분 없이 기존처럼 막는다.
+    
+        단, 이 예외는 청산 사유가 stop_loss/take_profit처럼 확실할 때만 적용된다.
+        사유불명(수동으로 거래소에서 직접 청산 등, external_close_unknown)이면 호출부가
+        reentry_block_side를 처음부터 None으로 저장해두므로 위 조건이 성립하지 않아
+        방향 무관하게 쿨다운 전체를 막는다(2026-09-18, 사용자 지시 - 수동 외부청산은
+        봇이 놓친 판단일 수 있어 반대/같은 방향 모두 확인 시간을 두기로 함)."""
+        manual = core_manual_close.get(cfg.user_dir, symbol)
+        if core_manual_close.block_reason(manual, require_fresh=False):
+            manual_close_status(cfg, state, symbol)
+            return True, max(0.0, ((manual.get('release_at') or time.time()) - time.time()) / 60)
+>       symbol_state = state.snapshot()["symbols"].get(symbol, {})
+                       ^^^^^^^^^^^^^^
+E       AttributeError: 'NoneType' object has no attribute 'snapshot'
+
+trader.py:705: AttributeError
+___________ test_gpt_approval_executes_without_historical_risk_veto ____________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-38/test_gpt_approval_executes_wit0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x112588510>
+
+    def test_gpt_approval_executes_without_historical_risk_veto(tmp_path, monkeypatch):
+        attempt, audit, seen = _core_gate_attempt(tmp_path, monkeypatch)
+        assert audit["gpt_decision"] == "approve_now"
+        assert audit["gate_result"] == "approved"
+>       assert attempt["status"] == "ORDER_EXECUTED"
+E       AssertionError: assert 'FILLED' == 'ORDER_EXECUTED'
+E         
+E         - ORDER_EXECUTED
+E         + FILLED
+
+tests/test_report_contract_regression.py:118: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  report_regression:trader.py:4358 [PI/USDT:USDT] AI_EXIT execution contract 생성 실패 - 기존 Adaptive fallback 유지
+Traceback (most recent call last):
+  File "/private/tmp/autotrader-gpt-recovery-final-20261008/candidate/trader.py", line 4356, in _handle_new_entry
+    exit_price_contract['execution_target'] = adaptive_context.execution_target
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'execution_target'
+=========================== short test summary info ============================
+FAILED tests/test_ai_exit_price_contract.py::test_core_gpt_gate_forwards_exit_price_contract
+FAILED tests/test_core_dual_ai_consensus.py::test_approved_core_order_uses_configured_amount_without_historical_score_veto[short-0.6]
+FAILED tests/test_core_dual_ai_consensus.py::test_approved_core_order_uses_configured_amount_without_historical_score_veto[short-0.75]
+FAILED tests/test_core_dual_ai_consensus.py::test_approved_core_order_uses_configured_amount_without_historical_score_veto[short-0.78]
+FAILED tests/test_core_dual_ai_consensus.py::test_approved_core_order_uses_configured_amount_without_historical_score_veto[long-0.75]
+FAILED tests/test_core_dual_ai_consensus.py::test_approved_core_order_uses_configured_amount_without_historical_score_veto[long-0.78]
+FAILED tests/test_core_dual_ai_consensus.py::test_failed_exchange_submission_is_reported_as_failed
+FAILED tests/test_core_dual_ai_consensus.py::test_cycle_market_filters_reach_gpt_for_final_decision[short_none]
+FAILED tests/test_core_dual_ai_consensus.py::test_cycle_market_filters_reach_gpt_for_final_decision[long_1h]
+FAILED tests/test_core_dual_ai_consensus.py::test_cycle_market_filters_reach_gpt_for_final_decision[correction_long]
+FAILED tests/test_core_dual_ai_consensus.py::test_cycle_market_filters_reach_gpt_for_final_decision[chase]
+FAILED tests/test_core_manual_entry_cooldown_ui.py::test_manual_entry_after_elapsed_cooldown_bypasses_ai_fresh_bar_only
+FAILED tests/test_core_reentry_thesis.py::test_thesis_is_advisory_with_gpt_and_local_without_gpt[False]
+FAILED tests/test_core_reentry_thesis.py::test_thesis_is_advisory_with_gpt_and_local_without_gpt[True]
+FAILED tests/test_core_reversal_anti_churn.py::test_approved_reversal_closes_then_enters_under_same_commit
+FAILED tests/test_core_reversal_anti_churn.py::test_reversal_stale_approved_price_keeps_existing_position
+FAILED tests/test_core_reversal_anti_churn.py::test_post_close_daily_loss_recheck_stays_flat_without_entry
+FAILED tests/test_dashboard_engine_alignment.py::test_core_reentry_thesis_diagnostics_are_rendered
+FAILED tests/test_final_entry_submission_regression.py::test_real_core_submit_reduces_quantity_after_adverse_quote[long-100.19]
+FAILED tests/test_final_entry_submission_regression.py::test_real_core_submit_reduces_quantity_after_adverse_quote[short-99.81]
+FAILED tests/test_final_entry_submission_regression.py::test_core_gate_disabled_still_wires_final_validation[long]
+FAILED tests/test_final_entry_submission_regression.py::test_core_gate_disabled_still_wires_final_validation[short]
+FAILED tests/test_final_entry_submission_regression.py::test_core_expired_replacement_never_closes_existing_position[long]
+FAILED tests/test_final_entry_submission_regression.py::test_core_expired_replacement_never_closes_existing_position[short]
+FAILED tests/test_report_contract_regression.py::test_gpt_approval_executes_without_historical_risk_veto
+25 failed, 1209 passed, 27 subtests passed in 7.69s

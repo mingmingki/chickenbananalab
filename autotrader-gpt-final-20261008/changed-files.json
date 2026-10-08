@@ -1,0 +1,134 @@
+{
+  "config.py": {
+    "baseline": "532a24a696d1b2a48c41ee745c10f04017177891e71c4126208179fde447188e",
+    "candidate": "628ed019558317081ac09db837f4cf8186f51272dafed37e3e2a801f7f4c41a7"
+  },
+  "core_entry_events.py": {
+    "baseline": null,
+    "candidate": "cede96e0cb470743e5c19cff18d22f90cc60af388af97b31185c07e0d015f56a"
+  },
+  "core_entry_orders.py": {
+    "baseline": null,
+    "candidate": "01766615569cd7617ea59a88114faac1f3150ddefdcc677496be23934453c1b7"
+  },
+  "core_entry_policy.py": {
+    "baseline": null,
+    "candidate": "ca0f8b95fa443249c900377a93d98341e11427fb7596b9dca83c9c2729d44ae3"
+  },
+  "gemini_analyzer.py": {
+    "baseline": "ec875ae7828df36a71c57b1f9644dffc93a812280eaafaa7efa3ae0b7ac648a6",
+    "candidate": "0a2d47e6d1ad4f01bb34dc2d3bd24c459d7d8ebf5fa202da1691218d8b5f4969"
+  },
+  "gemini_checks/test_event_settings.py": {
+    "baseline": "ee8f0c3678af14c1ab69acf6056020f80fd3d2938199fc0c3f9d654d27a71018",
+    "candidate": "fa52a6c6f4513c06447310e5fcc863108df91267771949c79c75090088289a90"
+  },
+  "gemini_checks/test_settings_route.py": {
+    "baseline": "25d392bf9e7ca81626335084a0b1435a91f0345a7cfcf3825198da9d4bc4372f",
+    "candidate": "3ee2a4c7288975690b8c5fd977297223d9f21b7b89f7f901409b4c70c4f546ca"
+  },
+  "gpt_latency_log.py": {
+    "baseline": "9681562538fe966e6ac7b43465f8416ddd1432b6f9296081bca290816fd322ab",
+    "candidate": "b1024fc7bd2f1993f044dab8e63a8960903ef73d2f9e954cc784216def519be8"
+  },
+  "gpt_shadow_log.py": {
+    "baseline": "32f81adf5368025dc9bad1d4ee58fd7d570360879714c529a1ff87031a9a728e",
+    "candidate": "7bc92ed8a4e77b0b14255cc4fa861200d63f68af65ba691f4c37938b5d5550c6"
+  },
+  "okx_client.py": {
+    "baseline": "061095b18b9053344e4e2dcd23c11a23c0a9a1028b2cb3dd8230bb1a3ace459e",
+    "candidate": "c0b97e29945a46af5a7f609cd53a0ad902b701bd0a58e72cdb8de9296bad08d0"
+  },
+  "openai_analyzer.py": {
+    "baseline": "1a688f008c68e80be22337e1ff48591ccfac3f56a384392958452355ec201745",
+    "candidate": "bde12af913a921552f1670af474cc4f51d90cdff07ca83f17e6754aac823f290"
+  },
+  "operating_costs.py": {
+    "baseline": "82a5659fdc2084ff28e0b51034eb3d800caa57b6d5ed03d9b0d7ad42d3e4df9b",
+    "candidate": "224f5a29b53c2020a2d61762ff5808be4145a05a2589f4b774a9ac2ff000c253"
+  },
+  "rollback_full_checks/test_event_settings.py": {
+    "baseline": "ee8f0c3678af14c1ab69acf6056020f80fd3d2938199fc0c3f9d654d27a71018",
+    "candidate": "fa52a6c6f4513c06447310e5fcc863108df91267771949c79c75090088289a90"
+  },
+  "rollback_full_checks/test_settings_route.py": {
+    "baseline": "25d392bf9e7ca81626335084a0b1435a91f0345a7cfcf3825198da9d4bc4372f",
+    "candidate": "3ee2a4c7288975690b8c5fd977297223d9f21b7b89f7f901409b4c70c4f546ca"
+  },
+  "static/core_entry_status.js": {
+    "baseline": null,
+    "candidate": "30f6d9e774471f0aca17d80bfe32f6e71df0cc94f8d23c2d778d0e9231a3f44e"
+  },
+  "static/operating_observability.js": {
+    "baseline": "14b1ca2e2b821f38e4e6f5786a0d9a719377419330d52e78c85cb7956be9cf53",
+    "candidate": "97e83f34b73a3c27def89a0cf02e1231a08fb0969f03a0b5742b24c97ea0a898"
+  },
+  "telegram_notify.py": {
+    "baseline": "359cb114c8495db9aca37898f7e2109716784d8c669696e9ae71b48f2dc8591e",
+    "candidate": "3dfe4c7429f350818f624c3e39ddeee8b7f730a7d1eb46918c96e032a6a1fafa"
+  },
+  "templates/dashboard.html": {
+    "baseline": "088dc7e5106eedc0fc808158804a78329dfff4d458294d6f38e7e586ab09ab0d",
+    "candidate": "1addd301c0926af229e5c1bf81a1169ba8abe598a1333cb17fde6e0f50617ac1"
+  },
+  "tests/test_ai_cost_metadata_recovery.py": {
+    "baseline": null,
+    "candidate": "8d96730d9fdb94dd940179f4d50970bd51d1248576424c150419d3fa36bea269"
+  },
+  "tests/test_ai_exit_price_contract.py": {
+    "baseline": "968ce7008cc7da96c28bb905ba2379126b170847c0b9d97be07106ca78577c7d",
+    "candidate": "9fefbfef828799326d952f0aa9bfaf70d94508ead88666fd3620b81f85804658"
+  },
+  "tests/test_core_dual_ai_consensus.py": {
+    "baseline": "7b6ae5fc800364445d3b631def914d5e9194e7938a0e0941570dec152df9a026",
+    "candidate": "bd03c896c68104f52500a92f6fba075c429bb63852cdc0623fa8e89ede445832"
+  },
+  "tests/test_core_entry_notifications.py": {
+    "baseline": null,
+    "candidate": "791b69339ed10143cacb8236f4bdd969749e2290e6a4fae52bc2f367ea0522e4"
+  },
+  "tests/test_core_entry_pipeline.py": {
+    "baseline": null,
+    "candidate": "065d958718dc8674009d82e96721bad43f1576f121f5e56920f3f154f09f0081"
+  },
+  "tests/test_core_gpt_timeout_policy.py": {
+    "baseline": null,
+    "candidate": "17f34c52aa7ab3fc22fcf94e7aaf126c14d60a8c8f690f530674d0ed8b8e3c68"
+  },
+  "tests/test_core_manual_entry_cooldown_ui.py": {
+    "baseline": "b9ceebb15717029c1fba9a8ee9d88c72031927c7fc47ea7328d51977dbc254fa",
+    "candidate": "4b5b29e0cf96504f856300562aea1b0f2c6c4787738e8dcebd9742d712e9b1c9"
+  },
+  "tests/test_core_reentry_thesis.py": {
+    "baseline": "f6291dcd29b8c9879cdf0a922a97cc467c8ea46bf933d13be4762565568a8d86",
+    "candidate": "2718f7c0f23b191fe1131dea1ff708435ac674c033fb6b1e18f0d11513697f48"
+  },
+  "tests/test_core_reversal_anti_churn.py": {
+    "baseline": "0e9ad9466f23ff00bc9d5a55d44f5adf3aab686af32f0da5f0fb51c1da51c9c4",
+    "candidate": "8aad20111b492de331ff4347357ad4f09018bcb05adcbbb201d7ff5d5d554f6b"
+  },
+  "tests/test_final_entry_submission_regression.py": {
+    "baseline": "b2a0612b78903cfac99d5d94ef9ca0f136dc1f5391eac9ba232b17ee05b5f3b9",
+    "candidate": "ea1b7c4723b4e9a310bfe5166c280aa0efc23051afd8165a3f3cc3594b969432"
+  },
+  "tests/test_recovery_ui_final.py": {
+    "baseline": null,
+    "candidate": "f73c0c1052efd19b3a8c67fbdf29faf30328a6e7198354a9b588dcc26fc38fe7"
+  },
+  "tests/test_report_contract_regression.py": {
+    "baseline": "aad12da637f74cbf34bd9aee34a1118f1f89a4cc84e6b3d6fda37acf4f7ffb83",
+    "candidate": "0929f90f21ea7e775c9632fab7b94b1aa79c5de63f73502683d9f23b1773e6c1"
+  },
+  "trader.py": {
+    "baseline": "c6431dd805d8bb7f7f6e729993c89194e27c0b432cda104a86ef94973f74a318",
+    "candidate": "0218e6f6138a070fa79c2aebd9b608730105e4b7f6bd9a2c9ce8fc3b4e557190"
+  },
+  "usage_log.py": {
+    "baseline": "ead55a02d3f51c6403d9f12bdfa52bb4864e6e2d2459d1cc8bb9197d83486ea2",
+    "candidate": "6e1cd89e30fe72ccbf500e44fb7a4b06e36220bd764b509c8cdc4e880f942218"
+  },
+  "web_app.py": {
+    "baseline": "b4267574b068ff1f94a6d520cb41cb31e2776e78f78697ea895c0701f7caeb07",
+    "candidate": "7f07e8c72304971192c2efaf161e86ecfd145924cc7fbb021a02b7e304597025"
+  }
+}

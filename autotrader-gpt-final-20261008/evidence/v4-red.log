@@ -1,0 +1,2145 @@
+FFFFFFFF...FF......FFFFFFFF.....FFFFF......FFFFFFFFFFFFFFFFFFFF..FFFFFFF [ 67%]
+FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF                                       [100%]
+=================================== FAILURES ===================================
+_____ test_confirmed_entry_timeout_bypasses_without_forged_approval[long] ______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_confirmed_entry_timeout_b0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113410fd0>
+side = 'long'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    def test_confirmed_entry_timeout_bypasses_without_forged_approval(tmp_path,monkeypatch,side):
+        original=timeout()
+        monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:dict(original))
+        allowed,status,result=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[], '',None,{'action':side,'confidence':.8})
+>       assert allowed and status=='TIMEOUT_BYPASS'
+E       assert (False)
+
+tests/test_core_gpt_timeout_policy.py:31: AssertionError
+_____ test_confirmed_entry_timeout_bypasses_without_forged_approval[short] _____
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_confirmed_entry_timeout_b1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113410f10>
+side = 'short'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    def test_confirmed_entry_timeout_bypasses_without_forged_approval(tmp_path,monkeypatch,side):
+        original=timeout()
+        monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:dict(original))
+        allowed,status,result=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[], '',None,{'action':side,'confidence':.8})
+>       assert allowed and status=='TIMEOUT_BYPASS'
+E       assert (False)
+
+tests/test_core_gpt_timeout_policy.py:31: AssertionError
+_ test_non_timeout_and_unproven_timeout_cannot_bypass[timeout-APIConnectionError] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_non_timeout_and_unproven_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113468810>
+reason = 'timeout', error_type = 'APIConnectionError'
+
+    @pytest.mark.parametrize('reason,error_type',[('timeout','APIConnectionError'),('api_error','APITimeoutError'),('rate_limit','RateLimitError'),('authentication_error','AuthenticationError'),('parse_error','JSONDecodeError'),('empty_response',None)])
+    def test_non_timeout_and_unproven_timeout_cannot_bypass(tmp_path,monkeypatch,reason,error_type):
+        raw=dict(timeout(),error_reason=reason,error_type=error_type)
+        monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:raw)
+        allowed,status,_=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[], '',None,{'action':'short','confidence':.8})
+>       assert not allowed and status=='blocked_error'
+E       AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E         
+E         - blocked_error
+E         + blocked_reject)
+
+tests/test_core_gpt_timeout_policy.py:41: AssertionError
+_ test_non_timeout_and_unproven_timeout_cannot_bypass[api_error-APITimeoutError] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_non_timeout_and_unproven_1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113450850>
+reason = 'api_error', error_type = 'APITimeoutError'
+
+    @pytest.mark.parametrize('reason,error_type',[('timeout','APIConnectionError'),('api_error','APITimeoutError'),('rate_limit','RateLimitError'),('authentication_error','AuthenticationError'),('parse_error','JSONDecodeError'),('empty_response',None)])
+    def test_non_timeout_and_unproven_timeout_cannot_bypass(tmp_path,monkeypatch,reason,error_type):
+        raw=dict(timeout(),error_reason=reason,error_type=error_type)
+        monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:raw)
+        allowed,status,_=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[], '',None,{'action':'short','confidence':.8})
+>       assert not allowed and status=='blocked_error'
+E       AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E         
+E         - blocked_error
+E         + blocked_reject)
+
+tests/test_core_gpt_timeout_policy.py:41: AssertionError
+_ test_non_timeout_and_unproven_timeout_cannot_bypass[rate_limit-RateLimitError] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_non_timeout_and_unproven_2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ae88bd0>
+reason = 'rate_limit', error_type = 'RateLimitError'
+
+    @pytest.mark.parametrize('reason,error_type',[('timeout','APIConnectionError'),('api_error','APITimeoutError'),('rate_limit','RateLimitError'),('authentication_error','AuthenticationError'),('parse_error','JSONDecodeError'),('empty_response',None)])
+    def test_non_timeout_and_unproven_timeout_cannot_bypass(tmp_path,monkeypatch,reason,error_type):
+        raw=dict(timeout(),error_reason=reason,error_type=error_type)
+        monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:raw)
+        allowed,status,_=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[], '',None,{'action':'short','confidence':.8})
+>       assert not allowed and status=='blocked_error'
+E       AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E         
+E         - blocked_error
+E         + blocked_reject)
+
+tests/test_core_gpt_timeout_policy.py:41: AssertionError
+_ test_non_timeout_and_unproven_timeout_cannot_bypass[authentication_error-AuthenticationError] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_non_timeout_and_unproven_3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1134fda90>
+reason = 'authentication_error', error_type = 'AuthenticationError'
+
+    @pytest.mark.parametrize('reason,error_type',[('timeout','APIConnectionError'),('api_error','APITimeoutError'),('rate_limit','RateLimitError'),('authentication_error','AuthenticationError'),('parse_error','JSONDecodeError'),('empty_response',None)])
+    def test_non_timeout_and_unproven_timeout_cannot_bypass(tmp_path,monkeypatch,reason,error_type):
+        raw=dict(timeout(),error_reason=reason,error_type=error_type)
+        monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:raw)
+        allowed,status,_=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[], '',None,{'action':'short','confidence':.8})
+>       assert not allowed and status=='blocked_error'
+E       AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E         
+E         - blocked_error
+E         + blocked_reject)
+
+tests/test_core_gpt_timeout_policy.py:41: AssertionError
+_ test_non_timeout_and_unproven_timeout_cannot_bypass[parse_error-JSONDecodeError] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_non_timeout_and_unproven_4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1134e6e10>
+reason = 'parse_error', error_type = 'JSONDecodeError'
+
+    @pytest.mark.parametrize('reason,error_type',[('timeout','APIConnectionError'),('api_error','APITimeoutError'),('rate_limit','RateLimitError'),('authentication_error','AuthenticationError'),('parse_error','JSONDecodeError'),('empty_response',None)])
+    def test_non_timeout_and_unproven_timeout_cannot_bypass(tmp_path,monkeypatch,reason,error_type):
+        raw=dict(timeout(),error_reason=reason,error_type=error_type)
+        monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:raw)
+        allowed,status,_=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[], '',None,{'action':'short','confidence':.8})
+>       assert not allowed and status=='blocked_error'
+E       AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E         
+E         - blocked_error
+E         + blocked_reject)
+
+tests/test_core_gpt_timeout_policy.py:41: AssertionError
+___ test_non_timeout_and_unproven_timeout_cannot_bypass[empty_response-None] ___
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_non_timeout_and_unproven_5')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113470ad0>
+reason = 'empty_response', error_type = None
+
+    @pytest.mark.parametrize('reason,error_type',[('timeout','APIConnectionError'),('api_error','APITimeoutError'),('rate_limit','RateLimitError'),('authentication_error','AuthenticationError'),('parse_error','JSONDecodeError'),('empty_response',None)])
+    def test_non_timeout_and_unproven_timeout_cannot_bypass(tmp_path,monkeypatch,reason,error_type):
+        raw=dict(timeout(),error_reason=reason,error_type=error_type)
+        monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:raw)
+        allowed,status,_=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[], '',None,{'action':'short','confidence':.8})
+>       assert not allowed and status=='blocked_error'
+E       AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E         
+E         - blocked_error
+E         + blocked_reject)
+
+tests/test_core_gpt_timeout_policy.py:41: AssertionError
+______ test_timeout_policy_does_not_apply_to_candidate_c[DOGE/USDT:USDT] _______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_timeout_policy_does_not_a0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11346be10>
+symbol = 'DOGE/USDT:USDT'
+
+    @pytest.mark.parametrize('symbol',['DOGE/USDT:USDT','SOL/USDT:USDT'])
+    def test_timeout_policy_does_not_apply_to_candidate_c(tmp_path,monkeypatch,symbol):
+        monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:timeout())
+        allowed,status,_=trader._gpt_entry_gate(cfg(tmp_path),symbol,[], '',None,{'action':'short','confidence':.8})
+>       assert not allowed and status=='blocked_error'
+E       AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E         
+E         - blocked_error
+E         + blocked_reject)
+
+tests/test_core_gpt_timeout_policy.py:53: AssertionError
+_______ test_timeout_policy_does_not_apply_to_candidate_c[SOL/USDT:USDT] _______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_timeout_policy_does_not_a1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11342ab10>
+symbol = 'SOL/USDT:USDT'
+
+    @pytest.mark.parametrize('symbol',['DOGE/USDT:USDT','SOL/USDT:USDT'])
+    def test_timeout_policy_does_not_apply_to_candidate_c(tmp_path,monkeypatch,symbol):
+        monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:timeout())
+        allowed,status,_=trader._gpt_entry_gate(cfg(tmp_path),symbol,[], '',None,{'action':'short','confidence':.8})
+>       assert not allowed and status=='blocked_error'
+E       AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E         
+E         - blocked_error
+E         + blocked_reject)
+
+tests/test_core_gpt_timeout_policy.py:53: AssertionError
+______________ test_sdk_timeout_retains_typed_original_provenance ______________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_sdk_timeout_retains_typed0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113451350>
+
+    def test_sdk_timeout_retains_typed_original_provenance(tmp_path,monkeypatch):
+        request=httpx.Request('POST','https://example.invalid')
+        client=Mock()
+        client.with_options.return_value=client
+        client.chat.completions.create.side_effect=openai.APITimeoutError(request=request)
+        monkeypatch.setattr(openai_analyzer,'_get_client',lambda c:client)
+        monkeypatch.setattr(openai_analyzer,'_ensure_response_models_warmed_up',lambda:None)
+        result=openai_analyzer.verify(cfg(tmp_path),SYMBOL,[], '',None,{'action':'short','confidence':.8},purpose='entry_gate',timeout=25,max_retries=0)
+>       assert result['decision']=='TIMEOUT'
+E       AssertionError: assert None == 'TIMEOUT'
+
+tests/test_core_gpt_timeout_policy.py:82: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    offline-test:openai_analyzer.py:467 [ETH/USDT:USDT] GPT 검증 API 호출 실패(원인=timeout, timeout=25)
+Traceback (most recent call last):
+  File "/private/tmp/autotrader-gpt-recovery-final-20261008/candidate/openai_analyzer.py", line 459, in verify
+    response = client.chat.completions.create(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1124, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1128, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1183, in _execute_mock_call
+    raise effect
+openai.APITimeoutError: Request timed out.
+_________________ test_paid_observation_shadow_off_by_default __________________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_paid_observation_shadow_o0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113493b90>
+
+    def test_paid_observation_shadow_off_by_default(tmp_path,monkeypatch):
+        c=cfg(tmp_path)
+        calls=[]
+        class Thread:
+            def __init__(self,*a,**k): calls.append(k)
+            def start(self): pass
+        monkeypatch.setattr(trader.threading,'Thread',Thread)
+        trader._fire_shadow_verification_async(c,SYMBOL,[], '',None,{'action':'long'},'test-id','entry')
+>       assert not calls
+E       AssertionError: assert not [{'target': <function _run_shadow_verification at 0x11306c0e0>, 'args': (<config.UserConfig object at 0x113493590>, 'ETH/USDT:USDT', [], '', None, {'action': 'long'}, ...), 'daemon': True}]
+
+tests/test_core_gpt_timeout_policy.py:96: AssertionError
+_________ test_sdk_non_timeout_errors_keep_type_and_never_admit[auth] __________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_sdk_non_timeout_errors_ke0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11341a250>
+kind = 'auth'
+
+    @pytest.mark.parametrize('kind',['auth','billing','rate','connection','server','generic_timeout_text'])
+    def test_sdk_non_timeout_errors_keep_type_and_never_admit(tmp_path,monkeypatch,kind):
+        request=httpx.Request('POST','https://example.invalid')
+        response=httpx.Response(429 if kind in ('billing','rate') else 500,request=request)
+        errors={
+            'auth':openai.AuthenticationError('offline',response=response,body={}),
+            'billing':openai.RateLimitError('offline',response=response,body={'code':'insufficient_quota'}),
+            'rate':openai.RateLimitError('offline',response=response,body={}),
+            'connection':openai.APIConnectionError(request=request),
+            'server':openai.InternalServerError('offline',response=response,body={}),
+            'generic_timeout_text':RuntimeError('timeout APITimeoutError'),
+        }
+        client=Mock();client.with_options.return_value=client
+        client.chat.completions.create.side_effect=errors[kind]
+        monkeypatch.setattr(openai_analyzer,'_get_client',lambda c:client)
+        monkeypatch.setattr(openai_analyzer,'_ensure_response_models_warmed_up',lambda:None)
+        c=cfg(tmp_path);decision={'action':'short','confidence':.8}
+        allowed,gate,raw=trader._gpt_entry_gate(c,SYMBOL,[],'',None,decision)
+        assert not allowed and gate=='blocked_error'
+>       assert raw['decision'] is None and raw['timeout_confirmed'] is False
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'timeout_confirmed'
+
+tests/test_core_gpt_timeout_policy.py:121: KeyError
+------------------------------ Captured log call -------------------------------
+ERROR    offline-test:openai_analyzer.py:467 [ETH/USDT:USDT] GPT 검증 API 호출 실패(원인=api, timeout=25.0)
+Traceback (most recent call last):
+  File "/private/tmp/autotrader-gpt-recovery-final-20261008/candidate/openai_analyzer.py", line 459, in verify
+    response = client.chat.completions.create(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1124, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1128, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1183, in _execute_mock_call
+    raise effect
+openai.AuthenticationError: offline
+________ test_sdk_non_timeout_errors_keep_type_and_never_admit[billing] ________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_sdk_non_timeout_errors_ke1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113453390>
+kind = 'billing'
+
+    @pytest.mark.parametrize('kind',['auth','billing','rate','connection','server','generic_timeout_text'])
+    def test_sdk_non_timeout_errors_keep_type_and_never_admit(tmp_path,monkeypatch,kind):
+        request=httpx.Request('POST','https://example.invalid')
+        response=httpx.Response(429 if kind in ('billing','rate') else 500,request=request)
+        errors={
+            'auth':openai.AuthenticationError('offline',response=response,body={}),
+            'billing':openai.RateLimitError('offline',response=response,body={'code':'insufficient_quota'}),
+            'rate':openai.RateLimitError('offline',response=response,body={}),
+            'connection':openai.APIConnectionError(request=request),
+            'server':openai.InternalServerError('offline',response=response,body={}),
+            'generic_timeout_text':RuntimeError('timeout APITimeoutError'),
+        }
+        client=Mock();client.with_options.return_value=client
+        client.chat.completions.create.side_effect=errors[kind]
+        monkeypatch.setattr(openai_analyzer,'_get_client',lambda c:client)
+        monkeypatch.setattr(openai_analyzer,'_ensure_response_models_warmed_up',lambda:None)
+        c=cfg(tmp_path);decision={'action':'short','confidence':.8}
+        allowed,gate,raw=trader._gpt_entry_gate(c,SYMBOL,[],'',None,decision)
+        assert not allowed and gate=='blocked_error'
+>       assert raw['decision'] is None and raw['timeout_confirmed'] is False
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'timeout_confirmed'
+
+tests/test_core_gpt_timeout_policy.py:121: KeyError
+------------------------------ Captured log call -------------------------------
+ERROR    offline-test:openai_analyzer.py:467 [ETH/USDT:USDT] GPT 검증 API 호출 실패(원인=api, timeout=25.0)
+Traceback (most recent call last):
+  File "/private/tmp/autotrader-gpt-recovery-final-20261008/candidate/openai_analyzer.py", line 459, in verify
+    response = client.chat.completions.create(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1124, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1128, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1183, in _execute_mock_call
+    raise effect
+openai.RateLimitError: offline
+_________ test_sdk_non_timeout_errors_keep_type_and_never_admit[rate] __________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_sdk_non_timeout_errors_ke2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1134f2390>
+kind = 'rate'
+
+    @pytest.mark.parametrize('kind',['auth','billing','rate','connection','server','generic_timeout_text'])
+    def test_sdk_non_timeout_errors_keep_type_and_never_admit(tmp_path,monkeypatch,kind):
+        request=httpx.Request('POST','https://example.invalid')
+        response=httpx.Response(429 if kind in ('billing','rate') else 500,request=request)
+        errors={
+            'auth':openai.AuthenticationError('offline',response=response,body={}),
+            'billing':openai.RateLimitError('offline',response=response,body={'code':'insufficient_quota'}),
+            'rate':openai.RateLimitError('offline',response=response,body={}),
+            'connection':openai.APIConnectionError(request=request),
+            'server':openai.InternalServerError('offline',response=response,body={}),
+            'generic_timeout_text':RuntimeError('timeout APITimeoutError'),
+        }
+        client=Mock();client.with_options.return_value=client
+        client.chat.completions.create.side_effect=errors[kind]
+        monkeypatch.setattr(openai_analyzer,'_get_client',lambda c:client)
+        monkeypatch.setattr(openai_analyzer,'_ensure_response_models_warmed_up',lambda:None)
+        c=cfg(tmp_path);decision={'action':'short','confidence':.8}
+        allowed,gate,raw=trader._gpt_entry_gate(c,SYMBOL,[],'',None,decision)
+        assert not allowed and gate=='blocked_error'
+>       assert raw['decision'] is None and raw['timeout_confirmed'] is False
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'timeout_confirmed'
+
+tests/test_core_gpt_timeout_policy.py:121: KeyError
+------------------------------ Captured log call -------------------------------
+ERROR    offline-test:openai_analyzer.py:467 [ETH/USDT:USDT] GPT 검증 API 호출 실패(원인=api, timeout=25.0)
+Traceback (most recent call last):
+  File "/private/tmp/autotrader-gpt-recovery-final-20261008/candidate/openai_analyzer.py", line 459, in verify
+    response = client.chat.completions.create(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1124, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1128, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1183, in _execute_mock_call
+    raise effect
+openai.RateLimitError: offline
+______ test_sdk_non_timeout_errors_keep_type_and_never_admit[connection] _______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_sdk_non_timeout_errors_ke3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113481350>
+kind = 'connection'
+
+    @pytest.mark.parametrize('kind',['auth','billing','rate','connection','server','generic_timeout_text'])
+    def test_sdk_non_timeout_errors_keep_type_and_never_admit(tmp_path,monkeypatch,kind):
+        request=httpx.Request('POST','https://example.invalid')
+        response=httpx.Response(429 if kind in ('billing','rate') else 500,request=request)
+        errors={
+            'auth':openai.AuthenticationError('offline',response=response,body={}),
+            'billing':openai.RateLimitError('offline',response=response,body={'code':'insufficient_quota'}),
+            'rate':openai.RateLimitError('offline',response=response,body={}),
+            'connection':openai.APIConnectionError(request=request),
+            'server':openai.InternalServerError('offline',response=response,body={}),
+            'generic_timeout_text':RuntimeError('timeout APITimeoutError'),
+        }
+        client=Mock();client.with_options.return_value=client
+        client.chat.completions.create.side_effect=errors[kind]
+        monkeypatch.setattr(openai_analyzer,'_get_client',lambda c:client)
+        monkeypatch.setattr(openai_analyzer,'_ensure_response_models_warmed_up',lambda:None)
+        c=cfg(tmp_path);decision={'action':'short','confidence':.8}
+        allowed,gate,raw=trader._gpt_entry_gate(c,SYMBOL,[],'',None,decision)
+        assert not allowed and gate=='blocked_error'
+>       assert raw['decision'] is None and raw['timeout_confirmed'] is False
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'timeout_confirmed'
+
+tests/test_core_gpt_timeout_policy.py:121: KeyError
+------------------------------ Captured log call -------------------------------
+ERROR    offline-test:openai_analyzer.py:467 [ETH/USDT:USDT] GPT 검증 API 호출 실패(원인=api, timeout=25.0)
+Traceback (most recent call last):
+  File "/private/tmp/autotrader-gpt-recovery-final-20261008/candidate/openai_analyzer.py", line 459, in verify
+    response = client.chat.completions.create(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1124, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1128, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1183, in _execute_mock_call
+    raise effect
+openai.APIConnectionError: Connection error.
+________ test_sdk_non_timeout_errors_keep_type_and_never_admit[server] _________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_sdk_non_timeout_errors_ke4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113451b90>
+kind = 'server'
+
+    @pytest.mark.parametrize('kind',['auth','billing','rate','connection','server','generic_timeout_text'])
+    def test_sdk_non_timeout_errors_keep_type_and_never_admit(tmp_path,monkeypatch,kind):
+        request=httpx.Request('POST','https://example.invalid')
+        response=httpx.Response(429 if kind in ('billing','rate') else 500,request=request)
+        errors={
+            'auth':openai.AuthenticationError('offline',response=response,body={}),
+            'billing':openai.RateLimitError('offline',response=response,body={'code':'insufficient_quota'}),
+            'rate':openai.RateLimitError('offline',response=response,body={}),
+            'connection':openai.APIConnectionError(request=request),
+            'server':openai.InternalServerError('offline',response=response,body={}),
+            'generic_timeout_text':RuntimeError('timeout APITimeoutError'),
+        }
+        client=Mock();client.with_options.return_value=client
+        client.chat.completions.create.side_effect=errors[kind]
+        monkeypatch.setattr(openai_analyzer,'_get_client',lambda c:client)
+        monkeypatch.setattr(openai_analyzer,'_ensure_response_models_warmed_up',lambda:None)
+        c=cfg(tmp_path);decision={'action':'short','confidence':.8}
+        allowed,gate,raw=trader._gpt_entry_gate(c,SYMBOL,[],'',None,decision)
+        assert not allowed and gate=='blocked_error'
+>       assert raw['decision'] is None and raw['timeout_confirmed'] is False
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'timeout_confirmed'
+
+tests/test_core_gpt_timeout_policy.py:121: KeyError
+------------------------------ Captured log call -------------------------------
+ERROR    offline-test:openai_analyzer.py:467 [ETH/USDT:USDT] GPT 검증 API 호출 실패(원인=api, timeout=25.0)
+Traceback (most recent call last):
+  File "/private/tmp/autotrader-gpt-recovery-final-20261008/candidate/openai_analyzer.py", line 459, in verify
+    response = client.chat.completions.create(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1124, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1128, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1183, in _execute_mock_call
+    raise effect
+openai.InternalServerError: offline
+_ test_sdk_non_timeout_errors_keep_type_and_never_admit[generic_timeout_text] __
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_sdk_non_timeout_errors_ke5')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113438610>
+kind = 'generic_timeout_text'
+
+    @pytest.mark.parametrize('kind',['auth','billing','rate','connection','server','generic_timeout_text'])
+    def test_sdk_non_timeout_errors_keep_type_and_never_admit(tmp_path,monkeypatch,kind):
+        request=httpx.Request('POST','https://example.invalid')
+        response=httpx.Response(429 if kind in ('billing','rate') else 500,request=request)
+        errors={
+            'auth':openai.AuthenticationError('offline',response=response,body={}),
+            'billing':openai.RateLimitError('offline',response=response,body={'code':'insufficient_quota'}),
+            'rate':openai.RateLimitError('offline',response=response,body={}),
+            'connection':openai.APIConnectionError(request=request),
+            'server':openai.InternalServerError('offline',response=response,body={}),
+            'generic_timeout_text':RuntimeError('timeout APITimeoutError'),
+        }
+        client=Mock();client.with_options.return_value=client
+        client.chat.completions.create.side_effect=errors[kind]
+        monkeypatch.setattr(openai_analyzer,'_get_client',lambda c:client)
+        monkeypatch.setattr(openai_analyzer,'_ensure_response_models_warmed_up',lambda:None)
+        c=cfg(tmp_path);decision={'action':'short','confidence':.8}
+        allowed,gate,raw=trader._gpt_entry_gate(c,SYMBOL,[],'',None,decision)
+        assert not allowed and gate=='blocked_error'
+>       assert raw['decision'] is None and raw['timeout_confirmed'] is False
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'timeout_confirmed'
+
+tests/test_core_gpt_timeout_policy.py:121: KeyError
+------------------------------ Captured log call -------------------------------
+ERROR    offline-test:openai_analyzer.py:467 [ETH/USDT:USDT] GPT 검증 API 호출 실패(원인=sdk_parsing, timeout=25.0)
+Traceback (most recent call last):
+  File "/private/tmp/autotrader-gpt-recovery-final-20261008/candidate/openai_analyzer.py", line 459, in verify
+    response = client.chat.completions.create(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1124, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1128, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1183, in _execute_mock_call
+    raise effect
+RuntimeError: timeout APITimeoutError
+_______ test_typed_timeout_from_held_verification_is_never_entry_bypass ________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_typed_timeout_from_held_v0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11346bc90>
+
+    def test_typed_timeout_from_held_verification_is_never_entry_bypass(tmp_path,monkeypatch):
+        client=Mock();client.with_options.return_value=client
+        client.chat.completions.create.side_effect=openai.APITimeoutError(request=httpx.Request('POST','https://example.invalid'))
+        monkeypatch.setattr(openai_analyzer,'_get_client',lambda c:client)
+        monkeypatch.setattr(openai_analyzer,'_ensure_response_models_warmed_up',lambda:None)
+        c=cfg(tmp_path)
+        position={'side':'long','contracts':1,'entry_price':100,'unrealized_pnl':0}
+        raw=openai_analyzer.verify(c,SYMBOL,[],'',position,{'action':'short','confidence':.8},purpose='position_management')
+>       assert raw['decision'] is None and raw['request_purpose']=='position_management'
+                                           ^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'request_purpose'
+
+tests/test_core_gpt_timeout_policy.py:145: KeyError
+------------------------------ Captured log call -------------------------------
+ERROR    offline-test:openai_analyzer.py:467 [ETH/USDT:USDT] GPT 검증 API 호출 실패(원인=timeout, timeout=None)
+Traceback (most recent call last):
+  File "/private/tmp/autotrader-gpt-recovery-final-20261008/candidate/openai_analyzer.py", line 459, in verify
+    response = client.chat.completions.create(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1124, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1128, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py", line 1183, in _execute_mock_call
+    raise effect
+openai.APITimeoutError: Request timed out.
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_valid_approval_or_timeout0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1134d5f90>
+side = 'long', verdict = 'approved'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    def test_valid_approval_or_timeout_reaches_actual_order_and_protection(tmp_path,monkeypatch,side,verdict):
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,verdict)
+        run(c,s,client,p,d)
+        assert len(client.orders)==1, s.symbols[SYMBOL].get('last_entry_attempt',{}).get('reason')
+        assert client.position['side']==side and client.protection
+>       assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
+E       AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'
+E         
+E         - FILLED
+E         + ORDER_EXECUTED
+
+tests/test_core_entry_pipeline.py:90: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_valid_approval_or_timeout1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1134c7610>
+side = 'short', verdict = 'approved'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    def test_valid_approval_or_timeout_reaches_actual_order_and_protection(tmp_path,monkeypatch,side,verdict):
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,verdict)
+        run(c,s,client,p,d)
+        assert len(client.orders)==1, s.symbols[SYMBOL].get('last_entry_attempt',{}).get('reason')
+        assert client.position['side']==side and client.protection
+>       assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
+E       AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'
+E         
+E         - FILLED
+E         + ORDER_EXECUTED
+
+tests/test_core_entry_pipeline.py:90: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_valid_approval_or_timeout2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1133b0790>
+side = 'long', verdict = 'timeout'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    def test_valid_approval_or_timeout_reaches_actual_order_and_protection(tmp_path,monkeypatch,side,verdict):
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,verdict)
+        run(c,s,client,p,d)
+>       assert len(client.orders)==1, s.symbols[SYMBOL].get('last_entry_attempt',{}).get('reason')
+E       AssertionError: blocked_reject
+E       assert 0 == 1
+E        +  where 0 = len([])
+E        +    where [] = <test_core_entry_pipeline.Client object at 0x1133b0350>.orders
+
+tests/test_core_entry_pipeline.py:88: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_valid_approval_or_timeout3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1134d6290>
+side = 'short', verdict = 'timeout'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    def test_valid_approval_or_timeout_reaches_actual_order_and_protection(tmp_path,monkeypatch,side,verdict):
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,verdict)
+        run(c,s,client,p,d)
+>       assert len(client.orders)==1, s.symbols[SYMBOL].get('last_entry_attempt',{}).get('reason')
+E       AssertionError: blocked_reject
+E       assert 0 == 1
+E        +  where 0 = len([])
+E        +    where [] = <test_core_entry_pipeline.Client object at 0x1134d5010>.orders
+
+tests/test_core_entry_pipeline.py:88: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-approved-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113384f50>
+side = 'long', verdict = 'approved', fault = 'expired'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + ORDER_FAILED
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5771 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=entry_signal_or_approval_expired
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-approved-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11336d750>
+side = 'short', verdict = 'approved', fault = 'expired'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + ORDER_FAILED
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5771 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=entry_signal_or_approval_expired
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-timeout-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113450810>
+side = 'long', verdict = 'timeout', fault = 'expired'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'GPT_REJECT' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + GPT_REJECT
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-timeout-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1134bb3d0>
+side = 'short', verdict = 'timeout', fault = 'expired'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'GPT_REJECT' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + GPT_REJECT
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-approved-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11309ddd0>
+side = 'long', verdict = 'approved', fault = 'minimum'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + ORDER_FAILED
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5771 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=exchange_minimum_exceeds_risk_budget
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-approved-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s5')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1133b2610>
+side = 'short', verdict = 'approved', fault = 'minimum'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + ORDER_FAILED
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5771 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=exchange_minimum_exceeds_risk_budget
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-timeout-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s6')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113378e90>
+side = 'long', verdict = 'timeout', fault = 'minimum'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'GPT_REJECT' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + GPT_REJECT
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-timeout-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s7')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113061950>
+side = 'short', verdict = 'timeout', fault = 'minimum'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'GPT_REJECT' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + GPT_REJECT
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-approved-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s8')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1133b2590>
+side = 'long', verdict = 'approved', fault = 'daily_loss'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + ORDER_FAILED
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:4043 [ETH/USDT:USDT] ENTRY_REVALIDATION_ABORT post_gpt: daily loss guard blocked
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-approved-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s9')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1133a09d0>
+side = 'short', verdict = 'approved', fault = 'daily_loss'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + ORDER_FAILED
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:4043 [ETH/USDT:USDT] ENTRY_REVALIDATION_ABORT post_gpt: daily loss guard blocked
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-timeout-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s10')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113538f10>
+side = 'long', verdict = 'timeout', fault = 'daily_loss'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'GPT_REJECT' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + GPT_REJECT
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-timeout-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s11')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11355bbd0>
+side = 'short', verdict = 'timeout', fault = 'daily_loss'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'GPT_REJECT' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + GPT_REJECT
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-approved-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s12')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113492f90>
+side = 'long', verdict = 'approved', fault = 'chase'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + ORDER_FAILED
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5771 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=entry_late_exhaustion_no_pullback
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-approved-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s13')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1131b80d0>
+side = 'short', verdict = 'approved', fault = 'chase'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + ORDER_FAILED
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5771 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=entry_late_exhaustion_no_pullback
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-timeout-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s14')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1130a1e10>
+side = 'long', verdict = 'timeout', fault = 'chase'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'GPT_REJECT' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + GPT_REJECT
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-timeout-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s15')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1130d2490>
+side = 'short', verdict = 'timeout', fault = 'chase'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'GPT_REJECT' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + GPT_REJECT
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-approved-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s16')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1130ae090>
+side = 'long', verdict = 'approved', fault = 'drift'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + ORDER_FAILED
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-approved-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s17')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10aeb6b50>
+side = 'short', verdict = 'approved', fault = 'drift'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + ORDER_FAILED
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-timeout-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s18')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11355a2d0>
+side = 'long', verdict = 'timeout', fault = 'drift'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'GPT_REJECT' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + GPT_REJECT
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-timeout-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_local_block_stays_s19')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1133b20d0>
+side = 'short', verdict = 'timeout', fault = 'drift'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    @pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
+    def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
+            'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
+        if fault=='expired': d['_approval_started_at']-=181
+        if fault=='minimum': client.exchange.minimum=10000
+        if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
+        if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
+        if fault=='drift': client.price=100.3
+        run(c,s,client,p,d)
+        attempt=s.symbols[SYMBOL]['last_entry_attempt']
+        assert not client.orders
+>       assert attempt['status']=='LOCAL_BLOCKED'
+E       AssertionError: assert 'GPT_REJECT' == 'LOCAL_BLOCKED'
+E         
+E         - LOCAL_BLOCKED
+E         + GPT_REJECT
+
+tests/test_core_entry_pipeline.py:115: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+______________ test_timeout_never_uses_fabricated_gpt_plan[long] _______________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_timeout_never_uses_fabric0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1133fc850>
+side = 'long'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    def test_timeout_never_uses_fabricated_gpt_plan(tmp_path,monkeypatch,side):
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,'timeout')
+        raw.update(exit_plan_decision='revise',exit_plan={'stop_loss_price':99,'take_profit_1_price':102,'take_profit_2_price':108})
+        run(c,s,client,p,d)
+>       assert len(client.orders)==1, s.symbols[SYMBOL].get('last_entry_attempt',{}).get('reason')
+E       AssertionError: blocked_reject
+E       assert 0 == 1
+E        +  where 0 = len([])
+E        +    where [] = <test_core_entry_pipeline.Client object at 0x1133ff990>.orders
+
+tests/test_core_entry_pipeline.py:135: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+______________ test_timeout_never_uses_fabricated_gpt_plan[short] ______________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_timeout_never_uses_fabric1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1134c5610>
+side = 'short'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    def test_timeout_never_uses_fabricated_gpt_plan(tmp_path,monkeypatch,side):
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,'timeout')
+        raw.update(exit_plan_decision='revise',exit_plan={'stop_loss_price':99,'take_profit_1_price':102,'take_profit_2_price':108})
+        run(c,s,client,p,d)
+>       assert len(client.orders)==1, s.symbols[SYMBOL].get('last_entry_attempt',{}).get('reason')
+E       AssertionError: blocked_reject
+E       assert 0 == 1
+E        +  where 0 = len([])
+E        +    where [] = <test_core_entry_pipeline.Client object at 0x1134c6610>.orders
+
+tests/test_core_entry_pipeline.py:135: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+__________ test_ambiguous_exchange_ack_is_queried_and_not_resubmitted __________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_ambiguous_exchange_ack_is0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11341af50>
+
+    def test_ambiguous_exchange_ack_is_queried_and_not_resubmitted(tmp_path,monkeypatch):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
+        client.response='ambiguous'
+        run(c,s,client,p,d)
+>       assert client.queries
+E       assert []
+E        +  where [] = <test_core_entry_pipeline.Client object at 0x113419e10>.queries
+
+tests/test_core_entry_pipeline.py:144: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+CRITICAL pipeline-test:order_safety.py:213 [ETH/USDT:USDT] UNKNOWN_ORDER_STATE - 주문 응답 불확실(offline lost acknowledgement) - 신규 진입 동결 + 거래소 상태 확인
+WARNING  pipeline-test:order_safety.py:239 [ETH/USDT:USDT] UNKNOWN_ORDER_STATE reconciliation: 포지션+보호주문 정상 확인 - 거래 기록 복구, kill switch는 유지
+_________ test_accepted_pending_order_is_not_reported_failed_or_filled _________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_accepted_pending_order_is0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113468750>
+
+    def test_accepted_pending_order_is_not_reported_failed_or_filled(tmp_path,monkeypatch):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
+        client.response='pending'
+        run(c,s,client,p,d)
+>       assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='ORDER_PENDING'
+E       AssertionError: assert 'ORDER_FAILED' == 'ORDER_PENDING'
+E         
+E         - ORDER_PENDING
+E         + ORDER_FAILED
+
+tests/test_core_entry_pipeline.py:154: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+ERROR    pipeline-test:trader.py:5792 [ETH/USDT:USDT] PROTECTION_FAILED(position_missing) - 안전 청산 + kill switch
+___________ test_client_id_query_never_fabricates_requested_identity ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1134ba450>
+
+    def test_client_id_query_never_fabricates_requested_identity(monkeypatch):
+        client=object.__new__(trader.okx_client.OkxClient)
+        client.symbol=SYMBOL
+        client.exchange=SimpleNamespace(fetch_order=lambda *a,**k:dict(id='other-order',clientOrderId='foreign-id',
+            symbol=SYMBOL,side='sell',status='closed',filled=1,remaining=0))
+        result=client.fetch_order_status_by_client_id('our-id')
+>       assert result['clientOrderId']=='foreign-id'
+E       AssertionError: assert 'our-id' == 'foreign-id'
+E         
+E         - foreign-id
+E         + our-id
+
+tests/test_core_entry_pipeline.py:165: AssertionError
+______ test_pending_original_order_blocks_new_decision_without_new_submit ______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_pending_original_order_bl0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11355ab50>
+
+    def test_pending_original_order_blocks_new_decision_without_new_submit(tmp_path,monkeypatch):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
+        client.response='pending'
+        run(c,s,client,p,d)
+        new=dict(d)
+        side,amount,sl,tp=p['order_args']
+        trader._handle_new_entry(c,s,client,SYMBOL,side,new,'new-decision','entry',[], '',None,
+            100,amount,sl,tp,closed_dfs={},adaptive_plan=p['plan'],adaptive_context=p['context'])
+        assert len(client.orders)==1
+        assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='LOCAL_BLOCKED'
+>       assert s.symbols[SYMBOL]['last_entry_attempt']['reason']=='unresolved_prior_entry_order'
+E       AssertionError: assert 'core_kill_switch' == 'unresolved_prior_entry_order'
+E         
+E         - unresolved_prior_entry_order
+E         + core_kill_switch
+
+tests/test_core_entry_pipeline.py:179: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+ERROR    pipeline-test:trader.py:5792 [ETH/USDT:USDT] PROTECTION_FAILED(position_missing) - 안전 청산 + kill switch
+WARNING  pipeline-test:trader.py:4292 [ETH/USDT:USDT] BLOCK core_kill_switch: ETH/USDT:USDT 보호주문 검증 실패: position_missing - 신규 short 진입 차단
+___________ test_pending_fill_recovers_without_new_gpt_or_new_order ____________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_pending_fill_recovers_wit0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1133b0ed0>
+
+    def test_pending_fill_recovers_without_new_gpt_or_new_order(tmp_path,monkeypatch):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
+        client.response='pending'
+        run(c,s,client,p,d)
+        order=client.orders[0]
+        order.update(status='closed',filled=order['remaining'],remaining=0)
+        client.position=dict(side='short',contracts=order['filled'],entry_price=100,position_id='lifecycle-123',entry_timestamp_ms=1000000)
+        client.protection=[dict(instId='ETH-USDT-SWAP',side='buy',state='live',reduceOnly='true',sz=str(order['filled']),
+>           slTriggerPx=str(p['order_args'][2]),tpTriggerPx=str(p['order_args'][3]),algoId='protect-123',algoClOrdId='ca'+order['clientOrderId'][2:])]
+                                                                                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: 'NoneType' object is not subscriptable
+
+tests/test_core_entry_pipeline.py:190: TypeError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+ERROR    pipeline-test:trader.py:5792 [ETH/USDT:USDT] PROTECTION_FAILED(position_missing) - 안전 청산 + kill switch
+______ test_disabled_core_gpt_gate_cannot_silently_place_unapproved_entry ______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_disabled_core_gpt_gate_ca0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10aec0710>
+
+    def test_disabled_core_gpt_gate_cannot_silently_place_unapproved_entry(tmp_path,monkeypatch):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'long')
+        c.GPT_ENTRY_GATE_ENABLED=False
+        run(c,s,client,p,d)
+>       assert not client.orders
+E       AssertionError: assert not [{'id': 'exchange-123', 'symbol': 'ETH/USDT:USDT', 'side': 'buy', 'clientOrderId': None, ...}]
+E        +  where [{'id': 'exchange-123', 'symbol': 'ETH/USDT:USDT', 'side': 'buy', 'clientOrderId': None, ...}] = <test_core_entry_pipeline.Client object at 0x10ae88550>.orders
+
+tests/test_core_entry_pipeline.py:205: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+______ test_gpt_blocked_dashboard_preserves_decision_and_raw_result[wait] ______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_gpt_blocked_dashboard_pre0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1133e4450>
+verdict = 'wait'
+
+    @pytest.mark.parametrize('verdict',['wait','reject','ERROR'])
+    def test_gpt_blocked_dashboard_preserves_decision_and_raw_result(tmp_path,monkeypatch,verdict):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short',verdict)
+        run(c,s,client,p,d)
+        row=s.symbols[SYMBOL]['last_entry_attempt']
+>       assert row['decision_id']=='decision-123'
+               ^^^^^^^^^^^^^^^^^^
+E       KeyError: 'decision_id'
+
+tests/test_core_entry_pipeline.py:214: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_____ test_gpt_blocked_dashboard_preserves_decision_and_raw_result[reject] _____
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_gpt_blocked_dashboard_pre1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1134f34d0>
+verdict = 'reject'
+
+    @pytest.mark.parametrize('verdict',['wait','reject','ERROR'])
+    def test_gpt_blocked_dashboard_preserves_decision_and_raw_result(tmp_path,monkeypatch,verdict):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short',verdict)
+        run(c,s,client,p,d)
+        row=s.symbols[SYMBOL]['last_entry_attempt']
+>       assert row['decision_id']=='decision-123'
+               ^^^^^^^^^^^^^^^^^^
+E       KeyError: 'decision_id'
+
+tests/test_core_entry_pipeline.py:214: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_____ test_gpt_blocked_dashboard_preserves_decision_and_raw_result[ERROR] ______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_gpt_blocked_dashboard_pre2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10af3e690>
+verdict = 'ERROR'
+
+    @pytest.mark.parametrize('verdict',['wait','reject','ERROR'])
+    def test_gpt_blocked_dashboard_preserves_decision_and_raw_result(tmp_path,monkeypatch,verdict):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short',verdict)
+        run(c,s,client,p,d)
+        row=s.symbols[SYMBOL]['last_entry_attempt']
+>       assert row['decision_id']=='decision-123'
+               ^^^^^^^^^^^^^^^^^^
+E       KeyError: 'decision_id'
+
+tests/test_core_entry_pipeline.py:214: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+____ test_pending_exchange_state_never_journals_position_without_fill_proof ____
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_pending_exchange_state_ne0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113538210>
+
+    def test_pending_exchange_state_never_journals_position_without_fill_proof(tmp_path,monkeypatch):
+        import json
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
+        client.response='pending'
+        run(c,s,client,p,d)
+        order=client.orders[0]
+        contracts=order['remaining']
+        client.position=dict(side='short',contracts=contracts,entry_price=100,position_id='lifecycle-123',entry_timestamp_ms=1000000)
+        client.protection=[dict(instId='ETH-USDT-SWAP',side='buy',state='live',reduceOnly='true',sz=str(contracts),
+>           slTriggerPx=str(p['order_args'][2]),tpTriggerPx=str(p['order_args'][3]),algoId='protect-123',algoClOrdId='ca'+order['clientOrderId'][2:])]
+                                                                                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: 'NoneType' object is not subscriptable
+
+tests/test_core_entry_pipeline.py:228: TypeError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+ERROR    pipeline-test:trader.py:5792 [ETH/USDT:USDT] PROTECTION_FAILED(position_missing) - 안전 청산 + kill switch
+__ test_protection_lookup_exception_freezes_account_and_keeps_receipt_pending __
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_protection_lookup_excepti0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1131b8c50>
+
+    def test_protection_lookup_exception_freezes_account_and_keeps_receipt_pending(tmp_path,monkeypatch):
+>       import core_entry_events
+E       ModuleNotFoundError: No module named 'core_entry_events'
+
+tests/test_core_entry_pipeline.py:243: ModuleNotFoundError
+______ test_unbound_or_changed_lifecycle_never_authorizes_emergency_close ______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_unbound_or_changed_lifecy0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11314bf10>
+
+    def test_unbound_or_changed_lifecycle_never_authorizes_emergency_close(tmp_path,monkeypatch):
+>       import core_entry_events,core_entry_orders
+E       ModuleNotFoundError: No module named 'core_entry_events'
+
+tests/test_core_entry_pipeline.py:255: ModuleNotFoundError
+_____ test_state_cache_failure_does_not_drop_durable_gate_and_fill_events ______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_state_cache_failure_does_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113492010>
+
+    def test_state_cache_failure_does_not_drop_durable_gate_and_fill_events(tmp_path,monkeypatch):
+>       import core_entry_events
+E       ModuleNotFoundError: No module named 'core_entry_events'
+
+tests/test_core_entry_pipeline.py:271: ModuleNotFoundError
+_____ test_gate_order_notification_failures_cannot_change_a_protected_fill _____
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_gate_order_notification_f0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113386450>
+
+    def test_gate_order_notification_failures_cannot_change_a_protected_fill(tmp_path,monkeypatch):
+>       import core_entry_events,telegram_notify
+E       ModuleNotFoundError: No module named 'core_entry_events'
+
+tests/test_core_entry_pipeline.py:280: ModuleNotFoundError
+_ test_final_eligibility_failure_preserves_existing_long_before_reversal[approved] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_eligibility_failure0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113343c90>
+verdict = 'approved'
+
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    def test_final_eligibility_failure_preserves_existing_long_before_reversal(tmp_path,monkeypatch,verdict):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short',verdict)
+        old=dict(side='long',contracts=3,entry_price=100,position_id='old-long',entry_timestamp_ms=500000)
+        client.position=old
+        closes=[]
+        monkeypatch.setattr(trader,'_execute_close',lambda *a,**k:closes.append(1))
+        d['_approval_started_at']-=181
+        side,amount,sl,tp=p['order_args']
+        trader._handle_new_entry(c,s,client,SYMBOL,side,d,'decision-123','entry',[],'',old,100,amount,sl,tp,
+            reversal_position=old,closed_dfs={},adaptive_plan=p['plan'],adaptive_context=p['context'])
+        assert not closes and not client.orders and client.position==old
+>       assert s.symbols[SYMBOL]['last_entry_attempt']['reason']=='entry_signal_or_approval_expired'
+E       AssertionError: assert 'approved' == 'entry_signal...roval_expired'
+E         
+E         - entry_signal_or_approval_expired
+E         + approved
+
+tests/test_core_entry_pipeline.py:306: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:4111 [ETH/USDT:USDT] REVERSAL_ENTRY_BLOCK before_close=entry_signal_or_approval_expired
+_ test_final_eligibility_failure_preserves_existing_long_before_reversal[timeout] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_final_eligibility_failure1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1134d5310>
+verdict = 'timeout'
+
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    def test_final_eligibility_failure_preserves_existing_long_before_reversal(tmp_path,monkeypatch,verdict):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short',verdict)
+        old=dict(side='long',contracts=3,entry_price=100,position_id='old-long',entry_timestamp_ms=500000)
+        client.position=old
+        closes=[]
+        monkeypatch.setattr(trader,'_execute_close',lambda *a,**k:closes.append(1))
+        d['_approval_started_at']-=181
+        side,amount,sl,tp=p['order_args']
+        trader._handle_new_entry(c,s,client,SYMBOL,side,d,'decision-123','entry',[],'',old,100,amount,sl,tp,
+            reversal_position=old,closed_dfs={},adaptive_plan=p['plan'],adaptive_context=p['context'])
+        assert not closes and not client.orders and client.position==old
+>       assert s.symbols[SYMBOL]['last_entry_attempt']['reason']=='entry_signal_or_approval_expired'
+E       AssertionError: assert 'blocked_reject' == 'entry_signal...roval_expired'
+E         
+E         - entry_signal_or_approval_expired
+E         + blocked_reject
+
+tests/test_core_entry_pipeline.py:306: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_eligible_reversal_confirms_flat_then_reaches_replacement_order[approved-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_eligible_reversal_confirm0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113538f10>
+side = 'long', verdict = 'approved'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    def test_eligible_reversal_confirms_flat_then_reaches_replacement_order(tmp_path,monkeypatch,side,verdict):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        old=dict(side='short' if side=='long' else 'long',contracts=3,entry_price=100,
+            position_id='old-position',entry_timestamp_ms=500000)
+        client.position=old;calls=[]
+        def close(*a,**k):
+            calls.append('close_confirmed');client.position=None;return True
+        monkeypatch.setattr(trader,'_execute_close',close)
+        _,amount,sl,tp=p['order_args']
+        trader._handle_new_entry(c,s,client,SYMBOL,side,d,'decision-123','entry',[],'',old,100,amount,sl,tp,
+            reversal_position=old,closed_dfs={},adaptive_plan=p['plan'],adaptive_context=p['context'])
+        assert calls==['close_confirmed']
+        assert len(client.orders)==1 and client.position['side']==side
+>       assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
+E       AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'
+E         
+E         - FILLED
+E         + ORDER_EXECUTED
+
+tests/test_core_entry_pipeline.py:324: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:4131 [ETH/USDT:USDT] REVERSAL_COMMIT final entry gate approved -> close short then enter long
+_ test_eligible_reversal_confirms_flat_then_reaches_replacement_order[approved-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_eligible_reversal_confirm1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11338ea90>
+side = 'short', verdict = 'approved'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    def test_eligible_reversal_confirms_flat_then_reaches_replacement_order(tmp_path,monkeypatch,side,verdict):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        old=dict(side='short' if side=='long' else 'long',contracts=3,entry_price=100,
+            position_id='old-position',entry_timestamp_ms=500000)
+        client.position=old;calls=[]
+        def close(*a,**k):
+            calls.append('close_confirmed');client.position=None;return True
+        monkeypatch.setattr(trader,'_execute_close',close)
+        _,amount,sl,tp=p['order_args']
+        trader._handle_new_entry(c,s,client,SYMBOL,side,d,'decision-123','entry',[],'',old,100,amount,sl,tp,
+            reversal_position=old,closed_dfs={},adaptive_plan=p['plan'],adaptive_context=p['context'])
+        assert calls==['close_confirmed']
+        assert len(client.orders)==1 and client.position['side']==side
+>       assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
+E       AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'
+E         
+E         - FILLED
+E         + ORDER_EXECUTED
+
+tests/test_core_entry_pipeline.py:324: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:4131 [ETH/USDT:USDT] REVERSAL_COMMIT final entry gate approved -> close long then enter short
+_ test_eligible_reversal_confirms_flat_then_reaches_replacement_order[timeout-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_eligible_reversal_confirm2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1131481d0>
+side = 'long', verdict = 'timeout'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    def test_eligible_reversal_confirms_flat_then_reaches_replacement_order(tmp_path,monkeypatch,side,verdict):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        old=dict(side='short' if side=='long' else 'long',contracts=3,entry_price=100,
+            position_id='old-position',entry_timestamp_ms=500000)
+        client.position=old;calls=[]
+        def close(*a,**k):
+            calls.append('close_confirmed');client.position=None;return True
+        monkeypatch.setattr(trader,'_execute_close',close)
+        _,amount,sl,tp=p['order_args']
+        trader._handle_new_entry(c,s,client,SYMBOL,side,d,'decision-123','entry',[],'',old,100,amount,sl,tp,
+            reversal_position=old,closed_dfs={},adaptive_plan=p['plan'],adaptive_context=p['context'])
+>       assert calls==['close_confirmed']
+E       AssertionError: assert [] == ['close_confirmed']
+E         
+E         Right contains one more item: 'close_confirmed'
+E         Use -v to get more diff
+
+tests/test_core_entry_pipeline.py:322: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_eligible_reversal_confirms_flat_then_reaches_replacement_order[timeout-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_eligible_reversal_confirm3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1133b8590>
+side = 'short', verdict = 'timeout'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout'])
+    def test_eligible_reversal_confirms_flat_then_reaches_replacement_order(tmp_path,monkeypatch,side,verdict):
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
+        old=dict(side='short' if side=='long' else 'long',contracts=3,entry_price=100,
+            position_id='old-position',entry_timestamp_ms=500000)
+        client.position=old;calls=[]
+        def close(*a,**k):
+            calls.append('close_confirmed');client.position=None;return True
+        monkeypatch.setattr(trader,'_execute_close',close)
+        _,amount,sl,tp=p['order_args']
+        trader._handle_new_entry(c,s,client,SYMBOL,side,d,'decision-123','entry',[],'',old,100,amount,sl,tp,
+            reversal_position=old,closed_dfs={},adaptive_plan=p['plan'],adaptive_context=p['context'])
+>       assert calls==['close_confirmed']
+E       AssertionError: assert [] == ['close_confirmed']
+E         
+E         Right contains one more item: 'close_confirmed'
+E         Use -v to get more diff
+
+tests/test_core_entry_pipeline.py:322: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+________ test_exchange_rejection_exposes_code_and_does_not_look_filled _________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_exchange_rejection_expose0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113480350>
+
+    def test_exchange_rejection_exposes_code_and_does_not_look_filled(tmp_path,monkeypatch):
+        import ccxt
+        c,s,client,p,d,_=setup(tmp_path,monkeypatch,'long')
+        def reject(*a,**k): raise ccxt.ExchangeError('{"code":"51000","msg":"offline rejection"}')
+        client.create_position_with_sl_tp=reject
+>       run(c,s,client,p,d)
+
+tests/test_core_entry_pipeline.py:332: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_core_entry_pipeline.py:80: in run
+    trader._handle_new_entry(c,state,client,SYMBOL,side,d,'decision-123','entry',[], '',None,
+trader.py:4500: in _handle_new_entry
+    order_success = _execute_approved_entry_with_optional_reversal(
+trader.py:4094: in _execute_approved_entry_with_optional_reversal
+    return _execute_entry(
+core_unified_service.py:52: in guarded
+    return function(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+trader.py:5785: in _execute_entry
+    client.create_position_with_sl_tp(side, amount, sl_price, tp_price)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = ('long', 6.578, 92.5, 112.0), k = {}
+
+>   def reject(*a,**k): raise ccxt.ExchangeError('{"code":"51000","msg":"offline rejection"}')
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ccxt.base.errors.ExchangeError: {"code":"51000","msg":"offline rejection"}
+
+tests/test_core_entry_pipeline.py:330: ExchangeError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6707 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+__ test_bound_lifecycle_emergency_lost_ack_is_queried_and_never_closed_twice ___
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_bound_lifecycle_emergency0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113354690>
+
+    def test_bound_lifecycle_emergency_lost_ack_is_queried_and_never_closed_twice(tmp_path,monkeypatch):
+>       import core_entry_events,ccxt
+E       ModuleNotFoundError: No module named 'core_entry_events'
+
+tests/test_core_entry_pipeline.py:339: ModuleNotFoundError
+_______ test_pending_receipt_cannot_rebind_a_changed_position_lifecycle ________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_pending_receipt_cannot_re0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10aeb64d0>
+
+    def test_pending_receipt_cannot_rebind_a_changed_position_lifecycle(tmp_path,monkeypatch):
+>       import core_entry_events
+E       ModuleNotFoundError: No module named 'core_entry_events'
+
+tests/test_core_entry_pipeline.py:367: ModuleNotFoundError
+___________ test_formatter_keeps_raw_timeout_gate_and_order_separate ___________
+
+    def test_formatter_keeps_raw_timeout_gate_and_order_separate():
+        formatter=getattr(telegram_notify,'format_core_entry_event',None)
+>       assert callable(formatter), 'structured CORE formatter missing'
+E       AssertionError: structured CORE formatter missing
+E       assert False
+E        +  where False = callable(None)
+
+tests/test_core_entry_notifications.py:28: AssertionError
+_________ test_each_result_has_one_durable_notification[GPT_APPROVED] __________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_each_result_has_one_durab0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1133ba110>
+status = 'GPT_APPROVED'
+
+    @pytest.mark.parametrize('status',['GPT_APPROVED','GPT_WAIT','GPT_REJECT','GPT_ERROR','TIMEOUT_BYPASS','LOCAL_BLOCKED','ORDER_SUBMITTED','ORDER_PENDING','FILLED','ORDER_FAILED'])
+    def test_each_result_has_one_durable_notification(tmp_path,monkeypatch,status):
+>       e=events();c=cfg(tmp_path)
+          ^^^^^^^^
+
+tests/test_core_entry_notifications.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def events():
+>       assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E       AssertionError: durable CORE events missing
+E       assert None
+E        +  where None = <function find_spec at 0x109be7060>('core_entry_events')
+E        +    where <function find_spec at 0x109be7060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_entry_notifications.py:10: AssertionError
+___________ test_each_result_has_one_durable_notification[GPT_WAIT] ____________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_each_result_has_one_durab1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1134ad950>
+status = 'GPT_WAIT'
+
+    @pytest.mark.parametrize('status',['GPT_APPROVED','GPT_WAIT','GPT_REJECT','GPT_ERROR','TIMEOUT_BYPASS','LOCAL_BLOCKED','ORDER_SUBMITTED','ORDER_PENDING','FILLED','ORDER_FAILED'])
+    def test_each_result_has_one_durable_notification(tmp_path,monkeypatch,status):
+>       e=events();c=cfg(tmp_path)
+          ^^^^^^^^
+
+tests/test_core_entry_notifications.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def events():
+>       assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E       AssertionError: durable CORE events missing
+E       assert None
+E        +  where None = <function find_spec at 0x109be7060>('core_entry_events')
+E        +    where <function find_spec at 0x109be7060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_entry_notifications.py:10: AssertionError
+__________ test_each_result_has_one_durable_notification[GPT_REJECT] ___________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_each_result_has_one_durab2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11334e1d0>
+status = 'GPT_REJECT'
+
+    @pytest.mark.parametrize('status',['GPT_APPROVED','GPT_WAIT','GPT_REJECT','GPT_ERROR','TIMEOUT_BYPASS','LOCAL_BLOCKED','ORDER_SUBMITTED','ORDER_PENDING','FILLED','ORDER_FAILED'])
+    def test_each_result_has_one_durable_notification(tmp_path,monkeypatch,status):
+>       e=events();c=cfg(tmp_path)
+          ^^^^^^^^
+
+tests/test_core_entry_notifications.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def events():
+>       assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E       AssertionError: durable CORE events missing
+E       assert None
+E        +  where None = <function find_spec at 0x109be7060>('core_entry_events')
+E        +    where <function find_spec at 0x109be7060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_entry_notifications.py:10: AssertionError
+___________ test_each_result_has_one_durable_notification[GPT_ERROR] ___________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_each_result_has_one_durab3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1133b9610>
+status = 'GPT_ERROR'
+
+    @pytest.mark.parametrize('status',['GPT_APPROVED','GPT_WAIT','GPT_REJECT','GPT_ERROR','TIMEOUT_BYPASS','LOCAL_BLOCKED','ORDER_SUBMITTED','ORDER_PENDING','FILLED','ORDER_FAILED'])
+    def test_each_result_has_one_durable_notification(tmp_path,monkeypatch,status):
+>       e=events();c=cfg(tmp_path)
+          ^^^^^^^^
+
+tests/test_core_entry_notifications.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def events():
+>       assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E       AssertionError: durable CORE events missing
+E       assert None
+E        +  where None = <function find_spec at 0x109be7060>('core_entry_events')
+E        +    where <function find_spec at 0x109be7060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_entry_notifications.py:10: AssertionError
+________ test_each_result_has_one_durable_notification[TIMEOUT_BYPASS] _________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_each_result_has_one_durab4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11346ad90>
+status = 'TIMEOUT_BYPASS'
+
+    @pytest.mark.parametrize('status',['GPT_APPROVED','GPT_WAIT','GPT_REJECT','GPT_ERROR','TIMEOUT_BYPASS','LOCAL_BLOCKED','ORDER_SUBMITTED','ORDER_PENDING','FILLED','ORDER_FAILED'])
+    def test_each_result_has_one_durable_notification(tmp_path,monkeypatch,status):
+>       e=events();c=cfg(tmp_path)
+          ^^^^^^^^
+
+tests/test_core_entry_notifications.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def events():
+>       assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E       AssertionError: durable CORE events missing
+E       assert None
+E        +  where None = <function find_spec at 0x109be7060>('core_entry_events')
+E        +    where <function find_spec at 0x109be7060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_entry_notifications.py:10: AssertionError
+_________ test_each_result_has_one_durable_notification[LOCAL_BLOCKED] _________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_each_result_has_one_durab5')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1131665d0>
+status = 'LOCAL_BLOCKED'
+
+    @pytest.mark.parametrize('status',['GPT_APPROVED','GPT_WAIT','GPT_REJECT','GPT_ERROR','TIMEOUT_BYPASS','LOCAL_BLOCKED','ORDER_SUBMITTED','ORDER_PENDING','FILLED','ORDER_FAILED'])
+    def test_each_result_has_one_durable_notification(tmp_path,monkeypatch,status):
+>       e=events();c=cfg(tmp_path)
+          ^^^^^^^^
+
+tests/test_core_entry_notifications.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def events():
+>       assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E       AssertionError: durable CORE events missing
+E       assert None
+E        +  where None = <function find_spec at 0x109be7060>('core_entry_events')
+E        +    where <function find_spec at 0x109be7060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_entry_notifications.py:10: AssertionError
+________ test_each_result_has_one_durable_notification[ORDER_SUBMITTED] ________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_each_result_has_one_durab6')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1133c8150>
+status = 'ORDER_SUBMITTED'
+
+    @pytest.mark.parametrize('status',['GPT_APPROVED','GPT_WAIT','GPT_REJECT','GPT_ERROR','TIMEOUT_BYPASS','LOCAL_BLOCKED','ORDER_SUBMITTED','ORDER_PENDING','FILLED','ORDER_FAILED'])
+    def test_each_result_has_one_durable_notification(tmp_path,monkeypatch,status):
+>       e=events();c=cfg(tmp_path)
+          ^^^^^^^^
+
+tests/test_core_entry_notifications.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def events():
+>       assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E       AssertionError: durable CORE events missing
+E       assert None
+E        +  where None = <function find_spec at 0x109be7060>('core_entry_events')
+E        +    where <function find_spec at 0x109be7060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_entry_notifications.py:10: AssertionError
+_________ test_each_result_has_one_durable_notification[ORDER_PENDING] _________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_each_result_has_one_durab7')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113481310>
+status = 'ORDER_PENDING'
+
+    @pytest.mark.parametrize('status',['GPT_APPROVED','GPT_WAIT','GPT_REJECT','GPT_ERROR','TIMEOUT_BYPASS','LOCAL_BLOCKED','ORDER_SUBMITTED','ORDER_PENDING','FILLED','ORDER_FAILED'])
+    def test_each_result_has_one_durable_notification(tmp_path,monkeypatch,status):
+>       e=events();c=cfg(tmp_path)
+          ^^^^^^^^
+
+tests/test_core_entry_notifications.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def events():
+>       assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E       AssertionError: durable CORE events missing
+E       assert None
+E        +  where None = <function find_spec at 0x109be7060>('core_entry_events')
+E        +    where <function find_spec at 0x109be7060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_entry_notifications.py:10: AssertionError
+____________ test_each_result_has_one_durable_notification[FILLED] _____________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_each_result_has_one_durab8')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1131678d0>
+status = 'FILLED'
+
+    @pytest.mark.parametrize('status',['GPT_APPROVED','GPT_WAIT','GPT_REJECT','GPT_ERROR','TIMEOUT_BYPASS','LOCAL_BLOCKED','ORDER_SUBMITTED','ORDER_PENDING','FILLED','ORDER_FAILED'])
+    def test_each_result_has_one_durable_notification(tmp_path,monkeypatch,status):
+>       e=events();c=cfg(tmp_path)
+          ^^^^^^^^
+
+tests/test_core_entry_notifications.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def events():
+>       assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E       AssertionError: durable CORE events missing
+E       assert None
+E        +  where None = <function find_spec at 0x109be7060>('core_entry_events')
+E        +    where <function find_spec at 0x109be7060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_entry_notifications.py:10: AssertionError
+_________ test_each_result_has_one_durable_notification[ORDER_FAILED] __________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_each_result_has_one_durab9')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1133870d0>
+status = 'ORDER_FAILED'
+
+    @pytest.mark.parametrize('status',['GPT_APPROVED','GPT_WAIT','GPT_REJECT','GPT_ERROR','TIMEOUT_BYPASS','LOCAL_BLOCKED','ORDER_SUBMITTED','ORDER_PENDING','FILLED','ORDER_FAILED'])
+    def test_each_result_has_one_durable_notification(tmp_path,monkeypatch,status):
+>       e=events();c=cfg(tmp_path)
+          ^^^^^^^^
+
+tests/test_core_entry_notifications.py:37: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def events():
+>       assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E       AssertionError: durable CORE events missing
+E       assert None
+E        +  where None = <function find_spec at 0x109be7060>('core_entry_events')
+E        +    where <function find_spec at 0x109be7060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_entry_notifications.py:10: AssertionError
+______________ test_followup_status_is_connected_to_same_decision ______________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_followup_status_is_connec0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1134ad350>
+
+    def test_followup_status_is_connected_to_same_decision(tmp_path,monkeypatch):
+>       e=events();c=cfg(tmp_path);sent=[]
+          ^^^^^^^^
+
+tests/test_core_entry_notifications.py:50: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def events():
+>       assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E       AssertionError: durable CORE events missing
+E       assert None
+E        +  where None = <function find_spec at 0x109be7060>('core_entry_events')
+E        +    where <function find_spec at 0x109be7060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_entry_notifications.py:10: AssertionError
+______ test_notification_timeout_does_not_escape_or_duplicate_on_restart _______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_notification_timeout_does0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1133ba290>
+
+    def test_notification_timeout_does_not_escape_or_duplicate_on_restart(tmp_path,monkeypatch):
+        import requests
+>       e=events();c=cfg(tmp_path);sent=[]
+          ^^^^^^^^
+
+tests/test_core_entry_notifications.py:60: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def events():
+>       assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E       AssertionError: durable CORE events missing
+E       assert None
+E        +  where None = <function find_spec at 0x109be7060>('core_entry_events')
+E        +    where <function find_spec at 0x109be7060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_entry_notifications.py:10: AssertionError
+_________________ test_telegram_http_200_ok_false_is_a_failure _________________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_telegram_http_200_ok_fals0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113167d10>
+
+    def test_telegram_http_200_ok_false_is_a_failure(tmp_path,monkeypatch):
+        c=cfg(tmp_path)
+        response=SimpleNamespace(raise_for_status=lambda:None,json=lambda:{'ok':False,'error_code':400})
+        monkeypatch.setattr(telegram_notify.requests,'post',lambda *a,**k:response)
+>       with pytest.raises(Exception):
+E       Failed: DID NOT RAISE Exception
+
+tests/test_core_entry_notifications.py:77: Failed
+__________ test_confirmed_429_retries_at_most_once_and_stays_bounded ___________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_confirmed_429_retries_at_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113138510>
+
+    def test_confirmed_429_retries_at_most_once_and_stays_bounded(tmp_path,monkeypatch):
+>       e=events();c=cfg(tmp_path);sent=[];delays=[]
+          ^^^^^^^^
+
+tests/test_core_entry_notifications.py:82: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def events():
+>       assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E       AssertionError: durable CORE events missing
+E       assert None
+E        +  where None = <function find_spec at 0x109be7060>('core_entry_events')
+E        +    where <function find_spec at 0x109be7060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_entry_notifications.py:10: AssertionError
+______________ test_uncertain_send_on_process_death_is_not_resent ______________
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-37/test_uncertain_send_on_process0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1133ba4d0>
+
+    def test_uncertain_send_on_process_death_is_not_resent(tmp_path,monkeypatch):
+>       e=events();c=cfg(tmp_path);sent=[]
+          ^^^^^^^^
+
+tests/test_core_entry_notifications.py:96: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def events():
+>       assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E       AssertionError: durable CORE events missing
+E       assert None
+E        +  where None = <function find_spec at 0x109be7060>('core_entry_events')
+E        +    where <function find_spec at 0x109be7060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_entry_notifications.py:10: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_core_gpt_timeout_policy.py::test_confirmed_entry_timeout_bypasses_without_forged_approval[long]
+FAILED tests/test_core_gpt_timeout_policy.py::test_confirmed_entry_timeout_bypasses_without_forged_approval[short]
+FAILED tests/test_core_gpt_timeout_policy.py::test_non_timeout_and_unproven_timeout_cannot_bypass[timeout-APIConnectionError]
+FAILED tests/test_core_gpt_timeout_policy.py::test_non_timeout_and_unproven_timeout_cannot_bypass[api_error-APITimeoutError]
+FAILED tests/test_core_gpt_timeout_policy.py::test_non_timeout_and_unproven_timeout_cannot_bypass[rate_limit-RateLimitError]
+FAILED tests/test_core_gpt_timeout_policy.py::test_non_timeout_and_unproven_timeout_cannot_bypass[authentication_error-AuthenticationError]
+FAILED tests/test_core_gpt_timeout_policy.py::test_non_timeout_and_unproven_timeout_cannot_bypass[parse_error-JSONDecodeError]
+FAILED tests/test_core_gpt_timeout_policy.py::test_non_timeout_and_unproven_timeout_cannot_bypass[empty_response-None]
+FAILED tests/test_core_gpt_timeout_policy.py::test_timeout_policy_does_not_apply_to_candidate_c[DOGE/USDT:USDT]
+FAILED tests/test_core_gpt_timeout_policy.py::test_timeout_policy_does_not_apply_to_candidate_c[SOL/USDT:USDT]
+FAILED tests/test_core_gpt_timeout_policy.py::test_sdk_timeout_retains_typed_original_provenance
+FAILED tests/test_core_gpt_timeout_policy.py::test_paid_observation_shadow_off_by_default
+FAILED tests/test_core_gpt_timeout_policy.py::test_sdk_non_timeout_errors_keep_type_and_never_admit[auth]
+FAILED tests/test_core_gpt_timeout_policy.py::test_sdk_non_timeout_errors_keep_type_and_never_admit[billing]
+FAILED tests/test_core_gpt_timeout_policy.py::test_sdk_non_timeout_errors_keep_type_and_never_admit[rate]
+FAILED tests/test_core_gpt_timeout_policy.py::test_sdk_non_timeout_errors_keep_type_and_never_admit[connection]
+FAILED tests/test_core_gpt_timeout_policy.py::test_sdk_non_timeout_errors_keep_type_and_never_admit[server]
+FAILED tests/test_core_gpt_timeout_policy.py::test_sdk_non_timeout_errors_keep_type_and_never_admit[generic_timeout_text]
+FAILED tests/test_core_gpt_timeout_policy.py::test_typed_timeout_from_held_verification_is_never_entry_bypass
+FAILED tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-long]
+FAILED tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-short]
+FAILED tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-long]
+FAILED tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-short]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-approved-long]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-approved-short]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-timeout-long]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-timeout-short]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-approved-long]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-approved-short]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-timeout-long]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-timeout-short]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-approved-long]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-approved-short]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-timeout-long]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-timeout-short]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-approved-long]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-approved-short]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-timeout-long]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-timeout-short]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-approved-long]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-approved-short]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-timeout-long]
+FAILED tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-timeout-short]
+FAILED tests/test_core_entry_pipeline.py::test_timeout_never_uses_fabricated_gpt_plan[long]
+FAILED tests/test_core_entry_pipeline.py::test_timeout_never_uses_fabricated_gpt_plan[short]
+FAILED tests/test_core_entry_pipeline.py::test_ambiguous_exchange_ack_is_queried_and_not_resubmitted
+FAILED tests/test_core_entry_pipeline.py::test_accepted_pending_order_is_not_reported_failed_or_filled
+FAILED tests/test_core_entry_pipeline.py::test_client_id_query_never_fabricates_requested_identity
+FAILED tests/test_core_entry_pipeline.py::test_pending_original_order_blocks_new_decision_without_new_submit
+FAILED tests/test_core_entry_pipeline.py::test_pending_fill_recovers_without_new_gpt_or_new_order
+FAILED tests/test_core_entry_pipeline.py::test_disabled_core_gpt_gate_cannot_silently_place_unapproved_entry
+FAILED tests/test_core_entry_pipeline.py::test_gpt_blocked_dashboard_preserves_decision_and_raw_result[wait]
+FAILED tests/test_core_entry_pipeline.py::test_gpt_blocked_dashboard_preserves_decision_and_raw_result[reject]
+FAILED tests/test_core_entry_pipeline.py::test_gpt_blocked_dashboard_preserves_decision_and_raw_result[ERROR]
+FAILED tests/test_core_entry_pipeline.py::test_pending_exchange_state_never_journals_position_without_fill_proof
+FAILED tests/test_core_entry_pipeline.py::test_protection_lookup_exception_freezes_account_and_keeps_receipt_pending
+FAILED tests/test_core_entry_pipeline.py::test_unbound_or_changed_lifecycle_never_authorizes_emergency_close
+FAILED tests/test_core_entry_pipeline.py::test_state_cache_failure_does_not_drop_durable_gate_and_fill_events
+FAILED tests/test_core_entry_pipeline.py::test_gate_order_notification_failures_cannot_change_a_protected_fill
+FAILED tests/test_core_entry_pipeline.py::test_final_eligibility_failure_preserves_existing_long_before_reversal[approved]
+FAILED tests/test_core_entry_pipeline.py::test_final_eligibility_failure_preserves_existing_long_before_reversal[timeout]
+FAILED tests/test_core_entry_pipeline.py::test_eligible_reversal_confirms_flat_then_reaches_replacement_order[approved-long]
+FAILED tests/test_core_entry_pipeline.py::test_eligible_reversal_confirms_flat_then_reaches_replacement_order[approved-short]
+FAILED tests/test_core_entry_pipeline.py::test_eligible_reversal_confirms_flat_then_reaches_replacement_order[timeout-long]
+FAILED tests/test_core_entry_pipeline.py::test_eligible_reversal_confirms_flat_then_reaches_replacement_order[timeout-short]
+FAILED tests/test_core_entry_pipeline.py::test_exchange_rejection_exposes_code_and_does_not_look_filled
+FAILED tests/test_core_entry_pipeline.py::test_bound_lifecycle_emergency_lost_ack_is_queried_and_never_closed_twice
+FAILED tests/test_core_entry_pipeline.py::test_pending_receipt_cannot_rebind_a_changed_position_lifecycle
+FAILED tests/test_core_entry_notifications.py::test_formatter_keeps_raw_timeout_gate_and_order_separate
+FAILED tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[GPT_APPROVED]
+FAILED tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[GPT_WAIT]
+FAILED tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[GPT_REJECT]
+FAILED tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[GPT_ERROR]
+FAILED tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[TIMEOUT_BYPASS]
+FAILED tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[LOCAL_BLOCKED]
+FAILED tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[ORDER_SUBMITTED]
+FAILED tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[ORDER_PENDING]
+FAILED tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[FILLED]
+FAILED tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[ORDER_FAILED]
+FAILED tests/test_core_entry_notifications.py::test_followup_status_is_connected_to_same_decision
+FAILED tests/test_core_entry_notifications.py::test_notification_timeout_does_not_escape_or_duplicate_on_restart
+FAILED tests/test_core_entry_notifications.py::test_telegram_http_200_ok_false_is_a_failure
+FAILED tests/test_core_entry_notifications.py::test_confirmed_429_retries_at_most_once_and_stays_bounded
+FAILED tests/test_core_entry_notifications.py::test_uncertain_send_on_process_death_is_not_resent
+84 failed, 22 passed in 2.59s

@@ -1,0 +1,8 @@
+MainPID=96429
+NRestarts=0
+ExecStart={ path=/opt/autotrader/.venv/bin/python3 ; argv[]=/opt/autotrader/.venv/bin/python3 /opt/autotrader/web_app.py ; ignore_errors=no ; start_time=[Thu 2026-10-08 21:35:32 KST] ; stop_time=[n/a] ; pid=96429 ; code=(null) ; status=0/0 }
+WorkingDirectory=/opt/autotrader
+ActiveState=active
+/opt/autotrader-releases/core_gpt_recovery_v5_20261008T213530KST
+0218e6f6138a070fa79c2aebd9b608730105e4b7f6bd9a2c9ce8fc3b4e557190  /opt/autotrader/trader.py
+{"time": 1791462949.8065968, "results": {"core": {"ok": true}, "candidate_c": {"mode": "live", "ok": true, "symbols": ["DOGE/USDT:USDT", "SOL/USDT:USDT"]}}}

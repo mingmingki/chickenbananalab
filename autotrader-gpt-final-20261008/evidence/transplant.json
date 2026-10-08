@@ -1,0 +1,50 @@
+[
+  {
+    "file": "config.py",
+    "hunks": 1
+  },
+  {
+    "file": "core_entry_events.py",
+    "new": true
+  },
+  {
+    "file": "core_entry_orders.py",
+    "new": true
+  },
+  {
+    "file": "core_entry_policy.py",
+    "new": true
+  },
+  {
+    "file": "gpt_shadow_log.py",
+    "hunks": 4
+  },
+  {
+    "file": "okx_client.py",
+    "hunks": 1
+  },
+  {
+    "file": "openai_analyzer.py",
+    "hunks": 2
+  },
+  {
+    "file": "static/core_entry_status.js",
+    "new": true
+  },
+  {
+    "file": "telegram_notify.py",
+    "hunks": 1
+  },
+  {
+    "file": "trader.py",
+    "hunks": 27
+  },
+  {
+    "file": "web_app.py",
+    "surgical_ui": true
+  },
+  {
+    "file": "templates/dashboard.html",
+    "surgical_ui": true
+  }
+]

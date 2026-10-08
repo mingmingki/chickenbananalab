@@ -1,0 +1,165 @@
+FFFFFFF                                                                  [100%]
+=================================== FAILURES ===================================
+____ test_usage_preserves_legacy_totals_and_records_optional_real_metadata _____
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-40/test_usage_preserves_legacy_to0')
+
+    def test_usage_preserves_legacy_totals_and_records_optional_real_metadata(tmp_path):
+>       usage_log.record_usage(str(tmp_path), 'ETH', 1000, 200, provider='openai', purpose='entry_gate',
+                               model='fixture-model', request_id='req-real', response_id='resp-real',
+                               input_fingerprint='hash', retry_limit=2)
+E       TypeError: record_usage() got an unexpected keyword argument 'model'
+
+tests/test_ai_cost_metadata_recovery.py:21: TypeError
+_ test_cost_summary_separates_repeat_inputs_log_duplicates_and_unknown_retries _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-40/test_cost_summary_separates_re0')
+
+    def test_cost_summary_separates_repeat_inputs_log_duplicates_and_unknown_retries(tmp_path):
+        base = dict(time='2026-10-08T11:00:00+09:00', cost_usd=.1, provider='openai',
+                    purpose='entry_gate', symbol='ETH', model='fixture-model', input_tokens=10,
+                    output_tokens=5, total_tokens=15, input_fingerprint='same-input', retry_limit=2)
+        rows = [dict(base, request_id='req-1', retry_count=1),
+                dict(base, request_id='req-2', retry_count=None),
+                dict(base, request_id='req-2', retry_count=None),
+                dict(time='2026-10-08T11:01:00+09:00', cost_usd=.2, total_tokens=8),
+                dict(base, time='2026-10-07T11:59:59+09:00'),
+                dict(base, time='2026-10-08T12:00:01+09:00')]
+        (tmp_path / 'token_usage.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+        before = (tmp_path / 'token_usage.jsonl').read_bytes()
+        result = operating_costs.build_operating_cost_summary(str(tmp_path), now=NOW, assumptions={})
+        assert result['rolling_24h_cost_usd'] == .5
+>       assert result['by_model_24h']['fixture-model']['calls'] == 3
+               ^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'by_model_24h'
+
+tests/test_ai_cost_metadata_recovery.py:52: KeyError
+_ test_entry_usage_and_latency_record_purpose_model_and_retry_uncertainty[0-0] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-40/test_entry_usage_and_latency_r0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b210610>
+retry_limit = 0, expected = 0
+
+    @pytest.mark.parametrize('retry_limit,expected', [(0, 0), (2, None), (None, None)])
+    def test_entry_usage_and_latency_record_purpose_model_and_retry_uncertainty(tmp_path, monkeypatch, retry_limit, expected):
+        import openai_analyzer
+        response = SimpleNamespace(model='actual-openai-model', _request_id='req-offline', id='resp-offline',
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"decision":"wait","confidence":0.8,"reasoning":"offline"}'))])
+        class OfflineClient:
+            max_retries = retry_limit
+            def with_options(self, **options): return self
+            def create(self, **kwargs): return response
+        client = OfflineClient()
+        client.chat = SimpleNamespace(completions=client)
+        monkeypatch.setattr(openai_analyzer, '_get_client', lambda _: client)
+        monkeypatch.setattr(openai_analyzer, '_ensure_response_models_warmed_up', lambda: None)
+        cfg = SimpleNamespace(OPENAI_API_KEY='offline', OPENAI_MODEL='configured-model',
+                              user_dir=str(tmp_path), logger=logging.getLogger('offline'))
+        openai_analyzer.verify(cfg, 'ETH', [], 'private prompt', None,
+                              {'action':'long', 'confidence':.8}, purpose='entry_gate', max_retries=retry_limit)
+        row = read_rows(tmp_path / 'token_usage.jsonl')[0]
+>       assert row['purpose'] == 'entry_gate' and row['model'] == 'actual-openai-model'
+E       AssertionError: assert (None == 'entry_gate')
+
+tests/test_ai_cost_metadata_recovery.py:84: AssertionError
+_ test_entry_usage_and_latency_record_purpose_model_and_retry_uncertainty[2-None] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-40/test_entry_usage_and_latency_r1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d269450>
+retry_limit = 2, expected = None
+
+    @pytest.mark.parametrize('retry_limit,expected', [(0, 0), (2, None), (None, None)])
+    def test_entry_usage_and_latency_record_purpose_model_and_retry_uncertainty(tmp_path, monkeypatch, retry_limit, expected):
+        import openai_analyzer
+        response = SimpleNamespace(model='actual-openai-model', _request_id='req-offline', id='resp-offline',
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"decision":"wait","confidence":0.8,"reasoning":"offline"}'))])
+        class OfflineClient:
+            max_retries = retry_limit
+            def with_options(self, **options): return self
+            def create(self, **kwargs): return response
+        client = OfflineClient()
+        client.chat = SimpleNamespace(completions=client)
+        monkeypatch.setattr(openai_analyzer, '_get_client', lambda _: client)
+        monkeypatch.setattr(openai_analyzer, '_ensure_response_models_warmed_up', lambda: None)
+        cfg = SimpleNamespace(OPENAI_API_KEY='offline', OPENAI_MODEL='configured-model',
+                              user_dir=str(tmp_path), logger=logging.getLogger('offline'))
+        openai_analyzer.verify(cfg, 'ETH', [], 'private prompt', None,
+                              {'action':'long', 'confidence':.8}, purpose='entry_gate', max_retries=retry_limit)
+        row = read_rows(tmp_path / 'token_usage.jsonl')[0]
+>       assert row['purpose'] == 'entry_gate' and row['model'] == 'actual-openai-model'
+E       AssertionError: assert (None == 'entry_gate')
+
+tests/test_ai_cost_metadata_recovery.py:84: AssertionError
+_ test_entry_usage_and_latency_record_purpose_model_and_retry_uncertainty[None-None] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-40/test_entry_usage_and_latency_r2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d2e85d0>
+retry_limit = None, expected = None
+
+    @pytest.mark.parametrize('retry_limit,expected', [(0, 0), (2, None), (None, None)])
+    def test_entry_usage_and_latency_record_purpose_model_and_retry_uncertainty(tmp_path, monkeypatch, retry_limit, expected):
+        import openai_analyzer
+        response = SimpleNamespace(model='actual-openai-model', _request_id='req-offline', id='resp-offline',
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"decision":"wait","confidence":0.8,"reasoning":"offline"}'))])
+        class OfflineClient:
+            max_retries = retry_limit
+            def with_options(self, **options): return self
+            def create(self, **kwargs): return response
+        client = OfflineClient()
+        client.chat = SimpleNamespace(completions=client)
+        monkeypatch.setattr(openai_analyzer, '_get_client', lambda _: client)
+        monkeypatch.setattr(openai_analyzer, '_ensure_response_models_warmed_up', lambda: None)
+        cfg = SimpleNamespace(OPENAI_API_KEY='offline', OPENAI_MODEL='configured-model',
+                              user_dir=str(tmp_path), logger=logging.getLogger('offline'))
+        openai_analyzer.verify(cfg, 'ETH', [], 'private prompt', None,
+                              {'action':'long', 'confidence':.8}, purpose='entry_gate', max_retries=retry_limit)
+        row = read_rows(tmp_path / 'token_usage.jsonl')[0]
+>       assert row['purpose'] == 'entry_gate' and row['model'] == 'actual-openai-model'
+E       AssertionError: assert (None == 'entry_gate')
+
+tests/test_ai_cost_metadata_recovery.py:84: AssertionError
+_ test_gemini_review_records_real_model_response_identity_and_unknown_retries __
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-40/test_gemini_review_records_rea0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d2df650>
+
+    def test_gemini_review_records_real_model_response_identity_and_unknown_retries(tmp_path, monkeypatch):
+        import gemini_analyzer
+        response = SimpleNamespace(model_version='actual-gemini-model', response_id='resp-gemini', text='{}',
+            usage_metadata=SimpleNamespace(prompt_token_count=10, candidates_token_count=5, thoughts_token_count=3))
+        client = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **_: response))
+        monkeypatch.setattr(gemini_analyzer, '_get_client', lambda _: client)
+        cfg = SimpleNamespace(GEMINI_MODEL='configured-gemini', user_dir=str(tmp_path), logger=None)
+        gemini_analyzer.review_strategy_report(cfg, {'offline': True})
+        row = read_rows(tmp_path / 'token_usage.jsonl')[0]
+>       assert row['purpose'] == 'strategy_review' and row['model'] == 'actual-gemini-model'
+                                                       ^^^^^^^^^^^^
+E       KeyError: 'model'
+
+tests/test_ai_cost_metadata_recovery.py:102: KeyError
+______ test_latency_legacy_retry_ceiling_is_never_relabelled_as_measured _______
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-40/test_latency_legacy_retry_ceil0')
+
+    def test_latency_legacy_retry_ceiling_is_never_relabelled_as_measured(tmp_path):
+        import gpt_latency_log
+        gpt_latency_log.record_call(str(tmp_path), 'ETH', 'entry_gate', 'fixture',
+                                   '2026-10-08T11:00:00', 100, False, 2)
+        row = read_rows(tmp_path / 'gpt_latency_log.jsonl')[0]
+>       assert row['retry_limit'] == 2 and row['retry_count'] is None
+               ^^^^^^^^^^^^^^^^^^
+E       KeyError: 'retry_limit'
+
+tests/test_ai_cost_metadata_recovery.py:113: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_ai_cost_metadata_recovery.py::test_usage_preserves_legacy_totals_and_records_optional_real_metadata
+FAILED tests/test_ai_cost_metadata_recovery.py::test_cost_summary_separates_repeat_inputs_log_duplicates_and_unknown_retries
+FAILED tests/test_ai_cost_metadata_recovery.py::test_entry_usage_and_latency_record_purpose_model_and_retry_uncertainty[0-0]
+FAILED tests/test_ai_cost_metadata_recovery.py::test_entry_usage_and_latency_record_purpose_model_and_retry_uncertainty[2-None]
+FAILED tests/test_ai_cost_metadata_recovery.py::test_entry_usage_and_latency_record_purpose_model_and_retry_uncertainty[None-None]
+FAILED tests/test_ai_cost_metadata_recovery.py::test_gemini_review_records_real_model_response_identity_and_unknown_retries
+FAILED tests/test_ai_cost_metadata_recovery.py::test_latency_legacy_retry_ceiling_is_never_relabelled_as_measured
+7 failed in 0.81s

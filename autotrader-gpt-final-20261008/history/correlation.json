@@ -1,0 +1,363 @@
+{
+  "summary": {
+    "snapshot_utc": "2026-10-08T09:08:09.817118+00:00",
+    "gpt_entry_gate_count": 50,
+    "gpt_gate_counts": {
+      "blocked_reject": 8,
+      "approved": 15,
+      "blocked_error": 13,
+      "blocked_wait": 14
+    },
+    "approved_order_success_counts": {
+      "False": 10,
+      "True": 5
+    },
+    "exchange_day_order_count": 31,
+    "exchange_day_order_states": {
+      "filled": 31
+    },
+    "exchange_day_nonreduce_count": 13,
+    "journal_day_open_count": 13,
+    "fill_rows": 129,
+    "fill_mismatches": [],
+    "missing_journal_opens": [],
+    "missing_protection_evidence": []
+  },
+  "entries": [
+    {
+      "symbol": "BTC/USDT:USDT",
+      "side": "short",
+      "kst": "2026-10-08T17:36:34.357000+09:00",
+      "ordId": "3991171990239825920",
+      "clOrdId": "6b9ad766b55dBCDE8cc5d053a6159836",
+      "order_state": "filled",
+      "contracts": "1.2",
+      "avgPx": "82783.9",
+      "fill_count": 1,
+      "sum_fill_contracts": "1.2",
+      "fill_matches_order": true,
+      "journal_open_matches": 1,
+      "journal_open_time": "2026-10-08T17:36:35",
+      "decision_ids": [
+        "BTC/USDT:USDT-20261008173605559127"
+      ],
+      "protection_algos": [
+        {
+          "algoId": "3991171990250430464",
+          "state": "live",
+          "sl": "84100",
+          "tp": "80474",
+          "sz": "1.2"
+        }
+      ]
+    },
+    {
+      "symbol": "BTC/USDT:USDT",
+      "side": "short",
+      "kst": "2026-10-08T15:30:46.438000+09:00",
+      "ordId": "3990918724104998912",
+      "clOrdId": "6b9ad766b55dBCDEa1f414788cce2f05",
+      "order_state": "filled",
+      "contracts": "1.21",
+      "avgPx": "82516.3",
+      "fill_count": 1,
+      "sum_fill_contracts": "1.21",
+      "fill_matches_order": true,
+      "journal_open_matches": 1,
+      "journal_open_time": "2026-10-08T15:30:47",
+      "decision_ids": [
+        "BTC/USDT:USDT-20261008153023951046"
+      ],
+      "protection_algos": [
+        {
+          "algoId": "3990918724115603456",
+          "state": "canceled",
+          "sl": "83730",
+          "tp": "80207",
+          "sz": "0.91"
+        }
+      ]
+    },
+    {
+      "symbol": "SOL/USDT:USDT",
+      "side": "short",
+      "kst": "2026-10-08T15:30:35.639000+09:00",
+      "ordId": "3990918361750687744",
+      "clOrdId": "6ef0fa8479ea9928b37ad4c6420879f6",
+      "order_state": "filled",
+      "contracts": "1.61",
+      "avgPx": "114.69",
+      "fill_count": 1,
+      "sum_fill_contracts": "1.61",
+      "fill_matches_order": true,
+      "journal_open_matches": 1,
+      "journal_open_time": "2026-10-08T15:30:38",
+      "decision_ids": [],
+      "protection_algos": [
+        {
+          "algoId": "3990918361761292288",
+          "state": "live",
+          "sl": "120.41",
+          "tp": "100.94",
+          "sz": "1.61"
+        }
+      ]
+    },
+    {
+      "symbol": "ETH/USDT:USDT",
+      "side": "long",
+      "kst": "2026-10-08T13:30:47.417000+09:00",
+      "ordId": "3990677165044387840",
+      "clOrdId": "6b9ad766b55dBCDE216fb0f9dd3fac22",
+      "order_state": "filled",
+      "contracts": "3.87",
+      "avgPx": "2573.22",
+      "fill_count": 1,
+      "sum_fill_contracts": "3.87",
+      "fill_matches_order": true,
+      "journal_open_matches": 1,
+      "journal_open_time": "2026-10-08T13:30:48",
+      "decision_ids": [
+        "ETH/USDT:USDT-20261008133020913988"
+      ],
+      "protection_algos": [
+        {
+          "algoId": "3990677165021437953",
+          "state": "canceled",
+          "sl": "2525.22",
+          "tp": "2645",
+          "sz": "3.87"
+        }
+      ]
+    },
+    {
+      "symbol": "PI/USDT:USDT",
+      "side": "long",
+      "kst": "2026-10-08T11:38:37.103000+09:00",
+      "ordId": "3990451333180936192",
+      "clOrdId": "6b9ad766b55dBCDE824d4b2c8730d481",
+      "order_state": "filled",
+      "contracts": "12285",
+      "avgPx": "0.0814327138787146",
+      "fill_count": 26,
+      "sum_fill_contracts": "12285",
+      "fill_matches_order": true,
+      "journal_open_matches": 1,
+      "journal_open_time": "2026-10-08T11:38:37",
+      "decision_ids": [],
+      "protection_algos": [
+        {
+          "algoId": "3990451333225095168",
+          "state": "live",
+          "sl": "0.08151",
+          "tp": "0.08466",
+          "sz": "6143"
+        }
+      ]
+    },
+    {
+      "symbol": "BTC/USDT:USDT",
+      "side": "long",
+      "kst": "2026-10-08T11:26:45.991000+09:00",
+      "ordId": "3990427472221687808",
+      "clOrdId": "6b9ad766b55dBCDEcd06c94106ea1024",
+      "order_state": "filled",
+      "contracts": "1.2",
+      "avgPx": "83154.9",
+      "fill_count": 1,
+      "sum_fill_contracts": "1.2",
+      "fill_matches_order": true,
+      "journal_open_matches": 1,
+      "journal_open_time": "2026-10-08T11:26:46",
+      "decision_ids": [],
+      "protection_algos": [
+        {
+          "algoId": "3990427472232292352",
+          "state": "canceled",
+          "sl": "81492.7",
+          "tp": "86482",
+          "sz": "1.2"
+        }
+      ]
+    },
+    {
+      "symbol": "ETH/USDT:USDT",
+      "side": "short",
+      "kst": "2026-10-08T11:12:52.927000+09:00",
+      "ordId": "3990399519232348160",
+      "clOrdId": "6b9ad766b55dBCDE8311b22737981680",
+      "order_state": "filled",
+      "contracts": "3.88",
+      "avgPx": "2574.43",
+      "fill_count": 1,
+      "sum_fill_contracts": "3.88",
+      "fill_matches_order": true,
+      "journal_open_matches": 1,
+      "journal_open_time": "2026-10-08T11:12:53",
+      "decision_ids": [
+        "ETH/USDT:USDT-20261008111223761676"
+      ],
+      "protection_algos": [
+        {
+          "algoId": "3990399519242952704",
+          "state": "canceled",
+          "sl": "2622.31",
+          "tp": "2503.2",
+          "sz": "3.88"
+        }
+      ]
+    },
+    {
+      "symbol": "BTC/USDT:USDT",
+      "side": "long",
+      "kst": "2026-10-08T09:20:51.200000+09:00",
+      "ordId": "3990173975500804096",
+      "clOrdId": "6b9ad766b55dBCDE65421d7288fea461",
+      "order_state": "filled",
+      "contracts": "1.19",
+      "avgPx": "83320",
+      "fill_count": 1,
+      "sum_fill_contracts": "1.19",
+      "fill_matches_order": true,
+      "journal_open_matches": 1,
+      "journal_open_time": "2026-10-08T09:20:51",
+      "decision_ids": [
+        "BTC/USDT:USDT-20261008092026596620"
+      ],
+      "protection_algos": [
+        {
+          "algoId": "3990173975511408640",
+          "state": "canceled",
+          "sl": "80637.3",
+          "tp": "91461.7",
+          "sz": "1.19"
+        }
+      ]
+    },
+    {
+      "symbol": "XRP/USDT:USDT",
+      "side": "long",
+      "kst": "2026-10-08T08:36:52.139000+09:00",
+      "ordId": "3990085423307935744",
+      "clOrdId": "6b9ad766b55dBCDE0d360c3a75d0735f",
+      "order_state": "filled",
+      "contracts": "7.03",
+      "avgPx": "1.4216",
+      "fill_count": 2,
+      "sum_fill_contracts": "7.03",
+      "fill_matches_order": true,
+      "journal_open_matches": 1,
+      "journal_open_time": "2026-10-08T08:36:52",
+      "decision_ids": [],
+      "protection_algos": [
+        {
+          "algoId": "3990085423318540288",
+          "state": "canceled",
+          "sl": "1.3932",
+          "tp": "1.4785",
+          "sz": "7.03"
+        }
+      ]
+    },
+    {
+      "symbol": "ETH/USDT:USDT",
+      "side": "long",
+      "kst": "2026-10-08T08:36:14.580000+09:00",
+      "ordId": "3990084163037024256",
+      "clOrdId": "6b9ad766b55dBCDE913e2f9d1b29c32f",
+      "order_state": "filled",
+      "contracts": "3.88",
+      "avgPx": "2575.52",
+      "fill_count": 4,
+      "sum_fill_contracts": "3.88",
+      "fill_matches_order": true,
+      "journal_open_matches": 1,
+      "journal_open_time": "2026-10-08T08:36:15",
+      "decision_ids": [],
+      "protection_algos": [
+        {
+          "algoId": "3990084163047628800",
+          "state": "canceled",
+          "sl": "2524",
+          "tp": "2678.53",
+          "sz": "3.88"
+        }
+      ]
+    },
+    {
+      "symbol": "BTC/USDT:USDT",
+      "side": "long",
+      "kst": "2026-10-08T08:35:59.142000+09:00",
+      "ordId": "3990083645023703040",
+      "clOrdId": "6b9ad766b55dBCDE45f4906c82627ae7",
+      "order_state": "filled",
+      "contracts": "1.19",
+      "avgPx": "83361.6",
+      "fill_count": 1,
+      "sum_fill_contracts": "1.19",
+      "fill_matches_order": true,
+      "journal_open_matches": 1,
+      "journal_open_time": "2026-10-08T08:35:59",
+      "decision_ids": [],
+      "protection_algos": [
+        {
+          "algoId": "3990083645000753153",
+          "state": "canceled",
+          "sl": "81694.4",
+          "tp": "86696.1",
+          "sz": "1.19"
+        }
+      ]
+    },
+    {
+      "symbol": "SOL/USDT:USDT",
+      "side": "short",
+      "kst": "2026-10-08T03:20:53.971000+09:00",
+      "ordId": "3989449292748935168",
+      "clOrdId": "60a101f99ae296036a3fcfaf0cfe33e7",
+      "order_state": "filled",
+      "contracts": "0.76",
+      "avgPx": "116.37",
+      "fill_count": 1,
+      "sum_fill_contracts": "0.76",
+      "fill_matches_order": true,
+      "journal_open_matches": 1,
+      "journal_open_time": "2026-10-08T03:20:56",
+      "decision_ids": [],
+      "protection_algos": [
+        {
+          "algoId": "3989449292759539712",
+          "state": "canceled",
+          "sl": "122.41",
+          "tp": "102.42",
+          "sz": "0.76"
+        }
+      ]
+    },
+    {
+      "symbol": "DOGE/USDT:USDT",
+      "side": "short",
+      "kst": "2026-10-08T02:30:50.574000+09:00",
+      "ordId": "3989348515468529664",
+      "clOrdId": "29842636f52adab793ef36fe560d2e4c",
+      "order_state": "filled",
+      "contracts": "1.45",
+      "avgPx": "0.08832",
+      "fill_count": 1,
+      "sum_fill_contracts": "1.45",
+      "fill_matches_order": true,
+      "journal_open_matches": 1,
+      "journal_open_time": "2026-10-08T02:30:52",
+      "decision_ids": [],
+      "protection_algos": [
+        {
+          "algoId": "3989348515445579777",
+          "state": "canceled",
+          "sl": "0.09477",
+          "tp": "0.07773",
+          "sz": "1.45"
+        }
+      ]
+    }
+  ]
+}

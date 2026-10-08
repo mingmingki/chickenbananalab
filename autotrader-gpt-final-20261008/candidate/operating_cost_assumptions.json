@@ -1,0 +1,15 @@
+{
+  "verified_at": "2026-10-06",
+  "machine_type": "e2-medium",
+  "region": "us-central1",
+  "disk_type": "pd-standard",
+  "disk_gb": 20,
+  "external_ipv4": "34.28.148.113",
+  "external_ipv4_count": 1,
+  "hours_per_month": 730,
+  "compute_hourly_usd": 0.03350571,
+  "ip_hourly_usd": 0.005,
+  "disk_gb_month_usd": 0.04,
+  "exclusions": ["세금", "네트워크 전송", "로그 저장", "할인·무료 할당·크레딧"],
+  "sources": ["https://cloud.google.com/products/compute/pricing/general-purpose", "https://cloud.google.com/compute/disks-image-pricing", "https://cloud.google.com/vpc/network-pricing"]
+}

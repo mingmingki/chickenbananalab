@@ -1,0 +1,32 @@
+[
+  {
+    "suite": "tests",
+    "exit_code": 0,
+    "log": "final-tests.log",
+    "xml": "final-tests.xml"
+  },
+  {
+    "suite": "gemini_checks",
+    "exit_code": 0,
+    "log": "final-gemini_checks.log",
+    "xml": "final-gemini_checks.xml"
+  },
+  {
+    "suite": "negative_guard_checks",
+    "exit_code": 0,
+    "log": "final-negative_guard_checks.log",
+    "xml": "final-negative_guard_checks.xml"
+  },
+  {
+    "suite": "rollback_checks",
+    "exit_code": 0,
+    "log": "final-rollback_checks.log",
+    "xml": "final-rollback_checks.xml"
+  },
+  {
+    "suite": "rollback_full_checks",
+    "exit_code": 0,
+    "log": "final-rollback_full_checks.log",
+    "xml": "final-rollback_full_checks.xml"
+  }
+]

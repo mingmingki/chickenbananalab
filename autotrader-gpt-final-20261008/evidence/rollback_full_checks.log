@@ -1,0 +1,62 @@
+...................................................................F.. [ 27%]
+................................................................. [ 52%]
+................................................... [ 72%]
+..................................................F..... [ 94%]
+...............                                                          [100%]
+=================================== FAILURES ===================================
+______ EventSettingsTests.test_actual_settings_handler_bool_and_omission _______
+
+self = <test_event_settings.EventSettingsTests testMethod=test_actual_settings_handler_bool_and_omission>
+
+    def test_actual_settings_handler_bool_and_omission(self):
+        source=ast.parse(Path(__file__).resolve().parents[1].joinpath('web_app.py').read_text())
+        node=next(n for n in source.body if isinstance(n,ast.FunctionDef) and n.name=='api_settings');node.decorator_list=[]
+        saved={};cfg=NS(CORE_EVENT_AI_ENABLED=True,POSITION_SIZE_MODE='RISK',POSITION_FIXED_USDT=150,POSITION_PERCENT=10,
+            CORE_SHORT_MAX_MARGIN_USDT=150,GPT_ENTRY_GATE_ENABLED=False,POSITION_AI_REVIEW_ENABLED=True,MAX_LEVERAGE=5,
+            save_env=lambda v:saved.update(v))
+        data=dict(poll_interval_seconds=300,leverage=5,stop_loss_pct=1.5,take_profit_pct=3,min_confidence=.6,min_hold_minutes=15)
+        ns=dict(get_context=lambda n:NS(cfg=cfg,dir='/unused'),session={'username':'test'},request=NS(get_json=lambda **kw:data),
+            account_order_lock=lambda d:nullcontext(),jsonify=lambda *a,**kw:a[0] if a else kw)
+        exec(compile(ast.Module(body=[node],type_ignores=[]),'route','exec'),ns)
+>       self.assertEqual(ns['api_settings'](),{'ok':True});self.assertEqual(saved['CORE_EVENT_AI_ENABLED'],'true')
+                         ^^^^^^^^^^^^^^^^^^^^
+
+rollback_full_checks/test_event_settings.py:17: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+>   ???
+E   NameError: name '_core_order_mode_updates' is not defined
+
+route:2371: NameError
+______ SettingsRouteTests.test_off_on_and_invalid_values_use_saved_config ______
+
+self = <test_settings_route.SettingsRouteTests testMethod=test_off_on_and_invalid_values_use_saved_config>
+
+    def test_off_on_and_invalid_values_use_saved_config(self):
+        from config import UserConfig
+        source=ast.parse(Path(__file__).resolve().parents[1].joinpath('web_app.py').read_text())
+        node=next(n for n in source.body if isinstance(n,ast.FunctionDef) and n.name=='api_settings')
+        node.decorator_list=[]
+        with tempfile.TemporaryDirectory() as d:
+            cfg=UserConfig(d)
+            data=dict(poll_interval_seconds=300,leverage=5,stop_loss_pct=1.5,take_profit_pct=3,
+                min_confidence=.6,min_hold_minutes=15,position_size_mode='RISK',
+                gpt_entry_gate_enabled=False,position_ai_review_enabled=True)
+            ns=dict(get_context=lambda name:SimpleNamespace(cfg=cfg,dir=d),session={'username':'test'},
+                request=SimpleNamespace(get_json=lambda **kw:data),
+                account_order_lock=lambda path:nullcontext(),jsonify=lambda *a,**kw:a[0] if a else kw)
+            exec(compile(ast.Module(body=[node],type_ignores=[]),'<settings-test>','exec'),ns)
+>           self.assertEqual(ns['api_settings'](),{'ok':True})
+                             ^^^^^^^^^^^^^^^^^^^^
+
+rollback_full_checks/test_settings_route.py:23: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+>   ???
+E   NameError: name '_core_order_mode_updates' is not defined
+
+<settings-test>:2371: NameError
+=========================== short test summary info ============================
+FAILED rollback_full_checks/test_event_settings.py::EventSettingsTests::test_actual_settings_handler_bool_and_omission
+FAILED rollback_full_checks/test_settings_route.py::SettingsRouteTests::test_off_on_and_invalid_values_use_saved_config
+2 failed, 255 passed, 46 subtests passed in 5.09s

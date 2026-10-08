@@ -1,0 +1,44 @@
+........................................................................ [  5%]
+.......F................................................................ [ 11%]
+........................................................................ [ 17%]
+........................................................................ [ 23%]
+........................................................................ [ 28%]
+........................................................................ [ 34%]
+........................................................................ [ 40%]
+........................................................................ [ 46%]
+........................................................................ [ 51%]
+........................................................................ [ 57%]
+........................................................................ [ 63%]
+................................................................. [ 68%]
+.................................................................................................................................... [ 79%]
+................................................................ [ 84%]
+........................................................................ [ 89%]
+........................................................................ [ 95%]
+......................................................                   [100%]
+=================================== FAILURES ===================================
+_ test_cost_summary_separates_repeat_inputs_log_duplicates_and_unknown_retries _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-42/test_cost_summary_separates_re0')
+
+    def test_cost_summary_separates_repeat_inputs_log_duplicates_and_unknown_retries(tmp_path):
+        base = dict(time='2026-10-08T11:00:00+09:00', cost_usd=.1, provider='openai',
+                    purpose='entry_gate', symbol='ETH', model='fixture-model', input_tokens=10,
+                    output_tokens=5, total_tokens=15, input_fingerprint='same-input', retry_limit=2)
+        rows = [dict(base, request_id='req-1', retry_count=1),
+                dict(base, request_id='req-2', retry_count=None),
+                dict(base, request_id='req-2', retry_count=None),
+                dict(time='2026-10-08T11:01:00+09:00', cost_usd=.2, total_tokens=8),
+                dict(base, time='2026-10-07T11:59:59+09:00'),
+                dict(base, time='2026-10-08T12:00:01+09:00')]
+        (tmp_path / 'token_usage.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+        before = (tmp_path / 'token_usage.jsonl').read_bytes()
+        result = operating_costs.build_operating_cost_summary(str(tmp_path), now=NOW, assumptions={})
+        assert result['rolling_24h_cost_usd'] == .5
+>       assert result['by_model_24h']['fixture-model']['calls'] == 3
+               ^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'by_model_24h'
+
+tests/test_ai_cost_metadata_recovery.py:52: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_ai_cost_metadata_recovery.py::test_cost_summary_separates_repeat_inputs_log_duplicates_and_unknown_retries
+1 failed, 1250 passed, 27 subtests passed in 7.19s

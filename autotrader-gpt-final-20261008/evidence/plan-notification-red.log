@@ -1,0 +1,214 @@
+.........................................................FFFFFFFFFF      [100%]
+=================================== FAILURES ===================================
+_ test_gate_notifications_include_original_plan_and_compatible_raw_fields[approved-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-41/test_gate_notifications_includ0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f32a990>
+side = 'long', verdict = 'approved'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout','wait','reject','ERROR'])
+    def test_gate_notifications_include_original_plan_and_compatible_raw_fields(tmp_path,monkeypatch,side,verdict):
+        import core_entry_events,telegram_notify
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,verdict)
+        run(c,s,client,p,d)
+        gate=next(r for r in core_entry_events.recent(c.user_dir) if r['status'].startswith('GPT_') or r['status']=='TIMEOUT_BYPASS')
+>       assert gate['quantity_coin']==p['order_args'][1]
+               ^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'quantity_coin'
+
+tests/test_core_entry_pipeline.py:390: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6890 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_gate_notifications_include_original_plan_and_compatible_raw_fields[approved-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-41/test_gate_notifications_includ1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f2b56d0>
+side = 'short', verdict = 'approved'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout','wait','reject','ERROR'])
+    def test_gate_notifications_include_original_plan_and_compatible_raw_fields(tmp_path,monkeypatch,side,verdict):
+        import core_entry_events,telegram_notify
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,verdict)
+        run(c,s,client,p,d)
+        gate=next(r for r in core_entry_events.recent(c.user_dir) if r['status'].startswith('GPT_') or r['status']=='TIMEOUT_BYPASS')
+>       assert gate['quantity_coin']==p['order_args'][1]
+               ^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'quantity_coin'
+
+tests/test_core_entry_pipeline.py:390: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6890 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_gate_notifications_include_original_plan_and_compatible_raw_fields[timeout-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-41/test_gate_notifications_includ2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f2b74d0>
+side = 'long', verdict = 'timeout'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout','wait','reject','ERROR'])
+    def test_gate_notifications_include_original_plan_and_compatible_raw_fields(tmp_path,monkeypatch,side,verdict):
+        import core_entry_events,telegram_notify
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,verdict)
+        run(c,s,client,p,d)
+        gate=next(r for r in core_entry_events.recent(c.user_dir) if r['status'].startswith('GPT_') or r['status']=='TIMEOUT_BYPASS')
+>       assert gate['quantity_coin']==p['order_args'][1]
+               ^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'quantity_coin'
+
+tests/test_core_entry_pipeline.py:390: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6890 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_gate_notifications_include_original_plan_and_compatible_raw_fields[timeout-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-41/test_gate_notifications_includ3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f2c2290>
+side = 'short', verdict = 'timeout'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout','wait','reject','ERROR'])
+    def test_gate_notifications_include_original_plan_and_compatible_raw_fields(tmp_path,monkeypatch,side,verdict):
+        import core_entry_events,telegram_notify
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,verdict)
+        run(c,s,client,p,d)
+        gate=next(r for r in core_entry_events.recent(c.user_dir) if r['status'].startswith('GPT_') or r['status']=='TIMEOUT_BYPASS')
+>       assert gate['quantity_coin']==p['order_args'][1]
+               ^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'quantity_coin'
+
+tests/test_core_entry_pipeline.py:390: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6890 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_gate_notifications_include_original_plan_and_compatible_raw_fields[wait-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-41/test_gate_notifications_includ4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f672d10>
+side = 'long', verdict = 'wait'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout','wait','reject','ERROR'])
+    def test_gate_notifications_include_original_plan_and_compatible_raw_fields(tmp_path,monkeypatch,side,verdict):
+        import core_entry_events,telegram_notify
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,verdict)
+        run(c,s,client,p,d)
+        gate=next(r for r in core_entry_events.recent(c.user_dir) if r['status'].startswith('GPT_') or r['status']=='TIMEOUT_BYPASS')
+>       assert gate['quantity_coin']==p['order_args'][1]
+               ^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'quantity_coin'
+
+tests/test_core_entry_pipeline.py:390: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6890 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_gate_notifications_include_original_plan_and_compatible_raw_fields[wait-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-41/test_gate_notifications_includ5')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f684510>
+side = 'short', verdict = 'wait'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout','wait','reject','ERROR'])
+    def test_gate_notifications_include_original_plan_and_compatible_raw_fields(tmp_path,monkeypatch,side,verdict):
+        import core_entry_events,telegram_notify
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,verdict)
+        run(c,s,client,p,d)
+        gate=next(r for r in core_entry_events.recent(c.user_dir) if r['status'].startswith('GPT_') or r['status']=='TIMEOUT_BYPASS')
+>       assert gate['quantity_coin']==p['order_args'][1]
+               ^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'quantity_coin'
+
+tests/test_core_entry_pipeline.py:390: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6890 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_gate_notifications_include_original_plan_and_compatible_raw_fields[reject-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-41/test_gate_notifications_includ6')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f6917d0>
+side = 'long', verdict = 'reject'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout','wait','reject','ERROR'])
+    def test_gate_notifications_include_original_plan_and_compatible_raw_fields(tmp_path,monkeypatch,side,verdict):
+        import core_entry_events,telegram_notify
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,verdict)
+        run(c,s,client,p,d)
+        gate=next(r for r in core_entry_events.recent(c.user_dir) if r['status'].startswith('GPT_') or r['status']=='TIMEOUT_BYPASS')
+>       assert gate['quantity_coin']==p['order_args'][1]
+               ^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'quantity_coin'
+
+tests/test_core_entry_pipeline.py:390: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6890 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_gate_notifications_include_original_plan_and_compatible_raw_fields[reject-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-41/test_gate_notifications_includ7')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f678190>
+side = 'short', verdict = 'reject'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout','wait','reject','ERROR'])
+    def test_gate_notifications_include_original_plan_and_compatible_raw_fields(tmp_path,monkeypatch,side,verdict):
+        import core_entry_events,telegram_notify
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,verdict)
+        run(c,s,client,p,d)
+        gate=next(r for r in core_entry_events.recent(c.user_dir) if r['status'].startswith('GPT_') or r['status']=='TIMEOUT_BYPASS')
+>       assert gate['quantity_coin']==p['order_args'][1]
+               ^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'quantity_coin'
+
+tests/test_core_entry_pipeline.py:390: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6890 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_gate_notifications_include_original_plan_and_compatible_raw_fields[ERROR-long] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-41/test_gate_notifications_includ8')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f694b10>
+side = 'long', verdict = 'ERROR'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout','wait','reject','ERROR'])
+    def test_gate_notifications_include_original_plan_and_compatible_raw_fields(tmp_path,monkeypatch,side,verdict):
+        import core_entry_events,telegram_notify
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,verdict)
+        run(c,s,client,p,d)
+        gate=next(r for r in core_entry_events.recent(c.user_dir) if r['status'].startswith('GPT_') or r['status']=='TIMEOUT_BYPASS')
+>       assert gate['quantity_coin']==p['order_args'][1]
+               ^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'quantity_coin'
+
+tests/test_core_entry_pipeline.py:390: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6890 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_gate_notifications_include_original_plan_and_compatible_raw_fields[ERROR-short] _
+
+tmp_path = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-41/test_gate_notifications_includ9')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f693010>
+side = 'short', verdict = 'ERROR'
+
+    @pytest.mark.parametrize('side',['long','short'])
+    @pytest.mark.parametrize('verdict',['approved','timeout','wait','reject','ERROR'])
+    def test_gate_notifications_include_original_plan_and_compatible_raw_fields(tmp_path,monkeypatch,side,verdict):
+        import core_entry_events,telegram_notify
+        c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,verdict)
+        run(c,s,client,p,d)
+        gate=next(r for r in core_entry_events.recent(c.user_dir) if r['status'].startswith('GPT_') or r['status']=='TIMEOUT_BYPASS')
+>       assert gate['quantity_coin']==p['order_args'][1]
+               ^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'quantity_coin'
+
+tests/test_core_entry_pipeline.py:390: KeyError
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6890 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+=========================== short test summary info ============================
+FAILED tests/test_core_entry_pipeline.py::test_gate_notifications_include_original_plan_and_compatible_raw_fields[approved-long]
+FAILED tests/test_core_entry_pipeline.py::test_gate_notifications_include_original_plan_and_compatible_raw_fields[approved-short]
+FAILED tests/test_core_entry_pipeline.py::test_gate_notifications_include_original_plan_and_compatible_raw_fields[timeout-long]
+FAILED tests/test_core_entry_pipeline.py::test_gate_notifications_include_original_plan_and_compatible_raw_fields[timeout-short]
+FAILED tests/test_core_entry_pipeline.py::test_gate_notifications_include_original_plan_and_compatible_raw_fields[wait-long]
+FAILED tests/test_core_entry_pipeline.py::test_gate_notifications_include_original_plan_and_compatible_raw_fields[wait-short]
+FAILED tests/test_core_entry_pipeline.py::test_gate_notifications_include_original_plan_and_compatible_raw_fields[reject-long]
+FAILED tests/test_core_entry_pipeline.py::test_gate_notifications_include_original_plan_and_compatible_raw_fields[reject-short]
+FAILED tests/test_core_entry_pipeline.py::test_gate_notifications_include_original_plan_and_compatible_raw_fields[ERROR-long]
+FAILED tests/test_core_entry_pipeline.py::test_gate_notifications_include_original_plan_and_compatible_raw_fields[ERROR-short]
+10 failed, 57 passed in 2.34s

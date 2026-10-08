@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>자동매매 회원가입</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    background: linear-gradient(150deg, #eef3ff 0%, #eafbf3 45%, #fdf0f7 100%) fixed;
+    color:#33344a; display:flex; align-items:center; justify-content:center; height:100vh; margin:0;
+    -webkit-font-smoothing: antialiased;
+  }
+  .box {
+    background:rgba(255,255,255,0.7); backdrop-filter: blur(24px) saturate(160%);
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    padding:36px 32px; border-radius:20px; width:280px;
+    border:1px solid rgba(255,255,255,0.75);
+    box-shadow: 0 12px 34px rgba(120,130,180,0.18);
+  }
+  h2 { margin:0 0 6px; font-weight:700; letter-spacing:-0.2px; }
+  p.desc { margin:0 0 16px; font-size:13px; color:#82849c; line-height:1.5; }
+  input { width:100%; padding:11px; margin:8px 0; border-radius:10px; border:1px solid rgba(130,132,156,0.25);
+          background:rgba(255,255,255,0.8); color:#33344a; box-sizing:border-box; font-size:15px; outline:none;
+          transition: box-shadow .15s, border-color .15s; }
+  input:focus { border-color:#7fb0f7; box-shadow:0 0 0 3px rgba(127,176,247,0.25); }
+  button { width:100%; padding:11px; border-radius:10px; border:none;
+           background:linear-gradient(135deg, #7fb0f7, #5b93ea); color:white;
+           font-weight:700; cursor:pointer; font-size:15px; margin-top:10px; transition: transform .12s, box-shadow .12s; }
+  button:hover { transform:translateY(-1px); box-shadow:0 6px 16px rgba(91,147,234,0.35); }
+  .error { color:#ea767e; font-size:14px; margin-top:10px; font-weight:600; }
+  .switch { text-align:center; font-size:13px; color:#82849c; margin-top:16px; }
+  .switch a { color:#5b93ea; text-decoration:none; font-weight:600; }
+  .switch a:hover { text-decoration:underline; }
+  .guide-btn {
+    display:block; text-align:center; width:100%; padding:10px; border-radius:10px;
+    border:1px solid rgba(245,181,69,0.4); background:rgba(255,207,134,0.2); color:#8a5a00;
+    font-weight:700; font-size:13px; text-decoration:none; margin-top:14px; box-sizing:border-box;
+    transition: transform .12s, box-shadow .12s;
+  }
+  .guide-btn:hover { transform:translateY(-1px); box-shadow:0 4px 12px rgba(245,181,69,0.25); }
+</style>
+</head>
+<body>
+<div class="box">
+  <h2>🐔 자동매매</h2>
+  <p class="desc">아이디와 비밀번호를 만들면 나만의 API 키로 독립적으로 자동매매를 쓸 수 있습니다.</p>
+  <form method="post">
+    <input type="text" name="username" placeholder="아이디 (영문/숫자/밑줄 3~20자)" autofocus autocomplete="username">
+    <input type="password" name="password" placeholder="비밀번호 (6자 이상)" autocomplete="new-password">
+    <input type="password" name="confirm" placeholder="비밀번호 확인" autocomplete="new-password">
+    <button type="submit">계정 만들기</button>
+  </form>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <a class="guide-btn" href="{{ url_for('guide') }}">📋 시작 전 준비항목 (API 키 발급 방법)</a>
+  <p class="switch">이미 계정이 있으신가요? <a href="{{ url_for('login') }}">로그인</a></p>
+</div>
+</body>
+</html>
