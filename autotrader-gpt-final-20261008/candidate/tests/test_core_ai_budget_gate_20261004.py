@@ -192,3 +192,60 @@ def test_periodic_position_ai_review_can_be_explicitly_opted_in(tmp_path, monkey
     monkeypatch.setattr(trader.gemini_analyzer, 'analyze', lambda *a, **k: {'action':'hold','confidence':0.8,'reasoning':'stable'})
     trader.run_cycle(cfg, state, client, 'BTC/USDT:USDT', None)
     review.assert_called_once()
+
+
+
+def test_routine_ten_minute_interval_preserves_five_minute_market_watch():
+    gate = trader._core_ai_call_gate
+    now = dt.datetime(2026, 10, 9, 6, 0, tzinfo=dt.timezone.utc)
+    initial = gate(FakeState(), "BTC/USDT:USDT", frames(), {}, {}, None, now=now,
+                   entry_timing={}, routine_interval_seconds=600)
+    state = FakeState(initial['next_memory'])
+    for minute in (5,):
+        moved = gate(state, "BTC/USDT:USDT", frames(101.1), {}, {}, None,
+                     now=now+dt.timedelta(minutes=minute),
+                     entry_timing={}, routine_interval_seconds=600)
+        assert not moved['call_ai'] and moved['reason']=='low_importance_coalesced'
+        assert moved['routine_interval_seconds']==600
+    due = gate(state, "BTC/USDT:USDT", frames(101.1), {}, {}, None,
+               now=now+dt.timedelta(minutes=10),
+               entry_timing={}, routine_interval_seconds=600)
+    assert due['call_ai'] and due['reason']=='price_move_atr'
+    unchanged = gate(state, "BTC/USDT:USDT", frames(), {}, {}, None,
+                     now=now+dt.timedelta(minutes=10),
+                     entry_timing={}, routine_interval_seconds=600)
+    assert not unchanged['call_ai']
+    at30 = gate(state, "BTC/USDT:USDT", frames(), {}, {}, None,
+                now=now+dt.timedelta(minutes=30),
+                entry_timing={}, routine_interval_seconds=600)
+    assert at30['call_ai'] and at30['reason']=='fallback_interval'
+
+
+@pytest.mark.parametrize('urgent', ['fresh_setup','position_changed','fast_move','break','market_news'])
+def test_ten_minute_throttle_never_delays_urgent_events(urgent):
+    gate = trader._core_ai_call_gate
+    now = dt.datetime(2026,10,9,6,0,tzinfo=dt.timezone.utc)
+    initial = gate(FakeState(), "BTC/USDT:USDT", frames(), {}, {}, None,
+                   now=now,market_event_key='stable',entry_timing={})
+    data=frames(102.1 if urgent=='fast_move' else 100)
+    position={'side':'long','contracts':2,'entry_price':100} if urgent=='position_changed' else None
+    structure={'1h': {'swing_low_broken':True}} if urgent=='break' else {}
+    timing={'status':'ok','phase':'early','event_key':'new-breakout'} if urgent=='fresh_setup' else {}
+    event='FOMC-surprise' if urgent=='market_news' else 'stable'
+    out = gate(FakeState(initial['next_memory']), "BTC/USDT:USDT",
+               data,structure,{},position,now=now+dt.timedelta(minutes=5),
+               market_event_key=event,entry_timing=timing,routine_interval_seconds=600)
+    assert out['call_ai'],(urgent,out)
+
+
+def test_larger_user_interval_delays_only_routine_not_urgent():
+    now=dt.datetime(2026,10,9,6,0,tzinfo=dt.timezone.utc)
+    g=trader._core_ai_call_gate
+    initial=g(FakeState(),"BTC/USDT:USDT",frames(),{},{},None,now=now,entry_timing={})
+    state=FakeState(initial['next_memory'])
+    normal=g(state,"BTC/USDT:USDT",frames(101.1),{},{},None,
+             now=now+dt.timedelta(minutes=10),entry_timing={},routine_interval_seconds=900)
+    assert not normal['call_ai'] and normal['reason']=='low_importance_coalesced'
+    urgent=g(state,"BTC/USDT:USDT",frames(102.1),{},{},None,
+             now=now+dt.timedelta(minutes=5),entry_timing={},routine_interval_seconds=900)
+    assert urgent['call_ai'] and urgent['reason']=='price_move_atr'

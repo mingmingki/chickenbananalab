@@ -94,6 +94,7 @@ CORE_MEANINGFUL_PULLBACK_ATR = unified_trade_guard.MEANINGFUL_PULLBACK_ATR
 CORE_AI_PRICE_MOVE_ATR = 0.50
 CORE_AI_FLAT_FALLBACK_MINUTES = 30
 CORE_AI_HELD_FALLBACK_MINUTES = 30
+CORE_AI_ROUTINE_INTERVAL_SECONDS = 600  # 10m non-critical Gemini recheck; 5m market loop stays unchanged
 
 
 def _core_ai_discrete_indicator_state(df):
@@ -164,7 +165,7 @@ def _core_ai_position_fingerprint(position):
     )
 
 
-def _core_ai_call_gate(state, symbol, closed_dfs, closed_structures, correction_ctx, position, *, now=None, market_event_key=None, entry_timing=None):
+def _core_ai_call_gate(state, symbol, closed_dfs, closed_structures, correction_ctx, position, *, now=None, market_event_key=None, entry_timing=None, routine_interval_seconds=CORE_AI_ROUTINE_INTERVAL_SECONDS):
     """Budget expensive CORE Gemini calls without weakening deterministic safety.
 
     This helper is pure with respect to TraderState: it returns the memory that
@@ -172,6 +173,8 @@ def _core_ai_call_gate(state, symbol, closed_dfs, closed_structures, correction_
     it only after the model call succeeds, so API/parsing failures are retried on
     the next normal 5-minute cycle.
     """
+    # Routine throttle never delays critical setup, position or market-risk events.
+    routine_interval_seconds = max(600, min(1800, int(routine_interval_seconds)))
     now = now or datetime.datetime.now(datetime.timezone.utc)
     if now.tzinfo is None:
         now = now.replace(tzinfo=datetime.timezone.utc)
@@ -255,7 +258,7 @@ def _core_ai_call_gate(state, symbol, closed_dfs, closed_structures, correction_
     # Compatibility with pre-v6 memory: missing material signature must be reviewed once.
     if (call_ai and reason in ('price_move_atr','signature_changed')
             and not material_changed and (move_atr is None or move_atr<1.0)
-            and age_seconds is not None and age_seconds < 600):
+            and age_seconds is not None and age_seconds < routine_interval_seconds):
         call_ai=False
         reason='low_importance_coalesced'
 
@@ -263,7 +266,7 @@ def _core_ai_call_gate(state, symbol, closed_dfs, closed_structures, correction_
     if reason=='low_importance_coalesced':
         pending_memory=dict(pending or {},first_seen_at=pending.get('first_seen_at') or now.isoformat(),
             last_seen_at=now.isoformat(),signature=repr(signature),price=price)
-    elif not call_ai and pending and age_seconds is not None and age_seconds>=600:
+    elif not call_ai and pending and age_seconds is not None and age_seconds >= routine_interval_seconds:
         call_ai=True
         reason='coalesced_change_due'
     next_memory = {
@@ -278,7 +281,8 @@ def _core_ai_call_gate(state, symbol, closed_dfs, closed_structures, correction_
     }
     return {
         "call_ai": call_ai, "reason": reason, "age_seconds": age_seconds,
-        "move_atr": move_atr, "next_memory": next_memory,"pending_memory":pending_memory,
+        "move_atr": move_atr, "routine_interval_seconds": routine_interval_seconds,
+        "next_memory": next_memory,"pending_memory":pending_memory,
     }
 
 
@@ -4935,6 +4939,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
         state, symbol, closed_dfs, closed_structures, correction_ctx, position,
         market_event_key=market_snapshot.get("event_key") if market_snapshot else None,
         entry_timing=entry_timing,
+        routine_interval_seconds=getattr(cfg, 'CORE_GEMINI_ROUTINE_INTERVAL_SECONDS', CORE_AI_ROUTINE_INTERVAL_SECONDS),
     )
     if not ai_budget["call_ai"]:
         if ai_budget.get('pending_memory') is not None:

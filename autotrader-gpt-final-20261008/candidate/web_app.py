@@ -651,6 +651,8 @@ def api_state():
             "settings": {
                 "core_unified_mode": cfg.CORE_UNIFIED_MODE,
                 "poll_interval_seconds": cfg.POLL_INTERVAL_SECONDS,
+                "core_gemini_routine_interval_seconds": cfg.CORE_GEMINI_ROUTINE_INTERVAL_SECONDS,
+                "core_gemini_stable_fallback_seconds": 1800,
                 "leverage": cfg.LEVERAGE,
                 "max_leverage": cfg.MAX_LEVERAGE,
                 "stop_loss_pct": cfg.STOP_LOSS_PCT,

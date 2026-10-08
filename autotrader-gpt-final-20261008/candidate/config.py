@@ -178,6 +178,12 @@ class UserConfig:
         self.SYMBOLS = gl("SYMBOLS", DEFAULT_SYMBOLS)
         self.ENABLED_SYMBOLS = gl("ENABLED_SYMBOLS", ",".join(self.SYMBOLS))
         self.POLL_INTERVAL_SECONDS = gi("POLL_INTERVAL_SECONDS", 900)
+        # CORE Gemini: non-critical indicator/price changes may wait 10 minutes.
+        # Five-minute monitoring, fresh setups and material risk events are independent.
+        # Unchanged markets retain the separate 30-minute fallback (cost saving).
+        self.CORE_GEMINI_ROUTINE_INTERVAL_SECONDS = max(
+            600, min(1800, gi("CORE_GEMINI_ROUTINE_INTERVAL_SECONDS", 600))
+        )
         self.LEVERAGE = gi("LEVERAGE", 3)
 
         # Candidate C(신규 4H 추세 + Donchian 돌파 규칙 엔진, 2026-09-12) - CORE와 같은
