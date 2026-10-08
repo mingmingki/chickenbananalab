@@ -23,6 +23,7 @@ import candidate_c_gpt_gate_log
 import candidate_c_intent_ledger as il
 import candidate_c_live_activation as activation
 import candidate_c_manual_close as candidate_c_manual_close
+import candidate_c_manual_entry as candidate_c_manual_entry
 import candidate_c_position_reconciliation as recon
 import candidate_c_reversal_state_machine as rsm
 import candidate_c_runtime
@@ -103,6 +104,7 @@ def reject_cross_origin_mutations():
         if request.path in (
             '/api/candidate_c_settings', '/api/symbol_entry_control',
             '/api/candidate_c_close_symbol', '/api/manual_entry',
+            '/api/candidate_c_manual_entry',
             '/api/analysis/run', '/api/analysis/review-now',
             '/api/analysis/self-learning/control',
         ) and not request.is_json:
@@ -1607,7 +1609,7 @@ def api_candidate_c_state():
             "gpt_gate_reason": observation.get('gpt_gate_reason'),
             "protection": observation.get('protection', {'status': 'UNKNOWN'}) if fresh else {'status': 'UNKNOWN'},
             "blockers": list(dict.fromkeys(blockers)), "entry_control": control,
-            "manual_close": manual, "runtime": observation,
+            "manual_close": manual, "manual_entry": candidate_c_manual_entry.get(ctx.dir,symbol), "runtime": observation,
         }
 
     configured = candidate_c_runtime.effective_settings(cfg)
@@ -2533,6 +2535,92 @@ def _close_symbol(ctx: UserContext, client, symbol):
     except Exception as exc:
         ctx.cfg.logger.exception("[%s] 중단 시 포지션 청산 실패", symbol)
         ctx.state.update(last_error=f"{symbol}: {exc}")
+
+
+@app.route("/api/candidate_c_manual_entry", methods=["POST"])
+@login_required
+def api_candidate_c_manual_entry():
+    """User-authorized reservation only; the owning Candidate C loop executes."""
+    import candidate_c_manual_entry as manual_entry
+    ctx = get_context(session["username"])
+    cfg = ctx.cfg
+    data = request.get_json(silent=True) or {}
+    symbol, side = data.get("symbol"), data.get("side")
+    if not accounts.is_approved(ctx.username):
+        return jsonify(ok=False,error="관리자 승인 필요"),403
+    if symbol not in set(getattr(cfg,"CANDIDATE_C_SYMBOLS",()) or ()) or side not in ("long","short"):
+        return jsonify(ok=False,error="DOGE/SOL 심볼 또는 진입 방향 오류"),400
+    if symbol in set(getattr(cfg,"ENABLED_SYMBOLS",()) or ()):
+        return jsonify(ok=False,error="CORE 소유 심볼 중복"),409
+    runtime = candidate_c_runtime.snapshot(ctx.dir,symbol)
+    if (not runtime.get("running") or runtime.get("effective_settings",{}).get("mode") != "live"
+            or not getattr(cfg,"CANDIDATE_C_LIVE_EXECUTE",False)
+            or candidate_c_runtime.live_activation_blockers(cfg,user_dir=ctx.dir)):
+        return jsonify(ok=False,error="Candidate C LIVE 진입 불가"),409
+    try:
+        with account_order_lock(ctx.dir):
+            observation = candidate_c_runtime.snapshot(ctx.dir,symbol)
+            control = symbol_entry_control.get_status(ctx.dir,symbol)
+            manual = candidate_c_manual_close.status(ctx.dir,symbol)
+            machine = rsm.ReversalStateStore.load(
+                os.path.join(ctx.dir,"candidate_c_reversal_store.jsonl")).get(symbol)
+            if (not observation.get("observation_fresh")
+                    or observation.get("position_query_status") != "KNOWN"
+                    or observation.get("actual_position") is not None
+                    or observation.get("blockers")
+                    or control.get("paused") or manual.get("blocked")
+                    or machine.state.value != "FLAT"):
+                return jsonify(ok=False,error="Candidate C 안전 확인 중 또는 보유 포지션이 있습니다."),409
+            safe = symbol.replace("/","_").replace(":","_")
+            ledger = il.IntentLedger.load(
+                os.path.join(ctx.dir,f"candidate_c_intent_ledger_{safe}.jsonl"),
+                ctx.dir,symbol)
+            if ledger.pending_intents():
+                return jsonify(ok=False,error="미해결 기존 주문 의도가 있습니다."),409
+            existing = manual_entry.get(ctx.dir,symbol)
+            if manual_entry.busy(existing):
+                if existing.get("side") != side:
+                    return jsonify(ok=False,error="반대 방향의 미해결 수동진입이 있습니다."),409
+                return jsonify(ok=True,pending=True,request_id=existing["request_id"],
+                               note="기존 수동진입 확인 중입니다. 중복 제출하지 마세요."),202
+            c = okx_client.OkxClient(symbol,cfg)
+            if c.fetch_position() is not None:
+                return jsonify(ok=False,error="거래소 포지션이 이미 존재합니다."),409
+            if c.exchange.fetch_open_orders(symbol) != [] or c.fetch_pending_protection_algo_ids() != []:
+                return jsonify(ok=False,error="잔여 주문 또는 보호주문 상태가 확인되지 않았습니다."),409
+            clients={sym:okx_client.OkxClient(sym,cfg) for sym in cfg.CANDIDATE_C_SYMBOLS}
+            count=candidate_c_ownership.count_candidate_c_open_or_pending_positions(
+                clients,rsm.ReversalStateStore.load(os.path.join(ctx.dir,"candidate_c_reversal_store.jsonl")),
+                current_symbol=symbol,user_dir=ctx.dir)
+            if count >= cfg.CANDIDATE_C_MAX_CONCURRENT_POSITIONS:
+                return jsonify(ok=False,error="Candidate C 동시 보유 상한 초과"),409
+            row=manual_entry.reserve(ctx.dir,symbol,side)
+    except Exception:
+        cfg.logger.exception("[%s] Candidate C 수동진입 예약 검증 실패",symbol)
+        return jsonify(ok=False,error="실거래 상태 확인 실패. 주문 요청을 생성하지 않았습니다."),409
+    return jsonify(ok=True,pending=True,request_id=row["request_id"],
+                   note=f"{symbol} 수동 {side.upper()} 요청 접수 · 거래소 체결/SL·TP 확인 중. 재진입 금지"),202
+
+
+@app.route("/api/candidate_c_manual_entry_status",methods=["GET"])
+@login_required
+def api_candidate_c_manual_entry_status():
+    import candidate_c_manual_entry as manual_entry
+    ctx=get_context(session["username"])
+    symbol=request.args.get("symbol")
+    rid=request.args.get("request_id")
+    if (symbol not in set(getattr(ctx.cfg,"CANDIDATE_C_SYMBOLS",()) or ())
+            or not isinstance(rid,str) or len(rid)>64 or not rid.startswith("ccme")):
+        return jsonify(ok=False,error="유효하지 않은 주문 조회"),400
+    try:
+        record=manual_entry.get(ctx.dir,symbol)
+    except Exception:
+        return jsonify(ok=False,error="주문 기록 조회 불가, 재주문 금지"),503
+    if not record or record.get("request_id")!=rid:
+        return jsonify(ok=False,error="주문 확인 불가, 재주문 금지"),404
+    return jsonify(ok=True,status=record["status"],
+                   reason=record.get("result_reason"),request_id=rid,
+                   note="confirmed는 거래소 체결 및 보호주문 확인 완료를 뜻합니다.")
 
 
 @app.route("/api/manual_entry", methods=["POST"])

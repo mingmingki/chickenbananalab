@@ -72,7 +72,7 @@
   .pos-pnl-pct { font-size:12px; font-weight:600; margin-left:4px; }
   .pos-detail-row { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-top:5px; }
   .pos-detail-row b { color:var(--text); font-weight:600; }
-  .pos-sltp { display:flex; justify-content:space-between; font-size:11px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(130,132,156,0.15); }
+  .pos-sltp { display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px 12px; overflow-wrap:anywhere; font-size:11px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(130,132,156,0.15); }
   .pos-sltp span.tp { color:var(--green-strong); font-weight:600; }
   .pos-sltp span.sl { color:var(--red-strong); font-weight:600; }
   .pos-action-row { display:flex; align-items:center; gap:6px; margin-top:10px; }
@@ -1157,21 +1157,19 @@
   </details>
 </div>
 
-<div class="panel" id="cc-breakout-shadow-card">
-  <div class="panel-header">
-    <h2>Candidate C Breakout-failure Shadow</h2>
-    <span class="summary-meta">관찰용 · 실주문 영향 없음</span>
+<details class="panel clean-details" id="cc-breakout-shadow-card">
+  <summary><span>Candidate C Breakout-failure Shadow</span><span class="summary-meta">관찰용 · 실주문 영향 없음</span></summary>
+  <div class="details-body">
+    <div id="cc-breakout-shadow-summary" class="cc-detail">표본 없음 · 정확한 원 setup provenance가 있는 경우만 계산</div>
   </div>
-  <div id="cc-breakout-shadow-summary" class="cc-detail">표본 없음 · 정확한 원 setup provenance가 있는 경우만 계산</div>
-</div>
+</details>
 
-<div class="panel" id="adaptive-exit-panel">
-  <div class="panel-header">
-    <h2>Adaptive Exit — Shadow / ADVISORY</h2>
-    <span class="summary-meta">읽기 전용 · 실주문 적용 여부를 별도 표시</span>
+<details class="panel clean-details" id="adaptive-exit-panel">
+  <summary><span>Adaptive Exit — Shadow / ADVISORY</span><span class="summary-meta">읽기 전용 · 실주문 적용 여부를 별도 표시</span></summary>
+  <div class="details-body">
+    <div id="adaptive-exit-summary" class="cc-detail">Adaptive Exit 데이터 없음</div>
   </div>
-  <div id="adaptive-exit-summary" class="cc-detail">Adaptive Exit 데이터 없음</div>
-</div>
+</details>
 
 <details class="panel clean-details" id="cc-settings-details">
   <summary><span>⚙️ Candidate C 설정</span><span class="summary-meta">실행 · 포지션 크기 · 위험 한도</span></summary>
@@ -1632,6 +1630,18 @@ const SYMBOLS = {{ symbols | tojson }};
 
 function symId(sym) { return sym.replace(/[^a-zA-Z0-9]/g, "_"); }
 
+// Compare VERIFIED exchange protection with the actual fill price, not the
+// configured stop/target percentages. ROI assumes the position leverage and
+// excludes fees, funding and slippage.
+function protectionPercent(price, entry, side, leverage) {
+  const p = Number(price), e = Number(entry), l = Number(leverage);
+  if (!Number.isFinite(p) || !Number.isFinite(e) || e <= 0 ||
+      !['long','short'].includes(side)) return '';
+  const move = ((side === 'long' ? p - e : e - p) / e) * 100;
+  const roi = Number.isFinite(l) && l > 0 ? ` · ROI ${move*l >= 0 ? '+' : ''}${fmt(move*l,2)}%` : '';
+  return ` (${move >= 0 ? '+' : ''}${fmt(move,2)}% 가격${roi})`;
+}
+
 // --- 종목 체크박스 렌더링 ---
 const toggleDiv = document.getElementById("symbol-toggles");
 SYMBOLS.forEach(sym => {
@@ -1713,6 +1723,7 @@ async function closeCoreSymbol(sym) {
 }
 
 const manualEntryPendingSymbols = new Set();
+const candidateManualEntryPending = new Set();
 
 async function manualCoreEntry(sym, side, button) {
   if (manualEntryPendingSymbols.has(sym)) return;
@@ -1768,6 +1779,49 @@ async function manualCoreEntry(sym, side, button) {
     manualEntryPendingSymbols.delete(sym);
     if (button) button.textContent = '수동 ' + sideLabel + ' 진입';
     await refreshState();
+  }
+}
+
+async function manualCandidateCEntry(sym, side, button) {
+  if (candidateManualEntryPending.has(sym)) return;
+  const label = side.toUpperCase();
+  if (!confirm(`${sym} 수동 ${label} 시장가 진입을 요청합니다.\n\n` +
+      'Candidate C 고정 증거금·5배 레버리지 및 자동 SL/TP를 사용합니다.\n' +
+      '방향 AI/돌파 신호 검토만 생략하며 기존 주문·위험한도·소유권·보호 검사는 유지됩니다.\n' +
+      '수동진입 체결 확인 전 재주문하지 마세요. 진행할까요?')) return;
+  candidateManualEntryPending.add(sym);
+  if (button) button.disabled = true;
+  try {
+    const {ok,data} = await postJSON('/api/candidate_c_manual_entry',{symbol:sym,side});
+    if (!ok || !data.ok || !data.request_id) throw new Error(data.error || 'Candidate C 수동 진입 요청 차단');
+    if (button) button.textContent='체결·보호 확인 중…';
+    let last=null;
+    for (let i=0;i<24;i++) {
+      await new Promise(resolve=>setTimeout(resolve,5000));
+      try {
+        const url='/api/candidate_c_manual_entry_status?symbol='+encodeURIComponent(sym)+
+          '&request_id='+encodeURIComponent(data.request_id);
+        const r=await fetch(url,{credentials:'same-origin',cache:'no-store'});
+        const status=await r.json();
+        if (!r.ok || !status.ok) continue;
+        last=status;
+        if (status.status==='confirmed' || status.status==='failed') break;
+      } catch (_) {
+        // A failed read must never resubmit the order.
+      }
+    }
+    if (last?.status==='confirmed') {
+      alert(`${sym} 수동 ${label} 주문 체결 및 보호 확인 완료. 포지션을 확인하세요.`);
+    } else if (last?.status==='failed') {
+      alert(`${sym}: 수동 진입 거부 (${last.reason||'안전검사 미충족'}). 거래소를 확인하세요.`);
+    } else {
+      alert(`${sym}: 수동 주문 확인이 진행 중이거나 조회에 실패했습니다. 반드시 원본 상태를 확인하고 재진입하지 마세요.`);
+    }
+  } catch (e) {
+    alert(e.message + ' · 결과를 모르면 재진입하지 마세요.');
+  } finally {
+    candidateManualEntryPending.delete(sym);
+    await refreshCandidateC();
   }
 }
 
@@ -2654,9 +2708,9 @@ async function refreshCandidateC() {
       // "미확인"이라고 명시해 보여준다(완전히 숨기지 않되 확인된 값과 혼동 안 되게).
       const verified = protection.status === 'VERIFIED';
       html += `<div class="pos-sltp">` +
-        `<span class="sl">SL ${verified && protection.sl_price != null ? fmtPrice(protection.sl_price) : '확인 안 됨'}</span>` +
+        `<span class="sl">SL ${verified && protection.sl_price != null ? fmtPrice(protection.sl_price) + protectionPercent(protection.sl_price,pos.entry_price,pos.side,pos.leverage) : '확인 안 됨'}</span>` +
         `<span class="tp">${verified && protection.tp_price != null
-          ? `TP ${fmtPrice(protection.tp_price)}`
+          ? `TP ${fmtPrice(protection.tp_price)}${protectionPercent(protection.tp_price,pos.entry_price,pos.side,pos.leverage)}`
           : (verified && protection.sl_price != null && legacySlOnly
             ? 'TP 없음 (기존 포지션 · SL 보호 정상)'
             : 'TP 확인 안 됨')}</span></div>` +
@@ -2737,6 +2791,35 @@ async function refreshCandidateC() {
     button.textContent = st.entry_control?.paused ? '이 심볼 신규진입 재개' : '이 심볼 신규진입 일시정지';
     button.dataset.paused = String(!!st.entry_control?.paused); button.onclick = () => toggleSymbolEntry(symbol,button);
     card.appendChild(button);
+    if (known && !pos) {
+      const manual = st.manual_entry || {};
+      const pending = ['reserved','executing','pending'].includes(manual.status) ||
+        candidateManualEntryPending.has(symbol);
+      const disabled = !st.runtime?.running || !st.runtime?.observation_fresh ||
+        (Array.isArray(st.blockers) && st.blockers.length > 0) ||
+        !!st.entry_control?.paused || !!st.manual_close?.blocked ||
+        st.reversal_state !== 'FLAT' || pending ||
+        data.engine_effective_mode !== 'live';
+      const row = document.createElement('div');
+      row.className = 'manual-entry-row';
+      row.style.cssText = 'display:flex;gap:8px;margin-top:8px';
+      for (const side of ['long','short']) {
+        const b = document.createElement('button');
+        b.className = 'manual-entry-btn ' + side;
+        b.style.cssText = 'flex:1;min-width:0';
+        b.textContent = pending ? '체결 확인 중…' : '수동 ' + side.toUpperCase() + ' 진입';
+        b.disabled = disabled;
+        b.onclick = () => manualCandidateCEntry(symbol,side,b);
+        row.appendChild(b);
+      }
+      card.appendChild(row);
+      if (pending) {
+        const hint=document.createElement('div');
+        hint.className='hint';
+        hint.textContent='수동진입 주문 확인 중입니다. 주문 버튼을 다시 누르지 마세요.';
+        card.appendChild(hint);
+      }
+    }
     if (known && pos) {
       const manual = st.manual_close || {};
       const closeButton = document.createElement('button');
@@ -3338,11 +3421,11 @@ async function refreshState() {
       const protectionVerified = liveProtection.status === "VERIFIED";
       document.getElementById("sl-" + id).textContent =
         protectionVerified && liveProtection.sl_price != null
-          ? `SL ${fmtPrice(liveProtection.sl_price)}`
+          ? `SL ${fmtPrice(liveProtection.sl_price)}${protectionPercent(liveProtection.sl_price, pos.entry_price, pos.side, pos.leverage)}`
           : "SL 확인 안 됨";
       document.getElementById("tp-" + id).textContent =
         protectionVerified && liveProtection.tp_price != null
-          ? `TP ${fmtPrice(liveProtection.tp_price)}`
+          ? `TP ${fmtPrice(liveProtection.tp_price)}${protectionPercent(liveProtection.tp_price, pos.entry_price, pos.side, pos.leverage)}`
           : "TP 확인 안 됨";
     } else {
       sideEl.className = "pos-side-badge none";

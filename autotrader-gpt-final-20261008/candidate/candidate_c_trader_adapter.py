@@ -32,6 +32,7 @@ import candidate_c_hybrid_cycle as cycle
 import candidate_c_hybrid_ownership as ownership
 import candidate_c_intent_ledger as il
 import candidate_c_manual_close as candidate_manual_close
+import candidate_c_manual_entry as candidate_manual_entry
 import candidate_c_notification_delivery as notification_delivery
 import candidate_c_position_reconciliation as recon
 import candidate_c_reversal_state_machine as rsm
@@ -567,6 +568,29 @@ def _candidate_c_symbol_loop(
                         "[%s] CORE->Candidate C 소유권 이전 대기 중 - reason=%s position=%s. "
                         "신규진입 차단", symbol, foreign.get("reason"), foreign["position"],
                     )
+
+            # Explicit operator entry is consumed by the owning symbol loop;
+            # the HTTP request only leaves a durable reservation. Never
+            # rerun an ambiguous/executing request after a restart.
+            if new_entries_allowed_from_startup and transition_gate_ok:
+                manual_entry_result = candidate_manual_entry.process_request(
+                    cfg, client, symbol, state=state, account_id=account_id,
+                    config_version_id=config_version_id, config_hash=config_hash,
+                    strategy_policy=policy, stop_event=stop_event,
+                    clients_for_admission_check=clients_for_admission_check,
+                )
+                if manual_entry_result is not None:
+                    _dispatch_candidate_c_notifications(cfg, state, manual_entry_result)
+                    observation = observe_runtime_exchange(
+                        cfg, client, symbol, intent_ledger, shared_epoch_store, core_active_symbols)
+                    runtime.publish(cfg.user_dir, symbol, status='RUNNING',
+                                    last_cycle_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                    last_signal=dec.INTENT_ENTRY, **observation)
+                    logger_.info("[%s] Candidate C operator manual entry processed: executed=%s pending=%s reason=%s",
+                                 symbol, manual_entry_result.get('executed'),
+                                 manual_entry_result.get('pending'), manual_entry_result.get('reason'))
+                    stop_event.wait(1.0)
+                    continue
 
             manual_result = cycle.run_manual_close_request(
                 cfg, client, symbol, state=state, account_id=account_id,

@@ -566,7 +566,8 @@ def _reconcile_ambiguous_entry(cfg, client, intent, snapshot, amount_coin,
 def _execute_entry(cfg, client, intent, snapshot: dict, equity: float, is_still_valid_fn,
                     start_equity_override: float | None,
                     open_position_count_fn=None, max_concurrent_positions: int | None = None,
-                    ledger=None, epoch_store=None, strategy_policy=None, stop_event=None) -> dict:
+                    ledger=None, epoch_store=None, strategy_policy=None, stop_event=None,
+                    manual_operator_entry=False) -> dict:
     if not _candidate_c_new_entry_allowed(cfg, equity, start_equity_override):
         return {
             "intent_kind": dec.INTENT_ENTRY, "executed": False,
@@ -582,7 +583,14 @@ def _execute_entry(cfg, client, intent, snapshot: dict, equity: float, is_still_
     # [2026-09-16, 사용자 직접 지시 - Candidate C 전용 GPT ON/OFF] 기존 전역
     # GPT_ENTRY_GATE_ENABLED(CORE 쪽)와 완전히 분리된 별도 설정. 새 설정이 없는
     # 계정은 getattr 기본값 True로 기존 GPT ON 동작을 그대로 유지한다.
-    if getattr(cfg, "CANDIDATE_C_GPT_ENTRY_GATE_ENABLED", True):
+    if manual_operator_entry and (intent.reason_code != 'manual_operator_entry'
+                                   or not str(intent.setup_id or '').startswith('manual-')):
+        return {"intent_kind": dec.INTENT_ENTRY, "executed": False,
+                "gate_result": "blocked_invalid_manual_entry_identity"}
+    if manual_operator_entry:
+        gate = {"allowed": bool(is_still_valid_fn()),
+                "gate_result": "manual_operator_no_entry_ai", "error_reason": None}
+    elif getattr(cfg, "CANDIDATE_C_GPT_ENTRY_GATE_ENABLED", True):
         gate = gga.verify_candidate_signal(cfg, intent, snapshot, is_still_valid_fn=is_still_valid_fn)
     else:
         gate = gga.rule_based_entry_without_gpt(cfg, intent, snapshot, is_still_valid_fn=is_still_valid_fn)
@@ -616,7 +624,7 @@ def _execute_entry(cfg, client, intent, snapshot: dict, equity: float, is_still_
 
     # Entry GPT OFF means only admission is rule-based. Price review remains independent:
     # Gemini proposes SL/TP and GPT reviews prices only. AI failure never blocks entry.
-    if (not getattr(cfg, "CANDIDATE_C_GPT_ENTRY_GATE_ENABLED", True)
+    if ((manual_operator_entry or not getattr(cfg, "CANDIDATE_C_GPT_ENTRY_GATE_ENABLED", True))
             and getattr(cfg, "CANDIDATE_C_AI_EXIT_PLAN_ENABLED", True)
             and _candidate_c_order_mode(cfg) != "MANUAL_ALL"):
         try:
@@ -1039,7 +1047,7 @@ def execute_intent(
     start_equity_override: float | None = None,
     open_position_count_fn=None, max_concurrent_positions: int | None = None,
     ledger=None, epoch_store=None, strategy_policy=None, allow_missing_protection=False,
-    stop_event=None,
+    stop_event=None, manual_operator_entry=False,
 ) -> dict:
     """decide()가 반환한 단일 Intent를 실행한다. 반환 dict는 항상 "intent_kind"와
     "executed"를 포함한다. 실행 성공/실패와 무관하게 setup_tracker/epoch_store/
@@ -1083,7 +1091,7 @@ def execute_intent(
             cfg, client, intent, snapshot, equity, is_still_valid_fn, start_equity_override,
             open_position_count_fn=open_position_count_fn, max_concurrent_positions=max_concurrent_positions,
             ledger=ledger, epoch_store=epoch_store, strategy_policy=strategy_policy,
-            stop_event=stop_event,
+            stop_event=stop_event, manual_operator_entry=manual_operator_entry,
         )
     if intent.kind in (dec.INTENT_STOP_UPDATE, dec.INTENT_EXIT, dec.INTENT_REVERSAL, dec.INTENT_REDUCE):
         with ownership.account_order_lock(cfg.user_dir):

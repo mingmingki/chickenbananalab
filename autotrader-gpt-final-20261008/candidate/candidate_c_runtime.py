@@ -160,13 +160,14 @@ BACKTEST_LIVE_PARITY_VERIFIED_SOURCE_HASHES = {
     "candidate_c_backtest_signal_adapter.py": "13639ae8855a4302217bee1b2cadf4e2712707a8bd1b7949cbedd7404c278966",
     "candidate_c_setup_tracker.py": "2fae18575745d77916f0a8d2ff66af4db9a12dceafe774554634bbb841daddc9",
     "backtest_engine.py": "dc38fb06e0247fa6a8e52e47ae30b6f80864bfbe64a0c958a00ef1b3d6141e4a",
-    "candidate_c_hybrid_live_adapter.py": "ac838a99e378897591ba7f0238db74325751c9754780a40df5e17a3ba96806dd",
+    "candidate_c_hybrid_live_adapter.py": "148d888157dfd1f56933c38b5fef20acf8a696f8a77ad86bb122a34e747cd51d",
     "candidate_c_indicator_contract.py": "8947c0232850e58176c041a8ee9a1c3aee5b4e04aab04463b15b106f6d49dfe5",
     "candidate_c_exit_management.py": "e5cbea760b5428faaa7586e80bc59967a0a7f89b8b02e37549404d68e2453e01",
     "entry_overextension_guard.py": "a2452e4565fa5631249bd4079429767be8fff2dbc360ecb863182b1ba395818a",
     "candidate_c_hybrid_cycle.py": "6be584105a0a67fdcf488c507ec2534d1cfbcc12191edccd3a6ad41582d5b26a",
     "candidate_c_manual_close.py": "2646d9b458d708581188824778b0b92089b15ab04f33f6f41761715a0cc0b234",
-    "candidate_c_trader_adapter.py": "59e81f5ad96449436273bc119d02630a2e3482501b283fac54bbc774e2645472",
+    "candidate_c_trader_adapter.py": "1ee604103c2826d64ffe6a7e52a6d764e6361b687dc2d44adf1b047c28f16066",
+    "candidate_c_manual_entry.py": "89ec34ca6360ffa48b7b5f67a245f0cd49d7d38a1d2aea02068c88d2aee05e5e",
     "candidate_c_notification_delivery.py": "b09c215c7ad13b69c58a7326b0b9cd8e14f429cc8c36468569acad5177e7ea78",
     "candidate_c_strategy_policy.py": "3702ca6a159daec673b8632c057614b16859e5c67473fda8f01d9d19874b8d6b",
     "candidate_c_preregistration_v3.json": "faa635c379885addaaed5747f0f53e253365f527ac0b979562ba0220d5b451f0",
@@ -179,6 +180,12 @@ BACKTEST_LIVE_PARITY_VERIFIED_SOURCE_HASHES = {
     "telegram_notify.py": "43e24150ee5f4cb28a1de935c841b7adaa34267d08eacb7663df3a8fc54ce944"
 }
 BACKTEST_LIVE_PARITY_VERIFIED_SCOPE = (
+    "2026-10-09 v12: Candidate C 자동 신호 생성 규칙은 유지하고, 별도 operator manual EntryIntent 요청 수신·" 
+    "idempotent 예약·기존 LIVE 소유권/주문장부/계약수량/SLTP 검증 경로 통합. " 
+    "tests/test_candidate_c_manual_entry_process.py 및 test_candidate_c_manual_entry_ui_api.py에서 " 
+    "LONG/SHORT, 중복 재실행 방지, 미확정 주문 SAFE_HALT, API 요청은 주문 미실행, " 
+    "기존 test_candidate_c_live_backtest_per_bar_recheck.py + test_v6_review_important.py " 
+    "총 58개 정상 실행을 재검증. 실제 거래소 주문이나 수익성 검증 아님. " 
     "2026-10-09 v6: qualifying-behavior-final.log의 현재 tests 1313개 통과 후 변경 소스 및 C 알림 의존성 재고정. "
     "tests/test_v6_review_important.py의 native DOGE live preparation/replay adapter 비교(09:30 진입, "
     "14:40 위험거절, 11:00 추격거절)와 real whole-cycle stale/direction/risk outbox, "
