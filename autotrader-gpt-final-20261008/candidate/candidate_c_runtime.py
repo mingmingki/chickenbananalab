@@ -155,25 +155,38 @@ def holdout_evidence() -> dict:
 # backtest adapter를 함께 실행하는 test_candidate_c_live_backtest_per_bar_recheck.py로
 # 새 봉 재검토/setup_id/동일봉 dedup을 검증한 뒤 변경된 파일만 재고정한다.
 BACKTEST_LIVE_PARITY_VERIFIED_SOURCE_HASHES = {
-    "candidate_c_decision_engine.py": "d922dd41d0b1fb8cd6bdc34fc573869326d925c9bfbc16e261a09d9adb52c1f0",
+    "candidate_c_decision_engine.py": "91ac9113a135b5e069210ee9df54a20ddca42b546754bf0ce35760c832960a21",
     "unified_trade_guard.py": "53e32976f1814a9febb6c8938b50aaae8bae77d04ecd6e2e8aa4857cd1e1f2d0",
     "candidate_c_backtest_signal_adapter.py": "13639ae8855a4302217bee1b2cadf4e2712707a8bd1b7949cbedd7404c278966",
     "candidate_c_setup_tracker.py": "2fae18575745d77916f0a8d2ff66af4db9a12dceafe774554634bbb841daddc9",
     "backtest_engine.py": "dc38fb06e0247fa6a8e52e47ae30b6f80864bfbe64a0c958a00ef1b3d6141e4a",
-    "candidate_c_hybrid_live_adapter.py": "abac3d73e50ccdc06f714341ea150a8439eea180b94eeeee8059957aca8c72ae",
+    "candidate_c_hybrid_live_adapter.py": "ac838a99e378897591ba7f0238db74325751c9754780a40df5e17a3ba96806dd",
     "candidate_c_indicator_contract.py": "8947c0232850e58176c041a8ee9a1c3aee5b4e04aab04463b15b106f6d49dfe5",
-    "candidate_c_exit_management.py": "0327b7a71e56617a6ffd9b59924dda8a9aaf48f83acf490844fc888ec5c48f51",
+    "candidate_c_exit_management.py": "e5cbea760b5428faaa7586e80bc59967a0a7f89b8b02e37549404d68e2453e01",
     "entry_overextension_guard.py": "a2452e4565fa5631249bd4079429767be8fff2dbc360ecb863182b1ba395818a",
-    "candidate_c_hybrid_cycle.py": "a9f7a454f6ea367b88e8bda4a3feda42e0facc718a9913fae755854151842f52",
+    "candidate_c_hybrid_cycle.py": "6be584105a0a67fdcf488c507ec2534d1cfbcc12191edccd3a6ad41582d5b26a",
     "candidate_c_manual_close.py": "2646d9b458d708581188824778b0b92089b15ab04f33f6f41761715a0cc0b234",
-    "candidate_c_trader_adapter.py": "b0184e099af04a3bb869b32d94232ce20b4be346e9c0153ac213145155f825ce",
+    "candidate_c_trader_adapter.py": "59e81f5ad96449436273bc119d02630a2e3482501b283fac54bbc774e2645472",
     "candidate_c_notification_delivery.py": "b09c215c7ad13b69c58a7326b0b9cd8e14f429cc8c36468569acad5177e7ea78",
     "candidate_c_strategy_policy.py": "3702ca6a159daec673b8632c057614b16859e5c67473fda8f01d9d19874b8d6b",
     "candidate_c_preregistration_v3.json": "faa635c379885addaaed5747f0f53e253365f527ac0b979562ba0220d5b451f0",
     "candidate_c_forward_paper_trading.py": "93433b2decb68a00a7191b6000d6456b90fee1c0bacd3f7027a69cae847c90fb",
-    "adaptive_exit_engine.py": "12639d488865e879632900021050760564f53b74649fd72579ff32e43c30da35"
+    "adaptive_exit_engine.py": "12639d488865e879632900021050760564f53b74649fd72579ff32e43c30da35",
+    "entry_attempt_notifications.py": "78499d346dc1f0195f4da65180816f2217aeebd94f3b2964d41986cadfcc61dd",
+    "core_entry_events.py": "8777b764507f3591abbbe78153a50fbcd2ee0511af17e0039e3906d4565327b7",
+    "usage_log.py": "5dc0ffb02cba0e982b77918857e2731aa37c15b73e85317f1dcee686f5d13666",
+    "risk_manager.py": "93a247aebdac2627b15450fe78094af09602077bcf7e740d6afa68c640665e8a",
+    "telegram_notify.py": "43e24150ee5f4cb28a1de935c841b7adaa34267d08eacb7663df3a8fc54ce944"
 }
 BACKTEST_LIVE_PARITY_VERIFIED_SCOPE = (
+    "2026-10-09 v6: qualifying-behavior-final.log의 현재 tests 1313개 통과 후 변경 소스 및 C 알림 의존성 재고정. "
+    "tests/test_v6_review_important.py의 native DOGE live preparation/replay adapter 비교(09:30 진입, "
+    "14:40 위험거절, 11:00 추격거절)와 real whole-cycle stale/direction/risk outbox, "
+    "test_candidate_c_live_backtest_per_bar_recheck.py의 동일봉 dedup·새 봉 setup_id·30분 신선도, "
+    "test_candidate_c_partial_take_profit_2r.py 및 test_v6_entry_cost_notifications.py의 "
+    "롱/숏 부분익절 최소수량·profit-lock 지속과 실행 ledger 경계를 검증. "
+    "공급자 응답과 거래소는 fake; 실제 LIVE 자연 체결 및 수익성/새 전략 승인 증거가 아님. "
+    "deployment-only preregistration은 기존 SHA를 보존하며 배포 대상에서 별도 검증해야 함. "
     "tests/test_candidate_c_backtest_engine_live_integration.py(2026-09-15 확장, 10개 테스트) - "
     "backtest_engine.run_backtest() 실제 내부 루프(초기 포지션 주입·전략 파라미터 변경 없음)로 "
     "Entry/Reduce/StopUpdate(trailing+profit-lock)/Reversal을 전부 실제로 발생시켜 라이브 구성 "

@@ -1,4 +1,5 @@
 import json
+import time
 import logging
 import os
 import traceback
@@ -59,6 +60,22 @@ POSITION_REVIEW_SCHEMA = {
     },
     "required": ["assessment", "confidence", "reasoning"],
 }
+
+
+def _generate_content_observed(cfg,symbol,purpose,**request):
+    import httpx
+    started=time.monotonic()
+    error=None
+    try:
+        return _get_client(cfg).models.generate_content(**request)
+    except Exception as exc:
+        error=exc
+        raise
+    finally:
+        usage_log.record_api_attempt(cfg.user_dir,symbol,'gemini',purpose,cfg.GEMINI_MODEL,
+            response_ms=(time.monotonic()-started)*1000,
+            timed_out=isinstance(error,(TimeoutError,httpx.TimeoutException)),
+            error_type=type(error).__name__ if error is not None else None)
 
 
 def _get_client(cfg) -> genai.Client:
@@ -187,7 +204,7 @@ def propose_entry_exit_plan(cfg, symbol: str, side: str, tf_list: list, candle_s
         exit_price_contract=exit_price_contract or "",
     )
     client = _get_client(cfg)
-    response = client.models.generate_content(
+    response = _generate_content_observed(cfg, symbol, 'candidate_exit_plan',
         model=cfg.GEMINI_MODEL, contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -242,7 +259,7 @@ def analyze(cfg, symbol: str, tf_list: list, candle_summary: str, position: dict
     )
 
     client = _get_client(cfg)
-    response = client.models.generate_content(
+    response = _generate_content_observed(cfg, symbol, 'core_primary_decision',
         model=cfg.GEMINI_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(
@@ -417,7 +434,7 @@ def analyze_held_position(
     )
 
     client = _get_client(cfg)
-    response = client.models.generate_content(
+    response = _generate_content_observed(cfg, symbol, purpose,
         model=cfg.GEMINI_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(
@@ -497,7 +514,7 @@ def review_strategy_report(cfg, snapshot: dict) -> dict:
         snapshot=json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
     )
     client = _get_client(cfg)
-    response = client.models.generate_content(
+    response = _generate_content_observed(cfg, 'STRATEGY_REVIEW', 'strategy_review',
         model=cfg.GEMINI_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(

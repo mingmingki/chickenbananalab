@@ -1,0 +1,82 @@
+{
+  "candidate_c_decision_engine.py": {
+    "baseline": "d922dd41d0b1fb8cd6bdc34fc573869326d925c9bfbc16e261a09d9adb52c1f0",
+    "candidate": "91ac9113a135b5e069210ee9df54a20ddca42b546754bf0ce35760c832960a21"
+  },
+  "candidate_c_exit_management.py": {
+    "baseline": "0327b7a71e56617a6ffd9b59924dda8a9aaf48f83acf490844fc888ec5c48f51",
+    "candidate": "e5cbea760b5428faaa7586e80bc59967a0a7f89b8b02e37549404d68e2453e01"
+  },
+  "candidate_c_hybrid_cycle.py": {
+    "baseline": "a9f7a454f6ea367b88e8bda4a3feda42e0facc718a9913fae755854151842f52",
+    "candidate": "6be584105a0a67fdcf488c507ec2534d1cfbcc12191edccd3a6ad41582d5b26a"
+  },
+  "candidate_c_hybrid_live_adapter.py": {
+    "baseline": "abac3d73e50ccdc06f714341ea150a8439eea180b94eeeee8059957aca8c72ae",
+    "candidate": "ac838a99e378897591ba7f0238db74325751c9754780a40df5e17a3ba96806dd"
+  },
+  "candidate_c_runtime.py": {
+    "baseline": "872b24b1337593bea805e7d59a53e4dd7afa838f4887db287cd8372aa8d3058a",
+    "candidate": "0ccf7cfaf6509a5d1cfc9708994c1c6e783bc3d3720004f381ac5e343bc102ea"
+  },
+  "candidate_c_trader_adapter.py": {
+    "baseline": "b0184e099af04a3bb869b32d94232ce20b4be346e9c0153ac213145155f825ce",
+    "candidate": "59e81f5ad96449436273bc119d02630a2e3482501b283fac54bbc774e2645472"
+  },
+  "core_entry_events.py": {
+    "baseline": "cede96e0cb470743e5c19cff18d22f90cc60af388af97b31185c07e0d015f56a",
+    "candidate": "8777b764507f3591abbbe78153a50fbcd2ee0511af17e0039e3906d4565327b7"
+  },
+  "entry_attempt_notifications.py": {
+    "baseline": null,
+    "candidate": "78499d346dc1f0195f4da65180816f2217aeebd94f3b2964d41986cadfcc61dd"
+  },
+  "entry_execution_normalization.py": {
+    "baseline": null,
+    "candidate": "b8ed4939dd389d485581bb1805be0cee279e0fd26e4e884458731951dee96a8f"
+  },
+  "gemini_analyzer.py": {
+    "baseline": "0a2d47e6d1ad4f01bb34dc2d3bd24c459d7d8ebf5fa202da1691218d8b5f4969",
+    "candidate": "ab818abae51460c856622225a3ca8e5ae03ce20a02adb6cccf4923746c6b836b"
+  },
+  "gpt_latency_log.py": {
+    "baseline": "b1024fc7bd2f1993f044dab8e63a8960903ef73d2f9e954cc784216def519be8",
+    "candidate": "33a60ef5f61e4a6c1b00eb0783ea187f5220bcabc6d78929c65c04b83bdbc131"
+  },
+  "openai_analyzer.py": {
+    "baseline": "bde12af913a921552f1670af474cc4f51d90cdff07ca83f17e6754aac823f290",
+    "candidate": "96418361e8f2508ac8d22c6a12a7e51581080172883de08f4834a2add166b8ce"
+  },
+  "operating_costs.py": {
+    "baseline": "224f5a29b53c2020a2d61762ff5808be4145a05a2589f4b774a9ac2ff000c253",
+    "candidate": "c996e97a9c3a102a82519a0a1ec83c025fd961a1577d2c607c3c641831769794"
+  },
+  "risk_manager.py": {
+    "baseline": "21c5d99087db812adcfb93c36791feef06f75d4d152673ed0812102ff9a4c9b2",
+    "candidate": "93a247aebdac2627b15450fe78094af09602077bcf7e740d6afa68c640665e8a"
+  },
+  "static/operating_observability.js": {
+    "baseline": "97e83f34b73a3c27def89a0cf02e1231a08fb0969f03a0b5742b24c97ea0a898",
+    "candidate": "071da00a0696ff9d693c3aad68c31ce6e60b73c957cb0bc6c8caf0bcf2530e81"
+  },
+  "telegram_notify.py": {
+    "baseline": "3dfe4c7429f350818f624c3e39ddeee8b7f730a7d1eb46918c96e032a6a1fafa",
+    "candidate": "43e24150ee5f4cb28a1de935c841b7adaa34267d08eacb7663df3a8fc54ce944"
+  },
+  "templates/dashboard.html": {
+    "baseline": "1addd301c0926af229e5c1bf81a1169ba8abe598a1333cb17fde6e0f50617ac1",
+    "candidate": "5a575b11d70c517a3b45176fd82bb1785c2daa5028d00222505c424c27598afb"
+  },
+  "trader.py": {
+    "baseline": "0218e6f6138a070fa79c2aebd9b608730105e4b7f6bd9a2c9ce8fc3b4e557190",
+    "candidate": "51732733680062a2aa15a327f4dd9cdfd8ad722d6842864c31e5ca78403d87e6"
+  },
+  "usage_log.py": {
+    "baseline": "6e1cd89e30fe72ccbf500e44fb7a4b06e36220bd764b509c8cdc4e880f942218",
+    "candidate": "5dc0ffb02cba0e982b77918857e2731aa37c15b73e85317f1dcee686f5d13666"
+  },
+  "web_app.py": {
+    "baseline": "7f07e8c72304971192c2efaf161e86ecfd145924cc7fbb021a02b7e304597025",
+    "candidate": "86650a6e24d8c62df7128fef864ff74fe6f2c496db50fc094b72b603490d47a7"
+  }
+}

@@ -10,6 +10,7 @@ GPT Entry Gate가 timeout(설정 10초)인데도 실제로는 30초 이상 걸�
 건드리지 않음). 실거래 판단에는 전혀 영향을 주지 않는 순수 관측 로그다."""
 import datetime
 import json
+import usage_log
 import os
 
 import jsonl_cache
@@ -47,6 +48,7 @@ def record_call(
         f.write(
             json.dumps(
                 {
+                    **usage_log._call_context.get(),
                     "symbol": symbol,
                     "purpose": purpose,
                     "model": model,

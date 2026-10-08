@@ -14,9 +14,12 @@ function renderOperatingCosts(summary) {
   set('ops-monthly-projection',typeof s.projected_monthly_total_usd==='number' ? '약 '+operatingMoney(s.projected_monthly_total_usd,2)+' /월' : '산정 불가');
   const metadata=s.call_metadata_24h;
   const models=Object.entries(s.by_model_24h || {}).map(([name,r])=>`${name}: ${r.calls}회 / 입력 ${r.input_tokens || 0} 출력 ${r.output_tokens || 0} 토큰`).join(' · ');
+  const triggers=Object.entries(s.by_trigger_24h || {}).map(([name,r])=>`${name} ${r.calls}회`).join(' · ');
+  const attempts=s.attempt_metadata_24h || {}, cohort=s.release_cohort || {};
+  const releaseText=cohort.available ? `현 릴리스 ${cohort.created_at} 이후 ${cohort.since_release_calls}회 / ${operatingMoney(cohort.since_release_cost_usd,4)} · 24h 이전 릴리스 ${operatingMoney(cohort.pre_release_24h_cost_usd,4)}, 현 릴리스 ${operatingMoney(cohort.post_release_24h_cost_usd,4)}` : '현 릴리스 비용 구간: 배포 시각 확인 대기';
   const purposes=Object.entries(s.by_purpose_24h || {}).map(([name,r])=>`${name} ${r.calls}회`).join(' · ');
   set('ai-call-metadata',metadata && s.usage_log_available!==false
-    ? `24h 기록 ${metadata.logged_calls}회 · 요청 기록 중복 ${metadata.duplicate_request_records} · 동일 입력 ${metadata.repeated_input_calls} (중복 호출 확정 아님) · 확인 재시도 ${metadata.measured_retry_count}, 미확인 ${metadata.unknown_retry_calls}회 · ${models} · 목적 ${purposes} · 절감 미측정`
+    ? `24h 기록 ${metadata.logged_calls}회 · 요청 기록 중복 ${metadata.duplicate_request_records} · 동일 입력 ${metadata.repeated_input_calls} (중복 호출 확정 아님) · 확인 재시도 ${metadata.measured_retry_count}, 미확인 ${metadata.unknown_retry_calls}회 · ${models} · 목적 ${purposes} · trigger ${triggers} · cache 입력 ${metadata.cached_input_tokens || 0}토큰, 미확인 ${metadata.cache_unknown_calls || 0}회 · 호출시도 ${attempts.logged_application_attempts || 0}, timeout ${attempts.timed_out_calls || 0}, 오류 ${attempts.error_calls || 0} (실패비용 미확인) · ${releaseText} · 절감 미측정`
     : '호출 모델·목적·토큰·중복·재시도 미측정 · 절감 미측정');
   set('operating-cost-assumptions',server.estimate_available
     ? `예상값 · ${server.machine_type} · ${server.region || 'us-central1'} · ${server.disk_type} ${server.disk_gb}GB · 외부 IPv4 ${server.external_ipv4} · 월 ${server.hours_per_month}시간. AI 월 예상은 최근 24시간 × 730/24. 세금·전송·로그비용·할인·무료 할당·크레딧 미반영. 실제 청구액과 다를 수 있습니다.${s.usage_log_available===false ? ' AI 사용 로그 없음.' : ''}`

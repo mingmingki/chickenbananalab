@@ -205,6 +205,11 @@ class UserContext:
         # 재시작 시 CORE와 동일하게 메모리 초기화되어 자동 재시작되지 않는다.
         self.candidate_c_stop_event = None
         self.candidate_c_threads: list = []
+        try:
+            import core_entry_events
+            core_entry_events.kick(self.cfg)
+        except Exception:
+            self.cfg.logger.warning('ENTRY_OUTBOX_BOOT_FAILED')
 
         # CORE는 포지션 상태를 로컬 디스크에 저장해두지 않고 순수 메모리 객체라(2026-08-28
         # 사용자 지시), 재시작 직후 "시작"을 누르기 전까지 화면에 아무것도 안 보이는
@@ -1100,17 +1105,22 @@ def api_analysis_daily_completion():
     # The local analysis action and watchdog refresh this saved coverage.
     coverage=analysis.get('coverage') or {}
     payload=daily_completion_context.build_daily_completion_context(entry,exit3,coverage,progress)
+    payload['learning']['live_enabled']=live_enabled
+    payload['learning']['analysis_generated_at']=cached.get('generated_at')
+    payload['learning']['analysis_stale']=bool(cached.get('stale',True))
     payload.setdefault('data_quality', {})['feature_missing_reasons']=dict(coverage.get('feature_missing_reasons') or {})
     payload['data_quality']['by_strategy_group']=dict(coverage.get('by_strategy_group') or {})
     payload['data_quality']['telemetry_current']=dict(coverage.get('telemetry_current') or {})
 
-    release_manifest=Path(config.PROJECT_DIR)/'DAILY_COMPLETION_READONLY_V2_DEPLOYMENT.json'
-    release_created_at=None
-    if release_manifest.is_file():
+    release_meta=operating_costs.release_metadata(config.PROJECT_DIR)
+    release_created_at=release_meta['created_at']
+    if release_created_at is None:
+        legacy_manifest=Path(config.PROJECT_DIR)/'DAILY_COMPLETION_READONLY_V2_DEPLOYMENT.json'
         try:
-            release_created_at=json.loads(release_manifest.read_text(encoding='utf-8')).get('created_at')
+            release_created_at=json.loads(legacy_manifest.read_text(encoding='utf-8')).get('created_at')
         except (OSError,ValueError,TypeError):
-            release_created_at=None
+            pass
+    payload['release_identity']=release_meta
     if release_created_at is not None:
         ai_cost=release_cohort_analysis.ai_cost_since(ctx.dir,release_created_at)
         cost_summary=operating_costs.build_operating_cost_summary(ctx.dir)
@@ -1586,6 +1596,7 @@ def api_candidate_c_state():
             "position": _candidate_c_symbol_position(ctx.dir, symbol) if machine.state.value in ("LONG", "SHORT") else None,
             "owner": 'core' if symbol in active_core else observation.get('owner', 'UNKNOWN') if fresh else 'UNKNOWN',
             "actual_position": observation.get('actual_position') if fresh else None,
+            "sizing_observation": observation.get('sizing_observation') if fresh else None,
             "position_query_status": observation.get('position_query_status', 'UNKNOWN') if fresh else 'UNKNOWN',
             "pending_orders": {'open_orders': observation.get('pending_orders'),
                                'unresolved_intents': observation.get('unresolved_intents')} if fresh else None,

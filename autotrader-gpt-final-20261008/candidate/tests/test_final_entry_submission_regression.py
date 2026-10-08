@@ -55,7 +55,7 @@ def boundary(tmp_path, monkeypatch, side, price, *, minimum=.01, age=0, no_pullb
               '_bounded_entry_validation':dict(context=r['context'], plan=r['plan'], closed_dfs={})}
     monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda dfs,s,p: {'allowed':not no_pullback,'reason':'entry_late_exhaustion_no_pullback' if no_pullback else 'ok'})
     client=SimpleNamespace(fetch_last_price=lambda:price, fetch_usdt_equity=lambda:1000,
-        ensure_markets_loaded=lambda:None, exchange=SimpleNamespace(market=lambda symbol:dict(contractSize=1,precision={'amount':.01},limits={'amount':{'min':minimum}})),
+        ensure_markets_loaded=lambda:None, exchange=SimpleNamespace(price_to_precision=lambda symbol,p:f'{p:.4f}',market=lambda symbol:dict(contractSize=1,precision={'amount':.01,'price':.0001},limits={'amount':{'min':minimum}})),
         ensure_leverage=lambda:None,contract_size=lambda:1,fetch_position=lambda:None,fetch_order_status_by_client_id=lambda cid:None)
     sent=[]
     class ReachedMockOrder(Exception):pass
@@ -82,7 +82,11 @@ def test_real_core_submit_reduces_quantity_after_adverse_quote(tmp_path,monkeypa
 def test_real_core_submit_rejects_ai_target_over_cap_after_favorable_quote(tmp_path,monkeypatch,side,price):
     cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,price)
     assert trader._execute_entry(cfg,TraderState(),c,'PI/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
-    assert not sent
+    assert sent
+    _,qty,sl,tp=sent[0]
+    assert abs(tp-price)/price*5 <= .60+1e-12
+    assert qty<=args[1]
+    assert sl>=args[2] if side=='long' else sl<=args[2]
 
 
 @pytest.mark.parametrize('side',['long','short'])

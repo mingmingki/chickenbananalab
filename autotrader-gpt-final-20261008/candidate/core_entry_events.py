@@ -9,6 +9,7 @@ from contextlib import contextmanager
 import hashlib
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import sqlite3
@@ -47,16 +48,31 @@ def _db(user_dir):
         db.close()
 
 
+def _diagnostic_json(value):
+    """Invalid numeric evidence stays unknown; it must not erase a blocked event."""
+    if isinstance(value,dict):return {str(k):_diagnostic_json(v) for k,v in value.items()}
+    if isinstance(value,(list,tuple)):return [_diagnostic_json(v) for v in value]
+    if isinstance(value,float):return value if math.isfinite(value) else None
+    if value is None or isinstance(value,(str,int,bool)):return value
+    return None
+
+
 def record(cfg,event):
     """Persist exactly one event per decision and phase; failure never affects trading."""
     try:
-        row=dict(event)
+        row=_diagnostic_json(dict(event))
         if not row.get('decision_id') or not row.get('status'): return False
         row.setdefault('time',datetime.datetime.now(KST).isoformat(timespec='seconds'))
-        key=hashlib.sha256((str(row['decision_id'])+'|'+row['status']).encode()).hexdigest()
+        phase_reason=str(row.get('reason') or '') if row['status'] in ('LOCAL_BLOCKED','ORDER_PENDING') else ''
+        key=hashlib.sha256((str(row.get('engine') or 'CORE')+'|'+str(row['decision_id'])+'|'+row['status']+'|'+phase_reason).encode()).hexdigest()
         delivery=('QUEUED' if getattr(cfg,'TELEGRAM_BOT_TOKEN','') and getattr(cfg,'TELEGRAM_CHAT_ID','') else 'NOT_CONFIGURED')
         with _db(cfg.user_dir) as db:
             db.execute('BEGIN IMMEDIATE')
+            if (row.get('engine') or 'CORE')=='CORE':
+                legacy_key=hashlib.sha256((str(row['decision_id'])+'|'+row['status']).encode()).hexdigest()
+                legacy=db.execute('SELECT payload FROM events WHERE event_key=?',(legacy_key,)).fetchone()
+                if legacy and (not phase_reason or json.loads(legacy['payload']).get('reason')==row.get('reason')):
+                    return False
             if row['status'] in ('FILLED','ORDER_FAILED'):
                 receipt=db.execute('SELECT payload FROM entry_orders WHERE decision_id=?',(row['decision_id'],)).fetchone()
                 if receipt:
@@ -90,7 +106,8 @@ def deliver_pending(cfg):
                        (time.time(),row['seq']))
         try:
             reply=telegram_notify.send(cfg,telegram_notify.format_core_entry_event(json.loads(row['payload'])))
-            if not isinstance(reply,dict) or not reply.get('ok'): raise RuntimeError('telegram_ack_missing')
+            if not isinstance(reply,dict) or not reply.get('ok') or not reply.get('message_id'):
+                raise RuntimeError('telegram_ack_missing')
             delivery='SENT';message_id=str(reply.get('message_id') or '')
         except Exception as exc:
             # An indeterminate acknowledgement must never be retried: duplicate risk.

@@ -229,6 +229,8 @@ def evaluate_partial_take_profit(
     if target_residual < min_size:
         return DeriskDecision(action="dust_full_exit", reduce_quantity=current_quantity,
                               reason="PARTIAL_TP_2R_DUST_SAFE_FULL_EXIT")
+    if reduce_quantity < min_size - 1e-12:
+        return DeriskDecision(action="none", reason="partial_take_profit_below_minimum")
     return DeriskDecision(action="partial_reduce", target_residual=target_residual,
                           reduce_quantity=reduce_quantity, reason="partial_take_profit_2r")
 

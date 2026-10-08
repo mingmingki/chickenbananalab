@@ -16,6 +16,7 @@ class State:
 
 class Exchange:
     def __init__(self,minimum=.01): self.minimum=minimum
+    def price_to_precision(self,symbol,price): return f"{price:.2f}"
     def market(self,symbol):
         return dict(id='ETH-USDT-SWAP',contractSize=.1,precision={'amount':.01,'price':.01},limits={'amount':{'min':self.minimum}})
 

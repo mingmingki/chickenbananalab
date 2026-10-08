@@ -277,6 +277,7 @@ class DailyLossGuard:
     def allow_new_entry(self, equity: float) -> bool:
         with self._lock:
             baseline = self._load_or_init_baseline(equity)
+            self.last_entry_check={'equity':equity,'baseline_available':baseline is not None}
             if baseline is None:
                 return False
             start_equity = baseline.get("start_equity")
@@ -285,6 +286,7 @@ class DailyLossGuard:
             if start_equity and start_equity > 0:
                 account_loss_pct = max(0.0, (start_equity - equity) / start_equity * 100)
                 account_cap = self.cfg.ACCOUNT_HARD_DAILY_LOSS_PCT
+                self.last_entry_check.update(start_equity=start_equity,account_loss_pct=account_loss_pct,account_limit_pct=account_cap)
                 account_blocked = account_loss_pct >= account_cap
                 _notify_daily_loss_transition(
                     self.cfg, trading_date=trading_date_text, key="account", active=account_blocked,
@@ -303,6 +305,7 @@ class DailyLossGuard:
                 )
                 group_loss_pct = max(0.0, -group_realized_pnl / start_equity * 100)
                 limit_pct = getattr(self.cfg, self.limit_attr)
+                self.last_entry_check.update(group_realized_pnl=group_realized_pnl,group_loss_pct=group_loss_pct,group_limit_pct=limit_pct)
                 group_blocked = group_loss_pct >= limit_pct
                 _notify_daily_loss_transition(
                     self.cfg, trading_date=trading_date_text, key=f"group:{self.group}", active=group_blocked,

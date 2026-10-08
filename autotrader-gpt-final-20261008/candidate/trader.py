@@ -4,6 +4,7 @@ import math
 import os
 import threading
 import time
+import usage_log
 
 import ccxt
 
@@ -179,6 +180,7 @@ def _core_ai_call_gate(state, symbol, closed_dfs, closed_structures, correction_
     snapshot = state.snapshot() if state is not None else {}
     memory = (((snapshot or {}).get("symbols") or {}).get(symbol) or {}).get("core_ai_budget")
     memory = dict(memory or {})
+    pending=((((snapshot or {}).get('symbols') or {}).get(symbol) or {}).get('core_ai_pending') or {})
     signature = _core_ai_budget_signature(closed_dfs, closed_structures, correction_ctx, position)
     position_fingerprint = _core_ai_position_fingerprint(position)
 
@@ -243,10 +245,32 @@ def _core_ai_call_gate(state, symbol, closed_dfs, closed_structures, correction_
             reason = "stable_within_budget"
             call_ai = False
 
+    material_signature = (
+        # EMA direction changes can identify a fresh setup. Keep these immediate.
+        tuple((tf, (_core_ai_discrete_indicator_state((closed_dfs or {}).get(tf)) or (None,))[0])
+              for tf in ('5m','1h','4h')),
+        signature[1], signature[2], signature[3],
+    )
+    material_changed = memory.get('material_signature') != repr(material_signature)
+    # Compatibility with pre-v6 memory: missing material signature must be reviewed once.
+    if (call_ai and reason in ('price_move_atr','signature_changed')
+            and not material_changed and (move_atr is None or move_atr<1.0)
+            and age_seconds is not None and age_seconds < 600):
+        call_ai=False
+        reason='low_importance_coalesced'
+
+    pending_memory=None
+    if reason=='low_importance_coalesced':
+        pending_memory=dict(pending or {},first_seen_at=pending.get('first_seen_at') or now.isoformat(),
+            last_seen_at=now.isoformat(),signature=repr(signature),price=price)
+    elif not call_ai and pending and age_seconds is not None and age_seconds>=600:
+        call_ai=True
+        reason='coalesced_change_due'
     next_memory = {
         "last_ai_at": now.isoformat(timespec="seconds"),
         "last_ai_price": price,
         "signature": repr(signature),
+        "material_signature": repr(material_signature),
         "position_fingerprint": repr(position_fingerprint),
         "trigger_reason": reason,
         "market_event_key": market_event_key,
@@ -254,7 +278,7 @@ def _core_ai_call_gate(state, symbol, closed_dfs, closed_structures, correction_
     }
     return {
         "call_ai": call_ai, "reason": reason, "age_seconds": age_seconds,
-        "move_atr": move_atr, "next_memory": next_memory,
+        "move_atr": move_atr, "next_memory": next_memory,"pending_memory":pending_memory,
     }
 
 
@@ -1237,11 +1261,12 @@ def _gpt_entry_gate(
     if not core_entry_policy.valid_candidate(cfg,symbol,decision):
         return False, "blocked_error", {"decision": None, "error_reason": "invalid_gemini_entry_candidate"}
     try:
-        result = openai_analyzer.verify(
-            cfg, symbol, tf_list, candle_summary, position, decision,
-            timeout=GPT_ENTRY_TIMEOUT_SECONDS, purpose="entry_gate", short_level_ctx=short_level_ctx,
-            max_retries=GPT_ENTRY_MAX_RETRIES, exit_price_contract=exit_price_contract,
-        )
+        with usage_log.call_context(engine='CORE',trigger='eligible_gemini_entry',stage='gpt_entry_gate'):
+            result = openai_analyzer.verify(
+                cfg, symbol, tf_list, candle_summary, position, decision,
+                timeout=GPT_ENTRY_TIMEOUT_SECONDS, purpose="entry_gate", short_level_ctx=short_level_ctx,
+                max_retries=GPT_ENTRY_MAX_RETRIES, exit_price_contract=exit_price_contract,
+            )
     except Exception as exc:
         # Exceptions outside the SDK request boundary cannot prove a GPT timeout.
         result = {"decision":None,"error_reason":"unexpected_gate_error",
@@ -1325,15 +1350,72 @@ def _record_entry_gate_result(
         cfg.logger.exception("[%s] GPT 진입 게이트 로그 기록 실패", symbol)
 
 
+def _core_pre_gpt_block_evidence(cfg,decision,scope):
+    try:
+        values={key:scope[key] for key in ('remaining_min','remaining_sec','equity','last_price','amount','sl_price','tp_price')
+                if key in scope and isinstance(scope[key],(int,float,str))}
+        for key in ('overextension','short_level_ctx','level_result','cooldown_check','thesis_gate'):
+            if isinstance(scope.get(key),dict): values[key]=scope[key]
+        adaptive=scope.get('adaptive_live') or {}
+        if adaptive.get('plan') is not None: values['adaptive_plan']=adaptive['plan'].audit_record()
+        guard=scope.get('loss_guard')
+        if getattr(guard,'last_entry_check',None):values['daily_loss_check']=guard.last_entry_check
+        values.update(min_confidence=getattr(cfg,'MIN_CONFIDENCE',None),confidence=decision.get('confidence'),
+            daily_loss_limit_pct=getattr(cfg,'MAX_DAILY_LOSS_PCT',None),
+            reentry_cooldown_minutes=getattr(cfg,'REENTRY_COOLDOWN_MINUTES',None),
+            min_post_cost_rr=production_adaptive_exit_policy()['min_post_cost_rr'])
+        price=scope.get('last_price')
+        if price is None:
+            five=(scope.get('closed_dfs') or {}).get('5m')
+            if five is not None and len(five):price=float(five.iloc[-1]['close'])
+        quantity=scope.get('amount')
+        leverage=getattr(cfg,'LEVERAGE',None)
+        sl,target=scope.get('sl_price'),scope.get('tp_price')
+        context=adaptive.get('context');plan=adaptive.get('plan')
+        if context is not None and plan is not None:
+            price=context.entry_price;sl=plan.stop_price
+            target=(plan.tp2 or plan.tp1).price if plan.tp2 or plan.tp1 else None
+            quantity=plan.effective_notional/price if price and plan.effective_notional>0 else 0.0
+            leverage=context.leverage
+            policy=production_adaptive_exit_policy()
+            values.update(entry_price=price,stop=sl,target=target,risk_budget=plan.trade_risk_budget_usdt,
+                planned_loss=plan.planned_loss_usdt,configured_notional=plan.configured_notional,
+                effective_notional=plan.effective_notional,adaptive_reason=adaptive.get('reason'),
+                roundtrip_cost_rate=context.estimated_roundtrip_cost_rate,
+                max_leveraged_stop_loss_pct=policy['max_leveraged_stop_loss_pct'],
+                max_leveraged_tp1_gain_pct=policy['max_leveraged_tp1_gain_pct'],
+                max_leveraged_tp2_gain_pct=policy['max_leveraged_tp2_gain_pct'],
+                initial_atr_min=policy['initial_atr_min'],initial_atr_max=policy['initial_atr_max'])
+            if sl is not None and target is not None:
+                cost=price*context.estimated_roundtrip_cost_rate
+                values['post_cost_rr']=(abs(target-price)-cost)/(abs(sl-price)+cost)
+                values['stop_atr']=abs(sl-price)/context.atr if context.atr else None
+                values['leveraged_stop_pct']=abs(sl-price)/price*leverage*100
+                values['leveraged_tp2_pct']=abs(target-price)/price*leverage*100
+        return dict(validation_values=values,entry_price=price,quantity_coin=quantity,
+            sl_price=sl,tp_price=target,leverage=leverage,
+            configured_margin_usdt=getattr(cfg,'POSITION_FIXED_USDT',None),
+            margin_estimate_usdt=quantity*price/leverage if quantity is not None and price and leverage else None,
+            sizing_reduction_reason='local_entry_guard')
+    except Exception:
+        return {}
+
+
 def _record_core_entry_attempt(
     state, symbol: str, action: str, status: str, *, reason: str | None = None,
-    confidence=None, gpt_result: dict | None = None,
+    confidence=None, gpt_result: dict | None = None, cfg=None, decision=None, decision_id=None, validation_values=None, entry_context=None,
 ) -> None:
     """Publish the latest CORE entry attempt for dashboard/report observability only.
 
     Observability must never block or alter trading; minimal test/fallback state objects
     without update_symbol are therefore treated as a no-op.
     """
+    if cfg is not None and decision_id and action in ('long','short'):
+        if decision is not None and entry_context:
+            decision.setdefault('_entry_plan_context',{}).update(entry_context)
+        _set_core_entry_outcome(cfg,state,symbol,decision or dict(action=action,confidence=confidence),
+            decision_id,status,reason,gpt_result=gpt_result,**({'validation_values':validation_values} if validation_values is not None else {}))
+        return
     if not hasattr(state, "update_symbol"):
         return
     try:
@@ -4084,6 +4166,7 @@ def _execute_approved_entry_with_optional_reversal(
         import symbol_entry_control
 
         def _replacement_entry_allowed(stage: str) -> bool:
+            nonlocal amount,sl_price,tp_price
             if _reentry_blocked(state,symbol,cfg,action)[0]:
                 _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','reentry_cooldown')
                 return False
@@ -4100,6 +4183,8 @@ def _execute_approved_entry_with_optional_reversal(
                     _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',checked['reason'],
                         validation_values=checked.get('values'))
                     return False
+                _commit_core_final_entry_plan(cfg,client,symbol,decision,validation,checked,stage)
+                amount,sl_price,tp_price=checked['amount'],checked['stop'],checked['target']
             return True
 
         with cc_ownership.account_order_lock(cfg.user_dir):
@@ -4258,6 +4343,7 @@ def _handle_new_entry(
     decision.pop('_entry_outcome',None)
     decision.pop('_gpt_entry_result',None)
     decision.pop('_gpt_entry_gate',None)
+    decision['_decision_id']=decision_id
     decision['_entry_plan_context']=dict(quantity_coin=amount,leverage=getattr(cfg,'LEVERAGE',None),
         sl_price=sl_price,tp_price=tp_price,original_sl_price=sl_price,original_tp_price=tp_price,original_quantity_coin=amount)
     try:
@@ -4284,7 +4370,7 @@ def _handle_new_entry(
         _record_core_entry_attempt(
             state, symbol, action, "LOCAL_BLOCKED", reason="ai_close_thesis_not_recovered",
             confidence=decision.get("confidence"),
-        )
+        cfg=cfg, decision=decision, decision_id=decision_id, entry_context=_core_pre_gpt_block_evidence(cfg,decision,locals()))
         return
 
     # global kill switch(2026-08-30, order_safety.py 공통 안전계층 도입과 함께 CORE에
@@ -4480,8 +4566,14 @@ def _handle_new_entry(
             context=adaptive_context,
             plan=(ai_adaptive_plan if selected_ai_exit is not None
                   and ai_exit_reason == 'ai_exit_plan_applied' else adaptive_plan),
+            verified_ai_price_contract=ai_exit_reason=='ai_exit_plan_applied',
             closed_dfs=closed_dfs or {},
         )
+    validation=decision.get('_bounded_entry_validation')
+    if validation is not None:
+        p=validation['plan']
+        validation['approval_anchor']=dict(entry_price=last_price,stop=sl_price,
+            tp1=p.tp1.price,tp2=tp_price,quantity=amount,risk_budget=p.trade_risk_budget_usdt)
     decision['_entry_plan_context'].update(quantity_coin=amount,sl_price=sl_price,tp_price=tp_price)
     logger.info("[%s] GPT gate=%s - %s 최종 로컬 검증 진행", symbol, gate_result, action)
     if short_level_ctx is not None:
@@ -4509,7 +4601,9 @@ def _handle_new_entry(
             "exit_plan_contract_reason": (gpt_result or {}).get("exit_plan_contract_reason"),
             "contract_entry_price": (exit_price_contract or {}).get("entry_price"),
             "contract_atr": (exit_price_contract or {}).get("atr"),
-            "result":ai_exit_reason, "final_sl":sl_price, "final_tp":tp_price,
+            "result":ai_exit_reason, "final_sl":(decision.get("_entry_plan_context") or {}).get("sl_price",sl_price), "final_tp":(decision.get("_entry_plan_context") or {}).get("tp_price",tp_price),
+            "final_plan":(decision.get("_entry_plan_context") or {}).get("final_plan"),
+            "final_quantity":(decision.get("_entry_plan_context") or {}).get("quantity_coin",amount),
             "order_executed":bool(order_success),
         }
         audit_row = ai_exit_plan_audit.enrich_with_exchange_protection(client, audit_row)
@@ -4563,6 +4657,8 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
     cycle_started_at = time.time()
     if getattr(cfg, 'EXECUTION_MODE', 'LIVE') != 'SHADOW':
         import core_entry_events
+        try: core_entry_events.kick(cfg)
+        except Exception: pass
         _reconcile_pending_core_entry(cfg,state,client,symbol)
         if core_entry_events.pending_order(cfg.user_dir,symbol):
             cfg.logger.warning('[%s] unresolved CORE entry: no new AI/order flow',symbol)
@@ -4840,6 +4936,8 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
         entry_timing=entry_timing,
     )
     if not ai_budget["call_ai"]:
+        if ai_budget.get('pending_memory') is not None:
+            state.update_symbol(symbol,core_ai_pending=ai_budget['pending_memory'])
         logger.info(
             "[%s] CORE_AI_BUDGET_SKIP reason=%s age=%.0fs move_atr=%s",
             symbol, ai_budget["reason"], float(ai_budget.get("age_seconds") or 0.0),
@@ -4853,7 +4951,8 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
     logger.info("[%s] CORE_AI_BUDGET_CALL reason=%s position=%s age=%s move_atr=%s",
                 symbol,ai_budget['reason'],"held" if position else "flat",
                 ai_budget.get('age_seconds'),ai_budget.get('move_atr'))
-    decision = gemini_analyzer.analyze(cfg, symbol, tf_list, candle_summary, position)
+    with usage_log.call_context(engine='CORE',trigger=ai_budget['reason'],stage='primary_decision'):
+        decision = gemini_analyzer.analyze(cfg, symbol, tf_list, candle_summary, position)
     decision["_entry_timing"] = entry_timing
     decision["_market_context"] = ({key: market_snapshot.get(key) for key in ("snapshot_id", "as_of", "status")}
                                    if market_snapshot else None)
@@ -4862,7 +4961,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
         and "파싱 실패" in str(decision.get("reasoning") or "")
     )
     if not parse_failed:
-        state.update_symbol(symbol, core_ai_budget=ai_budget["next_memory"])
+        state.update_symbol(symbol, core_ai_budget=ai_budget["next_memory"],core_ai_pending=None)
     decision['_approval_started_at'] = cycle_started_at
     raw_5m = raw_dfs.get('5m')
     if raw_5m is not None and len(raw_5m):
@@ -5146,6 +5245,10 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
         _short_attempt_is_candidate = action == "short" and position is None
         _short_attempt_candidate_id = f"{decision_id}-shortattempt" if _short_attempt_is_candidate else None
 
+        if position and position['side']==action:
+            logger.info('[%s] already holding same side - maintain',symbol)
+            return
+
         # 쿨다운은 confidence보다 우선한다 (확신도가 높아도 외부청산 직후 반대방향
         # 재진입은 막아야 함 - 단, 같은 방향 재진입은 _reentry_blocked 내부에서 즉시
         # 허용된다).
@@ -5161,7 +5264,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
                     _record_veto_shadow_gate_outcome(cfg, decision_id, "LOCAL_BLOCKED", reason="cooldown")
                 if _short_attempt_is_candidate:
                     _record_veto_shadow_gate_outcome(cfg, _short_attempt_candidate_id, "LOCAL_BLOCKED", reason="cooldown")
-                _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="cooldown", confidence=decision.get("confidence"))
+                _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="cooldown", confidence=decision.get("confidence"), cfg=cfg, decision=decision, decision_id=decision_id, entry_context=_core_pre_gpt_block_evidence(cfg,decision,locals()))
                 return
 
         if not _confidence_ok(cfg, decision):
@@ -5173,7 +5276,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
                 _record_veto_shadow_gate_outcome(cfg, decision_id, "LOCAL_BLOCKED", reason="confidence")
             if _short_attempt_is_candidate:
                 _record_veto_shadow_gate_outcome(cfg, _short_attempt_candidate_id, "LOCAL_BLOCKED", reason="confidence")
-            _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="confidence", confidence=decision.get("confidence"))
+            _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="confidence", confidence=decision.get("confidence"), cfg=cfg, decision=decision, decision_id=decision_id, entry_context=_core_pre_gpt_block_evidence(cfg,decision,locals()))
             return
 
         if position and position["side"] == action:
@@ -5195,7 +5298,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
                 _record_veto_shadow_gate_outcome(
                     cfg, decision_id, "LOCAL_BLOCKED", reason="post_runup_correction_long",
                 )
-            _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="post_runup_correction_long", confidence=decision.get("confidence"))
+            _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="post_runup_correction_long", confidence=decision.get("confidence"), cfg=cfg, decision=decision, decision_id=decision_id, entry_context=_core_pre_gpt_block_evidence(cfg,decision,locals()))
             return
 
         did_reversal = False
@@ -5203,6 +5306,8 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
         if position and position["side"] != action:
             if not _min_hold_elapsed(state, symbol, cfg):
                 logger.info("[%s] 반대 방향 신호이나 최소 보유시간(%d분) 미충족 - 무시", symbol, cfg.MIN_HOLD_MINUTES)
+                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','reversal_min_hold',
+                    validation_values={'min_hold_minutes':cfg.MIN_HOLD_MINUTES})
                 return
             correction_short_reversal = _correction_short_reversal_allowed(
                 position, action, correction_ctx,
@@ -5243,7 +5348,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
                 _record_veto_shadow_gate_outcome(cfg, decision_id, "LOCAL_BLOCKED", reason="daily_loss")
             if _short_attempt_is_candidate:
                 _record_veto_shadow_gate_outcome(cfg, _short_attempt_candidate_id, "LOCAL_BLOCKED", reason="daily_loss")
-            _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="daily_loss", confidence=decision.get("confidence"))
+            _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="daily_loss", confidence=decision.get("confidence"), cfg=cfg, decision=decision, decision_id=decision_id, entry_context=_core_pre_gpt_block_evidence(cfg,decision,locals()))
             return
 
         # CORE 신규 LONG 1H minimum confirmation gate. 1D/4H가 bullish여도
@@ -5265,7 +5370,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
                 logger.info("[%s] BLOCK core_1h_confirmation: %s", symbol, block_reason)
                 if _veto_shadow_is_candidate:
                     _record_veto_shadow_gate_outcome(cfg, decision_id, "LOCAL_BLOCKED", reason="core_1h_confirmation")
-                _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="core_1h_confirmation", confidence=decision.get("confidence"))
+                _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="core_1h_confirmation", confidence=decision.get("confidence"), cfg=cfg, decision=decision, decision_id=decision_id, entry_context=_core_pre_gpt_block_evidence(cfg,decision,locals()))
                 return
 
         # CORE SHORT 공격 레벨(EARLY/TACTICAL/STRONG/FULL_BEARISH, 2026-08-28/29
@@ -5297,7 +5402,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
                 )
                 if _veto_shadow_is_candidate:
                     _record_veto_shadow_gate_outcome(cfg, decision_id, "LOCAL_BLOCKED", reason="core_short_cooldown")
-                _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="core_short_cooldown", confidence=decision.get("confidence"))
+                _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="core_short_cooldown", confidence=decision.get("confidence"), cfg=cfg, decision=decision, decision_id=decision_id, entry_context=_core_pre_gpt_block_evidence(cfg,decision,locals()))
                 return
 
             level_result = core_short_level.classify(
@@ -5356,7 +5461,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
                     _record_core_entry_attempt(
                         state, symbol, action, "LOCAL_BLOCKED", reason="short_level_none",
                         confidence=decision.get("confidence"),
-                    )
+                    cfg=cfg, decision=decision, decision_id=decision_id, entry_context=_core_pre_gpt_block_evidence(cfg,decision,locals()))
                     return
                 # NONE uses configured generic sizing and remains GPT review evidence.
                 short_level_ctx = {
@@ -5394,7 +5499,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
                 _record_veto_shadow_gate_outcome(
                     cfg, _short_attempt_candidate_id, "LOCAL_BLOCKED", reason=overextension["reason"],
                 )
-            _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason=overextension["reason"], confidence=decision.get("confidence"))
+            _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason=overextension["reason"], confidence=decision.get("confidence"), cfg=cfg, decision=decision, decision_id=decision_id, entry_context=_core_pre_gpt_block_evidence(cfg,decision,locals()))
             return
 
         # RISK 모드에서는 SHORT_LEVEL별 증거금 사이징을 쓰지 않는다(2026-08-29,
@@ -5427,7 +5532,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
                     _record_veto_shadow_gate_outcome(cfg, decision_id, "LOCAL_BLOCKED", reason="insufficient_min_notional")
                 if _short_attempt_is_candidate:
                     _record_veto_shadow_gate_outcome(cfg, _short_attempt_candidate_id, "LOCAL_BLOCKED", reason="insufficient_min_notional")
-                _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="insufficient_min_notional", confidence=decision.get("confidence"))
+                _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="insufficient_min_notional", confidence=decision.get("confidence"), cfg=cfg, decision=decision, decision_id=decision_id, entry_context=_core_pre_gpt_block_evidence(cfg,decision,locals()))
                 return
             amount = quantized
         else:
@@ -5453,7 +5558,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
                 _record_veto_shadow_gate_outcome(cfg, decision_id, "LOCAL_BLOCKED", reason="qty_zero")
             if _short_attempt_is_candidate:
                 _record_veto_shadow_gate_outcome(cfg, _short_attempt_candidate_id, "LOCAL_BLOCKED", reason="qty_zero")
-            _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="qty_zero", confidence=decision.get("confidence"))
+            _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="qty_zero", confidence=decision.get("confidence"), cfg=cfg, decision=decision, decision_id=decision_id, entry_context=_core_pre_gpt_block_evidence(cfg,decision,locals()))
             return
 
         sl_price, tp_price = risk_manager.sl_tp_prices(cfg, action, last_price)
@@ -5469,12 +5574,12 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
         if adaptive_live.get('active'):
             if adaptive_live.get('blocked'):
                 logger.warning('[%s] ADAPTIVE_EXIT LIVE_BOUNDED entry blocked: %s',symbol,adaptive_live.get('reason'))
-                _record_core_entry_attempt(state,symbol,action,'LOCAL_BLOCKED',reason=adaptive_live.get('reason'),confidence=decision.get('confidence'))
+                _record_core_entry_attempt(state,symbol,action,'LOCAL_BLOCKED',reason=adaptive_live.get('reason'),confidence=decision.get('confidence'), cfg=cfg, decision=decision, decision_id=decision_id, entry_context=_core_pre_gpt_block_evidence(cfg,decision,locals()))
                 return
             action,adaptive_amount,sl_price,tp_price=adaptive_live['order_args']
             amount=risk_manager.quantize_coin_amount_to_market(client,symbol,adaptive_amount)
             if amount <= 0:
-                _record_core_entry_attempt(state,symbol,action,'LOCAL_BLOCKED',reason='adaptive_qty_zero',confidence=decision.get('confidence'))
+                _record_core_entry_attempt(state,symbol,action,'LOCAL_BLOCKED',reason='adaptive_qty_zero',confidence=decision.get('confidence'), cfg=cfg, decision=decision, decision_id=decision_id, entry_context=_core_pre_gpt_block_evidence(cfg,decision,locals()))
                 return
         entry_candle_summary = candle_summary
         if action == "long":
@@ -5624,12 +5729,32 @@ def manual_entry_now(cfg, state, client: OkxClient, symbol: str, side: str) -> d
 
 
 
+def _commit_core_final_entry_plan(cfg,client,symbol,decision,validation,checked,stage):
+    anchor=validation.get('approval_anchor') or dict(entry_price=validation['context'].entry_price,
+        stop=validation['plan'].stop_price,tp1=validation['plan'].tp1.price,tp2=validation['plan'].tp2.price,
+        quantity=decision.get('_entry_plan_context',{}).get('quantity_coin'),risk_budget=validation['plan'].trade_risk_budget_usdt)
+    decision['_bounded_entry_validation']=dict(validation,context=checked['context'],plan=checked['plan'],approval_anchor=anchor)
+    plan_context=decision.setdefault('_entry_plan_context',{})
+    plan_context.update(quantity_coin=checked['amount'],contracts=checked['amount']/client.contract_size(),
+        entry_price=checked['entry_price'],sl_price=checked['stop'],tp_price=checked['target'],
+        tp1_price=checked['plan'].tp1.price,margin_estimate_usdt=checked['amount']*checked['entry_price']/checked['context'].leverage,
+        sizing_reduction_reason='final_price_cost_risk_and_lot_floor',validation_values=checked['values'],
+        final_plan=checked['plan'].audit_record(),approval_anchor=anchor)
+    try:
+        audit=dict(checked['plan'].audit_record(),event='final_entry_execution_plan',symbol=symbol,
+            decision_id=decision.get('_decision_id'),stage=stage,approval_anchor=anchor,
+            execution_values=checked['values'])
+        adaptive_exit_log.append_plan(cfg.user_dir,audit)
+    except Exception:
+        cfg.logger.warning('[%s] FINAL_ENTRY_PLAN_AUDIT_FAILED',symbol)
+
+
 def _core_final_entry_validation(cfg, client, symbol, side, amount, reviewed_price,
                                   stop, target, decision, validation):
     """Locked automatic entry boundary; use one quote for economics and freshness.
 
-    Keep absolute verified AI prices. A drifted target outside the approved cap
-    requires a new review rather than silently altering the AI's proposal.
+    Preserve the approved geometry except bounded cap/tick normalization within
+    the existing approval drift contract. Stop, quantity and budget never grow.
     """
     from dataclasses import replace
     from adaptive_exit_engine import solve_risk_capped_size
@@ -5643,11 +5768,15 @@ def _core_final_entry_validation(cfg, client, symbol, side, amount, reviewed_pri
         values.update(approval_age_seconds=now-approved,signal_age_seconds=now-closed,max_approval_age=180,max_signal_age=360)
         if not (0 <= now-approved <= 180 and 0 <= now-closed <= 360):
             return blocked('entry_signal_or_approval_expired')
+        anchor=validation.get('approval_anchor') or {}
+        reviewed_price=float(anchor.get('entry_price',reviewed_price))
         entry = float(client.fetch_last_price())
         equity = float(client.fetch_usdt_equity())
         stop, target = float(stop), float(target)
         if not all(math.isfinite(v) and v > 0 for v in (entry,equity,stop,target,amount)):
             return blocked('invalid_final_entry_values')
+        values.update(entry_price=entry,reviewed_price=reviewed_price,stop=stop,target=target,equity=equity,amount=amount,
+            price_drift_ratio=abs(entry/float(reviewed_price)-1),max_price_drift_ratio=GPT_APPROVED_ENTRY_MAX_PRICE_DRIFT_RATIO)
         if abs(entry/float(reviewed_price)-1) > GPT_APPROVED_ENTRY_MAX_PRICE_DRIFT_RATIO:
             return blocked('post_gpt_price_drift')
         if not ((side == 'long' and stop < entry < target) or
@@ -5656,17 +5785,45 @@ def _core_final_entry_validation(cfg, client, symbol, side, amount, reviewed_pri
         values.update(entry_price=entry,reviewed_price=reviewed_price,stop=stop,target=target,equity=equity,amount=amount)
         guard = getattr(cfg, '_core_loss_guards', {}).get(symbol)
         if guard is None or not guard.allow_new_entry(equity):
+            values['daily_loss_check']=getattr(guard,'last_entry_check',None)
             return blocked('final_daily_loss_guard')
         context, plan = validation['context'], validation['plan']
         policy = production_adaptive_exit_policy()
-        if abs(target-entry)/entry > float(policy['max_leveraged_tp2_gain_pct'])/100/context.leverage+1e-12:
-            return blocked('final_tp2_above_leverage_cap')
+        values.update(tp1_r_min=policy['tp1_r_min'],tp1_r_max=policy['tp1_r_max'],
+            tp2_r_min=policy['tp2_r_min'],tp2_r_max=policy['tp2_r_max'],
+            initial_atr_min=policy['initial_atr_min'],initial_atr_max=policy['initial_atr_max'],
+            max_leveraged_stop_loss_pct=policy['max_leveraged_stop_loss_pct'],
+            max_leveraged_tp1_gain_pct=policy['max_leveraged_tp1_gain_pct'],
+            max_leveraged_tp2_gain_pct=policy['max_leveraged_tp2_gain_pct'])
+        risk=abs(stop-entry)
+        values.update(tp1_r=abs(plan.tp1.price-entry)/risk if plan.tp1 and risk else None,
+            tp2_r=abs(target-entry)/risk if risk else None,
+            stop_atr=risk/context.atr if context.atr else None)
+        from entry_execution_normalization import normalize_prices, finalized_plan
+        try:
+            stop,tp1,target,tick = normalize_prices(client,symbol,side,entry,reviewed_price,
+                stop,target,plan,context.leverage,policy,GPT_APPROVED_ENTRY_MAX_PRICE_DRIFT_RATIO,
+                verified_ai=bool(validation.get('verified_ai_price_contract')),atr=context.atr,anchor=anchor)
+        except ValueError as exc:
+            return blocked(str(exc))
+        values.update(stop=stop,target=target,tp1=tp1,tick_size=tick,
+            leveraged_stop_pct=abs(stop-entry)/entry*context.leverage*100,
+            leveraged_tp1_pct=abs(tp1-entry)/entry*context.leverage*100,
+            leveraged_tp2_pct=abs(target-entry)/entry*context.leverage*100,
+            tp1_r=abs(tp1-entry)/abs(stop-entry),tp2_r=abs(target-entry)/abs(stop-entry),
+            stop_atr=abs(stop-entry)/context.atr if context.atr else None,
+            ai_price_contract=bool(validation.get('verified_ai_price_contract')),
+            tp1_r_min=policy['tp1_r_min'],tp1_r_max=policy['tp1_r_max'],
+            tp2_r_min=policy['tp2_r_min'],tp2_r_max=policy['tp2_r_max'],
+            max_tp2_gain_pct=policy['max_leveraged_tp2_gain_pct'],
+            max_price_drift_ratio=GPT_APPROVED_ENTRY_MAX_PRICE_DRIFT_RATIO)
         cost = entry*context.estimated_roundtrip_cost_rate
         rr = (abs(target-entry)-cost)/(abs(stop-entry)+cost)
         values.update(post_cost_rr=rr,min_post_cost_rr=float(policy['min_post_cost_rr']),roundtrip_cost_rate=context.estimated_roundtrip_cost_rate,execution_target=context.execution_target)
         if rr < float(policy['min_post_cost_rr']):
             return blocked('final_post_cost_rr_below_minimum')
         freshness = _core_entry_overextension_gate(validation['closed_dfs'],side,entry)
+        values['freshness']=freshness
         if not freshness['allowed']:
             return blocked(freshness['reason'])
         # Falling equity can shrink, never enlarge, the previously approved budget.
@@ -5682,7 +5839,11 @@ def _core_final_entry_validation(cfg, client, symbol, side, amount, reviewed_pri
         values.update(final_quantity=quantity,planned_loss=loss,risk_budget=budget)
         if not sizing.entry_allowed or quantity <= 0 or loss > budget+1e-9:
             return blocked('exchange_minimum_exceeds_risk_budget')
+        fresh_context=replace(fresh_context,current_quantity=quantity,current_stop=stop)
+        final_plan = finalized_plan(plan,stop=stop,tp1=tp1,tp2=target,quantity=quantity,
+            entry=entry,loss=loss,budget=budget,context=fresh_context)
         return dict(allowed=True,reason='ok',amount=quantity,entry_price=entry,
+                    stop=stop,target=target,plan=final_plan,context=fresh_context,values=values,
                     post_cost_rr=rr,planned_loss=loss,risk_budget=budget)
     except (KeyError,AttributeError,TypeError,ValueError,ZeroDivisionError):
         return blocked('final_entry_revalidation_unavailable')
@@ -5784,7 +5945,7 @@ def _execute_entry(
                     return False
                 preflight_flat_at=time.time()
             validation=decision.get('_bounded_entry_validation')
-            if validation is not None:
+            if validation is not None and receipt is None:
                 checked=_core_final_entry_validation(cfg,client,symbol,side,amount,entry_price,
                                                      sl_price,tp_price,decision,validation)
                 if not checked['allowed'] and receipt is None:
@@ -5792,6 +5953,8 @@ def _execute_entry(
                     return False
                 if checked['allowed']:
                     amount,entry_price=checked['amount'],checked['entry_price']
+                    sl_price,tp_price=checked['stop'],checked['target']
+                    _commit_core_final_entry_plan(cfg,client,symbol,decision,validation,checked,'pre_submit')
                     cfg.logger.info('[%s] FINAL_ENTRY_VALIDATED price=%s quantity=%s post_cost_rr=%s planned_loss=%s risk_budget=%s',
                         symbol,entry_price,amount,checked['post_cost_rr'],checked['planned_loss'],checked['risk_budget'])
             elif receipt is None:

@@ -1,3 +1,4 @@
+import entry_attempt_notifications
 """Candidate C 하이브리드 엔진(DOGE/SOL)의 사이클 오케스트레이터.
 
 두 단계:
@@ -69,6 +70,10 @@ def _intent_observability_fields(intent) -> dict:
     이미 만든 Intent에 있는 값만 그대로 옮긴다."""
     return {
         "reason_code": intent.reason_code,
+        "symbol":intent.symbol,"side":intent.side,"kind":intent.kind,
+        "entry_attempt":intent.entry_attempt,"entry_validation_values":intent.entry_validation_values,
+        "idempotency_key":intent.idempotency_key,
+        "raw_stop_price":intent.raw_stop_price,"raw_target_price":intent.raw_target_price,
         "pilot_entry": getattr(intent, "pilot_entry", False),
         "entry_size_fraction": getattr(intent, "entry_size_fraction", 1.0),
         "entry_weakening_baseline": getattr(intent, "entry_weakening_baseline", None),
@@ -680,6 +685,8 @@ def run_steady_state_cycle(cfg, client, symbol: str, **kwargs) -> dict:
     여기서 일어남) 자체는 락 밖에서, 그 결과를 반영하는 마무리만 다시 락 안에서
     한다 - 계좌 공통 주문락 자체를 없애거나 CORE/Candidate C를 분리하지 않는다
     (동시진입 한도·중복주문 방어는 전부 기존 그대로 유지)."""
+    try: entry_attempt_notifications.core_entry_events.kick(cfg)
+    except Exception: pass
     return _run_steady_state_cycle_impl(cfg, client, symbol, **kwargs)
 
 
@@ -720,7 +727,9 @@ def _run_steady_state_cycle_impl(
             max_concurrent_positions=max_concurrent_positions,
         )
     if "result" in prepared:
-        return prepared["result"]
+        result=prepared['result']
+        entry_attempt_notifications.record_candidate_block(cfg,dict(result,symbol=symbol),result)
+        return result
 
     intent, snapshot = prepared["intent"], prepared["snapshot"]
     if prepared["branch"] in ("entry_shadow", "entry_live"):

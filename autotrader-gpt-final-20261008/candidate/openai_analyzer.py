@@ -439,6 +439,9 @@ def verify(
         # 진입 로그(section 17: "GPT_RESPONSE_MS")에 쓸 수 있게 한다 - purpose와
         # 무관하게 항상 계산한다(값 하나 계산일 뿐, 별도 동작을 추가하는 게 아니다).
         elapsed_ms = (time.monotonic() - _start_monotonic) * 1000
+        usage_log.record_api_attempt(cfg.user_dir,symbol,'openai',purpose,cfg.OPENAI_MODEL,
+            response_ms=elapsed_ms,timed_out=timed_out,error_type=error_reason,
+            retry_limit=(max_retries if max_retries is not None else getattr(client,'max_retries',None)))
         # 디스크 기록(gpt_latency_log)은 purpose="entry_gate"일 때만 한다(2026-08-29,
         # 사용자 지시 - 이번 작업 범위는 Entry Gate뿐, Shadow/Hold Audit은 건드리지
         # 않음). fail-open: 로깅 자체가 실패해도 실제 검증 결과 반환에는 영향 없음.
@@ -829,6 +832,9 @@ def verify_position_management(
     def _log_latency(timed_out: bool, error_reason: str | None,
                       prompt_tokens: int | None = None, completion_tokens: int | None = None) -> float:
         elapsed_ms = (time.monotonic() - _start_monotonic) * 1000
+        usage_log.record_api_attempt(cfg.user_dir,symbol,'openai',purpose,cfg.OPENAI_MODEL,
+            response_ms=elapsed_ms,timed_out=timed_out,error_type=error_reason,
+            retry_limit=(max_retries if max_retries is not None else getattr(client,'max_retries',None)))
         try:
             gpt_latency_log.record_call(
                 cfg.user_dir, symbol=symbol, purpose=purpose, model=cfg.OPENAI_MODEL,

@@ -284,6 +284,8 @@ class Intent:
     adaptive_policy_hash: str | None = None
     entry_size_fraction: float = 1.0
     pilot_entry: bool = False
+    entry_attempt: bool = False
+    entry_validation_values: dict | None = None
     # LIVE_BOUNDED wide-stop handling for intents produced by the shared
     # Candidate C decision engine. "risk_cap" is allowed only on the first
     # fresh setup edge; subsequent rechecks stay blocked. "legacy" preserves
@@ -514,7 +516,7 @@ def _decide_legacy(
                 target_ratio = 0.25 if already_ratio < 0.25 - 1e-9 else 0.50
                 target_residual = cem.floor_to_lot_step(original * (1.0-target_ratio), lot_step)
                 reduce_quantity = current - target_residual
-                if target_residual >= min_size and reduce_quantity > 1e-12:
+                if target_residual >= min_size and reduce_quantity >= min_size and reduce_quantity > 1e-12:
                     structure_reduce = cem.DeriskDecision(
                         action="partial_reduce", target_residual=target_residual,
                         reduce_quantity=reduce_quantity, reason="unified_structure_profit_break",
@@ -534,7 +536,7 @@ def _decide_legacy(
                 target_ratio = 0.25 if already_ratio < 0.25 - 1e-9 else 0.50
                 target_residual = cem.floor_to_lot_step(original * (1.0 - target_ratio), lot_step)
                 reduce_quantity = current - target_residual
-                if target_residual >= min_size and reduce_quantity > 1e-12:
+                if target_residual >= min_size and reduce_quantity >= min_size and reduce_quantity > 1e-12:
                     mfe_reduce = cem.DeriskDecision(
                         action="partial_reduce", target_residual=target_residual,
                         reduce_quantity=reduce_quantity, reason="unified_mfe_profit_giveback",
@@ -649,6 +651,7 @@ def _decide_legacy(
             side=side, idempotency_key=idem, input_snapshot_hash=input_snapshot_hash,
         )
 
+        common.update(entry_attempt=True,entry_validation_values={'entry_price':snap.bar_5m['close'],'direction_4h':direction_4h,'direction_1h':direction_1h,'direction_5m':direction_5m})
         # A continuous Donchian condition is an opportunity window, not an
         # evergreen permission to enter.  Keep rechecking through 30 minutes
         # (0/10/20/30), then require the setup to turn False and form again.
@@ -662,6 +665,9 @@ def _decide_legacy(
         if setup_age_ms > SETUP_RECHECK_MAX_AGE_MS:
             return Intent(kind=INTENT_NO_ACTION, reason_code="setup_stale_after_30m", **common)
 
+        common.update(entry_attempt=True,entry_validation_values=dict(
+            entry_price=snap.bar_5m['close'],setup_age_ms=setup_age_ms,max_setup_age_ms=SETUP_RECHECK_MAX_AGE_MS,
+            direction_4h=direction_4h,direction_1h=direction_1h,direction_5m=direction_5m))
         if policy is None:
             return Intent(kind=INTENT_NO_ACTION, reason_code="strategy_policy_missing_or_invalid", **common)
         if not _risk_requirement_satisfied(ctx):
@@ -679,6 +685,7 @@ def _decide_legacy(
             tf_mixed=_candidate_tf_mixed(direction_4h, direction_1h, direction_5m),
         )
         risk_policy = unified_trade_guard.entry_risk_policy(risk_score["score"])
+        common['entry_validation_values'].update(risk_score=risk_score,risk_policy=risk_policy)
         if risk_policy["blocked"]:
             return Intent(kind=INTENT_NO_ACTION, reason_code="entry_risk_score_blocked", **common)
         wanted = "LONG" if side == "long" else "SHORT"
@@ -691,6 +698,7 @@ def _decide_legacy(
             bars_1h=bars_1h_confirmed_up_to_asof, bars_5m=bars_5m_for_10m_up_to_asof,
             atr14_4h=atr_4h, as_of_ms=as_of_ms, indicator_fn=indicator_fn,
         )
+        common['entry_validation_values']['freshness']=overextension
         if not overextension["allowed"]:
             return Intent(
                 kind=INTENT_NO_ACTION, reason_code=overextension["reason"], **common,
@@ -786,10 +794,11 @@ def _apply_live_bounded_entry_geometry(
     target_distance = min(float(policy["tp2_r_prior"]) * risk_distance, tp2_cap)
     cost_distance = float(entry_price) * CANDIDATE_C_ROUNDTRIP_COST_RATE
     post_cost_rr = (target_distance - cost_distance) / (risk_distance + cost_distance)
+    validation_values=dict(legacy_intent.entry_validation_values or {},entry_price=entry_price,stop=geometry.stop_price,target=float(entry_price)+sign*target_distance,post_cost_rr=post_cost_rr,min_post_cost_rr=policy['min_post_cost_rr'])
     if post_cost_rr < float(policy["min_post_cost_rr"]):
         return replace(
             legacy_intent, kind=INTENT_NO_ACTION, raw_stop_price=None, raw_target_price=None,
-            reason_code="adaptive_entry_blocked:post_cost_rr_below_minimum",
+            reason_code="adaptive_entry_blocked:post_cost_rr_below_minimum",entry_validation_values=validation_values,
             adaptive_mode="LIVE_BOUNDED", adaptive_policy_hash=current_hash,
         )
     adaptive_target = float(entry_price) + sign * target_distance

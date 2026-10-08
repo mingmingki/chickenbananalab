@@ -1,3 +1,4 @@
+import entry_attempt_notifications
 """Durable Candidate C exchange execution. All mutations are live-gated and
 account-locked; owned management uses confirmed fills and persisted recovery.
 Only entry decisions call the GPT gate. Quantities in stores are contracts.
@@ -106,7 +107,9 @@ def _candidate_c_new_entry_allowed(cfg, equity: float, start_equity_override: fl
         # 확정시킨 뒤(그 시점엔 손실이 없으니 항상 True), 실제 낮아진 equity로 다시
         # 확인한다 - DailyLossGuard의 private 구현에 의존하지 않는다.
         guard.allow_new_entry(start_equity_override)
-    return guard.allow_new_entry(equity)
+    allowed=guard.allow_new_entry(equity)
+    entry_attempt_notifications.add_candidate_evidence(daily_loss_check=getattr(guard,'last_entry_check',None))
+    return allowed
 
 
 def _verify_protection_with_retry(client, side: str, amount_coin: float,
@@ -389,6 +392,22 @@ def _calculate_candidate_c_entry_amount(cfg, client, intent, fresh_price: float,
         if sizing_mode == "FIXED_MARGIN":
             output["wide_stop_fixed_margin_fallback"] = True
             output["fixed_margin_notional_cap_usdt"] = fixed_notional_cap
+    output['configured_margin_usdt']=getattr(cfg,'CANDIDATE_C_FIXED_MARGIN_USDT',None)
+    output['margin_estimate_usdt']=result['notional_usdt']/float(leverage)
+    requested=float(result['uncapped_notional_usdt'])
+    applied_cap=float(result['max_order_notional_usdt'])
+    target_notional=min(requested,applied_cap)
+    output['sizing_reduction_reason']=[name for name,active in (
+        ('entry_size_fraction',entry_size_fraction<1),
+        ('wide_stop_risk_cap',wide_stop_fixed_margin_fallback and requested<fixed_notional_cap-1e-9),
+        ('order_notional_cap',applied_cap<requested-1e-9 and applied_cap==float(cfg.CANDIDATE_C_MAX_ORDER_NOTIONAL_USDT)),
+        ('equity_notional_cap',(wide_stop_fixed_margin_fallback or sizing_mode=='VARIABLE_RISK')
+            and applied_cap<requested-1e-9 and applied_cap==fresh_equity*float(leverage)),
+        ('lot_floor',result['notional_usdt']<target_notional-1e-9)) if active]
+    output['sizing_calculation']=dict(uncapped_notional_usdt=requested,max_order_notional_usdt=applied_cap,
+        target_notional_usdt=target_notional,actual_notional_usdt=result['notional_usdt'],
+        equity_usdt=fresh_equity,leverage=leverage,entry_size_fraction=entry_size_fraction,
+        stop_risk_per_coin_including_applicable_cost=stop_risk_per_coin)
     return output
 
 
@@ -567,6 +586,7 @@ def _execute_entry(cfg, client, intent, snapshot: dict, equity: float, is_still_
         gate = gga.verify_candidate_signal(cfg, intent, snapshot, is_still_valid_fn=is_still_valid_fn)
     else:
         gate = gga.rule_based_entry_without_gpt(cfg, intent, snapshot, is_still_valid_fn=is_still_valid_fn)
+    entry_attempt_notifications.add_candidate_evidence(gate=gate)
     if not gate["allowed"]:
         return {
             "intent_kind": dec.INTENT_ENTRY, "executed": False,
@@ -753,6 +773,11 @@ def _execute_entry(cfg, client, intent, snapshot: dict, equity: float, is_still_
                 return {"intent_kind": dec.INTENT_ENTRY, "executed": False,
                         "gate_result": "blocked_invalid_adaptive_protection", "error_reason": str(exc)}
             intent = dataclasses.replace(intent, raw_stop_price=effective_stop, raw_target_price=effective_target)
+        entry_attempt_notifications.add_candidate_evidence(entry_price=fresh_price,
+            sl_price=intent.raw_stop_price,tp_price=intent.raw_target_price,
+            equity=fresh_equity,max_concurrent_positions=max_concurrent_positions,
+            min_post_cost_rr=production_adaptive_exit_policy()['min_post_cost_rr'],
+            max_leveraged_tp2_gain_pct=production_adaptive_exit_policy()['max_leveraged_tp2_gain_pct'])
         final_validator = getattr(is_still_valid_fn, 'validate_price', None)
         if final_validator is not None and not final_validator(fresh_price, now_ms=int(time.time()*1000)):
             return {"intent_kind": dec.INTENT_ENTRY, "executed": False,
@@ -763,9 +788,15 @@ def _execute_entry(cfg, client, intent, snapshot: dict, equity: float, is_still_
                 "intent_kind": dec.INTENT_ENTRY, "executed": False,
                 "gate_result": f"blocked_sizing_{sizing['reason']}", "error_reason": sizing["reason"],
             }
+        entry_attempt_notifications.add_candidate_evidence(entry_price=fresh_price,
+            sl_price=intent.raw_stop_price,tp_price=intent.raw_target_price,sizing=sizing,
+            equity=fresh_equity)
         amount_coin = sizing["amount_coin"]
         meta = client.instrument_metadata()
         quantity = amount_coin / meta["contract_size"]
+        entry_attempt_notifications.add_candidate_evidence(quantity_coin=amount_coin,contracts=quantity,
+            margin_estimate_usdt=sizing['notional_usdt']/float(getattr(cfg,'CANDIDATE_C_LEVERAGE',1)),
+            sizing_reduction_reason=sizing.get('sizing_reduction_reason'))
         record = ledger.persist_intent(
             account_id=intent.account_id, symbol=intent.symbol, strategy_id="candidate_c",
             setup_id=intent.setup_id or intent.idempotency_key, position_epoch=None,
@@ -1001,6 +1032,7 @@ def _resolve_candidate_c_reduce_pnl(cfg, client, symbol: str, position: dict, re
     }
 
 
+@entry_attempt_notifications.observe_candidate_execution
 def execute_intent(
     cfg, client, intent, *, snapshot: dict, equity: float, is_still_valid_fn,
     current_position: dict | None = None, current_protection: dict | None = None,
@@ -1217,6 +1249,8 @@ def _execute_managed(cfg, client, intent, ledger, epoch_store, proof):
     quantity = intent.reduce_quantity if intent.kind == dec.INTENT_REDUCE else before
     if not _positive(quantity) or quantity > before:
         return _pending(intent, "invalid_management_quantity", critical=True)
+    if intent.kind == dec.INTENT_REDUCE and epoch.min_contracts and quantity < epoch.min_contracts - 1e-12:
+        return {"intent_kind":intent.kind,"executed":False,"reason":"management_quantity_below_exchange_minimum"}
     # Every action has an independent ID, including subsequent trailing updates.
     action = ledger.persist_intent(account_id=intent.account_id, symbol=intent.symbol,
         strategy_id="candidate_c", setup_id=None,

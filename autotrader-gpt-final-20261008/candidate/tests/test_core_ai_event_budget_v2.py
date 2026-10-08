@@ -49,7 +49,9 @@ def test_held_fallback_is_30_minutes_but_half_atr_move_stays_immediate():
     moved=trader._core_ai_call_gate(FakeState(mem),"BTC/USDT:USDT",frames5(close=101.1),{}, {"active":False},held(),now=now+dt.timedelta(minutes=5))
     assert at29["call_ai"] is False
     assert at30["reason"] == "fallback_interval"
-    assert moved["reason"] == "price_move_atr"
+    assert not moved["call_ai"] and moved["reason"] == "low_importance_coalesced"
+    later=trader._core_ai_call_gate(FakeState(mem),"BTC/USDT:USDT",frames5(close=101.1),{}, {"active":False},held(),now=now+dt.timedelta(minutes=10))
+    assert later["call_ai"] and later["reason"]=="price_move_atr"
 
 
 def test_flat_5m_direction_change_remains_responsive_for_entry_generation():

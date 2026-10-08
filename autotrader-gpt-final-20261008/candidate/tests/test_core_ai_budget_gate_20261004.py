@@ -34,7 +34,9 @@ def test_half_atr_move_triggers_before_flat_fallback():
     now=dt.datetime(2026,10,4,6,30,tzinfo=dt.timezone.utc)
     first=gate(FakeState(),"BTC/USDT:USDT",frames(100,2),{}, {"active":False}, None, now=now)
     moved=gate(FakeState(first["next_memory"]),"BTC/USDT:USDT",frames(101.1,2),{}, {"active":False}, None, now=now+dt.timedelta(minutes=5))
-    assert moved["call_ai"] is True and moved["reason"] == "price_move_atr"
+    assert moved["call_ai"] is False and moved["reason"] == "low_importance_coalesced"
+    after=gate(FakeState(first["next_memory"]),"BTC/USDT:USDT",frames(101.1,2),{}, {"active":False}, None, now=now+dt.timedelta(minutes=10))
+    assert after["call_ai"] and after["reason"]=="price_move_atr"
 
 def test_flat_and_held_fallback_are_30m():
     gate=trader._core_ai_call_gate
@@ -66,7 +68,12 @@ def test_meaningful_signature_changes_call(change):
     if change=='structure': structure={'1h':{'high_structure':'LH','low_structure':'LL','swing_low_broken':True}}
     if change=='correction': correction={'active':True}
     second=trader._core_ai_call_gate(FakeState(first['next_memory']),"BTC/USDT:USDT",data,structure,correction,None,now=now+dt.timedelta(minutes=5))
-    assert second['call_ai'] is True and second['reason']=='signature_changed'
+    if change=='rsi':
+        assert second['call_ai'] is False and second['reason']=='low_importance_coalesced'
+        later=trader._core_ai_call_gate(FakeState(first['next_memory']),"BTC/USDT:USDT",data,structure,correction,None,now=now+dt.timedelta(minutes=10))
+        assert later['call_ai'] and later['reason']=='signature_changed'
+    else:
+        assert second['call_ai'] is True and second['reason']=='signature_changed'
 
 @pytest.mark.parametrize('change', [None, {'side':'short'}, {'contracts':0.5}, {'position_id':'new'}, {'entry_timestamp_ms':2}, {'entry_price':102.0}])
 def test_position_lifecycle_changes_call(change):

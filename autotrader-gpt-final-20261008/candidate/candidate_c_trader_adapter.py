@@ -490,7 +490,16 @@ def observe_runtime_exchange(cfg, client, symbol, ledger, epochs, core_active_sy
             'side', 'contracts', 'entry_price', 'position_id', 'entry_timestamp_ms',
             'mark_price', 'unrealized_pnl', 'pnl_pct', 'leverage',
         )}
-    return dict(owner=owner, actual_position=position,
+    sizing_observation={'configured_margin_usdt':getattr(cfg,'CANDIDATE_C_FIXED_MARGIN_USDT',None),
+        'actual_margin_estimate_usdt':None,'sizing_reduction_reason':'historical_sizing_evidence_unavailable'}
+    if position:
+        try:
+            meta=client.instrument_metadata()
+            lev=float(position.get('leverage') or cfg.CANDIDATE_C_LEVERAGE)
+            sizing_observation['actual_margin_estimate_usdt']=float(position['contracts'])*float(meta['contract_size'])*float(position['entry_price'])/lev
+            sizing_observation['basis']='observed_contracts_times_contract_size_times_entry_price_divided_by_leverage'
+        except (AttributeError,KeyError,TypeError,ValueError,ZeroDivisionError): pass
+    return dict(owner=owner, actual_position=position,sizing_observation=sizing_observation,
                 shadow_transport_audit=copy.deepcopy(getattr(client, 'shadow_transport_audit', None)),
                 position_query_status='UNKNOWN' if unknown else 'KNOWN',
                 pending_orders=None if snap.exchange_open_orders is None else len(snap.exchange_open_orders),
@@ -749,6 +758,8 @@ def _candidate_c_symbol_loop(
                     "executed": bool(result.get('executed')),
                     "gate_result": result.get('gate_result'),
                     "error_reason": result.get('error_reason'),
+                    "execution_evidence":result.get('execution_evidence'),
+                    "configured_margin_usdt":getattr(cfg,'CANDIDATE_C_FIXED_MARGIN_USDT',None),
                 }
             runtime.publish(cfg.user_dir, symbol, **publish_kwargs)
             # 새 확정 5분봉을 실제로 처리한 직후 딱 한 번만 진행상황을 남긴다.
