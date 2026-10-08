@@ -87,6 +87,23 @@ def activate(user_dir: str, reason: str) -> None:
         _save_state_atomic(user_dir, state)
 
 
+def clear_reconciled_entry_stop(user_dir: str, symbol: str, client_order_id: str) -> bool:
+    """Clear exactly the resolved-order latch; never an unrelated safety stop.
+
+    Called with the account order lock after the original exchange fill,
+    lifecycle, and matching live SL/TP have all been verified.
+    """
+    if not symbol or not client_order_id:
+        return False
+    expected = f"{symbol} unresolved entry {client_order_id}"
+    with _lock_for(user_dir):
+        state = _load_state(user_dir)
+        if not state["kill_switch_active"] or state.get("kill_switch_reason") != expected:
+            return False
+        _save_state_atomic(user_dir, _default_state())
+        return True
+
+
 def reset(user_dir: str) -> None:
     with _lock_for(user_dir):
         state = _load_state(user_dir)

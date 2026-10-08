@@ -6068,6 +6068,7 @@ def _finalize_core_entry_result(cfg,state,client,symbol,decision,decision_id,res
     # Reconcile original receipt even if invoked by a newer decision.
     # Capture exact exchange trade/lifecycle proof before a missing protection
     # lookup can prevent recovery. Unknown proof keeps the position frozen.
+    proof = None
     try:
         exposed=client.fetch_position()
         proof=core_entry_orders.confirmed_fill_position_proof(client,result,exposed)
@@ -6131,6 +6132,17 @@ def _finalize_core_entry_result(cfg,state,client,symbol,decision,decision_id,res
         cfg.logger.warning('[%s] CORE_FILLED_STATE_PUBLICATION_FAILED error_type=%s',symbol,type(exc).__name__)
     outcome('FILLED','protected_fill_confirmed',lifecycle_id=reduce_v2_state.position_identity(new_position),
             protection_ids=[r.get('algoId') for r in protection.get('matched_orders',[])],**details)
+    # Only this original unresolved-order latch may be cleared after full, owned
+    # exchange fill + live OCO verification. Other safety stops remain untouched.
+    if result.get('client_order_id') and proof and protection.get('ok'):
+        try:
+            if core_kill_switch.clear_reconciled_entry_stop(
+                    cfg.user_dir, symbol, result['client_order_id']):
+                cfg.logger.info('[%s] CORE_ENTRY_RECOVERED_SAFETY_RELEASE client_order_id=%s',
+                                symbol, result['client_order_id'])
+        except Exception as exc:
+            cfg.logger.warning('[%s] CORE_SAFETY_RELEASE_FAILED error_type=%s',
+                               symbol, type(exc).__name__)
     return True
 
 def _recover_unprotected_core_entry(cfg,client,symbol,result,position):

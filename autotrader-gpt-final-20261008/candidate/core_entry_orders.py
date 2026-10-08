@@ -1,6 +1,7 @@
 """One durable client ID per CORE entry decision; unresolved orders never resubmit."""
 import math
 import re
+import time
 import ccxt
 import core_entry_events as events
 
@@ -95,6 +96,23 @@ def submit_once(cfg,client,symbol,decision_id,side,amount,sl,tp,on_submitted,met
             except Exception:
                 order=None
         result=_result(order,receipt)
+        # OKX's immediate market-order acknowledgement may omit filled/remaining.
+        # Re-read this exact client order ID briefly. Never submit again or infer
+        # a fill from a position or incomplete response.
+        if result['status']=='ORDER_PENDING' and result['reason'] in (
+                'exchange_fill_unconfirmed','exchange_order_identity_unconfirmed','exchange_order_pending'):
+            for delay in (0.35, 0.70):
+                time.sleep(delay)
+                try:
+                    refreshed=client.fetch_order_status_by_client_id(receipt['client_order_id'])
+                except Exception:
+                    continue
+                checked=_result(refreshed,receipt)
+                if checked['status']=='FILLED_UNJOURNALED' or checked['status']=='ORDER_FAILED':
+                    result=checked
+                    break
+                if checked.get('order_id'):
+                    result=checked
     events.update_order(cfg.user_dir,receipt['decision_id'],'ORDER_PENDING' if result['status']=='ORDER_FAILED' else result['status'],
                         terminal_status='ORDER_FAILED' if result['status']=='ORDER_FAILED' else None,
                         order_id=result.get('order_id'),reason=result['reason'])
