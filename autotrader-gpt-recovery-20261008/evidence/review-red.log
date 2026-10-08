@@ -1,0 +1,50 @@
+FFFFF                                                                    [100%]
+=================================== FAILURES ===================================
+______ test_disabled_core_gpt_gate_cannot_silently_place_unapproved_entry ______
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:205: in test_disabled_core_gpt_gate_cannot_silently_place_unapproved_entry
+    assert not client.orders
+E   AssertionError: assert not [{'id': 'exchange-123', 'symbol': 'ETH/USDT:USDT', 'side': 'buy', 'clientOrderId': 'cg9f05e7e4326c2f0c784becfdac04', ...}]
+E    +  where [{'id': 'exchange-123', 'symbol': 'ETH/USDT:USDT', 'side': 'buy', 'clientOrderId': 'cg9f05e7e4326c2f0c784becfdac04', ...}] = <test_core_entry_pipeline.Client object at 0x1109ead50>.orders
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6795 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+______ test_gpt_blocked_dashboard_preserves_decision_and_raw_result[wait] ______
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:214: in test_gpt_blocked_dashboard_preserves_decision_and_raw_result
+    assert row['decision_id']=='decision-123'
+           ^^^^^^^^^^^^^^^^^^
+E   KeyError: 'decision_id'
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6795 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_____ test_gpt_blocked_dashboard_preserves_decision_and_raw_result[reject] _____
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:214: in test_gpt_blocked_dashboard_preserves_decision_and_raw_result
+    assert row['decision_id']=='decision-123'
+           ^^^^^^^^^^^^^^^^^^
+E   KeyError: 'decision_id'
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6795 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_____ test_gpt_blocked_dashboard_preserves_decision_and_raw_result[ERROR] ______
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:214: in test_gpt_blocked_dashboard_preserves_decision_and_raw_result
+    assert row['decision_id']=='decision-123'
+           ^^^^^^^^^^^^^^^^^^
+E   KeyError: 'decision_id'
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6795 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+____ test_pending_exchange_state_never_journals_position_without_fill_proof ____
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:233: in test_pending_exchange_state_never_journals_position_without_fill_proof
+    assert not journal.exists(), 'a position alone is not original order fill proof'
+E   AssertionError: a position alone is not original order fill proof
+E   assert not True
+E    +  where True = exists()
+E    +    where exists = PosixPath('/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-15/test_pending_exchange_state_ne0/trades_log.jsonl').exists
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6795 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+CRITICAL pipeline-test:order_safety.py:213 [ETH/USDT:USDT] UNKNOWN_ORDER_STATE - 주문 응답 불확실(client_id_query_pending) - 신규 진입 동결 + 거래소 상태 확인
+WARNING  pipeline-test:order_safety.py:239 [ETH/USDT:USDT] UNKNOWN_ORDER_STATE reconciliation: 포지션+보호주문 정상 확인 - 거래 기록 복구, kill switch는 유지
+CRITICAL pipeline-test:order_safety.py:213 [ETH/USDT:USDT] UNKNOWN_ORDER_STATE - 주문 응답 불확실(client_id_query_pending) - 신규 진입 동결 + 거래소 상태 확인
+WARNING  pipeline-test:order_safety.py:239 [ETH/USDT:USDT] UNKNOWN_ORDER_STATE reconciliation: 포지션+보호주문 정상 확인 - 거래 기록 복구, kill switch는 유지
+=========================== short test summary info ============================
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_disabled_core_gpt_gate_cannot_silently_place_unapproved_entry
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_gpt_blocked_dashboard_preserves_decision_and_raw_result[wait]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_gpt_blocked_dashboard_preserves_decision_and_raw_result[reject]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_gpt_blocked_dashboard_preserves_decision_and_raw_result[ERROR]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_pending_exchange_state_never_journals_position_without_fill_proof
+5 failed, 39 deselected in 0.26s

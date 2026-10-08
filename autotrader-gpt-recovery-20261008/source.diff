@@ -1,0 +1,2237 @@
+--- a/config.py
++++ b/config.py
+@@ -108,12 +108,13 @@
+         # 필수 항목에도 포함하지 않음 - 없어도 봇 시작/매매에는 전혀 지장 없음).
+         self.OPENAI_API_KEY = g("OPENAI_API_KEY")
+         self.OPENAI_MODEL = g("OPENAI_MODEL", "gpt-5-mini")
+-        # 신규 진입(long/short)에 GPT를 실제 승인 게이트로 쓸지. 기본값은 꺼짐(opt-in) -
+-        # 이 기능 자체를 모르거나 안 쓰는 계정은 기존 Gemini 단독 매매 그대로 간다.
+-        # 명시적으로 켰는데 OPENAI_API_KEY가 없으면(설정하다 만 상태) 조용히 꺼진 것처럼
+-        # 넘어가지 않고 fail-closed로 신규 진입을 막는다 - trader._handle_new_entry 참고.
++        # CORE AI 신규진입은 GPT 승인/정책 예외만 허용한다. 현재 계정은
++        # 명시적으로 활성화하며, 게이트 OFF/키 누락 상태는 fail-closed로 기록한다.
+         self.CORE_EVENT_AI_ENABLED = gb("CORE_EVENT_AI_ENABLED", False)
+         self.GPT_ENTRY_GATE_ENABLED = gb("GPT_ENTRY_GATE_ENABLED", False)
++        # Scoped to CORE new-entry GPT calls; migrate the active account explicitly.
++        self.CORE_GPT_ENTRY_TIMEOUT_BYPASS = gb("CORE_GPT_ENTRY_TIMEOUT_BYPASS", False)
++        self.CORE_PAID_SHADOW_ENABLED = gb("CORE_PAID_SHADOW_ENABLED", False)
+ 
+         # GPT Hold Audit(Shadow 전용 실험) - Gemini가 hold라고 판단하면 위 진입 게이트는
+         # 아예 호출되지 않는다. 이 옵션을 켜면, "기회일 가능성이 높은 hold"만 골라
+--- a/core_entry_events.py
++++ b/core_entry_events.py
+@@ -0,0 +1,162 @@
++"""Durable CORE entry outcomes and a bounded asynchronous Telegram outbox.
++
++Telegram has no idempotency key. A send timeout/crash after dispatch therefore
++remains DELIVERY_UNKNOWN and is never blindly resent. Confirmed 429 rejection
++alone can retry (once, no more than five seconds apart).
++"""
++import datetime
++from contextlib import contextmanager
++import hashlib
++import json
++import logging
++import os
++from pathlib import Path
++import sqlite3
++import threading
++import time
++
++import telegram_notify
++
++_LOCK=threading.Lock()
++_WORKERS={}
++KST=datetime.timezone(datetime.timedelta(hours=9))
++
++
++@contextmanager
++def _db(user_dir):
++    Path(user_dir).mkdir(parents=True,exist_ok=True)
++    path=Path(user_dir)/'core_entry_events.sqlite3'
++    db=sqlite3.connect(path,timeout=1)
++    os.chmod(path,0o600)
++    db.row_factory=sqlite3.Row
++    db.execute('PRAGMA journal_mode=WAL')
++    db.execute('PRAGMA synchronous=FULL')
++    db.executescript('''
++        CREATE TABLE IF NOT EXISTS events (
++            seq INTEGER PRIMARY KEY, event_key TEXT UNIQUE NOT NULL,
++            payload TEXT NOT NULL, delivery TEXT NOT NULL, attempts INTEGER DEFAULT 0,
++            updated REAL NOT NULL, message_id TEXT);
++        CREATE TABLE IF NOT EXISTS entry_orders (
++            decision_id TEXT PRIMARY KEY, symbol TEXT NOT NULL, client_order_id TEXT UNIQUE NOT NULL,
++            payload TEXT NOT NULL, status TEXT NOT NULL, updated REAL NOT NULL);
++    ''')
++    try:
++        with db:
++            yield db
++    finally:
++        db.close()
++
++
++def record(cfg,event):
++    """Persist exactly one event per decision and phase; failure never affects trading."""
++    try:
++        row=dict(event)
++        if not row.get('decision_id') or not row.get('status'): return False
++        row.setdefault('time',datetime.datetime.now(KST).isoformat(timespec='seconds'))
++        key=hashlib.sha256((str(row['decision_id'])+'|'+row['status']).encode()).hexdigest()
++        delivery=('QUEUED' if getattr(cfg,'TELEGRAM_BOT_TOKEN','') and getattr(cfg,'TELEGRAM_CHAT_ID','') else 'NOT_CONFIGURED')
++        with _db(cfg.user_dir) as db:
++            return db.execute('INSERT OR IGNORE INTO events(event_key,payload,delivery,updated) VALUES (?,?,?,?)',
++                (key,json.dumps(row,ensure_ascii=False,allow_nan=False),delivery,time.time())).rowcount == 1
++    except Exception as exc:
++        (cfg.logger or logging.getLogger(__name__)).warning('CORE_ENTRY_EVENT_FAILED error_type=%s',type(exc).__name__)
++        return False
++
++
++def recent(user_dir,limit=100):
++    with _db(user_dir) as db:
++        rows=db.execute('SELECT payload,delivery,message_id FROM events ORDER BY seq DESC LIMIT ?',
++                        (max(1,min(int(limit),1000)),)).fetchall()
++    return [dict(json.loads(r['payload']),notification_status=r['delivery'],telegram_message_id=r['message_id']) for r in rows]
++
++
++def deliver_pending(cfg):
++    """Called by a daemon worker; no network operation runs on a trading thread."""
++    if not getattr(cfg,'TELEGRAM_BOT_TOKEN','') or not getattr(cfg,'TELEGRAM_CHAT_ID',''): return
++    while True:
++        with _db(cfg.user_dir) as db:
++            db.execute('BEGIN IMMEDIATE')
++            row=db.execute("SELECT * FROM events WHERE delivery='QUEUED' ORDER BY seq LIMIT 1").fetchone()
++            if row is None: return
++            db.execute("UPDATE events SET delivery='SENDING',attempts=attempts+1,updated=? WHERE seq=?",
++                       (time.time(),row['seq']))
++        try:
++            reply=telegram_notify.send(cfg,telegram_notify.format_core_entry_event(json.loads(row['payload'])))
++            if not isinstance(reply,dict) or not reply.get('ok'): raise RuntimeError('telegram_ack_missing')
++            delivery='SENT';message_id=str(reply.get('message_id') or '')
++        except Exception as exc:
++            # An indeterminate acknowledgement must never be retried: duplicate risk.
++            definite=getattr(exc,'definite_rejection',False)
++            retry=getattr(exc,'retry_after',None)
++            if definite and retry is not None and row['attempts'] < 1 and 0<=retry<=5:
++                time.sleep(retry)
++                delivery='QUEUED'
++            else:
++                delivery='FAILED' if definite else 'DELIVERY_UNKNOWN'
++            message_id=None
++            (cfg.logger or logging.getLogger(__name__)).warning(
++                'CORE_ENTRY_TELEGRAM_FAILED event=%s status=%s error_type=%s',
++                row['event_key'],delivery,type(exc).__name__)
++        with _db(cfg.user_dir) as db:
++            db.execute('UPDATE events SET delivery=?,updated=?,message_id=? WHERE seq=?',
++                       (delivery,time.time(),message_id,row['seq']))
++
++
++def kick(cfg):
++    if not getattr(cfg,'TELEGRAM_BOT_TOKEN','') or not getattr(cfg,'TELEGRAM_CHAT_ID',''): return
++    user_dir=os.path.realpath(cfg.user_dir)
++    with _LOCK:
++        current=_WORKERS.get(user_dir)
++        if current and current.is_alive(): return
++        def work():
++            try:
++                with _db(user_dir) as db:
++                    # A previous worker may have dispatched before process death.
++                    db.execute("UPDATE events SET delivery='DELIVERY_UNKNOWN' WHERE delivery='SENDING'")
++                while True:
++                    try:
++                        deliver_pending(cfg)
++                    except Exception as exc:
++                        (cfg.logger or logging.getLogger(__name__)).warning('CORE_ENTRY_OUTBOX_FAILED error_type=%s',type(exc).__name__)
++                    threading.Event().wait(2)
++            except Exception as exc:
++                (cfg.logger or logging.getLogger(__name__)).warning('CORE_ENTRY_OUTBOX_FAILED error_type=%s',type(exc).__name__)
++        worker=threading.Thread(target=work,name='core-entry-telegram',daemon=True)
++        _WORKERS[user_dir]=worker
++        worker.start()
++
++
++def reserve_order(user_dir,decision_id,symbol,payload):
++    """CAS before an exchange write. Any existing or unresolved receipt blocks resend."""
++    client_id='cg'+hashlib.sha256(str(decision_id).encode()).hexdigest()[:28]
++    with _db(user_dir) as db:
++        db.execute('BEGIN IMMEDIATE')
++        old=db.execute('SELECT * FROM entry_orders WHERE decision_id=?',(decision_id,)).fetchone()
++        if old: return False,dict(old,payload=json.loads(old['payload']))
++        unresolved=db.execute("SELECT * FROM entry_orders WHERE symbol=? AND status IN ('RESERVED','ORDER_SUBMITTED','ORDER_PENDING','FILLED_UNJOURNALED') ORDER BY updated LIMIT 1",(symbol,)).fetchone()
++        if unresolved: return False,dict(unresolved,payload=json.loads(unresolved['payload']))
++        db.execute('INSERT INTO entry_orders VALUES (?,?,?,?,?,?)',
++                   (decision_id,symbol,client_id,json.dumps(payload,allow_nan=False),'RESERVED',time.time()))
++    return True,dict(decision_id=decision_id,symbol=symbol,client_order_id=client_id,payload=payload,status='RESERVED')
++
++
++def update_order(user_dir,decision_id,status,**details):
++    with _db(user_dir) as db:
++        db.execute('BEGIN IMMEDIATE')
++        row=db.execute('SELECT payload FROM entry_orders WHERE decision_id=?',(decision_id,)).fetchone()
++        if row is None: raise ValueError('missing_order_reservation')
++        payload=dict(json.loads(row['payload']),**details)
++        db.execute('UPDATE entry_orders SET status=?,payload=?,updated=? WHERE decision_id=?',
++                   (status,json.dumps(payload,allow_nan=False),time.time(),decision_id))
++
++
++def order_receipt(user_dir,decision_id):
++    with _db(user_dir) as db:
++        row=db.execute('SELECT * FROM entry_orders WHERE decision_id=?',(decision_id,)).fetchone()
++    return dict(row,payload=json.loads(row['payload'])) if row else None
++
++
++def pending_order(user_dir,symbol):
++    with _db(user_dir) as db:
++        row=db.execute("SELECT * FROM entry_orders WHERE symbol=? AND status IN ('RESERVED','ORDER_SUBMITTED','ORDER_PENDING','FILLED_UNJOURNALED') ORDER BY updated LIMIT 1",(symbol,)).fetchone()
++    return dict(row,payload=json.loads(row['payload'])) if row else None
+--- a/core_entry_orders.py
++++ b/core_entry_orders.py
+@@ -0,0 +1,111 @@
++"""One durable client ID per CORE entry decision; unresolved orders never resubmit."""
++import math
++import re
++import ccxt
++import core_entry_events as events
++
++
++def _safe_exchange_error(exc):
++    # Extract numeric OKX code only. Never persist a credential-bearing exception.
++    match=re.search(r'["\'](?:sCode|code)["\']\s*:\s*["\'](\d+)["\']',str(exc))
++    return dict(exchange_code=match.group(1) if match else None,
++                reason='exchange_rejected:'+type(exc).__name__)
++
++
++def _identity(order, receipt, side):
++    if not isinstance(order,dict): return False
++    info=order.get('info') or {}
++    cid=order.get('clientOrderId') or info.get('clOrdId')
++    return (cid == receipt['client_order_id'] and bool(order.get('id'))
++            and order.get('symbol') == receipt['symbol']
++            and order.get('side') == ('buy' if side=='long' else 'sell'))
++
++
++def _result(order,receipt):
++    payload=receipt['payload'];side=payload['side']
++    base=dict(order_id=(order or {}).get('id'),client_order_id=receipt['client_order_id'],
++              decision_id=receipt['decision_id'],payload=payload)
++    if not _identity(order,receipt,side):
++        return dict(base,status='ORDER_PENDING',reason='exchange_order_identity_unconfirmed')
++    try:
++        filled=float(order.get('filled') or 0)
++        expected=float(payload['contracts'])
++        remaining=float(order['remaining'])
++        if not all(math.isfinite(x) for x in (filled,expected,remaining)) or min(filled,remaining)<0:
++            raise ValueError
++    except (KeyError,TypeError,ValueError):
++        return dict(base,status='ORDER_PENDING',reason='exchange_fill_unconfirmed')
++    status=order.get('status')
++    base.update(exchange_status=status,filled=filled,remaining=remaining,
++                original_order_terminal=status in ('closed','canceled','rejected','expired'))
++    if status == 'closed' and filled>0 and remaining==0 and abs(filled-expected)<=1e-8:
++        return dict(base,status='FILLED_UNJOURNALED',reason='exchange_fill_confirmed',
++                    average=order.get('average'))
++    if status in ('canceled','rejected','expired') and filled==0:
++        return dict(base,status='ORDER_FAILED',reason='exchange_order_'+status)
++    return dict(base,status='ORDER_PENDING',reason='partial_fill_requires_reconciliation' if filled else 'exchange_order_pending')
++
++
++def submit_once(cfg,client,symbol,decision_id,side,amount,sl,tp,on_submitted,metadata=None):
++    import okx_client
++    payload=dict(side=side,quantity_coin=amount,contracts=amount/client.contract_size(),
++                 sl_price=sl,tp_price=tp,leverage=cfg.LEVERAGE)
++    payload.update(metadata or {})
++    try:
++        reserved,receipt=events.reserve_order(cfg.user_dir,decision_id,symbol,payload)
++    except Exception as exc:
++        return dict(status='LOCAL_BLOCKED',reason='order_receipt_unavailable:'+type(exc).__name__)
++    if not reserved and receipt['status'] in ('FILLED','ORDER_FAILED'):
++        return dict(receipt['payload'],status=receipt['status'],reason='decision_already_processed',
++                    duplicate=True,client_order_id=receipt['client_order_id'],decision_id=receipt['decision_id'])
++    if not reserved and receipt['decision_id'] != decision_id:
++        return dict(status='LOCAL_BLOCKED',reason='unresolved_prior_entry_order',
++                    prior_decision_id=receipt['decision_id'])
++    if not reserved:
++        # Reconcile original parameters/decision, never the new callback's plan.
++        try:
++            order=client.fetch_order_status_by_client_id(receipt['client_order_id'])
++        except Exception:
++            order=None
++        result=_result(order,receipt)
++    else:
++        events.update_order(cfg.user_dir,decision_id,'ORDER_SUBMITTED')
++        on_submitted(dict({k:payload[k] for k in ('side','quantity_coin','contracts','sl_price','tp_price','leverage')},
++                          client_order_id=receipt['client_order_id']))
++        try:
++            order=client.create_position_with_sl_tp(side,amount,sl,tp,
++                client_order_id=receipt['client_order_id'],
++                attach_algo_cl_ord_id='ca'+receipt['client_order_id'][2:])
++        except okx_client.UnknownOrderStateError:
++            try:
++                order=client.fetch_order_status_by_client_id(receipt['client_order_id'])
++            except Exception:
++                order=None
++        except ccxt.ExchangeError as exc:
++            # OkxClient only propagates known definite rejections as ExchangeError.
++            result=dict(status='ORDER_FAILED',client_order_id=receipt['client_order_id'],
++                        decision_id=decision_id,payload=payload,**_safe_exchange_error(exc))
++            events.update_order(cfg.user_dir,decision_id,'ORDER_FAILED',**_safe_exchange_error(exc))
++            return result
++        except Exception as exc:
++            # Exceptions before/after acknowledgement may still have reached OKX.
++            try:
++                order=client.fetch_order_status_by_client_id(receipt['client_order_id'])
++            except Exception:
++                order=None
++        result=_result(order,receipt)
++    events.update_order(cfg.user_dir,receipt['decision_id'],result['status'],
++                        order_id=result.get('order_id'),reason=result['reason'])
++    return result
++
++
++def reconcile(cfg,client,receipt):
++    """Exchange reads only: never resubmit an ambiguous/reserved order."""
++    try:
++        order=client.fetch_order_status_by_client_id(receipt['client_order_id'])
++    except Exception:
++        order=None
++    result=_result(order,receipt)
++    events.update_order(cfg.user_dir,receipt['decision_id'],result['status'],
++                        order_id=result.get('order_id'),reason=result['reason'])
++    return result
+--- a/core_entry_policy.py
++++ b/core_entry_policy.py
+@@ -0,0 +1,50 @@
++"""CORE entry GPT policy. An exception never becomes an AI approval."""
++import math
++
++CORE = frozenset(('BTC/USDT:USDT','ETH/USDT:USDT','XRP/USDT:USDT','PI/USDT:USDT'))
++
++
++def valid_candidate(cfg, symbol, decision):
++    confidence = decision.get('confidence')
++    return (symbol in CORE and decision.get('action') in ('long','short')
++            and not decision.get('error_reason')
++            and not isinstance(confidence, bool)
++            and isinstance(confidence, (int,float)) and math.isfinite(confidence)
++            and getattr(cfg,'MIN_CONFIDENCE',.6) <= confidence <= 1)
++
++
++def confirmed_entry_timeout(result):
++    return (isinstance(result,dict) and result.get('decision') == 'TIMEOUT'
++            and result.get('error_reason') == 'timeout'
++            and result.get('error_type') == 'APITimeoutError'
++            and result.get('timeout_confirmed') is True
++            and result.get('request_purpose') == 'entry_gate')
++
++
++def evaluate(cfg, symbol, decision, result):
++    if not valid_candidate(cfg,symbol,decision):
++        return False,'blocked_error','invalid_gemini_entry_candidate'
++    if not isinstance(result,dict):
++        return False,'blocked_error','missing_gpt_result'
++    if confirmed_entry_timeout(result):
++        if getattr(cfg,'CORE_GPT_ENTRY_TIMEOUT_BYPASS',False):
++            return True,'TIMEOUT_BYPASS','confirmed_core_gpt_entry_timeout_config_enabled'
++        return False,'blocked_error','core_timeout_bypass_disabled'
++    if result.get('error_reason') or result.get('decision') == 'TIMEOUT':
++        return False,'blocked_error',result.get('error_reason') or 'unconfirmed_timeout'
++    verdict=result.get('decision')
++    if verdict == 'approve_now':
++        confidence=result.get('confidence')
++        if (isinstance(confidence,bool) or not isinstance(confidence,(int,float))
++                or not math.isfinite(confidence) or not 0<=confidence<=1):
++            return False,'blocked_error','invalid_gpt_confidence'
++        return True,'approved','gpt_approve_now'
++    if verdict in ('wait','reject'):
++        return False,'blocked_'+verdict,'gpt_'+verdict
++    return False,'blocked_error','invalid_gpt_decision'
++
++
++def gate_status(gate):
++    return {'approved':'GPT_APPROVED','TIMEOUT_BYPASS':'TIMEOUT_BYPASS',
++            'blocked_wait':'GPT_WAIT','blocked_reject':'GPT_REJECT',
++            'blocked_error':'GPT_ERROR'}.get(gate,'GPT_ERROR')
+--- a/gpt_shadow_log.py
++++ b/gpt_shadow_log.py
+@@ -24,6 +24,7 @@
+     gate_result: str | None = None,
+     error_reason: str | None = None,
+     pipeline_context: str | None = None,
++    outcome: dict | None = None,
+ ) -> None:
+     """decision_id/event_type: 반대방향 전환(reversal)처럼 Gemini 판단 하나에서 청산+진입
+     두 번의 실주문(그래서 검증도 두 번)이 나올 수 있는데, 같은 decision_id로 묶고
+@@ -46,6 +47,7 @@
+         f.write(
+             json.dumps(
+                 {
++                    **(outcome or {}),
+                     "symbol": symbol,
+                     "gemini_action": gemini_action,
+                     "gemini_confidence": gemini_confidence,
+@@ -132,9 +134,9 @@
+     no_verdict_records = [r for r in new_records if r.get("gpt_decision") not in ("approve_now", "wait", "reject")]
+     timeout_count = sum(1 for r in no_verdict_records if r.get("error_reason") == "timeout")
+     api_error_count = sum(1 for r in no_verdict_records if r.get("error_reason") == "api_error")
+-    parse_error_count = sum(1 for r in no_verdict_records if r.get("error_reason") == "parse_error")
++    parse_error_count = sum(1 for r in no_verdict_records if r.get("error_reason") in ("parse_error","empty_response"))
+     sdk_error_count = sum(1 for r in no_verdict_records if r.get("error_reason") == "sdk_error")
+-    unknown_count = sum(1 for r in no_verdict_records if r.get("error_reason") == "unknown")
++    unknown_count = sum(1 for r in no_verdict_records if "error_reason" in r and r.get("error_reason") not in ("timeout","api_error","parse_error","empty_response","sdk_error"))
+     legacy_no_verdict_count = sum(1 for r in no_verdict_records if "error_reason" not in r)
+ 
+     # mode="entry_gate"인 기록만 실제로 주문 여부를 결정했다 - 이 카운트는 "GPT 필터를
+@@ -170,6 +172,7 @@
+         "agree_rate": agree_rate,
+         "gate_count": len(gate_records),
+         "gate_approved_count": gate_approved,
++        "gate_timeout_bypass_count": sum(1 for r in gate_records if r.get("gate_result")=="TIMEOUT_BYPASS"),
+         "gate_blocked_wait_count": gate_blocked_wait,
+         "gate_blocked_reject_count": gate_blocked_reject,
+         "gate_blocked_error_count": gate_blocked_error,
+--- a/okx_client.py
++++ b/okx_client.py
+@@ -355,7 +355,8 @@
+         if order is None:
+             return None
+         return {
+-            "id": order.get("id"), "clientOrderId": client_order_id,
++            "id": order.get("id"), "clientOrderId": order.get("clientOrderId") or (order.get("info") or {}).get("clOrdId"),
++            "symbol":order.get("symbol"),"side":order.get("side"),
+             "status": order.get("status"), "filled": order.get("filled"),
+             "remaining": order.get("remaining"), "average": order.get("average"),
+         }
+--- a/openai_analyzer.py
++++ b/openai_analyzer.py
+@@ -431,9 +431,22 @@
+     except Exception as exc:
+         internal_reason = _classify_openai_error(exc)
+         canonical_reason = _canonical_error_reason(internal_reason)
+-        log.exception("[%s] GPT 검증 API 호출 실패(원인=%s, timeout=%s)", symbol, internal_reason, timeout)
++        log.warning("[%s] GPT 검증 API 호출 실패 reason=%s error_type=%s timeout=%s",
++                    symbol,canonical_reason,type(exc).__name__,timeout)
+         elapsed_ms = _log_latency(timed_out=(internal_reason == "timeout"), error_reason=canonical_reason)
+-        return {"decision": None, "confidence": None, "reasoning": "", "error_reason": canonical_reason, "response_ms": elapsed_ms}
++        body = getattr(exc,"body",None)
++        error = body.get("error",body) if isinstance(body,dict) else {}
++        code = error.get("code") if isinstance(error,dict) else None
++        category = ("timeout" if isinstance(exc,openai.APITimeoutError) else
++                    "authentication_error" if isinstance(exc,openai.AuthenticationError) else
++                    "billing_error" if code in ("insufficient_quota","billing_hard_limit_reached") else
++                    "rate_limit" if isinstance(exc,openai.RateLimitError) else
++                    "server_error" if isinstance(exc,openai.InternalServerError) else canonical_reason)
++        return {"decision": "TIMEOUT" if internal_reason == "timeout" and purpose == "entry_gate" else None,
++                "confidence":None,"reasoning":"","error_reason":canonical_reason,
++                "error_type":type(exc).__name__,"error_category":category,
++                "http_status":getattr(exc,"status_code",None),"response_ms":elapsed_ms,
++                "request_purpose":purpose,"timeout_confirmed":isinstance(exc,openai.APITimeoutError)}
+ 
+     usage = getattr(response, "usage", None)
+     usage_prompt_tokens = usage_completion_tokens = None
+@@ -451,11 +464,22 @@
+         except Exception:
+             log.exception("[%s] GPT 토큰 사용량 기록 실패", symbol)
+ 
+-    text = (response.choices[0].message.content or "").strip()
++    try:
++        text = (response.choices[0].message.content or "").strip()
++    except (AttributeError,IndexError,TypeError):
++        text = ""
++    if not text:
++        elapsed_ms=_log_latency(timed_out=False,error_reason="empty_response",
++                               prompt_tokens=usage_prompt_tokens,completion_tokens=usage_completion_tokens)
++        return {"decision":None,"confidence":None,"reasoning":"","error_reason":"empty_response",
++                "error_type":"EmptyResponse","request_purpose":purpose,"timeout_confirmed":False,
++                "response_ms":elapsed_ms}
+     try:
+         result = json.loads(text)
+-    except json.JSONDecodeError:
+-        log.error("[%s] GPT 검증 응답 파싱 실패: %s", symbol, text)
++        if not isinstance(result,dict):
++            raise ValueError("response_object_required")
++    except (json.JSONDecodeError,ValueError):
++        log.error("[%s] GPT 검증 응답 파싱 실패", symbol)
+         elapsed_ms = _log_latency(timed_out=False, error_reason="parse_error",
+                                    prompt_tokens=usage_prompt_tokens, completion_tokens=usage_completion_tokens)
+         return {"decision": None, "confidence": None, "reasoning": "", "error_reason": "parse_error", "response_ms": elapsed_ms}
+--- a/static/core_entry_status.js
++++ b/static/core_entry_status.js
+@@ -0,0 +1,22 @@
++(function(root){
++  const labels={GPT_APPROVED:'GPT 승인 · 주문 전',TIMEOUT_BYPASS:'GPT 응답 없음 — 설정에 따른 예외 통과',GPT_WAIT:'GPT 대기',GPT_REJECT:'GPT 거절',GPT_ERROR:'GPT 오류',LOCAL_BLOCKED:'로컬 차단',ORDER_SUBMITTED:'주문 제출',ORDER_PENDING:'주문 확인 대기',FILLED:'체결 · 보호 확인',ORDER_FAILED:'주문 실패'};
++  function describe(row){
++    const status=row.status || row.gate_processing || 'UNKNOWN';
++    return [labels[status] || status,'decision_id='+ (row.decision_id || '미저장'),
++      'GPT 원본='+(row.gpt_raw_result || row.gpt_decision || '응답 없음'),
++      '게이트='+(row.gate_processing || row.gate_result || '미저장'),
++      '사유='+(row.reason || row.gpt_reason || row.gpt_reasoning || row.error_reason || '미저장'),
++      row.validation_values ? '검증값='+JSON.stringify(row.validation_values) : '',
++      row.order_id ? '주문 ID='+row.order_id : '',
++      row.exchange_code ? '거래소 코드='+row.exchange_code : ''].filter(Boolean).join(' · ');
++  }
++  function render(document,row){
++    const tr=document.createElement('tr');
++    const cells=[row.time || '',row.symbol || '',(row.gemini_action || '')+' '+(row.gemini_confidence ?? ''),
++      row.gpt_raw_result || row.gpt_decision || '응답 없음',describe(row)];
++    cells.forEach(value=>{const td=document.createElement('td');td.textContent=String(value);tr.appendChild(td);});
++    return tr;
++  }
++  root.coreEntryStatus={labels,describe,render};
++  if(typeof module !== 'undefined' && module.exports) module.exports=root.coreEntryStatus;
++})(typeof window==='undefined'?globalThis:window);
+--- a/telegram_notify.py
++++ b/telegram_notify.py
+@@ -18,7 +18,48 @@
+         json={"chat_id": cfg.TELEGRAM_CHAT_ID, "text": text},
+         timeout=_TIMEOUT_SECONDS,
+     )
+-    response.raise_for_status()
++    try:
++        body=response.json()
++    except (ValueError,TypeError):
++        raise TelegramDeliveryError("invalid_telegram_response") from None
++    if not isinstance(body,dict) or body.get('ok') is not True:
++        code=body.get('error_code') if isinstance(body,dict) else None
++        params=body.get('parameters') or {} if isinstance(body,dict) else {}
++        retry=params.get('retry_after') if code == 429 else None
++        raise TelegramDeliveryError("telegram_rejected",definite_rejection=code in (400,401,403,429),
++                                    retry_after=retry if isinstance(retry,(int,float)) else None)
++    # Do not log requests' URL-bearing HTTP errors: the URL contains the bot token.
++    if getattr(response,'status_code',200) >= 400:
++        raise TelegramDeliveryError("telegram_http_error")
++    return {"ok":True,"message_id":(body.get('result') or {}).get('message_id')}
++
++
++class TelegramDeliveryError(RuntimeError):
++    def __init__(self,message,*,definite_rejection=False,retry_after=None):
++        super().__init__(message)
++        self.definite_rejection=definite_rejection
++        self.retry_after=retry_after
++
++
++def format_core_entry_event(event):
++    import datetime
++    when=event.get('time') or datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).isoformat(timespec='seconds')
++    timeout_text = ("\nGPT 응답 없음 — 설정에 따른 예외 통과" if event.get('timeout_bypass') else "")
++    rows=[f"[CORE] {when} KST {event.get('symbol')} {str(event.get('side') or '').upper()}",
++          f"decision_id={event.get('decision_id')}",
++          f"Gemini={event.get('gemini_action')} 확신도={_format_number(event.get('gemini_confidence'))}",
++          f"GPT 원본={event.get('gpt_raw_result')} 사유={str(event.get('gpt_reason') or '')[:700]}",
++          f"게이트={event.get('gate_processing')} timeout 예외={bool(event.get('timeout_bypass'))}{timeout_text}",
++          f"최종 상태={event.get('status')} 사유={str(event.get('reason') or '')[:400]}"]
++    if event.get('validation_values'):
++        rows.append(f"검증값={str(event['validation_values'])[:500]}")
++    if event.get('order_id') or event.get('client_order_id'):
++        rows += [f"수량={_format_number(event.get('quantity_coin'))} coin / {_format_number(event.get('contracts'))} contracts 레버리지={_format_number(event.get('leverage'))}x",
++                 f"SL={_format_number(event.get('sl_price'))} TP={_format_number(event.get('tp_price'))}",
++                 f"order_id={event.get('order_id') or 'UNKNOWN'} client_order_id={event.get('client_order_id') or 'UNKNOWN'}"]
++    if event.get('exchange_code'):
++        rows.append(f"거래소 코드={event['exchange_code']}")
++    return '\n'.join(rows)[:3800]
+ 
+ 
+ def _format_number(value) -> str:
+--- a/templates/dashboard.html
++++ b/templates/dashboard.html
+@@ -969,6 +969,7 @@
+   .learning-report-text { white-space:pre-wrap; overflow-wrap:anywhere; border:1px solid var(--line); border-radius:10px; padding:12px; background:rgba(255,255,255,.45); font-size:12px; line-height:1.55; max-height:52vh; overflow:auto; }
+ 
+ </style>
++<script src="/static/core_entry_status.js"></script>
+ </head>
+ <body>
+ <div class="topbar">
+@@ -1085,7 +1086,7 @@
+     <span class="dot" id="dot-openai"></span>
+     <button onclick="checkOpenai()">확인</button>
+   </div>
+-  <div class="hint">※ GPT 키는 CORE 신규진입 게이트와 보유 포지션 AI 관리에 사용됩니다. GPT 신규진입 승인이 켜져 있으면 approve_now만 신규 주문을 허용합니다.</div>
++  <div class="hint">※ GPT 키는 CORE 신규진입 게이트와 보유 포지션 AI 관리에 사용됩니다. CORE 신규진입은 GPT 승인 또는 설정된 GPT 진입 timeout 예외 통과 후 최종 위험 검증을 거칩니다. 승인과 체결은 별도로 기록됩니다.</div>
+   <div class="row">
+     <label>OKX API 키</label>
+     <input type="password" id="okx-key" value="{{ okx_key }}">
+@@ -3223,11 +3224,8 @@
+ 
+     const entryAttempt = info.last_entry_attempt;
+     if (entryAttempt && entryAttempt.time_ms) {
+-      const entryStatusLabels = {LOCAL_BLOCKED:'로컬 차단',GPT_WAIT:'GPT 대기',GPT_REJECT:'GPT 거절',GPT_ERROR:'GPT 오류',ORDER_EXECUTED:'주문 실행',ORDER_FAILED:'주문 실패'};
+-      const entryReasonLabels = {short_level_none:'SHORT_LEVEL=NONE',cooldown:'재진입 쿨다운',confidence:'최소 확신도 미달',daily_loss:'일일 손실 한도',core_1h_confirmation:'LONG 1H 확인 미충족',core_short_cooldown:'SHORT 연속 손절 쿨다운',insufficient_min_notional:'최소 주문수량 미달',qty_zero:'계산 수량 0',blocked_wait:'GPT WAIT',blocked_reject:'GPT REJECT',blocked_error:'GPT 오류',core_kill_switch:'CORE kill switch',symbol_pause_or_reentry_block:'심볼 일시정지/재진입 차단',ai_close_thesis_not_recovered:'AI CLOSE thesis 미회복'};
+-      const attemptStatus = entryStatusLabels[entryAttempt.status] || entryAttempt.status || '-';
+-      const attemptReason = entryReasonLabels[entryAttempt.reason] || entryAttempt.reason || '-';
+-      document.getElementById('reason-' + id).textContent += '\n최근 신규진입 시도 (' + new Date(entryAttempt.time_ms).toLocaleTimeString('ko-KR') + '): ' + String(entryAttempt.action || '-').toUpperCase() + ' · ' + attemptStatus + ' · ' + attemptReason;
++      document.getElementById('reason-' + id).textContent +=
++        '\n최근 신규진입 시도: '+coreEntryStatus.describe(entryAttempt);
+     }
+ 
+     const thesisStatus = info.reentry_thesis_status;
+@@ -3589,21 +3587,9 @@
+   const data = result.data;
+   const tbody = document.getElementById("shadow-table");
+   tbody.innerHTML = "";
+-  (data.recent || []).slice(0, 30).forEach(r => {
+-    const tr = document.createElement("tr");
+-    const gemini = `${r.gemini_action || ""} ${fmt(r.gemini_confidence)}`;
+-    let gpt, reasoning;
+-    if (r.gpt_decision) {
+-      gpt = `${r.gpt_decision} ${fmt(r.gpt_confidence)}`;
+-      reasoning = r.gpt_reasoning || "";
+-    } else {
+-      gpt = errorReasonBadge(r.error_reason);
+-      reasoning = errorReasonSentence(r.pipeline_context || r.mode, r.error_reason);
+-    }
+-    tr.innerHTML = `<td>${(r.time || "").replace("T", " ")}</td><td>${r.symbol || ""}</td>` +
+-                   `<td>${gemini}</td><td>${gpt}</td><td>${reasoning}</td>`;
+-    tbody.appendChild(tr);
+-  });
++  const rows = data.events?.length ? data.events : (data.recent || []);
++  rows.slice(0, 100).forEach(r => tbody.appendChild(coreEntryStatus.render(document,r)));
++
+ }
+ 
+ 
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -0,0 +1,33 @@
++import importlib.util
++import sys
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[2]
++BASE = ROOT.parent / 'autotrader-rc-structure-risk-ai-20261005'
++sys.path.insert(0, str(BASE))
++# Import real dependencies before patching the archived entry functions.
++import trader
++spec = importlib.util.spec_from_file_location('entry_kernel', ROOT/'tools/load_entry_kernel.py')
++helper = importlib.util.module_from_spec(spec)
++spec.loader.exec_module(helper)
++# Revised Adaptive engine and analyzers are real files, not AI/exchange calls.
++for name in ('adaptive_exit_engine','openai_analyzer','telegram_notify','config','gpt_shadow_log'):
++    spec = importlib.util.spec_from_file_location(name,ROOT/'patch'/f'{name}.py')
++    module = importlib.util.module_from_spec(spec)
++    sys.modules[name] = module
++    spec.loader.exec_module(module)
++    if hasattr(trader,name): setattr(trader,name,module)
++import adaptive_exit_engine as ae
++for name in ('AdaptiveExitContext','AdaptiveExitEngine','apply_ai_price_plan',
++             'select_verified_ai_price_plan','build_ai_price_contract'):
++    setattr(trader,name,getattr(ae,name))
++sys.path.insert(0, str(ROOT/'patch'))
++helper.load(trader, ROOT/'patch/trader.py')
++
++# Use the changed order-query method only, preserving real baseline SDK adapters.
++import ast
++node=next(n for n in ast.parse((ROOT/'patch/okx_client.py').read_text()).body if isinstance(n,ast.ClassDef) and n.name=='OkxClient')
++method=next(n for n in node.body if isinstance(n,ast.FunctionDef) and n.name=='fetch_order_status_by_client_id')
++namespace=dict(trader.okx_client.__dict__)
++exec(compile(ast.Module(body=[method],type_ignores=[]),str(ROOT/'patch/okx_client.py'),'exec'),namespace)
++trader.okx_client.OkxClient.fetch_order_status_by_client_id=namespace['fetch_order_status_by_client_id']
+--- a/tests/test_core_entry_notifications.py
++++ b/tests/test_core_entry_notifications.py
+@@ -0,0 +1,102 @@
++import importlib
++import importlib.util
++import logging
++from types import SimpleNamespace
++import pytest
++import telegram_notify
++
++
++def events():
++    assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
++    return importlib.import_module('core_entry_events')
++
++
++def cfg(tmp_path):
++    return SimpleNamespace(user_dir=str(tmp_path),logger=logging.getLogger('notification-test'),
++        TELEGRAM_BOT_TOKEN='offline-token',TELEGRAM_CHAT_ID='offline-configured-chat')
++
++
++def event(status='TIMEOUT_BYPASS'):
++    return dict(decision_id='d-1',symbol='ETH/USDT:USDT',side='short',gemini_action='short',gemini_confidence=.8,
++        gpt_raw_result='TIMEOUT',gpt_reason='timeout',gate_processing='TIMEOUT_BYPASS',timeout_bypass=True,
++        status=status,reason='confirmed_core_gpt_entry_timeout_config_enabled',quantity_coin=2,
++        contracts=20,leverage=5,sl_price=104,tp_price=92,order_id='ex-1')
++
++
++def test_formatter_keeps_raw_timeout_gate_and_order_separate():
++    formatter=getattr(telegram_notify,'format_core_entry_event',None)
++    assert callable(formatter), 'structured CORE formatter missing'
++    text=formatter(event())
++    assert 'GPT 응답 없음 — 설정에 따른 예외 통과' in text
++    assert 'TIMEOUT_BYPASS' in text and 'TIMEOUT' in text and 'approve_now' not in text
++    assert 'd-1' in text and 'SHORT' in text and 'KST' in text
++    assert 'SL=104' in text and 'TP=92' in text
++
++@pytest.mark.parametrize('status',['GPT_APPROVED','GPT_WAIT','GPT_REJECT','GPT_ERROR','TIMEOUT_BYPASS','LOCAL_BLOCKED','ORDER_SUBMITTED','ORDER_PENDING','FILLED','ORDER_FAILED'])
++def test_each_result_has_one_durable_notification(tmp_path,monkeypatch,status):
++    e=events();c=cfg(tmp_path)
++    sent=[]
++    monkeypatch.setattr(telegram_notify,'send',lambda cfg,text:sent.append(text) or {'ok':True,'message_id':321})
++    assert e.record(c,event(status))
++    assert not e.record(c,event(status))
++    e.deliver_pending(c)
++    importlib.reload(e)
++    e.deliver_pending(c)
++    assert len(sent)==1
++    assert e.recent(c.user_dir)[0]['notification_status']=='SENT'
++
++
++def test_followup_status_is_connected_to_same_decision(tmp_path,monkeypatch):
++    e=events();c=cfg(tmp_path);sent=[]
++    monkeypatch.setattr(telegram_notify,'send',lambda cfg,text:sent.append(text) or {'ok':True,'message_id':1})
++    for status in ['GPT_APPROVED','ORDER_SUBMITTED','FILLED']:
++        e.record(c,event(status))
++    e.deliver_pending(c)
++    assert len(sent)==3 and all('d-1' in text for text in sent)
++
++
++def test_notification_timeout_does_not_escape_or_duplicate_on_restart(tmp_path,monkeypatch):
++    import requests
++    e=events();c=cfg(tmp_path);sent=[]
++    def failure(cfg,text):
++        sent.append(text)
++        raise requests.Timeout('secret-like request URL must not be logged')
++    monkeypatch.setattr(telegram_notify,'send',failure)
++    e.record(c,event())
++    e.deliver_pending(c)
++    importlib.reload(e)
++    e.deliver_pending(c)
++    assert len(sent)==1
++    assert e.recent(c.user_dir)[0]['notification_status']=='DELIVERY_UNKNOWN'
++
++
++def test_telegram_http_200_ok_false_is_a_failure(tmp_path,monkeypatch):
++    c=cfg(tmp_path)
++    response=SimpleNamespace(raise_for_status=lambda:None,json=lambda:{'ok':False,'error_code':400})
++    monkeypatch.setattr(telegram_notify.requests,'post',lambda *a,**k:response)
++    with pytest.raises(Exception):
++        telegram_notify.send(c,'offline')
++
++
++def test_confirmed_429_retries_at_most_once_and_stays_bounded(tmp_path,monkeypatch):
++    e=events();c=cfg(tmp_path);sent=[];delays=[]
++    monkeypatch.setattr(e.time,'sleep',lambda seconds:delays.append(seconds))
++    def limited(cfg,text):
++        sent.append(text)
++        if len(sent)==1:
++            raise telegram_notify.TelegramDeliveryError('offline',definite_rejection=True,retry_after=2)
++        return {'ok':True,'message_id':1}
++    monkeypatch.setattr(telegram_notify,'send',limited)
++    e.record(c,event());e.deliver_pending(c);e.deliver_pending(c)
++    assert len(sent)==2 and delays==[2]
++    assert e.recent(c.user_dir)[0]['notification_status']=='SENT'
++
++
++def test_uncertain_send_on_process_death_is_not_resent(tmp_path,monkeypatch):
++    e=events();c=cfg(tmp_path);sent=[]
++    e.record(c,event())
++    with e._db(c.user_dir) as db:
++        db.execute("UPDATE events SET delivery='SENDING'")
++    monkeypatch.setattr(telegram_notify,'send',lambda *a:sent.append(a))
++    importlib.reload(e);e.deliver_pending(c)
++    assert not sent
+--- a/tests/test_core_entry_pipeline.py
++++ b/tests/test_core_entry_pipeline.py
+@@ -0,0 +1,381 @@
++import logging
++import time
++from types import SimpleNamespace
++import pytest
++import trader
++import openai_analyzer
++import config
++from adaptive_exit_policy import production_adaptive_exit_policy,policy_sha256
++from test_core_gpt_timeout_policy import timeout
++
++SYMBOL='ETH/USDT:USDT'
++class State:
++    def __init__(self): self.symbols={SYMBOL:{}}
++    def snapshot(self): return {'symbols':self.symbols}
++    def update_symbol(self,symbol,**kw): self.symbols.setdefault(symbol,{}).update(kw)
++
++class Exchange:
++    def __init__(self,minimum=.01): self.minimum=minimum
++    def market(self,symbol):
++        return dict(id='ETH-USDT-SWAP',contractSize=.1,precision={'amount':.01,'price':.01},limits={'amount':{'min':self.minimum}})
++
++class Client:
++    def __init__(self,c):
++        self.cfg=c; self.symbol=SYMBOL; self.exchange=Exchange();self.orders=[]
++        self.position=None;self.protection=[];self.price=100; self.response='filled';self.queries=[]
++    def ensure_markets_loaded(self): pass
++    def ensure_leverage(self): pass
++    def contract_size(self): return .1
++    def fetch_last_price(self): return self.price
++    def fetch_usdt_equity(self): return 1000
++    def fetch_position(self): return self.position
++    def fetch_pending_protection_orders(self): return self.protection
++    def fetch_order_status_by_client_id(self,cid):
++        self.queries.append(cid)
++        return self.orders[-1] if self.orders else None
++    def create_position_with_sl_tp(self,side,amount,sl,tp,**kwargs):
++        row=dict(id='exchange-123',symbol=SYMBOL,side='buy' if side=='long' else 'sell',
++            clientOrderId=kwargs.get('client_order_id'),status='closed',filled=amount/.1,remaining=0,average=self.price)
++        if self.response=='pending': row.update(status='open',filled=0,remaining=amount/.1)
++        self.orders.append(row)
++        if row['filled']:
++            self.position=dict(side=side,contracts=amount/.1,entry_price=self.price,position_id='lifecycle-123',entry_timestamp_ms=1000000)
++            self.protection=[dict(instId='ETH-USDT-SWAP',side='sell' if side=='long' else 'buy',state='live',reduceOnly='true',
++                sz=str(amount/.1),slTriggerPx=str(sl),tpTriggerPx=str(tp),algoId='protect-123',
++                algoClOrdId=kwargs.get('attach_algo_cl_ord_id'))]
++        if self.response=='ambiguous':
++            raise trader.okx_client.UnknownOrderStateError('offline lost acknowledgement')
++        return row
++
++
++def setup(tmp_path,monkeypatch,side,verdict='approved'):
++    c=config.UserConfig(str(tmp_path));c.logger=logging.getLogger('pipeline-test')
++    c.CORE_UNIFIED_MODE='OFF';c.EXECUTION_MODE='LIVE';c.GPT_ENTRY_GATE_ENABLED=True
++    c.CORE_GPT_ENTRY_TIMEOUT_BYPASS=True;c.OPENAI_API_KEY='offline-placeholder'
++    c.ADAPTIVE_EXIT_MODE='LIVE_BOUNDED';c.CORE_ORDER_MODE='FIXED_MARGIN_AUTO_EXIT';c.CORE_EXIT_MODE='AUTO'
++    c.ADAPTIVE_EXIT_APPROVED_POLICY_HASH=policy_sha256(production_adaptive_exit_policy())
++    c.LEVERAGE=5;c.POSITION_FIXED_USDT=200;c.POSITION_SIZE_MODE='FIXED';c.MAX_DAILY_LOSS_PCT=5
++    c._core_loss_guards={SYMBOL:SimpleNamespace(allow_new_entry=lambda e:True)}
++    client=Client(c);state=State()
++    proposal=trader._core_adaptive_live_entry_decision(c,symbol=SYMBOL,
++        legacy_order_args=(side,10,96 if side=='long' else 104,108 if side=='long' else 92),
++        entry_price=100,equity=1000,market_features=dict(atr=2,structural_support=93,
++        structural_resistance=107,near_resistance=105,near_support=95,continuation_resistance=120,
++        continuation_support=80,source_timestamps=(1000,)))
++    assert not proposal['blocked']
++    monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=True,reason='ok'))
++    monkeypatch.setattr(trader,'_evaluate_ai_close_thesis_entry_gate',lambda *a,**k:{'blocked':False})
++    monkeypatch.setattr(trader,'_reentry_blocked',lambda *a,**k:(False,0))
++    monkeypatch.setattr(trader,'_notify_telegram',lambda *a:None)
++    monkeypatch.setattr(trader,'_record_veto_shadow_gate_outcome',lambda *a,**k:None)
++    raw=timeout() if verdict=='timeout' else dict(decision=verdict if verdict!='approved' else 'approve_now',confidence=.9,error_reason=None)
++    monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:dict(raw))
++    now=time.time()
++    decision={'action':side,'confidence':.8,'_approval_started_at':now,'_bar_closed_at':now}
++    return c,state,client,proposal,decision,raw
++
++
++def run(c,state,client,p,d):
++    side,amount,sl,tp=p['order_args']
++    trader._handle_new_entry(c,state,client,SYMBOL,side,d,'decision-123','entry',[], '',None,
++        100,amount,sl,tp,closed_dfs={},adaptive_plan=p['plan'],adaptive_context=p['context'])
++
++@pytest.mark.parametrize('side',['long','short'])
++@pytest.mark.parametrize('verdict',['approved','timeout'])
++def test_valid_approval_or_timeout_reaches_actual_order_and_protection(tmp_path,monkeypatch,side,verdict):
++    c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,verdict)
++    run(c,s,client,p,d)
++    assert len(client.orders)==1, s.symbols[SYMBOL].get('last_entry_attempt',{}).get('reason')
++    assert client.position['side']==side and client.protection
++    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
++    assert s.symbols[SYMBOL]['last_entry_attempt']['decision_id']=='decision-123'
++
++@pytest.mark.parametrize('side',['long','short'])
++@pytest.mark.parametrize('verdict',['wait','reject','ERROR'])
++def test_blocked_gpt_results_do_not_submit(tmp_path,monkeypatch,side,verdict):
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
++    run(c,s,client,p,d)
++    assert not client.orders and client.position is None
++
++@pytest.mark.parametrize('side',['long','short'])
++@pytest.mark.parametrize('verdict',['approved','timeout'])
++@pytest.mark.parametrize('fault',['expired','minimum','daily_loss','chase','drift'])
++def test_final_local_block_stays_specific_and_never_becomes_order_failure(tmp_path,monkeypatch,side,verdict,fault):
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
++    expected={'expired':'entry_signal_or_approval_expired','minimum':'exchange_minimum_exceeds_risk_budget',
++        'daily_loss':'daily_loss_guard','chase':'entry_late_exhaustion_no_pullback','drift':'post_gpt_price_drift'}[fault]
++    if fault=='expired': d['_approval_started_at']-=181
++    if fault=='minimum': client.exchange.minimum=10000
++    if fault=='daily_loss': c._core_loss_guards[SYMBOL].allow_new_entry=lambda e:False
++    if fault=='chase': monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda *a:dict(allowed=False,reason=expected))
++    if fault=='drift': client.price=100.3
++    run(c,s,client,p,d)
++    attempt=s.symbols[SYMBOL]['last_entry_attempt']
++    assert not client.orders
++    assert attempt['status']=='LOCAL_BLOCKED'
++    assert attempt['reason']==expected
++    assert attempt['decision_id']=='decision-123'
++
++@pytest.mark.parametrize('side',['long','short'])
++def test_revised_gpt_prices_and_tp2_rr_flow_through_final_order(tmp_path,monkeypatch,side):
++    c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side)
++    sign=1 if side=='long' else -1
++    raw.update(exit_plan_decision='revise',exit_plan={'stop_loss_price':100-sign*4,
++        'take_profit_1_price':100+sign*4.4,'take_profit_2_price':100+sign*8})
++    run(c,s,client,p,d)
++    assert len(client.orders)==1, s.symbols[SYMBOL].get('last_entry_attempt',{}).get('reason')
++    assert float(client.protection[0]['slTriggerPx'])==100-sign*4
++    assert float(client.protection[0]['tpTriggerPx'])==100+sign*8
++
++@pytest.mark.parametrize('side',['long','short'])
++def test_timeout_never_uses_fabricated_gpt_plan(tmp_path,monkeypatch,side):
++    c,s,client,p,d,raw=setup(tmp_path,monkeypatch,side,'timeout')
++    raw.update(exit_plan_decision='revise',exit_plan={'stop_loss_price':99,'take_profit_1_price':102,'take_profit_2_price':108})
++    run(c,s,client,p,d)
++    assert len(client.orders)==1, s.symbols[SYMBOL].get('last_entry_attempt',{}).get('reason')
++    assert float(client.protection[0]['slTriggerPx'])==p['order_args'][2]
++    assert float(client.protection[0]['tpTriggerPx'])==p['order_args'][3]
++
++
++def test_ambiguous_exchange_ack_is_queried_and_not_resubmitted(tmp_path,monkeypatch):
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
++    client.response='ambiguous'
++    run(c,s,client,p,d)
++    assert client.queries
++    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
++    run(c,s,client,p,d)
++    assert len(client.orders)==1, s.symbols[SYMBOL].get('last_entry_attempt',{}).get('reason')
++
++
++def test_accepted_pending_order_is_not_reported_failed_or_filled(tmp_path,monkeypatch):
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
++    client.response='pending'
++    run(c,s,client,p,d)
++    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='ORDER_PENDING'
++    run(c,s,client,p,d)
++    assert len(client.orders)==1, s.symbols[SYMBOL].get('last_entry_attempt',{}).get('reason')
++
++
++def test_client_id_query_never_fabricates_requested_identity(monkeypatch):
++    client=object.__new__(trader.okx_client.OkxClient)
++    client.symbol=SYMBOL
++    client.exchange=SimpleNamespace(fetch_order=lambda *a,**k:dict(id='other-order',clientOrderId='foreign-id',
++        symbol=SYMBOL,side='sell',status='closed',filled=1,remaining=0))
++    result=client.fetch_order_status_by_client_id('our-id')
++    assert result['clientOrderId']=='foreign-id'
++    assert result['symbol']==SYMBOL and result['side']=='sell'
++
++
++def test_pending_original_order_blocks_new_decision_without_new_submit(tmp_path,monkeypatch):
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
++    client.response='pending'
++    run(c,s,client,p,d)
++    new=dict(d)
++    side,amount,sl,tp=p['order_args']
++    trader._handle_new_entry(c,s,client,SYMBOL,side,new,'new-decision','entry',[], '',None,
++        100,amount,sl,tp,closed_dfs={},adaptive_plan=p['plan'],adaptive_context=p['context'])
++    assert len(client.orders)==1
++    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='LOCAL_BLOCKED'
++    assert s.symbols[SYMBOL]['last_entry_attempt']['reason']=='unresolved_prior_entry_order'
++
++
++def test_pending_fill_recovers_without_new_gpt_or_new_order(tmp_path,monkeypatch):
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
++    client.response='pending'
++    run(c,s,client,p,d)
++    order=client.orders[0]
++    order.update(status='closed',filled=order['remaining'],remaining=0)
++    client.position=dict(side='short',contracts=order['filled'],entry_price=100,position_id='lifecycle-123',entry_timestamp_ms=1000000)
++    client.protection=[dict(instId='ETH-USDT-SWAP',side='buy',state='live',reduceOnly='true',sz=str(order['filled']),
++        slTriggerPx=str(p['order_args'][2]),tpTriggerPx=str(p['order_args'][3]),algoId='protect-123',algoClOrdId='ca'+order['clientOrderId'][2:])]
++    def forbidden(*a,**k): raise AssertionError('reconciliation must not call AI')
++    monkeypatch.setattr(openai_analyzer,'verify',forbidden)
++    reconcile=getattr(trader,'_reconcile_pending_core_entry',None)
++    assert callable(reconcile)
++    assert reconcile(c,s,client,SYMBOL)
++    assert len(client.orders)==1
++    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
++    assert s.symbols[SYMBOL]['last_entry_attempt']['decision_id']=='decision-123'
++
++
++def test_disabled_core_gpt_gate_cannot_silently_place_unapproved_entry(tmp_path,monkeypatch):
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,'long')
++    c.GPT_ENTRY_GATE_ENABLED=False
++    run(c,s,client,p,d)
++    assert not client.orders
++    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='GPT_ERROR'
++
++
++@pytest.mark.parametrize('verdict',['wait','reject','ERROR'])
++def test_gpt_blocked_dashboard_preserves_decision_and_raw_result(tmp_path,monkeypatch,verdict):
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short',verdict)
++    run(c,s,client,p,d)
++    row=s.symbols[SYMBOL]['last_entry_attempt']
++    assert row['decision_id']=='decision-123'
++    assert row['gpt_raw_result']==verdict
++    assert row['gate_processing'] in ('GPT_WAIT','GPT_REJECT','GPT_ERROR')
++
++
++def test_pending_exchange_state_never_journals_position_without_fill_proof(tmp_path,monkeypatch):
++    import json
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
++    client.response='pending'
++    run(c,s,client,p,d)
++    order=client.orders[0]
++    contracts=order['remaining']
++    client.position=dict(side='short',contracts=contracts,entry_price=100,position_id='lifecycle-123',entry_timestamp_ms=1000000)
++    client.protection=[dict(instId='ETH-USDT-SWAP',side='buy',state='live',reduceOnly='true',sz=str(contracts),
++        slTriggerPx=str(p['order_args'][2]),tpTriggerPx=str(p['order_args'][3]),algoId='protect-123',algoClOrdId='ca'+order['clientOrderId'][2:])]
++    monkeypatch.setattr(trader.order_safety,'notify_critical',lambda *a:None)
++    assert not trader._reconcile_pending_core_entry(c,s,client,SYMBOL)
++    assert not trader._reconcile_pending_core_entry(c,s,client,SYMBOL)
++    journal=tmp_path/'trades_log.jsonl'
++    assert not journal.exists(), 'a position alone is not original order fill proof'
++    order.update(status='closed',filled=contracts,remaining=0)
++    assert trader._reconcile_pending_core_entry(c,s,client,SYMBOL)
++    rows=[json.loads(line) for line in journal.read_text().splitlines()]
++    assert len(rows)==1
++    assert rows[0]['amount']==pytest.approx(contracts*.1)
++    assert rows[0]['execution_id']=='core-entry:decision-123'
++
++
++def test_protection_lookup_exception_freezes_account_and_keeps_receipt_pending(tmp_path,monkeypatch):
++    import core_entry_events
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,'long')
++    def failed(*a,**k): raise RuntimeError('offline unavailable protection read')
++    monkeypatch.setattr(trader.order_safety,'verify_protection',failed)
++    run(c,s,client,p,d)
++    assert len(client.orders)==1
++    assert trader.core_kill_switch.is_active(c.user_dir)
++    assert core_entry_events.pending_order(c.user_dir,SYMBOL) is not None
++    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='ORDER_PENDING'
++
++
++def test_unbound_or_changed_lifecycle_never_authorizes_emergency_close(tmp_path,monkeypatch):
++    import core_entry_events,core_entry_orders
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
++    client.response='pending';run(c,s,client,p,d)
++    receipt=core_entry_events.order_receipt(c.user_dir,'decision-123')
++    order=client.orders[0];order.update(status='closed',filled=order['remaining'],remaining=0)
++    client.position=dict(side='short',contracts=order['filled'],entry_price=100,position_id='another-lifecycle',entry_timestamp_ms=2000000)
++    closes=[];client.close_position=lambda *a,**k:closes.append(k)
++    result=core_entry_orders.reconcile(c,client,receipt)
++    assert not trader._recover_unprotected_core_entry(c,client,SYMBOL,result,client.position)
++    assert not closes
++    core_entry_events.update_order(c.user_dir,'decision-123','ORDER_PENDING',bound_position_identity='original-lifecycle')
++    assert not trader._recover_unprotected_core_entry(c,client,SYMBOL,result,client.position)
++    assert not closes and trader.core_kill_switch.is_active(c.user_dir)
++
++
++def test_state_cache_failure_does_not_drop_durable_gate_and_fill_events(tmp_path,monkeypatch):
++    import core_entry_events
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,'long')
++    s.update_symbol=lambda *a,**k:(_ for _ in ()).throw(RuntimeError('offline cache write failure'))
++    # Test the observation boundary alone; exchange completion does not depend on it.
++    trader._set_core_entry_outcome(c,s,SYMBOL,d,'decision-123','GPT_APPROVED','ok')
++    assert core_entry_events.recent(c.user_dir)[0]['status']=='GPT_APPROVED'
++
++
++def test_gate_order_notification_failures_cannot_change_a_protected_fill(tmp_path,monkeypatch):
++    import core_entry_events,telegram_notify
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short','timeout')
++    c.TELEGRAM_BOT_TOKEN='offline';c.TELEGRAM_CHAT_ID='offline'
++    monkeypatch.setattr(core_entry_events,'kick',lambda c:None)
++    monkeypatch.setattr(telegram_notify,'send',lambda *a:(_ for _ in ()).throw(TimeoutError('offline')))
++    run(c,s,client,p,d)
++    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
++    events=core_entry_events.recent(c.user_dir)
++    assert {r['status'] for r in events}=={'TIMEOUT_BYPASS','ORDER_SUBMITTED','FILLED'}
++    core_entry_events.deliver_pending(c)
++    assert all(r['notification_status']=='DELIVERY_UNKNOWN' for r in core_entry_events.recent(c.user_dir))
++    assert client.position is not None and len(client.orders)==1
++
++
++@pytest.mark.parametrize('verdict',['approved','timeout'])
++def test_final_eligibility_failure_preserves_existing_long_before_reversal(tmp_path,monkeypatch,verdict):
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short',verdict)
++    old=dict(side='long',contracts=3,entry_price=100,position_id='old-long',entry_timestamp_ms=500000)
++    client.position=old
++    closes=[]
++    monkeypatch.setattr(trader,'_execute_close',lambda *a,**k:closes.append(1))
++    d['_approval_started_at']-=181
++    side,amount,sl,tp=p['order_args']
++    trader._handle_new_entry(c,s,client,SYMBOL,side,d,'decision-123','entry',[],'',old,100,amount,sl,tp,
++        reversal_position=old,closed_dfs={},adaptive_plan=p['plan'],adaptive_context=p['context'])
++    assert not closes and not client.orders and client.position==old
++    assert s.symbols[SYMBOL]['last_entry_attempt']['reason']=='entry_signal_or_approval_expired'
++
++
++@pytest.mark.parametrize('side',['long','short'])
++@pytest.mark.parametrize('verdict',['approved','timeout'])
++def test_eligible_reversal_confirms_flat_then_reaches_replacement_order(tmp_path,monkeypatch,side,verdict):
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,side,verdict)
++    old=dict(side='short' if side=='long' else 'long',contracts=3,entry_price=100,
++        position_id='old-position',entry_timestamp_ms=500000)
++    client.position=old;calls=[]
++    def close(*a,**k):
++        calls.append('close_confirmed');client.position=None;return True
++    monkeypatch.setattr(trader,'_execute_close',close)
++    _,amount,sl,tp=p['order_args']
++    trader._handle_new_entry(c,s,client,SYMBOL,side,d,'decision-123','entry',[],'',old,100,amount,sl,tp,
++        reversal_position=old,closed_dfs={},adaptive_plan=p['plan'],adaptive_context=p['context'])
++    assert calls==['close_confirmed']
++    assert len(client.orders)==1 and client.position['side']==side
++    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
++
++
++def test_exchange_rejection_exposes_code_and_does_not_look_filled(tmp_path,monkeypatch):
++    import ccxt
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,'long')
++    def reject(*a,**k): raise ccxt.ExchangeError('{"code":"51000","msg":"offline rejection"}')
++    client.create_position_with_sl_tp=reject
++    run(c,s,client,p,d)
++    row=s.symbols[SYMBOL]['last_entry_attempt']
++    assert row['status']=='ORDER_FAILED' and row['exchange_code']=='51000'
++    assert not client.position and not client.orders
++
++
++def test_bound_lifecycle_emergency_lost_ack_is_queried_and_never_closed_twice(tmp_path,monkeypatch):
++    import core_entry_events,ccxt
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
++    client.response='pending';run(c,s,client,p,d)
++    order=client.orders[0];order.update(status='closed',filled=order['remaining'],remaining=0)
++    client.position=dict(side='short',contracts=order['filled'],entry_price=100,
++        position_id='original-lifecycle',entry_timestamp_ms=1000000)
++    core_entry_events.update_order(c.user_dir,'decision-123','ORDER_PENDING',
++        bound_position_identity=trader.reduce_v2_state.position_identity(client.position))
++    closes=[];close_order={}
++    def close(position,client_order_id):
++        closes.append(client_order_id)
++        close_order.update(id='safety-close',symbol=SYMBOL,side='buy',status='closed',
++            clientOrderId=client_order_id,filled=position['contracts'],remaining=0)
++        client.position=None
++        raise ccxt.RequestTimeout('offline lost close ack')
++    client.close_position=close
++    def query(cid):
++        client.queries.append(cid)
++        return close_order if cid.startswith('ce') else order
++    client.fetch_order_status_by_client_id=query
++    assert not trader._reconcile_pending_core_entry(c,s,client,SYMBOL)
++    assert len(closes)==1
++    assert core_entry_events.order_receipt(c.user_dir,'decision-123')['status']=='ORDER_FAILED'
++    assert not trader._reconcile_pending_core_entry(c,s,client,SYMBOL)
++    assert len(closes)==1 and trader.core_kill_switch.is_active(c.user_dir)
++
++
++def test_pending_receipt_cannot_rebind_a_changed_position_lifecycle(tmp_path,monkeypatch):
++    import core_entry_events
++    c,s,client,p,d,_=setup(tmp_path,monkeypatch,'short')
++    client.response='pending';run(c,s,client,p,d)
++    order=client.orders[0];contracts=order['remaining']
++    client.position=dict(side='short',contracts=contracts,entry_price=100,
++        position_id='original',entry_timestamp_ms=1000000)
++    client.protection=[dict(instId='ETH-USDT-SWAP',side='buy',state='live',reduceOnly='true',sz=str(contracts),
++        slTriggerPx=str(p['order_args'][2]),tpTriggerPx=str(p['order_args'][3]),algoId='protect-123',algoClOrdId='ca'+order['clientOrderId'][2:])]
++    assert not trader._reconcile_pending_core_entry(c,s,client,SYMBOL)
++    before=core_entry_events.order_receipt(c.user_dir,'decision-123')['payload']['bound_position_identity']
++    client.position['entry_timestamp_ms']=2000000
++    assert not trader._reconcile_pending_core_entry(c,s,client,SYMBOL)
++    after=core_entry_events.order_receipt(c.user_dir,'decision-123')['payload']['bound_position_identity']
++    assert before==after
++    assert s.symbols[SYMBOL]['last_entry_attempt']['reason']=='entry_position_lifecycle_changed'
+--- a/tests/test_core_entry_ui_and_preservation.py
++++ b/tests/test_core_entry_ui_and_preservation.py
+@@ -0,0 +1,76 @@
++import ast
++import importlib.util
++from pathlib import Path
++import subprocess
++
++ROOT=Path(__file__).resolve().parents[2]
++BASE=ROOT.parent/'autotrader-rc-structure-risk-ai-20261005'
++
++
++def test_ui_integration_retains_legacy_recent_and_presents_phase_history():
++    spec=importlib.util.spec_from_file_location('ui_integration',ROOT/'tools/ui_integration.py')
++    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
++    api=module.api_source((BASE/'web_app.py').read_text())
++    compile(api,'candidate_web_app.py','exec')
++    assert '"events": __import__("core_entry_events").recent(ctx.dir, limit=100)' in api
++    html=module.dashboard_source((BASE/'templates/dashboard.html').read_text())
++    assert 'coreEntryStatus.describe(entryAttempt)' in html
++    assert 'coreEntryStatus.render(document,r)' in html
++    assert '/static/core_entry_status.js' in html
++    assert 'data.events?.length' in html
++
++
++def test_ui_does_not_confuse_approval_with_fill_or_interpret_html():
++    script='''const s=require(process.argv[1]);
++const assert=require('node:assert/strict');
++const doc={createElement:(tag)=>({tag,children:[],appendChild(x){this.children.push(x)}})};
++for(const status of Object.keys(s.labels)) {
++ const row={status,decision_id:'d1',gpt_raw_result:'TIMEOUT',gate_processing:'TIMEOUT_BYPASS',reason:'<script>attack</script>'};
++ const tr=s.render(doc,row);
++ assert.equal(tr.children[4].innerHTML,undefined);
++ assert.ok(tr.children[4].textContent.includes('<script>attack</script>'));
++ assert.ok(s.describe(row).includes('decision_id=d1'));
++}
++assert.ok(s.describe({status:'GPT_APPROVED'}).includes('주문 전'));
++assert.ok(s.describe({status:'TIMEOUT_BYPASS'}).includes('GPT 응답 없음 — 설정에 따른 예외 통과'));
++'''
++    subprocess.run(['node','-e',script,str(ROOT/'patch/static/core_entry_status.js')],check=True,capture_output=True)
++
++
++def test_cost_patch_preserves_gemini_budget_and_held_gpt_function_bodies():
++    old=ast.parse((ROOT.parent/'autotrader-handoff-20261008/patch/trader.py').read_text())
++    new=ast.parse((ROOT/'patch/trader.py').read_text())
++    def functions(tree):
++        return {n.name:ast.dump(n,include_attributes=False) for n in tree.body if isinstance(n,ast.FunctionDef)}
++    before,after=functions(old),functions(new)
++    # No new cooldown suppression: these actual v4 predicates are bytecode-equivalent.
++    for name in ('_core_ai_call_gate','_core_ai_budget_signature','_core_ai_position_fingerprint',
++                 '_handle_position_ai_review'):
++        assert after[name]==before[name]
++    assert after['_core_ai_call_gate']==before['_core_ai_call_gate']
++
++
++def test_account_migration_preserves_other_settings_and_reads_effective_policy(tmp_path):
++    spec=importlib.util.spec_from_file_location('account_policy',ROOT/'tools/active_account_policy.py')
++    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
++    original='OTHER_SETTING=kept\nLEVERAGE=5\nCORE_PAID_SHADOW_ENABLED=true\nCORE_GPT_ENTRY_TIMEOUT_BYPASS=false\n'
++    (tmp_path/'.env').write_text(module.updated(original))
++    import config
++    cfg=config.UserConfig(str(tmp_path))
++    assert cfg.GPT_ENTRY_GATE_ENABLED and cfg.CORE_GPT_ENTRY_TIMEOUT_BYPASS
++    assert not cfg.CORE_PAID_SHADOW_ENABLED
++    assert cfg._env['OTHER_SETTING']=='kept' and cfg.LEVERAGE==5
++
++
++def test_new_early_setup_can_trigger_gemini_immediately_before_cooldown_end():
++    import datetime
++    import trader
++    from test_core_entry_pipeline import State,SYMBOL
++    now=datetime.datetime.now(datetime.timezone.utc)
++    state=State()
++    first=trader._core_ai_call_gate(state,SYMBOL,{}, {},{},None,now=now,
++        entry_timing={'status':'ok','phase':'early','event_key':'setup-1'})
++    state.symbols[SYMBOL].update(core_ai_budget=first['next_memory'],reentry_until=(now+datetime.timedelta(seconds=1)).timestamp())
++    next_gate=trader._core_ai_call_gate(state,SYMBOL,{}, {},{},None,now=now,
++        entry_timing={'status':'ok','phase':'early','event_key':'setup-2'})
++    assert next_gate['call_ai'] and next_gate['reason']=='entry_setup_changed'
+--- a/tests/test_core_gpt_timeout_policy.py
++++ b/tests/test_core_gpt_timeout_policy.py
+@@ -0,0 +1,147 @@
++import logging
++from types import SimpleNamespace
++from unittest.mock import Mock
++import httpx
++import openai
++import pytest
++import trader
++import openai_analyzer
++import config
++
++SYMBOL='ETH/USDT:USDT'
++
++def cfg(tmp_path):
++    c=config.UserConfig(str(tmp_path))
++    c.logger=logging.getLogger('offline-test')
++    c.CORE_GPT_ENTRY_TIMEOUT_BYPASS=True
++    c.GPT_ENTRY_GATE_ENABLED=True
++    c.OPENAI_API_KEY='offline-placeholder'
++    return c
++
++
++def timeout():
++    return dict(decision='TIMEOUT',confidence=None,reasoning='',error_reason='timeout',
++        error_type='APITimeoutError',timeout_confirmed=True,request_purpose='entry_gate')
++
++@pytest.mark.parametrize('side',['long','short'])
++def test_confirmed_entry_timeout_bypasses_without_forged_approval(tmp_path,monkeypatch,side):
++    original=timeout()
++    monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:dict(original))
++    allowed,status,result=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[], '',None,{'action':side,'confidence':.8})
++    assert allowed and status=='TIMEOUT_BYPASS'
++    assert result['decision']=='TIMEOUT'
++    assert result['error_reason']=='timeout'
++    assert 'exit_plan' not in result
++
++@pytest.mark.parametrize('reason,error_type',[('timeout','APIConnectionError'),('api_error','APITimeoutError'),('rate_limit','RateLimitError'),('authentication_error','AuthenticationError'),('parse_error','JSONDecodeError'),('empty_response',None)])
++def test_non_timeout_and_unproven_timeout_cannot_bypass(tmp_path,monkeypatch,reason,error_type):
++    raw=dict(timeout(),error_reason=reason,error_type=error_type)
++    monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:raw)
++    allowed,status,_=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[], '',None,{'action':'short','confidence':.8})
++    assert not allowed and status=='blocked_error'
++
++@pytest.mark.parametrize('side',['hold','close',None])
++def test_no_candidate_cannot_be_created_by_timeout(tmp_path,monkeypatch,side):
++    monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:timeout())
++    allowed,_,_=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[], '',None,{'action':side,'confidence':.8})
++    assert not allowed
++
++@pytest.mark.parametrize('symbol',['DOGE/USDT:USDT','SOL/USDT:USDT'])
++def test_timeout_policy_does_not_apply_to_candidate_c(tmp_path,monkeypatch,symbol):
++    monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:timeout())
++    allowed,status,_=trader._gpt_entry_gate(cfg(tmp_path),symbol,[], '',None,{'action':'short','confidence':.8})
++    assert not allowed and status=='blocked_error'
++
++@pytest.mark.parametrize('verdict',['wait','reject'])
++def test_wait_reject_still_block(tmp_path,monkeypatch,verdict):
++    monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:dict(decision=verdict,confidence=.9,error_reason=None))
++    allowed,status,_=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[], '',None,{'action':'long','confidence':.8})
++    assert not allowed and status=='blocked_'+verdict
++
++@pytest.mark.parametrize('fault',['no_marker','wrong_purpose','missing_confidence','gemini_error'])
++def test_invalid_timeout_candidate_still_blocks(tmp_path,monkeypatch,fault):
++    raw=timeout()
++    decision={'action':'long','confidence':.8}
++    if fault=='no_marker': raw.pop('timeout_confirmed')
++    if fault=='wrong_purpose': raw['request_purpose']='position_management'
++    if fault=='missing_confidence': decision['confidence']=None
++    if fault=='gemini_error': decision['error_reason']='timeout'
++    monkeypatch.setattr(openai_analyzer,'verify',lambda *a,**k:raw)
++    allowed,_,_=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[], '',None,decision)
++    assert not allowed
++
++
++def test_sdk_timeout_retains_typed_original_provenance(tmp_path,monkeypatch):
++    request=httpx.Request('POST','https://example.invalid')
++    client=Mock()
++    client.with_options.return_value=client
++    client.chat.completions.create.side_effect=openai.APITimeoutError(request=request)
++    monkeypatch.setattr(openai_analyzer,'_get_client',lambda c:client)
++    monkeypatch.setattr(openai_analyzer,'_ensure_response_models_warmed_up',lambda:None)
++    result=openai_analyzer.verify(cfg(tmp_path),SYMBOL,[], '',None,{'action':'short','confidence':.8},purpose='entry_gate',timeout=25,max_retries=0)
++    assert result['decision']=='TIMEOUT'
++    assert result['error_type']=='APITimeoutError'
++    assert result['timeout_confirmed'] is True
++    assert result['request_purpose']=='entry_gate'
++
++
++def test_paid_observation_shadow_off_by_default(tmp_path,monkeypatch):
++    c=cfg(tmp_path)
++    calls=[]
++    class Thread:
++        def __init__(self,*a,**k): calls.append(k)
++        def start(self): pass
++    monkeypatch.setattr(trader.threading,'Thread',Thread)
++    trader._fire_shadow_verification_async(c,SYMBOL,[], '',None,{'action':'long'},'test-id','entry')
++    assert not calls
++    c.CORE_PAID_SHADOW_ENABLED=True
++    trader._fire_shadow_verification_async(c,SYMBOL,[], '',None,{'action':'long'},'new-id','entry')
++    assert len(calls)==1
++
++
++@pytest.mark.parametrize('kind',['auth','billing','rate','connection','server','generic_timeout_text'])
++def test_sdk_non_timeout_errors_keep_type_and_never_admit(tmp_path,monkeypatch,kind):
++    request=httpx.Request('POST','https://example.invalid')
++    response=httpx.Response(429 if kind in ('billing','rate') else 500,request=request)
++    errors={
++        'auth':openai.AuthenticationError('offline',response=response,body={}),
++        'billing':openai.RateLimitError('offline',response=response,body={'code':'insufficient_quota'}),
++        'rate':openai.RateLimitError('offline',response=response,body={}),
++        'connection':openai.APIConnectionError(request=request),
++        'server':openai.InternalServerError('offline',response=response,body={}),
++        'generic_timeout_text':RuntimeError('timeout APITimeoutError'),
++    }
++    client=Mock();client.with_options.return_value=client
++    client.chat.completions.create.side_effect=errors[kind]
++    monkeypatch.setattr(openai_analyzer,'_get_client',lambda c:client)
++    monkeypatch.setattr(openai_analyzer,'_ensure_response_models_warmed_up',lambda:None)
++    c=cfg(tmp_path);decision={'action':'short','confidence':.8}
++    allowed,gate,raw=trader._gpt_entry_gate(c,SYMBOL,[],'',None,decision)
++    assert not allowed and gate=='blocked_error'
++    assert raw['decision'] is None and raw['timeout_confirmed'] is False
++    assert raw['error_type']==type(errors[kind]).__name__
++    if kind=='billing': assert raw['error_category']=='billing_error'
++
++
++@pytest.mark.parametrize('text',['','not json','[]','null','{"decision":"approve_now"}'])
++def test_empty_or_malformed_responses_never_admit(tmp_path,monkeypatch,text):
++    client=Mock();client.with_options.return_value=client
++    client.chat.completions.create.return_value=SimpleNamespace(usage=None,
++        choices=[SimpleNamespace(message=SimpleNamespace(content=text))])
++    monkeypatch.setattr(openai_analyzer,'_get_client',lambda c:client)
++    monkeypatch.setattr(openai_analyzer,'_ensure_response_models_warmed_up',lambda:None)
++    allowed,_,_=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[],'',None,{'action':'long','confidence':.8})
++    assert not allowed
++
++
++def test_typed_timeout_from_held_verification_is_never_entry_bypass(tmp_path,monkeypatch):
++    client=Mock();client.with_options.return_value=client
++    client.chat.completions.create.side_effect=openai.APITimeoutError(request=httpx.Request('POST','https://example.invalid'))
++    monkeypatch.setattr(openai_analyzer,'_get_client',lambda c:client)
++    monkeypatch.setattr(openai_analyzer,'_ensure_response_models_warmed_up',lambda:None)
++    c=cfg(tmp_path)
++    position={'side':'long','contracts':1,'entry_price':100,'unrealized_pnl':0}
++    raw=openai_analyzer.verify(c,SYMBOL,[],'',position,{'action':'short','confidence':.8},purpose='position_management')
++    assert raw['decision'] is None and raw['request_purpose']=='position_management'
++    import core_entry_policy
++    assert not core_entry_policy.evaluate(c,SYMBOL,{'action':'short','confidence':.8},raw)[0]
+--- a/trader.py
++++ b/trader.py
+@@ -1128,6 +1128,10 @@
+     두 번의 실주문이 나올 수 있는데, 같은 decision_id로 묶고 event_type
+     (signal_close/reversal_close/reversal_entry/entry)으로 구분해야 나중에 "같은 판단에서
+     나온 두 이벤트"를 중복 집계하지 않고 정확히 나눠 볼 수 있다."""
++    if not getattr(cfg, "CORE_PAID_SHADOW_ENABLED", False):
++        cfg.logger.info("[%s] CORE_PAID_SHADOW_SKIP reason=disabled event=%s decision_id=%s",
++                        symbol,event_type,decision_id)
++        return
+     if not cfg.OPENAI_API_KEY:
+         return
+     thread = threading.Thread(
+@@ -1228,102 +1232,56 @@
+     cfg, symbol: str, tf_list: list, candle_summary: str, position: dict | None, decision: dict,
+     short_level_ctx: dict | None = None, exit_price_contract: dict | None = None,
+ ) -> tuple[bool, str, dict | None]:
+-    """신규 진입(long/short) 직전에 GPT에게 실시간으로 승인을 받는다. Shadow와 달리 이
+-    결과가 실제로 주문을 막을 수 있다 - approve_now일 때만 진입을 허용하고, 그 외
+-    (wait/reject/timeout/API 오류/파싱 실패 등 openai_analyzer.verify()가 None을 반환하는
+-    모든 경우)는 fail-closed로 이번 사이클의 신규 진입을 취소한다.
+-
+-    "이번 사이클만" 취소하는 것이지 심볼을 영구 차단하는 게 아니다 - Gemini는 다음
+-    검토 주기에 다시 판단하고, 그때 다시 게이트를 통과하면 된다 (wait을 "나중에 자동으로
+-    재시도"하는 별도 지연 로직은 일부러 만들지 않았다 - 다음 사이클의 최신 시장 데이터로
+-    처음부터 다시 평가하는 게 더 정확하다).
+-
+-    실제 주문을 지연시키는 동기 호출이므로 Entry Gate 전용
+-    timeout(GPT_ENTRY_TIMEOUT_SECONDS)을 쓴다. 2026-10-01 운영 latency 근거로 25초,
+-    SDK 자동 retry는 0회다. 늦게 도착한 approve_now는 주문 직전 시장/안전상태를 다시
+-    검증하여 후보가 오래됐으면 fail-closed한다.
+-
+-    GPT Entry Gate는 CORE 신규 주문의 실제 최종 게이트다(2026-08-29, 사용자 지시로
+-    override 경로 완전 제거 - 아래 참고). approve_now만 진입을 허용하고, wait/reject/
+-    timeout/API 오류는 SHORT_LEVEL/TACTICAL 확정 여부와 무관하게 항상 이번 사이클
+-    신규 진입을 차단한다.
+-
+-    short_level_ctx(2026-08-28/29, 사용자 지시): core_short_level.classify()의 결과 -
+-    이제 GPT wait/reject를 뒤집는 데는 절대 쓰이지 않는다. SHORT_LEVEL 분류/sizing
+-    결정/로그에만 쓰인다(run_cycle 참고). 여기서는 로그 문구에 SHORT_LEVEL을
+-    표시하는 용도로만 읽는다.
+-
+-    [2026-08-29 제거] 원래 gpt_decision=="wait"이고 short_level_ctx["confirmed"]가
+-    True(TACTICAL/STRONG/FULL_BEARISH)면 "tactical_wait_override"로 GPT의 wait을
+-    뒤집어 실제 주문을 허용했었다 - 실거래에서 ETH short가 SHORT_LEVEL=TACTICAL,
+-    GPT wait(0.70)인데도 이 경로로 진입해 Net -0.26 USDT 손실이 발생한 것을 계기로
+-    완전히 제거했다. TACTICAL 이상 판단 자체(분류/sizing/로그)는 계속 유효하지만,
+-    더 이상 GPT의 판단을 뒤집을 권한이 없다.
+-
+-    반환값: (allowed, gate_result, gpt_result)
+-    gate_result는 "approved" / "blocked_wait" / "blocked_reject" / "blocked_error"
+-    중 하나."""
+-    logger = cfg.logger
++    """CORE approval or typed entry timeout; all final local safety checks still apply."""
++    import core_entry_policy
++    if not core_entry_policy.valid_candidate(cfg,symbol,decision):
++        return False, "blocked_error", {"decision": None, "error_reason": "invalid_gemini_entry_candidate"}
+     try:
+         result = openai_analyzer.verify(
+             cfg, symbol, tf_list, candle_summary, position, decision,
+             timeout=GPT_ENTRY_TIMEOUT_SECONDS, purpose="entry_gate", short_level_ctx=short_level_ctx,
+             max_retries=GPT_ENTRY_MAX_RETRIES, exit_price_contract=exit_price_contract,
+         )
+-    except Exception:
+-        logger.exception("[%s] GPT 진입 검증 중 예상치 못한 오류 - fail-closed, 신규 %s 주문 취소", symbol, decision.get("action"))
+-        return False, "blocked_error", None
+-
+-    if result is None:
+-        # OPENAI_API_KEY가 없는 경우인데, 호출부(_handle_new_entry)가 이미 그 경우를
+-        # 먼저 걸러내므로 사실상 도달하지 않는다.
+-        logger.info(
+-            "[%s] GPT 진입 검증 실패(API 키 없음) - fail-closed, 신규 %s 주문 취소",
+-            symbol, decision.get("action"),
+-        )
+-        return False, "blocked_error", None
+-
+-    gpt_decision = result.get("decision")
+-    if gpt_decision is None:
+-        logger.info(
+-            "[%s] GPT 진입 검증 실패(원인=%s) - fail-closed, 신규 %s 주문 취소",
+-            symbol, result.get("error_reason", "unknown"), decision.get("action"),
+-        )
+-        return False, "blocked_error", result
+-
+-    gpt_confidence = result.get("confidence")
+-    logger.info(
+-        "[%s] GPT 진입 검증: %s (확신도 %.2f) - %s",
+-        symbol, gpt_decision, gpt_confidence or 0.0, result.get("reasoning", ""),
+-    )
+-    action = decision.get("action")
+-    level_suffix = f" (SHORT_LEVEL={short_level_ctx['level']})" if short_level_ctx else ""
+-    level_prefix = f"{short_level_ctx['level']} " if short_level_ctx else ""
+-    if gpt_decision == "approve_now":
+-        # openai_analyzer.verify()는 decision은 검증하지만 confidence는 여기서 gate에
+-        # 쓰이는지 모른 채 그냥 값을 통과시킨다 - "high"/None/1.5/True처럼 유효하지 않은
+-        # confidence는 None으로 정제되는데, 그 상태로도 approve_now라는 이유만으로
+-        # 승인해버리면 "GPT가 제대로 답하지 못한 응답"으로 실거래가 나가는 구멍이 생긴다.
+-        # confidence가 없으면(정제됐으면) 이 응답 자체를 못 믿는다고 보고 fail-closed한다.
+-        if gpt_confidence is None:
+-            logger.warning(
+-                "[%s] GPT가 approve_now를 줬지만 confidence 값이 유효하지 않아(원본 확인 불가) "
+-                "fail-closed로 신규 %s 주문을 취소합니다.",
+-                symbol, action,
+-            )
+-            result["error_reason"] = "parse_error"
+-            return False, "blocked_error", result
+-        logger.info("[%s] GPT Entry Gate APPROVE -> %s%s 주문 허용", symbol, level_prefix, action)
+-        return True, "approved", result
+-    if gpt_decision == "wait":
+-        # 2026-08-29 사용자 지시로 override 완전 제거 - SHORT_LEVEL이
+-        # TACTICAL/STRONG/FULL_BEARISH로 확정됐어도 GPT wait은 그대로 차단한다.
+-        logger.info("[%s] GPT Entry Gate WAIT -> 신규 %s 차단%s", symbol, action, level_suffix)
+-        return False, "blocked_wait", result
+-    # openai_analyzer.verify()가 이미 decision을 approve_now/wait/reject로만 검증해서
+-    # 돌려주므로, 여기 남는 건 "reject"뿐이다 - 항상 무조건 차단(override 없음).
+-    logger.info("[%s] GPT Entry Gate REJECT -> 신규 %s 차단%s", symbol, action, level_suffix)
+-    return False, "blocked_reject", result
++    except Exception as exc:
++        # Exceptions outside the SDK request boundary cannot prove a GPT timeout.
++        result = {"decision":None,"error_reason":"unexpected_gate_error",
++                  "error_type":type(exc).__name__,"request_purpose":"entry_gate"}
++        cfg.logger.warning("[%s] GPT_ENTRY_ERROR error_type=%s",symbol,type(exc).__name__)
++    allowed, gate, reason = core_entry_policy.evaluate(cfg,symbol,decision,result)
++    if isinstance(result,dict):
++        result = dict(result, gate_processing=core_entry_policy.gate_status(gate),
++                      timeout_bypass=(gate == 'TIMEOUT_BYPASS'), gate_reason=reason)
++    cfg.logger.info("[%s] CORE_GPT_ENTRY raw=%s gate=%s reason=%s",symbol,
++                    (result or {}).get('decision'),gate,reason)
++    return allowed, gate, result
++
++
++
++def _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,status,reason=None,gpt_result=None,**details):
++    import core_entry_events
++    import core_entry_policy
++    original=gpt_result if gpt_result is not None else (decision or {}).get('_gpt_entry_result') or {}
++    gate=(decision or {}).get('_gpt_entry_gate')
++    row=dict(decision_id=decision_id,symbol=symbol,side=(decision or {}).get('action'),
++             gemini_action=(decision or {}).get('action'),gemini_confidence=(decision or {}).get('confidence'),
++             gpt_raw_result=original.get('decision'),gpt_reason=original.get('reasoning') or original.get('error_category') or original.get('error_reason'),
++             gpt_error_reason=original.get('error_reason'),gpt_error_type=original.get('error_type'),
++             gate_processing=core_entry_policy.gate_status(gate) if gate else 'NOT_REQUESTED',
++             timeout_bypass=(gate=='TIMEOUT_BYPASS'),timeout_bypass_reason=original.get('gate_reason') if gate=='TIMEOUT_BYPASS' else None,
++             status=status,reason=reason)
++    row.update(details)
++    if decision is not None: decision['_entry_outcome']=row
++    try:
++        if hasattr(state,'update_symbol'):
++            state.update_symbol(symbol,last_entry_attempt=dict(row,action=row.get("side"),time_ms=int(time.time()*1000),time=datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).isoformat(timespec='seconds')))
++    except Exception as exc:
++        cfg.logger.warning('[%s] CORE_ENTRY_STATE_PUBLICATION_FAILED error_type=%s',symbol,type(exc).__name__)
++    core_entry_events.record(cfg,row)
++    try:
++        core_entry_events.kick(cfg)
++    except Exception as exc:
++        cfg.logger.warning('[%s] CORE_ENTRY_OUTBOX_START_FAILED error_type=%s',symbol,type(exc).__name__)
++    return row
+ 
+ 
+ def _record_entry_gate_result(
+@@ -1355,6 +1313,11 @@
+             gate_result=gate_result,
+             error_reason=error_reason,
+             pipeline_context="entry_gate",
++            outcome={**(decision.get('_entry_outcome') or {}),
++                     'gpt_error_type':(gpt_result or {}).get('error_type'),
++                     'gate_processing':(gpt_result or {}).get('gate_processing'),
++                     'timeout_bypass':gate_result=='TIMEOUT_BYPASS',
++                     'timeout_bypass_reason':(gpt_result or {}).get('gate_reason') if gate_result=='TIMEOUT_BYPASS' else None},
+         )
+     except Exception:
+         cfg.logger.exception("[%s] GPT 진입 게이트 로그 기록 실패", symbol)
+@@ -4021,11 +3984,15 @@
+     fail-closed for this cycle only.
+     """
+     import symbol_entry_control
++    if not hasattr(cfg,"_core_revalidation_reasons"): cfg._core_revalidation_reasons={}
++    cfg._core_revalidation_reasons[symbol]="post_gpt_revalidation_failed"
+ 
+     if symbol_entry_control.is_paused(cfg.user_dir, symbol):
++        cfg._core_revalidation_reasons[symbol]="symbol_entry_paused"
+         cfg.logger.warning("[%s] ENTRY_REVALIDATION_ABORT %s: symbol entry pause active", symbol, stage)
+         return False
+     if core_kill_switch.is_active(cfg.user_dir):
++        cfg._core_revalidation_reasons[symbol]="core_kill_switch"
+         cfg.logger.warning(
+             "[%s] ENTRY_REVALIDATION_ABORT %s: core kill switch active (%s)",
+             symbol, stage, core_kill_switch.get_reason(cfg.user_dir),
+@@ -4040,6 +4007,7 @@
+     try:
+         equity_now = client.fetch_usdt_equity()
+         if not guard.allow_new_entry(equity_now):
++            cfg._core_revalidation_reasons[symbol]="daily_loss_guard"
+             cfg.logger.warning("[%s] ENTRY_REVALIDATION_ABORT %s: daily loss guard blocked", symbol, stage)
+             return False
+         current_price = client.fetch_last_price()
+@@ -4061,6 +4029,7 @@
+ 
+     drift = abs(current / reviewed - 1)
+     if drift > GPT_APPROVED_ENTRY_MAX_PRICE_DRIFT_RATIO:
++        cfg._core_revalidation_reasons[symbol]="post_gpt_price_drift"
+         cfg.logger.info(
+             "[%s] ENTRY_REVALIDATION_ABORT %s: reviewed=%s fresh=%s price drift=%.4f%% > %.2f%%",
+             symbol, stage, reviewed, current, drift * 100,
+@@ -4086,10 +4055,22 @@
+     or another CORE symbol cannot interleave an account mutation between them.
+     """
+     try:
++        import core_entry_events
++        owner=core_unified_service.owner(cfg,symbol)
++        if owner!='legacy':
++            _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','entry_ownership:'+owner)
++            return False
++        pending=core_entry_events.pending_order(cfg.user_dir,symbol)
++        if pending and pending['decision_id'] != decision_id:
++            _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',
++                'unresolved_prior_entry_order',prior_decision_id=pending['decision_id'])
++            return False
+         if reversal_position is None:
+             if revalidate_after_gpt and not _approved_entry_still_valid_after_gpt(
+                 cfg, client, symbol, last_price, "post_gpt",
+             ):
++                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',
++                    getattr(cfg,'_core_revalidation_reasons',{}).get(symbol,'post_gpt_revalidation_failed'))
+                 return False
+             return _execute_entry(
+                 cfg, state, client, symbol, action, amount, last_price, sl_price, tp_price,
+@@ -4097,11 +4078,16 @@
+                 trade_alignment=trade_alignment, decision_id=decision_id, decision=decision,
+                 short_level_ctx=short_level_ctx, gpt_result=gpt_result,
+             )
+-    
++
+         import symbol_entry_control
+-    
++
+         def _replacement_entry_allowed(stage: str) -> bool:
++            if _reentry_blocked(state,symbol,cfg,action)[0]:
++                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','reentry_cooldown')
++                return False
+             if not _approved_entry_still_valid_after_gpt(cfg, client, symbol, last_price, stage):
++                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',
++                    getattr(cfg,'_core_revalidation_reasons',{}).get(symbol,'reversal_revalidation_failed'))
+                 return False
+             validation = (decision or {}).get('_bounded_entry_validation')
+             if validation is not None:
+@@ -4109,9 +4095,11 @@
+                     last_price, sl_price, tp_price, decision, validation)
+                 if not checked['allowed']:
+                     cfg.logger.warning('[%s] REVERSAL_ENTRY_BLOCK before_close=%s',symbol,checked['reason'])
++                    _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',checked['reason'],
++                        validation_values=checked.get('values'))
+                     return False
+             return True
+-    
++
+         with cc_ownership.account_order_lock(cfg.user_dir):
+             actual = client.fetch_position()
+             expected_id = reduce_v2_state.position_identity(reversal_position)
+@@ -4120,25 +4108,28 @@
+                 cfg.logger.warning(
+                     "[%s] REVERSAL_ABORT position identity changed before approved switch", symbol,
+                 )
++                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','reversal_position_lifecycle_changed')
+                 return False
+-    
++
+             # Recheck all entry-safety conditions immediately before the irreversible
+             # close.  WAIT/REJECT already returned earlier; this catches state changes
+             # that happened while GPT was answering.
+             if not _replacement_entry_allowed("pre_close"):
+                 return False
+-    
++
+             cfg.logger.warning(
+                 "[%s] REVERSAL_COMMIT final entry gate approved -> close %s then enter %s",
+                 symbol, reversal_position.get("side"), action,
+             )
+             if not _execute_close(cfg, state, client, symbol, reversal_position, reason="reversal_close"):
+                 cfg.logger.warning("[%s] REVERSAL_ABORT close not confirmed; replacement entry not submitted", symbol)
++                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'ORDER_PENDING','reversal_close_unconfirmed')
+                 return False
+             if client.fetch_position() is not None:
+                 cfg.logger.error("[%s] REVERSAL_ABORT exchange not flat after confirmed close", symbol)
++                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','reversal_exchange_not_flat')
+                 return False
+-    
++
+             # Closing can realize enough loss to trip the daily-loss guard, activate a
+             # kill switch through a concurrent safety path, or move price materially.
+             # Revalidate again before the replacement order.  If any check fails, stay
+@@ -4149,7 +4140,7 @@
+                     symbol, action,
+                 )
+                 return False
+-    
++
+             return _execute_entry(
+                 cfg, state, client, symbol, action, amount, last_price, sl_price, tp_price,
+                 market_regime=market_regime, regime_confidence=regime_confidence,
+@@ -4256,18 +4247,21 @@
+     (confidence/재진입 cooldown/이미 같은 방향 포지션 보유/반전 시 최소 보유시간/일일
+     손실한도/포지션 크기>0)를 전부 통과한 상태다 - GPT는 그 이후에만 관여한다.
+ 
+-    GPT_ENTRY_GATE_ENABLED가 꺼져 있으면(기본값 - 이 기능을 아예 안 쓰는 계정) 기존
+-    Gemini 단독 매매 그대로, Shadow Mode만(비동기, 사후 기록, 주문에 영향 없음) 동작한다.
+-
+-    켜져 있는데 OPENAI_API_KEY가 없으면(설정하다 만 상태) "이 기능을 안 쓰는 것"과
+-    다르다 - 사용자가 명시적으로 GPT 검증을 요구했는데 조용히 Gemini 단독으로 넘어가면
+-    본인도 모르는 새 안전장치가 빠진 채로 매매하게 된다. 그래서 이 경우엔 fail-closed로
+-    신규 진입 자체를 막는다 (이미 보유 중인 포지션의 청산/SL/TP는 전혀 영향 없음)."""
++    CORE AI 신규진입은 GPT 승인 또는 명시된 typed timeout 예외만 허용한다.
++    GPT 게이트가 꺼져 있거나 키가 없으면 오류로 기록하며 주문하지 않는다.
++    기존 보유 포지션 관리와 수동 진입은 별도 경로의 위험 검증을 유지한다."""
+     import symbol_entry_control
++    import core_entry_policy
+     logger = cfg.logger
++    decision.pop('_entry_outcome',None)
++    decision.pop('_gpt_entry_result',None)
++    decision.pop('_gpt_entry_gate',None)
++    if action != decision.get('action') or not core_entry_policy.valid_candidate(cfg,symbol,decision):
++        _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','invalid_gemini_entry_candidate')
++        return
+     if symbol_entry_control.is_paused(cfg.user_dir, symbol) or _reentry_blocked(state, symbol, cfg, action)[0]:
+         logger.info('[%s] entry blocked by symbol pause/manual close', symbol)
+-        _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="symbol_pause_or_reentry_block", confidence=decision.get("confidence"))
++        _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','symbol_pause_or_reentry_block')
+         return
+ 
+     thesis_gate = _evaluate_ai_close_thesis_entry_gate(cfg, state, symbol, action, closed_dfs or {})
+@@ -4293,7 +4287,7 @@
+             "[%s] BLOCK core_kill_switch: %s - 신규 %s 진입 차단",
+             symbol, core_kill_switch.get_reason(cfg.user_dir), action,
+         )
+-        _record_core_entry_attempt(state, symbol, action, "LOCAL_BLOCKED", reason="core_kill_switch", confidence=decision.get("confidence"))
++        _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','core_kill_switch')
+         return
+ 
+     gate_enabled = bool(cfg.GPT_ENTRY_GATE_ENABLED)
+@@ -4318,46 +4312,25 @@
+             context=adaptive_context, plan=adaptive_plan, closed_dfs=closed_dfs or {})
+ 
+     if not gate_enabled:
+-        if short_level_ctx is not None:
+-            _log_short_level_entry(logger, cfg, symbol, short_level_ctx, decision,
+-                                    "gate_disabled", None, sl_price, tp_price)
+-        order_success = _execute_approved_entry_with_optional_reversal(
+-            cfg, state, client, symbol, action, amount, last_price, sl_price, tp_price,
+-            reversal_position=reversal_position,
+-            market_regime=market_regime, regime_confidence=regime_confidence, trade_alignment=trade_alignment,
+-            decision_id=decision_id, decision=decision, short_level_ctx=short_level_ctx, gpt_result=None,
+-        )
+-        _fire_shadow_verification_async(
+-            cfg, symbol, tf_list, candle_summary, position, decision,
+-            decision_id=decision_id, event_type=event_type,
+-        )
+-        pipeline_status = "ORDER_EXECUTED" if order_success else "ORDER_FAILED"
+-        _record_core_entry_attempt(state, symbol, action, pipeline_status, reason="gpt_gate_disabled", confidence=decision.get("confidence"))
+-        if is_veto_shadow_candidate:
+-            actual_fill_price = state.snapshot()["symbols"].get(symbol, {}).get("position", {}).get("entry_price") if order_success else None
+-            _record_veto_shadow_gate_outcome(
+-                cfg, decision_id, pipeline_status,
+-                gpt_gate_result="gate_disabled", production_order_executed=order_success, actual_fill_price=actual_fill_price,
+-            )
+-        if short_attempt_candidate_id:
+-            actual_fill_price = state.snapshot()["symbols"].get(symbol, {}).get("position", {}).get("entry_price") if order_success else None
+-            _record_veto_shadow_gate_outcome(
+-                cfg, short_attempt_candidate_id, pipeline_status,
+-                gpt_gate_result="gate_disabled", production_order_executed=order_success, actual_fill_price=actual_fill_price,
+-            )
++        decision['_gpt_entry_gate']='blocked_error'
++        decision['_gpt_entry_result']={'decision':None,'error_reason':'core_gpt_entry_gate_disabled'}
++        _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'GPT_ERROR','core_gpt_entry_gate_disabled')
++        _record_entry_gate_result(cfg,symbol,decision,decision_id,event_type,'blocked_error',decision['_gpt_entry_result'],False)
+         return
+ 
+     if not has_openai_key:
+         logger.warning(
+             "[%s] GPT 신규진입 게이트가 켜져 있지만 OPENAI_API_KEY가 없어 검증할 수 없습니다 - "
+             "fail-closed로 신규 %s 주문을 취소합니다. 대시보드에서 GPT API 키를 등록하거나 "
+-            "게이트를 끄세요.",
++            "게이트 설정을 확인하세요.",
+             symbol, action,
+         )
++        decision['_gpt_entry_gate']='blocked_error'
++        decision['_gpt_entry_result']={'decision':None,'error_reason':'openai_key_missing'}
++        _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'GPT_ERROR','openai_key_missing')
+         _record_entry_gate_result(
+             cfg, symbol, decision, decision_id, event_type, "blocked_error", None, order_success=False,
+         )
+-        _record_core_entry_attempt(state, symbol, action, "GPT_ERROR", reason="openai_key_missing", confidence=decision.get("confidence"))
+         if is_veto_shadow_candidate:
+             _record_veto_shadow_gate_outcome(
+                 cfg, decision_id, "GPT_ERROR",
+@@ -4388,11 +4361,15 @@
+         exit_price_contract=exit_price_contract,
+     )
+ 
++    decision['_gpt_entry_result']=gpt_result or {}
++    decision['_gpt_entry_gate']=gate_result
++    _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,core_entry_policy.gate_status(gate_result),
++                            (gpt_result or {}).get('gate_reason') or (gpt_result or {}).get('error_reason'))
++
+     if not allowed:
+         logger.info("[%s] GPT %s - 이번 사이클 %s 신규진입 취소", symbol, gate_result, action)
+         _record_entry_gate_result(cfg, symbol, decision, decision_id, event_type, gate_result, gpt_result, order_success=False)
+         attempt_status = "GPT_WAIT" if gate_result == "blocked_wait" else "GPT_REJECT" if gate_result == "blocked_reject" else "GPT_ERROR"
+-        _record_core_entry_attempt(state, symbol, action, attempt_status, reason=gate_result, confidence=decision.get("confidence"), gpt_result=gpt_result)
+         if is_veto_shadow_candidate:
+             pipeline_status = "GPT_WAIT" if gate_result == "blocked_wait" else "GPT_REJECT" if gate_result == "blocked_reject" else "GPT_ERROR"
+             _record_veto_shadow_gate_outcome(
+@@ -4447,7 +4424,10 @@
+ 
+     learning_result = {**learning_result, "action": "ALLOW", "live_applied": False}
+ 
+-    selected_ai_exit, ai_exit_source = select_verified_ai_price_plan(decision, gpt_result)
++    if gate_result == 'TIMEOUT_BYPASS':
++        selected_ai_exit,ai_exit_source=None,'original_validated_local_plan_timeout'
++    else:
++        selected_ai_exit, ai_exit_source = select_verified_ai_price_plan(decision, gpt_result)
+     ai_exit_reason = ai_exit_source
+     logger.info(
+         "[%s] AI_EXIT_PLAN 검증 source=%s gemini=%s gpt_decision=%s gpt_plan=%s",
+@@ -4493,7 +4473,7 @@
+                   and ai_exit_reason == 'ai_exit_plan_applied' else adaptive_plan),
+             closed_dfs=closed_dfs or {},
+         )
+-    logger.info("[%s] GPT 승인 - %s 주문 실행", symbol, action)
++    logger.info("[%s] GPT gate=%s - %s 최종 로컬 검증 진행", symbol, gate_result, action)
+     if short_level_ctx is not None:
+         _log_short_level_entry(logger, cfg, symbol, short_level_ctx, decision,
+                                 gate_result, gpt_result, sl_price, tp_price)
+@@ -4504,6 +4484,11 @@
+         decision_id=decision_id, decision=decision, short_level_ctx=short_level_ctx, gpt_result=gpt_result,
+         revalidate_after_gpt=True,
+     )
++    final_outcome=decision.get('_entry_outcome') or {}
++    if not final_outcome or final_outcome.get('status') in ('GPT_APPROVED','TIMEOUT_BYPASS'):
++        _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,
++            'FILLED' if order_success else 'LOCAL_BLOCKED',
++            'protected_fill_confirmed' if order_success else 'entry_not_submitted')
+     try:
+         audit_row = {
+             "engine":"CORE", "symbol":symbol, "side":action, "decision_id":decision_id,
+@@ -4542,8 +4527,12 @@
+         })
+     except Exception as exc:
+         logger.warning("[%s] LEARNING_ERROR decision log after entry: %s", symbol, type(exc).__name__, exc_info=True)
+-    pipeline_status = "ORDER_EXECUTED" if order_success else "ORDER_FAILED"
+-    _record_core_entry_attempt(state, symbol, action, pipeline_status, reason=gate_result, confidence=decision.get("confidence"), gpt_result=gpt_result)
++    outcome=decision.get('_entry_outcome') or {}
++    pipeline_status=outcome.get('status') or ('FILLED' if order_success else 'ORDER_FAILED')
++    if not outcome or pipeline_status in ('GPT_APPROVED','TIMEOUT_BYPASS'):
++        _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,
++            'FILLED' if order_success else 'ORDER_FAILED',
++            'protected_fill_confirmed' if order_success else 'entry_execution_unconfirmed')
+     if is_veto_shadow_candidate:
+         actual_fill_price = state.snapshot()["symbols"].get(symbol, {}).get("position", {}).get("entry_price") if order_success else None
+         _record_veto_shadow_gate_outcome(
+@@ -4563,6 +4552,11 @@
+ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manager.DailyLossGuard):
+     cycle_started_at = time.time()
+     if getattr(cfg, 'EXECUTION_MODE', 'LIVE') != 'SHADOW':
++        import core_entry_events
++        _reconcile_pending_core_entry(cfg,state,client,symbol)
++        if core_entry_events.pending_order(cfg.user_dir,symbol):
++            cfg.logger.warning('[%s] unresolved CORE entry: no new AI/order flow',symbol)
++            return
+         _reconcile_pending_core_reduce(cfg, state, client, symbol)
+         if (reduce_v2_state.get(cfg.user_dir, symbol) or {}).get('pending_order'):
+             # Until the original order/fill/protection transition is fully
+@@ -4846,6 +4840,9 @@
+     if market_snapshot:
+         logger.info("[%s] MARKET_CONTEXT_INPUT model=gemini snapshot=%s status=%s", symbol,
+                     market_snapshot["snapshot_id"], market_snapshot["status"])
++    logger.info("[%s] CORE_AI_BUDGET_CALL reason=%s position=%s age=%s move_atr=%s",
++                symbol,ai_budget['reason'],"held" if position else "flat",
++                ai_budget.get('age_seconds'),ai_budget.get('move_atr'))
+     decision = gemini_analyzer.analyze(cfg, symbol, tf_list, candle_summary, position)
+     decision["_entry_timing"] = entry_timing
+     decision["_market_context"] = ({key: market_snapshot.get(key) for key in ("snapshot_id", "as_of", "status")}
+@@ -5626,12 +5623,14 @@
+     """
+     from dataclasses import replace
+     from adaptive_exit_engine import solve_risk_capped_size
++    values={}
+     def blocked(reason):
+-        return {'allowed': False, 'reason': reason}
++        return {'allowed': False, 'reason': reason, 'values':dict(values)}
+     try:
+         now = time.time()
+         approved = float(decision.get('_approval_started_at') or 0)
+         closed = float(decision.get('_bar_closed_at') or 0)
++        values.update(approval_age_seconds=now-approved,signal_age_seconds=now-closed,max_approval_age=180,max_signal_age=360)
+         if not (0 <= now-approved <= 180 and 0 <= now-closed <= 360):
+             return blocked('entry_signal_or_approval_expired')
+         entry = float(client.fetch_last_price())
+@@ -5644,6 +5643,7 @@
+         if not ((side == 'long' and stop < entry < target) or
+                 (side == 'short' and target < entry < stop)):
+             return blocked('final_exit_price_direction_invalid')
++        values.update(entry_price=entry,reviewed_price=reviewed_price,stop=stop,target=target,equity=equity,amount=amount)
+         guard = getattr(cfg, '_core_loss_guards', {}).get(symbol)
+         if guard is None or not guard.allow_new_entry(equity):
+             return blocked('final_daily_loss_guard')
+@@ -5653,6 +5653,7 @@
+             return blocked('final_tp2_above_leverage_cap')
+         cost = entry*context.estimated_roundtrip_cost_rate
+         rr = (abs(target-entry)-cost)/(abs(stop-entry)+cost)
++        values.update(post_cost_rr=rr,min_post_cost_rr=float(policy['min_post_cost_rr']),roundtrip_cost_rate=context.estimated_roundtrip_cost_rate,execution_target=context.execution_target)
+         if rr < float(policy['min_post_cost_rr']):
+             return blocked('final_post_cost_rr_below_minimum')
+         freshness = _core_entry_overextension_gate(validation['closed_dfs'],side,entry)
+@@ -5668,6 +5669,7 @@
+         quantity = risk_manager.quantize_coin_amount_to_market(client,symbol,
+                     min(amount,sizing.effective_notional/entry))
+         loss = quantity*(abs(entry-stop)+cost)
++        values.update(final_quantity=quantity,planned_loss=loss,risk_budget=budget)
+         if not sizing.entry_allowed or quantity <= 0 or loss > budget+1e-9:
+             return blocked('exchange_minimum_exceeds_risk_budget')
+         return dict(allowed=True,reason='ok',amount=quantity,entry_price=entry,
+@@ -5702,6 +5704,7 @@
+     이 값들로 판단을 끝낸 뒤에만 이 함수를 부른다)."""
+     import symbol_entry_control
+     if getattr(cfg, 'EXECUTION_MODE', 'LIVE') not in ('LIVE', 'SHADOW'):
++        _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','execution_mode_not_live')
+         return False
+     if getattr(cfg, "EXECUTION_MODE", "OFF") == "SHADOW":
+         contract_size = client.contract_size()
+@@ -5732,95 +5735,275 @@
+         state.update_symbol(symbol, position=new_position, live_position=new_position, entry_time=datetime.datetime.now())
+         return True
+ 
+-    # 계좌 공통 주문락(2026-09-13, 사용자 지시) - CORE와 Candidate C가 같은 계좌에서
+-    # 동시에 주문을 내지 않도록, candidate_c_hybrid_live_adapter.py의 진입 경로가
+-    # 이미 쓰고 있는 것과 동일한 락을 CORE 신규진입도 함께 쓴다(주문 제출 ~ 보호주문
+-    # 검증까지 하나의 critical section). RLock 기반이라 같은 스레드의 중첩 호출은
+-    # 안전하다.
++    import core_entry_orders
++    import core_entry_events
++    decision = decision if decision is not None else {'action':side}
++    def outcome(status,reason,**details):
++        return _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,status,reason,**details)
+     with cc_ownership.account_order_lock(cfg.user_dir):
+-        if symbol_entry_control.is_paused(cfg.user_dir, symbol) or core_kill_switch.is_active(cfg.user_dir):
++        if not decision_id:
++            outcome('LOCAL_BLOCKED','decision_id_required')
++            return False
++        if symbol_entry_control.is_paused(cfg.user_dir, symbol):
++            outcome('LOCAL_BLOCKED','symbol_entry_paused')
++            return False
++        if core_kill_switch.is_active(cfg.user_dir):
++            outcome('LOCAL_BLOCKED','core_kill_switch')
+             return False
+         if (reduce_v2_state.get(cfg.user_dir, symbol) or {}).get('pending_order'):
++            outcome('LOCAL_BLOCKED','position_lifecycle_pending_order')
++            return False
++        if _reentry_blocked(state,symbol,cfg,side)[0]:
++            outcome('LOCAL_BLOCKED','reentry_cooldown')
+             return False
+         manual = core_manual_close.get(cfg.user_dir, symbol)
+         if manual and manual.get('status') != 'completed':
+-            manual_entry = bool((decision or {}).get('manual_entry'))
+-            blocked_reason = core_manual_close.block_reason(
+-                manual, bar_closed_at=(decision or {}).get('_bar_closed_at'),
+-                approval_started_at=(decision or {}).get('_approval_started_at'),
+-                require_fresh=not manual_entry)
++            blocked_reason = core_manual_close.block_reason(manual,
++                bar_closed_at=decision.get('_bar_closed_at'),
++                approval_started_at=decision.get('_approval_started_at'),
++                require_fresh=not bool(decision.get('manual_entry')))
+             if blocked_reason:
+-                cfg.logger.info('[%s] order precheck blocked: %s', symbol, blocked_reason)
++                outcome('LOCAL_BLOCKED',blocked_reason)
+                 return False
+-            if client.fetch_position() is not None:
++        try:
++            receipt=core_entry_events.order_receipt(cfg.user_dir,decision_id)
++            if receipt is None and client.fetch_position() is not None:
++                outcome('LOCAL_BLOCKED','position_already_open')
+                 return False
+-            fresh_price = client.fetch_last_price()
+-            guard = getattr(cfg, '_core_loss_guards', {}).get(symbol)
+-            import math
+-            if not fresh_price or not math.isfinite(fresh_price) or not guard or not guard.allow_new_entry(client.fetch_usdt_equity()):
+-                return False
+-            # A materially changed price requires another cycle and fresh sizing/GPT.
+-            if abs(fresh_price / entry_price - 1) > .002:
+-                return False
+-        validation = (decision or {}).get('_bounded_entry_validation')
+-        if validation is not None:
+-            checked = _core_final_entry_validation(
+-                cfg, client, symbol, side, amount, entry_price, sl_price, tp_price,
+-                decision, validation)
+-            if not checked['allowed']:
+-                cfg.logger.warning('[%s] FINAL_ENTRY_BLOCK reason=%s', symbol, checked['reason'])
+-                return False
+-            amount, entry_price = checked['amount'], checked['entry_price']
+-            cfg.logger.info('[%s] FINAL_ENTRY_VALIDATED side=%s price=%s quantity=%s '
+-                'post_cost_rr=%s planned_loss=%s risk_budget=%s', symbol, side,
+-                entry_price, amount, checked['post_cost_rr'], checked['planned_loss'], checked['risk_budget'])
+-        client.ensure_leverage()
+-        # order_safety.verify_protection()/handle_unknown_order_state()는 거래소 position["contracts"]/
+-        # OCO sz(둘 다 "계약 개수" 단위)와 직접 비교한다 - amount는 "코인 수량"이라 그대로 넘기면
+-        # contractSize != 1인 심볼(BTC=0.01/ETH=0.1/XRP=100, PI만 우연히 1.0)에서 반드시 불일치가
+-        # 나서 정상 체결도 매번 오탐 안전청산+kill switch로 이어진다(2026-08-31 XRP 실거래에서
+-        # 실제로 발생 - 원인은 이 변환 누락이었다). 반드시 계약 개수로 변환해서 넘겨야 한다.
+-        expected_contracts = amount / client.contract_size()
++            validation=decision.get('_bounded_entry_validation')
++            if validation is not None:
++                checked=_core_final_entry_validation(cfg,client,symbol,side,amount,entry_price,
++                                                     sl_price,tp_price,decision,validation)
++                if not checked['allowed'] and receipt is None:
++                    outcome('LOCAL_BLOCKED',checked['reason'],validation_values=checked.get('values'))
++                    return False
++                if checked['allowed']:
++                    amount,entry_price=checked['amount'],checked['entry_price']
++                    cfg.logger.info('[%s] FINAL_ENTRY_VALIDATED price=%s quantity=%s post_cost_rr=%s planned_loss=%s risk_budget=%s',
++                        symbol,entry_price,amount,checked['post_cost_rr'],checked['planned_loss'],checked['risk_budget'])
++            elif receipt is None:
++                fresh_price=float(client.fetch_last_price())
++                if not math.isfinite(fresh_price) or fresh_price<=0 or abs(fresh_price/entry_price-1)>.002:
++                    outcome('LOCAL_BLOCKED','post_gpt_price_drift')
++                    return False
++                entry_price=fresh_price
++                if not ((side=='long' and sl_price<entry_price<tp_price) or
++                        (side=='short' and tp_price<entry_price<sl_price)):
++                    outcome('LOCAL_BLOCKED','final_exit_price_direction_invalid')
++                    return False
++                amount=risk_manager.quantize_coin_amount_to_market(client,symbol,amount)
++                if amount<=0:
++                    outcome('LOCAL_BLOCKED','quantity_below_exchange_minimum')
++                    return False
++                guard=getattr(cfg,'_core_loss_guards',{}).get(symbol)
++                if guard is None:
++                    guard=risk_manager.DailyLossGuard(cfg)
++                if not guard.allow_new_entry(client.fetch_usdt_equity()):
++                    outcome('LOCAL_BLOCKED','daily_loss_guard')
++                    return False
++            # Leverage setup is an exchange prerequisite, not an order submission.
++            if receipt is None: client.ensure_leverage()
++            result=core_entry_orders.submit_once(cfg,client,symbol,decision_id,side,amount,sl_price,tp_price,
++                lambda details: outcome('ORDER_SUBMITTED','entry_dispatch',**details),
++                metadata=dict(decision={k:decision[k] for k in ('action','confidence','_gpt_entry_result','_gpt_entry_gate') if k in decision},
++                    entry_price=entry_price,market_regime=market_regime,regime_confidence=regime_confidence,trade_alignment=trade_alignment))
++        except Exception as exc:
++            # This boundary can include a lost acknowledgement; never report a false fill.
++            outcome('LOCAL_BLOCKED','entry_preflight_unavailable:'+type(exc).__name__)
++            return False
++        return _finalize_core_entry_result(cfg,state,client,symbol,decision,decision_id,result,
++            market_regime,regime_confidence,trade_alignment)
++
++
++def _finalize_core_entry_result(cfg,state,client,symbol,decision,decision_id,result,
++        market_regime=None,regime_confidence=None,trade_alignment=None):
++    import core_entry_events
++    payload=result.get('payload') or {}
++    side=payload.get('side') or decision.get('action')
++    amount=float(payload.get('quantity_coin') or 0)
++    sl_price=float(payload.get('sl_price') or 0)
++    tp_price=float(payload.get('tp_price') or 0)
++    entry_price=result.get('average') or payload.get('entry_price') or 0
++    manual=core_manual_close.get(cfg.user_dir,symbol)
++    def outcome(status,reason,**details):
++        return _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,status,reason,**details)
++    original_id=result.get('decision_id') or decision_id
++    payload=result.get('payload') or {}
++    details={k:result.get(k) for k in ('order_id','client_order_id','exchange_code') if result.get(k) is not None}
++    details.update({k:payload[k] for k in ('quantity_coin','contracts','leverage','sl_price','tp_price') if k in payload})
++    if payload.get('emergency_close_dispatched') or payload.get('residual_cancel_dispatched'):
++        core_kill_switch.activate(cfg.user_dir,f'{symbol} entry protection recovery pending')
+         try:
+-            client.create_position_with_sl_tp(side, amount, sl_price, tp_price)
+-        except okx_client.UnknownOrderStateError as exc:
+-            order_safety.handle_unknown_order_state(cfg, client, symbol, side, expected_contracts, sl_price, tp_price, str(exc))
++            flat=_recover_unprotected_core_entry(cfg,client,symbol,result,None)
++        except Exception as exc:
++            flat=False
++            cfg.logger.error('[%s] CORE_EMERGENCY_RECOVERY_UNCONFIRMED error_type=%s',symbol,type(exc).__name__)
++        status='ORDER_FAILED' if flat else 'ORDER_PENDING'
++        reason='protection_failure_confirmed_flat' if flat else 'protection_recovery_pending'
++        core_entry_events.update_order(cfg.user_dir,original_id,status,reason=reason)
++        outcome(status,reason,**details)
++        return False
++    if result.get('duplicate'):
++        outcome(result['status'],'decision_already_processed',**details)
++        return False
++    if result['status'] != 'FILLED_UNJOURNALED':
++        outcome(result['status'],result['reason'],**details)
++        if result['status']=='ORDER_PENDING':
++            # Existing emergency reconciliation remains authoritative for an exposed
++            # partial/unknown position. Never infer a fill just from the position.
++            try:
++                exposed=client.fetch_position()
++            except Exception as exc:
++                exposed=None
++                core_kill_switch.activate(cfg.user_dir,f'{symbol} entry position lookup unavailable')
++                outcome('ORDER_PENDING','position_lookup_unavailable:'+type(exc).__name__,**details)
++            if exposed is not None or result.get('reason') in ('exchange_order_identity_unconfirmed','exchange_fill_unconfirmed'):
++                core_kill_switch.activate(cfg.user_dir,f'{symbol} unresolved entry {details.get("client_order_id")}')
++                if exposed is not None:
++                    # An open order/position is not terminal fill proof. Never let the
++                    # legacy unknown-order helper append unbound/wrong-unit OPENs.
++                    try:
++                        protection=order_safety.verify_protection(client,payload['side'],exposed['contracts'],
++                            expected_sl_price=payload['sl_price'],expected_tp_price=payload['tp_price'],
++                            expected_algo_cl_ord_id='ca'+result['client_order_id'][2:])
++                    except Exception as exc:
++                        protection={'ok':False,'reason':'protection_lookup_unavailable:'+type(exc).__name__}
++                    if protection['ok']:
++                        bound=reduce_v2_state.position_identity(protection['position'])
++                        if bound:
++                            previous=core_entry_events.order_receipt(cfg.user_dir,original_id)['payload'].get('bound_position_identity')
++                            if previous and previous!=bound:
++                                core_kill_switch.activate(cfg.user_dir,f'{symbol} pending entry lifecycle changed')
++                                outcome('ORDER_PENDING','entry_position_lifecycle_changed',**details)
++                                return False
++                            core_entry_events.update_order(cfg.user_dir,original_id,'ORDER_PENDING',bound_position_identity=bound)
++                    if not protection['ok']:
++                        outcome('ORDER_PENDING','unresolved_entry_protection:'+str(protection.get('reason')),**details)
++                        if result.get('filled',0)>0 and exposed.get('side')==payload['side']:
++                            if _recover_unprotected_core_entry(cfg,client,symbol,result,exposed):
++                                core_entry_events.update_order(cfg.user_dir,original_id,'ORDER_FAILED',reason='protection_failure_confirmed_flat')
++                                outcome('ORDER_FAILED','protection_failure_confirmed_flat',**details)
++        return False
++    # Reconcile original receipt even if invoked by a newer decision.
++    side=payload['side'];amount=payload['quantity_coin'];sl_price=payload['sl_price'];tp_price=payload['tp_price']
++    expected_contracts=payload['contracts']
++    try:
++        protection=order_safety.verify_protection(client,side,expected_contracts,
++            expected_sl_price=sl_price,expected_tp_price=tp_price,
++            expected_algo_cl_ord_id='ca'+result['client_order_id'][2:])
++    except Exception as exc:
++        protection={'ok':False,'reason':'protection_lookup_unavailable:'+type(exc).__name__}
++    if not protection['ok']:
++        # Freeze before any fallible exchange read/write; keep receipt unresolved
++        # until the deterministic emergency close is independently confirmed.
++        core_kill_switch.activate(cfg.user_dir,f'{symbol} protection failed:{protection.get("reason")}')
++        core_entry_events.update_order(cfg.user_dir,original_id,'ORDER_PENDING',reason='protection_recovery_pending')
++        outcome('ORDER_PENDING','protection_recovery_pending:'+str(protection.get('reason')),**details)
++        try:
++            stray_position=client.fetch_position()
++            flat=_recover_unprotected_core_entry(cfg,client,symbol,result,stray_position)
++            if flat:
++                core_entry_events.update_order(cfg.user_dir,original_id,'ORDER_FAILED',reason='protection_failure_confirmed_flat')
++                outcome('ORDER_FAILED','protection_failure_confirmed_flat',**details)
++        except Exception as exc:
++            cfg.logger.error('[%s] CORE_PROTECTION_RECOVERY_UNCONFIRMED error_type=%s',symbol,type(exc).__name__)
++        return False
++    new_position=protection['position']
++    bound=reduce_v2_state.position_identity(new_position)
++    if not bound:
++        core_kill_switch.activate(cfg.user_dir,f'{symbol} filled entry lifecycle unconfirmed')
++        outcome('ORDER_PENDING','filled_position_lifecycle_unconfirmed',**details)
++        return False
++    previous=core_entry_events.order_receipt(cfg.user_dir,original_id)['payload'].get('bound_position_identity')
++    if previous and previous!=bound:
++        core_kill_switch.activate(cfg.user_dir,f'{symbol} filled entry lifecycle changed')
++        outcome('ORDER_PENDING','filled_position_lifecycle_changed',**details)
++        return False
++    core_entry_events.update_order(cfg.user_dir,original_id,'FILLED_UNJOURNALED',bound_position_identity=bound)
++    # Idempotent execution_id makes replay/crash recovery safe for the trade journal.
++    trade_log.record_open(cfg.user_dir,symbol,side,new_position.get('entry_price') or entry_price,amount,
++        dry_run=False,sl_price=sl_price,tp_price=tp_price,market_regime=market_regime,
++        regime_confidence=regime_confidence,trade_alignment=trade_alignment,
++        strategy_group='core',execution_id='core-entry:'+original_id)
++    reduce_v2_state.clear(cfg.user_dir,symbol)
++    core_add_position_state.clear(cfg.user_dir,symbol)
++    reduce_v2_state.ensure_position(cfg.user_dir,symbol,new_position,initial_contracts=new_position['contracts'],
++        entry_time=datetime.datetime.now().isoformat())
++    if manual and manual.get('status')!='completed':
++        core_manual_close.patch(cfg.user_dir,symbol,manual['close_id'],status='completed')
++        manual_close_status(cfg,state,symbol)
++    core_entry_events.update_order(cfg.user_dir,original_id,'FILLED',order_id=result['order_id'],
++        lifecycle_id=reduce_v2_state.position_identity(new_position))
++    try:
++        state.update_symbol(symbol,position=new_position,live_position=new_position,entry_time=datetime.datetime.now())
++    except Exception as exc:
++        cfg.logger.warning('[%s] CORE_FILLED_STATE_PUBLICATION_FAILED error_type=%s',symbol,type(exc).__name__)
++    outcome('FILLED','protected_fill_confirmed',lifecycle_id=reduce_v2_state.position_identity(new_position),
++            protection_ids=[r.get('algoId') for r in protection.get('matched_orders',[])],**details)
++    return True
++
++def _recover_unprotected_core_entry(cfg,client,symbol,result,position):
++    import core_entry_events
++    import core_entry_orders
++    original_id=result['decision_id']
++    receipt=core_entry_events.order_receipt(cfg.user_dir,original_id)
++    payload=receipt['payload']
++    core_kill_switch.activate(cfg.user_dir,f'{symbol} unprotected CORE entry {original_id}')
++    cid='ce'+receipt['client_order_id'][2:]
++    if not payload.get('emergency_close_dispatched'):
++        if not result.get('original_order_terminal'):
++            if not result.get('order_id'): return False
++            if not payload.get('residual_cancel_dispatched'):
++                core_entry_events.update_order(cfg.user_dir,original_id,'ORDER_PENDING',residual_cancel_dispatched=True)
++                try:
++                    client.exchange.cancel_order(result['order_id'],symbol)
++                except Exception:
++                    pass  # Lost cancel acknowledgement is resolved through the original ID.
++            result=core_entry_orders.reconcile(cfg,client,core_entry_events.order_receipt(cfg.user_dir,original_id))
++            if not result.get('original_order_terminal'): return False
++        # A cancellation acknowledgement is not terminal proof. Re-read exposure
++        # after terminal original-order proof, allowing for a raced residual fill.
++        position=client.fetch_position()
++        if position is None or position.get('side')!=payload['side']: return False
++        bound=payload.get('bound_position_identity')
++        if not bound or reduce_v2_state.position_identity(position)!=bound:
++            core_entry_events.update_order(cfg.user_dir,original_id,'ORDER_PENDING',reason='emergency_original_lifecycle_unconfirmed')
++            cfg.logger.error('[%s] CORE_EMERGENCY_CLOSE_BLOCKED original lifecycle unconfirmed',symbol)
+             return False
+-
+-        protection = order_safety.verify_protection(client, side, expected_contracts, expected_sl_price=sl_price, expected_tp_price=tp_price)
+-        if not protection["ok"]:
+-            cfg.logger.error("[%s] PROTECTION_FAILED(%s) - 안전 청산 + kill switch", symbol, protection.get("reason"))
+-            stray_position = client.fetch_position()
+-            if stray_position is not None:
+-                client.close_position(stray_position)
+-            core_kill_switch.activate(cfg.user_dir, f"{symbol} 보호주문 검증 실패: {protection.get('reason')}")
+-            order_safety.notify_critical(cfg, symbol, f"보호주문 검증 실패: {protection.get('reason')}")
+-            return False
+-
+-        trade_log.record_open(
+-            cfg.user_dir, symbol, side, entry_price, amount, dry_run=False,
+-            sl_price=sl_price, tp_price=tp_price,
+-            market_regime=market_regime, regime_confidence=regime_confidence, trade_alignment=trade_alignment,
+-        )
+-        new_position = protection["position"]
+-        reduce_v2_state.clear(cfg.user_dir, symbol)
+-        core_add_position_state.clear(cfg.user_dir, symbol)  # ADD_POSITION(2026-09-15)도 동일하게 정리
+-        reduce_v2_state.ensure_position(cfg.user_dir, symbol, new_position,
+-                                        initial_contracts=new_position['contracts'],
+-                                        entry_time=datetime.datetime.now().isoformat())
+-        if manual and manual.get('status') != 'completed':
+-            core_manual_close.patch(cfg.user_dir, symbol, manual['close_id'], status='completed')
+-            manual_close_status(cfg, state, symbol)
+-
+-    _notify_telegram(
+-        cfg,
+-        f"🟢 진입 {symbol} {side} @ {entry_price}\nSL={sl_price} TP={tp_price} 수량={amount}",
+-    )
+-    # verify_protection()이 이미 주문 직후 포지션을 조회해뒀으므로 그 값을 그대로
+-    # 쓴다(화면 갱신용 추가 API 호출 없음) - 최소 보유시간 게이트에 쓸 진입 시각도
+-    # 같이 기록한다.
+-    state.update_symbol(symbol, position=new_position, live_position=new_position, entry_time=datetime.datetime.now())
+-    return True
++        expected=float(result.get('filled') or 0)
++        if expected<=0 or abs(float(position.get('contracts',0))-expected)>1e-8: return False
++        core_entry_events.update_order(cfg.user_dir,original_id,'ORDER_PENDING',
++            emergency_close_dispatched=True,emergency_close_client_id=cid,
++            emergency_close_contracts=expected,emergency_position_identity=reduce_v2_state.position_identity(position))
++        try:
++            client.close_position(position,client_order_id=cid)
++        except Exception as exc:
++            cfg.logger.error('[%s] CORE_EMERGENCY_CLOSE_UNCONFIRMED error_type=%s',symbol,type(exc).__name__)
++    receipt=core_entry_events.order_receipt(cfg.user_dir,original_id)
++    expected=float(receipt['payload'].get('emergency_close_contracts') or 0)
++    try:
++        order=client.fetch_order_status_by_client_id(cid)
++        info=(order or {}).get('info') or {}
++        return (expected>0 and client.fetch_position() is None and isinstance(order,dict)
++            and (order.get('clientOrderId') or info.get('clOrdId'))==cid
++            and order.get('symbol')==symbol and order.get('side')==('sell' if payload['side']=='long' else 'buy')
++            and order.get('status')=='closed' and abs(float(order.get('filled') or 0)-expected)<=1e-8
++            and float(order.get('remaining',-1))==0)
++    except Exception:
++        return False
++
++
++def _reconcile_pending_core_entry(cfg,state,client,symbol):
++    import core_entry_events
++    import core_entry_orders
++    with cc_ownership.account_order_lock(cfg.user_dir):
++        receipt=core_entry_events.pending_order(cfg.user_dir,symbol)
++        if receipt is None: return False
++        payload=receipt['payload']
++        decision=payload.get('decision') or {'action':payload['side']}
++        result=core_entry_orders.reconcile(cfg,client,receipt)
++        return _finalize_core_entry_result(cfg,state,client,symbol,decision,receipt['decision_id'],result,
++            payload.get('market_regime'),payload.get('regime_confidence'),payload.get('trade_alignment'))
+ 
+ 
+ def _execute_close(cfg, state, client: OkxClient, symbol: str, position: dict, reason: str) -> bool:
+--- a/web_app.py
++++ b/web_app.py
+@@ -828,6 +828,7 @@
+     stats = gpt_shadow_log.summary(ctx.dir)
+     return _conditional_json({
+         "recent": gpt_shadow_log.recent_by_mode(ctx.dir, "entry_gate", limit=100),
++        "events": __import__("core_entry_events").recent(ctx.dir, limit=100),
+         "entry_gate_count": stats["gate_count"],
+         "historical_shadow_count": stats["shadow_mode_count"],
+         "legacy_no_mode_count": stats["no_mode_count"],

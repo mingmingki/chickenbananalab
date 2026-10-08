@@ -1,0 +1,11 @@
+{
+  "scope": "Archived v4 trader/Adaptive; Oct5 support dependencies, LIVE hashes unverified",
+  "sha256": {
+    "trader.py": "c6431dd805d8bb7f7f6e729993c89194e27c0b432cda104a86ef94973f74a318",
+    "adaptive_exit_engine.py": "12639d488865e879632900021050760564f53b74649fd72579ff32e43c30da35",
+    "config.py": "100e4d98a3a0d0c0914cf04cb2c3b1ab6bac4ae6e7fb8f58a5cd0181ec13f45c",
+    "openai_analyzer.py": "b4cdf0ccfe66b705e19bde888c94334760c1f255008ed8b670559e3af84fd62c",
+    "telegram_notify.py": "359cb114c8495db9aca37898f7e2109716784d8c669696e9ae71b48f2dc8591e",
+    "gpt_shadow_log.py": "719396102d418f803302ab2fb9d56a750c162423ca0b65641796fe961f39e91c"
+  }
+}

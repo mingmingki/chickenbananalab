@@ -1,0 +1,22 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+______ test_pending_original_order_blocks_new_decision_without_new_submit ______
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:178: in test_pending_original_order_blocks_new_decision_without_new_submit
+    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_PENDING' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_PENDING
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6752 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+___________ test_pending_fill_recovers_without_new_gpt_or_new_order ____________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:194: in test_pending_fill_recovers_without_new_gpt_or_new_order
+    assert callable(reconcile)
+E   assert False
+E    +  where False = callable(None)
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6752 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+=========================== short test summary info ============================
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_pending_original_order_blocks_new_decision_without_new_submit
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_pending_fill_recovers_without_new_gpt_or_new_order
+2 failed, 37 deselected in 0.16s

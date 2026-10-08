@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="26" skipped="0" tests="36" time="0.310" timestamp="2026-10-08T16:21:13.855012+09:00" hostname="bagmingiui-MacBookPro.local"><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-long]" time="0.008"><failure message="AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'&#10;  &#10;  - FILLED&#10;  + ORDER_EXECUTED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:90: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
+E   AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'
+E     
+E     - FILLED
+E     + ORDER_EXECUTED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-short]" time="0.004"><failure message="AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'&#10;  &#10;  - FILLED&#10;  + ORDER_EXECUTED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:90: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
+E   AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'
+E     
+E     - FILLED
+E     + ORDER_EXECUTED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-long]" time="0.004"><failure message="AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'&#10;  &#10;  - FILLED&#10;  + ORDER_EXECUTED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:90: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
+E   AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'
+E     
+E     - FILLED
+E     + ORDER_EXECUTED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-short]" time="0.003"><failure message="AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'&#10;  &#10;  - FILLED&#10;  + ORDER_EXECUTED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:90: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
+E   AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'
+E     
+E     - FILLED
+E     + ORDER_EXECUTED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_blocked_gpt_results_do_not_submit[wait-long]" time="0.002" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_blocked_gpt_results_do_not_submit[wait-short]" time="0.002" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_blocked_gpt_results_do_not_submit[reject-long]" time="0.002" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_blocked_gpt_results_do_not_submit[reject-short]" time="0.002" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_blocked_gpt_results_do_not_submit[ERROR-long]" time="0.002" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_blocked_gpt_results_do_not_submit[ERROR-short]" time="0.002" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-approved-long]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-approved-short]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-timeout-long]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-timeout-short]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-approved-long]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-approved-short]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-timeout-long]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-timeout-short]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-approved-long]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-approved-short]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-timeout-long]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-timeout-short]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-approved-long]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-approved-short]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-timeout-long]" time="0.002"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-timeout-short]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-approved-long]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-approved-short]" time="0.002"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-timeout-long]" time="0.002"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-timeout-short]" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'&#10;  &#10;  - LOCAL_BLOCKED&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_revised_gpt_prices_and_tp2_rr_flow_through_final_order[long]" time="0.004" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_revised_gpt_prices_and_tp2_rr_flow_through_final_order[short]" time="0.004" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_timeout_never_uses_fabricated_gpt_plan[long]" time="0.004" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_timeout_never_uses_fabricated_gpt_plan[short]" time="0.003" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_ambiguous_exchange_ack_is_queried_and_not_resubmitted" time="0.003"><failure message="assert []&#10; +  where [] = &lt;test_core_entry_pipeline.Client object at 0x1106154d0&gt;.queries">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:144: in test_ambiguous_exchange_ack_is_queried_and_not_resubmitted
+    assert client.queries
+E   assert []
+E    +  where [] = &lt;test_core_entry_pipeline.Client object at 0x1106154d0&gt;.queries</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_entry_pipeline" name="test_accepted_pending_order_is_not_reported_failed_or_filled" time="0.003"><failure message="AssertionError: assert 'ORDER_FAILED' == 'ORDER_PENDING'&#10;  &#10;  - ORDER_PENDING&#10;  + ORDER_FAILED">autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:154: in test_accepted_pending_order_is_not_reported_failed_or_filled
+    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='ORDER_PENDING'
+E   AssertionError: assert 'ORDER_FAILED' == 'ORDER_PENDING'
+E     
+E     - ORDER_PENDING
+E     + ORDER_FAILED</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,8 @@
+# SDD ledger — plan: autotrader-gpt-recovery-20261008/PLAN.md
+Recovery: main dd47a82, no tracked changes; all prior untracked files preserved. v4 archived trader hash verified against handoff; no fresh LIVE evidence. No AI-cost ZIP found in Downloads or project or /tmp.
+Ruling: keep exact v4 source and use AST function integration with available Oct5 dependencies for offline tests; this cannot qualify the current full LIVE release. Missing market_context/core_entry_timing/current tests must be recovered from the VM before deployment.
+
+Final scoped verification:111tests passed with real risk/precision/protection/journal/SQLite plus AI/exchange/Telegram doubles; all source compiled. Full runtime import blocked by missing core_entry_timing; available Oct5 baseline826/26 and comparison819/33, no failing checks hidden/deleted.6available Candidate paritytests passed and availablehash verified; not LIVEhash.
+Review: explicitly required read-only agent identified and reproduced duplicate contracts-unit OPENs, synchronous notification/latefreeze, stateoverride, gateofffailopen, unsafe emergency/lifecyclebinding. Added RED repros, fixed, independently111passed; final scopedreview no mustfix. Actual ETHincident and productioncompatibility not attributed/qualified.
+External: current GCP OAuth DNS and directSSH sandbox access blocked; Desktop Commander process-start and GitHub create_blob autoapproval rejected(approval never). No deployment, accountsettings, serverrestart, Telegram connectiontest or livepositionchanges performed.
+Publication: isolated local clone at /private/tmp/autotrader-gpt-recovery-20261008/git-publication preserves originalmain/index; only this taskartifact may be staged. Exactcommit/push/bundle results in PUBLICATION_STATUS.md.

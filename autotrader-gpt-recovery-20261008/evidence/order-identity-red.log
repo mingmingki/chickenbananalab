@@ -1,0 +1,12 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_client_id_query_never_fabricates_requested_identity ___________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:165: in test_client_id_query_never_fabricates_requested_identity
+    assert result['clientOrderId']=='foreign-id'
+E   AssertionError: assert 'our-id' == 'foreign-id'
+E     
+E     - foreign-id
+E     + our-id
+=========================== short test summary info ============================
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_client_id_query_never_fabricates_requested_identity
+1 failed in 0.13s

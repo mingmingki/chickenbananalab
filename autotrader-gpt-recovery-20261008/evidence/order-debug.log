@@ -1,0 +1,44 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:88: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert len(client.orders)==1, s.symbols[SYMBOL].get('last_entry_attempt',{}).get('reason')
+E   AssertionError: entry_preflight_unavailable:TypeError
+E   assert 0 == 1
+E    +  where 0 = len([])
+E    +    where [] = <test_core_entry_pipeline.Client object at 0x11126f690>.orders
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6745 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:88: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert len(client.orders)==1, s.symbols[SYMBOL].get('last_entry_attempt',{}).get('reason')
+E   AssertionError: entry_preflight_unavailable:TypeError
+E   assert 0 == 1
+E    +  where 0 = len([])
+E    +    where [] = <test_core_entry_pipeline.Client object at 0x110fbac90>.orders
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6745 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:88: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert len(client.orders)==1, s.symbols[SYMBOL].get('last_entry_attempt',{}).get('reason')
+E   AssertionError: entry_preflight_unavailable:TypeError
+E   assert 0 == 1
+E    +  where 0 = len([])
+E    +    where [] = <test_core_entry_pipeline.Client object at 0x11107d210>.orders
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6745 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:88: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert len(client.orders)==1, s.symbols[SYMBOL].get('last_entry_attempt',{}).get('reason')
+E   AssertionError: entry_preflight_unavailable:TypeError
+E   assert 0 == 1
+E    +  where 0 = len([])
+E    +    where [] = <test_core_entry_pipeline.Client object at 0x111087650>.orders
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6745 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+=========================== short test summary info ============================
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-short]
+4 failed, 33 deselected in 0.19s

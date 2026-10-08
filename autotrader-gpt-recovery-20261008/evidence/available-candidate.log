@@ -1,0 +1,291 @@
+........................................................................ [  8%]
+FFFF.F........F......................................................... [ 16%]
+........................................................................ [ 25%]
+........................................................................ [ 33%]
+...............................F.......................F.FFFFFF......... [ 42%]
+.............................F..FF.F.F.................................. [ 50%]
+..........................F............................................. [ 59%]
+................................................................. [ 66%]
+....FFF...........FF.F...F.F...................................... [ 74%]
+........................................................F. [ 81%]
+...........................................................F..F......... [ 89%]
+.................................................................FF..... [ 98%]
+...............                                                          [100%]
+=================================== FAILURES ===================================
+____ test_apply_ai_price_plan_long_replaces_prices_and_recomputes_risk_size ____
+tests/test_ai_adaptive_exit_plan.py:73: in test_apply_ai_price_plan_long_replaces_prices_and_recomputes_risk_size
+    assert reason == "ai_exit_plan_applied"
+E   AssertionError: assert 'baseline_not_allowed' == 'ai_exit_plan_applied'
+E     
+E     - ai_exit_plan_applied
+E     + baseline_not_allowed
+_____ test_apply_ai_price_plan_rejects_unsafe_geometry_and_keeps_baseline ______
+tests/test_ai_adaptive_exit_plan.py:90: in test_apply_ai_price_plan_rejects_unsafe_geometry_and_keeps_baseline
+    assert reason == "ai_stop_below_atr_min"
+E   AssertionError: assert 'baseline_not_allowed' == 'ai_stop_below_atr_min'
+E     
+E     - ai_stop_below_atr_min
+E     + baseline_not_allowed
+______________ test_apply_ai_price_plan_supports_short_direction _______________
+tests/test_ai_adaptive_exit_plan.py:102: in test_apply_ai_price_plan_supports_short_direction
+    assert reason == "ai_exit_plan_applied"
+E   AssertionError: assert 'baseline_not_allowed' == 'ai_exit_plan_applied'
+E     
+E     - ai_exit_plan_applied
+E     + baseline_not_allowed
+__________ test_gemini_and_gpt_prompts_include_ai_exit_price_contract __________
+tests/test_ai_adaptive_exit_plan.py:109: in test_gemini_and_gpt_prompts_include_ai_exit_price_contract
+    assert '"exit_plan"' in gemini_analyzer.PROMPT_TEMPLATE
+E   assert '"exit_plan"' in '당신은 암호화폐 선물 트레이딩 분석가입니다.\n아래는 {symbol}의 여러 타임프레임 캔들 데이터와 보조지표입니다 (검토 타임프레임: {timeframes_desc}).\n\nTF 우선순위: 1D=시장 레짐 ...적으로 쓰고, trade_alignment는 이번 행동이 시장 레짐과 같은\n방향이면 with_regime, 반대면 counter_regime, 무포지션 hold처럼 방향성이 없으면 neutral로 답하세요.\n'
+E    +  where '당신은 암호화폐 선물 트레이딩 분석가입니다.\n아래는 {symbol}의 여러 타임프레임 캔들 데이터와 보조지표입니다 (검토 타임프레임: {timeframes_desc}).\n\nTF 우선순위: 1D=시장 레짐 ...적으로 쓰고, trade_alignment는 이번 행동이 시장 레짐과 같은\n방향이면 with_regime, 반대면 counter_regime, 무포지션 hold처럼 방향성이 없으면 neutral로 답하세요.\n' = gemini_analyzer.PROMPT_TEMPLATE
+______ test_ai_exit_plan_json_braces_are_safe_for_python_format_templates ______
+tests/test_ai_adaptive_exit_plan.py:127: in test_ai_exit_plan_json_braces_are_safe_for_python_format_templates
+    assert '"exit_plan": {{' in gemini_analyzer.PROMPT_TEMPLATE
+E   assert '"exit_plan": {{' in '당신은 암호화폐 선물 트레이딩 분석가입니다.\n아래는 {symbol}의 여러 타임프레임 캔들 데이터와 보조지표입니다 (검토 타임프레임: {timeframes_desc}).\n\nTF 우선순위: 1D=시장 레짐 ...적으로 쓰고, trade_alignment는 이번 행동이 시장 레짐과 같은\n방향이면 with_regime, 반대면 counter_regime, 무포지션 hold처럼 방향성이 없으면 neutral로 답하세요.\n'
+E    +  where '당신은 암호화폐 선물 트레이딩 분석가입니다.\n아래는 {symbol}의 여러 타임프레임 캔들 데이터와 보조지표입니다 (검토 타임프레임: {timeframes_desc}).\n\nTF 우선순위: 1D=시장 레짐 ...적으로 쓰고, trade_alignment는 이번 행동이 시장 레짐과 같은\n방향이면 with_regime, 반대면 counter_regime, 무포지션 hold처럼 방향성이 없으면 neutral로 답하세요.\n' = gemini_analyzer.PROMPT_TEMPLATE
+_______________ test_core_gpt_gate_forwards_exit_price_contract ________________
+tests/test_ai_exit_price_contract.py:66: in test_core_gpt_gate_forwards_exit_price_contract
+    assert allowed is True and gate == "approved"
+E   assert (False is True)
+___________________ test_auto_mode_uses_adaptive_live_entry ____________________
+tests/test_core_exit_mode_selector.py:42: in test_auto_mode_uses_adaptive_live_entry
+    assert d['order_args'] != legacy
+E   AssertionError: assert ('long', 25.0, 98.0, 104.0) != ('long', 25.0, 98.0, 104.0)
+_____ test_manual_entry_after_elapsed_cooldown_bypasses_ai_fresh_bar_only ______
+tests/test_core_manual_entry_cooldown_ui.py:99: in test_manual_entry_after_elapsed_cooldown_bypasses_ai_fresh_bar_only
+    assert result["ok"] is True
+E   assert False is True
+_____________ test_medium_reversal_accepts_confirmed_long_to_short _____________
+tests/test_core_medium_reversal.py:13: in test_medium_reversal_accepts_confirmed_long_to_short
+    ok, reason = trader._medium_reversal_eligible(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'trader' has no attribute '_medium_reversal_eligible'
+______________ test_medium_reversal_rejects_low_gemini_confidence ______________
+tests/test_core_medium_reversal.py:24: in test_medium_reversal_rejects_low_gemini_confidence
+    ok, reason = trader._medium_reversal_eligible(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'trader' has no attribute '_medium_reversal_eligible'
+_______________ test_medium_reversal_rejects_low_gpt_confidence ________________
+tests/test_core_medium_reversal.py:34: in test_medium_reversal_rejects_low_gpt_confidence
+    ok, reason = trader._medium_reversal_eligible(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'trader' has no attribute '_medium_reversal_eligible'
+_____________ test_medium_reversal_rejects_unconfirmed_5m_weakness _____________
+tests/test_core_medium_reversal.py:47: in test_medium_reversal_rejects_unconfirmed_5m_weakness
+    ok, reason = trader._medium_reversal_eligible(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'trader' has no attribute '_medium_reversal_eligible'
+__________________ test_medium_reversal_is_only_long_to_short __________________
+tests/test_core_medium_reversal.py:57: in test_medium_reversal_is_only_long_to_short
+    ok, reason = trader._medium_reversal_eligible(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'trader' has no attribute '_medium_reversal_eligible'
+__________ test_reversal_flat_confirmation_rejects_any_open_position ___________
+tests/test_core_medium_reversal.py:68: in test_reversal_flat_confirmation_rejects_any_open_position
+    assert trader._reversal_flat_confirmed(None, old) is True
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'trader' has no attribute '_reversal_flat_confirmed'
+________________ test_handle_new_entry_blocks_thesis_before_gpt ________________
+tests/test_core_reentry_thesis.py:267: in test_handle_new_entry_blocks_thesis_before_gpt
+    assert attempt["reason"] == "ai_close_thesis_not_recovered"
+E   AssertionError: assert 'invalid_gemi...try_candidate' == 'ai_close_the...not_recovered'
+E     
+E     - ai_close_thesis_not_recovered
+E     + invalid_gemini_entry_candidate
+_________ test_approved_reversal_closes_then_enters_under_same_commit __________
+tests/test_core_reversal_anti_churn.py:94: in test_approved_reversal_closes_then_enters_under_same_commit
+    ok = trader._execute_approved_entry_with_optional_reversal(
+trader.py:4008: in _execute_approved_entry_with_optional_reversal
+    if not _replacement_entry_allowed("pre_close"):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+trader.py:3976: in _replacement_entry_allowed
+    if _reentry_blocked(state,symbol,cfg,action)[0]:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+trader.py:692: in _reentry_blocked
+    symbol_state = state.snapshot()["symbols"].get(symbol, {})
+                   ^^^^^^^^^^^^^^
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'snapshot'
+__________ test_reversal_stale_approved_price_keeps_existing_position __________
+tests/test_core_reversal_anti_churn.py:112: in test_reversal_stale_approved_price_keeps_existing_position
+    ok = trader._execute_approved_entry_with_optional_reversal(
+trader.py:4008: in _execute_approved_entry_with_optional_reversal
+    if not _replacement_entry_allowed("pre_close"):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+trader.py:3976: in _replacement_entry_allowed
+    if _reentry_blocked(state,symbol,cfg,action)[0]:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+trader.py:692: in _reentry_blocked
+    symbol_state = state.snapshot()["symbols"].get(symbol, {})
+                   ^^^^^^^^^^^^^^
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'snapshot'
+_________ test_post_close_daily_loss_recheck_stays_flat_without_entry __________
+tests/test_core_reversal_anti_churn.py:173: in test_post_close_daily_loss_recheck_stays_flat_without_entry
+    ok = trader._execute_approved_entry_with_optional_reversal(
+trader.py:4008: in _execute_approved_entry_with_optional_reversal
+    if not _replacement_entry_allowed("pre_close"):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+trader.py:3976: in _replacement_entry_allowed
+    if _reentry_blocked(state,symbol,cfg,action)[0]:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+trader.py:692: in _reentry_blocked
+    symbol_state = state.snapshot()["symbols"].get(symbol, {})
+                   ^^^^^^^^^^^^^^
+E   AttributeError: 'types.SimpleNamespace' object has no attribute 'snapshot'
+____________ test_negative_learning_hold_blocks_only_approved_order ____________
+tests/test_core_self_learning_gate.py:69: in test_negative_learning_hold_blocks_only_approved_order
+    assert executed==[]
+E   AssertionError: assert [((namespace(...egime', ...})] == []
+E     
+E     Left contains one more item: ((namespace(user_dir='/private/var/folders/xb/bhbygp0j4dj3xwcycv7hwkl40000gn/T/pytest-of-bagmingi/pytest-34/test_negat...reversal_position': None, 'market_regime': 'bullish', 'regime_confidence': 0.8, 'trade_alignment': 'with_regime', ...})
+E     Use -v to get more diff
+______ test_core_helpers_apply_size_before_gpt_and_require_080_for_score2 ______
+tests/test_entry_risk_score_v1.py:31: in test_core_helpers_apply_size_before_gpt_and_require_080_for_score2
+    assert adj["amount"] == 5.0
+E   assert 10.0 == 5.0
+_______________ ControllerTests.test_duplicate_does_not_resubmit _______________
+tests/test_live.py:90: in test_duplicate_does_not_resubmit
+    self.assertEqual(self.store.state('X'),before)
+E   AssertionError: {'bas[1391 chars]on': 4, 'risk_budget': '200', 'side': 'long', [57 chars]100'} != {'bas[1391 chars]on': 3, 'risk_budget': '200', 'side': 'long', [57 chars]100'}
+E   Diff is 2547 characters long. Set self.maxDiff to None to see it.
+------------------------------ Captured log call -------------------------------
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 1/3차 · 단계=protection_install 사유=TypeError
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 2/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 3/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 1/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 2/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 3/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+_______ ControllerTests.test_entry25_bound_actual_identity_and_protected _______
+tests/test_live.py:67: in test_entry25_bound_actual_identity_and_protected
+    self.assertEqual(self.run_entry()['status'],'complete')
+E   AssertionError: 'reconciling' != 'complete'
+E   - reconciling
+E   + complete
+------------------------------ Captured log call -------------------------------
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 1/3차 · 단계=protection_install 사유=TypeError
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 2/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 3/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+______ ControllerTests.test_external_stop_exact_fill_proof_releases_flat _______
+tests/test_live.py:99: in test_external_stop_exact_fill_proof_releases_flat
+    self.assertEqual(self.run_entry()['status'],'complete')
+E   AssertionError: 'reconciling' != 'complete'
+E   - reconciling
+E   + complete
+------------------------------ Captured log call -------------------------------
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 1/3차 · 단계=protection_install 사유=TypeError
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 2/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 3/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+_______________ EmergencyTests.test_duplicate_does_not_resubmit ________________
+tests/test_live.py:90: in test_duplicate_does_not_resubmit
+    self.assertEqual(self.store.state('X'),before)
+E   AssertionError: {'bas[1391 chars]on': 4, 'risk_budget': '200', 'side': 'long', [57 chars]100'} != {'bas[1391 chars]on': 3, 'risk_budget': '200', 'side': 'long', [57 chars]100'}
+E   Diff is 2547 characters long. Set self.maxDiff to None to see it.
+------------------------------ Captured log call -------------------------------
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 1/3차 · 단계=protection_install 사유=TypeError
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 2/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 3/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 1/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 2/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 3/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+_______ EmergencyTests.test_entry25_bound_actual_identity_and_protected ________
+tests/test_live.py:67: in test_entry25_bound_actual_identity_and_protected
+    self.assertEqual(self.run_entry()['status'],'complete')
+E   AssertionError: 'reconciling' != 'complete'
+E   - reconciling
+E   + complete
+------------------------------ Captured log call -------------------------------
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 1/3차 · 단계=protection_install 사유=TypeError
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 2/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 3/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+_______ EmergencyTests.test_external_stop_exact_fill_proof_releases_flat _______
+tests/test_live.py:99: in test_external_stop_exact_fill_proof_releases_flat
+    self.assertEqual(self.run_entry()['status'],'complete')
+E   AssertionError: 'reconciling' != 'complete'
+E   - reconciling
+E   + complete
+------------------------------ Captured log call -------------------------------
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 1/3차 · 단계=protection_install 사유=TypeError
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 2/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 3/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+______ EmergencyTests.test_known_emergency_flat_resolves_original_pending ______
+tests/test_live.py:166: in test_known_emergency_flat_resolves_original_pending
+    self.store.reserve('X',intent,state['revision']); self.store.mark_terminal(intent['id'],0)
+                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+core_unified_store.py:136: in mark_terminal
+    raise ValueError('unexpected_terminal')
+E   ValueError: unexpected_terminal
+------------------------------ Captured log call -------------------------------
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 1/3차 · 단계=protection_install 사유=TypeError
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 2/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 3/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+___ EmergencyTests.test_terminal_emergency_partial_releases_manual_residual ____
+tests/test_live.py:186: in test_terminal_emergency_partial_releases_manual_residual
+    self.store.reserve('X',intent,state['revision']); self.store.mark_terminal(intent['id'],0)
+                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+core_unified_store.py:136: in mark_terminal
+    raise ValueError('unexpected_terminal')
+E   ValueError: unexpected_terminal
+------------------------------ Captured log call -------------------------------
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 1/3차 · 단계=protection_install 사유=TypeError
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 2/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+WARNING  core_unified_live:core_unified_live.py:192 [X] 손절 보호주문 확인 지연 · 3/3차 · 단계=protection_confirm 사유=unknown_identity_or_orders
+________ test_fixed_margin_auto_exit_risk_cap_reduces_actual_order_size ________
+tests/test_priority_2_5.py:36: in test_fixed_margin_auto_exit_risk_cap_reduces_actual_order_size
+    assert d['active'] is True and d['blocked'] is False
+E   assert (True is True and True is False)
+_________ ServiceTests.test_control_change_discards_finished_approval __________
+tests/test_service.py:53: in test_control_change_discards_finished_approval
+    c.tick(); candidate=broker.offer.call_args.args[0]
+    ^^^^^^^^
+core_unified_service.py:140: in tick
+    for event in self.broker.drain_events():
+E   TypeError: 'Mock' object is not iterable
+____ ServiceTests.test_waiting_ai_does_not_block_risk_and_stop_invalidates _____
+tests/test_service.py:41: in test_waiting_ai_does_not_block_risk_and_stop_invalidates
+    coordinator.tick(); coordinator.tick()
+    ^^^^^^^^^^^^^^^^^^
+core_unified_service.py:140: in tick
+    for event in self.broker.drain_events():
+E   TypeError: 'Mock' object is not iterable
+___________ test_core_auto_all_risk_caps_size_and_uses_adaptive_exit ___________
+tests/test_unified_order_modes.py:38: in test_core_auto_all_risk_caps_size_and_uses_adaptive_exit
+    assert d['active'] is True and d['blocked'] is False
+E   assert (True is True and True is False)
+______ test_core_fixed_margin_auto_exit_keeps_fixed_size_but_adapts_exit _______
+tests/test_unified_order_modes.py:49: in test_core_fixed_margin_auto_exit_keeps_fixed_size_but_adapts_exit
+    assert d['active'] is True and d['blocked'] is False
+E   assert (True is True and True is False)
+=========================== short test summary info ============================
+FAILED tests/test_ai_adaptive_exit_plan.py::test_apply_ai_price_plan_long_replaces_prices_and_recomputes_risk_size
+FAILED tests/test_ai_adaptive_exit_plan.py::test_apply_ai_price_plan_rejects_unsafe_geometry_and_keeps_baseline
+FAILED tests/test_ai_adaptive_exit_plan.py::test_apply_ai_price_plan_supports_short_direction
+FAILED tests/test_ai_adaptive_exit_plan.py::test_gemini_and_gpt_prompts_include_ai_exit_price_contract
+FAILED tests/test_ai_adaptive_exit_plan.py::test_ai_exit_plan_json_braces_are_safe_for_python_format_templates
+FAILED tests/test_ai_exit_price_contract.py::test_core_gpt_gate_forwards_exit_price_contract
+FAILED tests/test_core_exit_mode_selector.py::test_auto_mode_uses_adaptive_live_entry
+FAILED tests/test_core_manual_entry_cooldown_ui.py::test_manual_entry_after_elapsed_cooldown_bypasses_ai_fresh_bar_only
+FAILED tests/test_core_medium_reversal.py::test_medium_reversal_accepts_confirmed_long_to_short
+FAILED tests/test_core_medium_reversal.py::test_medium_reversal_rejects_low_gemini_confidence
+FAILED tests/test_core_medium_reversal.py::test_medium_reversal_rejects_low_gpt_confidence
+FAILED tests/test_core_medium_reversal.py::test_medium_reversal_rejects_unconfirmed_5m_weakness
+FAILED tests/test_core_medium_reversal.py::test_medium_reversal_is_only_long_to_short
+FAILED tests/test_core_medium_reversal.py::test_reversal_flat_confirmation_rejects_any_open_position
+FAILED tests/test_core_reentry_thesis.py::test_handle_new_entry_blocks_thesis_before_gpt
+FAILED tests/test_core_reversal_anti_churn.py::test_approved_reversal_closes_then_enters_under_same_commit
+FAILED tests/test_core_reversal_anti_churn.py::test_reversal_stale_approved_price_keeps_existing_position
+FAILED tests/test_core_reversal_anti_churn.py::test_post_close_daily_loss_recheck_stays_flat_without_entry
+FAILED tests/test_core_self_learning_gate.py::test_negative_learning_hold_blocks_only_approved_order
+FAILED tests/test_entry_risk_score_v1.py::test_core_helpers_apply_size_before_gpt_and_require_080_for_score2
+FAILED tests/test_live.py::ControllerTests::test_duplicate_does_not_resubmit
+FAILED tests/test_live.py::ControllerTests::test_entry25_bound_actual_identity_and_protected
+FAILED tests/test_live.py::ControllerTests::test_external_stop_exact_fill_proof_releases_flat
+FAILED tests/test_live.py::EmergencyTests::test_duplicate_does_not_resubmit
+FAILED tests/test_live.py::EmergencyTests::test_entry25_bound_actual_identity_and_protected
+FAILED tests/test_live.py::EmergencyTests::test_external_stop_exact_fill_proof_releases_flat
+FAILED tests/test_live.py::EmergencyTests::test_known_emergency_flat_resolves_original_pending
+FAILED tests/test_live.py::EmergencyTests::test_terminal_emergency_partial_releases_manual_residual
+FAILED tests/test_priority_2_5.py::test_fixed_margin_auto_exit_risk_cap_reduces_actual_order_size
+FAILED tests/test_service.py::ServiceTests::test_control_change_discards_finished_approval
+FAILED tests/test_service.py::ServiceTests::test_waiting_ai_does_not_block_risk_and_stop_invalidates
+FAILED tests/test_unified_order_modes.py::test_core_auto_all_risk_caps_size_and_uses_adaptive_exit
+FAILED tests/test_unified_order_modes.py::test_core_fixed_margin_auto_exit_keeps_fixed_size_but_adapts_exit
+33 failed, 819 passed, 27 subtests passed in 8.42s

@@ -1,0 +1,94 @@
+..............FFFF..........................FFFFFF.....................  [100%]
+=================================== FAILURES ===================================
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:88: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert len(client.orders)==1
+E   assert 0 == 1
+E    +  where 0 = len([])
+E    +    where [] = <test_core_entry_pipeline.Client object at 0x112b2c110>.orders
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6745 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:88: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert len(client.orders)==1
+E   assert 0 == 1
+E    +  where 0 = len([])
+E    +    where [] = <test_core_entry_pipeline.Client object at 0x11267d090>.orders
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6745 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:88: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert len(client.orders)==1
+E   assert 0 == 1
+E    +  where 0 = len([])
+E    +    where [] = <test_core_entry_pipeline.Client object at 0x112a5a010>.orders
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6745 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:88: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert len(client.orders)==1
+E   assert 0 == 1
+E    +  where 0 = len([])
+E    +    where [] = <test_core_entry_pipeline.Client object at 0x112cc8810>.orders
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6745 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+______ test_revised_gpt_prices_and_tp2_rr_flow_through_final_order[long] _______
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:126: in test_revised_gpt_prices_and_tp2_rr_flow_through_final_order
+    assert len(client.orders)==1
+E   assert 0 == 1
+E    +  where 0 = len([])
+E    +    where [] = <test_core_entry_pipeline.Client object at 0x112b183d0>.orders
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6745 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+______ test_revised_gpt_prices_and_tp2_rr_flow_through_final_order[short] ______
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:126: in test_revised_gpt_prices_and_tp2_rr_flow_through_final_order
+    assert len(client.orders)==1
+E   assert 0 == 1
+E    +  where 0 = len([])
+E    +    where [] = <test_core_entry_pipeline.Client object at 0x1129c30d0>.orders
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6745 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+______________ test_timeout_never_uses_fabricated_gpt_plan[long] _______________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:135: in test_timeout_never_uses_fabricated_gpt_plan
+    assert len(client.orders)==1
+E   assert 0 == 1
+E    +  where 0 = len([])
+E    +    where [] = <test_core_entry_pipeline.Client object at 0x112cc9ed0>.orders
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6745 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+______________ test_timeout_never_uses_fabricated_gpt_plan[short] ______________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:135: in test_timeout_never_uses_fabricated_gpt_plan
+    assert len(client.orders)==1
+E   assert 0 == 1
+E    +  where 0 = len([])
+E    +    where [] = <test_core_entry_pipeline.Client object at 0x11296e610>.orders
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6745 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+__________ test_ambiguous_exchange_ack_is_queried_and_not_resubmitted __________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:144: in test_ambiguous_exchange_ack_is_queried_and_not_resubmitted
+    assert client.queries
+E   assert []
+E    +  where [] = <test_core_entry_pipeline.Client object at 0x1129e4850>.queries
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6745 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_________ test_accepted_pending_order_is_not_reported_failed_or_filled _________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:154: in test_accepted_pending_order_is_not_reported_failed_or_filled
+    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='ORDER_PENDING'
+E   AssertionError: assert 'LOCAL_BLOCKED' == 'ORDER_PENDING'
+E     
+E     - ORDER_PENDING
+E     + LOCAL_BLOCKED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6745 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+=========================== short test summary info ============================
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_revised_gpt_prices_and_tp2_rr_flow_through_final_order[long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_revised_gpt_prices_and_tp2_rr_flow_through_final_order[short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_timeout_never_uses_fabricated_gpt_plan[long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_timeout_never_uses_fabricated_gpt_plan[short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_ambiguous_exchange_ack_is_queried_and_not_resubmitted
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_accepted_pending_order_is_not_reported_failed_or_filled
+10 failed, 61 passed in 0.40s

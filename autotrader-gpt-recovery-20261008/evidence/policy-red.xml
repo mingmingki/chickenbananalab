@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="12" skipped="0" tests="21" time="0.186" timestamp="2026-10-08T16:17:05.472006+09:00" hostname="bagmingiui-MacBookPro.local"><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_confirmed_entry_timeout_bypasses_without_forged_approval[long]" time="0.012"><failure message="assert (False)">autotrader-gpt-recovery-20261008/patch/tests/test_core_gpt_timeout_policy.py:31: in test_confirmed_entry_timeout_bypasses_without_forged_approval
+    assert allowed and status=='TIMEOUT_BYPASS'
+E   assert (False)</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_confirmed_entry_timeout_bypasses_without_forged_approval[short]" time="0.001"><failure message="assert (False)">autotrader-gpt-recovery-20261008/patch/tests/test_core_gpt_timeout_policy.py:31: in test_confirmed_entry_timeout_bypasses_without_forged_approval
+    assert allowed and status=='TIMEOUT_BYPASS'
+E   assert (False)</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_non_timeout_and_unproven_timeout_cannot_bypass[timeout-APIConnectionError]" time="0.001"><failure message="AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'&#10;  &#10;  - blocked_error&#10;  + blocked_reject)">autotrader-gpt-recovery-20261008/patch/tests/test_core_gpt_timeout_policy.py:41: in test_non_timeout_and_unproven_timeout_cannot_bypass
+    assert not allowed and status=='blocked_error'
+E   AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E     
+E     - blocked_error
+E     + blocked_reject)</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_non_timeout_and_unproven_timeout_cannot_bypass[api_error-APITimeoutError]" time="0.001"><failure message="AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'&#10;  &#10;  - blocked_error&#10;  + blocked_reject)">autotrader-gpt-recovery-20261008/patch/tests/test_core_gpt_timeout_policy.py:41: in test_non_timeout_and_unproven_timeout_cannot_bypass
+    assert not allowed and status=='blocked_error'
+E   AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E     
+E     - blocked_error
+E     + blocked_reject)</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_non_timeout_and_unproven_timeout_cannot_bypass[rate_limit-RateLimitError]" time="0.001"><failure message="AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'&#10;  &#10;  - blocked_error&#10;  + blocked_reject)">autotrader-gpt-recovery-20261008/patch/tests/test_core_gpt_timeout_policy.py:41: in test_non_timeout_and_unproven_timeout_cannot_bypass
+    assert not allowed and status=='blocked_error'
+E   AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E     
+E     - blocked_error
+E     + blocked_reject)</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_non_timeout_and_unproven_timeout_cannot_bypass[authentication_error-AuthenticationError]" time="0.001"><failure message="AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'&#10;  &#10;  - blocked_error&#10;  + blocked_reject)">autotrader-gpt-recovery-20261008/patch/tests/test_core_gpt_timeout_policy.py:41: in test_non_timeout_and_unproven_timeout_cannot_bypass
+    assert not allowed and status=='blocked_error'
+E   AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E     
+E     - blocked_error
+E     + blocked_reject)</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_non_timeout_and_unproven_timeout_cannot_bypass[parse_error-JSONDecodeError]" time="0.001"><failure message="AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'&#10;  &#10;  - blocked_error&#10;  + blocked_reject)">autotrader-gpt-recovery-20261008/patch/tests/test_core_gpt_timeout_policy.py:41: in test_non_timeout_and_unproven_timeout_cannot_bypass
+    assert not allowed and status=='blocked_error'
+E   AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E     
+E     - blocked_error
+E     + blocked_reject)</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_non_timeout_and_unproven_timeout_cannot_bypass[empty_response-None]" time="0.001"><failure message="AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'&#10;  &#10;  - blocked_error&#10;  + blocked_reject)">autotrader-gpt-recovery-20261008/patch/tests/test_core_gpt_timeout_policy.py:41: in test_non_timeout_and_unproven_timeout_cannot_bypass
+    assert not allowed and status=='blocked_error'
+E   AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E     
+E     - blocked_error
+E     + blocked_reject)</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_no_candidate_cannot_be_created_by_timeout[hold]" time="0.000" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_no_candidate_cannot_be_created_by_timeout[close]" time="0.000" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_no_candidate_cannot_be_created_by_timeout[None]" time="0.000" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_timeout_policy_does_not_apply_to_candidate_c[DOGE/USDT:USDT]" time="0.001"><failure message="AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'&#10;  &#10;  - blocked_error&#10;  + blocked_reject)">autotrader-gpt-recovery-20261008/patch/tests/test_core_gpt_timeout_policy.py:53: in test_timeout_policy_does_not_apply_to_candidate_c
+    assert not allowed and status=='blocked_error'
+E   AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E     
+E     - blocked_error
+E     + blocked_reject)</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_timeout_policy_does_not_apply_to_candidate_c[SOL/USDT:USDT]" time="0.001"><failure message="AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'&#10;  &#10;  - blocked_error&#10;  + blocked_reject)">autotrader-gpt-recovery-20261008/patch/tests/test_core_gpt_timeout_policy.py:53: in test_timeout_policy_does_not_apply_to_candidate_c
+    assert not allowed and status=='blocked_error'
+E   AssertionError: assert (not False and 'blocked_reject' == 'blocked_error'
+E     
+E     - blocked_error
+E     + blocked_reject)</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_wait_reject_still_block[wait]" time="0.000" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_wait_reject_still_block[reject]" time="0.000" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_invalid_timeout_candidate_still_blocks[no_marker]" time="0.000" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_invalid_timeout_candidate_still_blocks[wrong_purpose]" time="0.000" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_invalid_timeout_candidate_still_blocks[missing_confidence]" time="0.000" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_invalid_timeout_candidate_still_blocks[gemini_error]" time="0.000" /><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_sdk_timeout_retains_typed_original_provenance" time="0.004"><failure message="AssertionError: assert None == 'TIMEOUT'">autotrader-gpt-recovery-20261008/patch/tests/test_core_gpt_timeout_policy.py:82: in test_sdk_timeout_retains_typed_original_provenance
+    assert result['decision']=='TIMEOUT'
+E   AssertionError: assert None == 'TIMEOUT'</failure></testcase><testcase classname="autotrader-gpt-recovery-20261008.patch.tests.test_core_gpt_timeout_policy" name="test_paid_observation_shadow_off_by_default" time="0.001"><failure message="AssertionError: assert not [{'target': &lt;function _run_shadow_verification at 0x11112eb60&gt;, 'args': (&lt;config.UserConfig object at 0x1115183d0&gt;, 'ETH/USDT:USDT', [], '', None, {'action': 'long'}, ...), 'daemon': True}]">autotrader-gpt-recovery-20261008/patch/tests/test_core_gpt_timeout_policy.py:96: in test_paid_observation_shadow_off_by_default
+    assert not calls
+E   AssertionError: assert not [{'target': &lt;function _run_shadow_verification at 0x11112eb60&gt;, 'args': (&lt;config.UserConfig object at 0x1115183d0&gt;, 'ETH/USDT:USDT', [], '', None, {'action': 'long'}, ...), 'daemon': True}]</failure></testcase></testsuite></testsuites>

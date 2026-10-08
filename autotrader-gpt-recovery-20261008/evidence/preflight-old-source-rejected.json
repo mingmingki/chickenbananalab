@@ -1,0 +1,68 @@
+{
+  "source_hashes_match": false,
+  "deployment_qualified": false,
+  "files": [
+    {
+      "file": "adaptive_exit_engine.py",
+      "expected": "12639d488865e879632900021050760564f53b74649fd72579ff32e43c30da35",
+      "actual": "0358dc49ec9d9389a7b7d68596146c8c9a44dabbe9715fb9664fda3b560a4c6c",
+      "matched": false
+    },
+    {
+      "file": "config.py",
+      "expected": "100e4d98a3a0d0c0914cf04cb2c3b1ab6bac4ae6e7fb8f58a5cd0181ec13f45c",
+      "actual": "100e4d98a3a0d0c0914cf04cb2c3b1ab6bac4ae6e7fb8f58a5cd0181ec13f45c",
+      "matched": true
+    },
+    {
+      "file": "gpt_shadow_log.py",
+      "expected": "719396102d418f803302ab2fb9d56a750c162423ca0b65641796fe961f39e91c",
+      "actual": "719396102d418f803302ab2fb9d56a750c162423ca0b65641796fe961f39e91c",
+      "matched": true
+    },
+    {
+      "file": "okx_client.py",
+      "expected": "061095b18b9053344e4e2dcd23c11a23c0a9a1028b2cb3dd8230bb1a3ace459e",
+      "actual": "061095b18b9053344e4e2dcd23c11a23c0a9a1028b2cb3dd8230bb1a3ace459e",
+      "matched": true
+    },
+    {
+      "file": "openai_analyzer.py",
+      "expected": "b4cdf0ccfe66b705e19bde888c94334760c1f255008ed8b670559e3af84fd62c",
+      "actual": "b4cdf0ccfe66b705e19bde888c94334760c1f255008ed8b670559e3af84fd62c",
+      "matched": true
+    },
+    {
+      "file": "telegram_notify.py",
+      "expected": "359cb114c8495db9aca37898f7e2109716784d8c669696e9ae71b48f2dc8591e",
+      "actual": "359cb114c8495db9aca37898f7e2109716784d8c669696e9ae71b48f2dc8591e",
+      "matched": true
+    },
+    {
+      "file": "templates/dashboard.html",
+      "expected": "58f1c7ae0398a89ee867ffe618b5ffcae50ec5b36590fe2e64779592983b8ea1",
+      "actual": "58f1c7ae0398a89ee867ffe618b5ffcae50ec5b36590fe2e64779592983b8ea1",
+      "matched": true
+    },
+    {
+      "file": "trader.py",
+      "expected": "c6431dd805d8bb7f7f6e729993c89194e27c0b432cda104a86ef94973f74a318",
+      "actual": "d817fb653fb4fc2fe31b10a061cd64bb628e7df7b99bf5aefc3c848930496645",
+      "matched": false
+    },
+    {
+      "file": "web_app.py",
+      "expected": "78b081ace8109fd17e1e4cc53bbe42298d65a2ce62a0b5eb3c94a62c45add468",
+      "actual": "78b081ace8109fd17e1e4cc53bbe42298d65a2ce62a0b5eb3c94a62c45add468",
+      "matched": true
+    }
+  ],
+  "blockers": [
+    "Fresh running release/source/account/ownership audit unavailable",
+    "Complete v4/runtime dependencies and current full regression suite unavailable",
+    "Oct5 comparison suite has baseline and candidate failures; not production qualification",
+    "Actual Oct8 decision/lifecycle logs unavailable; ETH incident attribution unconfirmed",
+    "Current account Telegram destination/send success and protection audit unavailable",
+    "Existing GCP network/auth refresh and SSH access blocked"
+  ]
+}

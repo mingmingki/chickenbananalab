@@ -1,0 +1,160 @@
+FFFFFFFFFFFFFF                                                           [100%]
+=================================== FAILURES ===================================
+___________ test_formatter_keeps_raw_timeout_gate_and_order_separate ___________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:28: in test_formatter_keeps_raw_timeout_gate_and_order_separate
+    assert callable(formatter), 'structured CORE formatter missing'
+E   AssertionError: structured CORE formatter missing
+E   assert False
+E    +  where False = callable(None)
+_________ test_each_result_has_one_durable_notification[GPT_APPROVED] __________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:37: in test_each_result_has_one_durable_notification
+    e=events();c=cfg(tmp_path)
+      ^^^^^^^^
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:10: in events
+    assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E   AssertionError: durable CORE events missing
+E   assert None
+E    +  where None = <function find_spec at 0x1059d7060>('core_entry_events')
+E    +    where <function find_spec at 0x1059d7060> = <module 'importlib.util' (frozen)>.find_spec
+E    +      where <module 'importlib.util' (frozen)> = importlib.util
+___________ test_each_result_has_one_durable_notification[GPT_WAIT] ____________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:37: in test_each_result_has_one_durable_notification
+    e=events();c=cfg(tmp_path)
+      ^^^^^^^^
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:10: in events
+    assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E   AssertionError: durable CORE events missing
+E   assert None
+E    +  where None = <function find_spec at 0x1059d7060>('core_entry_events')
+E    +    where <function find_spec at 0x1059d7060> = <module 'importlib.util' (frozen)>.find_spec
+E    +      where <module 'importlib.util' (frozen)> = importlib.util
+__________ test_each_result_has_one_durable_notification[GPT_REJECT] ___________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:37: in test_each_result_has_one_durable_notification
+    e=events();c=cfg(tmp_path)
+      ^^^^^^^^
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:10: in events
+    assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E   AssertionError: durable CORE events missing
+E   assert None
+E    +  where None = <function find_spec at 0x1059d7060>('core_entry_events')
+E    +    where <function find_spec at 0x1059d7060> = <module 'importlib.util' (frozen)>.find_spec
+E    +      where <module 'importlib.util' (frozen)> = importlib.util
+___________ test_each_result_has_one_durable_notification[GPT_ERROR] ___________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:37: in test_each_result_has_one_durable_notification
+    e=events();c=cfg(tmp_path)
+      ^^^^^^^^
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:10: in events
+    assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E   AssertionError: durable CORE events missing
+E   assert None
+E    +  where None = <function find_spec at 0x1059d7060>('core_entry_events')
+E    +    where <function find_spec at 0x1059d7060> = <module 'importlib.util' (frozen)>.find_spec
+E    +      where <module 'importlib.util' (frozen)> = importlib.util
+________ test_each_result_has_one_durable_notification[TIMEOUT_BYPASS] _________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:37: in test_each_result_has_one_durable_notification
+    e=events();c=cfg(tmp_path)
+      ^^^^^^^^
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:10: in events
+    assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E   AssertionError: durable CORE events missing
+E   assert None
+E    +  where None = <function find_spec at 0x1059d7060>('core_entry_events')
+E    +    where <function find_spec at 0x1059d7060> = <module 'importlib.util' (frozen)>.find_spec
+E    +      where <module 'importlib.util' (frozen)> = importlib.util
+_________ test_each_result_has_one_durable_notification[LOCAL_BLOCKED] _________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:37: in test_each_result_has_one_durable_notification
+    e=events();c=cfg(tmp_path)
+      ^^^^^^^^
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:10: in events
+    assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E   AssertionError: durable CORE events missing
+E   assert None
+E    +  where None = <function find_spec at 0x1059d7060>('core_entry_events')
+E    +    where <function find_spec at 0x1059d7060> = <module 'importlib.util' (frozen)>.find_spec
+E    +      where <module 'importlib.util' (frozen)> = importlib.util
+________ test_each_result_has_one_durable_notification[ORDER_SUBMITTED] ________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:37: in test_each_result_has_one_durable_notification
+    e=events();c=cfg(tmp_path)
+      ^^^^^^^^
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:10: in events
+    assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E   AssertionError: durable CORE events missing
+E   assert None
+E    +  where None = <function find_spec at 0x1059d7060>('core_entry_events')
+E    +    where <function find_spec at 0x1059d7060> = <module 'importlib.util' (frozen)>.find_spec
+E    +      where <module 'importlib.util' (frozen)> = importlib.util
+_________ test_each_result_has_one_durable_notification[ORDER_PENDING] _________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:37: in test_each_result_has_one_durable_notification
+    e=events();c=cfg(tmp_path)
+      ^^^^^^^^
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:10: in events
+    assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E   AssertionError: durable CORE events missing
+E   assert None
+E    +  where None = <function find_spec at 0x1059d7060>('core_entry_events')
+E    +    where <function find_spec at 0x1059d7060> = <module 'importlib.util' (frozen)>.find_spec
+E    +      where <module 'importlib.util' (frozen)> = importlib.util
+____________ test_each_result_has_one_durable_notification[FILLED] _____________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:37: in test_each_result_has_one_durable_notification
+    e=events();c=cfg(tmp_path)
+      ^^^^^^^^
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:10: in events
+    assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E   AssertionError: durable CORE events missing
+E   assert None
+E    +  where None = <function find_spec at 0x1059d7060>('core_entry_events')
+E    +    where <function find_spec at 0x1059d7060> = <module 'importlib.util' (frozen)>.find_spec
+E    +      where <module 'importlib.util' (frozen)> = importlib.util
+_________ test_each_result_has_one_durable_notification[ORDER_FAILED] __________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:37: in test_each_result_has_one_durable_notification
+    e=events();c=cfg(tmp_path)
+      ^^^^^^^^
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:10: in events
+    assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E   AssertionError: durable CORE events missing
+E   assert None
+E    +  where None = <function find_spec at 0x1059d7060>('core_entry_events')
+E    +    where <function find_spec at 0x1059d7060> = <module 'importlib.util' (frozen)>.find_spec
+E    +      where <module 'importlib.util' (frozen)> = importlib.util
+______________ test_followup_status_is_connected_to_same_decision ______________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:50: in test_followup_status_is_connected_to_same_decision
+    e=events();c=cfg(tmp_path);sent=[]
+      ^^^^^^^^
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:10: in events
+    assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E   AssertionError: durable CORE events missing
+E   assert None
+E    +  where None = <function find_spec at 0x1059d7060>('core_entry_events')
+E    +    where <function find_spec at 0x1059d7060> = <module 'importlib.util' (frozen)>.find_spec
+E    +      where <module 'importlib.util' (frozen)> = importlib.util
+______ test_notification_timeout_does_not_escape_or_duplicate_on_restart _______
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:60: in test_notification_timeout_does_not_escape_or_duplicate_on_restart
+    e=events();c=cfg(tmp_path);sent=[]
+      ^^^^^^^^
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:10: in events
+    assert importlib.util.find_spec('core_entry_events'), 'durable CORE events missing'
+E   AssertionError: durable CORE events missing
+E   assert None
+E    +  where None = <function find_spec at 0x1059d7060>('core_entry_events')
+E    +    where <function find_spec at 0x1059d7060> = <module 'importlib.util' (frozen)>.find_spec
+E    +      where <module 'importlib.util' (frozen)> = importlib.util
+_________________ test_telegram_http_200_ok_false_is_a_failure _________________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py:77: in test_telegram_http_200_ok_false_is_a_failure
+    with pytest.raises(Exception):
+E   Failed: DID NOT RAISE Exception
+=========================== short test summary info ============================
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py::test_formatter_keeps_raw_timeout_gate_and_order_separate
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[GPT_APPROVED]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[GPT_WAIT]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[GPT_REJECT]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[GPT_ERROR]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[TIMEOUT_BYPASS]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[LOCAL_BLOCKED]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[ORDER_SUBMITTED]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[ORDER_PENDING]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[FILLED]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py::test_each_result_has_one_durable_notification[ORDER_FAILED]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py::test_followup_status_is_connected_to_same_decision
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py::test_notification_timeout_does_not_escape_or_duplicate_on_restart
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_notifications.py::test_telegram_http_200_ok_false_is_a_failure
+14 failed in 0.16s

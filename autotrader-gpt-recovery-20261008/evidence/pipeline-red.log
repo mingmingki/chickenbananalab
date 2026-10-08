@@ -1,0 +1,281 @@
+FFFF......FFFFFFFFFFFFFFFFFFFF....FF                                     [100%]
+=================================== FAILURES ===================================
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:90: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
+E   AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'
+E     
+E     - FILLED
+E     + ORDER_EXECUTED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:90: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
+E   AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'
+E     
+E     - FILLED
+E     + ORDER_EXECUTED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:90: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
+E   AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'
+E     
+E     - FILLED
+E     + ORDER_EXECUTED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:90: in test_valid_approval_or_timeout_reaches_actual_order_and_protection
+    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='FILLED'
+E   AssertionError: assert 'ORDER_EXECUTED' == 'FILLED'
+E     
+E     - FILLED
+E     + ORDER_EXECUTED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-approved-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5705 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=entry_signal_or_approval_expired
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-approved-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5705 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=entry_signal_or_approval_expired
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-timeout-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5705 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=entry_signal_or_approval_expired
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-timeout-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5705 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=entry_signal_or_approval_expired
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-approved-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5705 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=exchange_minimum_exceeds_risk_budget
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-approved-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5705 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=exchange_minimum_exceeds_risk_budget
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-timeout-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5705 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=exchange_minimum_exceeds_risk_budget
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-timeout-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5705 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=exchange_minimum_exceeds_risk_budget
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-approved-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:3974 [ETH/USDT:USDT] ENTRY_REVALIDATION_ABORT post_gpt: daily loss guard blocked
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-approved-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:3974 [ETH/USDT:USDT] ENTRY_REVALIDATION_ABORT post_gpt: daily loss guard blocked
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-timeout-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:3974 [ETH/USDT:USDT] ENTRY_REVALIDATION_ABORT post_gpt: daily loss guard blocked
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-timeout-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:3974 [ETH/USDT:USDT] ENTRY_REVALIDATION_ABORT post_gpt: daily loss guard blocked
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-approved-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5705 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=entry_late_exhaustion_no_pullback
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-approved-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5705 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=entry_late_exhaustion_no_pullback
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-timeout-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5705 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=entry_late_exhaustion_no_pullback
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-timeout-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+WARNING  pipeline-test:trader.py:5705 [ETH/USDT:USDT] FINAL_ENTRY_BLOCK reason=entry_late_exhaustion_no_pullback
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-approved-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-approved-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-timeout-long] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+_ test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-timeout-short] _
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:115: in test_final_local_block_stays_specific_and_never_becomes_order_failure
+    assert attempt['status']=='LOCAL_BLOCKED'
+E   AssertionError: assert 'ORDER_FAILED' == 'LOCAL_BLOCKED'
+E     
+E     - LOCAL_BLOCKED
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+__________ test_ambiguous_exchange_ack_is_queried_and_not_resubmitted __________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:144: in test_ambiguous_exchange_ack_is_queried_and_not_resubmitted
+    assert client.queries
+E   assert []
+E    +  where [] = <test_core_entry_pipeline.Client object at 0x1106154d0>.queries
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+CRITICAL pipeline-test:order_safety.py:213 [ETH/USDT:USDT] UNKNOWN_ORDER_STATE - 주문 응답 불확실(offline lost acknowledgement) - 신규 진입 동결 + 거래소 상태 확인
+WARNING  pipeline-test:order_safety.py:239 [ETH/USDT:USDT] UNKNOWN_ORDER_STATE reconciliation: 포지션+보호주문 정상 확인 - 거래 기록 복구, kill switch는 유지
+_________ test_accepted_pending_order_is_not_reported_failed_or_filled _________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:154: in test_accepted_pending_order_is_not_reported_failed_or_filled
+    assert s.symbols[SYMBOL]['last_entry_attempt']['status']=='ORDER_PENDING'
+E   AssertionError: assert 'ORDER_FAILED' == 'ORDER_PENDING'
+E     
+E     - ORDER_PENDING
+E     + ORDER_FAILED
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6641 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+ERROR    pipeline-test:trader.py:5726 [ETH/USDT:USDT] PROTECTION_FAILED(position_missing) - 안전 청산 + kill switch
+=========================== short test summary info ============================
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[approved-short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_valid_approval_or_timeout_reaches_actual_order_and_protection[timeout-short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-approved-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-approved-short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-timeout-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[expired-timeout-short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-approved-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-approved-short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-timeout-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[minimum-timeout-short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-approved-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-approved-short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-timeout-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[daily_loss-timeout-short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-approved-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-approved-short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-timeout-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[chase-timeout-short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-approved-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-approved-short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-timeout-long]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_final_local_block_stays_specific_and_never_becomes_order_failure[drift-timeout-short]
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_ambiguous_exchange_ack_is_queried_and_not_resubmitted
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_accepted_pending_order_is_not_reported_failed_or_filled
+26 failed, 10 passed in 0.31s

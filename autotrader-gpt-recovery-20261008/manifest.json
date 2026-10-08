@@ -1,0 +1,57 @@
+{
+  "scope": "Archived v4 legacy CORE entry + Oct5 support modules; actual LIVE unverified",
+  "deployment_qualified": false,
+  "deployment_blockers": [
+    "Fresh running release/source/account/ownership audit unavailable",
+    "Complete v4/runtime dependencies and current full regression suite unavailable",
+    "Oct5 comparison suite has baseline and candidate failures; not production qualification",
+    "Actual Oct8 decision/lifecycle logs unavailable; ETH incident attribution unconfirmed",
+    "Current account Telegram destination/send success and protection audit unavailable",
+    "Existing GCP network/auth refresh and SSH access blocked"
+  ],
+  "required_baseline_sha256": {
+    "adaptive_exit_engine.py": "12639d488865e879632900021050760564f53b74649fd72579ff32e43c30da35",
+    "config.py": "100e4d98a3a0d0c0914cf04cb2c3b1ab6bac4ae6e7fb8f58a5cd0181ec13f45c",
+    "gpt_shadow_log.py": "719396102d418f803302ab2fb9d56a750c162423ca0b65641796fe961f39e91c",
+    "okx_client.py": "061095b18b9053344e4e2dcd23c11a23c0a9a1028b2cb3dd8230bb1a3ace459e",
+    "openai_analyzer.py": "b4cdf0ccfe66b705e19bde888c94334760c1f255008ed8b670559e3af84fd62c",
+    "telegram_notify.py": "359cb114c8495db9aca37898f7e2109716784d8c669696e9ae71b48f2dc8591e",
+    "templates/dashboard.html": "58f1c7ae0398a89ee867ffe618b5ffcae50ec5b36590fe2e64779592983b8ea1",
+    "trader.py": "c6431dd805d8bb7f7f6e729993c89194e27c0b432cda104a86ef94973f74a318",
+    "web_app.py": "78b081ace8109fd17e1e4cc53bbe42298d65a2ce62a0b5eb3c94a62c45add468"
+  },
+  "new_source_files": {
+    "core_entry_events.py": "a8266a0e35d5823eb7ed9d5cd2fa5903da14c3fffbada880a61dac759ba8e30b",
+    "core_entry_orders.py": "e122ef403d2ae74a0d73842ac80433379fa2c0cc008a1d69219c343108aede1a",
+    "core_entry_policy.py": "ca0f8b95fa443249c900377a93d98341e11427fb7596b9dca83c9c2729d44ae3",
+    "static/core_entry_status.js": "30f6d9e774471f0aca17d80bfe32f6e71df0cc94f8d23c2d778d0e9231a3f44e",
+    "tests/conftest.py": "d04ae8e9924a3af5aa895a0fd088acf67c2b3895b7688b6abd775bf1fe36b63f",
+    "tests/test_core_entry_notifications.py": "791b69339ed10143cacb8236f4bdd969749e2290e6a4fae52bc2f367ea0522e4",
+    "tests/test_core_entry_pipeline.py": "b3d873d6973e15fb4458e30e7fc4236e4b7c76bd931369ae11c2c05a43d71390",
+    "tests/test_core_entry_ui_and_preservation.py": "14d4eb9999e8e54bd69943de3429b9bbde3a09eccd058fd76953464d6df6eaa3",
+    "tests/test_core_gpt_timeout_policy.py": "17f34c52aa7ab3fc22fcf94e7aaf126c14d60a8c8f690f530674d0ed8b8e3c68"
+  },
+  "candidate_sha256": {
+    "adaptive_exit_engine.py": "12639d488865e879632900021050760564f53b74649fd72579ff32e43c30da35",
+    "config.py": "b5ba2730705cc243040bdb4e06844956adcc9f67d2c9fff38386117c6059736d",
+    "core_entry_events.py": "a8266a0e35d5823eb7ed9d5cd2fa5903da14c3fffbada880a61dac759ba8e30b",
+    "core_entry_orders.py": "e122ef403d2ae74a0d73842ac80433379fa2c0cc008a1d69219c343108aede1a",
+    "core_entry_policy.py": "ca0f8b95fa443249c900377a93d98341e11427fb7596b9dca83c9c2729d44ae3",
+    "gpt_shadow_log.py": "e71b9829375ff099a4b6e733842f72c2958784b1371f795fadd1a1c69c31d073",
+    "okx_client.py": "ffcf6f437ebe4acbb2ef9d7811b14b675bc043ede701e6aaf911b03a5c111cab",
+    "openai_analyzer.py": "0482acb564fe84b312816d707a6af4be67ef0319797e5ed38a41f579bbee9302",
+    "static/core_entry_status.js": "30f6d9e774471f0aca17d80bfe32f6e71df0cc94f8d23c2d778d0e9231a3f44e",
+    "telegram_notify.py": "69b55c4727afc16c7cccaf17e821d5d7c2927c4065b34db798f0945bd601e989",
+    "templates/dashboard.html": "fb16986c8e16ec7edbc8e6445c97f3ef28fdb3635646667b032f22da0431a04a",
+    "tests/conftest.py": "d04ae8e9924a3af5aa895a0fd088acf67c2b3895b7688b6abd775bf1fe36b63f",
+    "tests/test_core_entry_notifications.py": "791b69339ed10143cacb8236f4bdd969749e2290e6a4fae52bc2f367ea0522e4",
+    "tests/test_core_entry_pipeline.py": "b3d873d6973e15fb4458e30e7fc4236e4b7c76bd931369ae11c2c05a43d71390",
+    "tests/test_core_entry_ui_and_preservation.py": "14d4eb9999e8e54bd69943de3429b9bbde3a09eccd058fd76953464d6df6eaa3",
+    "tests/test_core_gpt_timeout_policy.py": "17f34c52aa7ab3fc22fcf94e7aaf126c14d60a8c8f690f530674d0ed8b8e3c68",
+    "trader.py": "7144c8b479ec8140a420f4c3c2d46d559ccbc479ff11c9b990a1007ba6504034",
+    "web_app.py": "9df3d83fded45170b07f895eb604bff2bec49c273506a04534f3972ae95e1788"
+  },
+  "unchanged_dependency_sha256": {
+    "adaptive_exit_engine.py": "12639d488865e879632900021050760564f53b74649fd72579ff32e43c30da35"
+  }
+}

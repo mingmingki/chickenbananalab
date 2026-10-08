@@ -1,0 +1,16 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_pending_receipt_cannot_rebind_a_changed_position_lifecycle ________
+autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py:380: in test_pending_receipt_cannot_rebind_a_changed_position_lifecycle
+    assert before==after
+E   AssertionError: assert 'original:1000000:short' == 'original:2000000:short'
+E     
+E     - original:2000000:short
+E     ?          ^
+E     + original:1000000:short
+E     ?          ^
+------------------------------ Captured log call -------------------------------
+WARNING  pipeline-test:trader.py:6885 [ETH/USDT:USDT] ADAPTIVE_EXIT TP2_RR_RESCUE post_cost_rr=1.566 stop_fraction=7.500%
+=========================== short test summary info ============================
+FAILED autotrader-gpt-recovery-20261008/patch/tests/test_core_entry_pipeline.py::test_pending_receipt_cannot_rebind_a_changed_position_lifecycle
+1 failed, 56 deselected in 0.25s
