@@ -140,6 +140,10 @@ def _core(data):
 
 
 def safety_reason(raw):
+    unresolved=re.fullmatch(r'([A-Z0-9]+)/USDT:USDT unresolved entry (cg[a-f0-9]+)',str(raw))
+    if unresolved:
+        return (f'{unresolved[1]} 주문 체결 확인 지연으로 CORE 신규진입 중지 · '
+                f'주문/보호상태 확인 후 운영자 해제 필요 · 주문키 {unresolved[2]}')
     match=re.fullmatch(r'([A-Z0-9]+)/USDT:USDT unified protection unconfirmed',str(raw))
     if match:
         return f'{match[1]} 손절 보호주문 확인 실패로 CORE 신규진입이 중지되었습니다'

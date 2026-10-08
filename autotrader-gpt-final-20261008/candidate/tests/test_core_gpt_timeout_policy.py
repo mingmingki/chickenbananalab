@@ -130,8 +130,12 @@ def test_empty_or_malformed_responses_never_admit(tmp_path,monkeypatch,text):
         choices=[SimpleNamespace(message=SimpleNamespace(content=text))])
     monkeypatch.setattr(openai_analyzer,'_get_client',lambda c:client)
     monkeypatch.setattr(openai_analyzer,'_ensure_response_models_warmed_up',lambda:None)
-    allowed,_,_=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[],'',None,{'action':'long','confidence':.8})
-    assert not allowed
+    allowed,gate,raw=trader._gpt_entry_gate(cfg(tmp_path),SYMBOL,[],'',None,{'action':'long','confidence':.8})
+    if text == '':
+        assert allowed and gate=='NO_RESPONSE_BYPASS'
+        assert raw['error_type']=='EmptyResponse' and raw['request_purpose']=='entry_gate'
+    else:
+        assert not allowed and gate=='blocked_error'
 
 
 def test_typed_timeout_from_held_verification_is_never_entry_bypass(tmp_path,monkeypatch):

@@ -1275,7 +1275,7 @@ def _gpt_entry_gate(
     allowed, gate, reason = core_entry_policy.evaluate(cfg,symbol,decision,result)
     if isinstance(result,dict):
         result = dict(result, gate_processing=core_entry_policy.gate_status(gate),
-                      timeout_bypass=(gate == 'TIMEOUT_BYPASS'), gate_reason=reason)
+                      timeout_bypass=(gate == 'TIMEOUT_BYPASS'), no_response_bypass=(gate == 'NO_RESPONSE_BYPASS'), gate_reason=reason)
     cfg.logger.info("[%s] CORE_GPT_ENTRY raw=%s gate=%s reason=%s",symbol,
                     (result or {}).get('decision'),gate,reason)
     return allowed, gate, result
@@ -1293,7 +1293,7 @@ def _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,status,reason=
              gpt_raw_result=original.get('decision'),gpt_reason=original.get('reasoning') or original.get('error_category') or original.get('error_reason'),
              gpt_error_reason=original.get('error_reason'),gpt_error_type=original.get('error_type'),
              gate_processing=core_entry_policy.gate_status(gate) if gate else 'NOT_REQUESTED',
-             timeout_bypass=(gate=='TIMEOUT_BYPASS'),timeout_bypass_reason=original.get('gate_reason') if gate=='TIMEOUT_BYPASS' else None,
+             timeout_bypass=(gate=='TIMEOUT_BYPASS'),no_response_bypass=(gate=='NO_RESPONSE_BYPASS'),timeout_bypass_reason=original.get('gate_reason') if gate=='TIMEOUT_BYPASS' else None,
              status=status,reason=reason,order_executed=status=='FILLED')
     row.update((decision or {}).get('_entry_plan_context') or {})
     row.update(details)
@@ -1344,6 +1344,7 @@ def _record_entry_gate_result(
                      'gpt_error_type':(gpt_result or {}).get('error_type'),
                      'gate_processing':(gpt_result or {}).get('gate_processing'),
                      'timeout_bypass':gate_result=='TIMEOUT_BYPASS',
+                     'no_response_bypass':gate_result=='NO_RESPONSE_BYPASS',
                      'timeout_bypass_reason':(gpt_result or {}).get('gate_reason') if gate_result=='TIMEOUT_BYPASS' else None},
         )
     except Exception:
@@ -4519,7 +4520,7 @@ def _handle_new_entry(
 
     learning_result = {**learning_result, "action": "ALLOW", "live_applied": False}
 
-    if gate_result == 'TIMEOUT_BYPASS':
+    if gate_result in ('TIMEOUT_BYPASS','NO_RESPONSE_BYPASS'):
         selected_ai_exit,ai_exit_source=None,'original_validated_local_plan_timeout'
     else:
         selected_ai_exit, ai_exit_source = select_verified_ai_price_plan(decision, gpt_result)
@@ -4587,7 +4588,7 @@ def _handle_new_entry(
         revalidate_after_gpt=True,
     )
     final_outcome=decision.get('_entry_outcome') or {}
-    if not final_outcome or final_outcome.get('status') in ('GPT_APPROVED','TIMEOUT_BYPASS'):
+    if not final_outcome or final_outcome.get('status') in ('GPT_APPROVED','TIMEOUT_BYPASS','NO_RESPONSE_BYPASS'):
         _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,
             'FILLED' if order_success else 'LOCAL_BLOCKED',
             'protected_fill_confirmed' if order_success else 'entry_not_submitted')
@@ -4633,7 +4634,7 @@ def _handle_new_entry(
         logger.warning("[%s] LEARNING_ERROR decision log after entry: %s", symbol, type(exc).__name__, exc_info=True)
     outcome=decision.get('_entry_outcome') or {}
     pipeline_status=outcome.get('status') or ('FILLED' if order_success else 'ORDER_FAILED')
-    if not outcome or pipeline_status in ('GPT_APPROVED','TIMEOUT_BYPASS'):
+    if not outcome or pipeline_status in ('GPT_APPROVED','TIMEOUT_BYPASS','NO_RESPONSE_BYPASS'):
         _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,
             'FILLED' if order_success else 'ORDER_FAILED',
             'protected_fill_confirmed' if order_success else 'entry_execution_unconfirmed')

@@ -21,6 +21,15 @@ def confirmed_entry_timeout(result):
             and result.get('request_purpose') == 'entry_gate')
 
 
+def confirmed_empty_entry_response(result):
+    """GPT returned no content; not a reject, malformed JSON or transport failure."""
+    return (isinstance(result, dict) and result.get('decision') is None
+            and result.get('error_reason') == 'empty_response'
+            and result.get('error_type') == 'EmptyResponse'
+            and result.get('request_purpose') == 'entry_gate'
+            and result.get('timeout_confirmed') is False)
+
+
 def evaluate(cfg, symbol, decision, result):
     if not valid_candidate(cfg,symbol,decision):
         return False,'blocked_error','invalid_gemini_entry_candidate'
@@ -30,6 +39,10 @@ def evaluate(cfg, symbol, decision, result):
         if getattr(cfg,'CORE_GPT_ENTRY_TIMEOUT_BYPASS',False):
             return True,'TIMEOUT_BYPASS','confirmed_core_gpt_entry_timeout_config_enabled'
         return False,'blocked_error','core_timeout_bypass_disabled'
+    if confirmed_empty_entry_response(result):
+        if getattr(cfg,'CORE_GPT_ENTRY_TIMEOUT_BYPASS',False):
+            return True,'NO_RESPONSE_BYPASS','confirmed_empty_gpt_entry_response_gemini_fallback'
+        return False,'blocked_error','no_response_bypass_disabled'
     if result.get('error_reason') or result.get('decision') == 'TIMEOUT':
         return False,'blocked_error',result.get('error_reason') or 'unconfirmed_timeout'
     verdict=result.get('decision')
@@ -45,6 +58,6 @@ def evaluate(cfg, symbol, decision, result):
 
 
 def gate_status(gate):
-    return {'approved':'GPT_APPROVED','TIMEOUT_BYPASS':'TIMEOUT_BYPASS',
+    return {'approved':'GPT_APPROVED','TIMEOUT_BYPASS':'TIMEOUT_BYPASS','NO_RESPONSE_BYPASS':'NO_RESPONSE_BYPASS',
             'blocked_wait':'GPT_WAIT','blocked_reject':'GPT_REJECT',
             'blocked_error':'GPT_ERROR'}.get(gate,'GPT_ERROR')
