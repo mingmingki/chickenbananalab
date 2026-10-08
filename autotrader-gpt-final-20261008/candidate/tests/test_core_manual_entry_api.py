@@ -80,3 +80,45 @@ def test_manual_entry_api_requires_json(monkeypatch):
         content_type="application/x-www-form-urlencoded",
     )
     assert res.status_code == 415
+
+
+def test_manual_entry_pending_returns_202_not_false_failure(monkeypatch):
+    client, _ctx = _client(monkeypatch)
+    monkeypatch.setattr(web_app.trader, "manual_entry_now", lambda *a, **k: {
+        "ok": True, "pending": True, "symbol": "BTC/USDT:USDT",
+        "side": "long", "decision_id": "manual-BTC/USDT:USDT-long-123",
+    })
+    response = client.post("/api/manual_entry", json={
+        "symbol": "BTC/USDT:USDT", "side": "long"})
+    assert response.status_code == 202
+    data = response.get_json()
+    assert data["ok"] is True and data["pending"] is True
+    assert data["decision_id"] == "manual-BTC/USDT:USDT-long-123"
+    assert "완료" not in data["note"]
+
+
+def test_manual_entry_status_only_confirms_owned_protected_fill(monkeypatch):
+    import core_entry_events
+    client, _ctx = _client(monkeypatch)
+    decision_id = "manual-BTC/USDT:USDT-long-123"
+    url = "/api/manual_entry_status?symbol=BTC%2FUSDT%3AUSDT&decision_id=" + decision_id
+    for receipt, expected in [
+        ({"symbol": "BTC/USDT:USDT", "status": "ORDER_PENDING", "payload": {}}, "pending"),
+        ({"symbol": "BTC/USDT:USDT", "status": "FILLED",
+          "payload": {"reason": "protected_fill_confirmed"}}, "filled"),
+        ({"symbol": "BTC/USDT:USDT", "status": "FILLED",
+          "payload": {"reason": "unverified"}}, "pending"),
+        ({"symbol": "BTC/USDT:USDT", "status": "ORDER_FAILED", "payload": {}}, "failed"),
+    ]:
+        monkeypatch.setattr(core_entry_events, "order_receipt",
+                            lambda user_dir, identifier, r=receipt: r)
+        response = client.get(url)
+        assert response.status_code == 200
+        assert response.get_json()["status"] == expected
+
+
+def test_manual_entry_status_rejects_wrong_symbol_decision(monkeypatch):
+    client, _ctx = _client(monkeypatch)
+    res = client.get("/api/manual_entry_status?symbol=BTC%2FUSDT%3AUSDT"
+                     "&decision_id=manual-ETH/USDT:USDT-long-123")
+    assert res.status_code == 400

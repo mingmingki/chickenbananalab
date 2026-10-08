@@ -95,10 +95,13 @@ def clear_reconciled_entry_stop(user_dir: str, symbol: str, client_order_id: str
     """
     if not symbol or not client_order_id:
         return False
-    expected = f"{symbol} unresolved entry {client_order_id}"
+    eligible_reasons = {
+        f"{symbol} unresolved entry {client_order_id}",
+        f"{symbol} original filled lifecycle unconfirmed {client_order_id}",
+    }
     with _lock_for(user_dir):
         state = _load_state(user_dir)
-        if not state["kill_switch_active"] or state.get("kill_switch_reason") != expected:
+        if not state["kill_switch_active"] or state.get("kill_switch_reason") not in eligible_reasons:
             return False
         _save_state_atomic(user_dir, _default_state())
         return True

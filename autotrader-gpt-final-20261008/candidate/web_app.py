@@ -2591,6 +2591,13 @@ def api_manual_entry():
             error += f" · {result['detail']}"
         return jsonify(ok=False, error=error, reason=reason), 409
 
+    if result.get("pending"):
+        return jsonify(
+            ok=True, pending=True, decision_id=result["decision_id"],
+            symbol=symbol, side=side,
+            note="주문 접수 후 거래소 체결·SL/TP 보호 확인 중입니다. 재진입하지 마세요.",
+        ), 202
+
     return jsonify(
         ok=True,
         result=result,
@@ -2601,6 +2608,40 @@ def api_manual_entry():
             f"SL {result.get('sl_price', 0):.8g} / TP {result.get('tp_price', 0):.8g}"
         ),
     )
+
+
+@app.route("/api/manual_entry_status", methods=["GET"])
+@login_required
+def api_manual_entry_status():
+    """Read the original manual order receipt, never place a second order."""
+    import core_entry_events
+    ctx = get_context(session["username"])
+    decision_id = request.args.get("decision_id", "")
+    symbol = request.args.get("symbol", "")
+    if (symbol not in config.CORE_SYMBOLS or not isinstance(decision_id, str)
+            or len(decision_id) > 160
+            or not decision_id.startswith("manual-" + symbol + "-")):
+        return jsonify(ok=False, error="유효하지 않은 수동진입 조회입니다."), 400
+    try:
+        receipt = core_entry_events.order_receipt(ctx.dir, decision_id)
+    except Exception:
+        return jsonify(ok=False, error="주문 상태 확인 중입니다. 새 주문을 제출하지 마세요."), 503
+    if not receipt or receipt.get("symbol") != symbol:
+        return jsonify(ok=False, error="주문 기록을 찾지 못했습니다. 새 주문을 제출하지 마세요."), 404
+    status = receipt.get("status")
+    payload = receipt.get("payload") or {}
+    if status == "FILLED" and payload.get("reason") == "protected_fill_confirmed":
+        result = "filled"
+    elif status == "ORDER_FAILED":
+        result = "failed"
+    else:
+        result = "pending"
+    return jsonify(ok=True, status=result, receipt_status=status,
+                   symbol=symbol, decision_id=decision_id,
+                   note=("원본 주문 체결 및 보호 확인 기록이 있습니다." if result == "filled"
+                         else "원본 주문 상태 확인 중입니다. 새 주문을 제출하지 마세요."
+                         if result == "pending" else
+                         "원본 주문이 실패 처리됐습니다. 재진입 전에 거래소 주문을 확인하세요."))
 
 
 @app.route("/api/close_symbol", methods=["POST"])

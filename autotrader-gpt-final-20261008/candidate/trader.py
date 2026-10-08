@@ -5701,6 +5701,19 @@ def manual_entry_now(cfg, state, client: OkxClient, symbol: str, side: str) -> d
             decision_id=decision_id, decision=decision, short_level_ctx=None, gpt_result=None,
         )
         if not success:
+            # The initial OKX acknowledgement can omit final fill/protection.
+            # A durable pending receipt means "verification pending", never
+            # "order failed". Do not submit a second order from this request.
+            import core_entry_events
+            try:
+                receipt = core_entry_events.order_receipt(cfg.user_dir, decision_id)
+            except Exception:
+                receipt = None
+            if receipt and receipt.get("symbol") == symbol and receipt.get("status") in (
+                    "RESERVED", "ORDER_SUBMITTED", "ORDER_PENDING", "FILLED_UNJOURNALED"):
+                return {"ok": True, "pending": True, "decision_id": decision_id,
+                        "symbol": symbol, "side": side,
+                        "reason": "entry_exchange_reconciliation_pending"}
             return {"ok": False, "reason": "entry_execution_or_protection_failed"}
 
         new_position = state.snapshot().get("symbols", {}).get(symbol, {}).get("position")
@@ -6109,7 +6122,7 @@ def _finalize_core_entry_result(cfg,state,client,symbol,decision,decision_id,res
     previous=receipt['payload'].get('bound_position_identity')
     latest=receipt['payload'].get('bound_last_trade_id')
     if not bound or not previous or previous!=bound or not latest or str(new_position.get('last_trade_id'))!=latest:
-        core_kill_switch.activate(cfg.user_dir,f'{symbol} original filled lifecycle unconfirmed')
+        core_kill_switch.activate(cfg.user_dir, f'{symbol} original filled lifecycle unconfirmed {result["client_order_id"]}')
         core_entry_events.update_order(cfg.user_dir,original_id,'ORDER_PENDING',reason='original_entry_lifecycle_unconfirmed')
         outcome('ORDER_PENDING','original_entry_lifecycle_unconfirmed',**details)
         return False

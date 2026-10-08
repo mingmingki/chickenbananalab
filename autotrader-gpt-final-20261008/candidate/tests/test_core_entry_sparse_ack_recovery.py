@@ -68,3 +68,17 @@ def test_reconciled_latch_clears_only_exact_reason(tmp_path):
     core_kill_switch.activate(u,f'{sym} protection failed:oco_missing')
     assert not core_kill_switch.clear_reconciled_entry_stop(u,sym,cid)
     assert core_kill_switch.is_active(u)
+
+
+def test_lifecycle_stop_requires_exact_order_id(tmp_path):
+    u=str(tmp_path)
+    symbol='XRP/USDT:USDT'
+    cid='cgverified456'
+    core_kill_switch.activate(u,f'{symbol} original filled lifecycle unconfirmed {cid}')
+    assert not core_kill_switch.clear_reconciled_entry_stop(u,symbol,'cgwrong')
+    assert core_kill_switch.is_active(u)
+    assert core_kill_switch.clear_reconciled_entry_stop(u,symbol,cid)
+    assert not core_kill_switch.is_active(u)
+    core_kill_switch.activate(u,f'{symbol} original filled lifecycle unconfirmed')
+    assert not core_kill_switch.clear_reconciled_entry_stop(u,symbol,cid)
+    assert core_kill_switch.is_active(u)

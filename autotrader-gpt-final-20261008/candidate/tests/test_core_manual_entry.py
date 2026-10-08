@@ -147,3 +147,28 @@ def test_manual_entry_rejects_non_live_execution(monkeypatch):
     cfg.EXECUTION_MODE = "SHADOW"
     result = trader.manual_entry_now(cfg, FakeState(), FakeClient(), "BTC/USDT:USDT", "long")
     assert result == {"ok": False, "reason": "live_mode_required"}
+
+
+def test_manual_entry_pending_receipt_is_not_reported_as_failed(monkeypatch):
+    import core_entry_events
+    _common(monkeypatch)
+    monkeypatch.setattr(trader, "_execute_entry", lambda *a, **k: False)
+    monkeypatch.setattr(core_entry_events, "order_receipt",
+                        lambda user_dir, decision_id: {
+                            "status": "ORDER_PENDING", "symbol": "BTC/USDT:USDT",
+                            "decision_id": decision_id, "payload": {}})
+    result = trader.manual_entry_now(_cfg(), FakeState(), FakeClient(),
+                                     "BTC/USDT:USDT", "long")
+    assert result["ok"] is True
+    assert result["pending"] is True
+    assert result["decision_id"].startswith("manual-BTC/USDT:USDT-long-")
+
+
+def test_manual_entry_without_pending_receipt_does_not_claim_submission(monkeypatch):
+    import core_entry_events
+    _common(monkeypatch)
+    monkeypatch.setattr(trader, "_execute_entry", lambda *a, **k: False)
+    monkeypatch.setattr(core_entry_events, "order_receipt", lambda *a: None)
+    result = trader.manual_entry_now(_cfg(), FakeState(), FakeClient(),
+                                     "BTC/USDT:USDT", "long")
+    assert result == {"ok": False, "reason": "entry_execution_or_protection_failed"}
