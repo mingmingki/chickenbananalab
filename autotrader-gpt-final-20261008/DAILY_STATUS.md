@@ -1,19 +1,32 @@
-# Existing daily status, not a learning/profit claim
+# 매일 자동매매 점검 — 사용자 원문 11항목 기준
 
-Existing UI numbering is observable only for1·2,3,4,6; the original complete11-item spec was not recovered. Unknown item definitions are intentionally unassessed.
+사용자가 이 대화에서 제시한 원문 순서와 의미를 기준으로 바로잡았다. 이전 표의 4번 '통합 컨텍스트', 6번 '자가학습'은 사용자 원문과 다른 번호 매핑이었다.
 
-| Original number | Verified existing definition | Implementation | LIVE/evidence |
-|---|---|---|---|
-|1|Late-entry analysis|Read-only analysis exists|150samples,late0; current CORE freshness guard separately LIVE|
-|2|Immediate-adverse/follow-through entry analysis|Read-only analysis exists|8immediate-adverse,6clean-follow-through; unchanged early setup timing verified, no proven performance improvement|
-|3|Profit preservation CLOSE/REDUCE50/HOLD comparison|Shadow analysis exists|97samples/90resolved; outcome counterfactuals do not grant new order authority|
-|4|Integrated context/data quality|Read-only telemetry/API/UI exists|Current35/37 complete; full history35/607 separate|
-|5|Original requirement definition unavailable|Unassessed|No completion/LIVE claim|
-|6|Self-learning blockers/promotion explanation|Observation exists|live_enabled=false,70blocked,0eligible; no validated promoted learning|
-|7|Original requirement definition unavailable|Unassessed|No completion/LIVE claim|
-|8|Original requirement definition unavailable|Unassessed|No completion/LIVE claim|
-|9|Original requirement definition unavailable|Unassessed|No completion/LIVE claim|
-|10|Original requirement definition unavailable|Unassessed|No completion/LIVE claim|
-|11|Original requirement definition unavailable|Unassessed|No completion/LIVE claim|
+판정 근거는 REPORT.md와 배포 후 관찰 증거다. 기능/설정/비용/학습 수치는 2026-10-08 배포 후 관찰 구간 기준이며, 전체 과거 샘플을 이번 v5의 신규 성과로 사용하지 않는다. 2026-10-09 KST 재확인 범위는 서비스 active, PID 96429, NRestarts 0, v5 실행 경로/소스 SHA256 및 GitHub 원격 인계 SHA 일치다. 이 재확인만으로 이후 자연 체결·알림·포지션 상태까지 새로 확인했다고 판단하지 않는다.
 
-Costs/API/metadata/UI and CORE/C status are verified separately in REPORT.md; they are not assigned invented historical daily requirement numbers. Natural fills and profitability/savings were not forced or inferred from accumulated data.
+| 번호 | 사용자 원문 요구의 의미 | 구현 상태 | LIVE 상태 | 남은 확인 |
+|---|---|---|---|---|
+| 1 | 늦은 진입으로 초기 이익을 놓치는 문제 | 초입 신호·신선도·최종 진입 검사가 구현됐으며 원문 목표는 부분완료 | 관련 진입 경로 LIVE | 새 자연 진입의 신호→주문 지연과 초기 이익 포착 개선 미검증 |
+| 2 | 늦은 진입·추격 후 역행 손실을 키우는 문제 | 추격 방지·가격/RR/수량/예산 최종 검사 구현 | LIVE. ETH 09:10 차단은 해당 추격 검사로 확인 | 역행 손실 감소와 타점 개선 효과 미검증 |
+| 3 | 수익을 계속 보유해 0/손실로 바뀌는 문제와 부분익절 | 기존 감축/청산 관리와 CLOSE/REDUCE/HOLD 비교 분석이 있으며 원문 목표는 부분완료 | 관련 포지션 관리 LIVE, 비교 분석은 Shadow | 부분익절 적시성과 실제 수익 반납 감소 미검증 |
+| 4 | 시장을 파악해 ±5% 움직인 뒤의 뒤늦은 진입을 줄이고 초입·저점에 포지션 안착 | 초입 트리거/타이밍·신선도 등 일부 구현 | 관련 진입 검사 LIVE | 시장 전환 파악과 실제 초입 안착 정확도는 별도 검증 필요 |
+| 5 | 초기 일부 금액 후 추가 진입/물타기를 하는지, 증거금이 서로 다른 이유 | 판정 미완료 | 현재 활성 사이징·추가 진입 정책과 개별 margin 변동 사유 미확인 | 계정 설정·주문 lifecycle별 초기 진입/감축/추가 진입·위험 제한 근거를 대조해야 함 |
+| 6 | 원자적 분석과 분석 요소의 유기적 연결 | 통합 컨텍스트·데이터 품질·판단/주문 추적 일부 구현 | 관련 컨텍스트/추적 경로 적용, 품질 진단은 관찰 | 분석 전체의 일관된 연계는 미검증. 주문 이벤트의 원자적 DB 저장만으로 이 요구를 완료 처리하지 않음 |
+| 7 | 이익 구조로 전환 | 진입·주문 복구·위험 관리 변경은 구현, 수익 목표는 미완료 | 검증된 v5 변경 LIVE | 수수료·펀딩·AI·서버 비용 포함 경제손익과 수익성 개선 미검증 |
+| 8 | 데이터 누적·위기 관리로 계속 생각하고 성장하는 프로그램 | 누적 관찰·학습 분석·보호/복구 관리 일부 구현 | 보호/복구 경로 LIVE, 학습 정책 승격은 OFF | 실제 자율 학습 승격과 지속 개선은 미반영/미검증 |
+| 9 | 서버·AI 비용과 누수 상시 감시, 월 비용 및 호출 목적별 비용·감액 확인 | 비용/호출 목적/모델/토큰 메타데이터·API/UI 구현, 추가 paid Shadow 기본 OFF | 배포 후 API/UI와 설정 반영 확인 | 실청구액·실측 절감액 미검증. 과거 요청 식별/실제 재시도 정보의 누락은 unknown으로 유지 |
+| 10 | 거래 패턴 AI 학습 분석이 제대로 되는지 | 패턴·학습 분석의 관찰/누적 기능 구현 | 관찰 수집/표시 적용, LIVE 학습 OFF | 스냅샷 패턴 70개, 승격 가능 0/차단 70. 학습 승격·정확도·성과 개선 미검증 |
+| 11 | 거래량·FOMC·전쟁 이슈의 시장 영향, 장기 전쟁 감쇠와 종전 분위기 반영 | 이 배포 보고서에 개별 요구의 검증 근거 부족 | 각 요인이 최종 매매 판단에 실제 반영되는지 미확인 | 입력 출처/갱신·가중치·이슈 유효기간·종전 신호와 최종 판단 전달 경로를 확인해야 함 |
+
+## 비용과 관찰 수치
+
+- 비용 스냅샷: 2026-10-08 21:42:50 KST. 기록된 토큰과 공급자 요율 기준 추정이며 청구서 조회 결과는 아니다.
+- 최근 24시간 Gemini: 638회 / $3.227252, OpenAI: 66회 / $0.351306, 합계 $3.578558.
+- 월 예상 AI $108.85 + 서버 $28.91 = 총 $137.76. AI는 최근 24시간 × 730/24로 계산했다. 신규 비용 절감의 실측 효과는 미확인이다.
+- 추가 paid Shadow OFF가 필수 초기 신호 판단이나 보유 위험 검토를 지연시키지는 않도록 v4 타이밍 보존 검증이 수행됐다.
+- 배포 보고서의 누적 진입 분석 150건, 청산 분석 97건/해결 90건은 전체 누적 관찰이다. 새 v5만의 수익성 증거로 판단하지 않는다.
+- 현재 구간 telemetry 35/37과 전체 역사 feature 완전결합 35/607은 다른 지표다.
+
+'미확인'은 해당 증거가 아직 확보되지 않았다는 뜻이다. 실제 OFF 설정이 확인된 학습 LIVE는 '미반영'으로 구분한다. 원문 정의의 부재로 보류했던 사유는 해소됐으며, 기능과 운영 근거가 부족한 항목은 위 표의 남은 확인으로 유지한다.
+
+이번 정정은 요구 번호와 상태 판정 문서에 한정한다. 배포된 v5 매매 코드·설정·릴리스는 이 문서 정정으로 변경하지 않는다.
