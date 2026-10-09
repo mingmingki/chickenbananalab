@@ -850,7 +850,9 @@ def api_shadow():
     stats = gpt_shadow_log.summary(ctx.dir)
     return _conditional_json({
         "recent": gpt_shadow_log.recent_by_mode(ctx.dir, "entry_gate", limit=100),
-        "events": __import__("core_entry_events").recent(ctx.dir, limit=100),
+        "events": [e for e in __import__("core_entry_events").recent(ctx.dir, limit=1000)
+                   if e.get("symbol") in config.CORE_SYMBOLS
+                   and (e.get("engine") or "CORE") == "CORE"][:100],
         "entry_gate_count": stats["gate_count"],
         "historical_shadow_count": stats["shadow_mode_count"],
         "legacy_no_mode_count": stats["no_mode_count"],

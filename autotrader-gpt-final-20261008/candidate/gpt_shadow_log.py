@@ -3,6 +3,7 @@ import json
 import os
 
 import jsonl_cache
+import notification_policy
 
 
 def _log_path(user_dir: str) -> str:
@@ -42,6 +43,9 @@ def record_verification(
     주문을 막음) UI가 이 필드로 문구를 구분한다. mode와 겹치는 정보지만, mode는
     "entry_gate"/"shadow" 2가지뿐이라 Shadow 안에서 shadow_verification과 hold_audit을
     구분 못 해 별도로 둔다."""
+    # Candidate C never belongs to the CORE GPT entry gate.
+    if mode == 'entry_gate' and symbol not in notification_policy.CORE:
+        return
     os.makedirs(user_dir, exist_ok=True)
     with open(_log_path(user_dir), "a", encoding="utf-8") as f:
         f.write(
@@ -86,7 +90,7 @@ def recent_by_mode(user_dir: str, mode: str, limit: int = 100) -> list:
     """
     out = []
     for record in reversed(_load_all(user_dir)):
-        if record.get("mode") != mode:
+        if record.get("mode") != mode or record.get("symbol") not in notification_policy.CORE:
             continue
         if mode == "entry_gate":
             labels = {"blocked_wait": "GPT 대기", "blocked_reject": "GPT 거절",
@@ -123,7 +127,8 @@ def summary(user_dir: str) -> dict:
     verdict 자체가 없음)를 센다. 이것도 legacy와 마찬가지로 agree_rate 분모에서 빠져야
     한다 - 안 빼면 "GPT를 실제로 호출도 못 한 케이스"가 마치 GPT가 판단해준 것처럼
     분모에 섞여 동의율이 실제보다 낮게 나온다."""
-    records = _load_all(user_dir)
+    records = [r for r in _load_all(user_dir)
+               if r.get('symbol') in notification_policy.CORE]
     total = len(records)
     shadow_mode_count = sum(1 for r in records if r.get("mode") == "shadow")
     entry_gate_mode_count = sum(1 for r in records if r.get("mode") == "entry_gate")

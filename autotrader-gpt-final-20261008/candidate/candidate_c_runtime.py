@@ -166,7 +166,7 @@ BACKTEST_LIVE_PARITY_VERIFIED_SOURCE_HASHES = {
     "entry_overextension_guard.py": "a2452e4565fa5631249bd4079429767be8fff2dbc360ecb863182b1ba395818a",
     "candidate_c_hybrid_cycle.py": "6be584105a0a67fdcf488c507ec2534d1cfbcc12191edccd3a6ad41582d5b26a",
     "candidate_c_manual_close.py": "2646d9b458d708581188824778b0b92089b15ab04f33f6f41761715a0cc0b234",
-    "candidate_c_trader_adapter.py": "1ee604103c2826d64ffe6a7e52a6d764e6361b687dc2d44adf1b047c28f16066",
+    "candidate_c_trader_adapter.py": "a2da528f6028c369888be21446aa5433afb3d114e57eee81ded7a3040776fb01",
     "candidate_c_manual_entry.py": "89ec34ca6360ffa48b7b5f67a245f0cd49d7d38a1d2aea02068c88d2aee05e5e",
     "candidate_c_notification_delivery.py": "b09c215c7ad13b69c58a7326b0b9cd8e14f429cc8c36468569acad5177e7ea78",
     "candidate_c_strategy_policy.py": "3702ca6a159daec673b8632c057614b16859e5c67473fda8f01d9d19874b8d6b",
@@ -174,12 +174,17 @@ BACKTEST_LIVE_PARITY_VERIFIED_SOURCE_HASHES = {
     "candidate_c_forward_paper_trading.py": "93433b2decb68a00a7191b6000d6456b90fee1c0bacd3f7027a69cae847c90fb",
     "adaptive_exit_engine.py": "12639d488865e879632900021050760564f53b74649fd72579ff32e43c30da35",
     "entry_attempt_notifications.py": "78499d346dc1f0195f4da65180816f2217aeebd94f3b2964d41986cadfcc61dd",
-    "core_entry_events.py": "8777b764507f3591abbbe78153a50fbcd2ee0511af17e0039e3906d4565327b7",
+    "core_entry_events.py": "880db8d02f79df5e69c440e7b2ade538659b33d11a01b9d94bdb6032f9e28ff4",
+    "notification_policy.py": "7b6bb6a3135b0d66afcd1515bcaca8013f312029e78ef3579bc1b4447c99211d",
     "usage_log.py": "5dc0ffb02cba0e982b77918857e2731aa37c15b73e85317f1dcee686f5d13666",
     "risk_manager.py": "93a247aebdac2627b15450fe78094af09602077bcf7e740d6afa68c640665e8a",
     "telegram_notify.py": "43e24150ee5f4cb28a1de935c841b7adaa34267d08eacb7663df3a8fc54ce944"
 }
 BACKTEST_LIVE_PARITY_VERIFIED_SCOPE = (
+    "2026-10-09 V15: Candidate C notification dispatcher entry/reduce/close allowlist only; "
+    "CORE GPT UI/outbox separate; no setup-generation or execution semantics changed. "
+    "tests/test_notification_engine_boundaries.py, test_candidate_c_telegram_notifications.py "
+    "and LIVE/Backtest strategy recheck suite run. Source hashes re-pinned after verification. "
     "2026-10-09 v12: Candidate C 자동 신호 생성 규칙은 유지하고, 별도 operator manual EntryIntent 요청 수신·" 
     "idempotent 예약·기존 LIVE 소유권/주문장부/계약수량/SLTP 검증 경로 통합. " 
     "tests/test_candidate_c_manual_entry_process.py 및 test_candidate_c_manual_entry_ui_api.py에서 " 

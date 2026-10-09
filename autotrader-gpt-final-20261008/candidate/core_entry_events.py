@@ -17,6 +17,7 @@ import threading
 import time
 
 import telegram_notify
+import notification_policy
 
 _LOCK=threading.Lock()
 _WORKERS={}
@@ -65,7 +66,10 @@ def record(cfg,event):
         row.setdefault('time',datetime.datetime.now(KST).isoformat(timespec='seconds'))
         phase_reason=str(row.get('reason') or '') if row['status'] in ('LOCAL_BLOCKED','ORDER_PENDING') else ''
         key=hashlib.sha256((str(row.get('engine') or 'CORE')+'|'+str(row['decision_id'])+'|'+row['status']+'|'+phase_reason).encode()).hexdigest()
-        delivery=('QUEUED' if getattr(cfg,'TELEGRAM_BOT_TOKEN','') and getattr(cfg,'TELEGRAM_CHAT_ID','') else 'NOT_CONFIGURED')
+        delivery=('QUEUED' if notification_policy.should_send_core_telegram(row)
+                  and getattr(cfg,'TELEGRAM_BOT_TOKEN','') and getattr(cfg,'TELEGRAM_CHAT_ID','')
+                  else 'SUPPRESSED' if not notification_policy.should_send_core_telegram(row)
+                  else 'NOT_CONFIGURED')
         with _db(cfg.user_dir) as db:
             db.execute('BEGIN IMMEDIATE')
             if (row.get('engine') or 'CORE')=='CORE':
@@ -91,7 +95,10 @@ def recent(user_dir,limit=100):
     with _db(user_dir) as db:
         rows=db.execute('SELECT payload,delivery,message_id FROM events ORDER BY seq DESC LIMIT ?',
                         (max(1,min(int(limit),1000)),)).fetchall()
-    return [dict(json.loads(r['payload']),notification_status=r['delivery'],telegram_message_id=r['message_id']) for r in rows]
+    # This is the forensic ledger, not a CORE-only UI feed; retain all engines.
+    # /api/shadow applies the CORE presentation filter instead.
+    return [dict(json.loads(r['payload']),notification_status=r['delivery'],telegram_message_id=r['message_id'])
+            for r in rows]
 
 
 def deliver_pending(cfg):
@@ -104,8 +111,15 @@ def deliver_pending(cfg):
             if row is None: return
             db.execute("UPDATE events SET delivery='SENDING',attempts=attempts+1,updated=? WHERE seq=?",
                        (time.time(),row['seq']))
+        event = json.loads(row['payload'])
+        if not notification_policy.should_send_core_telegram(event):
+            # Apply the new preference to queued pre-deploy events, too.
+            with _db(cfg.user_dir) as db:
+                db.execute("UPDATE events SET delivery='SUPPRESSED',updated=? WHERE seq=? AND delivery='SENDING'",
+                           (time.time(),row['seq']))
+            continue
         try:
-            reply=telegram_notify.send(cfg,telegram_notify.format_core_entry_event(json.loads(row['payload'])))
+            reply=telegram_notify.send(cfg,telegram_notify.format_core_entry_event(event))
             if not isinstance(reply,dict) or not reply.get('ok') or not reply.get('message_id'):
                 raise RuntimeError('telegram_ack_missing')
             delivery='SENT';message_id=str(reply.get('message_id') or '')

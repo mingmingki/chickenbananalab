@@ -7,7 +7,7 @@ import gpt_shadow_log
 def _append(user_dir, **row):
     path = Path(user_dir) / "gpt_shadow_log.jsonl"
     with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        f.write(json.dumps(dict(symbol="BTC/USDT:USDT", **row), ensure_ascii=False) + "\n")
 
 
 def test_recent_by_mode_returns_only_entry_gate_newest_first(tmp_path):

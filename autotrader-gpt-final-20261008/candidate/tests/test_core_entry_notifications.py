@@ -32,7 +32,7 @@ def test_formatter_keeps_raw_timeout_gate_and_order_separate():
     assert 'd-1' in text and 'SHORT' in text and 'KST' in text
     assert 'SL=104' in text and 'TP=92' in text
 
-@pytest.mark.parametrize('status',['GPT_APPROVED','GPT_WAIT','GPT_REJECT','GPT_ERROR','TIMEOUT_BYPASS','LOCAL_BLOCKED','ORDER_SUBMITTED','ORDER_PENDING','FILLED','ORDER_FAILED'])
+@pytest.mark.parametrize('status',['GPT_APPROVED','GPT_WAIT','GPT_REJECT','GPT_ERROR','TIMEOUT_BYPASS','NO_RESPONSE_BYPASS','LOCAL_BLOCKED','ORDER_SUBMITTED','ORDER_PENDING','FILLED','ORDER_FAILED'])
 def test_each_result_has_one_durable_notification(tmp_path,monkeypatch,status):
     e=events();c=cfg(tmp_path)
     sent=[]
@@ -42,8 +42,10 @@ def test_each_result_has_one_durable_notification(tmp_path,monkeypatch,status):
     e.deliver_pending(c)
     importlib.reload(e)
     e.deliver_pending(c)
-    assert len(sent)==1
-    assert e.recent(c.user_dir)[0]['notification_status']=='SENT'
+    expected=status in ('GPT_ERROR','TIMEOUT_BYPASS','NO_RESPONSE_BYPASS','ORDER_PENDING','ORDER_FAILED')
+    # Only fully protected fills cause a new-position alert.
+    assert len(sent)==int(expected)
+    assert e.recent(c.user_dir)[0]['notification_status']==('SENT' if expected else 'SUPPRESSED')
 
 
 def test_followup_status_is_connected_to_same_decision(tmp_path,monkeypatch):
@@ -52,7 +54,7 @@ def test_followup_status_is_connected_to_same_decision(tmp_path,monkeypatch):
     for status in ['GPT_APPROVED','ORDER_SUBMITTED','FILLED']:
         e.record(c,event(status))
     e.deliver_pending(c)
-    assert len(sent)==3 and all('d-1' in text for text in sent)
+    assert len(sent)==0  # Routine approval and order submission are not alerts. Unprotected FILLED is suppressed.
 
 
 def test_notification_timeout_does_not_escape_or_duplicate_on_restart(tmp_path,monkeypatch):

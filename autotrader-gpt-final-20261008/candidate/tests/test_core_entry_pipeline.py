@@ -293,7 +293,8 @@ def test_gate_order_notification_failures_cannot_change_a_protected_fill(tmp_pat
     events=core_entry_events.recent(c.user_dir)
     assert {r['status'] for r in events}=={'TIMEOUT_BYPASS','ORDER_SUBMITTED','FILLED'}
     core_entry_events.deliver_pending(c)
-    assert all(r['notification_status']=='DELIVERY_UNKNOWN' for r in core_entry_events.recent(c.user_dir))
+    assert all(r['notification_status']==('SUPPRESSED' if r['status']=='ORDER_SUBMITTED' else 'DELIVERY_UNKNOWN')
+               for r in core_entry_events.recent(c.user_dir))
     assert client.position is not None and len(client.orders)==1
 
 

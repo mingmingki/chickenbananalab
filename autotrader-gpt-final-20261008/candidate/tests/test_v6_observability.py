@@ -53,7 +53,7 @@ def test_provider_cache_and_actual_model_context_are_measured_without_retry_gues
 
 def test_telegram_missing_message_identity_remains_unknown_without_resend(tmp_path,monkeypatch):
     cfg=SimpleNamespace(user_dir=str(tmp_path),logger=None,TELEGRAM_BOT_TOKEN='fake',TELEGRAM_CHAT_ID='fake')
-    events.record(cfg,dict(decision_id='setup',status='LOCAL_BLOCKED',reason='daily_loss'))
+    events.record(cfg,dict(decision_id='setup',symbol='BTC/USDT:USDT',status='GPT_ERROR',reason='api_error'))
     calls=[]
     monkeypatch.setattr(events.telegram_notify,'send',lambda *a:(calls.append(1) or {'ok':True}))
     events.deliver_pending(cfg);events.deliver_pending(cfg)
@@ -64,7 +64,7 @@ def test_telegram_missing_message_identity_remains_unknown_without_resend(tmp_pa
 def test_restart_kick_drains_queued_and_never_resends_inflight(tmp_path,monkeypatch):
     cfg=SimpleNamespace(user_dir=str(tmp_path),logger=None,TELEGRAM_BOT_TOKEN='fake',TELEGRAM_CHAT_ID='fake')
     for d in ('inflight','pending'):
-        events.record(cfg,dict(decision_id=d,status='LOCAL_BLOCKED',reason='daily_loss'))
+        events.record(cfg,dict(decision_id=d,symbol='BTC/USDT:USDT',status='GPT_ERROR',reason='api_error'))
     with events._db(str(tmp_path)) as db:
         db.execute("UPDATE events SET delivery='SENDING' WHERE seq=1")
     sent=[]

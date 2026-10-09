@@ -45,6 +45,7 @@ import symbol_entry_control
 import order_safety
 import risk_manager
 import telegram_notify
+import notification_policy
 
 logger = logging.getLogger("trader.candidate_c")
 
@@ -279,6 +280,9 @@ def _dispatch_candidate_c_notifications(cfg, state, result=None) -> None:
     direct_event = (result or {}).get("notification_event")
     if direct_event:
         events.append(direct_event)
+    # Candidate C Telegram is only exchange-confirmed entry / partial-close / close.
+    # Discard GPT gate, decisions, signals and operational diagnostics.
+    events = [e for e in events if notification_policy.should_send_candidate_c_telegram(e)]
 
     logger_ = getattr(cfg, "logger", None) or logger
     store = getattr(state, "notification_store", None)
@@ -305,6 +309,9 @@ def _dispatch_candidate_c_notifications(cfg, state, result=None) -> None:
 
     seen = set()
     for event in deliver_now:
+        # Include pre-deploy queued items in the same outbound allowlist.
+        if not notification_policy.should_send_candidate_c_telegram(event):
+            continue
         identity = (
             event.get("event_type"), event.get("symbol"), event.get("intent_id"),
         )
