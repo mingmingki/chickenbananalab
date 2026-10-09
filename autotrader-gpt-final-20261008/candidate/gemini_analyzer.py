@@ -192,19 +192,25 @@ Candidate C의 진입 방향은 규칙 엔진이 이미 확정했으며 당신�
 
 def propose_entry_exit_plan(cfg, symbol: str, side: str, tf_list: list, candle_summary: str,
                             baseline_stop: float | None, baseline_target: float | None,
-                            exit_price_contract: str = "") -> dict:
+                            exit_price_contract: str = "", *, manual_core: bool = False) -> dict:
     """Candidate C direction is immutable; Gemini proposes exit prices only."""
     log = cfg.logger or logger
     if side not in ("long", "short") or not getattr(cfg, "GEMINI_API_KEY", None):
         return {"action": side, "confidence": None, "exit_plan": None,
                 "reasoning": "Gemini exit-price proposal unavailable"}
-    prompt = ENTRY_EXIT_PLAN_PROMPT_TEMPLATE.format(
+    template = ENTRY_EXIT_PLAN_PROMPT_TEMPLATE
+    if manual_core:
+        template = template.replace(
+            "Candidate C의 진입 방향은 규칙 엔진이 이미 확정했으며",
+            "CORE 수동진입 방향은 사용자가 직접 확정했으며")
+    purpose = 'core_manual_exit_plan' if manual_core else 'candidate_exit_plan'
+    prompt = template.format(
         symbol=symbol, side=side, timeframes_desc=", ".join(timeframes.label(tf) for tf in tf_list),
         candle_summary=candle_summary, baseline_stop=baseline_stop, baseline_target=baseline_target,
         exit_price_contract=exit_price_contract or "",
     )
     client = _get_client(cfg)
-    response = _generate_content_observed(cfg, symbol, 'candidate_exit_plan',
+    response = _generate_content_observed(cfg, symbol, purpose,
         model=cfg.GEMINI_MODEL, contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -218,7 +224,7 @@ def propose_entry_exit_plan(cfg, symbol: str, side: str, tf_list: list, candle_s
             usage_log.record_usage(
                 cfg.user_dir, symbol, usage.prompt_token_count or 0,
                 (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0),
-                purpose="candidate_exit_plan",
+                purpose=purpose,
                 **usage_log.response_metadata(response, model=cfg.GEMINI_MODEL, prompt=prompt),
             )
         except Exception:

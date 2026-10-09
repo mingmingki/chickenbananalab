@@ -1764,7 +1764,7 @@ async function manualCoreEntry(sym, side, button) {
         }
       }
       if (latest && latest.status === 'filled') {
-        alert(`${sym}: 원본 주문 체결 및 SL/TP 보호 확인이 완료됐습니다. 현재 포지션을 확인하세요.`);
+        alert(`${sym}: 원본 주문 체결 및 SL/TP 보호 확인 완료 · 산출 방식: ${latest.sl_tp_source || '조회 불가'}. 현재 포지션을 확인하세요.`);
       } else if (latest && latest.status === 'failed') {
         alert(`${sym}: 주문이 실패 처리됐습니다. 거래소 상태를 확인하기 전에는 재진입하지 마세요.`);
       } else {

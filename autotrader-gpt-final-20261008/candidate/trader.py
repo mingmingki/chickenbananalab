@@ -5606,6 +5606,123 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
         )
 
 
+def _plan_core_manual_adaptive_entry(cfg, client, symbol, side, amount, entry_price, equity):
+    """Price-only Gemini analysis + production Adaptive geometry; no direction authority.
+
+    User-requested fixed margin remains the maximum. We never increase size,
+    and each manual trade is independently capped at the configured 1% risk.
+    No entry when the market data/policy/price normalization cannot be proved.
+    """
+    def reject(reason):
+        return {"allowed": False, "reason": reason}
+
+    if (getattr(cfg, 'CORE_ORDER_MODE', '') != 'FIXED_MARGIN_AUTO_EXIT'
+            or getattr(cfg, 'ADAPTIVE_EXIT_MODE', '') != 'LIVE_BOUNDED'):
+        return reject('manual_adaptive_mode_inactive')
+    try:
+        tf_list = ['1m', '3m', '5m', '15m', '1h', '4h']
+        frames = client.fetch_multi_ohlcv(tf_list, limit=200)
+        closed = {}
+        for tf in tf_list:
+            raw = frames.get(tf)
+            if raw is None:
+                return reject('manual_adaptive_missing_market_data')
+            finalized = core_entry_timing.confirmed_frame(raw, tf)
+            if len(finalized) < 40:
+                return reject('manual_adaptive_insufficient_confirmed_bars')
+            closed[tf] = indicators.add_indicators(finalized)
+        latest = closed['5m']['timestamp'].iloc[-1]
+        as_of = latest.to_pydatetime() if hasattr(latest, 'to_pydatetime') else latest
+        if as_of.tzinfo is None:
+            as_of = as_of.replace(tzinfo=datetime.timezone.utc)
+        bar_closed_at = as_of.timestamp() + 300
+        if not 0 <= time.time() - bar_closed_at <= 360:
+            return reject('manual_adaptive_stale_5m_data')
+        features = _extract_core_adaptive_market_features(closed)
+        atr = float(features.get('atr') or 0)
+        if not math.isfinite(atr) or atr <= 0:
+            return reject('manual_adaptive_missing_confirmed_atr')
+
+        baseline_stop, baseline_tp = risk_manager.sl_tp_prices(cfg, side, entry_price)
+        fallback = (side, amount, baseline_stop, baseline_tp)
+        # Price analysis cannot veto/change the operator's LONG/SHORT direction.
+        # Direction GPT approval is intentionally not called.
+        ai_proposal = None
+        ai_error = None
+        from adaptive_exit_engine import format_ai_price_contract
+        contract = build_ai_price_contract(
+            side, entry_price, atr, production_adaptive_exit_policy(),
+            leverage=cfg.LEVERAGE, estimated_roundtrip_cost_rate=0.001)
+        try:
+            with usage_log.call_context(engine='CORE', trigger='manual_exit_price',
+                                        stage='manual_exit_price'):
+                ai_proposal = gemini_analyzer.propose_entry_exit_plan(
+                    cfg, symbol, side, tf_list,
+                    indicators.summarize_multi_timeframe_compact(closed),
+                    baseline_stop, baseline_tp,
+                    format_ai_price_contract(contract),
+                    manual_core=True,
+                )
+        except Exception as exc:
+            ai_error = type(exc).__name__
+            cfg.logger.warning('[%s] MANUAL_EXIT_GEMINI_UNAVAILABLE reason=%s; bounded ATR model only',
+                               symbol, ai_error)
+        proposal = ai_proposal or {}
+        assessment = {
+            'thesis_state': 'intact',
+            'confidence': proposal.get('confidence') if isinstance(proposal.get('confidence'),(int,float)) else 0.5,
+            'trend_persistence': 'medium', 'volatility_risk': 'medium',
+            'target_extension': 'neutral',
+            'reasoning': proposal.get('reasoning') or '',
+        }
+        adaptive = _core_adaptive_live_entry_decision(
+            cfg, symbol=symbol, legacy_order_args=fallback,
+            entry_price=entry_price, equity=equity,
+            market_features=features, gemini_assessment=assessment,
+            manual_trade_risk_pct=float(cfg.RISK_PER_TRADE_PCT),
+        )
+        if not adaptive.get('active') or adaptive.get('blocked'):
+            return reject('manual_adaptive_' + str(adaptive.get('reason') or 'unavailable'))
+        plan, context = adaptive['plan'], adaptive['context']
+        source = 'adaptive_atr_structure'
+        validation_reason = 'gemini_price_plan_unavailable' if ai_error else 'gemini_price_plan_missing'
+        if proposal.get('exit_plan'):
+            from adaptive_exit_engine import (validate_ai_price_plan_contract,
+                                              apply_ai_price_plan)
+            if contract is None:
+                validation_reason = 'price_contract_missing'
+            else:
+                validation_reason = validate_ai_price_plan_contract(proposal['exit_plan'],contract)
+                if validation_reason == 'ok':
+                    applied,reason = apply_ai_price_plan(plan, context, proposal['exit_plan'],
+                                                         production_adaptive_exit_policy())
+                    validation_reason = reason
+                    if reason == 'ai_exit_plan_applied':
+                        plan=applied
+                        source='gemini_bounded_market_prices'
+        if not plan.entry_allowed or plan.stop_price is None or plan.tp2 is None:
+            return reject('manual_adaptive_no_safe_exit_plan')
+        # Fixed margin is a hard maximum. The risk cap can shrink actual size.
+        amount = risk_manager.quantize_coin_amount_to_market(
+            client, symbol, min(amount, plan.effective_notional/entry_price))
+        if amount <= 0:
+            return reject('manual_adaptive_risk_size_below_market_minimum')
+        stop,tp=float(plan.stop_price),float(plan.tp2.price)
+        if not ((side=='long' and stop < entry_price < tp)
+                or (side=='short' and tp < entry_price < stop)):
+            return reject('manual_adaptive_invalid_exit_direction')
+        return {
+            'allowed': True, 'amount': amount, 'sl_price':stop,'tp_price':tp,
+            'source':source, 'ai_validation':validation_reason,
+            'bar_closed_at':bar_closed_at, 'closed_dfs':closed,
+            'context':context, 'plan':plan, 'price_reference':entry_price,
+        }
+    except Exception as exc:
+        cfg.logger.warning('[%s] MANUAL_ADAPTIVE_PLAN_UNAVAILABLE error_type=%s',
+                           symbol,type(exc).__name__,exc_info=True)
+        return reject('manual_adaptive_plan_unavailable:' + type(exc).__name__)
+
+
 def manual_entry_now(cfg, state, client: OkxClient, symbol: str, side: str) -> dict:
     """Execute an explicit operator LONG/SHORT entry using current CORE sizing.
 
@@ -5623,6 +5740,34 @@ def manual_entry_now(cfg, state, client: OkxClient, symbol: str, side: str) -> d
         return {"ok": False, "reason": "live_mode_required"}
 
     logger = cfg.logger
+    prepared_manual_adaptive = None
+    if getattr(cfg, 'CORE_ORDER_MODE', '') == 'FIXED_MARGIN_AUTO_EXIT':
+        # The Gemini network call must not hold the account-wide order lock:
+        # other symbols still need to manage existing positions and protection.
+        # A dedicated client avoids sharing the symbol engine's ccxt session.
+        try:
+            planning_client = OkxClient(symbol, cfg)
+            planning_client.ensure_markets_loaded()
+            planning_equity = float(planning_client.fetch_usdt_equity())
+            planning_price = float(planning_client.fetch_last_price())
+            if not (math.isfinite(planning_equity) and planning_equity > 0
+                    and math.isfinite(planning_price) and planning_price > 0):
+                return {"ok": False, "reason": "manual_adaptive_market_preflight_unavailable"}
+            planning_amount = risk_manager.calculate_position_size(
+                cfg, planning_equity, planning_price)
+            planning_amount = risk_manager.quantize_coin_amount_to_market(
+                planning_client, symbol, planning_amount)
+            if planning_amount <= 0:
+                return {"ok": False, "reason": "manual_adaptive_qty_zero"}
+            prepared_manual_adaptive = _plan_core_manual_adaptive_entry(
+                cfg, planning_client, symbol, side,
+                planning_amount, planning_price, planning_equity)
+        except Exception as exc:
+            logger.warning('[%s] MANUAL_ADAPTIVE_PREPLAN_FAILED error_type=%s',
+                           symbol, type(exc).__name__)
+            return {"ok": False, "reason": "manual_adaptive_market_preflight_unavailable"}
+        if not prepared_manual_adaptive['allowed']:
+            return {"ok": False, "reason": prepared_manual_adaptive['reason']}
     with cc_ownership.account_order_lock(cfg.user_dir):
         if symbol_entry_control.is_paused(cfg.user_dir, symbol):
             return {"ok": False, "reason": "symbol_entry_paused"}
@@ -5683,6 +5828,19 @@ def manual_entry_now(cfg, state, client: OkxClient, symbol: str, side: str) -> d
             return {"ok": False, "reason": "qty_zero_or_below_exchange_minimum"}
 
         sl_price, tp_price = risk_manager.sl_tp_prices(cfg, side, price)
+        sltp_source = 'configured_manual_percent'
+        manual_adaptive = None
+        if prepared_manual_adaptive is not None:
+            manual_adaptive = prepared_manual_adaptive
+            if abs(price/manual_adaptive['price_reference']-1) > GPT_APPROVED_ENTRY_MAX_PRICE_DRIFT_RATIO:
+                return {"ok": False, "reason": "manual_adaptive_price_drift"}
+            amount = min(amount, manual_adaptive['amount'])
+            sl_price, tp_price = manual_adaptive['sl_price'], manual_adaptive['tp_price']
+            sltp_source = manual_adaptive['source']
+            # Reuse the same final entry validation as automatic LIVE_BOUNDED.
+            if not hasattr(cfg,'_core_loss_guards'):
+                cfg._core_loss_guards = {}
+            cfg._core_loss_guards[symbol] = guard
         decision_id = f"manual-{symbol}-{side}-{datetime.datetime.now().strftime('%Y%m%d%H%M%S%f')}"
         decision = {
             "action": side,
@@ -5693,12 +5851,32 @@ def manual_entry_now(cfg, state, client: OkxClient, symbol: str, side: str) -> d
             "trade_alignment": None,
             "manual_entry": True,
             "_approval_started_at": time.time(),
+            "_entry_plan_context": {
+                "exit_price_source": sltp_source,
+                "manual_entry": True,
+                "ai_price_validation": manual_adaptive.get('ai_validation') if manual_adaptive else None,
+            },
         }
+        if manual_adaptive is not None:
+            decision['_bar_closed_at'] = manual_adaptive['bar_closed_at']
+            decision['_bounded_entry_validation'] = {
+                'context': manual_adaptive['context'],
+                'plan': manual_adaptive['plan'],
+                'closed_dfs': manual_adaptive['closed_dfs'],
+                'verified_ai_price_contract': (
+                    sltp_source == 'gemini_bounded_market_prices'),
+                'approval_anchor': {
+                    'entry_price': price, 'stop': sl_price,
+                    'tp1': manual_adaptive['plan'].tp1.price,
+                    'tp2': tp_price, 'quantity': amount,
+                    'risk_budget': manual_adaptive['plan'].trade_risk_budget_usdt,
+                },
+            }
 
         logger.warning(
             "[%s] MANUAL_ENTRY requested: side=%s price=%.8f amount=%.12f mode=%s leverage=%sx "
-            "SL=%.8f TP=%.8f (Gemini/GPT bypass, safety gates retained)",
-            symbol, side, price, amount, cfg.POSITION_SIZE_MODE, cfg.LEVERAGE, sl_price, tp_price,
+            "SL=%.8f TP=%.8f source=%s (entry direction Gemini/GPT bypass; adaptive safety retained)",
+            symbol, side, price, amount, cfg.POSITION_SIZE_MODE, cfg.LEVERAGE, sl_price, tp_price,sltp_source,
         )
         success = _execute_entry(
             cfg, state, client, symbol, side, amount, price, sl_price, tp_price,
@@ -5726,24 +5904,31 @@ def manual_entry_now(cfg, state, client: OkxClient, symbol: str, side: str) -> d
             symbol,
             last_action=f"manual_{side}",
             last_confidence=None,
-            last_reasoning=f"사용자 수동 {side.upper()} 진입",
+            last_reasoning=f"사용자 수동 {side.upper()} 진입 · SL/TP 산출: {sltp_source}",
+            last_manual_sltp_source=sltp_source,
         )
         contracts = (new_position or {}).get("contracts")
-        notional = amount * price
+        final_context = decision.get('_entry_plan_context') or {}
+        actual_amount = float(final_context.get('quantity_coin') or amount)
+        actual_entry = float(final_context.get('entry_price') or price)
+        notional = actual_amount * actual_entry
         margin_estimate = notional / cfg.LEVERAGE if cfg.LEVERAGE else notional
         return {
             "ok": True,
             "symbol": symbol,
             "side": side,
-            "entry_price": price,
-            "amount": amount,
+            "entry_price": actual_entry,
+            "amount": actual_amount,
             "contracts": contracts,
             "leverage": cfg.LEVERAGE,
             "position_size_mode": cfg.POSITION_SIZE_MODE,
             "notional_usdt": notional,
             "margin_estimate_usdt": margin_estimate,
-            "sl_price": sl_price,
-            "tp_price": tp_price,
+            "sl_tp_source": sltp_source,
+            "sl_price": (decision.get('_entry_plan_context') or {}).get('sl_price',sl_price),
+            "tp_price": (decision.get('_entry_plan_context') or {}).get('tp_price',tp_price),
+            "planned_risk_budget_usdt": (manual_adaptive['plan'].trade_risk_budget_usdt
+                                         if manual_adaptive else None),
         }
 
 
@@ -7024,7 +7209,7 @@ def _core_adaptive_reduce_allowed(*, last_evidence_id, proposed_evidence_id, las
 
 
 def _core_adaptive_live_entry_decision(cfg, *, symbol, legacy_order_args, entry_price, equity,
-                                       market_features, gemini_assessment=None):
+                                       market_features, gemini_assessment=None, manual_trade_risk_pct=None):
     mode=str(getattr(cfg,'ADAPTIVE_EXIT_MODE','OFF') or 'OFF').upper()
     fallback={'active':False,'blocked':False,'order_args':legacy_order_args,'plan':None,'reason':'legacy'}
     order_mode=str(getattr(cfg,'CORE_ORDER_MODE','') or '').upper()
@@ -7049,6 +7234,12 @@ def _core_adaptive_live_entry_decision(cfg, *, symbol, legacy_order_args, entry_
         configured_notional=max(0.0, margin*leverage)
         daily_cap=max(0.0, float(equity)*float(getattr(cfg,'MAX_DAILY_LOSS_PCT',100.0))/100.0)
         risk_budget=min(configured_notional, daily_cap)
+        if manual_trade_risk_pct is not None:
+            pct=float(manual_trade_risk_pct)
+            if not math.isfinite(pct) or pct <= 0:
+                return {'active':True,'blocked':True,'order_args':legacy_order_args,
+                        'plan':None,'reason':'invalid_manual_risk_pct'}
+            risk_budget=min(risk_budget, float(equity)*pct/100.0)
         order_cap=configured_notional
     else:
         margin=max(0.0, float(equity))

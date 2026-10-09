@@ -2695,7 +2695,8 @@ def api_manual_entry():
             f"{symbol} 수동 {side.upper()} 진입 완료 · "
             f"{result.get('leverage')}x · "
             f"예상 증거금 {result.get('margin_estimate_usdt', 0):.2f} USDT · "
-            f"SL {result.get('sl_price', 0):.8g} / TP {result.get('tp_price', 0):.8g}"
+            f"SL {result.get('sl_price', 0):.8g} / TP {result.get('tp_price', 0):.8g} · "
+            f"SL/TP 산출 {result.get('sl_tp_source', '설정값')}"
         ),
     )
 
@@ -2720,6 +2721,8 @@ def api_manual_entry_status():
         return jsonify(ok=False, error="주문 기록을 찾지 못했습니다. 새 주문을 제출하지 마세요."), 404
     status = receipt.get("status")
     payload = receipt.get("payload") or {}
+    plan_context = ((payload.get("decision") or {}).get("_entry_plan_context") or {})
+    sl_tp_source = plan_context.get("exit_price_source") or "unknown"
     if status == "FILLED" and payload.get("reason") == "protected_fill_confirmed":
         result = "filled"
     elif status == "ORDER_FAILED":
@@ -2727,7 +2730,7 @@ def api_manual_entry_status():
     else:
         result = "pending"
     return jsonify(ok=True, status=result, receipt_status=status,
-                   symbol=symbol, decision_id=decision_id,
+                   symbol=symbol, decision_id=decision_id, sl_tp_source=sl_tp_source,
                    note=("원본 주문 체결 및 보호 확인 기록이 있습니다." if result == "filled"
                          else "원본 주문 상태 확인 중입니다. 새 주문을 제출하지 마세요."
                          if result == "pending" else
