@@ -1,3 +1,11 @@
+# CURRENT AUTHORITATIVE STATE — COST V12 LIVE / COST INCREASE ROOT CAUSE CONFIRMED / SAVINGS UNPROVEN
+
+Read-only precise cost audit asof2026-10-11 01:54KST COMPLETE. V12 remainsPID179007 active/NRestarts0; no further settings/source/service/orders changed. Historical near$89 AI-only24h monthly estimate, current24h$108.05. Equal2h before/after v10:54/$0.23621575 ->115/$0.58532675 (2.48x). Held review1Gemini ->25Gemini+25GPT,56.27%of delta; primary48->62 and meaninput4532->6126,35.96%of delta. All25heldGemini followed same-symbolprimarywithin120seconds; not duplicateSDKrecords.00hstrategyreview adds12.51%, entrycostdecreased4.74%.30msetting affects onlysmall/nonmaterial calls, main held duplicateanalysis/15mreviews/materialevents remain. v12first17m44s12calls/$0.06095 too short/restartcontaminated to claim savings. Required structural cost repair NOT implemented this turn. No fresh paidAItests, sourcechange, redeploy or ordermutation.
+
+Evidence and detailed report autotrader-cost-v12-20261011/PRECISE_COST_AUDIT.md and precise-cost-aggregates.json. Operator/deploy records remain COMPLETE, neverredispatchv12/v11/v10/v9. Future repair must preserve COREdualAI/criticalrisk/profitreview and Candidate0AI/protection; routine1800sec,held15mremain. Prior zero-fill and audit gaps remainopen. Resume existing evidence, do not analyze fromscratch.
+
+---
+
 # CURRENT AUTHORITATIVE STATE — COST V12 DEPLOYED / VERIFIED / COMPLETE
 
 Single deployment COMPLETE: /opt/autotrader-releases/ai_cost_tuning_v12_20261011T013551KST, PID179007 active NRestarts0. Only CORE_GEMINI_ROUTINE_INTERVAL_SECONDS600->1800; trading source unchanged17hashes, priorv11qualification1968+130 reused,104focusedchecks passed incl9effective30mchecks. COREAI/CandidateCHART_RISK, early setups/materialevents/1ATRmovements/market/lifecycle immediate,15mheld/profitreview and30secriskpolling retained. Exact immutable6positions6OCO IDs/sizes/SLTP preserved,0pending; bothLIVEloops dashboard200 resumeconsumed. No forced/testorder or paidAItest. Savings unmeasured, no total-one-third or monthly-budget guarantee. Known audit repair findings remain open.

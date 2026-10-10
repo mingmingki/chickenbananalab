@@ -1,0 +1,890 @@
+{
+  "as_of": "2026-10-11T01:54:34.780776+09:00",
+  "server_local_time": "2026-10-11T01:54:36.166421",
+  "release": "/opt/autotrader-releases/ai_cost_tuning_v12_20261011T013551KST",
+  "deployment_records": {
+    "v10": {
+      "started_at": "2026-10-10T22:18:10.584545+09:00",
+      "changed_keys": [
+        "CORE_AI_STRATEGY_AUTHORITY",
+        "CANDIDATE_C_CHART_ONLY",
+        "CANDIDATE_C_AI_EXIT_PLAN_ENABLED",
+        "CANDIDATE_C_TIMEOUT_RETRY_ENABLED",
+        "POSITION_AI_PERIODIC_HOLD_REVIEW_ENABLED"
+      ],
+      "previous_settings": {
+        "POSITION_AI_REVIEW_ENABLED": "true",
+        "POSITION_AI_LIVE_EXECUTE": "true",
+        "POLL_INTERVAL_SECONDS": "300"
+      }
+    },
+    "v11": {
+      "started_at": "2026-10-10T23:17:41.582414+09:00",
+      "changed_keys": [
+        "RISK_ADAPTIVE_PARTIAL_ENABLED"
+      ],
+      "previous_settings": {
+        "POSITION_AI_REVIEW_ENABLED": "true",
+        "POSITION_AI_LIVE_EXECUTE": "true",
+        "POLL_INTERVAL_SECONDS": "300",
+        "CORE_AI_STRATEGY_AUTHORITY": "true",
+        "POSITION_AI_PERIODIC_HOLD_REVIEW_ENABLED": "true"
+      }
+    },
+    "v12": {
+      "started_at": "2026-10-11T01:36:50.711818+09:00",
+      "changed_keys": [
+        "CORE_GEMINI_ROUTINE_INTERVAL_SECONDS"
+      ],
+      "previous_settings": {
+        "POSITION_AI_REVIEW_ENABLED": "true",
+        "POSITION_AI_LIVE_EXECUTE": "true",
+        "POLL_INTERVAL_SECONDS": "300",
+        "CORE_AI_STRATEGY_AUTHORITY": "true",
+        "POSITION_AI_PERIODIC_HOLD_REVIEW_ENABLED": "true"
+      }
+    }
+  },
+  "windows": {
+    "rolling24h": {
+      "start": "2026-10-10T01:54:34.780776+09:00",
+      "end": "2026-10-11T01:54:34.780776+09:00",
+      "hours": 24.0,
+      "calls": 728,
+      "cost_usd": 3.552176999999999,
+      "monthly_ai_usd": 108.04538374999997,
+      "by_purpose_provider": {
+        "core_primary_decision|gemini": {
+          "calls": 597,
+          "cost_usd": 2.8430317499999993,
+          "input": 3012289,
+          "output": 155684,
+          "cached": 0
+        },
+        "entry_gate|openai": {
+          "calls": 31,
+          "cost_usd": 0.16299399999999997,
+          "input": 183000,
+          "output": 58622,
+          "cached": 0
+        },
+        "position_ai_review|gemini": {
+          "calls": 50,
+          "cost_usd": 0.24869775000000002,
+          "input": 285307,
+          "output": 9258,
+          "cached": 0
+        },
+        "position_ai_review|openai": {
+          "calls": 42,
+          "cost_usd": 0.11667425000000001,
+          "input": 210265,
+          "output": 32054,
+          "cached": 0
+        },
+        "strategy_review|gemini": {
+          "calls": 4,
+          "cost_usd": 0.12944025,
+          "input": 154657,
+          "output": 3586,
+          "cached": 0
+        },
+        "strategy_review|openai": {
+          "calls": 4,
+          "cost_usd": 0.051339,
+          "input": 119516,
+          "output": 10730,
+          "cached": 0
+        }
+      },
+      "by_trigger": {
+        "signature_changed": {
+          "calls": 282,
+          "cost_usd": 1.3310190000000017
+        },
+        "entry_setup_changed": {
+          "calls": 30,
+          "cost_usd": 0.15041849999999998
+        },
+        "eligible_gemini_entry": {
+          "calls": 31,
+          "cost_usd": 0.16299399999999997
+        },
+        "price_move_atr": {
+          "calls": 148,
+          "cost_usd": 0.7032704999999999
+        },
+        "unknown": {
+          "calls": 100,
+          "cost_usd": 0.54615125
+        },
+        "position_changed": {
+          "calls": 36,
+          "cost_usd": 0.17933550000000004
+        },
+        "market_context_changed": {
+          "calls": 32,
+          "cost_usd": 0.15670125000000001
+        },
+        "fallback_interval": {
+          "calls": 3,
+          "cost_usd": 0.014361
+        },
+        "coalesced_change_due": {
+          "calls": 15,
+          "cost_usd": 0.07213125000000001
+        },
+        "initial": {
+          "calls": 51,
+          "cost_usd": 0.23579475000000005
+        }
+      },
+      "by_model": {
+        "gemini-3.8-flash": 651,
+        "gpt-5-mini-2025-08-07": 77
+      },
+      "by_symbol": {
+        "ETH/USDT:USDT": 179,
+        "PI/USDT:USDT": 74,
+        "BTC/USDT:USDT": 165,
+        "XRP/USDT:USDT": 169,
+        "STRATEGY_REVIEW": 8,
+        "ADA/USDT:USDT": 133
+      },
+      "held_gemini_with_primary_previous120s": 50,
+      "duplicate_provider_ids": 0,
+      "attempts": 734,
+      "error_attempts": 10,
+      "timeouts": 5
+    },
+    "equal2h_before_v10": {
+      "start": "2026-10-10T20:18:10.584545+09:00",
+      "end": "2026-10-10T22:18:10.584545+09:00",
+      "hours": 2.0,
+      "calls": 54,
+      "cost_usd": 0.23621575,
+      "monthly_ai_usd": 86.21874875,
+      "by_purpose_provider": {
+        "core_primary_decision|gemini": {
+          "calls": 48,
+          "cost_usd": 0.2109075,
+          "input": 217530,
+          "output": 12736,
+          "cached": 0
+        },
+        "position_ai_review|gemini": {
+          "calls": 1,
+          "cost_usd": 0.003603,
+          "input": 3979,
+          "output": 165,
+          "cached": 0
+        },
+        "entry_gate|openai": {
+          "calls": 5,
+          "cost_usd": 0.021705250000000002,
+          "input": 26741,
+          "output": 7510,
+          "cached": 0
+        }
+      },
+      "by_trigger": {
+        "position_changed": {
+          "calls": 3,
+          "cost_usd": 0.01310175
+        },
+        "coalesced_change_due": {
+          "calls": 2,
+          "cost_usd": 0.008813999999999999
+        },
+        "price_move_atr": {
+          "calls": 8,
+          "cost_usd": 0.03473625
+        },
+        "signature_changed": {
+          "calls": 25,
+          "cost_usd": 0.110142
+        },
+        "unknown": {
+          "calls": 1,
+          "cost_usd": 0.003603
+        },
+        "eligible_gemini_entry": {
+          "calls": 5,
+          "cost_usd": 0.021705250000000002
+        },
+        "initial": {
+          "calls": 4,
+          "cost_usd": 0.016604249999999997
+        },
+        "entry_setup_changed": {
+          "calls": 2,
+          "cost_usd": 0.009435
+        },
+        "market_context_changed": {
+          "calls": 4,
+          "cost_usd": 0.01807425
+        }
+      },
+      "by_model": {
+        "gemini-3.8-flash": 49,
+        "gpt-5-mini-2025-08-07": 5
+      },
+      "by_symbol": {
+        "ADA/USDT:USDT": 18,
+        "ETH/USDT:USDT": 13,
+        "BTC/USDT:USDT": 12,
+        "XRP/USDT:USDT": 11
+      },
+      "held_gemini_with_primary_previous120s": 1,
+      "duplicate_provider_ids": 0,
+      "attempts": 54,
+      "error_attempts": 0,
+      "timeouts": 0
+    },
+    "equal2h_after_v10": {
+      "start": "2026-10-10T22:18:10.584545+09:00",
+      "end": "2026-10-11T00:18:10.584545+09:00",
+      "hours": 2.0,
+      "calls": 115,
+      "cost_usd": 0.58532675,
+      "monthly_ai_usd": 213.64426375,
+      "by_purpose_provider": {
+        "core_primary_decision|gemini": {
+          "calls": 62,
+          "cost_usd": 0.33645375,
+          "input": 379810,
+          "output": 13759,
+          "cached": 0
+        },
+        "position_ai_review|gemini": {
+          "calls": 25,
+          "cost_usd": 0.12850050000000002,
+          "input": 148409,
+          "output": 4585,
+          "cached": 0
+        },
+        "position_ai_review|openai": {
+          "calls": 25,
+          "cost_usd": 0.07156275000000001,
+          "input": 125387,
+          "output": 20108,
+          "cached": 0
+        },
+        "entry_gate|openai": {
+          "calls": 1,
+          "cost_usd": 0.005148,
+          "input": 7048,
+          "output": 1693,
+          "cached": 0
+        },
+        "strategy_review|gemini": {
+          "calls": 1,
+          "cost_usd": 0.0318255,
+          "input": 38114,
+          "output": 864,
+          "cached": 0
+        },
+        "strategy_review|openai": {
+          "calls": 1,
+          "cost_usd": 0.01183625,
+          "input": 29465,
+          "output": 2235,
+          "cached": 0
+        }
+      },
+      "by_trigger": {
+        "initial": {
+          "calls": 8,
+          "cost_usd": 0.043725
+        },
+        "unknown": {
+          "calls": 52,
+          "cost_usd": 0.24372499999999997
+        },
+        "eligible_gemini_entry": {
+          "calls": 1,
+          "cost_usd": 0.005148
+        },
+        "signature_changed": {
+          "calls": 26,
+          "cost_usd": 0.14050425
+        },
+        "position_changed": {
+          "calls": 8,
+          "cost_usd": 0.0430965
+        },
+        "price_move_atr": {
+          "calls": 12,
+          "cost_usd": 0.0654195
+        },
+        "market_context_changed": {
+          "calls": 4,
+          "cost_usd": 0.021874499999999998
+        },
+        "coalesced_change_due": {
+          "calls": 3,
+          "cost_usd": 0.016293750000000003
+        },
+        "entry_setup_changed": {
+          "calls": 1,
+          "cost_usd": 0.00554025
+        }
+      },
+      "by_model": {
+        "gemini-3.8-flash": 88,
+        "gpt-5-mini-2025-08-07": 27
+      },
+      "by_symbol": {
+        "ETH/USDT:USDT": 28,
+        "XRP/USDT:USDT": 30,
+        "ADA/USDT:USDT": 27,
+        "BTC/USDT:USDT": 28,
+        "STRATEGY_REVIEW": 2
+      },
+      "held_gemini_with_primary_previous120s": 25,
+      "duplicate_provider_ids": 0,
+      "attempts": 114,
+      "error_attempts": 0,
+      "timeouts": 0
+    },
+    "latest2h": {
+      "start": "2026-10-10T23:54:34.780776+09:00",
+      "end": "2026-10-11T01:54:34.780776+09:00",
+      "hours": 2.0,
+      "calls": 86,
+      "cost_usd": 0.4537775000000001,
+      "monthly_ai_usd": 165.62878750000004,
+      "by_purpose_provider": {
+        "core_primary_decision|gemini": {
+          "calls": 46,
+          "cost_usd": 0.2527102500000001,
+          "input": 287862,
+          "output": 9817,
+          "cached": 0
+        },
+        "position_ai_review|gemini": {
+          "calls": 18,
+          "cost_usd": 0.09610949999999999,
+          "input": 110846,
+          "output": 3460,
+          "cached": 0
+        },
+        "position_ai_review|openai": {
+          "calls": 18,
+          "cost_usd": 0.049555,
+          "input": 92700,
+          "output": 13190,
+          "cached": 0
+        },
+        "strategy_review|gemini": {
+          "calls": 1,
+          "cost_usd": 0.0318255,
+          "input": 38114,
+          "output": 864,
+          "cached": 0
+        },
+        "strategy_review|openai": {
+          "calls": 1,
+          "cost_usd": 0.01183625,
+          "input": 29465,
+          "output": 2235,
+          "cached": 0
+        },
+        "entry_gate|openai": {
+          "calls": 2,
+          "cost_usd": 0.011741,
+          "input": 13916,
+          "output": 4131,
+          "cached": 0
+        }
+      },
+      "by_trigger": {
+        "coalesced_change_due": {
+          "calls": 4,
+          "cost_usd": 0.022118250000000002
+        },
+        "unknown": {
+          "calls": 38,
+          "cost_usd": 0.18932625000000003
+        },
+        "signature_changed": {
+          "calls": 19,
+          "cost_usd": 0.10460099999999999
+        },
+        "price_move_atr": {
+          "calls": 14,
+          "cost_usd": 0.07585124999999998
+        },
+        "entry_setup_changed": {
+          "calls": 2,
+          "cost_usd": 0.01150725
+        },
+        "eligible_gemini_entry": {
+          "calls": 2,
+          "cost_usd": 0.011741
+        },
+        "position_changed": {
+          "calls": 3,
+          "cost_usd": 0.01694475
+        },
+        "initial": {
+          "calls": 4,
+          "cost_usd": 0.02168775
+        }
+      },
+      "by_model": {
+        "gemini-3.8-flash": 65,
+        "gpt-5-mini-2025-08-07": 21
+      },
+      "by_symbol": {
+        "ETH/USDT:USDT": 22,
+        "ADA/USDT:USDT": 23,
+        "STRATEGY_REVIEW": 2,
+        "XRP/USDT:USDT": 19,
+        "BTC/USDT:USDT": 20
+      },
+      "held_gemini_with_primary_previous120s": 18,
+      "duplicate_provider_ids": 0,
+      "attempts": 85,
+      "error_attempts": 0,
+      "timeouts": 0
+    },
+    "since_v12_dispatch": {
+      "start": "2026-10-11T01:36:50.711818+09:00",
+      "end": "2026-10-11T01:54:34.780776+09:00",
+      "hours": 0.29557471055555556,
+      "calls": 12,
+      "cost_usd": 0.0609495,
+      "monthly_ai_usd": 150.5309263988509,
+      "by_purpose_provider": {
+        "core_primary_decision|gemini": {
+          "calls": 8,
+          "cost_usd": 0.044715,
+          "input": 50485,
+          "output": 1827,
+          "cached": 0
+        },
+        "position_ai_review|gemini": {
+          "calls": 2,
+          "cost_usd": 0.01098375,
+          "input": 12545,
+          "output": 420,
+          "cached": 0
+        },
+        "position_ai_review|openai": {
+          "calls": 2,
+          "cost_usd": 0.005250749999999999,
+          "input": 10539,
+          "output": 1308,
+          "cached": 0
+        }
+      },
+      "by_trigger": {
+        "initial": {
+          "calls": 4,
+          "cost_usd": 0.02168775
+        },
+        "signature_changed": {
+          "calls": 3,
+          "cost_usd": 0.01720575
+        },
+        "unknown": {
+          "calls": 4,
+          "cost_usd": 0.0162345
+        },
+        "position_changed": {
+          "calls": 1,
+          "cost_usd": 0.005821499999999999
+        }
+      },
+      "by_model": {
+        "gemini-3.8-flash": 10,
+        "gpt-5-mini-2025-08-07": 2
+      },
+      "by_symbol": {
+        "ETH/USDT:USDT": 4,
+        "BTC/USDT:USDT": 1,
+        "XRP/USDT:USDT": 1,
+        "ADA/USDT:USDT": 6
+      },
+      "held_gemini_with_primary_previous120s": 2,
+      "duplicate_provider_ids": 0,
+      "attempts": 12,
+      "error_attempts": 0,
+      "timeouts": 0
+    },
+    "kst_oct8": {
+      "start": "2026-10-08T00:00:00+09:00",
+      "end": "2026-10-09T00:00:00+09:00",
+      "hours": 24.0,
+      "calls": 724,
+      "cost_usd": 3.6838282499999977,
+      "monthly_ai_usd": 112.04977593749993,
+      "by_purpose_provider": {
+        "core_primary_decision|gemini": {
+          "calls": 631,
+          "cost_usd": 3.1399874999999975,
+          "input": 3322020,
+          "output": 172926,
+          "cached": 0
+        },
+        "candidate_exit_plan|gemini": {
+          "calls": 4,
+          "cost_usd": 0.0056295,
+          "input": 3126,
+          "output": 876,
+          "cached": 0
+        },
+        "strategy_review|gemini": {
+          "calls": 3,
+          "cost_usd": 0.09625349999999999,
+          "input": 115953,
+          "output": 2477,
+          "cached": 0
+        },
+        "strategy_review|openai": {
+          "calls": 2,
+          "cost_usd": 0.02421825,
+          "input": 58785,
+          "output": 4761,
+          "cached": 0
+        },
+        "unknown|openai": {
+          "calls": 59,
+          "cost_usd": 0.31653025000000007,
+          "input": 354153,
+          "output": 113996,
+          "cached": 0
+        },
+        "position_ai_review|gemini": {
+          "calls": 11,
+          "cost_usd": 0.04510725,
+          "input": 51448,
+          "output": 1739,
+          "cached": 0
+        },
+        "position_ai_review|openai": {
+          "calls": 5,
+          "cost_usd": 0.010557500000000001,
+          "input": 19614,
+          "output": 2827,
+          "cached": 0
+        },
+        "entry_gate|openai": {
+          "calls": 9,
+          "cost_usd": 0.0455445,
+          "input": 53274,
+          "output": 16113,
+          "cached": 0
+        }
+      },
+      "by_trigger": {
+        "unknown": {
+          "calls": 724,
+          "cost_usd": 3.683828249999998
+        }
+      },
+      "by_model": {
+        "unknown": 644,
+        "gemini-3.8-flash": 71,
+        "gpt-5-mini-2025-08-07": 9
+      },
+      "by_symbol": {
+        "PI/USDT:USDT": 174,
+        "BTC/USDT:USDT": 201,
+        "XRP/USDT:USDT": 162,
+        "ETH/USDT:USDT": 177,
+        "DOGE/USDT:USDT": 3,
+        "SOL/USDT:USDT": 2,
+        "STRATEGY_REVIEW": 5
+      },
+      "held_gemini_with_primary_previous120s": 11,
+      "duplicate_provider_ids": 0,
+      "attempts": 0,
+      "error_attempts": 0,
+      "timeouts": 0
+    },
+    "kst_oct9": {
+      "start": "2026-10-09T00:00:00+09:00",
+      "end": "2026-10-10T00:00:00+09:00",
+      "hours": 24.0,
+      "calls": 601,
+      "cost_usd": 3.086220249999999,
+      "monthly_ai_usd": 93.87253260416664,
+      "by_purpose_provider": {
+        "core_primary_decision|gemini": {
+          "calls": 556,
+          "cost_usd": 2.7629804999999994,
+          "input": 2925704,
+          "output": 151654,
+          "cached": 0
+        },
+        "strategy_review|gemini": {
+          "calls": 4,
+          "cost_usd": 0.12959549999999997,
+          "input": 154179,
+          "output": 3723,
+          "cached": 0
+        },
+        "entry_gate|openai": {
+          "calls": 16,
+          "cost_usd": 0.09693000000000002,
+          "input": 99528,
+          "output": 36024,
+          "cached": 0
+        },
+        "position_ai_review|gemini": {
+          "calls": 4,
+          "cost_usd": 0.016517999999999998,
+          "input": 18714,
+          "output": 662,
+          "cached": 0
+        },
+        "strategy_review|openai": {
+          "calls": 3,
+          "cost_usd": 0.038541000000000006,
+          "input": 89356,
+          "output": 8101,
+          "cached": 59264
+        },
+        "candidate_exit_plan|gemini": {
+          "calls": 9,
+          "cost_usd": 0.01203825,
+          "input": 5856,
+          "output": 2039,
+          "cached": 0
+        },
+        "exit_plan_only|openai": {
+          "calls": 8,
+          "cost_usd": 0.0277735,
+          "input": 18246,
+          "output": 11606,
+          "cached": 0
+        },
+        "core_manual_exit_plan|gemini": {
+          "calls": 1,
+          "cost_usd": 0.0018435,
+          "input": 1368,
+          "output": 218,
+          "cached": 0
+        }
+      },
+      "by_trigger": {
+        "unknown": {
+          "calls": 110,
+          "cost_usd": 0.6907822500000004
+        },
+        "initial": {
+          "calls": 44,
+          "cost_usd": 0.21887625
+        },
+        "entry_setup_changed": {
+          "calls": 22,
+          "cost_usd": 0.1158015
+        },
+        "signature_changed": {
+          "calls": 201,
+          "cost_usd": 0.9923482500000002
+        },
+        "price_move_atr": {
+          "calls": 129,
+          "cost_usd": 0.6345502499999999
+        },
+        "coalesced_change_due": {
+          "calls": 25,
+          "cost_usd": 0.12332775
+        },
+        "position_changed": {
+          "calls": 21,
+          "cost_usd": 0.10387649999999997
+        },
+        "fallback_interval": {
+          "calls": 2,
+          "cost_usd": 0.010197000000000001
+        },
+        "market_context_changed": {
+          "calls": 16,
+          "cost_usd": 0.07950000000000002
+        },
+        "setup_edge_triggered": {
+          "calls": 6,
+          "cost_usd": 0.01461275
+        },
+        "eligible_gemini_entry": {
+          "calls": 13,
+          "cost_usd": 0.07530525
+        },
+        "manual_operator_entry": {
+          "calls": 5,
+          "cost_usd": 0.01049
+        },
+        "reversal_entry_revalidated": {
+          "calls": 6,
+          "cost_usd": 0.014709
+        },
+        "manual_exit_price": {
+          "calls": 1,
+          "cost_usd": 0.0018435
+        }
+      },
+      "by_model": {
+        "gemini-3.8-flash": 574,
+        "gpt-5-mini-2025-08-07": 27
+      },
+      "by_symbol": {
+        "BTC/USDT:USDT": 165,
+        "STRATEGY_REVIEW": 7,
+        "ETH/USDT:USDT": 139,
+        "PI/USDT:USDT": 144,
+        "XRP/USDT:USDT": 129,
+        "SOL/USDT:USDT": 7,
+        "DOGE/USDT:USDT": 10
+      },
+      "held_gemini_with_primary_previous120s": 4,
+      "duplicate_provider_ids": 0,
+      "attempts": 525,
+      "error_attempts": 28,
+      "timeouts": 3
+    },
+    "kst_oct10": {
+      "start": "2026-10-10T00:00:00+09:00",
+      "end": "2026-10-11T00:00:00+09:00",
+      "hours": 24.0,
+      "calls": 692,
+      "cost_usd": 3.3817207500000004,
+      "monthly_ai_usd": 102.86067281250001,
+      "by_purpose_provider": {
+        "strategy_review|gemini": {
+          "calls": 4,
+          "cost_usd": 0.13031025000000002,
+          "input": 155702,
+          "output": 3609,
+          "cached": 0
+        },
+        "strategy_review|openai": {
+          "calls": 4,
+          "cost_usd": 0.05259375,
+          "input": 120199,
+          "output": 11272,
+          "cached": 30080
+        },
+        "core_primary_decision|gemini": {
+          "calls": 592,
+          "cost_usd": 2.7958979999999998,
+          "input": 2939404,
+          "output": 157692,
+          "cached": 0
+        },
+        "entry_gate|openai": {
+          "calls": 34,
+          "cost_usd": 0.17429175000000002,
+          "input": 200623,
+          "output": 62068,
+          "cached": 0
+        },
+        "position_ai_review|gemini": {
+          "calls": 33,
+          "cost_usd": 0.15794925,
+          "input": 180624,
+          "output": 5995,
+          "cached": 0
+        },
+        "position_ai_review|openai": {
+          "calls": 25,
+          "cost_usd": 0.07067775000000003,
+          "input": 122711,
+          "output": 20000,
+          "cached": 0
+        }
+      },
+      "by_trigger": {
+        "unknown": {
+          "calls": 66,
+          "cost_usd": 0.41153100000000026
+        },
+        "signature_changed": {
+          "calls": 287,
+          "cost_usd": 1.346214000000001
+        },
+        "entry_setup_changed": {
+          "calls": 34,
+          "cost_usd": 0.17051550000000004
+        },
+        "eligible_gemini_entry": {
+          "calls": 34,
+          "cost_usd": 0.17429175000000002
+        },
+        "price_move_atr": {
+          "calls": 140,
+          "cost_usd": 0.657039
+        },
+        "market_context_changed": {
+          "calls": 35,
+          "cost_usd": 0.17098800000000003
+        },
+        "coalesced_change_due": {
+          "calls": 13,
+          "cost_usd": 0.060282749999999996
+        },
+        "position_changed": {
+          "calls": 33,
+          "cost_usd": 0.16239075000000003
+        },
+        "fallback_interval": {
+          "calls": 3,
+          "cost_usd": 0.014361
+        },
+        "initial": {
+          "calls": 47,
+          "cost_usd": 0.21410700000000005
+        }
+      },
+      "by_model": {
+        "gemini-3.8-flash": 629,
+        "gpt-5-mini-2025-08-07": 63
+      },
+      "by_symbol": {
+        "STRATEGY_REVIEW": 8,
+        "XRP/USDT:USDT": 162,
+        "ETH/USDT:USDT": 170,
+        "BTC/USDT:USDT": 156,
+        "PI/USDT:USDT": 86,
+        "ADA/USDT:USDT": 110
+      },
+      "held_gemini_with_primary_previous120s": 33,
+      "duplicate_provider_ids": 0,
+      "attempts": 698,
+      "error_attempts": 10,
+      "timeouts": 5
+    }
+  },
+  "effective": {
+    "CORE_GEMINI_ROUTINE_INTERVAL_SECONDS": 1800,
+    "POSITION_AI_REVIEW_COOLDOWN_MINUTES": 15,
+    "POSITION_AI_PERIODIC_HOLD_REVIEW_ENABLED": true,
+    "CORE_AI_STRATEGY_AUTHORITY": true,
+    "CANDIDATE_C_CHART_ONLY": true,
+    "GEMINI_MODEL": "gemini-3.8-flash",
+    "OPENAI_MODEL": "gpt-5-mini"
+  },
+  "gate_calls_since_v10": {
+    "initial|held": 12,
+    "signature_changed|held": 39,
+    "position_changed|held": 10,
+    "price_move_atr|held": 23,
+    "position_changed|flat": 1,
+    "market_context_changed|flat": 1,
+    "market_context_changed|held": 3,
+    "price_move_atr|flat": 2,
+    "signature_changed|flat": 4,
+    "coalesced_change_due|held": 4,
+    "entry_setup_changed|flat": 2
+  },
+  "gate_skips_since_v10": {
+    "stable_within_budget": 51,
+    "low_importance_coalesced": 13
+  },
+  "price_calls_under1atr": 12,
+  "price_calls_atleast1atr": 13,
+  "service": "MainPID=179007\nNRestarts=0\nActiveState=active\n"
+}
