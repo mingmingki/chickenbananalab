@@ -1,3 +1,10 @@
+# CURRENT AUTHORITATIVE STATE — V14 QUALIFIED / V13 LIVE
+
+1996 tests +130 subtests passing; one changed production file web_app.py, automatic paid six-hour review startup removed. GPT held-management and all trading/SLTP code unchanged. Stage not yet dispatched. Planned unit autotrader-ai-cost-v14-deploy-20261011.service; inspect record before retry. Preserve positions/OCO.
+
+# CURRENT AUTHORITATIVE STATE — V13 LIVE / V14 SCHEDULED REVIEW REMOVAL IN PROGRESS
+2026-10-11 08:39 KST user authorized removal of six-hour automatic AI pattern review. V13 remains LIVE, PID 186124, NRestarts 0, read-only verified. New isolated candidate /private/tmp/chickenbanana-cost-v14-20261011 copied from qualified v13. Scope: remove only automatic strategy-review startup from web_app.main; keep manual review and transaction/history recording. GPT management->Gemini-only and deterministic risk proposals are recommendations under discussion, NOT changed in this v14 scope. Do not restart/deploy until qualification passes. Protect current positions and OCO, inspect v14 deployment record/unit before any retry.
+
 # CURRENT AUTHORITATIVE STATE — V13 LIVE / DEPLOYED AND VERIFIED / NO REDISPATCH
 
 2026-10-11 06:55 KST. Authorized single v13 deployment completed successfully.

@@ -1,0 +1,38 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_service_startup_does_not_start_six_hour_ai_review ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10f9da7d0>
+
+    def test_service_startup_does_not_start_six_hour_ai_review(monkeypatch):
+        started=[];served=[]
+        class StartupThread:
+            def __init__(self,*,target,name,daemon):
+                self.name=name
+            def start(self):
+                started.append(self.name)
+        monkeypatch.setattr(web_app, '_ensure_server_logging', lambda:None)
+        monkeypatch.setattr(web_app.threading, 'Thread', StartupThread)
+        def forbidden(*args,**kwargs):
+            raise AssertionError('scheduled paid AI pattern review started')
+        monkeypatch.setattr(web_app.trade_learning_scheduler, 'start_review_scheduler', forbidden)
+        monkeypatch.setitem(sys.modules,'waitress',SimpleNamespace(serve=lambda *args,**kwargs:served.append(kwargs)))
+>       web_app.main()
+
+tests/test_scheduled_ai_review_retired_v14.py:19: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+web_app.py:2931: in main
+    trade_learning_scheduler.start_review_scheduler(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = (<function _trade_learning_context_provider at 0x10f7d8e00>, <threading.Event at 0x10f7d7ed0: unset>)
+kwargs = {}
+
+    def forbidden(*args,**kwargs):
+>       raise AssertionError('scheduled paid AI pattern review started')
+E       AssertionError: scheduled paid AI pattern review started
+
+tests/test_scheduled_ai_review_retired_v14.py:16: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_scheduled_ai_review_retired_v14.py::test_service_startup_does_not_start_six_hour_ai_review
+1 failed in 1.89s
