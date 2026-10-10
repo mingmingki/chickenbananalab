@@ -1,3 +1,9 @@
+# CURRENT AUTHORITATIVE STATE — V11 ADAPTIVE PARTIALS IN PROGRESS / NOT DEPLOYED
+
+User requested risk-dependent partial profit/loss reductions: Candidate chart, CORE AI. V10 remains running and COMPLETE. New isolated candidate /private/tmp/chickenbanana-strategy-v11-20261010/candidate. Plan autotrader-strategy-v11-20261010/PLAN.md. First readonly check:6positions6exactOCO0pending, v10PID174157 NRestarts0. No new deployment/order/service mutation. Never replay v10. Next write failing v11 regressions, implement small units, checkpoint each phase; LIVE v11 blocked pending all qualification.
+
+---
+
 # CURRENT AUTHORITATIVE STATE — V10 DEPLOYED / VERIFIED / COMPLETE
 
 Single deployment completed 2026-10-10 22:18:12KST. Active release /opt/autotrader-releases/strategy_authority_v10_20261010T221704KST, autotrader.service PID174157 active NRestarts0. CORE and Candidate live loops running. CORE authority AI; Candidate CHART_RISK, entry/exit AI disabled. DashboardHTTP200. All9source hashes match qualification; effective settings match migration; resume consumed; exact legacy owner/ROLLBACK and Candidate live activation/parity verified.
