@@ -1,3 +1,9 @@
+# CURRENT AUTHORITATIVE STATE — V11 QUALIFIED / PREFLIGHT NEXT / NOT DEPLOYED
+
+1968 tests +130 subtests, zero failures across five suites;53 new regressions. Focused113 passed. Qualification and17-file deployment bundle autotrader-strategy-v11-20261010. No v11 deployment/order/service mutation yet. V10 remains production; NEVER repeat v10. Stage next /tmp/autotrader-strategy-v11-qualified-20261010; unique autotrader-strategy-v11-deploy-20261010.service. Inspect stage/unit/record before dispatch; if record exists or unit ran observe only. Only named risk-adaptive opt-in flag may change. Preserve exact positions/OCO.
+
+---
+
 # CURRENT AUTHORITATIVE STATE — V11 IMPLEMENTED / FULL QUALIFICATION NEXT / NOT DEPLOYED
 
 Focused113tests pass,53new regressions; v10 remains productionPID174157. Adaptive CORE explicitdualAI/Candidateconfirmedchart fractions implemented; existingCOREcumulative50%cap, original/remainingbasis, durableincompletegoal, smallerapproval, dedup/exactOCO maintained. Distinctmanagementoverlay hash; originalentrysnapshot preserved. Source+tests in autotrader-strategy-v11-20261010/implementation. Full5suites next; inspect evidence/full-results.json/PID beforeanyrepeat. LIVEv11 blockeduntilzero failures; neverreplayv10.

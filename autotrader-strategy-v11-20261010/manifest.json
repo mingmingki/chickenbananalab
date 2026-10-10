@@ -1,0 +1,70 @@
+{
+  "adaptive_reduction.py": {
+    "baseline": null,
+    "candidate": "a77ab10fda98aa910ecbcd40165f44fcabe060b5e68238dcbff0e54dde22a8ab"
+  },
+  "config.py": {
+    "baseline": "e66b80b3e8d1af776ac7a85be8568383ad04c17b50537f44cbcd3beef2465e5d",
+    "candidate": "e1ca294d048833ad9f1c902b375fbc04aea85dba15ca6e7f6417eace709a1813"
+  },
+  "reduce_v2_state.py": {
+    "baseline": "77d32a83848470caa75be36c327ebfa47484f3353350e0995160de0b41cbdb6d",
+    "candidate": "0aadb747b3ae7fa087bc2753ecec2be39a3910ca36ac195e5fa825b0b3e12cb2"
+  },
+  "trader.py": {
+    "baseline": "caa9a724073d88e9cf1ffdf61b189653ca51c4b5c13e883af27b9edc0850b16b",
+    "candidate": "14f9d653c8b39544b7840dbb6cac0726e8ac97f11026f4154b96c72335949589"
+  },
+  "gemini_analyzer.py": {
+    "baseline": "8e15e246b689e91cb1fe5902cea2faa316618d3390df5df7b96ad91deb8a7a77",
+    "candidate": "1a84117c1cc5b5908978e7be5f3542181908ec869f110232e4d04be70cdd4182"
+  },
+  "openai_analyzer.py": {
+    "baseline": "e70b194b31dc858474e0d420e2a16a81cef6650aca8bd21f6e31cad85783c5c1",
+    "candidate": "0fc62cbe88863e3a63026ae361dbf5b761881b4a95ab4ad81921c31ff504f780"
+  },
+  "candidate_c_decision_engine.py": {
+    "baseline": "91ac9113a135b5e069210ee9df54a20ddca42b546754bf0ce35760c832960a21",
+    "candidate": "037fe13a36483ab8218de59a110b308c2a381d12807610b777f5db4df6596889"
+  },
+  "candidate_c_exit_management.py": {
+    "baseline": "e5cbea760b5428faaa7586e80bc59967a0a7f89b8b02e37549404d68e2453e01",
+    "candidate": "5659f032b0536ce06920f68d3b79c9639c9bd01b121de5b4c98288b8110b6d6b"
+  },
+  "candidate_c_hybrid_cycle.py": {
+    "baseline": "6be584105a0a67fdcf488c507ec2534d1cfbcc12191edccd3a6ad41582d5b26a",
+    "candidate": "fdea7cabc2640002996ddafbb84a1f21b72af97f4a0698743232792eb68a46b3"
+  },
+  "candidate_c_backtest_signal_adapter.py": {
+    "baseline": "13639ae8855a4302217bee1b2cadf4e2712707a8bd1b7949cbedd7404c278966",
+    "candidate": "6f9043f7ee7ce3982b69afc6fd23f7699b14531deae2741f409f0d9c4f3a390e"
+  },
+  "candidate_c_forward_paper_trading.py": {
+    "baseline": "93433b2decb68a00a7191b6000d6456b90fee1c0bacd3f7027a69cae847c90fb",
+    "candidate": "9aabe077455ef2002eb189f54fe6c36320730d648072c21be81e99d033e9e6fe"
+  },
+  "candidate_c_trader_adapter.py": {
+    "baseline": "a2da528f6028c369888be21446aa5433afb3d114e57eee81ded7a3040776fb01",
+    "candidate": "8a9576e9fe27bc870a5fdd9a97e6fd7545f2d5e15b129f51027ee171c8d6fcf0"
+  },
+  "candidate_c_hybrid_live_adapter.py": {
+    "baseline": "53a571194183ca5bc8305c67aaad42970af512964f5b7c511492c76a88c274f4",
+    "candidate": "e0fd46bc6b9a1529d1671755299cae1cb203e7ee24acce24537e487cbdbd07a6"
+  },
+  "position_management_context.py": {
+    "baseline": "c195435f8b98772f886ee014ac7be4a0877aae4ee84ef3c700a56d6115c4c156",
+    "candidate": "cde2a34e10932f1afb1afa26a8eb142bb10f753010ef6db18517b81afaef91a0"
+  },
+  "candidate_c_runtime.py": {
+    "baseline": "e1508ce30971c6bf68ad83e96436feacbd5b33f8e68136bc9d6154391aad053c",
+    "candidate": "0284e5b83e8c2d3a93d0d6e0b083c77ea9c8065bc618c61bb7d101a287066511"
+  },
+  "web_app.py": {
+    "baseline": "edc0a90ba961394e9ea89339511b6363a93ebe04ca2b029d9563d7c37e7ff636",
+    "candidate": "84d124d3048406ee86b0fe93b86898583e3c0d2618623a7bf06627201c3feb01"
+  },
+  "templates/dashboard.html": {
+    "baseline": "29c54ff7d5e9925c6daa0028469f32ea28f7dc3a62079be4da632116d1f4789a",
+    "candidate": "142c625c30fdac2b4f7d1cf022a315e1e30634f6baeb45aa29375c208976e43f"
+  }
+}

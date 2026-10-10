@@ -1,0 +1,87 @@
+[
+  {
+    "suite": "tests",
+    "exit": 0,
+    "stats": [
+      {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "1430",
+        "time": "22.506",
+        "timestamp": "2026-10-10T23:13:44.835622+09:00",
+        "hostname": "bagmingiui-MacBookPro.local"
+      }
+    ],
+    "summary": "1403 passed, 27 subtests passed in 22.54s"
+  },
+  {
+    "suite": "gemini_checks",
+    "exit": 0,
+    "stats": [
+      {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "268",
+        "time": "5.048",
+        "timestamp": "2026-10-10T23:14:08.001060+09:00",
+        "hostname": "bagmingiui-MacBookPro.local"
+      }
+    ],
+    "summary": "230 passed, 38 subtests passed in 5.05s"
+  },
+  {
+    "suite": "rollback_checks",
+    "exit": 0,
+    "stats": [
+      {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "49",
+        "time": "0.114",
+        "timestamp": "2026-10-10T23:14:13.338419+09:00",
+        "hostname": "bagmingiui-MacBookPro.local"
+      }
+    ],
+    "summary": "37 passed, 12 subtests passed in 0.11s"
+  },
+  {
+    "suite": "negative_guard_checks",
+    "exit": 0,
+    "stats": [
+      {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "48",
+        "time": "1.094",
+        "timestamp": "2026-10-10T23:14:13.608499+09:00",
+        "hostname": "bagmingiui-MacBookPro.local"
+      }
+    ],
+    "summary": "41 passed, 7 subtests passed in 1.09s"
+  },
+  {
+    "suite": "rollback_full_checks",
+    "exit": 0,
+    "stats": [
+      {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "303",
+        "time": "5.087",
+        "timestamp": "2026-10-10T23:14:15.225178+09:00",
+        "hostname": "bagmingiui-MacBookPro.local"
+      }
+    ],
+    "summary": "257 passed, 46 subtests passed in 5.09s"
+  }
+]
