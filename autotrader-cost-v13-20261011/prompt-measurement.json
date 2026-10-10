@@ -1,0 +1,28 @@
+{
+  "before": {
+    "sample": "synthetic same seven-TF evidence, matched management due",
+    "paid_calls": 0,
+    "provider_requests": 3,
+    "input_chars": 16870,
+    "by_stage": {
+      "core_primary_decision": 5899,
+      "position_ai_review": 5264,
+      "gpt_management": 5707
+    },
+    "schema_and_output_tokens_included": false,
+    "tokenizer_proxy": null
+  },
+  "after": {
+    "sample": "synthetic same seven-TF evidence, matched management due",
+    "paid_calls": 0,
+    "provider_requests": 2,
+    "input_chars": 7713,
+    "by_stage": {
+      "core_primary_decision": 4425,
+      "gpt_management": 3288
+    },
+    "schema_and_output_tokens_included": false,
+    "tokenizer_proxy": null
+  },
+  "input_chars_reduction_pct": 54.27978660343806
+}

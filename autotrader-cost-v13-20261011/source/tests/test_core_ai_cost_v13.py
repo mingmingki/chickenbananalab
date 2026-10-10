@@ -168,3 +168,19 @@ def test_provider_latency_included_in_reuse_age(tmp_path,monkeypatch):
     decision=gemini.analyze(cfg,SYMBOL,['5m'],'facts',dict(POSITION),protection=dict(PROTECTION))
     import core_ai_context as context
     assert context.reuse(decision,cfg,SYMBOL,['5m'],'facts',dict(POSITION),dict(PROTECTION)) is None
+
+
+@pytest.mark.parametrize('risk',[[],{}])
+def test_malformed_nested_risk_falls_back_without_losing_gpt(tmp_path,monkeypatch,risk):
+    cfg=config(tmp_path)
+    payload=dict(PAYLOAD,position_review=dict(REVIEW,risk_level=risk))
+    requests=provider(monkeypatch,payload)
+    summary=evidence.render(dict(mfe_known=False))
+    monkeypatch.setattr(trader,'_position_management_evidence',lambda *a:summary)
+    decision=gemini.analyze(cfg,SYMBOL,['5m'],summary,dict(POSITION),protection=dict(PROTECTION))
+    assert decision['action']=='hold' and '_held_review' not in decision
+    gpt=[]
+    monkeypatch.setattr(trader.openai_analyzer,'verify_position_management',lambda *a,**k:gpt.append(a) or dict(action='HOLD',confidence=.9))
+    trader._handle_position_ai_review(cfg,TraderState(),SimpleNamespace(fetch_current_protection=lambda _:dict(PROTECTION)),SYMBOL,['5m'],summary,dict(POSITION),decision,{})
+    assert [r['purpose'] for r in requests]==['core_primary_decision','position_ai_review']
+    assert len(gpt)==1

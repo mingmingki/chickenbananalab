@@ -1,3 +1,8 @@
+# CURRENT AUTHORITATIVE STATE — COST V13 QUALIFIED / NOT DEPLOYED / V12 LIVE
+V13 implementation complete: primary+held Gemini merged only fresh exact context; GPT retained; repeated lifecycle facts replaced, CORE prompts compact, actual protection and reversal entry contract retained. Independent review1Important malformed risk fixed with2RED->GREEN cases. Final1995tests+130subtests pass across5groups. Synthetic7TF held management requests3->2 and inputchars-54.28%; actual billed savings unverified. Manifest18sourcefiles,4changed (trader,gemini,openai,newcore_ai_context), settings unchanged. Privatequalified /private/tmp/chickenbanana-cost-v13-20261011; operatordeploy/verify+qualification prepared. Next: stage /tmp/autotrader-ai-cost-v13-qualified-20261011, preflight, ONE dispatch autotrader-ai-cost-v13-deploy-20261011.service; inspect record/unit before retry. Existing v12PID179007 stillLIVE; no source/order/service mutation yet. Publicevidence autotrader-cost-v13-20261011. Preserve existing positions/OCO. Do not repeat priorcompleted deployments/tests.
+
+---
+
 # CURRENT AUTHORITATIVE STATE — COST V13 IMPLEMENTATION STARTED / V12 LIVE
 User approved v13 cost reduction implementation and deployment. Readonly production check: v12PID179007 active/NRestarts0, unchanged source; completed prior deploy units exited. Isolated candidate /private/tmp/chickenbanana-cost-v13-20261011/candidate. Plan+ledger autotrader-cost-v13-20261011. No source/settings/order/service change yet. Next: RED unified/freshness/prompt tests, then implement, full regression+fresh review, one guarded deployment. Preserve all positions/OCO; never redispatch v12. Historical cost scenarios remain estimates.
 

@@ -46,7 +46,9 @@ def _fingerprint(cfg, symbol, tfs, summary, position, protection):
 def _valid(cfg, review):
     return (isinstance(review, dict) and strategy_authority.held_review_valid(cfg, review)
             and isinstance(review.get('reasoning'), str)
-            and (not adaptive_reduction.enabled(cfg) or adaptive_reduction.valid_gemini_proposal(review)))
+            and (not adaptive_reduction.enabled(cfg) or (
+                isinstance(review.get('risk_level'), str)
+                and adaptive_reduction.valid_gemini_proposal(review))))
 
 
 def bind(decision, cfg, symbol, tfs, summary, position, protection, started_at):
@@ -62,6 +64,8 @@ def reuse(decision, cfg, symbol, tfs, summary, position, protection, *, now=None
     if not strategy_authority.core_ai(cfg):
         return None
     snapshot = decision.get('_held_review_snapshot') or {}
+    if not isinstance(snapshot, dict):
+        return None
     review = decision.get('_held_review')
     created = snapshot.get('created_at')
     if not adaptive_reduction.number(created):
