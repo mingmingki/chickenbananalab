@@ -123,3 +123,144 @@
      monkeypatch.setattr(web_app.trade_learning_cache,"get_cached",lambda _u:{"analysis":{}})
      monkeypatch.setattr(web_app.learning_state,"load_active_state",lambda _u:({},True))
      monkeypatch.setattr(web_app.learning_shadow,"summarize_pattern_evidence",lambda _u:{})
+--- a/tests/test_core_entry_pipeline.py
++++ b/tests/test_core_entry_pipeline.py
+@@ -16,6 +16,7 @@
+ 
+ class Exchange:
+     def __init__(self,minimum=.01): self.minimum=minimum
++    def price_to_precision(self,symbol,price): return f"{price:.2f}"
+     def market(self,symbol):
+         return dict(id='ETH-USDT-SWAP',contractSize=.1,precision={'amount':.01,'price':.01},limits={'amount':{'min':self.minimum}})
+ 
+--- a/tests/test_core_dual_ai_consensus.py
++++ b/tests/test_core_dual_ai_consensus.py
+@@ -21,7 +21,7 @@
+             result = cls(2026, 10, 7, 14, 0)
+             return result.replace(tzinfo=tz) if tz is not None else result
+     monkeypatch.setattr(trader.datetime, "datetime", Clock)
+-    symbol = "PI/USDT:USDT"
++    symbol = "ADA/USDT:USDT"
+     cfg = SimpleNamespace(
+         user_dir=str(tmp_path), logger=logging.getLogger("consensus"),
+         GPT_ENTRY_GATE_ENABLED=True, OPENAI_API_KEY="fixture",
+@@ -141,7 +141,7 @@
+     monkeypatch.setattr(openai_analyzer,"_ensure_response_models_warmed_up",lambda:None)
+     cfg=SimpleNamespace(OPENAI_API_KEY="fixture",OPENAI_MODEL="fixture",
+         user_dir=str(tmp_path),logger=logging.getLogger("consensus_prompt"))
+-    openai_analyzer.verify(cfg,"PI/USDT:USDT",["5m","1d"],
++    openai_analyzer.verify(cfg,"ADA/USDT:USDT",["5m","1d"],
+         "[1일봉] daily\n[5분봉] current microstructure",None,
+         {"action":"short","confidence":.72,
+          "_core_entry_observations":{"short_level_none":{"level":"NONE"},"entry_overextension":{"reason":"short_chase_30m_drop"}}},
+--- a/tests/test_final_entry_submission_regression.py
++++ b/tests/test_final_entry_submission_regression.py
+@@ -15,7 +15,7 @@
+ def proposal(tmp_path, side):
+     cfg = _cfg(tmp_path)
+     cfg.logger = SimpleNamespace(warning=lambda *a, **k: None, info=lambda *a, **k: None)
+-    result = trader._core_adaptive_live_entry_decision(cfg, symbol='PI/USDT:USDT',
++    result = trader._core_adaptive_live_entry_decision(cfg, symbol='ADA/USDT:USDT',
+         legacy_order_args=(side, 10, 96 if side=='long' else 104, 106 if side=='long' else 94),
+         entry_price=100, equity=1000, market_features=dict(atr=2, structural_support=93,
+         structural_resistance=107, near_resistance=105, near_support=95,
+@@ -49,13 +49,13 @@
+ def boundary(tmp_path, monkeypatch, side, price, *, minimum=.01, age=0, no_pullback=False):
+     cfg,r=proposal(tmp_path,side)
+     cfg.EXECUTION_MODE='LIVE'
+-    cfg._core_loss_guards={'PI/USDT:USDT':SimpleNamespace(allow_new_entry=lambda equity:True)}
++    cfg._core_loss_guards={'ADA/USDT:USDT':SimpleNamespace(allow_new_entry=lambda equity:True)}
+     now=time.time()
+     decision={'action':side,'confidence':.8,'_approval_started_at':now-age, '_bar_closed_at':now-age,
+               '_bounded_entry_validation':dict(context=r['context'], plan=r['plan'], closed_dfs={})}
+     monkeypatch.setattr(trader,'_core_entry_overextension_gate',lambda dfs,s,p: {'allowed':not no_pullback,'reason':'entry_late_exhaustion_no_pullback' if no_pullback else 'ok'})
+     client=SimpleNamespace(fetch_last_price=lambda:price, fetch_usdt_equity=lambda:1000,
+-        ensure_markets_loaded=lambda:None, exchange=SimpleNamespace(market=lambda symbol:dict(contractSize=1,precision={'amount':.01},limits={'amount':{'min':minimum}})),
++        ensure_markets_loaded=lambda:None, exchange=SimpleNamespace(price_to_precision=lambda symbol,p:f'{p:.4f}',market=lambda symbol:dict(contractSize=1,precision={'amount':.01,'price':.0001},limits={'amount':{'min':minimum}})),
+         ensure_leverage=lambda:None,contract_size=lambda:1,fetch_position=lambda:None,fetch_order_status_by_client_id=lambda cid:None)
+     sent=[]
+     class ReachedMockOrder(Exception):pass
+@@ -71,8 +71,8 @@
+ def test_real_core_submit_reduces_quantity_after_adverse_quote(tmp_path,monkeypatch,side,price):
+     cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,price)
+     state=TraderState()
+-    assert trader._execute_entry(cfg,state,c,'PI/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
+-    assert state.snapshot()['symbols']['PI/USDT:USDT']['last_entry_attempt']['status']=='ORDER_PENDING'
++    assert trader._execute_entry(cfg,state,c,'ADA/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
++    assert state.snapshot()['symbols']['ADA/USDT:USDT']['last_entry_attempt']['status']=='ORDER_PENDING'
+     _,qty,sl,tp=sent[0]
+     assert qty*(abs(price-sl)+price*.001)<=50+1e-9
+     assert qty < args[1]
+@@ -81,7 +81,7 @@
+ @pytest.mark.parametrize('side,price',[('long',99.81),('short',100.19)])
+ def test_real_core_submit_rejects_ai_target_over_cap_after_favorable_quote(tmp_path,monkeypatch,side,price):
+     cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,price)
+-    assert trader._execute_entry(cfg,TraderState(),c,'PI/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
++    assert trader._execute_entry(cfg,TraderState(),c,'ADA/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
+     assert not sent
+ 
+ 
+@@ -90,7 +90,7 @@
+ def test_real_core_submit_fails_closed_before_exchange(tmp_path,monkeypatch,side,fault):
+     cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,100,
+         minimum=100 if fault=='minimum' else .01,age=181 if fault=='expired' else 0,no_pullback=fault=='chase')
+-    assert trader._execute_entry(cfg,TraderState(),c,'PI/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
++    assert trader._execute_entry(cfg,TraderState(),c,'ADA/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
+     assert not sent
+ 
+ 
+@@ -170,10 +170,10 @@
+         raise Captured
+     monkeypatch.setattr(trader,'_execute_approved_entry_with_optional_reversal',execute)
+     state=TraderState()
+-    trader._handle_new_entry(cfg,state,None,'PI/USDT:USDT',side,{'action':side,'confidence':.8},'test','entry',[], '',None,
++    trader._handle_new_entry(cfg,state,None,'ADA/USDT:USDT',side,{'action':side,'confidence':.8},'test','entry',[], '',None,
+         100,r['order_args'][1],r['order_args'][2],r['order_args'][3],adaptive_plan=r['plan'],adaptive_context=r['context'])
+-    assert state.snapshot()['symbols']['PI/USDT:USDT']['last_entry_attempt']['status']=='GPT_ERROR'
+-    assert state.snapshot()['symbols']['PI/USDT:USDT']['last_entry_attempt']['reason']=='core_gpt_entry_gate_disabled'
++    assert state.snapshot()['symbols']['ADA/USDT:USDT']['last_entry_attempt']['status']=='GPT_ERROR'
++    assert state.snapshot()['symbols']['ADA/USDT:USDT']['last_entry_attempt']['reason']=='core_gpt_entry_gate_disabled'
+ 
+ @pytest.mark.parametrize('side',['long','short'])
+ def test_core_expired_replacement_never_closes_existing_position(tmp_path,monkeypatch,side):
+@@ -183,7 +183,7 @@
+     monkeypatch.setattr(trader,'_approved_entry_still_valid_after_gpt',lambda *a,**k:True)
+     closed=[]
+     monkeypatch.setattr(trader,'_execute_close',lambda *a,**k:closed.append(True) or True)
+-    assert trader._execute_approved_entry_with_optional_reversal(cfg,TraderState(),c,'PI/USDT:USDT',side,args[1],100,args[2],args[3],reversal_position=existing,decision_id='boundary-test',decision=d) is False
++    assert trader._execute_approved_entry_with_optional_reversal(cfg,TraderState(),c,'ADA/USDT:USDT',side,args[1],100,args[2],args[3],reversal_position=existing,decision_id='boundary-test',decision=d) is False
+     assert closed==[]
+ 
+ @pytest.mark.parametrize('side,price',[('long',100.51),('short',99.49)])
+--- a/tests/test_report_contract_regression.py
++++ b/tests/test_report_contract_regression.py
+@@ -96,16 +96,16 @@
+ 
+     monkeypatch.setattr(trader, "_gpt_entry_gate", provider_gate)
+     monkeypatch.setattr(trader, "_execute_approved_entry_with_optional_reversal", order)
+-    # PI + SHORT is evidence; approval authorizes the configured amount.
++    # ADA + SHORT is evidence; approval authorizes the configured amount.
+     trader._handle_new_entry(
+-        cfg, state, object(), "PI/USDT:USDT", "short",
++        cfg, state, object(), "ADA/USDT:USDT", "short",
+         {"action": "short", "confidence": 0.72}, "fixture-id", "entry",
+         ["5m"], "fixture", None, 100.0, 10.0, 104.0, 92.0,
+         adaptive_context=SimpleNamespace(
+             entry_price=100.0, atr=1.0, leverage=5.0, estimated_roundtrip_cost_rate=0.004,
+         ),
+     )
+-    attempt = state.snapshot()["symbols"]["PI/USDT:USDT"]["last_entry_attempt"]
++    attempt = state.snapshot()["symbols"]["ADA/USDT:USDT"]["last_entry_attempt"]
+     audit = json.loads((tmp_path / "gpt_shadow_log.jsonl").read_text().splitlines()[-1])
+     assert audit["order_success"] is gpt_allows
+     return attempt, audit, seen
+--- a/tests/test_gpt_entry_gate_dashboard.py
++++ b/tests/test_gpt_entry_gate_dashboard.py
+@@ -5,6 +5,7 @@
+ 
+ 
+ def _append(user_dir, **row):
++    row.setdefault("symbol", "ETH/USDT:USDT")
+     path = Path(user_dir) / "gpt_shadow_log.jsonl"
+     with path.open("a", encoding="utf-8") as f:
+         f.write(json.dumps(row, ensure_ascii=False) + "\n")

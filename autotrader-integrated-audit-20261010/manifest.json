@@ -1,7 +1,7 @@
 {
   "baseline_release": "/opt/autotrader-releases/core_gemini_gpt_sltp_v7_20261010",
   "deployment_allowed": false,
-  "reason": "78 identical unresolved baseline regressions",
+  "reason": "21 qualification failures:19 retained baseline failures and2 newly exposed final-target expectations after valid ADA fixture",
   "files": {
     "operating_costs.py": {
       "baseline": "c996e97a9c3a102a82519a0a1ec83c025fd961a1577d2c607c3c641831769794",
@@ -18,6 +18,38 @@
     "tests/test_trade_learning_api.py": {
       "baseline": "bf52ef5e1ede8d26734e07d6f62a2bd77ec68b6ea8552506dfe2cdbf510ee41d",
       "candidate": "390d1e3f1b2cd7bc3139c995534cdd07d41c235c56cf15334b1b3dfcc5d31d31"
+    },
+    "tests/test_core_entry_pipeline.py": {
+      "baseline": "065d958718dc8674009d82e96721bad43f1576f121f5e56920f3f154f09f0081",
+      "candidate": "4167ed8949c50d2bd9603bb3e315399d43ff0f6ba13691465e8455970373611f"
+    },
+    "tests/test_core_dual_ai_consensus.py": {
+      "baseline": "bd03c896c68104f52500a92f6fba075c429bb63852cdc0623fa8e89ede445832",
+      "candidate": "2291af4e49573b63b0a0a6ccbae538e4be3447dd0311910bbb735ecc1727089c"
+    },
+    "tests/test_final_entry_submission_regression.py": {
+      "baseline": "ea1b7c4723b4e9a310bfe5166c280aa0efc23051afd8165a3f3cc3594b969432",
+      "candidate": "848cb36f9c2bb7b7265f71339d00a70a619cd0e5cf253243257924191c056b8c"
+    },
+    "tests/test_report_contract_regression.py": {
+      "baseline": "0929f90f21ea7e775c9632fab7b94b1aa79c5de63f73502683d9f23b1773e6c1",
+      "candidate": "f1dc5480daedfc6370e64ee38cf279170d9e7667434faf88086fcc587e39697d"
+    },
+    "tests/test_gpt_entry_gate_dashboard.py": {
+      "baseline": "29b8be883be37a85d394403e4c040d70f187819646072e3b9a8ac94c68b36efc",
+      "candidate": "ad971cf104aa7009b578ec7da39b2a18f2eab0770b41ab9940c4d3962cd007a6"
     }
+  },
+  "test_results": {
+    "baseline_passed": 1192,
+    "baseline_failed": 78,
+    "candidate_initial_passed": 1198,
+    "candidate_initial_failed": 78,
+    "candidate_final_passed": 1255,
+    "candidate_final_failed": 21,
+    "subtests_passed": 27,
+    "related_passed": 19,
+    "resolved_baseline_failure_ids": 59,
+    "newly_exposed_failures": 2
   }
 }

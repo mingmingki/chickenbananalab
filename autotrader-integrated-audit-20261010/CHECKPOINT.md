@@ -14,3 +14,8 @@ Current source changed since oldv5/v6 artifacts. Never replace it with main/CAD 
 NaturalLIVEcases: ADA14:57 dual-approval protectedfill; BTC15:06TIMEOUT_BYPASS protectedfill; ADA16:43dual approval blocked before reversal close byfinal_target_r_bounds_unrepresentable.
 No extra Codex CLI, AI paid calls, test trade, Telegram test, GCP restart, or order mutation was used in this audit.
 Next: verify missing test DTO/proof fields versus actual production contract without weakening risk/protection assertions; classify changed SL/TP expectations versus genuine defects; reproduce finalADA bounds failure using saved exactdecision inputs. Then cost-inclusive causal replay and full suites, only then immutable deployment with exact currentidentity marker plus preservation snapshot/rollback.
+
+Final fixture-only qualification update:
+Fake exchange implements price_to_precision with fixture price ticks; active CORE entry fixtures use ADA instead of PI; raw GPT log fixtures include actual CORE symbol. Historical trades unchanged. No existing assertion removed or relaxed.
+Final full candidate:1255passed21failed27subtests.59 original failing IDs pass;19 original failures persist;2 favorable-quote target tests newly fail because valid ADA now reaches submission rather than unsupported-PI veto. This is newly exposed behavior of unchanged trading code, not a green qualification. Deployment blocked.
+Remaining discrepancies include tighter20percent leveraged SL cap, final-price TP normalization, unchanged fixed-margin risk budget, and600second routine AI coalescing. Do not merely change expectations to get green; replay exact approved inputs and verify cap/ATR/RR/quantity/protection invariants.
