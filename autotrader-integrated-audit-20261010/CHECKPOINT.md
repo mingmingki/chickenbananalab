@@ -1,3 +1,15 @@
+# Current authoritative resume state — v9 DEPLOYED / VERIFIED
+
+- Active release: /opt/autotrader-releases/strategy_safety_v9_20261010T211941KST
+- Service PID172366, active, NRestarts0; authenticated CORE running and Candidate running/live.
+- Tests:1878 passed +130 subtests, zero failures. Source commit47898b3.
+- Actual exchange after resume: positions5/OCO5/pending0; exact predeployment positions and protection preserved, settings unchanged, all6 candidate hashes verified.
+- Single deployment unit autotrader-strategy-v9-deploy-20261010.service exited successfully and remains as durable completed record. NEVER resubmit it or rerun deploy.py. One-shot application resume consumed.
+- Operator/record: /tmp/autotrader-strategy-v9-qualified-20261010/{deploy.py,deployment-record.json}. Private backup: /var/lib/autotrader/deployment-backups/strategy-v9-20261010T121940Z.
+- No work remains for this qualified correction. Initial-entry relaxation, learning promotion and economic profitability remain separate unvalidated tasks; do not infer approval or profitability from passing software tests.
+
+---
+
 # 2026-10-10 integrated audit — DEPLOYED AND VERIFIED
 
 Latest status: original21failures resolved; all1857tests and130subtests pass.
@@ -109,3 +121,11 @@ Initial-entry thresholds remain unchanged pending economically representative re
 - Read-only replay of three actual current CORE lifecycles: MFE evidence known3, reduction baseline known3, no order authority. Existing observed cooldown-hold count was0; the new breakdown exception is a regression-proven defensive path, not a claimed historical profit recovery.
 - Entry-gate relaxation remains excluded for insufficient economic evidence. No profitability/savings claim; unchanged Gemini SL/TP, risk settings, provider exceptions and learning state.
 - Next: stage bundle once under /tmp/autotrader-strategy-v9-qualified-20261010; operator expects exact v8 release and shares existing deployment lock. Do not rerun if deployment-record.json exists. Capture unchanged positions/OCO/settings before switch, one-shot resume, then read-only post-deployment verification.
+
+
+## v9 phase 3 — single deployment job submission
+Qualified source commit47898b3 pushed. Uploaded bundle once. Deployment is submitted as an independent server systemd one-shot unit autotrader-strategy-v9-deploy-20261010.service so Work/SSH disconnection cannot duplicate or orphan the operation. Stage /tmp/autotrader-strategy-v9-qualified-20261010. Before any retry inspect that unit, its journal and stage/deployment-record.json; never resubmit if either exists. Root-private preservation evidence is in deployment-backups/strategy-v9-<UTC stamp>. Post-deployment verification still pending.
+
+
+## v9 phase 4 — completed preservation and runtime verification
+One server one-shot deployment completed successfully at21:19:41KST. Post-deployment authenticated APIs, actual exchange GETs and source/settings checks all passed. Five positions and five live OCOs exactly match predeployment snapshot; standard pending orders0. Current engines auto-resumed without manual trade, protection replacement, setting mutation or extra provider test calls. Nested TP and derived margin/risk data are visible; plan labels distinguish them from actual protection. See autotrader-strategy-v9-20261010/evidence/post-deployment.json.

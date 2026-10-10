@@ -1,0 +1,19 @@
+{
+  "operation": "verified",
+  "release": "/opt/autotrader-releases/strategy_safety_v9_20261010T211941KST",
+  "service_active": "active",
+  "pid": "172366",
+  "restarts": "0",
+  "core_running": true,
+  "candidate_running": true,
+  "candidate_mode": "live",
+  "positions": 5,
+  "oco": 5,
+  "pending": 0,
+  "exact_positions_and_protection_preserved": true,
+  "settings_unchanged": true,
+  "source_hashes_verified": 6,
+  "adaptive_nested_targets_visible": true,
+  "adaptive_margin_and_equity_risk_visible": true,
+  "one_shot_resume_consumed": true
+}
