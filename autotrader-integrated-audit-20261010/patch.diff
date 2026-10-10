@@ -1,3 +1,108 @@
+--- a/core_entry_sltp_repair.py
++++ b/core_entry_sltp_repair.py
+@@ -14,10 +14,19 @@
+ 
+ 
+ def reconcile_core_plan(plan, ctx, policy):
++    def rejected(reason):
++        if plan is None:
++            return plan, reason
++        updated=replace(plan,entry_allowed=False,reason_code=reason,plan_hash='')
++        audit=updated.audit_record()
++        audit.pop('plan_hash',None)
++        return replace(updated,plan_hash=hashlib.sha256(json.dumps(
++            audit,sort_keys=True,separators=(',',':'),ensure_ascii=False,
++            default=str).encode()).hexdigest()),reason
+     reason = getattr(plan, 'reason_code', 'missing_plan')
+     if (plan is None or plan.stop_price is None or plan.tp1 is None or plan.tp2 is None
+             or (not plan.entry_allowed and reason != 'post_cost_rr_below_minimum')):
+-        return plan, 'unrecoverable_baseline'
++        return rejected('unrecoverable_baseline')
+ 
+     try:
+         entry = float(ctx.entry_price)
+@@ -30,23 +39,23 @@
+         required_rr = float(policy['min_post_cost_rr'])
+         if not all(math.isfinite(v) for v in
+                    (entry, leverage, atr, fee_rate, stop, tp1, tp2, required_rr)):
+-            return plan, 'nonfinite_geometry'
++            return rejected('nonfinite_geometry')
+         if min(entry, leverage, atr, required_rr) <= 0 or fee_rate < 0:
+-            return plan, 'invalid_geometry'
++            return rejected('invalid_geometry')
+         sign = 1 if ctx.side == 'long' else -1 if ctx.side == 'short' else 0
+         if sign == 0 or not (sign * (entry - stop) > 0
+                               and sign * (tp1 - entry) > 0
+                               and sign * (tp2 - tp1) > 0):
+-            return plan, 'invalid_ladder_direction'
++            return rejected('invalid_ladder_direction')
+         if (sign * (tp1 - entry) > entry * float(policy['max_leveraged_tp1_gain_pct']) / (100*leverage) + 1e-8
+                 or sign * (tp2 - entry) > entry * float(policy['max_leveraged_tp2_gain_pct']) / (100*leverage) + 1e-8):
+-            return plan, 'target_above_leverage_cap'
++            return rejected('target_above_leverage_cap')
+ 
+         cost = entry * fee_rate
+         max_leveraged_distance = entry * float(policy['max_leveraged_stop_loss_pct']) / (100*leverage)
+         max_rr_distance = ((abs(tp2-entry)-cost) / required_rr) - cost
+         if max_rr_distance <= 0 or max_leveraged_distance <= 0:
+-            return plan, 'unrepresentable_rr_or_stop_cap'
++            return rejected('unrepresentable_rr_or_stop_cap')
+         raw_distance = abs(entry-stop)
+         raw_rr = (abs(tp2-entry)-cost) / (raw_distance+cost)
+         if (plan.entry_allowed and raw_distance <= max_leveraged_distance * (1+1e-12)
+@@ -59,14 +68,14 @@
+                        max_rr_distance*0.995)
+         # Reject unrealistic needle-width stops in very volatile/noisy markets.
+         if distance < max(entry*0.002, atr*0.5):
+-            return plan, 'stop_too_tight_for_market'
++            return rejected('stop_too_tight_for_market')
+         new_stop = entry-sign*distance
+         sizing = solve_risk_capped_size(ctx, new_stop, float(plan.configured_notional))
+         if not sizing.entry_allowed or sizing.effective_notional <= 0:
+-            return plan, 'risk_capped_sizing_failed'
++            return rejected('risk_capped_sizing_failed')
+         new_rr = (abs(tp2-entry)-cost) / (distance+cost)
+         if new_rr < required_rr or distance > max_leveraged_distance:
+-            return plan, 'bounded_rr_validation_failed'
++            return rejected('bounded_rr_validation_failed')
+         why = ('core_pre_gpt_stop_bounded' if distance < raw_distance-1e-12
+                else 'core_pre_gpt_tp2_rr_aligned')
+         updated = replace(
+@@ -81,4 +90,4 @@
+             json.dumps(audit, sort_keys=True, separators=(',', ':'),
+                        ensure_ascii=False, default=str).encode()).hexdigest()), why
+     except (ValueError, TypeError, ZeroDivisionError, OverflowError):
+-        return plan, 'reconciliation_input_invalid'
++        return rejected('reconciliation_input_invalid')
+--- a/entry_execution_normalization.py
++++ b/entry_execution_normalization.py
+@@ -47,6 +47,17 @@
+         distance=float(sign)*(entry-sl)
+         if distance<minimum-1e-12 or sign*(e-Decimal(str(sl)))>maximum:
+             raise ValueError('final_ai_stop_atr_bounds_unrepresentable')
++    if not verified_ai:
++        # The same leverage cap applies to native fallback and verified AI.
++        # A quote change may tighten protection, never widen it or exceed approval.
++        maximum=e*Decimal(str(policy['max_leveraged_stop_loss_pct']))/100/Decimal(str(leverage))
++        if sign*(e-Decimal(str(sl))) > maximum:
++            sl=rounded(e-sign*maximum,protective)
++        if atr is not None:
++            if not math.isfinite(float(atr)) or float(atr)<=0:
++                raise ValueError('final_native_atr_unavailable')
++            if float(sign)*(entry-sl) < max(entry*.002,float(atr)*.5)-1e-12:
++                raise ValueError('final_native_stop_too_tight_for_market')
+     if abs(sl-approved_stop)>float(r)*max_drift:
+         raise ValueError('final_plan_normalization_exceeds_approval')
+     if not ((side=='long' and sl<entry and sl>=approved_stop) or (side=='short' and sl>entry and sl<=approved_stop)):
+@@ -57,7 +68,7 @@
+         cap=Decimal(str(policy[key]))/100/Decimal(str(leverage))
+         if sign*(original-r)>r*cap+Decimal('1e-12'):
+             raise ValueError('approved_target_above_leverage_cap')
+-        minimum=Decimal(0)
++        minimum=tick  # native TP must remain strictly on the profit side
+         maximum=e*cap
+         if verified_ai:
+             minimum=risk*Decimal(str(policy[leg+'_r_min']))
 --- a/operating_costs.py
 +++ b/operating_costs.py
 @@ -52,15 +52,26 @@
@@ -31,22 +136,178 @@
      if match:
          try:
              stamp=dt.datetime.strptime(match.group(1),'%Y%m%dT%H%M%S').replace(tzinfo=KST)
---- a/web_app.py
-+++ b/web_app.py
-@@ -1120,12 +1120,7 @@
+--- a/tests/test_core_ai_budget_gate_20261004.py
++++ b/tests/test_core_ai_budget_gate_20261004.py
+@@ -29,12 +29,15 @@
+     second=gate(FakeState(mem),"BTC/USDT:USDT",frames(),{}, {"active":False}, None, now=now+dt.timedelta(minutes=5))
+     assert second["call_ai"] is False and second["reason"] == "stable_within_budget"
  
-     release_meta=operating_costs.release_metadata(config.PROJECT_DIR)
-     release_created_at=release_meta['created_at']
--    if release_created_at is None:
--        legacy_manifest=Path(config.PROJECT_DIR)/'DAILY_COMPLETION_READONLY_V2_DEPLOYMENT.json'
--        try:
--            release_created_at=json.loads(legacy_manifest.read_text(encoding='utf-8')).get('created_at')
--        except (OSError,ValueError,TypeError):
--            pass
-+    # Unknown current identity stays unknown; never borrow another release's date.
-     payload['release_identity']=release_meta
-     if release_created_at is not None:
-         ai_cost=release_cohort_analysis.ai_cost_since(ctx.dir,release_created_at)
+-def test_half_atr_move_triggers_before_flat_fallback():
++def test_half_atr_move_is_coalesced_at_five_minutes_and_due_at_ten():
+     gate=trader._core_ai_call_gate
+     now=dt.datetime(2026,10,4,6,30,tzinfo=dt.timezone.utc)
+     first=gate(FakeState(),"BTC/USDT:USDT",frames(100,2),{}, {"active":False}, None, now=now)
+     moved=gate(FakeState(first["next_memory"]),"BTC/USDT:USDT",frames(101.1,2),{}, {"active":False}, None, now=now+dt.timedelta(minutes=5))
+-    assert moved["call_ai"] is True and moved["reason"] == "price_move_atr"
++    assert moved["call_ai"] is False and moved["reason"] == "low_importance_coalesced"
++    assert moved["pending_memory"] is not None
++    due=gate(FakeState(first["next_memory"]),"BTC/USDT:USDT",frames(101.1,2),{}, {"active":False}, None, now=now+dt.timedelta(minutes=10))
++    assert due["call_ai"] is True and due["reason"] == "price_move_atr"
+ 
+ def test_flat_and_held_fallback_are_30m():
+     gate=trader._core_ai_call_gate
+@@ -66,7 +69,12 @@
+     if change=='structure': structure={'1h':{'high_structure':'LH','low_structure':'LL','swing_low_broken':True}}
+     if change=='correction': correction={'active':True}
+     second=trader._core_ai_call_gate(FakeState(first['next_memory']),"BTC/USDT:USDT",data,structure,correction,None,now=now+dt.timedelta(minutes=5))
+-    assert second['call_ai'] is True and second['reason']=='signature_changed'
++    if change=='rsi':
++        assert second['call_ai'] is False and second['reason']=='low_importance_coalesced'
++        due=trader._core_ai_call_gate(FakeState(first['next_memory']),"BTC/USDT:USDT",data,structure,correction,None,now=now+dt.timedelta(minutes=10))
++        assert due['call_ai'] is True and due['reason']=='signature_changed'
++    else:
++        assert second['call_ai'] is True and second['reason']=='signature_changed'
+ 
+ @pytest.mark.parametrize('change', [None, {'side':'short'}, {'contracts':0.5}, {'position_id':'new'}, {'entry_timestamp_ms':2}, {'entry_price':102.0}])
+ def test_position_lifecycle_changes_call(change):
+--- a/tests/test_core_ai_event_budget_v2.py
++++ b/tests/test_core_ai_event_budget_v2.py
+@@ -40,7 +40,7 @@
+     assert second["reason"] == "signature_changed"
+ 
+ 
+-def test_held_fallback_is_30_minutes_but_half_atr_move_stays_immediate():
++def test_held_fallback_is_30_minutes_and_half_atr_change_is_due_at_ten():
+     now=dt.datetime(2026,10,5,8,0,tzinfo=dt.timezone.utc)
+     first=trader._core_ai_call_gate(FakeState(),"BTC/USDT:USDT",frames5(),{}, {"active":False},held(),now=now)
+     mem=first["next_memory"]
+@@ -49,7 +49,11 @@
+     moved=trader._core_ai_call_gate(FakeState(mem),"BTC/USDT:USDT",frames5(close=101.1),{}, {"active":False},held(),now=now+dt.timedelta(minutes=5))
+     assert at29["call_ai"] is False
+     assert at30["reason"] == "fallback_interval"
+-    assert moved["reason"] == "price_move_atr"
++    assert not moved["call_ai"] and moved["reason"] == "low_importance_coalesced"
++    due=trader._core_ai_call_gate(FakeState(mem),"BTC/USDT:USDT",frames5(close=101.1),{}, {"active":False},held(),now=now+dt.timedelta(minutes=10))
++    assert due['call_ai'] and due['reason']=='price_move_atr'
++    critical=trader._core_ai_call_gate(FakeState(mem),"BTC/USDT:USDT",frames5(close=102.1),{}, {"active":False},held(),now=now+dt.timedelta(minutes=5))
++    assert critical['call_ai'] and critical['reason']=='price_move_atr'
+ 
+ 
+ def test_flat_5m_direction_change_remains_responsive_for_entry_generation():
+--- a/tests/test_core_dual_ai_consensus.py
++++ b/tests/test_core_dual_ai_consensus.py
+@@ -21,7 +21,7 @@
+             result = cls(2026, 10, 7, 14, 0)
+             return result.replace(tzinfo=tz) if tz is not None else result
+     monkeypatch.setattr(trader.datetime, "datetime", Clock)
+-    symbol = "PI/USDT:USDT"
++    symbol = "ADA/USDT:USDT"
+     cfg = SimpleNamespace(
+         user_dir=str(tmp_path), logger=logging.getLogger("consensus"),
+         GPT_ENTRY_GATE_ENABLED=True, OPENAI_API_KEY="fixture",
+@@ -141,7 +141,7 @@
+     monkeypatch.setattr(openai_analyzer,"_ensure_response_models_warmed_up",lambda:None)
+     cfg=SimpleNamespace(OPENAI_API_KEY="fixture",OPENAI_MODEL="fixture",
+         user_dir=str(tmp_path),logger=logging.getLogger("consensus_prompt"))
+-    openai_analyzer.verify(cfg,"PI/USDT:USDT",["5m","1d"],
++    openai_analyzer.verify(cfg,"ADA/USDT:USDT",["5m","1d"],
+         "[1일봉] daily\n[5분봉] current microstructure",None,
+         {"action":"short","confidence":.72,
+          "_core_entry_observations":{"short_level_none":{"level":"NONE"},"entry_overextension":{"reason":"short_chase_30m_drop"}}},
+--- a/tests/test_core_entry_pipeline.py
++++ b/tests/test_core_entry_pipeline.py
+@@ -16,6 +16,7 @@
+ 
+ class Exchange:
+     def __init__(self,minimum=.01): self.minimum=minimum
++    def price_to_precision(self,symbol,price): return f"{price:.2f}"
+     def market(self,symbol):
+         return dict(id='ETH-USDT-SWAP',contractSize=.1,precision={'amount':.01,'price':.01},limits={'amount':{'min':self.minimum}})
+ 
+--- a/tests/test_core_tp2_rescue_verified_ai_regression.py
++++ b/tests/test_core_tp2_rescue_verified_ai_regression.py
+@@ -36,7 +36,7 @@
+         entry_price=100.0, equity=1000.0, market_features=features,
+     )
+     assert decision["blocked"] is False
+-    assert decision["reason"] == "adaptive_live_bounded_tp2_rr_rescue"
++    assert decision["reason"] == "core_pre_gpt_stop_bounded"
+     selected, selected_reason = select_verified_ai_price_plan(
+         {"exit_plan": {
+             "stop_loss_price": stop,
+--- a/tests/test_core_wide_stop_risk_sizing.py
++++ b/tests/test_core_wide_stop_risk_sizing.py
+@@ -1,6 +1,7 @@
+ from types import SimpleNamespace
+ 
+ import trader
++import pytest
+ from adaptive_exit_policy import production_adaptive_exit_policy, policy_sha256
+ 
+ 
+@@ -26,12 +27,14 @@
+     legacy=("short",10.0,102.0,96.0)
+     result=trader._core_adaptive_live_entry_decision(
+         _cfg(tmp_path),symbol="PI/USDT:USDT",legacy_order_args=legacy,
+-        entry_price=100.0,equity=1000.0,market_features=features,
++        entry_price=100.0,equity=500.0,market_features=features,
+     )
+     assert result["active"] is True
+     assert result["blocked"] is False
+-    assert result["plan"].stop_price == 105.25
+-    assert result["plan"].planned_loss_usdt <= 50.0 + 1e-9
++    assert result["plan"].stop_price == pytest.approx(103.98)
++    assert abs(result['plan'].stop_price-100)/100*5*100 <= 20
++    assert (abs(result['plan'].tp2.price-100)-.1)/(abs(result['plan'].stop_price-100)+.1) >= 1.1
++    assert result["plan"].planned_loss_usdt <= 25.0 + 1e-9
+     assert result["plan"].effective_notional < 1000.0
+     assert result["order_args"][1] < legacy[1]
+ 
+@@ -39,17 +42,20 @@
+ def test_extremely_wide_stop_stays_blocked_when_post_cost_rr_is_too_low(tmp_path, monkeypatch):
+     monkeypatch.setattr(trader.adaptive_exit_log,"append_plan",lambda *a,**k:True)
+     features={
+-        "atr":2.0,"structural_support":80.0,"structural_resistance":120.0,
++        "atr":10.0,"structural_support":80.0,"structural_resistance":120.0,
+         "near_resistance":130.0,"near_support":70.0,
+         "continuation_resistance":140.0,"continuation_support":60.0,
+         "source_timestamps":(1000,),"input_snapshot_hash":"too-wide",
+     }
+     result=trader._core_adaptive_live_entry_decision(
+         _cfg(tmp_path),symbol="PI/USDT:USDT",legacy_order_args=("short",10.0,102.0,96.0),
+-        entry_price=100.0,equity=1000.0,market_features=features,
++        entry_price=100.0,equity=500.0,market_features=features,
+     )
+     assert result["blocked"] is True
+-    assert result["reason"] == "post_cost_rr_below_minimum"
++    assert result["reason"] == "stop_too_tight_for_market"
++    # 0.5 ATR noise floor cannot fit inside the unchanged 4% price-loss cap.
++    assert features['atr']*.5 > 100*.04
++    assert result['plan'].entry_allowed is False
+ 
+ def test_bounded_wide_stop_uses_actual_tp2_rr_for_core_order_contract(tmp_path, monkeypatch):
+     monkeypatch.setattr(trader.adaptive_exit_log,"append_plan",lambda *a,**k:True)
+@@ -61,14 +67,15 @@
+     }
+     result=trader._core_adaptive_live_entry_decision(
+         _cfg(tmp_path),symbol="PI/USDT:USDT",legacy_order_args=("short",10.0,104.0,94.0),
+-        entry_price=100.0,equity=1000.0,market_features=features,
++        entry_price=100.0,equity=500.0,market_features=features,
+     )
+     assert result["blocked"] is False
+-    assert result["reason"] == "adaptive_live_bounded_tp2_rr_rescue"
++    assert result["reason"] == "core_pre_gpt_stop_bounded"
+     # The returned plan is consumed by verified AI price overlays and audit.
+     assert result["plan"].entry_allowed is True
+-    assert result["plan"].reason_code == "adaptive_live_bounded_tp2_rr_rescue"
+-    assert result["plan"].stop_price == 107.5
++    assert result["plan"].reason_code == "core_pre_gpt_stop_bounded"
++    assert result["plan"].stop_price == pytest.approx(103.98)
++    assert abs(result['plan'].stop_price-100)/100*500 <= 20
+     assert result["order_args"][3] == result["plan"].tp2.price
+-    assert result["plan"].planned_loss_usdt <= 50.0 + 1e-9
++    assert result["plan"].planned_loss_usdt <= 25.0 + 1e-9
+     assert result["order_args"][1] < 10.0
 --- a/tests/test_current_release_identity.py
 +++ b/tests/test_current_release_identity.py
 @@ -0,0 +1,62 @@
@@ -112,47 +373,85 @@
 +def test_unknown_release_stays_unknown_without_historical_manifest(tmp_path):
 +    p=project(tmp_path)
 +    assert daily_payload(p)["release_identity"]["created_at"] is None
---- a/tests/test_trade_learning_api.py
-+++ b/tests/test_trade_learning_api.py
-@@ -62,7 +62,7 @@
+--- a/tests/test_entry_eligible_wide_stop_regression.py
++++ b/tests/test_entry_eligible_wide_stop_regression.py
+@@ -164,10 +164,10 @@
+         near_resistance=105,near_support=95,continuation_resistance=120,continuation_support=80,
+         source_timestamps=(1000,),input_snapshot_hash='rescue-final')
+     legacy=(side,10,96 if side=='long' else 104,106 if side=='long' else 94)
+-    result=trader._core_adaptive_live_entry_decision(_cfg(tmp_path),symbol='PI/USDT:USDT',
+-        legacy_order_args=legacy,entry_price=100,equity=1000,market_features=features)
++    result=trader._core_adaptive_live_entry_decision(_cfg(tmp_path),symbol='ADA/USDT:USDT',
++        legacy_order_args=legacy,entry_price=100,equity=500,market_features=features)
+     assert result['blocked'] is False
+-    assert result['reason']=='adaptive_live_bounded_tp2_rr_rescue'
++    assert result['reason']=='core_pre_gpt_stop_bounded'
+     assert result['plan'].planned_loss_usdt <= 50 + 1e-9
+     assert 0 < result['order_args'][1] < 10
+     assert result['order_args'][3] == (112 if side=='long' else 88)
+@@ -175,9 +175,9 @@
      import json
-     c,ctx=_auth_client(monkeypatch,tmp_path)
-     monkeypatch.setattr(web_app.config,"PROJECT_DIR",str(tmp_path))
--    (tmp_path/"DAILY_COMPLETION_READONLY_V2_DEPLOYMENT.json").write_text(json.dumps({"created_at":1791256848.4740632}))
-+    (tmp_path/"DEPLOYMENT_IDENTITY.json").write_text(json.dumps({"release":str(tmp_path),"created_at":"2026-10-06T12:20:48+09:00"}))
-     monkeypatch.setattr(web_app.trade_learning_cache,"get_cached",lambda _u:{"analysis":{}})
-     monkeypatch.setattr(web_app.learning_state,"load_active_state",lambda _u:({},True))
-     monkeypatch.setattr(web_app.learning_shadow,"summarize_pattern_evidence",lambda _u:{})
---- a/tests/test_core_entry_pipeline.py
-+++ b/tests/test_core_entry_pipeline.py
-@@ -16,6 +16,7 @@
+     records=[json.loads(row) for p in Path(tmp_path).glob('*adaptive*jsonl') for row in p.read_text().splitlines()]
+     assert records and records[-1]['entry_allowed'] is True
+-    assert records[-1]['reason_code']=='adaptive_live_bounded_tp2_rr_rescue'
+-    assert records[-1]['base_entry_allowed'] is False
+-    assert records[-1]['base_reason_code']=='post_cost_rr_below_minimum'
++    assert records[-1]['reason_code']=='core_pre_gpt_stop_bounded'
++    assert records[-1]['original_entry_allowed'] is False
++    assert records[-1]['original_reason']=='post_cost_rr_below_minimum'
  
- class Exchange:
-     def __init__(self,minimum=.01): self.minimum=minimum
-+    def price_to_precision(self,symbol,price): return f"{price:.2f}"
-     def market(self,symbol):
-         return dict(id='ETH-USDT-SWAP',contractSize=.1,precision={'amount':.01,'price':.01},limits={'amount':{'min':self.minimum}})
  
---- a/tests/test_core_dual_ai_consensus.py
-+++ b/tests/test_core_dual_ai_consensus.py
-@@ -21,7 +21,7 @@
-             result = cls(2026, 10, 7, 14, 0)
-             return result.replace(tzinfo=tz) if tz is not None else result
-     monkeypatch.setattr(trader.datetime, "datetime", Clock)
--    symbol = "PI/USDT:USDT"
-+    symbol = "ADA/USDT:USDT"
-     cfg = SimpleNamespace(
-         user_dir=str(tmp_path), logger=logging.getLogger("consensus"),
-         GPT_ENTRY_GATE_ENABLED=True, OPENAI_API_KEY="fixture",
-@@ -141,7 +141,7 @@
-     monkeypatch.setattr(openai_analyzer,"_ensure_response_models_warmed_up",lambda:None)
-     cfg=SimpleNamespace(OPENAI_API_KEY="fixture",OPENAI_MODEL="fixture",
-         user_dir=str(tmp_path),logger=logging.getLogger("consensus_prompt"))
--    openai_analyzer.verify(cfg,"PI/USDT:USDT",["5m","1d"],
-+    openai_analyzer.verify(cfg,"ADA/USDT:USDT",["5m","1d"],
-         "[1일봉] daily\n[5분봉] current microstructure",None,
-         {"action":"short","confidence":.72,
-          "_core_entry_observations":{"short_level_none":{"level":"NONE"},"entry_overextension":{"reason":"short_chase_30m_drop"}}},
+ @pytest.mark.parametrize('symbol', [SYMBOL,'SOL/USDT:USDT'])
+@@ -325,7 +325,7 @@
+ 
+ 
+ @pytest.mark.parametrize('side', ['long','short'])
+-@pytest.mark.parametrize('cost', [.001,.01])
++@pytest.mark.parametrize('cost', [.001,.01,.02])
+ def test_core_actual_tp2_rescue_preserves_supplied_cost_and_risk_caps(tmp_path,monkeypatch,side,cost):
+     import trader
+     from adaptive_exit_engine import AdaptiveExitContext
+@@ -341,9 +341,15 @@
+     assert result['blocked'] is False
+     order=result['order_args']
+     assert order[0]==side and 0<order[1]<=10
+-    assert abs(order[2]-100)==7.5 and abs(order[3]-100)==12
+-    assert order[1]*(7.5+100*cost)<=50+1e-9
+-    assert (12-100*cost)/(7.5+100*cost)>=1.10
++    risk=abs(order[2]-100); reward=abs(order[3]-100)
++    assert risk==pytest.approx(3.98) and reward==12
++    assert risk/100*500<=20
++    assert risk>=max(.2, f['atr']*.5)
++    assert order[1]*(risk+100*cost)<=50+1e-9
++    assert result['plan'].planned_loss_usdt==pytest.approx(order[1]*(risk+100*cost))
++    assert (reward-100*cost)/(risk+100*cost)>=1.10
++    if cost==.02:
++        assert order[1]<10  # higher execution costs must shrink exposure
+ 
+ 
+ @pytest.mark.parametrize('side', ['long','short'])
+@@ -352,9 +358,8 @@
+     from adaptive_exit_engine import AdaptiveExitContext
+     from test_core_wide_stop_risk_sizing import _cfg
+     monkeypatch.setattr(trader,'AdaptiveExitContext',
+-        lambda **kwargs:AdaptiveExitContext(**dict(kwargs,estimated_roundtrip_cost_rate=.02)))
+-    # With 8% risk and 12% reward, cost raises risk to 10%, reduces reward
+-    # to 10%; a gross-RR rescue would incorrectly permit this order.
++        lambda **kwargs:AdaptiveExitContext(**dict(kwargs,estimated_roundtrip_cost_rate=.06)))
++    # At 6% cost, no positive stop can meet net RR 1.1 with the 12% TP cap.
+     f=dict(atr=2,structural_support=92.5,structural_resistance=107.5,
+         near_resistance=105,near_support=95,continuation_resistance=120,continuation_support=80,
+         source_timestamps=(1000,),input_snapshot_hash='cost-block')
+@@ -362,7 +367,8 @@
+     result=trader._core_adaptive_live_entry_decision(_cfg(tmp_path),symbol='PI/USDT:USDT',
+         legacy_order_args=legacy,entry_price=100,equity=1000,market_features=f)
+     assert result['blocked'] is True and result['order_args']==legacy
+-    assert result['reason']=='post_cost_rr_below_minimum'
++    assert result['reason']=='unrepresentable_rr_or_stop_cap'
++    assert not result['plan'].entry_allowed
+ 
+ 
+ @pytest.mark.parametrize('mode', [None,'OFF','SHADOW','ADVISORY'])
 --- a/tests/test_final_entry_submission_regression.py
 +++ b/tests/test_final_entry_submission_regression.py
 @@ -15,7 +15,7 @@
@@ -180,27 +479,64 @@
          ensure_leverage=lambda:None,contract_size=lambda:1,fetch_position=lambda:None,fetch_order_status_by_client_id=lambda cid:None)
      sent=[]
      class ReachedMockOrder(Exception):pass
-@@ -71,8 +71,8 @@
+@@ -70,19 +70,52 @@
+ @pytest.mark.parametrize('side,price',[('long',100.19),('short',99.81)])
  def test_real_core_submit_reduces_quantity_after_adverse_quote(tmp_path,monkeypatch,side,price):
      cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,price)
-     state=TraderState()
+-    state=TraderState()
 -    assert trader._execute_entry(cfg,state,c,'PI/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
 -    assert state.snapshot()['symbols']['PI/USDT:USDT']['last_entry_attempt']['status']=='ORDER_PENDING'
++    validation=d['_bounded_entry_validation']
++    # Bind the approved budget to its modeled initial loss so a worse quote
++    # actually exercises risk sizing, even after v7 bounded-stop reconciliation.
++    budget=validation['plan'].planned_loss_usdt
++    validation['plan']=replace(validation['plan'],trade_risk_budget_usdt=budget)
++    validation['context']=replace(validation['context'],trade_risk_budget_usdt=budget)
++    state=TraderState()
 +    assert trader._execute_entry(cfg,state,c,'ADA/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
 +    assert state.snapshot()['symbols']['ADA/USDT:USDT']['last_entry_attempt']['status']=='ORDER_PENDING'
      _,qty,sl,tp=sent[0]
      assert qty*(abs(price-sl)+price*.001)<=50+1e-9
      assert qty < args[1]
-@@ -81,7 +81,7 @@
++    assert qty*(abs(price-sl)+price*.001)<=budget+1e-9
++    assert abs(price-sl)/price*500<=20+1e-7
++    assert abs(sl-args[2])<=100*.002
+ 
+ 
  @pytest.mark.parametrize('side,price',[('long',99.81),('short',100.19)])
  def test_real_core_submit_rejects_ai_target_over_cap_after_favorable_quote(tmp_path,monkeypatch,side,price):
      cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,price)
 -    assert trader._execute_entry(cfg,TraderState(),c,'PI/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
-+    assert trader._execute_entry(cfg,TraderState(),c,'ADA/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
++    sign=1 if side=='long' else -1
++    # An AI target already invalid at approval cannot gain authority from a
++    # favorable quote. Valid approved caps can normalize at execution instead.
++    invalid_target=100+sign*12.01
++    validation=d['_bounded_entry_validation']
++    plan=validation['plan']
++    validation['plan']=replace(plan,tp2=replace(plan.tp2,price=invalid_target))
++    validation['verified_ai_price_contract']=True
++    state=TraderState()
++    assert trader._execute_entry(cfg,state,c,'ADA/USDT:USDT',side,args[1],100,args[2],invalid_target,decision_id='boundary-test',decision=d) is False
      assert not sent
++    assert state.snapshot()['symbols']['ADA/USDT:USDT']['last_entry_attempt']['reason']=='approved_target_above_leverage_cap'
++
++
++@pytest.mark.parametrize('side,price',[('long',99.81),('short',100.19)])
++def test_valid_approved_target_is_capped_after_favorable_quote(tmp_path,monkeypatch,side,price):
++    cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,price)
++    state=TraderState()
++    assert trader._execute_entry(cfg,state,c,'ADA/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
++    assert state.snapshot()['symbols']['ADA/USDT:USDT']['last_entry_attempt']['status']=='ORDER_PENDING'
++    _,qty,sl,tp=sent[0]
++    assert abs(tp-price)/price*500<=60+1e-7
++    assert abs(tp-args[3])<=100*.002*1.12
++    assert qty<=args[1] and qty*price<=1000+1e-9
++    assert qty*(abs(price-sl)+price*.001)<=50+1e-9
++    assert (abs(tp-price)-price*.001)/(abs(price-sl)+price*.001)>=1.1
  
  
-@@ -90,7 +90,7 @@
+ @pytest.mark.parametrize('side',['long','short'])
+@@ -90,7 +123,7 @@
  def test_real_core_submit_fails_closed_before_exchange(tmp_path,monkeypatch,side,fault):
      cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,100,
          minimum=100 if fault=='minimum' else .01,age=181 if fault=='expired' else 0,no_pullback=fault=='chase')
@@ -209,7 +545,7 @@
      assert not sent
  
  
-@@ -170,10 +170,10 @@
+@@ -170,10 +203,10 @@
          raise Captured
      monkeypatch.setattr(trader,'_execute_approved_entry_with_optional_reversal',execute)
      state=TraderState()
@@ -223,7 +559,7 @@
  
  @pytest.mark.parametrize('side',['long','short'])
  def test_core_expired_replacement_never_closes_existing_position(tmp_path,monkeypatch,side):
-@@ -183,7 +183,7 @@
+@@ -183,7 +216,7 @@
      monkeypatch.setattr(trader,'_approved_entry_still_valid_after_gpt',lambda *a,**k:True)
      closed=[]
      monkeypatch.setattr(trader,'_execute_close',lambda *a,**k:closed.append(True) or True)
@@ -232,6 +568,32 @@
      assert closed==[]
  
  @pytest.mark.parametrize('side,price',[('long',100.51),('short',99.49)])
+--- a/tests/test_gpt_entry_gate_dashboard.py
++++ b/tests/test_gpt_entry_gate_dashboard.py
+@@ -5,6 +5,7 @@
+ 
+ 
+ def _append(user_dir, **row):
++    row.setdefault("symbol", "ETH/USDT:USDT")
+     path = Path(user_dir) / "gpt_shadow_log.jsonl"
+     with path.open("a", encoding="utf-8") as f:
+         f.write(json.dumps(row, ensure_ascii=False) + "\n")
+--- a/tests/test_priority_2_5.py
++++ b/tests/test_priority_2_5.py
+@@ -32,9 +32,11 @@
+     legacy=('long', 10.0, 98.0, 104.0)
+     d=trader._core_adaptive_live_entry_decision(
+         _core_cfg(tmp_path), symbol='XRP/USDT:USDT', legacy_order_args=legacy,
+-        entry_price=100.0, equity=1000.0, market_features=_features())
++        entry_price=100.0, equity=500.0, market_features=_features())
+     assert d['active'] is True and d['blocked'] is False
+-    assert d['plan'].planned_loss_usdt <= 50.0 + 1e-9
++    assert d['plan'].planned_loss_usdt <= 25.0 + 1e-9
++    assert d['order_args'][1]*(abs(100-d['order_args'][2])+.1) <= 25.0+1e-9
++    assert abs(100-d['order_args'][2])/100*500 <= 20
+     assert d['order_args'][1] < legacy[1]
+ 
+ 
 --- a/tests/test_report_contract_regression.py
 +++ b/tests/test_report_contract_regression.py
 @@ -96,16 +96,16 @@
@@ -254,13 +616,141 @@
      audit = json.loads((tmp_path / "gpt_shadow_log.jsonl").read_text().splitlines()[-1])
      assert audit["order_success"] is gpt_allows
      return attempt, audit, seen
---- a/tests/test_gpt_entry_gate_dashboard.py
-+++ b/tests/test_gpt_entry_gate_dashboard.py
-@@ -5,6 +5,7 @@
+--- a/tests/test_resume_execution_contract_20261010.py
++++ b/tests/test_resume_execution_contract_20261010.py
+@@ -0,0 +1,108 @@
++"""Saved ADA boundary and unchanged risk/protection contracts; no live calls."""
++from dataclasses import replace
++from decimal import Decimal
++from types import SimpleNamespace
++import pytest
++from adaptive_exit_policy import production_adaptive_exit_policy
++from entry_execution_normalization import normalize_prices
++from core_entry_sltp_repair import reconcile_core_plan
++from test_core_entry_sltp_repair_v7 import case
++
++
++def exchange(tick):
++    return SimpleNamespace(ensure_markets_loaded=lambda: None, exchange=SimpleNamespace(
++        market=lambda _: {'precision': {'price': tick}},
++        price_to_precision=lambda _, p: str(Decimal(str(p)).quantize(Decimal(str(tick))))))
++
++
++@pytest.mark.parametrize('side', ['long', 'short'])
++def test_saved_ada_tp1_at_final_quote_has_feasible_tick_and_bounded_stop(side):
++    # Exact saved short: reviewed .2527, final .2524, SL .26275746,
++    # TP1 .2524, TP2 .222376; mirrored long checks symmetric rounding.
++    policy, ctx, base = case()
++    sign = 1 if side == 'long' else -1
++    reviewed = .2527
++    entry = reviewed + sign * .0003
++    stop = reviewed - sign * .01005746
++    tp1 = entry
++    target = reviewed + sign * .030324
++    plan = replace(base, side=side, stop_price=stop,
++                   tp1=replace(base.tp1, price=tp1), tp2=replace(base.tp2, price=target))
++    sl, t1, t2, tick = normalize_prices(exchange(.0001), 'ADA/USDT:USDT',
++        side, entry, reviewed, stop, target, plan, 5, policy, .002, atr=.007533)
++    assert sign * (entry - sl) > 0
++    assert sign * (t1 - entry) > 0 and sign * (t2 - t1) > 0
++    assert abs(sl-entry)/entry*500 <= 20 + 1e-10
++    assert abs(sl-stop) <= reviewed*.002
++    assert sign*(sl-stop) >= 0  # protection never loosens
++    assert abs(t1-tp1) <= reviewed*.002*1.06
++    assert abs(t2-target) <= reviewed*.002*1.12
++    assert (abs(t2-entry)-entry*.001)/(abs(sl-entry)+entry*.001) >= 1.1
++
++
++@pytest.mark.parametrize('side', ['long', 'short'])
++def test_native_final_quote_can_tighten_stop_only_inside_approval(side):
++    _,ctx,base=case()
++    sign=1 if side=='long' else -1
++    stop=100-sign*3.98
++    plan=replace(base,side=side,stop_price=stop,
++        tp1=replace(base.tp1,price=100+sign*5),tp2=replace(base.tp2,price=100+sign*12))
++    entry=100+sign*.19
++    sl,t1,t2,_=normalize_prices(exchange(.0001),'ADA/USDT:USDT',side,
++        entry,100,stop,plan.tp2.price,plan,5,production_adaptive_exit_policy(),.002,atr=2)
++    assert sign*(sl-stop)>=0 and abs(sl-stop)<=.2
++    assert abs(sl-entry)/entry*500<=20+1e-10
++    assert 0 < abs(sl-entry)/2
++
++
++def test_reconciliation_invalid_allowed_target_never_returns_entry_authority():
++    policy,ctx,base=case()
++    unsafe=replace(base,entry_allowed=True,tp2=replace(base.tp2,price=ctx.entry_price*1.5))
++    result,reason=reconcile_core_plan(unsafe,ctx,policy)
++    assert not result.entry_allowed
++    assert reason=='target_above_leverage_cap'
++
++
++@pytest.mark.parametrize('side',['long','short'])
++def test_native_normalization_rejects_stop_change_outside_approval(side):
++    policy,ctx,base=case()
++    sign=1 if side=='long' else -1
++    stop=100-sign*5
++    plan=replace(base,side=side,stop_price=stop,
++        tp1=replace(base.tp1,price=100+sign*5),tp2=replace(base.tp2,price=100+sign*12))
++    with pytest.raises(ValueError,match='final_plan_normalization_exceeds_approval'):
++        normalize_prices(exchange(.0001),'ADA/USDT:USDT',side,100,100,
++            stop,plan.tp2.price,plan,5,policy,.002,atr=2)
++
++
++@pytest.mark.parametrize('side',['long','short'])
++def test_coarse_tick_cannot_invent_target_outside_cap(side):
++    policy,ctx,base=case()
++    sign=1 if side=='long' else -1
++    stop=1-sign*.03
++    plan=replace(base,side=side,stop_price=stop,
++        tp1=replace(base.tp1,price=1+sign*.03),tp2=replace(base.tp2,price=1+sign*.1))
++    with pytest.raises(ValueError):
++        normalize_prices(exchange(.1),'ADA/USDT:USDT',side,1,1,
++            stop,plan.tp2.price,plan,5,policy,.002,atr=.01)
++
++
++def test_rejected_plan_has_reproducible_hash_and_no_authority():
++    policy,ctx,base=case()
++    unsafe=replace(base,entry_allowed=True,tp2=replace(base.tp2,price=ctx.entry_price*1.5))
++    first,reason=reconcile_core_plan(unsafe,ctx,policy)
++    second,_=reconcile_core_plan(unsafe,ctx,policy)
++    assert not first.entry_allowed and first.reason_code==reason
++    assert first.plan_hash==second.plan_hash and first.plan_hash!=unsafe.plan_hash
++
++
++@pytest.mark.parametrize('side',['long','short'])
++def test_native_noise_floor_still_blocks_unrepresentable_stop(side):
++    policy,ctx,base=case()
++    sign=1 if side=='long' else -1
++    stop=100-sign*3.98
++    plan=replace(base,side=side,stop_price=stop,
++        tp1=replace(base.tp1,price=100+sign*5),tp2=replace(base.tp2,price=100+sign*12))
++    with pytest.raises(ValueError,match='final_native_stop_too_tight_for_market'):
++        normalize_prices(exchange(.0001),'ADA/USDT:USDT',side,100,100,
++            stop,plan.tp2.price,plan,5,policy,.002,atr=10)
+--- a/tests/test_trade_learning_api.py
++++ b/tests/test_trade_learning_api.py
+@@ -62,7 +62,7 @@
+     import json
+     c,ctx=_auth_client(monkeypatch,tmp_path)
+     monkeypatch.setattr(web_app.config,"PROJECT_DIR",str(tmp_path))
+-    (tmp_path/"DAILY_COMPLETION_READONLY_V2_DEPLOYMENT.json").write_text(json.dumps({"created_at":1791256848.4740632}))
++    (tmp_path/"DEPLOYMENT_IDENTITY.json").write_text(json.dumps({"release":str(tmp_path),"created_at":"2026-10-06T12:20:48+09:00"}))
+     monkeypatch.setattr(web_app.trade_learning_cache,"get_cached",lambda _u:{"analysis":{}})
+     monkeypatch.setattr(web_app.learning_state,"load_active_state",lambda _u:({},True))
+     monkeypatch.setattr(web_app.learning_shadow,"summarize_pattern_evidence",lambda _u:{})
+--- a/web_app.py
++++ b/web_app.py
+@@ -1120,12 +1120,7 @@
  
- 
- def _append(user_dir, **row):
-+    row.setdefault("symbol", "ETH/USDT:USDT")
-     path = Path(user_dir) / "gpt_shadow_log.jsonl"
-     with path.open("a", encoding="utf-8") as f:
-         f.write(json.dumps(row, ensure_ascii=False) + "\n")
+     release_meta=operating_costs.release_metadata(config.PROJECT_DIR)
+     release_created_at=release_meta['created_at']
+-    if release_created_at is None:
+-        legacy_manifest=Path(config.PROJECT_DIR)/'DAILY_COMPLETION_READONLY_V2_DEPLOYMENT.json'
+-        try:
+-            release_created_at=json.loads(legacy_manifest.read_text(encoding='utf-8')).get('created_at')
+-        except (OSError,ValueError,TypeError):
+-            pass
++    # Unknown current identity stays unknown; never borrow another release's date.
+     payload['release_identity']=release_meta
+     if release_created_at is not None:
+         ai_cost=release_cohort_analysis.ai_cost_since(ctx.dir,release_created_at)

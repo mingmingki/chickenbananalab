@@ -1,0 +1,139 @@
+FFFFF                                                                    [100%]
+=================================== FAILURES ===================================
+__ test_saved_ada_tp1_at_final_quote_has_feasible_tick_and_bounded_stop[long] __
+
+side = 'long'
+
+    @pytest.mark.parametrize('side', ['long', 'short'])
+    def test_saved_ada_tp1_at_final_quote_has_feasible_tick_and_bounded_stop(side):
+        # Exact saved short: reviewed .2527, final .2524, SL .26275746,
+        # TP1 .2524, TP2 .222376; mirrored long checks symmetric rounding.
+        policy, ctx, base = case()
+        sign = 1 if side == 'long' else -1
+        reviewed = .2527
+        entry = reviewed + sign * .0003
+        stop = reviewed - sign * .01005746
+        tp1 = entry
+        target = reviewed + sign * .030324
+        plan = replace(base, side=side, stop_price=stop,
+                       tp1=replace(base.tp1, price=tp1), tp2=replace(base.tp2, price=target))
+>       sl, t1, t2, tick = normalize_prices(exchange(.0001), 'ADA/USDT:USDT',
+            side, entry, reviewed, stop, target, plan, 5, policy, .002, atr=.007533)
+
+tests/test_resume_execution_contract_20261010.py:31: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+entry_execution_normalization.py:85: in normalize_prices
+    t1=target_leg(plan.tp1.price,'max_leveraged_tp1_gain_pct','tp1')
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = 0.253, key = 'max_leveraged_tp1_gain_pct', leg = 'tp1'
+
+    def target_leg(value,key,leg):
+        original=Decimal(str(anchor.get(leg,value)))
+        cap=Decimal(str(policy[key]))/100/Decimal(str(leverage))
+        if sign*(original-r)>r*cap+Decimal('1e-12'):
+            raise ValueError('approved_target_above_leverage_cap')
+        minimum=Decimal(0)
+        maximum=e*cap
+        if verified_ai:
+            minimum=risk*Decimal(str(policy[leg+'_r_min']))
+            maximum=min(maximum,risk*Decimal(str(policy[leg+'_r_max'])))
+        if minimum>maximum:
+            raise ValueError('final_target_r_and_cap_incompatible')
+        desired=sign*(Decimal(str(value))-e)
+        distance=min(maximum,max(minimum,desired))
+        result=rounded(e+sign*distance,toward)
+        final_distance=sign*(Decimal(str(result))-e)
+        if final_distance<minimum:
+            result=rounded(e+sign*minimum,protective)
+            final_distance=sign*(Decimal(str(result))-e)
+        if not minimum<=final_distance<=maximum or final_distance<=0:
+>           raise ValueError('final_target_r_bounds_unrepresentable')
+E           ValueError: final_target_r_bounds_unrepresentable
+
+entry_execution_normalization.py:75: ValueError
+_ test_saved_ada_tp1_at_final_quote_has_feasible_tick_and_bounded_stop[short] __
+
+side = 'short'
+
+    @pytest.mark.parametrize('side', ['long', 'short'])
+    def test_saved_ada_tp1_at_final_quote_has_feasible_tick_and_bounded_stop(side):
+        # Exact saved short: reviewed .2527, final .2524, SL .26275746,
+        # TP1 .2524, TP2 .222376; mirrored long checks symmetric rounding.
+        policy, ctx, base = case()
+        sign = 1 if side == 'long' else -1
+        reviewed = .2527
+        entry = reviewed + sign * .0003
+        stop = reviewed - sign * .01005746
+        tp1 = entry
+        target = reviewed + sign * .030324
+        plan = replace(base, side=side, stop_price=stop,
+                       tp1=replace(base.tp1, price=tp1), tp2=replace(base.tp2, price=target))
+        sl, t1, t2, tick = normalize_prices(exchange(.0001), 'ADA/USDT:USDT',
+            side, entry, reviewed, stop, target, plan, 5, policy, .002, atr=.007533)
+        assert sign * (entry - sl) > 0
+        assert sign * (t1 - entry) > 0 and sign * (t2 - t1) > 0
+>       assert abs(sl-entry)/entry*500 <= 20 + 1e-10
+E       assert ((0.010300000000000031 / 0.25239999999999996) * 500) <= (20 + 1e-10)
+E        +  where 0.010300000000000031 = abs((0.2627 - 0.25239999999999996))
+
+tests/test_resume_execution_contract_20261010.py:35: AssertionError
+_____ test_native_final_quote_can_tighten_stop_only_inside_approval[long] ______
+
+side = 'long'
+
+    @pytest.mark.parametrize('side', ['long', 'short'])
+    def test_native_final_quote_can_tighten_stop_only_inside_approval(side):
+        _,ctx,base=case()
+        sign=1 if side=='long' else -1
+        stop=100-sign*3.98
+        plan=replace(base,side=side,stop_price=stop,
+            tp1=replace(base.tp1,price=100+sign*5),tp2=replace(base.tp2,price=100+sign*12))
+        entry=100+sign*.19
+        sl,t1,t2,_=normalize_prices(exchange(.0001),'ADA/USDT:USDT',side,
+            entry,100,stop,plan.tp2.price,plan,5,production_adaptive_exit_policy(),.002,atr=2)
+        assert sign*(sl-stop)>=0 and abs(sl-stop)<=.2
+>       assert abs(sl-entry)/entry*500<=20+1e-10
+E       assert ((4.170000000000002 / 100.19) * 500) <= (20 + 1e-10)
+E        +  where 4.170000000000002 = abs((96.02 - 100.19))
+
+tests/test_resume_execution_contract_20261010.py:54: AssertionError
+_____ test_native_final_quote_can_tighten_stop_only_inside_approval[short] _____
+
+side = 'short'
+
+    @pytest.mark.parametrize('side', ['long', 'short'])
+    def test_native_final_quote_can_tighten_stop_only_inside_approval(side):
+        _,ctx,base=case()
+        sign=1 if side=='long' else -1
+        stop=100-sign*3.98
+        plan=replace(base,side=side,stop_price=stop,
+            tp1=replace(base.tp1,price=100+sign*5),tp2=replace(base.tp2,price=100+sign*12))
+        entry=100+sign*.19
+        sl,t1,t2,_=normalize_prices(exchange(.0001),'ADA/USDT:USDT',side,
+            entry,100,stop,plan.tp2.price,plan,5,production_adaptive_exit_policy(),.002,atr=2)
+        assert sign*(sl-stop)>=0 and abs(sl-stop)<=.2
+>       assert abs(sl-entry)/entry*500<=20+1e-10
+E       assert ((4.170000000000002 / 99.81) * 500) <= (20 + 1e-10)
+E        +  where 4.170000000000002 = abs((103.98 - 99.81))
+
+tests/test_resume_execution_contract_20261010.py:54: AssertionError
+___ test_reconciliation_invalid_allowed_target_never_returns_entry_authority ___
+
+    def test_reconciliation_invalid_allowed_target_never_returns_entry_authority():
+        policy,ctx,base=case()
+        unsafe=replace(base,entry_allowed=True,tp2=replace(base.tp2,price=ctx.entry_price*1.5))
+        result,reason=reconcile_core_plan(unsafe,ctx,policy)
+>       assert not result.entry_allowed
+E       AssertionError: assert not True
+E        +  where True = AdaptiveExitPlan(symbol='ADA/USDT:USDT', side='long', entry_allowed=True, reason_code='post_cost_rr_below_minimum', st... shadow_parameters=(('initial_atr_multiplier', 3.5), ('tp1_r', 1.5), ('tp2_r', 3.0), ('trailing_atr_multiplier', 6.0))).entry_allowed
+
+tests/test_resume_execution_contract_20261010.py:62: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_resume_execution_contract_20261010.py::test_saved_ada_tp1_at_final_quote_has_feasible_tick_and_bounded_stop[long]
+FAILED tests/test_resume_execution_contract_20261010.py::test_saved_ada_tp1_at_final_quote_has_feasible_tick_and_bounded_stop[short]
+FAILED tests/test_resume_execution_contract_20261010.py::test_native_final_quote_can_tighten_stop_only_inside_approval[long]
+FAILED tests/test_resume_execution_contract_20261010.py::test_native_final_quote_can_tighten_stop_only_inside_approval[short]
+FAILED tests/test_resume_execution_contract_20261010.py::test_reconciliation_invalid_allowed_target_never_returns_entry_authority
+5 failed in 1.14s

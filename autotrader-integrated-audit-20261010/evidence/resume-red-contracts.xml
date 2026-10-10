@@ -1,0 +1,425 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="21" skipped="0" tests="147" time="4.961" timestamp="2026-10-10T18:18:17.870356+09:00" hostname="bagmingiui-MacBookPro.local"><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_gate_exists" time="0.000" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_initial_call_then_unchanged_cycle_skips" time="0.003" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_half_atr_move_triggers_before_flat_fallback" time="0.001"><failure message="assert (False is True)">def test_half_atr_move_triggers_before_flat_fallback():
+        gate=trader._core_ai_call_gate
+        now=dt.datetime(2026,10,4,6,30,tzinfo=dt.timezone.utc)
+        first=gate(FakeState(),"BTC/USDT:USDT",frames(100,2),{}, {"active":False}, None, now=now)
+        moved=gate(FakeState(first["next_memory"]),"BTC/USDT:USDT",frames(101.1,2),{}, {"active":False}, None, now=now+dt.timedelta(minutes=5))
+&gt;       assert moved["call_ai"] is True and moved["reason"] == "price_move_atr"
+E       assert (False is True)
+
+tests/test_core_ai_budget_gate_20261004.py:37: AssertionError</failure></testcase><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_flat_and_held_fallback_are_30m" time="0.002" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_timestamp_and_small_numeric_drift_do_not_change_signature" time="0.003" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_meaningful_signature_changes_call[trend]" time="0.001" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_meaningful_signature_changes_call[rsi]" time="0.001"><failure message="assert (False is True)">change = 'rsi'
+
+    @pytest.mark.parametrize('change', ['trend','rsi','structure','correction'])
+    def test_meaningful_signature_changes_call(change):
+        now=dt.datetime(2026,10,4,6,30,tzinfo=dt.timezone.utc)
+        first=trader._core_ai_call_gate(FakeState(),"BTC/USDT:USDT",frames(),{}, {"active":False},None,now=now)
+        data=frames(); structure={}; correction={'active':False}
+        if change=='trend': data['5m']['ema_20']=97.0
+        if change=='rsi': data['5m']['rsi_14']=75.0
+        if change=='structure': structure={'1h':{'high_structure':'LH','low_structure':'LL','swing_low_broken':True}}
+        if change=='correction': correction={'active':True}
+        second=trader._core_ai_call_gate(FakeState(first['next_memory']),"BTC/USDT:USDT",data,structure,correction,None,now=now+dt.timedelta(minutes=5))
+&gt;       assert second['call_ai'] is True and second['reason']=='signature_changed'
+E       assert (False is True)
+
+tests/test_core_ai_budget_gate_20261004.py:69: AssertionError</failure></testcase><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_meaningful_signature_changes_call[structure]" time="0.001" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_meaningful_signature_changes_call[correction]" time="0.001" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_position_lifecycle_changes_call[None]" time="0.001" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_position_lifecycle_changes_call[change1]" time="0.001" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_position_lifecycle_changes_call[change2]" time="0.001" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_position_lifecycle_changes_call[change3]" time="0.001" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_position_lifecycle_changes_call[change4]" time="0.001" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_position_lifecycle_changes_call[change5]" time="0.001" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_price_threshold_uses_last_success_not_previous_skipped_cycle" time="0.001" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_cycle_retries_failure_and_only_success_commits_budget[exception]" time="0.015" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_cycle_retries_failure_and_only_success_commits_budget[parse_failure]" time="0.008" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_risk_paths_execute_before_budget_gate[_maybe_hard_loss_close]" time="0.003" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_risk_paths_execute_before_budget_gate[_maybe_emergency_close_near_stop]" time="0.003" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_risk_paths_execute_before_budget_gate[_maybe_negative_guard_review]" time="0.003" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_risk_paths_execute_before_budget_gate[_maybe_fast_reduce_review]" time="0.003" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_lower_tf_noise_and_swing_relabels_do_not_force_ai" time="0.001" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_five_minute_direction_change_still_triggers_immediately" time="0.001" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_event_only_default_skips_periodic_position_ai_review" time="0.004" /><testcase classname="tests.test_core_ai_budget_gate_20261004" name="test_periodic_position_ai_review_can_be_explicitly_opted_in" time="0.004" /><testcase classname="tests.test_core_ai_event_budget_v2" name="test_held_benign_5m_oscillator_churn_does_not_spend_ai_call" time="0.001" /><testcase classname="tests.test_core_ai_event_budget_v2" name="test_held_adverse_structure_break_is_material_ai_event" time="0.001" /><testcase classname="tests.test_core_ai_event_budget_v2" name="test_held_fallback_is_30_minutes_but_half_atr_move_stays_immediate" time="0.002"><failure message="AssertionError: assert 'low_importance_coalesced' == 'price_move_atr'&#10;  &#10;  - price_move_atr&#10;  + low_importance_coalesced">def test_held_fallback_is_30_minutes_but_half_atr_move_stays_immediate():
+        now=dt.datetime(2026,10,5,8,0,tzinfo=dt.timezone.utc)
+        first=trader._core_ai_call_gate(FakeState(),"BTC/USDT:USDT",frames5(),{}, {"active":False},held(),now=now)
+        mem=first["next_memory"]
+        at29=trader._core_ai_call_gate(FakeState(mem),"BTC/USDT:USDT",frames5(),{}, {"active":False},held(),now=now+dt.timedelta(minutes=29))
+        at30=trader._core_ai_call_gate(FakeState(mem),"BTC/USDT:USDT",frames5(),{}, {"active":False},held(),now=now+dt.timedelta(minutes=30))
+        moved=trader._core_ai_call_gate(FakeState(mem),"BTC/USDT:USDT",frames5(close=101.1),{}, {"active":False},held(),now=now+dt.timedelta(minutes=5))
+        assert at29["call_ai"] is False
+        assert at30["reason"] == "fallback_interval"
+&gt;       assert moved["reason"] == "price_move_atr"
+E       AssertionError: assert 'low_importance_coalesced' == 'price_move_atr'
+E         
+E         - price_move_atr
+E         + low_importance_coalesced
+
+tests/test_core_ai_event_budget_v2.py:52: AssertionError</failure></testcase><testcase classname="tests.test_core_ai_event_budget_v2" name="test_flat_5m_direction_change_remains_responsive_for_entry_generation" time="0.001" /><testcase classname="tests.test_core_wide_stop_risk_sizing" name="test_moderately_wide_stop_is_allowed_by_reducing_fixed_margin_notional" time="0.001"><failure message="AssertionError: assert 103.98 == 105.25&#10; +  where 103.98 = AdaptiveExitPlan(symbol='PI/USDT:USDT', side='short', entry_allowed=True, reason_code='core_pre_gpt_stop_bounded', sto... shadow_parameters=(('initial_atr_multiplier', 3.5), ('tp1_r', 1.5), ('tp2_r', 3.0), ('trailing_atr_multiplier', 6.0))).stop_price">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_moderately_wide_stop_is_a0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111a4acd0&gt;
+
+    def test_moderately_wide_stop_is_allowed_by_reducing_fixed_margin_notional(tmp_path, monkeypatch):
+        monkeypatch.setattr(trader.adaptive_exit_log,"append_plan",lambda *a,**k:True)
+        features={
+            "atr":1.5,"structural_support":96.0,"structural_resistance":104.0,
+            "near_resistance":110.0,"near_support":90.0,
+            "continuation_resistance":112.0,"continuation_support":88.0,
+            "source_timestamps":(1000,),"input_snapshot_hash":"pi-wide-stop",
+        }
+        legacy=("short",10.0,102.0,96.0)
+        result=trader._core_adaptive_live_entry_decision(
+            _cfg(tmp_path),symbol="PI/USDT:USDT",legacy_order_args=legacy,
+            entry_price=100.0,equity=1000.0,market_features=features,
+        )
+        assert result["active"] is True
+        assert result["blocked"] is False
+&gt;       assert result["plan"].stop_price == 105.25
+E       AssertionError: assert 103.98 == 105.25
+E        +  where 103.98 = AdaptiveExitPlan(symbol='PI/USDT:USDT', side='short', entry_allowed=True, reason_code='core_pre_gpt_stop_bounded', sto... shadow_parameters=(('initial_atr_multiplier', 3.5), ('tp1_r', 1.5), ('tp2_r', 3.0), ('trailing_atr_multiplier', 6.0))).stop_price
+
+tests/test_core_wide_stop_risk_sizing.py:33: AssertionError</failure></testcase><testcase classname="tests.test_core_wide_stop_risk_sizing" name="test_extremely_wide_stop_stays_blocked_when_post_cost_rr_is_too_low" time="0.001"><failure message="assert False is True">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_extremely_wide_stop_stays0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111977b90&gt;
+
+    def test_extremely_wide_stop_stays_blocked_when_post_cost_rr_is_too_low(tmp_path, monkeypatch):
+        monkeypatch.setattr(trader.adaptive_exit_log,"append_plan",lambda *a,**k:True)
+        features={
+            "atr":2.0,"structural_support":80.0,"structural_resistance":120.0,
+            "near_resistance":130.0,"near_support":70.0,
+            "continuation_resistance":140.0,"continuation_support":60.0,
+            "source_timestamps":(1000,),"input_snapshot_hash":"too-wide",
+        }
+        result=trader._core_adaptive_live_entry_decision(
+            _cfg(tmp_path),symbol="PI/USDT:USDT",legacy_order_args=("short",10.0,102.0,96.0),
+            entry_price=100.0,equity=1000.0,market_features=features,
+        )
+&gt;       assert result["blocked"] is True
+E       assert False is True
+
+tests/test_core_wide_stop_risk_sizing.py:51: AssertionError</failure></testcase><testcase classname="tests.test_core_wide_stop_risk_sizing" name="test_bounded_wide_stop_uses_actual_tp2_rr_for_core_order_contract" time="0.001"><failure message="AssertionError: assert 'core_pre_gpt_stop_bounded' == 'adaptive_liv...tp2_rr_rescue'&#10;  &#10;  - adaptive_live_bounded_tp2_rr_rescue&#10;  + core_pre_gpt_stop_bounded">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_bounded_wide_stop_uses_ac0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111aacd50&gt;
+
+    def test_bounded_wide_stop_uses_actual_tp2_rr_for_core_order_contract(tmp_path, monkeypatch):
+        monkeypatch.setattr(trader.adaptive_exit_log,"append_plan",lambda *a,**k:True)
+        features={
+            "atr":2.0,"structural_support":92.0,"structural_resistance":107.0,
+            "near_resistance":110.0,"near_support":95.0,
+            "continuation_resistance":112.0,"continuation_support":80.0,
+            "source_timestamps":(1000,),"input_snapshot_hash":"pi-tp2-rescue",
+        }
+        result=trader._core_adaptive_live_entry_decision(
+            _cfg(tmp_path),symbol="PI/USDT:USDT",legacy_order_args=("short",10.0,104.0,94.0),
+            entry_price=100.0,equity=1000.0,market_features=features,
+        )
+        assert result["blocked"] is False
+&gt;       assert result["reason"] == "adaptive_live_bounded_tp2_rr_rescue"
+E       AssertionError: assert 'core_pre_gpt_stop_bounded' == 'adaptive_liv...tp2_rr_rescue'
+E         
+E         - adaptive_live_bounded_tp2_rr_rescue
+E         + core_pre_gpt_stop_bounded
+
+tests/test_core_wide_stop_risk_sizing.py:67: AssertionError</failure></testcase><testcase classname="tests.test_core_tp2_rescue_verified_ai_regression" name="test_tp2_rescue_accepts_valid_verified_ai_exit_through_real_returned_plan[short-104.0-94.0-88.0]" time="0.001"><failure message="AssertionError: assert 'core_pre_gpt_stop_bounded' == 'adaptive_liv...tp2_rr_rescue'&#10;  &#10;  - adaptive_live_bounded_tp2_rr_rescue&#10;  + core_pre_gpt_stop_bounded">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_tp2_rescue_accepts_valid_0')
+side = 'short', stop = 104.0, tp1 = 94.0, tp2 = 88.0
+
+    @pytest.mark.parametrize("side,stop,tp1,tp2", [
+        ("short", 104.0, 94.0, 88.0),
+        ("long", 96.0, 106.0, 112.0),
+    ])
+    def test_tp2_rescue_accepts_valid_verified_ai_exit_through_real_returned_plan(
+        tmp_path, side, stop, tp1, tp2
+    ):
+        policy = production_adaptive_exit_policy()
+        cfg = SimpleNamespace(
+            CORE_ORDER_MODE="FIXED_MARGIN_AUTO_EXIT", CORE_EXIT_MODE="AUTO",
+            ADAPTIVE_EXIT_MODE="LIVE_BOUNDED",
+            ADAPTIVE_EXIT_APPROVED_POLICY_HASH=policy_sha256(policy),
+            LEVERAGE=5, POSITION_SIZE_MODE="FIXED", POSITION_FIXED_USDT=200.0,
+            RISK_PER_TRADE_PCT=1.0, MAX_DAILY_LOSS_PCT=5.0,
+            user_dir=str(tmp_path), logger=SimpleNamespace(warning=lambda *a, **k: None),
+        )
+        features = dict(
+            atr=2.0, structural_support=93.0, structural_resistance=107.0,
+            near_resistance=105.0, near_support=95.0,
+            continuation_resistance=120.0, continuation_support=80.0,
+            source_timestamps=(1000,), input_snapshot_hash="verified-ai-after-tp2-rescue",
+        )
+        decision = trader._core_adaptive_live_entry_decision(
+            cfg, symbol="PI/USDT:USDT",
+            legacy_order_args=(side, 10.0, stop, tp1),
+            entry_price=100.0, equity=1000.0, market_features=features,
+        )
+        assert decision["blocked"] is False
+&gt;       assert decision["reason"] == "adaptive_live_bounded_tp2_rr_rescue"
+E       AssertionError: assert 'core_pre_gpt_stop_bounded' == 'adaptive_liv...tp2_rr_rescue'
+E         
+E         - adaptive_live_bounded_tp2_rr_rescue
+E         + core_pre_gpt_stop_bounded
+
+tests/test_core_tp2_rescue_verified_ai_regression.py:39: AssertionError</failure></testcase><testcase classname="tests.test_core_tp2_rescue_verified_ai_regression" name="test_tp2_rescue_accepts_valid_verified_ai_exit_through_real_returned_plan[long-96.0-106.0-112.0]" time="0.001"><failure message="AssertionError: assert 'core_pre_gpt_stop_bounded' == 'adaptive_liv...tp2_rr_rescue'&#10;  &#10;  - adaptive_live_bounded_tp2_rr_rescue&#10;  + core_pre_gpt_stop_bounded">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_tp2_rescue_accepts_valid_1')
+side = 'long', stop = 96.0, tp1 = 106.0, tp2 = 112.0
+
+    @pytest.mark.parametrize("side,stop,tp1,tp2", [
+        ("short", 104.0, 94.0, 88.0),
+        ("long", 96.0, 106.0, 112.0),
+    ])
+    def test_tp2_rescue_accepts_valid_verified_ai_exit_through_real_returned_plan(
+        tmp_path, side, stop, tp1, tp2
+    ):
+        policy = production_adaptive_exit_policy()
+        cfg = SimpleNamespace(
+            CORE_ORDER_MODE="FIXED_MARGIN_AUTO_EXIT", CORE_EXIT_MODE="AUTO",
+            ADAPTIVE_EXIT_MODE="LIVE_BOUNDED",
+            ADAPTIVE_EXIT_APPROVED_POLICY_HASH=policy_sha256(policy),
+            LEVERAGE=5, POSITION_SIZE_MODE="FIXED", POSITION_FIXED_USDT=200.0,
+            RISK_PER_TRADE_PCT=1.0, MAX_DAILY_LOSS_PCT=5.0,
+            user_dir=str(tmp_path), logger=SimpleNamespace(warning=lambda *a, **k: None),
+        )
+        features = dict(
+            atr=2.0, structural_support=93.0, structural_resistance=107.0,
+            near_resistance=105.0, near_support=95.0,
+            continuation_resistance=120.0, continuation_support=80.0,
+            source_timestamps=(1000,), input_snapshot_hash="verified-ai-after-tp2-rescue",
+        )
+        decision = trader._core_adaptive_live_entry_decision(
+            cfg, symbol="PI/USDT:USDT",
+            legacy_order_args=(side, 10.0, stop, tp1),
+            entry_price=100.0, equity=1000.0, market_features=features,
+        )
+        assert decision["blocked"] is False
+&gt;       assert decision["reason"] == "adaptive_live_bounded_tp2_rr_rescue"
+E       AssertionError: assert 'core_pre_gpt_stop_bounded' == 'adaptive_liv...tp2_rr_rescue'
+E         
+E         - adaptive_live_bounded_tp2_rr_rescue
+E         + core_pre_gpt_stop_bounded
+
+tests/test_core_tp2_rescue_verified_ai_regression.py:39: AssertionError</failure></testcase><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_fresh_geometry_preserves_structural_stop_and_caps_actual_tp2[long-92.5-112]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_fresh_geometry_preserves_structural_stop_and_caps_actual_tp2[short-107.5-88]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_wide_recheck_cannot_turn_valid_by_clamping_stop[long]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_wide_recheck_cannot_turn_valid_by_clamping_stop[short]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_tp2_cap_requires_post_cost_rr_before_admitting_very_wide_stop[long]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_tp2_cap_requires_post_cost_rr_before_admitting_very_wide_stop[short]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_post_cost_rr_blocks_boundary_that_gross_rr_would_allow[long]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_post_cost_rr_blocks_boundary_that_gross_rr_would_allow[short]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_native_doge_nonempty_tracker_first_eligible_bar_keeps_wide_structure" time="0.027" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_native_doge_eligible_wide_recheck_blocks_without_reset" time="0.024" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_fixed_margin_wide_stop_reduces_quantity_with_actual_loss_and_notional_caps[1.0-DOGE/USDT:USDT-long]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_fixed_margin_wide_stop_reduces_quantity_with_actual_loss_and_notional_caps[1.0-DOGE/USDT:USDT-short]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_fixed_margin_wide_stop_reduces_quantity_with_actual_loss_and_notional_caps[1.0-SOL/USDT:USDT-long]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_fixed_margin_wide_stop_reduces_quantity_with_actual_loss_and_notional_caps[1.0-SOL/USDT:USDT-short]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_fixed_margin_wide_stop_reduces_quantity_with_actual_loss_and_notional_caps[0.25-DOGE/USDT:USDT-long]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_fixed_margin_wide_stop_reduces_quantity_with_actual_loss_and_notional_caps[0.25-DOGE/USDT:USDT-short]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_fixed_margin_wide_stop_reduces_quantity_with_actual_loss_and_notional_caps[0.25-SOL/USDT:USDT-long]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_fixed_margin_wide_stop_reduces_quantity_with_actual_loss_and_notional_caps[0.25-SOL/USDT:USDT-short]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_wide_sizing_respects_both_order_and_fixed_margin_cap[80-1000]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_wide_sizing_respects_both_order_and_fixed_margin_cap[5000-100000]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_fixed_wide_sizing_missing_budget_fails_closed" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_core_tp2_rescue_final_audit_agrees_with_order_decision[long]" time="0.001"><failure message="AssertionError: assert 'core_pre_gpt_stop_bounded' == 'adaptive_liv...tp2_rr_rescue'&#10;  &#10;  - adaptive_live_bounded_tp2_rr_rescue&#10;  + core_pre_gpt_stop_bounded">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_core_tp2_rescue_final_aud0')
+side = 'long'
+
+    @pytest.mark.parametrize('side', ['long','short'])
+    def test_core_tp2_rescue_final_audit_agrees_with_order_decision(tmp_path,side):
+        import trader
+        from test_core_wide_stop_risk_sizing import _cfg
+        features=dict(atr=2,structural_support=93,structural_resistance=107,
+            near_resistance=105,near_support=95,continuation_resistance=120,continuation_support=80,
+            source_timestamps=(1000,),input_snapshot_hash='rescue-final')
+        legacy=(side,10,96 if side=='long' else 104,106 if side=='long' else 94)
+        result=trader._core_adaptive_live_entry_decision(_cfg(tmp_path),symbol='PI/USDT:USDT',
+            legacy_order_args=legacy,entry_price=100,equity=1000,market_features=features)
+        assert result['blocked'] is False
+&gt;       assert result['reason']=='adaptive_live_bounded_tp2_rr_rescue'
+E       AssertionError: assert 'core_pre_gpt_stop_bounded' == 'adaptive_liv...tp2_rr_rescue'
+E         
+E         - adaptive_live_bounded_tp2_rr_rescue
+E         + core_pre_gpt_stop_bounded
+
+tests/test_entry_eligible_wide_stop_regression.py:170: AssertionError</failure></testcase><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_core_tp2_rescue_final_audit_agrees_with_order_decision[short]" time="0.001"><failure message="AssertionError: assert 'core_pre_gpt_stop_bounded' == 'adaptive_liv...tp2_rr_rescue'&#10;  &#10;  - adaptive_live_bounded_tp2_rr_rescue&#10;  + core_pre_gpt_stop_bounded">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_core_tp2_rescue_final_aud1')
+side = 'short'
+
+    @pytest.mark.parametrize('side', ['long','short'])
+    def test_core_tp2_rescue_final_audit_agrees_with_order_decision(tmp_path,side):
+        import trader
+        from test_core_wide_stop_risk_sizing import _cfg
+        features=dict(atr=2,structural_support=93,structural_resistance=107,
+            near_resistance=105,near_support=95,continuation_resistance=120,continuation_support=80,
+            source_timestamps=(1000,),input_snapshot_hash='rescue-final')
+        legacy=(side,10,96 if side=='long' else 104,106 if side=='long' else 94)
+        result=trader._core_adaptive_live_entry_decision(_cfg(tmp_path),symbol='PI/USDT:USDT',
+            legacy_order_args=legacy,entry_price=100,equity=1000,market_features=features)
+        assert result['blocked'] is False
+&gt;       assert result['reason']=='adaptive_live_bounded_tp2_rr_rescue'
+E       AssertionError: assert 'core_pre_gpt_stop_bounded' == 'adaptive_liv...tp2_rr_rescue'
+E         
+E         - adaptive_live_bounded_tp2_rr_rescue
+E         + core_pre_gpt_stop_bounded
+
+tests/test_entry_eligible_wide_stop_regression.py:170: AssertionError</failure></testcase><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[None-False-long-DOGE/USDT:USDT]" time="0.003" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[None-False-long-SOL/USDT:USDT]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[None-False-short-DOGE/USDT:USDT]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[None-False-short-SOL/USDT:USDT]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[10-True-long-DOGE/USDT:USDT]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[10-True-long-SOL/USDT:USDT]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[10-True-short-DOGE/USDT:USDT]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[10-True-short-SOL/USDT:USDT]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[30-True-long-DOGE/USDT:USDT]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[30-True-long-SOL/USDT:USDT]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[30-True-short-DOGE/USDT:USDT]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[30-True-short-SOL/USDT:USDT]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[40-True-long-DOGE/USDT:USDT]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[40-True-long-SOL/USDT:USDT]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[40-True-short-DOGE/USDT:USDT]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_shared_eligible_clock_fresh_recheck_and_stale[40-True-short-SOL/USDT:USDT]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_timeout_retry_wide_stop_remains_blocked_by_shared_policy" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_fixed_wide_minimum_contracts_does_not_round_risk_budget_up" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_native_causal_live_backtest_with_nonempty_tracker_share_bounded_admission" time="0.736" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_core_actual_tp2_rescue_preserves_supplied_cost_and_risk_caps[0.001-long]" time="0.001"><failure message="assert (3.980000000000004 == 7.5)&#10; +  where 3.980000000000004 = abs((96.02 - 100))">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_core_actual_tp2_rescue_pr0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111d9b750&gt;
+side = 'long', cost = 0.001
+
+    @pytest.mark.parametrize('side', ['long','short'])
+    @pytest.mark.parametrize('cost', [.001,.01])
+    def test_core_actual_tp2_rescue_preserves_supplied_cost_and_risk_caps(tmp_path,monkeypatch,side,cost):
+        import trader
+        from adaptive_exit_engine import AdaptiveExitContext
+        from test_core_wide_stop_risk_sizing import _cfg
+        monkeypatch.setattr(trader,'AdaptiveExitContext',
+            lambda **kwargs:AdaptiveExitContext(**dict(kwargs,estimated_roundtrip_cost_rate=cost)))
+        f=dict(atr=2,structural_support=93,structural_resistance=107,
+            near_resistance=105,near_support=95,continuation_resistance=120,continuation_support=80,
+            source_timestamps=(1000,),input_snapshot_hash='cost-supplied')
+        result=trader._core_adaptive_live_entry_decision(_cfg(tmp_path),symbol='PI/USDT:USDT',
+            legacy_order_args=(side,10,96 if side=='long' else 104,106 if side=='long' else 94),
+            entry_price=100,equity=1000,market_features=f)
+        assert result['blocked'] is False
+        order=result['order_args']
+        assert order[0]==side and 0&lt;order[1]&lt;=10
+&gt;       assert abs(order[2]-100)==7.5 and abs(order[3]-100)==12
+E       assert (3.980000000000004 == 7.5)
+E        +  where 3.980000000000004 = abs((96.02 - 100))
+
+tests/test_entry_eligible_wide_stop_regression.py:344: AssertionError</failure></testcase><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_core_actual_tp2_rescue_preserves_supplied_cost_and_risk_caps[0.001-short]" time="0.001"><failure message="assert (3.980000000000004 == 7.5)&#10; +  where 3.980000000000004 = abs((103.98 - 100))">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_core_actual_tp2_rescue_pr1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111b8d410&gt;
+side = 'short', cost = 0.001
+
+    @pytest.mark.parametrize('side', ['long','short'])
+    @pytest.mark.parametrize('cost', [.001,.01])
+    def test_core_actual_tp2_rescue_preserves_supplied_cost_and_risk_caps(tmp_path,monkeypatch,side,cost):
+        import trader
+        from adaptive_exit_engine import AdaptiveExitContext
+        from test_core_wide_stop_risk_sizing import _cfg
+        monkeypatch.setattr(trader,'AdaptiveExitContext',
+            lambda **kwargs:AdaptiveExitContext(**dict(kwargs,estimated_roundtrip_cost_rate=cost)))
+        f=dict(atr=2,structural_support=93,structural_resistance=107,
+            near_resistance=105,near_support=95,continuation_resistance=120,continuation_support=80,
+            source_timestamps=(1000,),input_snapshot_hash='cost-supplied')
+        result=trader._core_adaptive_live_entry_decision(_cfg(tmp_path),symbol='PI/USDT:USDT',
+            legacy_order_args=(side,10,96 if side=='long' else 104,106 if side=='long' else 94),
+            entry_price=100,equity=1000,market_features=f)
+        assert result['blocked'] is False
+        order=result['order_args']
+        assert order[0]==side and 0&lt;order[1]&lt;=10
+&gt;       assert abs(order[2]-100)==7.5 and abs(order[3]-100)==12
+E       assert (3.980000000000004 == 7.5)
+E        +  where 3.980000000000004 = abs((103.98 - 100))
+
+tests/test_entry_eligible_wide_stop_regression.py:344: AssertionError</failure></testcase><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_core_actual_tp2_rescue_preserves_supplied_cost_and_risk_caps[0.01-long]" time="0.001"><failure message="assert (3.980000000000004 == 7.5)&#10; +  where 3.980000000000004 = abs((96.02 - 100))">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_core_actual_tp2_rescue_pr2')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111b902d0&gt;
+side = 'long', cost = 0.01
+
+    @pytest.mark.parametrize('side', ['long','short'])
+    @pytest.mark.parametrize('cost', [.001,.01])
+    def test_core_actual_tp2_rescue_preserves_supplied_cost_and_risk_caps(tmp_path,monkeypatch,side,cost):
+        import trader
+        from adaptive_exit_engine import AdaptiveExitContext
+        from test_core_wide_stop_risk_sizing import _cfg
+        monkeypatch.setattr(trader,'AdaptiveExitContext',
+            lambda **kwargs:AdaptiveExitContext(**dict(kwargs,estimated_roundtrip_cost_rate=cost)))
+        f=dict(atr=2,structural_support=93,structural_resistance=107,
+            near_resistance=105,near_support=95,continuation_resistance=120,continuation_support=80,
+            source_timestamps=(1000,),input_snapshot_hash='cost-supplied')
+        result=trader._core_adaptive_live_entry_decision(_cfg(tmp_path),symbol='PI/USDT:USDT',
+            legacy_order_args=(side,10,96 if side=='long' else 104,106 if side=='long' else 94),
+            entry_price=100,equity=1000,market_features=f)
+        assert result['blocked'] is False
+        order=result['order_args']
+        assert order[0]==side and 0&lt;order[1]&lt;=10
+&gt;       assert abs(order[2]-100)==7.5 and abs(order[3]-100)==12
+E       assert (3.980000000000004 == 7.5)
+E        +  where 3.980000000000004 = abs((96.02 - 100))
+
+tests/test_entry_eligible_wide_stop_regression.py:344: AssertionError</failure></testcase><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_core_actual_tp2_rescue_preserves_supplied_cost_and_risk_caps[0.01-short]" time="0.001"><failure message="assert (3.980000000000004 == 7.5)&#10; +  where 3.980000000000004 = abs((103.98 - 100))">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_core_actual_tp2_rescue_pr3')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111b56e90&gt;
+side = 'short', cost = 0.01
+
+    @pytest.mark.parametrize('side', ['long','short'])
+    @pytest.mark.parametrize('cost', [.001,.01])
+    def test_core_actual_tp2_rescue_preserves_supplied_cost_and_risk_caps(tmp_path,monkeypatch,side,cost):
+        import trader
+        from adaptive_exit_engine import AdaptiveExitContext
+        from test_core_wide_stop_risk_sizing import _cfg
+        monkeypatch.setattr(trader,'AdaptiveExitContext',
+            lambda **kwargs:AdaptiveExitContext(**dict(kwargs,estimated_roundtrip_cost_rate=cost)))
+        f=dict(atr=2,structural_support=93,structural_resistance=107,
+            near_resistance=105,near_support=95,continuation_resistance=120,continuation_support=80,
+            source_timestamps=(1000,),input_snapshot_hash='cost-supplied')
+        result=trader._core_adaptive_live_entry_decision(_cfg(tmp_path),symbol='PI/USDT:USDT',
+            legacy_order_args=(side,10,96 if side=='long' else 104,106 if side=='long' else 94),
+            entry_price=100,equity=1000,market_features=f)
+        assert result['blocked'] is False
+        order=result['order_args']
+        assert order[0]==side and 0&lt;order[1]&lt;=10
+&gt;       assert abs(order[2]-100)==7.5 and abs(order[3]-100)==12
+E       assert (3.980000000000004 == 7.5)
+E        +  where 3.980000000000004 = abs((103.98 - 100))
+
+tests/test_entry_eligible_wide_stop_regression.py:344: AssertionError</failure></testcase><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_core_rescue_blocks_when_actual_tp2_cost_adjusted_rr_is_below_minimum[long]" time="0.001"><failure message="assert (False is True)">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_core_rescue_blocks_when_a0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111e84fd0&gt;
+side = 'long'
+
+    @pytest.mark.parametrize('side', ['long','short'])
+    def test_core_rescue_blocks_when_actual_tp2_cost_adjusted_rr_is_below_minimum(tmp_path,monkeypatch,side):
+        import trader
+        from adaptive_exit_engine import AdaptiveExitContext
+        from test_core_wide_stop_risk_sizing import _cfg
+        monkeypatch.setattr(trader,'AdaptiveExitContext',
+            lambda **kwargs:AdaptiveExitContext(**dict(kwargs,estimated_roundtrip_cost_rate=.02)))
+        # With 8% risk and 12% reward, cost raises risk to 10%, reduces reward
+        # to 10%; a gross-RR rescue would incorrectly permit this order.
+        f=dict(atr=2,structural_support=92.5,structural_resistance=107.5,
+            near_resistance=105,near_support=95,continuation_resistance=120,continuation_support=80,
+            source_timestamps=(1000,),input_snapshot_hash='cost-block')
+        legacy=(side,10,96 if side=='long' else 104,106 if side=='long' else 94)
+        result=trader._core_adaptive_live_entry_decision(_cfg(tmp_path),symbol='PI/USDT:USDT',
+            legacy_order_args=legacy,entry_price=100,equity=1000,market_features=f)
+&gt;       assert result['blocked'] is True and result['order_args']==legacy
+E       assert (False is True)
+
+tests/test_entry_eligible_wide_stop_regression.py:364: AssertionError</failure></testcase><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_core_rescue_blocks_when_actual_tp2_cost_adjusted_rr_is_below_minimum[short]" time="0.001"><failure message="assert (False is True)">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_core_rescue_blocks_when_a1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111dd4bd0&gt;
+side = 'short'
+
+    @pytest.mark.parametrize('side', ['long','short'])
+    def test_core_rescue_blocks_when_actual_tp2_cost_adjusted_rr_is_below_minimum(tmp_path,monkeypatch,side):
+        import trader
+        from adaptive_exit_engine import AdaptiveExitContext
+        from test_core_wide_stop_risk_sizing import _cfg
+        monkeypatch.setattr(trader,'AdaptiveExitContext',
+            lambda **kwargs:AdaptiveExitContext(**dict(kwargs,estimated_roundtrip_cost_rate=.02)))
+        # With 8% risk and 12% reward, cost raises risk to 10%, reduces reward
+        # to 10%; a gross-RR rescue would incorrectly permit this order.
+        f=dict(atr=2,structural_support=92.5,structural_resistance=107.5,
+            near_resistance=105,near_support=95,continuation_resistance=120,continuation_support=80,
+            source_timestamps=(1000,),input_snapshot_hash='cost-block')
+        legacy=(side,10,96 if side=='long' else 104,106 if side=='long' else 94)
+        result=trader._core_adaptive_live_entry_decision(_cfg(tmp_path),symbol='PI/USDT:USDT',
+            legacy_order_args=legacy,entry_price=100,equity=1000,market_features=f)
+&gt;       assert result['blocked'] is True and result['order_args']==legacy
+E       assert (False is True)
+
+tests/test_entry_eligible_wide_stop_regression.py:364: AssertionError</failure></testcase><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_unapplied_adaptive_geometry_marker_cannot_change_fixed_margin_sizing[None]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_unapplied_adaptive_geometry_marker_cannot_change_fixed_margin_sizing[OFF]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_unapplied_adaptive_geometry_marker_cannot_change_fixed_margin_sizing[SHADOW]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_unapplied_adaptive_geometry_marker_cannot_change_fixed_margin_sizing[ADVISORY]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_manual_order_mode_never_uses_automatic_wide_stop_risk_fallback" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_wide_geometry_keeps_risk_budget_sizing_if_fresh_price_moves_inside_normal_width" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_order_price_refresh_caps_actual_tp2_in_both_directions[long-99-110.88]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_order_price_refresh_caps_actual_tp2_in_both_directions[short-101-88.88]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_order_refresh_cannot_submit_below_minimum_cost_adjusted_tp2_rr[long-102]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_order_refresh_cannot_submit_below_minimum_cost_adjusted_tp2_rr[short-98]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_order_refresh_preserves_stop_direction_validation[long-92]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_order_refresh_preserves_stop_direction_validation[short-108]" time="0.000" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_core_rescue_returns_allowed_plan_to_existing_verified_ai_overlay[long]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_core_rescue_returns_allowed_plan_to_existing_verified_ai_overlay[short]" time="0.001" /><testcase classname="tests.test_entry_eligible_wide_stop_regression" name="test_live_entry_validates_verified_ai_prices_then_sizes_remembered_wide_risk" time="0.001" /><testcase classname="tests.test_final_entry_submission_regression" name="test_core_real_plan_includes_established_roundtrip_fee[long]" time="0.001" /><testcase classname="tests.test_final_entry_submission_regression" name="test_core_real_plan_includes_established_roundtrip_fee[short]" time="0.001" /><testcase classname="tests.test_final_entry_submission_regression" name="test_core_ai_rr_uses_actual_full_oco_tp2_and_fees[long]" time="0.001" /><testcase classname="tests.test_final_entry_submission_regression" name="test_core_ai_rr_uses_actual_full_oco_tp2_and_fees[short]" time="0.001" /><testcase classname="tests.test_final_entry_submission_regression" name="test_real_core_submit_reduces_quantity_after_adverse_quote[long-100.19]" time="0.005"><failure message="AssertionError: assert 'LOCAL_BLOCKED' == 'ORDER_PENDING'&#10;  &#10;  - ORDER_PENDING&#10;  + LOCAL_BLOCKED">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_real_core_submit_reduces_0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111d69f10&gt;
+side = 'long', price = 100.19
+
+    @pytest.mark.parametrize('side,price',[('long',100.19),('short',99.81)])
+    def test_real_core_submit_reduces_quantity_after_adverse_quote(tmp_path,monkeypatch,side,price):
+        cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,price)
+        state=TraderState()
+        assert trader._execute_entry(cfg,state,c,'ADA/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
+&gt;       assert state.snapshot()['symbols']['ADA/USDT:USDT']['last_entry_attempt']['status']=='ORDER_PENDING'
+E       AssertionError: assert 'LOCAL_BLOCKED' == 'ORDER_PENDING'
+E         
+E         - ORDER_PENDING
+E         + LOCAL_BLOCKED
+
+tests/test_final_entry_submission_regression.py:75: AssertionError</failure></testcase><testcase classname="tests.test_final_entry_submission_regression" name="test_real_core_submit_reduces_quantity_after_adverse_quote[short-99.81]" time="0.003"><failure message="AssertionError: assert 'LOCAL_BLOCKED' == 'ORDER_PENDING'&#10;  &#10;  - ORDER_PENDING&#10;  + LOCAL_BLOCKED">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_real_core_submit_reduces_1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111b8d5d0&gt;
+side = 'short', price = 99.81
+
+    @pytest.mark.parametrize('side,price',[('long',100.19),('short',99.81)])
+    def test_real_core_submit_reduces_quantity_after_adverse_quote(tmp_path,monkeypatch,side,price):
+        cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,price)
+        state=TraderState()
+        assert trader._execute_entry(cfg,state,c,'ADA/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
+&gt;       assert state.snapshot()['symbols']['ADA/USDT:USDT']['last_entry_attempt']['status']=='ORDER_PENDING'
+E       AssertionError: assert 'LOCAL_BLOCKED' == 'ORDER_PENDING'
+E         
+E         - ORDER_PENDING
+E         + LOCAL_BLOCKED
+
+tests/test_final_entry_submission_regression.py:75: AssertionError</failure></testcase><testcase classname="tests.test_final_entry_submission_regression" name="test_real_core_submit_rejects_ai_target_over_cap_after_favorable_quote[long-99.81]" time="1.069"><failure message="AssertionError: assert not [('long', 10.0, 96.02, 111.7872)]">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_real_core_submit_rejects_0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111ad86d0&gt;
+side = 'long', price = 99.81
+
+    @pytest.mark.parametrize('side,price',[('long',99.81),('short',100.19)])
+    def test_real_core_submit_rejects_ai_target_over_cap_after_favorable_quote(tmp_path,monkeypatch,side,price):
+        cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,price)
+        assert trader._execute_entry(cfg,TraderState(),c,'ADA/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
+&gt;       assert not sent
+E       AssertionError: assert not [('long', 10.0, 96.02, 111.7872)]
+
+tests/test_final_entry_submission_regression.py:85: AssertionError</failure></testcase><testcase classname="tests.test_final_entry_submission_regression" name="test_real_core_submit_rejects_ai_target_over_cap_after_favorable_quote[short-100.19]" time="1.072"><failure message="AssertionError: assert not [('short', 9.98, 103.98, 88.1672)]">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_real_core_submit_rejects_1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111dd9ad0&gt;
+side = 'short', price = 100.19
+
+    @pytest.mark.parametrize('side,price',[('long',99.81),('short',100.19)])
+    def test_real_core_submit_rejects_ai_target_over_cap_after_favorable_quote(tmp_path,monkeypatch,side,price):
+        cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,price)
+        assert trader._execute_entry(cfg,TraderState(),c,'ADA/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
+&gt;       assert not sent
+E       AssertionError: assert not [('short', 9.98, 103.98, 88.1672)]
+
+tests/test_final_entry_submission_regression.py:85: AssertionError</failure></testcase><testcase classname="tests.test_final_entry_submission_regression" name="test_real_core_submit_fails_closed_before_exchange[minimum-long]" time="0.010" /><testcase classname="tests.test_final_entry_submission_regression" name="test_real_core_submit_fails_closed_before_exchange[minimum-short]" time="0.007" /><testcase classname="tests.test_final_entry_submission_regression" name="test_real_core_submit_fails_closed_before_exchange[expired-long]" time="0.006" /><testcase classname="tests.test_final_entry_submission_regression" name="test_real_core_submit_fails_closed_before_exchange[expired-short]" time="0.006" /><testcase classname="tests.test_final_entry_submission_regression" name="test_real_core_submit_fails_closed_before_exchange[chase-long]" time="0.006" /><testcase classname="tests.test_final_entry_submission_regression" name="test_real_core_submit_fails_closed_before_exchange[chase-short]" time="0.006" /><testcase classname="tests.test_final_entry_submission_regression" name="test_candidate_verified_ai_net_tp1_envelope[long]" time="0.001" /><testcase classname="tests.test_final_entry_submission_regression" name="test_candidate_verified_ai_net_tp1_envelope[short]" time="0.001" /><testcase classname="tests.test_final_entry_submission_regression" name="test_candidate_final_quote_must_match_signal_validator[long-98.98]" time="0.001" /><testcase classname="tests.test_final_entry_submission_regression" name="test_candidate_final_quote_must_match_signal_validator[short-101.02]" time="0.001" /><testcase classname="tests.test_final_entry_submission_regression" name="test_candidate_expired_approval_cannot_reuse_price_valid_setup[long]" time="0.000" /><testcase classname="tests.test_final_entry_submission_regression" name="test_candidate_expired_approval_cannot_reuse_price_valid_setup[short]" time="0.000" /><testcase classname="tests.test_final_entry_submission_regression" name="test_core_execution_contract_does_not_reintroduce_tp1_only_rr[long]" time="0.000" /><testcase classname="tests.test_final_entry_submission_regression" name="test_core_execution_contract_does_not_reintroduce_tp1_only_rr[short]" time="0.000" /><testcase classname="tests.test_final_entry_submission_regression" name="test_real_candidate_submit_blocks_invalid_final_quote_or_clock[False-long-98.98]" time="0.001" /><testcase classname="tests.test_final_entry_submission_regression" name="test_real_candidate_submit_blocks_invalid_final_quote_or_clock[False-short-101.02]" time="0.002" /><testcase classname="tests.test_final_entry_submission_regression" name="test_real_candidate_submit_blocks_invalid_final_quote_or_clock[True-long-98.98]" time="0.001" /><testcase classname="tests.test_final_entry_submission_regression" name="test_real_candidate_submit_blocks_invalid_final_quote_or_clock[True-short-101.02]" time="0.001" /><testcase classname="tests.test_final_entry_submission_regression" name="test_core_gate_disabled_blocks_before_submission[long]" time="0.003" /><testcase classname="tests.test_final_entry_submission_regression" name="test_core_gate_disabled_blocks_before_submission[short]" time="0.004" /><testcase classname="tests.test_final_entry_submission_regression" name="test_core_expired_replacement_never_closes_existing_position[long]" time="0.003" /><testcase classname="tests.test_final_entry_submission_regression" name="test_core_expired_replacement_never_closes_existing_position[short]" time="0.003" /><testcase classname="tests.test_final_entry_submission_regression" name="test_candidate_exact_final_quote_preserves_existing_chase_veto[long-100.51]" time="0.000" /><testcase classname="tests.test_final_entry_submission_regression" name="test_candidate_exact_final_quote_preserves_existing_chase_veto[short-99.49]" time="0.000" /><testcase classname="tests.test_final_entry_submission_regression" name="test_recent_causal_bar_age_does_not_equal_approval_elapsed_time[long]" time="0.000" /><testcase classname="tests.test_final_entry_submission_regression" name="test_recent_causal_bar_age_does_not_equal_approval_elapsed_time[short]" time="0.000" /><testcase classname="tests.test_final_entry_submission_regression" name="test_candidate_review_elapsed_expiry_blocks_even_when_candle_is_current" time="0.000" /><testcase classname="tests.test_priority_2_5" name="test_fixed_margin_auto_exit_risk_cap_reduces_actual_order_size" time="0.001"><failure message="assert 10.0 &lt; 10.0">tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-106/test_fixed_margin_auto_exit_ri0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x111b22ad0&gt;
+
+    def test_fixed_margin_auto_exit_risk_cap_reduces_actual_order_size(tmp_path, monkeypatch):
+        monkeypatch.setattr(trader.adaptive_exit_log, 'append_plan', lambda *a, **k: True)
+        legacy=('long', 10.0, 98.0, 104.0)
+        d=trader._core_adaptive_live_entry_decision(
+            _core_cfg(tmp_path), symbol='XRP/USDT:USDT', legacy_order_args=legacy,
+            entry_price=100.0, equity=1000.0, market_features=_features())
+        assert d['active'] is True and d['blocked'] is False
+        assert d['plan'].planned_loss_usdt &lt;= 50.0 + 1e-9
+&gt;       assert d['order_args'][1] &lt; legacy[1]
+E       assert 10.0 &lt; 10.0
+
+tests/test_priority_2_5.py:38: AssertionError</failure></testcase><testcase classname="tests.test_priority_2_5" name="test_recent_adaptive_report_ignores_zero_timestamp_and_wrong_current_notional" time="0.000" /><testcase classname="tests.test_priority_2_5" name="test_report_renders_ai_exit_observability_section" time="0.000" /><testcase classname="tests.test_priority_2_5" name="test_three_way_counterfactual_uses_first_original_barrier_then_120m" time="0.000" /><testcase classname="tests.test_priority_2_5" name="test_symbol_side_hour_groups_use_dimension_coverage_not_full_tf_coverage" time="0.000" /><testcase classname="tests.test_priority_2_5" name="test_three_way_counterfactual_summary_never_has_live_authority" time="0.000" /><testcase classname="tests.test_priority_2_5" name="test_candidate_exit_review_exposes_gpt_verdict_for_audit" time="0.000" /><testcase classname="tests.test_priority_2_5" name="test_ai_exit_audit_matches_completed_lifecycles_for_performance" time="0.001" /><testcase classname="tests.test_priority_2_5" name="test_exit_shadow_ignores_observations_after_120m" time="0.001" /><testcase classname="tests.test_priority_2_5" name="test_backfill_ai_close_lifecycle_recovers_exit_price_and_protection" time="0.001" /><testcase classname="tests.test_priority_2_5" name="test_ai_exit_audit_treats_naive_lifecycle_time_as_kst" time="0.001" /><testcase classname="tests.test_priority_2_5" name="test_backfill_enriches_existing_shadow_missing_exit_price" time="0.001" /><testcase classname="tests.test_priority_2_5" name="test_three_way_stays_unresolved_until_120m_if_no_barrier_hit" time="0.000" /><testcase classname="tests.test_priority_2_5" name="test_backfill_is_idempotent_when_lifecycle_unchanged" time="0.001" /></testsuite></testsuites>

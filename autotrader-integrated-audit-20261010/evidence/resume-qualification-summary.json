@@ -1,0 +1,33 @@
+{
+  "results": {
+    "resume-qualified-tests": {
+      "tests": 1319,
+      "failures_or_errors": 0
+    },
+    "resume-gemini_checks": {
+      "tests": 268,
+      "failures_or_errors": 0
+    },
+    "resume-rollback_checks": {
+      "tests": 49,
+      "failures_or_errors": 0
+    },
+    "resume-negative_guard_checks": {
+      "tests": 48,
+      "failures_or_errors": 0
+    },
+    "resume-rollback_full_checks": {
+      "tests": 303,
+      "failures_or_errors": 0
+    },
+    "resume-strategy-protection": {
+      "tests": 215,
+      "failures_or_errors": 0
+    }
+  },
+  "all_suites_tests": 1857,
+  "all_subtests": 130,
+  "review": "no important or critical delta issues",
+  "deployment": "qualified_not_yet_deployed",
+  "current_protection": "six positions fully covered by six live reduceOnly OCO; zero pending orders"
+}

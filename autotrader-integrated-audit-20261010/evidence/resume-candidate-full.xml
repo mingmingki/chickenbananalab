@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="52" failures="0" skipped="0" tests="52" time="1.600" timestamp="2026-10-10T18:25:51.990560+09:00" hostname="bagmingiui-MacBookPro.local"><testcase classname="" name="rollback_checks.test_core_notifications" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_core_notifications' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_core_notifications.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_checks/test_core_notifications.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_checks.test_handoff" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_handoff' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_handoff.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_checks/test_handoff.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_accounting" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_accounting' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_accounting.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_accounting.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_adapters" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_adapters' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_adapters.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_adapters.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_ai_risk_exit" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_ai_risk_exit' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_ai_risk_exit.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_ai_risk_exit.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_churn_control" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_churn_control' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_churn_control.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_churn_control.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_compact_review" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_compact_review' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_compact_review.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_compact_review.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_core_notifications" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_core_notifications' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_core_notifications.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_core_notifications.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_deployment_resume" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_deployment_resume' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_deployment_resume.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_deployment_resume.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_emergency_threshold" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_emergency_threshold' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_emergency_threshold.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_emergency_threshold.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_event_detection" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_event_detection' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_event_detection.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_event_detection.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_event_execution" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_event_execution' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_event_execution.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_event_execution.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_event_integration" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_event_integration' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_event_integration.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_event_integration.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_event_memory" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_event_memory' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_event_memory.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_event_memory.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_event_review" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_event_review' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_event_review.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_event_review.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_event_service" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_event_service' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_event_service.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_event_service.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_event_settings" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_event_settings' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_event_settings.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_event_settings.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_execution" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_execution' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_execution.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_execution.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_gemini_mode" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_gemini_mode' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_gemini_mode.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_gemini_mode.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_handoff" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_handoff' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_handoff.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_handoff.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_inventory" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_inventory' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_inventory.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_inventory.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_live" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_live' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_live.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_live.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_log_readability" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_log_readability' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_log_readability.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_log_readability.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_market" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_market' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_market.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_market.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_okx_contract" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_okx_contract' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_okx_contract.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_okx_contract.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_periodic_gemini" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_periodic_gemini' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_periodic_gemini.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_periodic_gemini.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_policy" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_policy' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_policy.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_policy.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_protection_request" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_protection_request' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_protection_request.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_protection_request.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_retry_backoff" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_retry_backoff' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_retry_backoff.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_retry_backoff.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_review" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_review' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_review.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_review.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_rollback" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_rollback' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_checks/test_rollback.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_rollback.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_runtime" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_runtime' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_runtime.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_runtime.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_service" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_service' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_service.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_service.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_settings_route" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_settings_route' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_settings_route.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_settings_route.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_state" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_state' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_state.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_state.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_store" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_store' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_store.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_store.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="rollback_full_checks.test_unified_history" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_unified_history' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_unified_history.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/rollback_full_checks/test_unified_history.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="tests.test_accounting" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_accounting' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_accounting.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/tests/test_accounting.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="tests.test_adapters" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_adapters' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_adapters.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/tests/test_adapters.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="tests.test_emergency_threshold" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_emergency_threshold' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_emergency_threshold.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/tests/test_emergency_threshold.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="tests.test_execution" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_execution' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_execution.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/tests/test_execution.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="tests.test_handoff" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_handoff' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_handoff.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/tests/test_handoff.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="tests.test_inventory" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_inventory' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_inventory.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/tests/test_inventory.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="tests.test_live" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_live' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_live.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/tests/test_live.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="tests.test_market" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_market' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_market.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/tests/test_market.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="tests.test_okx_contract" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_okx_contract' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_okx_contract.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/tests/test_okx_contract.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="tests.test_policy" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_policy' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_policy.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/tests/test_policy.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="tests.test_review" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_review' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_review.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/tests/test_review.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="tests.test_runtime" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_runtime' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_runtime.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/tests/test_runtime.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="tests.test_service" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_service' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_service.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/tests/test_service.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="tests.test_state" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_state' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_state.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/tests/test_state.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase><testcase classname="" name="tests.test_store" time="0.000"><error message="collection failure">import file mismatch:
+imported module 'test_store' has this __file__ attribute:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/gemini_checks/test_store.py
+which is not the same as the test file we want to collect:
+  /private/tmp/chickenbanana-integrated-audit-20261010/candidate/tests/test_store.py
+HINT: remove __pycache__ / .pyc files and/or use a unique basename for your test file modules</error></testcase></testsuite></testsuites>
