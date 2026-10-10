@@ -1,0 +1,36 @@
+[
+  {
+    "operation": "deployed",
+    "release": "/opt/autotrader-releases/ai_cost_reduction_v13_20261011T065045KST",
+    "pid": "186124",
+    "changed_files": 4,
+    "verified_source_files": 18,
+    "settings_migration_keys": [],
+    "positions": 5,
+    "oco": 5,
+    "preserved": true,
+    "backup": "/var/lib/autotrader/deployment-backups/strategy-ai-cost-v13-20261010T215326Z"
+  },
+  {
+    "verified": true,
+    "release": "/opt/autotrader-releases/ai_cost_reduction_v13_20261011T065045KST",
+    "pid": "186124",
+    "restarts": 0,
+    "core_running": true,
+    "candidate_running": true,
+    "core_authority": "AI",
+    "candidate_authority": "CHART_RISK",
+    "positions": 5,
+    "oco": 5,
+    "pending": 0,
+    "exact_deployment_preservation": true,
+    "current_coverage_verified": true,
+    "natural_position_change": false,
+    "risk_adaptive_partials": true,
+    "settings_changed_keys": [],
+    "source_hashes_verified": 18,
+    "dashboard_http": 200,
+    "resume_consumed": true,
+    "unit_success": true
+  }
+]

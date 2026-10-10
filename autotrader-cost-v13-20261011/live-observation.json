@@ -1,0 +1,48 @@
+{
+  "as_of": "2026-10-11T06:55:11.220302+09:00",
+  "deployed_at": "2026-10-11T06:53:31.426965+09:00",
+  "release": "/opt/autotrader-releases/ai_cost_reduction_v13_20261011T065045KST",
+  "elapsed_minutes": 1.6632233460744221,
+  "usage_by_purpose_provider": {
+    "core_primary_decision|gemini": {
+      "calls": 4,
+      "cost_usd": 0.022185000000000003,
+      "input_tokens": 22065,
+      "output_tokens": 1503
+    },
+    "entry_gate|openai": {
+      "calls": 1,
+      "cost_usd": 0.0054210000000000005,
+      "input_tokens": 6916,
+      "output_tokens": 1846
+    }
+  },
+  "event_counts": {},
+  "attempt_count": 5,
+  "error_attempt_count": 0,
+  "timeout_attempt_count": 0,
+  "journal_reuse_count": 0,
+  "candidate_paid_calls": 0,
+  "effective": {
+    "GEMINI_MODEL": "gemini-3.8-flash",
+    "OPENAI_MODEL": "gpt-5-mini",
+    "CORE_GEMINI_ROUTINE_INTERVAL_SECONDS": 1800,
+    "POLL_INTERVAL_SECONDS": 300,
+    "POSITION_AI_REVIEW_COOLDOWN_MINUTES": 15,
+    "CORE_AI_STRATEGY_AUTHORITY": true,
+    "GPT_ENTRY_GATE_ENABLED": true,
+    "CORE_GPT_ENTRY_TIMEOUT_BYPASS": true,
+    "CORE_GPT_ENTRY_NO_RESPONSE_BYPASS": null,
+    "POSITION_AI_REVIEW_ENABLED": true,
+    "POSITION_AI_LIVE_EXECUTE": true,
+    "POSITION_AI_PERIODIC_HOLD_REVIEW_ENABLED": true,
+    "RISK_ADAPTIVE_PARTIAL_ENABLED": true,
+    "CANDIDATE_C_CHART_ONLY": true,
+    "CANDIDATE_C_GPT_ENTRY_GATE_ENABLED": false,
+    "CANDIDATE_C_AI_EXIT_PLAN_ENABLED": false,
+    "CANDIDATE_C_TIMEOUT_RETRY_ENABLED": false,
+    "CORE_PAID_SHADOW_ENABLED": false,
+    "HOLD_AUDIT_ENABLED": false
+  },
+  "monthly_saving_verified": false
+}

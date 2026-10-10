@@ -1,3 +1,18 @@
+# CURRENT AUTHORITATIVE STATE — V13 LIVE / DEPLOYED AND VERIFIED / NO REDISPATCH
+
+2026-10-11 06:55 KST. Authorized single v13 deployment completed successfully.
+Release /opt/autotrader-releases/ai_cost_reduction_v13_20261011T065045KST, PID 186124, service active, NRestarts 0. CORE and Candidate C both LIVE; CORE AI authority, Candidate chart-only. Unit autotrader-ai-cost-v13-deploy-20261011.service completed Result=success ExecMainStatus=0. Do NOT redeploy this stage: /tmp/autotrader-ai-cost-v13-qualified-20261011/deployment-record.json exists. Inspect record and unit before any operation.
+
+Qualification: 1,995 tests + 130 subtests passing across all five groups, review issue fixed. Manifest 18 source files, 4 changed, settings unchanged. Immutable deployment before/after snapshots match EXACTLY: 5 positions / 5 OCO, IDs, quantities, prices and protection unchanged. Current coverage verified; regular pending 0, dashboard 200, resume consumed. Private backup /var/lib/autotrader/deployment-backups/strategy-ai-cost-v13-20261010T215326Z.
+
+Cost results: synthetic equal-facts held cycle requests 3->2 and input characters -54.28%; not paid token or monthly total reduction. First 1.66 minutes LIVE: 4 Gemini primary + 1 GPT entry, logged $0.027606, errors/timeouts 0; no held review event in this short window, reuse not yet naturally observed; billed savings NOT YET VERIFIED. Do not force paid review or orders to produce evidence. Full feature inventory and limits in autotrader-cost-v13-20261011/RESULT.md. General GPT errors remain blocked; only confirmed entry API timeout bypass is active, unchanged by this cost rollout.
+
+Next recovery action: read record/unit and current release read-only; continue cost observation over representative equal windows without redispatch or repeating analysis. Preserve positions/protection.
+
+# CURRENT AUTHORITATIVE STATE — V13 PREFLIGHT PASSED / SINGLE DEPLOYMENT INTENT
+
+V12 remains LIVE before dispatch. Qualified v13 prepared release: /opt/autotrader-releases/ai_cost_reduction_v13_20261011T065045KST. Read-only preflight passed: 5 positions, 5 OCO, no pending regular orders, 18 source files, settings unchanged. Qualification: 1,995 tests + 130 subtests pass, review issue fixed. Authorized next action: dispatch autotrader-ai-cost-v13-deploy-20261011.service exactly once; inspect this unit and /tmp/autotrader-ai-cost-v13-qualified-20261011/deployment-record.json before any retry. Preserve positions and OCO exactly; CORE AI/GPT and Candidate C chart authority unchanged. Actual billed savings are not yet verified.
+
 # CURRENT AUTHORITATIVE STATE — COST V13 QUALIFIED / NOT DEPLOYED / V12 LIVE
 V13 implementation complete: primary+held Gemini merged only fresh exact context; GPT retained; repeated lifecycle facts replaced, CORE prompts compact, actual protection and reversal entry contract retained. Independent review1Important malformed risk fixed with2RED->GREEN cases. Final1995tests+130subtests pass across5groups. Synthetic7TF held management requests3->2 and inputchars-54.28%; actual billed savings unverified. Manifest18sourcefiles,4changed (trader,gemini,openai,newcore_ai_context), settings unchanged. Privatequalified /private/tmp/chickenbanana-cost-v13-20261011; operatordeploy/verify+qualification prepared. Next: stage /tmp/autotrader-ai-cost-v13-qualified-20261011, preflight, ONE dispatch autotrader-ai-cost-v13-deploy-20261011.service; inspect record/unit before retry. Existing v12PID179007 stillLIVE; no source/order/service mutation yet. Publicevidence autotrader-cost-v13-20261011. Preserve existing positions/OCO. Do not repeat priorcompleted deployments/tests.
 

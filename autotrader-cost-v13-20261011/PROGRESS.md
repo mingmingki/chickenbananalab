@@ -12,3 +12,6 @@ Final: fixed malformed nested risk_level — two fallback+GPT regressions RED->G
 Task3: complete (independent review finding fixed, all5testgroups green, sample inputchars-54.28%; no paid calls).
 Task4: staging/preflight next; NOT dispatched.
 Ruling: keep existing publication branch/worktree and authorized release process; no merge/PR menu because user explicitly approved deployment and continuity.
+
+
+V13 deployed exactly once and verified: 5 positions / 5 OCO preserved, CORE/Candidate running, source 18 verified, configuration unchanged. See RESULT.md and deployment-verification.json. Actual billed savings remain unverified; no forced review/order.
