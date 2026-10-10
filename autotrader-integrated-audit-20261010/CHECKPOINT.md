@@ -1,3 +1,9 @@
+# CURRENT AUTHORITATIVE STATE — COST V12 QUALIFIED / PREFLIGHT NEXT / NOT DEPLOYED
+
+V11 remains currentPID175724. Only existing routine Gemini setting600->1800 planned;104 focused tests passed incl9 effective-setting tests. No trading source change, prior1968+130 full suite reused. CORE dual-AI/early entry/critical risk,15mheld/profit review,30secriskpolling and Candidate0AI unchanged. Stage /tmp/autotrader-cost-v12-qualified-20261011; unique autotrader-cost-v12-deploy-20261011.service. Check unit/record before dispatch, exactly one dispatch only after preflight. Existing positions/OCO must be preserved. Public details autotrader-cost-v12-20261011. Prior repair gaps remain open.
+
+---
+
 # CURRENT AUTHORITATIVE STATE — V11 DEPLOYED / READ-ONLY AUDIT COMPLETE / REPAIR FINDINGS OPEN
 
 V11 deployment COMPLETE (source01ca75e, completion6a18d42). Current release /opt/autotrader-releases/risk_adaptive_partials_v11_20261010T231645KST PID175724 active NRestarts0; bothLIVE loops,17hashes,5positions5exactOCO0pending verified. Normal dual-AI ADA close23:24:12 explains six->five positions. No source/settings/service/order mutation during this audit. NEVER redispatch v11/v10/v9.
