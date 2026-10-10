@@ -1,0 +1,26 @@
+{
+  "web_app.py": {
+    "baseline": "a9d7cb38b3a133858f1496cbaa88c6d227f27f71b2e06284c9c864cbaca38a28",
+    "candidate": "c2102e1b2dcfa6e479d4ea03f8b6697df762ccc59a1dede439c55efd37f10d8d"
+  },
+  "mfe_profit_shadow.py": {
+    "baseline": "9e1ac576e65c8a9a9686747e50d51d0f7ed648b918fb64a9b9a1dfac20037b5b",
+    "candidate": "fcf96f5f3086c74ea9652858a2c4fc1ab0eddc86de6b975ab9dbbdfa18819a76"
+  },
+  "trader.py": {
+    "baseline": "85112984652741a3aeb74f5ec4a74e38f17d77129d84f711b42a29edd68c7c81",
+    "candidate": "b5d62a190d4b683f6c09b2babdcc04d8b401a01f667873a57997a430eb57ebd0"
+  },
+  "position_management_context.py": {
+    "baseline": null,
+    "candidate": "c195435f8b98772f886ee014ac7be4a0877aae4ee84ef3c700a56d6115c4c156"
+  },
+  "tests/test_strategy_v9_evidence.py": {
+    "baseline": null,
+    "candidate": "251250f733fb04d178af3952a58bb6b7efb038cdbad02ff270eaa0f60c5c202a"
+  },
+  "templates/dashboard.html": {
+    "baseline": "c04c0cfed96bdf4c832f7c75925e50c6949f5ecb5a17a126883fc43eae980b28",
+    "candidate": "864df9e25bb8d87c32b732448017becf3f38f19ec9fd760e602ceec5bc6fc256"
+  }
+}

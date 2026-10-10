@@ -94,3 +94,18 @@ Open follow-up items, in priority order:
 7. Historical AI cost projection is an estimate, not invoice evidence or a measured post-v8 saving. Current post-release observation window is too short to establish durable savings.
 
 Next execution must begin from these findings and existing source, preserve positions/protection, and keep separate gates for software correctness and actual economic performance. No further production change was authorized by the overall-review request.
+
+
+## v9 authorized improvement — phase 1
+User authorized supplementation and deployment after the overall review. Existing release v8, PID168601/restarts0 still active; no competing deploy/test/Codex process found. Source isolated at /private/tmp/chickenbanana-strategy-v9-20261010/candidate; reuse v8 evidence instead of restarting analysis.
+Root causes/implementation scope: (1) an ordinary CLOSE_ALL review checks post-reduction cooldown before confirmed structural invalidation, so residual defense can be delayed even with existing deterministic evidence; preserve ordinary cooldown and fail-closed corrupt timestamps. (2) MFE observation stores initial R but recalculates later metrics with the incoming SL instead; pin lifecycle risk baseline. (3) both position-review AIs need the same current-lifecycle peak/giveback/reduction evidence, without extra provider calls. (4) dashboard nested TP/notional schema correction and explicit strategy-risk display.
+Initial-entry thresholds remain unchanged pending economically representative replay evidence; no speculative chase-gate relaxation. Existing Gemini SL/TP, sizing settings and GPT exception settings remain in force. Deployment remains blocked until regression and order-preservation validation pass.
+
+
+## v9 phase 2 — qualified, ready for single deployment
+- Scope: five production/template files plus one regression test; six files in exact baseline/candidate SHA manifest. Bundle: autotrader-strategy-v9-20261010/deploy-bundle.
+- Test-first proof: initial 14 failures reproduced; review corrections separately reproduced 6 failures. Final complete verification: tests1313+27subtests, gemini_checks230+38, rollback_checks37+12, negative_guard_checks41+7, rollback_full_checks257+46; total1878 tests+130 subtests, zero failures.
+- Independent reviewer checked current journal price schema, verified reduction quantities/ratio, same exchange fill identity, frozen initial R and pre-fill candle exclusion; no remaining Critical/Important findings.
+- Read-only replay of three actual current CORE lifecycles: MFE evidence known3, reduction baseline known3, no order authority. Existing observed cooldown-hold count was0; the new breakdown exception is a regression-proven defensive path, not a claimed historical profit recovery.
+- Entry-gate relaxation remains excluded for insufficient economic evidence. No profitability/savings claim; unchanged Gemini SL/TP, risk settings, provider exceptions and learning state.
+- Next: stage bundle once under /tmp/autotrader-strategy-v9-qualified-20261010; operator expects exact v8 release and shares existing deployment lock. Do not rerun if deployment-record.json exists. Capture unchanged positions/OCO/settings before switch, one-shot resume, then read-only post-deployment verification.

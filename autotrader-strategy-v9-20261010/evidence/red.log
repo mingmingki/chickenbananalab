@@ -1,0 +1,319 @@
+FFFFFFF.FFFFFFF                                                          [100%]
+=================================== FAILURES ===================================
+_ test_profit_giveback_uses_frozen_initial_r_after_stop_changes[long-90.0-95.0-106.0-103.0] _
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-114/test_profit_giveback_uses_froz0')
+side = 'long', stop = 90.0, changed = 95.0, peak = 106.0, retrace = 103.0
+
+    @pytest.mark.parametrize("side,stop,changed,peak,retrace", [
+        ("long",90.,95.,106.,103.), ("short",110.,105.,94.,97.),
+        ("long",90.,80.,106.,103.), ("short",110.,120.,94.,97.)])
+    def test_profit_giveback_uses_frozen_initial_r_after_stop_changes(tmp_path,side,stop,changed,peak,retrace):
+        pos=dict(position_id="p1",side=side,entry_price=100.,contracts=4.)
+        mfe.observe(str(tmp_path),SYMBOL,pos,sl_price=stop,price=peak,bar_time="b1")
+        out=mfe.observe(str(tmp_path),SYMBOL,pos,sl_price=changed,price=retrace,bar_time="b2")
+        assert out["initial_r"] == 10.
+>       assert out["mfe_r"] == pytest.approx(.6)
+E       assert 1.2 == 0.6 ± 6.0e-07
+E         
+E         comparison failed
+E         Obtained: 1.2
+E         Expected: 0.6 ± 6.0e-07
+
+tests/test_strategy_v9_evidence.py:24: AssertionError
+_ test_profit_giveback_uses_frozen_initial_r_after_stop_changes[short-110.0-105.0-94.0-97.0] _
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-114/test_profit_giveback_uses_froz1')
+side = 'short', stop = 110.0, changed = 105.0, peak = 94.0, retrace = 97.0
+
+    @pytest.mark.parametrize("side,stop,changed,peak,retrace", [
+        ("long",90.,95.,106.,103.), ("short",110.,105.,94.,97.),
+        ("long",90.,80.,106.,103.), ("short",110.,120.,94.,97.)])
+    def test_profit_giveback_uses_frozen_initial_r_after_stop_changes(tmp_path,side,stop,changed,peak,retrace):
+        pos=dict(position_id="p1",side=side,entry_price=100.,contracts=4.)
+        mfe.observe(str(tmp_path),SYMBOL,pos,sl_price=stop,price=peak,bar_time="b1")
+        out=mfe.observe(str(tmp_path),SYMBOL,pos,sl_price=changed,price=retrace,bar_time="b2")
+        assert out["initial_r"] == 10.
+>       assert out["mfe_r"] == pytest.approx(.6)
+E       assert 1.2 == 0.6 ± 6.0e-07
+E         
+E         comparison failed
+E         Obtained: 1.2
+E         Expected: 0.6 ± 6.0e-07
+
+tests/test_strategy_v9_evidence.py:24: AssertionError
+_ test_profit_giveback_uses_frozen_initial_r_after_stop_changes[long-90.0-80.0-106.0-103.0] _
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-114/test_profit_giveback_uses_froz2')
+side = 'long', stop = 90.0, changed = 80.0, peak = 106.0, retrace = 103.0
+
+    @pytest.mark.parametrize("side,stop,changed,peak,retrace", [
+        ("long",90.,95.,106.,103.), ("short",110.,105.,94.,97.),
+        ("long",90.,80.,106.,103.), ("short",110.,120.,94.,97.)])
+    def test_profit_giveback_uses_frozen_initial_r_after_stop_changes(tmp_path,side,stop,changed,peak,retrace):
+        pos=dict(position_id="p1",side=side,entry_price=100.,contracts=4.)
+        mfe.observe(str(tmp_path),SYMBOL,pos,sl_price=stop,price=peak,bar_time="b1")
+        out=mfe.observe(str(tmp_path),SYMBOL,pos,sl_price=changed,price=retrace,bar_time="b2")
+        assert out["initial_r"] == 10.
+>       assert out["mfe_r"] == pytest.approx(.6)
+E       assert 0.3 == 0.6 ± 6.0e-07
+E         
+E         comparison failed
+E         Obtained: 0.3
+E         Expected: 0.6 ± 6.0e-07
+
+tests/test_strategy_v9_evidence.py:24: AssertionError
+_ test_profit_giveback_uses_frozen_initial_r_after_stop_changes[short-110.0-120.0-94.0-97.0] _
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-114/test_profit_giveback_uses_froz3')
+side = 'short', stop = 110.0, changed = 120.0, peak = 94.0, retrace = 97.0
+
+    @pytest.mark.parametrize("side,stop,changed,peak,retrace", [
+        ("long",90.,95.,106.,103.), ("short",110.,105.,94.,97.),
+        ("long",90.,80.,106.,103.), ("short",110.,120.,94.,97.)])
+    def test_profit_giveback_uses_frozen_initial_r_after_stop_changes(tmp_path,side,stop,changed,peak,retrace):
+        pos=dict(position_id="p1",side=side,entry_price=100.,contracts=4.)
+        mfe.observe(str(tmp_path),SYMBOL,pos,sl_price=stop,price=peak,bar_time="b1")
+        out=mfe.observe(str(tmp_path),SYMBOL,pos,sl_price=changed,price=retrace,bar_time="b2")
+        assert out["initial_r"] == 10.
+>       assert out["mfe_r"] == pytest.approx(.6)
+E       assert 0.3 == 0.6 ± 6.0e-07
+E         
+E         comparison failed
+E         Obtained: 0.3
+E         Expected: 0.6 ± 6.0e-07
+
+tests/test_strategy_v9_evidence.py:24: AssertionError
+__________ test_corrupt_persisted_r_never_authorizes_profit_candidate __________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-114/test_corrupt_persisted_r_never0')
+
+    def test_corrupt_persisted_r_never_authorizes_profit_candidate(tmp_path):
+        pos=dict(position_id="p1",side="long",entry_price=100.,contracts=4.)
+        mfe.observe(str(tmp_path),SYMBOL,pos,sl_price=90.,price=106.,bar_time="b1")
+        f=tmp_path/mfe.STATE_FILE
+        data=json.loads(f.read_text());data[SYMBOL]["initial_r"]=float("inf");f.write_text(json.dumps(data))
+        before=f.read_bytes()
+>       with pytest.raises(ValueError,match="initial_r"):
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'initial_r'
+E         Actual message: 'Out of range float values are not JSON compliant'
+
+tests/test_strategy_v9_evidence.py:35: AssertionError
+__ test_confirmed_breakdown_can_close_residual_during_general_cooldown[long] ___
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x111397ed0>
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-114/test_confirmed_breakdown_can_c0')
+side = 'long'
+
+    @pytest.mark.parametrize("side",["long","short"])
+    def test_confirmed_breakdown_can_close_residual_during_general_cooldown(monkeypatch,tmp_path,side):
+        actions,events=cooldown_fixture().review(monkeypatch,tmp_path,side=side,breakdown=True)
+>       assert actions == [("close","position_ai_close_all")]
+E       AssertionError: assert [] == [('close', 'p...i_close_all')]
+E         
+E         Right contains one more item: ('close', 'position_ai_close_all')
+E         Use -v to get more diff
+
+tests/test_strategy_v9_evidence.py:46: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  cooldown_reproduction:trader.py:3509 [ETH/USDT:USDT] post_reduce_close_cooldown: CLOSE_ALL -> HOLD remaining_seconds=600.0 last_reduction_order_time=2026-10-04T12:55:00 state_error=None
+__ test_confirmed_breakdown_can_close_residual_during_general_cooldown[short] __
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x111397f90>
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-114/test_confirmed_breakdown_can_c1')
+side = 'short'
+
+    @pytest.mark.parametrize("side",["long","short"])
+    def test_confirmed_breakdown_can_close_residual_during_general_cooldown(monkeypatch,tmp_path,side):
+        actions,events=cooldown_fixture().review(monkeypatch,tmp_path,side=side,breakdown=True)
+>       assert actions == [("close","position_ai_close_all")]
+E       AssertionError: assert [] == [('close', 'p...i_close_all')]
+E         
+E         Right contains one more item: ('close', 'position_ai_close_all')
+E         Use -v to get more diff
+
+tests/test_strategy_v9_evidence.py:46: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  cooldown_reproduction:trader.py:3509 [ETH/USDT:USDT] post_reduce_close_cooldown: CLOSE_ALL -> HOLD remaining_seconds=600.0 last_reduction_order_time=2026-10-04T12:55:00 state_error=None
+____ test_real_nested_plan_displays_targets_and_margin_risk_without_writes _____
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-114/test_real_nested_plan_displays0')
+
+    def test_real_nested_plan_displays_targets_and_margin_risk_without_writes(tmp_path):
+        row=dict(symbol=SYMBOL,decision_timestamp=123,policy_hash="p",input_snapshot_hash="s",mode="LIVE_BOUNDED",
+            plan_hash="plan",configured_notional=1000.,effective_notional=750.,planned_loss_usdt=30.,
+            stop_price=95.,tp1={"price":110.,"fraction":.25},tp2={"price":120.,"fraction":.25},
+            runner_fraction=.5,reason_code="adaptive",diagnostics=[])
+        adaptive_exit_log.append_plan(tmp_path,row)
+        f=tmp_path/"adaptive_exit_plans.jsonl";before=f.read_bytes()
+>       out=web_app._adaptive_exit_state_for_api(tmp_path,[SYMBOL],leverage=5.,equity=1500.)[SYMBOL]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: _adaptive_exit_state_for_api() got an unexpected keyword argument 'leverage'
+
+tests/test_strategy_v9_evidence.py:62: TypeError
+________ test_ai_context_uses_same_trade_peak_and_actual_residual[long] ________
+
+side = 'long'
+
+    @pytest.mark.parametrize("side",["long","short"])
+    def test_ai_context_uses_same_trade_peak_and_actual_residual(side):
+>       m=importlib.import_module("position_management_context")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_strategy_v9_evidence.py:83: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1204: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1176: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'position_management_context'
+import_ = <function _gcd_import at 0x1076ebd80>
+
+>   ???
+E   ModuleNotFoundError: No module named 'position_management_context'
+
+<frozen importlib._bootstrap>:1140: ModuleNotFoundError
+_______ test_ai_context_uses_same_trade_peak_and_actual_residual[short] ________
+
+side = 'short'
+
+    @pytest.mark.parametrize("side",["long","short"])
+    def test_ai_context_uses_same_trade_peak_and_actual_residual(side):
+>       m=importlib.import_module("position_management_context")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_strategy_v9_evidence.py:83: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1204: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1176: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'position_management_context'
+import_ = <function _gcd_import at 0x1076ebd80>
+
+>   ???
+E   ModuleNotFoundError: No module named 'position_management_context'
+
+<frozen importlib._bootstrap>:1140: ModuleNotFoundError
+________ test_ai_context_never_attaches_previous_trade_peak[old-okx-id] ________
+
+identity = 'old-okx-id'
+
+    @pytest.mark.parametrize("identity",["old-okx-id","journal:BTC/USDT:USDT|long|2026-10-09T20:00:00"])
+    def test_ai_context_never_attaches_previous_trade_peak(identity):
+>       m=importlib.import_module("position_management_context")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_strategy_v9_evidence.py:96: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1204: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1176: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'position_management_context'
+import_ = <function _gcd_import at 0x1076ebd80>
+
+>   ???
+E   ModuleNotFoundError: No module named 'position_management_context'
+
+<frozen importlib._bootstrap>:1140: ModuleNotFoundError
+_ test_ai_context_never_attaches_previous_trade_peak[journal:BTC/USDT:USDT|long|2026-10-09T20:00:00] _
+
+identity = 'journal:BTC/USDT:USDT|long|2026-10-09T20:00:00'
+
+    @pytest.mark.parametrize("identity",["old-okx-id","journal:BTC/USDT:USDT|long|2026-10-09T20:00:00"])
+    def test_ai_context_never_attaches_previous_trade_peak(identity):
+>       m=importlib.import_module("position_management_context")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_strategy_v9_evidence.py:96: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1204: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1176: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'position_management_context'
+import_ = <function _gcd_import at 0x1076ebd80>
+
+>   ???
+E   ModuleNotFoundError: No module named 'position_management_context'
+
+<frozen importlib._bootstrap>:1140: ModuleNotFoundError
+______ test_ai_context_excludes_stale_peak_and_other_lifecycle_reduction _______
+
+    def test_ai_context_excludes_stale_peak_and_other_lifecycle_reduction():
+>       m=importlib.import_module("position_management_context")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_strategy_v9_evidence.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/Cellar/python@3.11/3.11.16/Frameworks/Python.framework/Versions/3.11/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1204: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1176: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'position_management_context'
+import_ = <function _gcd_import at 0x1076ebd80>
+
+>   ???
+E   ModuleNotFoundError: No module named 'position_management_context'
+
+<frozen importlib._bootstrap>:1140: ModuleNotFoundError
+_________ test_ai_handlers_share_evidence_without_extra_provider_call __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x111317f10>
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-114/test_ai_handlers_share_evidenc0')
+
+    def test_ai_handlers_share_evidence_without_extra_provider_call(monkeypatch,tmp_path):
+        import logging
+        from state import TraderState
+        cfg=SimpleNamespace(user_dir=str(tmp_path),OPENAI_API_KEY="test",MIN_CONFIDENCE=.6,
+            POSITION_AI_REVIEW_COOLDOWN_MINUTES=15,POSITION_AI_LIVE_EXECUTE=True,
+            logger=logging.getLogger("v9-context"))
+        pos,opened,peak,reduced=evidence()
+        calls=[]
+>       monkeypatch.setattr(trader,"_position_management_evidence",lambda *_:"\n[POSITION_MANAGEMENT_EVIDENCE]\nverified same-trade peak\n")
+E       AttributeError: <module 'trader' from '/private/tmp/chickenbanana-strategy-v9-20261010/candidate/trader.py'> has no attribute '_position_management_evidence'
+
+tests/test_strategy_v9_evidence.py:119: AttributeError
+=========================== short test summary info ============================
+FAILED tests/test_strategy_v9_evidence.py::test_profit_giveback_uses_frozen_initial_r_after_stop_changes[long-90.0-95.0-106.0-103.0]
+FAILED tests/test_strategy_v9_evidence.py::test_profit_giveback_uses_frozen_initial_r_after_stop_changes[short-110.0-105.0-94.0-97.0]
+FAILED tests/test_strategy_v9_evidence.py::test_profit_giveback_uses_frozen_initial_r_after_stop_changes[long-90.0-80.0-106.0-103.0]
+FAILED tests/test_strategy_v9_evidence.py::test_profit_giveback_uses_frozen_initial_r_after_stop_changes[short-110.0-120.0-94.0-97.0]
+FAILED tests/test_strategy_v9_evidence.py::test_corrupt_persisted_r_never_authorizes_profit_candidate
+FAILED tests/test_strategy_v9_evidence.py::test_confirmed_breakdown_can_close_residual_during_general_cooldown[long]
+FAILED tests/test_strategy_v9_evidence.py::test_confirmed_breakdown_can_close_residual_during_general_cooldown[short]
+FAILED tests/test_strategy_v9_evidence.py::test_real_nested_plan_displays_targets_and_margin_risk_without_writes
+FAILED tests/test_strategy_v9_evidence.py::test_ai_context_uses_same_trade_peak_and_actual_residual[long]
+FAILED tests/test_strategy_v9_evidence.py::test_ai_context_uses_same_trade_peak_and_actual_residual[short]
+FAILED tests/test_strategy_v9_evidence.py::test_ai_context_never_attaches_previous_trade_peak[old-okx-id]
+FAILED tests/test_strategy_v9_evidence.py::test_ai_context_never_attaches_previous_trade_peak[journal:BTC/USDT:USDT|long|2026-10-09T20:00:00]
+FAILED tests/test_strategy_v9_evidence.py::test_ai_context_excludes_stale_peak_and_other_lifecycle_reduction
+FAILED tests/test_strategy_v9_evidence.py::test_ai_handlers_share_evidence_without_extra_provider_call
+14 failed, 1 passed in 2.12s

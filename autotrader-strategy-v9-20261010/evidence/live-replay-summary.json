@@ -1,0 +1,9 @@
+{
+  "current_lifecycle_replays": 3,
+  "mfe_known": 3,
+  "reduction_known": 3,
+  "order_authority": false,
+  "observed_prior_cooldown_holds": 0,
+  "economic_performance_claim": false,
+  "unchanged_entry_guard": true
+}

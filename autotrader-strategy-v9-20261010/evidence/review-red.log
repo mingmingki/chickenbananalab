@@ -1,0 +1,103 @@
+...............FFFFFF                                                    [100%]
+=================================== FAILURES ===================================
+________________ test_ai_context_reads_real_open_journal_schema ________________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-117/test_ai_context_reads_real_ope0')
+
+    def test_ai_context_reads_real_open_journal_schema(tmp_path):
+        import trade_log
+        m=importlib.import_module("position_management_context")
+        pos,_,peak,reduced=evidence()
+        trade_log.record_open(str(tmp_path),SYMBOL,"long",100.,4.,False,sl_price=90.,tp_price=130.)
+        opened=trade_log.last_unclosed_open(str(tmp_path),SYMBOL)
+        assert "price" in opened and "entry_price" not in opened
+        peak["position_identity"]="journal:%s|long|%s"%(SYMBOL,opened["time"])
+        out=m.build(SYMBOL,pos,opened,peak,reduced,now=dt.datetime(2026,10,10,11,7,tzinfo=dt.timezone.utc))
+>       assert out["mfe_known"] is True
+E       assert False is True
+
+tests/test_strategy_v9_evidence.py:138: AssertionError
+___________ test_ai_context_keeps_unknown_reduction_baseline_unknown ___________
+
+    def test_ai_context_keeps_unknown_reduction_baseline_unknown():
+        m=importlib.import_module("position_management_context")
+        pos,opened,peak,reduced=evidence()
+        reduced.update(baseline_known=False,cumulative_reduced_ratio=0.,reduce_stage=0)
+        out=m.build(SYMBOL,pos,opened,peak,reduced,now=dt.datetime(2026,10,10,11,7,tzinfo=dt.timezone.utc))
+>       assert out["reduction_known"] is False
+E       assert True is False
+
+tests/test_strategy_v9_evidence.py:145: AssertionError
+_________ test_ai_context_requires_same_exchange_entry_timestamp[None] _________
+
+stamp = None
+
+    @pytest.mark.parametrize("stamp",[None,456])
+    def test_ai_context_requires_same_exchange_entry_timestamp(stamp):
+        m=importlib.import_module("position_management_context")
+        pos,opened,peak,reduced=evidence();peak["entry_timestamp_ms"]=stamp
+        out=m.build(SYMBOL,pos,opened,peak,reduced,now=dt.datetime(2026,10,10,11,7,tzinfo=dt.timezone.utc))
+>       assert out["mfe_known"] is False
+E       assert True is False
+
+tests/test_strategy_v9_evidence.py:153: AssertionError
+_________ test_ai_context_requires_same_exchange_entry_timestamp[456] __________
+
+stamp = 456
+
+    @pytest.mark.parametrize("stamp",[None,456])
+    def test_ai_context_requires_same_exchange_entry_timestamp(stamp):
+        m=importlib.import_module("position_management_context")
+        pos,opened,peak,reduced=evidence();peak["entry_timestamp_ms"]=stamp
+        out=m.build(SYMBOL,pos,opened,peak,reduced,now=dt.datetime(2026,10,10,11,7,tzinfo=dt.timezone.utc))
+>       assert out["mfe_known"] is False
+E       assert True is False
+
+tests/test_strategy_v9_evidence.py:153: AssertionError
+__________ test_reused_journal_and_exchange_id_reset_peak_on_new_fill __________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-117/test_reused_journal_and_exchan0')
+
+    def test_reused_journal_and_exchange_id_reset_peak_on_new_fill(tmp_path):
+        pos=dict(position_id="same",lifecycle_id="same-journal",entry_timestamp_ms=123,
+                 side="long",entry_price=100.,contracts=4.)
+        mfe.observe(str(tmp_path),SYMBOL,pos,sl_price=90.,price=108.,bar_time="b1")
+        pos["entry_timestamp_ms"]=456
+        out=mfe.observe(str(tmp_path),SYMBOL,pos,sl_price=90.,price=100.2,bar_time="b2")
+>       assert out["entry_timestamp_ms"] == 456
+E       assert 123 == 456
+
+tests/test_strategy_v9_evidence.py:161: AssertionError
+__________ test_real_exchange_fill_time_excludes_old_journal_candles ___________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-117/test_real_exchange_fill_time_e0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x110b2fed0>
+
+    def test_real_exchange_fill_time_excludes_old_journal_candles(tmp_path,monkeypatch):
+        import logging
+        import pandas as pd
+        cfg=SimpleNamespace(user_dir=str(tmp_path),logger=logging.getLogger("v9-entry"))
+        entered=pd.Timestamp("2026-10-10T11:00:30Z")
+        pos=dict(position_id="same",entry_timestamp_ms=int(entered.timestamp()*1000),
+                 side="long",entry_price=100.,contracts=4.)
+        monkeypatch.setattr(trader.trade_log,"last_unclosed_open",lambda *_:dict(
+            side="long",price=100.,sl_price=90.,time="2026-10-10T19:50:00"))
+        frame=pd.DataFrame([dict(timestamp=pd.Timestamp("2026-10-10T10:55:00Z"),close=103.,high=110.,low=99.),
+                            dict(timestamp=pd.Timestamp("2026-10-10T11:01:00Z"),close=100.2,high=100.3,low=100.)])
+        out=trader._observe_mfe_profit_shadow(cfg,SYMBOL,pos,{"1m":frame})
+>       assert out["mfe_r"] == pytest.approx(.03)
+E       assert 1.0 == 0.03 ± 3.0e-08
+E         
+E         comparison failed
+E         Obtained: 1.0
+E         Expected: 0.03 ± 3.0e-08
+
+tests/test_strategy_v9_evidence.py:178: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_strategy_v9_evidence.py::test_ai_context_reads_real_open_journal_schema
+FAILED tests/test_strategy_v9_evidence.py::test_ai_context_keeps_unknown_reduction_baseline_unknown
+FAILED tests/test_strategy_v9_evidence.py::test_ai_context_requires_same_exchange_entry_timestamp[None]
+FAILED tests/test_strategy_v9_evidence.py::test_ai_context_requires_same_exchange_entry_timestamp[456]
+FAILED tests/test_strategy_v9_evidence.py::test_reused_journal_and_exchange_id_reset_peak_on_new_fill
+FAILED tests/test_strategy_v9_evidence.py::test_real_exchange_fill_time_excludes_old_journal_candles
+6 failed, 15 passed in 1.56s
