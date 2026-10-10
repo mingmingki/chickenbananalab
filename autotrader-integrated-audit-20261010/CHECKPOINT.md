@@ -1,3 +1,9 @@
+# CURRENT AUTHORITATIVE STATE — V11 PREFLIGHT PASSED / SINGLE DISPATCH NEXT
+
+Prepared release /opt/autotrader-releases/risk_adaptive_partials_v11_20261010T231645KST. Source01ca75e. Preflight17hashes, proposed risk-adaptive flag, existingCOREAI/CandidateCHART_RISK, activation/parity, live loops and exact6positions6OCO0pending passed. V10 servicePID174157 still active; no stop/restart/orders yet. Dispatch ONE autotrader-strategy-v11-deploy-20261010.service. Before any repeat inspect unit and /tmp/autotrader-strategy-v11-qualified-20261010/deployment-record.json; if exists/unit has run observe only.1968tests+130subtests0fail. Preserve existing positions/protection.
+
+---
+
 # CURRENT AUTHORITATIVE STATE — V11 QUALIFIED / PREFLIGHT NEXT / NOT DEPLOYED
 
 1968 tests +130 subtests, zero failures across five suites;53 new regressions. Focused113 passed. Qualification and17-file deployment bundle autotrader-strategy-v11-20261010. No v11 deployment/order/service mutation yet. V10 remains production; NEVER repeat v10. Stage next /tmp/autotrader-strategy-v11-qualified-20261010; unique autotrader-strategy-v11-deploy-20261010.service. Inspect stage/unit/record before dispatch; if record exists or unit ran observe only. Only named risk-adaptive opt-in flag may change. Preserve exact positions/OCO.
