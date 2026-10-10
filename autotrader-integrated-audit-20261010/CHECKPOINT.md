@@ -76,3 +76,21 @@ Remaining discrepancies include tighter20percent leveraged SL cap, final-price T
 - Direct account GET audit after application resume: positions6/OCO6/pending0/protected6; exact positions and OCO snapshots equal predeployment; settings hash equal; all18source hashes equal qualified bundle.
 - ServiceactivePID168601/NRestarts0. Exact report identity source deployment_identity. No duplicate operator, order, or restart performed.
 - Sanitized evidence resume-post-deployment.json contains no account credentials/order IDs/runtime databases. Source/evidence already pushed; this final checkpoint is an evidence-only commit.
+
+
+## Read-only overall review — 2026-10-10 evening KST
+
+Status: REVIEW COMPLETE; no additional deployment, restart, setting change, trade, or protective-order mutation.
+
+Reused release v8, source/evidence commits 58e4ed9 / 8c1d843 and the previously passing 1,857 tests plus 130 subtests. Did not repeat the full audit/test suite. Current service and both engines are healthy; no ERROR/CRITICAL/Traceback lines observed since release. Direct exchange GETs show all current positions covered by live OCOs, with no pending standard orders. Position count changed naturally through an ordinary strategy reversal close; this review did not place orders.
+
+Open follow-up items, in priority order:
+1. Profitability remains unverified: cumulative and recent rolling closed-lifecycle PF are below one. The release-close cohort contains only one inherited lifecycle and no new post-release entry sample; do not interpret it as proof of v8 entry performance.
+2. Risk semantics: the account equity cap differs from strategy realized-loss caps; fixed-margin CORE risk is not necessarily the displayed risk-per-trade percentage. Older preserved protective stops can exceed the new-entry margin-loss bound. Do not silently amend preserved protection.
+3. CORE confirmed GPT timeout bypass is enabled; Candidate C entry GPT gate is disabled. UI/operator descriptions must explain those configured exceptions.
+4. Self-learning remains shadow-only, with no validated/live patterns or eligible promotions; do not enable it without positive benefit and required validation.
+5. Adaptive exit API schema mismatch verified: logs contain nested tp1.price/tp2.price and configured/effective notional, but web_app.py reads flat tp1_price/tp2_price and margin fields. Blank display does not imply absent exchange protection.
+6. Observability includes stale/inactive-symbol MFE rows; Candidate intent counters need lifecycle-aware examination (not evidence of open exchange orders). The dollar macro source is stale and aggregate context is correctly marked partial.
+7. Historical AI cost projection is an estimate, not invoice evidence or a measured post-v8 saving. Current post-release observation window is too short to establish durable savings.
+
+Next execution must begin from these findings and existing source, preserve positions/protection, and keep separate gates for software correctness and actual economic performance. No further production change was authorized by the overall-review request.
