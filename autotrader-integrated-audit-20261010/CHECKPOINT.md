@@ -1,3 +1,13 @@
+# CURRENT AUTHORITATIVE STATE — V10 DEPLOYED / VERIFIED / COMPLETE
+
+Single deployment completed 2026-10-10 22:18:12KST. Active release /opt/autotrader-releases/strategy_authority_v10_20261010T221704KST, autotrader.service PID174157 active NRestarts0. CORE and Candidate live loops running. CORE authority AI; Candidate CHART_RISK, entry/exit AI disabled. DashboardHTTP200. All9source hashes match qualification; effective settings match migration; resume consumed; exact legacy owner/ROLLBACK and Candidate live activation/parity verified.
+Tests1915passed+130subtests, zero failures. Source commitd91defc; preflight checkpoint92201c7. Full public artifacts and read-only verifier in autotrader-strategy-v10-20261010.
+Deployment snapshot EXACTLY preserved6positions/6reduceOnlyOCO; pending regular orders0. After normal trading resumed:1Gemini-priced/GPT-approved protected entry and2dual-AI approved initial25% profit reductions observed. Their durable reduction pending state is clear; exact remaining OCO coverage6positions/6OCO still verified, CORE kill switch inactive. This is functional/live execution evidence, not long-term profitability proof. No forced test trade, manual close/cancel, paid AI test, Telegram test, strategy-learning promotion or duplicate deployment occurred.
+Unit autotrader-strategy-v10-deploy-20261010.service remains active/exited Resultsuccess ExecMainStatus0. NEVER redispatch it. Guarded operator/stage /tmp/autotrader-strategy-v10-qualified-20261010/{deploy.py,prepared-release.json,deployment-record.json}; private settings/SQLite/exchange snapshots /var/lib/autotrader/deployment-backups/strategy-v10-20261010T131805Z. Only named authority settings changed; keys/budgets/leverage/order modes untouched. Original .env backup is private and restored by rollback operator if required; do not rollback unless an actual defect requires it.
+Recovery after Work disconnect: read this checkpoint first, inspect symlink/service/unit/record and use verify_readonly.py. Deployment is COMPLETE; ongoing natural trading can change positions/SLTP, so compare immutable immediate before/after deployment evidence separately from later runtime state. No remaining implementation/test/deployment task for v10. Do not rerun v9, v10 or the full tests without new changes/failures.
+
+---
+
 # V10 phase 4 — PREFLIGHT PASSED, one deployment dispatch next
 
 Prepared release /opt/autotrader-releases/strategy_authority_v10_20261010T221704KST; preflight passed9source hashes, effective proposed CORE AI/Candidate CHART_RISK authority, ownerlegacy/ROLLBACK, live activation/parity, live loops and exact6positions/6OCO/pending0. Source commitd91defc pushed. No service stop/restart/order mutation performed yet.

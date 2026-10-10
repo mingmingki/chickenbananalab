@@ -1,0 +1,32 @@
+{
+  "verified": true,
+  "release": "/opt/autotrader-releases/strategy_authority_v10_20261010T221704KST",
+  "pid": "174157",
+  "restarts": 0,
+  "core_running": true,
+  "candidate_running": true,
+  "core_authority": "AI",
+  "candidate_authority": "CHART_RISK",
+  "positions": 6,
+  "oco": 6,
+  "pending": 0,
+  "exact_preservation": true,
+  "settings_changed_keys": [
+    "CORE_AI_STRATEGY_AUTHORITY",
+    "CANDIDATE_C_CHART_ONLY",
+    "CANDIDATE_C_AI_EXIT_PLAN_ENABLED",
+    "CANDIDATE_C_TIMEOUT_RETRY_ENABLED",
+    "POSITION_AI_PERIODIC_HOLD_REVIEW_ENABLED"
+  ],
+  "source_hashes_verified": 9,
+  "dashboard_http": 200,
+  "resume_consumed": true,
+  "unit_success": true,
+  "natural_validation": {
+    "gemini_prices_gpt_approved_protected_entry": 1,
+    "dual_ai_initial_25pct_profit_reductions": 2,
+    "reduce_pending_after_reconciliation": 0,
+    "core_kill_active": false,
+    "predictive_profitability_proven": false
+  }
+}
