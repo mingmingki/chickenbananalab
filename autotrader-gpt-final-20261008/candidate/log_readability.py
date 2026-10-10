@@ -204,7 +204,7 @@ def format_line(raw):
         body='Candidate C 시작 · 규칙에 따라 DOGE·SOL 매매 판단'
     elif body.startswith('자동매매 시작 -'):
         m=re.search(r'검토주기=(\d+)s',body)
-        body='CORE 자동매매 시작 · BTC·ETH·XRP·PI · 검토 주기 '+(m[1]+'초' if m else '설정값 사용')
+        body='CORE 자동매매 시작 · BTC·ETH·XRP·ADA · 검토 주기 '+(m[1]+'초' if m else '설정값 사용')
     elif body.startswith('리스크 설정:'):
         labels={'RISK_PER_TRADE':'거래당 위험','SL':'손절','TP':'익절','MAX_DAILY_LOSS':'일일 손실 한도','LEVERAGE':'레버리지'}
         for code,label in labels.items():

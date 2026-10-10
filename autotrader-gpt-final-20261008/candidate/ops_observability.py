@@ -193,7 +193,7 @@ def evaluate_health(user_dir,*,service_active=True,live_state=None,recent_journa
                            "detail":"actual position protection not VERIFIED"})
     # With 5-minute review cadence, 20 minutes without any CORE timeframe cycle is abnormal.
     if service_active and isinstance(live_state,dict) and live_state:
-        if not re.search(r"\[(?:BTC|ETH|XRP|PI)/USDT:USDT\].*TF=1m",str(recent_journal_text or "")):
+        if not re.search(r"\[(?:BTC|ETH|XRP|ADA)/USDT:USDT\].*TF=1m",str(recent_journal_text or "")):
             issues.append({"code":"core_cycle_stale","severity":"warning","detail":"no CORE TF cycle in recent watchdog window"})
     lat=[r for r in _rows(Path(user_dir)/"gpt_latency_log.jsonl",100) if r.get("purpose")=="entry_gate"]
     trailing=0

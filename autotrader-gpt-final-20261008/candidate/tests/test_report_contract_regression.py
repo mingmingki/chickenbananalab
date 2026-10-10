@@ -96,16 +96,16 @@ def _core_gate_attempt(tmp_path, monkeypatch, *, gpt_allows=True):
 
     monkeypatch.setattr(trader, "_gpt_entry_gate", provider_gate)
     monkeypatch.setattr(trader, "_execute_approved_entry_with_optional_reversal", order)
-    # PI + SHORT is evidence; approval authorizes the configured amount.
+    # ADA SHORT: the historical PI weak-symbol factor must not block an approved entry.
     trader._handle_new_entry(
-        cfg, state, object(), "PI/USDT:USDT", "short",
+        cfg, state, object(), "ADA/USDT:USDT", "short",
         {"action": "short", "confidence": 0.72}, "fixture-id", "entry",
         ["5m"], "fixture", None, 100.0, 10.0, 104.0, 92.0,
         adaptive_context=SimpleNamespace(
             entry_price=100.0, atr=1.0, leverage=5.0, estimated_roundtrip_cost_rate=0.004,
         ),
     )
-    attempt = state.snapshot()["symbols"]["PI/USDT:USDT"]["last_entry_attempt"]
+    attempt = state.snapshot()["symbols"]["ADA/USDT:USDT"]["last_entry_attempt"]
     audit = json.loads((tmp_path / "gpt_shadow_log.jsonl").read_text().splitlines()[-1])
     assert audit["order_success"] is gpt_allows
     return attempt, audit, seen

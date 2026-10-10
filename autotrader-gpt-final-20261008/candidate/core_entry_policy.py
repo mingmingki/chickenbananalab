@@ -1,7 +1,9 @@
 """CORE entry GPT policy. An exception never becomes an AI approval."""
 import math
 
-CORE = frozenset(('BTC/USDT:USDT','ETH/USDT:USDT','XRP/USDT:USDT','PI/USDT:USDT'))
+from config import CORE_SYMBOLS
+
+CORE = frozenset(CORE_SYMBOLS)
 
 
 def valid_candidate(cfg, symbol, decision):

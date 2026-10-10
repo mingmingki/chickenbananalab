@@ -1051,7 +1051,7 @@
     <thead><tr><th></th><th>완료 포지션</th><th>실현 Gross</th><th>저널 배분 수수료</th><th>정산 조정</th><th>실현 Net (REDUCE 포함)</th><th>완료승률</th><th>완료PF</th></tr></thead>
     <tbody>
       <tr><td>전체</td><td id="pnl-total-count">-</td><td id="pnl-total-gross">-</td><td id="pnl-total-fee">-</td><td id="pnl-total-adj">-</td><td id="pnl-total-net">-</td><td id="pnl-total-wr">-</td><td id="pnl-total-pf">-</td></tr>
-      <tr><td>CORE (BTC/ETH/XRP/PI)</td><td id="pnl-core-count">-</td><td id="pnl-core-gross">-</td><td id="pnl-core-fee">-</td><td id="pnl-core-adj">-</td><td id="pnl-core-net">-</td><td id="pnl-core-wr">-</td><td id="pnl-core-pf">-</td></tr>
+      <tr><td>CORE (BTC/ETH/XRP/ADA)</td><td id="pnl-core-count">-</td><td id="pnl-core-gross">-</td><td id="pnl-core-fee">-</td><td id="pnl-core-adj">-</td><td id="pnl-core-net">-</td><td id="pnl-core-wr">-</td><td id="pnl-core-pf">-</td></tr>
       <tr><td>Candidate C (DOGE/SOL)</td><td id="pnl-candidate_c-count">-</td><td id="pnl-candidate_c-gross">-</td><td id="pnl-candidate_c-fee">-</td><td id="pnl-candidate_c-adj">-</td><td id="pnl-candidate_c-net">-</td><td id="pnl-candidate_c-wr">-</td><td id="pnl-candidate_c-pf">-</td></tr>
       <tr><td>이전 FAST 기록(과거, 신규 없음)</td><td id="pnl-fast-count">-</td><td id="pnl-fast-gross">-</td><td id="pnl-fast-fee">-</td><td id="pnl-fast-adj">-</td><td id="pnl-fast-net">-</td><td id="pnl-fast-wr">-</td><td id="pnl-fast-pf">-</td></tr>
       <tr><td>이전 기록(LEGACY)</td><td id="pnl-legacy-count">-</td><td id="pnl-legacy-gross">-</td><td id="pnl-legacy-fee">-</td><td id="pnl-legacy-adj">-</td><td id="pnl-legacy-net">-</td><td id="pnl-legacy-wr">-</td><td id="pnl-legacy-pf">-</td></tr>
@@ -1065,7 +1065,7 @@
       부분감축을 거래 1건으로 부풀리지 않도록 완료 lifecycle 기준입니다. 저널 배분 수수료와 OKX 실제 선물 수수료는
       서로 다를 수 있습니다. OKX 실제 선물 수수료는 진입·청산·부분감축(REDUCE)과 현재 열린 포지션 진입 수수료까지 포함합니다.<br>
       정산 조정은 <b>실현 Net - (실현 Gross - 저널 배분 수수료)</b>이며, realizedPnl에 포함된 funding/거래소 정산 차이를 보존합니다.<br>
-      이전 FAST 기록은 제거 전 실제 FAST 거래만 보존하며, 현재 XRP/PI 신규 거래는 CORE로 집계합니다.
+      이전 FAST 기록과 PI 과거 거래는 보존하며, 현재 XRP/ADA 신규 거래는 CORE로 집계합니다.
       LEGACY는 엔진 분리 이전 기록입니다.
     </div>
   </details>
@@ -1292,11 +1292,11 @@
   </div>
 </div>
 
-<div class="section-label"><strong>CORE</strong><span>BTC · ETH · XRP · PI</span></div>
+<div class="section-label"><strong>CORE</strong><span>BTC · ETH · XRP · ADA</span></div>
 <div class="panel engine-live-panel" id="core-live">
   <div class="engine-head">
     <div class="engine-title">
-      <h2>CORE — BTC / ETH / XRP / PI</h2>
+      <h2>CORE — BTC / ETH / XRP / ADA</h2>
       <div class="engine-subtitle">Gemini 정기 검토 · GPT 신규진입 게이트 · 보유 포지션 AI 관리</div>
     </div>
     <div class="engine-status status-line">
@@ -1327,7 +1327,7 @@
 </details>
 
 <div class="panel" id="core-positions">
-  <h2>CORE 포지션 · 판단 — BTC / ETH / XRP / PI</h2>
+  <h2>CORE 포지션 · 판단 — BTC / ETH / XRP / ADA</h2>
   <div class="position-cards" id="symbol-table"></div>
 </div>
 
@@ -1406,7 +1406,7 @@
 
 <div class="panel" id="market-structure-panel" style="display:none">
   <div class="panel-header">
-    <h2>시장구조 관찰 (Shadow, 참고용) — CORE(BTC/ETH/XRP/PI)</h2>
+    <h2>시장구조 관찰 (Shadow, 참고용) — CORE(BTC/ETH/XRP/ADA)</h2>
     <button class="copy-btn" onclick="refreshMarketStructure()">새로고침</button>
   </div>
   <div class="tabs" id="ms-group-filter-tabs">
@@ -1438,8 +1438,9 @@
       <option value="BTC/USDT:USDT">BTC</option>
       <option value="ETH/USDT:USDT">ETH</option>
       <option value="XRP/USDT:USDT">XRP</option>
-      <option value="PI/USDT:USDT">PI</option>
-      <option value="DOGE/USDT:USDT">DOGE</option>
+      <option value="ADA/USDT:USDT">ADA</option>
+      <option value="PI/USDT:USDT">PI (과거)</option>
+      <option value="DOGE/USDT:USDT">DOGE (과거)</option>
     </select>
   </div>
   <div class="row" id="fast-symbol-filter-row" style="display:none">

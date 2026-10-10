@@ -23,7 +23,7 @@ LOG = logging.getLogger("trader.market_context")
 BEGIN = "[MARKET_CONTEXT_DATA]"
 END = "[/MARKET_CONTEXT_DATA]"
 OKX = "https://www.okx.com"
-SYMBOLS = ("BTC", "ETH", "XRP", "PI")
+SYMBOLS = ("BTC", "ETH", "XRP", "ADA")
 SERIES = {
     "SP500": ("S&P 500", "index", "pct"),
     "NASDAQCOM": ("Nasdaq Composite", "index", "pct"),

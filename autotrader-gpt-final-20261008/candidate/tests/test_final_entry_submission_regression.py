@@ -15,7 +15,7 @@ from test_entry_eligible_wide_stop_regression import geometry
 def proposal(tmp_path, side):
     cfg = _cfg(tmp_path)
     cfg.logger = SimpleNamespace(warning=lambda *a, **k: None, info=lambda *a, **k: None)
-    result = trader._core_adaptive_live_entry_decision(cfg, symbol='PI/USDT:USDT',
+    result = trader._core_adaptive_live_entry_decision(cfg, symbol='ADA/USDT:USDT',
         legacy_order_args=(side, 10, 96 if side=='long' else 104, 106 if side=='long' else 94),
         entry_price=100, equity=1000, market_features=dict(atr=2, structural_support=93,
         structural_resistance=107, near_resistance=105, near_support=95,
@@ -49,7 +49,7 @@ def test_core_ai_rr_uses_actual_full_oco_tp2_and_fees(tmp_path, side):
 def boundary(tmp_path, monkeypatch, side, price, *, minimum=.01, age=0, no_pullback=False):
     cfg,r=proposal(tmp_path,side)
     cfg.EXECUTION_MODE='LIVE'
-    cfg._core_loss_guards={'PI/USDT:USDT':SimpleNamespace(allow_new_entry=lambda equity:True)}
+    cfg._core_loss_guards={'ADA/USDT:USDT':SimpleNamespace(allow_new_entry=lambda equity:True)}
     now=time.time()
     decision={'action':side,'confidence':.8,'_approval_started_at':now-age, '_bar_closed_at':now-age,
               '_bounded_entry_validation':dict(context=r['context'], plan=r['plan'], closed_dfs={})}
@@ -71,8 +71,8 @@ def boundary(tmp_path, monkeypatch, side, price, *, minimum=.01, age=0, no_pullb
 def test_real_core_submit_reduces_quantity_after_adverse_quote(tmp_path,monkeypatch,side,price):
     cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,price)
     state=TraderState()
-    assert trader._execute_entry(cfg,state,c,'PI/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
-    assert state.snapshot()['symbols']['PI/USDT:USDT']['last_entry_attempt']['status']=='ORDER_PENDING'
+    assert trader._execute_entry(cfg,state,c,'ADA/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
+    assert state.snapshot()['symbols']['ADA/USDT:USDT']['last_entry_attempt']['status']=='ORDER_PENDING'
     _,qty,sl,tp=sent[0]
     assert qty*(abs(price-sl)+price*.001)<=50+1e-9
     assert qty < args[1]
@@ -81,7 +81,7 @@ def test_real_core_submit_reduces_quantity_after_adverse_quote(tmp_path,monkeypa
 @pytest.mark.parametrize('side,price',[('long',99.81),('short',100.19)])
 def test_real_core_submit_rejects_ai_target_over_cap_after_favorable_quote(tmp_path,monkeypatch,side,price):
     cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,price)
-    assert trader._execute_entry(cfg,TraderState(),c,'PI/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
+    assert trader._execute_entry(cfg,TraderState(),c,'ADA/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
     assert sent
     _,qty,sl,tp=sent[0]
     assert abs(tp-price)/price*5 <= .60+1e-12
@@ -94,7 +94,7 @@ def test_real_core_submit_rejects_ai_target_over_cap_after_favorable_quote(tmp_p
 def test_real_core_submit_fails_closed_before_exchange(tmp_path,monkeypatch,side,fault):
     cfg,c,d,sent,marker,args=boundary(tmp_path,monkeypatch,side,100,
         minimum=100 if fault=='minimum' else .01,age=181 if fault=='expired' else 0,no_pullback=fault=='chase')
-    assert trader._execute_entry(cfg,TraderState(),c,'PI/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
+    assert trader._execute_entry(cfg,TraderState(),c,'ADA/USDT:USDT',side,args[1],100,args[2],args[3],decision_id='boundary-test',decision=d) is False
     assert not sent
 
 
@@ -174,10 +174,10 @@ def test_core_gate_disabled_blocks_before_submission(tmp_path,monkeypatch,side):
         raise Captured
     monkeypatch.setattr(trader,'_execute_approved_entry_with_optional_reversal',execute)
     state=TraderState()
-    trader._handle_new_entry(cfg,state,None,'PI/USDT:USDT',side,{'action':side,'confidence':.8},'test','entry',[], '',None,
+    trader._handle_new_entry(cfg,state,None,'ADA/USDT:USDT',side,{'action':side,'confidence':.8},'test','entry',[], '',None,
         100,r['order_args'][1],r['order_args'][2],r['order_args'][3],adaptive_plan=r['plan'],adaptive_context=r['context'])
-    assert state.snapshot()['symbols']['PI/USDT:USDT']['last_entry_attempt']['status']=='GPT_ERROR'
-    assert state.snapshot()['symbols']['PI/USDT:USDT']['last_entry_attempt']['reason']=='core_gpt_entry_gate_disabled'
+    assert state.snapshot()['symbols']['ADA/USDT:USDT']['last_entry_attempt']['status']=='GPT_ERROR'
+    assert state.snapshot()['symbols']['ADA/USDT:USDT']['last_entry_attempt']['reason']=='core_gpt_entry_gate_disabled'
 
 @pytest.mark.parametrize('side',['long','short'])
 def test_core_expired_replacement_never_closes_existing_position(tmp_path,monkeypatch,side):
@@ -187,7 +187,7 @@ def test_core_expired_replacement_never_closes_existing_position(tmp_path,monkey
     monkeypatch.setattr(trader,'_approved_entry_still_valid_after_gpt',lambda *a,**k:True)
     closed=[]
     monkeypatch.setattr(trader,'_execute_close',lambda *a,**k:closed.append(True) or True)
-    assert trader._execute_approved_entry_with_optional_reversal(cfg,TraderState(),c,'PI/USDT:USDT',side,args[1],100,args[2],args[3],reversal_position=existing,decision_id='boundary-test',decision=d) is False
+    assert trader._execute_approved_entry_with_optional_reversal(cfg,TraderState(),c,'ADA/USDT:USDT',side,args[1],100,args[2],args[3],reversal_position=existing,decision_id='boundary-test',decision=d) is False
     assert closed==[]
 
 @pytest.mark.parametrize('side,price',[('long',100.51),('short',99.49)])

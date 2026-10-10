@@ -14,10 +14,10 @@ PROJECT_DIR = os.environ.get("AUTOTRADER_PROJECT_DIR") or os.path.expanduser("~/
 USERS_DIR = os.path.join(PROJECT_DIR, "users")
 ACCOUNTS_PATH = os.path.join(PROJECT_DIR, "accounts.json")
 
-DEFAULT_SYMBOLS = "BTC/USDT:USDT,ETH/USDT:USDT,XRP/USDT:USDT,PI/USDT:USDT,DOGE/USDT:USDT"
+DEFAULT_SYMBOLS = "BTC/USDT:USDT,ETH/USDT:USDT,XRP/USDT:USDT,ADA/USDT:USDT,DOGE/USDT:USDT"
 
 # 2026-08-30 사용자 지시 - FAST 서브시스템을 완전히 제거하고 XRP/PI를 CORE로
-# 통합한다. 실시간 매매 엔진은 이제 CORE 하나뿐이고, 모든 심볼이 동일한
+# 통합했다. 2026-10-10 신규 CORE 종목은 PI 대신 ADA를 사용한다. 모든 심볼이 동일한
 # Gemini 판단 -> deterministic confirmation -> GPT Entry Gate -> 주문 -> 5분마다
 # 재판단 흐름을 탄다. 예전에는 CORE_SYMBOLS/FAST_SYMBOLS 두 집합이 항상 서로소여야
 # 했지만(한 심볼이 두 LIVE 엔진에 동시에 들어가는 것 방지), 이제 엔진이 하나뿐이라
@@ -36,7 +36,7 @@ DEFAULT_SYMBOLS = "BTC/USDT:USDT,ETH/USDT:USDT,XRP/USDT:USDT,PI/USDT:USDT,DOGE/U
 # 심볼"은 다른 개념이다. pnl_reconciliation._group_of()는 strategy_group을 레코드에
 # 저장된 값으로만 판정하므로(심볼명으로 역추론하지 않음) 과거 DOGE CORE 거래 기록의
 # "core" 분류는 이 목록 변경과 무관하게 그대로 보존된다.
-CORE_SYMBOLS = ["BTC/USDT:USDT", "ETH/USDT:USDT", "XRP/USDT:USDT", "PI/USDT:USDT"]
+CORE_SYMBOLS = ["BTC/USDT:USDT", "ETH/USDT:USDT", "XRP/USDT:USDT", "ADA/USDT:USDT"]
 
 
 def _parse_env_file(path: str) -> dict:

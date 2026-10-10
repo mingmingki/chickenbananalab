@@ -21,7 +21,7 @@ def entry_env(tmp_path, monkeypatch):
             result = cls(2026, 10, 7, 14, 0)
             return result.replace(tzinfo=tz) if tz is not None else result
     monkeypatch.setattr(trader.datetime, "datetime", Clock)
-    symbol = "PI/USDT:USDT"
+    symbol = "ADA/USDT:USDT"
     cfg = SimpleNamespace(
         user_dir=str(tmp_path), logger=logging.getLogger("consensus"),
         GPT_ENTRY_GATE_ENABLED=True, OPENAI_API_KEY="fixture",
