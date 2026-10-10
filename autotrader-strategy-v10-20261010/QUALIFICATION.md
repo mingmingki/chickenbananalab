@@ -1,0 +1,8 @@
+# V10 phase 3 — QUALIFIED, deployment not yet started
+
+All five suites pass: tests1350+27subtests, gemini_checks230+38, rollback_checks37+12, negative_guard_checks41+7, rollback_full_checks257+46. Total1915tests+130subtests, zero failures. Added37v10 authority regressions. Full source and results stored autotrader-strategy-v10-20261010/deploy-bundle and qualification-results.json. Deployment manifest9source files. Gemini prices/approval/confirmed entry timeout/wait/reject, actual 25%+25% reduction with original exact OCO and unchanged prices, execution risk constraints, same-side held review, held prompt, profit-event review and duplicate suppression validated. Saved ADA geometry passes noise-floor/20%SL/30%TP1/60%TP2/cost-inclusiveRR contract; not proof of predictive trading profit.
+Current LIVE remains v9. V10 guarded operator permits only six named authority-setting changes, preserves other settings/secrets and actual positions/OCO, requires legacy owner/ROLLBACK mode, exact baseline/candidate hashes and activation evidence, private backups/SQLite snapshots, auto-restores settings and release on failure. Shared deployment lock, persistent prepared-release and deployment-record prevent duplicate dispatch. Preflight first, then ONE unique systemd unit only after success. No forced/test trade or Telegram test.
+If disconnected, inspect /tmp/autotrader-strategy-v10-qualified-20261010/{prepared-release.json,deployment-record.json}, unique unit autotrader-strategy-v10-deploy-20261010.service, /opt/autotrader link and actual API/positions before doing anything. Never re-run completed v9 or v10 deployment.
+
+---
+

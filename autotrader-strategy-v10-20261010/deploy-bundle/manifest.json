@@ -1,0 +1,38 @@
+{
+  "config.py": {
+    "baseline": "1d937269e60248b5f5f0c82dfb4635e9778b7bf83312a87b6b8d4df34e8a6add",
+    "candidate": "e66b80b3e8d1af776ac7a85be8568383ad04c17b50537f44cbcd3beef2465e5d"
+  },
+  "trader.py": {
+    "baseline": "b5d62a190d4b683f6c09b2babdcc04d8b401a01f667873a57997a430eb57ebd0",
+    "candidate": "caa9a724073d88e9cf1ffdf61b189653ca51c4b5c13e883af27b9edc0850b16b"
+  },
+  "strategy_authority.py": {
+    "baseline": null,
+    "candidate": "842c6c3bd824b21c31776e580a9c0121ecac8c77bced25e60c12c3fc0409a668"
+  },
+  "gemini_analyzer.py": {
+    "baseline": "e42b1efaa3ab98171579566ec4467e780c6a21936c4736c526ff33e7b06bee82",
+    "candidate": "8e15e246b689e91cb1fe5902cea2faa316618d3390df5df7b96ad91deb8a7a77"
+  },
+  "openai_analyzer.py": {
+    "baseline": "96418361e8f2508ac8d22c6a12a7e51581080172883de08f4834a2add166b8ce",
+    "candidate": "e70b194b31dc858474e0d420e2a16a81cef6650aca8bd21f6e31cad85783c5c1"
+  },
+  "candidate_c_hybrid_live_adapter.py": {
+    "baseline": "148d888157dfd1f56933c38b5fef20acf8a696f8a77ad86bb122a34e747cd51d",
+    "candidate": "53a571194183ca5bc8305c67aaad42970af512964f5b7c511492c76a88c274f4"
+  },
+  "candidate_c_runtime.py": {
+    "baseline": "ba0b6c4c183b338880a9fb8f88e10f0a6b03c49b3efc9ceda863b72392678cb4",
+    "candidate": "e1508ce30971c6bf68ad83e96436feacbd5b33f8e68136bc9d6154391aad053c"
+  },
+  "web_app.py": {
+    "baseline": "c2102e1b2dcfa6e479d4ea03f8b6697df762ccc59a1dede439c55efd37f10d8d",
+    "candidate": "edc0a90ba961394e9ea89339511b6363a93ebe04ca2b029d9563d7c37e7ff636"
+  },
+  "templates/dashboard.html": {
+    "baseline": "864df9e25bb8d87c32b732448017becf3f38f19ec9fd760e602ceec5bc6fc256",
+    "candidate": "29c54ff7d5e9925c6daa0028469f32ea28f7dc3a62079be4da632116d1f4789a"
+  }
+}
