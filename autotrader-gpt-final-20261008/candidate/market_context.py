@@ -373,12 +373,36 @@ class MarketContextCache:
 def format_prompt(snapshot, symbol):
     sources = snapshot["sources"]
     crypto = sources["crypto"].get("data") or {}
-    facts = {name: {key: value for key, value in row.items() if key != "data"} for name, row in sources.items()}
-    facts["crypto"]["data"] = {"target": (crypto.get("symbols") or {}).get(symbol),
-                                 "btc": (crypto.get("symbols") or {}).get("BTC/USDT:USDT"),
-                                 "btc_derivatives": crypto.get("btc_derivatives")}
+    facts = {name: {key: deepcopy(value) for key, value in row.items() if key != "data"} for name, row in sources.items()}
+    facts["crypto"]["data"] = {"target": deepcopy((crypto.get("symbols") or {}).get(symbol)),
+                                 "btc": deepcopy((crypto.get("symbols") or {}).get("BTC/USDT:USDT")),
+                                 "btc_derivatives": deepcopy(crypto.get("btc_derivatives"))}
     for name in ("fred", "fed", "un"):
-        facts[name]["data"] = sources[name].get("data")
+        facts[name]["data"] = deepcopy(sources[name].get("data"))
+    # A Gemini/GPT prompt cannot follow URLs. Retain raw source URLs, article links,
+    # and metadata in the cache/dashboard; do not pay to repeat them in every
+    # prompt. Source-level provenance is retained once for each feed. Numeric
+    # observations, freshness/status, timestamps, units, dates and headlines
+    # are passed without truncation or inference.
+    for name, source in facts.items():
+        if name == "crypto":
+            for quote in (source.get("data") or {}).values():
+                if isinstance(quote, dict):
+                    for fact in quote.values():
+                        if isinstance(fact, dict):
+                            fact.pop("source_url", None)
+        elif name == "fred":
+            for fact in (source.get("data") or {}).values():
+                if isinstance(fact, dict):
+                    fact.pop("source_url", None)
+                    fact.pop("frequency", None)  # Fixed daily observation; stated above.
+        elif name in ("fed", "un"):
+            if isinstance(source.get("data"), list):
+                source["data"] = [
+                    {k: v for k, v in item.items() if k not in ("url", "kind")}
+                    if isinstance(item, dict) else item
+                    for item in source["data"]
+                ]
     payload = {"snapshot_id": snapshot["snapshot_id"], "as_of_utc": snapshot["as_of"], "sources": facts}
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c").replace(">", "\\u003e")
     return ("\n\n[외부 시장상황 - Gemini와 GPT 공통 자료]\n"
