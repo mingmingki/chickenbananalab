@@ -1,3 +1,15 @@
+# CURRENT AUTHORITATIVE STATE — V14 LIVE / SCHEDULED AI PATTERN REVIEW REMOVED / NO REDISPATCH
+2026-10-11 08:45 KST. V14 release /opt/autotrader-releases/scheduled_ai_review_off_v14_20261011T084405KST, PID 189167, active, NRestarts0. CORE and Candidate C both running. Unit autotrader-ai-cost-v14-deploy-20261011.service exactly one dispatch, success/exit0. Stage /tmp/autotrader-ai-cost-v14-qualified-20261011/deployment-record.json now exists; never redispatch.
+
+Qualification1996 tests +130 subtests, fail0. One production file web_app.py changed: paid automatic six-hour review startup removed, live disabled marker08:45:12. Manifest18, settingsunchanged. Deployment snapshots EXACT match: positions6/OCO6 ID/qty/avg/SLTP unchanged; current coverageverified,pending0,dashboard200,resumeconsumed. Backup /var/lib/autotrader/deployment-backups/strategy-ai-cost-v14-20261010T234500Z.
+
+Scope boundaries: manual Gemini+GPT review still available/paid; transaction recording/code stats preserved; automatic checkpoint/promotion tied to removed scheduler no longer runs. UI old automatic-six-hour wording remains (runtime disabled). GPT held-management remains unchanged. GPT-entry-only / Gemini-held-action / coded risk calculations are PROPOSED, NOT IMPLEMENTED; see autotrader-cost-v14-20261011/RESULT.md. Do not falsely report this broader architecture LIVE.
+
+Recovery: inspect release/unit/record read-only; preserve positions/OCO. Broader redesign requires explicit Gemini management action response, GPT added-exposure gate, deterministic sizing and preserved execution/protection tests. Failed first preflight only operator expected-release typo; no LIVE stop/deploy occurred until corrected qualification.
+
+# CURRENT AUTHORITATIVE STATE — V14 PREFLIGHT PASSED / SINGLE DISPATCH INTENT
+2026-10-11 08:44 KST. Corrected operator prior-release guard; read-only preflight passed for /opt/autotrader-releases/scheduled_ai_review_off_v14_20261011T084405KST. 6 positions /6 OCO, pending0, manifest18, only web_app.py changed; settings unchanged. Production remains v13 until dispatch. Authorization: user requested six-hour automatic AI analysis removal. Unit autotrader-ai-cost-v14-deploy-20261011.service dispatch exactly once. Inspect stage deployment-record.json and this unit before retry; no duplicate deployment. Broader GPT-entry-only/Gemini-management proposal not applied. Qualification 1996 tests +130 subtests. Exact before/after preservation required.
+
 # CURRENT AUTHORITATIVE STATE — V14 QUALIFIED / V13 LIVE
 
 1996 tests +130 subtests passing; one changed production file web_app.py, automatic paid six-hour review startup removed. GPT held-management and all trading/SLTP code unchanged. Stage not yet dispatched. Planned unit autotrader-ai-cost-v14-deploy-20261011.service; inspect record before retry. Preserve positions/OCO.

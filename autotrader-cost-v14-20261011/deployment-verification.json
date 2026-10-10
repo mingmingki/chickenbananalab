@@ -1,0 +1,39 @@
+[
+  {
+    "operation": "deployed",
+    "release": "/opt/autotrader-releases/scheduled_ai_review_off_v14_20261011T084405KST",
+    "pid": "189167",
+    "changed_files": 1,
+    "verified_source_files": 18,
+    "settings_migration_keys": [],
+    "positions": 6,
+    "oco": 6,
+    "preserved": true,
+    "backup": "/var/lib/autotrader/deployment-backups/strategy-ai-cost-v14-20261010T234500Z"
+  },
+  {
+    "verified": true,
+    "release": "/opt/autotrader-releases/scheduled_ai_review_off_v14_20261011T084405KST",
+    "pid": "189167",
+    "restarts": 0,
+    "core_running": true,
+    "candidate_running": true,
+    "core_authority": "AI",
+    "candidate_authority": "CHART_RISK",
+    "positions": 6,
+    "oco": 6,
+    "pending": 0,
+    "exact_deployment_preservation": true,
+    "current_coverage_verified": true,
+    "natural_position_change": false,
+    "risk_adaptive_partials": true,
+    "settings_changed_keys": [],
+    "source_hashes_verified": 18,
+    "dashboard_http": 200,
+    "resume_consumed": true,
+    "unit_success": true,
+    "scheduled_strategy_ai_review": false,
+    "manual_strategy_review_available": true,
+    "position_gpt_management_unchanged": true
+  }
+]
