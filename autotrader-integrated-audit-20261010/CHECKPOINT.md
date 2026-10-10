@@ -1,4 +1,4 @@
-# Current authoritative resume state — v9 DEPLOYED / VERIFIED
+# V10 authority split — IN PROGRESS, not deployed\n\nAuthoritative running release remains v9 PID172366, NRestarts0 (21:45KST read-only verified). V9 completed deployment MUST NOT be rerun. No duplicate pytest/deploy found. User approved explicit Candidate chart-only / CORE AI strategy contract at21:43KST. V10 isolated source /private/tmp/chickenbanana-strategy-v10-20261010/candidate; design/plan in autotrader-strategy-v10-20261010. New regressions written before edits. LIVE V10 deployment blocked pending qualification. Existing positions/protection untouched.\n\n---\n\n# Current authoritative resume state — v9 DEPLOYED / VERIFIED
 
 - Active release: /opt/autotrader-releases/strategy_safety_v9_20261010T211941KST
 - Service PID172366, active, NRestarts0; authenticated CORE running and Candidate running/live.
