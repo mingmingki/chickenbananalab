@@ -1,3 +1,9 @@
+# CURRENT AUTHORITATIVE STATE — COST V12 PREFLIGHT PASSED / SINGLE DISPATCH NEXT
+
+Prepared /opt/autotrader-releases/ai_cost_tuning_v12_20261011T013551KST, unchanged17sourcehashes; named routine setting600->1800.104focusedtests passed. Preflight6positions6exactSLTPOCO0pending, bothLIVEloops, activation/parity passed. V11 still runningPID175724; no stop/switch/orders yet. Stage /tmp/autotrader-cost-v12-qualified-20261011; dispatch ONE autotrader-cost-v12-deploy-20261011.service. If unit/record exists inspect only. Preserve exact positions/protection.
+
+---
+
 # CURRENT AUTHORITATIVE STATE — COST V12 QUALIFIED / PREFLIGHT NEXT / NOT DEPLOYED
 
 V11 remains currentPID175724. Only existing routine Gemini setting600->1800 planned;104 focused tests passed incl9 effective-setting tests. No trading source change, prior1968+130 full suite reused. CORE dual-AI/early entry/critical risk,15mheld/profit review,30secriskpolling and Candidate0AI unchanged. Stage /tmp/autotrader-cost-v12-qualified-20261011; unique autotrader-cost-v12-deploy-20261011.service. Check unit/record before dispatch, exactly one dispatch only after preflight. Existing positions/OCO must be preserved. Public details autotrader-cost-v12-20261011. Prior repair gaps remain open.
