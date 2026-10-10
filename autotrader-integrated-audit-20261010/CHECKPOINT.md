@@ -1,3 +1,9 @@
+# CURRENT AUTHORITATIVE STATE — V11 IMPLEMENTED / FULL QUALIFICATION NEXT / NOT DEPLOYED
+
+Focused113tests pass,53new regressions; v10 remains productionPID174157. Adaptive CORE explicitdualAI/Candidateconfirmedchart fractions implemented; existingCOREcumulative50%cap, original/remainingbasis, durableincompletegoal, smallerapproval, dedup/exactOCO maintained. Distinctmanagementoverlay hash; originalentrysnapshot preserved. Source+tests in autotrader-strategy-v11-20261010/implementation. Full5suites next; inspect evidence/full-results.json/PID beforeanyrepeat. LIVEv11 blockeduntilzero failures; neverreplayv10.
+
+---
+
 # CURRENT AUTHORITATIVE STATE — V11 ADAPTIVE PARTIALS IN PROGRESS / NOT DEPLOYED
 
 User requested risk-dependent partial profit/loss reductions: Candidate chart, CORE AI. V10 remains running and COMPLETE. New isolated candidate /private/tmp/chickenbanana-strategy-v11-20261010/candidate. Plan autotrader-strategy-v11-20261010/PLAN.md. First readonly check:6positions6exactOCO0pending, v10PID174157 NRestarts0. No new deployment/order/service mutation. Never replay v10. Next write failing v11 regressions, implement small units, checkpoint each phase; LIVE v11 blocked pending all qualification.

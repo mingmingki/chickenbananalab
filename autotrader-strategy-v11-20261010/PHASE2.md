@@ -1,0 +1,1 @@
+Focused113tests pass,53new adaptive regressions. Review corrected fixed-size suppression, dust wording, managementoverlay identity, smallerfreshapproval and originaldurablegoal completion in both fill paths. CORE5..50%INITIAL; cumulative50%. Candidateprofit10..50%INITIAL and structuraldefense25..75%REMAINING. No service/order mutation; all5fullsuites next.
