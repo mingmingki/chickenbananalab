@@ -1,0 +1,23 @@
+{
+  "baseline_release": "/opt/autotrader-releases/core_gemini_gpt_sltp_v7_20261010",
+  "deployment_allowed": false,
+  "reason": "78 identical unresolved baseline regressions",
+  "files": {
+    "operating_costs.py": {
+      "baseline": "c996e97a9c3a102a82519a0a1ec83c025fd961a1577d2c607c3c641831769794",
+      "candidate": "624cec48ad41b0faff5a7385e7852e8445ba665c7c100a6b3deb0c9d1321977f"
+    },
+    "web_app.py": {
+      "baseline": "ad1c875d41b1007d5c8f057735a095623cf53aad6931027cd7d49cb8d90a8971",
+      "candidate": "a9d7cb38b3a133858f1496cbaa88c6d227f27f71b2e06284c9c864cbaca38a28"
+    },
+    "tests/test_current_release_identity.py": {
+      "baseline": null,
+      "candidate": "c8af3ce0fa5312cfb2b6947e2395bf7ff3fde7624b65e89b3ee73df3f8762fcd"
+    },
+    "tests/test_trade_learning_api.py": {
+      "baseline": "bf52ef5e1ede8d26734e07d6f62a2bd77ec68b6ea8552506dfe2cdbf510ee41d",
+      "candidate": "390d1e3f1b2cd7bc3139c995534cdd07d41c235c56cf15334b1b3dfcc5d31d31"
+    }
+  }
+}

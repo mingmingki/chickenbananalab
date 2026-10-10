@@ -1,0 +1,59 @@
+FFF.F.                                                                   [100%]
+=================================== FAILURES ===================================
+_____________ test_current_release_reads_exact_deployment_identity _____________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-99/test_current_release_reads_exa0')
+
+    def test_current_release_reads_exact_deployment_identity(tmp_path):
+        p=project(tmp_path)
+        (p/"DEPLOYMENT_IDENTITY.json").write_text(json.dumps({"release":str(p),"created_at":"2026-10-10T14:56:13+09:00"}))
+        row=operating_costs.release_metadata(p)
+>       assert row["created_at"]=="2026-10-10T14:56:13+09:00"
+E       AssertionError: assert None == '2026-10-10T14:56:13+09:00'
+
+tests/test_current_release_identity.py:15: AssertionError
+______ test_copied_identity_cannot_attribute_previous_release_to_current _______
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-99/test_copied_identity_cannot_at0')
+
+    def test_copied_identity_cannot_attribute_previous_release_to_current(tmp_path):
+        p=project(tmp_path)
+        (p/"DEPLOYMENT_IDENTITY.json").write_text(json.dumps({"release":"/opt/autotrader-releases/old","created_at":"2026-10-06T12:20:48+09:00"}))
+        (p/"ENTRY_COST_V6_DEPLOYMENT.json").write_text(json.dumps({"created_at":"2026-10-06T12:20:48+09:00"}))
+>       assert operating_costs.release_metadata(p)["created_at"] is None
+E       AssertionError: assert '2026-10-06T12:20:48+09:00' is None
+
+tests/test_current_release_identity.py:22: AssertionError
+_________ test_new_identity_takes_priority_over_inherited_v6_manifest __________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-99/test_new_identity_takes_priori0')
+
+    def test_new_identity_takes_priority_over_inherited_v6_manifest(tmp_path):
+        p=project(tmp_path)
+        (p/"DEPLOYMENT_IDENTITY.json").write_text(json.dumps({"release":str(p),"created_at":"2026-10-10T14:56:13+09:00"}))
+        (p/"ENTRY_COST_V6_DEPLOYMENT.json").write_text(json.dumps({"created_at":"2026-10-06T12:20:48+09:00"}))
+>       assert operating_costs.release_metadata(p)["created_at"]=="2026-10-10T14:56:13+09:00"
+E       AssertionError: assert '2026-10-06T12:20:48+09:00' == '2026-10-10T14:56:13+09:00'
+E         
+E         - 2026-10-10T14:56:13+09:00
+E         + 2026-10-06T12:20:48+09:00
+
+tests/test_current_release_identity.py:28: AssertionError
+_______ test_unknown_current_release_does_not_borrow_old_daily_boundary ________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-99/test_unknown_current_release_d0')
+
+    def test_unknown_current_release_does_not_borrow_old_daily_boundary(tmp_path):
+        p=project(tmp_path)
+        (p/"DAILY_COMPLETION_READONLY_V2_DEPLOYMENT.json").write_text(json.dumps({"created_at":"2026-10-06T12:20:48+09:00"}))
+        row=daily_payload(p)
+>       assert row["post_release_cohort"] is None
+E       AssertionError: assert {'release_at': '2026-10-06T12:20:48+09:00', 'generated_at': '2026-10-10T17:08:25+09:00', 'trade_count': 0, 'trading_net_pnl': 0, ...} is None
+
+tests/test_current_release_identity.py:57: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_current_release_identity.py::test_current_release_reads_exact_deployment_identity
+FAILED tests/test_current_release_identity.py::test_copied_identity_cannot_attribute_previous_release_to_current
+FAILED tests/test_current_release_identity.py::test_new_identity_takes_priority_over_inherited_v6_manifest
+FAILED tests/test_current_release_identity.py::test_unknown_current_release_does_not_borrow_old_daily_boundary
+4 failed, 2 passed in 0.21s
