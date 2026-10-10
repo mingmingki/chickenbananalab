@@ -62,12 +62,27 @@ POSITION_REVIEW_SCHEMA = {
 }
 
 
+def _generate_content_with_transient_retry(cfg, symbol, purpose, request):
+    from google.genai.errors import ServerError
+    start = time.monotonic()
+    try:
+        return _get_client(cfg).models.generate_content(**request)
+    except ServerError as exc:
+        if str(exc.code) not in ('503', '504') or time.monotonic() - start > 8:
+            raise
+        usage_log.record_api_attempt(cfg.user_dir,symbol,'gemini',purpose,cfg.GEMINI_MODEL,
+            response_ms=(time.monotonic()-start)*1000,timed_out=False,
+            error_type=type(exc).__name__)
+        time.sleep(1)
+        return _get_client(cfg).models.generate_content(**request)
+
+
 def _generate_content_observed(cfg,symbol,purpose,**request):
     import httpx
     started=time.monotonic()
     error=None
     try:
-        return _get_client(cfg).models.generate_content(**request)
+        return _generate_content_with_transient_retry(cfg, symbol, purpose, request)
     except Exception as exc:
         error=exc
         raise
