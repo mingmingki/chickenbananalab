@@ -1,7 +1,7 @@
 {
   "baseline_release": "/opt/autotrader-releases/core_gemini_gpt_sltp_v7_20261010",
   "deployment_allowed": true,
-  "reason": "1857 tests and130 subtests passed; strategy/protection215passed; independent review clear; pre-switch preservation audit required",
+  "reason": "Qualified and deployed once; read checkpoint/record before any further work; never rerun this deployment",
   "files": {
     "core_entry_sltp_repair.py": {
       "baseline": "8dadc188859c3efae299faedbc567aa2ae833d461d69b0f829d98edf4833ef6c",
@@ -92,5 +92,33 @@
     "all_suites_passed": 1857,
     "all_subtests_passed": 130,
     "strategy_protection_passed": 215
+  },
+  "deployment_completed": true,
+  "repeat_deployment_allowed": false,
+  "deployment": {
+    "operation": "deployed",
+    "release": "/opt/autotrader-releases/integrated_audit_v8_20261010T183555KST",
+    "source_commit": "58e4ed9",
+    "pid": 168601,
+    "restarts": 0,
+    "core_running": true,
+    "candidate_running": true,
+    "candidate_mode": "live",
+    "positions": 6,
+    "live_reduce_only_oco": 6,
+    "protected_positions": 6,
+    "pending_regular_orders": 0,
+    "positions_unchanged": true,
+    "protection_unchanged": true,
+    "settings_unchanged": true,
+    "all_source_hashes_match": true,
+    "report_identity_source": "deployment_identity",
+    "tests_passed": 1857,
+    "subtests_passed": 130,
+    "strategy_protection_tests_passed": 215,
+    "backup": "/var/lib/autotrader/deployment-backups/integrated-audit-20261010T093555Z",
+    "previous_release": "/opt/autotrader-releases/core_gemini_gpt_sltp_v7_20261010",
+    "profitability_proven": false,
+    "natural_new_fill_after_release_verified": false
   }
 }
