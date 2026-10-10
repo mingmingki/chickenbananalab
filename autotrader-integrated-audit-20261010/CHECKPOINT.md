@@ -1,3 +1,13 @@
+# CURRENT AUTHORITATIVE STATE — V11 DEPLOYED / READ-ONLY AUDIT COMPLETE / REPAIR FINDINGS OPEN
+
+V11 deployment COMPLETE (source01ca75e, completion6a18d42). Current release /opt/autotrader-releases/risk_adaptive_partials_v11_20261010T231645KST PID175724 active NRestarts0; bothLIVE loops,17hashes,5positions5exactOCO0pending verified. Normal dual-AI ADA close23:24:12 explains six->five positions. No source/settings/service/order mutation during this audit. NEVER redispatch v11/v10/v9.
+
+New requested-structure audit in autotrader-strategy-v11-20261010/REQUESTED_STRUCTURE_AUDIT.md. One pre-existing zero-fill terminal reduction pending defect reproduced offline long/short: unchanged position+closed/canceled filled0 keeps pending through reconciliation and blocks fresh approved reduce. Current LIVE no reduce/add pending, no zero-fill event, kill switchinactive. Not fixed. Full qualification1968+130 passed but omitted this boundary. Future fix must preserve goal, require freshAI and verify unchanged OCO, with regression before implementation.
+
+Gaps: genericGPT errors/empty responses stillblock (confirmedtypedtimeout alonebypass); Candidate strong-trend +2R reduction suppression absent; CORE additions half fixed entry thenriskcaps; learningpromotiondisabled0validated/livepatterns; explicitwar/peace lifecycle and fullFOMCcalendar absent; spendingbudgetalert/invoicereconciliation absent. Early-profit/sustainedprofitability not established. Only audit/report authorized this turn, no new deployment. Sanitized private settings/cost/learning evidence /private/tmp/chickenbanana-strategy-v11-20261010/evidence/requested-structure-audit.json. Cost projection needs current vs24h mixed cohort distinction, no false savings assertion. Recover from this checkpoint; continue repair only when requested.
+
+---
+
 # CURRENT AUTHORITATIVE STATE — V11 DEPLOYED / VERIFIED / COMPLETE
 
 Single v11 deployment completed. Active release /opt/autotrader-releases/risk_adaptive_partials_v11_20261010T231645KST, autotrader.servicePID175724 active NRestarts0. CORE and Candidate live loops running. CORE AI/Candidate CHART_RISK; risk-adaptive partials enabled.17source hashes, exact effective settings/owner/activation/parity, dashboardHTTP200, resume consumed verified. Tests1968+130subtests, zero failures;53new regressions. Source01ca75e; preflight265ecee. Full public v11 source/operator/verifier/results in autotrader-strategy-v11-20261010.
