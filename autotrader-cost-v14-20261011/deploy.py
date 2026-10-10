@@ -3,7 +3,7 @@ import os, sys, json, time, hashlib, tempfile, shutil, subprocess, datetime, sql
 from pathlib import Path
 
 LINK = Path('/opt/autotrader')
-EXPECTED = Path('/opt/autotrader-releases/scheduled_ai_review_off_v14_20261011T065045KST')
+EXPECTED = Path('/opt/autotrader-releases/ai_cost_reduction_v13_20261011T065045KST')
 PATCH = Path(sys.argv[1])
 lock_path=Path('/var/lib/autotrader/deployment-backups/.integrated-audit-deploy.lock')
 lock_path.parent.mkdir(parents=True,exist_ok=True)
