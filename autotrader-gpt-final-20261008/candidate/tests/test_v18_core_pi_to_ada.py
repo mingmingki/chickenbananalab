@@ -57,3 +57,36 @@ def test_dashboard_current_core_shows_ada_and_preserves_pi_history():
     assert 'value="ADA/USDT:USDT">ADA</option>' in html
     assert 'value="PI/USDT:USDT">PI (과거)</option>' in html
     assert "CORE (BTC/ETH/XRP/ADA)" in html
+
+
+def test_brand_new_ada_bypasses_nonexistent_unified_rollback_record(tmp_path,monkeypatch):
+    import json
+    import core_unified_service as svc
+    (tmp_path / "core_rollback_pause_manifest.json").write_text(json.dumps({
+        "BTC/USDT:USDT": {}, "ETH/USDT:USDT": {},
+        "XRP/USDT:USDT": {}, "PI/USDT:USDT": {},
+    }))
+    cfg=SimpleNamespace(user_dir=str(tmp_path),CORE_UNIFIED_MODE="ROLLBACK")
+    monkeypatch.setattr(svc,"owner",lambda _,symbol:"legacy")
+    def forbidden(*args,**kwargs):
+        raise AssertionError("new ADA may not use absent rollback record")
+    monkeypatch.setattr(svc,"run_rollback",forbidden)
+    assert svc.run_symbol(cfg,None,ADA,None,None,None,None,None) is False
+
+
+def test_old_core_symbols_preserve_rollback_and_unknown_owner_fails_closed(tmp_path,monkeypatch):
+    import json
+    import core_unified_service as svc
+    (tmp_path / "core_rollback_pause_manifest.json").write_text(json.dumps({
+        "BTC/USDT:USDT": {}, "ETH/USDT:USDT": {},
+        "XRP/USDT:USDT": {}, "PI/USDT:USDT": {},
+    }))
+    cfg=SimpleNamespace(user_dir=str(tmp_path),CORE_UNIFIED_MODE="ROLLBACK")
+    seen=[]
+    monkeypatch.setattr(svc,"run_rollback",lambda *args:seen.append(args[2]) or True)
+    monkeypatch.setattr(svc,"owner",lambda _,sym:"legacy")
+    assert svc.run_symbol(cfg,None,"BTC/USDT:USDT",None,None,None,None,None) is True
+    assert seen == ["BTC/USDT:USDT"]
+    monkeypatch.setattr(svc,"owner",lambda _,sym:"unknown")
+    assert svc.run_symbol(cfg,None,ADA,None,None,None,None,None) is True
+    assert seen[-1] == ADA

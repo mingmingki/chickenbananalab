@@ -267,6 +267,21 @@ def run_symbol(cfg,state,symbol,client,loss_guard,stop_event,legacy_cycle,legacy
     """Return False only for OFF with no durable unified owner."""
     mode=getattr(cfg,'CORE_UNIFIED_MODE','OFF')
     if mode=='ROLLBACK':
+        # A symbol introduced *after* the original unified->legacy migration
+        # has no rollback record. It is already legacy-owned and must enter
+        # the normal CORE loop directly, not wait forever for records[symbol].
+        # Never bypass rollback if ownership is unknown/unified or a manifest
+        # is missing/corrupt; those cases remain fail-closed in run_rollback.
+        if owner(cfg,symbol)=='legacy':
+            from pathlib import Path
+            manifest=Path(cfg.user_dir)/'core_rollback_pause_manifest.json'
+            if manifest.is_file():
+                try:
+                    history=json.loads(manifest.read_text())
+                except (OSError,ValueError):
+                    history=None
+                if isinstance(history,dict) and symbol not in history:
+                    return False
         return run_rollback(cfg,state,symbol,client,loss_guard,stop_event)
     current=owner(cfg,symbol)
     if mode=='OFF' and current=='legacy': return False
