@@ -45,7 +45,16 @@ def _service_active():
     return r.returncode==0 and r.stdout.strip()=="active"
 
 def _fingerprint(issue):
-    return "|".join(str(issue.get(k) or "") for k in ("code","symbol","detail"))
+    # Incident identity is stable. A changing numeric percentage or count is
+    # data on an ongoing incident, not a recovered event followed by a new one.
+    return "|".join(str(issue.get(k) or "") for k in ("code","symbol"))
+
+
+def _saved_fingerprint(value):
+    # Existing alert_state persisted the old code|symbol|detail format.
+    # Migrate without sending a phantom recovery/new warning on deployment.
+    parts=str(value).split("|",2)
+    return "|".join((parts[0], parts[1] if len(parts)>1 else ""))
 
 def _atomic_json(path,value):
     path=Path(path); tmp=path.with_suffix(path.suffix+".tmp")
@@ -55,7 +64,7 @@ def _atomic_json(path,value):
 def _notify_changes(user_dir,snapshot):
     state_path=Path(user_dir)/obs.ALERT_STATE_FILE
     old=obs._json(state_path,{}) or {}
-    old_active=set(old.get("active") or [])
+    old_active={_saved_fingerprint(v) for v in (old.get("active") or [])}
     issues=list((snapshot.get("health") or {}).get("issues") or [])
     current={_fingerprint(x):x for x in issues}
     current_keys=set(current)

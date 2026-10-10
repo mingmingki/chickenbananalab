@@ -205,18 +205,57 @@ def evaluate_health(user_dir,*,service_active=True,live_state=None,recent_journa
     api_errors=_runtime_error_event_count(recent_journal_text)
     if api_errors>=3:
         issues.append({"code":"repeated_runtime_errors","severity":"warning","detail":f"{api_errors} error events in recent window"})
-    base=_json(Path(user_dir)/"daily_loss_baseline.json",{}) or {}; start=_num(base.get("start_equity")); eq,eq_at=_latest_equity(user_dir)
-    loss=None
-    limit=_num(((live_state.get("settings") or {}).get("max_daily_loss_pct"))) or 5.0
-    if start and eq is not None:
-        loss=max(0.0,(start-eq)/start*100)
-        threshold=limit*0.8
-        if loss>=threshold:
-            issues.append({"code":"daily_loss_near_limit","severity":"warning",
-                           "detail":f"{loss:.2f}% / limit {limit:.2f}%"})
+    base=_json(Path(user_dir)/"daily_loss_baseline.json",{}) or {}
+    start=_num(base.get("start_equity")); eq,eq_at=_latest_equity(user_dir)
+    # The account equity drawdown and CORE realized-PnL guard are NOT the
+    # same quantity and do NOT have the same limit. Never label the former
+    # with the CORE 5% limit; the exchange order guard distinguishes both.
+    settings=(live_state.get("settings") or {})
+    core_limit=_num(settings.get("max_daily_loss_pct"))
+    account_limit=None
+    try:
+        import config
+        cfg=config.UserConfig(str(user_dir))
+        core_limit=core_limit or _num(cfg.MAX_DAILY_LOSS_PCT)
+        account_limit=_num(cfg.ACCOUNT_HARD_DAILY_LOSS_PCT)
+    except (OSError,ValueError,AttributeError) as exc:
+        issues.append({"code":"daily_loss_config_unavailable","severity":"warning",
+                       "detail":type(exc).__name__})
+    account_loss=None; core_loss=None; core_realized=None
+    today=dt.datetime.fromtimestamp(now,dt.timezone.utc).astimezone(KST).date().isoformat()
+    baseline_valid=(start is not None and start>0 and base.get("trading_date")==today)
+    fresh_equity=(eq is not None and eq_at is not None and 0 <= now-eq_at.timestamp() <= 900)
+    if baseline_valid and fresh_equity:
+        account_loss=max(0.0,(start-eq)/start*100)
+        if account_limit is not None:
+            # 8% is an operational drawdown WATCH, not an entry-block threshold.
+            if account_loss>=8.0:
+                issues.append({"code":"account_equity_drawdown","severity":"warning",
+                               "detail":f"계좌 일중 자산감소 {account_loss:.2f}% · 관찰 기준 8.00% · 계좌 차단 한도 {account_limit:.2f}%"})
+            if account_loss>=account_limit*0.8:
+                issues.append({"code":"account_hard_loss_near_limit","severity":"warning",
+                               "detail":f"계좌 일중 자산감소 {account_loss:.2f}% / 계좌 차단 한도 {account_limit:.2f}%"})
+        try:
+            import pnl_reconciliation
+            core_realized=float(pnl_reconciliation.realized_pnl_for_kst_date(
+                str(user_dir),"core",dt.date.fromisoformat(today)))
+            if not math.isfinite(core_realized): raise ValueError("nonfinite core realized PnL")
+            core_loss=max(0.0,-core_realized/start*100)
+            if core_limit is not None and core_loss>=core_limit*0.8:
+                issues.append({"code":"daily_loss_near_limit","severity":"warning",
+                               "detail":f"CORE 일일 실현손실 {core_loss:.2f}% / CORE 한도 {core_limit:.2f}%"})
+        except Exception as exc:
+            issues.append({"code":"daily_loss_reconciliation_unavailable","severity":"warning",
+                           "detail":type(exc).__name__})
+    elif not baseline_valid or not fresh_equity:
+        issues.append({"code":"daily_loss_snapshot_unavailable","severity":"warning",
+                       "detail":"당일 기준자산 또는 최근 계좌 자산 스냅샷 확인 불가"})
     return {"ok":not any(i.get("severity")=="critical" for i in issues),"issues":issues,"issue_count":len(issues),
         "critical_count":sum(i.get("severity")=="critical" for i in issues),"warning_count":sum(i.get("severity")=="warning" for i in issues),
-        "daily_loss_pct":loss,"daily_loss_limit_pct":limit,"latest_equity":eq,
+        "daily_loss_pct":account_loss,"daily_loss_limit_pct":account_limit,
+        "account_equity_drawdown_pct":account_loss,"account_hard_daily_loss_limit_pct":account_limit,
+        "core_realized_loss_pct":core_loss,"core_realized_pnl_usdt":core_realized,
+        "core_daily_loss_limit_pct":core_limit,"latest_equity":eq,
         "latest_equity_at":eq_at.isoformat(timespec="seconds") if eq_at else None}
 
 def build_snapshot(user_dir,*,journal_text="",recent_journal_text="",service_active=True,live_state=None,now=None):
