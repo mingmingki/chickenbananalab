@@ -1,0 +1,24 @@
+{
+  "verified": true,
+  "release": "/opt/autotrader-releases/risk_adaptive_partials_v11_20261010T231645KST",
+  "pid": "175724",
+  "restarts": 0,
+  "core_running": true,
+  "candidate_running": true,
+  "core_authority": "AI",
+  "candidate_authority": "CHART_RISK",
+  "positions": 6,
+  "oco": 6,
+  "pending": 0,
+  "exact_deployment_preservation": true,
+  "current_coverage_verified": true,
+  "natural_position_change": false,
+  "risk_adaptive_partials": true,
+  "settings_changed_keys": [
+    "RISK_ADAPTIVE_PARTIAL_ENABLED"
+  ],
+  "source_hashes_verified": 17,
+  "dashboard_http": 200,
+  "resume_consumed": true,
+  "unit_success": true
+}

@@ -1,3 +1,15 @@
+# CURRENT AUTHORITATIVE STATE — V11 DEPLOYED / VERIFIED / COMPLETE
+
+Single v11 deployment completed. Active release /opt/autotrader-releases/risk_adaptive_partials_v11_20261010T231645KST, autotrader.servicePID175724 active NRestarts0. CORE and Candidate live loops running. CORE AI/Candidate CHART_RISK; risk-adaptive partials enabled.17source hashes, exact effective settings/owner/activation/parity, dashboardHTTP200, resume consumed verified. Tests1968+130subtests, zero failures;53new regressions. Source01ca75e; preflight265ecee. Full public v11 source/operator/verifier/results in autotrader-strategy-v11-20261010.
+
+Exact immutable deployment before/after:6positions6reduceOnlyOCO with unchanged IDs/quantities/SLTP; current coverage6/6 verified; pendingregular0. Only RISK_ADAPTIVE_PARTIAL_ENABLED enabled; keys/size/leverage/budgets/authority unchanged. No forced/test order, manual close/cancel, paid AI test, Telegram test or duplicate dispatch.
+
+CORE explicit Gemini proposal/GPT fraction5–50%initial, lifetime50%cap; durable partial-fill goals require freshAI each retry, smaller freshapproval limits attempt, actual fill accounting/dedup retained. Candidate confirmedchart profit10–50%initial, structuralderisk25–75%remaining, existing cumulative caps/lot minimum residual retained; exact live/backtest quantities and separate management-policy identity validated. Original entry snapshot, SLTP and positions retained. Historical fixed fractions remain correct for old records.
+
+Recovery: stage /tmp/autotrader-strategy-v11-qualified-20261010 has prepared-release.json, deployment-record.json and verification-result.json. Unit autotrader-strategy-v11-deploy-20261010.service active/exited Resultsuccess ExecMainStatus0. NEVER redispatch v11/v10/v9. Private backup path is in stage record; rollback only for verified defect using guarded operator. Read verify.py for read-only completion checks; later natural trading can change positions, so compare immutable deployment before/after separately. V11 task COMPLETE; no remaining implementation/test/deployment step. Do not repeat full tests without new changes/failures.
+
+---
+
 # CURRENT AUTHORITATIVE STATE — V11 PREFLIGHT PASSED / SINGLE DISPATCH NEXT
 
 Prepared release /opt/autotrader-releases/risk_adaptive_partials_v11_20261010T231645KST. Source01ca75e. Preflight17hashes, proposed risk-adaptive flag, existingCOREAI/CandidateCHART_RISK, activation/parity, live loops and exact6positions6OCO0pending passed. V10 servicePID174157 still active; no stop/restart/orders yet. Dispatch ONE autotrader-strategy-v11-deploy-20261010.service. Before any repeat inspect unit and /tmp/autotrader-strategy-v11-qualified-20261010/deployment-record.json; if exists/unit has run observe only.1968tests+130subtests0fail. Preserve existing positions/protection.
