@@ -1,3 +1,11 @@
+# CURRENT AUTHORITATIVE STATE — COST V12 DEPLOYED / VERIFIED / COMPLETE
+
+Single deployment COMPLETE: /opt/autotrader-releases/ai_cost_tuning_v12_20261011T013551KST, PID179007 active NRestarts0. Only CORE_GEMINI_ROUTINE_INTERVAL_SECONDS600->1800; trading source unchanged17hashes, priorv11qualification1968+130 reused,104focusedchecks passed incl9effective30mchecks. COREAI/CandidateCHART_RISK, early setups/materialevents/1ATRmovements/market/lifecycle immediate,15mheld/profitreview and30secriskpolling retained. Exact immutable6positions6OCO IDs/sizes/SLTP preserved,0pending; bothLIVEloops dashboard200 resumeconsumed. No forced/testorder or paidAItest. Savings unmeasured, no total-one-third or monthly-budget guarantee. Known audit repair findings remain open.
+
+Stage /tmp/autotrader-cost-v12-qualified-20261011 has prepared-release.json, deployment-record.json, verification-result.json. Unit autotrader-cost-v12-deploy-20261011.service success/exited0. NEVER redispatch v12/v11/v10/v9. Recover by record/unit plus v12 verify.py; old v11 verifier expects former settings hash, do not interpret mismatch as failed rollout. Public operator/test/cost evidence autotrader-cost-v12-20261011. Future natural trading may alter positions; immutable before/after preservation separate from current coverage. Task COMPLETE; do not repeat full tests/deployment.
+
+---
+
 # CURRENT AUTHORITATIVE STATE — COST V12 PREFLIGHT PASSED / SINGLE DISPATCH NEXT
 
 Prepared /opt/autotrader-releases/ai_cost_tuning_v12_20261011T013551KST, unchanged17sourcehashes; named routine setting600->1800.104focusedtests passed. Preflight6positions6exactSLTPOCO0pending, bothLIVEloops, activation/parity passed. V11 still runningPID175724; no stop/switch/orders yet. Stage /tmp/autotrader-cost-v12-qualified-20261011; dispatch ONE autotrader-cost-v12-deploy-20261011.service. If unit/record exists inspect only. Preserve exact positions/protection.

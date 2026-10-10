@@ -1,0 +1,24 @@
+{
+  "verified": true,
+  "release": "/opt/autotrader-releases/ai_cost_tuning_v12_20261011T013551KST",
+  "pid": "179007",
+  "restarts": 0,
+  "core_running": true,
+  "candidate_running": true,
+  "core_authority": "AI",
+  "candidate_authority": "CHART_RISK",
+  "positions": 6,
+  "oco": 6,
+  "pending": 0,
+  "exact_deployment_preservation": true,
+  "current_coverage_verified": true,
+  "natural_position_change": false,
+  "risk_adaptive_partials": true,
+  "settings_changed_keys": [
+    "CORE_GEMINI_ROUTINE_INTERVAL_SECONDS"
+  ],
+  "source_hashes_verified": 17,
+  "dashboard_http": 200,
+  "resume_consumed": true,
+  "unit_success": true
+}
