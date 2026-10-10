@@ -1,3 +1,10 @@
+# V10 phase 4 — PREFLIGHT PASSED, one deployment dispatch next
+
+Prepared release /opt/autotrader-releases/strategy_authority_v10_20261010T221704KST; preflight passed9source hashes, effective proposed CORE AI/Candidate CHART_RISK authority, ownerlegacy/ROLLBACK, live activation/parity, live loops and exact6positions/6OCO/pending0. Source commitd91defc pushed. No service stop/restart/order mutation performed yet.
+Next authorized operation is ONE autotrader-strategy-v10-deploy-20261010.service. Before any repeat, inspect unit and /tmp/autotrader-strategy-v10-qualified-20261010/deployment-record.json. If it exists or unit has run, observe only and recover completion state; never redispatch.
+
+---
+
 # V10 phase 3 — QUALIFIED, deployment not yet started
 
 All five suites pass: tests1350+27subtests, gemini_checks230+38, rollback_checks37+12, negative_guard_checks41+7, rollback_full_checks257+46. Total1915tests+130subtests, zero failures. Added37v10 authority regressions. Full source and results stored autotrader-strategy-v10-20261010/deploy-bundle and qualification-results.json. Deployment manifest9source files. Gemini prices/approval/confirmed entry timeout/wait/reject, actual 25%+25% reduction with original exact OCO and unchanged prices, execution risk constraints, same-side held review, held prompt, profit-event review and duplicate suppression validated. Saved ADA geometry passes noise-floor/20%SL/30%TP1/60%TP2/cost-inclusiveRR contract; not proof of predictive trading profit.
