@@ -1,3 +1,10 @@
+# CURRENT: V15 SINGLE DEPLOYMENT INTENT RECORDED
+Preflight passed:6positions/6OCO/pending0,source19,onlysettings CORE_GEMINI_MANAGEMENT_ONLY=true.
+Prepared release /opt/autotrader-releases/gemini_management_v15_20261011T101109KST.
+Dispatch authorized now ONCE: autotrader-ai-cost-v15-deploy-20261011.service.
+Resume:inspect unit and /tmp/autotrader-ai-cost-v15-qualified-20261011/deployment-record.json first. Never redispatch if either exists.
+Qualified2033+130,review fixescomplete,commit01db8be.
+
 # CURRENT: V15 QUALIFIED / V14 LIVE / NO V15 DISPATCH
 User authorized implementation,deployment,verification. Gemini management, GPT entry only.
 2033+130 tests passed. Independent review fixes complete. See ../autotrader-cost-v15-20261011/PROGRESS.md and qualification.json.

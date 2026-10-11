@@ -1,0 +1,6 @@
+{"preflight_pass": true, "release": "/opt/autotrader-releases/gemini_management_v15_20261011T101109KST", "positions": 6, "oco": 6, "pending": 0, "source_files": 19, "settings_keys": ["CORE_GEMINI_MANAGEMENT_ONLY"]}
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+

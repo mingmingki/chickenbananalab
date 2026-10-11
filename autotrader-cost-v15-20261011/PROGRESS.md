@@ -5,3 +5,5 @@
 - LIVE still v14 until deployment record. V15 no dispatch yet.
 - Next:stage/preflight, persist single deployment intent, dispatch unit once, inspect record, read-only verify.
 - Maintain existing positions/OCO; deployment operator exact snapshots, locked single attempt and rollback.
+
+- Preflight COMPLETE:6 positions/6 OCO,pending0. No existingv15unit/record. Single dispatch intent recorded.
