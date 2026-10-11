@@ -1,3 +1,6 @@
+# CURRENT: V16 SINGLE DISPATCH INTENT / PREFLIGHT PASSED
+Prepared strategy_guide_v16_20261011T104312KST.6positions/6OCO,pending0,settings0. Unit autotrader-ai-cost-v16-deploy-20261011.service ONCE; stage /tmp/autotrader-ai-cost-v16-qualified-20261011. Resume inspect unit/record first; never redispatch.
+
 # CURRENT: V16 QUALIFIED / V15 LIVE / NO DISPATCH
 2040+130 passed,review complete.4 UI/read-only files changed,settings0. Private /private/tmp/chickenbanana-strategy-guide-v16-20261011. See ../autotrader-strategy-guide-v16-20261011/PROGRESS.md. Inspect unit/record before dispatch.
 

@@ -1,0 +1,6 @@
+{"preflight_pass": true, "release": "/opt/autotrader-releases/strategy_guide_v16_20261011T104312KST", "positions": 6, "oco": 6, "pending": 0, "source_files": 21, "settings_keys": []}
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
