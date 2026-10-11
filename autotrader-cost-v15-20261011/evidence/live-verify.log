@@ -1,0 +1,15 @@
+UNIT {"ActiveState": "active", "SubState": "exited", "Result": "success", "ExecMainStatus": "0"}
+Oct 11 10:12:03 autotrader-vm systemd[1]: Starting autotrader-ai-cost-v15-deploy-20261011.service - /opt/autotrader/.venv/bin/python /tmp/autotrader-ai-cost-v15-qualified-20261011/deploy.py /tmp/autotrader-ai-cost-v15-qualified-20261011...
+Oct 11 10:12:10 autotrader-vm python[191472]: {"operation": "deployed", "release": "/opt/autotrader-releases/gemini_management_v15_20261011T101109KST", "pid": "191484", "changed_files": 7, "verified_source_files": 19, "settings_migration_keys": ["CORE_GEMINI_MANAGEMENT_ONLY"], "positions": 6, "oco": 6, "preserved": true, "backup": "/var/lib/autotrader/deployment-backups/strategy-ai-cost-v15-20261011T011203Z"}
+Oct 11 10:12:10 autotrader-vm systemd[1]: Finished autotrader-ai-cost-v15-deploy-20261011.service - /opt/autotrader/.venv/bin/python /tmp/autotrader-ai-cost-v15-qualified-20261011/deploy.py /tmp/autotrader-ai-cost-v15-qualified-20261011.
+
+VERIFY_STDOUT {"verified": true, "release": "/opt/autotrader-releases/gemini_management_v15_20261011T101109KST", "pid": "191484", "restarts": 0, "core_running": true, "candidate_running": true, "core_authority": "AI", "candidate_authority": "CHART_RISK", "positions": 6, "oco": 6, "pending": 0, "exact_deployment_preservation": true, "current_coverage_verified": true, "natural_position_change": false, "risk_adaptive_partials": true, "settings_changed_keys": ["CORE_GEMINI_MANAGEMENT_ONLY"], "source_hashes_verified": 19, "dashboard_http": 200, "resume_consumed": true, "unit_success": true, "scheduled_strategy_ai_review": false, "manual_strategy_review_available": false, "gpt_entry_only": true, "gemini_management": true, "code_reduction_sizing": true}
+
+VERIFY_STDERR 
+VERIFY_EXIT 0
+OBSERVATION {"minutes": 0.97, "calls": {"gemini:core_primary_decision": 4}, "position_events": {"position_ai_review_started": 3, "gemini_unified_review_reused": 3, "gemini_position_review": 3, "gemini_management_decision": 3, "position_ai_decision": 3, "position_ai_hold": 3}, "estimated_usage_usd": 0.023815, "gemini_actions": [{"symbol": "BTC/USDT:USDT", "action": "HOLD"}, {"symbol": "ETH/USDT:USDT", "action": "HOLD"}, {"symbol": "XRP/USDT:USDT", "action": "HOLD"}]}
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+

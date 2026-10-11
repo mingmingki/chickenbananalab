@@ -1,9 +1,9 @@
-# v15 progress
-- Tasks1-3 COMPLETE: Gemini action authority, code risk fraction, GPT additional exposure entry, manual paid review retirement/UI.
-- Task4 implementation qualification COMPLETE:2033 tests +130 subtests, zero failures;37 feature tests.
-- Independent review Important issues fixed:manual SLTP schema exception, contradictory reversal close. Paidshadow/HoldAudit exclusions and matching add protection proof verified.
-- LIVE still v14 until deployment record. V15 no dispatch yet.
-- Next:stage/preflight, persist single deployment intent, dispatch unit once, inspect record, read-only verify.
-- Maintain existing positions/OCO; deployment operator exact snapshots, locked single attempt and rollback.
-
-- Preflight COMPLETE:6 positions/6 OCO,pending0. No existingv15unit/record. Single dispatch intent recorded.
+# v15 COMPLETE / LIVE VERIFIED
+- Task1 Gemini explicit management and code risk sizing COMPLETE.
+- Task2 GPT new/add/reversal entry only,proof revalidation COMPLETE.
+- Task3 free pattern stats/UI,paid scheduler/manual/Shadow/HoldAudit retirement COMPLETE.
+- Task4 independent review fixes,2033+130 tests,37features,single deploy andreadonlyliveverification COMPLETE.
+- LIVE release /opt/autotrader-releases/gemini_management_v15_20261011T101109KST,PID191484,restarts0.
+- Exact6positions/6OCO preservation,pending0,HTTP200,source19hashes.
+- Actualfirstsample:3Gemini management HOLD,3unified reuse,GPT0.
+- Do not redeploy v15;inspect existingunit/deploymentrecord first.
