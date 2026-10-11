@@ -1,4 +1,3 @@
-# ALL STAGES COMPLETE / V16 LIVE VERIFIED
 # V16 strategy guide LIVE / verified
 Completed 2026-10-11 10:46:44 KST. Release /opt/autotrader-releases/strategy_guide_v16_20261011T104312KST, PID 192265, restarts0.
 Footer 현재 전략과 운영 방법; navigation 전략 · 운영 안내. CORE/Gemini-held/GPT-entry and Candidate C/chart-only roles, entry/SLTP/partial/add/sizing, operating steps,cost roles and recent changes.

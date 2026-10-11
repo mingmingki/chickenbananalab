@@ -1,0 +1,6 @@
+{"verified": true, "release": "/opt/autotrader-releases/strategy_guide_v16_20261011T104312KST", "pid": "192265", "restarts": 0, "core_running": true, "candidate_running": true, "core_authority": "AI", "candidate_authority": "CHART_RISK", "positions": 6, "oco": 6, "pending": 0, "exact_deployment_preservation": true, "current_coverage_verified": true, "natural_position_change": false, "risk_adaptive_partials": true, "settings_changed_keys": [], "source_hashes_verified": 21, "dashboard_http": 200, "resume_consumed": true, "unit_success": true, "scheduled_strategy_ai_review": false, "manual_strategy_review_available": false, "gpt_entry_only": true, "gemini_management": true, "code_reduction_sizing": true, "strategy_guide_visible": true, "strategy_guide_matches_config": true, "strategy_guide_asset_http": 200}
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+

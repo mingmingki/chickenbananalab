@@ -1,0 +1,20 @@
+Result=success
+ExecMainStatus=0
+ActiveState=active
+SubState=exited
+
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+Traceback (most recent call last):
+  File "/tmp/autotrader-ai-cost-v16-qualified-20261011/verify.py", line 37, in <module>
+    assert core.get('running') is True
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError
+Traceback (most recent call last):
+  File "<string>", line 10, in <module>
+  File "/usr/lib/python3.11/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['/opt/autotrader/.venv/bin/python', '/tmp/autotrader-ai-cost-v16-qualified-20261011/verify.py']' returned non-zero exit status 1.
