@@ -1,3 +1,6 @@
+# CURRENT: V16 STRATEGY GUIDE IN PROGRESS / V15 LIVE
+Private /private/tmp/chickenbanana-strategy-guide-v16-20261011. RED tests recorded. No v16 dispatch. Preserve orders/positions.
+
 # CURRENT: V15 LIVE DEPLOYED AND VERIFIED / TASK COMPLETE
 2026-10-11 10:12:10 KST. /opt/autotrader-releases/gemini_management_v15_20261011T101109KST,PID191484,restarts0.
 CORE/Candidate running.6positions/6OCO exactpreservation,pending0,19sourcehashes,HTTP200.
