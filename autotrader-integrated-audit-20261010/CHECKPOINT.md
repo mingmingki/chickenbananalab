@@ -1,3 +1,6 @@
+# CURRENT: V16 QUALIFIED / V15 LIVE / NO DISPATCH
+2040+130 passed,review complete.4 UI/read-only files changed,settings0. Private /private/tmp/chickenbanana-strategy-guide-v16-20261011. See ../autotrader-strategy-guide-v16-20261011/PROGRESS.md. Inspect unit/record before dispatch.
+
 # CURRENT: V16 STRATEGY GUIDE IN PROGRESS / V15 LIVE
 Private /private/tmp/chickenbanana-strategy-guide-v16-20261011. RED tests recorded. No v16 dispatch. Preserve orders/positions.
 

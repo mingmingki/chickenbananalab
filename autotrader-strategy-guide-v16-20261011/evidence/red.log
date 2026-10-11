@@ -1,0 +1,171 @@
+FFFFFFF                                                                  [100%]
+=================================== FAILURES ===================================
+________ test_current_roles_distinguish_entry_gpt_and_gemini_management ________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-159/test_current_roles_distinguish0')
+
+    def test_current_roles_distinguish_entry_gpt_and_gemini_management(tmp_path):
+>       data=guide(configured(tmp_path));core,cc=data['cards']
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_strategy_guide_v16.py:30: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cfg = <config.UserConfig object at 0x107165350>
+
+    def guide(cfg):
+>       assert importlib.util.find_spec('strategy_guide') is not None, 'current strategy guide missing'
+E       AssertionError: current strategy guide missing
+E       assert None is not None
+E        +  where None = <function find_spec at 0x105cdf060>('strategy_guide')
+E        +    where <function find_spec at 0x105cdf060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_strategy_guide_v16.py:10: AssertionError
+________ test_saved_margin_change_updates_explanation_without_doc_edit _________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-159/test_saved_margin_change_updat0')
+
+    def test_saved_margin_change_updates_explanation_without_doc_edit(tmp_path):
+        cfg=configured(tmp_path)
+>       assert '200 USDT' in row(guide(cfg)['cards'][0],'주문 크기')
+                                 ^^^^^^^^^^
+
+tests/test_strategy_guide_v16.py:39: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cfg = <config.UserConfig object at 0x107097b10>
+
+    def guide(cfg):
+>       assert importlib.util.find_spec('strategy_guide') is not None, 'current strategy guide missing'
+E       AssertionError: current strategy guide missing
+E       assert None is not None
+E        +  where None = <function find_spec at 0x105cdf060>('strategy_guide')
+E        +    where <function find_spec at 0x105cdf060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_strategy_guide_v16.py:10: AssertionError
+_________________ test_legacy_flags_never_claim_gpt_entry_only _________________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-159/test_legacy_flags_never_claim_0')
+
+    def test_legacy_flags_never_claim_gpt_entry_only(tmp_path):
+        cfg=configured(tmp_path);cfg.CORE_GEMINI_MANAGEMENT_ONLY=False
+>       data=guide(cfg)
+             ^^^^^^^^^^
+
+tests/test_strategy_guide_v16.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cfg = <config.UserConfig object at 0x107149550>
+
+    def guide(cfg):
+>       assert importlib.util.find_spec('strategy_guide') is not None, 'current strategy guide missing'
+E       AssertionError: current strategy guide missing
+E       assert None is not None
+E        +  where None = <function find_spec at 0x105cdf060>('strategy_guide')
+E        +    where <function find_spec at 0x105cdf060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_strategy_guide_v16.py:10: AssertionError
+__________ test_manual_order_modes_do_not_claim_automatic_exit_prices __________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-159/test_manual_order_modes_do_not0')
+
+    def test_manual_order_modes_do_not_claim_automatic_exit_prices(tmp_path):
+        cfg=configured(tmp_path);cfg.CORE_ORDER_MODE='MANUAL_ALL';cfg.CANDIDATE_C_ORDER_MODE='MANUAL_ALL'
+>       for card in guide(cfg)['cards']:
+                    ^^^^^^^^^^
+
+tests/test_strategy_guide_v16.py:55: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cfg = <config.UserConfig object at 0x107177650>
+
+    def guide(cfg):
+>       assert importlib.util.find_spec('strategy_guide') is not None, 'current strategy guide missing'
+E       AssertionError: current strategy guide missing
+E       assert None is not None
+E        +  where None = <function find_spec at 0x105cdf060>('strategy_guide')
+E        +    where <function find_spec at 0x105cdf060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_strategy_guide_v16.py:10: AssertionError
+_______________ test_guide_follows_code_reduction_policy_bounds ________________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-159/test_guide_follows_code_reduct0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107145b10>
+
+    def test_guide_follows_code_reduction_policy_bounds(tmp_path,monkeypatch):
+        import core_management_policy
+        monkeypatch.setitem(core_management_policy.POLICY,'min',.1)
+        monkeypatch.setitem(core_management_policy.POLICY,'max',.4)
+>       assert '10~40%' in row(guide(configured(tmp_path))['cards'][0],'부분감축')
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_strategy_guide_v16.py:63: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cfg = <config.UserConfig object at 0x106260f50>
+
+    def guide(cfg):
+>       assert importlib.util.find_spec('strategy_guide') is not None, 'current strategy guide missing'
+E       AssertionError: current strategy guide missing
+E       assert None is not None
+E        +  where None = <function find_spec at 0x105cdf060>('strategy_guide')
+E        +    where <function find_spec at 0x105cdf060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_strategy_guide_v16.py:10: AssertionError
+________________ test_unknown_values_do_not_invent_live_margin _________________
+
+    def test_unknown_values_do_not_invent_live_margin():
+        cfg=SimpleNamespace(CORE_ORDER_MODE='FIXED_MARGIN_AUTO_EXIT',CANDIDATE_C_ORDER_MODE='FIXED_MARGIN_AUTO_EXIT')
+>       for card in guide(cfg)['cards']:
+                    ^^^^^^^^^^
+
+tests/test_strategy_guide_v16.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cfg = namespace(CORE_ORDER_MODE='FIXED_MARGIN_AUTO_EXIT', CANDIDATE_C_ORDER_MODE='FIXED_MARGIN_AUTO_EXIT')
+
+    def guide(cfg):
+>       assert importlib.util.find_spec('strategy_guide') is not None, 'current strategy guide missing'
+E       AssertionError: current strategy guide missing
+E       assert None is not None
+E        +  where None = <function find_spec at 0x105cdf060>('strategy_guide')
+E        +    where <function find_spec at 0x105cdf060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_strategy_guide_v16.py:10: AssertionError
+________ test_dashboard_footer_and_state_share_read_only_current_guide _________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-159/test_dashboard_footer_and_stat0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107144ed0>
+
+    def test_dashboard_footer_and_state_share_read_only_current_guide(tmp_path,monkeypatch):
+        import web_app
+        from state import TraderState
+        cfg=configured(tmp_path);ctx=SimpleNamespace(cfg=cfg,username='guide-user',dir=str(tmp_path),state=TraderState(),
+            gemini_validated=False,okx_validated=False,openai_validated=False)
+        monkeypatch.setattr(web_app,'get_context',lambda _:ctx)
+        monkeypatch.setattr(web_app.accounts,'is_admin',lambda _:False)
+        monkeypatch.setattr(web_app.accounts,'is_approved',lambda _:True)
+        with web_app.app.test_client() as client:
+            with client.session_transaction() as session:
+                session['username']='guide-user';session['authenticated']=True
+            page=client.get('/');assert page.status_code==200
+            html=page.get_data(as_text=True)
+>           assert 'id="strategy-guide-panel"' in html
+E           assert 'id="strategy-guide-panel"' in '<!doctype html>\n<html lang="ko">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,...s="cert-download-btn" onclick="downloadCertImage()">📥 이미지로 저장</button>\n    </div>\n  </div>\n</div>\n</body>\n</html>'
+
+tests/test_strategy_guide_v16.py:85: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_strategy_guide_v16.py::test_current_roles_distinguish_entry_gpt_and_gemini_management
+FAILED tests/test_strategy_guide_v16.py::test_saved_margin_change_updates_explanation_without_doc_edit
+FAILED tests/test_strategy_guide_v16.py::test_legacy_flags_never_claim_gpt_entry_only
+FAILED tests/test_strategy_guide_v16.py::test_manual_order_modes_do_not_claim_automatic_exit_prices
+FAILED tests/test_strategy_guide_v16.py::test_guide_follows_code_reduction_policy_bounds
+FAILED tests/test_strategy_guide_v16.py::test_unknown_values_do_not_invent_live_margin
+FAILED tests/test_strategy_guide_v16.py::test_dashboard_footer_and_state_share_read_only_current_guide
+7 failed in 1.74s

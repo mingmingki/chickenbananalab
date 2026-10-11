@@ -1,5 +1,3 @@
-# Strategy guide v16
-User wants a readable current strategy/operating guide at dashboard bottom,maintained with updates.
-Bounded UI/read-only endpoint change authorized. Plan:CORE/Candidate cards,dynamic settings and source-linked reduction bounds,operating steps/cost roles/recent change note. Existing AI,orders,positions,OCO remain.
-Baseline LIVEv15 PID191484,git e10a9f6. No v16 dispatch.
-Stage1 requirements/exploration COMPLETE;stage2 RED recorded,implementation next;stage3 review/tests,stage4 single deployment/read-only preservation check.
+# V16 guide qualified / no dispatch
+Stage1 design/RED complete. Stage2 read-only guide implementation complete. Stage3 final verification2040+130 and independent review complete. Stage4 prepare/preflight pending. Stage5 single deploy/live verify pending.
+Trading behavior/settings unchanged. Inspect planned unit autotrader-ai-cost-v16-deploy-20261011.service and /tmp/autotrader-ai-cost-v16-qualified-20261011/deployment-record.json before any resumed dispatch.
