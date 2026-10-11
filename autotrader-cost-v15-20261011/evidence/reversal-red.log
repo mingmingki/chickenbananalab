@@ -1,0 +1,408 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+______ test_reversal_execution_never_overrides_explicit_held_action[HOLD] ______
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-155/test_reversal_execution_never_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11082efd0>
+held_action = 'HOLD'
+
+    @pytest.mark.parametrize('held_action',['HOLD','REDUCE_50','ADD_POSITION',None])
+    def test_reversal_execution_never_overrides_explicit_held_action(tmp_path,monkeypatch,held_action):
+        import core_entry_events
+        c=cfg(tmp_path);s=trader_state.TraderState();d=dict(action='short',confidence=.9,_held_review=review(held_action))
+        monkeypatch.setattr(trader.core_unified_service,'owner',lambda *a:'legacy')
+        monkeypatch.setattr(core_entry_events,'pending_order',lambda *a:None)
+        monkeypatch.setattr(trader,'_execute_close',lambda *a,**k:pytest.fail('contradictory Gemini close'))
+>       assert not trader._execute_approved_entry_with_optional_reversal(c,s,SimpleNamespace(),SYMBOL,
+            'short',10.,.2541,.26,.24,reversal_position=dict(POSITION),decision_id='v15-reversal',decision=d)
+
+tests/test_core_gemini_management_v15.py:163: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cfg = namespace(user_dir='/private/tmp/pytest-of-bagmingi/pytest-155/test_reversal_execution_never_0', logger=<Logger cost-v..._COOLDOWN_MINUTES=15, POSITION_AI_LIVE_EXECUTE=True, CORE_GEMINI_MANAGEMENT_ONLY=True, POSITION_AI_REVIEW_ENABLED=True)
+state = <state.TraderState object at 0x11082f7d0>, client = namespace()
+symbol = 'BTC/USDT:USDT', action = 'short', amount = 10.0, last_price = 0.2541
+sl_price = 0.26, tp_price = 0.24
+reversal_position = {'side': 'long', 'contracts': 10.0, 'entry_price': 0.2541, 'mark_price': 0.259, ...}
+market_regime = None, regime_confidence = None, trade_alignment = None
+decision_id = 'v15-reversal'
+decision = {'action': 'short', 'confidence': 0.9, '_held_review': {'assessment': 'thesis_intact', 'confidence': 0.85, 'reasoning': 'trend; protect giveback', 'risk_level': 'medium', ...}}
+short_level_ctx = None, gpt_result = None, revalidate_after_gpt = False
+
+    def _execute_approved_entry_with_optional_reversal(
+        cfg, state, client: OkxClient, symbol: str, action: str, amount: float,
+        last_price: float, sl_price: float, tp_price: float, *,
+        reversal_position: dict | None,
+        market_regime=None, regime_confidence=None, trade_alignment=None,
+        decision_id=None, decision=None, short_level_ctx=None, gpt_result=None,
+        revalidate_after_gpt: bool = False,
+    ) -> bool:
+        """Execute an already-approved entry; for reversals, close only after approval.
+    
+        This is the anti-churn boundary.  A Gemini opposite-side signal is not authority
+        to flatten the current position.  The same final entry gate that would authorize
+        the replacement position must already have approved before we touch the existing
+        position.  Close + replacement entry share the account order lock so Candidate C
+        or another CORE symbol cannot interleave an account mutation between them.
+        """
+        try:
+            import core_entry_events
+            owner=core_unified_service.owner(cfg,symbol)
+            if owner!='legacy':
+                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','entry_ownership:'+owner)
+                return False
+            pending=core_entry_events.pending_order(cfg.user_dir,symbol)
+            if pending and pending['decision_id'] != decision_id:
+                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',
+                    'unresolved_prior_entry_order',prior_decision_id=pending['decision_id'])
+                return False
+            if reversal_position is None:
+                if revalidate_after_gpt and not _approved_entry_still_valid_after_gpt(
+                    cfg, client, symbol, last_price, "post_gpt",
+                ):
+                    _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',
+                        getattr(cfg,'_core_revalidation_reasons',{}).get(symbol,'post_gpt_revalidation_failed'))
+                    return False
+                return _execute_entry(
+                    cfg, state, client, symbol, action, amount, last_price, sl_price, tp_price,
+                    market_regime=market_regime, regime_confidence=regime_confidence,
+                    trade_alignment=trade_alignment, decision_id=decision_id, decision=decision,
+                    short_level_ctx=short_level_ctx, gpt_result=gpt_result,
+                )
+    
+            import symbol_entry_control
+    
+            def _replacement_entry_allowed(stage: str) -> bool:
+                nonlocal amount,sl_price,tp_price
+                if _reentry_blocked(state,symbol,cfg,action)[0]:
+                    _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','reentry_cooldown')
+                    return False
+                if not _approved_entry_still_valid_after_gpt(cfg, client, symbol, last_price, stage):
+                    _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',
+                        getattr(cfg,'_core_revalidation_reasons',{}).get(symbol,'reversal_revalidation_failed'))
+                    return False
+                validation = (decision or {}).get('_bounded_entry_validation')
+                if validation is not None:
+                    checked = _core_final_entry_validation(cfg, client, symbol, action, amount,
+                        last_price, sl_price, tp_price, decision, validation)
+                    if not checked['allowed']:
+                        cfg.logger.warning('[%s] REVERSAL_ENTRY_BLOCK before_close=%s',symbol,checked['reason'])
+                        _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',checked['reason'],
+                            validation_values=checked.get('values'))
+                        return False
+                    _commit_core_final_entry_plan(cfg,client,symbol,decision,validation,checked,stage)
+                    amount,sl_price,tp_price=checked['amount'],checked['stop'],checked['target']
+                return True
+    
+            with cc_ownership.account_order_lock(cfg.user_dir):
+>               actual = client.fetch_position()
+                         ^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'types.SimpleNamespace' object has no attribute 'fetch_position'
+
+trader.py:4361: AttributeError
+___ test_reversal_execution_never_overrides_explicit_held_action[REDUCE_50] ____
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-155/test_reversal_execution_never_1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x110819ad0>
+held_action = 'REDUCE_50'
+
+    @pytest.mark.parametrize('held_action',['HOLD','REDUCE_50','ADD_POSITION',None])
+    def test_reversal_execution_never_overrides_explicit_held_action(tmp_path,monkeypatch,held_action):
+        import core_entry_events
+        c=cfg(tmp_path);s=trader_state.TraderState();d=dict(action='short',confidence=.9,_held_review=review(held_action))
+        monkeypatch.setattr(trader.core_unified_service,'owner',lambda *a:'legacy')
+        monkeypatch.setattr(core_entry_events,'pending_order',lambda *a:None)
+        monkeypatch.setattr(trader,'_execute_close',lambda *a,**k:pytest.fail('contradictory Gemini close'))
+>       assert not trader._execute_approved_entry_with_optional_reversal(c,s,SimpleNamespace(),SYMBOL,
+            'short',10.,.2541,.26,.24,reversal_position=dict(POSITION),decision_id='v15-reversal',decision=d)
+
+tests/test_core_gemini_management_v15.py:163: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cfg = namespace(user_dir='/private/tmp/pytest-of-bagmingi/pytest-155/test_reversal_execution_never_1', logger=<Logger cost-v..._COOLDOWN_MINUTES=15, POSITION_AI_LIVE_EXECUTE=True, CORE_GEMINI_MANAGEMENT_ONLY=True, POSITION_AI_REVIEW_ENABLED=True)
+state = <state.TraderState object at 0x110829110>, client = namespace()
+symbol = 'BTC/USDT:USDT', action = 'short', amount = 10.0, last_price = 0.2541
+sl_price = 0.26, tp_price = 0.24
+reversal_position = {'side': 'long', 'contracts': 10.0, 'entry_price': 0.2541, 'mark_price': 0.259, ...}
+market_regime = None, regime_confidence = None, trade_alignment = None
+decision_id = 'v15-reversal'
+decision = {'action': 'short', 'confidence': 0.9, '_held_review': {'assessment': 'thesis_intact', 'confidence': 0.85, 'reasoning': 'trend; protect giveback', 'risk_level': 'medium', ...}}
+short_level_ctx = None, gpt_result = None, revalidate_after_gpt = False
+
+    def _execute_approved_entry_with_optional_reversal(
+        cfg, state, client: OkxClient, symbol: str, action: str, amount: float,
+        last_price: float, sl_price: float, tp_price: float, *,
+        reversal_position: dict | None,
+        market_regime=None, regime_confidence=None, trade_alignment=None,
+        decision_id=None, decision=None, short_level_ctx=None, gpt_result=None,
+        revalidate_after_gpt: bool = False,
+    ) -> bool:
+        """Execute an already-approved entry; for reversals, close only after approval.
+    
+        This is the anti-churn boundary.  A Gemini opposite-side signal is not authority
+        to flatten the current position.  The same final entry gate that would authorize
+        the replacement position must already have approved before we touch the existing
+        position.  Close + replacement entry share the account order lock so Candidate C
+        or another CORE symbol cannot interleave an account mutation between them.
+        """
+        try:
+            import core_entry_events
+            owner=core_unified_service.owner(cfg,symbol)
+            if owner!='legacy':
+                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','entry_ownership:'+owner)
+                return False
+            pending=core_entry_events.pending_order(cfg.user_dir,symbol)
+            if pending and pending['decision_id'] != decision_id:
+                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',
+                    'unresolved_prior_entry_order',prior_decision_id=pending['decision_id'])
+                return False
+            if reversal_position is None:
+                if revalidate_after_gpt and not _approved_entry_still_valid_after_gpt(
+                    cfg, client, symbol, last_price, "post_gpt",
+                ):
+                    _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',
+                        getattr(cfg,'_core_revalidation_reasons',{}).get(symbol,'post_gpt_revalidation_failed'))
+                    return False
+                return _execute_entry(
+                    cfg, state, client, symbol, action, amount, last_price, sl_price, tp_price,
+                    market_regime=market_regime, regime_confidence=regime_confidence,
+                    trade_alignment=trade_alignment, decision_id=decision_id, decision=decision,
+                    short_level_ctx=short_level_ctx, gpt_result=gpt_result,
+                )
+    
+            import symbol_entry_control
+    
+            def _replacement_entry_allowed(stage: str) -> bool:
+                nonlocal amount,sl_price,tp_price
+                if _reentry_blocked(state,symbol,cfg,action)[0]:
+                    _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','reentry_cooldown')
+                    return False
+                if not _approved_entry_still_valid_after_gpt(cfg, client, symbol, last_price, stage):
+                    _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',
+                        getattr(cfg,'_core_revalidation_reasons',{}).get(symbol,'reversal_revalidation_failed'))
+                    return False
+                validation = (decision or {}).get('_bounded_entry_validation')
+                if validation is not None:
+                    checked = _core_final_entry_validation(cfg, client, symbol, action, amount,
+                        last_price, sl_price, tp_price, decision, validation)
+                    if not checked['allowed']:
+                        cfg.logger.warning('[%s] REVERSAL_ENTRY_BLOCK before_close=%s',symbol,checked['reason'])
+                        _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',checked['reason'],
+                            validation_values=checked.get('values'))
+                        return False
+                    _commit_core_final_entry_plan(cfg,client,symbol,decision,validation,checked,stage)
+                    amount,sl_price,tp_price=checked['amount'],checked['stop'],checked['target']
+                return True
+    
+            with cc_ownership.account_order_lock(cfg.user_dir):
+>               actual = client.fetch_position()
+                         ^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'types.SimpleNamespace' object has no attribute 'fetch_position'
+
+trader.py:4361: AttributeError
+__ test_reversal_execution_never_overrides_explicit_held_action[ADD_POSITION] __
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-155/test_reversal_execution_never_2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108645890>
+held_action = 'ADD_POSITION'
+
+    @pytest.mark.parametrize('held_action',['HOLD','REDUCE_50','ADD_POSITION',None])
+    def test_reversal_execution_never_overrides_explicit_held_action(tmp_path,monkeypatch,held_action):
+        import core_entry_events
+        c=cfg(tmp_path);s=trader_state.TraderState();d=dict(action='short',confidence=.9,_held_review=review(held_action))
+        monkeypatch.setattr(trader.core_unified_service,'owner',lambda *a:'legacy')
+        monkeypatch.setattr(core_entry_events,'pending_order',lambda *a:None)
+        monkeypatch.setattr(trader,'_execute_close',lambda *a,**k:pytest.fail('contradictory Gemini close'))
+>       assert not trader._execute_approved_entry_with_optional_reversal(c,s,SimpleNamespace(),SYMBOL,
+            'short',10.,.2541,.26,.24,reversal_position=dict(POSITION),decision_id='v15-reversal',decision=d)
+
+tests/test_core_gemini_management_v15.py:163: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cfg = namespace(user_dir='/private/tmp/pytest-of-bagmingi/pytest-155/test_reversal_execution_never_2', logger=<Logger cost-v..._COOLDOWN_MINUTES=15, POSITION_AI_LIVE_EXECUTE=True, CORE_GEMINI_MANAGEMENT_ONLY=True, POSITION_AI_REVIEW_ENABLED=True)
+state = <state.TraderState object at 0x108647d10>, client = namespace()
+symbol = 'BTC/USDT:USDT', action = 'short', amount = 10.0, last_price = 0.2541
+sl_price = 0.26, tp_price = 0.24
+reversal_position = {'side': 'long', 'contracts': 10.0, 'entry_price': 0.2541, 'mark_price': 0.259, ...}
+market_regime = None, regime_confidence = None, trade_alignment = None
+decision_id = 'v15-reversal'
+decision = {'action': 'short', 'confidence': 0.9, '_held_review': {'assessment': 'thesis_intact', 'confidence': 0.85, 'reasoning': 'trend; protect giveback', 'risk_level': 'medium', ...}}
+short_level_ctx = None, gpt_result = None, revalidate_after_gpt = False
+
+    def _execute_approved_entry_with_optional_reversal(
+        cfg, state, client: OkxClient, symbol: str, action: str, amount: float,
+        last_price: float, sl_price: float, tp_price: float, *,
+        reversal_position: dict | None,
+        market_regime=None, regime_confidence=None, trade_alignment=None,
+        decision_id=None, decision=None, short_level_ctx=None, gpt_result=None,
+        revalidate_after_gpt: bool = False,
+    ) -> bool:
+        """Execute an already-approved entry; for reversals, close only after approval.
+    
+        This is the anti-churn boundary.  A Gemini opposite-side signal is not authority
+        to flatten the current position.  The same final entry gate that would authorize
+        the replacement position must already have approved before we touch the existing
+        position.  Close + replacement entry share the account order lock so Candidate C
+        or another CORE symbol cannot interleave an account mutation between them.
+        """
+        try:
+            import core_entry_events
+            owner=core_unified_service.owner(cfg,symbol)
+            if owner!='legacy':
+                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','entry_ownership:'+owner)
+                return False
+            pending=core_entry_events.pending_order(cfg.user_dir,symbol)
+            if pending and pending['decision_id'] != decision_id:
+                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',
+                    'unresolved_prior_entry_order',prior_decision_id=pending['decision_id'])
+                return False
+            if reversal_position is None:
+                if revalidate_after_gpt and not _approved_entry_still_valid_after_gpt(
+                    cfg, client, symbol, last_price, "post_gpt",
+                ):
+                    _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',
+                        getattr(cfg,'_core_revalidation_reasons',{}).get(symbol,'post_gpt_revalidation_failed'))
+                    return False
+                return _execute_entry(
+                    cfg, state, client, symbol, action, amount, last_price, sl_price, tp_price,
+                    market_regime=market_regime, regime_confidence=regime_confidence,
+                    trade_alignment=trade_alignment, decision_id=decision_id, decision=decision,
+                    short_level_ctx=short_level_ctx, gpt_result=gpt_result,
+                )
+    
+            import symbol_entry_control
+    
+            def _replacement_entry_allowed(stage: str) -> bool:
+                nonlocal amount,sl_price,tp_price
+                if _reentry_blocked(state,symbol,cfg,action)[0]:
+                    _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','reentry_cooldown')
+                    return False
+                if not _approved_entry_still_valid_after_gpt(cfg, client, symbol, last_price, stage):
+                    _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',
+                        getattr(cfg,'_core_revalidation_reasons',{}).get(symbol,'reversal_revalidation_failed'))
+                    return False
+                validation = (decision or {}).get('_bounded_entry_validation')
+                if validation is not None:
+                    checked = _core_final_entry_validation(cfg, client, symbol, action, amount,
+                        last_price, sl_price, tp_price, decision, validation)
+                    if not checked['allowed']:
+                        cfg.logger.warning('[%s] REVERSAL_ENTRY_BLOCK before_close=%s',symbol,checked['reason'])
+                        _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',checked['reason'],
+                            validation_values=checked.get('values'))
+                        return False
+                    _commit_core_final_entry_plan(cfg,client,symbol,decision,validation,checked,stage)
+                    amount,sl_price,tp_price=checked['amount'],checked['stop'],checked['target']
+                return True
+    
+            with cc_ownership.account_order_lock(cfg.user_dir):
+>               actual = client.fetch_position()
+                         ^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'types.SimpleNamespace' object has no attribute 'fetch_position'
+
+trader.py:4361: AttributeError
+______ test_reversal_execution_never_overrides_explicit_held_action[None] ______
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-155/test_reversal_execution_never_3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108672b90>
+held_action = None
+
+    @pytest.mark.parametrize('held_action',['HOLD','REDUCE_50','ADD_POSITION',None])
+    def test_reversal_execution_never_overrides_explicit_held_action(tmp_path,monkeypatch,held_action):
+        import core_entry_events
+        c=cfg(tmp_path);s=trader_state.TraderState();d=dict(action='short',confidence=.9,_held_review=review(held_action))
+        monkeypatch.setattr(trader.core_unified_service,'owner',lambda *a:'legacy')
+        monkeypatch.setattr(core_entry_events,'pending_order',lambda *a:None)
+        monkeypatch.setattr(trader,'_execute_close',lambda *a,**k:pytest.fail('contradictory Gemini close'))
+>       assert not trader._execute_approved_entry_with_optional_reversal(c,s,SimpleNamespace(),SYMBOL,
+            'short',10.,.2541,.26,.24,reversal_position=dict(POSITION),decision_id='v15-reversal',decision=d)
+
+tests/test_core_gemini_management_v15.py:163: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cfg = namespace(user_dir='/private/tmp/pytest-of-bagmingi/pytest-155/test_reversal_execution_never_3', logger=<Logger cost-v..._COOLDOWN_MINUTES=15, POSITION_AI_LIVE_EXECUTE=True, CORE_GEMINI_MANAGEMENT_ONLY=True, POSITION_AI_REVIEW_ENABLED=True)
+state = <state.TraderState object at 0x108670150>, client = namespace()
+symbol = 'BTC/USDT:USDT', action = 'short', amount = 10.0, last_price = 0.2541
+sl_price = 0.26, tp_price = 0.24
+reversal_position = {'side': 'long', 'contracts': 10.0, 'entry_price': 0.2541, 'mark_price': 0.259, ...}
+market_regime = None, regime_confidence = None, trade_alignment = None
+decision_id = 'v15-reversal'
+decision = {'action': 'short', 'confidence': 0.9, '_held_review': {'assessment': 'thesis_intact', 'confidence': 0.85, 'reasoning': 'trend; protect giveback', 'risk_level': 'medium', ...}}
+short_level_ctx = None, gpt_result = None, revalidate_after_gpt = False
+
+    def _execute_approved_entry_with_optional_reversal(
+        cfg, state, client: OkxClient, symbol: str, action: str, amount: float,
+        last_price: float, sl_price: float, tp_price: float, *,
+        reversal_position: dict | None,
+        market_regime=None, regime_confidence=None, trade_alignment=None,
+        decision_id=None, decision=None, short_level_ctx=None, gpt_result=None,
+        revalidate_after_gpt: bool = False,
+    ) -> bool:
+        """Execute an already-approved entry; for reversals, close only after approval.
+    
+        This is the anti-churn boundary.  A Gemini opposite-side signal is not authority
+        to flatten the current position.  The same final entry gate that would authorize
+        the replacement position must already have approved before we touch the existing
+        position.  Close + replacement entry share the account order lock so Candidate C
+        or another CORE symbol cannot interleave an account mutation between them.
+        """
+        try:
+            import core_entry_events
+            owner=core_unified_service.owner(cfg,symbol)
+            if owner!='legacy':
+                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','entry_ownership:'+owner)
+                return False
+            pending=core_entry_events.pending_order(cfg.user_dir,symbol)
+            if pending and pending['decision_id'] != decision_id:
+                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',
+                    'unresolved_prior_entry_order',prior_decision_id=pending['decision_id'])
+                return False
+            if reversal_position is None:
+                if revalidate_after_gpt and not _approved_entry_still_valid_after_gpt(
+                    cfg, client, symbol, last_price, "post_gpt",
+                ):
+                    _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',
+                        getattr(cfg,'_core_revalidation_reasons',{}).get(symbol,'post_gpt_revalidation_failed'))
+                    return False
+                return _execute_entry(
+                    cfg, state, client, symbol, action, amount, last_price, sl_price, tp_price,
+                    market_regime=market_regime, regime_confidence=regime_confidence,
+                    trade_alignment=trade_alignment, decision_id=decision_id, decision=decision,
+                    short_level_ctx=short_level_ctx, gpt_result=gpt_result,
+                )
+    
+            import symbol_entry_control
+    
+            def _replacement_entry_allowed(stage: str) -> bool:
+                nonlocal amount,sl_price,tp_price
+                if _reentry_blocked(state,symbol,cfg,action)[0]:
+                    _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','reentry_cooldown')
+                    return False
+                if not _approved_entry_still_valid_after_gpt(cfg, client, symbol, last_price, stage):
+                    _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',
+                        getattr(cfg,'_core_revalidation_reasons',{}).get(symbol,'reversal_revalidation_failed'))
+                    return False
+                validation = (decision or {}).get('_bounded_entry_validation')
+                if validation is not None:
+                    checked = _core_final_entry_validation(cfg, client, symbol, action, amount,
+                        last_price, sl_price, tp_price, decision, validation)
+                    if not checked['allowed']:
+                        cfg.logger.warning('[%s] REVERSAL_ENTRY_BLOCK before_close=%s',symbol,checked['reason'])
+                        _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED',checked['reason'],
+                            validation_values=checked.get('values'))
+                        return False
+                    _commit_core_final_entry_plan(cfg,client,symbol,decision,validation,checked,stage)
+                    amount,sl_price,tp_price=checked['amount'],checked['stop'],checked['target']
+                return True
+    
+            with cc_ownership.account_order_lock(cfg.user_dir):
+>               actual = client.fetch_position()
+                         ^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'types.SimpleNamespace' object has no attribute 'fetch_position'
+
+trader.py:4361: AttributeError
+=========================== short test summary info ============================
+FAILED tests/test_core_gemini_management_v15.py::test_reversal_execution_never_overrides_explicit_held_action[HOLD]
+FAILED tests/test_core_gemini_management_v15.py::test_reversal_execution_never_overrides_explicit_held_action[REDUCE_50]
+FAILED tests/test_core_gemini_management_v15.py::test_reversal_execution_never_overrides_explicit_held_action[ADD_POSITION]
+FAILED tests/test_core_gemini_management_v15.py::test_reversal_execution_never_overrides_explicit_held_action[None]
+4 failed, 31 deselected in 1.67s

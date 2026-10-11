@@ -1,0 +1,378 @@
+FFFFFFFFFFFFFFFFFFFF                                                     [100%]
+=================================== FAILURES ===================================
+_____________ test_bad_management_review_does_not_authorize[bad0] ______________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_bad_management_review_doe0')
+bad = {}
+
+    @pytest.mark.parametrize('bad',[{},None,[],{'management_action':[]},{'management_action':'BUY'}])
+    def test_bad_management_review_does_not_authorize(tmp_path,bad):
+>       assert not policy().valid_review(cfg(tmp_path),bad)
+                   ^^^^^^^^
+
+tests/test_core_gemini_management_v15.py:22: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def policy():
+>       assert importlib.util.find_spec('core_management_policy') is not None,'missing Gemini/code management policy'
+E       AssertionError: missing Gemini/code management policy
+E       assert None is not None
+E        +  where None = <function find_spec at 0x100ad3060>('core_management_policy')
+E        +    where <function find_spec at 0x100ad3060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_gemini_management_v15.py:9: AssertionError
+_____________ test_bad_management_review_does_not_authorize[None] ______________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_bad_management_review_doe1')
+bad = None
+
+    @pytest.mark.parametrize('bad',[{},None,[],{'management_action':[]},{'management_action':'BUY'}])
+    def test_bad_management_review_does_not_authorize(tmp_path,bad):
+>       assert not policy().valid_review(cfg(tmp_path),bad)
+                   ^^^^^^^^
+
+tests/test_core_gemini_management_v15.py:22: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def policy():
+>       assert importlib.util.find_spec('core_management_policy') is not None,'missing Gemini/code management policy'
+E       AssertionError: missing Gemini/code management policy
+E       assert None is not None
+E        +  where None = <function find_spec at 0x100ad3060>('core_management_policy')
+E        +    where <function find_spec at 0x100ad3060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_gemini_management_v15.py:9: AssertionError
+_____________ test_bad_management_review_does_not_authorize[bad2] ______________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_bad_management_review_doe2')
+bad = []
+
+    @pytest.mark.parametrize('bad',[{},None,[],{'management_action':[]},{'management_action':'BUY'}])
+    def test_bad_management_review_does_not_authorize(tmp_path,bad):
+>       assert not policy().valid_review(cfg(tmp_path),bad)
+                   ^^^^^^^^
+
+tests/test_core_gemini_management_v15.py:22: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def policy():
+>       assert importlib.util.find_spec('core_management_policy') is not None,'missing Gemini/code management policy'
+E       AssertionError: missing Gemini/code management policy
+E       assert None is not None
+E        +  where None = <function find_spec at 0x100ad3060>('core_management_policy')
+E        +    where <function find_spec at 0x100ad3060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_gemini_management_v15.py:9: AssertionError
+_____________ test_bad_management_review_does_not_authorize[bad3] ______________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_bad_management_review_doe3')
+bad = {'management_action': []}
+
+    @pytest.mark.parametrize('bad',[{},None,[],{'management_action':[]},{'management_action':'BUY'}])
+    def test_bad_management_review_does_not_authorize(tmp_path,bad):
+>       assert not policy().valid_review(cfg(tmp_path),bad)
+                   ^^^^^^^^
+
+tests/test_core_gemini_management_v15.py:22: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def policy():
+>       assert importlib.util.find_spec('core_management_policy') is not None,'missing Gemini/code management policy'
+E       AssertionError: missing Gemini/code management policy
+E       assert None is not None
+E        +  where None = <function find_spec at 0x100ad3060>('core_management_policy')
+E        +    where <function find_spec at 0x100ad3060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_gemini_management_v15.py:9: AssertionError
+_____________ test_bad_management_review_does_not_authorize[bad4] ______________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_bad_management_review_doe4')
+bad = {'management_action': 'BUY'}
+
+    @pytest.mark.parametrize('bad',[{},None,[],{'management_action':[]},{'management_action':'BUY'}])
+    def test_bad_management_review_does_not_authorize(tmp_path,bad):
+>       assert not policy().valid_review(cfg(tmp_path),bad)
+                   ^^^^^^^^
+
+tests/test_core_gemini_management_v15.py:22: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def policy():
+>       assert importlib.util.find_spec('core_management_policy') is not None,'missing Gemini/code management policy'
+E       AssertionError: missing Gemini/code management policy
+E       assert None is not None
+E        +  where None = <function find_spec at 0x100ad3060>('core_management_policy')
+E        +    where <function find_spec at 0x100ad3060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_gemini_management_v15.py:9: AssertionError
+_________________ test_explicit_valid_management_action[HOLD] __________________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_explicit_valid_management0')
+action = 'HOLD'
+
+    @pytest.mark.parametrize('action',['HOLD','REDUCE_50','CLOSE_ALL','ADD_POSITION'])
+    def test_explicit_valid_management_action(tmp_path,action):
+>       assert policy().valid_review(cfg(tmp_path),review(action))
+               ^^^^^^^^
+
+tests/test_core_gemini_management_v15.py:26: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def policy():
+>       assert importlib.util.find_spec('core_management_policy') is not None,'missing Gemini/code management policy'
+E       AssertionError: missing Gemini/code management policy
+E       assert None is not None
+E        +  where None = <function find_spec at 0x100ad3060>('core_management_policy')
+E        +    where <function find_spec at 0x100ad3060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_gemini_management_v15.py:9: AssertionError
+_______________ test_explicit_valid_management_action[REDUCE_50] _______________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_explicit_valid_management1')
+action = 'REDUCE_50'
+
+    @pytest.mark.parametrize('action',['HOLD','REDUCE_50','CLOSE_ALL','ADD_POSITION'])
+    def test_explicit_valid_management_action(tmp_path,action):
+>       assert policy().valid_review(cfg(tmp_path),review(action))
+               ^^^^^^^^
+
+tests/test_core_gemini_management_v15.py:26: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def policy():
+>       assert importlib.util.find_spec('core_management_policy') is not None,'missing Gemini/code management policy'
+E       AssertionError: missing Gemini/code management policy
+E       assert None is not None
+E        +  where None = <function find_spec at 0x100ad3060>('core_management_policy')
+E        +    where <function find_spec at 0x100ad3060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_gemini_management_v15.py:9: AssertionError
+_______________ test_explicit_valid_management_action[CLOSE_ALL] _______________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_explicit_valid_management2')
+action = 'CLOSE_ALL'
+
+    @pytest.mark.parametrize('action',['HOLD','REDUCE_50','CLOSE_ALL','ADD_POSITION'])
+    def test_explicit_valid_management_action(tmp_path,action):
+>       assert policy().valid_review(cfg(tmp_path),review(action))
+               ^^^^^^^^
+
+tests/test_core_gemini_management_v15.py:26: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def policy():
+>       assert importlib.util.find_spec('core_management_policy') is not None,'missing Gemini/code management policy'
+E       AssertionError: missing Gemini/code management policy
+E       assert None is not None
+E        +  where None = <function find_spec at 0x100ad3060>('core_management_policy')
+E        +    where <function find_spec at 0x100ad3060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_gemini_management_v15.py:9: AssertionError
+_____________ test_explicit_valid_management_action[ADD_POSITION] ______________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_explicit_valid_management3')
+action = 'ADD_POSITION'
+
+    @pytest.mark.parametrize('action',['HOLD','REDUCE_50','CLOSE_ALL','ADD_POSITION'])
+    def test_explicit_valid_management_action(tmp_path,action):
+>       assert policy().valid_review(cfg(tmp_path),review(action))
+               ^^^^^^^^
+
+tests/test_core_gemini_management_v15.py:26: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def policy():
+>       assert importlib.util.find_spec('core_management_policy') is not None,'missing Gemini/code management policy'
+E       AssertionError: missing Gemini/code management policy
+E       assert None is not None
+E        +  where None = <function find_spec at 0x100ad3060>('core_management_policy')
+E        +    where <function find_spec at 0x100ad3060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_gemini_management_v15.py:9: AssertionError
+_________ test_code_fraction_varies_with_observed_loss_not_confidence __________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_code_fraction_varies_with0')
+
+    def test_code_fraction_varies_with_observed_loss_not_confidence(tmp_path):
+>       p=policy();c=cfg(tmp_path);rows=[dict(close=.2541,atr_14=.002)]
+          ^^^^^^^^
+
+tests/test_core_gemini_management_v15.py:29: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def policy():
+>       assert importlib.util.find_spec('core_management_policy') is not None,'missing Gemini/code management policy'
+E       AssertionError: missing Gemini/code management policy
+E       assert None is not None
+E        +  where None = <function find_spec at 0x100ad3060>('core_management_policy')
+E        +    where <function find_spec at 0x100ad3060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_gemini_management_v15.py:9: AssertionError
+________________________ test_unknown_geometry_is_hold _________________________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_unknown_geometry_is_hold0')
+
+    def test_unknown_geometry_is_hold(tmp_path):
+>       d=policy().decision(cfg(tmp_path),review('REDUCE_50'),POSITION,PROTECTION,[],{})
+          ^^^^^^^^
+
+tests/test_core_gemini_management_v15.py:36: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def policy():
+>       assert importlib.util.find_spec('core_management_policy') is not None,'missing Gemini/code management policy'
+E       AssertionError: missing Gemini/code management policy
+E       assert None is not None
+E        +  where None = <function find_spec at 0x100ad3060>('core_management_policy')
+E        +    where <function find_spec at 0x100ad3060> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_core_gemini_management_v15.py:9: AssertionError
+___________________ test_management_does_not_call_gpt[HOLD] ____________________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_management_does_not_call_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ef9f790>
+action = 'HOLD'
+
+    @pytest.mark.parametrize('action',['HOLD','REDUCE_50','CLOSE_ALL'])
+    def test_management_does_not_call_gpt(tmp_path,monkeypatch,action):
+>       c=cfg(tmp_path);state=trader_state.TraderState([SYMBOL]);calls=[]
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: TraderState.__init__() takes 1 positional argument but 2 were given
+
+tests/test_core_gemini_management_v15.py:41: TypeError
+_________________ test_management_does_not_call_gpt[REDUCE_50] _________________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_management_does_not_call_1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10efbc1d0>
+action = 'REDUCE_50'
+
+    @pytest.mark.parametrize('action',['HOLD','REDUCE_50','CLOSE_ALL'])
+    def test_management_does_not_call_gpt(tmp_path,monkeypatch,action):
+>       c=cfg(tmp_path);state=trader_state.TraderState([SYMBOL]);calls=[]
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: TraderState.__init__() takes 1 positional argument but 2 were given
+
+tests/test_core_gemini_management_v15.py:41: TypeError
+_________________ test_management_does_not_call_gpt[CLOSE_ALL] _________________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_management_does_not_call_2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ef87890>
+action = 'CLOSE_ALL'
+
+    @pytest.mark.parametrize('action',['HOLD','REDUCE_50','CLOSE_ALL'])
+    def test_management_does_not_call_gpt(tmp_path,monkeypatch,action):
+>       c=cfg(tmp_path);state=trader_state.TraderState([SYMBOL]);calls=[]
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: TraderState.__init__() takes 1 positional argument but 2 were given
+
+tests/test_core_gemini_management_v15.py:41: TypeError
+________________ test_add_uses_entry_gpt_gate_only[approve_now] ________________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_add_uses_entry_gpt_gate_o0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ef920d0>
+verdict = 'approve_now'
+
+    @pytest.mark.parametrize('verdict',['approve_now','wait','reject','TIMEOUT'])
+    def test_add_uses_entry_gpt_gate_only(tmp_path,monkeypatch,verdict):
+>       c=cfg(tmp_path);state=trader_state.TraderState([SYMBOL]);calls=[];gates=[]
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: TraderState.__init__() takes 1 positional argument but 2 were given
+
+tests/test_core_gemini_management_v15.py:54: TypeError
+___________________ test_add_uses_entry_gpt_gate_only[wait] ____________________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_add_uses_entry_gpt_gate_o1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10efaff50>
+verdict = 'wait'
+
+    @pytest.mark.parametrize('verdict',['approve_now','wait','reject','TIMEOUT'])
+    def test_add_uses_entry_gpt_gate_only(tmp_path,monkeypatch,verdict):
+>       c=cfg(tmp_path);state=trader_state.TraderState([SYMBOL]);calls=[];gates=[]
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: TraderState.__init__() takes 1 positional argument but 2 were given
+
+tests/test_core_gemini_management_v15.py:54: TypeError
+__________________ test_add_uses_entry_gpt_gate_only[reject] ___________________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_add_uses_entry_gpt_gate_o2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10efca010>
+verdict = 'reject'
+
+    @pytest.mark.parametrize('verdict',['approve_now','wait','reject','TIMEOUT'])
+    def test_add_uses_entry_gpt_gate_only(tmp_path,monkeypatch,verdict):
+>       c=cfg(tmp_path);state=trader_state.TraderState([SYMBOL]);calls=[];gates=[]
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: TraderState.__init__() takes 1 positional argument but 2 were given
+
+tests/test_core_gemini_management_v15.py:54: TypeError
+__________________ test_add_uses_entry_gpt_gate_only[TIMEOUT] __________________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_add_uses_entry_gpt_gate_o3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ef9c210>
+verdict = 'TIMEOUT'
+
+    @pytest.mark.parametrize('verdict',['approve_now','wait','reject','TIMEOUT'])
+    def test_add_uses_entry_gpt_gate_only(tmp_path,monkeypatch,verdict):
+>       c=cfg(tmp_path);state=trader_state.TraderState([SYMBOL]);calls=[];gates=[]
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: TraderState.__init__() takes 1 positional argument but 2 were given
+
+tests/test_core_gemini_management_v15.py:54: TypeError
+__________________ test_primary_requires_action_and_reuses_it __________________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_primary_requires_action_a0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ef90d90>
+
+    def test_primary_requires_action_and_reuses_it(tmp_path,monkeypatch):
+        c=cfg(tmp_path);payload=dict(PAYLOAD,position_review=review('CLOSE_ALL'));req=provider(monkeypatch,payload)
+        decision=gemini.analyze(c,SYMBOL,['5m'],'facts',dict(POSITION),protection=dict(PROTECTION))
+        schema=req[0]['config'].response_schema
+>       assert 'management_action' in schema['properties']['position_review']['required']
+E       AssertionError: assert 'management_action' in ['assessment', 'confidence', 'reasoning', 'risk_level', 'suggested_reduce_fraction']
+
+tests/test_core_gemini_management_v15.py:77: AssertionError
+________ test_gemini_candidate_does_not_need_openai_key_for_management _________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-146/test_gemini_candidate_does_not0')
+
+    def test_gemini_candidate_does_not_need_openai_key_for_management(tmp_path):
+        c=cfg(tmp_path);c.OPENAI_API_KEY='';c.GEMINI_API_KEY='test'
+>       assert trader._position_ai_review_candidate(c,POSITION)
+E       AssertionError: assert False
+E        +  where False = <function _position_ai_review_candidate at 0x10eea7240>(namespace(user_dir='/private/tmp/pytest-of-bagmingi/pytest-146/test_gemini_candidate_does_not0', logger=<Logger cost-v...OSITION_AI_LIVE_EXECUTE=True, CORE_GEMINI_MANAGEMENT_ONLY=True, POSITION_AI_REVIEW_ENABLED=True, GEMINI_API_KEY='test'), {'side': 'long', 'contracts': 10.0, 'entry_price': 0.2541, 'mark_price': 0.259, ...})
+E        +    where <function _position_ai_review_candidate at 0x10eea7240> = trader._position_ai_review_candidate
+
+tests/test_core_gemini_management_v15.py:82: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_core_gemini_management_v15.py::test_bad_management_review_does_not_authorize[bad0]
+FAILED tests/test_core_gemini_management_v15.py::test_bad_management_review_does_not_authorize[None]
+FAILED tests/test_core_gemini_management_v15.py::test_bad_management_review_does_not_authorize[bad2]
+FAILED tests/test_core_gemini_management_v15.py::test_bad_management_review_does_not_authorize[bad3]
+FAILED tests/test_core_gemini_management_v15.py::test_bad_management_review_does_not_authorize[bad4]
+FAILED tests/test_core_gemini_management_v15.py::test_explicit_valid_management_action[HOLD]
+FAILED tests/test_core_gemini_management_v15.py::test_explicit_valid_management_action[REDUCE_50]
+FAILED tests/test_core_gemini_management_v15.py::test_explicit_valid_management_action[CLOSE_ALL]
+FAILED tests/test_core_gemini_management_v15.py::test_explicit_valid_management_action[ADD_POSITION]
+FAILED tests/test_core_gemini_management_v15.py::test_code_fraction_varies_with_observed_loss_not_confidence
+FAILED tests/test_core_gemini_management_v15.py::test_unknown_geometry_is_hold
+FAILED tests/test_core_gemini_management_v15.py::test_management_does_not_call_gpt[HOLD]
+FAILED tests/test_core_gemini_management_v15.py::test_management_does_not_call_gpt[REDUCE_50]
+FAILED tests/test_core_gemini_management_v15.py::test_management_does_not_call_gpt[CLOSE_ALL]
+FAILED tests/test_core_gemini_management_v15.py::test_add_uses_entry_gpt_gate_only[approve_now]
+FAILED tests/test_core_gemini_management_v15.py::test_add_uses_entry_gpt_gate_only[wait]
+FAILED tests/test_core_gemini_management_v15.py::test_add_uses_entry_gpt_gate_only[reject]
+FAILED tests/test_core_gemini_management_v15.py::test_add_uses_entry_gpt_gate_only[TIMEOUT]
+FAILED tests/test_core_gemini_management_v15.py::test_primary_requires_action_and_reuses_it
+FAILED tests/test_core_gemini_management_v15.py::test_gemini_candidate_does_not_need_openai_key_for_management
+20 failed in 1.35s

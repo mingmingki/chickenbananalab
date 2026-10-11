@@ -1,0 +1,78 @@
+{
+  "adaptive_reduction.py": {
+    "baseline": "a77ab10fda98aa910ecbcd40165f44fcabe060b5e68238dcbff0e54dde22a8ab",
+    "candidate": "a77ab10fda98aa910ecbcd40165f44fcabe060b5e68238dcbff0e54dde22a8ab"
+  },
+  "candidate_c_backtest_signal_adapter.py": {
+    "baseline": "6f9043f7ee7ce3982b69afc6fd23f7699b14531deae2741f409f0d9c4f3a390e",
+    "candidate": "6f9043f7ee7ce3982b69afc6fd23f7699b14531deae2741f409f0d9c4f3a390e"
+  },
+  "candidate_c_decision_engine.py": {
+    "baseline": "037fe13a36483ab8218de59a110b308c2a381d12807610b777f5db4df6596889",
+    "candidate": "037fe13a36483ab8218de59a110b308c2a381d12807610b777f5db4df6596889"
+  },
+  "candidate_c_exit_management.py": {
+    "baseline": "5659f032b0536ce06920f68d3b79c9639c9bd01b121de5b4c98288b8110b6d6b",
+    "candidate": "5659f032b0536ce06920f68d3b79c9639c9bd01b121de5b4c98288b8110b6d6b"
+  },
+  "candidate_c_forward_paper_trading.py": {
+    "baseline": "9aabe077455ef2002eb189f54fe6c36320730d648072c21be81e99d033e9e6fe",
+    "candidate": "9aabe077455ef2002eb189f54fe6c36320730d648072c21be81e99d033e9e6fe"
+  },
+  "candidate_c_hybrid_cycle.py": {
+    "baseline": "fdea7cabc2640002996ddafbb84a1f21b72af97f4a0698743232792eb68a46b3",
+    "candidate": "fdea7cabc2640002996ddafbb84a1f21b72af97f4a0698743232792eb68a46b3"
+  },
+  "candidate_c_hybrid_live_adapter.py": {
+    "baseline": "e0fd46bc6b9a1529d1671755299cae1cb203e7ee24acce24537e487cbdbd07a6",
+    "candidate": "e0fd46bc6b9a1529d1671755299cae1cb203e7ee24acce24537e487cbdbd07a6"
+  },
+  "candidate_c_runtime.py": {
+    "baseline": "0284e5b83e8c2d3a93d0d6e0b083c77ea9c8065bc618c61bb7d101a287066511",
+    "candidate": "0284e5b83e8c2d3a93d0d6e0b083c77ea9c8065bc618c61bb7d101a287066511"
+  },
+  "candidate_c_trader_adapter.py": {
+    "baseline": "8a9576e9fe27bc870a5fdd9a97e6fd7545f2d5e15b129f51027ee171c8d6fcf0",
+    "candidate": "8a9576e9fe27bc870a5fdd9a97e6fd7545f2d5e15b129f51027ee171c8d6fcf0"
+  },
+  "config.py": {
+    "baseline": "e1ca294d048833ad9f1c902b375fbc04aea85dba15ca6e7f6417eace709a1813",
+    "candidate": "b90181cf22c6ca87f9c95fecfb462d0272e2ab701cfa481d5e500c42c07d7967"
+  },
+  "core_ai_context.py": {
+    "baseline": "442cda563db5a9c01d12a58c47347ca12fe6ea5ace1cbe2df8760084d0c86c51",
+    "candidate": "6f916f1ecfdeb937f7368dd7ebb1d3a80241cc2e37fca6b6c281a81fb12d97d1"
+  },
+  "core_management_policy.py": {
+    "baseline": null,
+    "candidate": "e7b10d16cc74084bda26db087ca38885916d741ed30880c2fad25b1ae838b471"
+  },
+  "gemini_analyzer.py": {
+    "baseline": "1ebbfb3f43bce0f72214e5382ec9225b34900c3d1ba20ea91fbd18e2fe37235e",
+    "candidate": "dfc1af6758ead4ee227c3b488cfbe8795b39ae7de73dbd89edb9c5ff456104f6"
+  },
+  "openai_analyzer.py": {
+    "baseline": "7174cf68d1cead54f7c08708c026249bd67a8e22e3adf548cc504fc1a0f32bcd",
+    "candidate": "7174cf68d1cead54f7c08708c026249bd67a8e22e3adf548cc504fc1a0f32bcd"
+  },
+  "position_management_context.py": {
+    "baseline": "cde2a34e10932f1afb1afa26a8eb142bb10f753010ef6db18517b81afaef91a0",
+    "candidate": "cde2a34e10932f1afb1afa26a8eb142bb10f753010ef6db18517b81afaef91a0"
+  },
+  "reduce_v2_state.py": {
+    "baseline": "0aadb747b3ae7fa087bc2753ecec2be39a3910ca36ac195e5fa825b0b3e12cb2",
+    "candidate": "0aadb747b3ae7fa087bc2753ecec2be39a3910ca36ac195e5fa825b0b3e12cb2"
+  },
+  "templates/dashboard.html": {
+    "baseline": "142c625c30fdac2b4f7d1cf022a315e1e30634f6baeb45aa29375c208976e43f",
+    "candidate": "5b542634a5dbdd8a359e7ece57612c8ab2a5f85692338da5df97b416281c6cf6"
+  },
+  "trader.py": {
+    "baseline": "d56f15e8efdeabdaf418ca27e1270335b25d6a3e9c75b3af5ec93262884c4d99",
+    "candidate": "6fea7ae589632f12b9f89801d021b732bc71eee409dbcdcbc5606d19bde6973f"
+  },
+  "web_app.py": {
+    "baseline": "fa5f7c9d68218a6574298374560afa6120200cd552309c2feb62fc7abbf3b6bc",
+    "candidate": "0196a2f99538d7245a51f0d36cec8d0f3dd247ba078f9813abe24456dc51f89b"
+  }
+}

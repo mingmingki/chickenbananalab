@@ -1,0 +1,37 @@
+....................FF                                                   [100%]
+=================================== FAILURES ===================================
+_________________ test_manual_paid_pattern_review_is_disabled __________________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-149/test_manual_paid_pattern_revie0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x112714fd0>
+
+    def test_manual_paid_pattern_review_is_disabled(tmp_path,monkeypatch):
+        import web_app
+        c=cfg(tmp_path)
+        monkeypatch.setattr(web_app,'get_context',lambda _:SimpleNamespace(cfg=c,dir=str(tmp_path)))
+        monkeypatch.setattr(web_app,'_queue_manual_strategy_review',lambda *_:pytest.fail('paid pattern AI invoked'))
+        with web_app.app.test_client() as client:
+            with client.session_transaction() as session:session['username']='chickenbananalab'
+            response=client.post('/api/analysis/review-now',json={})
+>       assert response.status_code==410
+E       assert 401 == 410
+E        +  where 401 = <WrapperTestResponse streamed [401 UNAUTHORIZED]>.status_code
+
+tests/test_core_gemini_management_v15.py:92: AssertionError
+__________ test_risk_schema_required_even_if_legacy_adaptive_flag_off __________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-149/test_risk_schema_required_even0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x112c4d850>
+
+    def test_risk_schema_required_even_if_legacy_adaptive_flag_off(tmp_path,monkeypatch):
+        c=cfg(tmp_path);c.RISK_ADAPTIVE_PARTIAL_ENABLED=False
+        req=provider(monkeypatch,dict(PAYLOAD,position_review=review()))
+        gemini.analyze(c,SYMBOL,['5m'],'facts',dict(POSITION),protection=dict(PROTECTION))
+>       assert 'risk_level' in req[0]['config'].response_schema['properties']['position_review']['required']
+E       AssertionError: assert 'risk_level' in ['assessment', 'confidence', 'reasoning', 'management_action']
+
+tests/test_core_gemini_management_v15.py:98: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_core_gemini_management_v15.py::test_manual_paid_pattern_review_is_disabled
+FAILED tests/test_core_gemini_management_v15.py::test_risk_schema_required_even_if_legacy_adaptive_flag_off
+2 failed, 20 passed in 1.25s

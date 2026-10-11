@@ -1,0 +1,46 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+________ test_add_proof_prices_must_match_existing_protection[sl_price] ________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-156/test_add_proof_prices_must_mat0')
+field = 'sl_price'
+
+    @pytest.mark.parametrize('field',['sl_price','tp_price'])
+    def test_add_proof_prices_must_match_existing_protection(tmp_path,field):
+        c=cfg(tmp_path)
+        proof=dict(entry_candidate=dict(action='long',confidence=.9,exit_plan=dict(stop_loss_price=.244,
+            take_profit_1_price=.28,take_profit_2_price=.28)),entry_result=dict(decision='approve_now',
+            confidence=.9,exit_plan_decision='approve'),entry_gate='approved',entry_side='long',
+            entry_mark_price=.2541,entry_protection=dict(PROTECTION))
+        proof['entry_protection'][field]+=.001
+>       assert not policy().valid_add_approval(c,SYMBOL,proof)
+E       AssertionError: assert not True
+E        +  where True = <function valid_add_approval at 0x108d7bec0>(namespace(user_dir='/private/tmp/pytest-of-bagmingi/pytest-156/test_add_proof_prices_must_mat0', logger=<Logger cost-v..._COOLDOWN_MINUTES=15, POSITION_AI_LIVE_EXECUTE=True, CORE_GEMINI_MANAGEMENT_ONLY=True, POSITION_AI_REVIEW_ENABLED=True), 'BTC/USDT:USDT', {'entry_candidate': {'action': 'long', 'confidence': 0.9, 'exit_plan': {'stop_loss_price': 0.244, 'take_profit_1_price...approve_now', 'confidence': 0.9, 'exit_plan_decision': 'approve'}, 'entry_gate': 'approved', 'entry_side': 'long', ...})
+E        +    where <function valid_add_approval at 0x108d7bec0> = <module 'core_management_policy' from '/private/tmp/chickenbanana-cost-v15-20261011/candidate/core_management_policy.py'>.valid_add_approval
+E        +      where <module 'core_management_policy' from '/private/tmp/chickenbanana-cost-v15-20261011/candidate/core_management_policy.py'> = policy()
+
+tests/test_core_gemini_management_v15.py:148: AssertionError
+________ test_add_proof_prices_must_match_existing_protection[tp_price] ________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-156/test_add_proof_prices_must_mat1')
+field = 'tp_price'
+
+    @pytest.mark.parametrize('field',['sl_price','tp_price'])
+    def test_add_proof_prices_must_match_existing_protection(tmp_path,field):
+        c=cfg(tmp_path)
+        proof=dict(entry_candidate=dict(action='long',confidence=.9,exit_plan=dict(stop_loss_price=.244,
+            take_profit_1_price=.28,take_profit_2_price=.28)),entry_result=dict(decision='approve_now',
+            confidence=.9,exit_plan_decision='approve'),entry_gate='approved',entry_side='long',
+            entry_mark_price=.2541,entry_protection=dict(PROTECTION))
+        proof['entry_protection'][field]+=.001
+>       assert not policy().valid_add_approval(c,SYMBOL,proof)
+E       AssertionError: assert not True
+E        +  where True = <function valid_add_approval at 0x108d7bec0>(namespace(user_dir='/private/tmp/pytest-of-bagmingi/pytest-156/test_add_proof_prices_must_mat1', logger=<Logger cost-v..._COOLDOWN_MINUTES=15, POSITION_AI_LIVE_EXECUTE=True, CORE_GEMINI_MANAGEMENT_ONLY=True, POSITION_AI_REVIEW_ENABLED=True), 'BTC/USDT:USDT', {'entry_candidate': {'action': 'long', 'confidence': 0.9, 'exit_plan': {'stop_loss_price': 0.244, 'take_profit_1_price...approve_now', 'confidence': 0.9, 'exit_plan_decision': 'approve'}, 'entry_gate': 'approved', 'entry_side': 'long', ...})
+E        +    where <function valid_add_approval at 0x108d7bec0> = <module 'core_management_policy' from '/private/tmp/chickenbanana-cost-v15-20261011/candidate/core_management_policy.py'>.valid_add_approval
+E        +      where <module 'core_management_policy' from '/private/tmp/chickenbanana-cost-v15-20261011/candidate/core_management_policy.py'> = policy()
+
+tests/test_core_gemini_management_v15.py:148: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_core_gemini_management_v15.py::test_add_proof_prices_must_match_existing_protection[sl_price]
+FAILED tests/test_core_gemini_management_v15.py::test_add_proof_prices_must_match_existing_protection[tp_price]
+2 failed, 35 deselected in 1.11s

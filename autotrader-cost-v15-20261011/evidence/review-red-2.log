@@ -1,0 +1,77 @@
+.............................FF                                          [100%]
+=================================== FAILURES ===================================
+______ test_manual_core_exit_prices_do_not_request_held_management_schema ______
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-154/test_manual_core_exit_prices_d0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11351d190>
+
+    def test_manual_core_exit_prices_do_not_request_held_management_schema(tmp_path,monkeypatch):
+        c=cfg(tmp_path);c.GEMINI_API_KEY='test';calls=[]
+        monkeypatch.setattr(gemini,'_get_client',lambda _:object())
+        monkeypatch.setattr(gemini,'_generate_content_observed',lambda *a,**k:calls.append(k) or
+            SimpleNamespace(text=json.dumps(dict(exit_plan=dict(stop_loss_price=.244,
+            take_profit_1_price=.27,take_profit_2_price=.28),confidence=.9,reasoning='structure')),usage_metadata=None))
+>       result=gemini.propose_entry_exit_plan(c,SYMBOL,'long',['5m'],'facts',.244,.28,manual_core=True)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_core_gemini_management_v15.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cfg = namespace(user_dir='/private/tmp/pytest-of-bagmingi/pytest-154/test_manual_core_exit_prices_d0', logger=<Logger cost-v...OSITION_AI_LIVE_EXECUTE=True, CORE_GEMINI_MANAGEMENT_ONLY=True, POSITION_AI_REVIEW_ENABLED=True, GEMINI_API_KEY='test')
+symbol = 'BTC/USDT:USDT', side = 'long', tf_list = ['5m']
+candle_summary = 'facts', baseline_stop = 0.244, baseline_target = 0.28
+exit_price_contract = '', manual_core = True
+
+    def propose_entry_exit_plan(cfg, symbol: str, side: str, tf_list: list, candle_summary: str,
+                                baseline_stop: float | None, baseline_target: float | None,
+                                exit_price_contract: str = "", *, manual_core: bool = False) -> dict:
+        """Candidate C direction is immutable; Gemini proposes exit prices only."""
+        log = cfg.logger or logger
+        if side not in ("long", "short") or not getattr(cfg, "GEMINI_API_KEY", None):
+            return {"action": side, "confidence": None, "exit_plan": None,
+                    "reasoning": "Gemini exit-price proposal unavailable"}
+        template = ENTRY_EXIT_PLAN_PROMPT_TEMPLATE
+        if manual_core:
+            template = template.replace(
+                "Candidate C의 진입 방향은 규칙 엔진이 이미 확정했으며",
+                "CORE 수동진입 방향은 사용자가 직접 확정했으며")
+        purpose = 'core_manual_exit_plan' if manual_core else 'candidate_exit_plan'
+        prompt = template.format(
+            symbol=symbol, side=side, timeframes_desc=", ".join(timeframes.label(tf) for tf in tf_list),
+            candle_summary=candle_summary, baseline_stop=baseline_stop, baseline_target=baseline_target,
+            exit_price_contract=exit_price_contract or "",
+        )
+        if core_management_policy.enabled(cfg):
+>           review_schema=copy.deepcopy(review_schema)
+                                        ^^^^^^^^^^^^^
+E           UnboundLocalError: cannot access local variable 'review_schema' where it is not associated with a value
+
+gemini_analyzer.py:232: UnboundLocalError
+______________ test_gpt_entry_only_disables_old_paid_shadow_flags ______________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-154/test_gpt_entry_only_disables_o0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x113492ad0>
+
+    def test_gpt_entry_only_disables_old_paid_shadow_flags(tmp_path,monkeypatch):
+        c=cfg(tmp_path);c.CORE_PAID_SHADOW_ENABLED=True
+        monkeypatch.setattr(trader.threading,'Thread',lambda *a,**k:pytest.fail('paid shadow thread'))
+>       trader._fire_shadow_verification_async(c,SYMBOL,['5m'],'facts',POSITION,PAYLOAD,'id','signal_close')
+
+tests/test_core_gemini_management_v15.py:153: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+trader.py:1183: in _fire_shadow_verification_async
+    thread = threading.Thread(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = ()
+k = {'target': <function _run_shadow_verification at 0x112f37740>, 'args': (namespace(user_dir='/private/tmp/pytest-of-bag...ion': 'hold', 'confidence': 0.85, 'reasoning': 'retain thesis', 'market_regime': 'bullish', ...}, ...), 'daemon': True}
+
+>   monkeypatch.setattr(trader.threading,'Thread',lambda *a,**k:pytest.fail('paid shadow thread'))
+                                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: paid shadow thread
+
+tests/test_core_gemini_management_v15.py:152: Failed
+=========================== short test summary info ============================
+FAILED tests/test_core_gemini_management_v15.py::test_manual_core_exit_prices_do_not_request_held_management_schema
+FAILED tests/test_core_gemini_management_v15.py::test_gpt_entry_only_disables_old_paid_shadow_flags
+2 failed, 29 passed in 1.33s

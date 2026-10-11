@@ -1,0 +1,66 @@
+......................F......F                                           [100%]
+=================================== FAILURES ===================================
+_________ test_real_cycle_reuses_one_gemini_and_calls_no_gpt_for_hold __________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-153/test_real_cycle_reuses_one_gem0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x110e6dc90>
+
+    def test_real_cycle_reuses_one_gemini_and_calls_no_gpt_for_hold(tmp_path,monkeypatch):
+        from test_core_ai_budget_gate_20261004 import cycle_fixture
+        c,s,client=cycle_fixture(tmp_path,monkeypatch,dict(POSITION))
+>       c.__dict__.update(cfg(tmp_path).__dict__());c.LEVERAGE=5;c.POSITION_AI_PERIODIC_HOLD_REVIEW_ENABLED=True
+                          ^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: 'dict' object is not callable
+
+tests/test_core_gemini_management_v15.py:103: TypeError
+______ test_manual_core_exit_prices_do_not_request_held_management_schema ______
+
+tmp_path = PosixPath('/private/tmp/pytest-of-bagmingi/pytest-153/test_manual_core_exit_prices_d0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x110f60c90>
+
+    def test_manual_core_exit_prices_do_not_request_held_management_schema(tmp_path,monkeypatch):
+        c=cfg(tmp_path);c.GEMINI_API_KEY='test';calls=[]
+        monkeypatch.setattr(gemini,'_get_client',lambda _:object())
+        monkeypatch.setattr(gemini,'_generate_content_observed',lambda *a,**k:calls.append(k) or
+            SimpleNamespace(text=json.dumps(dict(exit_plan=dict(stop_loss_price=.244,
+            take_profit_1_price=.27,take_profit_2_price=.28),confidence=.9,reasoning='structure')),usage_metadata=None))
+>       result=gemini.propose_entry_exit_plan(c,SYMBOL,'long',['5m'],'facts',.244,.28,manual_core=True)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_core_gemini_management_v15.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cfg = namespace(user_dir='/private/tmp/pytest-of-bagmingi/pytest-153/test_manual_core_exit_prices_d0', logger=<Logger cost-v...OSITION_AI_LIVE_EXECUTE=True, CORE_GEMINI_MANAGEMENT_ONLY=True, POSITION_AI_REVIEW_ENABLED=True, GEMINI_API_KEY='test')
+symbol = 'BTC/USDT:USDT', side = 'long', tf_list = ['5m']
+candle_summary = 'facts', baseline_stop = 0.244, baseline_target = 0.28
+exit_price_contract = '', manual_core = True
+
+    def propose_entry_exit_plan(cfg, symbol: str, side: str, tf_list: list, candle_summary: str,
+                                baseline_stop: float | None, baseline_target: float | None,
+                                exit_price_contract: str = "", *, manual_core: bool = False) -> dict:
+        """Candidate C direction is immutable; Gemini proposes exit prices only."""
+        log = cfg.logger or logger
+        if side not in ("long", "short") or not getattr(cfg, "GEMINI_API_KEY", None):
+            return {"action": side, "confidence": None, "exit_plan": None,
+                    "reasoning": "Gemini exit-price proposal unavailable"}
+        template = ENTRY_EXIT_PLAN_PROMPT_TEMPLATE
+        if manual_core:
+            template = template.replace(
+                "Candidate C의 진입 방향은 규칙 엔진이 이미 확정했으며",
+                "CORE 수동진입 방향은 사용자가 직접 확정했으며")
+        purpose = 'core_manual_exit_plan' if manual_core else 'candidate_exit_plan'
+        prompt = template.format(
+            symbol=symbol, side=side, timeframes_desc=", ".join(timeframes.label(tf) for tf in tf_list),
+            candle_summary=candle_summary, baseline_stop=baseline_stop, baseline_target=baseline_target,
+            exit_price_contract=exit_price_contract or "",
+        )
+        if core_management_policy.enabled(cfg):
+>           review_schema=copy.deepcopy(review_schema)
+                                        ^^^^^^^^^^^^^
+E           UnboundLocalError: cannot access local variable 'review_schema' where it is not associated with a value
+
+gemini_analyzer.py:232: UnboundLocalError
+=========================== short test summary info ============================
+FAILED tests/test_core_gemini_management_v15.py::test_real_cycle_reuses_one_gemini_and_calls_no_gpt_for_hold
+FAILED tests/test_core_gemini_management_v15.py::test_manual_core_exit_prices_do_not_request_held_management_schema
+2 failed, 28 passed in 1.22s

@@ -1,3 +1,15 @@
+# CURRENT: V15 QUALIFIED / V14 LIVE / NO V15 DISPATCH
+User authorized implementation,deployment,verification. Gemini management, GPT entry only.
+2033+130 tests passed. Independent review fixes complete. See ../autotrader-cost-v15-20261011/PROGRESS.md and qualification.json.
+Next stage qualified package,preflight only. Do not dispatch twice. Existing positions/OCO untouched.
+V14 release /opt/autotrader-releases/scheduled_ai_review_off_v14_20261011T084405KST, PID189167 last known.
+V15 planned unit autotrader-ai-cost-v15-deploy-20261011.service; stage /tmp/autotrader-ai-cost-v15-qualified-20261011.
+Inspect deployment-record.json and unit before any resumed action.
+
+# CURRENT AUTHORITATIVE STATE — V15 IMPLEMENTATION STARTED / V14 LIVE
+
+User authorized approved role split implement/deploy/verify. Stage /private/tmp/chickenbanana-cost-v15-20261011, plan/progress in autotrader-cost-v15-20261011. V14 still live, no v15 dispatch. Preserve positions/OCO; resume from ledger, do not reimplement completed tasks.
+
 # CURRENT AUTHORITATIVE STATE — V14 LIVE / SCHEDULED AI PATTERN REVIEW REMOVED / NO REDISPATCH
 2026-10-11 08:45 KST. V14 release /opt/autotrader-releases/scheduled_ai_review_off_v14_20261011T084405KST, PID 189167, active, NRestarts0. CORE and Candidate C both running. Unit autotrader-ai-cost-v14-deploy-20261011.service exactly one dispatch, success/exit0. Stage /tmp/autotrader-ai-cost-v14-qualified-20261011/deployment-record.json now exists; never redispatch.
 
