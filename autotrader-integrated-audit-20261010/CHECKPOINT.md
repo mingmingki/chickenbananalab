@@ -1,3 +1,6 @@
+# CURRENT: V16 LIVE / READ-ONLY WARNING DIAGNOSED / MONITOR FIX PENDING
+2026-10-11 ~12:01 KST. daily_loss_snapshot_unavailable11:44 falsely flags concurrently appended equity11:44:19.939 against capturednow11:44:18. Reproduced. Recovery11:49,currenthealth0;6positions/6OCO,pending0,CORE/Candidate running,PID192265,restarts0. NO new deploy/restart/settings/order change. See ../autotrader-strategy-guide-v16-20261011/DIAGNOSTIC_20261011_1157.md. Monitor fix pending,not LIVE. Never repeat v16 deployment.
+
 # CURRENT: V16 GUIDE LIVE VERIFIED / TASK COMPLETE
 2026-10-11 10:46:44 KST. /opt/autotrader-releases/strategy_guide_v16_20261011T104312KST,PID192265,restarts0. CORE/Candidate running,6positions/6OCO exact preserved,pending0,settings0,21hashes,HTTP200.2040+130 passed.
 Unit autotrader-ai-cost-v16-deploy-20261011.service successfulsingleexecution. Stage /tmp/autotrader-ai-cost-v16-qualified-20261011/deployment-record.json exists; NEVER redispatch.
