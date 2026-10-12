@@ -54,3 +54,10 @@ ai_auto_writer.log
 # ACadSharp runtimes are GitHub release assets (tools/cbl_acadsharp_poc/runtime/RUNTIME.json, fetch_runtime.py).
 tools/cbl_acadsharp_poc/runtime/*/CblAcadSharpPoc.bin
 tools/cbl_acadsharp_poc/runtime/CblAcadSharpPoc.bin
+
+# Quantity state and local test logs
+/var/quantity/
+/quantity-*.log
+
+# Worktree Python environment symlink
+/.venv

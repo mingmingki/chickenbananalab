@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase, TestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase
 from PIL import Image
 
 from .quantity_views import (
@@ -973,11 +973,10 @@ class GeneralNotesRegressionTests(SimpleTestCase):
     def test_overview_must_be_confirmed_before_general_notes_endpoint(self):
         review_id = "general-notes-gate"
         _review_ensure(review_id, user_id=7, file_hashes={})
-        request = Mock(method="POST")
-        request.user = Mock(pk=7, is_authenticated=True, is_staff=True, is_superuser=False)
-        request.POST.get.side_effect = lambda key, default=None: {
+        request = RequestFactory().post("/api/quantity/general-notes-check/", {
             "job_id": "job-1", "review_id": review_id,
-        }.get(key, default)
+        })
+        request.user = Mock(pk=7, is_authenticated=True, is_staff=True, is_superuser=False)
         response = api_quantity_general_notes_check(request)
         self.assertEqual(response.status_code, 409)
 

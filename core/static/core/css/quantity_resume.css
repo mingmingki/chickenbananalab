@@ -1,0 +1,4 @@
+#cblQuantityMessengerModal .qty-history-open { border: 1px solid #dbe3ee; border-radius: 8px; padding: 6px 8px; background: #fff; color: #073a5b; cursor: pointer; white-space: nowrap; font-size: 11px; }
+#cblQuantityMessengerModal .qty-history-list { background: #f0faf4; color: #073a5b; padding: 12px; margin: 12px 0; border-radius: 10px; font-size: 12px; }
+#cblQuantityMessengerModal .qty-history-list button { display: block; width: 100%; margin-top: 8px; padding: 10px; border: 1px solid #dbe3ee; border-radius: 8px; background: #fff; color: #073a5b; text-align: left; cursor: pointer; }
+@media (max-width: 640px) { #cblQuantityMessengerModal .qty-header-sub { font-size: 9px; } #cblQuantityMessengerModal .qty-user-badge { display: none; } }

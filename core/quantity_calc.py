@@ -66,7 +66,7 @@ def _resolve_count(it, category, mark, warnings=None):
     if "count" not in it:
         return 1
     n = it["count"]
-    if n is None or isinstance(n, bool) or not isinstance(n, (int, float)) or n != int(n) or n <= 0:
+    if n is None or isinstance(n, bool) or not isinstance(n, (int, float)) or not math.isfinite(n) or n != int(n) or n <= 0:
         if warnings is not None:
             warnings.append(f"{category} {mark}: 개수(count)를 확인할 수 없어(값: {n!r}) 계산에서 제외했습니다 — 검토 화면에서 직접 입력해 주세요")
         return None
@@ -447,7 +447,7 @@ def calc_foundations(items, general_spec=None):
         n = _resolve_count(it, "기초", mark, warnings)
         if n is None:
             continue
-        if not all(isinstance(v, (int, float)) for v in (L, W, T)):
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 0 for v in (L, W, T)):
             warnings.append(f"기초 {mark}: 치수 누락으로 계산 제외")
             continue
         concrete += L * W * T * n

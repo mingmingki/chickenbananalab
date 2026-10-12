@@ -1,0 +1,84 @@
+{
+  "base": "dd47a82",
+  "branch": "feat/quantity-completion-20261012",
+  "full_tests": 607,
+  "checks": [
+    {
+      "log": "quantity-final-0.log",
+      "exit_code": 0
+    },
+    {
+      "log": "quantity-final-1.log",
+      "exit_code": 0
+    },
+    {
+      "log": "quantity-final-2.log",
+      "exit_code": 0
+    },
+    {
+      "log": "quantity-final-3.log",
+      "exit_code": 0
+    },
+    {
+      "log": "quantity-final-4.log",
+      "exit_code": 0
+    }
+  ],
+  "original_inputs": [
+    {
+      "name": "structure.pdf",
+      "identity_matches": true
+    },
+    {
+      "name": "architecture.pdf",
+      "identity_matches": true
+    },
+    {
+      "name": "structure_cad.zip",
+      "identity_matches": true
+    },
+    {
+      "name": "architecture_cad.zip",
+      "identity_matches": true
+    }
+  ],
+  "cad_replays": [
+    {
+      "file": "1fa700c09e11b875594f620e1ba3295b15d1844946eb70ff3f6954b09e639640.dxf",
+      "geometry_text_parity": true,
+      "drawing_unit": "mm",
+      "token_count": 0
+    },
+    {
+      "file": "30f2d988af35f7f54135fa91476fe8934596b49b31d90539e8f65eb8ff83bc77.dxf",
+      "geometry_text_parity": true,
+      "drawing_unit": "mm",
+      "token_count": 16
+    },
+    {
+      "file": "49d5720d64a581c8cab2b03a8b75d0f677af7c9ab658ba7b85316bb96c683e68.dxf",
+      "geometry_text_parity": true,
+      "drawing_unit": "mm",
+      "token_count": 4
+    },
+    {
+      "file": "6466b5cb9b7fef3315a195f6ce82cc3285555fb8f5c7bc7999e8e5d37682696d.dxf",
+      "geometry_text_parity": true,
+      "drawing_unit": "mm",
+      "token_count": 40
+    },
+    {
+      "file": "8ab199d090bf913f761bf3a4f39320499d265b65e4ac7a9d278bf1715d585f83.dxf",
+      "geometry_text_parity": true,
+      "drawing_unit": "mm",
+      "token_count": 36
+    },
+    {
+      "file": "9adaaabe915abfd63f111cfd955c7c4c97947c311a09893a8878788876884676.dxf",
+      "geometry_text_parity": true,
+      "drawing_unit": "mm",
+      "token_count": 68
+    }
+  ],
+  "source_review": "No unresolved Important findings after concurrency and validation fixes"
+}

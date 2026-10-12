@@ -33,10 +33,11 @@ from pypdf import PdfReader, PdfWriter
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required, user_passes_test
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import render
+from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_http_methods
 
 from google import genai
 from google.genai import types
@@ -44,6 +45,8 @@ from google.genai import types
 from .views import (admin_required, _CBLAcadSharpBusy, _cbl_decode_dxf_unicode_escapes_v1,
                     _cbl_free_dwg_to_dxf_text_v1, _cbl_free_dwg_unreadable_objects_v1)
 from .quantity_calc import compute_structural_quantities, compute_massing_model, REBAR_UNIT_WEIGHT
+from .quantity_state import QuantityStateStore, RETENTION_SECONDS, worker_alive
+from .table_semantic_model import parse_typed_scalars
 
 logger = logging.getLogger(__name__)
 
@@ -55,14 +58,83 @@ logger = logging.getLogger(__name__)
 #  이므로, 실제로 비용이 드는 화면/엔드포인트는 전부 관리자(스태프/슈퍼유저)만 쓸 수
 #  있게 막는다. 나중에 결제 시스템이 붙으면 이 제한을 결제 여부 체크로 바꾸면 된다.
 # ─────────────────────────────────────────────
+_QUANTITY_JOB_START_VIEWS = {
+    "api_quantity_overview_check", "api_quantity_general_notes_check",
+    "api_quantity_overview_revise", "api_quantity_basement_plan_check",
+    "api_quantity_drawing_coordination_check", "api_run_quantity",
+}
+_QUANTITY_JOB_READ_VIEWS = {
+    "api_quantity_progress", "api_quantity_cancel", "api_quantity_confirm_review",
+}
+
+
+def _quantity_state():
+    path = getattr(settings, "QUANTITY_STATE_DB", None) or os.path.join(
+        str(settings.BASE_DIR), "var", "quantity", "state.sqlite3")
+    return QuantityStateStore(path)
+
+
+def _quantity_request_fingerprint(request):
+    values = {key: request.POST.getlist(key) for key in sorted(request.POST)
+              if key != "csrfmiddlewaretoken"}
+    files = []
+    for key in sorted(request.FILES):
+        for upload in request.FILES.getlist(key):
+            position = upload.tell()
+            digest = hashlib.sha256()
+            try:
+                for chunk in upload.chunks():
+                    digest.update(chunk)
+            finally:
+                upload.seek(position)
+            files.append((key, upload.name, digest.hexdigest()))
+    return hashlib.sha256(json.dumps({"values": values, "files": files},
+                                    ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
 def _admin_only_json(view_func):
-    """JSON을 돌려주는 API 엔드포인트용 — user_passes_test처럼 로그인 페이지로 리다이렉트하면
-    fetch()가 HTML을 JSON으로 파싱하려다 깨지므로, 대신 403 JSON을 그대로 돌려준다."""
+    """Admin APIs bind jobs to their owner and deduplicate identical kickoffs."""
     @wraps(view_func)
     def _wrapped(request, *args, **kwargs):
         if not admin_required(request.user):
             return JsonResponse({"error": "관리자만 사용할 수 있는 기능입니다."}, status=403)
-        return view_func(request, *args, **kwargs)
+        name = view_func.__name__
+        tracked = name in _QUANTITY_JOB_START_VIEWS or name in _QUANTITY_JOB_READ_VIEWS
+        job_id = (request.POST.get("job_id") or request.GET.get("job_id")) if tracked else None
+        state = _quantity_state()
+        starting = name in _QUANTITY_JOB_START_VIEWS and bool(job_id)
+        if job_id and len(job_id) > 256:
+            return JsonResponse({"error": "job_id가 너무 깁니다."}, status=400)
+        if name in _QUANTITY_JOB_READ_VIEWS and job_id:
+            record = state.get("job", job_id)
+            if not record:
+                return JsonResponse({"error": "저장된 작업을 찾을 수 없습니다.", "found": False}, status=404)
+            if record.get("owner") != str(request.user.pk):
+                return JsonResponse({"error": "다른 사용자의 분석 작업입니다."}, status=403)
+        if starting:
+            status = state.begin_job(job_id, request.user.pk, name, _quantity_request_fingerprint(request))
+            if status == "forbidden":
+                return JsonResponse({"error": "다른 사용자의 분석 작업입니다."}, status=403)
+            if status == "conflict":
+                return JsonResponse({"error": "이 작업 ID는 다른 입력에 사용됐습니다. 새 작업으로 시작해 주세요."}, status=409)
+            if status == "duplicate":
+                record = state.get("job", job_id)
+                if record.get("kickoff") is not None:
+                    return JsonResponse(record["kickoff"], status=record.get("kickoff_status", 200))
+                return JsonResponse({"error": "작업을 등록 중입니다. 잠시 후 다시 확인해 주세요."}, status=409)
+        try:
+            response = view_func(request, *args, **kwargs)
+        except BaseException:
+            if starting:
+                state.release_job(job_id)
+            raise
+        if starting:
+            if response.status_code < 400:
+                state.update("job", job_id, {"kickoff": json.loads(response.content),
+                                             "kickoff_status": response.status_code})
+            else:
+                state.release_job(job_id)
+        return response
     return _wrapped
 
 # core/ai_writer.py와 동일한 방식으로 .env의 GEMINI_API_KEY를 사용합니다.
@@ -132,45 +204,27 @@ def _dev_cache_save(cache_key, result):
 #  - 오래된 항목이 계속 쌓이지 않도록, 조회/기록 시마다 일정 시간(_PROGRESS_TTL_SEC)이 지난
 #    항목은 같이 청소한다.
 # ─────────────────────────────────────────────
-_PROGRESS_STORE = {}
-_PROGRESS_LOCK = threading.Lock()
 _PROGRESS_TTL_SEC = 60 * 30  # 30분 이상 조회 없는 job은 정리
 
 
-def _progress_cleanup_locked():
-    cutoff = time.time() - _PROGRESS_TTL_SEC
-    stale = [jid for jid, v in _PROGRESS_STORE.items() if v.get("_updated_at", 0) < cutoff]
-    for jid in stale:
-        _PROGRESS_STORE.pop(jid, None)
 
 
 def _progress_set(job_id, stage, current, total, label="", stage_index=1, total_stages=1):
-    """job_id가 없으면(프론트가 진행률 표시를 요청하지 않은 옛 클라이언트 등) 조용히 무시한다.
-    stage_index/total_stages는 "건축분석→입면검토→구조추출" 같은 여러 단계 중 지금 몇 번째
-    단계인지를 나타내고, current/total은 그 단계 안에서의 진행(구조추출이면 배치 번호)이다.
-    프론트엔드는 두 값을 합쳐 전체 퍼센티지를 계산한다."""
-    if not job_id:
-        return
-    with _PROGRESS_LOCK:
-        _PROGRESS_STORE[job_id] = {
+    if job_id:
+        _quantity_state().put("progress", job_id, {
             "stage": stage, "current": current, "total": max(total, 1), "label": label,
             "stage_index": stage_index, "total_stages": max(total_stages, 1),
             "_updated_at": time.time(),
-        }
-        _progress_cleanup_locked()
+        }, ttl=_PROGRESS_TTL_SEC)
 
 
 def _progress_clear(job_id):
-    if not job_id:
-        return
-    with _PROGRESS_LOCK:
-        _PROGRESS_STORE.pop(job_id, None)
+    if job_id:
+        _quantity_state().pop("progress", job_id)
 
 
 def _progress_get(job_id):
-    with _PROGRESS_LOCK:
-        _progress_cleanup_locked()
-        return _PROGRESS_STORE.get(job_id)
+    return _quantity_state().get("progress", job_id)
 
 
 # ─────────────────────────────────────────────
@@ -186,34 +240,18 @@ def _progress_get(job_id):
 #  폴링에서 다시 시도하면 그만이라, 몇 초짜리 요청이 반복되는 구조가 몇십 분짜리
 #  요청 하나보다 훨씬 안전하다.
 # ─────────────────────────────────────────────
-_RESULT_STORE = {}
-_RESULT_LOCK = threading.Lock()
-_RESULT_TTL_SEC = 60 * 60  # 1시간 — 사용자가 자리를 비웠다 돌아와도 결과를 받을 수 있게 넉넉히
+_RESULT_TTL_SEC = RETENTION_SECONDS  # 재접속 및 서버 재시작 후 7일간 재사용
 
 
-def _result_cleanup_locked():
-    cutoff = time.time() - _RESULT_TTL_SEC
-    stale = [jid for jid, v in _RESULT_STORE.items() if v.get("_created_at", 0) < cutoff]
-    for jid in stale:
-        _RESULT_STORE.pop(jid, None)
 
 
 def _result_set(job_id, payload):
-    if not job_id:
-        return
-    with _RESULT_LOCK:
-        stored = dict(payload)
-        stored["_created_at"] = time.time()
-        _RESULT_STORE[job_id] = stored
-        _result_cleanup_locked()
+    if job_id:
+        _quantity_state().put("result", job_id, dict(payload, _created_at=time.time()), ttl=_RESULT_TTL_SEC)
 
 
 def _result_get(job_id):
-    if not job_id:
-        return None
-    with _RESULT_LOCK:
-        _result_cleanup_locked()
-        return _RESULT_STORE.get(job_id)
+    return _quantity_state().get("result", job_id)
 
 
 # ─────────────────────────────────────────────
@@ -224,29 +262,20 @@ def _result_get(job_id):
 #  가야 하지만, 아직 시작 안 한 나머지 배치는 호출 자체를 안 해서 비용을 아낀다.
 #  진행률 저장소와 동일하게 로컬 단일 프로세스 개발 서버 기준의 단순 구현이다.
 # ─────────────────────────────────────────────
-_CANCEL_STORE = set()
-_CANCEL_LOCK = threading.Lock()
 
 
 def _cancel_request(job_id):
-    if not job_id:
-        return
-    with _CANCEL_LOCK:
-        _CANCEL_STORE.add(job_id)
+    if job_id:
+        _quantity_state().put("cancel", job_id, True)
 
 
 def _is_cancelled(job_id):
-    if not job_id:
-        return False
-    with _CANCEL_LOCK:
-        return job_id in _CANCEL_STORE
+    return bool(_quantity_state().get("cancel", job_id))
 
 
 def _cancel_clear(job_id):
-    if not job_id:
-        return
-    with _CANCEL_LOCK:
-        _CANCEL_STORE.discard(job_id)
+    if job_id:
+        _quantity_state().pop("cancel", job_id)
 
 
 # ─────────────────────────────────────────────
@@ -258,46 +287,24 @@ def _cancel_clear(job_id):
 #  진행률/취소 저장소와 동일하게 로컬 단일 프로세스 기준의 단순 인메모리 구현이다.
 #  리뷰는 사람이 직접 보고 판단하는 단계라 진행률 저장소(30분)보다 TTL을 넉넉하게 둔다.
 # ─────────────────────────────────────────────
-_EXTRACTION_STORE = {}
-_EXTRACTION_LOCK = threading.Lock()
-_EXTRACTION_TTL_SEC = 60 * 60 * 2  # 2시간 — 도면 검토는 시간이 걸릴 수 있어 넉넉하게
+_EXTRACTION_TTL_SEC = RETENTION_SECONDS  # 미확정 부재를 7일간 보관
 
 
-def _extraction_cleanup_locked():
-    cutoff = time.time() - _EXTRACTION_TTL_SEC
-    stale = [jid for jid, v in _EXTRACTION_STORE.items() if v.get("_created_at", 0) < cutoff]
-    for jid in stale:
-        _EXTRACTION_STORE.pop(jid, None)
 
 
 def _extraction_store_set(job_id, members, elevation_data):
-    if not job_id:
-        return
-    with _EXTRACTION_LOCK:
-        _EXTRACTION_STORE[job_id] = {
+    if job_id:
+        _quantity_state().put("extraction", job_id, {
             "members": members, "elevation_data": elevation_data, "_created_at": time.time(),
-        }
-        _extraction_cleanup_locked()
+        }, ttl=_EXTRACTION_TTL_SEC)
 
 
 def _extraction_store_pop(job_id):
-    if not job_id:
-        return None
-    with _EXTRACTION_LOCK:
-        _extraction_cleanup_locked()
-        return _EXTRACTION_STORE.pop(job_id, None)
+    return _quantity_state().pop("extraction", job_id)
 
 
 def _extraction_store_get(job_id):
-    """pop과 달리 저장소에서 지우지 않고 읽기만 한다. 확정 계산(api_quantity_confirm_review)이
-    이 값으로 계산을 시도했다가 실패하면 그대로 재시도할 수 있어야 하므로(Gemini 추출을
-    처음부터 다시 하지 않아도 되게), 계산이 실제로 성공했을 때만 호출부가 별도로
-    _extraction_store_pop을 불러서 지우게 한다."""
-    if not job_id:
-        return None
-    with _EXTRACTION_LOCK:
-        _extraction_cleanup_locked()
-        return _EXTRACTION_STORE.get(job_id)
+    return _quantity_state().get("extraction", job_id)
 
 
 # ─────────────────────────────────────────────
@@ -319,9 +326,7 @@ def _extraction_store_get(job_id):
 #  전체에서 하나만 만들어 계속 재사용하는 "이 확인 절차가 지금 어디까지 왔는지"의
 #  단일 진실 공급원이다.
 # ─────────────────────────────────────────────
-_REVIEW_STORE = {}
-_REVIEW_LOCK = threading.Lock()
-_REVIEW_TTL_SEC = 60 * 60 * 3  # 3시간 — 개요/구조일반사항/지하주차장 확인을 여러 번 왕복해도 넉넉하게
+_REVIEW_TTL_SEC = RETENTION_SECONDS  # 확인 단계와 원본 해시를 7일간 보관
 
 REVIEW_STAGE_ORDER = ["overview", "general_spec", "drawing_coordination", "basement_plan"]
 MEMBER_REBAR_CHECK_KEYS = (
@@ -368,55 +373,27 @@ def _matching_uploaded_files(record, current_hashes):
     return True
 
 
-def _review_cleanup_locked():
-    cutoff = time.time() - _REVIEW_TTL_SEC
-    stale = [rid for rid, v in _REVIEW_STORE.items() if v.get("_updated_at", 0) < cutoff]
-    for rid in stale:
-        _REVIEW_STORE.pop(rid, None)
 
 
 def _review_ensure(review_id, user_id=None, file_hashes=None):
-    """review_id에 해당하는 상태 기록이 없으면 새로 만들고, 있으면 그대로 반환한다."""
-    with _REVIEW_LOCK:
-        _review_cleanup_locked()
-        rec = _REVIEW_STORE.get(review_id)
-        if rec is None:
-            rec = {
-                "overview": None, "overview_confirmed": False,
-                "overview_page_detection": None,
-                "general_spec": None, "general_spec_confirmed": False,
-                "drawing_coordination": None, "drawing_coordination_confirmed": False,
-                "basement_plan": None, "basement_plan_confirmed": False,
-                "member_rebar_checks": _empty_member_rebar_check_state(),
-                "extraction_started": False,
-                "_user_id": str(user_id) if user_id is not None else None,
-                "_file_hashes": dict(file_hashes or {}),
-                "_created_at": time.time(), "_updated_at": time.time(),
-            }
-            _REVIEW_STORE[review_id] = rec
-        else:
-            rec.setdefault("member_rebar_checks", _empty_member_rebar_check_state())
-        return rec
+    now = time.time()
+    return _quantity_state().get_or_create("review", review_id, {
+        "overview": None, "overview_confirmed": False, "overview_page_detection": None,
+        "general_spec": None, "general_spec_confirmed": False,
+        "drawing_coordination": None, "drawing_coordination_confirmed": False,
+        "basement_plan": None, "basement_plan_confirmed": False,
+        "member_rebar_checks": _empty_member_rebar_check_state(), "extraction_started": False,
+        "_user_id": str(user_id) if user_id is not None else None,
+        "_file_hashes": dict(file_hashes or {}), "_created_at": now, "_updated_at": now,
+    }, ttl=_REVIEW_TTL_SEC)
 
 
 def _review_get(review_id):
-    if not review_id:
-        return None
-    with _REVIEW_LOCK:
-        _review_cleanup_locked()
-        return _REVIEW_STORE.get(review_id)
+    return _quantity_state().get("review", review_id)
 
 
 def _review_update(review_id, **fields):
-    """review_id 기록에 필드를 병합한다. 기록이 없으면(만료됐거나 애초에 없으면) 아무것도
-    하지 않고 False를 반환한다 — 호출부가 "세션을 찾을 수 없음"으로 처리해야 한다."""
-    with _REVIEW_LOCK:
-        rec = _REVIEW_STORE.get(review_id)
-        if rec is None:
-            return False
-        rec.update(fields)
-        rec["_updated_at"] = time.time()
-        return True
+    return _quantity_state().update("review", review_id, dict(fields, _updated_at=time.time()), ttl=_REVIEW_TTL_SEC)
 
 
 def _review_require_stage(review_id, required_confirmed_field, stage_label):
@@ -502,6 +479,8 @@ _MEMBER_BOOLEAN_FIELDS = {
 # 진행할 수 있었다).
 _INCOMPLETE_EXTRACTION_MARKERS = [
     "도중에 잘려", "렌더링 중 오류가 발생했습니다", "취소를 요청하여", "JSON 파싱 오류",
+    "Gemini 부재 추출 요청 중 오류", "PDF 페이지 수 확인 중 오류",
+    "읽을 수 있는 페이지가 없습니다", "GEMINI_API_KEY가 설정되지", "CAD 보조 판독 미완료",
 ]
 
 
@@ -565,17 +544,22 @@ def _validate_correction_field(field, value):
     들어가 콘크리트/거푸집 물량이 음수로 나오는 문제가 실제로 있었다 — 치수/간격/개수
     필드는 양수인지, 철근 규격은 실제 존재하는 규격인지 정도는 최소한으로 걸러낸다."""
     if field in _MEMBER_BOOLEAN_FIELDS:
-        return True, bool(value)
+        if isinstance(value, bool):
+            return True, value
+        return False, f"{field}={value!r}: 참/거짓 값이어야 합니다"
 
     if field.endswith("_size"):
-        if value in _VALID_REBAR_SIZES:
+        if isinstance(value, str) and value in _VALID_REBAR_SIZES:
             return True, value
         return False, f"{field}={value!r}: 허용되지 않는 철근 규격입니다"
 
     if field == "end_condition":
-        if not value or value in _VALID_WALL_END_CONDITIONS:
+        if value is None or value == "" or (isinstance(value, str) and value in _VALID_WALL_END_CONDITIONS):
             return True, value
         return False, f"end_condition={value!r}: 일자형/T자형/모서리 중 하나여야 합니다"
+
+    if isinstance(value, bool):
+        return False, f"{field}={value!r}: 참/거짓은 숫자로 사용할 수 없습니다"
 
     # 나머지(길이/두께/간격/개수 등)는 전부 숫자 필드 — 음수·NaN·비정상적으로 큰 값을 막는다.
     try:
@@ -626,10 +610,10 @@ def _validate_rebar_layers_correction(value):
         if not isinstance(layer, dict):
             return False, f"세분화배근[{i}]: 각 항목은 객체({{...}}) 형태여야 합니다"
         role = layer.get("role")
-        if not role or role not in _VALID_REBAR_LAYER_ROLES:
+        if not isinstance(role, str) or role not in _VALID_REBAR_LAYER_ROLES:
             return False, f"세분화배근[{i}]: role={role!r}은 허용되지 않는 배근 종류입니다"
         size = layer.get("size")
-        if size is not None and size not in _VALID_REBAR_SIZES:
+        if size is not None and (not isinstance(size, str) or size not in _VALID_REBAR_SIZES):
             return False, f"세분화배근[{i}]: size={size!r}은 허용되지 않는 철근 규격입니다"
         for numf in ("spacing_m", "zone_length_m"):
             v = layer.get(numf)
@@ -1204,14 +1188,8 @@ def _is_macos_zip_metadata(member_path):
 # ─────────────────────────────────────────────
 @user_passes_test(admin_required)
 def quantity_main(request):
-    """AI 구조산출 자동화 메인 페이지 — 관리자(스태프/슈퍼유저)만 접근 가능.
-    Gemini 호출 비용이 실제로 발생하는 도구라 결제 시스템이 붙기 전까지는 공개하지 않는다."""
-    user_display = request.user.username if request.user.is_authenticated else "게스트"
-    return render(request, "core/quantity_main.html", {
-        "user_display": user_display,
-        "required_structural": REQUIRED_STRUCTURAL,
-        "required_architectural": REQUIRED_ARCHITECTURAL,
-    })
+    """Open the maintained upload/review workflow instead of the obsolete form."""
+    return HttpResponseRedirect(reverse("home") + "?quantity=1")
 
 
 def _cad_source_folder(upload_name, member_path):
@@ -1923,8 +1901,19 @@ def _extract_dxf_quantities(doc):
             "opening_count": hole_count,
         }
 
+    unit = {1: ("inch", .0254), 2: ("ft", .3048), 4: ("mm", .001),
+            5: ("cm", .01), 6: ("m", 1.0)}.get(doc.header.get("$INSUNITS"))
+    measurement_tokens = []
+    for index, text in enumerate(texts[:120]):
+        for token in parse_typed_scalars(text):
+            measurement_tokens.append(dict(token, text_index=index, source_text=text))
+
     return {
         "layers": layer_names[:40],
+        "drawing_unit": unit[0] if unit else None,
+        "meters_per_unit": unit[1] if unit else None,
+        "unit_source": "$INSUNITS" if unit else "unconfirmed",
+        "text_measurement_tokens": measurement_tokens,
         "layer_geometry": layer_summary,
         "block_counts": block_counts,
         "texts": texts[:120],
@@ -1985,6 +1974,8 @@ def parse_dwg_from_zip(zip_bytes, keywords=None, time_budget=None, background=Fa
             "quantity_parse_dwg_from_zip_capped total=%s cap=%s",
             len(matched_members), DWG_ZIP_PARSE_MAX_FILES,
         )
+        for _info, skipped_name in matched_members[DWG_ZIP_PARSE_MAX_FILES:]:
+            result[skipped_name] = {"error": "CAD 파일 개수 상한으로 이번 분석에서 읽지 못했습니다.", "skipped": True}
         matched_members = matched_members[:DWG_ZIP_PARSE_MAX_FILES]
 
     if time_budget is None:
@@ -6565,6 +6556,15 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                             dwg_data, structural_pdf_bytes, progress_cb=_structural_progress_cb, cancel_cb=_cancelled,
                             confirmed_general_spec=confirmed_general_spec,
                         )
+                        input_coverage = []
+                        for filename, parsed in (dwg_data or {}).items():
+                            reason = parsed.get("error")
+                            if not reason and parsed.get("unreadable_objects"):
+                                reason = "일부 CAD 객체를 읽지 못했습니다"
+                            input_coverage.append({"file": filename, "status": "incomplete" if reason else "parsed", "reason": reason})
+                            if reason:
+                                members.setdefault("notes", []).append(f"CAD 보조 판독 미완료: {filename} — {reason}")
+                        members["input_coverage"] = input_coverage
                         # 색칠된 도면 미리보기 — Gemini가 채운 bbox(부재 위치)를 원본 페이지 위에
                         # 색상 박스로 그려서, 의뢰인이 채팅창에서 놓친 벽/보가 있는지 직접 확인할
                         # 수 있게 한다. bbox 데이터가 없거나 실패해도 예외를 던지지 않는 보조
@@ -6595,6 +6595,7 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                                 # 받게 하기 위한 플래그 — 조용히 부분 결과로 확정 계산까지 가는 걸 막는다.
                                 "extraction_incomplete": bool(incomplete_reasons),
                                 "incomplete_reasons": incomplete_reasons[:5],
+                                "input_coverage": input_coverage,
                             }
                         else:
                             # job_id가 없는 경우를 위한 방어적 fallback — 리뷰 단계 없이 바로 계산.
@@ -6662,26 +6663,70 @@ def api_quantity_confirm_review(request):
     if not job_id:
         return JsonResponse({"error": "job_id가 없습니다."}, status=400)
 
+    raw_corrections = request.POST.get("corrections") or "[]"
+    try:
+        corrections = json.loads(raw_corrections)
+        if not isinstance(corrections, list) or not all(isinstance(item, dict) for item in corrections):
+            raise ValueError("corrections must be a list of objects")
+        correction_hash = hashlib.sha256(json.dumps(corrections, sort_keys=True, allow_nan=False).encode()).hexdigest()
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "수정사항은 올바른 JSON 배열이어야 합니다. 검토 내용을 다시 확인해 주세요."}, status=400)
+    state = _quantity_state()
+    cached = state.get("confirmation", job_id)
+    if cached:
+        if cached["fingerprint"] != correction_hash:
+            return JsonResponse({"error": "이미 다른 수정사항으로 확정된 작업입니다. 새 검토 작업을 시작해 주세요."}, status=409)
+        return JsonResponse(cached["response"])
+    if not state.claim_confirmation(job_id, correction_hash):
+        return JsonResponse({"error": "이 작업의 계산을 처리 중입니다. 잠시 후 다시 확인해 주세요."}, status=409)
+
+    # Another request may have committed between the first lookup and our claim.
+    cached = state.get("confirmation", job_id)
+    if cached:
+        state.pop("confirmation_lock", job_id)
+        if cached["fingerprint"] != correction_hash:
+            return JsonResponse({"error": "이미 다른 수정사항으로 확정된 작업입니다. 새 검토 작업을 시작해 주세요."}, status=409)
+        return JsonResponse(cached["response"])
+
     # pop이 아니라 get(읽기 전용)으로 꺼낸다 — 여기서 바로 지워버리면, 아래 계산 중
     # 예외가 나서 500을 반환했을 때 저장 데이터가 이미 사라져서 사용자가 재시도할
     # 방법이 없어(Gemini 추출부터 다시 해야 함) 비용 낭비가 컸다. 계산이 실제로
     # 성공했을 때만 아래에서 별도로 pop해서 지운다.
     stored = _extraction_store_get(job_id)
     if not stored:
+        state.pop("confirmation_lock", job_id)
         return JsonResponse({
-            "error": "검토할 추출 결과를 찾을 수 없습니다 — 시간이 너무 지났거나(2시간 초과) "
+            "error": "검토할 추출 결과를 찾을 수 없습니다 — 보관 기간(7일)이 지났거나 "
                      "이미 처리된 job_id일 수 있습니다. 도면을 다시 업로드해서 분석해 주세요.",
         }, status=404)
 
-    raw_corrections = request.POST.get("corrections") or "[]"
-    try:
-        corrections = json.loads(raw_corrections)
-        if not isinstance(corrections, list):
-            corrections = []
-    except (TypeError, ValueError):
-        corrections = []
-
     members = stored.get("members") or _EMPTY_MEMBERS
+    try:
+        valid_ids = {item["review_id"] for item in _build_review_checklist(members)}
+        seen_ids = set()
+        for correction in corrections:
+            member_id = correction.get("review_id")
+            action = correction.get("action")
+            invalid = (not isinstance(member_id, str) or member_id not in valid_ids or
+                       member_id in seen_ids or not isinstance(action, str) or action not in {"edit", "remove"})
+            if not invalid and action == "edit":
+                fields = correction.get("fields")
+                allowed = set(_MEMBER_SUMMARY_FIELDS.get(member_id.split(":")[0], [])) | {"rebar_layers"}
+                invalid = not isinstance(fields, dict) or not fields or not set(fields).issubset(allowed)
+                if not invalid:
+                    for name, value in fields.items():
+                        valid, _detail = (_validate_rebar_layers_correction(value) if name == "rebar_layers"
+                                          else _validate_correction_field(name, value))
+                        if not valid:
+                            invalid = True
+                            break
+            if invalid:
+                state.pop("confirmation_lock", job_id)
+                return JsonResponse({"error": "수정 대상·작업·값이 올바르지 않습니다. 검토 내용을 고친 뒤 다시 확정해 주세요."}, status=400)
+            seen_ids.add(member_id)
+    except (TypeError, ValueError, AttributeError):
+        state.pop("confirmation_lock", job_id)
+        return JsonResponse({"error": "수정사항의 형식이 올바르지 않습니다. 검토 데이터를 고친 뒤 다시 확정해 주세요."}, status=400)
     elevation_data = stored.get("elevation_data")
 
     try:
@@ -6691,7 +6736,7 @@ def api_quantity_confirm_review(request):
         if elevation_data:
             structural_results["_elevation_section"] = elevation_data  # 디버그/검증용
         structural_results["massing"] = compute_massing_model(corrected_members, elevation_data)
-        applied_count = len(corrections) - len(rejected_notes)
+        applied_count = len(corrections)
         if applied_count > 0:
             structural_results.setdefault("warnings", []).insert(
                 0, f"도면 확인 단계에서 {applied_count}건의 수정사항이 반영됐습니다."
@@ -6703,12 +6748,14 @@ def api_quantity_confirm_review(request):
         # 경고했지만, 확정 계산 결과(엑셀/최종 요약)에도 이 사실이 묻히지 않게 계속 남긴다.
         incomplete_reasons = _extraction_incomplete_reasons(members)
         structural_results["extraction_incomplete"] = bool(incomplete_reasons)
+        structural_results["input_coverage"] = members.get("input_coverage") or []
         if incomplete_reasons:
             structural_results.setdefault("warnings", []).insert(
                 0, "⚠ 이 결과는 도면 인식이 불완전한 상태(응답 잘림/배치 실패 등)에서 확정됐습니다 — "
                    "전문가 검토 없이 확정 물량으로 사용하지 마세요."
             )
     except Exception as e:
+        state.pop("confirmation_lock", job_id)
         # 계산 실패 — 저장 데이터를 지우지 않았으니(_extraction_store_get을 썼음) 같은
         # job_id/corrections로 다시 POST하면 Gemini 재추출 없이 재시도할 수 있다.
         return JsonResponse({
@@ -6716,9 +6763,15 @@ def api_quantity_confirm_review(request):
                      "— 도면을 다시 분석하지 않아도 같은 화면에서 다시 시도할 수 있습니다.",
         }, status=500)
 
-    # 계산이 성공했을 때만 저장 데이터를 지운다.
-    _extraction_store_pop(job_id)
-    return JsonResponse({"ok": True, "results": {"structural": structural_results}})
+    response = {"ok": True, "results": {"structural": structural_results}}
+    try:
+        state.finish_confirmation(job_id, correction_hash, response)
+    except Exception:
+        state.pop("confirmation_lock", job_id)
+        logger.exception("quantity_confirmation_commit_failed job_id=%s", job_id)
+        return JsonResponse({"error": "계산 결과를 저장하지 못했습니다. 검토 데이터는 유지됩니다. 다시 확정해 주세요."}, status=500)
+    return JsonResponse(response)
+
 
 
 @require_POST
@@ -6735,7 +6788,7 @@ def api_quantity_cancel(request):
     return JsonResponse({"ok": True})
 
 
-@require_POST
+@require_http_methods(["GET", "POST"])
 @_admin_only_json
 def api_quantity_progress(request):
     """진행률 폴링 엔드포인트. 프론트엔드가 api_run_quantity 요청을 보낸 직후부터
@@ -6758,6 +6811,11 @@ def api_quantity_progress(request):
         payload.update({k: v for k, v in result.items() if k != "_created_at"})
         return JsonResponse(payload)
 
+    job = _quantity_state().get("job", job_id)
+    if job and not worker_alive(job.get("pid")):
+        return JsonResponse({"found": True, "done": True, "ok": False, "interrupted": True,
+                             "error": "분석을 실행하던 서버 작업이 중단됐습니다. 저장된 확인 결과는 유지됩니다. 분석을 다시 시작해 주세요."})
+
     progress = _progress_get(job_id)
     if not progress:
         return JsonResponse({"found": False, "done": False})
@@ -6771,6 +6829,30 @@ def api_quantity_progress(request):
         "stage_index": progress.get("stage_index"),
         "total_stages": progress.get("total_stages"),
     })
+
+
+@require_http_methods(["GET"])
+@_admin_only_json
+def api_quantity_jobs(request):
+    """List this user's recent main analysis jobs without returning drawing content."""
+    state = _quantity_state()
+    jobs = []
+    for job in state.owner_jobs(request.user.pk):
+        if job["operation"] != "api_run_quantity":
+            continue
+        result = state.get("result", job["job_id"])
+        structural = ((result or {}).get("results") or {}).get("structural") or {}
+        component_errors = any(isinstance(value, dict) and value.get("error")
+                               for value in ((result or {}).get("results") or {}).values())
+        status = ("failed" if result and (result.get("ok") is False or structural.get("error")) else
+                  "review_required" if structural.get("review_required") else
+                  "partial" if structural.get("extraction_incomplete") or component_errors else
+                  "completed" if result else
+                  "running" if worker_alive(job.get("pid")) else "interrupted")
+        jobs.append({"job_id": job["job_id"], "created_at": job["created_at"], "status": status})
+        if len(jobs) >= 20:
+            break
+    return JsonResponse({"ok": True, "jobs": jobs, "retention_days": 7})
 
 
 # ─────────────────────────────────────────────
@@ -7111,6 +7193,22 @@ def _build_excel_response(request):
 
     for col_letter, width in zip("ABCDE", [30, 35, 12, 8, 8]):
         ws_total.column_dimensions[col_letter].width = width
+
+    coverage_sheet = wb.create_sheet("분석 범위")
+    coverage_sheet.append(["구분", "분석 상태", "파일/항목", "사유"])
+    for type_key, type_name in [("structural", "구조"), ("architectural", "건축")]:
+        data = results.get(type_key) or {}
+        if not data:
+            continue
+        partial = bool(data.get("extraction_incomplete"))
+        coverage_sheet.append([type_name, "부분 결과 / 확인 필요" if partial else "완전성 검증 필요", "", ""])
+        for item in data.get("input_coverage") or []:
+            coverage_sheet.append([type_name, item.get("status", ""), _xlsx_injection_guard(item.get("file", "")), _xlsx_injection_guard(item.get("reason") or "")])
+        for warning in list(data.get("warnings") or []) + list(data.get("missing_info") or []):
+            coverage_sheet.append([type_name, "확인 필요", "", _xlsx_injection_guard(str(warning))])
+    for column, width in zip("ABCD", [12, 30, 55, 90]):
+        coverage_sheet.column_dimensions[column].width = width
+    coverage_sheet.freeze_panes = "A2"
 
     # 응답
     buf = io.BytesIO()

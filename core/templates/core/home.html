@@ -6227,6 +6227,7 @@ body.cbl-modal-open {
           <div class="qty-header-sub">ChickenBanana Lab · 구조도면 수량산출</div>
         </div>
         <div class="qty-user-badge"><span class="qty-user-dot"></span><span>베타</span></div>
+        <button type="button" class="qty-history-open" id="qty-resume">저장된 작업</button>
         <button type="button" class="qty-close" data-cbl-qty-close>×</button>
       </div>
 
@@ -6272,6 +6273,19 @@ body.cbl-modal-open {
       parking: { status: "locked", result: null }
     }
   };
+
+  modal.addEventListener("cbl:quantity-resume", function (event) {
+    var data = event.detail;
+    var preview = ((data || {}).results || {}).structural || {};
+    if (preview.review_required) {
+      openReviewModal(preview, function (finalStructural) {
+        data.results.structural = finalStructural;
+        finishQuantityAnalysisFlow(data, false);
+      });
+    } else {
+      finishQuantityAnalysisFlow(data, false);
+    }
+  });
 
   function quantityFileFingerprint() {
     return [state.cadFiles, state.pdfFiles, state.elevCadFiles, state.elevPdfFiles]
@@ -8281,7 +8295,7 @@ body.cbl-modal-open {
     if (wasCancelled) {
       await addBot("취소 요청으로 일부만 처리하고 중단했어요. 아래는 취소 시점까지 처리된 부분 결과예요 — 신뢰도가 낮은 항목은 현장 도면과 교차 검토를 권장해요.", 200);
     } else {
-      await addBot("구조수량산출이 완료됐어요! 신뢰도가 낮은 항목은 현장 도면과 교차 검토를 권장해요.", 200);
+      await addBot(structForMsg.extraction_incomplete ? "일부 도면이나 배치를 읽지 못한 부분 산출 결과입니다. 누락 사유를 확인해 주세요." : "구조수량 계산 결과를 정리했어요. 도면과 산출 근거를 확인해 주세요.", 200);
     }
 
     var floorBreakdown = (data.results && data.results.structural && data.results.structural.floor_breakdown) || [];
@@ -9027,9 +9041,12 @@ body.cbl-modal-open {
   }, true);
 
   window.cblOpenQuantityMessengerChat = openPopup;
+  if (new URLSearchParams(window.location.search).get("quantity") === "1") openPopup();
 })();
 </script>
 <!-- CBL_QUANTITY_JOB_STYLE_CHAT_V7_END -->
+<link rel="stylesheet" href="{% static 'core/css/quantity_resume.css' %}">
+<script src="{% static 'core/js/quantity_resume.js' %}" defer></script>
 
 
 <!-- CBL_BETA_GATE_MODAL_START -->
