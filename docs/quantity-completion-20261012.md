@@ -2,7 +2,10 @@
 
 Approved scope: integrate the preserved quantity automation with the maintained structural upload/review/calculation/export workflow. This increment restores three reusable table modules and fixes task persistence and incomplete-input disclosure. It does not claim verified final quantities for v143.
 
-## Continuation\nSee [2026-10-13 source and duplicate handling](quantity-source-continuation-20261013.md) and its validation receipt for the next verified increment.\n\n## Implemented
+## Continuation
+See [2026-10-13 source and duplicate handling](quantity-source-continuation-20261013.md) and its validation receipt for the next verified increment.
+
+## Implemented
 - Restore table_cell_model, table_semantic_model, table_roi_verifier and their original tests from wip/local-20260929; wire evidence-preserving scalar parsing into current DXF input metadata.
 - Preserve explicit $INSUNITS units; report every CAD file skipped by the 60-file cap.
 - Share review, extraction, progress, result and cancellation state through SQLite at QUANTITY_STATE_DB or BASE_DIR/var/quantity/state.sqlite3. Keep results/reviews/extractions for seven days.
