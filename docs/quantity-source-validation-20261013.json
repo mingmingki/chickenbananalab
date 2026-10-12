@@ -1,0 +1,177 @@
+{
+  "original_inputs": [
+    {
+      "name": "structure.pdf",
+      "sha_matches": true
+    },
+    {
+      "name": "architecture.pdf",
+      "sha_matches": true
+    },
+    {
+      "name": "structure_cad.zip",
+      "sha_matches": true
+    },
+    {
+      "name": "architecture_cad.zip",
+      "sha_matches": true
+    }
+  ],
+  "pdf_sources": [
+    {
+      "file": "structure.pdf",
+      "total_pages": 79,
+      "identity_statuses": {
+        "unidentified": 79
+      },
+      "roles": {
+        "other": 79
+      },
+      "context_pages": [],
+      "unresolved_issues": 79
+    },
+    {
+      "file": "architecture.pdf",
+      "total_pages": 221,
+      "identity_statuses": {
+        "unidentified": 221
+      },
+      "roles": {
+        "other": 221
+      },
+      "context_pages": [],
+      "unresolved_issues": 221
+    }
+  ],
+  "cad_replays": [
+    {
+      "file": "1fa700c09e11b875594f620e1ba3295b15d1844946eb70ff3f6954b09e639640.dxf",
+      "geometry_text_parity": true,
+      "source_texts": 270,
+      "text_coverage": {
+        "total": 270,
+        "retained": 270,
+        "truncated": false
+      }
+    },
+    {
+      "file": "30f2d988af35f7f54135fa91476fe8934596b49b31d90539e8f65eb8ff83bc77.dxf",
+      "geometry_text_parity": true,
+      "source_texts": 24,
+      "text_coverage": {
+        "total": 24,
+        "retained": 24,
+        "truncated": false
+      }
+    },
+    {
+      "file": "49d5720d64a581c8cab2b03a8b75d0f677af7c9ab658ba7b85316bb96c683e68.dxf",
+      "geometry_text_parity": true,
+      "source_texts": 77,
+      "text_coverage": {
+        "total": 77,
+        "retained": 77,
+        "truncated": false
+      }
+    },
+    {
+      "file": "6466b5cb9b7fef3315a195f6ce82cc3285555fb8f5c7bc7999e8e5d37682696d.dxf",
+      "geometry_text_parity": true,
+      "source_texts": 78,
+      "text_coverage": {
+        "total": 78,
+        "retained": 78,
+        "truncated": false
+      }
+    },
+    {
+      "file": "8ab199d090bf913f761bf3a4f39320499d265b65e4ac7a9d278bf1715d585f83.dxf",
+      "geometry_text_parity": true,
+      "source_texts": 49,
+      "text_coverage": {
+        "total": 49,
+        "retained": 49,
+        "truncated": false
+      }
+    },
+    {
+      "file": "9adaaabe915abfd63f111cfd955c7c4c97947c311a09893a8878788876884676.dxf",
+      "geometry_text_parity": true,
+      "source_texts": 238,
+      "text_coverage": {
+        "total": 238,
+        "retained": 238,
+        "truncated": false
+      }
+    }
+  ],
+  "base": "ba5388d5fe1b018c78c5ff567a98eb1cd1496b40",
+  "branch": "feat/quantity-completion-20261012",
+  "full_core_tests": 638,
+  "full_suite": {
+    "command": [
+      ".venv/bin/python",
+      "manage.py",
+      "test",
+      "core",
+      "--noinput"
+    ],
+    "exit_code": 0
+  },
+  "targeted_tests": 68,
+  "checks": [
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        ".venv/bin/python",
+        "manage.py",
+        "check"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        ".venv/bin/python",
+        "manage.py",
+        "makemigrations",
+        "--check",
+        "--dry-run"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "/private/tmp/quantity-source-inline-20261013.js"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "core/static/core/js/quantity_resume.js"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "python_3_10_grammar": true,
+  "review": {
+    "method": "independent_static_review",
+    "important_findings_fixed": 5,
+    "regression_red_log": "quantity-source-review-red-20261013.log",
+    "regression_green_log": "quantity-source-review-green-20261013.log",
+    "deferred_minor": "Excel bbox coordinates remain in stored member JSON"
+  },
+  "paid_ai_calls_for_source_audit": 0,
+  "merged_to_main": false,
+  "server_deployed": false
+}

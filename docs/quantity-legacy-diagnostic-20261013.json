@@ -1,0 +1,33 @@
+{
+  "schema": "quantity_legacy_diagnostic_v1",
+  "read_only": true,
+  "scene_objects": 2062,
+  "review_groups": 309,
+  "groups_by_blocker": {
+    "computation_unavailable": 1,
+    "g5_no_exact_edge": 1,
+    "g6_no_opposite_twin": 1,
+    "missing_face_identity": 1,
+    "review_required": 305
+  },
+  "technical_groups": 4,
+  "technical_marked_groups": 2,
+  "human_review_groups": 305,
+  "objects_by_layer": {
+    "issues": 4,
+    "original": 1363,
+    "shadow": 695
+  },
+  "objects_without_group": 1363,
+  "unclassified_objects": 2062,
+  "source_evidence_missing": 2062,
+  "supported_rows": 0,
+  "ready_for_quantity": false,
+  "next_actions": [
+    "Recover original drawing/source positions before classifying diagnostic faces.",
+    "Resolve the technical blockers separately from human interpretation.",
+    "Read explicit plan occurrence/count evidence and schedule definitions; do not count table faces.",
+    "Compare supported quantities with an authoritative manual takeoff before production use."
+  ],
+  "workspace_sha256": "62443f6e288d53a2378842a72cef4fbbaf74ce511948c7909bf4d0b97a112ec4"
+}

@@ -61,3 +61,6 @@ tools/cbl_acadsharp_poc/runtime/CblAcadSharpPoc.bin
 
 # Worktree Python environment symlink
 /.venv
+
+# Local execution ledger
+/.superpowers/

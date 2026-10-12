@@ -47,6 +47,7 @@ from .views import (admin_required, _CBLAcadSharpBusy, _cbl_decode_dxf_unicode_e
 from .quantity_calc import compute_structural_quantities, compute_massing_model, REBAR_UNIT_WEIGHT
 from .quantity_state import QuantityStateStore, RETENTION_SECONDS, worker_alive
 from .table_semantic_model import parse_typed_scalars
+from .quantity_sources import build_source_manifest, attach_member_sources, valid_member_bbox
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +167,7 @@ def _dev_cache_key(pdf_bytes, dwg_data):
     h = hashlib.sha256()
     h.update(pdf_bytes or b"")
     try:
-        h.update(json.dumps(dwg_data, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8"))
+        h.update(json.dumps(_ai_cad_summary(dwg_data), ensure_ascii=False, sort_keys=True, default=str).encode("utf-8"))
     except Exception:
         pass
     return h.hexdigest()
@@ -478,6 +479,7 @@ _MEMBER_BOOLEAN_FIELDS = {
 # 지적받은 문제 — Gemini 응답이 잘리거나 배치가 실패해도 지금까지는 조용히 부분 결과로
 # 진행할 수 있었다).
 _INCOMPLETE_EXTRACTION_MARKERS = [
+    "부재 목록 형식 오류",
     "도중에 잘려", "렌더링 중 오류가 발생했습니다", "취소를 요청하여", "JSON 파싱 오류",
     "Gemini 부재 추출 요청 중 오류", "PDF 페이지 수 확인 중 오류",
     "읽을 수 있는 페이지가 없습니다", "GEMINI_API_KEY가 설정되지", "CAD 보조 판독 미완료",
@@ -523,6 +525,8 @@ def _build_review_checklist(members):
                 "bool_fields": sorted(f for f in fields if f in _MEMBER_BOOLEAN_FIELDS),
                 "bbox_page": bbox.get("page") if bbox else None,
                 "dedup_flag": it.get("_dedup_flag") or None,
+                "source_refs": it.get("source_refs") or [],
+                "source_review": it.get("source_review") or {},
                 # 세분화 배근(rebar_layers)은 role/size/spacing_m/count 등을 담은 리스트라
                 # 위 fields(스칼라 값 전용)와 형태가 달라 따로 내려준다 — 프론트는 이걸
                 # 읽기전용 요약 + 편집용 JSON 텍스트영역으로 보여준다.
@@ -1827,6 +1831,7 @@ def _extract_dxf_quantities(doc):
 
     layer_names = [_cad_text(l.dxf.name) for l in doc.layers]
     texts = []
+    source_texts = []
     dimensions = []
     block_counts = {}
     layer_stats = {}  # layer -> {"length": float, "count": int}
@@ -1871,7 +1876,15 @@ def _extract_dxf_quantities(doc):
             elif dxftype in ("TEXT", "MTEXT"):
                 t = entity.dxf.text if dxftype == "TEXT" else entity.text
                 if t and t.strip():
-                    texts.append(_cad_text(t.strip())[:200])
+                    decoded_text = _cad_text(t.strip())
+                    texts.append(decoded_text[:200])
+                    if len(source_texts) < 5000:
+                        insert = getattr(entity.dxf, "insert", None)
+                        source_texts.append({"text": decoded_text[:2000],
+                                             "handle": getattr(entity.dxf, "handle", None),
+                                             "layer": layer, "space": "modelspace",
+                                             "insert": [float(v) for v in insert] if insert is not None else None,
+                                             "text_truncated": len(decoded_text) > 2000})
             elif dxftype == "DIMENSION":
                 # 무료 변환기의 DXF에는 측정값(코드 42)이 없어 정의점으로 잰다.
                 val = entity.dxf.get("actual_measurement")
@@ -1914,6 +1927,10 @@ def _extract_dxf_quantities(doc):
         "meters_per_unit": unit[1] if unit else None,
         "unit_source": "$INSUNITS" if unit else "unconfirmed",
         "text_measurement_tokens": measurement_tokens,
+        "source_texts": source_texts,
+        "text_coverage": {"total": len(texts), "retained": len(source_texts),
+                          "truncated": len(texts) > len(source_texts) or
+                          any(row["text_truncated"] for row in source_texts)},
         "layer_geometry": layer_summary,
         "block_counts": block_counts,
         "texts": texts[:120],
@@ -1988,8 +2005,11 @@ def parse_dwg_from_zip(zip_bytes, keywords=None, time_budget=None, background=Fa
             out_name = member
             # 파일명 충돌 방지를 위해 인덱스 접두어 사용
             local_path = os.path.join(work_dir, f"{idx:03d}_{os.path.basename(member)}")
+            source_bytes = zf.read(info)
+            source_identity = {"source_member_sha": _sha256_bytes(source_bytes),
+                               "normalized_member_path": member}
             with open(local_path, "wb") as f:
-                f.write(zf.read(info))
+                f.write(source_bytes)
 
             if ext == ".dwg":
                 remaining = deadline - time.monotonic()
@@ -2011,7 +2031,7 @@ def parse_dwg_from_zip(zip_bytes, keywords=None, time_budget=None, background=Fa
                     result[out_name] = {"error": QUANTITY_DWG_UNREADABLE_MESSAGE}
                     continue
                 try:
-                    result[out_name] = _extract_dxf_quantities(doc)
+                    result[out_name] = dict(_extract_dxf_quantities(doc), **source_identity)
                 except Exception as e:
                     result[out_name] = {"error": str(e)}
                     continue
@@ -2023,7 +2043,7 @@ def parse_dwg_from_zip(zip_bytes, keywords=None, time_budget=None, background=Fa
 
             try:
                 doc = ezdxf.readfile(local_path)
-                result[out_name] = _extract_dxf_quantities(doc)
+                result[out_name] = dict(_extract_dxf_quantities(doc), **source_identity)
             except Exception as e:
                 result[out_name] = {"error": str(e)}
 
@@ -2150,49 +2170,39 @@ SCHEDULE_PAGE_MAX_RESULTS = 6  # 배치마다 끼워넣을 페이지 수를 제�
 def _detect_schedule_pages(pdf_bytes, total_pages,
                             max_check_pages=SCHEDULE_PAGE_MAX_CHECK,
                             max_results=SCHEDULE_PAGE_MAX_RESULTS):
-    """pdftotext(poppler-utils)로 페이지별 텍스트를 뽑아 일람표/구조일반사항 키워드가
-    많이 나오는 페이지를 찾는다. CAD에서 뽑은 PDF가 벡터 텍스트를 유지하고 있으면 잘
-    동작하고, 완전히 래스터(이미지) PDF면 텍스트가 안 잡혀 후보가 0개로 나올 수 있다
-    — 이 경우 예외 없이 그냥 빈 리스트를 반환한다(배치 주입 기능만 조용히 꺼짐,
-    나머지 추출 파이프라인은 정상 동작).
-    Returns: 페이지 번호 리스트(오름차순, 최대 max_results개, 키워드 히트 많은 순 우선)."""
-    check_upto = min(total_pages, max_check_pages)
-    if check_upto <= 0:
+    """Use explicitly titled schedules/notes; body references and indexes are not context."""
+    upto = min(total_pages, max_check_pages)
+    if upto <= 0:
         return []
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
-            f.write(pdf_bytes)
-            tmp_path = f.name
+    texts = _extract_pdf_page_texts(pdf_bytes, first_page=1, last_page=upto)
+    manifest = build_source_manifest(texts, document_sha=_sha256_bytes(pdf_bytes), total_pages=upto)
+    return manifest["context_pages"][:max_results]
 
-        scored = []
-        for page_num in range(1, check_upto + 1):
-            try:
-                result = subprocess.run(
-                    ["pdftotext", "-f", str(page_num), "-l", str(page_num), tmp_path, "-"],
-                    capture_output=True, timeout=10,
-                )
-                text = result.stdout.decode("utf-8", errors="ignore").upper()
-            except Exception:
-                continue
-            # CAD 표제란은 글자 사이를 벌려서(자소 사이 공백) 그리는 경우가 있어, pdftotext가
-            # 그 간격을 단어 구분 공백으로 착각해 "일 람 표"처럼 뽑아낼 수 있다 — 공백을 제거한
-            # 버전으로도 같이 대조해서 이런 경우를 놓치지 않게 한다.
-            text_nospace = text.replace(" ", "").replace("\t", "")
-            hits = sum(1 for kw in _SCHEDULE_PAGE_KEYWORDS if kw.upper() in text or kw.upper() in text_nospace)
-            if hits > 0:
-                scored.append((hits, page_num))
 
-        scored.sort(key=lambda x: (-x[0], x[1]))
-        return sorted(p for _, p in scored[:max_results])
-    except Exception:
-        return []
-    finally:
-        if tmp_path:
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
+def _ai_cad_summary(dwg_data):
+    """Keep the detailed source index local; send the bounded CAD summary to AI."""
+    return {name: {key: value for key, value in data.items() if key != "source_texts"}
+            for name, data in (dwg_data or {}).items()}
+
+
+def _build_source_manifest(dwg_data, pdf_bytes):
+    total = 0
+    texts = {}
+    if pdf_bytes:
+        try:
+            total = len(PdfReader(io.BytesIO(pdf_bytes)).pages)
+            texts = _extract_pdf_page_texts(pdf_bytes, first_page=1, last_page=total)
+        except Exception:
+            # Invalid/unreadable document must still be visible; no invented pages.
+            manifest = build_source_manifest({}, document_sha=_sha256_bytes(pdf_bytes),
+                                             total_pages=0, cad_data=dwg_data)
+            manifest["issues"].append({"reason": "pdf_unreadable"})
+            manifest["identity_complete"] = False
+            return manifest
+    return build_source_manifest(texts, document_sha=_sha256_bytes(pdf_bytes) if pdf_bytes else None,
+                                 total_pages=total, cad_data=dwg_data)
+
+
 
 
 # ─────────────────────────────────────────────
@@ -4789,54 +4799,42 @@ def _dims_roughly_match(a, b, fields, rel_tol=0.03, abs_tol=0.02):
 
 
 def _dedupe_category_items(items, cat_key=None):
-    """같은 부재가 두 번 이상 추출된 항목을 걸러낸다.
-
-    일람표/구조일반사항 페이지를 모든 배치에 함께 끼워 보내다 보니(마크의 실제 치수를
-    다른 배치에서도 찾을 수 있게 하려고), 그 일람표 자체에 나열된 마크가 "평면도에서
-    본 부재"와 별개로 한 번 더 추출되거나, 같은 일람표 페이지가 여러 배치에 반복
-    전송되면서 같은 부재가 배치마다 중복 추출될 수 있다 — 실제로 이런 위험이 있다는
-    지적을 받고 코드 차원의 안전망으로 추가했다.
-
-    mark가 있는 항목만 (mark, zone, section) 조합으로 중복을 판단한다. mark가 없는
-    ("무명") 항목은 서로 구분할 근거가 없어 잘못 합쳤다가 실제로 다른 부재를 지울
-    위험이 더 크므로 그대로 둔다.
-
-    (mark, zone, section)이 같아도 핵심 치수가 서로 크게 다르면(_dims_roughly_match가
-    False) 자동으로 지우지 않는다 — 같은 mark를 쓰는 서로 다른 실제 부재를 배치 중복으로
-    오인해서 물량을 잃어버릴 위험이, 진짜 배치 중복을 한 번 더 보여주는 것보다 크다고
-    판단했다. 이 경우 둘 다 남기고 _dedup_flag를 붙여서 검토 화면에서 사람이 확인하게 한다.
-
-    치수가 같은 범위 내(진짜 중복으로 판단됨)면, 필드가 더 많이 채워진(정보가 더 풍부한)
-    쪽을 남긴다 — 같은 부재를 서로 다른 배치가 서로 다르게(한쪽은 자세히, 한쪽은
-    부분적으로) 읽었을 수 있어서다."""
-    dim_fields = _DEDUP_DIMENSION_FIELDS.get(cat_key, [])
-    seen_at = {}
-    result = []
-    removed = 0
-    flagged = 0
-    for it in items:
-        if not isinstance(it, dict) or not it.get("mark"):
-            result.append(it)
+    """Collapse repeated extraction only at an identical, valid PDF location."""
+    result, removed, flagged = [], 0, 0
+    for item in items:
+        if not isinstance(item, dict) or not item.get("mark"):
+            result.append(item)
             continue
-        key = (it.get("mark"), it.get("zone") or "", it.get("section") or "")
-        if key not in seen_at:
-            seen_at[key] = len(result)
-            result.append(it)
-            continue
-        idx = seen_at[key]
-        existing = result[idx]
-        if dim_fields and not _dims_roughly_match(existing, it, dim_fields):
-            it["_dedup_flag"] = "같은 mark/구역인데 치수가 달라 자동 병합하지 않았습니다 — 실제로 다른 부재인지 확인해 주세요."
-            existing["_dedup_flag"] = existing.get("_dedup_flag") or it["_dedup_flag"]
-            result.append(it)
-            flagged += 1
-            continue
-        removed += 1
-        existing_filled = sum(1 for v in existing.values() if v not in (None, "", []))
-        new_filled = sum(1 for v in it.values() if v not in (None, "", []))
-        if new_filled > existing_filled:
-            result[idx] = it
+        key = (item.get("mark"), item.get("zone") or "", item.get("section") or "")
+        same_mark = [existing for existing in result if isinstance(existing, dict) and
+                     (existing.get("mark"), existing.get("zone") or "", existing.get("section") or "") == key]
+        duplicate = None
+        for existing in same_mark:
+            box, previous = item.get("bbox"), existing.get("bbox")
+            valid = valid_member_bbox(box) and valid_member_bbox(previous)
+            same_location = valid and all(box[f] == previous[f] for f in ("page", "x", "y", "w", "h"))
+            if valid and not same_location:
+                continue
+            overlap = (set(item) & set(existing)) - {"bbox", "notes", "source_refs", "source_review", "_dedup_flag"}
+            conflict = any(item[k] not in (None, "", []) and existing[k] not in (None, "", [])
+                           and item[k] != existing[k] for k in overlap)
+            if not same_location or conflict:
+                note = ("같은 mark/구역의 원본 위치가 없거나 값이 다릅니다 — 개수·위치·치수를 확인해 주세요.")
+                item["_dedup_flag"] = existing["_dedup_flag"] = note
+                flagged += 1
+                continue
+            duplicate = existing
+            break
+        if duplicate is not None:
+            # Enrich missing fields without dropping the original evidence.
+            for field, value in item.items():
+                if duplicate.get(field) in (None, "", []) and value not in (None, "", []):
+                    duplicate[field] = value
+            removed += 1
+        else:
+            result.append(item)
     return result, removed, flagged
+
 
 
 def _merge_extracted_members(batch_results: list) -> dict:
@@ -4958,9 +4956,12 @@ def _extract_structural_members_one_batch(client, dwg_data, image_batch, batch_i
 
     contents = [
         f"[구조도면 DWG 파싱 데이터]\n"
-        f"{json.dumps(dwg_data, ensure_ascii=False, indent=2)[:60000]}\n\n"
+        f"{json.dumps(_ai_cad_summary(dwg_data), ensure_ascii=False, indent=2)[:60000]}\n\n"
         "위 데이터와 아래 도면 이미지를 보고, 부재일람표/배근도에 적힌 치수와 철근 정보를 "
-        "그대로 읽어서 스키마에 맞게 추출해주세요. 계산하지 말고 읽기만 하세요."
+        "그대로 읽어서 스키마에 맞게 추출해주세요. 계산하지 말고 읽기만 하세요. "
+        "일람표·상세도의 마크는 치수/배근 정의이며 실제 부재 개수가 아닙니다. "
+        "실제 배치·개수는 평면도 근거로 읽고 bbox.page는 실제 부재를 확인한 페이지로 표시하세요. "
+        "같은 마크의 부재가 다른 페이지·위치에 있으면 각각 보존하세요."
         + (
             f"\n\n※ 이 요청은 전체 도면 중 {batch_idx}/{total_batches}번째 배치입니다. "
             "이 배치에 포함된 이미지에서 실제로 보이는 부재만 추출하세요 — 다른 배치에 있을 "
@@ -5477,7 +5478,7 @@ def extract_elevation_section_data(dwg_data: dict, pdf_images: list) -> dict:
 
     contents = [
         f"[건축 입면/단면 DWG 파싱 데이터]\n"
-        f"{json.dumps(dwg_data, ensure_ascii=False, indent=2)[:60000]}\n\n"
+        f"{json.dumps(_ai_cad_summary(dwg_data), ensure_ascii=False, indent=2)[:60000]}\n\n"
         "위 데이터와 아래 입면도/단면도 이미지를 보고 층고와 개구부 목록을 읽어서 추출해주세요."
     ]
 
@@ -5557,7 +5558,7 @@ def analyze_with_gemini(dwg_data: dict, pdf_images: list, system_prompt: str, dr
     # contents 구성: 파싱 데이터 텍스트 + 도면 이미지(최대 MAX_PDF_PAGES_TO_GEMINI 페이지)
     contents = [
         f"[{drawing_type} DWG 파싱 데이터]\n"
-        f"{json.dumps(dwg_data, ensure_ascii=False, indent=2)[:60000]}\n\n"
+        f"{json.dumps(_ai_cad_summary(dwg_data), ensure_ascii=False, indent=2)[:60000]}\n\n"
         "위 데이터의 layer_geometry(레이어별 도형 개수/길이/닫힌면적), block_counts(블록 삽입 개수), "
         "texts(도면 내 문자)를 실제 수량 산출의 근거로 적극 활용하고, 아래 도면 이미지와 교차 검증해 주세요."
     ]
@@ -6556,6 +6557,8 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                             dwg_data, structural_pdf_bytes, progress_cb=_structural_progress_cb, cancel_cb=_cancelled,
                             confirmed_general_spec=confirmed_general_spec,
                         )
+                        source_manifest = _build_source_manifest(dwg_data, structural_pdf_bytes)
+                        members = attach_member_sources(members, source_manifest)
                         input_coverage = []
                         for filename, parsed in (dwg_data or {}).items():
                             reason = parsed.get("error")
@@ -6596,6 +6599,7 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                                 "extraction_incomplete": bool(incomplete_reasons),
                                 "incomplete_reasons": incomplete_reasons[:5],
                                 "input_coverage": input_coverage,
+                                "source_manifest": source_manifest,
                             }
                         else:
                             # job_id가 없는 경우를 위한 방어적 fallback — 리뷰 단계 없이 바로 계산.
@@ -6605,6 +6609,7 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                             incomplete_reasons = _extraction_incomplete_reasons(members)
                             sanitized_members = _sanitize_raw_members(members)
                             results["structural"] = compute_structural_quantities(sanitized_members, elevation_data)
+                            results["structural"]["source_manifest"] = source_manifest
                             results["structural"]["_raw_members"] = sanitized_members  # 디버그/검증용
                             if elevation_data:
                                 results["structural"]["_elevation_section"] = elevation_data  # 디버그/검증용
@@ -6732,6 +6737,7 @@ def api_quantity_confirm_review(request):
     try:
         corrected_members, rejected_notes = _apply_member_corrections(members, corrections)
         structural_results = compute_structural_quantities(corrected_members, elevation_data)
+        structural_results["source_manifest"] = corrected_members.get("source_manifest") or {}
         structural_results["_raw_members"] = corrected_members  # 디버그/검증용
         if elevation_data:
             structural_results["_elevation_section"] = elevation_data  # 디버그/검증용
@@ -7193,6 +7199,39 @@ def _build_excel_response(request):
 
     for col_letter, width in zip("ABCDE", [30, 35, 12, 8, 8]):
         ws_total.column_dimensions[col_letter].width = width
+
+    sources_sheet = wb.create_sheet("도면 출처")
+    sources_sheet.append(["구분", "원본 종류", "페이지/파일", "도면번호", "도면명", "역할", "식별 상태", "원본 식별자"])
+    members_sheet = wb.create_sheet("부재 출처")
+    members_sheet.append(["구분", "공종", "부재번호", "구역", "위치 상태", "확인사항", "페이지/파일", "원본 식별자"])
+    for type_key, type_name in [("structural", "구조"), ("architectural", "건축")]:
+        data = results.get(type_key) or {}
+        manifest = data.get("source_manifest") or {}
+        for kind, rows in [("PDF", manifest.get("pdf_pages") or []), ("CAD", manifest.get("cad_files") or [])]:
+            for row in rows:
+                sources_sheet.append([type_name, kind,
+                    _xlsx_injection_guard(str(row.get("page") if kind == "PDF" else row.get("file") or "")),
+                    _xlsx_injection_guard(row.get("drawing_number") or ""),
+                    _xlsx_injection_guard(row.get("drawing_title") or ""),
+                    _xlsx_injection_guard(row.get("role") or ""),
+                    _xlsx_injection_guard(row.get("identity_status") or ""),
+                    _xlsx_injection_guard(row.get("source_id") or "")])
+        for category in _CATEGORY_KEY_TO_LABEL:
+            for member in (data.get("_raw_members") or {}).get(category) or []:
+                review = member.get("source_review") or {}
+                refs = member.get("source_refs") or [{}]
+                for ref in refs:
+                    members_sheet.append([type_name, _CATEGORY_KEY_TO_LABEL[category],
+                        _xlsx_injection_guard(member.get("mark") or ""),
+                        _xlsx_injection_guard(member.get("zone") or ""),
+                        _xlsx_injection_guard(review.get("status") or "missing_location"),
+                        _xlsx_injection_guard(review.get("note") or "원본 위치 확인 필요"),
+                        _xlsx_injection_guard(str(ref.get("page") or ref.get("file") or "")),
+                        _xlsx_injection_guard(ref.get("source_id") or "")])
+    for sheet in [sources_sheet, members_sheet]:
+        sheet.freeze_panes = "A2"
+        for column, width in zip("ABCDEFGH", [12, 20, 30, 30, 40, 75, 30, 90]):
+            sheet.column_dimensions[column].width = width
 
     coverage_sheet = wb.create_sheet("분석 범위")
     coverage_sheet.append(["구분", "분석 상태", "파일/항목", "사유"])
