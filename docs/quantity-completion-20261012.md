@@ -12,7 +12,7 @@ Approved scope: integrate the preserved quantity automation with the maintained 
 - Make /quantity/ open the current modal flow; disclose partial results and file coverage in UI and the analysis-coverage Excel sheet.
 
 ## Validation
-See quantity-final-receipt.json for current commands, exit codes and original-input comparisons. The 561-test baseline was green. Added behavior tests reproduce missing modules, GET polling, process-shared state, confirmation races, invalid edits, job ownership, duplicate kickoff, skipped files, raw units, partial export and rendered controls before their fixes.
+See quantity-final-receipt-20261012.json for current commands, exit codes and original-input comparisons. The 561-test baseline was green. Added behavior tests reproduce missing modules, GET polling, process-shared state, confirmation races, invalid edits, job ownership, duplicate kickoff, skipped files, raw units, partial export and rendered controls before their fixes.
 
 ## Remaining
 - v143 scene still has 309 unreviewed groups, 1,363 original faces without group mapping, and no construction classification for any object. Do not bulk-approve this data or silently total unsupported quantities.
