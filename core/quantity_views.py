@@ -533,6 +533,7 @@ def _build_review_checklist(members):
                 "source_review": it.get("source_review") or {},
                 "plan_evidence": it.get("plan_evidence") or {},
                 "schedule_evidence": it.get("schedule_evidence") or {},
+                "geometry_evidence": it.get("geometry_evidence") or {},
                 # 세분화 배근(rebar_layers)은 role/size/spacing_m/count 등을 담은 리스트라
                 # 위 fields(스칼라 값 전용)와 형태가 달라 따로 내려준다 — 프론트는 이걸
                 # 읽기전용 요약 + 편집용 JSON 텍스트영역으로 보여준다.
@@ -2233,6 +2234,7 @@ def _attach_member_links(members, dwg_data):
         links = quantity_member_links.build_member_links(dwg_data)
         members = quantity_member_links.attach_plan_evidence(members, links)
         members = quantity_member_links.attach_schedule_evidence(members, links)
+        members = quantity_member_links.attach_geometry_evidence(members, links)
         members["member_links"] = links
     except Exception as exc:
         logger.warning("quantity_member_links_failed error=%s", str(exc)[:200])
@@ -2246,6 +2248,7 @@ def _refresh_member_evidence(members):
         try:
             members = quantity_member_links.attach_plan_evidence(members, links)
             members = quantity_member_links.attach_schedule_evidence(members, links)
+            members = quantity_member_links.attach_geometry_evidence(members, links)
         except Exception as exc:
             logger.warning("quantity_member_links_refresh_failed error=%s", str(exc)[:200])
     return members
@@ -6959,6 +6962,51 @@ def _xlsx_injection_guard(value):
     return value
 
 
+def _append_geometry_rows(sheet, type_name, links):
+    """Measured beam/wall lengths per plan and mark, and each plan's unlabelled remainder."""
+    plans = links.get("plans") or []
+
+    def width_text(widths):
+        parts = sorted(((int(w), v) for w, v in (widths or {}).items()), key=lambda p: -p[1])
+        return ", ".join(f"{w}mm {v / 1000:.1f}m" for w, v in parts)
+
+    def place(plan_index):
+        plan = plans[plan_index] if isinstance(plan_index, int) and 0 <= plan_index < len(plans) else {}
+        levels = plan.get("levels") or []
+        floors = len(levels) if levels else ""
+        level_text = "~".join([levels[0], levels[-1]]) if len(levels) > 1 else (levels[0] if levels else "")
+        return plan, level_text, floors
+
+    for row in links.get("marks") or []:
+        if row.get("category") not in _GEOMETRY_FAMILY_LABELS:
+            continue
+        for kind, refs in (("", row.get("occurrences") or []), ("다른 영역 참고 표기(합계 제외)", row.get("reference_copies") or [])):
+            for ref in refs:
+                measured = ref.get("measured")
+                if not measured:
+                    continue
+                plan, level_text, floors = place(ref.get("plan"))
+                length = round(measured.get("length_mm", 0) / 1000.0, 1)
+                sheet.append([_xlsx_injection_guard(v) for v in [
+                    type_name, plan.get("drawing_number") or "", plan.get("drawing_title") or "", plan.get("section") or "",
+                    level_text]] + [floors, _GEOMETRY_FAMILY_LABELS[row["category"]], _xlsx_injection_guard(row.get("mark") or ""),
+                    measured.get("runs") or 0, length, round(length * floors, 1) if floors and not kind else "",
+                    _xlsx_injection_guard(width_text(measured.get("widths"))), _xlsx_injection_guard(kind)])
+    for index, plan in enumerate(plans):
+        for family, data in (plan.get("geometry") or {}).items():
+            unlabelled = data.get("unlabelled") or {}
+            if not data.get("measured_mm"):
+                continue
+            _plan, level_text, floors = place(index)
+            share = round(100 * data.get("labelled_mm", 0) / data["measured_mm"])
+            sheet.append([_xlsx_injection_guard(v) for v in [
+                type_name, plan.get("drawing_number") or "", plan.get("drawing_title") or "", plan.get("section") or "",
+                level_text]] + [floors, _GEOMETRY_FAMILY_LABELS.get(family, family), "(부호 없음)",
+                unlabelled.get("runs") or 0, round(unlabelled.get("length_mm", 0) / 1000.0, 1), "",
+                _xlsx_injection_guard(width_text(unlabelled.get("widths"))),
+                _xlsx_injection_guard(f"잰 길이 {data['measured_mm'] / 1000:.1f}m 중 {share}%가 부호에 배정됨")])
+
+
 def _append_schedule_rows(schedule_sheet, notes_sheet, type_name, links):
     """Schedule definitions (one row per schedule row) and plan notes/specs for Excel."""
     plans = links.get("plans") or []
@@ -7037,6 +7085,11 @@ _PLAN_STATUS_LABELS = {
     "specs_only": "부재 표기 없음(기초 문구만)", "no_member_labels": "부재 표기 없음",
 }
 _NOTE_KIND_LABELS = {"reference": "다른 도면 참고 안내", "unlabelled_default": "미표기 부재 부호"}
+_GEOMETRY_EVIDENCE_LABELS = {
+    "length_matches": "일치", "length_differs": "AI·CAD 길이 다름", "cad_length_only": "CAD 길이만 있음",
+    "cad_lengths_vary_by_floor": "층별 CAD 길이 다름", "no_cad_length": "CAD 실측 없음",
+}
+_GEOMETRY_FAMILY_LABELS = {"beams": "보", "walls": "벽체"}
 _SPEC_KIND_LABELS = {"rebar": "배근 문구", "size": "크기 문구", "thickness": "두께 문구"}
 # Schedule columns shown in Excel, in reading order; other cells go to "기타".
 _SCHEDULE_COLUMNS = [
@@ -7376,7 +7429,11 @@ def _build_excel_response(request):
                           "식별 근거", "확인 필요", "연결된 CAD 도곽"])
     members_sheet = wb.create_sheet("부재 출처")
     members_sheet.append(["구분", "공종", "부재번호", "구역", "위치 상태", "확인사항", "페이지/파일", "원본 식별자",
-                          "CAD 비교", "CAD 평면 개수", "CAD 비교 메모", "일람표 비교", "일람표 비교 메모"])
+                          "CAD 비교", "CAD 평면 개수", "CAD 비교 메모", "일람표 비교", "일람표 비교 메모",
+                          "CAD 실측 비교", "CAD 실측 길이(m)", "CAD 실측 메모"])
+    geometry_sheet = wb.create_sheet("CAD 실측 치수")
+    geometry_sheet.append(["구분", "도면번호", "도면명", "동", "층", "층수", "공종", "부호", "구간 수",
+                           "한 층 길이(m)", "층수 반영 길이(m)", "폭·두께별 길이", "확인사항"])
     links_sheet = wb.create_sheet("부재 배치 근거")
     links_sheet.append(["공종", "부호", "구분", "일람표", "평면도", "도면명", "동", "층", "층수",
                         "평면 표기 개수", "평면 표기 합계", "부호 전체 합계", "확인사항"])
@@ -7408,6 +7465,7 @@ def _build_excel_response(request):
                 review = member.get("source_review") or {}
                 plan = member.get("plan_evidence") or {}
                 schedule = member.get("schedule_evidence") or {}
+                geometry = member.get("geometry_evidence") or {}
                 refs = member.get("source_refs") or [{}]
                 for ref in refs:
                     members_sheet.append([type_name, _CATEGORY_KEY_TO_LABEL[category],
@@ -7421,7 +7479,10 @@ def _build_excel_response(request):
                         plan.get("cad_count") if isinstance(plan.get("cad_count"), int) else "",
                         _xlsx_injection_guard(plan.get("note") or ""),
                         _xlsx_injection_guard(_SCHEDULE_EVIDENCE_LABELS.get(schedule.get("status"), schedule.get("status") or "")),
-                        _xlsx_injection_guard(schedule.get("note") or "")])
+                        _xlsx_injection_guard(schedule.get("note") or ""),
+                        _xlsx_injection_guard(_GEOMETRY_EVIDENCE_LABELS.get(geometry.get("status"), geometry.get("status") or "")),
+                        geometry.get("cad_length_m") if isinstance(geometry.get("cad_length_m"), (int, float)) else "",
+                        _xlsx_injection_guard(geometry.get("note") or "")])
         link_plans = (data.get("member_links") or {}).get("plans") or []
         for row in (data.get("member_links") or {}).get("marks") or []:
             label = _CATEGORY_KEY_TO_LABEL.get(row.get("category"), row.get("category") or "")
@@ -7445,11 +7506,12 @@ def _build_excel_response(request):
                     row.get("label_total") if row.get("label_total") is not None else "",
                     _xlsx_injection_guard(flags)])
         _append_schedule_rows(schedule_sheet, notes_sheet, type_name, data.get("member_links") or {})
+        _append_geometry_rows(geometry_sheet, type_name, data.get("member_links") or {})
     for sheet in [sources_sheet, members_sheet, links_sheet]:
         sheet.freeze_panes = "A2"
         for column, width in zip("ABCDEFGHIJKLM", [12, 20, 30, 30, 40, 75, 30, 90, 28, 45, 45, 16, 45]):
             sheet.column_dimensions[column].width = width
-    for sheet in [schedule_sheet, notes_sheet]:
+    for sheet in [schedule_sheet, notes_sheet, geometry_sheet]:
         sheet.freeze_panes = "A2"
         for column in range(1, sheet.max_column + 1):
             sheet.column_dimensions[get_column_letter(column)].width = 16

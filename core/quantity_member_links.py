@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from collections import Counter
 
 from . import quantity_schedules as schedules
 from . import quantity_sheet_identity as sid
@@ -124,6 +125,15 @@ def _place(ref, plans):
     return dict(ref, section=ref.get("section", plan.get("section")), levels=ref.get("levels", plan.get("levels")))
 
 
+def _geometry_summary(geometry):
+    """Per-family totals of a plan's measured linework (the per-mark values sit on placements)."""
+    if not geometry:
+        return None
+    return {family: {"measured_mm": data["measured_mm"], "labelled_mm": data["labelled_mm"],
+                     "unlabelled": data["unlabelled"]}
+            for family, data in geometry.items() if family in ("beams", "walls")} or None
+
+
 def _plan_area(scope, title):
     return schedules.area_of(scope.get("section")) or schedules.area_of(title)
 
@@ -132,7 +142,7 @@ def build_member_links(cad_data):
     sheets_by_file = {f: d.get("sheets") or [] for f, d in (cad_data or {}).items() if isinstance(d, dict)}
     index_entries = [e for d in (cad_data or {}).values() if isinstance(d, dict) for e in d.get("index_entries") or []]
     registry = sid.build_sheet_registry(sheets_by_file, index_entries=index_entries)
-    rows, plans, row_sets, row_set_index = {}, [], [], {}
+    rows, plans, row_sets, row_set_index, plan_geometry = {}, [], [], {}, []
 
     def row_set(table_rows):
         """Schedule rows are stored once; many marks share the same rows."""
@@ -152,7 +162,9 @@ def build_member_links(cad_data):
                       "levels": scope["levels"], "kind": scope["kind"], "labelled_marks": 0,
                       "area": _plan_area(scope, slot.get("index_title") or title),
                       "notes": [dict(n) for n in sheet.get("notes") or []], "specs": list(sheet.get("specs") or []),
-                      "reference_copy_labels": 0, "labels_in_blocks": 0})
+                      "reference_copy_labels": 0, "labels_in_blocks": 0,
+                      "geometry": _geometry_summary(sheet.get("geometry"))})
+        plan_geometry.append(sheet.get("geometry") or {})
         return len(plans) - 1
 
     def row(category, mark):
@@ -216,6 +228,9 @@ def build_member_links(cad_data):
         home = homes.get(mark, set()) - {None}
         target = row(category, mark)
         ref = {"plan": plan, "drawing_number": info["drawing_number"], "count": count}
+        measured = ((plan_geometry[plan].get(category) or {}).get("marks") or {}).get(mark)
+        if measured:
+            ref["measured"] = measured  # CAD linework lengths of this mark on this plan
         if in_blocks:
             ref["in_blocks"] = in_blocks
             info["labels_in_blocks"] += in_blocks
@@ -456,4 +471,110 @@ def attach_schedule_evidence(members, matrix):
                 evidence = schedules.schedule_evidence(category, item, specs, levels, _section_match)
             evidence["note"] = schedules.note_for(evidence)
             item["schedule_evidence"] = evidence
+    return members
+
+
+_GEOMETRY_NOTES = {
+    "length_matches": "CAD 실측 길이 {cad}와 AI 길이 합계 {ai}가 같습니다(5% 이내).",
+    "length_differs": "CAD 실측 길이 {cad}, AI 길이 합계 {ai} — {diff}% 차이, 확인이 필요합니다.",
+    "cad_length_only": "CAD 실측 길이 {cad}입니다(AI 길이 없음).",
+    "cad_lengths_vary_by_floor": "층별 CAD 실측 길이가 다릅니다({cad}) — 층별로 나눠 확인해 주세요.",
+    "no_cad_length": "같은 동·층 CAD 평면에서 이 부호의 선 길이를 재지 못했습니다.",
+}
+
+
+def _width_text(widths):
+    parts = sorted(((int(w), length) for w, length in (widths or {}).items()), key=lambda p: -p[1])
+    return ", ".join(f"{w}mm {length / 1000:.1f}m" for w, length in parts[:3])
+
+
+def _schedule_width(category, item, row_index, matrix):
+    """Beam width (b of "b X h") or wall thickness from the schedule rows of this mark, in mm."""
+    from . import quantity_schedules as schedules
+    mark = schedules.schedule_mark(item.get("mark")) or str(item.get("mark") or "").upper()
+    specs, levels = _member_specs(row_index, category, mark, parse_zone_levels(item.get("zone")))
+    if levels is not None:  # a level-prefixed schedule mark ("-1G1", "RG1") applies to its own level only
+        specs = [spec for spec in specs if not spec.get("levels") or set(spec["levels"]) & set(levels)]
+    values = set()
+    for spec in specs:
+        for row in spec_rows(spec, matrix):
+            row_levels = schedules.parse_level_text(row["levels_text"]) if row.get("levels_text") else None
+            if levels and row_levels and not set(levels) & set(row_levels):
+                continue
+            if category == "beams":
+                size = schedules.parse_size(row["values"].get("size"))
+                match = re.search(r"(\d[\d,]*)\s*[X×x*]", str(row["values"].get("size") or ""))
+                value = int(match.group(1).replace(",", "")) if size and match else None
+            else:
+                value = schedules.parse_mm(row["values"].get("thickness"))
+            if value:
+                values.add(value)
+    return sorted(values)
+
+
+def attach_geometry_evidence(members, matrix):
+    """Compare extracted beam/wall lengths and widths with CAD linework measured on the same plans."""
+    matrix = matrix or {}
+    plans = matrix.get("plans", [])
+    index = {(row["category"], row["mark"]): row for row in matrix.get("marks", [])}
+    for category in ("beams", "walls"):
+        for item in members.get(category) or []:
+            if not isinstance(item, dict):
+                continue
+            mark = sid.normalize_mark(item.get("mark")) or re.sub(r"\s+", "", str(item.get("mark") or "")).upper()
+            row = index.get((category, mark))
+            levels = parse_zone_levels(item.get("zone"))
+            evidence = {"status": "no_cad_length", "cad_length_m": None, "ai_length_m": None, "cad_runs": None,
+                        "widths": {}, "schedule_width_mm": _schedule_width(category, item, index, matrix),
+                        "plans": [], "quantity_verified": False}
+            matched = []
+            if row and levels is not None:
+                for occurrence in row.get("occurrences") or []:
+                    placed = _place(occurrence, plans)
+                    if (occurrence.get("measured") and _section_match(item.get("section"), placed["section"])
+                            and _overlaps(placed["levels"], levels)):
+                        matched.append(placed)
+            if matched:
+                lengths = sorted({round(o["measured"]["length_mm"] / 1000.0, 1) for o in matched})
+                evidence["plans"] = [{"plan": o["plan"], "drawing_number": o["drawing_number"],
+                                      "length_m": round(o["measured"]["length_mm"] / 1000.0, 1),
+                                      "runs": o["measured"]["runs"]} for o in matched]
+                widths = Counter()
+                for o in matched:
+                    widths.update({w: v for w, v in o["measured"]["widths"].items()})
+                evidence["widths"] = dict(widths.most_common(4))
+                if len(lengths) > 1:
+                    evidence["status"] = "cad_lengths_vary_by_floor"
+                else:
+                    evidence["cad_length_m"] = lengths[0]
+                    evidence["cad_runs"] = matched[0]["measured"]["runs"]
+                    length, count = item.get("length_m"), item.get("count")
+                    numeric = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)
+                    if numeric(length) and numeric(count) and lengths[0] > 0:
+                        evidence["ai_length_m"] = round(length * count, 1)
+                        diff = abs(evidence["ai_length_m"] - lengths[0]) / lengths[0]
+                        evidence["status"] = "length_matches" if diff <= 0.05 else "length_differs"
+                        evidence["difference_pct"] = round(diff * 100)
+                    else:
+                        evidence["status"] = "cad_length_only"
+            cad = (f"{evidence['cad_length_m']}m" if evidence["cad_length_m"] is not None
+                   else ", ".join(f"{p['drawing_number']} {p['length_m']}m" for p in evidence["plans"]) or "-")
+            note = _GEOMETRY_NOTES[evidence["status"]].format(cad=cad, ai=f"{evidence['ai_length_m']}m",
+                                                              diff=evidence.get("difference_pct"))
+            if evidence["widths"]:
+                label = "폭" if category == "beams" else "두께"
+                note += f" 잰 {label}: {_width_text(evidence['widths'])}."
+                schedule = evidence["schedule_width_mm"]
+                if schedule:
+                    total = sum(evidence["widths"].values()) or 1
+                    other = sum(v for w, v in evidence["widths"].items() if all(abs(int(w) - s) > 10 for s in schedule))
+                    named = ", ".join(map(str, schedule)) + "mm"
+                    if other >= 0.5 * total:
+                        note += (f" 잰 길이의 {round(100 * other / total)}%가 일람표 {label} {named}와 다릅니다"
+                                 f" — 평면에 그려진 {label} 또는 부호 배정을 확인해 주세요.")
+                        evidence["width_differs_from_schedule"] = True
+                    elif other:
+                        note += f" 일람표 {label} {named}와 다른 조각 {other / 1000:.1f}m가 섞여 있습니다."
+            evidence["note"] = note
+            item["geometry_evidence"] = evidence
     return members

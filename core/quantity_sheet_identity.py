@@ -251,9 +251,15 @@ def extract_sheet_evidence(doc, decode=None, source_member_sha=None):
             if text:
                 texts.append({"text": text, "x": float(entity.dxf.insert.x), "y": float(entity.dxf.insert.y),
                               "h": _height(entity), "layer": entity.dxf.get("layer"), "handle": entity.dxf.get("handle")})
+    from . import quantity_geometry
+    try:
+        geometry = quantity_geometry.collect_segments(doc, skip_blocks=form_blocks)
+    except Exception as exc:  # member lengths are extra evidence; identity must not depend on them
+        logger.warning("quantity_geometry_collect_failed error=%s", str(exc)[:200])
+        geometry = {"segments": [], "paths": [], "truncated": False}
     return {"version": 2, "source_member_sha": source_member_sha,
             "self_template": _template(msp, decode, base), "templates": templates,
-            "inserts": inserts, "texts": texts, "block_texts": block_texts,
+            "inserts": inserts, "texts": texts, "block_texts": block_texts, "geometry": geometry,
             "truncated": len(inserts) >= MAX_INSERTS or len(texts) >= MAX_TEXTS,
             "block_texts_truncated": len(block_texts) >= MAX_BLOCK_TEXTS}
 
@@ -375,7 +381,7 @@ def sheet_marks(sheet, evidence, texts=None):
 
 def attach_sheet_identity(parsed, evidence_by_file):
     """Store per-file sheets (with mark labels, tables and notes) and index rows on the parse result."""
-    from . import quantity_schedules
+    from . import quantity_geometry, quantity_schedules
 
     sheets = resolve_cad_sheets(evidence_by_file)
     for file, rows in sheets.items():
@@ -387,6 +393,13 @@ def attach_sheet_identity(parsed, evidence_by_file):
             except Exception as exc:  # tables are extra evidence; identity must not depend on them
                 logger.warning("quantity_sheet_content_failed file=%s error=%s", file, str(exc)[:200])
                 sheet.update(tables=[], notes=[], specs=[])
+            try:
+                measured = quantity_geometry.measure_sheet(sheet, evidence_by_file[file].get("geometry"), texts, normalize_mark)
+            except Exception as exc:
+                logger.warning("quantity_geometry_measure_failed file=%s error=%s", file, str(exc)[:200])
+                measured = None
+            if measured:
+                sheet["geometry"] = measured
     for file in evidence_by_file:
         if isinstance(parsed.get(file), dict):
             parsed[file]["sheets"] = sheets.get(file, [])

@@ -7878,6 +7878,11 @@ body.cbl-modal-open {
                   (item.schedule_evidence.status === "schedule_differs" ? "⚠ " : "") +
                   'CAD 일람표 비교: ' + esc(item.schedule_evidence.note) + '</div>'
               : "") +
+            (item.geometry_evidence && item.geometry_evidence.note && item.geometry_evidence.status !== "no_cad_length"
+              ? '<div class="qty-review-geometry-evidence">' +
+                  (["length_differs", "cad_lengths_vary_by_floor"].indexOf(item.geometry_evidence.status) >= 0 ? "⚠ " : "") +
+                  'CAD 실측: ' + esc(item.geometry_evidence.note) + '</div>'
+              : "") +
             '</div>';
           // 세분화 배근(rebar_layers): role/size/spacing_m/count 등을 담은 리스트라
           // 위의 스칼라 fields와는 별도로, 읽기전용 요약(항상 표시) + 편집용 JSON
