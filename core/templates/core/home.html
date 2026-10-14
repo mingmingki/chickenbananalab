@@ -1751,7 +1751,7 @@ main.cblx-home > section.cblx-categories.cbl-cat-hard-reset > a {
         <p>도면에서 수량을 AI가 자동으로 추출하고<br>검증하여 업무 효율을 높입니다.</p>
       </div>
 
-      <button type="button" class="cbl-ai-clean-btn cbl-quantity-btn" data-cbl-beta-open="quantity" onclick="return cblOpenBetaGate('quantity');">
+      <button type="button" class="cbl-ai-clean-btn cbl-quantity-btn" onclick="window.location.href='{% url 'quantity_main' %}'; return false;">
         자세히 보기 <span>→</span>
       </button>
 
@@ -6237,6 +6237,8 @@ body.cbl-modal-open {
     </div>
   </div>
 </div>
+<link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}">
+<script src="{% static 'core/js/quantity_stage.js' %}"></script>
 
 <script>
 (function () {
@@ -6372,12 +6374,18 @@ body.cbl-modal-open {
           '</div>'
         );
         scrollBottom();
+        if (window.cblQuantityStage) window.cblQuantityStage.botSaid(html);
         resolve();
       }, delay || 0);
     });
   }
 
+  function stageStep(n) {
+    if (window.cblQuantityStage) window.cblQuantityStage.step(n);
+  }
+
   function addUser(html) {
+    if (window.cblQuantityStage) window.cblQuantityStage.userSaid();
     flowEl.insertAdjacentHTML("beforeend",
       '<div class="sender-name right">게스트</div>' +
       '<div class="msg-row right">' + userAvatarHtml() +
@@ -6534,6 +6542,7 @@ body.cbl-modal-open {
   }
 
   async function startUploadStep() {
+    stageStep(2);
     await addBot("건축·구조 캐드 및 PDF 파일을 올려주세요. 구조도면은 누락된 게 있으면 따로 알려드릴게요.", 250);
 
     var uploadEl = appendLeft(
@@ -6905,6 +6914,7 @@ body.cbl-modal-open {
   }
 
   function showOverviewLocatorFailure(detection) {
+    stageStep(3);
     var candidates = detection.top_candidates || [];
     var logs = detection.classifications || [];
     var candidateRows = candidates.length ? candidates.map(function (item) {
@@ -7274,6 +7284,7 @@ body.cbl-modal-open {
   ];
 
   function showOverviewStep(overview, generalSpec) {
+    stageStep(3);
     overview = overview || {};
     generalSpec = generalSpec || {};
     addBot("먼저 프로젝트 개요를 확인할게요.", 200).then(function () {
@@ -7376,6 +7387,7 @@ body.cbl-modal-open {
   }
 
   function showGeneralSpecStep(generalSpec, overview) {
+    stageStep(3);
     generalSpec = generalSpec || {};
     overview = overview || {};
     var hasValidValues = Object.keys(generalSpec.basic_info || {}).length > 0 ||
@@ -8118,6 +8130,7 @@ body.cbl-modal-open {
   }
 
   async function runQuantityAnalysis(confirmedGeneralSpec) {
+    stageStep(3);
     // 진행률 폴링용 job_id — 업로드 요청에 같이 실어보내면, 서버가 배치 처리 중간중간
     // /api/quantity/progress/ 로 조회 가능한 상태를 남겨준다.
     //
@@ -8293,6 +8306,7 @@ body.cbl-modal-open {
   // 도면 확인 팝업 없이 바로 끝난 경우(job_id 없는 옛 클라이언트 호환, 취소/오류 등)와,
   // 도면 확인 팝업에서 "진행"을 눌러 confirm-review까지 마친 경우 둘 다에서 재사용한다.
   async function finishQuantityAnalysisFlow(data, cancelRequestedFlag) {
+    stageStep(4);
     var items = (data.results && data.results.structural && data.results.structural.items) || [];
     if (!items.length) {
       var struct = (data.results && data.results.structural) || {};
@@ -9019,18 +9033,22 @@ body.cbl-modal-open {
 
     if (!state.started) {
       state.started = true;
-      startFlow();
+      // The guided stage greets first (its start button also lets the browser speak).
+      if (window.cblQuantityStage) window.cblQuantityStage.intro(startFlow);
+      else startFlow();
     }
   }
 
   function closePopup() {
+    if (window.cblQuantityStage) window.cblQuantityStage.stop();
     modal.hidden = true;
     modal.setAttribute("aria-hidden", "true");
     document.body.classList.remove("cbl-modal-open");
   }
 
   async function startFlow() {
-    await addBot("안녕하세요. AI 구조산출 자동화 봇입니다.", 200);
+    stageStep(1);
+    if (!window.cblQuantityStage) await addBot("안녕하세요. AI 구조산출 자동화 봇입니다.", 200);
     await addBot("수량산출 전 몇가지 궁금한점이 있습니다.", 350);
     askProjectType();
   }
@@ -18602,6 +18620,7 @@ body[data-cbl-url-name="home"] .cbl-home-program-card strong br {
     var modal = document.getElementById(id);
     if (!modal) return;
     if (!isMobile()) return;
+    if (modal.classList.contains("qty-stage")) { clearMobileStyles(id); return; }  // the guided stage is full screen
     var vv = window.visualViewport;
     var screenHeight = window.innerHeight || document.documentElement.clientHeight || 0;
     var height = visibleHeight();

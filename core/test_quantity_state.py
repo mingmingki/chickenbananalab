@@ -231,7 +231,7 @@ class QuantityApiStateTests(SimpleTestCase):
 
     def test_standalone_entry_opens_the_current_quantity_workflow(self):
         self.user.username = "admin"
-        response = views.quantity_main(self.request('get', '/quantity/'))
+        response = views.quantity_start(self.request('get', '/quantity/start/'))
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, '/?quantity=1')
 

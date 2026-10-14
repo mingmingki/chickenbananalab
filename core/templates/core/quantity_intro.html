@@ -1,0 +1,358 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block title %}AI 수량산출 자동화 | ChickenBanana Lab{% endblock %}
+{% block meta_description %}구조도면 CAD·PDF를 올리면 AI가 부재를 읽고, 도면 근거와 함께 검토한 뒤 콘크리트·거푸집·철근 수량을 엑셀로 정리합니다.{% endblock %}
+{% block og_title %}AI 수량산출 자동화 | ChickenBanana Lab{% endblock %}
+{% block og_description %}도면 업로드부터 AI 판독, 도면 근거 검토, 수량산출 엑셀까지 음성 안내와 함께 진행합니다.{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{% static 'core/css/quantity_intro.css' %}">
+
+<div class="qi" id="qi"
+     data-qi-authenticated="{{ is_authenticated|yesno:'true,false' }}"
+     data-qi-can-start="{{ can_start|yesno:'true,false' }}"
+     data-qi-restricted="{{ restricted|yesno:'true,false' }}"
+     data-qi-start-url="{{ start_url }}">
+
+  <section class="qi-hero">
+    <div class="qi-wrap qi-hero-inner">
+      <div class="qi-hero-copy">
+        <p class="qi-kicker">AI 수량산출 자동화 <span class="qi-beta">BETA</span></p>
+        <h1 class="qi-hero-title">
+          <span class="qi-mint">구조도면 수량산출</span>은<br>
+          치킨바나나랩 <span class="qi-mint">AI</span>로 한&nbsp;번에!
+        </h1>
+        <p class="qi-hero-sub">도면 업로드부터 AI 판독, 도면 근거 검토, 엑셀 정리까지 <br>음성 안내를 들으며 차근차근 진행해요.</p>
+        <div class="qi-hero-actions">
+          <button type="button" class="qi-btn qi-btn-dark" data-qi-start>시작하기</button>
+          <a class="qi-btn qi-btn-line" href="#qi-steps">진행 순서 보기</a>
+        </div>
+      </div>
+
+      <div class="qi-hero-art" aria-hidden="true">
+        <svg viewBox="0 0 560 440" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="qiSheet" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#ffffff"/>
+              <stop offset="1" stop-color="#e6f3f1"/>
+            </linearGradient>
+            <linearGradient id="qiMintCard" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#5fd0bf"/>
+              <stop offset="1" stop-color="#139b8c"/>
+            </linearGradient>
+            <linearGradient id="qiYellowCard" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#fff3a6"/>
+              <stop offset="1" stop-color="#f3d95e"/>
+            </linearGradient>
+            <linearGradient id="qiOrbRing" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#8be3d6"/>
+              <stop offset="1" stop-color="#6c7ff2"/>
+            </linearGradient>
+            <filter id="qiShadow" x="-20%" y="-20%" width="140%" height="150%">
+              <feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#0f3d38" flood-opacity=".16"/>
+            </filter>
+          </defs>
+
+          <rect x="40" y="380" width="480" height="34" rx="17" fill="#dbe9e7"/>
+
+          <g filter="url(#qiShadow)">
+            <rect x="92" y="56" width="330" height="300" rx="22" fill="url(#qiSheet)"/>
+            <rect x="92" y="56" width="330" height="40" rx="22" fill="#f1f7f6"/>
+            <circle cx="118" cy="76" r="6" fill="#8fd9cd"/>
+            <circle cx="138" cy="76" r="6" fill="#cfe9e5"/>
+            <circle cx="158" cy="76" r="6" fill="#f3d95e"/>
+          </g>
+          <g stroke="#b9d9d4" stroke-width="1.4" fill="none">
+            <path d="M126 122h262M126 172h262M126 222h262M126 272h262M126 322h262"/>
+            <path d="M126 122v200M186 122v200M246 122v200M306 122v200M366 122v200"/>
+          </g>
+          <g stroke="#098177" stroke-width="3" fill="none" stroke-linejoin="round">
+            <rect x="146" y="142" width="200" height="160" rx="4"/>
+            <path d="M246 142v160M146 222h200"/>
+          </g>
+          <g fill="#098177">
+            <rect x="140" y="136" width="12" height="12" rx="2"/>
+            <rect x="240" y="136" width="12" height="12" rx="2"/>
+            <rect x="340" y="136" width="12" height="12" rx="2"/>
+            <rect x="140" y="216" width="12" height="12" rx="2"/>
+            <rect x="340" y="216" width="12" height="12" rx="2"/>
+            <rect x="140" y="296" width="12" height="12" rx="2"/>
+            <rect x="240" y="296" width="12" height="12" rx="2"/>
+            <rect x="340" y="296" width="12" height="12" rx="2"/>
+          </g>
+          <g font-family="sans-serif" font-size="11" font-weight="800" fill="#0b5f57">
+            <text x="158" y="160">C2</text>
+            <text x="258" y="160">C2</text>
+            <text x="192" y="216">G1</text>
+            <text x="292" y="296">C3</text>
+          </g>
+
+          <g class="qi-float-a" filter="url(#qiShadow)">
+            <rect x="350" y="18" width="150" height="112" rx="20" fill="url(#qiMintCard)"/>
+            <rect x="370" y="40" width="34" height="34" rx="9" fill="#ffffff" opacity=".95"/>
+            <path d="M378 57l7 7 13-14" stroke="#139b8c" stroke-width="4.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="414" y="45" width="70" height="9" rx="4.5" fill="#ffffff" opacity=".85"/>
+            <rect x="414" y="61" width="48" height="9" rx="4.5" fill="#ffffff" opacity=".6"/>
+            <rect x="370" y="88" width="34" height="28" rx="8" fill="#ffffff" opacity=".35"/>
+            <rect x="414" y="94" width="66" height="9" rx="4.5" fill="#ffffff" opacity=".6"/>
+          </g>
+
+          <g class="qi-float-b" filter="url(#qiShadow)">
+            <rect x="20" y="214" width="150" height="118" rx="20" fill="url(#qiYellowCard)"/>
+            <text x="40" y="250" font-family="sans-serif" font-size="13" font-weight="900" fill="#5c4b00">일람표</text>
+            <rect x="40" y="262" width="110" height="10" rx="5" fill="#ffffff" opacity=".8"/>
+            <rect x="40" y="280" width="84" height="10" rx="5" fill="#ffffff" opacity=".6"/>
+            <text x="40" y="314" font-family="sans-serif" font-size="12" font-weight="800" fill="#5c4b00">D10@300</text>
+          </g>
+
+          <g class="qi-float-c" filter="url(#qiShadow)">
+            <circle cx="452" cy="300" r="62" fill="url(#qiOrbRing)"/>
+            <circle cx="452" cy="300" r="48" fill="#f8fbfb"/>
+            <path d="M412 320c14-4 20-30 32-36s20 18 32 16 12-14 18-16v38h-82z" fill="#bfe7f6"/>
+            <path d="M412 326c18 0 26-16 40-16s22 12 42 6v22h-82z" fill="#9fdcf0"/>
+          </g>
+
+          <g class="qi-float-a" filter="url(#qiShadow)">
+            <rect x="196" y="12" width="108" height="46" rx="23" fill="#ffffff"/>
+            <rect x="210" y="24" width="30" height="22" rx="6" fill="#098177"/>
+            <text x="225" y="40" font-family="sans-serif" font-size="12" font-weight="900" fill="#ffffff" text-anchor="middle">AI</text>
+            <rect x="248" y="25" width="42" height="8" rx="4" fill="#cfe9e5"/>
+            <rect x="248" y="38" width="28" height="8" rx="4" fill="#e7f3f1"/>
+          </g>
+        </svg>
+      </div>
+    </div>
+    <a class="qi-scroll" href="#qi-steps"><span aria-hidden="true"></span>SCROLL DOWN</a>
+  </section>
+
+  <section class="qi-steps" id="qi-steps">
+    <div class="qi-wrap">
+      <h2 class="qi-section-title qi-reveal"><span class="qi-highlight">AI 수량산출</span> 진행 순서</h2>
+      <ol class="qi-step-cards">
+        <li class="qi-reveal">
+          <a href="#qi-step-1" class="qi-step-card">
+            <span class="qi-step-no">STEP 1</span>
+            <svg class="qi-step-icon" viewBox="0 0 96 96" aria-hidden="true">
+              <rect x="20" y="14" width="56" height="70" rx="10" fill="#e6f5f2"/>
+              <rect x="34" y="8" width="28" height="14" rx="6" fill="#139b8c"/>
+              <rect x="30" y="34" width="10" height="10" rx="3" fill="#5fd0bf"/>
+              <rect x="46" y="36" width="22" height="6" rx="3" fill="#9ccfc8"/>
+              <rect x="30" y="52" width="10" height="10" rx="3" fill="#5fd0bf"/>
+              <rect x="46" y="54" width="22" height="6" rx="3" fill="#9ccfc8"/>
+              <rect x="30" y="70" width="10" height="8" rx="3" fill="#f3d95e"/>
+              <rect x="46" y="71" width="16" height="6" rx="3" fill="#d9e8e6"/>
+            </svg>
+            <strong>프로젝트 확인</strong>
+          </a>
+        </li>
+        <li class="qi-reveal">
+          <a href="#qi-step-2" class="qi-step-card">
+            <span class="qi-step-no">STEP 2</span>
+            <svg class="qi-step-icon" viewBox="0 0 96 96" aria-hidden="true">
+              <path d="M24 12h34l16 16v56H24z" fill="#e6f5f2"/>
+              <path d="M58 12v16h16" fill="#bfe5df"/>
+              <circle cx="48" cy="58" r="20" fill="#139b8c"/>
+              <path d="M48 68V48m-9 9 9-9 9 9" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <strong>도면 업로드</strong>
+          </a>
+        </li>
+        <li class="qi-reveal">
+          <a href="#qi-step-3" class="qi-step-card">
+            <span class="qi-step-no">STEP 3</span>
+            <svg class="qi-step-icon" viewBox="0 0 96 96" aria-hidden="true">
+              <rect x="12" y="16" width="56" height="56" rx="10" fill="#e6f5f2"/>
+              <path d="M22 30h36M22 42h28M22 54h20" stroke="#9ccfc8" stroke-width="5" stroke-linecap="round"/>
+              <circle cx="60" cy="58" r="18" fill="#ffffff" stroke="#139b8c" stroke-width="7"/>
+              <path d="M73 71l12 12" stroke="#139b8c" stroke-width="8" stroke-linecap="round"/>
+              <text x="60" y="63" font-family="sans-serif" font-size="13" font-weight="900" fill="#139b8c" text-anchor="middle">AI</text>
+            </svg>
+            <strong>AI 판독·검토</strong>
+          </a>
+        </li>
+        <li class="qi-reveal">
+          <a href="#qi-step-4" class="qi-step-card">
+            <span class="qi-step-no">STEP 4</span>
+            <svg class="qi-step-icon" viewBox="0 0 96 96" aria-hidden="true">
+              <rect x="14" y="14" width="68" height="68" rx="12" fill="#e6f5f2"/>
+              <path d="M14 34h68M38 14v68" stroke="#bfe5df" stroke-width="4"/>
+              <rect x="48" y="56" width="8" height="16" rx="2" fill="#5fd0bf"/>
+              <rect x="60" y="46" width="8" height="26" rx="2" fill="#139b8c"/>
+              <rect x="24" y="44" width="8" height="6" rx="2" fill="#f3d95e"/>
+              <rect x="24" y="58" width="8" height="6" rx="2" fill="#f3d95e"/>
+            </svg>
+            <strong>수량산출·엑셀</strong>
+          </a>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="qi-detail" id="qi-step-1">
+    <div class="qi-wrap qi-detail-inner">
+      <div class="qi-detail-copy qi-reveal">
+        <p class="qi-detail-label">프로젝트 확인</p>
+        <h3>몇 가지 질문으로 <br><strong>산출 조건을 <br>먼저 맞춰요.</strong></h3>
+        <span class="qi-time"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5V8l2.5 1.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>소요시간 | 1분</span>
+        <ul class="qi-points">
+          <li>프로젝트 유형, 주요구조, 터파기 방식을 고르면 돼요.</li>
+          <li>목록에 없는 항목은 '그외'를 눌러 직접 적을 수 있어요.</li>
+          <li>입력한 조건은 확인 후 언제든 다시 고칠 수 있어요.</li>
+        </ul>
+        <button type="button" class="qi-btn qi-btn-dark" data-qi-start>시작하기</button>
+      </div>
+      <div class="qi-preview qi-reveal" aria-hidden="true">
+        <div class="qi-preview-card">
+          <div class="qi-q-head"><span>질문 <b>1</b> / 3</span><span class="qi-q-head-sub">프로젝트 확인</span></div>
+          <p class="qi-q-text">1. 수량산출하는 프로젝트가 어떤 유형이죠?</p>
+          <div class="qi-q-options">
+            <span class="is-picked"><i></i>아파트</span>
+            <span><i></i>일반건축물</span>
+            <span><i></i>단독주택</span>
+            <span><i></i>그외</span>
+          </div>
+          <div class="qi-q-progress"><span style="width:33%"></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="qi-detail qi-detail-alt" id="qi-step-2">
+    <div class="qi-wrap qi-detail-inner">
+      <div class="qi-detail-copy qi-reveal">
+        <p class="qi-detail-label">도면 업로드</p>
+        <h3>구조도면 CAD와 PDF를 <br><strong>올리면 파일부터 <br>꼼꼼히 확인해요.</strong></h3>
+        <span class="qi-time"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5V8l2.5 1.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>소요시간 | 2분 (파일 크기에 따라 달라요)</span>
+        <ul class="qi-points">
+          <li>DWG 묶음 ZIP과 구조도면 합본 PDF를 함께 올려요.</li>
+          <li>도면목록표 기준으로 빠진 도면이 있으면 알려드려요.</li>
+          <li>중요한 원본 파일은 반드시 백업한 뒤 올려주세요.</li>
+        </ul>
+        <button type="button" class="qi-btn qi-btn-dark" data-qi-start>시작하기</button>
+      </div>
+      <div class="qi-preview qi-reveal" aria-hidden="true">
+        <div class="qi-preview-card">
+          <div class="qi-drop"><b>구조도면 ZIP / PDF 파일 업로드</b><span>클릭하거나 파일을 끌어다 놓으세요</span></div>
+          <div class="qi-file"><i class="ok"></i><span>구조도면_CAD.zip</span><em>도면 40개 확인</em></div>
+          <div class="qi-file"><i class="ok"></i><span>구조도면_합본.pdf</span><em>전체 페이지 확인</em></div>
+          <div class="qi-file"><i class="warn"></i><span>도면목록표 대조</span><em>누락 도면 1장 안내</em></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="qi-detail" id="qi-step-3">
+    <div class="qi-wrap qi-detail-inner">
+      <div class="qi-detail-copy qi-reveal">
+        <p class="qi-detail-label">AI 판독·검토</p>
+        <h3>AI가 읽은 부재를 <br><strong>도면 근거와 함께 <br>검토해요.</strong></h3>
+        <span class="qi-time"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5V8l2.5 1.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>소요시간 | 10~30분 (도면 양에 따라 달라요)</span>
+        <ul class="qi-points">
+          <li>AI가 일람표와 평면도에서 부재·단면·배근을 읽어요.</li>
+          <li>CAD 일람표·평면 표기와 다른 값은 ⚠로 표시해요.</li>
+          <li>확인하거나 고친 값만 수량산출에 반영돼요.</li>
+        </ul>
+        <button type="button" class="qi-btn qi-btn-dark" data-qi-start>시작하기</button>
+      </div>
+      <div class="qi-preview qi-reveal" aria-hidden="true">
+        <div class="qi-preview-card">
+          <div class="qi-q-head"><span>검토할 부재 <b>12</b></span><span class="qi-q-head-sub">확인 필요 2</span></div>
+          <div class="qi-review"><b>C2</b><span>지하2층 · 500×500</span><em class="ok">CAD 평면 표기와 같음</em></div>
+          <div class="qi-review"><b>G1</b><span>지하1층 · 500×600</span><em class="ok">CAD 일람표와 같음</em></div>
+          <div class="qi-review is-warn"><b>W1</b><span>지하1층 · 두께 200</span><em class="warn">⚠ CAD 일람표 180</em></div>
+          <div class="qi-review"><b>F1</b><span>기초 · 600</span><em class="ok">CAD 일람표와 같음</em></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="qi-detail qi-detail-alt" id="qi-step-4">
+    <div class="qi-wrap qi-detail-inner">
+      <div class="qi-detail-copy qi-reveal">
+        <p class="qi-detail-label">수량산출·엑셀</p>
+        <h3>확정한 부재로 <br><strong>수량을 계산하고 <br>엑셀로 정리해요.</strong></h3>
+        <span class="qi-time"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5V8l2.5 1.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>소요시간 | 1분</span>
+        <ul class="qi-points">
+          <li>콘크리트·거푸집·철근 수량을 부재별로 계산해요.</li>
+          <li>도면 출처와 검토 메모가 엑셀에 함께 담겨요.</li>
+          <li>저장된 작업은 7일 동안 이어서 볼 수 있어요.</li>
+        </ul>
+        <button type="button" class="qi-btn qi-btn-dark" data-qi-start>시작하기</button>
+      </div>
+      <div class="qi-preview qi-reveal" aria-hidden="true">
+        <div class="qi-preview-card">
+          <div class="qi-q-head"><span>수량산출 결과</span><span class="qi-q-head-sub">예시 화면</span></div>
+          <table class="qi-table">
+            <thead><tr><th>공종</th><th>콘크리트</th><th>거푸집</th><th>철근</th></tr></thead>
+            <tbody>
+              <tr><td>기초</td><td>■■■</td><td>■■</td><td>■■■</td></tr>
+              <tr><td>기둥</td><td>■■</td><td>■■■</td><td>■■</td></tr>
+              <tr><td>보</td><td>■■■</td><td>■■■</td><td>■■■</td></tr>
+              <tr><td>벽체</td><td>■■■■</td><td>■■■■</td><td>■■■</td></tr>
+            </tbody>
+          </table>
+          <div class="qi-excel">엑셀 다운로드</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="qi-notice">
+    <div class="qi-wrap">
+      <p><b>베타 안내</b> 현재 베타 기간에는 승인된 계정만 AI 분석을 실행할 수 있어요. AI가 읽은 값은 도면 근거와 함께 보여드리지만, 최종 수량은 꼭 직접 확인해 주세요.</p>
+      <button type="button" class="qi-btn qi-btn-dark" data-qi-start>시작하기</button>
+    </div>
+  </section>
+
+  <div class="qi-modal" id="qiLoginModal" hidden aria-hidden="true">
+    <div class="qi-modal-backdrop" data-qi-close></div>
+    <div class="qi-modal-card" role="dialog" aria-modal="true" aria-labelledby="qiLoginTitle">
+      <button type="button" class="qi-modal-x" data-qi-close aria-label="닫기">×</button>
+      <div class="qi-modal-brand">
+        <img src="{% static 'core/images/cbl_logo_icon_only.svg' %}" alt="">
+        <span>CHICKENBANANALAB</span>
+      </div>
+      <p class="qi-modal-kicker">AI 수량산출 · 도면 검토 · 엑셀 정리까지</p>
+      <h2 id="qiLoginTitle">로그인하고 바로 시작하세요!</h2>
+      <form method="post" action="{% url 'login' %}" class="qi-login-form">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ start_url }}">
+        <label class="qi-field">
+          <span>아이디</span>
+          <input type="text" name="username" autocomplete="username" required>
+        </label>
+        <label class="qi-field">
+          <span>비밀번호</span>
+          <input type="password" name="password" autocomplete="current-password" required>
+          <button type="button" class="qi-eye" data-qi-eye aria-label="비밀번호 보기">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          </button>
+        </label>
+        <button type="submit" class="qi-btn qi-btn-dark qi-btn-block">로그인</button>
+      </form>
+      <a class="qi-btn qi-btn-line qi-btn-block" href="{% url 'signup' %}?next={{ start_url|urlencode }}">회원가입</a>
+      <div class="qi-modal-divider"><span>간편 로그인</span></div>
+      <a class="qi-social" href="{{ google_login_url }}" aria-label="Google 계정으로 로그인">
+        <svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+      </a>
+    </div>
+  </div>
+
+  <div class="qi-modal" id="qiBetaModal" hidden aria-hidden="true">
+    <div class="qi-modal-backdrop" data-qi-close></div>
+    <div class="qi-modal-card qi-modal-card--small" role="dialog" aria-modal="true" aria-labelledby="qiBetaTitle">
+      <button type="button" class="qi-modal-x" data-qi-close aria-label="닫기">×</button>
+      <span class="qi-modal-badge">β</span>
+      <h2 id="qiBetaTitle">베타 이용 승인이 필요해요</h2>
+      <p class="qi-modal-text">현재 베타 기간에는 승인된 계정만 AI 분석을 실행할 수 있어요. 이용을 원하시면 로그인한 계정 정보와 함께 문의해 주세요.</p>
+      <div class="qi-modal-actions">
+        <button type="button" class="qi-btn qi-btn-line" data-qi-close>닫기</button>
+        <a class="qi-btn qi-btn-dark" href="{% url 'contact' %}">문의하기</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="{% static 'core/js/quantity_intro.js' %}" defer></script>
+{% endblock %}

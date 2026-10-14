@@ -33,10 +33,11 @@ from PIL import Image, ImageDraw
 from pypdf import PdfReader, PdfWriter
 
 from django.conf import settings
-from django.contrib.auth.decorators import login_required, user_passes_test
+from django.contrib.auth.views import redirect_to_login
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import render
 from django.urls import reverse
+from urllib.parse import urlencode
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_http_methods
 
@@ -1195,9 +1196,25 @@ def _is_macos_zip_metadata(member_path):
 # ─────────────────────────────────────────────
 #  뷰: 메인 페이지
 # ─────────────────────────────────────────────
-@user_passes_test(admin_required)
 def quantity_main(request):
-    """Open the maintained upload/review workflow instead of the obsolete form."""
+    """Public introduction of the quantity workflow; starting it needs a login."""
+    user = request.user
+    start_url = reverse("quantity_start")
+    return render(request, "core/quantity_intro.html", {
+        "is_authenticated": user.is_authenticated,
+        "can_start": admin_required(user),
+        "start_url": start_url,
+        "google_login_url": reverse("google_login") + "?" + urlencode({"next": start_url}),
+        "restricted": request.GET.get("beta") == "restricted" and user.is_authenticated and not admin_required(user),
+    })
+
+
+def quantity_start(request):
+    """Open the guided workflow. Login first; during the beta only staff accounts may run it."""
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    if not admin_required(request.user):
+        return HttpResponseRedirect(reverse("quantity_main") + "?beta=restricted")
     return HttpResponseRedirect(reverse("home") + "?quantity=1")
 
 

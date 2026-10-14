@@ -41,6 +41,7 @@ cbl_path("api/cblcad/csrf/", cbl_views.cblcad_csrf, name="cblcad_csrf"),
     # CBL CAD DWG BEST DXF URLS V1 END
 
     path('quantity/', quantity_views.quantity_main, name='quantity_main'),
+    path('quantity/start/', quantity_views.quantity_start, name='quantity_start'),
     path('api/quantity/check-zip/', quantity_views.api_check_zip, name='api_check_zip'),
     path('api/quantity/overview-check/', quantity_views.api_quantity_overview_check, name='api_quantity_overview_check'),
     path('api/quantity/general-notes-check/', quantity_views.api_quantity_general_notes_check, name='api_quantity_general_notes_check'),
