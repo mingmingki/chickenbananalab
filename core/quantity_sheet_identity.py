@@ -12,6 +12,7 @@ File names, drawing-index rows and body references never establish identity.
 """
 from __future__ import annotations
 
+import logging
 import math
 import os
 import re
@@ -32,6 +33,8 @@ OTHER_LABEL = re.compile(
     r"공\s*사\s*명|\bPROJECT\b|비\s*고|\bREMARKS?\b|일\s*련\s*번\s*호|\bSERIAL\b", re.I)
 MAX_TEXTS = 20000
 MAX_INSERTS = 5000
+MAX_BLOCK_TEXTS = 20000
+MAX_BLOCK_DEPTH = 8
 INDEX_TITLE = re.compile(r"도면목록|DRAWINGINDEX|DRAWINGLIST|SHEETINDEX|SHEETLIST", re.I)
 SCALE_LIKE = re.compile(r"^(?:NONE|N\.?S\.?|\d+\s*/\s*\d+|1\s*:\s*\d+|A\d\s*[:=].*)$", re.I)
 MARK_RE = re.compile(r"^(?=.*[A-Z])(?=.*\d)[A-Z0-9][A-Z0-9\-]{0,11}$")
@@ -41,6 +44,7 @@ LEARN_TOLERANCE = 4.0
 MAX_LEARN_TEXTS = 2000
 MAX_LEARN_CANDIDATES = 300
 PDF_TOLERANCE = 8.0
+logger = logging.getLogger(__name__)
 
 
 def _norm(text):
@@ -154,12 +158,61 @@ def _template(entities, decode, base):
     return {"cells": cells, "extent": extent}
 
 
+def _block_texts(doc, name, decode, cache, depth=0):
+    """Texts of one block definition in block coordinates, nested blocks included (cached by name)."""
+    if name in cache:
+        return cache[name]
+    cache[name] = []  # a block that refers to itself stops here
+    block = doc.blocks.get(name)
+    if block is None or block.block_record.is_xref or depth > MAX_BLOCK_DEPTH:
+        return []
+    rows = []
+    for entity in block:
+        kind = entity.dxftype()
+        if kind in ("TEXT", "MTEXT"):
+            text = _entity_text(entity, decode)
+            if text:
+                point = entity.dxf.insert
+                rows.append((float(point.x), float(point.y), float(point.z), text, _height(entity), entity.dxf.get("layer")))
+        elif kind == "INSERT":
+            rows.extend(_placed_texts(entity, _block_texts(doc, entity.dxf.name, decode, cache, depth + 1)))
+            for attrib in entity.attribs:
+                text = _entity_text(attrib, decode)
+                if text:
+                    point = attrib.dxf.insert
+                    rows.append((float(point.x), float(point.y), float(point.z), text, _height(attrib), attrib.dxf.get("layer")))
+        if len(rows) >= MAX_BLOCK_TEXTS:
+            break
+    cache[name] = rows
+    return rows
+
+
+def _placed_texts(insert, rows):
+    """Block texts moved to where the insert puts them; layer 0 takes the insert's layer."""
+    if not rows:
+        return []
+    matrix = insert.matrix44()
+    scale = abs(float(insert.dxf.get("yscale", 1) or 1))
+    layer = insert.dxf.get("layer")
+    placed = []
+    for x, y, z, text, height, own_layer in rows:
+        point = matrix.transform((x, y, z))
+        placed.append((float(point.x), float(point.y), float(point.z), text, height * scale,
+                       layer if own_layer in (None, "0") else own_layer))
+    return placed
+
+
 def extract_sheet_evidence(doc, decode=None, source_member_sha=None):
-    """Compact title-block evidence of one drawing; resolved across files later."""
+    """Compact title-block evidence of one drawing; resolved across files later.
+
+    `texts` (model space and insert attributes) identify sheets. `block_texts` are texts drawn
+    inside ordinary blocks (pasted content, labels kept in blocks); they are member evidence
+    only, never title-block identity. Xrefs and title-block forms are not opened.
+    """
     decode = decode or _default_decode
     base = tuple(doc.header.get("$INSBASE", (0, 0, 0)))[:2]
     msp = doc.modelspace()
-    templates = []
+    templates, form_blocks = [], set()
     for block in doc.blocks:
         if block.name.startswith("*") or block.block_record.is_xref:
             continue
@@ -167,7 +220,8 @@ def extract_sheet_evidence(doc, decode=None, source_member_sha=None):
         template = _template(block, decode, (float(point.x), float(point.y)))
         if template:
             templates.append(dict(template, name=block_key(block.name)))
-    inserts, texts = [], []
+            form_blocks.add(block.name)
+    inserts, texts, block_texts, cache = [], [], [], {}
     for entity in msp:
         kind = entity.dxftype()
         if kind == "INSERT" and len(inserts) < MAX_INSERTS:
@@ -183,15 +237,25 @@ def extract_sheet_evidence(doc, decode=None, source_member_sha=None):
                     texts.append({"text": _entity_text(attrib, decode), "x": float(attrib.dxf.insert.x),
                                   "y": float(attrib.dxf.insert.y), "h": _height(attrib),
                                   "layer": attrib.dxf.get("layer"), "handle": attrib.dxf.get("handle")})
+            if (block is not None and not block.block_record.is_xref and entity.dxf.name not in form_blocks
+                    and len(block_texts) < MAX_BLOCK_TEXTS):
+                try:
+                    placed = _placed_texts(entity, _block_texts(doc, entity.dxf.name, decode, cache))
+                except Exception:
+                    placed = []
+                for x, y, _z, text, height, layer in placed[:MAX_BLOCK_TEXTS - len(block_texts)]:
+                    block_texts.append({"text": text, "x": x, "y": y, "h": height, "layer": layer,
+                                        "insert": entity.dxf.get("handle")})
         elif kind in ("TEXT", "MTEXT") and len(texts) < MAX_TEXTS:
             text = _entity_text(entity, decode)
             if text:
                 texts.append({"text": text, "x": float(entity.dxf.insert.x), "y": float(entity.dxf.insert.y),
                               "h": _height(entity), "layer": entity.dxf.get("layer"), "handle": entity.dxf.get("handle")})
-    return {"version": 1, "source_member_sha": source_member_sha,
+    return {"version": 2, "source_member_sha": source_member_sha,
             "self_template": _template(msp, decode, base), "templates": templates,
-            "inserts": inserts, "texts": texts,
-            "truncated": len(inserts) >= MAX_INSERTS or len(texts) >= MAX_TEXTS}
+            "inserts": inserts, "texts": texts, "block_texts": block_texts,
+            "truncated": len(inserts) >= MAX_INSERTS or len(texts) >= MAX_TEXTS,
+            "block_texts_truncated": len(block_texts) >= MAX_BLOCK_TEXTS}
 
 
 def _to_local(insert, x, y):
@@ -278,29 +342,51 @@ def normalize_mark(text):
     return value
 
 
-def sheet_marks(sheet, evidence):
-    """Member-mark labels inside one frame, counted per layer (title block excluded)."""
+def frame_texts(sheet, evidence):
+    """Texts inside one frame, model space and block contents, without its own title-block values."""
     if not sheet.get("frame_bbox"):
         return []
     x0, y0, x1, y1 = sheet["frame_bbox"]
     own = set(sheet.get("text_handles") or [])
-    counts = defaultdict(Counter)
-    for text in evidence.get("texts", []):
-        if x0 <= text["x"] <= x1 and y0 <= text["y"] <= y1 and text.get("handle") not in own:
-            mark = normalize_mark(text["text"])
-            if mark:
-                counts[mark][text.get("layer") or ""] += 1
-    rows = [{"mark": mark, "count": sum(layers.values()), "layers": dict(layers)} for mark, layers in counts.items()]
+    rows = [dict(text, source="model_space") for text in evidence.get("texts", [])
+            if x0 <= text["x"] <= x1 and y0 <= text["y"] <= y1 and text.get("handle") not in own]
+    rows += [dict(text, source="block") for text in evidence.get("block_texts", [])
+             if x0 <= text["x"] <= x1 and y0 <= text["y"] <= y1]
+    return rows
+
+
+def sheet_marks(sheet, evidence, texts=None):
+    """Member-mark labels inside one frame, counted per layer (title block excluded).
+
+    Labels kept inside pasted blocks count too; `in_blocks` says how many came from blocks.
+    """
+    counts, in_blocks = defaultdict(Counter), Counter()
+    for text in frame_texts(sheet, evidence) if texts is None else texts:
+        mark = normalize_mark(text["text"])
+        if mark:
+            counts[mark][text.get("layer") or ""] += 1
+            if text.get("source") == "block":
+                in_blocks[mark] += 1
+    rows = [{"mark": mark, "count": sum(layers.values()), "layers": dict(layers), "in_blocks": in_blocks[mark]}
+            for mark, layers in counts.items()]
     rows.sort(key=lambda row: (-row["count"], row["mark"]))
     return rows[:MAX_SHEET_MARKS]
 
 
 def attach_sheet_identity(parsed, evidence_by_file):
-    """Store per-file sheets (with mark labels) and index rows on parse_dwg_from_zip's result."""
+    """Store per-file sheets (with mark labels, tables and notes) and index rows on the parse result."""
+    from . import quantity_schedules
+
     sheets = resolve_cad_sheets(evidence_by_file)
     for file, rows in sheets.items():
         for sheet in rows:
-            sheet["marks"] = sheet_marks(sheet, evidence_by_file[file])
+            texts = frame_texts(sheet, evidence_by_file[file])
+            sheet["marks"] = sheet_marks(sheet, evidence_by_file[file], texts)
+            try:
+                sheet.update(quantity_schedules.read_sheet_content(texts, sheet.get("drawing_title")))
+            except Exception as exc:  # tables are extra evidence; identity must not depend on them
+                logger.warning("quantity_sheet_content_failed file=%s error=%s", file, str(exc)[:200])
+                sheet.update(tables=[], notes=[], specs=[])
     for file in evidence_by_file:
         if isinstance(parsed.get(file), dict):
             parsed[file]["sheets"] = sheets.get(file, [])

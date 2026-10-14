@@ -27,6 +27,7 @@ import ezdxf
 from ezdxf.lldxf.encoding import decode_mif_to_unicode, has_mif_encoding
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 from pdf2image import convert_from_bytes, pdfinfo_from_bytes
 from PIL import Image, ImageDraw
 from pypdf import PdfReader, PdfWriter
@@ -530,6 +531,7 @@ def _build_review_checklist(members):
                 "source_refs": it.get("source_refs") or [],
                 "source_review": it.get("source_review") or {},
                 "plan_evidence": it.get("plan_evidence") or {},
+                "schedule_evidence": it.get("schedule_evidence") or {},
                 # 세분화 배근(rebar_layers)은 role/size/spacing_m/count 등을 담은 리스트라
                 # 위 fields(스칼라 값 전용)와 형태가 달라 따로 내려준다 — 프론트는 이걸
                 # 읽기전용 요약 + 편집용 JSON 텍스트영역으로 보여준다.
@@ -2209,10 +2211,11 @@ def _ai_cad_summary(dwg_data):
 
 
 def _attach_member_links(members, dwg_data):
-    """CAD plan-label evidence per member; never changes counts, never blocks extraction."""
+    """CAD plan-label and schedule evidence per member; never changes values, never blocks extraction."""
     try:
         links = quantity_member_links.build_member_links(dwg_data)
         members = quantity_member_links.attach_plan_evidence(members, links)
+        members = quantity_member_links.attach_schedule_evidence(members, links)
         members["member_links"] = links
     except Exception as exc:
         logger.warning("quantity_member_links_failed error=%s", str(exc)[:200])
@@ -2220,11 +2223,12 @@ def _attach_member_links(members, dwg_data):
 
 
 def _refresh_member_evidence(members):
-    """Compare reviewed counts with the same CAD evidence again."""
+    """Compare reviewed counts, sections and rebar with the same CAD evidence again."""
     links = members.get("member_links") if isinstance(members, dict) else None
     if links:
         try:
             members = quantity_member_links.attach_plan_evidence(members, links)
+            members = quantity_member_links.attach_schedule_evidence(members, links)
         except Exception as exc:
             logger.warning("quantity_member_links_refresh_failed error=%s", str(exc)[:200])
     return members
@@ -6938,6 +6942,49 @@ def _xlsx_injection_guard(value):
     return value
 
 
+def _append_schedule_rows(schedule_sheet, notes_sheet, type_name, links):
+    """Schedule definitions (one row per schedule row) and plan notes/specs for Excel."""
+    plans = links.get("plans") or []
+    for row in links.get("marks") or []:
+        label = _CATEGORY_KEY_TO_LABEL.get(row.get("category"), row.get("category") or "")
+        flags = ", ".join(_MEMBER_LINK_FLAG_LABELS.get(f, f) for f in row.get("flags") or [])
+        for spec in row.get("specs") or []:
+            for table_row in quantity_member_links.spec_rows(spec, links):
+                values = dict(table_row.get("values") or {})
+                shown = []
+                for _name, keys in _SCHEDULE_COLUMNS:
+                    if keys == ("length_x", "length_y"):
+                        parts = [values.pop(k) for k in keys if values.get(k)]
+                        shown.append(" X ".join(parts))
+                    else:
+                        parts = [values.pop(k) for k in keys if values.get(k)]
+                        shown.append(" / ".join(parts))
+                plan = plans[spec["plan"]] if isinstance(spec.get("plan"), int) and 0 <= spec["plan"] < len(plans) else {}
+                names = plan.get("table_labels") or {}
+                other = ", ".join(f"{names.get(k, k)} {v}" for k, v in values.items() if v)
+                ditto = [d.split(":")[0] for d in table_row.get("ditto") or []]
+                note = flags
+                if ditto:
+                    note = (note + ", " if note else "") + "↑ 표시를 이어 읽은 칸: " + ", ".join(names.get(d, d) for d in ditto)
+                schedule_sheet.append([_xlsx_injection_guard(v) for v in [
+                    label, row.get("mark") or "", spec.get("drawing_number") or "", spec.get("schedule_mark") or "",
+                    ", ".join(spec.get("levels") or []), table_row.get("position") or "", table_row.get("levels_text") or "",
+                    *shown, other, note]])
+    for plan in plans:
+        status = _PLAN_STATUS_LABELS.get(plan.get("status"), "")
+        for note in plan.get("notes") or []:
+            notes_sheet.append([_xlsx_injection_guard(v) for v in [
+                type_name, plan.get("drawing_number") or "", plan.get("drawing_title") or "", status,
+                _NOTE_KIND_LABELS.get(note.get("kind"), note.get("kind") or ""), note.get("text") or ""]]
+                + ["", plan.get("reference_copy_labels") or ""])
+        for spec in plan.get("specs") or []:
+            notes_sheet.append([_xlsx_injection_guard(v) for v in [
+                type_name, plan.get("drawing_number") or "", plan.get("drawing_title") or "", status,
+                _SPEC_KIND_LABELS.get(spec.get("kind"), spec.get("kind") or ""),
+                ((spec.get("label") + " ") if spec.get("label") else "") + (spec.get("text") or "")]]
+                + [spec.get("count") or "", ""])
+
+
 def _sanitize_for_excel(obj):
     """results(=Gemini 추출 결과가 섞여 있는 JSON)를 엑셀로 옮기기 전에 재귀적으로 훑어서
     모든 문자열값에 _xlsx_injection_guard를 적용한다. write_sheet를 비롯한 모든 시트
@@ -6954,11 +7001,33 @@ _PLAN_EVIDENCE_LABELS = {
     "count_matches": "일치", "count_differs": "AI·CAD 개수 다름", "cad_counts_vary_by_floor": "층별 CAD 개수 다름",
     "no_matching_cad_plan": "같은 동·층 CAD 표기 없음", "mark_not_on_cad_plans": "CAD 평면 표기 없음",
     "zone_unknown": "층 해석 불가", "no_cad_plan_marks": "CAD 근거 없음",
+    "reference_copy_only": "같은 동·층은 다른 영역 참고 표기뿐", "foundation_plan_specs": "기초 평면 문구만 있음",
 }
 _MEMBER_LINK_FLAG_LABELS = {
     "defined_not_on_plans": "일람표에만 있음(평면 표기 없음)", "on_plans_not_defined": "평면에만 있음(일람표 정의 없음)",
     "floor_count_unknown": "층수 미확인 도면 포함(합계 보류)", "schedule_category_differs": "일람표 제목의 부재 종류가 평면 표기와 다름",
+    "table_category_differs": "일람표 표 항목의 부재 종류가 평면 표기와 다름",
+    "reference_copies_not_counted": "다른 영역 참고 표기는 합계 제외",
+    "unlabelled_default_on_plans": "평면 주기상 미표기 부재도 이 부호(표기 개수보다 많을 수 있음)",
+    "placed_in_two_areas": "동·주차장 평면 양쪽에 표기(일람표 영역 불명, 중복 여부 확인)",
 }
+_SCHEDULE_EVIDENCE_LABELS = {
+    "schedule_matches": "일치", "schedule_differs": "AI·일람표 값 다름", "schedule_not_compared": "비교할 값 없음",
+    "no_schedule_row_for_level": "이 층 범위 행 없음", "not_in_schedule": "일람표 정의 없음", "no_schedule_tables": "일람표 값 없음",
+}
+_PLAN_STATUS_LABELS = {
+    "labelled": "부재 표기 있음", "reference_copies_only": "다른 영역 참고 표기만 있음",
+    "specs_only": "부재 표기 없음(기초 문구만)", "no_member_labels": "부재 표기 없음",
+}
+_NOTE_KIND_LABELS = {"reference": "다른 도면 참고 안내", "unlabelled_default": "미표기 부재 부호"}
+_SPEC_KIND_LABELS = {"rebar": "배근 문구", "size": "크기 문구", "thickness": "두께 문구"}
+# Schedule columns shown in Excel, in reading order; other cells go to "기타".
+_SCHEDULE_COLUMNS = [
+    ("단면", ("size",)), ("주근", ("main_bar",)), ("상부근", ("top_bar",)), ("하부근", ("bottom_bar",)),
+    ("띠철근", ("hoop", "hoop_mid", "hoop_end")), ("늑근", ("stirrup",)), ("두께", ("thickness", "depth")),
+    ("수직근", ("vertical_bar",)), ("수평근", ("horizontal_bar",)), ("기초 크기", ("length_x", "length_y")),
+    ("기초 배근", ("rebar_1", "rebar_2")),
+]
 _IDENTITY_STATUS_LABELS = {
     "identified": "확인됨", "inferred_order": "순서로 추정", "number_only": "번호만 확인",
     "title_only": "도면명만 확인", "conflict": "번호 충돌", "unidentified": "식별 불가",
@@ -7290,10 +7359,15 @@ def _build_excel_response(request):
                           "식별 근거", "확인 필요", "연결된 CAD 도곽"])
     members_sheet = wb.create_sheet("부재 출처")
     members_sheet.append(["구분", "공종", "부재번호", "구역", "위치 상태", "확인사항", "페이지/파일", "원본 식별자",
-                          "CAD 비교", "CAD 평면 개수", "CAD 비교 메모"])
+                          "CAD 비교", "CAD 평면 개수", "CAD 비교 메모", "일람표 비교", "일람표 비교 메모"])
     links_sheet = wb.create_sheet("부재 배치 근거")
     links_sheet.append(["공종", "부호", "구분", "일람표", "평면도", "도면명", "동", "층", "층수",
                         "평면 표기 개수", "평면 표기 합계", "부호 전체 합계", "확인사항"])
+    schedule_sheet = wb.create_sheet("일람표 정의")
+    schedule_sheet.append(["공종", "부호", "일람표", "일람표 부호", "적용 층(부호 접두)", "구분", "층 범위"]
+                          + [name for name, _keys in _SCHEDULE_COLUMNS] + ["기타", "확인사항"])
+    notes_sheet = wb.create_sheet("도면 주기·문구")
+    notes_sheet.append(["구분", "도면번호", "도면명", "평면 상태", "종류", "내용", "개수", "참고 표기 제외 개수"])
     for type_key, type_name in [("structural", "구조"), ("architectural", "건축")]:
         data = results.get(type_key) or {}
         manifest = data.get("source_manifest") or {}
@@ -7316,6 +7390,7 @@ def _build_excel_response(request):
             for member in (data.get("_raw_members") or {}).get(category) or []:
                 review = member.get("source_review") or {}
                 plan = member.get("plan_evidence") or {}
+                schedule = member.get("schedule_evidence") or {}
                 refs = member.get("source_refs") or [{}]
                 for ref in refs:
                     members_sheet.append([type_name, _CATEGORY_KEY_TO_LABEL[category],
@@ -7327,14 +7402,17 @@ def _build_excel_response(request):
                         _xlsx_injection_guard(ref.get("source_id") or ""),
                         _xlsx_injection_guard(_PLAN_EVIDENCE_LABELS.get(plan.get("status"), plan.get("status") or "")),
                         plan.get("cad_count") if isinstance(plan.get("cad_count"), int) else "",
-                        _xlsx_injection_guard(plan.get("note") or "")])
+                        _xlsx_injection_guard(plan.get("note") or ""),
+                        _xlsx_injection_guard(_SCHEDULE_EVIDENCE_LABELS.get(schedule.get("status"), schedule.get("status") or "")),
+                        _xlsx_injection_guard(schedule.get("note") or "")])
         link_plans = (data.get("member_links") or {}).get("plans") or []
         for row in (data.get("member_links") or {}).get("marks") or []:
             label = _CATEGORY_KEY_TO_LABEL.get(row.get("category"), row.get("category") or "")
             definitions = ", ".join(d.get("drawing_number") or "?" for d in row.get("definitions") or [])
             flags = ", ".join(_MEMBER_LINK_FLAG_LABELS.get(f, f) for f in row.get("flags") or [])
             placements = ([("평면 배치", o) for o in row.get("occurrences") or []]
-                          + [("단위세대 평면(참고)", o) for o in row.get("typical_plans") or []]) or [("일람표만", {})]
+                          + [("단위세대 평면(참고)", o) for o in row.get("typical_plans") or []]
+                          + [("다른 영역 참고 표기(합계 제외)", o) for o in row.get("reference_copies") or []]) or [("일람표만", {})]
             for kind, place in placements:
                 plan_index = place.get("plan")
                 sheet_info = link_plans[plan_index] if isinstance(plan_index, int) and 0 <= plan_index < len(link_plans) else {}
@@ -7349,10 +7427,16 @@ def _build_excel_response(request):
                     place["count"] * floors if kind == "평면 배치" and floors and isinstance(place.get("count"), int) else "",
                     row.get("label_total") if row.get("label_total") is not None else "",
                     _xlsx_injection_guard(flags)])
+        _append_schedule_rows(schedule_sheet, notes_sheet, type_name, data.get("member_links") or {})
     for sheet in [sources_sheet, members_sheet, links_sheet]:
         sheet.freeze_panes = "A2"
         for column, width in zip("ABCDEFGHIJKLM", [12, 20, 30, 30, 40, 75, 30, 90, 28, 45, 45, 16, 45]):
             sheet.column_dimensions[column].width = width
+    for sheet in [schedule_sheet, notes_sheet]:
+        sheet.freeze_panes = "A2"
+        for column in range(1, sheet.max_column + 1):
+            sheet.column_dimensions[get_column_letter(column)].width = 16
+        sheet.column_dimensions["F" if sheet is notes_sheet else "S"].width = 60
 
     coverage_sheet = wb.create_sheet("분석 범위")
     coverage_sheet.append(["구분", "분석 상태", "파일/항목", "사유"])

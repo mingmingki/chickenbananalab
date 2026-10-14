@@ -65,10 +65,12 @@ class MatrixTests(SimpleTestCase):
         return links.build_member_links(cad_upload())
 
     def test_marks_link_schedule_definitions_to_plan_occurrences(self):
-        rows = {(r["category"], r["mark"]): r for r in self.matrix()["marks"]}
+        matrix = self.matrix()
+        rows = {(r["category"], r["mark"]): r for r in matrix["marks"]}
         c2 = rows[("columns", "C2")]
         self.assertEqual([d["drawing_number"] for d in c2["definitions"]], ["S-611"])
-        self.assertEqual([(o["drawing_number"], o["count"], o["levels"]) for o in c2["occurrences"]], [("S-401", 18, ["B2"])])
+        self.assertEqual([(o["drawing_number"], o["count"], matrix["plans"][o["plan"]]["levels"]) for o in c2["occurrences"]],
+                         [("S-401", 18, ["B2"])])
         self.assertEqual(c2["label_total"], 18)
         tg1 = rows[("beams", "TG1")]
         self.assertEqual(tg1["label_total"], None)  # the roof sheet has no countable level range
@@ -124,7 +126,7 @@ class PipelineIntegrationTests(SimpleTestCase):
         from core import quantity_views as views
         members = views._attach_member_links(self.members(), cad_upload())
         self.assertEqual(members["columns"][1]["plan_evidence"]["status"], "count_differs")
-        self.assertEqual(members["member_links"]["schema"], "quantity_member_links_v1")
+        self.assertEqual(members["member_links"]["schema"], "quantity_member_links_v2")
         row = views._build_review_checklist(members)[1]
         self.assertEqual(row["plan_evidence"]["cad_count"], 3)
 
