@@ -49,11 +49,31 @@ class QuantityIntroTests(TestCase):
 
     def test_home_card_links_to_intro_and_stage_loads_before_the_workflow(self):
         html = self.client.get("/").content.decode()
-        card = html[html.index('class="cbl-ai-clean-btn cbl-quantity-btn"'):][:200]
-        self.assertIn("/quantity/", card)
+        card = html[html.index('cbl-svc-card--quantity'):html.index('cbl-svc-card--job')]
+        self.assertIn('class="cbl-svc-btn" href="/quantity/"', card)
         self.assertNotIn("cblOpenBetaGate('quantity')", card)
         stage = html.index("core/js/quantity_stage.js")
         workflow = html.index('var modal = document.getElementById("cblQuantityMessengerModal");')
         self.assertLess(stage, workflow)
         self.assertIn("window.cblQuantityStage.botSaid(html)", html)
         self.assertIn("window.cblQuantityStage.intro(startFlow)", html)
+
+
+class HomeLayoutTests(TestCase):
+    def test_service_cards_share_one_structure_and_keep_their_actions(self):
+        html = self.client.get("/").content.decode()
+        section = html[html.index('<section class="cbl-svc"'):html.index("</section>", html.index('<section class="cbl-svc"'))]
+        self.assertEqual(section.count('class="cbl-svc-card '), 4)
+        for part in ('class="cbl-svc-icon', 'class="cbl-svc-title"', 'class="cbl-svc-text"', 'class="cbl-svc-btn'):
+            self.assertEqual(section.count(part), 4, part)
+        self.assertIn("data-cbl-beta-open=\"job\" onclick=\"return cblOpenBetaGate('job');\"", section)
+        self.assertIn("cblOpenHomeServiceModal('cblProgramDownloadModal')", section)
+        self.assertIn('class="cbl-svc-btn cbl-webcad-start-btn" onclick="return cblStartCadFromHomeV1();"', section)
+        self.assertIn("core/css/home_layout.css", html)
+
+    def test_header_auth_links_are_not_cloned_by_script(self):
+        html = self.client.get("/about/").content.decode()
+        self.assertNotIn("cblHeaderAuthRightOverlay", html)
+        account = html[html.index('class="cbl-header-v7-account"'):html.index('class="cbl-header-v7-icons"')]
+        self.assertIn(">회원가입</a>", account)
+        self.assertIn(">로그인</a>", account)

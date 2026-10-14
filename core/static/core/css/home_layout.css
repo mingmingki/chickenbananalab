@@ -1,0 +1,142 @@
+/* 홈 레이아웃 정리.
+   1) 주요 서비스 카드 4개: 같은 구조(아이콘 → 제목 → 설명 → 버튼, 오른쪽 아래 그림)와 같은 크기 체계.
+   2) 홈의 모든 줄(배너, 카테고리, 서비스, 최신 콘텐츠, 둘째 줄)이 같은 폭을 쓴다. */
+@media (min-width: 1101px) {
+  body[data-cbl-url-name="home"] main.cblx-home > .cblx-main-row,
+  body[data-cbl-url-name="home"] main.cblx-home > .cbl-second-row-same { width: 100% !important; }
+}
+
+.cbl-svc {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 20px;
+  margin: 22px 0 28px;
+}
+.cbl-svc-card {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  min-height: 208px;
+  padding: 24px 24px 22px;
+  border: 1px solid #e3eaea;
+  border-radius: 20px;
+  background: #fff;
+  color: #111827;
+  overflow: hidden;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, .06);
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.cbl-svc-card:hover { transform: translateY(-3px); box-shadow: 0 16px 36px rgba(15, 23, 42, .1); }
+.cbl-svc-card--quantity { border-color: transparent; background: linear-gradient(135deg, #0b8a7e 0%, #05665d 100%); color: #fff; }
+.cbl-svc-card--job { border-color: #f1e2ae; background: linear-gradient(135deg, #fffaf0 0%, #fde9a8 100%); }
+.cbl-svc-card--cad { border-color: #e1e6f8; background: linear-gradient(135deg, #f8f9ff 0%, #eceffe 100%); }
+
+.cbl-svc-icon {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, .08);
+}
+.cbl-svc-icon svg { display: block; width: 30px; height: 30px; }
+.cbl-svc-icon--cad {
+  background: linear-gradient(135deg, #6d7ff2, #4f46e5);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: .02em;
+}
+.cbl-svc-card .cbl-svc-title {
+  position: relative;
+  z-index: 1;
+  margin: 16px 0 0;
+  padding: 0;
+  max-width: 100%;
+  font-size: clamp(17px, 1.3vw, 20px);
+  font-weight: 900;
+  line-height: 1.25;
+  letter-spacing: -.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: inherit;
+}
+.cbl-svc-card .cbl-svc-text {
+  position: relative;
+  z-index: 1;
+  max-width: 66%;
+  margin: 8px 0 18px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  opacity: .82;
+  color: inherit;
+}
+.cbl-svc-card .cbl-svc-btn {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: auto;
+  height: 38px;
+  margin-top: auto;
+  padding: 0 16px;
+  border: 1.5px solid rgba(15, 23, 42, .16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .78);
+  color: #111827;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transform: none;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+.cbl-svc-card .cbl-svc-btn span { font-size: 16px; line-height: 1; transform: none; }
+.cbl-svc-card .cbl-svc-btn:hover { background: #fff; border-color: rgba(15, 23, 42, .32); }
+.cbl-svc-card .cbl-svc-btn:focus-visible { outline: 3px solid rgba(9, 129, 119, .45); outline-offset: 2px; }
+.cbl-svc-card--quantity .cbl-svc-btn { border-color: rgba(255, 255, 255, .5); background: rgba(255, 255, 255, .12); color: #fff; }
+.cbl-svc-card--quantity .cbl-svc-btn:hover { background: rgba(255, 255, 255, .22); border-color: rgba(255, 255, 255, .8); }
+
+.cbl-svc-art {
+  position: absolute;
+  right: -4px;
+  bottom: -6px;
+  z-index: 0;
+  width: 46%;
+  max-width: 190px;
+  pointer-events: none;
+  opacity: .95;
+}
+.cbl-svc-art svg { display: block; width: 100%; height: auto; }
+.cbl-svc-card--quantity .cbl-svc-art { width: 40%; bottom: 0; opacity: .75; }
+
+@media (max-width: 1180px) {
+  .cbl-svc { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .cbl-svc-card .cbl-svc-title { font-size: 19px; }
+}
+@media (max-width: 640px) {
+  .cbl-svc { grid-template-columns: 1fr; gap: 12px; margin: 16px 0 22px; }
+  .cbl-svc-card { min-height: 184px; padding: 20px 20px 18px; border-radius: 18px; }
+  .cbl-svc-card .cbl-svc-text { max-width: 62%; font-size: 13px; }
+  .cbl-svc-art { width: 40%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cbl-svc-card, .cbl-svc-card:hover { transition: none; transform: none; }
+}

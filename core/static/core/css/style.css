@@ -10863,13 +10863,13 @@ body[data-cbl-url-name="home"] .cblx-panel-head h2 {
 }
 .cbl-header-v7-shell{
   width:calc(100% - 64px)!important;max-width:1880px!important;height:88px!important;margin:0 auto!important;
-  display:grid!important;grid-template-columns:minmax(320px,1fr) auto minmax(180px,1fr)!important;
+  display:grid!important;grid-template-columns:minmax(0,1fr) auto auto!important;
   align-items:center!important;gap:24px!important;
 }
 .cbl-header-v7-brand{justify-self:start!important;display:flex!important;align-items:center!important;gap:14px!important;text-decoration:none!important;min-width:0!important}
 .cbl-header-v7-brand img{display:block!important;width:70px!important;height:70px!important;min-width:70px!important;object-fit:contain!important;margin:0!important}
 .cbl-header-v7-brand strong{font-size:24px!important;line-height:1!important;font-weight:900!important;letter-spacing:-.04em!important;color:#101821!important;white-space:nowrap!important}
-.cbl-header-v7-account{justify-self:center!important;display:flex!important;align-items:center!important;gap:34px!important;white-space:nowrap!important}
+.cbl-header-v7-account{justify-self:end!important;display:flex!important;align-items:center!important;gap:28px!important;white-space:nowrap!important}
 .cbl-header-v7-account>a{color:#172229!important;text-decoration:none!important;font-size:15px!important;font-weight:800!important}
 .cbl-header-v7-icons{justify-self:end!important;display:flex!important;align-items:center!important;gap:8px!important}
 .cbl-header-v7-icon{position:relative!important;width:44px!important;height:44px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;border:0!important;border-radius:50%!important;background:transparent!important;color:#101821!important;padding:0!important;cursor:pointer!important;text-decoration:none!important}
@@ -10900,7 +10900,7 @@ body[data-cbl-url-name="home"] .cblx-categories em{display:none!important}
 
 /* 태블릿 */
 @media(max-width:1180px){
-  .cbl-header-v7-shell{width:calc(100% - 40px)!important;grid-template-columns:minmax(280px,1fr) auto auto!important;gap:16px!important}
+  .cbl-header-v7-shell{width:calc(100% - 40px)!important;grid-template-columns:minmax(0,1fr) auto auto!important;gap:16px!important}
   .cbl-header-v7-brand img{width:64px!important;height:64px!important;min-width:64px!important}
   .cbl-header-v7-brand strong{font-size:21px!important}
   .cbl-header-v7-account{gap:22px!important}
