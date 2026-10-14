@@ -4,10 +4,12 @@ Role vocabulary is restored from wip/local-20260929. Only explicit title/number
 fields are used for identity; body references and filenames cannot create links.
 """
 from copy import deepcopy
-from collections import defaultdict
+from collections import Counter, defaultdict
 import re
 import math
 import unicodedata
+
+from . import quantity_sheet_identity
 
 QUANTITY_ROLE_DEFINITIONS_V2 = {
     "general_notes": ("일반사항", "설계개요", "구조설계", "구조일반", "general notes", "specification"),
@@ -157,6 +159,16 @@ _LABEL = re.compile(
     r")(?=\s|[:：]|$)", re.I)
 
 
+def role_from_title(title):
+    if not title:
+        return "other"
+    if "도면목록" in re.sub(r"\s+", "", title) or re.search(r"drawing\s+index|sheet\s+list", title, re.I):
+        return "drawing_index"
+    role = _quantity_normalize_index_entry_v2(title)["role"]
+    # Spaced Korean characters in exported title text still carry the same role.
+    return role if role != "other" else _quantity_normalize_index_entry_v2(re.sub(r"\s+", "", title))["role"]
+
+
 def identify_sheet(texts):
     """Read explicit fields. Missing or conflicting identity stays unresolved."""
     numbers, titles = [], []
@@ -174,14 +186,7 @@ def identify_sheet(texts):
                             numbers.append(number)
                 elif value and value not in titles:
                     titles.append(value)
-    title_roles = [_quantity_normalize_index_entry_v2(t)["role"] for t in titles]
-    # Spaced Korean characters in exported title text still carry the same role.
-    title_roles = [role if role != "other" else _quantity_normalize_index_entry_v2(
-                   re.sub(r"\s+", "", title))["role"]
-                   for title, role in zip(titles, title_roles)]
-    title_roles = ["drawing_index" if "도면목록" in re.sub(r"\s+", "", title)
-                   or re.search(r"drawing\s+index|sheet\s+list", title, re.I) else role
-                   for title, role in zip(titles, title_roles)]
+    title_roles = [role_from_title(t) for t in titles]
     normalized_titles = {re.sub(r"\s+", "", title).casefold() for title in titles}
     conflict = len(numbers) > 1 or len(normalized_titles) > 1 or len(set(title_roles)) > 1
     status = ("conflict" if conflict else "identified" if numbers and titles
@@ -192,46 +197,102 @@ def identify_sheet(texts):
             "identity_status": status}
 
 
-def build_source_manifest(page_texts, *, document_sha, total_pages, cad_data=None):
-    """Account for every PDF page and CAD file without inferring sheet identity."""
-    pages, cad_files, issues = [], [], []
+def _cad_file_identity(path, data):
+    sheets = data.get("sheets") or []
+    if not sheets:
+        texts = [row.get("text", "") for row in data.get("source_texts", [])] or data.get("texts", [])
+        return dict(identify_sheet(texts), source_method="explicit_text_fields")
+    numbers = [sheet["drawing_number"] for sheet in sheets if sheet.get("drawing_number")]
+    if len(sheets) == 1:
+        sheet = sheets[0]
+        return {"drawing_number": sheet.get("drawing_number"), "drawing_numbers": numbers,
+                "drawing_title": sheet.get("drawing_title"), "role": role_from_title(sheet.get("drawing_title")),
+                "identity_status": sheet["identity_status"], "source_method": "cad_title_block", "sheet_count": 1}
+    return {"drawing_number": None, "drawing_numbers": numbers, "drawing_title": None, "role": "other",
+            "identity_status": "multi_sheet" if numbers else "unidentified",
+            "source_method": "cad_title_block", "sheet_count": len(sheets)}
+
+
+def build_source_manifest(page_texts, *, document_sha, total_pages, cad_data=None, pdf_title_numbers=None):
+    """Account for every PDF page, CAD file and CAD sheet; identity evidence stays explicit.
+
+    A page is identified by explicit title fields or its title-block number; between two
+    such pages, page order may name a page only when page and CAD sheet counts agree, and
+    that page stays "inferred_order" (an issue, never verified).
+    """
+    pages, cad_files, cad_sheets, issues, links = [], [], [], [], []
     for page in range(1, total_pages + 1):
         identity = identify_sheet([page_texts.get(page, "")])
-        row = dict(identity, page=page, document_sha=document_sha,
-                   source_id=f"pdf:{document_sha}:{page}", source_method="explicit_text_fields",
-                   text_available=bool(str(page_texts.get(page, "")).strip()))
-        pages.append(row)
-        if identity["identity_status"] != "identified":
-            issues.append({"source_id": row["source_id"], "reason": "pdf_identity_" + identity["identity_status"],
-                           "page": page})
+        pages.append(dict(identity, page=page, document_sha=document_sha,
+                          source_id=f"pdf:{document_sha}:{page}", source_method="explicit_text_fields",
+                          text_available=bool(str(page_texts.get(page, "")).strip())))
+    sheets_by_file, index_entries = {}, []
     for path, data in (cad_data or {}).items():
         source_sha = data.get("source_member_sha")
-        texts = [row.get("text", "") for row in data.get("source_texts", [])] or data.get("texts", [])
-        identity = identify_sheet(texts)
+        identity = _cad_file_identity(path, data)
         row = dict(identity, file=path, source_member_sha=source_sha,
                    source_id=f"cad:{source_sha}:{path}" if source_sha else None,
-                   source_method="explicit_text_fields", drawing_unit=data.get("drawing_unit"),
-                   text_coverage=data.get("text_coverage"))
+                   drawing_unit=data.get("drawing_unit"), text_coverage=data.get("text_coverage"))
         if data.get("error"):
             row["identity_status"] = "unreadable"
         elif (data.get("text_coverage") or {}).get("truncated"):
             row["identity_status"] = "incomplete_text"
         cad_files.append(row)
-        if row["identity_status"] != "identified" or not source_sha:
+        if row["identity_status"] not in ("identified", "multi_sheet") or not source_sha:
             issues.append({"source_id": row["source_id"], "file": path,
                            "reason": "cad_source_hash_missing" if not source_sha
                                      else "cad_identity_" + row["identity_status"]})
         coverage = data.get("text_coverage") or {}
         if coverage.get("truncated"):
             issues.append({"source_id": row["source_id"], "file": path, "reason": "cad_text_truncated"})
+        if data.get("sheets"):
+            sheets_by_file[path] = data["sheets"]
+        index_entries.extend(data.get("index_entries") or [])
+    registry = quantity_sheet_identity.build_sheet_registry(sheets_by_file, index_entries=index_entries)
+    issues.extend(registry["issues"])
+    for sheet in registry["sheets"]:
+        sha = sheet.get("source_member_sha")
+        cad_sheets.append({"file": sheet["file"], "frame_handle": sheet.get("frame_handle"),
+                           "source_id": f"cad:{sha}:{sheet['file']}#{sheet.get('frame_handle')}" if sha else None,
+                           "drawing_number": sheet.get("drawing_number"), "drawing_title": sheet.get("drawing_title"),
+                           "scale": sheet.get("scale"), "role": role_from_title(sheet.get("drawing_title")),
+                           "identity_status": sheet["identity_status"], "method": sheet.get("method"),
+                           "frame_bbox": sheet.get("frame_bbox")})
+    if pdf_title_numbers:
+        assigned = {row["page"]: row for row in quantity_sheet_identity.assign_pdf_identities(
+            [row for row in pdf_title_numbers if row["page"] <= total_pages], registry)}
+        for row in pages:
+            found = assigned.get(row["page"])
+            if row["identity_status"] == "identified" or not found or found["identity_status"] == "unidentified":
+                if found and row["identity_status"] != "identified":
+                    row["identity_reason"] = found.get("reason")
+                continue
+            row.update(drawing_number=found["drawing_number"], drawing_numbers=[found["drawing_number"]],
+                       drawing_title=found["drawing_title"], role=role_from_title(found["drawing_title"]),
+                       identity_status=found["identity_status"], source_method=found["source_method"],
+                       identity_warnings=found["warnings"], index_title=found.get("index_title"),
+                       cad_sheet=found.get("cad_sheet"), cad_alternates=found.get("cad_alternates") or [])
+            sheet = found.get("cad_sheet")
+            if sheet:
+                sha = sheet.get("source_member_sha")
+                links.append({"drawing_number": found["drawing_number"], "pdf_page": row["page"],
+                              "cad_file": sheet["file"], "cad_frame_handle": sheet.get("frame_handle"),
+                              "pdf_source_id": row["source_id"],
+                              "cad_source_id": f"cad:{sha}:{sheet['file']}#{sheet.get('frame_handle')}" if sha else None,
+                              "match_method": found["source_method"], "identity_status": found["identity_status"],
+                              "quantity_verified": False})
+    for row in pages:
+        if row["identity_status"] != "identified":
+            issues.append({"source_id": row["source_id"], "reason": "pdf_identity_" + row["identity_status"],
+                           "page": row["page"]})
+    linked_pages = {link["pdf_page"] for link in links}
     pdf_by_number, cad_by_number = defaultdict(list), defaultdict(list)
     for row in pages:
-        if row["identity_status"] == "identified" and row["role"] != "drawing_index":
+        if row["identity_status"] == "identified" and row["role"] != "drawing_index" and row["page"] not in linked_pages:
             pdf_by_number[row["drawing_number"]].append(row)
     for row in cad_files:
         if row["identity_status"] == "identified" and row["source_id"] and row["role"] != "drawing_index":
             cad_by_number[row["drawing_number"]].append(row)
-    links = []
     for number in sorted(set(pdf_by_number) & set(cad_by_number)):
         pdfs, cads = pdf_by_number[number], cad_by_number[number]
         if len(pdfs) != 1 or len(cads) != 1:
@@ -244,11 +305,13 @@ def build_source_manifest(page_texts, *, document_sha, total_pages, cad_data=Non
         links.append({"drawing_number": number, "pdf_page": pdf["page"], "cad_file": cad["file"],
                       "pdf_source_id": pdf["source_id"], "cad_source_id": cad["source_id"],
                       "match_method": "unique_explicit_number_and_role", "quantity_verified": False})
-    return {"schema": "quantity_sources_v1", "document_sha": document_sha,
+    statuses = Counter(row["identity_status"] for row in pages)
+    return {"schema": "quantity_sources_v2", "document_sha": document_sha,
             "total_pages": total_pages, "pdf_pages": pages, "cad_files": cad_files,
-            "links": links, "issues": issues,
+            "cad_sheets": cad_sheets, "links": links, "issues": issues,
+            "identity_summary": dict(statuses),
             "context_pages": [row["page"] for row in pages if row["role"] in _CONTEXT_ROLES
-                              and row["identity_status"] in {"identified", "title_only"}],
+                              and row["identity_status"] in {"identified", "title_only", "inferred_order"}],
             "identity_complete": bool(pages or cad_files) and not issues,
             "quantity_verified": False}
 
@@ -293,7 +356,10 @@ def attach_member_sources(members, manifest):
                 refs.append({"kind": "pdf", "page": page, "source_id": row["source_id"],
                              "document_sha": manifest["document_sha"], "drawing_number": row["drawing_number"],
                              "drawing_title": row["drawing_title"], "role": row["role"],
-                             "identity_status": row["identity_status"], "bbox": deepcopy(bbox)})
+                             "identity_status": row["identity_status"],
+                             "identity_method": row.get("source_method"),
+                             "identity_warnings": list(row.get("identity_warnings") or []),
+                             "bbox": deepcopy(bbox)})
                 if valid_member_bbox(bbox):
                     status, note = "located", "원본 위치 연결됨. 치수·개수·배근은 별도 확인이 필요합니다."
                     refs[-1]["location_precision"] = "bbox"

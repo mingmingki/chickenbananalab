@@ -7875,8 +7875,12 @@ body.cbl-modal-open {
           var sourceHtml = '<div class="qty-review-source">' +
             (sourceRefs.length ? sourceRefs.map(function (ref) {
               var location = ref.kind === "cad" ? ref.file : ("PDF " + ref.page + "페이지");
+              var identityNote = ref.identity_status === "inferred_order" ? " (도면번호는 페이지 순서로 추정)"
+                : (ref.identity_status === "number_only" ? " (도면번호만 확인)" : "");
               return '<div>원본: ' + esc(location || "") +
-                (ref.drawing_number ? " · " + esc(ref.drawing_number) : "") + '</div>';
+                (ref.drawing_number ? " · " + esc(ref.drawing_number) : "") +
+                (ref.drawing_title ? " " + esc(ref.drawing_title) : "") +
+                (identityNote ? esc(identityNote) : "") + '</div>';
             }).join("") : '<div>원본 위치 확인 필요</div>') +
             (sourceReview.note ? '<div>' + esc(sourceReview.note) + '</div>' : "") +
             '</div>';

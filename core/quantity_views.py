@@ -48,6 +48,7 @@ from .quantity_calc import compute_structural_quantities, compute_massing_model,
 from .quantity_state import QuantityStateStore, RETENTION_SECONDS, worker_alive
 from .table_semantic_model import parse_typed_scalars
 from .quantity_sources import build_source_manifest, attach_member_sources, valid_member_bbox
+from . import quantity_sheet_identity
 
 logger = logging.getLogger(__name__)
 
@@ -1998,6 +1999,16 @@ def parse_dwg_from_zip(zip_bytes, keywords=None, time_budget=None, background=Fa
     if time_budget is None:
         time_budget = DWG_CONVERT_BACKGROUND_TIME_BUDGET_SECONDS if background else DWG_CONVERT_TIME_BUDGET_SECONDS
     deadline = time.monotonic() + time_budget
+    sheet_evidence = {}
+
+    def keep_sheet_evidence(name, doc, identity):
+        # Title-block evidence stays local: it identifies sheets, it is never sent to AI.
+        try:
+            sheet_evidence[name] = quantity_sheet_identity.extract_sheet_evidence(
+                doc, decode=_cad_text, source_member_sha=identity["source_member_sha"])
+        except Exception as exc:
+            logger.warning("quantity_sheet_evidence_failed member=%s error=%s", name, str(exc)[:200])
+
     with tempfile.TemporaryDirectory(prefix="cbl_qty_") as work_dir:
         for idx, (info, member) in enumerate(matched_members):
             ext = os.path.splitext(member)[1].lower()
@@ -2035,6 +2046,7 @@ def parse_dwg_from_zip(zip_bytes, keywords=None, time_budget=None, background=Fa
                 except Exception as e:
                     result[out_name] = {"error": str(e)}
                     continue
+                keep_sheet_evidence(out_name, doc, source_identity)
                 # 변환기가 읽지 못한 객체는 물량에서 빠져 있다(편집기도 열 때 알린다).
                 unreadable = _cbl_free_dwg_unreadable_objects_v1(metadata.get("notifications"))
                 if unreadable:
@@ -2046,7 +2058,13 @@ def parse_dwg_from_zip(zip_bytes, keywords=None, time_budget=None, background=Fa
                 result[out_name] = dict(_extract_dxf_quantities(doc), **source_identity)
             except Exception as e:
                 result[out_name] = {"error": str(e)}
+                continue
+            keep_sheet_evidence(out_name, doc, source_identity)
 
+    try:
+        quantity_sheet_identity.attach_sheet_identity(result, sheet_evidence)
+    except Exception as exc:
+        logger.warning("quantity_sheet_identity_failed error=%s", str(exc)[:200])
     return result
 
 
@@ -2179,9 +2197,12 @@ def _detect_schedule_pages(pdf_bytes, total_pages,
     return manifest["context_pages"][:max_results]
 
 
+_LOCAL_ONLY_CAD_KEYS = {"source_texts", "sheets", "index_entries"}
+
+
 def _ai_cad_summary(dwg_data):
     """Keep the detailed source index local; send the bounded CAD summary to AI."""
-    return {name: {key: value for key, value in data.items() if key != "source_texts"}
+    return {name: {key: value for key, value in data.items() if key not in _LOCAL_ONLY_CAD_KEYS}
             for name, data in (dwg_data or {}).items()}
 
 
@@ -2199,8 +2220,14 @@ def _build_source_manifest(dwg_data, pdf_bytes):
             manifest["issues"].append({"reason": "pdf_unreadable"})
             manifest["identity_complete"] = False
             return manifest
+    title_numbers = []
+    if pdf_bytes:
+        try:
+            title_numbers = quantity_sheet_identity.pdf_title_block_numbers(pdf_bytes)
+        except Exception as exc:
+            logger.warning("quantity_pdf_title_numbers_failed error=%s", str(exc)[:200])
     return build_source_manifest(texts, document_sha=_sha256_bytes(pdf_bytes) if pdf_bytes else None,
-                                 total_pages=total, cad_data=dwg_data)
+                                 total_pages=total, cad_data=dwg_data, pdf_title_numbers=title_numbers)
 
 
 
@@ -6894,6 +6921,26 @@ def _sanitize_for_excel(obj):
     return _xlsx_injection_guard(obj)
 
 
+_IDENTITY_STATUS_LABELS = {
+    "identified": "확인됨", "inferred_order": "순서로 추정", "number_only": "번호만 확인",
+    "title_only": "도면명만 확인", "conflict": "번호 충돌", "unidentified": "식별 불가",
+    "multi_sheet": "도면 여러 장", "unreadable": "읽을 수 없음", "incomplete_text": "글자 일부 누락",
+}
+_IDENTITY_METHOD_LABELS = {
+    "explicit_text_fields": "도면번호·도면명 글자", "pdf_title_block_text": "PDF 표제란 번호",
+    "page_order_between_title_block_numbers": "표제란 번호 사이 페이지 순서(CAD 도면목록 기준)",
+    "cad_title_block": "CAD 표제란", "template_labels": "CAD 표제란(칸 라벨)",
+    "learned_number_cell": "CAD 표제란(번호 위치 학습)",
+}
+_IDENTITY_WARNING_LABELS = {
+    "cad_duplicate_number": "CAD에 같은 번호가 여러 장",
+    "cad_multiple_versions": "같은 도면의 CAD 버전이 여러 개",
+    "cad_number_differs_from_index": "CAD 표제란 번호가 도면목록과 다름",
+    "cad_title_differs_from_index": "CAD 도면명이 도면목록과 다름",
+    "index_entry_without_cad_sheet": "도면목록에 있으나 CAD 도곽 없음",
+}
+
+
 def _build_excel_response(request):
     """
     수량산출 결과 JSON을 받아 엑셀 파일로 반환
@@ -7201,21 +7248,28 @@ def _build_excel_response(request):
         ws_total.column_dimensions[col_letter].width = width
 
     sources_sheet = wb.create_sheet("도면 출처")
-    sources_sheet.append(["구분", "원본 종류", "페이지/파일", "도면번호", "도면명", "역할", "식별 상태", "원본 식별자"])
+    sources_sheet.append(["구분", "원본 종류", "페이지/파일", "도면번호", "도면명", "역할", "식별 상태", "원본 식별자",
+                          "식별 근거", "확인 필요", "연결된 CAD 도곽"])
     members_sheet = wb.create_sheet("부재 출처")
     members_sheet.append(["구분", "공종", "부재번호", "구역", "위치 상태", "확인사항", "페이지/파일", "원본 식별자"])
     for type_key, type_name in [("structural", "구조"), ("architectural", "건축")]:
         data = results.get(type_key) or {}
         manifest = data.get("source_manifest") or {}
-        for kind, rows in [("PDF", manifest.get("pdf_pages") or []), ("CAD", manifest.get("cad_files") or [])]:
+        for kind, rows in [("PDF", manifest.get("pdf_pages") or []), ("CAD", manifest.get("cad_files") or []),
+                           ("CAD 도곽", manifest.get("cad_sheets") or [])]:
             for row in rows:
+                place = row.get("page") if kind == "PDF" else row.get("file")
+                cad_sheet = row.get("cad_sheet") or {}
                 sources_sheet.append([type_name, kind,
-                    _xlsx_injection_guard(str(row.get("page") if kind == "PDF" else row.get("file") or "")),
+                    _xlsx_injection_guard(str(place or "")),
                     _xlsx_injection_guard(row.get("drawing_number") or ""),
                     _xlsx_injection_guard(row.get("drawing_title") or ""),
                     _xlsx_injection_guard(row.get("role") or ""),
-                    _xlsx_injection_guard(row.get("identity_status") or ""),
-                    _xlsx_injection_guard(row.get("source_id") or "")])
+                    _xlsx_injection_guard(_IDENTITY_STATUS_LABELS.get(row.get("identity_status"), row.get("identity_status") or "")),
+                    _xlsx_injection_guard(row.get("source_id") or ""),
+                    _xlsx_injection_guard(_IDENTITY_METHOD_LABELS.get(row.get("source_method") or row.get("method"), "")),
+                    _xlsx_injection_guard(", ".join(_IDENTITY_WARNING_LABELS.get(w, w) for w in row.get("identity_warnings") or [])),
+                    _xlsx_injection_guard(cad_sheet.get("file") or "")])
         for category in _CATEGORY_KEY_TO_LABEL:
             for member in (data.get("_raw_members") or {}).get(category) or []:
                 review = member.get("source_review") or {}
@@ -7230,7 +7284,7 @@ def _build_excel_response(request):
                         _xlsx_injection_guard(ref.get("source_id") or "")])
     for sheet in [sources_sheet, members_sheet]:
         sheet.freeze_panes = "A2"
-        for column, width in zip("ABCDEFGH", [12, 20, 30, 30, 40, 75, 30, 90]):
+        for column, width in zip("ABCDEFGHIJK", [12, 20, 30, 30, 40, 75, 30, 90, 28, 45, 45]):
             sheet.column_dimensions[column].width = width
 
     coverage_sheet = wb.create_sheet("분석 범위")
