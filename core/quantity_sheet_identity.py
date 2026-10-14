@@ -34,6 +34,9 @@ MAX_TEXTS = 20000
 MAX_INSERTS = 5000
 INDEX_TITLE = re.compile(r"도면목록|DRAWINGINDEX|DRAWINGLIST|SHEETINDEX|SHEETLIST", re.I)
 SCALE_LIKE = re.compile(r"^(?:NONE|N\.?S\.?|\d+\s*/\s*\d+|1\s*:\s*\d+|A\d\s*[:=].*)$", re.I)
+MARK_RE = re.compile(r"^(?=.*[A-Z])(?=.*\d)[A-Z0-9][A-Z0-9\-]{0,11}$")
+NOT_A_MARK = re.compile(r"^\d+-?H?D\d+$|^H?D\d+$|\d+X\d+|@|^\d+MM$|^B?\d+F(?:-B?\d+F)?$")
+MAX_SHEET_MARKS = 400
 LEARN_TOLERANCE = 4.0
 MAX_LEARN_TEXTS = 2000
 MAX_LEARN_CANDIDATES = 300
@@ -268,9 +271,36 @@ def _sheet(file, evidence, insert, template, method, texts):
             "identity_status": status, "frame_bbox": frame_bbox, "text_handles": sorted(used)}
 
 
+def normalize_mark(text):
+    value = re.sub(r"\s+", "", _norm(text)).upper()
+    if not MARK_RE.match(value) or NOT_A_MARK.search(value) or normalize_number(value):
+        return None
+    return value
+
+
+def sheet_marks(sheet, evidence):
+    """Member-mark labels inside one frame, counted per layer (title block excluded)."""
+    if not sheet.get("frame_bbox"):
+        return []
+    x0, y0, x1, y1 = sheet["frame_bbox"]
+    own = set(sheet.get("text_handles") or [])
+    counts = defaultdict(Counter)
+    for text in evidence.get("texts", []):
+        if x0 <= text["x"] <= x1 and y0 <= text["y"] <= y1 and text.get("handle") not in own:
+            mark = normalize_mark(text["text"])
+            if mark:
+                counts[mark][text.get("layer") or ""] += 1
+    rows = [{"mark": mark, "count": sum(layers.values()), "layers": dict(layers)} for mark, layers in counts.items()]
+    rows.sort(key=lambda row: (-row["count"], row["mark"]))
+    return rows[:MAX_SHEET_MARKS]
+
+
 def attach_sheet_identity(parsed, evidence_by_file):
-    """Store per-file sheets and index rows on parse_dwg_from_zip's result (in place)."""
+    """Store per-file sheets (with mark labels) and index rows on parse_dwg_from_zip's result."""
     sheets = resolve_cad_sheets(evidence_by_file)
+    for file, rows in sheets.items():
+        for sheet in rows:
+            sheet["marks"] = sheet_marks(sheet, evidence_by_file[file])
     for file in evidence_by_file:
         if isinstance(parsed.get(file), dict):
             parsed[file]["sheets"] = sheets.get(file, [])

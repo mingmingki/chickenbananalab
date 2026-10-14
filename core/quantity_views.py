@@ -49,6 +49,7 @@ from .quantity_state import QuantityStateStore, RETENTION_SECONDS, worker_alive
 from .table_semantic_model import parse_typed_scalars
 from .quantity_sources import build_source_manifest, attach_member_sources, valid_member_bbox
 from . import quantity_sheet_identity
+from . import quantity_member_links
 
 logger = logging.getLogger(__name__)
 
@@ -528,6 +529,7 @@ def _build_review_checklist(members):
                 "dedup_flag": it.get("_dedup_flag") or None,
                 "source_refs": it.get("source_refs") or [],
                 "source_review": it.get("source_review") or {},
+                "plan_evidence": it.get("plan_evidence") or {},
                 # 세분화 배근(rebar_layers)은 role/size/spacing_m/count 등을 담은 리스트라
                 # 위 fields(스칼라 값 전용)와 형태가 달라 따로 내려준다 — 프론트는 이걸
                 # 읽기전용 요약 + 편집용 JSON 텍스트영역으로 보여준다.
@@ -2204,6 +2206,28 @@ def _ai_cad_summary(dwg_data):
     """Keep the detailed source index local; send the bounded CAD summary to AI."""
     return {name: {key: value for key, value in data.items() if key not in _LOCAL_ONLY_CAD_KEYS}
             for name, data in (dwg_data or {}).items()}
+
+
+def _attach_member_links(members, dwg_data):
+    """CAD plan-label evidence per member; never changes counts, never blocks extraction."""
+    try:
+        links = quantity_member_links.build_member_links(dwg_data)
+        members = quantity_member_links.attach_plan_evidence(members, links)
+        members["member_links"] = links
+    except Exception as exc:
+        logger.warning("quantity_member_links_failed error=%s", str(exc)[:200])
+    return members
+
+
+def _refresh_member_evidence(members):
+    """Compare reviewed counts with the same CAD evidence again."""
+    links = members.get("member_links") if isinstance(members, dict) else None
+    if links:
+        try:
+            members = quantity_member_links.attach_plan_evidence(members, links)
+        except Exception as exc:
+            logger.warning("quantity_member_links_refresh_failed error=%s", str(exc)[:200])
+    return members
 
 
 def _build_source_manifest(dwg_data, pdf_bytes):
@@ -6586,6 +6610,7 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                         )
                         source_manifest = _build_source_manifest(dwg_data, structural_pdf_bytes)
                         members = attach_member_sources(members, source_manifest)
+                        members = _attach_member_links(members, dwg_data)
                         input_coverage = []
                         for filename, parsed in (dwg_data or {}).items():
                             reason = parsed.get("error")
@@ -6627,6 +6652,7 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                                 "incomplete_reasons": incomplete_reasons[:5],
                                 "input_coverage": input_coverage,
                                 "source_manifest": source_manifest,
+                                "member_links": members.get("member_links") or {},
                             }
                         else:
                             # job_id가 없는 경우를 위한 방어적 fallback — 리뷰 단계 없이 바로 계산.
@@ -6637,6 +6663,7 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                             sanitized_members = _sanitize_raw_members(members)
                             results["structural"] = compute_structural_quantities(sanitized_members, elevation_data)
                             results["structural"]["source_manifest"] = source_manifest
+                            results["structural"]["member_links"] = members.get("member_links") or {}
                             results["structural"]["_raw_members"] = sanitized_members  # 디버그/검증용
                             if elevation_data:
                                 results["structural"]["_elevation_section"] = elevation_data  # 디버그/검증용
@@ -6763,8 +6790,10 @@ def api_quantity_confirm_review(request):
 
     try:
         corrected_members, rejected_notes = _apply_member_corrections(members, corrections)
+        corrected_members = _refresh_member_evidence(corrected_members)
         structural_results = compute_structural_quantities(corrected_members, elevation_data)
         structural_results["source_manifest"] = corrected_members.get("source_manifest") or {}
+        structural_results["member_links"] = corrected_members.get("member_links") or {}
         structural_results["_raw_members"] = corrected_members  # 디버그/검증용
         if elevation_data:
             structural_results["_elevation_section"] = elevation_data  # 디버그/검증용
@@ -6921,6 +6950,15 @@ def _sanitize_for_excel(obj):
     return _xlsx_injection_guard(obj)
 
 
+_PLAN_EVIDENCE_LABELS = {
+    "count_matches": "일치", "count_differs": "AI·CAD 개수 다름", "cad_counts_vary_by_floor": "층별 CAD 개수 다름",
+    "no_matching_cad_plan": "같은 동·층 CAD 표기 없음", "mark_not_on_cad_plans": "CAD 평면 표기 없음",
+    "zone_unknown": "층 해석 불가", "no_cad_plan_marks": "CAD 근거 없음",
+}
+_MEMBER_LINK_FLAG_LABELS = {
+    "defined_not_on_plans": "일람표에만 있음(평면 표기 없음)", "on_plans_not_defined": "평면에만 있음(일람표 정의 없음)",
+    "floor_count_unknown": "층수 미확인 도면 포함(합계 보류)", "schedule_category_differs": "일람표 제목의 부재 종류가 평면 표기와 다름",
+}
 _IDENTITY_STATUS_LABELS = {
     "identified": "확인됨", "inferred_order": "순서로 추정", "number_only": "번호만 확인",
     "title_only": "도면명만 확인", "conflict": "번호 충돌", "unidentified": "식별 불가",
@@ -7251,7 +7289,11 @@ def _build_excel_response(request):
     sources_sheet.append(["구분", "원본 종류", "페이지/파일", "도면번호", "도면명", "역할", "식별 상태", "원본 식별자",
                           "식별 근거", "확인 필요", "연결된 CAD 도곽"])
     members_sheet = wb.create_sheet("부재 출처")
-    members_sheet.append(["구분", "공종", "부재번호", "구역", "위치 상태", "확인사항", "페이지/파일", "원본 식별자"])
+    members_sheet.append(["구분", "공종", "부재번호", "구역", "위치 상태", "확인사항", "페이지/파일", "원본 식별자",
+                          "CAD 비교", "CAD 평면 개수", "CAD 비교 메모"])
+    links_sheet = wb.create_sheet("부재 배치 근거")
+    links_sheet.append(["공종", "부호", "구분", "일람표", "평면도", "도면명", "동", "층", "층수",
+                        "평면 표기 개수", "평면 표기 합계", "부호 전체 합계", "확인사항"])
     for type_key, type_name in [("structural", "구조"), ("architectural", "건축")]:
         data = results.get(type_key) or {}
         manifest = data.get("source_manifest") or {}
@@ -7273,6 +7315,7 @@ def _build_excel_response(request):
         for category in _CATEGORY_KEY_TO_LABEL:
             for member in (data.get("_raw_members") or {}).get(category) or []:
                 review = member.get("source_review") or {}
+                plan = member.get("plan_evidence") or {}
                 refs = member.get("source_refs") or [{}]
                 for ref in refs:
                     members_sheet.append([type_name, _CATEGORY_KEY_TO_LABEL[category],
@@ -7281,10 +7324,34 @@ def _build_excel_response(request):
                         _xlsx_injection_guard(review.get("status") or "missing_location"),
                         _xlsx_injection_guard(review.get("note") or "원본 위치 확인 필요"),
                         _xlsx_injection_guard(str(ref.get("page") or ref.get("file") or "")),
-                        _xlsx_injection_guard(ref.get("source_id") or "")])
-    for sheet in [sources_sheet, members_sheet]:
+                        _xlsx_injection_guard(ref.get("source_id") or ""),
+                        _xlsx_injection_guard(_PLAN_EVIDENCE_LABELS.get(plan.get("status"), plan.get("status") or "")),
+                        plan.get("cad_count") if isinstance(plan.get("cad_count"), int) else "",
+                        _xlsx_injection_guard(plan.get("note") or "")])
+        link_plans = (data.get("member_links") or {}).get("plans") or []
+        for row in (data.get("member_links") or {}).get("marks") or []:
+            label = _CATEGORY_KEY_TO_LABEL.get(row.get("category"), row.get("category") or "")
+            definitions = ", ".join(d.get("drawing_number") or "?" for d in row.get("definitions") or [])
+            flags = ", ".join(_MEMBER_LINK_FLAG_LABELS.get(f, f) for f in row.get("flags") or [])
+            placements = ([("평면 배치", o) for o in row.get("occurrences") or []]
+                          + [("단위세대 평면(참고)", o) for o in row.get("typical_plans") or []]) or [("일람표만", {})]
+            for kind, place in placements:
+                plan_index = place.get("plan")
+                sheet_info = link_plans[plan_index] if isinstance(plan_index, int) and 0 <= plan_index < len(link_plans) else {}
+                place = dict(sheet_info, **place)
+                levels = place.get("levels") or []
+                floors = len(levels) if levels else ""
+                links_sheet.append([label, _xlsx_injection_guard(row.get("mark") or ""), kind,
+                    _xlsx_injection_guard(definitions), _xlsx_injection_guard(place.get("drawing_number") or ""),
+                    _xlsx_injection_guard(place.get("drawing_title") or ""), _xlsx_injection_guard(place.get("section") or ""),
+                    _xlsx_injection_guard("~".join([levels[0], levels[-1]]) if len(levels) > 1 else (levels[0] if levels else "")),
+                    floors, place.get("count", ""),
+                    place["count"] * floors if kind == "평면 배치" and floors and isinstance(place.get("count"), int) else "",
+                    row.get("label_total") if row.get("label_total") is not None else "",
+                    _xlsx_injection_guard(flags)])
+    for sheet in [sources_sheet, members_sheet, links_sheet]:
         sheet.freeze_panes = "A2"
-        for column, width in zip("ABCDEFGHIJK", [12, 20, 30, 30, 40, 75, 30, 90, 28, 45, 45]):
+        for column, width in zip("ABCDEFGHIJKLM", [12, 20, 30, 30, 40, 75, 30, 90, 28, 45, 45, 16, 45]):
             sheet.column_dimensions[column].width = width
 
     coverage_sheet = wb.create_sheet("분석 범위")

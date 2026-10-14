@@ -7883,6 +7883,11 @@ body.cbl-modal-open {
                 (identityNote ? esc(identityNote) : "") + '</div>';
             }).join("") : '<div>원본 위치 확인 필요</div>') +
             (sourceReview.note ? '<div>' + esc(sourceReview.note) + '</div>' : "") +
+            (item.plan_evidence && item.plan_evidence.note
+              ? '<div class="qty-review-plan-evidence">' +
+                  (["count_differs", "cad_counts_vary_by_floor"].indexOf(item.plan_evidence.status) >= 0 ? "⚠ " : "") +
+                  'CAD 평면 비교: ' + esc(item.plan_evidence.note) + '</div>'
+              : "") +
             '</div>';
           // 세분화 배근(rebar_layers): role/size/spacing_m/count 등을 담은 리스트라
           // 위의 스칼라 fields와는 별도로, 읽기전용 요약(항상 표시) + 편집용 JSON
