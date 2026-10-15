@@ -226,7 +226,7 @@ class QuantityApiStateTests(SimpleTestCase):
         request = self.request('get', '/')
         rendered = render_to_string('core/home.html', {'request': request, 'user': self.user})
         self.assertIn('id="qty-resume"', rendered)
-        self.assertIn('src="/static/core/js/quantity_resume.js"', rendered)
+        self.assertIn('src="/static/core/js/quantity_resume.js?v=', rendered)
         self.assertIn('href="/static/core/css/quantity_resume.css"', rendered)
 
     def test_standalone_entry_opens_the_current_quantity_workflow(self):

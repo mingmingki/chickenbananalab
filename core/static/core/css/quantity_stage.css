@@ -26,25 +26,27 @@
   box-shadow: none;
   background: var(--qs-stage);
   overflow: hidden;
+  overflow: clip; /* not a scroll container: focusing or scrolling a card never shifts the stage */
 }
+/* the glows stay inside the screen so they never widen or lengthen it */
 #cblQuantityMessengerModal.qty-stage .qty-screen::before {
   content: "";
   position: absolute;
-  inset: auto -15% -38% -15%;
-  height: 72%;
+  inset: auto 0 0 0;
+  height: 60%;
   z-index: -1;
-  background: radial-gradient(58% 70% at 26% 100%, rgba(167, 139, 250, .6), transparent 70%);
+  background: radial-gradient(48% 80% at 26% 118%, rgba(167, 139, 250, .6), transparent 70%);
   pointer-events: none;
 }
 #cblQuantityMessengerModal.qty-stage .qty-screen::after {
   content: "";
   position: absolute;
-  right: -10%;
-  top: -25%;
-  width: 55%;
-  height: 80%;
+  right: 0;
+  top: 0;
+  width: 50%;
+  height: 60%;
   z-index: -1;
-  background: radial-gradient(closest-side, rgba(94, 234, 212, .25), transparent);
+  background: radial-gradient(60% 60% at 80% 20%, rgba(94, 234, 212, .25), transparent);
   pointer-events: none;
 }
 

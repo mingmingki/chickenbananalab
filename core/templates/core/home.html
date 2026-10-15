@@ -6209,7 +6209,8 @@ body.cbl-modal-open {
     </div>
   </div>
 </div>
-<link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}">
+<link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
+<link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
 <script src="{% static 'core/js/quantity_stage.js' %}"></script>
 
 <script>
@@ -7801,6 +7802,12 @@ body.cbl-modal-open {
   // structPreview = { job_id, annotated_pages, checklist, warnings }.
   // onConfirmed(finalStructuralResults)는 사용자가 "진행"을 눌러 confirm-review까지
   // 성공적으로 마쳤을 때 호출된다.
+  // One line of drawing evidence in the review checklist; a difference is marked for attention.
+  function evidenceHtml(kind, label, note, differs) {
+    return '<div class="qty-review-' + kind + '-evidence' + (differs ? ' is-warn' : '') + '">' +
+      (differs ? "⚠ " : "") + '<b>' + esc(label) + '</b> ' + esc(note) + '</div>';
+  }
+
   function openReviewModal(structPreview, onConfirmed) {
     var annotatedPages = structPreview.annotated_pages || [];
     var checklist = structPreview.checklist || [];
@@ -7866,32 +7873,28 @@ body.cbl-modal-open {
               var location = ref.kind === "cad" ? ref.file : ("PDF " + ref.page + "페이지");
               var identityNote = ref.identity_status === "inferred_order" ? " (도면번호는 페이지 순서로 추정)"
                 : (ref.identity_status === "number_only" ? " (도면번호만 확인)" : "");
-              return '<div>원본: ' + esc(location || "") +
+              return '<div class="qty-review-source-ref">원본: ' + esc(location || "") +
                 (ref.drawing_number ? " · " + esc(ref.drawing_number) : "") +
                 (ref.drawing_title ? " " + esc(ref.drawing_title) : "") +
                 (identityNote ? esc(identityNote) : "") + '</div>';
-            }).join("") : '<div>원본 위치 확인 필요</div>') +
-            (sourceReview.note ? '<div>' + esc(sourceReview.note) + '</div>' : "") +
+            }).join("") : '<div class="qty-review-source-ref">원본 위치 확인 필요</div>') +
+            (sourceReview.note ? '<div class="qty-review-source-note">' + esc(sourceReview.note) + '</div>' : "") +
             (item.plan_evidence && item.plan_evidence.note
-              ? '<div class="qty-review-plan-evidence">' +
-                  (["count_differs", "cad_counts_vary_by_floor"].indexOf(item.plan_evidence.status) >= 0 ? "⚠ " : "") +
-                  'CAD 평면 비교: ' + esc(item.plan_evidence.note) + '</div>'
+              ? evidenceHtml("plan", "CAD 평면 비교", item.plan_evidence.note,
+                  ["count_differs", "cad_counts_vary_by_floor"].indexOf(item.plan_evidence.status) >= 0)
               : "") +
             (item.schedule_evidence && item.schedule_evidence.note &&
              ["schedule_matches", "schedule_differs", "no_schedule_row_for_level"].indexOf(item.schedule_evidence.status) >= 0
-              ? '<div class="qty-review-schedule-evidence">' +
-                  (item.schedule_evidence.status === "schedule_differs" ? "⚠ " : "") +
-                  'CAD 일람표 비교: ' + esc(item.schedule_evidence.note) + '</div>'
+              ? evidenceHtml("schedule", "CAD 일람표 비교", item.schedule_evidence.note,
+                  item.schedule_evidence.status === "schedule_differs")
               : "") +
             (item.geometry_evidence && item.geometry_evidence.note && item.geometry_evidence.status !== "no_cad_length"
-              ? '<div class="qty-review-geometry-evidence">' +
-                  (["length_differs", "cad_lengths_vary_by_floor"].indexOf(item.geometry_evidence.status) >= 0 ? "⚠ " : "") +
-                  'CAD 실측: ' + esc(item.geometry_evidence.note) + '</div>'
+              ? evidenceHtml("geometry", "CAD 실측", item.geometry_evidence.note,
+                  ["length_differs", "cad_lengths_vary_by_floor"].indexOf(item.geometry_evidence.status) >= 0)
               : "") +
             (item.height_evidence && item.height_evidence.note && item.height_evidence.status !== "no_cad_height"
-              ? '<div class="qty-review-height-evidence">' +
-                  (item.height_evidence.status === "height_differs" ? "⚠ " : "") +
-                  'CAD 층고: ' + esc(item.height_evidence.note) + '</div>'
+              ? evidenceHtml("height", "CAD 층고", item.height_evidence.note,
+                  item.height_evidence.status === "height_differs")
               : "") +
             '</div>';
           // 세분화 배근(rebar_layers): role/size/spacing_m/count 등을 담은 리스트라
@@ -8234,8 +8237,7 @@ body.cbl-modal-open {
           });
           return;
         }
-        addBot("수량산출 중 오류가 발생했어요.<br>" + esc(data.error), 200);
-        showRunButton();
+        addBot("수량산출 중 오류가 발생했어요.<br>" + esc(data.error), 200).then(showRunButton);
         return;
       }
 
@@ -8473,7 +8475,7 @@ body.cbl-modal-open {
     var height = canvas.clientHeight || 560;
 
     var scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0b1622);
+    scene.background = new THREE.Color(0x0b1f2e);
 
     var totalH = massing.total_height_m || 10;
     var side = massing.footprint_side_m || 20;
@@ -8809,29 +8811,20 @@ body.cbl-modal-open {
     var totals = (lastAnalysisResults && lastAnalysisResults.structural && lastAnalysisResults.structural.totals) || null;
 
     var overlay = document.createElement("div");
-    overlay.style.cssText =
-      "position:fixed;inset:0;z-index:2147483650;background:rgba(15,23,42,.72);" +
-      "display:flex;align-items:center;justify-content:center;padding:18px;box-sizing:border-box;";
+    overlay.className = "qty-3d-overlay";
 
     var panel = document.createElement("div");
-    panel.style.cssText =
-      "position:relative;width:min(760px,100%);height:min(660px,90vh);background:#0b1622;" +
-      "border-radius:16px;overflow:hidden;box-shadow:0 28px 80px rgba(0,0,0,.5);" +
-      "display:flex;flex-direction:column;";
+    panel.className = "qty-3d-panel";
 
     var closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.textContent = "×";
-    closeBtn.style.cssText =
-      "position:absolute;top:10px;right:10px;z-index:3;width:30px;height:30px;border-radius:8px;" +
-      "border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.15);color:#fff;" +
-      "font-size:16px;font-weight:900;cursor:pointer;line-height:1;";
+    closeBtn.className = "qty-3d-close";
+    closeBtn.setAttribute("aria-label", "3D 보기 닫기");
 
     // 상단 범례 (콘크리트/거푸집/철근 총량)
     var legend = document.createElement("div");
-    legend.style.cssText =
-      "flex-shrink:0;padding:10px 46px 8px 14px;color:rgba(255,255,255,.85);font-size:11px;" +
-      "line-height:1.5;background:rgba(255,255,255,.04);";
+    legend.className = "qty-3d-legend";
     var barCountsInfo = lastMassingData.rebar_bar_counts;
     var barCountsText = barCountsInfo
       ? (" · 철근 가닥수(개략) 수직 " + barCountsInfo.vertical_bar_count + "가닥 / 링·스터럽 " + barCountsInfo.horizontal_ring_count + "개")
@@ -8842,7 +8835,7 @@ body.cbl-modal-open {
 
     // 철근 색상 범례 — 부재별 보기에서 선택한 배근의 역할별 색상과 매칭된다.
     var colorLegend = document.createElement("div");
-    colorLegend.style.cssText = "flex-shrink:0;padding:0 46px 8px 14px;font-size:10.5px;color:rgba(255,255,255,.7);background:rgba(255,255,255,.04);";
+    colorLegend.className = "qty-3d-colors";
     var legendItems = [
       ["#ff5b4d", "주근·수직근"],
       ["#ffd400", "후프·스터럽·수평근·배력근"],
@@ -8851,20 +8844,17 @@ body.cbl-modal-open {
       ["#9b59b6", "보강근·다월·개구부보강근"],
     ];
     colorLegend.innerHTML = legendItems.map(function (li) {
-      return '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;">' +
-        '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:' + li[0] + ';"></span>' +
+      return '<span class="qty-3d-color">' +
+        '<span class="qty-3d-swatch" style="background:' + li[0] + ';"></span>' +
         esc(li[1]) + '</span>';
     }).join("");
 
     // 컨트롤 바 (층 선택 + 토글)
     var controlBar = document.createElement("div");
-    controlBar.style.cssText =
-      "flex-shrink:0;display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 14px;" +
-      "background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.08);" +
-      "font-size:11px;color:rgba(255,255,255,.8);";
+    controlBar.className = "qty-3d-controls";
 
     var floorSelect = document.createElement("select");
-    floorSelect.style.cssText = "background:#132234;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:4px 6px;font-size:11px;";
+    floorSelect.className = "qty-3d-select";
     var optAll = document.createElement("option");
     optAll.value = "-1";
     optAll.textContent = "전체 층 보기";
@@ -8878,7 +8868,7 @@ body.cbl-modal-open {
 
     function makeToggle(labelText) {
       var label = document.createElement("label");
-      label.style.cssText = "display:flex;align-items:center;gap:4px;cursor:pointer;";
+      label.className = "qty-3d-toggle";
       var input = document.createElement("input");
       input.type = "checkbox";
       label.appendChild(input);
@@ -8901,18 +8891,15 @@ body.cbl-modal-open {
     // 서로 다른 출처(elevation_data vs 부재 zone 필드)라 독립적인 컨트롤로 둔다.
     var memberByZone = lastMassingData.member_rebar_by_zone || [];
     var memberBar = document.createElement("div");
-    memberBar.style.cssText =
-      "flex-shrink:0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 14px;" +
-      "background:rgba(255,255,255,.02);border-bottom:1px solid rgba(255,255,255,.08);" +
-      "font-size:11px;color:rgba(255,255,255,.8);";
+    memberBar.className = "qty-3d-controls qty-3d-members";
 
     if (memberByZone.length) {
       var memberBarLabel = document.createElement("span");
       memberBarLabel.textContent = "부재별 보기:";
-      memberBarLabel.style.cssText = "color:rgba(255,255,255,.55);";
+      memberBarLabel.className = "qty-3d-members-label";
 
       var zoneSelect = document.createElement("select");
-      zoneSelect.style.cssText = "background:#132234;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:4px 6px;font-size:11px;";
+      zoneSelect.className = "qty-3d-select";
       var zoneOptNone = document.createElement("option");
       zoneOptNone.value = "-1";
       zoneOptNone.textContent = "층 선택…";
@@ -8925,13 +8912,13 @@ body.cbl-modal-open {
       });
 
       var memberSelect = document.createElement("select");
-      memberSelect.style.cssText = "background:#132234;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:4px 6px;font-size:11px;";
+      memberSelect.className = "qty-3d-select";
       memberSelect.disabled = true;
 
       var clearMemberBtn = document.createElement("button");
       clearMemberBtn.type = "button";
       clearMemberBtn.textContent = "선택 해제";
-      clearMemberBtn.style.cssText = "background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:4px 9px;font-size:11px;cursor:pointer;";
+      clearMemberBtn.className = "qty-3d-button";
 
       memberBar.appendChild(memberBarLabel);
       memberBar.appendChild(zoneSelect);
@@ -8980,26 +8967,24 @@ body.cbl-modal-open {
       });
     } else {
       memberBar.textContent = "부재별 보기: 부재별 배근 데이터가 없어 이 도면에서는 지원하지 않아요.";
-      memberBar.style.color = "rgba(255,255,255,.5)";
+      memberBar.classList.add("is-empty");
     }
 
     // 캔버스 영역
     var canvasWrap = document.createElement("div");
-    canvasWrap.style.cssText = "position:relative;flex:1;min-height:0;";
+    canvasWrap.className = "qty-3d-canvas-wrap";
 
     var caption = document.createElement("div");
-    caption.style.cssText =
-      "position:absolute;left:12px;bottom:10px;right:12px;z-index:2;color:rgba(255,255,255,.7);" +
-      "font-size:10.5px;line-height:1.5;pointer-events:none;";
+    caption.className = "qty-3d-caption";
     caption.textContent =
       (lastMassingData.note || "") + " (드래그로 회전, 층 선택 후 단면 보기 가능)";
 
     var loadingLabel = document.createElement("div");
-    loadingLabel.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.6);font-size:12px;";
+    loadingLabel.className = "qty-3d-loading";
     loadingLabel.textContent = "3D 뷰어를 불러오는 중…";
 
     var canvas = document.createElement("canvas");
-    canvas.style.cssText = "display:block;width:100%;height:100%;cursor:grab;";
+    canvas.className = "qty-3d-canvas";
 
     canvasWrap.appendChild(loadingLabel);
     canvasWrap.appendChild(canvas);
@@ -9134,7 +9119,7 @@ body.cbl-modal-open {
 </script>
 <!-- CBL_QUANTITY_JOB_STYLE_CHAT_V7_END -->
 <link rel="stylesheet" href="{% static 'core/css/quantity_resume.css' %}">
-<script src="{% static 'core/js/quantity_resume.js' %}" defer></script>
+<script src="{% static 'core/js/quantity_resume.js' %}?v=20261015-resume" defer></script>
 
 
 <!-- CBL_BETA_GATE_MODAL_START -->
