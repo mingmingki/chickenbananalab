@@ -6248,6 +6248,11 @@ body.cbl-modal-open {
     }
   };
 
+  modal.addEventListener("cbl:quantity-continue", function (event) {
+    var jobId = event.detail && event.detail.job_id;
+    if (jobId) resumeQuantityJob(jobId);
+  });
+
   modal.addEventListener("cbl:quantity-resume", function (event) {
     var data = event.detail;
     var preview = ((data || {}).results || {}).structural || {};
@@ -8125,10 +8130,54 @@ body.cbl-modal-open {
     // 지금은 결과를 이 폴링 루프(handleJobDone)를 통해서만 받는다 — 폴링은 몇 초짜리
     // 요청이 반복되는 구조라 중간에 한두 번 끊겨도 다음 시도에서 다시 잡힌다.
     var jobId = "qty-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+    var watch = watchQuantityJob(jobId, "분석을 준비하고 있어요…");
 
+    var fd = new FormData();
+    fd.append("job_id", jobId);
+    // review_id 상태머신: 서버는 이 값으로 개요/구조일반사항/지하주차장 평면도가
+    // 실제로 전부 확정됐는지 확인한 뒤에만 본 추출을 시작한다(확정 안 됐으면 409).
+    // confirmed_general_spec은 더 이상 서버가 신뢰하지 않는다 — 참고용으로만 같이
+    // 보내지만, 실제로 쓰이는 값은 review_id 기록에 서버가 저장해둔 값이다.
+    fd.append("review_id", ensureReviewId());
+    state.cadFiles.forEach(function (f) { fd.append("cad_files", f); });
+    // overview-check 단계와 정확히 같은 낱장 PDF 전체를 그대로 다시 보내야 한다 —
+    // 서버가 두 단계에서 같은 병합 결과(해시)를 얻어야 확정 상태가 유지된다. 첫
+    // 파일만 보내던 예전 버그는 여러 파일을 고른 경우 "파일이 바뀌었다"는 409로
+    // 확정 상태가 초기화되는 원인이었다.
+    state.pdfFiles.forEach(function (f) { fd.append("structural_pdf", f); });
+    state.elevCadFiles.forEach(function (f) { fd.append("cad_files", f); });
+    state.elevPdfFiles.forEach(function (f) { fd.append("architectural_pdf", f); });
+    if (confirmedGeneralSpec) fd.append("confirmed_general_spec", JSON.stringify(confirmedGeneralSpec));
+
+    // ── 작업 시작 요청 — 이제 이 fetch는 파일을 넘기고 "백그라운드 작업이 시작됐다"는
+    //    확인(accepted)만 받으면 끝이라 보통 1초 안에 끝난다. 실제 결과는
+    //    watchQuantityJob의 폴링 루프(handleJobDone)가 받아온다.
+    var kickoff = {};
+    try {
+      var res = await fetch("/api/quantity/run/", {
+        method: "POST",
+        headers: { "X-CSRFToken": csrfToken() },
+        body: fd
+      });
+      kickoff = await res.json();
+    } catch (e) {
+      kickoff = { error: "네트워크 오류: " + (e && e.message ? e.message : String(e)) };
+    }
+
+    if (kickoff.error) {
+      watch.stop();
+      await addBot("수량산출 중 오류가 발생했어요.<br>" + esc(kickoff.error), 200);
+      showRunButton();
+      return;
+    }
+    // kickoff.accepted === true — 이후로는 폴링 루프(handleJobDone)가 나머지를 처리한다.
+  }
+
+  // 진행률 상자와 폴링 — 새 분석과, 서버 재시작으로 멈췄다가 이어서 실행하는 분석이 함께 쓴다.
+  function watchQuantityJob(jobId, startLabel) {
     var think = appendLeft(
       '<div class="qty-progress-box">' +
-        '<div class="qty-progress-label"><div class="qty-spin"></div><span id="qty-progress-text">분석을 준비하고 있어요…</span></div>' +
+        '<div class="qty-progress-label"><div class="qty-spin"></div><span id="qty-progress-text">' + esc(startLabel) + '</span></div>' +
         '<div class="qty-progress-track"><div class="qty-progress-fill" id="qty-progress-fill"></div></div>' +
         '<div class="qty-progress-pct" id="qty-progress-pct">0%</div>' +
         '<div class="qty-progress-cancel-row"><button type="button" class="qty-progress-cancel-btn" id="qty-progress-cancel">취소</button></div>' +
@@ -8178,6 +8227,13 @@ body.cbl-modal-open {
         : { ok: true, results: pdata.results || {} };
 
       if (data.error) {
+        if (pdata.interrupted) {
+          addBot("분석이 중간에 멈췄어요.<br>" + esc(data.error), 200).then(function () {
+            if (pdata.resumable) offerQuantityResume(jobId);
+            showRunButton();
+          });
+          return;
+        }
         addBot("수량산출 중 오류가 발생했어요.<br>" + esc(data.error), 200);
         showRunButton();
         return;
@@ -8241,47 +8297,53 @@ body.cbl-modal-open {
       if (progressTextEl && pdata.label) progressTextEl.textContent = pdata.label;
     }, 1500);
 
-    var fd = new FormData();
-    fd.append("job_id", jobId);
-    // review_id 상태머신: 서버는 이 값으로 개요/구조일반사항/지하주차장 평면도가
-    // 실제로 전부 확정됐는지 확인한 뒤에만 본 추출을 시작한다(확정 안 됐으면 409).
-    // confirmed_general_spec은 더 이상 서버가 신뢰하지 않는다 — 참고용으로만 같이
-    // 보내지만, 실제로 쓰이는 값은 review_id 기록에 서버가 저장해둔 값이다.
-    fd.append("review_id", ensureReviewId());
-    state.cadFiles.forEach(function (f) { fd.append("cad_files", f); });
-    // overview-check 단계와 정확히 같은 낱장 PDF 전체를 그대로 다시 보내야 한다 —
-    // 서버가 두 단계에서 같은 병합 결과(해시)를 얻어야 확정 상태가 유지된다. 첫
-    // 파일만 보내던 예전 버그는 여러 파일을 고른 경우 "파일이 바뀌었다"는 409로
-    // 확정 상태가 초기화되는 원인이었다.
-    state.pdfFiles.forEach(function (f) { fd.append("structural_pdf", f); });
-    state.elevCadFiles.forEach(function (f) { fd.append("cad_files", f); });
-    state.elevPdfFiles.forEach(function (f) { fd.append("architectural_pdf", f); });
-    if (confirmedGeneralSpec) fd.append("confirmed_general_spec", JSON.stringify(confirmedGeneralSpec));
+    return {
+      stop: function () {
+        settled = true;
+        if (pollTimer) clearInterval(pollTimer);
+        think.remove();
+      }
+    };
+  }
 
-    // ── 작업 시작 요청 — 이제 이 fetch는 파일을 넘기고 "백그라운드 작업이 시작됐다"는
-    //    확인(accepted)만 받으면 끝이라 보통 1초 안에 끝난다. 실제 결과는 위 폴링
-    //    루프(handleJobDone)가 받아온다.
-    var kickoff = {};
-    try {
-      var res = await fetch("/api/quantity/run/", {
-        method: "POST",
-        headers: { "X-CSRFToken": csrfToken() },
-        body: fd
+  // 서버 재시작 등으로 멈춘 분석은 보관된 업로드 파일로 이어서 실행할 수 있다. 멈추기 전에
+  // 끝난 AI 단계는 저장된 결과를 다시 쓰므로, 남은 단계만 AI를 호출한다. 자동으로 다시
+  // 시작하지 않고 항상 사용자가 직접 누른다.
+  function offerQuantityResume(jobId) {
+    var wrap = appendLeft(
+      '<div class="qty-btn-row wide"><button type="button" class="qty-action primary full">이어서 실행 (끝난 단계는 다시 호출하지 않아요)</button></div>'
+    );
+    var btn = wrap.querySelector("button");
+    btn.addEventListener("click", function () {
+      btn.disabled = true;
+      resumeQuantityJob(jobId).then(function (started) {
+        if (started) wrap.remove();
+        else btn.disabled = false;
       });
-      kickoff = await res.json();
-    } catch (e) {
-      kickoff = { error: "네트워크 오류: " + (e && e.message ? e.message : String(e)) };
-    }
+    });
+    scrollBottom();
+  }
 
-    if (kickoff.error) {
-      settled = true;
-      clearInterval(pollTimer);
-      think.remove();
-      await addBot("수량산출 중 오류가 발생했어요.<br>" + esc(kickoff.error), 200);
-      showRunButton();
-      return;
+  async function resumeQuantityJob(jobId) {
+    var body = {};
+    try {
+      var res = await fetch("/api/quantity/resume/", {
+        method: "POST",
+        headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/x-www-form-urlencoded" },
+        body: "job_id=" + encodeURIComponent(jobId)
+      });
+      body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error || "이어서 실행하지 못했어요.");
+    } catch (e) {
+      await addBot("이어서 실행하지 못했어요.<br>" + esc(e && e.message ? e.message : String(e)), 150);
+      return false;
     }
-    // kickoff.accepted === true — 이후로는 폴링 루프(handleJobDone)가 나머지를 처리한다.
+    addUser("멈춘 분석을 이어서 실행할게요.");
+    stageStep(3);
+    watchQuantityJob(jobId, body.saved_steps
+      ? "저장된 " + body.saved_steps + "개 단계를 불러와 이어서 실행하고 있어요…"
+      : "이어서 실행하고 있어요…");
+    return true;
   }
 
   // runQuantityAnalysis()의 완료 후 처리(층별표/색칠 미리보기/엑셀·3D 버튼)를 분리해둔 함수.

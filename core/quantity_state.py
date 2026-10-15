@@ -107,6 +107,21 @@ class QuantityStateStore:
     def release_job(self, key):
         self.pop('job', key)
 
+    def claim_resume(self, key, owner):
+        """Bind an interrupted job to this worker; a job whose worker still runs is not taken."""
+        with self.connection(write=True) as connection:
+            job = self.read(connection, 'job', key)
+            if not job:
+                return 'missing'
+            if job['owner'] != str(owner):
+                return 'forbidden'
+            if worker_alive(job.get('pid')):
+                return 'running'
+            job.update(pid=os.getpid(), resumed_at=time.time(),
+                       resume_count=int(job.get('resume_count') or 0) + 1)
+            self.write(connection, 'job', key, job, RETENTION_SECONDS)
+            return 'resumed'
+
     def owner_jobs(self, owner):
         with self.connection() as connection:
             rows = connection.execute('SELECT key,value FROM quantity_state WHERE namespace=? AND expires>?',

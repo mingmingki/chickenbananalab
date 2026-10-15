@@ -52,6 +52,7 @@ from .table_semantic_model import parse_typed_scalars
 from .quantity_sources import build_source_manifest, attach_member_sources, valid_member_bbox
 from . import quantity_sheet_identity
 from . import quantity_cad_estimate
+from . import quantity_job_inputs
 from . import quantity_levels
 from . import quantity_member_links
 
@@ -72,7 +73,13 @@ _QUANTITY_JOB_START_VIEWS = {
 }
 _QUANTITY_JOB_READ_VIEWS = {
     "api_quantity_progress", "api_quantity_cancel", "api_quantity_confirm_review",
+    "api_quantity_resume",
 }
+
+
+def _job_inputs():
+    """Kept uploads and finished AI steps of main analysis jobs, beside the job state."""
+    return quantity_job_inputs.JobInputStore(_quantity_state().path.parent / "inputs")
 
 
 def _quantity_state():
@@ -5099,7 +5106,27 @@ def _extract_structural_members_one_batch(client, dwg_data, image_batch, batch_i
     return data
 
 
-def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, cancel_cb=None, confirmed_general_spec=None) -> dict:
+_AI_STEP_FAILURE_MARKERS = ("요청 중 오류", "JSON 파싱 오류", "GEMINI_API_KEY", "렌더링 중 오류")
+
+
+def _ai_step_failed(value):
+    """A step that never got a usable AI answer is not kept, so a resume asks again. A
+    truncated answer that was repaired is kept: it was paid for and asking again rarely helps."""
+    if not isinstance(value, dict) or value.get("error"):
+        return True
+    texts = [value.get("summary")] + list(value.get("notes") or [])
+    return any(isinstance(text, str) and any(marker in text for marker in _AI_STEP_FAILURE_MARKERS)
+               for text in texts)
+
+
+def _cad_summary_key(dwg_data):
+    """The CAD part of what an AI step sees; a saved step is reused only for the same one."""
+    encoded = json.dumps(_ai_cad_summary(dwg_data or {}), ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, cancel_cb=None, confirmed_general_spec=None,
+                               steps=None) -> dict:
     """
     DWG 파싱 데이터 + 구조도면 PDF(원본 바이트) 를 Gemini Vision에 보내
     '부재 리스트만' 구조화된 JSON으로 추출한다 (계산은 하지 않음).
@@ -5127,6 +5154,11 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
     루프를 즉시 멈춘다(이미 시작된 배치 1개는 어차피 끝까지 처리— Gemini 호출 자체를
     중간에 끊을 방법은 없다). 사용자가 "취소"를 누른 뒤 아직 시작 안 한 배치들의
     비용을 아끼기 위한 용도다. None이면 취소 체크를 생략한다.
+
+    steps (quantity_job_inputs.StepStore): finished batches of an interrupted job. A batch
+    whose saved key matches (same uploads, CAD summary, pages, confirmed spec, prompt and
+    model) is reused instead of calling the AI again; every new batch that got an answer is
+    saved for a later resume.
     """
     cache_key = _dev_cache_key(pdf_bytes, dwg_data) if _DEV_CACHE_ENABLED else None
     if cache_key:
@@ -5140,13 +5172,17 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
     if client is None:
         return dict(_EMPTY_MEMBERS, notes=["GEMINI_API_KEY가 설정되지 않았습니다. .env 확인 후 서버를 재시작해 주세요."])
 
+    cad_key = _cad_summary_key(dwg_data) if steps else None
     if not pdf_bytes:
         # PDF가 없고 DWG 데이터만 있는 경우(구조 ZIP만 업로드) — 배치 없이 한 번만 호출
         if progress_cb:
             progress_cb(1, 1)
-        result = _merge_extracted_members(
-            [_extract_structural_members_one_batch(client, dwg_data, [], 1, 1, confirmed_general_spec=confirmed_general_spec)]
-        )
+        one_result = steps.load("structural-cad-only", cad_key) if steps else None
+        if one_result is None:
+            one_result = _extract_structural_members_one_batch(client, dwg_data, [], 1, 1, confirmed_general_spec=confirmed_general_spec)
+            if steps and not _ai_step_failed(one_result):
+                steps.save("structural-cad-only", one_result, cad_key)
+        result = _merge_extracted_members([one_result])
         if cache_key:
             _dev_cache_save(cache_key, result)
         return _apply_confirmed_general_spec_override(result, confirmed_general_spec)
@@ -5215,6 +5251,14 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
             break
         if progress_cb:
             progress_cb(idx, total_batches)
+        step_name = f"structural-{first_page:04d}-{last_page:04d}"
+        step_parts = (cad_key, [p for p in schedule_pages if not (first_page <= p <= last_page)],
+                      first_page, last_page, total_batches)
+        saved = steps.load(step_name, *step_parts) if steps else None
+        if saved is not None:
+            batch_results.append(saved)
+            schedule_note_added = schedule_note_added or bool(step_parts[1])
+            continue
         try:
             image_batch = _render_pdf_page_range(pdf_bytes, first_page, last_page)
         except Exception as e:
@@ -5251,6 +5295,8 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
                 "모든 배치 이미지에 함께 포함해서, 평면도만 보이는 배치에서도 부재 마크의 치수를 "
                 "찾을 수 있도록 했습니다."
             ]
+        if steps and not _ai_step_failed(one_result):
+            steps.save(step_name, one_result, *step_parts)
         batch_results.append(one_result)
         del image_batch  # 다음 배치로 넘어가기 전에 명시적으로 메모리 해제
 
@@ -6507,10 +6553,12 @@ def api_run_quantity(request):
     _progress_set(job_id, "queued", 0, 1, "대기열에 등록됨", stage_index=1, total_stages=progress_total_stages)
 
     thread = threading.Thread(
-        target=_run_quantity_job,
-        args=(job_id, structural_zip_bytes, structural_pdf_bytes,
-              architectural_zip_bytes, architectural_pdf_bytes,
-              progress_stages, progress_total_stages, confirmed_general_spec),
+        target=_quantity_job_thread,
+        args=(job_id, request.user.pk,
+              {"structural_zip": structural_zip_bytes, "structural_pdf": structural_pdf_bytes,
+               "architectural_zip": architectural_zip_bytes, "architectural_pdf": architectural_pdf_bytes},
+              {"review_id": review_id, "confirmed_general_spec": confirmed_general_spec,
+               "progress_stages": progress_stages}),
         daemon=True,
     )
     thread.start()
@@ -6518,9 +6566,58 @@ def api_run_quantity(request):
     return JsonResponse({"accepted": True, "job_id": job_id})
 
 
+# Bump when what an AI step sees changes outside the prompts, model and inputs in _job_step_base,
+# so steps saved by older code are not reused by a resume.
+_JOB_STEP_VERSION = 1
+
+
+def _job_step_base(meta):
+    """Everything shared by the AI steps of one job; part of every saved step's key."""
+    prompts = "\x00".join((MEMBER_EXTRACTION_SYSTEM_PROMPT, ARCHITECTURAL_SYSTEM_PROMPT,
+                           ELEVATION_SECTION_SYSTEM_PROMPT))
+    return {"version": _JOB_STEP_VERSION, "model": GEMINI_QUANTITY_MODEL,
+            "prompts": hashlib.sha256(prompts.encode("utf-8")).hexdigest(),
+            "batch_pages": EXTRACTION_BATCH_PAGE_SIZE, "max_pages": MAX_PDF_PAGES_TO_GEMINI,
+            "inputs": {name: info.get("sha256") for name, info in (meta.get("files") or {}).items()},
+            "general_spec": (meta.get("settings") or {}).get("confirmed_general_spec")}
+
+
+def _quantity_job_thread(job_id, owner, inputs, job_settings, kept=None):
+    """Background body of a main analysis. Keeps the uploads (and, as the job goes, each
+    finished AI step) so the owner can resume the job after a server restart, runs the job,
+    and drops the kept files once a result is stored. `kept` is the saved record on a resume."""
+    store = _job_inputs()
+    if kept is None:
+        kept = store.save(job_id, owner, inputs, job_settings)
+    steps = store.steps(job_id, _job_step_base(kept)) if kept else None
+    stages = list(job_settings.get("progress_stages") or [])
+    try:
+        _run_quantity_job(job_id, inputs.get("structural_zip"), inputs.get("structural_pdf"),
+                          inputs.get("architectural_zip"), inputs.get("architectural_pdf"),
+                          stages, len(stages) or 1, job_settings.get("confirmed_general_spec"), steps=steps)
+    finally:
+        try:
+            if _result_get(job_id) is not None:
+                store.discard(job_id)
+        except Exception:  # the kept folder then expires on its own
+            logger.warning("quantity_job_inputs_not_discarded job=%s", job_id[:16])
+
+
+_STEP_LABELS = {"architectural": "건축도면 분석", "elevation": "입면/단면 검토"}
+
+
+def _resume_note(reused):
+    batches = sum(1 for name in reused if name.startswith("structural-"))
+    parts = [_STEP_LABELS[name] for name in ("architectural", "elevation") if name in reused]
+    if batches:
+        parts.append(f"구조 부재 추출 배치 {batches}개")
+    return ("이어서 실행: 서버가 멈추기 전에 끝난 AI 단계(" + ", ".join(parts) + ")는 저장된 결과를 "
+            "다시 사용했습니다 — 이 단계들은 AI를 다시 호출하지 않았습니다.")
+
+
 def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                        architectural_zip_bytes, architectural_pdf_bytes,
-                       progress_stages, progress_total_stages, confirmed_general_spec=None):
+                       progress_stages, progress_total_stages, confirmed_general_spec=None, steps=None):
     """api_run_quantity가 백그라운드 스레드로 실행시키는 실제 작업 본체.
     HTTP 요청/응답과 완전히 분리돼 있어서, 이 함수를 시작시킨 브라우저 연결이
     중간에 끊기든 말든 이 함수는 끝까지 실행되고, 최종 결과는 _RESULT_STORE에
@@ -6566,22 +6663,31 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                     # 모든 dwg/dxf를 대상으로 한다(코드 목록에 의존하지 않음).
                     arch_dwg_data = parse_dwg_from_zip(architectural_zip_bytes, background=True)
 
-                if architectural_pdf_bytes:
+                # On a resume, both architectural AI steps may already be saved: the PDF then
+                # need not be rendered again.
+                arch_key = _cad_summary_key(arch_dwg_data) if steps else None
+                arch_saved = bool(steps) and all(steps.has(name, arch_key) for name in ("architectural", "elevation"))
+
+                if architectural_pdf_bytes and not arch_saved:
                     try:
                         arch_pdf_images = pdf_to_images(architectural_pdf_bytes, max_pages=MAX_PDF_PAGES_TO_GEMINI)
                     except Exception as e:
                         arch_pdf_images = []
                         results["architectural_pdf_error"] = str(e)
 
-                if arch_dwg_data or arch_pdf_images:
+                if arch_dwg_data or arch_pdf_images or arch_saved:
                     _report_progress("architectural", 0, 1, "건축도면 분석 중")
-                    try:
-                        results["architectural"] = analyze_with_gemini(
-                            arch_dwg_data, arch_pdf_images,
-                            ARCHITECTURAL_SYSTEM_PROMPT, "건축도면"
-                        )
-                    except Exception as e:
-                        results["architectural"] = {"error": str(e), "items": [], "missing_info": [f"건축 수량산출 처리 중 오류가 발생했습니다: {str(e)[:300]}"], "warnings": []}
+                    results["architectural"] = steps.load("architectural", arch_key) if steps else None
+                    if results["architectural"] is None:
+                        try:
+                            results["architectural"] = analyze_with_gemini(
+                                arch_dwg_data, arch_pdf_images,
+                                ARCHITECTURAL_SYSTEM_PROMPT, "건축도면"
+                            )
+                        except Exception as e:
+                            results["architectural"] = {"error": str(e), "items": [], "missing_info": [f"건축 수량산출 처리 중 오류가 발생했습니다: {str(e)[:300]}"], "warnings": []}
+                        if steps and not _ai_step_failed(results["architectural"]):
+                            steps.save("architectural", results["architectural"], arch_key)
                     _report_progress("architectural", 1, 1, "건축도면 분석 완료")
 
                     if _cancelled():
@@ -6590,10 +6696,14 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                         # 입면도/단면도 검토: 층고 + 개구부(창호) 목록만 별도로 읽음
                         # (건축 수량산출과 같은 파싱 데이터/이미지를 재사용해 중복 변환을 피한다)
                         _report_progress("elevation", 0, 1, "입면/단면 검토 중")
-                        try:
-                            elevation_data = extract_elevation_section_data(arch_dwg_data, arch_pdf_images)
-                        except Exception as e:
-                            elevation_data = dict(_EMPTY_ELEVATION_SECTION, notes=[f"입면/단면 검토 중 오류: {str(e)[:200]}"])
+                        elevation_data = steps.load("elevation", arch_key) if steps else None
+                        if elevation_data is None:
+                            try:
+                                elevation_data = extract_elevation_section_data(arch_dwg_data, arch_pdf_images)
+                            except Exception as e:
+                                elevation_data = dict(_EMPTY_ELEVATION_SECTION, notes=[f"입면/단면 검토 중 오류: {str(e)[:200]}"])
+                            if steps and not _ai_step_failed(elevation_data):
+                                steps.save("elevation", elevation_data, arch_key)
                         _report_progress("elevation", 1, 1, "입면/단면 검토 완료")
                 elif architectural_zip_bytes or architectural_pdf_bytes:
                     # 파일은 올렸지만 arch_dwg_data/arch_pdf_images 둘 다 비어서(PDF 변환 실패 등)
@@ -6642,8 +6752,10 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
 
                         members = extract_structural_members(
                             dwg_data, structural_pdf_bytes, progress_cb=_structural_progress_cb, cancel_cb=_cancelled,
-                            confirmed_general_spec=confirmed_general_spec,
+                            confirmed_general_spec=confirmed_general_spec, steps=steps,
                         )
+                        if steps and steps.reused:
+                            members.setdefault("notes", []).append(_resume_note(steps.reused))
                         source_manifest = _build_source_manifest(dwg_data, structural_pdf_bytes)
                         members = attach_member_sources(members, source_manifest)
                         members = _attach_member_links(members, dwg_data, arch_dwg_data)
@@ -6886,6 +6998,62 @@ def api_quantity_cancel(request):
     return JsonResponse({"ok": True})
 
 
+def _interrupted_payload(job_id, owner):
+    info = _job_inputs().resume_info(job_id, owner)
+    payload = {"found": True, "done": True, "ok": False, "interrupted": True, "resumable": bool(info)}
+    if info:
+        payload.update(saved_steps=info["saved_steps"], structural_batches=info["structural_batches"],
+                       resume_until=info["expires_at"])
+        payload["error"] = ("분석을 실행하던 서버 작업이 중단됐습니다(서버 재시작 등). 올린 파일"
+                            + (f"과 끝난 AI 단계 {info['saved_steps']}개가" if info["saved_steps"] else "이")
+                            + " 저장돼 있어 이어서 실행할 수 있습니다.")
+    else:
+        payload["error"] = "분석을 실행하던 서버 작업이 중단됐습니다. 저장된 확인 결과는 유지됩니다. 분석을 다시 시작해 주세요."
+    return payload
+
+
+@require_POST
+@_admin_only_json
+def api_quantity_resume(request):
+    """Continue a main analysis whose server worker stopped (for example a restart during a deploy).
+
+    Only the job's owner can resume, only when its worker is gone and no result was stored, and
+    only from the uploads kept for that job. AI steps that finished before the stop are reused,
+    so only the remaining steps call the AI. Nothing resumes on its own."""
+    job_id = request.POST.get("job_id") or None
+    if not job_id:
+        return JsonResponse({"error": "job_id가 없습니다."}, status=400)
+    if _result_get(job_id) is not None:
+        return JsonResponse({"error": "이미 끝난 작업입니다. 저장된 결과를 열어 주세요."}, status=409)
+    job = _quantity_state().get("job", job_id) or {}
+    if job.get("operation") != "api_run_quantity":
+        return JsonResponse({"error": "이어서 실행할 수 있는 분석 작업이 아닙니다."}, status=400)
+    store = _job_inputs()
+    loaded = store.load(job_id, request.user.pk)
+    if loaded is None:
+        return JsonResponse({"error": "이어서 실행할 업로드 파일이 남아 있지 않습니다(보관 기간 경과 등). "
+                                      "파일을 다시 올려 새로 시작해 주세요.", "resumable": False}, status=410)
+    inputs, job_settings, kept = loaded
+    claim = _quantity_state().claim_resume(job_id, request.user.pk)
+    if claim == "running":
+        return JsonResponse({"error": "아직 실행 중인 작업입니다. 진행 상황을 확인해 주세요."}, status=409)
+    if claim != "resumed":
+        return JsonResponse({"error": "저장된 작업을 찾을 수 없습니다."}, status=404)
+    info = store.resume_info(job_id, request.user.pk) or {}
+    stages = list(job_settings.get("progress_stages") or [])
+    try:
+        _cancel_clear(job_id)
+        _progress_set(job_id, "queued", 0, 1, "이어서 실행 대기 중", stage_index=1, total_stages=len(stages) or 1)
+        threading.Thread(target=_quantity_job_thread, args=(job_id, request.user.pk, inputs, job_settings, kept),
+                         daemon=True).start()
+    except BaseException:
+        _quantity_state().update("job", job_id, {"pid": 0})  # shown as interrupted again, not running
+        raise
+    logger.info("quantity_job_resumed job=%s saved_steps=%s", job_id[:16], info.get("saved_steps"))
+    return JsonResponse({"accepted": True, "job_id": job_id, "saved_steps": info.get("saved_steps", 0),
+                         "structural_batches": info.get("structural_batches", 0)})
+
+
 @require_http_methods(["GET", "POST"])
 @_admin_only_json
 def api_quantity_progress(request):
@@ -6911,8 +7079,7 @@ def api_quantity_progress(request):
 
     job = _quantity_state().get("job", job_id)
     if job and not worker_alive(job.get("pid")):
-        return JsonResponse({"found": True, "done": True, "ok": False, "interrupted": True,
-                             "error": "분석을 실행하던 서버 작업이 중단됐습니다. 저장된 확인 결과는 유지됩니다. 분석을 다시 시작해 주세요."})
+        return JsonResponse(_interrupted_payload(job_id, request.user.pk))
 
     progress = _progress_get(job_id)
     if not progress:
@@ -6947,7 +7114,10 @@ def api_quantity_jobs(request):
                   "partial" if structural.get("extraction_incomplete") or component_errors else
                   "completed" if result else
                   "running" if worker_alive(job.get("pid")) else "interrupted")
-        jobs.append({"job_id": job["job_id"], "created_at": job["created_at"], "status": status})
+        row = {"job_id": job["job_id"], "created_at": job["created_at"], "status": status}
+        if status == "interrupted":
+            row["resumable"] = _job_inputs().resume_info(job["job_id"], request.user.pk) is not None
+        jobs.append(row)
         if len(jobs) >= 20:
             break
     return JsonResponse({"ok": True, "jobs": jobs, "retention_days": 7})
