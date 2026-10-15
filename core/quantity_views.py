@@ -51,6 +51,8 @@ from .quantity_state import QuantityStateStore, RETENTION_SECONDS, worker_alive
 from .table_semantic_model import parse_typed_scalars
 from .quantity_sources import build_source_manifest, attach_member_sources, valid_member_bbox
 from . import quantity_sheet_identity
+from . import quantity_cad_estimate
+from . import quantity_levels
 from . import quantity_member_links
 
 logger = logging.getLogger(__name__)
@@ -534,6 +536,7 @@ def _build_review_checklist(members):
                 "plan_evidence": it.get("plan_evidence") or {},
                 "schedule_evidence": it.get("schedule_evidence") or {},
                 "geometry_evidence": it.get("geometry_evidence") or {},
+                "height_evidence": it.get("height_evidence") or {},
                 # 세분화 배근(rebar_layers)은 role/size/spacing_m/count 등을 담은 리스트라
                 # 위 fields(스칼라 값 전용)와 형태가 달라 따로 내려준다 — 프론트는 이걸
                 # 읽기전용 요약 + 편집용 JSON 텍스트영역으로 보여준다.
@@ -2228,13 +2231,19 @@ def _ai_cad_summary(dwg_data):
             for name, data in (dwg_data or {}).items()}
 
 
-def _attach_member_links(members, dwg_data):
-    """CAD plan-label and schedule evidence per member; never changes values, never blocks extraction."""
+def _attach_member_links(members, dwg_data, arch_dwg_data=None):
+    """CAD plan-label, schedule, length and height evidence per member, and the CAD-based
+    concrete reference; never changes values, never blocks extraction."""
     try:
         links = quantity_member_links.build_member_links(dwg_data)
         members = quantity_member_links.attach_plan_evidence(members, links)
         members = quantity_member_links.attach_schedule_evidence(members, links)
         members = quantity_member_links.attach_geometry_evidence(members, links)
+        try:
+            links["levels"] = quantity_levels.build_level_table(dwg_data, arch_dwg_data)
+            members = quantity_levels.attach_height_evidence(members, links["levels"])
+        except Exception as exc:
+            logger.warning("quantity_levels_failed error=%s", str(exc)[:200])
         members["member_links"] = links
     except Exception as exc:
         logger.warning("quantity_member_links_failed error=%s", str(exc)[:200])
@@ -2249,6 +2258,8 @@ def _refresh_member_evidence(members):
             members = quantity_member_links.attach_plan_evidence(members, links)
             members = quantity_member_links.attach_schedule_evidence(members, links)
             members = quantity_member_links.attach_geometry_evidence(members, links)
+            if links.get("levels"):
+                members = quantity_levels.attach_height_evidence(members, links["levels"])
         except Exception as exc:
             logger.warning("quantity_member_links_refresh_failed error=%s", str(exc)[:200])
     return members
@@ -6529,6 +6540,7 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
 
     results = {}
     elevation_data = None
+    arch_dwg_data = {}  # architectural CAD also gives floor levels to the structural evidence
     cancelled_note_added = False
 
     def _note_cancelled_once():
@@ -6634,7 +6646,7 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                         )
                         source_manifest = _build_source_manifest(dwg_data, structural_pdf_bytes)
                         members = attach_member_sources(members, source_manifest)
-                        members = _attach_member_links(members, dwg_data)
+                        members = _attach_member_links(members, dwg_data, arch_dwg_data)
                         input_coverage = []
                         for filename, parsed in (dwg_data or {}).items():
                             reason = parsed.get("error")
@@ -6962,6 +6974,77 @@ def _xlsx_injection_guard(value):
     return value
 
 
+def _level_name(level):
+    if level in _LEVEL_NAMES:
+        return _LEVEL_NAMES[level]
+    return ("지하" + level[1:] + "층") if level.startswith("B") else (level + "층")
+
+
+def _append_level_rows(sheet, type_name, data):
+    """CAD storey heights per section and level, beside the heights the AI read from elevations."""
+    table = (data.get("member_links") or {}).get("levels") or {}
+    ai_heights = {}
+    for row in ((data.get("_elevation_section") or {}).get("floor_heights") or []):
+        for level in quantity_member_links.parse_zone_levels(row.get("level")) or []:
+            ai_heights.setdefault(level, row.get("height_m"))
+    conflicts = {}
+    for conflict in table.get("conflicts") or []:
+        conflicts.setdefault((conflict["section"], conflict["level"]), []).append(conflict)
+    for section, info in sorted((table.get("sections") or {}).items()):
+        levels = set(info.get("elevations") or {}) | set(info.get("heights") or {})
+        for level in sorted(levels, key=lambda lv: quantity_levels.rank(lv) if quantity_levels.rank(lv) is not None else 9999):
+            height = (info.get("heights") or {}).get(level) or {}
+            notes = [_LEVEL_CONFLICT_TEXT[c["reason"]].format(values=", ".join(map(str, c.get("values") or [])))
+                     for c in conflicts.get((section, level), []) if c.get("reason") in _LEVEL_CONFLICT_TEXT]
+            sheet.append([_xlsx_injection_guard(v) for v in [type_name, section, _level_name(level)]]
+                         + [(info.get("elevations") or {}).get(level, ""), height.get("height_m", ""),
+                            _xlsx_injection_guard(_LEVEL_SOURCE_LABELS.get(height.get("source"), "")),
+                            _xlsx_injection_guard(", ".join(height.get("sheets") or [])),
+                            ai_heights.get(level, "") if level not in ("GL",) else "",
+                            _xlsx_injection_guard(" / ".join(notes))])
+
+
+def _append_estimate_rows(sheet, type_name, data):
+    """CAD-based gross concrete per mark and plan, then totals beside the AI-based calculation."""
+    links = data.get("member_links") or {}
+    if not links.get("marks"):
+        return
+    try:  # rebuilt from the stored links and levels, so it never goes stale or takes storage
+        estimate = quantity_cad_estimate.estimate(links, links.get("levels") or {})
+    except Exception as exc:
+        logger.warning("quantity_cad_estimate_failed error=%s", str(exc)[:200])
+        return
+    for row in estimate.get("rows") or []:
+        levels = row.get("levels") or []
+        heights = row.get("height_m") or []
+        notes = ["두께는 CAD 실측값(일람표 없음)"] if "measured_thickness" in (row.get("notes") or []) else []
+        sheet.append([_xlsx_injection_guard(v) for v in [
+            type_name, _ESTIMATE_CATEGORY_LABELS.get(row["category"], row["category"]), row.get("mark") or "",
+            row.get("drawing_number") or "", row.get("section") or "", "~".join(levels)]]
+            + [row.get("floors") or "", row.get("count") if row.get("count") is not None else "",
+               row.get("length_m") if row.get("length_m") is not None else "",
+               _xlsx_injection_guard(row.get("member_section") or ""), ", ".join(str(h) for h in heights),
+               row.get("concrete_m3"), _xlsx_injection_guard(", ".join(notes))])
+    if not estimate.get("rows"):
+        return
+    ai_totals = {}
+    for item in data.get("items") or []:
+        if item.get("category") == "콘크리트" and isinstance(item.get("quantity"), (int, float)):
+            ai_totals[item.get("sub_category")] = ai_totals.get(item.get("sub_category"), 0) + item["quantity"]
+    sheet.append([])
+    sheet.append(["구분", "공종", "CAD 기반 합계(m³)", "AI 계산 합계(m³)", "차이(%)", "메모"])
+    for category, total in (estimate.get("totals_m3") or {}).items():
+        ai = ai_totals.get(_ESTIMATE_AI_SUBCATEGORY.get(category))
+        diff = round(100 * (ai - total) / total) if ai is not None and total else ""
+        sheet.append([type_name, _ESTIMATE_CATEGORY_LABELS.get(category, category), total,
+                      round(ai, 2) if ai is not None else "", diff,
+                      "개구부·보와 슬래브·기둥과 벽 겹침 공제 전, 부호가 표기된 부재만 포함"])
+    left_out = estimate.get("left_out") or {}
+    if left_out:
+        sheet.append([type_name, "제외", "", "", "", ", ".join(f"{_ESTIMATE_LEFT_OUT_LABELS.get(k, k)} {v}건"
+                                                              for k, v in sorted(left_out.items()))])
+
+
 def _append_geometry_rows(sheet, type_name, links):
     """Measured beam/wall lengths per plan and mark, and each plan's unlabelled remainder."""
     plans = links.get("plans") or []
@@ -7090,6 +7173,20 @@ _GEOMETRY_EVIDENCE_LABELS = {
     "cad_lengths_vary_by_floor": "층별 CAD 길이 다름", "no_cad_length": "CAD 실측 없음",
 }
 _GEOMETRY_FAMILY_LABELS = {"beams": "보", "walls": "벽체"}
+_LEVEL_SOURCE_LABELS = {"elevation": "입면·단면 EL 차이", "section_detail": "단면 상세 레벨선 간격"}
+_LEVEL_NAMES = {"R": "지붕층", "PH": "옥탑층", "PHR": "옥탑지붕", "GL": "지반(GL)"}
+_LEVEL_CONFLICT_TEXT = {
+    "elevation_differs_between_drawings": "도면마다 EL이 다릅니다({values}) — 다수 값을 썼습니다",
+    "several_elevations_in_one_drawing": "한 도면 안에 EL이 여러 개라 층고 계산에서 뺐습니다",
+    "storey_height_out_of_range": "층 순서와 EL이 맞지 않아 층고를 계산하지 않았습니다({values})",
+    "section_detail_differs_from_elevation": "단면 상세 간격과 입면 EL 층고가 다릅니다({values})",
+}
+_ESTIMATE_CATEGORY_LABELS = {"foundations": "기초", "columns": "기둥", "beams": "보", "walls": "벽체"}
+_ESTIMATE_AI_SUBCATEGORY = {"foundations": "기초", "columns": "기둥", "beams": "보", "walls": "전단벽"}
+_ESTIMATE_LEFT_OUT_LABELS = {
+    "floor_count_unknown": "층 범위를 모르는 평면", "no_schedule_size": "일람표 크기 없음", "no_cad_length": "CAD 실측 길이 없음",
+    "no_schedule_section": "일람표 단면 없음", "no_storey_height": "층고 없음", "no_thickness": "두께 없음",
+}
 _SPEC_KIND_LABELS = {"rebar": "배근 문구", "size": "크기 문구", "thickness": "두께 문구"}
 # Schedule columns shown in Excel, in reading order; other cells go to "기타".
 _SCHEDULE_COLUMNS = [
@@ -7431,6 +7528,11 @@ def _build_excel_response(request):
     members_sheet.append(["구분", "공종", "부재번호", "구역", "위치 상태", "확인사항", "페이지/파일", "원본 식별자",
                           "CAD 비교", "CAD 평면 개수", "CAD 비교 메모", "일람표 비교", "일람표 비교 메모",
                           "CAD 실측 비교", "CAD 실측 길이(m)", "CAD 실측 메모"])
+    levels_sheet = wb.create_sheet("CAD 층고")
+    levels_sheet.append(["구분", "동·영역", "층", "바닥 EL(m)", "층고(m)", "근거", "근거 도면", "AI가 읽은 층고(m)", "확인사항"])
+    estimate_sheet = wb.create_sheet("CAD 기반 물량(참고)")
+    estimate_sheet.append(["구분", "공종", "부호", "도면번호", "동", "층", "층수", "개수", "길이(m)", "단면·두께",
+                           "층고(m)", "콘크리트(m³)", "메모"])
     geometry_sheet = wb.create_sheet("CAD 실측 치수")
     geometry_sheet.append(["구분", "도면번호", "도면명", "동", "층", "층수", "공종", "부호", "구간 수",
                            "한 층 길이(m)", "층수 반영 길이(m)", "폭·두께별 길이", "확인사항"])
@@ -7507,11 +7609,13 @@ def _build_excel_response(request):
                     _xlsx_injection_guard(flags)])
         _append_schedule_rows(schedule_sheet, notes_sheet, type_name, data.get("member_links") or {})
         _append_geometry_rows(geometry_sheet, type_name, data.get("member_links") or {})
+        _append_level_rows(levels_sheet, type_name, data)
+        _append_estimate_rows(estimate_sheet, type_name, data)
     for sheet in [sources_sheet, members_sheet, links_sheet]:
         sheet.freeze_panes = "A2"
         for column, width in zip("ABCDEFGHIJKLM", [12, 20, 30, 30, 40, 75, 30, 90, 28, 45, 45, 16, 45]):
             sheet.column_dimensions[column].width = width
-    for sheet in [schedule_sheet, notes_sheet, geometry_sheet]:
+    for sheet in [schedule_sheet, notes_sheet, geometry_sheet, levels_sheet, estimate_sheet]:
         sheet.freeze_panes = "A2"
         for column in range(1, sheet.max_column + 1):
             sheet.column_dimensions[get_column_letter(column)].width = 16

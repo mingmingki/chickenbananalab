@@ -381,7 +381,7 @@ def sheet_marks(sheet, evidence, texts=None):
 
 def attach_sheet_identity(parsed, evidence_by_file):
     """Store per-file sheets (with mark labels, tables and notes) and index rows on the parse result."""
-    from . import quantity_geometry, quantity_schedules
+    from . import quantity_geometry, quantity_levels, quantity_schedules
 
     sheets = resolve_cad_sheets(evidence_by_file)
     for file, rows in sheets.items():
@@ -400,6 +400,13 @@ def attach_sheet_identity(parsed, evidence_by_file):
                 measured = None
             if measured:
                 sheet["geometry"] = measured
+            try:
+                levels = quantity_levels.read_sheet_levels(texts)
+            except Exception as exc:
+                logger.warning("quantity_levels_read_failed file=%s error=%s", file, str(exc)[:200])
+                levels = None
+            if levels:
+                sheet["levels"] = levels
     for file in evidence_by_file:
         if isinstance(parsed.get(file), dict):
             parsed[file]["sheets"] = sheets.get(file, [])
