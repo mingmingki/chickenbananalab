@@ -1,0 +1,10 @@
+{
+  "version": "v33-77",
+  "live_promotion_allowed": false,
+  "status": "UNPROMOTED_RESEARCH_CANDIDATE",
+  "full_suite_passed": 2379,
+  "pre_existing_failures": 22,
+  "no_added_failing_test_names": true,
+  "contains_account_records": false,
+  "contains_api_credentials": false
+}

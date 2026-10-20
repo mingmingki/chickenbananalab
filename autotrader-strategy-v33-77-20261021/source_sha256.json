@@ -1,0 +1,12 @@
+{
+  "core_management_context_v33_77.py": "31ec4964cbb24dbbd7900e5550ade9229c2ad27aecb4538a404fa2453f719d11",
+  "core_entry_economics_v33_77.py": "6c063db1fa183818e9f8c372ff2334c1e9294f4e7276b005ee7817b86272e368",
+  "core_trend_replay_v33_77.py": "5e4babfa6557249269fecd6509176c78081c11d11af7be8e5d487aa3fffe0203",
+  "replay_entry_profitability_v33_77.py": "07fc16671684f8b19b4b283a28263c20e044c2a54295e41dc57eb141499651bb",
+  "replay_management_verification_v33_77.py": "6eb2940c50a1e8eb4f7d4c2836a832b8077491cc1a7eeb8a00d2f504f114d6c3",
+  "score_entry_economics_v33_77.py": "6422a3c9dc6bc0e3d4f21d6545d83d3e3ecb94aff1fba9d3f8326060da1aeaf6",
+  "tests/test_core_management_v33_77.py": "110381f4da5b616339dc6952d221e26263db487cbd7a5e67cbabde55dd39dfa6",
+  "tests/test_core_entry_economics_v33_77.py": "887844d2c8e7a7dff3e6ddc65d8866136c67e976d367b1120b75f787d4da37e9",
+  "tests/test_core_trend_replay_v33_77.py": "e8cf2b59527e3ba13b404793ca07674d0bc7e70d8e0258269e5fcfea064176de",
+  "tests/test_entry_economic_scoring_v33_77.py": "06a68de84d0e92503f922145730297aeb52d11bda07beb398f4a3aae6be275cd"
+}

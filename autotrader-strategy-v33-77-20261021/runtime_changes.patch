@@ -1,0 +1,1058 @@
+diff --git a/config.py b/config.py
+index 2a45ece..cef6256 100644
+--- a/config.py
++++ b/config.py
+@@ -117,6 +117,8 @@ class UserConfig:
+         self.CORE_PAID_SHADOW_ENABLED = gb("CORE_PAID_SHADOW_ENABLED", False)
+         self.CORE_AI_STRATEGY_AUTHORITY = gb("CORE_AI_STRATEGY_AUTHORITY", False)
+         self.CORE_GEMINI_MANAGEMENT_ONLY = gb("CORE_GEMINI_MANAGEMENT_ONLY", False)
++        # v33-77: Gemini proposes/sizes; discretionary exits require one GPT verification.
++        self.CORE_MANAGEMENT_GPT_VERIFICATION = gb("CORE_MANAGEMENT_GPT_VERIFICATION", True)
+         self.RISK_ADAPTIVE_PARTIAL_ENABLED = gb("RISK_ADAPTIVE_PARTIAL_ENABLED", False)
+ 
+         # GPT Hold Audit(Shadow 전용 실험) - Gemini가 hold라고 판단하면 위 진입 게이트는
+diff --git a/core_entry_economics_v33_77.py b/core_entry_economics_v33_77.py
+new file mode 100644
+index 0000000..247ed81
+--- /dev/null
++++ b/core_entry_economics_v33_77.py
+@@ -0,0 +1,126 @@
++"""As-of entry economics and evidence. No sizing, order, or local veto authority."""
++import datetime as dt
++import json
++import math
++import re
++
++def _number(x):
++    return type(x) in (int,float) and math.isfinite(x)
++
++def economics(decision,contract):
++    unknown=dict(status='unknown',order_authority=False)
++    if not isinstance(contract,dict):return dict(unknown,reason='quote_or_cost_missing')
++    plan=decision.get('exit_plan') or {};side=decision.get('action')
++    entry=contract.get('entry_price');rate=contract.get('estimated_roundtrip_cost_rate')
++    stop=plan.get('stop_loss_price');tp1=plan.get('take_profit_1_price');tp2=plan.get('take_profit_2_price')
++    if (side not in ('long','short') or not all(_number(x) and x>0 for x in (entry,stop,tp1,tp2))
++            or not _number(rate) or not 0<=rate<.1):
++        return dict(unknown,reason='invalid_or_missing_price_or_cost')
++    sign=1 if side=='long' else -1
++    risk=sign*(entry-stop);r1=sign*(tp1-entry);r2=sign*(tp2-entry)
++    if not 0<risk or not 0<r1<=r2:return dict(unknown,reason='invalid_price_geometry')
++    out=dict(status='known',order_authority=False,entry_price=entry,stop_price=stop,tp1_price=tp1,tp2_price=tp2,
++             stop_distance=risk,source='gemini_proposed_plan_and_current_quote',
++             probability='unknown; AI confidence is not a calibrated win probability')
++    for label,slippage in [('base',0.),('stress_5bps',.0005),('stress_15bps',.0015)]:
++        cost=entry*(rate+slippage);loss=risk+cost
++        out[label]=dict(roundtrip_cost_rate=rate+slippage,cost_r=cost/risk,
++            tp1_net_r=(r1-cost)/risk,tp2_net_r=(r2-cost)/risk,
++            tp1_reward_to_loss=(r1-cost)/loss,tp2_reward_to_loss=(r2-cost)/loss,
++            tp2_breakeven_win_rate=loss/(loss+r2-cost))
++    return out
++
++def structure(side,closed_dfs,*,now=None):
++    """Rebuild 15m from complete 5m groups; exclude open bars before aggregation."""
++    import pandas as pd
++    import indicators
++    import core_management_context_v33_77 as context
++    now=now or dt.datetime.now(dt.timezone.utc)
++    stamp=pd.Timestamp(now)
++    stamp=stamp.tz_localize('UTC') if stamp.tzinfo is None else stamp.tz_convert('UTC')
++    frames={}
++    for tf,seconds in context.TF_SECONDS.items():
++        raw=(closed_dfs or {}).get(tf)
++        if raw is None or len(raw)<3:continue
++        f=raw.copy();f['timestamp']=pd.to_datetime(f['timestamp'],utc=True)
++        f=f[f.timestamp+pd.Timedelta(seconds=seconds)<=stamp-pd.Timedelta(seconds=3)]
++        if f.timestamp.duplicated().any():continue
++        frames[tf]=f
++    if '15m' not in frames and '5m' in frames:
++        f=frames['5m'].copy().set_index('timestamp')
++        if all(k in f for k in ('open','high','low','close','volume')):
++            g=f.resample('15min',origin='epoch').agg(
++                dict(open='first',high='max',low='min',close='last',volume='sum'))
++            count=f.close.resample('15min',origin='epoch').count()
++            frames['15m']=g[count==3].reset_index()
++    rows={}
++    for tf,f in frames.items():
++        try:
++            if not all(k in f for k in ('ema_20','macd','atr_14')):
++                if len(f)<26:continue
++                f=indicators.add_indicators(f)
++            tail=[]
++            for r in f.tail(3).to_dict('records'):
++                item={k:float(r[k]) for k in ('close','ema_20','macd','atr_14')}
++                item['ts']=pd.Timestamp(r['timestamp']).isoformat()
++                if all(_number(item[k]) for k in ('close','ema_20','macd','atr_14')):tail.append(item)
++            rows[tf]=tail
++        except (KeyError,ValueError,TypeError,IndexError):
++            continue
++    return context.build(side,rows,now=stamp.timestamp())
++
++def prompt(*,symbol,frames,position,decision,summary,short_context,contract):
++    facts=economics(decision,contract)
++    return (
++        "당신은 CORE 선물 신규 진입의 독립 검증자입니다. 방향·진입시점·비용후 기대손익을 함께 검토하세요.\n"
++        "Gemini가 제안한 SL/TP 가격이나 수량을 변경하지 마세요. 증거금·레버리지 확대도 금지합니다.\n"
++        "1D/4H는 배경, 1H는 구조, 확정15m/5m는 회복·돌파 확인입니다. 느린 EMA 완전정렬은 필수조건이 아닙니다.\n"
++        "first_range_break/pullback_resume/early 라벨 자체는 진입 근거가 아닙니다. 실제 확정봉의 고저점 회복과 "
++        "1H·15m 반대 모멘텀의 지속/완화를 대조하세요. 반대 추세 속 일시 반등·반락은 회복 증거가 부족하면 wait. "
++        "상위 구조 유지와 새 촉발이 확인되고 공간이 충분하면 LONG/SHORT를 적극 승인할 수 있습니다.\n"
++        "이미 크게 움직인 추격과 실제 되돌림 후 재출발을 구별하세요. RSI나 일봉 반대 단독으로 거절하지 마세요.\n"
++        "첫 저항/지지까지의 실현 가능한 이익과 손절 위험을 수수료·슬리피지 후 비교하세요. 큰 TP2 숫자만으로 "
++        "기대수익을 정당화하지 마세요. TP1 이전 반대 가격대가 중요합니다. 확신도는 승률 추정치가 아닙니다.\n"
++        "SL이 무효화 구조 안에 있거나 근접 반대 가격대 때문에 손익비가 무너지면 reject/wait 이유를 구체화하세요. "
++        "모르는 정보는 unknown으로 취급하세요. 과거 성과나 이후 가격을 추측하지 마세요.\n"
++        "진입 관찰자료의 blocked/점수/예전 임계값은 참고이며 독립적인 실행 거부권이 없습니다.\n"
++        f"심볼: {symbol} / 프레임: {frames} / 기존 포지션: {position}\n"
++        f"Gemini 방향: {decision.get('action')} / 확신도: {decision.get('confidence')}\n"
++        f"Gemini 근거: {decision.get('reasoning') or 'unknown'}\n{short_context}\n"
++        f"시장판단 데이터:\n{summary}\n"
++        "[ENTRY_ECONOMICS_V33_77]\n"+json.dumps(facts,ensure_ascii=False,allow_nan=False)+"\n"
++        "진입 관찰자료: "+json.dumps(decision.get('_core_entry_observations') or {},ensure_ascii=False,default=str)+"\n"
++        'JSON만 반환: {"decision":"approve_now|wait|reject","confidence":0.0,'
++        '"reasoning":"구조·촉발·비용후 손익을 승인 근거 1문장과 핵심 위험 1문장, 총 2문장으로 요약"}'
++    )
++
++def with_structure(summary,context):
++    summary=re.sub(r'\n\[ENTRY_STRUCTURE_V33_77\]\n[^\n]*','',summary)
++    return summary+'\n[ENTRY_STRUCTURE_V33_77]\n'+json.dumps(context,ensure_ascii=False,allow_nan=False)
++
++def market_summary(raw_dfs,*,now=None):
++    import pandas as pd
++    import indicators
++    from candle_finality import TF_SECONDS
++    stamp=pd.Timestamp(now or dt.datetime.now(dt.timezone.utc))
++    stamp=stamp.tz_localize('UTC') if stamp.tzinfo is None else stamp.tz_convert('UTC')
++    frames={}
++    for tf,raw in (raw_dfs or {}).items():
++        if tf not in TF_SECONDS or raw is None:continue
++        try:
++            f=raw.copy();f['timestamp']=pd.to_datetime(f.timestamp,utc=True)
++            f=f[f.timestamp+pd.Timedelta(seconds=TF_SECONDS[tf])<=stamp-pd.Timedelta(seconds=3)]
++            if len(f)<50:continue
++            frames[tf]=indicators.add_indicators(f)
++        except (KeyError,ValueError,TypeError,IndexError):
++            continue
++    if not frames:return '[CONFIRMED_MARKET_EVIDENCE] unknown; closed history unavailable.'
++    import market_structure
++    levels=market_structure.compute_multi_timeframe(frames,list(frames))
++    return ('[CONFIRMED_MARKET_EVIDENCE] Closed bars only; current mark is a separate quote.\n'
++            +indicators.summarize_multi_timeframe_compact(frames)
++            +'\n[CONFIRMED_PRICE_STRUCTURE]\n'+json.dumps(levels,ensure_ascii=False,allow_nan=False,default=str))
++
++def request_options(model):
++    # Bound latency without another paid call. Validate decisions in offline replay.
++    return {'reasoning_effort':'low'} if str(model).startswith('gpt-5') else {}
+diff --git a/core_management_context_v33_77.py b/core_management_context_v33_77.py
+new file mode 100644
+index 0000000..c42fe5d
+--- /dev/null
++++ b/core_management_context_v33_77.py
+@@ -0,0 +1,113 @@
++"""Closed multi-timeframe context and veto-only verification; no order authority."""
++import datetime as dt
++import json
++import math
++import re
++import time
++
++TF_SECONDS={'5m':300,'15m':900,'1h':3600,'4h':14400}
++INSTRUCTIONS=(
++    "0.35R/0.75R are review triggers, never mandatory reductions. "
++    "Compare HOLD, partial profit/loss reduction and full exit using confirmed 5m/15m/1h/4h, "
++    "entry-thesis validity, realized/unrealized PnL, observed MFE/MAE, remaining risk to actual SL, "
++    "fees/slippage/funding, prior reductions and re-entry cost. Unknown evidence is not zero. "
++    "A pullback_candidate permits HOLD only with recovery evidence; it is not proof of recovery. "
++    "Explain a concrete invalidation or profit-giveback risk before an exit. "
++    "Keep exchange SL/TP and independent emergency protection. Never loosen stops or increase exposure."
++)
++
++def number(value):
++    return type(value) in (int,float) and math.isfinite(value)
++
++def _frame(side,rows,seconds,now):
++    result={'state':'unknown','fresh':False,'rows':[]}
++    if side not in ('long','short') or not isinstance(rows,list) or len(rows)<3:
++        return result
++    rows=rows[-3:];stamps=[]
++    try:
++        for row in rows:
++            if any(not number(row.get(k)) for k in ('close','ema_20','macd','atr_14')):
++                return result
++            if row['close']<=0 or row['ema_20']<=0 or row['atr_14']<=0:return result
++            stamp=dt.datetime.fromisoformat(row['ts'].replace('Z','+00:00'))
++            if stamp.tzinfo is None:stamp=stamp.replace(tzinfo=dt.timezone.utc)
++            stamps.append(stamp.timestamp())
++        if any(abs(stamps[i]-stamps[i-1]-seconds)>1 for i in (1,2)):return result
++        if not 0<=now-(stamps[-1]+seconds)<=seconds+60:return result
++    except (KeyError,TypeError,ValueError,OverflowError):
++        return result
++    sign=1 if side=='long' else -1
++    cur=rows[-1];slope=sign*(cur['ema_20']-rows[-2]['ema_20'])
++    price=sign*(cur['close']-cur['ema_20']);momentum=sign*cur['macd']
++    state=('aligned' if price>0 and slope>0 and momentum>=0
++           else 'reversed' if price<0 and slope<0 and momentum<0 else 'mixed')
++    return dict(state=state,fresh=True,rows=[{k:r[k] for k in ('ts','close','ema_20','macd','atr_14')} for r in rows])
++
++def build(side,timeframe_rows,*,now=None):
++    now=time.time() if now is None else now
++    frames={tf:_frame(side,(timeframe_rows or {}).get(tf),seconds,now) for tf,seconds in TF_SECONDS.items()}
++    complete=all(x['fresh'] for x in frames.values())
++    regime='unknown'
++    if complete:
++        five,fifteen,hour,four=(frames[tf]['state'] for tf in TF_SECONDS)
++        if fifteen==hour=='reversed':
++            regime='trend_invalidated'
++            f=frames['5m']['rows'];sign=1 if side=='long' else -1
++            if five=='reversed' and sign*(f[-1]['close']-f[-2]['close'])<=-f[-1]['atr_14']:
++                regime='sharp_reversal_candidate'
++        elif fifteen==hour=='aligned' and four!='reversed':
++            regime='pullback_candidate' if five!='aligned' else 'trend_intact'
++        elif {fifteen,hour}=={'aligned','reversed'}:
++            regime='range_or_conflict'
++        elif fifteen==hour=='mixed':
++            regime='range_or_conflict'
++        else:
++            regime='trend_weakening'
++    return dict(version='v33-77',order_authority=False,complete=complete,regime=regime,frames=frames)
++
++def with_context(summary,context):
++    pattern=r'\n\[CORE_MANAGEMENT_STRUCTURE_V33_77\]\n[^\n]*\n[^\n]*\n'
++    summary=re.sub(pattern,'',summary)
++    return (summary+'\n[CORE_MANAGEMENT_STRUCTURE_V33_77]\n'
++            +json.dumps(context,ensure_ascii=False,separators=(',',':'),allow_nan=False)+'\n'+INSTRUCTIONS+'\n')
++
++def verified_proposal(proposal,verdict,min_confidence):
++    """GPT may veto or reduce a proposal; never create a different action or add size."""
++    hold=dict(action='HOLD',confidence=0.,reasoning='independent_management_not_approved',
++              gpt_verified=False)
++    if not isinstance(proposal,dict) or not isinstance(verdict,dict):return hold
++    confidence=verdict.get('confidence')
++    if (proposal.get('action') not in ('REDUCE_50','CLOSE_ALL')
++        or verdict.get('action')!=proposal['action']
++        or not number(confidence) or not min_confidence<=confidence<=1
++        or not isinstance(verdict.get('reasoning'),str) or not verdict['reasoning'].strip()):
++        return hold
++    out=dict(proposal,confidence=min(proposal['confidence'],confidence),
++             reasoning=proposal['reasoning']+' | GPT: '+verdict['reasoning'],
++             gpt_verified=True,gpt_confidence=confidence)
++    if out['action']=='REDUCE_50':
++        fraction=verdict.get('reduce_fraction');proposed=proposal.get('reduce_fraction')
++        if (not number(fraction) or not .05<=fraction<=.5
++                or not number(proposed) or not .05<=proposed<=.5):
++            return hold
++        out['reduce_fraction']=min(proposed,fraction)
++    return out
++
++def make_receipt(result,symbol,lifecycle_id,contracts,started_at):
++    if not isinstance(result,dict) or result.get('gpt_verified') is not True:return None
++    return dict(source='v33-77_independent_management',symbol=symbol,lifecycle_id=lifecycle_id,
++                contracts=contracts,action=result.get('action'),reduce_fraction=result.get('reduce_fraction'),
++                confidence=result.get('gpt_confidence'),started_at=started_at)
++
++def valid_receipt(receipt,*,symbol,lifecycle_id,contracts,action,reduce_fraction=None,min_confidence=.6,now=None):
++    if not isinstance(receipt,dict):return False
++    now=time.time() if now is None else now
++    started=receipt.get('started_at');confidence=receipt.get('confidence')
++    return bool(receipt.get('source')=='v33-77_independent_management'
++        and receipt.get('symbol')==symbol and lifecycle_id and receipt.get('lifecycle_id')==lifecycle_id
++        and number(contracts) and contracts>0 and receipt.get('contracts')==contracts
++        and receipt.get('action')==action and action in ('CLOSE_ALL','REDUCE_50')
++        and number(confidence) and min_confidence<=confidence<=1
++        and number(started) and 0<=now-started<=180
++        and (action!='REDUCE_50' or number(reduce_fraction) and .05<=reduce_fraction<=.5
++             and receipt.get('reduce_fraction')==reduce_fraction))
+diff --git a/gemini_analyzer.py b/gemini_analyzer.py
+index ad43997..6c60921 100644
+--- a/gemini_analyzer.py
++++ b/gemini_analyzer.py
+@@ -355,7 +355,7 @@ def analyze(cfg, symbol: str, tf_list: list, candle_summary: str, position: dict
+         held_instructions=instructions,
+     )
+ 
+-    if core_management_policy.enabled(cfg):
++    if core_management_policy.enabled(cfg) and not getattr(cfg, 'CORE_MANAGEMENT_GPT_VERIFICATION', False):
+         prompt=prompt.replace('실제 청산/추가/부분감축은 별도 GPT 검토를 거칩니다.',
+             '보유 유지/감축/청산은 Gemini가 최종 판단하고 코드가 수량을 계산합니다. GPT는 신규·추가·반전 진입만 검토합니다.')
+     client = _get_client(cfg)
+diff --git a/openai_analyzer.py b/openai_analyzer.py
+index 0d3a9c2..a99f128 100644
+--- a/openai_analyzer.py
++++ b/openai_analyzer.py
+@@ -422,6 +422,12 @@ def verify(
+                                     ensure_ascii=False,default=str),
+         )
+ 
++    if purpose == "entry_gate" and getattr(cfg,'CORE_AI_STRATEGY_AUTHORITY',False):
++        import core_entry_economics_v33_77
++        prompt=core_entry_economics_v33_77.prompt(
++            symbol=symbol,frames=tf_list,position=position_desc,decision=gemini_decision,
++            summary=effective_candle_summary,short_context=short_level_context,contract=exit_price_contract)
++
+     market_meta = gemini_decision.get("_market_context") or {}
+     if market_meta.get("snapshot_id"):
+         log.info("[%s] MARKET_CONTEXT_INPUT model=gpt purpose=%s snapshot=%s status=%s", symbol, purpose,
+@@ -471,6 +477,8 @@ def verify(
+             model=cfg.OPENAI_MODEL,
+             messages=[{"role": "user", "content": prompt}],
+             response_format={"type": "json_object"},
++            **(__import__('core_entry_economics_v33_77').request_options(cfg.OPENAI_MODEL)
++               if purpose == 'entry_gate' and getattr(cfg,'CORE_AI_STRATEGY_AUTHORITY',False) else {}),
+         )
+     except Exception as exc:
+         internal_reason = _classify_openai_error(exc)
+@@ -825,7 +833,8 @@ def verify_position_management(
+         "ADD_POSITION": '- "ADD_POSITION": add exposure only in the separately permitted averaging path; never loosen the stop.',
+     }
+     import adaptive_reduction
+-    adaptive_partials = getattr(cfg, 'CORE_AI_STRATEGY_AUTHORITY', False) and adaptive_reduction.enabled(cfg)
++    import core_management_policy
++    adaptive_partials = getattr(cfg, 'CORE_AI_STRATEGY_AUTHORITY', False) and (adaptive_reduction.enabled(cfg) or core_management_policy.enabled(cfg))
+     if adaptive_partials:
+         action_guides['REDUCE_50'] = ('- "REDUCE_50": partial reduction using explicit reduce_fraction '
+             '0.05..0.50 of INITIAL contracts; action name is a legacy identifier, not a size.')
+diff --git a/tests/test_core_entry_economics_v33_77.py b/tests/test_core_entry_economics_v33_77.py
+new file mode 100644
+index 0000000..564f176
+--- /dev/null
++++ b/tests/test_core_entry_economics_v33_77.py
+@@ -0,0 +1,92 @@
++import copy, math
++from types import SimpleNamespace
++from unittest.mock import Mock
++import pandas as pd
++import pytest
++import core_entry_economics_v33_77 as e
++
++def inputs(side='long'):
++    sign=1 if side=='long' else -1
++    d=dict(action=side,confidence=.8,exit_plan=dict(stop_loss_price=100-sign*2,take_profit_1_price=100+sign*3,take_profit_2_price=100+sign*5))
++    return d,dict(entry_price=100.,estimated_roundtrip_cost_rate=.001)
++@pytest.mark.parametrize('side',['long','short'])
++def test_net_payoff_is_symmetric_and_includes_both_sides_cost(side):
++    d,c=inputs(side); x=e.economics(d,c)
++    assert x['status']=='known'
++    assert x['base']['cost_r']==pytest.approx(.05)
++    assert x['base']['tp1_net_r']==pytest.approx(1.45)
++    assert x['base']['tp2_reward_to_loss']==pytest.approx(4.9/2.1)
++    assert x['stress_15bps']['tp2_reward_to_loss']<x['base']['tp2_reward_to_loss']
++@pytest.mark.parametrize('entry',[None,float('nan'),True,-1])
++def test_missing_or_invalid_quote_is_unknown(entry):
++    d,c=inputs();c['entry_price']=entry
++    assert e.economics(d,c)['status']=='unknown'
++def test_wrong_side_stop_is_unknown_and_has_no_order_authority():
++    d,c=inputs();d['exit_plan']['stop_loss_price']=101
++    x=e.economics(d,c)
++    assert x['status']=='unknown' and x['order_authority'] is False
++def test_prompt_preserves_price_plan_and_reviews_economics_without_revising():
++    d,c=inputs();before=copy.deepcopy(d)
++    p=e.prompt(symbol='BTC',frames=['5m','15m','1h','4h'],position='none',decision=d,summary='CLOSED_BARS',short_context='',contract=c)
++    assert 'CLOSED_BARS' in p and 'tp2_reward_to_loss' in p
++    assert 'confidence' in p and 'approve_now|wait|reject' in p
++    assert 'SL/TP 가격이나 수량을 변경하지' in p
++    assert d==before
++def test_15m_aggregation_uses_only_three_contiguous_closed_5m_bars():
++    t=pd.date_range('2026-10-01',periods=111,freq='5min')
++    f=pd.DataFrame(dict(timestamp=t,open=100.,high=102.,low=99.,close=101.,volume=1.))
++    now=t[-1]+pd.Timedelta(minutes=2)
++    x=e.structure('long',{'5m':f},now=now.to_pydatetime())
++    assert x['frames']['15m']['fresh'] is True
++    assert x['frames']['15m']['rows'][-1]['ts']=='2026-10-01T08:45:00+00:00'
++    changed=f.copy();changed.loc[110,'close']=1e6
++    assert e.structure('long',{'5m':changed},now=now.to_pydatetime())==x
++def test_core_gate_forwards_economic_contract_once(monkeypatch):
++    import trader
++    cfg=SimpleNamespace(logger=Mock(),CORE_AI_STRATEGY_AUTHORITY=True)
++    d,c=inputs();seen=[]
++    def verify(*a,**k):
++        seen.append(k);return dict(decision='approve_now',confidence=.8)
++    monkeypatch.setattr(trader.openai_analyzer,'verify',verify)
++    allowed,_,_=trader._gpt_entry_gate(cfg,'BTC/USDT:USDT',['5m'],'',None,d,exit_price_contract=c)
++    assert allowed and len(seen)==1
++    assert seen[0]['exit_price_contract']==c
++
++def test_entry_structure_replaces_previous_evidence_to_avoid_duplicate_tokens():
++    a=e.with_structure('raw',{'side':'long'})
++    b=e.with_structure(a,{'side':'short'})
++    assert b.count('[ENTRY_STRUCTURE_V33_77]')==1
++    assert 'long' not in b and 'short' in b
++
++def test_entry_structure_rejects_duplicate_5m_source_timestamps():
++    t=pd.date_range('2026-10-01',periods=111,freq='5min')
++    f=pd.DataFrame(dict(timestamp=t,open=100.,high=102.,low=99.,close=101.,volume=1.))
++    f.loc[109,'timestamp']=f.loc[108,'timestamp']
++    x=e.structure('long',{'5m':f},now=(t[-1]+pd.Timedelta(minutes=2)).to_pydatetime())
++    assert x['frames']['15m']['fresh'] is False
++
++def test_confirmed_market_summary_ignores_unfinished_upper_bar():
++    t=pd.date_range('2026-10-01',periods=70,freq='1h')
++    f=pd.DataFrame(dict(timestamp=t,open=100.,high=102.,low=99.,close=101.,volume=1.))
++    now=(t[-1]+pd.Timedelta(minutes=20)).to_pydatetime()
++    before=e.market_summary({'1h':f},now=now)
++    f.loc[69,['high','close']]=[1000000.,1000000.]
++    assert e.market_summary({'1h':f},now=now)==before
++    assert 'CONFIRMED' in before
++
++def test_replay_decision_cutoff_precedes_fill_and_has_explicit_timezone():
++    from replay_entry_profitability_v33_77 import decision_at
++    assert decision_at('BTC/USDT:USDT-20261009023148493184') == int(pd.Timestamp('2026-10-08T17:31:48.493184Z').timestamp()*1000)
++    assert decision_at('legacy-entry-without-timestamp') is None
++
++def test_low_latency_reasoning_is_scoped_to_supported_models():
++    assert e.request_options('gpt-5-mini')=={'reasoning_effort':'low'}
++    assert e.request_options('gpt-4.1-mini')=={}
++
++def test_confirmed_price_levels_are_available_to_both_analysts():
++    t=pd.date_range('2026-10-01',periods=200,freq='1h')
++    values=[100+math.sin(i/3) for i in range(200)]
++    f=pd.DataFrame(dict(timestamp=t,open=values,high=[x+.2 for x in values],low=[x-.2 for x in values],close=values,volume=1.))
++    text=e.market_summary({'1h':f},now=(t[-1]+pd.Timedelta(minutes=20)).to_pydatetime())
++    assert '[CONFIRMED_PRICE_STRUCTURE]' in text
++    assert 'swing_high' in text and 'swing_low' in text
+diff --git a/tests/test_core_management_v33_77.py b/tests/test_core_management_v33_77.py
+new file mode 100644
+index 0000000..1501577
+--- /dev/null
++++ b/tests/test_core_management_v33_77.py
+@@ -0,0 +1,284 @@
++"""v33-77: closed multi-timeframe evidence and independent exit approval."""
++import datetime as dt
++import logging
++from types import SimpleNamespace
++import pytest
++import trader
++from state import TraderState
++
++NOW=1792513200.0
++
++def rows(direction,tf,now=NOW):
++    seconds={'5m':300,'15m':900,'1h':3600,'4h':14400}[tf]
++    return [dict(ts=dt.datetime.fromtimestamp(now-seconds*(3-i)-10,dt.timezone.utc).isoformat(),
++                 close=100+direction*(i+1),ema_20=100+direction*i,
++                 ema_50=99 if direction>0 else 101,macd=direction*(i+1),
++                 rsi_14=60 if direction>0 else 40,atr_14=2.) for i in range(3)]
++
++def context(side='long',directions=None):
++    import core_management_context_v33_77 as ctx
++    directions=directions or {'5m':-1,'15m':1,'1h':1,'4h':1}
++    return ctx.build(side,{tf:rows(d,tf) for tf,d in directions.items()},now=NOW)
++
++def test_upper_trend_supports_pullback_without_order_authority():
++    x=context()
++    assert x['regime']=='pullback_candidate'
++    assert x['complete'] is True
++    assert x['order_authority'] is False
++    assert x['frames']['1h']['state']=='aligned'
++
++def test_short_pullback_is_symmetric():
++    assert context('short',{'5m':1,'15m':-1,'1h':-1,'4h':-1})['regime']=='pullback_candidate'
++
++def test_reversal_requires_both_upper_frames():
++    assert context(directions={'5m':-1,'15m':-1,'1h':-1,'4h':1})['regime']=='trend_invalidated'
++    assert context(directions={'5m':-1,'15m':-1,'1h':1,'4h':1})['regime']=='range_or_conflict'
++
++def test_missing_15m_is_unknown_not_confirmed_recovery():
++    import core_management_context_v33_77 as ctx
++    x=ctx.build('long',{'5m':rows(-1,'5m'),'1h':rows(1,'1h'),'4h':rows(1,'4h')},now=NOW)
++    assert x['regime']=='unknown' and not x['complete']
++
++@pytest.mark.parametrize('bad', [float('nan'),float('inf'),True,None])
++def test_invalid_htf_numbers_are_unknown(bad):
++    import core_management_context_v33_77 as ctx
++    frames={tf:rows(1,tf) for tf in ['5m','15m','1h','4h']}
++    frames['1h'][-1]['ema_20']=bad
++    assert ctx.build('long',frames,now=NOW)['regime']=='unknown'
++
++def test_stale_future_or_noncontiguous_bars_are_unknown():
++    import core_management_context_v33_77 as ctx
++    for kind in ['stale','future','gap']:
++        frames={tf:rows(1,tf) for tf in ['5m','15m','1h','4h']}
++        if kind=='stale':frames['1h']=rows(1,'1h',NOW-10000)
++        if kind=='future':frames['1h']=rows(1,'1h',NOW+4000)
++        if kind=='gap':frames['1h'][1]['ts']=frames['1h'][0]['ts']
++        assert ctx.build('long',frames,now=NOW)['regime']=='unknown'
++
++def test_context_render_is_idempotent():
++    import core_management_context_v33_77 as ctx
++    one=ctx.with_context('summary',context())
++    assert ctx.with_context(one,context())==one
++    assert '0.35R' in one and 'HOLD' in one
++
++def exercise(monkeypatch,tmp_path,verdict,action='CLOSE_ALL'):
++    cfg=SimpleNamespace(user_dir=str(tmp_path),logger=logging.getLogger('v33-77'),
++        CORE_AI_STRATEGY_AUTHORITY=True,CORE_GEMINI_MANAGEMENT_ONLY=True,
++        CORE_MANAGEMENT_GPT_VERIFICATION=True,MIN_CONFIDENCE=.6,
++        POSITION_AI_REVIEW_COOLDOWN_MINUTES=15,POSITION_AI_LIVE_EXECUTE=True,
++        EXECUTION_MODE='LIVE',RISK_ADAPTIVE_PARTIAL_ENABLED=True)
++    pos=dict(side='long',contracts=5.,entry_price=100.,mark_price=95.,
++             unrealized_pnl=-25.,position_id='p',entry_timestamp_ms=1)
++    protection=dict(algo_id='oco',sz=5.,sl_price=90.,tp_price=120.)
++    review=dict(assessment='invalidated',confidence=.9,reasoning='confirmed reversal',
++                management_action=action,risk_level='high',suggested_reduce_fraction=.25)
++    monkeypatch.setattr(trader.core_ai_context,'reuse',lambda *a,**k:review)
++    monkeypatch.setattr(trader,'_closed_indicator_tail',lambda raw,tf,n=3:rows(-1,tf))
++    monkeypatch.setattr(trader,'_position_ai_close_guard',
++                        lambda *a,**k:dict(allow_close_all=True,loss_r=.5,reason='breakdown',breakdown=True))
++    calls=[]; closes=[]
++    def verify(*a,**kw):
++        calls.append(kw);return verdict
++    monkeypatch.setattr(trader.openai_analyzer,'verify_position_management',verify)
++    monkeypatch.setattr(trader,'_execute_close',lambda *a,**k:closes.append(k) or True)
++    monkeypatch.setattr(trader.gemini_analyzer,'analyze_held_position',
++        lambda *a,**k:pytest.fail('fresh Gemini review must be reused'))
++    trader._handle_position_ai_review(cfg,TraderState(),
++        SimpleNamespace(fetch_current_protection=lambda *_:protection),
++        'BTC/USDT:USDT',['5m','15m','1h','4h'],'summary',pos,{'action':'hold'}, {})
++    return calls,closes
++
++@pytest.mark.parametrize('verdict',[None,{'action':None,'error_reason':'timeout'},
++    {'action':'HOLD','confidence':.9,'reasoning':'pullback'},
++    {'action':'CLOSE_ALL','confidence':.1,'reasoning':'uncertain'},
++    {'action':'ADD_POSITION','confidence':.9,'reasoning':'not permitted'}])
++def test_unapproved_exit_keeps_position_and_protection(monkeypatch,tmp_path,verdict):
++    calls,closes=exercise(monkeypatch,tmp_path,verdict)
++    assert len(calls)==1
++    assert closes==[]
++    assert calls[0]['allowed_actions']==('HOLD','CLOSE_ALL')
++    assert calls[0]['max_retries']==0
++
++def test_approved_exit_uses_one_gpt_and_zero_extra_gemini(monkeypatch,tmp_path):
++    calls,closes=exercise(monkeypatch,tmp_path,{'action':'CLOSE_ALL','confidence':.9,'reasoning':'invalidated'})
++    assert len(calls)==1 and len(closes)==1
++
++def test_hold_never_pays_for_exit_approval(monkeypatch,tmp_path):
++    calls,closes=exercise(monkeypatch,tmp_path,None,action='HOLD')
++    assert calls==[] and closes==[]
++
++def test_partial_verdict_cannot_expand_or_replace_proposal():
++    import core_management_context_v33_77 as ctx
++    proposal=dict(action='REDUCE_50',confidence=.8,reasoning='risk',reduce_fraction=.2,risk_level='medium')
++    verdict=dict(action='REDUCE_50',confidence=.9,reasoning='reduce',reduce_fraction=.4,risk_level='high')
++    assert ctx.verified_proposal(proposal,verdict,.6)['reduce_fraction']==.2
++    verdict['reduce_fraction']=.1
++    assert ctx.verified_proposal(proposal,verdict,.6)['reduce_fraction']==.1
++    verdict['reduce_fraction']=float('nan')
++    assert ctx.verified_proposal(proposal,verdict,.6)['action']=='HOLD'
++
++def test_fast_negative_review_receives_15m_without_touching_orders(monkeypatch,tmp_path):
++    cfg=SimpleNamespace(user_dir=str(tmp_path),logger=logging.getLogger('fast-v33-77'),
++        EXECUTION_MODE='LIVE',CORE_NEGATIVE_GUARD_ENABLED=True,
++        CORE_AI_STRATEGY_AUTHORITY=True,CORE_GEMINI_MANAGEMENT_ONLY=True,
++        CORE_MANAGEMENT_GPT_VERIFICATION=True)
++    pos=dict(side='long',contracts=2.,entry_price=100.)
++    class Client:
++        def fetch_position(self):return pos
++        def fetch_current_protection(self,*a):return dict(sz=2.,sl_price=90.)
++        def fetch_last_price(self):return 96.
++        def fetch_multi_ohlcv(self,tfs):return {tf:object() for tf in tfs}
++    for name in ['_reconcile_pending_core_reduce','_reconcile_pending_core_add']:
++        monkeypatch.setattr(trader,name,lambda *a,**k:None)
++    for name in ['_maybe_emergency_close_near_stop','_core_recovery_priority_pending','_core_fast_profit_observation']:
++        monkeypatch.setattr(trader,name,lambda *a,**k:False)
++    monkeypatch.setattr(trader.core_manual_close,'get',lambda *a:None)
++    monkeypatch.setattr(trader,'_position_ai_review_candidate',lambda *a:True)
++    monkeypatch.setattr(trader,'_ensure_reduce_position',lambda *a:dict(baseline_known=True,reduce_stage=0))
++    monkeypatch.setattr(trader,'_negative_guard_numeric_diagnostics',
++                        lambda *a,**k:dict(numeric_conditions_met=True,closed_5m_ts='new'))
++    monkeypatch.setattr(trader.indicators,'add_indicators',lambda x:x)
++    monkeypatch.setattr(trader.indicators,'summarize_multi_timeframe_compact',lambda *a:'summary')
++    def capture(*a):
++        assert all(tf in a[-1] for tf in ['5m','15m','1h','4h'])
++        return True
++    monkeypatch.setattr(trader,'_maybe_negative_guard_review',capture)
++    assert trader._run_core_fast_tick(cfg,TraderState(),Client(),'BTC/USDT:USDT') is True
++
++def test_config_enables_verification_without_risk_increase(tmp_path):
++    import config
++    (tmp_path/'.env').write_text('LEVERAGE=5\nMAX_LEVERAGE=5\nPOSITION_FIXED_USDT=200\nRISK_PER_TRADE_PCT=0.5\nMAX_DAILY_LOSS_PCT=5\n')
++    c=config.UserConfig(str(tmp_path))
++    assert c.CORE_MANAGEMENT_GPT_VERIFICATION is True
++    assert (c.LEVERAGE,c.MAX_LEVERAGE,c.POSITION_FIXED_USDT,c.RISK_PER_TRADE_PCT,c.MAX_DAILY_LOSS_PCT)==(5,5,200.,.5,5.)
++
++def test_fresh_identical_context_preserves_gemini_reuse(tmp_path):
++    import core_ai_context as reuse
++    import core_management_context_v33_77 as ctx
++    import time
++    c=SimpleNamespace(CORE_AI_STRATEGY_AUTHORITY=True,CORE_GEMINI_MANAGEMENT_ONLY=True,MIN_CONFIDENCE=.6)
++    review=dict(assessment='weakening',confidence=.8,reasoning='pullback',management_action='HOLD',risk_level='medium')
++    pos=dict(side='long',contracts=2.,entry_price=100.,mark_price=99.)
++    prot=dict(sl_price=90.,tp_price=120.,sz=2.)
++    text=ctx.with_context('summary',context())
++    decision=dict(position_review=review)
++    reuse.bind(decision,c,'BTC',['5m','15m','1h','4h'],text,pos,prot,time.time())
++    assert reuse.reuse(decision,c,'BTC',['5m','15m','1h','4h'],ctx.with_context(text,context()),pos,prot)==review
++
++@pytest.mark.parametrize('reason',['signal_close','reversal_close','position_ai_close_all'])
++def test_close_execution_boundary_rejects_legacy_unverified_approval(monkeypatch,tmp_path,reason):
++    cfg=SimpleNamespace(user_dir=str(tmp_path),logger=logging.getLogger('boundary-v33-77'),
++        EXECUTION_MODE='LIVE',CORE_AI_STRATEGY_AUTHORITY=True,
++        CORE_MANAGEMENT_GPT_VERIFICATION=True,MIN_CONFIDENCE=.6,AI_LIVE_CLOSE=True)
++    pos=dict(side='long',contracts=2.,entry_price=100.,position_id='p',entry_timestamp_ms=1)
++    monkeypatch.setattr(trader.core_unified_service,'routed_close',
++        lambda *a:pytest.fail('unverified discretionary close crossed execution boundary'))
++    assert trader._execute_close(cfg,TraderState(),object(),'BTC/USDT:USDT',pos,reason) is False
++
++def test_receipt_binds_action_lifecycle_quantity_and_time():
++    import core_management_context_v33_77 as ctx
++    result=dict(action='REDUCE_50',confidence=.8,gpt_confidence=.9,gpt_verified=True,reduce_fraction=.2)
++    receipt=ctx.make_receipt(result,'BTC','p:1:long',5.,NOW)
++    args=dict(symbol='BTC',lifecycle_id='p:1:long',contracts=5.,action='REDUCE_50',reduce_fraction=.2,
++              min_confidence=.6,now=NOW+1)
++    assert ctx.valid_receipt(receipt,**args)
++    for key,value in [('symbol','ETH'),('lifecycle_id','q:1:long'),('contracts',4.),
++                       ('action','CLOSE_ALL'),('reduce_fraction',.3),('now',NOW+181),('now',NOW-1)]:
++        assert not ctx.valid_receipt(receipt,**dict(args,**{key:value}))
++
++def test_early_profit_review_fetches_missing_upper_context_once(monkeypatch,tmp_path):
++    cfg=SimpleNamespace(user_dir=str(tmp_path),logger=logging.getLogger('early-v33-77'),
++        EXECUTION_MODE='LIVE',CORE_AI_STRATEGY_AUTHORITY=True,CORE_GEMINI_MANAGEMENT_ONLY=True,
++        CORE_MANAGEMENT_GPT_VERIFICATION=True)
++    pos=dict(side='long',contracts=2.,entry_price=100.,position_id='p',entry_timestamp_ms=1)
++    calls=[]
++    class Client:
++        def fetch_position(self):return pos
++        def fetch_multi_ohlcv(self,tfs):
++            calls.append(tfs);return {tf:object() for tf in tfs}
++    monkeypatch.setattr(trader,'_position_ai_review_candidate',lambda *a:True)
++    def capture(*a,**kw):
++        assert all(tf in a[-1] for tf in ['5m','15m','1h','4h'])
++        assert all(tf in a[4] for tf in ['5m','15m','1h','4h'])
++    monkeypatch.setattr(trader,'_handle_position_ai_review',capture)
++    observation={'early_review_candidate':dict(mfe_r=.3,giveback_r=.2)}
++    assert trader._maybe_review_early_profit(cfg,TraderState(),Client(),'BTC',pos,{'1m':object(),'5m':object()},observation)
++    assert calls==[['15m','1h','4h']]
++
++@pytest.mark.parametrize('adaptive',[False,True])
++def test_real_gpt_verifier_uses_variable_size_for_gemini_policy(monkeypatch,tmp_path,adaptive):
++    import json
++    import openai_analyzer as ai
++    captured=[]
++    class Client:
++        max_retries=0
++        def with_options(self,**kw):return self
++        def create(self,**kw):
++            captured.append(kw['messages'][0]['content'])
++            return SimpleNamespace(usage=None,choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(
++                dict(action='REDUCE_50',confidence=.9,reasoning='risk',reduce_fraction=.2,risk_level='medium'))))])
++    client=Client();client.chat=SimpleNamespace(completions=client)
++    monkeypatch.setattr(ai,'_get_client',lambda c:client)
++    monkeypatch.setattr(ai,'_ensure_response_models_warmed_up',lambda:None)
++    c=SimpleNamespace(user_dir=str(tmp_path),logger=logging.getLogger('prompt-v33-77'),
++        OPENAI_API_KEY='unit-test-only',OPENAI_MODEL='fake',CORE_AI_STRATEGY_AUTHORITY=True,
++        CORE_GEMINI_MANAGEMENT_ONLY=True,RISK_ADAPTIVE_PARTIAL_ENABLED=adaptive)
++    pos=dict(side='long',contracts=2.,entry_price=100.,mark_price=96.,unrealized_pnl=-8.)
++    result=ai.verify_position_management(c,'BTC',['5m','15m','1h','4h'],'facts',pos,
++        {'action':'hold'},dict(assessment='weakening',confidence=.9,reasoning='risk',
++                              risk_level='medium',suggested_reduce_fraction=.2),
++        allowed_actions=('HOLD','REDUCE_50'),purpose='core_management_verification',max_retries=0)
++    assert result['action']=='REDUCE_50' and result['reduce_fraction']==.2
++    assert '0.05..0.50' in captured[0]
++
++def test_partial_execution_boundary_rejects_gemini_only_payload(monkeypatch,tmp_path):
++    import time
++    cfg=SimpleNamespace(user_dir=str(tmp_path),logger=logging.getLogger('reduce-boundary-v33-77'),
++        EXECUTION_MODE='LIVE',CORE_AI_STRATEGY_AUTHORITY=True,CORE_GEMINI_MANAGEMENT_ONLY=True,
++        CORE_MANAGEMENT_GPT_VERIFICATION=True,RISK_ADAPTIVE_PARTIAL_ENABLED=True,MIN_CONFIDENCE=.6)
++    pos=dict(side='long',contracts=5.,entry_price=100.,position_id='p',entry_timestamp_ms=1)
++    sv=dict(baseline_known=True,cumulative_reduced_ratio=0.,reduce_stage=0)
++    monkeypatch.setattr(trader.core_kill_switch,'is_active',lambda *a:False)
++    monkeypatch.setattr(trader.core_manual_close,'get',lambda *a:None)
++    monkeypatch.setattr(trader.core_add_position_state,'get',lambda *a:{})
++    monkeypatch.setattr(trader,'_ensure_reduce_position',lambda *a,**kw:sv)
++    approval=dict(lifecycle_id=trader.reduce_v2_state.position_identity(pos),started_at=time.time(),
++        path='ai_strategy',gemini_confidence=.9,gemini_risk_level='medium',gemini_reduce_fraction=.2,
++        authority='gemini_management',management_action='REDUCE_50',risk_level='medium',
++        reduce_fraction=.2,code_fraction_policy=trader.core_management_policy.POLICY_HASH)
++    def forbidden(*a):pytest.fail('unverified partial crossed execution boundary')
++    client=SimpleNamespace(fetch_position=lambda:pos,fetch_multi_ohlcv=forbidden)
++    assert trader._execute_position_ai_reduce_50_locked(cfg,TraderState(),client,'BTC',pos,'review',.9,
++        'weakening',{'_core_reduce_approval':approval}) is False
++
++@pytest.mark.parametrize('entry_reply',[
++    {'decision':'approve_now','confidence':.9},
++    {'decision':None,'error_reason':'timeout','timeout_confirmed':True}])
++def test_reversal_entry_approval_or_timeout_never_substitutes_exit_approval(monkeypatch,tmp_path,entry_reply):
++    import time
++    cfg=SimpleNamespace(user_dir=str(tmp_path),logger=logging.getLogger('reversal-v33-77'),
++        CORE_AI_STRATEGY_AUTHORITY=True,CORE_GEMINI_MANAGEMENT_ONLY=True,
++        CORE_MANAGEMENT_GPT_VERIFICATION=True,MIN_CONFIDENCE=.6)
++    pos=dict(side='long',contracts=5.,entry_price=100.,mark_price=95.,unrealized_pnl=-25.,
++             position_id='p',entry_timestamp_ms=1)
++    review=dict(assessment='invalidated',confidence=.9,reasoning='reversal',management_action='CLOSE_ALL',risk_level='high')
++    decision=dict(action='short',_held_review=review,_held_review_snapshot={'created_at':time.time()})
++    calls=[]
++    monkeypatch.setattr(trader.core_unified_service,'owner',lambda *a:'legacy')
++    monkeypatch.setattr(trader,'_set_core_entry_outcome',lambda *a,**k:None)
++    monkeypatch.setattr(trader.openai_analyzer,'verify_position_management',lambda *a,**k:calls.append(k) or None)
++    monkeypatch.setattr(trader,'_execute_close',lambda *a,**k:pytest.fail('no independent close approval'))
++    monkeypatch.setattr(trader,'_execute_entry',lambda *a,**k:pytest.fail('existing position must remain'))
++    client=SimpleNamespace(fetch_current_protection=lambda *a:dict(sl_price=90.,tp_price=120.,sz=5.))
++    assert trader._execute_approved_entry_with_optional_reversal(
++        cfg,TraderState(),client,'BTC','short',1.,95.,100.,80.,reversal_position=pos,
++        decision=decision,decision_id='candidate',gpt_result=entry_reply,
++        management_tf_list=['5m','15m','1h','4h'],management_summary='facts',management_raw_dfs={}) is False
++    assert len(calls)==1 and calls[0]['allowed_actions']==('HOLD','CLOSE_ALL')
++
++def test_upper_context_fetch_failure_is_unknown_without_fabricated_frames(tmp_path):
++    cfg=SimpleNamespace(CORE_MANAGEMENT_GPT_VERIFICATION=True,logger=logging.getLogger('missing-v33-77'))
++    def fail(*a):raise RuntimeError('market data unavailable')
++    frames=trader._management_review_frames(cfg,SimpleNamespace(fetch_multi_ohlcv=fail),{'5m':object()})
++    assert set(frames)=={'5m'}
++    assert trader._management_structure_context('long',{})['complete'] is False
+diff --git a/trader.py b/trader.py
+index 8a102e4..8047207 100644
+--- a/trader.py
++++ b/trader.py
+@@ -1,3 +1,4 @@
++import core_management_context_v33_77
+ import core_management_policy
+ import json
+ import datetime
+@@ -1384,7 +1385,8 @@ def _maybe_review_early_profit(cfg, state, client, symbol, position, raw_dfs, ob
+     summary += json.dumps(observation, ensure_ascii=False, default=str)
+     cfg.logger.info('[%s] CORE_EARLY_PROFIT_REVIEW mfe=%.2fR giveback=%.2fR',
+                     symbol, candidate['mfe_r'], candidate['giveback_r'])
+-    _handle_position_ai_review(cfg, state, client, symbol, ['1m','5m'], summary, position,
++    raw_dfs = _management_review_frames(cfg, client, raw_dfs)
++    _handle_position_ai_review(cfg, state, client, symbol, list(raw_dfs), summary, position,
+         {'action':'hold','confidence':0,'reasoning':'Early Gemini profit review',
+          '_early_profit_candidate':dict(candidate)}, raw_dfs, review_path='profit_retention')
+     return True
+@@ -1566,7 +1568,8 @@ def _gpt_entry_gate(
+             result = openai_analyzer.verify(
+                 cfg, symbol, tf_list, candle_summary, position, decision,
+                 timeout=GPT_ENTRY_TIMEOUT_SECONDS, purpose="entry_gate", short_level_ctx=short_level_ctx,
+-                max_retries=GPT_ENTRY_MAX_RETRIES, exit_price_contract=None,
++                max_retries=GPT_ENTRY_MAX_RETRIES,
++                exit_price_contract=exit_price_contract if getattr(cfg,'CORE_AI_STRATEGY_AUTHORITY',False) else None,
+             )
+     except Exception as exc:
+         # Exceptions outside the SDK request boundary cannot prove a GPT timeout.
+@@ -2367,15 +2370,25 @@ CORE_NEGATIVE_GUARD_STAGE2_R = 0.75
+ CORE_NEGATIVE_GUARD_MAX_R = 0.90
+ 
+ 
++def _management_structure_context(side, raw_dfs):
++    rows = {}
++    for tf in core_management_context_v33_77.TF_SECONDS:
++        try:
++            rows[tf] = _closed_indicator_tail(raw_dfs, tf, n=3) or []
++        except (KeyError, TypeError, ValueError, AttributeError):
++            rows[tf] = []
++    return core_management_context_v33_77.build(side, rows)
++
++
+ def _negative_guard_numeric_diagnostics(
+     side, raw_dfs, last_price, entry_price, sl_price, stage=0, stage1_bar_ts=None,
+ ):
+     """확정 5분봉과 실제 거래소 SL 거리로 손실 방어 이벤트를 판정한다.
+ 
+-    stage=0은 -0.35R에서 첫 감축 검토, stage=1은 첫 감축에 사용한 봉보다 새로 확정된
+-    5분봉에서 -0.75R에 도달했을 때 추가 25% 검토 대상이다. 1시간봉 약화는 이
+-    긴급 손실 경로에서 요구하지 않는다. AI 승인과 실제 주문은 별도 계층에서 다시
+-    확인한다.
++    stage=0은 -0.35R, stage=1은 새 확정 5분봉의 -0.75R에서 재평가한다.
++    15분/1시간/4시간 확정 구조는 multi_timeframe 근거로 제공한다.
++    수치와 구조 분류는 감축 명령이 아니다. HOLD를 허용하며 AI 승인과 실제 주문은
++    별도 계층에서 재검증하고 거래소 보호주문은 유지한다.
+     """
+     import math
+ 
+@@ -2454,6 +2467,7 @@ def _negative_guard_numeric_diagnostics(
+         'emergency_zone_reserved': emergency_zone_reserved,
+         'new_closed_5m_bar': new_bar, 'htf_1h_required': False,
+         'numeric_conditions_met': conditions_met,
++        'multi_timeframe': (_management_structure_context(side, raw_dfs) if conditions_met else None),
+     }
+ 
+ 
+@@ -3161,6 +3175,14 @@ def _execute_position_ai_reduce_50_locked(
+     if strategy_authority.core_ai(cfg) and approval.get('path') not in ('ai_strategy', 'mfe_profit_live'):
+         reduce_v2_state.record_block(cfg.user_dir,symbol,'core_ai_approval_required')
+         return False
++    if (strategy_authority.core_ai(cfg) and getattr(cfg, 'CORE_MANAGEMENT_GPT_VERIFICATION', False)
++            and approval.get('path') == 'ai_strategy'
++            and not core_management_context_v33_77.valid_receipt(
++                approval.get('management_verification'), symbol=symbol,
++                lifecycle_id=expected_identity, contracts=position['contracts'], action='REDUCE_50',
++                reduce_fraction=approval.get('reduce_fraction'), min_confidence=cfg.MIN_CONFIDENCE)):
++        reduce_v2_state.record_block(cfg.user_dir, symbol, 'independent_management_approval_missing')
++        return False
+     negative_guard_path = approval.get('path') == 'negative_guard'
+     mfe_profit_path = approval.get('path') == 'mfe_profit_live'
+     # Legacy deterministic structure-profit reduction is intentionally disabled
+@@ -3829,6 +3851,34 @@ def _core_gemini_add_entry_gate(cfg,client,symbol,tf_list,summary,position,decis
+         entry_side=position['side'],entry_mark_price=mark,entry_protection=protection))
+ 
+ 
++def _management_review_frames(cfg, client, raw_dfs):
++    frames = dict(raw_dfs)
++    missing = [tf for tf in core_management_context_v33_77.TF_SECONDS if tf not in frames]
++    if getattr(cfg, 'CORE_MANAGEMENT_GPT_VERIFICATION', False) and missing:
++        try:
++            frames.update(client.fetch_multi_ohlcv(missing))
++        except Exception:
++            cfg.logger.warning('CORE management upper context unavailable; evidence UNKNOWN')
++    return frames
++
++
++def _verify_core_exit_proposal(cfg, client, symbol, tf_list, summary, position,
++                               decision, review, protection, proposal, raw_dfs, review_path):
++    summary = core_ai_context.with_evidence(summary, _position_management_evidence(cfg, symbol, position))
++    summary = core_management_context_v33_77.with_context(
++        summary, _management_structure_context(position.get('side'), raw_dfs))
++    summary += '\n[PROPOSED_MANAGEMENT_PLAN]\n' + json.dumps(proposal, ensure_ascii=False)
++    with usage_log.call_context(engine='CORE', trigger=review_path, stage='independent_management_verification'):
++        verdict = openai_analyzer.verify_position_management(
++            cfg, symbol, tf_list, summary, position, decision, review,
++            timeout=POSITION_AI_REVIEW_TIMEOUT_SECONDS, max_retries=0,
++            protection=protection, allowed_actions=('HOLD', proposal['action']),
++            purpose='core_management_verification', review_path=review_path)
++    result = core_management_context_v33_77.verified_proposal(proposal, verdict, cfg.MIN_CONFIDENCE)
++    result['verification_error_reason'] = verdict.get('error_reason') if isinstance(verdict, dict) else 'no_response'
++    return result
++
++
+ @strategy_authority.single_review
+ def _handle_position_ai_review(
+     cfg, state, client: OkxClient, symbol: str, tf_list: list, candle_summary: str,
+@@ -3865,6 +3915,11 @@ def _handle_position_ai_review(
+         logger.exception("[%s] 보유 포지션 AI 관리: 보호주문 조회 실패 - 손절 거리 정보 없이 진행", symbol)
+         protection = None
+ 
++    if getattr(cfg, 'CORE_MANAGEMENT_GPT_VERIFICATION', False):
++        raw_dfs = _management_review_frames(cfg, client, raw_dfs)
++        tf_list = list(dict.fromkeys(list(tf_list) + [tf for tf in core_management_context_v33_77.TF_SECONDS if tf in raw_dfs]))
++        candle_summary = core_management_context_v33_77.with_context(
++            candle_summary, _management_structure_context(position.get('side'), raw_dfs))
+     try:
+         gemini_review = core_ai_context.reuse(decision, cfg, symbol, tf_list, candle_summary, position, protection)
+         if gemini_review is not None:
+@@ -3973,6 +4028,18 @@ def _handle_position_ai_review(
+                 trade_log.last_unclosed_open(cfg.user_dir,symbol),mfe_profit_shadow.get_state(cfg.user_dir,symbol),
+                 reduce_v2_state.get(cfg.user_dir,symbol))
+             gpt_result=core_management_policy.decision(cfg,gemini_review,position,protection,rows,evidence)
++            if (getattr(cfg, 'CORE_MANAGEMENT_GPT_VERIFICATION', False)
++                    and gpt_result['action'] in ('REDUCE_50', 'CLOSE_ALL')):
++                proposal = gpt_result
++                gpt_result = _verify_core_exit_proposal(
++                    cfg, client, symbol, tf_list, candle_summary, position,
++                    decision, gemini_review, protection, proposal, raw_dfs, review_path)
++                position_ai_log.record_event(
++                    cfg.user_dir, 'independent_management_verification', symbol, review_id,
++                    proposed_action=proposal['action'], action=gpt_result['action'],
++                    approved=gpt_result.get('gpt_verified', False),
++                    error_reason=gpt_result.get('verification_error_reason'),
++                    confidence=gpt_result.get('gpt_confidence'))
+             if gpt_result['action']=='ADD_POSITION':
+                 gpt_result=(_core_gemini_add_entry_gate(cfg,client,symbol,tf_list,candle_summary,position,gpt_result)
+                             if review_path=='general' else dict(action='HOLD',confidence=gemini_review['confidence'],reasoning='add_requires_general_review'))
+@@ -3991,6 +4058,8 @@ def _handle_position_ai_review(
+                 purpose=('negative_guard' if review_path == 'negative_guard' else 'position_ai_review'),
+                 review_path=review_path,
+             )
++            if isinstance(gpt_result, dict) and gpt_result.get('action') in ('CLOSE_ALL', 'REDUCE_50'):
++                gpt_result = dict(gpt_result, gpt_verified=True, gpt_confidence=gpt_result.get('confidence'))
+     except Exception:
+         logger.exception("[%s] 보유 포지션 AI 관리(GPT 게이트) 호출 중 예상치 못한 오류 - HOLD로 처리", symbol)
+         position_ai_log.record_event(
+@@ -4156,7 +4225,10 @@ def _handle_position_ai_review(
+             )
+             return
+         approved_position = dict(position,_approval_started_at=approval_started_at,
+-                                 _gemini_assessment=gemini_review.get('assessment'))
++                                 _gemini_assessment=gemini_review.get('assessment'),
++                                 _management_verification=core_management_context_v33_77.make_receipt(
++                                     gpt_result, symbol, reduce_v2_state.position_identity(position),
++                                     position['contracts'], approval_started_at))
+         executed = _execute_close(cfg,state,client,symbol,approved_position,reason='position_ai_close_all')
+         position_ai_log.record_event(cfg.user_dir,'position_ai_close_all',symbol,review_id,
+                                     executed=bool(executed),guard_reason=close_guard.get('reason'),
+@@ -4233,6 +4305,9 @@ def _handle_position_ai_review(
+             'risk_level': gpt_result.get('risk_level'),
+             'gpt_timeout_fallback': gpt_timeout_fallback,
+             'authority': gpt_result.get('authority'), 'management_action': action,
++            'management_verification': core_management_context_v33_77.make_receipt(
++                gpt_result, symbol, reduce_v2_state.position_identity(position),
++                position['contracts'], approval_started_at),
+             'code_fraction_policy': gpt_result.get('code_fraction_policy'),
+         })
+         _execute_position_ai_reduce_50(
+@@ -4865,6 +4940,7 @@ def _execute_approved_entry_with_optional_reversal(
+     market_regime=None, regime_confidence=None, trade_alignment=None,
+     decision_id=None, decision=None, short_level_ctx=None, gpt_result=None,
+     revalidate_after_gpt: bool = False,
++    management_tf_list=None, management_summary=None, management_raw_dfs=None,
+ ) -> bool:
+     """Execute an already-approved entry; for reversals, close only after approval.
+ 
+@@ -4903,6 +4979,30 @@ def _execute_approved_entry_with_optional_reversal(
+                 short_level_ctx=short_level_ctx, gpt_result=gpt_result,
+             )
+ 
++        if strategy_authority.core_ai(cfg) and getattr(cfg, 'CORE_MANAGEMENT_GPT_VERIFICATION', False):
++            if management_raw_dfs is None or not management_tf_list:
++                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','reversal_management_context_missing')
++                return False
++            review = (decision or {}).get('_held_review')
++            stamp = ((decision or {}).get('_held_review_snapshot') or {}).get('created_at')
++            if (not core_management_policy.valid_review(cfg, review)
++                    or review.get('management_action') != 'CLOSE_ALL'
++                    or not core_management_context_v33_77.number(stamp) or not 0 <= time.time()-stamp <= 180):
++                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','reversal_fresh_close_proposal_missing')
++                return False
++            protection = client.fetch_current_protection('sell' if reversal_position['side']=='long' else 'buy')
++            started = time.time()
++            proposal = dict(action='CLOSE_ALL', confidence=review['confidence'], reasoning=review['reasoning'])
++            verified = _verify_core_exit_proposal(
++                cfg, client, symbol, management_tf_list, management_summary or '', reversal_position,
++                decision, review, protection, proposal, management_raw_dfs, 'reversal')
++            if verified['action'] != 'CLOSE_ALL':
++                _set_core_entry_outcome(cfg,state,symbol,decision,decision_id,'LOCAL_BLOCKED','reversal_gpt_close_not_approved')
++                return False
++            reversal_position = dict(reversal_position, _approval_started_at=started,
++                _management_verification=core_management_context_v33_77.make_receipt(
++                    verified, symbol, reduce_v2_state.position_identity(reversal_position),
++                    reversal_position['contracts'], started))
+         import symbol_entry_control
+ 
+         def _replacement_entry_allowed(stage: str) -> bool:
+@@ -5227,6 +5327,10 @@ def _handle_new_entry(
+                 exit_price_contract['execution_target'] = adaptive_context.execution_target
+         except Exception:
+             logger.warning("[%s] AI_EXIT execution contract 생성 실패 - 기존 Adaptive fallback 유지", symbol, exc_info=True)
++    if getattr(cfg,'CORE_AI_STRATEGY_AUTHORITY',False):
++        import core_entry_economics_v33_77
++        entry_structure=core_entry_economics_v33_77.structure(action,closed_dfs,now=decision.get('_candle_asof'))
++        candle_summary = core_entry_economics_v33_77.with_structure(candle_summary,entry_structure)
+     allowed, gate_result, gpt_result = _gpt_entry_gate(
+         cfg, symbol, tf_list, candle_summary, position, decision, short_level_ctx=short_level_ctx,
+         exit_price_contract=exit_price_contract,
+@@ -5385,6 +5489,7 @@ def _handle_new_entry(
+         market_regime=market_regime, regime_confidence=regime_confidence, trade_alignment=trade_alignment,
+         decision_id=decision_id, decision=decision, short_level_ctx=short_level_ctx, gpt_result=gpt_result,
+         revalidate_after_gpt=True,
++        management_tf_list=tf_list, management_summary=candle_summary, management_raw_dfs=closed_dfs,
+     )
+     final_outcome=decision.get('_entry_outcome') or {}
+     if not final_outcome or final_outcome.get('status') in ('GPT_APPROVED','TIMEOUT_BYPASS','NO_RESPONSE_BYPASS'):
+@@ -5481,7 +5586,12 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
+         # A short normal review interval must still obtain the native confirmed
+         # bar required to release a manual-close guard after its cooldown.
+         tf_list.append('5m')
++    if strategy_authority.core_ai(cfg) and getattr(cfg, 'CORE_MANAGEMENT_GPT_VERIFICATION', False):
++        for required_tf in ('15m', '1h', '4h'):
++            if required_tf not in tf_list:
++                tf_list.append(required_tf)
+     logger.info("[%s] TF=%s", symbol, ",".join(tf_list))
++    market_candle_asof = datetime.datetime.now(datetime.timezone.utc)
+     raw_dfs = client.fetch_multi_ohlcv(tf_list)
+     dfs = {tf: indicators.add_indicators(df) for tf, df in raw_dfs.items()}
+     candle_summary = indicators.summarize_multi_timeframe_compact(dfs)
+@@ -5504,7 +5614,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
+         indicators_by_tf = {}
+         closed_dfs = {}
+         for tf, raw_df in raw_dfs.items():
+-            _, closed_raw_df, _ = candle_finality.split_live_closed(raw_df, tf)
++            _, closed_raw_df, _ = candle_finality.split_live_closed(raw_df, tf, now=market_candle_asof)
+             closed_df = indicators.add_indicators(closed_raw_df)
+             closed_dfs[tf] = closed_df
+             live_last = dfs[tf].iloc[-1]
+@@ -5539,6 +5649,9 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
+         logger.warning("[%s] candle_finality 계산 실패 - 이 사이클은 Shadow 기록만 건너뜀", symbol, exc_info=True)
+         indicators_by_tf, structure_by_tf, closed_structures, closed_dfs = {}, {}, {}, {}
+ 
++    if strategy_authority.core_ai(cfg):
++        import core_entry_economics_v33_77
++        candle_summary=core_entry_economics_v33_77.market_summary(raw_dfs,now=market_candle_asof)
+     _observe_exit_shadow_from_closed_dfs(cfg, symbol, closed_dfs)
+ 
+     if getattr(cfg, "EXECUTION_MODE", "OFF") == "SHADOW":
+@@ -5710,7 +5823,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
+             logger.warning('[%s] 손절 90%% 구간 재확인 대기 - AI 호출 건너뜀', symbol)
+             return
+ 
+-    entry_timing = core_entry_timing.evaluate(closed_dfs)
++    entry_timing = core_entry_timing.evaluate(closed_dfs,now=market_candle_asof)
+     candle_summary += core_entry_timing.format_prompt(entry_timing)
+     state.update_symbol(symbol, entry_timing=entry_timing)
+     logger.info('[%s] CORE_ENTRY_TIMING phase=%s side=%s origin=%s age=%s move_atr=%s',
+@@ -5821,16 +5934,25 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
+                 candle_summary += "\n" + format_ai_price_contract(contract)
+         if position:
+             candle_summary = core_ai_context.with_evidence(candle_summary, _position_management_evidence(cfg,symbol,position))
++            if getattr(cfg, 'CORE_MANAGEMENT_GPT_VERIFICATION', False):
++                candle_summary = core_management_context_v33_77.with_context(
++                    candle_summary, _management_structure_context(position.get('side'), raw_dfs))
++
+             try:
+                 primary_protection = client.fetch_current_protection('sell' if position['side']=='long' else 'buy')
+             except Exception:
+                 logger.warning('[%s] unified Gemini protection unknown; fresh held review fallback', symbol, exc_info=True)
++    if strategy_authority.core_ai(cfg) and not position:
++        import core_entry_economics_v33_77
++        candle_summary = core_entry_economics_v33_77.with_structure(candle_summary,
++            dict(relative_to_side='long',**core_entry_economics_v33_77.structure('long',closed_dfs,now=market_candle_asof)))
+     with usage_log.call_context(engine='CORE',trigger=ai_budget['reason'],stage='primary_decision'):
+         if strategy_authority.core_ai(cfg) and position:
+             decision = gemini_analyzer.analyze(cfg, symbol, tf_list, candle_summary, position, protection=primary_protection)
+         else:
+             decision = gemini_analyzer.analyze(cfg, symbol, tf_list, candle_summary, position)
+     decision["_entry_timing"] = entry_timing
++    decision["_candle_asof"] = market_candle_asof.isoformat()
+     decision["_market_context"] = ({key: market_snapshot.get(key) for key in ("snapshot_id", "as_of", "status")}
+                                    if market_snapshot else None)
+     parse_failed = (
+@@ -6036,7 +6158,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
+             )
+         elif not _min_hold_elapsed(state, symbol, cfg):
+             logger.info("[%s] 청산 신호이나 최소 보유시간(%d분) 미충족 - 무시", symbol, cfg.MIN_HOLD_MINUTES)
+-        elif not getattr(cfg, "AI_LIVE_CLOSE", False):
++        elif (not getattr(cfg, "AI_LIVE_CLOSE", False) or getattr(cfg, "CORE_MANAGEMENT_GPT_VERIFICATION", False)):
+             # AI_LIVE_CLOSE=false이면 Gemini 단독 재량 청산 권한은 계속 막는다.
+             # 다만 2026-09-24부터 fresh close 신호는 일반 15분 리뷰 쿨다운을 기다리지 않고
+             # 아래 exit_escalation 경로에서 Gemini 보유 재검토 + GPT 최종관리(HOLD/25%감축/
+@@ -6081,7 +6203,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
+         # 빼 hold와 동일하게 재검토 자신의 게이트로만 판단한다. AI_LIVE_CLOSE=
+         # true로 실제 청산까지 실행된 경우(위 else)는 이제 막 사라진 포지션을
+         # 또 재검토하면 안 되므로 명시적으로 제외한다.
+-        if position and not getattr(cfg, "AI_LIVE_CLOSE", False):
++        if position and (not getattr(cfg, "AI_LIVE_CLOSE", False) or getattr(cfg, "CORE_MANAGEMENT_GPT_VERIFICATION", False)):
+             _maybe_escalate_position_ai_exit(
+                 cfg, state, client, symbol, tf_list, candle_summary, position, decision, raw_dfs,
+                 "signal_close",
+@@ -7413,6 +7535,15 @@ def _execute_close(cfg, state, client: OkxClient, symbol: str, position: dict, r
+         state.update_symbol(symbol, position=None, live_position=None, entry_time=None)
+         return True
+ 
++    if (strategy_authority.core_ai(cfg) and getattr(cfg, 'CORE_MANAGEMENT_GPT_VERIFICATION', False)
++            and reason in ('signal_close', 'reversal_close', 'position_ai_close_all')
++            and not core_management_context_v33_77.valid_receipt(
++                position.get('_management_verification'), symbol=symbol,
++                lifecycle_id=reduce_v2_state.position_identity(position),
++                contracts=position.get('contracts'), action='CLOSE_ALL', min_confidence=cfg.MIN_CONFIDENCE)):
++        cfg.logger.warning('[%s] discretionary close deferred: independent current approval missing', symbol)
++        return False
++
+     # 계좌 공통 주문락(2026-09-13, 사용자 지시) - CORE 전량청산도 Candidate C와
+     # 동일한 계좌 락을 거친다(_execute_entry 참고).
+     with cc_ownership.account_order_lock(cfg.user_dir):
+@@ -7935,7 +8066,8 @@ def _run_core_fast_tick(cfg, state, client, symbol):
+             if (diagnostic['numeric_conditions_met']
+                     and diagnostic['closed_5m_ts'] != sv.get('last_negative_guard_review_bar')):
+                 try:
+-                    raw.update(client.fetch_multi_ohlcv(['1h', '4h']))
++                    context_tfs = (['15m', '1h', '4h'] if getattr(cfg, 'CORE_MANAGEMENT_GPT_VERIFICATION', False) else ['1h', '4h'])
++                    raw.update(client.fetch_multi_ohlcv(context_tfs))
+                 except Exception:
+                     cfg.logger.warning('[%s] 손실 방어 상위 차트 문맥 조회 실패 - 5분 조건은 재확인', symbol)
+                 summary = indicators.summarize_multi_timeframe_compact(
+@@ -7952,7 +8084,7 @@ def _run_core_fast_tick(cfg, state, client, symbol):
+     if not diagnostic['numeric_conditions_met'] or diagnostic['closed_5m_ts'] == sv.get('last_fast_review_bar'):
+         return False
+     try:
+-        raw.update(client.fetch_multi_ohlcv(['1h', '4h']))
++        raw = _management_review_frames(cfg, client, raw) if getattr(cfg, 'CORE_MANAGEMENT_GPT_VERIFICATION', False) else dict(raw, **client.fetch_multi_ohlcv(['1h', '4h']))
+     except Exception:
+         cfg.logger.warning('[%s] fast stage1 HTF context UNKNOWN; confirmed 5m/AI gates remain required', symbol)
+     summary = indicators.summarize_multi_timeframe_compact(
