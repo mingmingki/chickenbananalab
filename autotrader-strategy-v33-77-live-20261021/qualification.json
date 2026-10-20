@@ -1,0 +1,15 @@
+{
+  "version": "v33-77",
+  "runtime_source_commit": "8285c4c2a66bb3f07d3c92822a02d0e675e0a841",
+  "deployment_basis": "USER_DIRECTED_STRATEGY_TRIAL",
+  "profitability_validated": false,
+  "full_suite_passed": 2442,
+  "full_suite_failures": 23,
+  "passing_subtests": 27,
+  "added_failure_names": [],
+  "focused_regression_passed": 181,
+  "contains_account_records": false,
+  "contains_api_credentials": false,
+  "operational_deployment_accepted": true,
+  "core_and_candidate_engines_resumed": true
+}

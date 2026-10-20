@@ -1,0 +1,22 @@
+{
+  "version": "v33-77",
+  "runtime_source_commit": "8285c4c2a66bb3f07d3c92822a02d0e675e0a841",
+  "baseline_source_snapshot": "9226917",
+  "profitability_validated": false,
+  "deployment_basis": "USER_DIRECTED_STRATEGY_TRIAL",
+  "risk_limits_changed": false,
+  "focused_regression_tests_passed": 181,
+  "sha256": {
+    "config.py": "4fc73e4a0fbb02a8137d4749b524df2e31d59178a9038b7120bd304f2d315e57",
+    "candle_finality.py": "3e78de52cac57f094f0eb978afdc57a46de4dcde639e3ee04721f0ba01e9731b",
+    "core_entry_economics_v33_77.py": "f5c9607bfc43701863ce674d847208cfe5a859d585a1dd89bbdb828a1bceba54",
+    "core_management_context_v33_77.py": "2b200fb3450ec034227961154ea99ad4bd02b4e590f19e6535ea4d29af6d9055",
+    "gemini_analyzer.py": "3b18d7c80cb8b18ecfe59870110c5f84604cb970852839f0ec4e58d8d21a4b16",
+    "openai_analyzer.py": "b611d692cd4eb95add1697dc396ca70662c8f6a98b779b4d90eef415dd95cfe5",
+    "trader.py": "5253772eb2193bf85073c534e835826d7556e1b00004aa5fa1862dcd45052eac",
+    "tests/test_core_management_v33_77.py": "110381f4da5b616339dc6952d221e26263db487cbd7a5e67cbabde55dd39dfa6",
+    "tests/test_core_entry_economics_v33_77.py": "887844d2c8e7a7dff3e6ddc65d8866136c67e976d367b1120b75f787d4da37e9",
+    "tests/test_core_exit_preferences_v33_77.py": "c3c7e1d1b9ca5663f594806ae452effebc4a790a974fde1ba1b978da4d7855d8",
+    "tests/test_core_management_snapshot_v33_77.py": "66f6972c748165d783b2edb01b88623915b0629ada00872170840fe3d39f0004"
+  }
+}
