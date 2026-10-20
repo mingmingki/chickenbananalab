@@ -2,9 +2,14 @@
   "version": "v33-77",
   "live_promotion_allowed": false,
   "status": "UNPROMOTED_RESEARCH_CANDIDATE",
-  "full_suite_passed": 2379,
+  "full_suite_passed": 2391,
   "pre_existing_failures": 22,
-  "no_added_failing_test_names": true,
+  "no_added_failing_test_names": false,
   "contains_account_records": false,
-  "contains_api_credentials": false
+  "contains_api_credentials": false,
+  "full_suite_failures": 23,
+  "passing_subtests": 27,
+  "additional_mutable_live_data_test_failure": 1,
+  "additional_failure_same_on_current_baseline": true,
+  "new_runtime_regressions_observed": 0
 }
