@@ -55,6 +55,7 @@ from . import quantity_cad_estimate
 from . import quantity_job_inputs
 from . import quantity_levels
 from . import quantity_member_links
+from . import quantity_pdf_pages
 
 logger = logging.getLogger(__name__)
 
@@ -2163,31 +2164,20 @@ def _check_critical_content(zip_bytes):
 # ─────────────────────────────────────────────
 #  PDF → 이미지 변환
 # ─────────────────────────────────────────────
-# 합본 PDF가 수십~백 페이지인 실제 프로젝트 도면집을 감안해, 앞 5장만 보내던
-# 이전 한도를 넉넉하게 올려둔다. 입력(이미지) 토큰 자체는 80장을 넣어도 Gemini 2.5 Pro의
-# 1M 토큰 한도에 여유가 있다 — 문제는 출력(OUTPUT) 쪽이다: 부재가 많은 대형 프로젝트를
-# 한 번에 몰아넣으면 응답 JSON이 max_output_tokens(65536)를 넘어 잘리거나, 요청 자체가
-# 타임아웃/오류로 실패해서 전체 결과가 0건이 되는 문제가 실제로 발생했다. 그래서 구조 부재
-# 추출(extract_structural_members)은 EXTRACTION_BATCH_PAGE_SIZE 단위로 나눠 여러 번
-# 호출한 뒤 결과를 합치도록 배치 처리한다 — 아래 관련 코드 참고.
-MAX_PDF_PAGES_TO_GEMINI = 80
+# 도면집은 모든 본 산출 단계에서 몇 쪽씩 나눠 읽는다(구조 EXTRACTION_BATCH_PAGE_SIZE,
+# 건축 ARCHITECTURAL_BATCH_PAGE_SIZE) — 요청 크기, 응답 길이, 서버 메모리가 전체 쪽수와
+# 무관하게 일정하다. 이 상한은 실수로 올린 초대형 파일의 비용만 막는 안전장치이고, 넘는 쪽은
+# 결과에 "읽지 않았다"는 안내가 남는다. 2026-10-21 이전에는 80쪽이었고, 건축도면은 그 80쪽을
+# 한 번의 요청으로 보내서 81쪽 이후(실제 도면집에서는 입면·단면도 전부)가 경고 없이 빠졌다.
+MAX_PDF_PAGES_TO_GEMINI = int(os.environ.get("QTY_MAX_PDF_PAGES", "300"))
+ARCHITECTURAL_BATCH_PAGE_SIZE = 8
 
-# convert_from_bytes()는 요청한 페이지 전부를 한 번에 렌더링해서 메모리에 PIL Image로
-# 들고 있는다. A1/A0 같은 대형 도면을 150dpi로 렌더링하면 장당 30~50MB 이상이 될 수 있어,
-# 79페이지짜리 프로젝트를 한꺼번에 렌더링하면 수 GB 메모리가 순식간에 필요해져 서버가
-# 죽거나(MemoryError) 매우 느려질 수 있다. 어차피 image_to_jpeg_bytes()에서 최종적으로
-# 1536px로 축소하므로, 150dpi로 뽑을 필요 없이 120dpi 정도로도 충분하다(메모리 약 36% 절감).
+# 도면 쪽은 항상 필요한 몇 쪽만 그때그때 렌더링한다(_render_pdf_page_range) — 도면집 전체를
+# 한 번에 렌더링하면 장당 수~수십 MB라 수백 쪽에서 서버 메모리를 넘는다. 어차피
+# image_to_jpeg_bytes()에서 최종적으로 1536px로 축소하므로 120dpi면 충분하다.
 PDF_RENDER_DPI = 120
 OVERVIEW_TABLE_RENDER_DPI = 220
 OVERVIEW_TABLE_IMAGE_MAX_SIZE = (3000, 3000)
-
-
-def pdf_to_images(pdf_bytes, max_pages=MAX_PDF_PAGES_TO_GEMINI, dpi=PDF_RENDER_DPI):
-    """PDF 바이트를 PIL Image 리스트로 변환 (최대 max_pages 페이지).
-    구조 부재 추출(extract_structural_members)은 이 함수를 쓰지 않고 배치 단위로 직접
-    페이지 범위를 지정해서 렌더링한다(메모리 절감) — 아래 _render_pdf_page_range 참고."""
-    images = convert_from_bytes(pdf_bytes, dpi=dpi, first_page=1, last_page=max_pages)
-    return images
 
 
 def _render_pdf_page_range(pdf_bytes, first_page, last_page, dpi=PDF_RENDER_DPI, timeout=None):
@@ -5595,7 +5585,20 @@ ELEVATION_SECTION_SYSTEM_PROMPT = """당신은 건축 입면도/단면도를 판
 _EMPTY_ELEVATION_SECTION = {"floor_heights": [], "openings": [], "notes": []}
 
 
-def extract_elevation_section_data(dwg_data: dict, pdf_images: list) -> dict:
+def _image_label(page_labels, index):
+    return page_labels[index] if page_labels and index < len(page_labels) else f"{index + 1}페이지"
+
+
+def _batch_instruction(batch):
+    """Told to the AI when it sees one batch of a drawing set: read only what these pages show."""
+    if not batch:
+        return ""
+    index, total, span = batch
+    return (f"\n\n※ 이 요청은 도면집을 나눠 보내는 {index}/{total}번째 묶음({span})입니다. 이 묶음 이미지에서 "
+            "실제로 보이는 것만 읽고, 다른 묶음에 있을 내용을 추측해 채우지 마세요. note에는 근거가 된 쪽을 적어 주세요.")
+
+
+def extract_elevation_section_data(dwg_data: dict, pdf_images: list, page_labels=None, batch=None) -> dict:
     """
     건축 입면도/단면도(DWG 파싱 데이터 + PDF 이미지)에서 층고와 개구부(창호) 목록만
     구조화된 JSON으로 추출한다. 물량 계산에는 관여하지 않고, quantity_calc.py가
@@ -5612,10 +5615,13 @@ def extract_elevation_section_data(dwg_data: dict, pdf_images: list) -> dict:
         f"[건축 입면/단면 DWG 파싱 데이터]\n"
         f"{json.dumps(_ai_cad_summary(dwg_data), ensure_ascii=False, indent=2)[:60000]}\n\n"
         "위 데이터와 아래 입면도/단면도 이미지를 보고 층고와 개구부 목록을 읽어서 추출해주세요."
+        + _batch_instruction(batch)
+        + ("\n개구부 location에는 동/건물 이름과 입면 이름을 함께 적어 주세요(예: 101동 정면 2~15층) — "
+           "묶음별 결과를 합칠 때 같은 줄은 하나로 합쳐집니다." if batch else "")
     ]
 
     for i, img in enumerate(pdf_images[:MAX_PDF_PAGES_TO_GEMINI]):
-        contents.append(f"[도면 {i + 1}페이지]")
+        contents.append(f"[도면 {_image_label(page_labels, i)}]")
         contents.append(types.Part.from_bytes(data=image_to_jpeg_bytes(img), mime_type="image/jpeg"))
 
     try:
@@ -5673,7 +5679,8 @@ ARCHITECTURAL_SYSTEM_PROMPT = """당신은 건설 건축 수량산출 전문가�
 }"""
 
 
-def analyze_with_gemini(dwg_data: dict, pdf_images: list, system_prompt: str, drawing_type: str) -> dict:
+def analyze_with_gemini(dwg_data: dict, pdf_images: list, system_prompt: str, drawing_type: str,
+                        page_labels=None, batch=None) -> dict:
     """
     DWG 파싱 데이터 + PDF 이미지를 Gemini Vision으로 분석
     Returns: 수량산출 결과 dict
@@ -5693,10 +5700,11 @@ def analyze_with_gemini(dwg_data: dict, pdf_images: list, system_prompt: str, dr
         f"{json.dumps(_ai_cad_summary(dwg_data), ensure_ascii=False, indent=2)[:60000]}\n\n"
         "위 데이터의 layer_geometry(레이어별 도형 개수/길이/닫힌면적), block_counts(블록 삽입 개수), "
         "texts(도면 내 문자)를 실제 수량 산출의 근거로 적극 활용하고, 아래 도면 이미지와 교차 검증해 주세요."
+        + _batch_instruction(batch)
     ]
 
     for i, img in enumerate(pdf_images[:MAX_PDF_PAGES_TO_GEMINI]):
-        contents.append(f"[도면 {i + 1}페이지]")
+        contents.append(f"[도면 {_image_label(page_labels, i)}]")
         contents.append(types.Part.from_bytes(data=image_to_jpeg_bytes(img), mime_type="image/jpeg"))
 
     try:
@@ -5742,6 +5750,204 @@ def analyze_with_gemini(dwg_data: dict, pdf_images: list, system_prompt: str, dr
             "warnings": [raw[:500]],
             "missing_info": [],
         }
+
+
+# ─────────────────────────────────────────────
+#  건축도면 전체 읽기: 쪽마다 어떤 도면인지 맞춘 뒤 몇 쪽씩 나눠 읽고 합친다. 입면/단면 검토는
+#  그중 입면도·단면도 쪽만 읽는다.
+# ─────────────────────────────────────────────
+_ELEVATION_SHEET_TITLE = re.compile(r"입\s*면|단\s*면|ELEVATION|SECTION", re.IGNORECASE)
+_ELEVATION_PAGE_TEXT = re.compile(r"입\s*면\s*도|단\s*면\s*도")
+_ELEVATION_SOURCE_TEXT = {
+    "cad_titles": "CAD 도면 제목으로 찾은 입면·단면도",
+    "pdf_text": "PDF의 도면명으로 찾은 입면·단면도",
+    "all_pages": "입면·단면도 쪽을 따로 찾지 못해 전체",
+}
+
+
+def _pdf_page_count(pdf_bytes):
+    try:
+        return int((pdfinfo_from_bytes(pdf_bytes) or {}).get("Pages", 0) or 0)
+    except Exception:
+        return 0
+
+
+def _page_span(pages):
+    """"12~19쪽" for consecutive pages, "12, 15, 30쪽" otherwise."""
+    if len(pages) > 1 and pages == list(range(pages[0], pages[-1] + 1)):
+        return f"{pages[0]}~{pages[-1]}쪽"
+    return ", ".join(str(page) for page in pages) + "쪽"
+
+
+def _architectural_page_plan(pdf_bytes, dwg_data):
+    """Page count, a label per page and the elevation/section pages of an architectural PDF.
+
+    Drawing numbers printed on the pages, aligned with the CAD sheet list, tell which drawing
+    each page is; elevation and section pages are those whose CAD title says so. Without CAD
+    titles the drawing names in the PDF text are used, and without those every page is reviewed.
+    """
+    total = _pdf_page_count(pdf_bytes)
+    texts = _extract_pdf_page_texts(pdf_bytes, 1, total, timeout_sec=180) if total else {}
+    titles = quantity_pdf_pages.cad_sheet_titles(dwg_data)
+    page_map = quantity_pdf_pages.map_pages(texts, titles, total)
+    elevation = quantity_pdf_pages.pages_titled(page_map, titles, _ELEVATION_SHEET_TITLE)
+    source = "cad_titles"
+    if not elevation:
+        elevation, source = sorted(p for p, text in texts.items() if _ELEVATION_PAGE_TEXT.search(text)), "pdf_text"
+    if not elevation:
+        elevation, source = list(range(1, total + 1)), "all_pages"
+    return {"total": total, "identified_pages": len(page_map), "elevation_source": source,
+            "elevation_pages": elevation[:MAX_PDF_PAGES_TO_GEMINI],
+            "labels": {page: quantity_pdf_pages.page_label(page, page_map, titles) for page in page_map}}
+
+
+def _read_pages_in_batches(pdf_bytes, pages, read_batch, step_prefix, steps=None, step_parts=(),
+                           progress_cb=None, cancel_cb=None, labels=None):
+    """Render and read a few pages at a time, so the request size, the answer length and the
+    memory stay the same whatever the number of pages. Finished batches are kept for a resume
+    and reused when their key matches. Returns [(pages, result)]; result is None for the
+    batches left after a cancel, and has "error" when its pages could not be rendered."""
+    size = ARCHITECTURAL_BATCH_PAGE_SIZE
+    chunks = [pages[i:i + size] for i in range(0, len(pages), size)]
+    done = []
+    for index, chunk in enumerate(chunks, 1):
+        if cancel_cb and cancel_cb():
+            done.extend((rest, None) for rest in chunks[index - 1:])
+            break
+        if progress_cb:
+            progress_cb(index, len(chunks))
+        name = f"{step_prefix}-{chunk[0]:04d}-{chunk[-1]:04d}"
+        parts = tuple(step_parts) + (chunk, len(chunks))
+        result = steps.load(name, *parts) if steps else None
+        if result is None:
+            images, page_labels = [], []
+            for page in chunk:
+                try:
+                    rendered = _render_pdf_page_range(pdf_bytes, page, page)
+                except Exception:
+                    rendered = []
+                if rendered:
+                    images.append(rendered[0])
+                    page_labels.append((labels or {}).get(page) or f"{page}쪽")
+            if images:
+                result = read_batch(images, page_labels, (index, len(chunks), _page_span(chunk)))
+                if steps and not _ai_step_failed(result):
+                    steps.save(name, result, *parts)
+            else:
+                result = {"error": f"{_page_span(chunk)} 렌더링 중 오류가 발생했습니다"}
+            del images
+        done.append((chunk, result))
+    return done
+
+
+def _batch_problem(result):
+    """Why a batch gave nothing usable, or None."""
+    if not isinstance(result, dict):
+        return "응답 형식 오류"
+    if result.get("error"):
+        return str(result["error"])[:200]
+    if _ai_step_failed(result):
+        texts = [result.get("summary")] + list(result.get("notes") or [])
+        return next((str(text)[:200] for text in texts if text), "AI 요청 실패")
+    return None
+
+
+def analyze_architectural_drawings(dwg_data, pdf_bytes, plan=None, steps=None, progress_cb=None, cancel_cb=None):
+    """Architectural quantities from every page of the set, read in batches and joined. The AI
+    sees one batch at a time, so each item is tagged with the pages it came from."""
+    cad_key = _cad_summary_key(dwg_data) if steps else None
+    if not pdf_bytes:
+        result = steps.load("architectural-cad-only", cad_key) if steps else None
+        if result is None:
+            result = analyze_with_gemini(dwg_data, [], ARCHITECTURAL_SYSTEM_PROMPT, "건축도면")
+            if steps and not _ai_step_failed(result):
+                steps.save("architectural-cad-only", result, cad_key)
+        return result
+    plan = plan or _architectural_page_plan(pdf_bytes, dwg_data)
+    if plan["total"] <= 0:
+        return {"items": [], "summary": "", "warnings": [], "missing_info": [
+            "건축도면 PDF에서 읽을 수 있는 페이지가 없습니다 — 파일이 비어있거나 손상됐을 수 있습니다."]}
+    pages = list(range(1, min(plan["total"], MAX_PDF_PAGES_TO_GEMINI) + 1))
+    parts = _read_pages_in_batches(
+        pdf_bytes, pages,
+        lambda images, labels, batch: analyze_with_gemini(dwg_data, images, ARCHITECTURAL_SYSTEM_PROMPT, "건축도면",
+                                                          page_labels=labels, batch=batch),
+        "architectural", steps=steps, step_parts=(cad_key,), progress_cb=progress_cb, cancel_cb=cancel_cb,
+        labels=plan["labels"])
+    items, warnings, missing = [], [], []
+    for chunk, result in parts:
+        span = _page_span(chunk)
+        if result is None:
+            missing.append(f"사용자가 취소를 요청하여 {span}은 처리하지 않았습니다.")
+            continue
+        problem = _batch_problem(result)
+        if problem:
+            missing.append(f"[{span}] 건축 수량산출을 읽지 못했습니다: {problem}")
+            continue
+        for item in result.get("items") or []:
+            if isinstance(item, dict):
+                items.append(dict(item, note=f"[{span}] {item.get('note') or ''}".strip()))
+        warnings += [f"[{span}] {text}" for text in result.get("warnings") or [] if isinstance(text, str)]
+        missing += [f"[{span}] {text}" for text in result.get("missing_info") or [] if isinstance(text, str)]
+    if len(pages) < plan["total"]:
+        missing.insert(0, f"건축도면 PDF {plan['total']}쪽 중 처리 한도({len(pages)}쪽)를 넘는 {len(pages) + 1}~"
+                          f"{plan['total']}쪽은 읽지 않았습니다 — 해당 쪽의 항목은 결과에 없습니다.")
+    summary = (f"건축도면 {len(pages)}쪽을 {len(parts)}묶음으로 나눠 읽고 항목을 이어 붙였습니다. 같은 항목이 여러 쪽"
+               "(평면·일람표 등)에 나오면 중복될 수 있으니 비고의 쪽 근거를 확인해 주세요.")
+    return {"items": items, "summary": summary, "warnings": [summary] + warnings, "missing_info": missing,
+            "pages_read": len(pages), "batches": len(parts)}
+
+
+def review_elevations_and_sections(dwg_data, pdf_bytes, plan=None, steps=None, progress_cb=None, cancel_cb=None):
+    """Floor heights and openings from the elevation and section pages only, read in batches.
+    A floor read in several batches is kept once (the first value); a different value read
+    elsewhere is reported in the notes. Identical openings are kept once."""
+    if not pdf_bytes:
+        return dict(_EMPTY_ELEVATION_SECTION)
+    plan = plan or _architectural_page_plan(pdf_bytes, dwg_data)
+    pages = plan["elevation_pages"]
+    if not pages:
+        return dict(_EMPTY_ELEVATION_SECTION, notes=["건축도면 PDF에서 읽을 수 있는 페이지가 없습니다."])
+    cad_key = _cad_summary_key(dwg_data) if steps else None
+    parts = _read_pages_in_batches(
+        pdf_bytes, pages,
+        lambda images, labels, batch: extract_elevation_section_data(dwg_data, images, page_labels=labels, batch=batch),
+        "elevation", steps=steps, step_parts=(cad_key, plan["elevation_source"]), progress_cb=progress_cb,
+        cancel_cb=cancel_cb, labels=plan["labels"])
+    heights, order, conflicts, openings, seen, notes = {}, [], [], [], set(), []
+    for chunk, result in parts:
+        span = _page_span(chunk)
+        if result is None:
+            notes.append(f"사용자가 취소를 요청하여 {span}은 처리하지 않았습니다.")
+            continue
+        problem = _batch_problem(result)
+        if problem:
+            notes.append(f"[{span}] 입면/단면을 읽지 못했습니다: {problem}")
+            continue
+        for row in result.get("floor_heights") or []:
+            level = re.sub(r"\s+", "", str(row.get("level") or "")) if isinstance(row, dict) else ""
+            if not level:
+                continue
+            if level not in heights:
+                heights[level] = dict(row, note=f"[{span}] {row.get('note') or ''}".strip())
+                order.append(level)
+                continue
+            first, other = heights[level].get("height_m"), row.get("height_m")
+            if isinstance(first, (int, float)) and isinstance(other, (int, float)) and abs(first - other) > 0.005:
+                conflicts.append(f"{row.get('level')} {first}m / {other}m({span})")
+        for row in result.get("openings") or []:
+            if not isinstance(row, dict):
+                continue
+            key = json.dumps(row, ensure_ascii=False, sort_keys=True, default=str)
+            if key not in seen:
+                seen.add(key)
+                openings.append(dict(row, note=f"[{span}] {row.get('note') or ''}".strip()))
+        notes += [f"[{span}] {text}" for text in result.get("notes") or [] if isinstance(text, str)]
+    if conflicts:
+        notes.insert(0, "층고가 도면마다 다르게 읽힌 층이 있습니다(먼저 읽은 값을 사용): " + "; ".join(conflicts[:10]))
+    notes.insert(0, f"{_ELEVATION_SOURCE_TEXT[plan['elevation_source']]} {len(pages)}쪽을 읽었습니다.")
+    return {"floor_heights": [heights[level] for level in order], "openings": openings, "notes": notes,
+            "pages_read": pages}
 
 
 GENERAL_NOTES_SYSTEM_PROMPT = """구조도면의 구조일반사항만 판독하세요. 구조평면도, 건축
@@ -6568,7 +6774,7 @@ def api_run_quantity(request):
 
 # Bump when what an AI step sees changes outside the prompts, model and inputs in _job_step_base,
 # so steps saved by older code are not reused by a resume.
-_JOB_STEP_VERSION = 1
+_JOB_STEP_VERSION = 2
 
 
 def _job_step_base(meta):
@@ -6578,6 +6784,7 @@ def _job_step_base(meta):
     return {"version": _JOB_STEP_VERSION, "model": GEMINI_QUANTITY_MODEL,
             "prompts": hashlib.sha256(prompts.encode("utf-8")).hexdigest(),
             "batch_pages": EXTRACTION_BATCH_PAGE_SIZE, "max_pages": MAX_PDF_PAGES_TO_GEMINI,
+            "architectural_batch_pages": ARCHITECTURAL_BATCH_PAGE_SIZE,
             "inputs": {name: info.get("sha256") for name, info in (meta.get("files") or {}).items()},
             "general_spec": (meta.get("settings") or {}).get("confirmed_general_spec")}
 
@@ -6603,14 +6810,13 @@ def _quantity_job_thread(job_id, owner, inputs, job_settings, kept=None):
             logger.warning("quantity_job_inputs_not_discarded job=%s", job_id[:16])
 
 
-_STEP_LABELS = {"architectural": "건축도면 분석", "elevation": "입면/단면 검토"}
+_STEP_KINDS = (("architectural-", "건축도면 분석 묶음"), ("elevation-", "입면/단면 검토 묶음"),
+               ("structural-", "구조 부재 추출 배치"))
 
 
 def _resume_note(reused):
-    batches = sum(1 for name in reused if name.startswith("structural-"))
-    parts = [_STEP_LABELS[name] for name in ("architectural", "elevation") if name in reused]
-    if batches:
-        parts.append(f"구조 부재 추출 배치 {batches}개")
+    parts = [f"{label} {count}개" for prefix, label in _STEP_KINDS
+             for count in [sum(1 for name in reused if name.startswith(prefix))] if count]
     return ("이어서 실행: 서버가 멈추기 전에 끝난 AI 단계(" + ", ".join(parts) + ")는 저장된 결과를 "
             "다시 사용했습니다 — 이 단계들은 AI를 다시 호출하지 않았습니다.")
 
@@ -6655,7 +6861,6 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                 results["architectural"] = {"items": [], "missing_info": [_note_cancelled_once() or "사용자가 취소를 요청했습니다."], "warnings": []}
             elif architectural_zip_bytes or architectural_pdf_bytes:
                 arch_dwg_data = {}
-                arch_pdf_images = []
 
                 if architectural_zip_bytes:
                     # 2026-07-27: REQUIRED_ARCHITECTURAL의 임의 코드(A-001 등)로 필터링하면
@@ -6663,60 +6868,41 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                     # 모든 dwg/dxf를 대상으로 한다(코드 목록에 의존하지 않음).
                     arch_dwg_data = parse_dwg_from_zip(architectural_zip_bytes, background=True)
 
-                # On a resume, both architectural AI steps may already be saved: the PDF then
-                # need not be rendered again.
-                arch_key = _cad_summary_key(arch_dwg_data) if steps else None
-                arch_saved = bool(steps) and all(steps.has(name, arch_key) for name in ("architectural", "elevation"))
+                # 건축 PDF는 쪽마다 어떤 도면인지(도면번호·제목) 먼저 맞춰 둔다. 건축 수량은 전체 쪽을,
+                # 입면/단면 검토는 입면·단면도 쪽만 몇 쪽씩 나눠 읽는다(쪽수 제한·한꺼번에 렌더링 없음).
+                arch_plan = _architectural_page_plan(architectural_pdf_bytes, arch_dwg_data) if architectural_pdf_bytes else None
 
-                if architectural_pdf_bytes and not arch_saved:
-                    try:
-                        arch_pdf_images = pdf_to_images(architectural_pdf_bytes, max_pages=MAX_PDF_PAGES_TO_GEMINI)
-                    except Exception as e:
-                        arch_pdf_images = []
-                        results["architectural_pdf_error"] = str(e)
-
-                if arch_dwg_data or arch_pdf_images or arch_saved:
+                if arch_dwg_data or (arch_plan and arch_plan["total"]):
                     _report_progress("architectural", 0, 1, "건축도면 분석 중")
-                    results["architectural"] = steps.load("architectural", arch_key) if steps else None
-                    if results["architectural"] is None:
-                        try:
-                            results["architectural"] = analyze_with_gemini(
-                                arch_dwg_data, arch_pdf_images,
-                                ARCHITECTURAL_SYSTEM_PROMPT, "건축도면"
-                            )
-                        except Exception as e:
-                            results["architectural"] = {"error": str(e), "items": [], "missing_info": [f"건축 수량산출 처리 중 오류가 발생했습니다: {str(e)[:300]}"], "warnings": []}
-                        if steps and not _ai_step_failed(results["architectural"]):
-                            steps.save("architectural", results["architectural"], arch_key)
+                    try:
+                        results["architectural"] = analyze_architectural_drawings(
+                            arch_dwg_data, architectural_pdf_bytes, plan=arch_plan, steps=steps, cancel_cb=_cancelled,
+                            progress_cb=lambda i, n: _report_progress("architectural", i, n, f"건축도면 분석 묶음 {i}/{n} 처리 중"),
+                        )
+                    except Exception as e:
+                        results["architectural"] = {"error": str(e), "items": [], "missing_info": [f"건축 수량산출 처리 중 오류가 발생했습니다: {str(e)[:300]}"], "warnings": []}
                     _report_progress("architectural", 1, 1, "건축도면 분석 완료")
 
                     if _cancelled():
                         elevation_data = dict(_EMPTY_ELEVATION_SECTION, notes=[_note_cancelled_once() or "사용자가 취소를 요청했습니다."])
                     else:
                         # 입면도/단면도 검토: 층고 + 개구부(창호) 목록만 별도로 읽음
-                        # (건축 수량산출과 같은 파싱 데이터/이미지를 재사용해 중복 변환을 피한다)
                         _report_progress("elevation", 0, 1, "입면/단면 검토 중")
-                        elevation_data = steps.load("elevation", arch_key) if steps else None
-                        if elevation_data is None:
-                            try:
-                                elevation_data = extract_elevation_section_data(arch_dwg_data, arch_pdf_images)
-                            except Exception as e:
-                                elevation_data = dict(_EMPTY_ELEVATION_SECTION, notes=[f"입면/단면 검토 중 오류: {str(e)[:200]}"])
-                            if steps and not _ai_step_failed(elevation_data):
-                                steps.save("elevation", elevation_data, arch_key)
+                        try:
+                            elevation_data = review_elevations_and_sections(
+                                arch_dwg_data, architectural_pdf_bytes, plan=arch_plan, steps=steps, cancel_cb=_cancelled,
+                                progress_cb=lambda i, n: _report_progress("elevation", i, n, f"입면/단면 검토 묶음 {i}/{n} 처리 중"),
+                            )
+                        except Exception as e:
+                            elevation_data = dict(_EMPTY_ELEVATION_SECTION, notes=[f"입면/단면 검토 중 오류: {str(e)[:200]}"])
                         _report_progress("elevation", 1, 1, "입면/단면 검토 완료")
-                elif architectural_zip_bytes or architectural_pdf_bytes:
-                    # 파일은 올렸지만 arch_dwg_data/arch_pdf_images 둘 다 비어서(PDF 변환 실패 등)
-                    # 분석을 아예 시작도 못한 경우 — 이 사유를 architectural.missing_info에 남겨서
-                    # 프론트엔드가 결과가 0건일 때 "왜"인지 보여줄 수 있게 한다 (그냥 조용히
-                    # results["architectural"] 키 자체가 안 생기면 원인을 알 방법이 없어진다).
-                    pdf_err = results.get("architectural_pdf_error")
-                    reason = (
-                        f"건축도면 PDF를 이미지로 변환하는 중 오류가 발생했습니다: {pdf_err}"
-                        if pdf_err else
+                else:
+                    # 파일은 올렸지만 CAD도 PDF 쪽도 읽을 게 없어서 분석을 아예 시작도 못한 경우 —
+                    # 이 사유를 architectural.missing_info에 남겨서 프론트엔드가 결과가 0건일 때
+                    # "왜"인지 보여줄 수 있게 한다.
+                    results["architectural"] = {"items": [], "missing_info": [
                         "건축도면 파일에서 읽을 수 있는 데이터가 없습니다 — ZIP/PDF가 비어있거나 손상됐을 수 있습니다."
-                    )
-                    results["architectural"] = {"items": [], "missing_info": [reason], "warnings": []}
+                    ], "warnings": []}
 
             # ── 구조 수량산출 ──
             if structural_zip_bytes or structural_pdf_bytes:
