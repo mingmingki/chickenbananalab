@@ -25,23 +25,23 @@
 
 ## Task 1: Closed-position display
 Files: autotrader/templates/dashboard.html; autotrader/tests/test_live_close_refresh_v33_115.py.
-- [ ] Add behavior tests executing the shipped position-selector expression in Node: confirmed flat, unknown fallback, new live position, empty initial state.
-- [ ] Run the new UI tests and observe stale-position failure.
-- [ ] Add a small selector distinguishing confirmed flat from an unknown live value and wire the position card to it.
-- [ ] Run UI and existing dashboard refresh tests.
+- [x] Add behavior tests executing the shipped position-selector expression in Node: confirmed flat, unknown fallback, new live position, empty initial state.
+- [x] Run the new UI tests and observe stale-position failure.
+- [x] Add a small selector distinguishing confirmed flat from an unknown live value and wire the position card to it.
+- [x] Run UI and existing dashboard refresh tests.
 
 ## Task 2: External-close accounting on the existing fast tick
 Files: autotrader/trader.py; autotrader/tests/test_live_close_refresh_v33_115.py.
-- [ ] Add tests proving a confirmed external close is recorded on a fast tick without candles/AI/order calls; repeats are idempotent; network/ledger errors and pending recovery retain state.
-- [ ] Run backend regression tests and observe no-journal failure.
-- [ ] Extract the existing external-close block unchanged into a helper that clears cached position only after recording succeeds.
-- [ ] Call the helper from the main cycle and, after existing settlement/manual guards, from the fast tick for a confirmed flat position.
-- [ ] Run focused regression tests and compare the complete canonical suite with the baseline.
+- [x] Add tests proving a confirmed external close is recorded on a fast tick without candles/AI/order calls; repeats are idempotent; network/ledger errors and pending recovery retain state.
+- [x] Run backend regression tests and observe no-journal failure.
+- [x] Extract the existing external-close block unchanged into a helper that clears cached position only after recording succeeds.
+- [x] Call the helper from the main cycle and, after existing settlement/manual guards, from the fast tick for a confirmed flat position.
+- [x] Run focused regression tests and compare the complete canonical suite with the baseline.
 
 ## Task 3: Review and deploy
-- [ ] Independently review the branch and address important findings with failing tests first.
-- [ ] Commit and push the isolated branch.
-- [ ] Package only changed code/tests and a source manifest; stage from v33-114 with identical runtime symlinks/configuration.
-- [ ] Run server-focused tests and existing guarded deployment preflight, preserving requested engines and settings hash.
-- [ ] Deploy, verify resume checkpoint, protection/quantity parity, API state and source hashes.
-- [ ] Report exact deployment scope and a separate same-basis account-peak/realized/unrealized analysis.
+- [x] Independently review the branch and address important findings with failing tests first.
+- [x] Commit and push the isolated branch.
+- [x] Package only changed code/tests and a source manifest; stage from v33-114 with identical runtime symlinks/configuration.
+- [x] Run server-focused tests and existing guarded deployment preflight, preserving requested engines and settings hash.
+- [x] Deploy, verify resume checkpoint, protection/quantity parity, API state and source hashes.
+- [x] Report exact deployment scope and a separate same-basis account-peak/realized/unrealized analysis.
