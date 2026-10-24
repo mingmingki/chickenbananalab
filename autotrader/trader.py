@@ -3955,6 +3955,32 @@ def _core_gemini_add_entry_gate(cfg,client,symbol,tf_list,summary,position,decis
         entry_side=position['side'],entry_mark_price=mark,entry_protection=protection))
 
 
+def _observe_core_ai_plan_shadow(cfg, symbol, *, event, frames=None, now=None,
+                                 decision=None, position=None, protection=None,
+                                 receipt=None, gates=None, context=None):
+    """Observational boundary only: no client, no return value used for orders."""
+    try:
+        if (symbol not in config.CORE_SYMBOLS or not strategy_authority.core_ai(cfg)):
+            return
+        from pathlib import Path
+        if not (Path(cfg.user_dir)/'core_ai_plan_shadow_v33_112.enabled').is_file():
+            return
+        import core_ai_plan_shadow_v33_112 as plan_shadow
+        opening = trade_log.last_unclosed_open(cfg.user_dir, symbol) if position else None
+        frame = frames.get('5m') if isinstance(frames, dict) else None
+        result = plan_shadow.capture(
+            cfg, symbol, config.CORE_SYMBOLS, event=event,
+            now=now or datetime.datetime.now(datetime.timezone.utc), bars=frame,
+            decision=decision, position=position, opening=opening,
+            protection=protection, receipt=receipt, gates=gates, context=context)
+        if result.get('status') == 'unavailable':
+            cfg.logger.warning('[%s] CORE_AI_PLAN_SHADOW_V33_112_UNAVAILABLE error=%s',
+                               symbol, result.get('error'))
+    except Exception:
+        cfg.logger.warning('[%s] CORE_AI_PLAN_SHADOW_V33_112_UNAVAILABLE',
+                           symbol, exc_info=True)
+
+
 def _management_review_frames(cfg, client, raw_dfs):
     frames = dict(raw_dfs)
     missing = [tf for tf in core_management_context_v33_77.TF_SECONDS if tf not in frames]
@@ -4254,6 +4280,13 @@ def _handle_position_ai_review(
         fraction_basis='initial' if adaptive_reduction.enabled(cfg) and strategy_authority.core_ai(cfg) else None,
         risk_level=gpt_result.get('risk_level'),
     )
+    _observe_core_ai_plan_shadow(
+        cfg, symbol, event='management_decision', frames=raw_dfs,
+        decision=gpt_result, position=position, protection=protection, receipt=review_id,
+        context=dict(review_path=review_path, decision_regime=decision.get('market_regime'),
+                     market_asof=decision.get('_candle_asof'),
+                     fraction_basis='initial' if adaptive_reduction.enabled(cfg)
+                                    and strategy_authority.core_ai(cfg) else None))
     display_action = (f"REDUCE_INITIAL_{gpt_result.get('reduce_fraction')}" if adaptive_reduction.enabled(cfg)
                       and strategy_authority.core_ai(cfg) and action == 'REDUCE_50'
                       else "REDUCE_STEP_25" if action == "REDUCE_50" else action)
@@ -5903,6 +5936,10 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
                 state.update_symbol(symbol, position=position, live_position=position, last_update=datetime.datetime.now())
                 return
 
+        _observe_core_ai_plan_shadow(
+            cfg, symbol, event='market_tick', frames=closed_dfs,
+            now=market_candle_asof)
+
         # Passive two-week experiment: no orders, no protection changes, no AI action.
         if (strategy_authority.core_ai(cfg) and getattr(cfg, 'CORE_TREND_SIMPLE_V33_106', False)):
             try:
@@ -6156,6 +6193,10 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
     import core_entry_ai_prefilter_v33_109 as entry_prefilter
     prefilter = entry_prefilter.assess(cfg, position, closed_dfs, as_of=market_candle_asof)
     if prefilter['skip_ai']:
+        _observe_core_ai_plan_shadow(
+            cfg, symbol, event='prefilter_skip', now=market_candle_asof,
+            gates=prefilter.get('gates'), context=dict(trigger=ai_budget['reason'],
+                                                    ai_not_evaluated_reason=prefilter['reason']))
         previous_skip = state.snapshot().get('symbols', {}).get(symbol, {}).get('core_entry_ai_prefilter') or {}
         state.update_symbol(symbol, core_entry_ai_prefilter=dict(
             prefilter, skipped_calls=int(previous_skip.get('skipped_calls') or 0)+1,
@@ -6245,6 +6286,13 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
             decision = gemini_analyzer.analyze(cfg, symbol, tf_list, candle_summary, position, protection=primary_protection)
         else:
             decision = gemini_analyzer.analyze(cfg, symbol, tf_list, candle_summary, position)
+    _observe_core_ai_plan_shadow(
+        cfg, symbol, event='primary_decision', frames=closed_dfs,
+        decision=decision, position=position, protection=primary_protection,
+        gates=prefilter.get('gates'),
+        context=dict(market_asof=market_candle_asof.isoformat(),
+                     trigger=ai_budget['reason'],
+                     snapshot_id=market_snapshot.get('snapshot_id') if market_snapshot else None))
     decision["_entry_timing"] = entry_timing
     decision["_candle_asof"] = market_candle_asof.isoformat()
     decision["_market_context"] = ({key: market_snapshot.get(key) for key in ("snapshot_id", "as_of", "status")}

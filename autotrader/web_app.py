@@ -1099,6 +1099,17 @@ def api_operating_costs():
     return jsonify(ok=True, summary=operating_costs.build_operating_cost_summary(ctx.dir))
 
 
+@app.route('/api/ops/core-ai-plan-shadow-v33-112', methods=['GET'])
+@login_required
+def api_core_ai_plan_shadow_v33_112():
+    """Session-scoped, read-only research evidence; never a promotion endpoint."""
+    import core_ai_plan_shadow_v33_112 as plan_shadow
+    ctx = get_context(session['username'])
+    report = plan_shadow.read_snapshot(ctx.dir, details=request.args.get('details') == '1')
+    return jsonify(ok=report['status'] != 'unavailable', report=report,
+                   execution_permission=False), (503 if report['status'] == 'unavailable' else 200)
+
+
 @app.route('/api/ops/profitability-v33-101', methods=['GET'])
 @login_required
 def api_profitability_v33_101():
