@@ -3351,8 +3351,6 @@ function renderMarketContext(snapshot, symbols) {
 }
 
 async function refreshState() {
-  const costPromise = fetchWithTimeout('/api/operating-costs').catch(() => null);
-  const obsPromise = fetchWithTimeout('/api/ops-observability').catch(() => null);
   let res;
   try {
     res = await fetchWithTimeout("/api/state");
@@ -3361,28 +3359,6 @@ async function refreshState() {
   const s = await res.json();
   if (typeof renderStrategyGuide === 'function') renderStrategyGuide(s.strategy_guide);
   renderMarketContext(s.market_context, s.symbols);
-  const costRes = await costPromise;
-  if (costRes && costRes.ok) {
-    try {
-      const costPayload = await costRes.json();
-      updateOperatingCostPanel(costPayload.summary || null);
-    } catch (e) {
-      // Cost observability must never block the main trading dashboard refresh.
-    }
-  }
-
-  const obsRes = await obsPromise;
-  if (obsRes && obsRes.ok) {
-    try {
-      const obsPayload = await obsRes.json();
-      if (typeof renderOpsObservability === 'function') {
-        renderOpsObservability(obsPayload.snapshot || null);
-      }
-    } catch (e) {
-      // Strategy/ops observability must never block the main trading dashboard refresh.
-    }
-  }
-
   const adaptiveExit = s.adaptive_exit || {};
   const adaptiveExitEl = document.getElementById('adaptive-exit-summary');
   if (adaptiveExitEl) {
@@ -4776,7 +4752,32 @@ async function fetchJsonConditional(url, timeoutMs = FETCH_TIMEOUT_MS) {
 
 // fn을 intervalMs마다 반복 호출하되, 이전 호출이 아직 진행 중이면(느린 응답/네트워크
 // 지연 등) 이번 차례는 건너뛴다 - 이게 "동시 호출 겹침"을 원천적으로 막는 핵심 가드다.
-function guardedPoll(fn, intervalMs) {
+async function refreshOpsObservability() {
+  try {
+    const response = await fetchWithTimeout('/api/ops-observability');
+    if (!response.ok) return;
+    const payload = await response.json();
+    if (typeof renderOpsObservability === 'function') {
+      renderOpsObservability(payload.snapshot || null);
+    }
+  } catch (_) {
+    // Keep the last observation; optional statistics never delay trading cards.
+  }
+}
+
+// Manual refresh, polling and report copies share an in-flight request per panel.
+function coalesceRefresh(fn) {
+  let pending = null;
+  return function (...args) {
+    if (pending) return pending;
+    pending = Promise.resolve().then(() => fn.apply(this, args)).finally(() => {
+      pending = null;
+    });
+    return pending;
+  };
+}
+
+function guardedPoll(fn, intervalMs, refreshOnVisible = false) {
   let busy = false;
   const run = async () => {
     if (busy || document.hidden) return;
@@ -4789,10 +4790,26 @@ function guardedPoll(fn, intervalMs) {
   };
   run();
   setInterval(run, intervalMs);
+  if (refreshOnVisible) {
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) run();
+    });
+  }
 }
 
+refreshState = coalesceRefresh(refreshState);
+refreshCandidateC = coalesceRefresh(refreshCandidateC);
+refreshPnlSummary = coalesceRefresh(refreshPnlSummary);
+refreshOperatingCosts = coalesceRefresh(refreshOperatingCosts);
+refreshOpsObservability = coalesceRefresh(refreshOpsObservability);
+refreshTradesFiltered = coalesceRefresh(refreshTradesFiltered);
+refreshShadow = coalesceRefresh(refreshShadow);
+refreshLogs = coalesceRefresh(refreshLogs);
+refreshMarketStructure = coalesceRefresh(refreshMarketStructure);
+
 guardedPoll(refreshOperatingCosts, 60000);
-guardedPoll(refreshState, 2000);
+guardedPoll(refreshOpsObservability, 60000);
+guardedPoll(refreshState, 2000, true);
 // 로그는 cursor 이후 delta만 받는다. 전체 ring-buffer를 2초마다 재전송하던 구조를 제거한다.
 guardedPoll(refreshLogs, 10000);
 // 거래기록은 완전청산 때만, GPT gate shadow는 후보 판단 때만 바뀐다. ETag 304와 함께
@@ -4800,8 +4817,8 @@ guardedPoll(refreshLogs, 10000);
 guardedPoll(refreshTradesFiltered, 60000);
 guardedPoll(refreshShadow, 30000);
 guardedPoll(refreshFxRate, 1800000); // 서버가 하루 1회만 실제로 외부 호출하므로 30분 간격이면 충분
-guardedPoll(refreshPnlSummary, 15000);
-guardedPoll(refreshCandidateC, 5000);
+guardedPoll(refreshPnlSummary, 15000, true);
+guardedPoll(refreshCandidateC, 5000, true);
 
 // 제목 옆 수동 새로고침 버튼(사용자 지시 2026-08-28) - 위 guardedPoll들과 똑같은
 // 이유로(주석 참고: 여러 API를 동시에 부르면 순간 메모리가 크게 튐 - 실측 +221MB)
@@ -4811,14 +4828,16 @@ guardedPoll(refreshCandidateC, 5000);
 async function refreshAllNow(btn) {
   if (btn) { btn.disabled = true; btn.classList.add("spinning"); }
   try {
+    // Balances and positions render first; slower history/statistics follow.
     await refreshState();
-    await refreshOperatingCosts();
-    await refreshTradesFiltered();
-    await refreshPnlSummary();
     await refreshCandidateC();
+    await refreshPnlSummary();
+    await refreshTradesFiltered();
     await refreshShadow();
     await refreshMarketStructure();
     await refreshLogs();
+    await refreshOperatingCosts();
+    await refreshOpsObservability();
   } finally {
     if (btn) { btn.disabled = false; btn.classList.remove("spinning"); }
   }

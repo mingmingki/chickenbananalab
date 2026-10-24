@@ -3,7 +3,7 @@ from pathlib import Path
 HTML = Path("templates/dashboard.html").read_text(encoding="utf-8")
 
 def test_dashboard_fetches_operating_cost_api():
-    assert "fetchWithTimeout('/api/operating-costs')" in HTML
+    assert "fetchWithTimeout('/api/operating-costs')" in (HTML + Path("static/operating_observability.js").read_text(encoding="utf-8"))
 
 def test_dashboard_renders_all_operating_cost_fields():
     for field in ("ai-24h-cost","ai-monthly-projection","server-monthly-projection","ops-monthly-projection","operating-cost-assumptions"):

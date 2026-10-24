@@ -8466,7 +8466,7 @@ def _run_core_fast_tick(cfg, state, client, symbol):
 # 뜻일 뿐 삭제된 FAST(XRP/PI 60초 스캘프) 엔진과는 아무 관계가 없었는데, 이름만 보고
 # FAST 관련 기능으로 오인되는 사고가 실제로 있었다. 매매 판단/주문에는 전혀 관여하지
 # 않는 "표시 전용" 갱신 루프라는 걸 이름 자체가 드러내도록 바꿨다.
-LIVE_DISPLAY_REFRESH_SECONDS = 10
+LIVE_DISPLAY_REFRESH_SECONDS = 5
 
 # 연속 네트워크 오류가 나도 매 주기(10초)마다 경고를 계속 찍으면 장애가 길어질 때 로그가
 # 그것대로 지저분해진다 - 처음 한 번과 이후 N회마다만 요약해서 찍는다.
