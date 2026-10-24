@@ -76,6 +76,8 @@ def _default_state(side: str, entry_price: float, entry_time, initial_contracts:
         "last_negative_guard_review_bar": None,
         "last_block_reason": None,
         "last_block_time": None,
+        "structure_profit_live_done": False,
+        "structure_profit_live_reason": None,
     }
 
 
@@ -151,6 +153,9 @@ def record_stage_executed(
         # 단계의 남은 목표량만 다시 검토할 수 있게 한다.
         if stage_completed:
             sym_state["reduce_stage"] = max(sym_state.get("reduce_stage", 0), stage)
+            if sym_state.get('adaptive_reduce_target_stage') == stage:
+                sym_state['adaptive_reduce_target_contracts'] = None
+                sym_state['adaptive_reduce_target_stage'] = None
         sym_state["last_reduction_order_time"] = datetime.datetime.now().isoformat(timespec="seconds")
         sym_state["last_reduction_filled_contracts"] = filled_contracts
         sym_state["last_block_reason"] = None

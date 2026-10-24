@@ -42,7 +42,7 @@ class _EntryGateClient:
         )
 
 
-def test_openai_entry_gate_keeps_valid_recovery_plan_when_gemini_plan_missing(monkeypatch, tmp_path):
+def test_openai_entry_gate_ignores_gpt_price_recovery_when_gemini_plan_missing(monkeypatch, tmp_path):
     payload = {
         "decision": "approve_now",
         "confidence": 0.91,
@@ -63,8 +63,8 @@ def test_openai_entry_gate_keeps_valid_recovery_plan_when_gemini_plan_missing(mo
         {"action": "long", "confidence": 0.8, "exit_plan": None, "reasoning": "entry"},
         timeout=1.0, purpose="entry_gate", max_retries=0,
     )
-    assert result["exit_plan_decision"] == "revise"
-    assert result["exit_plan"]["stop_loss_price"] == 96.0
+    assert result["exit_plan_decision"] == "not_applicable"
+    assert result["exit_plan"] is None
 
 
 def test_candidate_c_gate_uses_gemini_price_proposal_and_returns_verified_plan(monkeypatch, tmp_path):

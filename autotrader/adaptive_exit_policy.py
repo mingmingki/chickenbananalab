@@ -28,6 +28,9 @@ _POLICY = {
     'learning_max_modifier': 0.20,
     'reduction_cooldown_seconds': 900,
     'noise_buffer_atr_fraction': 0.25,
+    'max_leveraged_stop_loss_pct': 20.0,
+    'max_leveraged_tp1_gain_pct': 30.0,
+    'max_leveraged_tp2_gain_pct': 60.0,
 }
 
 _RANGES = {
@@ -40,6 +43,9 @@ _RANGES = {
     'min_post_cost_rr': (0.5, 5.0), 'gemini_max_risk_reduction': (0.0, 1.0),
     'learning_max_modifier': (0.0, 0.5), 'reduction_cooldown_seconds': (60, 86400),
     'noise_buffer_atr_fraction': (0.0, 2.0),
+    'max_leveraged_stop_loss_pct': (5.0, 100.0),
+    'max_leveraged_tp1_gain_pct': (5.0, 150.0),
+    'max_leveraged_tp2_gain_pct': (10.0, 300.0),
 }
 
 def production_adaptive_exit_policy() -> dict:

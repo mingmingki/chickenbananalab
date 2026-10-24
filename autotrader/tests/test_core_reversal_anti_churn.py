@@ -2,6 +2,7 @@ import datetime
 import logging
 from types import SimpleNamespace
 
+from state import TraderState
 import trader
 import symbol_entry_control
 
@@ -65,7 +66,7 @@ def test_gpt_wait_does_not_flatten_existing_position(tmp_path, monkeypatch):
     monkeypatch.setattr(trader, "_execute_close", lambda *a, **k: closes.append(True) or True)
 
     trader._handle_new_entry(
-        cfg, SimpleNamespace(), client, SYMBOL, "short",
+        cfg, TraderState(), client, SYMBOL, "short",
         {"action": "short", "confidence": .8}, "d1", "reversal_entry",
         ["5m"], "summary", position, 1.50, 100.0, 1.53, 1.44,
         reversal_position=position,
@@ -92,7 +93,7 @@ def test_approved_reversal_closes_then_enters_under_same_commit(tmp_path, monkey
     monkeypatch.setattr(trader, "_execute_entry", fake_entry)
 
     ok = trader._execute_approved_entry_with_optional_reversal(
-        cfg, SimpleNamespace(), client, SYMBOL, "short", 100.0,
+        cfg, TraderState(), client, SYMBOL, "short", 100.0,
         1.50, 1.53, 1.44, reversal_position=position,
         decision_id="d2", decision={"action": "short"},
     )
@@ -110,7 +111,7 @@ def test_reversal_stale_approved_price_keeps_existing_position(tmp_path, monkeyp
     monkeypatch.setattr(trader, "_execute_close", lambda *a, **k: closes.append(True) or True)
 
     ok = trader._execute_approved_entry_with_optional_reversal(
-        cfg, SimpleNamespace(), client, SYMBOL, "short", 100.0,
+        cfg, TraderState(), client, SYMBOL, "short", 100.0,
         1.50, 1.53, 1.44, reversal_position=position,
     )
 
@@ -171,7 +172,7 @@ def test_post_close_daily_loss_recheck_stays_flat_without_entry(tmp_path, monkey
     monkeypatch.setattr(trader, "_execute_entry", fake_entry)
 
     ok = trader._execute_approved_entry_with_optional_reversal(
-        cfg, SimpleNamespace(), client, SYMBOL, "short", 100.0,
+        cfg, TraderState(), client, SYMBOL, "short", 100.0,
         1.50, 1.53, 1.44, reversal_position=position,
     )
 

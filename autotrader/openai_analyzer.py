@@ -276,7 +276,10 @@ def _condensed_tactical_candle_summary(candle_summary: str) -> str:
     prefix = f"[{label}]"
     for line in candle_summary.split("\n"):
         if line.startswith(prefix):
-            return line
+            import market_context
+            import core_entry_timing
+            return (line + market_context.preserve_prompt_block(candle_summary)
+                    + core_entry_timing.preserve_prompt_block(candle_summary))
     return candle_summary
 
 
@@ -367,7 +370,8 @@ def verify(
             fixed_margin=short_level_ctx.get("fixed_margin"),
             max_margin=short_level_ctx.get("max_margin"),
         )
-        effective_candle_summary = _condensed_tactical_candle_summary(candle_summary)
+        if purpose != "entry_gate":
+            effective_candle_summary = _condensed_tactical_candle_summary(candle_summary)
 
     prompt = PROMPT_TEMPLATE.format(
         symbol=symbol,
@@ -383,9 +387,51 @@ def verify(
         gemini_reasoning=gemini_decision.get("reasoning", ""),
         execution_context=EXECUTION_CONTEXT.get(purpose, EXECUTION_CONTEXT["shadow"]),
         short_level_context=short_level_context,
-        exit_price_contract=(__import__("adaptive_exit_engine").format_ai_price_contract(exit_price_contract) if exit_price_contract else ""),
+        exit_price_contract=(__import__("adaptive_exit_engine").format_ai_price_contract(exit_price_contract) if exit_price_contract and purpose != "entry_gate" else ""),
     )
 
+    if purpose == "entry_gate":
+        # Only send direction/time evidence: no Gemini exit_plan, no price
+        # contract, no GPT pricing request or price-dependent approval.
+        prompt = (
+            "당신은 암호화폐 자동매매 CORE의 LONG/SHORT 방향 및 즉시 진입시점 승인자입니다.\n"
+            "GPT는 가격계획, SL/TP, 증거금, 포지션 크기를 검토·수정·승인·거절하지 않습니다. "
+            "이 항목은 Gemini와 별도 로컬 안전검사 담당입니다.\n"
+            "1D/4H는 배경, 1H는 추세, 3m/5m는 초기 진입 판단입니다. "
+            "명확한 조정·추세전환 초입을 놓치지 말되 뒤늦은 추격은 승인하지 마세요. "
+            "롱/숏 대칭으로 신중하게 판단하세요.\n"
+            "심볼: {symbol} / 프레임: {frames} / 기존 포지션: {position}\n"
+            "Gemini 방향: {action} / 확신도: {conf} / 레짐: {regime} "
+            "/ 정합성: {alignment}\n"
+            "Gemini의 방향판단 근거: {reason}\n"
+            "{short_context}\n시장판단 데이터:\n{summary}\n"
+            "진입 관찰자료: {observations}\n"
+            "결론은 지금 방향/타이밍에 대해 approve_now, wait, reject 세 개만 허용합니다. "
+            "SL/TP 가격이나 변경 제안 없이 JSON으로만 답하세요.\n"
+            "{{\"decision\":\"approve_now|wait|reject\","
+            "\"confidence\":0.0,\"reasoning\":\"방향·진입시점에 대한 이유\"}}"
+        ).format(
+            symbol=symbol, frames=", ".join(timeframes.label(tf) for tf in tf_list),
+            position=position_desc, action=gemini_decision.get("action"),
+            conf=gemini_decision.get("confidence"),
+            regime=gemini_decision.get("market_regime") or "-",
+            alignment=gemini_decision.get("trade_alignment") or "-",
+            reason=gemini_decision.get("reasoning") or "",
+            short_context=short_level_context, summary=effective_candle_summary,
+            observations=json.dumps(gemini_decision.get("_core_entry_observations") or {},
+                                    ensure_ascii=False,default=str),
+        )
+
+    if purpose == "entry_gate" and getattr(cfg,'CORE_AI_STRATEGY_AUTHORITY',False):
+        import core_entry_economics_v33_77
+        prompt=core_entry_economics_v33_77.prompt(
+            symbol=symbol,frames=tf_list,position=position_desc,decision=gemini_decision,
+            summary=effective_candle_summary,short_context=short_level_context,contract=exit_price_contract)
+
+    market_meta = gemini_decision.get("_market_context") or {}
+    if market_meta.get("snapshot_id"):
+        log.info("[%s] MARKET_CONTEXT_INPUT model=gpt purpose=%s snapshot=%s status=%s", symbol, purpose,
+                 market_meta["snapshot_id"], market_meta.get("status"))
     _ensure_response_models_warmed_up()
     client = _get_client(cfg)
     client_options = {}
@@ -406,6 +452,9 @@ def verify(
         # 진입 로그(section 17: "GPT_RESPONSE_MS")에 쓸 수 있게 한다 - purpose와
         # 무관하게 항상 계산한다(값 하나 계산일 뿐, 별도 동작을 추가하는 게 아니다).
         elapsed_ms = (time.monotonic() - _start_monotonic) * 1000
+        usage_log.record_api_attempt(cfg.user_dir,symbol,'openai',purpose,cfg.OPENAI_MODEL,
+            response_ms=elapsed_ms,timed_out=timed_out,error_type=error_reason,
+            retry_limit=(max_retries if max_retries is not None else getattr(client,'max_retries',None)))
         # 디스크 기록(gpt_latency_log)은 purpose="entry_gate"일 때만 한다(2026-08-29,
         # 사용자 지시 - 이번 작업 범위는 Entry Gate뿐, Shadow/Hold Audit은 건드리지
         # 않음). fail-open: 로깅 자체가 실패해도 실제 검증 결과 반환에는 영향 없음.
@@ -414,7 +463,8 @@ def verify(
                 gpt_latency_log.record_call(
                     cfg.user_dir, symbol=symbol, purpose=purpose, model=cfg.OPENAI_MODEL,
                     request_start=request_start_iso, response_ms=elapsed_ms,
-                    timed_out=timed_out, retry_count=(max_retries if max_retries is not None else 2),
+                    timed_out=timed_out, retry_count=None,
+                retry_limit=(max_retries if max_retries is not None else getattr(client, "max_retries", None)),
                     error_reason=error_reason, prompt_chars=len(prompt),
                     prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
                 )
@@ -427,13 +477,28 @@ def verify(
             model=cfg.OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
+            **(__import__('core_entry_economics_v33_77').request_options(cfg.OPENAI_MODEL)
+               if purpose == 'entry_gate' and getattr(cfg,'CORE_AI_STRATEGY_AUTHORITY',False) else {}),
         )
     except Exception as exc:
         internal_reason = _classify_openai_error(exc)
         canonical_reason = _canonical_error_reason(internal_reason)
-        log.exception("[%s] GPT 검증 API 호출 실패(원인=%s, timeout=%s)", symbol, internal_reason, timeout)
+        log.warning("[%s] GPT 검증 API 호출 실패 reason=%s error_type=%s timeout=%s",
+                    symbol,canonical_reason,type(exc).__name__,timeout)
         elapsed_ms = _log_latency(timed_out=(internal_reason == "timeout"), error_reason=canonical_reason)
-        return {"decision": None, "confidence": None, "reasoning": "", "error_reason": canonical_reason, "response_ms": elapsed_ms}
+        body = getattr(exc,"body",None)
+        error = body.get("error",body) if isinstance(body,dict) else {}
+        code = error.get("code") if isinstance(error,dict) else None
+        category = ("timeout" if isinstance(exc,openai.APITimeoutError) else
+                    "authentication_error" if isinstance(exc,openai.AuthenticationError) else
+                    "billing_error" if code in ("insufficient_quota","billing_hard_limit_reached") else
+                    "rate_limit" if isinstance(exc,openai.RateLimitError) else
+                    "server_error" if isinstance(exc,openai.InternalServerError) else canonical_reason)
+        return {"decision": "TIMEOUT" if internal_reason == "timeout" and purpose == "entry_gate" else None,
+                "confidence":None,"reasoning":"","error_reason":canonical_reason,
+                "error_type":type(exc).__name__,"error_category":category,
+                "http_status":getattr(exc,"status_code",None),"response_ms":elapsed_ms,
+                "request_purpose":purpose,"timeout_confirmed":isinstance(exc,openai.APITimeoutError)}
 
     usage = getattr(response, "usage", None)
     usage_prompt_tokens = usage_completion_tokens = None
@@ -446,16 +511,29 @@ def verify(
                 symbol,
                 usage.prompt_tokens or 0,
                 usage.completion_tokens or 0,
-                provider="openai",
+                provider="openai", purpose=purpose,
+                **usage_log.response_metadata(response, model=cfg.OPENAI_MODEL, prompt=prompt,
+                                              retry_limit=getattr(client, "max_retries", None)),
             )
         except Exception:
             log.exception("[%s] GPT 토큰 사용량 기록 실패", symbol)
 
-    text = (response.choices[0].message.content or "").strip()
+    try:
+        text = (response.choices[0].message.content or "").strip()
+    except (AttributeError,IndexError,TypeError):
+        text = ""
+    if not text:
+        elapsed_ms=_log_latency(timed_out=False,error_reason="empty_response",
+                               prompt_tokens=usage_prompt_tokens,completion_tokens=usage_completion_tokens)
+        return {"decision":None,"confidence":None,"reasoning":"","error_reason":"empty_response",
+                "error_type":"EmptyResponse","request_purpose":purpose,"timeout_confirmed":False,
+                "response_ms":elapsed_ms}
     try:
         result = json.loads(text)
-    except json.JSONDecodeError:
-        log.error("[%s] GPT 검증 응답 파싱 실패: %s", symbol, text)
+        if not isinstance(result,dict):
+            raise ValueError("response_object_required")
+    except (json.JSONDecodeError,ValueError):
+        log.error("[%s] GPT 검증 응답 파싱 실패", symbol)
         elapsed_ms = _log_latency(timed_out=False, error_reason="parse_error",
                                    prompt_tokens=usage_prompt_tokens, completion_tokens=usage_completion_tokens)
         return {"decision": None, "confidence": None, "reasoning": "", "error_reason": "parse_error", "response_ms": elapsed_ms}
@@ -478,6 +556,16 @@ def verify(
         log.warning("[%s] GPT 검증 응답의 confidence 값이 유효하지 않음(%r) - None으로 대체", symbol, confidence)
         confidence = None
     result["confidence"] = confidence
+
+    if purpose == "entry_gate":
+        # Treat all legacy price fields in provider responses as inert.
+        result["exit_plan_decision"] = "not_applicable"
+        result["exit_plan"] = None
+        result["error_reason"] = None
+        result["response_ms"] = _log_latency(
+            timed_out=False, error_reason=None,
+            prompt_tokens=usage_prompt_tokens, completion_tokens=usage_completion_tokens)
+        return result
 
     verdict = result.get("exit_plan_decision")
     # exit_plan_only is intentionally independent from entry timing/direction opinion.
@@ -607,6 +695,8 @@ def verify_hold_audit(
                 usage.completion_tokens or 0,
                 provider="openai",
                 purpose="hold_audit",
+                **usage_log.response_metadata(response, model=cfg.OPENAI_MODEL, prompt=prompt,
+                                              retry_limit=getattr(client, "max_retries", None)),
             )
         except Exception:
             log.exception("[%s] GPT Hold Audit 토큰 사용량 기록 실패", symbol)
@@ -683,6 +773,17 @@ confidence를 낮게 주지 말고, 아래 네 가지 중 지금 이 포지션�
 {action_guide}
 """
 
+CORE_MANAGEMENT_PROMPT_TEMPLATE = """CORE 보유 전략 최종 검토자. TF={timeframes_desc}.
+{candle_summary}
+현재 포지션: {position_desc}
+Gemini primary action={gemini_action},근거={gemini_reasoning}
+Gemini 보유평가={review_assessment},confidence={review_confidence},근거={review_reasoning}
+아직 미실행. 추세 유지와 이익보호를 구분하고 MFE/되돌림·누적감축·잔여수량·미확인 주문을 반영하세요.
+보유/부분익절/부분손절/전량청산/고정금 추가를 AI가 판단하며 기존 SL/TP를 악화시키지 마세요.
+JSON만: action={action_schema},confidence=0..1,reasoning=구체적 차트·위험 근거 1~2문장.
+{action_guide}
+"""
+
 
 def verify_position_management(
     cfg, symbol: str, tf_list: list, candle_summary: str, position: dict, gemini_decision: dict,
@@ -731,6 +832,12 @@ def verify_position_management(
         "CLOSE_ALL": '- "CLOSE_ALL": close the entire current position because its thesis is invalidated.',
         "ADD_POSITION": '- "ADD_POSITION": add exposure only in the separately permitted averaging path; never loosen the stop.',
     }
+    import adaptive_reduction
+    import core_management_policy
+    adaptive_partials = getattr(cfg, 'CORE_AI_STRATEGY_AUTHORITY', False) and (adaptive_reduction.enabled(cfg) or core_management_policy.enabled(cfg))
+    if adaptive_partials:
+        action_guides['REDUCE_50'] = ('- "REDUCE_50": partial reduction using explicit reduce_fraction '
+            '0.05..0.50 of INITIAL contracts; action name is a legacy identifier, not a size.')
     action_guide = "\n".join(action_guides[action] for action in permitted_actions)
     if permitted_actions == ("HOLD", "REDUCE_50"):
         action_guide += "\nDo not choose CLOSE_ALL or ADD_POSITION in this review path."
@@ -738,11 +845,17 @@ def verify_position_management(
         action_guide += "\nThis is an exit-risk escalation. Do not choose ADD_POSITION."
 
 
-    prompt = POSITION_MANAGEMENT_PROMPT_TEMPLATE.format(
+    core_authority = getattr(cfg, 'CORE_AI_STRATEGY_AUTHORITY', False) is True
+    if core_authority:
+        import core_ai_context
+        candle_summary = core_ai_context.management_facts(candle_summary)
+        position_desc += '; 보호주문=' + json.dumps(protection, ensure_ascii=False, separators=(',', ':'))
+    prompt = (CORE_MANAGEMENT_PROMPT_TEMPLATE if core_authority else POSITION_MANAGEMENT_PROMPT_TEMPLATE).format(
         timeframes_desc=", ".join(timeframes.label(tf) for tf in tf_list),
         candle_summary=candle_summary,
         position_desc=position_desc,
         gemini_reasoning=gemini_decision.get("reasoning", ""),
+        gemini_action=gemini_decision.get('action'),
         review_assessment=gemini_review.get("assessment"),
         review_confidence=gemini_review.get("confidence"),
         review_reasoning=gemini_review.get("reasoning", ""),
@@ -750,6 +863,21 @@ def verify_position_management(
         action_guide=action_guide,
     )
 
+    if adaptive_partials:
+        prompt += ("\n[CORE 위험도별 감축] Gemini risk_level=" + str(gemini_review.get('risk_level'))
+                   + ", suggested_reduce_fraction=" + str(gemini_review.get('suggested_reduce_fraction'))
+                   + ". Gemini의 위험도·비율 제안을 검토하고, REDUCE_50 선택 시 JSON에 "
+                   "risk_level(low/medium/high)과 reduce_fraction(0.05..0.50 숫자)을 반드시 포함하세요. "
+                   "이는 최초 계약수 대비 이번 추가 감축 비율이며 누적 부분감축 한도는 최초수량50%입니다. "
+                   "수익보호 또는 손실방어 이유를 설명하고 임의의 고정25%나 확신도만으로 비율을 정하지 마세요. "
+                   "추세 유지와 부분익절은 양립 가능하며 CLOSE_ALL은 별도 판단입니다. "
+                   "HOLD/CLOSE_ALL/ADD_POSITION이면 reduce_fraction은 0입니다. 로컬 차트는 판단 근거입니다.\n")
+    elif getattr(cfg,'CORE_AI_STRATEGY_AUTHORITY',False):
+        prompt += ("\n[CORE AI 전략 권한] Gemini 평가/권고를 검토하여 보유·부분익절·부분손절·전량청산을 결정하세요. "
+                   "동일 포지션의 MFE, 실제 누적 감축과 잔여 수량을 반영하세요. "
+                   "추세 유지와 부분익절은 양립 가능합니다. REDUCE_50은 최초수량의 25% 한 단계이며 "
+                   "누적 50% 상한과 봉별 중복 방지를 유지합니다. CLOSE_ALL은 부분감축 후에도 선택할 수 있습니다. "
+                   "숫자/차트 근거를 설명하되 로컬 추격·감축 조건이나 감축후 15분을 필수 승인조건으로 요구하지 마세요.\n")
     _ensure_response_models_warmed_up()
     client = _get_client(cfg)
     client_options = {}
@@ -767,11 +895,15 @@ def verify_position_management(
     def _log_latency(timed_out: bool, error_reason: str | None,
                       prompt_tokens: int | None = None, completion_tokens: int | None = None) -> float:
         elapsed_ms = (time.monotonic() - _start_monotonic) * 1000
+        usage_log.record_api_attempt(cfg.user_dir,symbol,'openai',purpose,cfg.OPENAI_MODEL,
+            response_ms=elapsed_ms,timed_out=timed_out,error_type=error_reason,
+            retry_limit=(max_retries if max_retries is not None else getattr(client,'max_retries',None)))
         try:
             gpt_latency_log.record_call(
                 cfg.user_dir, symbol=symbol, purpose=purpose, model=cfg.OPENAI_MODEL,
                 request_start=request_start_iso, response_ms=elapsed_ms,
-                timed_out=timed_out, retry_count=(max_retries if max_retries is not None else 2),
+                timed_out=timed_out, retry_count=None,
+                retry_limit=(max_retries if max_retries is not None else getattr(client, "max_retries", None)),
                 error_reason=error_reason, prompt_chars=len(prompt),
                 prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             )
@@ -801,6 +933,8 @@ def verify_position_management(
             usage_log.record_usage(
                 cfg.user_dir, symbol, usage.prompt_tokens or 0, usage.completion_tokens or 0,
                 provider="openai", purpose=purpose,
+                **usage_log.response_metadata(response, model=cfg.OPENAI_MODEL, prompt=prompt,
+                                              retry_limit=getattr(client, "max_retries", None)),
             )
         except Exception:
             log.exception("[%s] 보유 포지션 AI 관리(GPT) 토큰 사용량 기록 실패", symbol)
@@ -821,6 +955,14 @@ def verify_position_management(
                                    prompt_tokens=usage_prompt_tokens, completion_tokens=usage_completion_tokens)
         return {"action": None, "confidence": None, "reasoning": "", "error_reason": "parse_error", "response_ms": elapsed_ms}
     result["action"] = action
+
+    if adaptive_partials and action == 'REDUCE_50' and not (
+            adaptive_reduction.valid_gpt_reduction(result)
+            and adaptive_reduction.valid_gemini_proposal(gemini_review)):
+        elapsed_ms = _log_latency(timed_out=False, error_reason='invalid_reduce_fraction',
+            prompt_tokens=usage_prompt_tokens, completion_tokens=usage_completion_tokens)
+        return {'action': None, 'confidence': None, 'reasoning': '',
+                'error_reason': 'invalid_reduce_fraction', 'response_ms': elapsed_ms}
 
     confidence = result.get("confidence")
     if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not (0.0 <= confidence <= 1.0):
@@ -867,6 +1009,8 @@ def review_strategy_report(cfg, snapshot: dict) -> dict:
             usage_log.record_usage(
                 cfg.user_dir, 'STRATEGY_REVIEW', usage.prompt_tokens or 0,
                 usage.completion_tokens or 0, provider='openai', purpose='strategy_review',
+                **usage_log.response_metadata(response, model=cfg.OPENAI_MODEL, prompt=prompt,
+                                              retry_limit=getattr(client, "max_retries", None)),
             )
         except Exception:
             (cfg.logger or logger).exception('OpenAI strategy review usage logging failed')

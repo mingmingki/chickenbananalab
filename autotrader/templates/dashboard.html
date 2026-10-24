@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>자동매매 (OKX x Gemini)</title>
+<title>자동매매 (OKX · {% if gpt_primary_only %}GPT{% else %}기존 AI{% endif %})</title>
 <link rel="manifest" href="/static/manifest.json">
 <meta name="theme-color" content="#FFD54A">
 <link rel="icon" href="/static/img/favicon-32.png">
@@ -72,7 +72,7 @@
   .pos-pnl-pct { font-size:12px; font-weight:600; margin-left:4px; }
   .pos-detail-row { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-top:5px; }
   .pos-detail-row b { color:var(--text); font-weight:600; }
-  .pos-sltp { display:flex; justify-content:space-between; font-size:11px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(130,132,156,0.15); }
+  .pos-sltp { display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px 12px; overflow-wrap:anywhere; font-size:11px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(130,132,156,0.15); }
   .pos-sltp span.tp { color:var(--green-strong); font-weight:600; }
   .pos-sltp span.sl { color:var(--red-strong); font-weight:600; }
   .pos-action-row { display:flex; align-items:center; gap:6px; margin-top:10px; }
@@ -793,6 +793,10 @@
   button.danger:hover:not(:disabled) {
     background:rgba(221,102,112,.12);
   }
+  button.danger.cc-manual-close:not(:disabled) {
+    background:rgba(201,56,66,.15); color:#8f202b;
+    border:1px solid rgba(201,56,66,.42); font-weight:700;
+  }
 
   .setting-chip {
     background:#f5f7fb;
@@ -968,7 +972,39 @@
   .learning-review-card { border:1px solid var(--line); border-radius:10px; padding:10px; margin:8px 0; white-space:pre-wrap; font-size:12px; line-height:1.5; }
   .learning-report-text { white-space:pre-wrap; overflow-wrap:anywhere; border:1px solid var(--line); border-radius:10px; padding:12px; background:rgba(255,255,255,.45); font-size:12px; line-height:1.55; max-height:52vh; overflow:auto; }
 
+/* Native details keeps the guide collapsed by default and keyboard-accessible,
+   without involving the trading/dashboard refresh path. */
+.strategy-guide-toggle {
+  display:flex; align-items:center; gap:10px; min-height:44px;
+  cursor:pointer; list-style:none; border-radius:10px; user-select:none;
+  touch-action:manipulation;
+}
+.strategy-guide-toggle::-webkit-details-marker { display:none; }
+.strategy-guide-toggle::before {
+  content:"▸"; color:var(--muted); font-size:17px; line-height:1;
+}
+.strategy-guide-collapsible[open] > .strategy-guide-toggle::before { content:"▾"; }
+.strategy-guide-toggle::after {
+  content:"펼치기"; font-size:12px; color:var(--muted); font-weight:600;
+  margin-left:auto; flex-shrink:0;
+}
+.strategy-guide-collapsible[open] > .strategy-guide-toggle::after { content:"접기"; }
+.strategy-guide-toggle:focus-visible { outline:2px solid var(--blue-strong); outline-offset:3px; }
+.strategy-guide-toggle h2 { margin:0; font-size:14px; }
+.strategy-guide-content { padding-top:12px; }
+.strategy-guide-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-top:16px; }
+.strategy-guide-card { border:1px solid var(--border, #d8dee7); border-radius:12px; padding:16px; min-width:0; }
+.strategy-guide-card h3 { margin:0 0 8px; font-size:16px; }
+.strategy-guide-card dl { margin:12px 0 0; font-size:13px; line-height:1.7; }
+.strategy-guide-card dt { font-weight:700; margin-top:12px; }
+.strategy-guide-card dd { margin:3px 0 0; overflow-wrap:anywhere; }
+.strategy-guide-details { margin-top:14px; border-top:1px solid var(--border, #d8dee7); padding-top:14px; font-size:13px; line-height:1.8; }
+.strategy-guide-details summary { cursor:pointer; font-weight:700; }
+.strategy-guide-details li { margin:8px 0; }
+#strategy-guide-panel { scroll-margin-top:78px; }
+@media (max-width:760px) { .strategy-guide-grid { grid-template-columns:1fr; } }
 </style>
+<script src="/static/core_entry_status.js?v=20261022-v33-99-ui"></script>
 </head>
 <body>
 <div class="topbar">
@@ -991,6 +1027,7 @@
   <a href="#core-live">CORE</a>
   <a href="#core-settings-panel">설정</a>
   <a href="#analysis-zone">분석 · 기록</a>
+  <a href="#strategy-guide-panel">전략 · 운영 안내</a>
 </nav>
 
 <div class="section-label"><strong>계좌 요약</strong><span>자산 · 수익 · 실현손익</span></div>
@@ -1003,6 +1040,7 @@
     <div class="account-actions">
       <button onclick="checkBalance()">새로고침</button>
       <button onclick="resetBaseline(this)">기준 초기화</button>
+      <button type="button" id="baseline-history-btn" onclick="toggleBaselineHistory(this)" aria-controls="baseline-history-panel" aria-expanded="false">초기화 이력</button>
       <button class="cert-btn" onclick="openProfitCert()">📸 수익인증</button>
       <button onclick="copyFullReport(this)">리포트 복사</button>
     </div>
@@ -1037,6 +1075,18 @@
       <div id="fx-rate-hint" class="account-stat-sub"></div>
     </div>
   </div>
+  <section id="baseline-history-panel" hidden aria-label="수익 기준 초기화 이력"
+           style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(130,132,156,.2)">
+    <h3 style="margin:0 0 7px;font-size:13px">수익 기준 초기화 이력</h3>
+    <p class="compact-note" style="margin:0 0 10px">각 기간의 초기화 직전 매매기여 총수익은 자금 유입·출금을 보정한 값입니다. 이전에 기록되지 않은 수익은 임의로 채우지 않습니다.</p>
+    <div class="pnl-overflow">
+      <table class="pnl-summary-table" aria-label="기준 초기화 기간별 성과">
+        <thead><tr><th>기준 시작일</th><th>종료일</th><th>기준 자산</th><th>종료 자산</th><th>매매기여 총수익</th><th>수익률</th><th>순자금유입</th><th>기록 상태</th></tr></thead>
+        <tbody id="baseline-history-rows"><tr><td colspan="8">이력을 불러오는 중...</td></tr></tbody>
+      </table>
+    </div>
+    <p id="baseline-history-hint" class="compact-note" style="margin-top:8px"></p>
+  </section>
 </div>
 
 <div class="panel">
@@ -1050,7 +1100,7 @@
     <thead><tr><th></th><th>완료 포지션</th><th>실현 Gross</th><th>저널 배분 수수료</th><th>정산 조정</th><th>실현 Net (REDUCE 포함)</th><th>완료승률</th><th>완료PF</th></tr></thead>
     <tbody>
       <tr><td>전체</td><td id="pnl-total-count">-</td><td id="pnl-total-gross">-</td><td id="pnl-total-fee">-</td><td id="pnl-total-adj">-</td><td id="pnl-total-net">-</td><td id="pnl-total-wr">-</td><td id="pnl-total-pf">-</td></tr>
-      <tr><td>CORE (BTC/ETH/XRP/PI)</td><td id="pnl-core-count">-</td><td id="pnl-core-gross">-</td><td id="pnl-core-fee">-</td><td id="pnl-core-adj">-</td><td id="pnl-core-net">-</td><td id="pnl-core-wr">-</td><td id="pnl-core-pf">-</td></tr>
+      <tr><td>CORE (BTC/ETH/XRP/ADA)</td><td id="pnl-core-count">-</td><td id="pnl-core-gross">-</td><td id="pnl-core-fee">-</td><td id="pnl-core-adj">-</td><td id="pnl-core-net">-</td><td id="pnl-core-wr">-</td><td id="pnl-core-pf">-</td></tr>
       <tr><td>Candidate C (DOGE/SOL)</td><td id="pnl-candidate_c-count">-</td><td id="pnl-candidate_c-gross">-</td><td id="pnl-candidate_c-fee">-</td><td id="pnl-candidate_c-adj">-</td><td id="pnl-candidate_c-net">-</td><td id="pnl-candidate_c-wr">-</td><td id="pnl-candidate_c-pf">-</td></tr>
       <tr><td>이전 FAST 기록(과거, 신규 없음)</td><td id="pnl-fast-count">-</td><td id="pnl-fast-gross">-</td><td id="pnl-fast-fee">-</td><td id="pnl-fast-adj">-</td><td id="pnl-fast-net">-</td><td id="pnl-fast-wr">-</td><td id="pnl-fast-pf">-</td></tr>
       <tr><td>이전 기록(LEGACY)</td><td id="pnl-legacy-count">-</td><td id="pnl-legacy-gross">-</td><td id="pnl-legacy-fee">-</td><td id="pnl-legacy-adj">-</td><td id="pnl-legacy-net">-</td><td id="pnl-legacy-wr">-</td><td id="pnl-legacy-pf">-</td></tr>
@@ -1064,7 +1114,7 @@
       부분감축을 거래 1건으로 부풀리지 않도록 완료 lifecycle 기준입니다. 저널 배분 수수료와 OKX 실제 선물 수수료는
       서로 다를 수 있습니다. OKX 실제 선물 수수료는 진입·청산·부분감축(REDUCE)과 현재 열린 포지션 진입 수수료까지 포함합니다.<br>
       정산 조정은 <b>실현 Net - (실현 Gross - 저널 배분 수수료)</b>이며, realizedPnl에 포함된 funding/거래소 정산 차이를 보존합니다.<br>
-      이전 FAST 기록은 제거 전 실제 FAST 거래만 보존하며, 현재 XRP/PI 신규 거래는 CORE로 집계합니다.
+      이전 FAST 기록과 PI 과거 거래는 보존하며, 현재 XRP/ADA 신규 거래는 CORE로 집계합니다.
       LEGACY는 엔진 분리 이전 기록입니다.
     </div>
   </details>
@@ -1073,19 +1123,21 @@
 <details class="panel clean-details" id="api-panel">
   <summary><span>🔑 API 연결 설정</span><span class="summary-meta">키 확인 · 변경</span></summary>
   <div class="details-body">
+  {% if not gpt_primary_only %}
   <div class="row">
     <label>Gemini API 키</label>
     <input type="password" id="gemini-key" value="{{ gemini_key }}">
     <span class="dot" id="dot-gemini"></span>
     <button onclick="checkGemini()">확인</button>
   </div>
+  {% endif %}
   <div class="row">
-    <label>GPT API 키 (선택)</label>
+    <label>{% if gpt_primary_only %}GPT API 키 (단독 판단){% else %}GPT API 키 (선택){% endif %}</label>
     <input type="password" id="openai-key" value="{{ openai_key }}">
     <span class="dot" id="dot-openai"></span>
     <button onclick="checkOpenai()">확인</button>
   </div>
-  <div class="hint">※ GPT 키는 CORE 신규진입 게이트와 보유 포지션 AI 관리에 사용됩니다. GPT 신규진입 승인이 켜져 있으면 approve_now만 신규 주문을 허용합니다.</div>
+  <div class="hint">{% if gpt_primary_only %}※ GPT가 진입 방향·유지·청산을 결정합니다. 같은 GPT 판단을 다른 GPT 호출로 재승인하지 않습니다. 코드가 주문 신선도·증거금·손실 한도·SL/TP·거래소 실행 조건을 별도 검증합니다. GPT 응답 실패 시 신규 주문은 중지하며 기존 보호주문을 유지합니다. 이전 AI 키는 복구용으로만 보존됩니다.{% else %}※ 기존 AI 이중 검증 모드입니다.{% endif %}</div>
   <div class="row">
     <label>OKX API 키</label>
     <input type="password" id="okx-key" value="{{ okx_key }}">
@@ -1112,6 +1164,7 @@
   <div class="engine-head">
     <div class="engine-title">
       <h2>Candidate C — DOGE / SOL</h2>
+      {% if candidate_chart_only %}<p class="muted">차트 기반 진입·SL/TP·부분익절·부분손절·이익보호 · AI 사용 안 함</p>{% endif %}
       <div class="engine-subtitle">4H 추세 · 10m Donchian · 확정 5분봉 기준</div>
     </div>
     <div class="engine-status">
@@ -1130,6 +1183,8 @@
   <div class="engine-summary">
     <div class="setting-chips" id="cc-settings">확인 중</div>
     <div class="compact-note" id="cc-observed-at"></div>
+    <div class="compact-note" id="cc-parity-report" role="status" aria-live="polite">보호주문 · 원장 독립 대조: 확인 중</div>
+    <div class="compact-note" id="cc-recovery-triage" role="status" aria-live="polite">정합성 복구 안전성 진단: 조회 대기</div>
     <div class="compact-note" id="cc-status-hint"></div>
   </div>
   <div class="cc-detail cc-alert" id="cc-live-blockers"></div>
@@ -1156,21 +1211,19 @@
   </details>
 </div>
 
-<div class="panel" id="cc-breakout-shadow-card">
-  <div class="panel-header">
-    <h2>Candidate C Breakout-failure Shadow</h2>
-    <span class="summary-meta">관찰용 · 실주문 영향 없음</span>
+<details class="panel clean-details" id="cc-breakout-shadow-card">
+  <summary><span>Candidate C Breakout-failure Shadow</span><span class="summary-meta">관찰용 · 실주문 영향 없음</span></summary>
+  <div class="details-body">
+    <div id="cc-breakout-shadow-summary" class="cc-detail">표본 없음 · 정확한 원 setup provenance가 있는 경우만 계산</div>
   </div>
-  <div id="cc-breakout-shadow-summary" class="cc-detail">표본 없음 · 정확한 원 setup provenance가 있는 경우만 계산</div>
-</div>
+</details>
 
-<div class="panel" id="adaptive-exit-panel">
-  <div class="panel-header">
-    <h2>Adaptive Exit — Shadow / ADVISORY</h2>
-    <span class="summary-meta">읽기 전용 · 실주문 적용 여부를 별도 표시</span>
+<details class="panel clean-details" id="adaptive-exit-panel">
+  <summary><span>Adaptive Exit — Shadow / ADVISORY</span><span class="summary-meta">읽기 전용 · 실주문 적용 여부를 별도 표시</span></summary>
+  <div class="details-body">
+    <div id="adaptive-exit-summary" class="cc-detail">Adaptive Exit 데이터 없음</div>
   </div>
-  <div id="adaptive-exit-summary" class="cc-detail">Adaptive Exit 데이터 없음</div>
-</div>
+</details>
 
 <details class="panel clean-details" id="cc-settings-details">
   <summary><span>⚙️ Candidate C 설정</span><span class="summary-meta">실행 · 포지션 크기 · 위험 한도</span></summary>
@@ -1293,12 +1346,12 @@
   </div>
 </div>
 
-<div class="section-label"><strong>CORE</strong><span>BTC · ETH · XRP · PI</span></div>
+<div class="section-label"><strong>CORE</strong><span>BTC · ETH · XRP · ADA</span></div>
 <div class="panel engine-live-panel" id="core-live">
   <div class="engine-head">
     <div class="engine-title">
-      <h2>CORE — BTC / ETH / XRP / PI</h2>
-      <div class="engine-subtitle">Gemini 정기 검토 · GPT 신규진입 게이트 · 보유 포지션 AI 관리</div>
+      <h2>CORE — BTC / ETH / XRP / ADA</h2>
+      <div class="engine-subtitle">{% if gpt_primary_only %}GPT 단독 판단 · 독립 위험검사 · 보유 포지션 관리{% else %}기존 AI 검토 · 보유 포지션 관리{% endif %}</div>
     </div>
     <div class="engine-status status-line">
       <span id="status-line">상태: 중지됨</span>
@@ -1317,8 +1370,18 @@
   </details>
 </div>
 
+<details class="panel clean-details" id="market-context-panel">
+  <summary><span>🌐 시장상황 · AI 공통 자료</span><span class="summary-meta" id="market-context-badge">수집 대기</span></summary>
+  <div class="details-body">
+    <div class="hint" id="market-context-status">외부 시장 자료를 확인하고 있습니다.</div>
+    <div id="market-context-facts"></div>
+    <div id="market-context-news"></div>
+    <div class="hint" id="market-context-used"></div>
+  </div>
+</details>
+
 <div class="panel" id="core-positions">
-  <h2>CORE 포지션 · 판단 — BTC / ETH / XRP / PI</h2>
+  <h2>CORE 포지션 · 판단 — BTC / ETH / XRP / ADA</h2>
   <div class="position-cards" id="symbol-table"></div>
 </div>
 
@@ -1359,10 +1422,10 @@
     <input type="number" id="min-hold-minutes" step="1" min="0">
   </div>
   <div class="row">
-    <label style="width:auto"><input type="checkbox" id="gpt-entry-gate-enabled"> GPT 신규진입 승인 사용</label>
+    <label style="width:auto"><input type="checkbox" id="gpt-entry-gate-enabled"> {% if gpt_primary_only %}GPT 단일 진입 판단 사용{% else %}GPT 신규진입 승인 사용{% endif %}</label>
   </div>
   <div class="row">
-    <label style="width:auto"><input type="checkbox" id="position-ai-review-enabled"> 보유 포지션 AI 관리 — Gemini 분석 + GPT 최종 판단</label>
+    <label style="width:auto"><input type="checkbox" id="position-ai-review-enabled"> 보유 포지션 관리 — AI 판단 · 코드 위험·수량 계산</label>
   </div>
     </section>
     <section class="settings-subsection">
@@ -1383,13 +1446,14 @@
   <div class="details-body analytics-body">
 <div class="panel" id="shadow-panel" style="display:none">
   <div class="panel-header">
-    <h2>CORE GPT 진입 게이트</h2>
+    <h2>{% if gpt_primary_only %}CORE GPT 단일 판단·실행 기록{% else %}CORE GPT 진입 게이트{% endif %}</h2>
+  <p class="muted">GPT 단독 판단과 코드 위험검사 결과를 표시합니다. 이전 이력도 보존합니다.</p>
     <button class="copy-btn" onclick="copyShadowTable(this)">복사</button>
   </div>
   <div class="hint" id="shadow-summary"></div>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>시각</th><th>심볼</th><th>Gemini</th><th>GPT</th><th>사유</th></tr></thead>
+      <thead><tr><th>시각</th><th>심볼</th><th>방향·확신도</th><th>판단·검사 결과</th><th>최종 실행 상태·이유</th></tr></thead>
       <tbody id="shadow-table"></tbody>
     </table>
   </div>
@@ -1397,7 +1461,7 @@
 
 <div class="panel" id="market-structure-panel" style="display:none">
   <div class="panel-header">
-    <h2>시장구조 관찰 (Shadow, 참고용) — CORE(BTC/ETH/XRP/PI)</h2>
+    <h2>시장구조 관찰 (Shadow, 참고용) — CORE(BTC/ETH/XRP/ADA)</h2>
     <button class="copy-btn" onclick="refreshMarketStructure()">새로고침</button>
   </div>
   <div class="tabs" id="ms-group-filter-tabs">
@@ -1429,8 +1493,9 @@
       <option value="BTC/USDT:USDT">BTC</option>
       <option value="ETH/USDT:USDT">ETH</option>
       <option value="XRP/USDT:USDT">XRP</option>
-      <option value="PI/USDT:USDT">PI</option>
-      <option value="DOGE/USDT:USDT">DOGE</option>
+      <option value="ADA/USDT:USDT">ADA</option>
+      <option value="PI/USDT:USDT">PI (과거)</option>
+      <option value="DOGE/USDT:USDT">DOGE (과거)</option>
     </select>
   </div>
   <div class="row" id="fast-symbol-filter-row" style="display:none">
@@ -1474,7 +1539,7 @@
 
 <div class="panel">
   <div class="panel-header">
-    <h2>기간별 수익률</h2>
+    <h2>기간별 실현손익 (부분청산 포함) · 완료 건수/승률 별도</h2>
     <button class="copy-btn" onclick="copyPeriodTable(this)">복사</button>
   </div>
   <div class="tabs">
@@ -1485,7 +1550,7 @@
   <div class="hint" id="period-baseline-hint"></div>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>기간</th><th>거래건수</th><th>손익(USDT)</th><th>수수료(USDT)</th><th>순손익(USDT)</th><th>고정금 대비 손익률(%)</th><th>승률(%)</th></tr></thead>
+      <thead><tr><th>기간</th><th>완료건수</th><th>실현손익(USDT)</th><th>실현수수료(USDT)</th><th>실현Net(USDT)</th><th>실현 고정금 ROI(%)</th><th>완료승률(%)</th></tr></thead>
       <tbody id="period-table"></tbody>
       <tfoot id="period-table-foot"></tfoot>
     </table>
@@ -1495,7 +1560,7 @@
 <div class="panel">
   <h2>AI 비용 현황</h2>
   <div id="ai-cost-body">
-    <div class="hint">실현거래 통계와 AI 운영비(Gemini+GPT 토큰비용)는 따로 표시합니다.
+    <div class="hint">실현거래 통계와 AI 운영비(현재 GPT·이전 AI 포함)는 따로 표시합니다.
       최종 경제손익은 현재 계좌의 자금흐름 보정 매매기여 총수익에서 누적 AI 운영비를 뺀 값입니다.
       실현거래 통계는 청산된 거래 성과를 확인하는 참고 지표입니다.</div>
     <div class="table-wrap">
@@ -1505,16 +1570,48 @@
           <tr><td>실현거래 배분 수수료</td><td id="ai-trade-fee" style="text-align:right">-</td></tr>
           <tr><td><b>실현거래 순손익</b></td><td id="ai-trade-net" style="text-align:right"><b>-</b></td></tr>
           <tr><td><b>매매기여 총수익</b></td><td id="ai-account-contribution" style="text-align:right"><b>-</b></td></tr>
-          <tr><td>Gemini 비용</td><td id="ai-gemini-cost" style="text-align:right">-</td></tr>
+          <tr><td>이전 AI 누적 비용</td><td id="ai-gemini-cost" style="text-align:right">-</td></tr>
           <tr><td>GPT 비용</td><td id="ai-gpt-cost" style="text-align:right">-</td></tr>
           <tr><td><b>AI 운영비</b></td><td id="ai-total-cost" style="text-align:right"><b>-</b></td></tr>
+          <tr><td>오늘 AI 비용</td><td id="ai-today-cost" style="text-align:right">-</td></tr>
+          <tr><td>최근 24시간 AI 비용</td><td id="ai-24h-cost" style="text-align:right">-</td></tr>
+          <tr><td>예상 월 AI 비용 (GPT 단독 우선)</td><td id="ai-monthly-projection" style="text-align:right">-</td></tr>
+          <tr><td>예상 월 서버 비용</td><td id="server-monthly-projection" style="text-align:right">-</td></tr>
+          <tr><td>예상 월 총 운영비</td><td id="ops-monthly-projection" style="text-align:right">-</td></tr>
           <tr><td><b>최종 경제손익</b></td><td id="ai-final-net" style="text-align:right"><b>-</b></td></tr>
         </tbody>
       </table>
     </div>
     <div class="hint" id="ai-cost-detail"></div>
+    <div class="hint" id="ai-call-metadata">호출 상세 미측정 · 절감 미측정</div>
+    <div class="hint" id="gpt-cohort-projection-note">GPT 단독 전환 이후의 호출 데이터를 불러오는 중입니다.</div>
+    <div class="hint" id="operating-cost-assumptions">예상값 · 서버 구성을 불러오는 중입니다.</div>
     <div class="hint" id="ai-cost-note" style="margin-top:6px">※ API비용은 USD, 거래손익은 USDT 기준입니다 (환율 변동은 반영하지 않은 1:1 근사치).</div>
   </div>
+</div>
+
+<div class="panel" id="ops-observability-panel">
+  <div class="panel-header">
+    <h2>수익전략 · 운영 검증</h2>
+    <span class="hint" id="ops-observability-updated">-</span>
+  </div>
+  <div class="hint" id="ops-health-summary">watchdog 상태를 불러오는 중입니다.</div>
+  <div class="table-wrap">
+    <table><tbody>
+      <tr><td>진입 품질</td><td id="obs-entry-quality" style="text-align:right">-</td></tr>
+      <tr><td>MFE 대비 청산 보존율</td><td id="obs-mfe-capture" style="text-align:right">-</td></tr>
+      <tr><td>LONG / SHORT</td><td id="obs-side-performance" style="text-align:right">-</td></tr>
+      <tr><td>부분익절 후 최종 성과</td><td id="obs-partial" style="text-align:right">-</td></tr>
+      <tr><td>AI 호출 · 절감 관찰</td><td id="obs-cost-efficiency" style="text-align:right">-</td></tr>
+    </tbody></table>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>장치</th><th>24h 발동/평가</th><th>효과</th></tr></thead>
+      <tbody id="obs-effect-table"><tr><td colspan="3">불러오는 중...</td></tr></tbody>
+    </table>
+  </div>
+  <div class="hint">※ 회피손실·추가수익은 실제 반사실/완료거래 근거가 있는 경우에만 숫자로 표시합니다. 관찰 계층은 주문 권한이 없습니다.</div>
 </div>
 
 <div class="panel">
@@ -1534,13 +1631,36 @@
 
 
 
+<section class="panel" id="strategy-guide-panel" aria-labelledby="strategy-guide-title">
+  <details class="strategy-guide-collapsible" id="strategy-guide-collapsible">
+    <summary class="strategy-guide-toggle"><h2 id="strategy-guide-title">현재 전략과 운영 방법</h2></summary>
+    <div class="strategy-guide-content">
+  <p class="hint" id="strategy-guide-version">설명 업데이트 {{ strategy_guide_data.revision }} · 적용 코드 {{ strategy_guide_data.applied_at or '적용일 확인 대기' }}</p>
+  <p class="hint">현재 저장된 설정 기준입니다. 금액·간격은 설정 변경에 맞춰 갱신됩니다. 실제 실행 여부는 상단 상태에서 확인하세요.</p>
+  <div id="strategy-guide-body">
+    <div class="strategy-guide-grid">
+      {% for card in strategy_guide_data.cards %}
+      <article class="strategy-guide-card">
+        <h3>{{ card.title }}</h3><p class="hint">{{ card.summary }}</p>
+        <dl>{% for row in card.rows %}<dt>{{ row.label }}</dt><dd>{{ row.value }}</dd>{% endfor %}</dl>
+      </article>
+      {% endfor %}
+    </div>
+    <details class="strategy-guide-details" id="strategy-guide-operations"><summary>운영 방법 · 시작부터 청산까지</summary><ol>{% for item in strategy_guide_data.operations %}<li>{{ item }}</li>{% endfor %}</ol></details>
+    <details class="strategy-guide-details" id="strategy-guide-costs"><summary>AI 비용 · 무엇을 호출하나</summary><p>{{ strategy_guide_data.costs }}</p><p>이 안내를 조회하는 데 AI를 호출하지 않습니다. 실제 비용은 위 AI 비용 현황에서 확인하세요.</p></details>
+    <details class="strategy-guide-details" id="strategy-guide-updates"><summary>최근 전략 변경</summary><ul>{% for item in strategy_guide_data.updates %}<li>{{ item }}</li>{% endfor %}</ul><p>전략 동작이 바뀌면 설명도 같은 업데이트에 포함해 검증합니다. 설정 수치와 감축 한도는 실제 설정·전략 코드에서 가져옵니다.</p></details>
+  </div>
+    </div>
+  </details>
+</section>
+
 <div class="learning-analysis-overlay" id="trade-learning-analysis-overlay" hidden onclick="if(event.target===this) closeTradeLearningAnalysis()">
   <div class="learning-analysis-modal" role="dialog" aria-modal="true" aria-labelledby="trade-learning-analysis-title">
     <div class="learning-analysis-head">
       <div><h2 id="trade-learning-analysis-title">🧠 거래 패턴 · AI 학습 분석</h2><div class="compact-note" id="trade-learning-analysis-status">저장된 분석을 불러오는 중입니다.</div></div>
       <div class="learning-analysis-actions">
-        <button type="button" class="primary" onclick="runTradeLearningAnalysis(this)">분석 실행</button>
-        <button type="button" onclick="runStrategyReviewNow(this)">Gemini+GPT 리뷰 지금 실행</button>
+        <button type="button" class="primary" onclick="runTradeLearningAnalysis(this)">로컬 분석 실행 ($0 AI)</button>
+        <span class="compact-note">거래 패턴은 로컬 코드 분석 · 유료 AI 리뷰 중단</span>
         <button type="button" onclick="generateAnalysisReport(this)">📋 리포트 생성</button>
         <button type="button" onclick="copyAnalysisReport(this)">ChatGPT용 복사</button>
         <button type="button" onclick="showRecentAnalysisReports(this)">최근 리포트 보기</button>
@@ -1548,6 +1668,8 @@
       </div>
     </div>
     <div class="learning-note"><b>실매매 설정 자동 변경 없음.</b> 아래 결과는 과거 로그에서 관찰된 연관성이지 인과관계가 아닙니다. 표본수·누락률과 함께 해석하세요.</div>
+    <div class="learning-review-card"><b>매일 자동매매 점검</b><div id="daily-completion-body" class="compact-note">통합 Shadow 지표를 불러오는 중입니다.</div></div>
+    <div class="learning-review-card" id="learning-ops-summary">자동 6시간 AI 리뷰 중단 · 거래 패턴은 로컬 코드로 분석합니다. 과거 AI 리뷰 기록만 조회합니다.</div>
     <div class="learning-tabs" id="trade-learning-tabs">
       <button class="primary" data-learning-tab="summary" onclick="showTradeLearningTab('summary',this)">전체 요약</button>
       <button data-learning-tab="tf" onclick="showTradeLearningTab('tf',this)">TF 분석</button>
@@ -1555,7 +1677,7 @@
       <button data-learning-tab="trades" onclick="showTradeLearningTab('trades',this)">개별 거래</button>
       <button data-learning-tab="learning" onclick="showTradeLearningTab('learning',this)">AI 학습</button>
       <button data-learning-tab="self-learning" onclick="showTradeLearningTab('self-learning',this)">자가학습</button>
-      <button data-learning-tab="reviews" onclick="showTradeLearningTab('reviews',this)">6시간 리뷰</button>
+      <button data-learning-tab="reviews" onclick="showTradeLearningTab('reviews',this)">과거 AI 리뷰</button>
       <button data-learning-tab="report" onclick="showTradeLearningTab('report',this)">리포트</button>
     </div>
     <div class="learning-tab-panel" id="learning-panel-summary"><div id="learning-summary-cards"></div><div class="table-wrap"><table><thead><tr><th>조건</th><th>표본</th><th>등급</th><th>승률</th><th>PF</th><th>Net</th></tr></thead><tbody id="learning-summary-table"></tbody></table></div></div>
@@ -1564,9 +1686,10 @@
     <div class="learning-tab-panel" id="learning-panel-trades" hidden><div class="table-wrap"><table><thead><tr><th>진입</th><th>청산</th><th>심볼</th><th>방향</th><th>Net</th><th>커버리지</th></tr></thead><tbody id="learning-trade-table"></tbody></table></div></div>
     <div class="learning-tab-panel" id="learning-panel-learning" hidden><div class="compact-note">exploratory &lt;20 · watch 20~49 · established_sample ≥50. 상태는 관찰 신뢰도이며 매매 설정을 바꾸지 않습니다.</div><div id="learning-hypothesis-list"></div></div>
     <div class="learning-tab-panel" id="learning-panel-self-learning" hidden>
-      <div class="learning-note"><b>자가학습 실전반영은 기본 OFF.</b> 직접 ON한 경우에도 LIVE_BOUNDED 패턴만 이미 GPT 승인된 신규진입을 더 보수적으로 HOLD할 수 있습니다. 수량·레버리지·SL·TP는 변경하지 않습니다.</div>
+      <div class="learning-note"><b>자가학습 실전반영은 기본 OFF.</b> CORE 진입은 {% if gpt_primary_only %}GPT 단독 판단과 코드 위험검사{% else %}기존 AI 검토{% endif %}로 결정하며 학습 패턴은 관찰·분석에 사용합니다. 수량·레버리지·SL·TP는 변경하지 않습니다.</div>
       <button type="button" id="self-learning-live-toggle" onclick="toggleSelfLearningLive(this)">실전반영 OFF</button>
       <div id="self-learning-state-counts" class="learning-review-card"></div>
+      <div class="learning-review-card"><b>승격 대기 사유</b><div id="self-learning-promotion-progress" class="compact-note">확인 중입니다.</div></div>
       <div id="self-learning-live-patterns"></div>
       <div id="self-learning-transitions"></div>
       <div id="self-learning-interventions"></div>
@@ -1581,10 +1704,24 @@
   </div>
 </div>
 
+<script src="{{ url_for('static', filename='operating_observability.js') }}"></script>
+<script src="{{ url_for('static', filename='strategy_guide.js') }}"></script>
 <script>
 const SYMBOLS = {{ symbols | tojson }};
 
 function symId(sym) { return sym.replace(/[^a-zA-Z0-9]/g, "_"); }
+
+// Compare VERIFIED exchange protection with the actual fill price, not the
+// configured stop/target percentages. ROI assumes the position leverage and
+// excludes fees, funding and slippage.
+function protectionPercent(price, entry, side, leverage) {
+  const p = Number(price), e = Number(entry), l = Number(leverage);
+  if (!Number.isFinite(p) || !Number.isFinite(e) || e <= 0 ||
+      !['long','short'].includes(side)) return '';
+  const move = ((side === 'long' ? p - e : e - p) / e) * 100;
+  const roi = Number.isFinite(l) && l > 0 ? ` · ROI ${move*l >= 0 ? '+' : ''}${fmt(move*l,2)}%` : '';
+  return ` (${move >= 0 ? '+' : ''}${fmt(move,2)}% 가격${roi})`;
+}
 
 // --- 종목 체크박스 렌더링 ---
 const toggleDiv = document.getElementById("symbol-toggles");
@@ -1666,14 +1803,19 @@ async function closeCoreSymbol(sym) {
   await refreshCandidateC();
 }
 
+const manualEntryPendingSymbols = new Set();
+const candidateManualEntryPending = new Set();
+
 async function manualCoreEntry(sym, side, button) {
+  if (manualEntryPendingSymbols.has(sym)) return;
   const sideLabel = side === 'long' ? 'LONG' : 'SHORT';
   const confirmed = confirm(
     `${sym}을 현재가 시장가로 수동 ${sideLabel} 진입합니다.\n\n` +
     '현재 CORE 설정의 포지션 크기·레버리지·SL/TP를 그대로 사용합니다.\n' +
-    'Gemini/GPT 진입 판단은 건너뛰지만 kill switch·손실한도·재진입 쿨다운·보호주문 검증은 그대로 적용됩니다.\n\n진행할까요?'
+    'AI 진입 판단은 건너뛰지만 kill switch·손실한도·재진입 쿨다운·보호주문 검증은 그대로 적용됩니다.\n\n진행할까요?'
   );
   if (!confirmed) return;
+  manualEntryPendingSymbols.add(sym);
 
   const id = symId(sym);
   const longBtn = document.getElementById('manual-long-' + id);
@@ -1683,12 +1825,84 @@ async function manualCoreEntry(sym, side, button) {
 
   try {
     const { ok, data } = await postJSON('/api/manual_entry', { symbol: sym, side });
-    if (!ok || !data.ok) throw new Error(data.error || '수동 진입 실패');
-    alert(data.note || `${sym} 수동 ${sideLabel} 진입이 완료되었습니다.`);
+    if (!ok || !data.ok) throw new Error(data.error || '수동 진입 상태 확인 필요');
+    if (data.pending) {
+      if (!data.decision_id) throw new Error('주문 확인 대기 중입니다. 주문을 다시 제출하지 마세요.');
+      if (button) button.textContent = '체결·보호 확인 중…';
+      let latest = null;
+      for (let attempt = 0; attempt < 24; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        try {
+          const url = '/api/manual_entry_status?symbol=' + encodeURIComponent(sym) +
+            '&decision_id=' + encodeURIComponent(data.decision_id);
+          const response = await fetch(url, {cache:'no-store', credentials:'same-origin'});
+          const status = await response.json();
+          if (!response.ok || !status.ok) continue;
+          latest = status;
+          if (status.status === 'filled' || status.status === 'failed') break;
+        } catch (_) {
+          // A status lookup error must never cause the browser to resubmit an order.
+        }
+      }
+      if (latest && latest.status === 'filled') {
+        alert(`${sym}: 원본 주문 체결 및 SL/TP 보호 확인 완료 · 산출 방식: ${latest.sl_tp_source || '조회 불가'}. 현재 포지션을 확인하세요.`);
+      } else if (latest && latest.status === 'failed') {
+        alert(`${sym}: 주문이 실패 처리됐습니다. 거래소 상태를 확인하기 전에는 재진입하지 마세요.`);
+      } else {
+        alert(`${sym}: 체결·보호 상태 확인이 계속 진행 중입니다. 중복 진입하지 말고 포지션과 실행 로그를 확인하세요.`);
+      }
+    } else {
+      alert(data.note || `${sym} 수동 ${sideLabel} 진입이 완료되었습니다.`);
+    }
   } catch (error) {
     alert(error.message);
   } finally {
+    manualEntryPendingSymbols.delete(sym);
+    if (button) button.textContent = '수동 ' + sideLabel + ' 진입';
     await refreshState();
+  }
+}
+
+async function manualCandidateCEntry(sym, side, button) {
+  if (candidateManualEntryPending.has(sym)) return;
+  const label = side.toUpperCase();
+  if (!confirm(`${sym} 수동 ${label} 시장가 진입을 요청합니다.\n\n` +
+      'Candidate C 고정 증거금·5배 레버리지 및 자동 SL/TP를 사용합니다.\n' +
+      '방향 AI/돌파 신호 검토만 생략하며 기존 주문·위험한도·소유권·보호 검사는 유지됩니다.\n' +
+      '수동진입 체결 확인 전 재주문하지 마세요. 진행할까요?')) return;
+  candidateManualEntryPending.add(sym);
+  if (button) button.disabled = true;
+  try {
+    const {ok,data} = await postJSON('/api/candidate_c_manual_entry',{symbol:sym,side});
+    if (!ok || !data.ok || !data.request_id) throw new Error(data.error || 'Candidate C 수동 진입 요청 차단');
+    if (button) button.textContent='체결·보호 확인 중…';
+    let last=null;
+    for (let i=0;i<24;i++) {
+      await new Promise(resolve=>setTimeout(resolve,5000));
+      try {
+        const url='/api/candidate_c_manual_entry_status?symbol='+encodeURIComponent(sym)+
+          '&request_id='+encodeURIComponent(data.request_id);
+        const r=await fetch(url,{credentials:'same-origin',cache:'no-store'});
+        const status=await r.json();
+        if (!r.ok || !status.ok) continue;
+        last=status;
+        if (status.status==='confirmed' || status.status==='failed') break;
+      } catch (_) {
+        // A failed read must never resubmit the order.
+      }
+    }
+    if (last?.status==='confirmed') {
+      alert(`${sym} 수동 ${label} 주문 체결 및 보호 확인 완료. 포지션을 확인하세요.`);
+    } else if (last?.status==='failed') {
+      alert(`${sym}: 수동 진입 거부 (${last.reason||'안전검사 미충족'}). 거래소를 확인하세요.`);
+    } else {
+      alert(`${sym}: 수동 주문 확인이 진행 중이거나 조회에 실패했습니다. 반드시 원본 상태를 확인하고 재진입하지 마세요.`);
+    }
+  } catch (e) {
+    alert(e.message + ' · 결과를 모르면 재진입하지 마세요.');
+  } finally {
+    candidateManualEntryPending.delete(sym);
+    await refreshCandidateC();
   }
 }
 
@@ -1853,10 +2067,19 @@ function _fillPnlRow(prefix, agg) {
 }
 
 async function refreshPnlSummary() {
-  let res;
-  try { res = await fetchWithTimeout("/api/pnl_summary"); } catch (e) { return; }
-  if (!res.ok) return;
-  const data = await res.json();
+  let data;
+  try {
+    const res = await fetchWithTimeout("/api/pnl_summary", undefined, 15000);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    data = await res.json();
+    if (!data?.summary?.total) throw new Error("손익 응답 형식 오류");
+  } catch (e) {
+    const delayed = e?.name === "AbortError" || /aborted/i.test(e?.message || "");
+    document.getElementById("pnl-reconcile-hint").textContent =
+      "실현손익 갱신 지연 · " + (delayed ? "응답 15초 초과" : (e?.message || "조회 실패")) +
+      " · 마지막 정상 조회값이 있으면 유지하며 자동 재조회합니다.";
+    return;
+  }
   const s = data.summary;
   _fillPnlRow("total", s.total);
   _fillPnlRow("core", s.core);
@@ -1919,7 +2142,8 @@ const CC_REVERSAL_STATE_LABELS = {
 
 const CC_ACTION_REASON_LABELS = {
   stop_update_would_loosen_skipped: "손절폭 확대 방지 — 기존 SL 유지",
-  partial_take_profit_2r: "+2R 도달 — 최초 수량 25% 부분익절",
+  stop_update_noop_already_matches_confirmed_protection: "거래소 손절 보호 확인 · 변경 불필요",
+  partial_take_profit_2r: "+2R 도달 — 부분익절",
   PARTIAL_TP_2R_DUST_SAFE_FULL_EXIT: "+2R 부분익절 — 잔량 최소수량 미달로 전량정리",
 };
 
@@ -2010,7 +2234,10 @@ function coreReductionText(rv2, actualPosition, historyOnly = false) {
     (rv2.last_block_reason ? `\n다음 감축 차단: ${rv2.last_block_reason}` : '');
 }
 
-function corePositionAiActionText(action) {
+function corePositionAiActionText(action, review) {
+  if (action === 'REDUCE_50' && typeof review?.reduce_fraction === 'number') {
+    return `부분감축 (최초 수량 ${(review.reduce_fraction * 100).toFixed(1)}%)`;
+  }
   return action === 'REDUCE_50' ? 'REDUCE_STEP_25 (이번 감축 25%)' : action;
 }
 
@@ -2037,7 +2264,7 @@ function coreReductionGateText(rv2, diagnostics) {
     const assessment = diagnostics?.gemini_assessment || '확인 안 됨';
     const macd = diagnostics?.two_macd_weakening === true ? '충족' : '미충족';
     const rsi = diagnostics?.two_rsi_adverse === true ? '충족' : '미충족';
-    return `실행 게이트: 차단 · Gemini ${assessment} · 5분 MACD 연속약화 ${macd} · RSI 불리 ${rsi}`;
+    return `실행 게이트: 차단 · AI 평가 ${assessment} · 5분 MACD 연속약화 ${macd} · RSI 불리 ${rsi}`;
   }
   if (reason === 'same_signal_persisting') return '실행 게이트: 추가 감축 대기 · 동일 신호 지속';
   return `실행 게이트: 차단 · ${reason}`;
@@ -2412,6 +2639,13 @@ async function refreshCandidateC() {
       document.getElementById('cc-observed-at').textContent =
         '현재 API 응답 지연 · 아래 값은 마지막 정상 조회값이며 새 응답이 오면 자동 갱신됩니다.';
       document.querySelectorAll('#cc-controls button, #cc-symbol-cards button').forEach(b => b.disabled = true);
+      document.querySelectorAll('#cc-symbol-cards .pos-card').forEach(card => {
+        if (card.querySelector('.cc-api-stale-hint')) return;
+        const hint=document.createElement('div');
+        hint.className='hint cc-api-stale-hint';
+        hint.textContent='상태 API 갱신 지연: 중복 청산 방지를 위해 버튼이 일시 잠겼습니다. 정상 조회 후 자동 복구됩니다.';
+        card.appendChild(hint);
+      });
       return;
     }
     document.getElementById('cc-run-badge').textContent = '조회 실패';
@@ -2511,6 +2745,9 @@ async function refreshCandidateC() {
     const effText = eff === true ? 'GPT 검토 사용' : eff === false ? 'GPT 미사용 · 규칙 기반 진입' : String(eff);
     gptStatusText += ` · 참고: 현재 실행 중인 루프는 저장 전 값(${effText})을 그대로 적용 중 - 재시작해야 반영됩니다.`;
   }
+  const chartOnly = s.strategy_authority === 'CHART_RISK';
+  document.getElementById('cc-gpt-entry-gate').disabled = chartOnly;
+  if (chartOnly) gptStatusText = '차트 전략 · 위험도 기반 SL/TP · 차트 부분익절/부분손절/이익보호 · AI 미사용';
   document.getElementById('cc-gpt-entry-gate-status').textContent = gptStatusText;
   if (!candidateSettingsFilled) {
     // 설정 폼은 실제 적용값(primary)이 아니라 저장된 값(savedConfig)을 보여줘야
@@ -2560,6 +2797,28 @@ async function refreshCandidateC() {
         `<div class="pos-detail-row"><span>진입가</span><b>${fmtPrice(pos.entry_price)}</b></div>` +
         `<div class="pos-detail-row"><span>현재가</span><b>${pos.mark_price ? fmtPrice(pos.mark_price) : '확인 안 됨'}</b></div>` +
         `<div class="pos-detail-row"><span>수량</span><b>${fmtQty(pos.contracts)} 계약</b></div>`;
+      const sizing = st.sizing_observation || {};
+      const lastSizing = st.runtime?.last_entry_attempt?.execution_evidence || {};
+      const effectiveSizing = st.runtime?.effective_settings || {};
+      const riskSizing = effectiveSizing.sizing_mode === 'VARIABLE_RISK';
+      // Reconstruct an approximate INITIAL margin only when exchange-owned
+      // original vs remaining contracts are internally reconciled.
+      const initialEstimatedMargin = sizing.sizing_reduction_reason === 'confirmed_position_partial_reduction' &&
+        typeof sizing.actual_margin_estimate_usdt === 'number' && Number.isFinite(sizing.actual_margin_estimate_usdt) &&
+        typeof sizing.original_contracts === 'number' && typeof sizing.remaining_contracts === 'number' &&
+        sizing.original_contracts > 0 && sizing.remaining_contracts > 0 &&
+        sizing.original_contracts >= sizing.remaining_contracts
+          ? sizing.actual_margin_estimate_usdt * sizing.original_contracts / sizing.remaining_contracts : null;
+      html += `<div class="pos-detail-row"><span>잔여 수량 기준 예상 증거금</span><b>${typeof sizing.actual_margin_estimate_usdt === 'number' ? fmt(sizing.actual_margin_estimate_usdt)+' USDT' : '확인 안 됨'}</b></div>` +
+        `<div class="pos-detail-row"><span>${riskSizing ? '설정 증거금 상한 (투입 목표 아님)' : '설정 증거금'}</span><b>${sizing.configured_margin_usdt != null ? fmt(sizing.configured_margin_usdt)+' USDT' : '-'}</b></div>` +
+        (typeof initialEstimatedMargin === 'number' && Number.isFinite(initialEstimatedMargin) ? `<div class="pos-detail-row"><span>최초 수량 기준 예상 증거금</span><b>${fmt(initialEstimatedMargin)} USDT</b></div>` : '') +
+        (riskSizing ? `<div class="hint">수량 산정: 손절 시 예상 손실을 계좌의 ${typeof effectiveSizing.risk_per_trade_pct === 'number' ? fmt(effectiveSizing.risk_per_trade_pct) + '%' : '설정된 위험 비율'} 이내로 제한하는 위험 기반 모드입니다. 시장 신호에 따라 수량이 추가 축소되고 진입 후 부분청산 시 잔여 증거금도 줄어듭니다. 상한은 자동 투자금이 아닙니다.</div>` : '') +
+        `<div class="hint">최근 진입 상세 감액 근거: ${ccEscape(lastSizing.sizing_reduction_reason || '현재 기록에서 확인 불가 (추측하지 않음)')}</div>`;
+      if (sizing.sizing_reduction_reason === 'confirmed_position_partial_reduction') {
+        html += `<div class="hint">현재 포지션의 확인된 누적 감축: ${fmt(sizing.cumulative_reduced_ratio * 100)}% · 최초 ${fmtQty(sizing.original_contracts)} → 잔여 ${fmtQty(sizing.remaining_contracts)} 계약</div>`;
+      } else {
+        html += `<div class="hint">현재 수량의 감축 근거: ${ccEscape(sizing.sizing_reduction_reason || '기록 없음')}</div>`;
+      }
       const protection = st.protection || {};
       const durablePosition = st.position || {};
       const legacySlOnly = durablePosition.legacy_sl_only === true;
@@ -2568,15 +2827,20 @@ async function refreshCandidateC() {
       // VERIFIED(실제 거래소 OCO가 이 값과 일치함이 확인됨)일 때만 보호가격
       // 슬롯에 값을 채운다. UNVERIFIED여도 목표값 자체는 참고용으로 별도 줄에
       // "미확인"이라고 명시해 보여준다(완전히 숨기지 않되 확인된 값과 혼동 안 되게).
-      const verified = protection.status === 'VERIFIED';
+      const ownedVerified = protection.status === 'VERIFIED';
+      const exchangeOcoUnowned = protection.status === 'EXCHANGE_OCO_OBSERVED_OWNER_UNKNOWN';
+      const verified = ownedVerified || exchangeOcoUnowned;
       html += `<div class="pos-sltp">` +
-        `<span class="sl">SL ${verified && protection.sl_price != null ? fmtPrice(protection.sl_price) : '확인 안 됨'}</span>` +
+        `<span class="sl">SL ${verified && protection.sl_price != null ? fmtPrice(protection.sl_price) + protectionPercent(protection.sl_price,pos.entry_price,pos.side,pos.leverage) : '확인 안 됨'}</span>` +
         `<span class="tp">${verified && protection.tp_price != null
-          ? `TP ${fmtPrice(protection.tp_price)}`
+          ? `TP ${fmtPrice(protection.tp_price)}${protectionPercent(protection.tp_price,pos.entry_price,pos.side,pos.leverage)}`
           : (verified && protection.sl_price != null && legacySlOnly
             ? 'TP 없음 (기존 포지션 · SL 보호 정상)'
             : 'TP 확인 안 됨')}</span></div>` +
         `<div class="pos-detail-row"><span>보호 상태</span><b>${ccEscape(protection.status || 'UNKNOWN')}</b></div>`;
+      if (exchangeOcoUnowned) {
+        html += '<div class="hint">OKX 실제 OCO 가격 확인됨 · 단, 내부 진입 소유권 미확정으로 신규진입 제한 유지</div>';
+      }
       if (!verified && (protection.sl_price != null || protection.tp_price != null)) {
         html += `<div class="hint">목표(미확인, 실제 거래소 값 아님): SL ${protection.sl_price != null ? fmtPrice(protection.sl_price) : '-'} ` +
           `/ TP ${protection.tp_price != null ? fmtPrice(protection.tp_price) : '-'}</div>`;
@@ -2608,6 +2872,7 @@ async function refreshCandidateC() {
       `<span>다음 5분 확정봉</span><b>${ccEscape(ccCountdown(mon.next_5m_close_ms))}</b>` +
       `<span>4H 방향</span><b>${ccEscape(monDirection)}</b>` +
       `<span>현재 단계</span><b>${ccEscape(ccHoldingStage || mon.stage_text || ccMonitorReasonText(mon.reason_code))}</b>` +
+      (mon.reduction_plan ? `<span>차트 감축 판단</span><b>${ccEscape(((mon.reduction_plan.fraction || 0)*100).toFixed(1)+'% · '+(mon.reduction_plan.basis === 'initial' ? '최초 수량 기준' : '잔여 수량 기준'))}</b>` : '') +
       `<span>최근 판단가</span><b>${mon.decision_price != null ? fmtPrice(mon.decision_price) : '-'}</b>` +
       `<span>${ccEscape(targetLabel)}</span><b>${st.actual_position ? '-' : (mon.target_price != null ? fmtPrice(mon.target_price) : '-')}</b>` +
       `<span>진입선까지</span><b>${ccEscape(distanceText)}</b>` +
@@ -2653,12 +2918,44 @@ async function refreshCandidateC() {
     button.textContent = st.entry_control?.paused ? '이 심볼 신규진입 재개' : '이 심볼 신규진입 일시정지';
     button.dataset.paused = String(!!st.entry_control?.paused); button.onclick = () => toggleSymbolEntry(symbol,button);
     card.appendChild(button);
+    if (known && !pos) {
+      const manual = st.manual_entry || {};
+      const pending = ['reserved','executing','pending'].includes(manual.status) ||
+        candidateManualEntryPending.has(symbol);
+      const disabled = !st.runtime?.running || !st.runtime?.observation_fresh ||
+        (Array.isArray(st.blockers) && st.blockers.length > 0) ||
+        !!st.entry_control?.paused || !!st.manual_close?.blocked ||
+        st.reversal_state !== 'FLAT' || pending ||
+        data.engine_effective_mode !== 'live';
+      const row = document.createElement('div');
+      row.className = 'manual-entry-row';
+      row.style.cssText = 'display:flex;gap:8px;margin-top:8px';
+      for (const side of ['long','short']) {
+        const b = document.createElement('button');
+        b.className = 'manual-entry-btn ' + side;
+        b.style.cssText = 'flex:1;min-width:0';
+        b.textContent = pending ? '체결 확인 중…' : '수동 ' + side.toUpperCase() + ' 진입';
+        b.disabled = disabled;
+        b.onclick = () => manualCandidateCEntry(symbol,side,b);
+        row.appendChild(b);
+      }
+      card.appendChild(row);
+      if (pending) {
+        const hint=document.createElement('div');
+        hint.className='hint';
+        hint.textContent='수동진입 주문 확인 중입니다. 주문 버튼을 다시 누르지 마세요.';
+        card.appendChild(hint);
+      }
+    }
     if (known && pos) {
       const manual = st.manual_close || {};
       const closeButton = document.createElement('button');
-      closeButton.className = 'danger';
+      closeButton.className = 'danger cc-manual-close';
       closeButton.style.cssText = 'margin-top:8px;width:100%';
       closeButton.disabled = !!manual.blocked;
+      closeButton.title = manual.blocked
+        ? ('청산 불가: ' + (manual.block_reason || '처리 상태 확인 필요'))
+        : '사용자 확인 후 요청 가능 · 서버가 현재 포지션 소유권과 보호 상태를 재검증합니다.';
       closeButton.textContent = manual.blocked
         ? (manual.block_reason === 'candidate_manual_close_cooldown' ? '수동청산 쿨다운 진행 중' : '청산 처리 중…')
         : `이 포지션만 청산 · 재진입 ${manualCloseCooldownMinutes}분 대기`;
@@ -2704,6 +3001,73 @@ async function checkBalance() {
 
 // "가끔 로딩이 길거나 바로 안 됨" 리포트 조사용 - postJSON 공통 함수는 그대로 두고
 // 이 버튼에만 타임아웃/로딩표시/중복클릭방지/지연계측을 넣는다(범위를 이 버그로 한정).
+async function loadBaselineHistory() {
+  const body = document.getElementById("baseline-history-rows");
+  const hint = document.getElementById("baseline-history-hint");
+  body.textContent = "";
+  hint.textContent = "기록 불러오는 중...";
+  try {
+    const response = await fetch("/api/baseline_history", {
+      method: "GET", cache: "no-store", credentials: "same-origin",
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok || !Array.isArray(result.history)) {
+      throw new Error(result.error || "조회 실패");
+    }
+    const entries = result.history;
+    const signedMoney = n => typeof n === "number" && Number.isFinite(n)
+      ? `${n > 0 ? "+" : ""}${fmt(n)} USDT` : "기록 없음";
+    const money = n => typeof n === "number" && Number.isFinite(n)
+      ? `${fmt(n)} USDT` : "-";
+    const stamp = value => {
+      if (!value) return "-";
+      if (value.length === 10) return value;
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? value :
+        parsed.toLocaleString("ko-KR", {timeZone:"Asia/Seoul",
+          year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});
+    };
+    if (!entries.length) {
+      const tr = body.insertRow();
+      const td = tr.insertCell();
+      td.colSpan = 8;
+      td.textContent = "초기화 이력이 없습니다.";
+    }
+    for (const e of entries) {
+      const current = e.status === "current";
+      const r = body.insertRow();
+      const cells = [
+        stamp(e.started_at_kst),
+        current ? "진행 중" : stamp(e.ended_at_kst),
+        money(e.start_equity_usdt),
+        money(e.end_equity_usdt),
+        signedMoney(e.trade_contribution_usdt),
+        typeof e.trade_return_pct === "number" && Number.isFinite(e.trade_return_pct)
+          ? `${e.trade_return_pct > 0 ? "+" : ""}${fmt(e.trade_return_pct)}%` : "기록 없음",
+        signedMoney(e.net_capital_flow_usdt),
+        current ? (e.accounting_status === "live_provisional" ? "진행 중 · 잠정" : "진행 중")
+          : e.accounting_status === "cashflow_unverified" ? "자금보정 미확인"
+          : e.source === "imported_existing_baseline" ? "기존 기준 기록" : "기록 완료",
+      ];
+      cells.forEach(value => { r.insertCell().textContent = value; });
+    }
+    hint.textContent = `전체 ${entries.length}개 기준 기간 · 진행 중 수치는 변동 가능 · 이전 미기록 수익은 복구 없이 빈칸 표시`;
+  } catch (e) {
+    const tr = body.insertRow();
+    const td = tr.insertCell();
+    td.colSpan = 8;
+    td.textContent = "이력을 불러오지 못했습니다.";
+    hint.textContent = e.message || "조회 오류";
+  }
+}
+
+async function toggleBaselineHistory(btn) {
+  const panel = document.getElementById("baseline-history-panel");
+  panel.hidden = !panel.hidden;
+  btn.setAttribute("aria-expanded", String(!panel.hidden));
+  if (!panel.hidden) await loadBaselineHistory();
+}
+
 async function resetBaseline(btn) {
   if (!confirm("현재 자산을 새 기준으로 설정할까요?")) return;
   if (btn.disabled) return;  // 중복 클릭 방지
@@ -2718,12 +3082,13 @@ async function resetBaseline(btn) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), RESET_BASELINE_TIMEOUT_MS);
   const tClick = performance.now();
+  const resetEventId = `reset-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   try {
     const tFetchStart = performance.now();
     const res = await fetch("/api/reset_baseline", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}), signal: controller.signal,
+      body: JSON.stringify({reset_event_id: resetEventId}), signal: controller.signal,
     });
     const tResponse = performance.now();
     const data = await res.json().catch(() => ({}));
@@ -2745,6 +3110,7 @@ async function resetBaseline(btn) {
       return;
     }
     await refreshState();
+    if (!document.getElementById("baseline-history-panel").hidden) await loadBaselineHistory();
   } catch (e) {
     if (e.name === "AbortError") {
       console.debug(`[resetBaseline] client timeout after ${RESET_BASELINE_TIMEOUT_MS}ms`);
@@ -2818,6 +3184,56 @@ function fmtQty(n) {
 // 거래 성과(USDT)와 AI 운영비(USD)는 성격이 다른 비용이라 따로 보여준다 - 거래를 전혀
 // 안 해도 5분마다 시세 분석 때문에 Gemini/GPT 토큰 비용은 계속 나간다. 개별 거래/기간
 // 표에는 더 이상 API비용을 근사 배분해 섞지 않고, 여기서 전체 누적 기준 실측치로만 본다.
+function updateOperatingCostPanel(summary) {
+  if (!summary) return;
+  const server = summary.server || {};
+  const ai24 = Number(summary.rolling_24h_cost_usd || 0);
+  const cohort = summary.gpt_only_cohort || {};
+  const currentGpt = cohort.active && cohort.available
+    && Number.isFinite(cohort.monthly_estimate_usd);
+  const aiMonthly = currentGpt
+    ? Number(cohort.monthly_estimate_usd)
+    : Number(summary.projected_monthly_ai_cost_usd || 0);
+  const serverMonthly = Number(server.monthly_estimate_usd || 0);
+  const totalMonthly = aiMonthly + serverMonthly;
+
+  const ai24El = document.getElementById("ai-24h-cost");
+  const aiMonthEl = document.getElementById("ai-monthly-projection");
+  const serverMonthEl = document.getElementById("server-monthly-projection");
+  const totalMonthEl = document.getElementById("ops-monthly-projection");
+  const assumptionsEl = document.getElementById("operating-cost-assumptions");
+  const gptNote = document.getElementById("gpt-cohort-projection-note");
+  if (gptNote) {
+    const last24 = Number(summary.projected_monthly_ai_cost_usd || 0);
+    gptNote.textContent = currentGpt
+      ? 'GPT 전환 이후 '+fmt(cohort.observed_hours, 2)+'시간 / '+cohort.logged_calls
+        +'회 · 누적 $'+fmt(cohort.cost_usd, 4)
+        +' · 현 속도 하루 $'+fmt(cohort.daily_estimate_usd, 2)
+        +' · 기존 혼합 24시간 연장값 $'+fmt(last24, 2)+'/월 (비교용).'
+        +' · 재시작 초기판단 '+(cohort.startup_calls||0)+'회 ($'+fmt(cohort.startup_cost_usd||0,4)+')'
+        +' · 이를 제외한 단순 월 환산 $'+fmt(cohort.monthly_estimate_excluding_startups_usd||0,2)
+        +' (재시작이 거의 없다는 가정). 표본 초기 추정이며 확정 청구액이 아닙니다.'
+      : (cohort.active ? 'GPT 전환 이후 표본이 2시간 또는 10건 미만입니다. 이전 24시간 비용으로 임시 표시합니다.'
+        : '기존 24시간 호출 사용량 기준 참고 추정입니다.');
+  }
+
+  if (ai24El) ai24El.textContent = '$' + fmt(ai24, 4);
+  if (aiMonthEl) aiMonthEl.textContent = '$' + fmt(aiMonthly, 2) + ' /월';
+  if (serverMonthEl) serverMonthEl.textContent = server.estimate_available
+    ? '$' + fmt(serverMonthly, 2) + ' /월'
+    : '산정 불가';
+  if (totalMonthEl) totalMonthEl.textContent = server.estimate_available
+    ? '$' + fmt(totalMonthly, 2) + ' /월'
+    : '$' + fmt(aiMonthly, 2) + ' + 서버비';
+  if (assumptionsEl) {
+    const machine = server.machine_type || '-';
+    const disk = server.disk_gb == null ? '-' : server.disk_gb + 'GB ' + (server.disk_type || '');
+    const ip = server.external_ipv4_count == null ? '-' : server.external_ipv4_count + '개';
+    assumptionsEl.textContent = '예상값 · ' + machine + ' · 디스크 ' + disk + ' · 외부 IPv4 ' + ip
+      + ' · 검증일 ' + (server.verified_at || '-');
+  }
+}
+
 function updateAiCostPanel(tradeStats, usageStats, accountContribution) {
   if (!tradeStats) return;
   const tradePnl = (tradeStats.gross_pnl !== undefined ? tradeStats.gross_pnl : tradeStats.total_pnl) || 0;
@@ -2851,7 +3267,7 @@ function updateAiCostPanel(tradeStats, usageStats, accountContribution) {
 
   document.getElementById("ai-cost-detail").textContent =
     `오늘 AI 비용 $${fmt(todayAiCost, 4)}  ·  누적 AI 비용 $${fmt(totalAiCost, 4)}  ·  ` +
-    `Gemini 토큰 ${(gemini.total_tokens || 0).toLocaleString()}  ·  GPT 토큰 ${(gpt.total_tokens || 0).toLocaleString()}`;
+    `이전 AI 토큰 ${(gemini.total_tokens || 0).toLocaleString()}  ·  GPT 토큰 ${(gpt.total_tokens || 0).toLocaleString()}`;
 }
 
 function krwText(usdAmount, withSign) {
@@ -2888,13 +3304,84 @@ async function refreshFxRate() {
   }
 }
 
+function renderMarketContext(snapshot, symbols) {
+  const badge = document.getElementById('market-context-badge');
+  const status = document.getElementById('market-context-status');
+  const facts = document.getElementById('market-context-facts');
+  const news = document.getElementById('market-context-news');
+  const used = document.getElementById('market-context-used');
+  if (!badge || !status || !facts || !news || !used) return;
+  const names = {fresh:'정상', degraded:'일부 자료 지연', stale:'기한 경과', unavailable:'조회 실패', pending:'수집 대기'};
+  badge.textContent = snapshot && snapshot.status === 'ready' ? '연결됨' : '일부 자료 확인 중';
+  facts.replaceChildren(); news.replaceChildren();
+  if (!snapshot) { status.textContent = '시장 자료가 아직 없습니다.'; return; }
+  const sources = snapshot.sources || {};
+  const stamp = value => value ? new Date(value).toLocaleString('ko-KR', {timeZone:'Asia/Seoul'}) + ' KST' : '없음';
+  const signed = value => value == null ? '-' : (Number(value) >= 0 ? '+' : '') + Number(value).toFixed(2);
+  status.textContent = '두 AI가 시세·거래량·미국 증시·금리·연준·국제 뉴스를 함께 참고합니다. 미국 증시·금리·달러·유가는 표시된 날짜의 발표값입니다.';
+  function add(parent, text, url) {
+    const row = document.createElement('div'); row.className = 'learning-review-card';
+    row.textContent = text;
+    if (url) {
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol === 'https:' && ['fred.stlouisfed.org','www.federalreserve.gov','news.un.org','www.okx.com'].includes(parsed.hostname)) {
+          const link = document.createElement('a'); link.href = parsed.href; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = ' · 출처'; row.appendChild(link);
+        }
+      } catch (e) {}
+    }
+    parent.appendChild(row);
+  }
+  const labels = {crypto:'OKX 시세·거래량',fred:'미국 증시·금리·달러·유가',fed:'연준 통화정책',un:'UN 국제 정세'};
+  Object.entries(labels).forEach(([name,label]) => { const source = sources[name] || {}; add(facts, label + ' · ' + (names[source.status] || '자료 없음') + ' · 수집 ' + stamp(source.fetched_at)); });
+  const macro = (sources.fred || {}).data || {};
+  Object.entries(macro).forEach(([id,row]) => {
+    if (!row || typeof row !== 'object') return;
+    const delta = row.change_bp != null ? signed(row.change_bp) + ' bp' : signed(row.change_pct) + '%';
+    add(facts, row.label + ' · ' + (row.status === 'stale' || row.value == null ? '기한 경과 · 값 사용 안 함' : row.value + ' ' + row.unit + ' · 전 관측 대비 ' + delta) + ' · 기준 ' + row.observed_date, row.source_url);
+  });
+  const crypto = (sources.crypto || {}).data || {};
+  Object.entries(crypto.symbols || {}).forEach(([symbol,row]) => {
+    const tick = row.ticker; const volume = row.volume;
+    add(facts, symbol.split('/')[0] + ' · 24h 가격 ' + (tick ? signed(tick.price_change_24h_pct) + '%' : '자료 없음') + ' · 확정 24h 거래량 변화 ' + (volume ? signed(volume.change_pct) + '% · 최근 1h 거래량 ' + volume.latest_1h_vs_previous_24h_mean + '배 · 기준 ' + stamp(volume.observed_at) : '자료 없음'), volume && volume.source_url);
+  });
+  ['fed','un'].forEach(name => { ((sources[name] || {}).data || []).forEach(row => add(news, row.source + ' · ' + stamp(row.published_at) + ' · ' + row.title, row.url)); });
+  const receipts = Object.entries(symbols || {}).filter(([,row]) => row.last_market_context).map(([symbol,row]) => symbol.split('/')[0] + ' ' + stamp(row.last_market_context.as_of));
+  used.textContent = receipts.length ? '최근 AI에 전달한 자료 시각: ' + receipts.join(' · ') : '다음 CORE AI 검토에서 자료를 전달합니다.';
+}
+
 async function refreshState() {
+  const costPromise = fetchWithTimeout('/api/operating-costs').catch(() => null);
+  const obsPromise = fetchWithTimeout('/api/ops-observability').catch(() => null);
   let res;
   try {
     res = await fetchWithTimeout("/api/state");
   } catch (e) { return; }
   if (!res.ok) return;
   const s = await res.json();
+  if (typeof renderStrategyGuide === 'function') renderStrategyGuide(s.strategy_guide);
+  renderMarketContext(s.market_context, s.symbols);
+  const costRes = await costPromise;
+  if (costRes && costRes.ok) {
+    try {
+      const costPayload = await costRes.json();
+      updateOperatingCostPanel(costPayload.summary || null);
+    } catch (e) {
+      // Cost observability must never block the main trading dashboard refresh.
+    }
+  }
+
+  const obsRes = await obsPromise;
+  if (obsRes && obsRes.ok) {
+    try {
+      const obsPayload = await obsRes.json();
+      if (typeof renderOpsObservability === 'function') {
+        renderOpsObservability(obsPayload.snapshot || null);
+      }
+    } catch (e) {
+      // Strategy/ops observability must never block the main trading dashboard refresh.
+    }
+  }
 
   const adaptiveExit = s.adaptive_exit || {};
   const adaptiveExitEl = document.getElementById('adaptive-exit-summary');
@@ -2905,7 +3392,8 @@ async function refreshState() {
       const effective = row.effective_margin_usdt == null ? '-' : `${fmt(row.effective_margin_usdt)} USDT`;
       const loss = row.planned_loss_usdt == null ? '-' : `${fmt(row.planned_loss_usdt)} USDT`;
       const tp = `TP1 ${row.tp1_price == null ? '-' : fmt(row.tp1_price)} · TP2 ${row.tp2_price == null ? '-' : fmt(row.tp2_price)} · runner ${row.runner_fraction == null ? '-' : fmt(row.runner_fraction * 100) + '%'}`;
-      return `${symbol}: ${row.status} · configured ${configured} → effective ${effective} · 계획손실 ${loss} · SL ${row.stop_price == null ? '-' : fmt(row.stop_price)} · ${tp} · Gemini ${row.gemini_state || '-'} · Learning ${row.learning_state || '-'} · ${row.reason_code || 'ok'}`;
+      const accountRisk = row.planned_loss_equity_pct == null ? '' : ` (현재 자산 ${fmt(row.planned_loss_equity_pct)}%)`;
+      return `${symbol}: 최근 진입 계획 ${row.status} · 설정 증거금 ${configured} → 계획 증거금 ${effective} · 계획손실 ${loss}${accountRisk} · SL ${row.stop_price == null ? '-' : fmt(row.stop_price)} · ${tp} · AI 상태 ${row.gemini_state || '-'} · Learning ${row.learning_state || '-'} · ${row.reason_code || 'ok'} · 현재 보호주문은 종목 카드 참조`;
     });
     adaptiveExitEl.textContent = rows.length ? rows.join('\n') : 'Adaptive Exit 데이터 없음';
   }
@@ -2985,7 +3473,7 @@ async function refreshState() {
   }
 
   // 키 상태(다른 탭/세션에서 이미 확인된 경우 dot 반영). 입력칸 자체는 덮어쓰지 않음(항상 빈 채로 유지).
-  setDot("dot-gemini", s.gemini_validated ? "ok" : "no");
+  if (document.getElementById("dot-gemini")) setDot("dot-gemini", s.gemini_validated ? "ok" : "no");
   setDot("dot-openai", s.openai_validated ? "ok" : "no");
   const okxState = s.okx_validated ? "ok" : "no";
   setDot("dot-okx-key", okxState); setDot("dot-okx-secret", okxState); setDot("dot-okx-pass", okxState);
@@ -3034,7 +3522,7 @@ async function refreshState() {
   if (shadow && shadow.count > 0) {
     shadowPanel.style.display = "";
     let summaryHtml =
-      `LIVE 진입 게이트 ${shadow.gate_count}건 · ` +
+      `누적 진입 검증 (이전 이력 포함) ${shadow.gate_count}건 · ` +
       `승인 ${shadow.gate_approved_count}건 · ` +
       `wait 차단 ${shadow.gate_blocked_wait_count}건 · ` +
       `reject 차단 ${shadow.gate_blocked_reject_count}건 · ` +
@@ -3042,8 +3530,8 @@ async function refreshState() {
       (shadow.gate_tactical_override_count > 0
         ? ` · 예외 승인 ${shadow.gate_tactical_override_count}건`
         : "") +
-      `<br>Gemini가 LONG/SHORT 후보를 만들고 로컬 조건을 통과하면 GPT가 최종 확인합니다. ` +
-      `GPT 승인 결과를 진입 게이트에 반영합니다.` +
+      `<br>CORE: {% if gpt_primary_only %}현재 GPT가 방향·SL/TP를 한 번 판단하며 코드는 손실한도·가격·보호주문을 검사합니다. 추가 GPT 재승인은 없고 응답 실패 시 신규 주문을 차단합니다.{% else %}이전 AI 검증 결과를 표시합니다.{% endif %} ` +
+      `wait·reject는 거절하며 주문 전 손실 한도·가격 유효성·보호주문 안전검사는 유지합니다.` +
       `<br>과거 Shadow 참고기록 ${shadow.shadow_mode_count || 0}건` +
       ((shadow.no_mode_count || 0) > 0 ? ` · legacy/no-mode ${shadow.no_mode_count}건` : "");
     document.getElementById("shadow-summary").innerHTML = summaryHtml;
@@ -3067,6 +3555,7 @@ async function refreshState() {
     document.getElementById("min-confidence").value = s.settings.min_confidence;
     document.getElementById("min-hold-minutes").value = s.settings.min_hold_minutes;
     document.getElementById("gpt-entry-gate-enabled").checked = !!s.settings.gpt_entry_gate_enabled;
+    document.getElementById("gpt-entry-gate-enabled").disabled = s.settings.strategy_authority === "AI";
     document.getElementById("position-ai-review-enabled").checked = !!s.settings.position_ai_review_enabled;
     pollEl.dataset.filled = "1";
     updateTimeframePreview();
@@ -3117,6 +3606,7 @@ async function refreshState() {
     const manualBlockUntil = Number(entryControl.manual_cooldown_until || entryControl.manual_entry_block_until || 0);
     const manualEntryBlockReason = info.manual_close?.manual_entry_block_reason || null;
     const manualEntryBlocked = !s.running || !!entryControl.paused || !!manualEntryBlockReason ||
+      manualEntryPendingSymbols.has(sym) ||
       (Number.isFinite(manualBlockUntil) && manualBlockUntil > Date.now());
     const canShowManualEntry = !pos && !!info.enabled;
     manualEntryRow.style.display = canShowManualEntry ? "" : "none";
@@ -3152,11 +3642,11 @@ async function refreshState() {
       const protectionVerified = liveProtection.status === "VERIFIED";
       document.getElementById("sl-" + id).textContent =
         protectionVerified && liveProtection.sl_price != null
-          ? `SL ${fmtPrice(liveProtection.sl_price)}`
+          ? `SL ${fmtPrice(liveProtection.sl_price)}${protectionPercent(liveProtection.sl_price, pos.entry_price, pos.side, pos.leverage)}`
           : "SL 확인 안 됨";
       document.getElementById("tp-" + id).textContent =
         protectionVerified && liveProtection.tp_price != null
-          ? `TP ${fmtPrice(liveProtection.tp_price)}`
+          ? `TP ${fmtPrice(liveProtection.tp_price)}${protectionPercent(liveProtection.tp_price, pos.entry_price, pos.side, pos.leverage)}`
           : "TP 확인 안 됨";
     } else {
       sideEl.className = "pos-side-badge none";
@@ -3180,10 +3670,10 @@ async function refreshState() {
       const d = core.decision || {};
       const names = {event_call_spacing:'중복 호출 대기', event_call_budget:'시간당 AI 호출 한도 대기', event_consumed:'처리된 신호', event_memory_error:'판단 기록 확인 필요', fresh_entry_event_required:'새 재진입 신호 대기', starting:'시작 확인 중', no_signal:'진입 조건 대기', ai_pending:'AI 판단 중',
         market_data_unavailable:'확정봉 데이터 확인 중', paused_or_clock:'진입 일시정지',
-        position_ai_disabled:'보유 포지션 AI 관리 꺼짐', gemini_decision:'Gemini 판단',
-        gpt_decision:'GPT 추가 판단', ai_error:'AI 응답 오류', execution:'주문 처리 결과',
+        position_ai_disabled:'보유 포지션 AI 관리 꺼짐', gemini_decision:'AI 방향 판단',
+        gpt_decision:'GPT 판단', ai_error:'AI 응답 오류', execution:'주문 처리 결과',
         reverse_execution:'반대 전환 처리', expired_or_settings_changed:'승인 만료 또는 설정 변경',
-        confidence_below_minimum:'설정 확신도 미달', review_not_queued:'Gemini 검토 재시도 대기'};
+        confidence_below_minimum:'설정 확신도 미달', review_not_queued:'AI 검토 재시도 대기'};
       document.getElementById('action-' + id).textContent = !s.running ? 'CORE 중지' :
         age > 90000 ? 'CORE 갱신 지연' : names[d.reason] || d.reason || 'CORE 확인 중';
       const checks = {ema_cross:'1분 EMA 재돌파', volume:'거래량', momentum_1m:'1분 모멘텀',
@@ -3192,7 +3682,7 @@ async function refreshState() {
         (side === 'long' ? '롱' : '숏') + ' 대기: ' + Object.entries(flags).filter(([,ok]) => !ok)
           .map(([key]) => checks[key] || key).join(', ')).join(' / ') : '';
       document.getElementById('reason-' + id).textContent =
-        (core.review_mode === 'gemini' ? 'Gemini 단독' : 'Gemini + GPT') +
+        (GPT_PRIMARY_ONLY ? 'GPT 단독' : (core.review_mode === 'gemini' ? '기존 AI 단독' : '기존 AI 비교')) +
         (core.event_ai_enabled ? ' · 변화 감지' : ' · 정기 판단') +
         (core.review_interval_seconds ? ' · 보조/검토 주기 ' + core.review_interval_seconds + '초' : '') + ' · ' +
         (core.last_tick_ms ? new Date(core.last_tick_ms).toLocaleTimeString('ko-KR') : '-') + '\n' +
@@ -3209,31 +3699,59 @@ async function refreshState() {
       }
       const ai = core.last_ai_decision;
       if (ai) {
-        document.getElementById('reason-' + id).textContent += '\n최근 Gemini 판단 (' +
+        document.getElementById('reason-' + id).textContent += '\n최근 AI 판단 (' +
           new Date(ai.time_ms).toLocaleTimeString('ko-KR') + '): ' + (ai.action || '-') +
           ' · 확신도 ' + (typeof ai.confidence === 'number' ? Math.round(ai.confidence * 100) + '%' : '-') +
           ' · 시장 상태 ' + (ai.market_regime || '-') + '\n' +
           (ai.reasoning || '판단 근거가 응답에 포함되지 않았습니다.');
       } else {
-        document.getElementById('reason-' + id).textContent += '\nGemini 첫 정기 판단 대기 중';
+        document.getElementById('reason-' + id).textContent += '\n첫 AI 판단 대기 중';
       }
       if (s.running && core.next_review_ms) document.getElementById('reason-' + id).textContent +=
         '\n다음 정기 검토: ' + new Date(core.next_review_ms).toLocaleTimeString('ko-KR');
     }
 
+    // v33-110 observational UI: distinguish an intentionally avoided GPT call
+    // from an absent/failed GPT decision. Never infer confidence or entry permission.
+    const prefilter = info.core_entry_ai_prefilter;
+    const prefilterAt = Date.parse((prefilter && prefilter.at) || '');
+    const prefilterAgeMs = Date.now() - prefilterAt;
+    if (s.running && info.enabled && !pos && prefilter && prefilter.skip_ai === true &&
+        Number.isFinite(prefilterAt) && prefilterAgeMs >= 0 &&
+        prefilterAgeMs <= 15 * 60 * 1000) {
+      const labels = {
+        trend_v33_106_countertrend_or_transition: '4시간봉 추세 역행 또는 전환 구간',
+        trend_v33_108_strength_below_05atr: '4시간봉 추세 강도 0.5 ATR 미달',
+        trend_v33_106_4h_history_missing: '4시간봉 확정 데이터 부족'
+      };
+      const gates = prefilter.gates || {};
+      const describe = side => {
+        const reason = ((gates[side] || {}).reason || '판단 근거 확인 필요');
+        return labels[reason] || reason;
+      };
+      document.getElementById('action-' + id).textContent = 'AI 사전필터 제외';
+      document.getElementById('conf-' + id).textContent = '';
+      document.getElementById('reason-' + id).textContent =
+        '진입 전 4시간봉 필터 · ' + new Date(prefilterAt).toLocaleTimeString('ko-KR') +
+        '\nLONG 제외: ' + describe('long') +
+        '\nSHORT 제외: ' + describe('short') +
+        '\n양방향 진입 조건 미충족 · GPT 호출 생략 (API 오류 아님)';
+    }
+
     const entryAttempt = info.last_entry_attempt;
     if (entryAttempt && entryAttempt.time_ms) {
-      const entryStatusLabels = {LOCAL_BLOCKED:'로컬 차단',GPT_WAIT:'GPT 대기',GPT_REJECT:'GPT 거절',GPT_ERROR:'GPT 오류',ORDER_EXECUTED:'주문 실행',ORDER_FAILED:'주문 실패'};
       const entryReasonLabels = {short_level_none:'SHORT_LEVEL=NONE',cooldown:'재진입 쿨다운',confidence:'최소 확신도 미달',daily_loss:'일일 손실 한도',core_1h_confirmation:'LONG 1H 확인 미충족',core_short_cooldown:'SHORT 연속 손절 쿨다운',insufficient_min_notional:'최소 주문수량 미달',qty_zero:'계산 수량 0',blocked_wait:'GPT WAIT',blocked_reject:'GPT REJECT',blocked_error:'GPT 오류',core_kill_switch:'CORE kill switch',symbol_pause_or_reentry_block:'심볼 일시정지/재진입 차단',ai_close_thesis_not_recovered:'AI CLOSE thesis 미회복'};
-      const attemptStatus = entryStatusLabels[entryAttempt.status] || entryAttempt.status || '-';
-      const attemptReason = entryReasonLabels[entryAttempt.reason] || entryAttempt.reason || '-';
-      document.getElementById('reason-' + id).textContent += '\n최근 신규진입 시도 (' + new Date(entryAttempt.time_ms).toLocaleTimeString('ko-KR') + '): ' + String(entryAttempt.action || '-').toUpperCase() + ' · ' + attemptStatus + ' · ' + attemptReason;
+      document.getElementById('reason-' + id).textContent +=
+        '\n최근 신규진입 시도: '+coreEntryStatus.describe(entryAttempt,{primaryOnly:GPT_PRIMARY_ONLY}) + (entryReasonLabels[entryAttempt.reason] ? ' · '+entryReasonLabels[entryAttempt.reason] : '');
     }
 
     const thesisStatus = info.reentry_thesis_status;
     if (thesisStatus && thesisStatus !== 'none') {
       const blockedSide = String(info.reentry_thesis_blocked_side || '').toUpperCase();
-      if (thesisStatus === 'opposite_side_allowed') {
+      if (s.settings.gpt_entry_gate_enabled) {
+        document.getElementById('reason-' + id).textContent +=
+          `\n이전 ${blockedSide || '포지션'} 청산 근거: GPT 진입 검토에 반영`;
+      } else if (thesisStatus === 'opposite_side_allowed') {
         const currentSide = String(entryAttempt?.action || '').toUpperCase();
         document.getElementById('reason-' + id).textContent +=
           `\n재진입 thesis: 이전 ${blockedSide || '동일방향'} 재진입만 차단 · 현재 ${currentSide || '반대방향'} 허용`;
@@ -3288,7 +3806,7 @@ async function refreshState() {
       const confPct = (review && typeof review.confidence === "number") ? ` (확신도 ${Math.round(review.confidence * 100)}%)` : "";
       posAiEl.style.display = "";
       posAiEl.innerHTML =
-        (review ? `<div class="ai-rec-line action">GPT 관리 제안: ${ccEscape(corePositionAiActionText(review.action))}${confPct}</div>` : '') +
+        (review ? `<div class="ai-rec-line action">AI 관리 제안: ${ccEscape(corePositionAiActionText(review.action, review))}${confPct}</div>` : '') +
         (review?.reasoning ? `<div class="ai-reason-body">${ccEscape(review.reasoning)}</div>` : '') +
         (showReduction && coreReductionGateText(rv2, info.reduce_v2_diagnostics) ? `<div class="ai-rec-line">${ccEscape(coreReductionGateText(rv2, info.reduce_v2_diagnostics))}</div>` : '') +
         ((showReduction || hasReductionHistory) && rv2Text ? `<div class="ai-rec-line">${ccEscape(rv2Text)}</div>` : '') +
@@ -3582,6 +4100,7 @@ function errorReasonSentence(pipelineContext, errorReason) {
   return `${causeText} · Shadow 검증 실패 · 실거래 영향 없음`;
 }
 
+const GPT_PRIMARY_ONLY = {{ 'true' if gpt_primary_only else 'false' }};
 async function refreshShadow() {
   let result;
   try { result = await fetchJsonConditional("/api/shadow"); } catch (e) { return; }
@@ -3589,21 +4108,9 @@ async function refreshShadow() {
   const data = result.data;
   const tbody = document.getElementById("shadow-table");
   tbody.innerHTML = "";
-  (data.recent || []).slice(0, 30).forEach(r => {
-    const tr = document.createElement("tr");
-    const gemini = `${r.gemini_action || ""} ${fmt(r.gemini_confidence)}`;
-    let gpt, reasoning;
-    if (r.gpt_decision) {
-      gpt = `${r.gpt_decision} ${fmt(r.gpt_confidence)}`;
-      reasoning = r.gpt_reasoning || "";
-    } else {
-      gpt = errorReasonBadge(r.error_reason);
-      reasoning = errorReasonSentence(r.pipeline_context || r.mode, r.error_reason);
-    }
-    tr.innerHTML = `<td>${(r.time || "").replace("T", " ")}</td><td>${r.symbol || ""}</td>` +
-                   `<td>${gemini}</td><td>${gpt}</td><td>${reasoning}</td>`;
-    tbody.appendChild(tr);
-  });
+  const rows = data.events?.length ? data.events : (data.recent || []);
+  rows.slice(0, 100).forEach(r => tbody.appendChild(coreEntryStatus.render(document,r,{primaryOnly:GPT_PRIMARY_ONLY})));
+
 }
 
 
@@ -4115,7 +4622,7 @@ async function copyFullReport(btn) {
   lines.push("", "----- CORE 심볼별 현황 -----");
   lines.push(document.getElementById("symbol-table").innerText);
 
-  lines.push("", "----- CORE GPT 진입 게이트 -----");
+  lines.push("", "----- CORE GPT 단일 판단·실행 기록 -----");
   if (document.getElementById("shadow-panel").style.display !== "none") {
     lines.push(document.getElementById("shadow-summary").innerText);
     lines.push("", document.getElementById("shadow-table").innerText);
@@ -4172,8 +4679,8 @@ function renderPeriodTable() {
     tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted)">데이터 없음</td></tr>';
     return;
   }
-  // 거래 손익/수수료/승률은 기존 통계를 유지한다. 수익률은 각 완전청산 거래의
-  // 화면 손익 ÷ OKX 실제 원래 진입 고정금으로 계산한 값을 기간 안에서 합산한다.
+  // Money includes all realized REDUCE + CLOSE executions; completed lifecycle
+  // count and win rate are deliberately counted only for CLOSE events.
   let grandCount = 0, grandPnl = 0, grandFee = 0, grandNet = 0;
   let grandFixedRate = 0, fixedRateRows = 0, fixedRateIncomplete = false;
   rows.forEach(r => {
@@ -4224,7 +4731,7 @@ async function refreshPeriodicStats() {
   periodicData = await res.json();
   const margin = periodicData.margin_return_summary || {};
   document.getElementById("period-baseline-hint").textContent = margin.complete
-    ? "고정금 대비 손익률 = 각 거래의 화면 손익 ÷ 그 거래의 OKX 실제 진입 증거금, 거래별 수익률 합산."
+    ? "실현손익·수수료·ROI는 부분청산(REDUCE) 포함. 완료건수·승률은 전량청산만 집계. ROI는 각 실현 이벤트의 손익 ÷ 해당 포지션의 실제 최초 증거금 합산(매칭 불가 시 확인불가)."
     : (margin.last_error
         ? `OKX 고정금 원장 확인 필요: ${margin.last_error}`
         : "OKX 고정금 원장 초기화/갱신 중입니다.");
@@ -4284,6 +4791,7 @@ function guardedPoll(fn, intervalMs) {
   setInterval(run, intervalMs);
 }
 
+guardedPoll(refreshOperatingCosts, 60000);
 guardedPoll(refreshState, 2000);
 // 로그는 cursor 이후 delta만 받는다. 전체 ring-buffer를 2초마다 재전송하던 구조를 제거한다.
 guardedPoll(refreshLogs, 10000);
@@ -4304,6 +4812,7 @@ async function refreshAllNow(btn) {
   if (btn) { btn.disabled = true; btn.classList.add("spinning"); }
   try {
     await refreshState();
+    await refreshOperatingCosts();
     await refreshTradesFiltered();
     await refreshPnlSummary();
     await refreshCandidateC();
@@ -4317,13 +4826,13 @@ async function refreshAllNow(btn) {
 
 // 저장된 키가 화면에 채워져 있으면(재입력 안 해도 되게) 페이지를 열자마자 자동으로 재확인한다.
 window.addEventListener("load", () => {
-  if (document.getElementById("gemini-key").value) checkGemini();
+  if (document.getElementById("gemini-key")?.value) checkGemini();
   if (document.getElementById("openai-key").value) checkOpenai();
   const hasOkx = document.getElementById("okx-key").value &&
                  document.getElementById("okx-secret").value &&
                  document.getElementById("okx-pass").value;
   if (hasOkx) checkOkx();
-  if (!document.getElementById("gemini-key").value && !hasOkx) {
+  if (!document.getElementById("gemini-key")?.value && !hasOkx) {
     setHint("");
   }
   // 시장구조 관찰 패널은 자동 polling 안 함 - 페이지 열 때 1회만 불러오고, 이후는
@@ -4421,7 +4930,7 @@ async function disablePushNotifications() {
 
 
 // --- 거래 패턴 · AI 학습 분석 (advisory only) ---
-let tradeLearningState = { analysis:null, trades:[], learning:null, reviews:[], selfLearning:null, reports:[], latestReport:null };
+let tradeLearningState = { analysis:null, trades:[], learning:null, reviews:[], analysisOps:null, selfLearning:null, dailyCompletion:null, reports:[], latestReport:null };
 function learningEsc(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 }
@@ -4440,6 +4949,7 @@ function renderLearningMetricRows(rows, targetId, limit=80) {
   body.innerHTML=learningSortRows(rows).slice(0,limit).map(r => `<tr><td>${learningEsc(r.condition)}</td><td>${r.count??0}</td><td><span class="learning-badge">${learningEsc(r.sample_class)} · ${learningEsc(learningSampleLabel(r.sample_class))}</span></td><td>${learningNum(r.win_rate,1)}%</td><td>${learningNum(r.profit_factor)}</td><td>${learningNum(r.net_pnl)}</td></tr>`).join('') || '<tr><td colspan="6">분석 결과가 없습니다.</td></tr>';
 }
 function renderTradeLearning() {
+  renderAnalysisOpsStatus(tradeLearningState.analysisOps);
   const a=tradeLearningState.analysis || {};
   const summary=a.summary || {}; const coverage=a.coverage || {};
   document.getElementById('learning-summary-cards').innerHTML = `<div class="learning-note">완전청산 거래 <b>${summary.completed_trades??0}</b>건 · lifecycle 완전매칭 ${coverage.lifecycle_matched??0}건 · feature 완전결합 ${coverage.feature_complete??0}건 · 부분결합 ${coverage.partially_enriched??0}건 · 미매칭/제외 ${coverage.unmatched_or_excluded??0}건</div>`;
@@ -4450,7 +4960,7 @@ function renderTradeLearning() {
   tradeBody.innerHTML=(tradeLearningState.trades||[]).slice(0,200).map(t => `<tr><td>${learningEsc(t.entry_time||'-')}</td><td>${learningEsc(t.exit_time||'-')}</td><td>${learningEsc(t.symbol)}</td><td>${learningEsc(t.side)}</td><td>${learningNum(t.net_pnl)}</td><td>${learningEsc(t.coverage||'-')}</td></tr>`).join('') || '<tr><td colspan="6">거래 데이터가 없습니다.</td></tr>';
   const latest=(tradeLearningState.learning||{}).latest || {};
   document.getElementById('learning-hypothesis-list').innerHTML=Object.values(latest).slice(0,100).map(h => `<div class="learning-review-card"><b>${learningEsc(h.condition?.label || h.hypothesis_id)}</b> · v${h.version||1} · ${learningEsc(h.status)} · ${learningEsc(h.sample_class)}<br>표본 ${h.sample_count??0} · PF ${learningNum(h.metrics?.profit_factor)} · Net ${learningNum(h.metrics?.net_pnl)} · 추세 ${learningEsc(h.trend)}<br>${learningEsc(h.recommended_action_text||'')}</div>`).join('') || '<div class="compact-note">아직 학습 가설이 없습니다. 먼저 분석 실행을 누르세요.</div>';
-  document.getElementById('learning-review-list').innerHTML=(tradeLearningState.reviews||[]).map(r => { const g=r.gemini?.review||{}, p=r.gpt?.review||{}, c=r.consensus||{}; return `<div class="learning-review-card"><b>${learningEsc(r.review_window_id)}</b> · ${learningEsc(r.status)} · 거래 ${r.window_stats?.completed_trades??0}건<br><b>합의</b>: ${learningEsc((c.agreements||[]).join(' / ') || c.status || '-')}<br><b>Gemini</b>: ${learningEsc((g.observations||[]).join(' / ') || r.gemini?.status || '-')}<br><b>GPT</b>: ${learningEsc((p.observations||[]).join(' / ') || r.gpt?.status || '-')}</div>`; }).join('') || '<div class="compact-note">저장된 6시간 리뷰가 없습니다.</div>';
+  document.getElementById('learning-review-list').innerHTML=(tradeLearningState.reviews||[]).map(r => { const g=r.gemini?.review||{}, p=r.gpt?.review||{}, c=r.consensus||{}; return `<div class="learning-review-card"><b>${learningEsc(r.review_window_id)}</b> · ${learningEsc(r.status)} · 거래 ${r.window_stats?.completed_trades??0}건<br><b>이전 비교 기록</b>: ${learningEsc((c.agreements||[]).join(' / ') || c.status || '-')}<br><b>이전 AI 기록</b>: ${learningEsc((g.observations||[]).join(' / ') || r.gemini?.status || '-')}<br><b>GPT</b>: ${learningEsc((p.observations||[]).join(' / ') || r.gpt?.status || '-')}</div>`; }).join('') || '<div class="compact-note">저장된 과거 AI 리뷰가 없습니다.</div>';
 }
 function renderSelfLearning() {
   const s=tradeLearningState.selfLearning || {}; const c=s.control || {live_enabled:false};
@@ -4459,6 +4969,8 @@ function renderSelfLearning() {
   const counts=s.state_counts||{};
   const countEl=document.getElementById('self-learning-state-counts');
   if(countEl) countEl.innerHTML=`<b>상태</b> · DISCOVERY ${counts.DISCOVERY||0} · SHADOW ${counts.SHADOW_LEARNING||0} · VALIDATED ${counts.VALIDATED||0} · LIVE_BOUNDED ${counts.LIVE_BOUNDED||0} · REJECTED ${counts.REJECTED||0}<br>Shadow 누적효과 ${learningNum(s.shadow_benefit_net)} · 데이터 안전 ${s.safe===false?'경고':'정상'}`;
+  const prog=document.getElementById('self-learning-promotion-progress');
+  if(prog){ const rows=(s.promotion_progress||[]).filter(function(p){return !p.eligible_next;}).slice(0,12); prog.innerHTML=rows.map(function(p){ return '<div>'+learningEsc(p.pattern_id)+' · '+learningEsc(p.state)+' → '+learningEsc(p.next_state)+' · '+(p.blockers||[]).map(function(b){return learningEsc(b.label)+': '+learningEsc(b.actual)+' / '+learningEsc(b.required);}).join(' · ')+'</div>'; }).join('') || '현재 승격 blocker가 없습니다.'; }
   const lp=document.getElementById('self-learning-live-patterns');
   if(lp) lp.innerHTML=(s.live_patterns||[]).map(p=>`<div class="learning-review-card"><b>LIVE_BOUNDED · ${learningEsc(p.pattern_id)}</b><br>${learningEsc(p.evidence?.dimension||'-')} = ${learningEsc(p.evidence?.value??'-')} · 방향 ${learningEsc(p.evidence?.long_direction||'-')} · 표본 ${p.evidence?.sample_count??0}</div>`).join('') || '<div class="compact-note">현재 실전반영 가능한 LIVE_BOUNDED 패턴이 없습니다.</div>';
   const tr=document.getElementById('self-learning-transitions');
@@ -4488,10 +5000,24 @@ async function loadAnalysisReportsOnly() {
   if(!tradeLearningState.latestReport && tradeLearningState.reports.length) tradeLearningState.latestReport=tradeLearningState.reports[0];
   renderAnalysisReports();
 }
-async function requestAnalysisReport() {
-  const {ok,data}=await postJSON('/api/analysis/report',{});
-  if(!ok||!data.ok) throw new Error(data.error||'리포트 생성 실패');
-  const report=data.report;
+async function waitForAnalysisTask(jobId, onProgress) {
+  const started = Date.now();
+  while (Date.now() - started < 900000) {
+    const response = await fetchWithTimeout('/api/analysis/jobs/'+encodeURIComponent(jobId), undefined, 30000);
+    const job = await response.json();
+    if (!response.ok || !job.ok) throw new Error(job.error || '분석 진행 상태 조회 실패');
+    if (job.status === 'completed') return job.result;
+    if (job.status === 'failed') throw new Error(job.error || '분석 작업 실패');
+    if (onProgress) onProgress(job);
+    await new Promise(resolve => setTimeout(resolve, 1500));
+  }
+  throw new Error('분석 작업이 계속 진행 중입니다. 잠시 후 최근 리포트를 확인하세요.');
+}
+async function requestAnalysisReport(onProgress) {
+  const {ok,data}=await postJSON('/api/analysis/report',{background:true});
+  if(!ok||!data.ok) throw new Error(data.error==='analysis_task_running'?'다른 분석 작업이 진행 중입니다. 완료 후 다시 시도하세요.':data.error||'리포트 생성 실패');
+  const result=data.queued ? await waitForAnalysisTask(data.job_id,onProgress) : data;
+  const report=result.report;
   tradeLearningState.latestReport=report;
   tradeLearningState.reports=[report,...(tradeLearningState.reports||[]).filter(r=>r.report_id!==report.report_id)];
   renderAnalysisReports();
@@ -4499,7 +5025,7 @@ async function requestAnalysisReport() {
 }
 async function generateAnalysisReport(button) {
   button.disabled=true; const status=document.getElementById('trade-learning-analysis-status'); status.textContent='최신 로그로 분석 리포트를 생성 중입니다.';
-  try { const report=await requestAnalysisReport(); showTradeLearningTab('report',document.querySelector('[data-learning-tab="report"]')); status.textContent=`리포트 생성 완료 · ${report.report_id}`; }
+  try { const report=await requestAnalysisReport(job=>{status.textContent='리포트 생성 중 · '+Math.round(job.elapsed_seconds||0)+'초';}); showTradeLearningTab('report',document.querySelector('[data-learning-tab="report"]')); status.textContent=`리포트 생성 완료 · ${report.report_id}`; }
   catch(e){ status.textContent='리포트 생성 실패: '+e.message; } finally { button.disabled=false; }
 }
 async function copyAnalysisReport(button) {
@@ -4535,13 +5061,40 @@ function showTradeLearningTab(name, button) {
   for (const b of document.querySelectorAll('#trade-learning-tabs button')) b.classList.remove('primary');
   if (button) button.classList.add('primary');
 }
+async function fetchLearningData(url) {
+  const response=await fetchWithTimeout(url,undefined,30000);
+  const data=await response.json();
+  if(!response.ok || data.ok===false) throw new Error(data.error||'HTTP '+response.status);
+  return data;
+}
 async function loadTradeLearningAnalysis() {
   const status=document.getElementById('trade-learning-analysis-status'); status.textContent='저장된 분석을 불러오는 중입니다.';
   try {
-    const [sr,tr,lr,rr,slr,rpr]=await Promise.all([fetchWithTimeout('/api/analysis/summary'),fetchWithTimeout('/api/analysis/trades?limit=500'),fetchWithTimeout('/api/analysis/learning'),fetchWithTimeout('/api/analysis/reviews?limit=30'),fetchWithTimeout('/api/analysis/self-learning'),fetchWithTimeout('/api/analysis/reports?limit=20')]);
-    const s=await sr.json(), t=await tr.json(), l=await lr.json(), r=await rr.json(), sl=await slr.json(), rp=await rpr.json();
-    tradeLearningState={analysis:s.analysis||null,trades:t.trades||[],learning:l,reviews:r.reviews||[],selfLearning:sl,reports:rp.reports||[],latestReport:(rp.reports||[])[0]||null};
-    status.textContent=s.ready ? `최근 분석 ${s.generated_at||'-'}${s.stale?' · 새 로그가 있어 다시 분석 필요':''}` : '아직 분석 결과가 없습니다. 분석 실행을 누르세요.';
+    const urls=['/api/analysis/summary','/api/analysis/trades?limit=500','/api/analysis/learning','/api/analysis/reviews?limit=30','/api/analysis/self-learning','/api/analysis/daily-completion','/api/analysis/reports?limit=20'];
+    const labels=['전체 요약','개별 거래','AI 학습','과거 AI 리뷰','자가학습','일일 점검','리포트'];
+    const results=await Promise.allSettled(urls.map(fetchLearningData));
+    const parts=results.map(r=>r.status==='fulfilled'?r.value:{});
+    const [s,t,l,r,sl,dc,rp]=parts;
+    const previous=tradeLearningState||{};
+    const choose=(i,value,old)=>results[i].status==='fulfilled'?value:old;
+    tradeLearningState={
+      analysis:choose(0,s.analysis||null,previous.analysis||null),
+      trades:choose(1,t.trades||[],previous.trades||[]),
+      learning:choose(2,l,previous.learning||{}),
+      reviews:choose(3,r.reviews||[],previous.reviews||[]),
+      analysisOps:choose(3,r.analysis_ops||null,previous.analysisOps||null),
+      selfLearning:choose(4,sl,previous.selfLearning||{}),
+      dailyCompletion:choose(5,dc.daily_completion||null,previous.dailyCompletion||null),
+      reports:choose(6,rp.reports||[],previous.reports||[]),
+      latestReport:choose(6,(rp.reports||[])[0]||previous.latestReport||null,previous.latestReport||null)
+    };
+    const errors=results.map((r,i)=>r.status==='rejected'?labels[i]+': '+r.reason.message:null).filter(Boolean);
+    const c=tradeLearningState.dailyCompletion||{}, ce=c.entry||{}, cx=c.exit||{}, dq=c.data_quality||{};
+    const dcb=document.getElementById('daily-completion-body');
+    if(dcb && results[5].status==='fulfilled'){ const pr=c.post_release_cohort||{}, pe=c.post_release_entry||{}, miss=dq.feature_missing_reasons||{}, tc=dq.telemetry_current||{}; const pf=pr.profit_factor==null?'-':Number(pr.profit_factor).toFixed(2); dcb.innerHTML='1·2 진입: 표본 '+(ce.sample_count==null?0:ce.sample_count)+', late '+(ce.late_entry_count==null?'-':ce.late_entry_count)+' ('+(ce.late_entry_rate==null?'-':(ce.late_entry_rate*100).toFixed(1)+'%')+'), immediate-adverse '+(ce.immediate_adverse_count==null?'-':ce.immediate_adverse_count)+' ('+(ce.immediate_adverse_rate==null?'-':(ce.immediate_adverse_rate*100).toFixed(1)+'%')+')<br>3 이익보전 Shadow: CLOSE '+((cx.winner_counts||{}).CLOSE_ALL||0)+' · REDUCE50 '+((cx.winner_counts||{}).REDUCE_50||0)+' · HOLD '+((cx.winner_counts||{}).HOLD||0)+'<br>6 유기적 컨텍스트: 전체역사 '+(dq.feature_complete||0)+'/'+(dq.completed_trades||0)+' ('+(dq.feature_complete_rate==null?'-':(dq.feature_complete_rate*100).toFixed(1)+'%')+') · <b>현재 텔레메트리 '+(tc.complete||0)+'/'+(tc.eligible||0)+' ('+(tc.complete_rate==null?'-':(tc.complete_rate*100).toFixed(1)+'%')+')</b> · 과거/비활성 제외 '+((tc.pre_telemetry_excluded||0)+(tc.inactive_strategy_excluded||0))+'<br>누락 원인 candle_finality '+(miss.candle_finality||0)+' · market_structure '+(miss.market_structure||0)+' · gpt '+(miss.gpt||0)+'<br>8·10 자가학습 blocker '+(((c.learning||{}).blocked_count)||0)+'개 · LIVE '+((c.learning||{}).live_enabled ? 'ON' : 'OFF')+' · 분석 스냅샷 '+learningEsc((c.learning||{}).analysis_generated_at||'없음')+' · '+((c.learning||{}).analysis_stale ? '갱신 지연/관찰 필요' : '최신')+'<br><b>현 릴리스 cohort</b>: 완료거래 '+(pr.trade_count||0)+' · Net '+Number(pr.trading_net_pnl||0).toFixed(2)+' · PF '+pf+' · AI $'+Number(pr.ai_cost_usd||0).toFixed(4)+' · 서버시간비 $'+Number(pr.server_prorated_cost_usd||0).toFixed(4)+' · <b>비용후 Net '+Number(pr.economic_net_after_operating_costs||0).toFixed(2)+'</b><br>현 릴리스 진입표본 '+(pe.sample_count||0)+' · immediate-adverse '+(pe.immediate_adverse_count||0)+' · late '+(pe.late_entry_signature_count||0)+'<br><b>주의:</b> 과거 evidence 미기록 구간은 복구 불가로 분리하며, 이 통합값은 Shadow/분석 전용이고 실주문 권한이 없습니다.'; }
+    const summaryStatus=s.ready ? `최근 분석 ${s.generated_at||'-'}${s.stale?' · 새 로그가 있어 다시 분석 필요':''}` : '아직 분석 결과가 없습니다. 분석 실행을 누르세요.';
+    status.textContent=summaryStatus+(errors.length?' · 일부 조회 실패: '+errors.join(' / '):'');
+    if(dcb && results[5].status==='rejected' && !previous.dailyCompletion) dcb.textContent='일일 점검 조회 실패 · 다른 분석 결과는 아래에서 확인할 수 있습니다.';
     renderTradeLearning();
     renderSelfLearning();
     renderAnalysisReports();
@@ -4551,12 +5104,12 @@ function openTradeLearningAnalysis() { document.getElementById('trade-learning-a
 function closeTradeLearningAnalysis() { document.getElementById('trade-learning-analysis-overlay').hidden=true; }
 async function runTradeLearningAnalysis(button) {
   button.disabled=true; const status=document.getElementById('trade-learning-analysis-status'); status.textContent='로컬 로그를 읽어 분석 중입니다. 주문·설정 변경은 하지 않습니다.';
-  try { const {ok,data}=await postJSON('/api/analysis/run',{}); if(!ok||!data.ok) throw new Error(data.error||'분석 실패'); await loadTradeLearningAnalysis(); }
+  try { const {ok,data}=await postJSON('/api/analysis/run',{background:true}); if(!ok||!data.ok) throw new Error(data.error==='analysis_task_running'?'다른 분석 작업이 진행 중입니다. 완료 후 다시 시도하세요.':data.error||'분석 실패'); if(data.queued) await waitForAnalysisTask(data.job_id,job=>{status.textContent='로컬 분석 중 · '+Math.round(job.elapsed_seconds||0)+'초';}); await loadTradeLearningAnalysis(); }
   catch(e){ status.textContent='분석 실패: '+e.message; } finally { button.disabled=false; }
 }
 async function runStrategyReviewNow(button) {
   button.disabled=true; const status=document.getElementById('trade-learning-analysis-status');
-  try { const {ok,data}=await postJSON('/api/analysis/review-now',{}); if(!ok) throw new Error(data.error||'리뷰 시작 실패'); status.textContent='Gemini와 GPT 독립 리뷰를 백그라운드에서 시작했습니다. 완료 후 6시간 리뷰 탭에서 확인하세요.'; }
+  try { const {ok,data}=await postJSON('/api/analysis/review-now',{}); if(!ok) throw new Error(data.error||'리뷰 시작 실패'); status.textContent='GPT 단독 AI 검토 요청이 접수됐습니다. 완료 후 6시간 리뷰 탭에서 확인하세요.'; }
   catch(e){ status.textContent='AI 리뷰 시작 실패: '+e.message; } finally { button.disabled=false; }
 }
 
@@ -4571,5 +5124,78 @@ async function runStrategyReviewNow(button) {
     </div>
   </div>
 </div>
+<script>
+(function () {
+  async function updateCandidateParity() {
+    const target = document.getElementById('cc-parity-report');
+    if (!target) return;
+    try {
+      const reply = await fetch('/api/ops/candidate-c-protection-parity-v33-47',
+        {credentials:'same-origin',cache:'no-store'});
+      if (!reply.ok) throw new Error('report_unavailable');
+      const data = await reply.json();
+      const items = (data.report && data.report.results) || [];
+      if (!data.fresh) {
+        target.textContent = '보호주문 · 원장 독립 대조: 보고서 갱신 지연 (매매 차단 여부와 무관)';
+        return;
+      }
+      const names = {'SOL/USDT:USDT':'SOL','DOGE/USDT:USDT':'DOGE'};
+      const labels = {
+        'PROTECTED_PARITY_VERIFIED':'잔여수량·SL/TP·원장 일치',
+        'FLAT_CLEAR':'무포지션 정합',
+        'REDUCE_RESIZE_PENDING':'부분청산 보호수량 확인 대기'
+      };
+      target.textContent = '보호주문 · 원장 독립 대조: ' +
+        items.map(x => (names[x.symbol] || x.symbol) + ' ' +
+          (labels[x.status] || '확인 필요 (' + x.status + ')')).join(' · ') +
+        ' · 읽기 전용 점검';
+    } catch (_) {
+      target.textContent = '보호주문 · 원장 독립 대조: 조회 미확정 (실주문 영향 없음)';
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded',updateCandidateParity);
+  } else {
+    updateCandidateParity();
+  }
+  setInterval(updateCandidateParity,60000);
+})();
+</script>
+<script>
+(function () {
+  async function refreshV3348() {
+    const target = document.getElementById('cc-recovery-triage');
+    if (!target) return;
+    try {
+      const reply = await fetch('/api/ops/candidate-c-recovery-triage-v33-48',
+        {credentials:'same-origin',cache:'no-store'});
+      if (!reply.ok) throw new Error('triage_query_failed');
+      const result=await reply.json();
+      if (!result.fresh) {
+        target.textContent='정합성 복구 안전성 진단: 최신 보고서 없음 · 판단 보류';
+        return;
+      }
+      const items=(result.report && result.report.results) || [];
+      const label={
+        'NO_REPAIR_REQUIRED':'복구 불필요',
+        'SHADOW_RECOVERY_CANDIDATE':'증거 일치 후보 (자동 수정 없음)',
+        'MANUAL_REVIEW_REQUIRED':'사람 확인 필요',
+        'STALE_BASELINE':'기초 검증 지연'
+      };
+      target.textContent='정합성 복구 안전성 진단: '+items.map(x =>
+        x.symbol.split('/')[0]+' '+(label[x.status] || x.status)).join(' · ')+
+        ' · 관찰 전용 (매매 제어 변경 없음)';
+    } catch (_) {
+      target.textContent='정합성 복구 안전성 진단: 조회 미확정 · 자동 복구 없음';
+    }
+  }
+  if (document.readyState==='loading') {
+    document.addEventListener('DOMContentLoaded',refreshV3348);
+  } else {
+    refreshV3348();
+  }
+  setInterval(refreshV3348,60000);
+})();
+</script>
 </body>
 </html>

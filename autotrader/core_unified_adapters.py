@@ -381,6 +381,37 @@ def make_broker(cfg, clock_ms, *, gemini_factory=None, gpt_factory=None):
     Only invoking a worker reads its configured key or constructs a client.
     """
     def gemini(candidate, snapshot):
+        if getattr(cfg,"GPT_PRIMARY_ONLY",False):
+            factory=gpt_factory
+            if factory is None:
+                from openai import OpenAI
+                factory=OpenAI
+            if not cfg.OPENAI_API_KEY:
+                raise RuntimeError("OPENAI_API_KEY_required")
+            client=factory(api_key=cfg.OPENAI_API_KEY,timeout=15.0,max_retries=0)
+            try:
+                response=client.chat.completions.create(
+                    model=cfg.OPENAI_MODEL,
+                    messages=[{"role":"system","content":"Return JSON conforming to schema: "+json.dumps(GEMINI_EVENT_SCHEMA if candidate.get("decision_source")=="gemini_event" else GEMINI_REVIEW_SCHEMA,ensure_ascii=False,separators=(",",":"))},
+                              {"role":"user","content":review_prompt(candidate,snapshot,"gemini")}],
+                    response_format={"type":"json_object"},
+                )
+                result=json.loads(response.choices[0].message.content)
+                if not isinstance(result,dict): raise ValueError("response_shape")
+                if getattr(cfg,"user_dir",None):
+                    from usage_log import record_usage
+                    usage=getattr(response,"usage",None)
+                    record_usage(cfg.user_dir,candidate["symbol"],
+                        int(getattr(usage,"prompt_tokens",0) or 0),
+                        int(getattr(usage,"completion_tokens",0) or 0),
+                        provider="openai",purpose="core_periodic" if candidate.get("purpose")=="DECIDE" else "core_review",
+                        model=cfg.OPENAI_MODEL,retry_limit=0)
+                schema=GEMINI_EVENT_SCHEMA if candidate.get("decision_source")=="gemini_event" else GEMINI_REVIEW_SCHEMA
+                from gpt_primary_v33_97 import _validate_schema
+                _validate_schema(result,schema)
+                return result
+            finally:
+                client.close()
         from google.genai import types
         factory = gemini_factory
         if factory is None:
@@ -429,4 +460,4 @@ def make_broker(cfg, clock_ms, *, gemini_factory=None, gpt_factory=None):
         finally:
             client.close()
     return ReviewBroker(gemini, gpt, clock_ms, max_workers=4,
-                        require_gpt=lambda:getattr(cfg,'GPT_ENTRY_GATE_ENABLED',True))
+                        require_gpt=lambda: (not getattr(cfg,'GPT_PRIMARY_ONLY',False)) and getattr(cfg,'GPT_ENTRY_GATE_ENABLED',True))

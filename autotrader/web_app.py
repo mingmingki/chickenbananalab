@@ -1,5 +1,8 @@
+import core_management_policy
+import strategy_guide
 import datetime
 import hashlib
+import json
 import logging
 import math
 import os
@@ -8,6 +11,7 @@ import threading
 import time
 from collections import deque
 from functools import wraps
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
@@ -21,6 +25,7 @@ import candidate_c_gpt_gate_log
 import candidate_c_intent_ledger as il
 import candidate_c_live_activation as activation
 import candidate_c_manual_close as candidate_c_manual_close
+import candidate_c_manual_entry as candidate_c_manual_entry
 import candidate_c_position_reconciliation as recon
 import candidate_c_reversal_state_machine as rsm
 import candidate_c_runtime
@@ -35,7 +40,6 @@ import entry_quality_shadow
 import candidate_c_early_exit_shadow
 import fee_aware_entry_shadow
 import low_follow_through_shadow
-import entry_tf_daily_backfill
 import score4_pullback_shadow
 import learning_exit_reentry
 import account_reconciliation_bridge
@@ -49,10 +53,14 @@ import gemini_analyzer
 import gpt_hold_audit
 import gpt_shadow_log
 import market_structure_log
+import market_context
 import okx_client
 import openai_analyzer
 import pnl_reconciliation
+import state_stats_cache
+import display_read_cache
 import pnl_store
+import baseline_history
 import position_ai_log
 import reduce_v2_state
 import timeframes
@@ -69,7 +77,13 @@ import strategy_learning
 import learning_control
 import learning_state
 import learning_shadow
+import learning_explainability
+import daily_completion_context
+import release_cohort_analysis
 import usage_log
+import operating_costs
+import ops_observability
+import analysis_ops_status
 import web_push
 from state import TraderState
 
@@ -95,6 +109,7 @@ def reject_cross_origin_mutations():
         if request.path in (
             '/api/candidate_c_settings', '/api/symbol_entry_control',
             '/api/candidate_c_close_symbol', '/api/manual_entry',
+            '/api/candidate_c_manual_entry',
             '/api/analysis/run', '/api/analysis/review-now',
             '/api/analysis/self-learning/control',
         ) and not request.is_json:
@@ -197,6 +212,12 @@ class UserContext:
         # 재시작 시 CORE와 동일하게 메모리 초기화되어 자동 재시작되지 않는다.
         self.candidate_c_stop_event = None
         self.candidate_c_threads: list = []
+        self.candidate_c_run_mode = None  # v33-69: exact pre-deployment mode
+        try:
+            import core_entry_events
+            core_entry_events.kick(self.cfg)
+        except Exception:
+            self.cfg.logger.warning('ENTRY_OUTBOX_BOOT_FAILED')
 
         # CORE는 포지션 상태를 로컬 디스크에 저장해두지 않고 순수 메모리 객체라(2026-08-28
         # 사용자 지시), 재시작 직후 "시작"을 누르기 전까지 화면에 아무것도 안 보이는
@@ -383,15 +404,23 @@ def dashboard():
     # 저장된 키 값을 화면에 채워서 보여준다.
     return render_template(
         "dashboard.html",
+        candidate_chart_only=getattr(ctx.cfg,"CANDIDATE_C_CHART_ONLY",False),
+        strategy_guide_data=_strategy_guide_payload(ctx.cfg),
         username=ctx.username,
         is_admin=accounts.is_admin(ctx.username),
         symbols=config.CORE_SYMBOLS,
-        gemini_key=ctx.cfg.GEMINI_API_KEY,
+        gemini_key="" if ctx.cfg.GPT_PRIMARY_ONLY else ctx.cfg.GEMINI_API_KEY,
+        gpt_primary_only=ctx.cfg.GPT_PRIMARY_ONLY,
         openai_key=ctx.cfg.OPENAI_API_KEY,
         okx_key=ctx.cfg.OKX_API_KEY,
         okx_secret=ctx.cfg.OKX_API_SECRET,
         okx_pass=ctx.cfg.OKX_API_PASSPHRASE,
     )
+
+
+def _strategy_guide_payload(cfg):
+    return strategy_guide.build(cfg, add_size_fraction=trader.CORE_ADD_POSITION_SIZE_FRACTION,
+                                release=operating_costs.release_metadata(config.PROJECT_DIR))
 
 
 @app.route("/admin")
@@ -490,7 +519,7 @@ def _candidate_c_manual_close_status_for_api(user_dir: str, symbol: str) -> dict
 
 # --- Adaptive Exit read-only state ---
 
-def _adaptive_exit_state_for_api(user_dir, symbols):
+def _adaptive_exit_state_for_api(user_dir, symbols, *, leverage=None, equity=None):
     rows=adaptive_exit_log.load_recent(user_dir,1000)
     diagnostics=adaptive_exit_log.load_diagnostics(user_dir)
     latest={}
@@ -507,20 +536,76 @@ def _adaptive_exit_state_for_api(user_dir, symbols):
             result[symbol]={"status":"NO_DATA","audit_corrupt_lines":diagnostics.get("corrupt_lines",0)}
             continue
         diag=dict(row.get("diagnostics") or [])
+        def number(value):
+            import math
+            if isinstance(value, bool): return None
+            try: value=float(value)
+            except (TypeError,ValueError): return None
+            return value if math.isfinite(value) else None
+        lev=number(leverage)
+        configured=row.get("configured_margin_usdt")
+        effective=row.get("effective_margin_usdt")
+        margin_basis="logged_margin"
+        if lev is not None and lev>0:
+            if configured is None:
+                notional=number(row.get("configured_notional"))
+                configured=notional/lev if notional is not None else None
+            if effective is None:
+                notional=number(row.get("effective_notional"))
+                effective=notional/lev if notional is not None else None
+            if row.get("configured_margin_usdt") is None:
+                margin_basis="latest_plan_notional/configured_leverage"
+        account_equity=number(equity);planned_loss=number(row.get("planned_loss_usdt"))
+        tp1=row.get("tp1") if isinstance(row.get("tp1"),dict) else {}
+        tp2=row.get("tp2") if isinstance(row.get("tp2"),dict) else {}
         result[symbol]={
             "status":str(row.get("mode") or "SHADOW").upper(),
             "policy_hash":row.get("policy_hash"),"plan_hash":row.get("plan_hash"),
             "decision_timestamp":row.get("decision_timestamp"),
-            "configured_margin_usdt":row.get("configured_margin_usdt"),
-            "effective_margin_usdt":row.get("effective_margin_usdt"),
+            "configured_margin_usdt":configured,
+            "effective_margin_usdt":effective,
+            "margin_basis":margin_basis,"plan_not_position":True,
+            "planned_loss_equity_pct":planned_loss/account_equity*100 if planned_loss is not None and account_equity is not None and account_equity>0 else None,
             "planned_loss_usdt":row.get("planned_loss_usdt"),
-            "stop_price":row.get("stop_price"),"tp1_price":row.get("tp1_price"),
-            "tp2_price":row.get("tp2_price"),"runner_fraction":row.get("runner_fraction"),
+            "stop_price":row.get("stop_price"),"tp1_price":row.get("tp1_price",tp1.get("price")),
+            "tp2_price":row.get("tp2_price",tp2.get("price")),"runner_fraction":row.get("runner_fraction"),
             "reason_code":row.get("reason_code"),
             "gemini_state":diag.get("gemini_thesis"),"learning_state":diag.get("learning_state"),
             "audit_corrupt_lines":diagnostics.get("corrupt_lines",0),
         }
     return result
+
+
+# Health check reads current in-memory observation, not historical ledgers.
+@app.route("/api/watchdog_state")
+@login_required
+def api_watchdog_state():
+    ctx = get_context(session["username"])
+    snap = ctx.state.snapshot()
+    symbols = {
+        sym: {
+            "live_position": (snap["symbols"].get(sym) or {}).get("live_position"),
+            "live_protection": (snap["symbols"].get(sym) or {}).get("live_protection"),
+        }
+        for sym in config.CORE_SYMBOLS
+    }
+    return jsonify({
+        "running": snap.get("running"),
+        "last_error": snap.get("last_error"),
+        "symbols": symbols,
+        "settings": {"max_daily_loss_pct": ctx.cfg.MAX_DAILY_LOSS_PCT},
+        "health_source": "in_memory_live_observation",
+    })
+
+
+def _dashboard_ledger_summaries(user_dir):
+    return {
+        "trade_stats": pnl_reconciliation.canonical_trade_stats(user_dir),
+        "economic_trade_stats": account_reconciliation_bridge.realized_economic_summary(user_dir)["total"],
+        "usage_stats": usage_log.summary(user_dir),
+        "shadow_stats": gpt_shadow_log.summary(user_dir),
+        "candidate_c_breakout_shadow": candidate_c_breakout_shadow.summary(user_dir),
+    }
 
 
 # --- 상태 조회 ---
@@ -566,11 +651,14 @@ def api_state():
             "live_position": s.get("live_position"),
             "live_protection": s.get("live_protection"),
             "unified_status": s.get("unified_status"),
+            # Observational only: expose the already-computed v33-109 prefilter to the dashboard.
+            "core_entry_ai_prefilter": s.get("core_entry_ai_prefilter"),
             "last_action": s.get("last_action"),
             "last_confidence": s.get("last_confidence"),
             "last_reasoning": s.get("last_reasoning"),
             "last_market_regime": s.get("last_market_regime"),
             "last_regime_confidence": s.get("last_regime_confidence"),
+            "last_market_context": s.get("last_market_context"),
             # 보유 포지션 AI 관리(2026-09-11) - 이 심볼의 가장 최근 최종 판단 +
             # 다음 리뷰가 가능해지는 시각(쿨다운 해제 시점). 리뷰가 한 번도 없었거나
             # 포지션이 아예 없으면 None - 프론트엔드가 "아직 리뷰 없음"으로 표시한다.
@@ -603,12 +691,11 @@ def api_state():
     # 버그가 있었다(실사용자가 277건/-21.44 vs 258건/-15.35 불일치를 정확히
     # 발견 - 258=LEGACY 253+CORE 5라 FAST 19건이 통째로 빠져있었음). 상단
     # 실현손익 요약/기간별 수익률과 동일한 pnl_reconciliation 계산 경로로 통일한다.
-    trade_stats = pnl_reconciliation.canonical_trade_stats(ctx.dir)
-    economic_trade_stats = account_reconciliation_bridge.realized_economic_summary(ctx.dir)["total"]
-    usage_stats = usage_log.summary(ctx.dir)
-    shadow_stats = gpt_shadow_log.summary(ctx.dir)
+    display_summaries = state_stats_cache.get(
+        ctx.dir, lambda: _dashboard_ledger_summaries(ctx.dir))
     adaptive_symbols = list(config.CORE_SYMBOLS) + list(getattr(cfg, "CANDIDATE_C_SYMBOLS", None) or [])
-    adaptive_exit_state = _adaptive_exit_state_for_api(ctx.dir, adaptive_symbols)
+    adaptive_exit_state = _adaptive_exit_state_for_api(
+        ctx.dir, adaptive_symbols, leverage=cfg.LEVERAGE, equity=snap.get("equity"))
 
     return jsonify(
         {
@@ -627,15 +714,19 @@ def api_state():
             "live_raw_total_profit_pct": snap.get("live_raw_total_profit_pct"),
             "capital_flow_summary": snap.get("capital_flow_summary"),
             "last_error": snap["last_error"],
+            "market_context": market_context.get_snapshot(),
             "symbols": symbols_out,
             "gemini_validated": ctx.gemini_validated,
             "okx_validated": ctx.okx_validated,
             "openai_validated": ctx.openai_validated,
-            "keys_ready": ctx.gemini_validated and ctx.okx_validated,
+            "keys_ready": (ctx.openai_validated if cfg.GPT_PRIMARY_ONLY else ctx.gemini_validated) and ctx.okx_validated,
+            "strategy_guide": _strategy_guide_payload(cfg),
             "approved": accounts.is_approved(ctx.username),
             "settings": {
                 "core_unified_mode": cfg.CORE_UNIFIED_MODE,
                 "poll_interval_seconds": cfg.POLL_INTERVAL_SECONDS,
+                "core_gemini_routine_interval_seconds": cfg.CORE_GEMINI_ROUTINE_INTERVAL_SECONDS,
+                "core_gemini_stable_fallback_seconds": 1800,
                 "leverage": cfg.LEVERAGE,
                 "max_leverage": cfg.MAX_LEVERAGE,
                 "stop_loss_pct": cfg.STOP_LOSS_PCT,
@@ -653,6 +744,12 @@ def api_state():
                 "timeframes_desc": timeframes.describe(cfg.POLL_INTERVAL_SECONDS),
                 "core_event_ai_enabled": cfg.CORE_EVENT_AI_ENABLED,
                 "gpt_entry_gate_enabled": cfg.GPT_ENTRY_GATE_ENABLED,
+                "strategy_authority": "AI" if getattr(cfg,"CORE_AI_STRATEGY_AUTHORITY",False) else "LEGACY",
+                "risk_adaptive_partials": getattr(cfg,"RISK_ADAPTIVE_PARTIAL_ENABLED",False),
+                "core_gpt_entry_timeout_bypass": cfg.CORE_GPT_ENTRY_TIMEOUT_BYPASS,
+                "core_paid_shadow_enabled": cfg.CORE_PAID_SHADOW_ENABLED,
+                "core_gemini_management_only": core_management_policy.enabled(cfg),
+                "scheduled_strategy_ai_review": False,
                 "hold_audit_enabled": cfg.HOLD_AUDIT_ENABLED,
                 "position_ai_review_enabled": cfg.POSITION_AI_REVIEW_ENABLED,
                 # POSITION_AI_LIVE_EXECUTE는 이 화면에서 켜고 끄는 토글이 아니다
@@ -681,11 +778,11 @@ def api_state():
                 else "blocked_no_key" if cfg.GPT_ENTRY_GATE_ENABLED
                 else "off"
             ),
-            "trade_stats": trade_stats,
-            "economic_trade_stats": economic_trade_stats,
-            "usage_stats": usage_stats,
-            "shadow_stats": shadow_stats,
-            "candidate_c_breakout_shadow": candidate_c_breakout_shadow.summary(ctx.dir),
+            "trade_stats": display_summaries["trade_stats"],
+            "economic_trade_stats": display_summaries["economic_trade_stats"],
+            "usage_stats": display_summaries["usage_stats"],
+            "shadow_stats": display_summaries["shadow_stats"],
+            "candidate_c_breakout_shadow": display_summaries["candidate_c_breakout_shadow"],
             "adaptive_exit": adaptive_exit_state,
         }
     )
@@ -779,8 +876,8 @@ def api_trades_filtered():
         enriched_records, group=group, symbol=symbol, strategy_variant=variant,
     )
 
-    # 기간별 수익률은 "완전청산 거래"와 정확히 같은 모집단을 사용한다. REDUCE_50은
-    # 거래기록 목록에는 보이지만 거래 건수/승률/기간 수익률에는 섞지 않는다.
+    # v33-21: monetary returns cover realized reduces + closes. Completed
+    # lifecycle count and win rate remain terminal-close-only.
     # load_all_records_with_reduces()는 완전청산 목록 뒤에 reduce만 append하므로,
     # 같은 OKX 원장을 두 번 O(N*M) 매칭하지 않고 이미 enrich한 prefix를 재사용한다.
     enriched_close_records = [r for r in enriched_records if r.get("type") != "reduce"]
@@ -794,8 +891,8 @@ def api_trades_filtered():
     filtered_close_records = pnl_reconciliation.filter_records(
         enriched_close_records, group=group, symbol=symbol, strategy_variant=variant,
     )
-    fixed_margin_periods = okx_margin_return.period_fixed_returns_from_records(filtered_close_records)
-    fixed_margin_total = okx_margin_return.fixed_return_summary_from_records(filtered_close_records)
+    fixed_margin_periods = okx_margin_return.period_fixed_returns_from_records(records)
+    fixed_margin_total = okx_margin_return.fixed_return_summary_from_records(records)
 
     # 전체 과거 기록을 보여준다. OKX 고정금 수익률도 과거 전체 원장과 일대일 매칭되므로
     # 예전의 최근 200건 UI 제한은 제거한다.
@@ -829,6 +926,9 @@ def api_shadow():
     stats = gpt_shadow_log.summary(ctx.dir)
     return _conditional_json({
         "recent": gpt_shadow_log.recent_by_mode(ctx.dir, "entry_gate", limit=100),
+        "events": [e for e in __import__("core_entry_events").recent(ctx.dir, limit=1000)
+                   if e.get("symbol") in config.CORE_SYMBOLS
+                   and (e.get("engine") or "CORE") == "CORE"][:100],
         "entry_gate_count": stats["gate_count"],
         "historical_shadow_count": stats["shadow_mode_count"],
         "legacy_no_mode_count": stats["no_mode_count"],
@@ -892,6 +992,61 @@ def _queue_manual_strategy_review(ctx) -> bool:
         return True
 
 
+_analysis_tasks = {}
+_analysis_tasks_lock = threading.Lock()
+
+
+def _queue_analysis_task(ctx, kind):
+    # One expensive local analysis task per account; retries reuse the same job.
+    user_key = os.path.abspath(ctx.dir)
+    with _analysis_tasks_lock:
+        jobs = _analysis_tasks.setdefault(user_key, {})
+        active = next((row for row in jobs.values() if row['status'] == 'running'), None)
+        if active:
+            if active['kind'] != kind:
+                return jsonify(ok=False, error='analysis_task_running'), 409
+            return jsonify(ok=True, queued=True, job_id=active['job_id']), 202
+        for job_id in list(jobs)[:-9]:
+            jobs.pop(job_id, None)
+        job_id = secrets.token_hex(16)
+        row = {'job_id': job_id, 'kind': kind, 'status': 'running',
+               'started_at': time.time(), 'result': None, 'error': None}
+        jobs[job_id] = row
+
+        def worker():
+            try:
+                result = ({'report': _build_analysis_report(ctx)} if kind == 'report'
+                          else trade_learning_cache.run_analysis(ctx.dir))
+                with _analysis_tasks_lock:
+                    row.update(status='completed', result=result, finished_at=time.time())
+            except Exception as exc:
+                ctx.cfg.logger.exception('분석 백그라운드 작업 실패')
+                with _analysis_tasks_lock:
+                    row.update(status='failed', error=type(exc).__name__, finished_at=time.time())
+
+        thread = threading.Thread(target=worker, name=f'analysis-{kind}-{ctx.username}', daemon=True)
+        try:
+            thread.start()
+        except Exception as exc:
+            jobs.pop(job_id, None)
+            return jsonify(ok=False, error=type(exc).__name__), 500
+    return jsonify(ok=True, queued=True, job_id=job_id), 202
+
+
+@app.route('/api/analysis/jobs/<job_id>')
+@login_required
+def api_analysis_job(job_id):
+    ctx = get_context(session['username'])
+    with _analysis_tasks_lock:
+        row = (_analysis_tasks.get(os.path.abspath(ctx.dir)) or {}).get(job_id)
+        if row is None:
+            return jsonify(ok=False, error='analysis_job_not_found'), 404
+        payload = dict(row)
+    payload['elapsed_seconds'] = round(
+        (payload.get('finished_at') or time.time()) - payload['started_at'], 1)
+    return jsonify(ok=True, **payload)
+
+
 @app.route('/api/analysis/summary')
 @login_required
 def api_analysis_summary():
@@ -937,6 +1092,436 @@ def api_analysis_trade(lifecycle_id):
     return jsonify(ok=True, trade=trade, stale=bool(cached.get('stale', True)))
 
 
+@app.route('/api/operating-costs', methods=['GET'])
+@login_required
+def api_operating_costs():
+    ctx = get_context(session['username'])
+    return jsonify(ok=True, summary=operating_costs.build_operating_cost_summary(ctx.dir))
+
+
+@app.route('/api/ops/profitability-v33-101', methods=['GET'])
+@login_required
+def api_profitability_v33_101():
+    """Read-only snapshot. No trade endpoints or AI calls."""
+    from pathlib import Path
+    import profitability_review_v33_101 as v33_101
+    ctx=get_context(session['username'])
+    p=Path(ctx.dir)/v33_101.FILE
+    try:
+        data=json.loads(p.read_text(encoding='utf8'))
+        if data.get('version')!='v33-101' or data.get('mode')!='READ_ONLY_SHADOW_NO_ORDER_OR_RISK_CHANGE':
+            raise ValueError('invalid_snapshot')
+        stamped=datetime.datetime.fromisoformat(data['created_at'])
+        now=datetime.datetime.now(datetime.timezone.utc)
+        age=max(0.,(now-stamped.astimezone(datetime.timezone.utc)).total_seconds())
+        return jsonify(ok=True,report=data,age_seconds=round(age),
+                       fresh=age<=3600,execution_permission=False)
+    except (OSError,ValueError,TypeError,KeyError):
+        return jsonify(ok=False,error='profitability_snapshot_unavailable'),503
+
+
+@app.route('/api/ops-observability', methods=['GET'])
+@login_required
+def api_ops_observability():
+    ctx = get_context(session['username'])
+    return jsonify(ok=True, snapshot=ops_observability.read_snapshot(ctx.dir))
+
+
+@app.route('/api/ops/candidate-c-recovery-triage-v33-48', methods=['GET'])
+@login_required
+def api_ops_candidate_c_recovery_triage_v33_48():
+    from pathlib import Path
+    from datetime import datetime, timezone
+    import candidate_c_recovery_triage_v33_48 as triage
+    ctx = get_context(session['username'])
+    path = Path(ctx.dir) / triage.FILE
+    try:
+        report = json.loads(path.read_text())
+        assert report['version'] == 'v33-48'
+        assert report['can_apply_recovery'] is False
+        at = datetime.fromisoformat(report['observed_at'])
+        age = max(0, (datetime.now(timezone.utc)-at).total_seconds())
+        return jsonify(ok=True, report=report, age_seconds=round(age),
+                       fresh=age <= 1200)
+    except (OSError, ValueError, KeyError, AssertionError, TypeError):
+        return jsonify(ok=False, error='recovery_triage_report_unavailable'), 503
+
+
+@app.route('/api/ops/candidate-c-tail-loss-shadow-v33-73', methods=['GET'])
+@login_required
+def api_ops_candidate_c_tail_loss_shadow_v33_73():
+    # Historical ex-post diagnostic, never a live entry/exit decision.
+    import candidate_c_tail_loss_shadow_v33_73 as shadow
+    ctx=get_context(session['username'])
+    try:
+        result=shadow.run(ctx.dir)
+        if request.args.get('details')!='1':
+            result.pop('all_scenarios',None)
+        return jsonify(ok=True, report=result, trading_policy_changed=False)
+    except (OSError,KeyError,ValueError,TypeError,RuntimeError):
+        app.logger.exception('v33-73 candidate tail-loss shadow unavailable')
+        return jsonify(ok=False,error='v33_73_shadow_evidence_unavailable'),503
+
+
+@app.route('/api/ops/candidate-c-profit-proof-v33-72', methods=['GET'])
+@login_required
+def api_ops_candidate_c_profit_proof_v33_72():
+    # Immutable exact-order/fill evidence; no OKX API or trading mutations.
+    import candidate_c_profit_evidence_v33_72 as proof
+    ctx=get_context(session['username'])
+    try:
+        report=proof.status(ctx.dir,details=request.args.get('details')=='1')
+        return jsonify(ok=True,report=report)
+    except (OSError,ValueError,KeyError,TypeError,AssertionError):
+        app.logger.exception('v33-72 immutable profit evidence unavailable')
+        return jsonify(ok=False,error='v33_72_verified_profit_evidence_unavailable'),503
+
+
+@app.route('/api/ops/candidate-c-4h-cost-v33-71', methods=['GET'])
+@login_required
+def api_ops_candidate_c_4h_cost_v33_71():
+    # No exchange calls or entry/exit policy changes: observation only.
+    import candidate_c_runtime as runtime
+    from pathlib import Path
+    import candidate_c_indicator_contract as contract
+    import candidate_c_direction_diagnostics_v33_71 as diagnosis
+    import candidate_c_cost_quality_audit_v33_71 as costs
+    ctx = get_context(session['username'])
+    result = {}
+    for symbol in ('DOGE/USDT:USDT', 'SOL/USDT:USDT'):
+        try:
+            active = runtime.snapshot(ctx.dir, symbol)
+            path = Path(ctx.dir) / (
+                'candidate_c_indicators_' +
+                hashlib.sha256(symbol.encode()).hexdigest()[:16] + '.json')
+            checkpoint = contract.IndicatorBook(symbol, path)
+            state = checkpoint.streams['4h']
+            last = state['recent'][-1]['enriched']
+            detail = diagnosis.describe(
+                close=last.get('close'), ema_20=last.get('ema_20'),
+                ema_50=last.get('ema_50'),
+                processed_bars=state.get('processed_bars'))
+            monitor = active.get('monitor') or {}
+            decision_close = monitor.get('last_closed_bar_ms')
+            same_asof = (type(decision_close) is int and
+                         state['last_close_time_ms'] <= decision_close)
+            direction_same = monitor.get('direction_4h') == detail['direction']
+            status = ('VERIFIED' if (checkpoint.ready and same_asof and
+                direction_same and active.get('indicator_status') == 'READY')
+                else 'UNVERIFIED_ASOF_OR_INDICATOR')
+            result[symbol] = dict(status=status,
+                indicator_status=active.get('indicator_status'),
+                direction=monitor.get('direction_4h'), diagnosis=detail,
+                last_4h_close_ms=state['last_close_time_ms'],
+                last_5m_close_ms=decision_close,
+                candidate_running=active.get('running'),
+                blockers=active.get('blockers') or [])
+        except (OSError, KeyError, IndexError, ValueError, TypeError) as exc:
+            result[symbol] = dict(status='EVIDENCE_UNAVAILABLE',
+                                  error_type=type(exc).__name__)
+    try:
+        audit = costs.audit_file(Path(ctx.dir) / 'trades_log.jsonl')
+        # Detailed unverified historical entries stay in the authenticated
+        # user's audit report only, without exposing raw journal paths.
+        for section in ('all','since_2026_10_13','since_2026_10_19'):
+            audit[section].pop('missing_or_invalid_details', None)
+        for part in audit['by_symbol'].values():
+            part.pop('missing_or_invalid_details', None)
+        return jsonify(ok=True, contract='candidate_c_4h_cost_v33_71',
+                       symbols=result, cost_coverage=audit,
+                       strategy_parameters_changed=False)
+    except (OSError, ValueError, TypeError) as exc:
+        return jsonify(ok=False, symbols=result,
+                       error='cost_evidence_unavailable',
+                       error_type=type(exc).__name__), 503
+
+
+@app.route('/api/ops/candidate-c-protection-parity-v33-47', methods=['GET'])
+@login_required
+def api_ops_candidate_c_protection_parity_v33_47():
+    from pathlib import Path
+    from datetime import datetime, timezone
+    import candidate_c_protection_parity_v33_47 as parity
+    ctx = get_context(session['username'])
+    path = Path(ctx.dir) / parity.REPORT
+    try:
+        report = json.loads(path.read_text())
+        assert report['version'] == 'v33-47'
+        timestamp = datetime.fromisoformat(report['observed_at'])
+        age = max(0, (datetime.now(timezone.utc) - timestamp).total_seconds())
+        return jsonify(ok=True, report=report, age_seconds=round(age),
+                       fresh=age <= 1200)
+    except (OSError, ValueError, KeyError, AssertionError, TypeError):
+        return jsonify(ok=False, error='protection_parity_report_unavailable'), 503
+
+
+@app.route('/api/ops/core-reduce-settlement-v33-44', methods=['GET'])
+@login_required
+def api_ops_core_reduce_settlement_v33_44():
+    import core_reduce_settlement_v33_44 as r
+    ctx=get_context(session['username'])
+    report=r.read_status(ctx.dir)
+    if request.args.get('details') != '1':
+        report=dict(report)
+        report.pop('records',None)
+        report['records_omitted']=True
+    return jsonify(ok=True,report=report)
+
+
+@app.route('/api/ops/core-reduce-receipts-v33-43', methods=['GET'])
+@login_required
+def api_ops_core_reduce_receipts_v33_43():
+    import core_reduce_receipts_v33_43 as r
+    ctx=get_context(session['username'])
+    report=r.read_status(ctx.dir)
+    if request.args.get('details') != '1':
+        report=dict(report)
+        report.pop('records',None)
+        report['records_omitted']=True
+    return jsonify(ok=True,report=report)
+
+
+@app.route('/api/ops/core-legacy-precision-replay-v33-42', methods=['GET'])
+@login_required
+def api_ops_core_legacy_precision_replay_v33_42():
+    import core_legacy_precision_replay_v33_42 as mod
+    ctx=get_context(session['username'])
+    report=mod.read_status(ctx.dir)
+    if request.args.get('details') != '1':
+        report=dict(report)
+        report.pop('cases',None)
+        report['cases_omitted']=True
+    return jsonify(ok=True,report=report)
+
+
+@app.route('/api/ops/core-legacy-action-correlation-v33-41', methods=['GET'])
+@login_required
+def api_ops_core_legacy_action_correlation_v33_41():
+    import core_legacy_action_correlation_v33_41 as mod
+    ctx=get_context(session['username'])
+    report=mod.read_status(ctx.dir)
+    if request.args.get('details') != '1':
+        report=dict(report)
+        report.pop('records',None)
+        report['records_omitted']=True
+    return jsonify(ok=True,report=report)
+
+
+@app.route('/api/ops/core-legacy-provenance-v33-40', methods=['GET'])
+@login_required
+def api_ops_core_legacy_provenance_v33_40():
+    import core_legacy_provenance_v33_40 as mod
+    ctx=get_context(session['username'])
+    report=mod.read_status(ctx.dir)
+    if request.args.get('details') != '1':
+        report=dict(report)
+        report.pop('full_close_evidence',None)
+        report.pop('unmatched_reductions',None)
+        report['row_details_omitted']=True
+    return jsonify(ok=True,report=report)
+
+
+@app.route('/api/ops/core-legacy-full-close-v33-39', methods=['GET'])
+@login_required
+def api_ops_core_legacy_full_close_v33_39():
+    import core_legacy_full_close_v33_39 as audit
+    ctx=get_context(session['username'])
+    report=audit.read_status(ctx.dir)
+    if request.args.get('details') != '1':
+        report=dict(report)
+        report.pop('records',None)
+        report['records_omitted']=True
+    return jsonify(ok=True,report=report)
+
+
+@app.route('/api/ops/core-legacy-bill-correlation-v33-38', methods=['GET'])
+@login_required
+def api_ops_core_legacy_bill_correlation_v33_38():
+    import core_legacy_bill_correlation_v33_38 as auditor
+    ctx=get_context(session['username'])
+    report=auditor.read_status(ctx.dir)
+    if request.args.get('details') != '1':
+        report=dict(report)
+        report.pop('cases',None)
+        report['cases_omitted']=True
+    return jsonify(ok=True,report=report)
+
+
+@app.route('/api/ops/core-legacy-gap-audit-v33-37', methods=['GET'])
+@login_required
+def api_ops_core_legacy_gap_audit_v33_37():
+    import core_legacy_gap_audit_v33_37 as gap
+    ctx=get_context(session['username'])
+    report=gap.read_status(ctx.dir)
+    if request.args.get('details') != '1':
+        report=dict(report)
+        report.pop('cases',None)
+        report['cases_omitted']=True
+    return jsonify(ok=True,report=report)
+
+
+@app.route('/api/ops/core-full-ledger-audit-v33-36', methods=['GET'])
+@login_required
+def api_ops_core_full_ledger_audit_v33_36():
+    import core_full_ledger_audit_v33_36 as fullaudit
+    ctx=get_context(session['username'])
+    report=fullaudit.read_status(ctx.dir)
+    if request.args.get('details') != '1':
+        report=dict(report)
+        report.pop('events',None)
+        report['event_details_omitted']=True
+    return jsonify(ok=True,report=report)
+
+
+@app.route('/api/ops/exact-fee-bills-v33-35', methods=['GET'])
+@login_required
+def api_ops_exact_fee_bills_v33_35():
+    ctx=get_context(session['username'])
+    import core_exact_fee_bills_v33_35 as latest_fee
+    import core_exact_bill_audit_v33_34 as previous_fee
+    result=latest_fee.read_status(ctx.dir)
+    previous=previous_fee.read_status(ctx.dir)
+    coherent=(result.get('status')=='KNOWN'
+              and result.get('source_valid') is True
+              and previous.get('status')=='KNOWN'
+              and previous.get('source_valid') is True)
+    previous_matches=previous.get('bound_bill_matches',0)
+    return jsonify(ok=True,report=result,summary={
+        'version':'v33-35','read_only':True,
+        'source_valid':coherent,
+        'previously_bill_verified_positions':previous_matches,
+        'new_bill_verified_positions':result.get('bound_matches',0),
+        'total_bill_verified_positions':(
+            previous_matches+result.get('bound_matches',0)
+            if coherent else None),
+        'new_fee_bill_ids':result.get('bound_fee_bill_ids',0),
+        'funding_note':'Funding bill to individual position attribution is not proven.'})
+
+
+@app.route('/api/ops/financial-proof-v33-34', methods=['GET'])
+@login_required
+def api_ops_financial_proof_v33_34():
+    ctx=get_context(session['username'])
+    import core_position_pnl_audit_v33_34 as v34position
+    import core_missing_entry_recovery_v33_34 as v34entry
+    import core_exact_bill_audit_v33_34 as v34bill
+    base=v34position.read_report(ctx.dir)
+    recovered=v34entry.read_report(ctx.dir)
+    bill=v34bill.read_status(ctx.dir)
+    exact_set={r['close_index'] for r in base.get('details',[])
+               if r.get('status')=='MATCH'}
+    new_set={r['close_index'] for r in recovered.get('records',[])
+             if r.get('status')=='MATCH'}
+    verified_scope=(base.get('status')=='KNOWN'
+        and recovered.get('status')=='KNOWN'
+        and base.get('invalidated_position_proofs')==0
+        and recovered.get('invalidated')==0
+        and not exact_set.intersection(new_set))
+    return jsonify(ok=True,report={
+        'version':'v33-34','mode':'READ_ONLY',
+        'may_execute':False,
+        'position_journal_verified':base.get('currently_bound_matching_positions',0),
+        'missing_entry_reconstructed':recovered.get('bound_matches',0),
+        'total_position_matches':(
+            base.get('currently_bound_matching_positions',0)+
+            recovered.get('bound_matches',0)) if verified_scope else None,
+        'source_valid':verified_scope,
+        'bill_validation_counts':bill.get('counts',{}),
+        'bill_source_valid':bill.get('source_valid',False),
+        'bill_level_positions_verified':bill.get('bound_bill_matches',0),
+        'exact_fee_bill_ids_verified':bill.get('bound_exact_bill_ids',0),
+        'funding_note':'Funding interval evidence is not position-specific.',
+        'position_report':base,
+        'missing_entry_report':recovered,
+        'fee_report':bill})
+
+
+@app.route('/api/ops/position-pnl-audit-v33-33', methods=['GET'])
+@login_required
+def api_ops_position_pnl_audit_v33_33():
+    ctx=get_context(session['username'])
+    import core_position_pnl_audit_v33_33 as reconciliation
+    return jsonify(ok=True,report=reconciliation.read_report(ctx.dir))
+
+
+@app.route('/api/ops/external-close-recovery-v33-32', methods=['GET'])
+@login_required
+def api_ops_external_close_recovery_v33_32():
+    ctx=get_context(session['username'])
+    import core_external_close_recovery_v33_32 as recovery
+    import core_external_close_audit_v33_31 as existing
+    report=recovery.read_report(ctx.dir)
+    previous=existing.read_status(ctx.dir)
+    direct=int((previous.get('status_counts') or {}).get('VERIFIED',0))
+    new=int(report.get('bound_verified_rows',0))
+    return jsonify(ok=True,report=report,summary={
+        'previously_verified_owned_exits':direct,
+        'newly_reconstructed_exchange_exits':new,
+        'total_supported_owned_exits':direct+new,
+        'scope_note':'Execution attribution only; journal PnL and fees not independently reconciled'})
+
+
+@app.route('/api/ops/external-close-audit-v33-31', methods=['GET'])
+@login_required
+def api_ops_external_close_audit_v33_31():
+    ctx=get_context(session['username'])
+    import core_external_close_audit_v33_31
+    return jsonify(ok=True,
+        report=core_external_close_audit_v33_31.read_status(ctx.dir))
+
+
+@app.route('/api/ops/close-execution-audit-v33-30', methods=['GET'])
+@login_required
+def api_ops_close_execution_audit_v33_30():
+    import core_close_posttrade_audit_v33_30
+    ctx=get_context(session['username'])
+    report=core_close_posttrade_audit_v33_30.read_status(ctx.dir)
+    return jsonify(ok=True, report=report)
+
+
+@app.route('/api/ops/historical-close-audit-v33-28', methods=['GET'])
+@login_required
+def api_ops_historical_close_audit_v33_28():
+    """User-owned local evidence snapshot, with no exchange/API/model calls."""
+    ctx = get_context(session['username'])
+    import core_historical_close_audit_v33_28
+    try:
+        limit = min(max(int(request.args.get('limit', 60)), 1), 150)
+    except (TypeError, ValueError):
+        limit = 60
+    return jsonify(ok=True,
+        report=core_historical_close_audit_v33_28.read_snapshot(ctx.dir,limit=limit))
+
+
+@app.route('/api/ops/exit-strategy-v33-26', methods=['GET'])
+@login_required
+def api_ops_exit_strategy_v33_26():
+    """Read-only CORE historical-cohort analysis, no calls to AI or exchange."""
+    ctx = get_context(session['username'])
+    import core_exit_strategy_eval_v33_26
+    return jsonify(ok=True,
+        report=core_exit_strategy_eval_v33_26.from_user_dir(
+            ctx.dir, include_completed=False))
+
+
+@app.route('/api/ops/exit-lifecycle-v33-25', methods=['GET'])
+@login_required
+def api_ops_exit_lifecycle_v33_25():
+    """Authenticated read-only local journal attribution, no exchange or AI calls.
+
+    No background/automatic polling. Trigger only when viewing the report.
+    Signals from unclosed and unverified lifecycles remain outcome-unknown.
+    """
+    ctx = get_context(session['username'])
+    import core_exit_outcome_join_v33_25
+    try:
+        limit = min(max(int(request.args.get('limit', 80)), 1), 500)
+    except (TypeError, ValueError):
+        limit = 80
+    report = core_exit_outcome_join_v33_25.from_user_dir(ctx.dir, limit=limit)
+    return jsonify(ok=True, report=report)
+
+
 @app.route('/api/analysis/reviews')
 @login_required
 def api_analysis_reviews():
@@ -945,7 +1530,10 @@ def api_analysis_reviews():
         limit = min(max(int(request.args.get('limit', 50)), 1), 200)
     except ValueError:
         limit = 50
-    return jsonify(ok=True, reviews=ai_strategy_review_log.recent(ctx.dir, limit=limit))
+    reviews = ai_strategy_review_log.recent(ctx.dir, limit=limit)
+    return jsonify(ok=True, reviews=reviews, analysis_ops=analysis_ops_status.read_analysis_ops_status(
+        ctx.dir, manual_review_available=(getattr(ctx, 'cfg', None) is not None
+            and not core_management_policy.enabled(ctx.cfg))))
 
 
 @app.route('/api/analysis/learning')
@@ -978,6 +1566,11 @@ def api_analysis_self_learning():
             live_patterns.append({'pattern_id': pattern_id, **row})
     evidence = learning_shadow.summarize_pattern_evidence(ctx.dir)
     counterfactuals = learning_shadow.recent_counterfactuals(ctx.dir, limit=100)
+    promotion_progress = []
+    live_enabled = bool(control.get('live_enabled', False))
+    for pattern_id, row in sorted(state.items()):
+        ev = ((evidence or {}).get(pattern_id) if isinstance(evidence, dict) else None) or row.get('evidence') or {}
+        promotion_progress.append({'pattern_id': pattern_id, **learning_explainability.explain_pattern(row.get('state'), ev, live_enabled=live_enabled)})
     return jsonify(
         ok=True, control=control, safe=safe, state_counts=counts,
         live_patterns=live_patterns,
@@ -986,7 +1579,67 @@ def api_analysis_self_learning():
         recent_counterfactuals=counterfactuals,
         shadow_benefit_net=sum(float(r.get('policy_benefit_net') or 0.0) for r in counterfactuals),
         evidence=evidence,
+        promotion_progress=promotion_progress,
     )
+
+
+@app.route('/api/analysis/daily-completion')
+@login_required
+def api_analysis_daily_completion():
+    ctx = get_context(session['username'])
+    cached = trade_learning_cache.get_cached(ctx.dir) or {}
+    analysis = cached.get('analysis') or {}
+    try:
+        state, _safe = learning_state.load_active_state(ctx.dir)
+    except Exception:
+        state = {}
+    evidence = learning_shadow.summarize_pattern_evidence(ctx.dir)
+    live_enabled = bool(learning_control.get(ctx.dir).get('live_enabled', False))
+    progress=[]
+    for pattern_id,row in sorted(state.items()):
+        ev=(evidence.get(pattern_id) or row.get('evidence') or {}) if isinstance(evidence,dict) else (row.get('evidence') or {})
+        progress.append({'pattern_id':pattern_id, **learning_explainability.explain_pattern(row.get('state'),ev,live_enabled=live_enabled)})
+    entry=entry_counterfactual_shadow.summary(ctx.dir,150)
+    exit3=exit_reentry_shadow.summarize_three_way(exit_reentry_shadow.recent(ctx.dir,200))
+    # Reading the modal must never recompute every historical trade.
+    # The local analysis action and watchdog refresh this saved coverage.
+    coverage=analysis.get('coverage') or {}
+    payload=daily_completion_context.build_daily_completion_context(entry,exit3,coverage,progress)
+    payload['learning']['live_enabled']=live_enabled
+    payload['learning']['analysis_generated_at']=cached.get('generated_at')
+    payload['learning']['analysis_stale']=bool(cached.get('stale',True))
+    payload.setdefault('data_quality', {})['feature_missing_reasons']=dict(coverage.get('feature_missing_reasons') or {})
+    payload['data_quality']['by_strategy_group']=dict(coverage.get('by_strategy_group') or {})
+    payload['data_quality']['telemetry_current']=dict(coverage.get('telemetry_current') or {})
+
+    release_meta=operating_costs.release_metadata(config.PROJECT_DIR)
+    release_created_at=release_meta['created_at']
+    # Unknown current identity stays unknown; never borrow another release's date.
+    payload['release_identity']=release_meta
+    if release_created_at is not None:
+        ai_cost=release_cohort_analysis.ai_cost_since(ctx.dir,release_created_at)
+        cost_summary=operating_costs.build_operating_cost_summary(ctx.dir)
+        server_monthly=float(((cost_summary.get('server') or {}).get('monthly_estimate_usd') or 0.0))
+        lifecycles=trade_learning_lifecycle.build_completed_lifecycles(ctx.dir)
+        payload['post_release_cohort']=release_cohort_analysis.summarize_release_cohort(
+            lifecycles,release_at=release_created_at,ai_cost_usd=ai_cost,server_monthly_usd=server_monthly)
+        release_dt=release_cohort_analysis._time(release_created_at)
+        post_entry=[]
+        if release_dt is not None:
+            for row in entry_counterfactual_shadow._read_latest(ctx.dir).values():
+                stamp=release_cohort_analysis._time(row.get('entry_time'))
+                if stamp is not None:
+                    if stamp.tzinfo is None:
+                        stamp=stamp.replace(tzinfo=release_cohort_analysis.KST)
+                    if stamp.astimezone(release_cohort_analysis.KST) >= release_dt:
+                        post_entry.append(row)
+        payload['post_release_entry']=entry_counterfactual_shadow.summarize_evaluations(post_entry)
+    else:
+        payload['post_release_cohort']=None
+        payload['post_release_entry']=None
+    return jsonify(ok=True, daily_completion=payload,
+                   stale=bool(cached.get('stale', True)),
+                   generated_at=cached.get('generated_at'))
 
 
 @app.route('/api/analysis/self-learning/control', methods=['POST'])
@@ -1124,7 +1777,7 @@ def _analysis_report_review(user_dir):
     row = next((r for r in rows if len(str(r.get('review_window_id') or '')) == 11
                 and str(r.get('review_window_id'))[8:9] == '-'), rows[0] if rows else None)
     if not row:
-        return {}
+        return {'scheduled_enabled': False, 'status': 'retired', 'kind': 'historical_strategy_review'}
     def _branch(name):
         branch = row.get(name) or {}
         status = branch.get('status') or ('not_started' if row.get('error') else '-')
@@ -1138,7 +1791,7 @@ def _analysis_report_review(user_dir):
     success_count = sum(x == 'ok' for x in (gemini_status, gpt_status))
     consensus = row.get('consensus') or {}
     return {
-        'kind': 'scheduled_strategy_review',
+        'kind': 'historical_strategy_review', 'scheduled_enabled': False,
         'window_id': row.get('review_window_id'), 'status': row.get('status'),
         'success_count': success_count, 'attempt_count': 2,
         'root_error': row.get('error'),
@@ -1206,12 +1859,28 @@ def _analysis_report_snapshot(ctx, analysis_payload):
             pos = _candidate_c_symbol_position(ctx.dir, symbol)
         except Exception:
             pos = None
-        if not pos:
+        observation = candidate_c_runtime.snapshot(ctx.dir, symbol)
+        current = bool(observation.get('observation_fresh')
+                       and observation.get('position_query_status') == 'KNOWN')
+        actual = observation.get('actual_position') if current else None
+        if current and not actual:
             continue
+        if not pos and not actual:
+            continue
+        display = actual or pos
+        prot = observation.get('protection') or {}
+        verified = current and prot.get('status') == 'VERIFIED'
+        owner = observation.get('owner', 'UNKNOWN') if current else 'UNKNOWN'
+        engine = ('Candidate C' if not current or owner == 'candidate_c' else
+                  'CORE (Candidate C 관측)' if owner == 'core' else '소유 미확인 (Candidate C 관측)')
         positions.append({
-            'engine':'Candidate C','symbol':symbol,'side':pos.get('side'),'contracts':pos.get('contracts'),
-            'entry_price':pos.get('effective_entry_price') or pos.get('raw_entry_price'),
-            'mark_price':None,'unrealized_pnl':None,'sl':pos.get('initial_stop_price'),'tp':None,
+            'engine':engine,'owner':owner,'symbol':symbol,'side':display.get('side'),'contracts':display.get('contracts'),
+            'entry_price':display.get('entry_price') or display.get('effective_entry_price') or display.get('raw_entry_price'),
+            'mark_price':actual.get('mark_price') if actual else None,
+            'unrealized_pnl':actual.get('unrealized_pnl') if actual else None,
+            'sl':prot.get('sl_price') if verified else None,'tp':prot.get('tp_price') if verified else None,
+            'observation_status':'CURRENT' if current else 'UNKNOWN',
+            'protection_status':prot.get('status','UNKNOWN') if current else 'UNKNOWN',
         })
 
     logs = list(ctx.log_handler.get_all() or [])[-500:]
@@ -1234,14 +1903,18 @@ def _analysis_report_snapshot(ctx, analysis_payload):
             'completed_trades': int(summary.get('completed_trades') or coverage.get('canonical_completed_trades') or 0),
             'lifecycle_matched': int(coverage.get('lifecycle_matched') or 0),
             'feature_complete': int(coverage.get('feature_complete') or 0),
-            'tf_analysis_complete': int(coverage.get('tf_analysis_complete') or 0),
-            'asof_backfilled': int(coverage.get('asof_backfilled') or 0),
             'partially_enriched': int(coverage.get('partially_enriched') or 0),
             'unmatched_or_excluded': int(coverage.get('unmatched_or_excluded') or 0),
         },
-        'accounting_basis': 'completed_lifecycle_economic_v1',
+        'accounting_basis': ('realized_events_close_plus_reduce_with_completed_quality_v1'
+                             if economic_total.get('net_pnl') is not None else 'completed_lifecycle_fallback_v1'),
+        'completed_lifecycle_net_pnl': summary.get('net_pnl'),
+        'realized_vs_completed_net_difference': (
+            float(economic_total['net_pnl'])-float(summary['net_pnl'])
+            if economic_total.get('net_pnl') is not None and summary.get('net_pnl') is not None else None),
         'overall': {
             'count': int(economic_total.get('completed_count') or economic_total.get('count') or summary.get('count') or summary.get('completed_trades') or 0),
+            'realized_event_count': economic_total.get('realized_event_count'),
             'win_rate': economic_total.get('win_rate', summary.get('win_rate')),
             'gross_pnl': economic_total.get('gross_pnl', summary.get('gross_pnl')),
             'fees': -abs(float(economic_total.get('fee', summary.get('fee')) or 0.0)),
@@ -1291,41 +1964,44 @@ def _analysis_report_snapshot(ctx, analysis_payload):
     }
 
 
+def _build_analysis_report(ctx):
+    try:
+        lifecycles = trade_pattern_analysis.build_lifecycles(ctx.dir)
+        exit_reentry_shadow.backfill_ai_close_lifecycles(ctx.dir, lifecycles)
+        exit_reentry_shadow.resolve_links(ctx.dir, lifecycles)
+        completed = trade_learning_lifecycle.build_completed_lifecycles(ctx.dir)
+        entry_counterfactual_shadow.refresh(
+            ctx.dir, completed, entry_counterfactual_shadow.make_okx_fetcher(ctx.cfg), limit=150,
+        )
+        candidate_c_early_exit_shadow.refresh(ctx.dir, completed)
+        low_follow_through_shadow.refresh(
+            ctx.dir, completed, low_follow_through_shadow.make_okx_feature_fetcher(ctx.cfg), limit=150,
+        )
+        score4_pullback_shadow.refresh(
+            ctx.dir, completed, score4_pullback_shadow.make_okx_fetcher(ctx.cfg), limit=150,
+        )
+    except Exception:
+        ctx.cfg.logger.warning('Exit/Re-entry Shadow link/backfill 갱신 실패 - 기존 분석 계속', exc_info=True)
+    analysis_payload = trade_learning_cache.run_analysis(ctx.dir)
+    snapshot = _analysis_report_snapshot(ctx, analysis_payload)
+    previous = analysis_report.latest_report(ctx.dir)
+    report = analysis_report.build_report(snapshot, previous=previous)
+    analysis_report.append_report(ctx.dir, report)
+    return report
+
+
 @app.route('/api/analysis/report', methods=['POST'])
 @login_required
 def api_analysis_report_create():
     ctx = get_context(session['username'])
+    if (request.get_json(silent=True) or {}).get('background') is True:
+        return _queue_analysis_task(ctx, 'report')
     try:
-        try:
-            lifecycles = trade_pattern_analysis.build_lifecycles(ctx.dir)
-            exit_reentry_shadow.backfill_ai_close_lifecycles(ctx.dir, lifecycles)
-            exit_reentry_shadow.resolve_links(ctx.dir, lifecycles)
-            completed = trade_learning_lifecycle.build_completed_lifecycles(ctx.dir)
-            entry_counterfactual_shadow.refresh(
-                ctx.dir, completed, entry_counterfactual_shadow.make_okx_fetcher(ctx.cfg), limit=150,
-            )
-            candidate_c_early_exit_shadow.refresh(ctx.dir, completed)
-            low_follow_through_shadow.refresh(
-                ctx.dir, completed, low_follow_through_shadow.make_okx_feature_fetcher(ctx.cfg), limit=150,
-            )
-            entry_tf_daily_backfill.refresh(
-                ctx.dir, completed, entry_tf_daily_backfill.make_okx_fetcher(ctx.cfg), limit=150,
-            )
-            score4_pullback_shadow.refresh(
-                ctx.dir, completed, score4_pullback_shadow.make_okx_fetcher(ctx.cfg), limit=150,
-            )
-        except Exception:
-            ctx.cfg.logger.warning('Exit/Re-entry Shadow link/backfill 갱신 실패 - 기존 분석 계속', exc_info=True)
-        analysis_payload = trade_learning_cache.run_analysis(ctx.dir)
-        snapshot = _analysis_report_snapshot(ctx, analysis_payload)
-        previous = analysis_report.latest_report(ctx.dir)
-        report = analysis_report.build_report(snapshot, previous=previous)
-        analysis_report.append_report(ctx.dir, report)
+        report = _build_analysis_report(ctx)
     except Exception as exc:
         ctx.cfg.logger.exception('분석 리포트 생성 실패')
         return jsonify(ok=False, error=type(exc).__name__), 500
     return jsonify(ok=True, report=report)
-
 
 @app.route('/api/analysis/reports')
 @login_required
@@ -1342,6 +2018,8 @@ def api_analysis_reports():
 @login_required
 def api_analysis_run():
     ctx = get_context(session['username'])
+    if (request.get_json(silent=True) or {}).get('background') is True:
+        return _queue_analysis_task(ctx, 'analysis')
     try:
         payload = trade_learning_cache.run_analysis(ctx.dir)
     except Exception as exc:
@@ -1354,6 +2032,8 @@ def api_analysis_run():
 @login_required
 def api_analysis_review_now():
     ctx = get_context(session['username'])
+    if core_management_policy.enabled(ctx.cfg):
+        return jsonify(ok=False,error="paid_pattern_ai_review_retired",message="거래 패턴은 로컬 코드 분석을 사용합니다."),410
     queued = _queue_manual_strategy_review(ctx)
     if not queued:
         return jsonify(ok=False, error='strategy_review_already_running'), 409
@@ -1378,7 +2058,9 @@ def _candidate_c_symbol_position(user_dir: str, symbol: str) -> dict | None:
     entry_record, ambiguous = ledger.find_protected_entry()
     if ambiguous or entry_record is None:
         return None
-    epoch_store = cem.PositionEpochStore.load(os.path.join(user_dir, "candidate_c_epoch_store.jsonl"))
+    epoch_path = os.path.join(user_dir, "candidate_c_epoch_store.jsonl")
+    epoch_store = display_read_cache.get(
+        epoch_path, lambda: cem.PositionEpochStore.load(epoch_path), namespace="candidate-c-dashboard-epochs")
     epoch = epoch_store.get(entry_record.intent_id)
     if epoch is None or epoch.side is None:
         return None
@@ -1435,6 +2117,7 @@ def api_candidate_c_state():
             "position": _candidate_c_symbol_position(ctx.dir, symbol) if machine.state.value in ("LONG", "SHORT") else None,
             "owner": 'core' if symbol in active_core else observation.get('owner', 'UNKNOWN') if fresh else 'UNKNOWN',
             "actual_position": observation.get('actual_position') if fresh else None,
+            "sizing_observation": observation.get('sizing_observation') if fresh else None,
             "position_query_status": observation.get('position_query_status', 'UNKNOWN') if fresh else 'UNKNOWN',
             "pending_orders": {'open_orders': observation.get('pending_orders'),
                                'unresolved_intents': observation.get('unresolved_intents')} if fresh else None,
@@ -1443,8 +2126,18 @@ def api_candidate_c_state():
             "gpt_gate_reason": observation.get('gpt_gate_reason'),
             "protection": observation.get('protection', {'status': 'UNKNOWN'}) if fresh else {'status': 'UNKNOWN'},
             "blockers": list(dict.fromkeys(blockers)), "entry_control": control,
-            "manual_close": manual, "runtime": observation,
+            "manual_close": manual, "manual_entry": candidate_c_manual_entry.get(ctx.dir,symbol), "runtime": observation,
         }
+        # v33-45 UI-only GET observation: an exchange OCO may exist despite
+        # missing internal entry ownership. Never promote it into an owned
+        # position or remove the orphan/unknown-state entry blockers.
+        if (fresh and symbol not in active_core
+                and symbol_states[symbol]['actual_position']
+                and (symbol_states[symbol]['protection'] or {}).get('status') == 'UNKNOWN'):
+            import candidate_c_unowned_oco_view_v33_45 as oco_view
+            observed_oco = oco_view.lookup(cfg, symbol, symbol_states[symbol]['actual_position'])
+            if observed_oco:
+                symbol_states[symbol]['protection'] = observed_oco
 
     configured = candidate_c_runtime.effective_settings(cfg)
     running = any(s['runtime']['running'] for s in symbol_states.values())
@@ -1523,6 +2216,8 @@ def api_candidate_c_state():
             "account_max_daily_loss_pct": cfg.ACCOUNT_HARD_DAILY_LOSS_PCT,
             "manual_close_cooldown_minutes": cfg.REENTRY_COOLDOWN_MINUTES,
             "ai_exit_plan_enabled": getattr(cfg, "CANDIDATE_C_AI_EXIT_PLAN_ENABLED", True),
+            "strategy_authority": "CHART_RISK" if getattr(cfg,"CANDIDATE_C_CHART_ONLY",False) else "LEGACY",
+            "risk_adaptive_partials": getattr(cfg,"RISK_ADAPTIVE_PARTIAL_ENABLED",False),
         },
         "gpt_gate": candidate_c_gpt_gate_log.summary_counts(ctx.dir),
         "recent_gpt_gate_events": candidate_c_gpt_gate_log.recent(ctx.dir, limit=20),
@@ -1804,6 +2499,7 @@ def _start_candidate_c_context(ctx, mode):
         ctx.candidate_c_threads = threads
         for t in threads:
             t.start()
+        ctx.candidate_c_run_mode = mode
     return jsonify(ok=True, mode=mode, symbols=[s for s in watched])
 
 
@@ -1848,6 +2544,7 @@ def api_candidate_c_stop():
     if stopped:
         ctx.candidate_c_stop_event = None
         ctx.candidate_c_threads = []
+        ctx.candidate_c_run_mode = None
 
     return jsonify(
         ok=True, stopped=stopped, stopping=not stopped,
@@ -2034,17 +2731,21 @@ def api_market_structure():
 @login_required
 def api_stats_periodic():
     ctx = get_context(session["username"])
-    periods = trade_log.period_breakdown(ctx.dir, dry_run=False)
+    import core_realized_period_v33_21
+    periods = core_realized_period_v33_21.merge_close_periods(
+        trade_log.period_breakdown(ctx.dir, dry_run=False),
+        trade_log.load_realized_trades(ctx.dir, dry_run=False),
+    )
     margin = okx_margin_return.cached_summary(ctx.dir)
     margin_periods = margin.get("periods") or {}
 
-    # Historical fixed-money ROI uses the exact closed-trade population and
-    # each matched OKX entry order's full original margin.  It deliberately
-    # does not sum turnover margin across repeated trades.
-    close_records = pnl_reconciliation.load_all_records(ctx.dir)
-    enriched_close_records, _close_match = okx_margin_return.enrich_trade_records(ctx.dir, close_records)
-    fixed_periods = okx_margin_return.period_fixed_returns_from_records(enriched_close_records)
-    fixed_margin_total = okx_margin_return.fixed_return_summary_from_records(enriched_close_records)
+    # Monetary fixed-margin returns include each confirmed reduction and
+    # terminal close; one original entry margin is reused as denominator.
+    # Lifecycle count and win rate above remain terminal-close-only.
+    realized_records = pnl_reconciliation.load_all_records_with_reduces(ctx.dir)
+    enriched_realized_records, _realized_match = okx_margin_return.enrich_trade_records(ctx.dir, realized_records)
+    fixed_periods = okx_margin_return.period_fixed_returns_from_records(enriched_realized_records)
+    fixed_margin_total = okx_margin_return.fixed_return_summary_from_records(enriched_realized_records)
 
     for view in ("daily", "monthly", "yearly"):
         by_period = margin_periods.get(view) or {}
@@ -2101,6 +2802,8 @@ def api_logs():
 @login_required
 def api_keys_gemini():
     ctx = get_context(session["username"])
+    if ctx.cfg.GPT_PRIMARY_ONLY:
+        return jsonify({"ok":False,"error":"GPT 전용 모드에서 Gemini 설정은 비활성화되어 있습니다."}),403
     data = request.get_json(force=True) or {}
     value = (data.get("api_key") or "").strip()
     if not value:
@@ -2371,6 +3074,92 @@ def _close_symbol(ctx: UserContext, client, symbol):
         ctx.state.update(last_error=f"{symbol}: {exc}")
 
 
+@app.route("/api/candidate_c_manual_entry", methods=["POST"])
+@login_required
+def api_candidate_c_manual_entry():
+    """User-authorized reservation only; the owning Candidate C loop executes."""
+    import candidate_c_manual_entry as manual_entry
+    ctx = get_context(session["username"])
+    cfg = ctx.cfg
+    data = request.get_json(silent=True) or {}
+    symbol, side = data.get("symbol"), data.get("side")
+    if not accounts.is_approved(ctx.username):
+        return jsonify(ok=False,error="관리자 승인 필요"),403
+    if symbol not in set(getattr(cfg,"CANDIDATE_C_SYMBOLS",()) or ()) or side not in ("long","short"):
+        return jsonify(ok=False,error="DOGE/SOL 심볼 또는 진입 방향 오류"),400
+    if symbol in set(getattr(cfg,"ENABLED_SYMBOLS",()) or ()):
+        return jsonify(ok=False,error="CORE 소유 심볼 중복"),409
+    runtime = candidate_c_runtime.snapshot(ctx.dir,symbol)
+    if (not runtime.get("running") or runtime.get("effective_settings",{}).get("mode") != "live"
+            or not getattr(cfg,"CANDIDATE_C_LIVE_EXECUTE",False)
+            or candidate_c_runtime.live_activation_blockers(cfg,user_dir=ctx.dir)):
+        return jsonify(ok=False,error="Candidate C LIVE 진입 불가"),409
+    try:
+        with account_order_lock(ctx.dir):
+            observation = candidate_c_runtime.snapshot(ctx.dir,symbol)
+            control = symbol_entry_control.get_status(ctx.dir,symbol)
+            manual = candidate_c_manual_close.status(ctx.dir,symbol)
+            machine = rsm.ReversalStateStore.load(
+                os.path.join(ctx.dir,"candidate_c_reversal_store.jsonl")).get(symbol)
+            if (not observation.get("observation_fresh")
+                    or observation.get("position_query_status") != "KNOWN"
+                    or observation.get("actual_position") is not None
+                    or observation.get("blockers")
+                    or control.get("paused") or manual.get("blocked")
+                    or machine.state.value != "FLAT"):
+                return jsonify(ok=False,error="Candidate C 안전 확인 중 또는 보유 포지션이 있습니다."),409
+            safe = symbol.replace("/","_").replace(":","_")
+            ledger = il.IntentLedger.load(
+                os.path.join(ctx.dir,f"candidate_c_intent_ledger_{safe}.jsonl"),
+                ctx.dir,symbol)
+            if ledger.pending_intents():
+                return jsonify(ok=False,error="미해결 기존 주문 의도가 있습니다."),409
+            existing = manual_entry.get(ctx.dir,symbol)
+            if manual_entry.busy(existing):
+                if existing.get("side") != side:
+                    return jsonify(ok=False,error="반대 방향의 미해결 수동진입이 있습니다."),409
+                return jsonify(ok=True,pending=True,request_id=existing["request_id"],
+                               note="기존 수동진입 확인 중입니다. 중복 제출하지 마세요."),202
+            c = okx_client.OkxClient(symbol,cfg)
+            if c.fetch_position() is not None:
+                return jsonify(ok=False,error="거래소 포지션이 이미 존재합니다."),409
+            if c.exchange.fetch_open_orders(symbol) != [] or c.fetch_pending_protection_algo_ids() != []:
+                return jsonify(ok=False,error="잔여 주문 또는 보호주문 상태가 확인되지 않았습니다."),409
+            clients={sym:okx_client.OkxClient(sym,cfg) for sym in cfg.CANDIDATE_C_SYMBOLS}
+            count=candidate_c_ownership.count_candidate_c_open_or_pending_positions(
+                clients,rsm.ReversalStateStore.load(os.path.join(ctx.dir,"candidate_c_reversal_store.jsonl")),
+                current_symbol=symbol,user_dir=ctx.dir)
+            if count >= cfg.CANDIDATE_C_MAX_CONCURRENT_POSITIONS:
+                return jsonify(ok=False,error="Candidate C 동시 보유 상한 초과"),409
+            row=manual_entry.reserve(ctx.dir,symbol,side)
+    except Exception:
+        cfg.logger.exception("[%s] Candidate C 수동진입 예약 검증 실패",symbol)
+        return jsonify(ok=False,error="실거래 상태 확인 실패. 주문 요청을 생성하지 않았습니다."),409
+    return jsonify(ok=True,pending=True,request_id=row["request_id"],
+                   note=f"{symbol} 수동 {side.upper()} 요청 접수 · 거래소 체결/SL·TP 확인 중. 재진입 금지"),202
+
+
+@app.route("/api/candidate_c_manual_entry_status",methods=["GET"])
+@login_required
+def api_candidate_c_manual_entry_status():
+    import candidate_c_manual_entry as manual_entry
+    ctx=get_context(session["username"])
+    symbol=request.args.get("symbol")
+    rid=request.args.get("request_id")
+    if (symbol not in set(getattr(ctx.cfg,"CANDIDATE_C_SYMBOLS",()) or ())
+            or not isinstance(rid,str) or len(rid)>64 or not rid.startswith("ccme")):
+        return jsonify(ok=False,error="유효하지 않은 주문 조회"),400
+    try:
+        record=manual_entry.get(ctx.dir,symbol)
+    except Exception:
+        return jsonify(ok=False,error="주문 기록 조회 불가, 재주문 금지"),503
+    if not record or record.get("request_id")!=rid:
+        return jsonify(ok=False,error="주문 확인 불가, 재주문 금지"),404
+    return jsonify(ok=True,status=record["status"],
+                   reason=record.get("result_reason"),request_id=rid,
+                   note="confirmed는 거래소 체결 및 보호주문 확인 완료를 뜻합니다.")
+
+
 @app.route("/api/manual_entry", methods=["POST"])
 @login_required
 def api_manual_entry():
@@ -2429,6 +3218,13 @@ def api_manual_entry():
             error += f" · {result['detail']}"
         return jsonify(ok=False, error=error, reason=reason), 409
 
+    if result.get("pending"):
+        return jsonify(
+            ok=True, pending=True, decision_id=result["decision_id"],
+            symbol=symbol, side=side,
+            note="주문 접수 후 거래소 체결·SL/TP 보호 확인 중입니다. 재진입하지 마세요.",
+        ), 202
+
     return jsonify(
         ok=True,
         result=result,
@@ -2436,9 +3232,46 @@ def api_manual_entry():
             f"{symbol} 수동 {side.upper()} 진입 완료 · "
             f"{result.get('leverage')}x · "
             f"예상 증거금 {result.get('margin_estimate_usdt', 0):.2f} USDT · "
-            f"SL {result.get('sl_price', 0):.8g} / TP {result.get('tp_price', 0):.8g}"
+            f"SL {result.get('sl_price', 0):.8g} / TP {result.get('tp_price', 0):.8g} · "
+            f"SL/TP 산출 {result.get('sl_tp_source', '설정값')}"
         ),
     )
+
+
+@app.route("/api/manual_entry_status", methods=["GET"])
+@login_required
+def api_manual_entry_status():
+    """Read the original manual order receipt, never place a second order."""
+    import core_entry_events
+    ctx = get_context(session["username"])
+    decision_id = request.args.get("decision_id", "")
+    symbol = request.args.get("symbol", "")
+    if (symbol not in config.CORE_SYMBOLS or not isinstance(decision_id, str)
+            or len(decision_id) > 160
+            or not decision_id.startswith("manual-" + symbol + "-")):
+        return jsonify(ok=False, error="유효하지 않은 수동진입 조회입니다."), 400
+    try:
+        receipt = core_entry_events.order_receipt(ctx.dir, decision_id)
+    except Exception:
+        return jsonify(ok=False, error="주문 상태 확인 중입니다. 새 주문을 제출하지 마세요."), 503
+    if not receipt or receipt.get("symbol") != symbol:
+        return jsonify(ok=False, error="주문 기록을 찾지 못했습니다. 새 주문을 제출하지 마세요."), 404
+    status = receipt.get("status")
+    payload = receipt.get("payload") or {}
+    plan_context = ((payload.get("decision") or {}).get("_entry_plan_context") or {})
+    sl_tp_source = plan_context.get("exit_price_source") or "unknown"
+    if status == "FILLED" and payload.get("reason") == "protected_fill_confirmed":
+        result = "filled"
+    elif status == "ORDER_FAILED":
+        result = "failed"
+    else:
+        result = "pending"
+    return jsonify(ok=True, status=result, receipt_status=status,
+                   symbol=symbol, decision_id=decision_id, sl_tp_source=sl_tp_source,
+                   note=("원본 주문 체결 및 보호 확인 기록이 있습니다." if result == "filled"
+                         else "원본 주문 상태 확인 중입니다. 새 주문을 제출하지 마세요."
+                         if result == "pending" else
+                         "원본 주문이 실패 처리됐습니다. 재진입 전에 거래소 주문을 확인하세요."))
 
 
 @app.route("/api/close_symbol", methods=["POST"])
@@ -2522,6 +3355,37 @@ def api_fx_rate():
     return jsonify({"usd_krw": fx_rate.get_usd_krw_rate()})
 
 
+@app.route("/api/baseline_history", methods=["GET"])
+@login_required
+def api_baseline_history():
+    ctx = get_context(session["username"])
+    try:
+        entries = baseline_history.load_history(ctx.dir)
+    except (ValueError, OSError) as exc:
+        ctx.cfg.logger.warning("[baseline_history] read failed: %s", type(exc).__name__)
+        return jsonify(ok=False, error="초기화 이력을 불러오지 못했습니다."), 500
+    # Current period is a live estimate; archived periods never change.
+    snap = ctx.state.snapshot()
+    if entries and entries[-1].get("status") == "current":
+        latest = dict(entries[-1])
+        value = snap.get("live_equity")
+        if value is None:
+            value = snap.get("equity")
+        matching = (snap.get("baseline_equity") == latest.get("start_equity_usdt"))
+        flow = snap.get("capital_flow_summary") or {}
+        if matching and value is not None:
+            latest["end_equity_usdt"] = value
+            if flow.get("complete"):
+                latest["trade_contribution_usdt"] = flow.get("cashflow_adjusted_profit")
+                latest["trade_return_pct"] = flow.get("cashflow_adjusted_return_pct")
+                latest["net_capital_flow_usdt"] = flow.get("net_capital_flow_usdt")
+                latest["capital_in_usdt"] = flow.get("capital_in_usdt")
+                latest["capital_out_usdt"] = flow.get("capital_out_usdt")
+                latest["accounting_status"] = "live_provisional"
+        entries[-1] = latest
+    return jsonify(ok=True, history=list(reversed(entries)))
+
+
 @app.route("/api/reset_baseline", methods=["POST"])
 @login_required
 def api_reset_baseline():
@@ -2541,7 +3405,31 @@ def api_reset_baseline():
     t_equity = time.monotonic()
     if equity is None:
         return jsonify({"ok": False, "error": "먼저 시작해서 자산 정보를 불러온 뒤 초기화할 수 있습니다."}), 400
-    pnl_store.save_baseline(ctx.dir, equity)
+    # Archive the old period before replacing its cashflow tracking context.
+    old_baseline = pnl_store.load_baseline(ctx.dir)
+    old_summary = None
+    if old_baseline is not None:
+        try:
+            old_summary = capital_flow.cached_summary(
+                ctx.dir, baseline_equity=old_baseline,
+                baseline_meta=pnl_store.load_baseline_metadata(ctx.dir),
+                current_equity=equity,
+            )
+        except Exception as exc:
+            ctx.cfg.logger.warning("[reset_baseline] old-period cashflow unavailable: %s", type(exc).__name__)
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify(ok=False, error="초기화 요청 형식이 올바르지 않습니다."), 400
+    try:
+        archive = baseline_history.reset_with_history(
+            ctx.dir, equity, old_summary=old_summary,
+            event_id=body.get("reset_event_id"),
+        )
+    except (ValueError, OSError) as exc:
+        ctx.cfg.logger.warning("[reset_baseline] archive failed: %s", type(exc).__name__)
+        return jsonify(ok=False, error="이력 저장에 실패해 초기화하지 않았습니다."), 500
+    if archive["already_applied"]:
+        return jsonify(ok=True, already_applied=True)
     baseline_meta = pnl_store.load_baseline_metadata(ctx.dir)
     capital_flow.reset_context(
         ctx.dir, baseline_equity=equity, baseline_meta=baseline_meta,
@@ -2569,30 +3457,74 @@ def api_reset_baseline():
 
 
 def _resume_authorized_deployment():
+    # v33-69: resume ONLY a consumed, short-lived operator-authorized deployment intent.
+    # Never replay an old intent on ordinary service reboot or retry failed order loops.
     from pathlib import Path
     import deployment_resume
+    import deployment_runtime_v33_69 as runtime
+    data = None
+    result = {"version": "v33-69", "time": time.time(), "success": False}
+    ctx = None
     try:
-        data=deployment_resume.consume('/var/lib/autotrader/deployment-resume/pending.json',
+        data = deployment_resume.consume('/var/lib/autotrader/deployment-resume/pending.json',
             Path(__file__).resolve().parent,time.time())
         if not data: return
+        result["release"] = data["release"]
+        result["requested_core"] = bool(data.get("core"))
+        result["requested_candidate"] = bool(data.get("candidate_c"))
         with app.app_context():
-            ctx=get_context(data['username'])
+            ctx = get_context(data['username'])
             if not deployment_resume.settings_match(data,ctx.cfg):
                 raise RuntimeError('deployment_settings_mismatch')
-            # Identical account approval, configuration validation, ownership and
-            # Candidate C activation checks to the authenticated start endpoints.
-            results={}
-            for name,call in [('core',lambda:_start_core_context(ctx)),
-                    ('candidate_c',lambda:_start_candidate_c_context(ctx,data['candidate_c']))]:
-                if name=='candidate_c' and not data['candidate_c']: continue
-                response=call()
-                response=response[0] if isinstance(response,tuple) else response
-                results[name]=response.get_json()
-                ctx.cfg.logger.info('배포 후 기존 실행 복구 %s: %s',name,results[name])
-            Path('/var/lib/autotrader/deployment-resume/result.json').write_text(
-                __import__('json').dumps(dict(time=time.time(),results=results),ensure_ascii=False))
-    except Exception:
+            if data.get("config_sha256"):
+                current = hashlib.sha256(Path(ctx.cfg.env_path).read_bytes()).hexdigest()
+                if current != data["config_sha256"]:
+                    raise RuntimeError("deployment_config_changed")
+            results = {}
+            if data.get("core"):
+                response = _start_core_context(ctx)
+                response = response[0] if isinstance(response,tuple) else response
+                results["core"] = response.get_json()
+                if results["core"].get("ok") is not True:
+                    raise RuntimeError("core_start_rejected")
+            if data.get("candidate_c"):
+                response = _start_candidate_c_context(ctx,data["candidate_c"])
+                response = response[0] if isinstance(response,tuple) else response
+                results["candidate_c"] = response.get_json()
+                if results["candidate_c"].get("ok") is not True:
+                    raise RuntimeError("candidate_start_rejected")
+            result["start_responses"] = results
+            deadline = time.monotonic() + 120
+            while time.monotonic() < deadline:
+                observed = runtime.runtime_state(ctx)
+                core_ok = not data.get("core") or observed["core_running"]
+                candidate_ok = not data.get("candidate_c") or observed["candidate_running"]
+                if core_ok and candidate_ok:
+                    result.update(success=True,verified_at=time.time(),pid=os.getpid(),
+                                  core_running=observed["core_running"],
+                                  candidate_running=observed["candidate_running"])
+                    break
+                time.sleep(3)
+            if not result["success"]:
+                raise RuntimeError("engine_loop_health_verification_timeout")
+    except Exception as exc:
+        result["error_type"] = type(exc).__name__
+        result["error"] = str(exc)[:200]
         logging.getLogger(__name__).exception('Deployment resume failed; no automatic retry')
+        if ctx is not None:
+            try:
+                import telegram_notify
+                telegram_notify.send(ctx.cfg,
+                    "[AutoTrader] 배포 후 엔진 복구 검증 실패: %s. 신규 주문 자동 재시도 없음." %
+                    result["error"])
+            except Exception:
+                logging.getLogger(__name__).exception("V33_69_RESUME_ALERT_FAILED")
+    finally:
+        if data is not None:
+            try:
+                runtime.atomic_json('/var/lib/autotrader/deployment-resume/result.json', result)
+            except Exception:
+                logging.getLogger(__name__).exception("V33_69_RESULT_WRITE_FAILED")
 
 
 _trade_learning_scheduler_stop = threading.Event()
@@ -2605,9 +3537,11 @@ def _trade_learning_context_provider():
 def main():
     _ensure_server_logging()
     threading.Thread(target=_resume_authorized_deployment,name="deployment-resume",daemon=True).start()
-    trade_learning_scheduler.start_review_scheduler(
-        _trade_learning_context_provider, _trade_learning_scheduler_stop,
-    )
+    import deployment_runtime_v33_69 as runtime
+    threading.Thread(target=runtime.monitor, args=(_trade_learning_context_provider,),
+                     name="runtime-evidence-v33-69",daemon=True).start()
+    # User retired scheduled paid strategy reviews; manual review remains available.
+    logging.getLogger(__name__).info('SCHEDULED_STRATEGY_AI_REVIEW_DISABLED automatic six-hour reviews retired')
     port = int(os.environ.get("PORT", "8080"))
     # Werkzeug 개발서버는 이 환경에서 실제 소켓 요청을 받는 부분이 멈추는 문제가 있어
     # (Flask test_client로는 정상 동작 확인됨, 운영 배포에도 어차피 필요하므로) waitress를 쓴다.

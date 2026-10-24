@@ -19,7 +19,7 @@ trader._gpt_entry_gate()나 SHORT_LEVEL 등 CORE 전용 구조는 가져오지 �
 import logging
 
 import candidate_c_gpt_gate_log
-import gemini_analyzer
+import ai_primary_provider_v33_97 as gemini_analyzer
 import openai_analyzer
 from adaptive_exit_engine import (select_verified_ai_price_plan, build_ai_price_contract, format_ai_price_contract)
 from adaptive_exit_policy import production_adaptive_exit_policy
@@ -172,6 +172,66 @@ def review_exit_plan_only(cfg, intent, snapshot: dict) -> dict:
     }
 
 
+
+
+# v33-98 one GPT call per Candidate C automated entry candidate; not GPT-vs-GPT.
+def _gpt_primary_candidate_intent(cfg, intent, snapshot, *, is_still_valid_fn):
+    import json
+    import math
+    import usage_log
+    import gpt_primary_v33_97 as primary
+    from types import SimpleNamespace
+    schema = {"type":"OBJECT","properties":{
+        "action":{"type":"STRING","enum":["long","short","hold"]},
+        "confidence":{"type":"NUMBER","minimum":0,"maximum":1},
+        "reasoning":{"type":"STRING","min_length":1},
+    },"required":["action","confidence","reasoning"]}
+    symbol = snapshot.get("symbol") or intent.symbol
+    def stop(reason, error=None, confidence=None, reasoning=""):
+        return {"allowed":False,"gate_result":reason,"error_reason":error,
+                "gpt_confidence":confidence,"gpt_reasoning":reasoning}
+    if intent.side not in ("long","short") or not getattr(cfg,"OPENAI_API_KEY",None):
+        return stop("blocked_error","missing_gpt_key_or_side")
+    prompt = (
+        "You are the only GPT primary decision maker for a candidate futures "
+        "breakout. The rules produced an entry opportunity, NOT an order approval. "
+        "Determine your action independently: choose exactly the proposed direction "
+        "if this specific setup merits an immediate entry, or HOLD. No second AI "
+        "will review you. Evaluate maturity/exhaustion, trend, actual prices, "
+        "stop/target economics and conflicting evidence. Do not invent prices. "
+        "A valid primary direction requests the existing bounded execution risk "
+        "engine to examine an order, not override it. Reply JSON as specified. "
+        + _build_candle_summary(intent,snapshot))
+    try:
+        r=primary._generate_content_observed(
+            cfg,symbol,"candidate_primary_entry",contents=prompt,
+            config=primary.types.GenerateContentConfig(response_schema=schema))
+        outcome=json.loads(r.text)
+        usage=r.usage_metadata
+        usage_log.record_usage(
+            cfg.user_dir,symbol,
+            int(getattr(usage,"prompt_token_count",0) or 0),
+            int(getattr(usage,"candidates_token_count",0) or 0),
+            provider="openai",purpose="candidate_primary_entry",
+            model=cfg.OPENAI_MODEL,retry_limit=0)
+    except Exception as exc:
+        (cfg.logger or logger).warning("[%s] CANDIDATE_GPT_PRIMARY_ERROR type=%s",
+                                        symbol,type(exc).__name__)
+        return stop("blocked_error",type(exc).__name__)
+    conf=outcome["confidence"]
+    action=outcome["action"]
+    if conf < getattr(cfg,"MIN_CONFIDENCE",.6) or action != intent.side:
+        return stop("blocked_wait",None,conf,str(outcome["reasoning"])[:500])
+    if not is_still_valid_fn():
+        return stop("blocked_stale",None,conf,str(outcome["reasoning"])[:500])
+    (cfg.logger or logger).info(
+        "[%s] CANDIDATE_GPT_PRIMARY_DECISION side=%s confidence=%.3f no_secondary_gpt_call",
+        symbol,action,conf)
+    return {"allowed":True,"gate_result":"primary_authorized","error_reason":None,
+            "gpt_confidence":conf,"gpt_reasoning":str(outcome["reasoning"])[:500],
+            "ai_exit_source":"chart_risk_original_protection",
+            "ai_exit_plan":None}
+
 def verify_candidate_signal(cfg, intent, snapshot: dict, *, is_still_valid_fn) -> dict:
     """규칙 기반 EntryIntent를 GPT Entry Gate에 통과시킨다.
 
@@ -181,7 +241,9 @@ def verify_candidate_signal(cfg, intent, snapshot: dict, *, is_still_valid_fn) -
 
     대시보드의 "GPT 승인/차단/오류 수"용 최소 구조화 로그(2026-09-13, 사용자 지시) -
     이 로그는 순수 관찰용이라 기록 실패가 매매 판단에 영향을 주면 안 된다(fail-open)."""
-    result_dict = _verify_candidate_signal_inner(cfg, intent, snapshot, is_still_valid_fn=is_still_valid_fn)
+    result_dict = (_gpt_primary_candidate_intent(cfg,intent,snapshot,is_still_valid_fn=is_still_valid_fn)
+                   if getattr(cfg,"GPT_PRIMARY_ONLY",False)
+                   else _verify_candidate_signal_inner(cfg,intent,snapshot,is_still_valid_fn=is_still_valid_fn))
     try:
         candidate_c_gpt_gate_log.record(
             cfg.user_dir, snapshot.get("symbol"), intent.side,

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 import jsonl_cache
+import core_entry_audit
 
 FILENAME = "ai_exit_plan_audit.jsonl"
 KST = dt.timezone(dt.timedelta(hours=9))
@@ -81,7 +82,7 @@ def _time(value):
 
 def summarize(user_dir: str, limit: int = 100, lifecycles=None) -> dict:
     rows = []
-    for raw in load_recent(user_dir, limit):
+    for raw in core_entry_audit.project_rows(user_dir, load_recent(user_dir, limit)):
         row = dict(raw)
         # Releases before exchange-read observability copied requested prices into
         # actual_* while marking exchange_verified=True. Never present those as OKX proof.
@@ -107,17 +108,25 @@ def summarize(user_dir: str, limit: int = 100, lifecycles=None) -> dict:
     perf={"ai_applied":{"count":0,"net_pnl":0.0},"adaptive_fallback":{"count":0,"net_pnl":0.0}}
     used=set()
     for row in rows:
-        if not row.get("exchange_verified") or not lifecycles: continue
+        if not (row.get("exchange_verified") or row.get("protected_fill_confirmed")) or not lifecycles: continue
         when=_time(row.get("recorded_at")); candidates=[]
         for life in lifecycles:
             if life.get("trade_id") in used or life.get("symbol")!=row.get("symbol") or life.get("side")!=row.get("side"): continue
+            if row.get("decision_id"):
+                did = row["decision_id"]
+                exact = (life.get("decision_id") == did
+                         or (row.get("lifecycle_id") and life.get("lifecycle_id") == row["lifecycle_id"])
+                         or any(event.get("type") == "open" and event.get("execution_id") == "core-entry:" + str(did)
+                                for event in life.get("events", []) if isinstance(event, dict)))
+                if exact: candidates.append((0, life))
+                continue
             entry=_time(life.get("entry_time"))
             if when is None or entry is None: continue
             if when.tzinfo is None: when=when.replace(tzinfo=KST)
             if entry.tzinfo is None: entry=entry.replace(tzinfo=KST)
             delta=abs((entry.astimezone(dt.timezone.utc)-when.astimezone(dt.timezone.utc)).total_seconds())
             if delta<=600: candidates.append((delta,life))
-        if not candidates: continue
+        if not candidates or (row.get("decision_id") and len(candidates) != 1): continue
         life=min(candidates,key=lambda x:x[0])[1]; used.add(life.get("trade_id"))
         key="ai_applied" if row.get("result")=="ai_exit_plan_applied" else "adaptive_fallback"
         perf[key]["count"]+=1; perf[key]["net_pnl"]+=float(life.get("lifecycle_net",life.get("net_pnl")) or 0.0)

@@ -24,5 +24,5 @@ def test_ai_cost_panel_uses_reduce_inclusive_economic_trade_stats():
     assert 'updateAiCostPanel(s.economic_trade_stats, s.usage_stats, totalProfit);' in text
     assert 'updateAiCostPanel(s.trade_stats, s.usage_stats, totalProfit);' not in text
     web = Path("web_app.py").read_text(encoding="utf-8")
-    assert 'economic_trade_stats = account_reconciliation_bridge.realized_economic_summary(ctx.dir)["total"]' in web
-    assert '"economic_trade_stats": economic_trade_stats,' in web
+    assert '"economic_trade_stats": account_reconciliation_bridge.realized_economic_summary(user_dir)["total"]' in web
+    assert '"economic_trade_stats": display_summaries["economic_trade_stats"],' in web

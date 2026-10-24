@@ -11,6 +11,9 @@ MIN_COVERAGE = 0.80
 MIN_RESOLVED = 20
 MAX_OUTLIER_SHARE = 0.35
 MIN_CHECKPOINT_STREAK = 2
+MIN_POST_EPOCH_SAMPLES = 20
+MIN_POST_EPOCH_RESOLVED = 10
+MIN_POST_EPOCH_CHECKPOINT_STREAK = 2
 
 
 def clip_delta(value: float) -> float:
@@ -37,7 +40,7 @@ def _direction_agrees(evidence: dict) -> bool:
 
 
 def eligible_for_validation(evidence: dict) -> bool:
-    return bool(
+    base = bool(
         int(evidence.get("sample_count") or 0) >= MIN_VALIDATION_SAMPLES
         and float(evidence.get("coverage") or 0.0) >= MIN_COVERAGE
         and int(evidence.get("resolved_count") or 0) >= MIN_RESOLVED
@@ -46,6 +49,15 @@ def eligible_for_validation(evidence: dict) -> bool:
         and int(evidence.get("checkpoint_streak") or 0) >= MIN_CHECKPOINT_STREAK
         and not bool(evidence.get("data_integrity_issue"))
         and _direction_agrees(evidence)
+    )
+    if not base:
+        return False
+    if not bool(evidence.get("post_epoch_required")):
+        return True
+    return bool(
+        int(evidence.get("post_epoch_sample_count") or 0) >= MIN_POST_EPOCH_SAMPLES
+        and int(evidence.get("post_epoch_resolved_count") or 0) >= MIN_POST_EPOCH_RESOLVED
+        and int(evidence.get("post_epoch_checkpoint_streak") or 0) >= MIN_POST_EPOCH_CHECKPOINT_STREAK
     )
 
 

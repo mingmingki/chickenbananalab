@@ -94,7 +94,10 @@ def allow_new_entry(cfg, store, equity, clock_ms, *, baseline_reader=None, legac
         current = number(equity,positive=True)
         account_limit = number(cfg.ACCOUNT_HARD_DAILY_LOSS_PCT,positive=True)
         group_limit = number(cfg.MAX_DAILY_LOSS_PCT,positive=True)
-        if (start-current)/start*100 >= account_limit:
+        import daily_equity_flow_adjustment
+        adjusted = daily_equity_flow_adjustment.from_user_dir(
+            cfg.user_dir, float(start), float(current), baseline, now_ms=now)
+        if adjusted["adjusted_drawdown_pct"] >= float(account_limit):
             return False
         legacy = number(legacy_reader(cfg.user_dir,'core',today))
         unified = realized_for_day(store.accounting_records(),today,now)

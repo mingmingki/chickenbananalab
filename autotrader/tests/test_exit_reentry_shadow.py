@@ -177,5 +177,7 @@ def test_confirmed_5m_observation_helper_has_no_client_dependency(monkeypatch, t
     assert len(calls) == 1
     args,_=calls[0]
     assert args[1] == SYMBOL
-    assert args[2] == dt.datetime(2026,9,25,10,45)
+    # The 5m OHLCV timestamp is the UTC candle OPEN. Observations must use
+    # its UTC-aware CLOSE, otherwise naive UTC is misread as KST.
+    assert args[2] == dt.datetime(2026,9,25,10,50,tzinfo=dt.timezone.utc)
     assert args[3:] == (1.51,1.52,1.50)

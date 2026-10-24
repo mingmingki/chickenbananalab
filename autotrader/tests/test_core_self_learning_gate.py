@@ -55,7 +55,7 @@ def test_learning_not_called_before_local_or_gpt_approval(tmp_path,monkeypatch):
     assert calls==[]
 
 
-def test_negative_learning_hold_blocks_only_approved_order(tmp_path,monkeypatch):
+def test_negative_learning_is_observed_without_overriding_core_consensus(tmp_path,monkeypatch):
     calls=[]; executed=[]; records=[]
     fake=SimpleNamespace(evaluate_entry=lambda *a,**k:calls.append((a,k)) or {
         'action':'HOLD_BY_LEARNING','confidence_delta':-.08,'matched_patterns':[{'pattern_id':'p1'}],
@@ -66,14 +66,19 @@ def test_negative_learning_hold_blocks_only_approved_order(tmp_path,monkeypatch)
     monkeypatch.setattr(trader,'_execute_approved_entry_with_optional_reversal',lambda *a,**k:executed.append((a,k)) or True)
     call_handler(cfg(tmp_path),monkeypatch)
     assert len(calls)==1
-    assert executed==[]
+    assert len(executed)==1
+    assert calls[0][0][-1] is False
     assert records[-1]['learner_action']=='HOLD_BY_LEARNING'
-    assert records[-1]['live_applied'] is True
-    assert records[-1]['baseline_order_executed'] is False
+    assert records[-1]['live_applied'] is False
+    assert records[-1]['baseline_order_executed'] is True
 
 
 def test_positive_learning_never_changes_order_parameters(tmp_path,monkeypatch):
     executed=[]; records=[]
+    # Isolate learning authority from the independent Entry Risk size reducer.
+    monkeypatch.setattr(trader,'_core_entry_risk_adjustment',lambda **k:{
+        'score':0,'factors':[],'blocked':False,'size_fraction':1.0,
+        'require_strong_confirmation':False,'amount':float(k['amount'])})
     fake=SimpleNamespace(evaluate_entry=lambda *a,**k:{
         'action':'ALLOW','confidence_delta':.10,'matched_patterns':[{'pattern_id':'p'}],
         'reason':'matched_live_patterns','live_applied':True,'shadow_action':'ALLOW','shadow_confidence_delta':.10})

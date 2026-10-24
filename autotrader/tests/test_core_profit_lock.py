@@ -15,8 +15,12 @@ def test_profit_lock_is_symmetric_for_short():
     assert trader._profit_lock_eligible("short", 98.0, 100.0, 1.5, _extreme())
 
 
-def test_profit_lock_rejects_profit_below_one_r():
-    assert not trader._profit_lock_eligible("long", 101.4, 100.0, 1.5, _extreme())
+def test_profit_lock_eligible_at_three_quarter_r_when_extreme():
+    assert trader._profit_lock_eligible("long", 101.125, 100.0, 1.5, _extreme())
+
+
+def test_profit_lock_rejects_profit_below_three_quarter_r():
+    assert not trader._profit_lock_eligible("long", 101.0, 100.0, 1.5, _extreme())
 
 
 def test_profit_lock_rejects_non_extreme_move():

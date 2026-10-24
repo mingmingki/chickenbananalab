@@ -1,9 +1,10 @@
 """Independent Gemini + GPT advisory review over deterministic analysis snapshots."""
 from __future__ import annotations
 import datetime as dt, hashlib, json, re
-import gemini_analyzer, openai_analyzer, trade_pattern_analysis, strategy_learning
+import ai_primary_provider_v33_97 as gemini_analyzer, openai_analyzer, trade_pattern_analysis, strategy_learning
 import learning_control, learning_shadow, learning_state
 import exit_reentry_shadow, learning_exit_reentry
+import entry_counterfactual_shadow, daily_completion_context, learning_explainability
 from trade_learning_lifecycle import build_completed_lifecycles
 
 REVIEW_FIELDS=('observations','positive_patterns','negative_risk_patterns','data_quality_warnings','hypotheses_to_continue_watching','proposed_operator_actions','confidence')
@@ -61,11 +62,20 @@ def _prepare_self_learning_checkpoint(user_dir, analysis, window_id):
     exit_shadow['samples_created']=len(exit_created)
     exit_shadow['state_counts']={name:sum(1 for row in exit_state.values() if row.get('state')==name) for name in ('DISCOVERY','SHADOW_LEARNING','VALIDATED_SHADOW','REJECTED')}
     exit_shadow['state_counts']['LIVE_BOUNDED']=0
+    control=learning_control.get(user_dir)
     shadow=learning_shadow.summarize_pattern_evidence(user_dir)
     hypotheses=strategy_learning.latest_hypotheses(user_dir)
     merged=_merge_learning_evidence(hypotheses,shadow)
+    validation_epoch_at = control.get('validation_epoch_at')
+    if validation_epoch_at:
+        post_shadow = learning_shadow.summarize_pattern_evidence(user_dir, since=validation_epoch_at)
+        for pid, ev in merged.items():
+            post = post_shadow.get(pid) or {}
+            ev['post_epoch_required'] = True
+            ev['validation_epoch_at'] = validation_epoch_at
+            ev['post_epoch_sample_count'] = int(post.get('sample_count') or 0)
+            ev['post_epoch_resolved_count'] = int(post.get('resolved_count') or 0)
     evidence,duplicate=learning_state.prepare_checkpoint_evidence(user_dir,window_id,merged)
-    control=learning_control.get(user_dir)
     transitions=learning_state.advance_patterns(user_dir,evidence,bool(control.get('live_enabled')))
     state,safe=learning_state.load_active_state(user_dir)
     counts={name:0 for name in ('DISCOVERY','SHADOW_LEARNING','VALIDATED','LIVE_BOUNDED','REJECTED')}
@@ -186,12 +196,24 @@ def _compact_payload(user_dir,start,end,analysis,self_learning):
     watch=[_compact_metric(g) for g in sorted((g for g in groups if g.get('sample_class')=='watch'), key=rank)[:12]]
     hypotheses=sorted(strategy_learning.latest_hypotheses(user_dir).values(),
                       key=lambda h: (-int(h.get('sample_count') or 0), str(h.get('hypothesis_id') or '')))
+    active_state=learning_state.replay_state(user_dir)
+    evidence=(self_learning or {}).get('evidence') or {}
+    progress=[]
+    live_enabled=bool(learning_control.get(user_dir).get('live_enabled',False))
+    for pid,ev in sorted(evidence.items()):
+        current=(active_state.get(pid) or {}).get('state') or 'DISCOVERY'
+        progress.append({'pattern_id':pid, **learning_explainability.explain_pattern(current,ev,live_enabled=live_enabled)})
+    entry_summary=entry_counterfactual_shadow.summary(user_dir,150)
+    exit_summary=exit_reentry_shadow.summarize_three_way(exit_reentry_shadow.recent(user_dir,200))
+    integrated=daily_completion_context.build_daily_completion_context(
+        entry_summary,exit_summary,analysis.get('coverage') or {},progress)
     return {
-        'payload_version':'strategy_review_compact_v2', 'window_start':start.isoformat(), 'window_end':end.isoformat(),
+        'payload_version':'strategy_review_compact_v3', 'window_start':start.isoformat(), 'window_end':end.isoformat(),
         'summary':_compact_metric(analysis.get('summary') or {}), 'completed_trades':trades[-40:],
         'patterns_established':established, 'patterns_watch':watch, 'coverage':analysis.get('coverage') or {},
         'hypotheses':[_compact_hypothesis(h) for h in hypotheses[:20]],
         'self_learning':_compact_self_learning(self_learning or {}),
+        'integrated_trade_context':integrated,
     }
 
 def _normalize(result):
@@ -227,9 +249,13 @@ def generate_review(user_dir,cfg,window_start,window_end,review_window_id=None):
     raw=json.dumps(payload,sort_keys=True,ensure_ascii=False,separators=(',',':'),allow_nan=False)
     input_hash=hashlib.sha256(raw.encode()).hexdigest()
     results={}
-    for name,fn in (('gemini',gemini_analyzer.review_strategy_report),('gpt',openai_analyzer.review_strategy_report)):
+    for name,fn in ((('gpt',openai_analyzer.review_strategy_report),) if getattr(cfg,'GPT_PRIMARY_ONLY',False) else (('gemini',gemini_analyzer.review_strategy_report),('gpt',openai_analyzer.review_strategy_report))):
         try: results[name]={'status':'ok','input_hash':input_hash,'review':_normalize(fn(cfg,payload))}
         except Exception as exc: results[name]={'status':'error','input_hash':input_hash,'error':type(exc).__name__,'review':None}
-    ok=sum(1 for r in results.values() if r['status']=='ok')
-    status='complete' if ok==2 else 'partial' if ok==1 else 'error'
+    if getattr(cfg,'GPT_PRIMARY_ONLY',False):
+        results['gemini']={'status':'disabled','input_hash':input_hash,'review':None}
+        status='complete' if results['gpt']['status']=='ok' else 'error'
+    else:
+        ok=sum(1 for r in results.values() if r['status']=='ok')
+        status='complete' if ok==2 else 'partial' if ok==1 else 'error'
     return {'review_window_id':window_id,'window_start':window_start.isoformat(),'window_end':window_end.isoformat(),'status':status,'input_hash':input_hash,'window_stats':{'completed_trades':len(payload['completed_trades'])},'data_quality':'degraded' if payload['coverage'].get('unmatched_or_excluded') else 'normal','self_learning':self_learning,'gemini':results['gemini'],'gpt':results['gpt'],'consensus':_consensus(results['gemini'],results['gpt']),'created_at':dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).isoformat(timespec='seconds')}

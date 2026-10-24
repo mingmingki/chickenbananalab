@@ -39,7 +39,7 @@ def test_backtest_new_position_inherits_entry_weakening_baseline(monkeypatch):
         lambda bars, donchian_n=20: [{"ema_20": 100.0, "ema_50": 90.0,
                                       "close": 95.0, "atr_14": 1.0}]
     ))
-    snap = SimpleNamespace(bar_10m_current={"open_time_ms": 0})
+    snap = SimpleNamespace(bar_10m_current={"open_time_ms": 0}, bar_5m={"close_time_ms": 300000})
     monkeypatch.setattr(ba.tfc, "build_as_of_snapshot", lambda *a, **k: snap)
     monkeypatch.setattr(ba.tfc, "donchian_setup_condition", lambda *a, **k: True)
     state = ba.CandidateCBacktestAdapterState(

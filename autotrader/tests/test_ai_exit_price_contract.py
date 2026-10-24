@@ -53,7 +53,7 @@ def test_gpt_can_revise_invalid_gemini_plan_into_executable_prices():
     assert plan["stop_loss_price"] == 96.0 and reason == "gpt_revision_contract_ok"
 
 
-def test_core_gpt_gate_forwards_exit_price_contract(monkeypatch):
+def test_core_gpt_gate_never_forwards_price_contract(monkeypatch):
     import logging, trader
     captured={}
     def fake_verify(*args,**kwargs):
@@ -62,9 +62,9 @@ def test_core_gpt_gate_forwards_exit_price_contract(monkeypatch):
     monkeypatch.setattr(trader.openai_analyzer,"verify",fake_verify)
     cfg=SimpleNamespace(logger=logging.getLogger("test"))
     contract=ae.build_ai_price_contract("long",100.0,2.0,production_adaptive_exit_policy())
-    allowed,gate,result=trader._gpt_entry_gate(cfg,"X",["5m"],"summary",None,{"action":"long","confidence":0.8},exit_price_contract=contract)
+    allowed,gate,result=trader._gpt_entry_gate(cfg,"ETH/USDT:USDT",["5m"],"summary",None,{"action":"long","confidence":0.8},exit_price_contract=contract)
     assert allowed is True and gate == "approved"
-    assert captured["exit_price_contract"] == contract
+    assert captured["exit_price_contract"] is None
 
 
 def test_candidate_c_exit_review_forwards_same_contract_to_gemini_and_gpt(monkeypatch):

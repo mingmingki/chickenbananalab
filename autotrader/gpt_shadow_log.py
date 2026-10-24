@@ -3,6 +3,8 @@ import json
 import os
 
 import jsonl_cache
+import notification_policy
+import core_entry_audit
 
 
 def _log_path(user_dir: str) -> str:
@@ -24,6 +26,7 @@ def record_verification(
     gate_result: str | None = None,
     error_reason: str | None = None,
     pipeline_context: str | None = None,
+    outcome: dict | None = None,
 ) -> None:
     """decision_id/event_type: 반대방향 전환(reversal)처럼 Gemini 판단 하나에서 청산+진입
     두 번의 실주문(그래서 검증도 두 번)이 나올 수 있는데, 같은 decision_id로 묶고
@@ -41,11 +44,15 @@ def record_verification(
     주문을 막음) UI가 이 필드로 문구를 구분한다. mode와 겹치는 정보지만, mode는
     "entry_gate"/"shadow" 2가지뿐이라 Shadow 안에서 shadow_verification과 hold_audit을
     구분 못 해 별도로 둔다."""
+    # Candidate C never belongs to the CORE GPT entry gate.
+    if mode == 'entry_gate' and symbol not in notification_policy.CORE:
+        return
     os.makedirs(user_dir, exist_ok=True)
     with open(_log_path(user_dir), "a", encoding="utf-8") as f:
         f.write(
             json.dumps(
                 {
+                    **(outcome or {}),
                     "symbol": symbol,
                     "gemini_action": gemini_action,
                     "gemini_confidence": gemini_confidence,
@@ -83,9 +90,18 @@ def recent_by_mode(user_dir: str, mode: str, limit: int = 100) -> list:
     보여줘야 하므로, 과거 Shadow 기록과 섞지 않는다.
     """
     out = []
-    for record in reversed(_load_all(user_dir)):
-        if record.get("mode") != mode:
-            continue
+    records = [record for record in reversed(_load_all(user_dir))
+               if record.get("mode") == mode and record.get("symbol") in notification_policy.CORE][:limit]
+    for record in core_entry_audit.project_rows(user_dir, records):
+        if mode == "entry_gate":
+            labels = {"blocked_wait": "GPT 대기", "blocked_reject": "GPT 거절",
+                      "blocked_error": "GPT 오류", "blocked_risk_score": "과거 위험점수 차단"}
+            outcome = (
+                "주문 완료" if record.get("order_success") is True else
+                "승인 · 주문 미실행" if record.get("gate_result") == "approved" else
+                labels.get(record.get("gate_result"), "주문 미실행")
+            )
+            record = dict(record, order_outcome=outcome)
         out.append(record)
         if len(out) >= limit:
             break
@@ -112,7 +128,8 @@ def summary(user_dir: str) -> dict:
     verdict 자체가 없음)를 센다. 이것도 legacy와 마찬가지로 agree_rate 분모에서 빠져야
     한다 - 안 빼면 "GPT를 실제로 호출도 못 한 케이스"가 마치 GPT가 판단해준 것처럼
     분모에 섞여 동의율이 실제보다 낮게 나온다."""
-    records = _load_all(user_dir)
+    records = [r for r in _load_all(user_dir)
+               if r.get('symbol') in notification_policy.CORE]
     total = len(records)
     shadow_mode_count = sum(1 for r in records if r.get("mode") == "shadow")
     entry_gate_mode_count = sum(1 for r in records if r.get("mode") == "entry_gate")
@@ -132,9 +149,9 @@ def summary(user_dir: str) -> dict:
     no_verdict_records = [r for r in new_records if r.get("gpt_decision") not in ("approve_now", "wait", "reject")]
     timeout_count = sum(1 for r in no_verdict_records if r.get("error_reason") == "timeout")
     api_error_count = sum(1 for r in no_verdict_records if r.get("error_reason") == "api_error")
-    parse_error_count = sum(1 for r in no_verdict_records if r.get("error_reason") == "parse_error")
+    parse_error_count = sum(1 for r in no_verdict_records if r.get("error_reason") in ("parse_error","empty_response"))
     sdk_error_count = sum(1 for r in no_verdict_records if r.get("error_reason") == "sdk_error")
-    unknown_count = sum(1 for r in no_verdict_records if r.get("error_reason") == "unknown")
+    unknown_count = sum(1 for r in no_verdict_records if "error_reason" in r and r.get("error_reason") not in ("timeout","api_error","parse_error","empty_response","sdk_error"))
     legacy_no_verdict_count = sum(1 for r in no_verdict_records if "error_reason" not in r)
 
     # mode="entry_gate"인 기록만 실제로 주문 여부를 결정했다 - 이 카운트는 "GPT 필터를
@@ -170,6 +187,7 @@ def summary(user_dir: str) -> dict:
         "agree_rate": agree_rate,
         "gate_count": len(gate_records),
         "gate_approved_count": gate_approved,
+        "gate_timeout_bypass_count": sum(1 for r in gate_records if r.get("gate_result")=="TIMEOUT_BYPASS"),
         "gate_blocked_wait_count": gate_blocked_wait,
         "gate_blocked_reject_count": gate_blocked_reject,
         "gate_blocked_error_count": gate_blocked_error,

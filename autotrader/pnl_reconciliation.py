@@ -95,8 +95,9 @@ def load_all_records(user_dir: str) -> list:
     원본 파일은 건드리지 않는다."""
     core_records = trade_log.load_closed_trades(user_dir, dry_run=False)
     merged = []
+    import core_pnl_correction_v33_67
     for r in core_records:
-        rec = dict(r)
+        rec = dict(core_pnl_correction_v33_67.adjusted_row(user_dir,r))
         rec["_group"] = _group_of(rec)
         merged.append(rec)
     for r in fast_trade_history.load_all_trades(user_dir):
@@ -123,8 +124,10 @@ def load_all_records_with_reduces(user_dir: str) -> list:
     # a reduce and a close while the exchange fills the remainder.
     rows = trade_log.load_realized_trades(user_dir, dry_run=False)
     closed, reduced = [], []
+    import core_pnl_correction_v33_67
     for r in rows:
-        rec = dict(r, _group=_group_of(r))
+        rec = dict(core_pnl_correction_v33_67.adjusted_row(user_dir,r),
+                   _group=_group_of(r))
         (closed if r.get("type") == "close" else reduced).append(rec)
     for r in fast_trade_history.load_all_trades(user_dir):
         closed.append(dict(_fast_record_to_common(r), _group="fast"))

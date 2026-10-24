@@ -14,13 +14,20 @@ confirmed 4H OHLC로 계산한다 - 합성 검증에서 썼던 ATR=1.0 proxy는 
 쓰지 않는다(Part A에서 지적된 한계를 여기서 닫는다)."""
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import math
+
+import pandas as pd
+import market_structure
 from dataclasses import dataclass, field, replace
 
 import candidate_c_exit_management as cem
+import candidate_c_protection_bounds as protection_bounds
 import entry_overextension_guard
+import unified_trade_guard
+import adaptive_reduction
 import candidate_c_reversal_state_machine as rsm
 import candidate_c_setup_tracker as st
 import candidate_c_timeframe_contract as tfc
@@ -29,6 +36,10 @@ import candidate_c_strategy_policy as strategy_policy_contract
 import adaptive_exit_log
 from adaptive_exit_engine import AdaptiveExitContext, AdaptiveExitEngine, compute_structural_stop, apply_monotonic_stop
 from adaptive_exit_policy import policy_sha256 as adaptive_policy_sha256, validate_adaptive_exit_policy
+
+# Existing Candidate accounting assumptions: two 5bp fees and two 3bp
+# spread/slippage legs, shared by bounded RR and the wide-stop sizing fallback.
+CANDIDATE_C_ROUNDTRIP_COST_RATE = 2 * (0.0005 + (3.0 + 3.0) / 10000.0)
 
 INTENT_NO_ACTION = "NoAction"
 INTENT_ENTRY = "EntryIntent"
@@ -69,6 +80,23 @@ def weakening_from_1h(*, side: str, close_1h: float, ema_20_1h: float | None) ->
     return close_1h > ema_20_1h
 
 
+def _candidate_structure_snapshot(bars: list[dict]) -> dict:
+    if not bars:
+        return {}
+    try:
+        df = pd.DataFrame(bars).copy()
+        if "volume" not in df.columns:
+            df["volume"] = 0.0
+        return market_structure.compute(df)
+    except Exception:
+        return {}
+
+
+def _candidate_tf_mixed(*directions: str) -> bool:
+    known = [d for d in directions if d in ("LONG", "SHORT")]
+    return len(set(known)) > 1
+
+
 def profit_lock_cost_metadata_ready(position: dict) -> bool:
     """Incomplete live accounting must skip profit-lock instead of crashing management."""
     required=("effective_entry_price","entry_fee_usdt","contract_size",
@@ -84,9 +112,47 @@ def profit_lock_cost_metadata_ready(position: dict) -> bool:
     return True
 
 
+def lower_tf_entry_directions(*, bars_1h, bars_5m, as_of_ms, indicator_fn):
+    directions = []
+    for bars in (bars_1h, bars_5m):
+        visible = [b for b in bars if b.get("confirm") == 1
+                   and b.get("close_time_ms", 0) <= as_of_ms]
+        try:
+            row = indicator_fn(visible, donchian_n=20)[-1]
+            directions.append(direction_from_4h_indicators(
+                ema_20=row.get("ema_20"), ema_50=row.get("ema_50"), close=row.get("close")))
+        except (ValueError, TypeError, KeyError, IndexError):
+            directions.append("NONE")
+    return tuple(directions)
+
+
+def entry_direction_eligible(side, *, direction_4h, direction_1h, direction_5m, atr_4h):
+    wanted = "LONG" if side == "long" else "SHORT"
+    return (atr_4h is not None and atr_4h > 0 and (
+        direction_4h == wanted or unified_trade_guard.entry_size_fraction(
+            side=side, primary_direction=direction_4h,
+            direction_1h=direction_1h, direction_5m=direction_5m)
+        == unified_trade_guard.PILOT_ENTRY_FRACTION))
+
+
+def observe_entry_setups(tracker, symbol, snap, *, bars_4h, bars_1h, bars_5m, indicator_fn):
+    """One shared qualification contract for live and historical adapters."""
+    row = indicator_fn(bars_4h, donchian_n=20)[-1]
+    direction4 = direction_from_4h_indicators(
+        ema_20=row.get("ema_20"), ema_50=row.get("ema_50"), close=row.get("close"))
+    direction1, direction5 = lower_tf_entry_directions(
+        bars_1h=bars_1h, bars_5m=bars_5m,
+        as_of_ms=snap.bar_5m["close_time_ms"], indicator_fn=indicator_fn)
+    for side in ("long", "short"):
+        tracker.observe(symbol, side, snap.bar_10m_current["open_time_ms"],
+            tfc.donchian_setup_condition(snap, side),
+            entry_eligible=entry_direction_eligible(side, direction_4h=direction4,
+                direction_1h=direction1, direction_5m=direction5, atr_4h=row.get("atr_14")))
+
+
 def _candidate_entry_overextension_gate(
     *, side: str, entry_price: float, bars_1h: list[dict], atr14_4h,
-    as_of_ms: int, indicator_fn,
+    as_of_ms: int, indicator_fn, bars_5m: list[dict] | None = None,
 ) -> dict:
     try:
         one_h = indicator_fn(bars_1h, donchian_n=20)
@@ -96,10 +162,40 @@ def _candidate_entry_overextension_gate(
         reference_24h_price = refs[-1]["close"] if refs else None
     except Exception:
         ema20_1h = reference_24h_price = None
-    return entry_overextension_guard.evaluate(
+    result = entry_overextension_guard.evaluate(
         side=side, entry_price=entry_price, ema20_1h=ema20_1h,
         atr14_4h=atr14_4h, reference_24h_price=reference_24h_price,
     )
+    if not result.get("allowed") or not bars_5m:
+        return result
+    try:
+        confirmed = [b for b in bars_5m if b.get("confirm") == 1 and b.get("close_time_ms", 0) <= as_of_ms]
+        confirmed = sorted(confirmed, key=lambda b: b["close_time_ms"])[-200:]
+        if len(confirmed) < 7:
+            return {**result, "allowed": False, "reason": "recent_entry_data_unavailable"}
+        if any(b["close_time_ms"] - a["close_time_ms"] != 5 * 60 * 1000
+               for a, b in zip(confirmed, confirmed[1:])):
+            return {**result, "allowed": False, "reason": "recent_entry_data_unavailable"}
+        indicators_5m = indicator_fn(confirmed, donchian_n=20)
+        atr_5m = indicators_5m[-1].get("atr_14") if indicators_5m else None
+        metrics = unified_trade_guard.recent_entry_metrics(
+            side=side, current_price=float(entry_price),
+            closes=[float(b["close"]) for b in confirmed], atr=float(atr_5m),
+        )
+        recent = unified_trade_guard.evaluate_recent_entry(
+            side=side, current_price=float(entry_price),
+            reference_30m_price=metrics.get("reference_30m_price"),
+            move_30m_atr=metrics.get("move_30m_atr"),
+            pullback_atr=metrics.get("pullback_atr"),
+        )
+        result.update(metrics)
+        result["recent_entry_guard"] = recent
+        if not recent["allowed"]:
+            result["allowed"] = False
+            result["reason"] = recent["reason"]
+    except (KeyError, TypeError, ValueError, IndexError, AttributeError):
+        return {**result, "allowed": False, "reason": "recent_entry_data_unavailable"}
+    return result
 
 
 def sha256_of(obj) -> str:
@@ -139,6 +235,8 @@ class DecisionContext:
     adaptive_leverage: float = 1.0
     adaptive_order_cap_notional: float | None = None
     adaptive_approved_policy_hash: str = ""
+    risk_adaptive_partials: bool = False
+    compact_protection_enabled: bool = False
 
 
 def _validated_policy(ctx: DecisionContext) -> dict:
@@ -188,6 +286,20 @@ class Intent:
     entry_weakening_baseline: bool | None = None
     adaptive_mode: str | None = None
     adaptive_policy_hash: str | None = None
+    entry_size_fraction: float = 1.0
+    pilot_entry: bool = False
+    entry_attempt: bool = False
+    entry_validation_values: dict | None = None
+    reduction_plan: dict | None = None
+    reduction_policy_hash: str | None = None
+    # LIVE_BOUNDED wide-stop handling for intents produced by the shared
+    # Candidate C decision engine. "risk_cap" is allowed only on the first
+    # fresh setup edge; subsequent rechecks stay blocked. "legacy" preserves
+    # older/manual callers that do not participate in this policy.
+    adaptive_wide_stop_policy: str = "legacy"
+    # Remember admitted wide geometry across order-price refreshes, so a
+    # small move towards SL cannot restore full-margin sizing.
+    adaptive_wide_stop_risk_sizing: bool = False
 
 
 def _current_position_context(current_position: dict | None) -> tuple[str | None, str | None]:
@@ -332,12 +444,35 @@ def _decide_legacy(
         weakening_now = weakening_from_1h(side=side, close_1h=snap.bar_1h["close"], ema_20_1h=ema_20_1h)
 
         invalidated = cem.is_4h_direction_invalidated(side=side, current_4h_direction=direction_4h)
+        if epoch.pilot_entry and not epoch.pilot_4h_confirmed and direction_4h == "NONE":
+            row1 = indicator_fn(bars_1h_confirmed_up_to_asof, donchian_n=20)[-1]
+            direction1 = direction_from_4h_indicators(
+                ema_20=row1.get("ema_20"), ema_50=row1.get("ema_50"), close=row1.get("close"))
+            invalidated = direction1 != ("LONG" if side == "long" else "SHORT")
         derisk_decision = cem.evaluate_1h_structural_derisk(
             current_quantity=current_position["contracts"], lot_step=lot_step, min_size=min_size,
             weakening_prev=weakening_prev, weakening_now=weakening_now, epoch=epoch,
             derisk_pct=float(policy["derisk_pct"]),
         )
         price_r = cem.price_R(current_position["raw_entry_price"], current_position["initial_stop_price"])
+        sign = 1 if side == "long" else -1
+        prior_water = current_position.get("high_water")
+        if prior_water is None:
+            prior_water = current_position["raw_entry_price"]
+        if side == "long":
+            new_hw = max(float(prior_water), float(snap.bar_5m["high"]))
+        else:
+            new_hw = min(float(prior_water), float(snap.bar_5m["low"]))
+        signed_profit_r = None
+        mfe_r = None
+        if price_r > 0:
+            signed_move = (snap.bar_5m["close"] - current_position["raw_entry_price"]) * sign
+            signed_profit_r = signed_move / price_r
+            mfe_r = max(0.0, (new_hw - current_position["raw_entry_price"]) * sign / price_r)
+        hard_loss_overlay = unified_trade_guard.hard_loss_eligible(
+            max(0.0, -signed_profit_r) if signed_profit_r is not None else None,
+            invalidated=weakening_now,
+        )
         partial_tp = cem.DeriskDecision(action="none", reason="partial_take_profit_policy_disabled")
         if "partial_take_profit_activation_r" in policy:
             partial_tp = cem.evaluate_partial_take_profit(
@@ -349,19 +484,109 @@ def _decide_legacy(
                 activation_r=float(policy["partial_take_profit_activation_r"]),
                 take_profit_pct=float(policy["partial_take_profit_pct"]),
             )
-        activate_profit_lock = (
-            (not epoch.profit_lock_active)
-            and profit_lock_cost_metadata_ready(current_position)
-            and cem.profit_lock_activation_check(
-                side=side, raw_entry_price=current_position["raw_entry_price"], price_r=price_r,
-                confirmed_5m_close=snap.bar_5m["close"],
-                activation_r=float(policy["profit_lock_activation_r"]),
+        profit_lock_stop = None
+        if (not epoch.profit_lock_active and profit_lock_cost_metadata_ready(current_position)
+                and unified_trade_guard.profit_floor_eligible(
+                    mfe_r, current_r=signed_profit_r,
+                    risk_reduced=bool(epoch.original_contracts and epoch.original_contracts > 0
+                                      and float(current_position["contracts"])
+                                      <= float(epoch.original_contracts) * 0.75 + 1e-9))):
+            profit_lock_stop = cem.compute_profit_lock_stop_price(
+                side=side, effective_entry_price=current_position["effective_entry_price"],
+                entry_fee_usdt=current_position["entry_fee_usdt"], contracts=current_position["contracts"],
+                contract_size=current_position["contract_size"], fee_rate=current_position["fee_rate"],
+                spread_bps=current_position["spread_bps"], slippage_bps=current_position["slippage_bps"],
             )
+        activate_profit_lock = bool(
+            profit_lock_stop is not None
+            and sign * (float(snap.bar_5m["close"]) - float(profit_lock_stop)) > 0
         )
+        structure_reduce = cem.DeriskDecision(action="none", reason="structure_profit_not_triggered")
+        bars_5m_confirmed = [
+            b for b in bars_5m_for_10m_up_to_asof
+            if b.get("confirm") == 1 and b.get("close_time_ms", 0) <= as_of_ms
+        ]
+        current_5m_structure = _candidate_structure_snapshot(bars_5m_confirmed)
+        previous_5m_structure = _candidate_structure_snapshot(bars_5m_confirmed[:-1])
+        one_h_structure = _candidate_structure_snapshot(bars_1h_confirmed_up_to_asof)
+        structure_guard = unified_trade_guard.profit_structure_protection(
+            side=side, current_r=signed_profit_r, current_5m=current_5m_structure,
+            previous_5m=previous_5m_structure, one_h=one_h_structure,
+            already_reduced=bool(epoch.derisk_done),
+        )
+        if structure_guard.get("action") == "reduce_25" and epoch.original_contracts and epoch.original_contracts > 0:
+            original = float(epoch.original_contracts)
+            current = float(current_position["contracts"])
+            already_ratio = max(0.0, min(1.0, (original-current)/original))
+            if already_ratio < 0.50 - 1e-9:
+                target_ratio = 0.25 if already_ratio < 0.25 - 1e-9 else 0.50
+                target_residual = cem.floor_to_lot_step(original * (1.0-target_ratio), lot_step)
+                reduce_quantity = current - target_residual
+                if target_residual >= min_size and reduce_quantity >= min_size and reduce_quantity > 1e-12:
+                    structure_reduce = cem.DeriskDecision(
+                        action="partial_reduce", target_residual=target_residual,
+                        reduce_quantity=reduce_quantity, reason="unified_structure_profit_break",
+                    )
+
+        mfe_reduce = cem.DeriskDecision(action="none", reason="mfe_profit_not_triggered")
+        if (
+            not epoch.mfe_profit_reduce_done
+            and unified_trade_guard.mfe_giveback_eligible(mfe_r, signed_profit_r)
+            and epoch.original_contracts
+            and epoch.original_contracts > 0
+        ):
+            original = float(epoch.original_contracts)
+            current = float(current_position["contracts"])
+            already_ratio = max(0.0, min(1.0, (original - current) / original))
+            if already_ratio < 0.50 - 1e-9:
+                target_ratio = 0.25 if already_ratio < 0.25 - 1e-9 else 0.50
+                target_residual = cem.floor_to_lot_step(original * (1.0 - target_ratio), lot_step)
+                reduce_quantity = current - target_residual
+                if target_residual >= min_size and reduce_quantity >= min_size and reduce_quantity > 1e-12:
+                    mfe_reduce = cem.DeriskDecision(
+                        action="partial_reduce", target_residual=target_residual,
+                        reduce_quantity=reduce_quantity, reason="unified_mfe_profit_giveback",
+                    )
+
+        reduction_plans = {}
+        if ctx.risk_adaptive_partials:
+            adverse_key = 'swing_low_broken' if side == 'long' else 'swing_high_broken'
+            risk_args = dict(current_r=signed_profit_r, mfe_r=mfe_r,
+                atr_r=atr_4h/price_r if atr_4h and price_r > 0 else None,
+                weakening_1h=weakening_now or bool(one_h_structure.get(adverse_key)),
+                adverse_5m=bool(current_5m_structure.get(adverse_key)))
+            def resize(decision, event, triggered, cap=None):
+                # An ON-mode trigger must not inherit fixed25/50 lot or dust gates.
+                # Only confirmed signal/lifecycle eligibility is reused.
+                decision = cem.DeriskDecision(action='partial_reduce' if triggered else 'none', reason=event)
+                plan = adaptive_reduction.chart_fraction(event, **risk_args)
+                resized = cem.risk_adaptive_quantity(decision, plan=plan,
+                    current_quantity=float(current_position['contracts']),
+                    original_quantity=epoch.original_contracts, lot_step=lot_step,
+                    min_size=min_size, cumulative_cap=cap)
+                if resized.action != 'none' and plan is not None:
+                    plan = dict(plan, requested_fraction=plan['fraction'],
+                        fraction=resized.reduce_quantity/(float(current_position['contracts'])
+                            if plan['basis']=='remaining' else float(epoch.original_contracts)))
+                reduction_plans[event] = plan
+                return resized
+            derisk_decision = resize(derisk_decision, 'structural_derisk',
+                not epoch.derisk_done and weakening_now and not weakening_prev)
+            partial_tp = resize(partial_tp, 'partial_take_profit_2r',
+                not epoch.partial_take_profit_done and epoch.original_contracts is not None
+                and epoch.original_contracts > 0 and signed_profit_r is not None
+                and 'partial_take_profit_activation_r' in policy
+                and signed_profit_r >= float(policy['partial_take_profit_activation_r']))
+            structure_reduce = resize(structure_reduce, 'unified_structure_profit_break',
+                structure_guard.get('action') == 'reduce_25', .5)
+            mfe_reduce = resize(mfe_reduce, 'unified_mfe_profit_giveback',
+                not epoch.mfe_profit_reduce_done and unified_trade_guard.mfe_giveback_eligible(mfe_r, signed_profit_r), .5)
 
         action = cem.decide_action_priority({
             "4h_full_exit": invalidated,
+            "structure_profit_break": structure_reduce.action != "none",
             "1h_structural_derisk": derisk_decision.action != "none",
+            "mfe_profit_giveback": mfe_reduce.action != "none",
             "partial_take_profit_2r": partial_tp.action != "none",
             "profit_lock_tightening": activate_profit_lock,
         })
@@ -382,32 +607,40 @@ def _decide_legacy(
         if action == "4h_full_exit":
             opposite = "short" if side == "long" else "long"
             return Intent(kind=INTENT_REVERSAL, reason_code="4h_direction_invalidated", target_side=opposite, **common)
+        if hard_loss_overlay:
+            return Intent(kind=INTENT_EXIT, reason_code="unified_hard_loss_075r", **common)
+        if action == "structure_profit_break":
+            return Intent(
+                kind=INTENT_REDUCE, reason_code=structure_reduce.reason,
+                reduction_plan=reduction_plans.get('unified_structure_profit_break'),
+                reduce_quantity=structure_reduce.reduce_quantity, target_residual=structure_reduce.target_residual,
+                **common,
+            )
         if action == "1h_structural_derisk":
             return Intent(
                 kind=INTENT_REDUCE, reason_code=derisk_decision.reason,
+                reduction_plan=reduction_plans.get('structural_derisk'),
                 reduce_quantity=derisk_decision.reduce_quantity, target_residual=derisk_decision.target_residual,
                 **common,
+            )
+        if action == "mfe_profit_giveback":
+            return Intent(
+                kind=INTENT_REDUCE, reason_code=mfe_reduce.reason,
+                reduction_plan=reduction_plans.get('unified_mfe_profit_giveback'),
+                reduce_quantity=mfe_reduce.reduce_quantity,
+                target_residual=mfe_reduce.target_residual, **common,
             )
         if action == "partial_take_profit_2r":
             return Intent(
                 kind=INTENT_REDUCE, reason_code=partial_tp.reason,
+                reduction_plan=reduction_plans.get('partial_take_profit_2r'),
                 reduce_quantity=partial_tp.reduce_quantity,
                 target_residual=partial_tp.target_residual, **common,
             )
         if action == "profit_lock_tightening":
-            stop = cem.compute_profit_lock_stop_price(
-                side=side, effective_entry_price=current_position["effective_entry_price"],
-                entry_fee_usdt=current_position["entry_fee_usdt"], contracts=current_position["contracts"],
-                contract_size=current_position["contract_size"], fee_rate=current_position["fee_rate"],
-                spread_bps=current_position["spread_bps"], slippage_bps=current_position["slippage_bps"],
-            )
-            return Intent(kind=INTENT_STOP_UPDATE, reason_code="profit_lock_activated", raw_stop_price=stop, **common)
+            return Intent(kind=INTENT_STOP_UPDATE, reason_code="profit_lock_activated", raw_stop_price=profit_lock_stop, **common)
 
         # trailing 갱신(항상 평가 - Phase 3.4 계약: 생존 시 high/low water 갱신)
-        if side == "long":
-            new_hw = max(current_position["high_water"], snap.bar_5m["high"])
-        else:
-            new_hw = min(current_position["high_water"], snap.bar_5m["low"])
         new_stop = cem.compute_trailing_stop_price(
             side=side, high_or_low_water=new_hw, atr_4h=atr_4h,
             atr_multiplier=float(policy["trailing_atr_multiplier"]),
@@ -417,7 +650,14 @@ def _decide_legacy(
         return _no_action("holding_no_change", snap.bar_5m["close_time_ms"])
 
     # --- 포지션 없음: setup 평가 ---
-    for side in ("long", "short"):
+    direction_1h, direction_5m = lower_tf_entry_directions(
+        bars_1h=bars_1h_confirmed_up_to_asof, bars_5m=bars_5m_for_10m_up_to_asof,
+        as_of_ms=as_of_ms, indicator_fn=indicator_fn)
+    preferred = direction_4h
+    if preferred == "NONE" and direction_1h == direction_5m:
+        preferred = direction_1h
+    sides = ("short", "long") if preferred == "SHORT" else ("long", "short")
+    for side in sides:
         condition_true = tfc.donchian_setup_condition(snap, side)
         current_bar_open_ms = snap.bar_10m_current["open_time_ms"]
         would_be_id = st.make_setup_id(ctx.symbol, side, current_bar_open_ms)
@@ -439,6 +679,10 @@ def _decide_legacy(
             else "setup_bar_recheck"
         )
         direction_ok = (side == "long" and direction_4h == "LONG") or (side == "short" and direction_4h == "SHORT")
+        pilot_fraction = unified_trade_guard.entry_size_fraction(
+            side=side, primary_direction=direction_4h, direction_1h=direction_1h, direction_5m=direction_5m,
+        )
+        pilot_entry = pilot_fraction == unified_trade_guard.PILOT_ENTRY_FRACTION
         idem = make_idempotency_key(
             account_id=ctx.account_id, symbol=ctx.symbol, strategy_id=ctx.strategy_id,
             key_id=effective_setup_id, decision_timestamp=as_of_ms, config_hash=ctx.config_hash,
@@ -451,18 +695,23 @@ def _decide_legacy(
             side=side, idempotency_key=idem, input_snapshot_hash=input_snapshot_hash,
         )
 
+        common.update(entry_attempt=True,entry_validation_values={'entry_price':snap.bar_5m['close'],'direction_4h':direction_4h,'direction_1h':direction_1h,'direction_5m':direction_5m})
         # A continuous Donchian condition is an opportunity window, not an
         # evergreen permission to enter.  Keep rechecking through 30 minutes
         # (0/10/20/30), then require the setup to turn False and form again.
-        active_since = setup_tracker.continuous_true_started_ms(ctx.symbol, side)
+        if (not direction_ok and not pilot_entry) or atr_4h is None:
+            return Intent(kind=INTENT_NO_ACTION, reason_code="setup_direction_mismatch_or_no_atr", **common)
+        active_since = (setup_tracker.continuous_entry_eligible_started_ms(ctx.symbol, side)
+                        if setup_tracker.entry_eligible_state(ctx.symbol, side) else None)
         if active_since is None:
             active_since = current_bar_open_ms
         setup_age_ms = max(0, current_bar_open_ms - int(active_since))
         if setup_age_ms > SETUP_RECHECK_MAX_AGE_MS:
             return Intent(kind=INTENT_NO_ACTION, reason_code="setup_stale_after_30m", **common)
 
-        if not direction_ok or atr_4h is None:
-            return Intent(kind=INTENT_NO_ACTION, reason_code="setup_direction_mismatch_or_no_atr", **common)
+        common.update(entry_attempt=True,entry_validation_values=dict(
+            entry_price=snap.bar_5m['close'],setup_age_ms=setup_age_ms,max_setup_age_ms=SETUP_RECHECK_MAX_AGE_MS,
+            direction_4h=direction_4h,direction_1h=direction_1h,direction_5m=direction_5m))
         if policy is None:
             return Intent(kind=INTENT_NO_ACTION, reason_code="strategy_policy_missing_or_invalid", **common)
         if not _risk_requirement_satisfied(ctx):
@@ -472,11 +721,28 @@ def _decide_legacy(
             # 관리는 이 분기와 무관하므로 계속 정상 작동한다).
             return Intent(kind=INTENT_NO_ACTION, reason_code="no_risk_per_trade_pct_configured", **common)
 
+        hour_kst = datetime.datetime.fromtimestamp(
+            as_of_ms / 1000.0, tz=datetime.timezone.utc,
+        ).astimezone(datetime.timezone(datetime.timedelta(hours=9))).hour
+        risk_score = unified_trade_guard.entry_risk_score(
+            symbol=ctx.symbol, side=side, hour_kst=hour_kst,
+            tf_mixed=_candidate_tf_mixed(direction_4h, direction_1h, direction_5m),
+        )
+        risk_policy = unified_trade_guard.entry_risk_policy(risk_score["score"])
+        common['entry_validation_values'].update(risk_score=risk_score,risk_policy=risk_policy)
+        if risk_policy["blocked"]:
+            return Intent(kind=INTENT_NO_ACTION, reason_code="entry_risk_score_blocked", **common)
+        wanted = "LONG" if side == "long" else "SHORT"
+        strong_confirmation = direction_4h == wanted and direction_1h == wanted and direction_5m == wanted
+        if risk_policy["require_strong_confirmation"] and not strong_confirmation:
+            return Intent(kind=INTENT_NO_ACTION, reason_code="entry_risk_strong_confirmation_required", **common)
+
         overextension = _candidate_entry_overextension_gate(
             side=side, entry_price=snap.bar_5m["close"],
-            bars_1h=bars_1h_confirmed_up_to_asof, atr14_4h=atr_4h,
-            as_of_ms=as_of_ms, indicator_fn=indicator_fn,
+            bars_1h=bars_1h_confirmed_up_to_asof, bars_5m=bars_5m_for_10m_up_to_asof,
+            atr14_4h=atr_4h, as_of_ms=as_of_ms, indicator_fn=indicator_fn,
         )
+        common['entry_validation_values']['freshness']=overextension
         if not overextension["allowed"]:
             return Intent(
                 kind=INTENT_NO_ACTION, reason_code=overextension["reason"], **common,
@@ -490,9 +756,15 @@ def _decide_legacy(
             atr_multiplier=float(policy["initial_stop_atr_multiplier"]),
         )
         return Intent(
-            kind=INTENT_ENTRY, reason_code=reason, raw_stop_price=initial_stop,
-            requested_risk_pct=ctx.risk_per_trade_pct, strategy_policy=policy,
-            entry_weakening_baseline=_entry_weakening_baseline(side), **common,
+            kind=INTENT_ENTRY,
+            reason_code=(reason if retry_setup_id else "setup_pilot_4h_none_lower_tf_aligned" if pilot_entry else reason),
+            raw_stop_price=initial_stop, requested_risk_pct=ctx.risk_per_trade_pct,
+            strategy_policy=policy, entry_weakening_baseline=_entry_weakening_baseline(side),
+            pilot_entry=pilot_entry,
+            # Raw Donchian transition can precede direction eligibility. The
+            # existing eligible clock, not the reason label, defines freshness.
+            adaptive_wide_stop_policy=("risk_cap" if setup_age_ms == 0 and not retry_setup_id else "block"),
+            entry_size_fraction=(pilot_fraction if pilot_entry else 1.0) * float(risk_policy["size_fraction"]), **common,
         )
 
     return _no_action("no_setup", snap.bar_5m["close_time_ms"])
@@ -514,27 +786,91 @@ def _apply_live_bounded_entry_geometry(
         return legacy_intent
     if not ctx.adaptive_approved_policy_hash or ctx.adaptive_approved_policy_hash != current_hash:
         return legacy_intent
+    compact = ctx.compact_protection_enabled and ctx.symbol in protection_bounds.SYMBOLS
     a_ctx = AdaptiveExitContext(
         symbol=ctx.symbol, side=legacy_intent.side or "", entry_price=float(entry_price),
         current_quantity=1.0, current_stop=None, equity_usdt=1.0,
         trade_risk_budget_usdt=1.0, atr=float(atr), sizing_mode=ctx.sizing_mode,
         structural_support=structural_support, structural_resistance=structural_resistance,
+        leverage=float(ctx.adaptive_leverage or 1.0),
         mode="LIVE_BOUNDED", decision_timestamp=legacy_intent.decision_timestamp,
         input_snapshot_hash=legacy_intent.input_snapshot_hash,
+        allow_wide_stop_with_risk_sizing=(compact or
+            str(getattr(legacy_intent, "adaptive_wide_stop_policy", "legacy")) == "risk_cap"
+        ),
     )
-    geometry = compute_structural_stop(a_ctx, policy)
+    try:
+        geometry = compute_structural_stop(a_ctx, policy)
+    except ValueError as exc:
+        if (str(exc) == "stop_distance_above_leverage_cap"
+                and getattr(legacy_intent, "adaptive_wide_stop_policy", "legacy") == "legacy"):
+            leverage = float(ctx.adaptive_leverage or 1.0)
+            if leverage <= 0 or legacy_intent.side not in ("long", "short"):
+                return replace(
+                    legacy_intent, kind=INTENT_NO_ACTION, raw_stop_price=None, raw_target_price=None,
+                    reason_code=f"adaptive_entry_blocked:{exc}",
+                    adaptive_mode="LIVE_BOUNDED", adaptive_policy_hash=current_hash,
+                )
+            max_stop_fraction = float(policy["max_leveraged_stop_loss_pct"]) / 100.0 / leverage
+            bounded_stop = float(entry_price) * (1.0 - max_stop_fraction if legacy_intent.side == "long" else 1.0 + max_stop_fraction)
+            risk_distance = abs(float(entry_price) - bounded_stop)
+            tp2_cap = float(entry_price) * float(policy["max_leveraged_tp2_gain_pct"]) / 100.0 / leverage
+            target_distance = min(float(policy["tp2_r_prior"]) * risk_distance, tp2_cap)
+            sign = 1.0 if legacy_intent.side == "long" else -1.0
+            return replace(
+                legacy_intent, raw_stop_price=bounded_stop,
+                raw_target_price=float(entry_price) + sign * target_distance,
+                adaptive_mode="LIVE_BOUNDED", adaptive_policy_hash=current_hash,
+            )
+        return replace(
+            legacy_intent, kind=INTENT_NO_ACTION, raw_stop_price=None, raw_target_price=None,
+            reason_code=f"adaptive_entry_blocked:{exc}",
+            adaptive_mode="LIVE_BOUNDED", adaptive_policy_hash=current_hash,
+        )
     if not geometry.valid or geometry.stop_price is None:
         return replace(
             legacy_intent, kind=INTENT_NO_ACTION, raw_stop_price=None, raw_target_price=None,
             reason_code=f"adaptive_entry_blocked:{geometry.reason_code}",
             adaptive_mode="LIVE_BOUNDED", adaptive_policy_hash=current_hash,
         )
+    if compact:
+        sign = 1.0 if legacy_intent.side == 'long' else -1.0
+        target = float(entry_price) + sign * float(policy['tp2_r_prior']) * abs(float(entry_price) - geometry.stop_price)
+        stop, target = protection_bounds.bound_prices(legacy_intent.side, entry_price, geometry.stop_price, target)
+        cost = float(entry_price) * CANDIDATE_C_ROUNDTRIP_COST_RATE
+        rr = (abs(target-entry_price)-cost)/(abs(stop-entry_price)+cost)
+        values = dict(legacy_intent.entry_validation_values or {}, entry_price=entry_price,
+                      stop=stop, target=target, post_cost_rr=rr,
+                      min_post_cost_rr=policy['min_post_cost_rr'], compact_protection=True)
+        if rr < float(policy['min_post_cost_rr']):
+            return replace(legacy_intent, kind=INTENT_NO_ACTION, raw_stop_price=None, raw_target_price=None,
+                           reason_code='adaptive_entry_blocked:post_cost_rr_below_minimum',
+                           entry_validation_values=values)
+        return replace(legacy_intent, raw_stop_price=stop, raw_target_price=target,
+                       adaptive_mode='LIVE_BOUNDED', adaptive_policy_hash=current_hash,
+                       entry_validation_values=values, adaptive_wide_stop_policy='block',
+                       adaptive_wide_stop_risk_sizing=False)
     risk_distance = abs(float(entry_price) - float(geometry.stop_price))
     sign = 1.0 if legacy_intent.side == "long" else -1.0
-    adaptive_target = float(entry_price) + sign * float(policy["tp2_r_prior"]) * risk_distance
+    tp2_cap = float(entry_price) * float(policy["max_leveraged_tp2_gain_pct"]) / 100.0 / a_ctx.leverage
+    target_distance = min(float(policy["tp2_r_prior"]) * risk_distance, tp2_cap)
+    cost_distance = float(entry_price) * CANDIDATE_C_ROUNDTRIP_COST_RATE
+    post_cost_rr = (target_distance - cost_distance) / (risk_distance + cost_distance)
+    validation_values=dict(legacy_intent.entry_validation_values or {},entry_price=entry_price,stop=geometry.stop_price,target=float(entry_price)+sign*target_distance,post_cost_rr=post_cost_rr,min_post_cost_rr=policy['min_post_cost_rr'])
+    if post_cost_rr < float(policy["min_post_cost_rr"]):
+        return replace(
+            legacy_intent, kind=INTENT_NO_ACTION, raw_stop_price=None, raw_target_price=None,
+            reason_code="adaptive_entry_blocked:post_cost_rr_below_minimum",entry_validation_values=validation_values,
+            adaptive_mode="LIVE_BOUNDED", adaptive_policy_hash=current_hash,
+        )
+    adaptive_target = float(entry_price) + sign * target_distance
     return replace(
         legacy_intent, raw_stop_price=geometry.stop_price, raw_target_price=adaptive_target,
         adaptive_mode="LIVE_BOUNDED", adaptive_policy_hash=current_hash,
+        adaptive_wide_stop_risk_sizing=(
+            getattr(legacy_intent, "adaptive_wide_stop_policy", "legacy") == "risk_cap"
+            and geometry.distance_fraction > float(policy["max_leveraged_stop_loss_pct"]) / 100.0 / a_ctx.leverage + 1e-12
+        ),
     )
 
 
@@ -554,6 +890,20 @@ def _apply_live_bounded_held_stop(ctx, legacy_intent, current_position, *, atr: 
     current_stop = current_position.get("current_stop_price")
     if side not in ("long", "short") or water is None or current_stop is None or atr is None or float(atr) <= 0:
         return legacy_intent
+    if ctx.compact_protection_enabled and ctx.symbol in protection_bounds.SYMBOLS:
+        entry = current_position.get('raw_entry_price') or current_position.get('entry_price')
+        mark = current_position.get('mark_price') or water
+        if entry:
+            proposed = (float(legacy_intent.raw_stop_price)
+                        if legacy_intent.kind == INTENT_STOP_UPDATE and legacy_intent.raw_stop_price is not None
+                        else float(water) + (1 if side == 'short' else -1) * float(policy['trailing_atr_prior']) * float(atr))
+            stop = protection_bounds.tighten_held_stop(side, entry, current_stop, proposed, mark)
+            if legacy_intent.kind == INTENT_STOP_UPDATE and stop == legacy_intent.raw_stop_price:
+                return legacy_intent
+            return replace(legacy_intent, kind=INTENT_STOP_UPDATE, raw_stop_price=stop,
+                           reason_code=(legacy_intent.reason_code if legacy_intent.kind == INTENT_STOP_UPDATE
+                                        else 'compact_protection_stop_update'), adaptive_mode='LIVE_BOUNDED',
+                           adaptive_policy_hash=current_hash)
     proposed = float(water) - float(policy["trailing_atr_prior"]) * float(atr) if side == "long" else float(water) + float(policy["trailing_atr_prior"]) * float(atr)
     if legacy_intent.kind == INTENT_STOP_UPDATE and legacy_intent.raw_stop_price is not None:
         old = float(legacy_intent.raw_stop_price)
@@ -647,6 +997,8 @@ def decide(
     min_size: float,
     indicator_fn=None,
 ) -> Intent:
+    if ctx.risk_adaptive_partials:
+        ctx = replace(ctx, config_hash=adaptive_reduction.management_config_hash(ctx.config_hash))
     legacy = _decide_legacy(
         ctx, as_of_ms=as_of_ms, bars_4h_confirmed_up_to_asof=bars_4h_confirmed_up_to_asof,
         bars_1h_confirmed_up_to_asof=bars_1h_confirmed_up_to_asof,
@@ -656,6 +1008,8 @@ def decide(
         current_position=current_position, weakening_prev=weakening_prev,
         lot_step=lot_step, min_size=min_size, indicator_fn=indicator_fn,
     )
+    if ctx.risk_adaptive_partials:
+        legacy = replace(legacy, reduction_policy_hash=adaptive_reduction.chart_policy_hash())
     try:
         if legacy.kind == INTENT_ENTRY and str(ctx.adaptive_exit_mode or "OFF").upper() == "LIVE_BOUNDED":
             indicator = indicator_fn or si.augment_with_indicators

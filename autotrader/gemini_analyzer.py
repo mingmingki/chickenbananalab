@@ -1,4 +1,6 @@
+import core_management_policy
 import json
+import time
 import logging
 import os
 import traceback
@@ -9,6 +11,9 @@ from google.genai import types
 import timeframes
 from position_risk_context import format_position_risk_context
 import usage_log
+import adaptive_reduction
+import copy
+import core_ai_context
 
 logger = logging.getLogger("trader.gemini")
 GEMINI_REQUEST_TIMEOUT_MS = 20_000
@@ -61,6 +66,37 @@ POSITION_REVIEW_SCHEMA = {
 }
 
 
+def _generate_content_with_transient_retry(cfg, symbol, purpose, request):
+    from google.genai.errors import ServerError
+    start = time.monotonic()
+    try:
+        return _get_client(cfg).models.generate_content(**request)
+    except ServerError as exc:
+        if str(exc.code) not in ('503', '504') or time.monotonic() - start > 8:
+            raise
+        usage_log.record_api_attempt(cfg.user_dir,symbol,'gemini',purpose,cfg.GEMINI_MODEL,
+            response_ms=(time.monotonic()-start)*1000,timed_out=False,
+            error_type=type(exc).__name__)
+        time.sleep(1)
+        return _get_client(cfg).models.generate_content(**request)
+
+
+def _generate_content_observed(cfg,symbol,purpose,**request):
+    import httpx
+    started=time.monotonic()
+    error=None
+    try:
+        return _generate_content_with_transient_retry(cfg, symbol, purpose, request)
+    except Exception as exc:
+        error=exc
+        raise
+    finally:
+        usage_log.record_api_attempt(cfg.user_dir,symbol,'gemini',purpose,cfg.GEMINI_MODEL,
+            response_ms=(time.monotonic()-started)*1000,
+            timed_out=isinstance(error,(TimeoutError,httpx.TimeoutException)),
+            error_type=type(error).__name__ if error is not None else None)
+
+
 def _get_client(cfg) -> genai.Client:
     # 계정마다 Gemini 키가 다르므로 클라이언트도 cfg 인스턴스에 붙여서 계정별로 캐싱한다.
     client = getattr(cfg, "_gemini_client", None)
@@ -108,28 +144,31 @@ def validate_key(api_key: str) -> tuple[bool, str]:
 PROMPT_TEMPLATE = """당신은 암호화폐 선물 트레이딩 분석가입니다.
 아래는 {symbol}의 여러 타임프레임 캔들 데이터와 보조지표입니다 (검토 타임프레임: {timeframes_desc}).
 
-TF 우선순위: 1D=시장 레짐 > 4H=주추세 > 1H=추세 확인 > 5m/3m=진입 타이밍 > 1m=미세 확인.
-원칙:
-- 1D/4H 추세와 1m/3m 단기 신호가 충돌하면 상위 TF를 우선한다 - 1m/3m 단기 신호
-  하나만으로는 신규 숏이나 기존 롱의 성급한 청산을 결정하지 말고 눌림/단기 조정으로
-  해석한다. 하지만 이것이 "1D가 bullish이면 항상 hold"를 뜻하지는 않는다 - 1D는
-  중요한 위험요인이지 그 자체로 자동 결론이 아니다.
-- 아래가 복합적으로(단일 지표 하나만으로는 안 됨) 나타나면, 1D가 아직 완전히 꺾이지
-  않았어도 "상위 추세 속 눌림"이라는 표현만으로 hold를 정당화하지 말고 청산/반전을
-  적극 검토해야 한다: 1H 가격이 EMA20 아래에서 지속, 1H MACD 하락전환이 여러 구간
-  지속, 5m·3m 모두 역배열+하락 모멘텀 지속, 직전 고점 회복 실패, 4H 모멘텀의 명확한 약화.
-  이 조건들이 겹쳐 나타나는데도 reasoning이 "상위 상승 추세 속 눌림"이라는
-  말만 반복하고 있다면, 그건 답을 정당화한 게 아니라 회피한 것이다 - 이 5가지 중
-  실제로 몇 개가 지금 해당되는지, 해당되지 않는다면 왜 아직 단기 조정으로 보는지를
-  reasoning에 구체적으로 밝혀라.
-- 1D/4H는 방향을 제한하는 필터일 뿐 그 자체가 진입 신호는 아니다 - 실제 진입 타이밍은
-  1H 확인 + 5m/3m 눌림목·재상승 신호로 판단하고, 1m 급등 하나만 보고 고점을 추격하지 않는다.
-- 하락 레짐에서는 위 원칙을 롱/숏 반대로 대칭 적용한다.
-- candle_summary에 [급등 후 조정 모드] CORRECTION_ACTIVE=true가 있으면, 최근 급등 뒤
-  고점 되돌림 + 1H 모멘텀 약화 + 3m/5m 하락구조가 동시에 확인된 상태다. 이때는
-  1D bullish를 근거로 신규 long 또는 기존 long hold를 자동 선택하지 마라. 무포지션이면
-  counter_regime short를 적극 검토하고, long 보유 중이면 short 반전(reversal)을 유효한
-  선택지로 검토한다. 반대로 하위 구조가 회복되었다면 short를 억지로 선택하지 않는다.
+역할: 거래 방향과 지금 진입할 시점을 따로 판단한다. 1D/4H는 시장 배경과 반대 위험,
+1H는 중간 구조, 확정 5m/3m은 실제 진입 촉발 근거다. 느린 EMA의 완전 정렬을 기다리는
+것을 진입 근거로 삼지 않는다. 1m 한 봉만으로 반전하지 않는다.
+
+진입 판단:
+- CORE_ENTRY_TIMING의 origin_closed_at, age_minutes, move_from_origin_atr, phase,
+  setup_kind를 먼저 읽는다. first_range_break는 처음 확정된 30분 가격범위 이탈,
+  pullback_resume는 실제 되돌림 뒤 직전 봉 범위 회복이다. 초기 근거이지 수익 보장은 아니다.
+- early라면 일봉이 아직 반대 방향이더라도 확정 5m 범위 이탈/회복과 현재 1H 모멘텀,
+  실제 무효화 가격·상대 지지저항까지 공간을 함께 검토해 long/short 후보를 지금 판단한다.
+  1D/4H EMA의 완전 전환을 필수로 요구하거나 단순히 일봉 방향만으로 hold하지 않는다.
+- established/extended의 오래된 움직임을 TF가 이제 모두 정렬됐다는 이유만으로 새
+  초반 진입으로 설명하지 않는다. 이미 진행된 거리와 가까운 반대 가격대를 보며 새
+  되돌림·재출발 근거가 없으면 hold한다. 하락 후 숏도 상승 후 롱과 완전히 대칭이다.
+- RSI 과매수/과매도 하나는 자동 반전·관망 이유가 아니다. 가격이 구조를 계속 깨는지,
+  실제 반등/되돌림이 있는지, 남은 공간과 손절이 합리적인지 검증한다.
+- 최근 60분 최고/최저와 변화율은 이미 관찰한 값이며 다음 목표의 도달 가능성이나
+  기대수익을 증명하지 않는다. 큰 TP 숫자로 손익비를 만들어내지 않는다. 첫 익절은
+  현재 구조의 실제 가격대와 계획 보유시간에 맞추고, 비용 후 이익과 무효화를 함께 설명한다.
+- CURRENT_POSITION이 있으면 신규진입의 early 조건을 보유/청산 조건에 적용하지 않는다.
+  유효한 포지션은 유지하되 구조 무효화와 이익반납을 검토한다. 일봉이 반대라는 이유만으로
+  이익 중인 추세 포지션을 정리하지 않는다.
+- CORRECTION_ACTIVE=true는 추가 관찰자료다. 그것이 true여야만 초기 숏이 가능하다는 뜻이 아니다.
+- 데이터 status=unknown이면 누락을 밝히고 available 차트로 판단한다. 없는 첫 신호나
+  미래 가격경로를 만들어내지 않는다. reasoning에 진입 단계와 무효화/첫 이익 실현 근거를 적는다.
 
 {candle_summary}
 
@@ -172,19 +211,25 @@ Candidate C의 진입 방향은 규칙 엔진이 이미 확정했으며 당신�
 
 def propose_entry_exit_plan(cfg, symbol: str, side: str, tf_list: list, candle_summary: str,
                             baseline_stop: float | None, baseline_target: float | None,
-                            exit_price_contract: str = "") -> dict:
+                            exit_price_contract: str = "", *, manual_core: bool = False) -> dict:
     """Candidate C direction is immutable; Gemini proposes exit prices only."""
     log = cfg.logger or logger
     if side not in ("long", "short") or not getattr(cfg, "GEMINI_API_KEY", None):
         return {"action": side, "confidence": None, "exit_plan": None,
                 "reasoning": "Gemini exit-price proposal unavailable"}
-    prompt = ENTRY_EXIT_PLAN_PROMPT_TEMPLATE.format(
+    template = ENTRY_EXIT_PLAN_PROMPT_TEMPLATE
+    if manual_core:
+        template = template.replace(
+            "Candidate C의 진입 방향은 규칙 엔진이 이미 확정했으며",
+            "CORE 수동진입 방향은 사용자가 직접 확정했으며")
+    purpose = 'core_manual_exit_plan' if manual_core else 'candidate_exit_plan'
+    prompt = template.format(
         symbol=symbol, side=side, timeframes_desc=", ".join(timeframes.label(tf) for tf in tf_list),
         candle_summary=candle_summary, baseline_stop=baseline_stop, baseline_target=baseline_target,
         exit_price_contract=exit_price_contract or "",
     )
     client = _get_client(cfg)
-    response = client.models.generate_content(
+    response = _generate_content_observed(cfg, symbol, purpose,
         model=cfg.GEMINI_MODEL, contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -198,7 +243,8 @@ def propose_entry_exit_plan(cfg, symbol: str, side: str, tf_list: list, candle_s
             usage_log.record_usage(
                 cfg.user_dir, symbol, usage.prompt_token_count or 0,
                 (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0),
-                purpose="candidate_exit_plan",
+                purpose=purpose,
+                **usage_log.response_metadata(response, model=cfg.GEMINI_MODEL, prompt=prompt),
             )
         except Exception:
             log.exception("Candidate C Gemini exit-plan 토큰 사용량 기록 실패")
@@ -220,7 +266,58 @@ def propose_entry_exit_plan(cfg, symbol: str, side: str, tf_list: list, candle_s
             "reasoning": str(payload.get("reasoning") or "")[:1000]}
 
 
-def analyze(cfg, symbol: str, tf_list: list, candle_summary: str, position: dict | None) -> dict:
+CORE_PROMPT_TEMPLATE = """CORE AI 암호화폐 선물 분석: {symbol}, TF={timeframes_desc}.
+1D/4H=배경·반대 위험,1H=구조,확정15m=진행 방향과 반전 확인,확정5m/3m=촉발. 느린 EMA 완전정렬을 기다리지 말고 1m 한 봉으로 반전하지 마세요.
+CORE_ENTRY_TIMING의 origin_closed_at/age_minutes/move_from_origin_atr/phase/setup_kind를 읽으세요.
+first_range_break=처음 확정30분 범위이탈,pullback_resume=실제 되돌림 후 직전봉 범위회복.
+early는 1D가 반대여도 5m 촉발+1H 모멘텀+실제 무효화와 반대 가격대까지 공간으로 진입 판단.
+established/extended는 완전정렬만으로 초입이 아닙니다. 새 눌림·재출발이 없고 공간이 부족하면 hold.
+롱/숏 대칭. RSI 과매수/과매도 단독으로 반전·관망하지 말고 구조 지속과 실제 되돌림 확인.
+최근60분 극값/변화율은 TP 도달 근거가 아닙니다. 큰 목표로 손익비를 만들지 마세요.
+CORRECTION_ACTIVE는 참고이며 숏 필수조건이 아닙니다. unknown은 누락이지 0이 아니며 미래 경로를 만들지 마세요.
+{candle_summary}
+CURRENT_POSITION: {position_desc}
+action: long/short=신규진입 또는 반대 보유 청산 후 반전 의사,close=청산만,hold=유지.
+보유 시 신규 early 조건을 보유·청산에 적용하지 말고 유효한 추세,무효화,이익반납을 별도 판단.
+일봉 반대만으로 수익 추세를 정리하지 마세요. 실제 청산/추가/부분감축은 별도 GPT 검토를 거칩니다.
+long/short의 exit_plan은 실제 지지저항·변동성·보유기간 기반 SL/TP1/TP2. 고정%복사 금지.
+long: SL<현재가<TP1<=TP2,short: SL>현재가>TP1>=TP2. close/hold는 가격 null.
+실행 계약 범위·비용후 손익비·반올림 여유를 준수. reasoning에는 단계·무효화·첫익절 근거 2~3문장.
+trade_alignment=with_regime/counter_regime/neutral. JSON schema만 반환.
+{held_instructions}
+"""
+
+CORE_HELD_INSTRUCTIONS = """[CORE 보유 전략 권한] position_review도 함께 판단하세요.
+assessment=thesis_intact/weakening/invalidated,confidence=0..1,reasoning=구체적 근거.
+추세 유지와 부분익절은 양립합니다. 현재 수익·동일 포지션 MFE/되돌림·누적 감축·잔여 수량·SL/TP로
+유지/부분익절/부분손절/전량청산/고정금 추가 필요성을 권고하세요. 차트는 근거,전략은 AI 권한.
+"""
+
+CORE_PARTIAL_INSTRUCTIONS = """[위험도별 부분감축] risk_level=low/medium/high.
+suggested_reduce_fraction은 최초 계약수 대비 이번 추가 감축: 유지=0,부분감축=0.05..0.50.
+누적 부분감축 최대 최초수량50%,기존 감축을 빼고 남은 한도 반영. 전량청산은 별도.
+변동성·이익반납·추세 위험으로 정하며 고정25% 또는 확신도만으로 비율을 정하지 마세요.
+"""
+
+
+CORE_MANAGEMENT_ACTION_INSTRUCTIONS = """[보유 행동 제안과 독립 실행 검증]
+management_action=HOLD/REDUCE_50/CLOSE_ALL/ADD_POSITION을 반드시 반환하세요.
+Gemini는 유지·부분익절·부분손절·전량청산을 제안하고, 감축·전량청산 실행은 GPT가 독립 승인합니다. REDUCE_50은 가변 비율 감축 명령 이름입니다.
+감축 비율·수량은 코드가 실제 손실·ATR·동일 포지션 최고수익 되돌림으로 계산합니다. suggested_reduce_fraction=0으로 반환해도 됩니다.
+확정15m·1H 구조,5m 회복,같은 포지션 MFE/되돌림,실제 SL까지 위험과 비용을 함께 비교하세요.
+실제 진입근거가 무효화되지 않았고 exit_preferences.defer_full_exit=true이면 HOLD 또는 근거 있는 수익 부분감축을 제안하세요.
+exit_preferences.defer_loss_reduction=true이면 정상 회복 중 손실 감축을 반복하지 마세요.
+구체적 가격 구조로 진입근거가 무효화되면 EMA 정렬과 무관하게 assessment=invalidated를 명시해 GPT 독립 검증으로 보내세요.
+관측 이익반납·급반전·추세 무효화는 별도 검토하며 강제 HOLD 규칙이 아닙니다. 근거 가격과 재평가 조건을 설명하세요.
+ADD_POSITION은 thesis_intact일 때만 요청하고, 일반 보유 경로에서만 가능하며 GPT 진입 승인을 추가로 받습니다.
+primary action close이면 보유 청산 의사와 management_action을 일관되게 하세요. 반대 방향 신규 진입은 별도 GPT 승인을 받습니다.
+기존 SL/TP를 넓히거나 변경하는 명령은 이 응답에서 허용하지 않습니다.
+"""
+
+
+def analyze(cfg, symbol: str, tf_list: list, candle_summary: str, position: dict | None,
+            *, protection: dict | None = None) -> dict:
+    started_at = time.time()
     if position:
         position_desc = (
             f"{position['side']} {position['contracts']} 계약, "
@@ -230,20 +327,48 @@ def analyze(cfg, symbol: str, tf_list: list, candle_summary: str, position: dict
     else:
         position_desc = "없음"
 
-    prompt = PROMPT_TEMPLATE.format(
+    core = getattr(cfg, 'CORE_AI_STRATEGY_AUTHORITY', False) is True
+    schema = GEMINI_DECISION_SCHEMA
+    instructions = ''
+    if core and position:
+        position_desc = (f"{position['side']} {position['contracts']} 계약, "
+                         f"미실현손익 {position['unrealized_pnl']:.2f} USDT, "
+                         f"{format_position_risk_context(position, protection)}; "
+                         f"거래소 보호={json.dumps(protection, ensure_ascii=False, separators=(',', ':'))}")
+        held_schema = copy.deepcopy(POSITION_REVIEW_SCHEMA)
+        instructions = CORE_HELD_INSTRUCTIONS
+        if adaptive_reduction.enabled(cfg) or core_management_policy.enabled(cfg):
+            held_schema['properties'].update(
+                risk_level={'type': 'STRING', 'enum': ['low','medium','high']},
+                suggested_reduce_fraction={'type':'NUMBER','minimum':0,'maximum':.5})
+            held_schema['required'] += ['risk_level', 'suggested_reduce_fraction']
+            instructions += CORE_PARTIAL_INSTRUCTIONS
+        schema = copy.deepcopy(GEMINI_DECISION_SCHEMA)
+        schema['properties']['position_review'] = held_schema
+        schema['required'] += ['position_review']
+    if core and position and core_management_policy.enabled(cfg):
+        held_schema['properties']['management_action']={'type':'STRING','enum':['HOLD','REDUCE_50','CLOSE_ALL','ADD_POSITION']}
+        held_schema['required'] += ['management_action']
+        schema['properties']['position_review']=held_schema
+        instructions += CORE_MANAGEMENT_ACTION_INSTRUCTIONS
+    prompt = (CORE_PROMPT_TEMPLATE if core else PROMPT_TEMPLATE).format(
         symbol=symbol,
         timeframes_desc=", ".join(timeframes.label(tf) for tf in tf_list),
         candle_summary=candle_summary,
         position_desc=position_desc,
+        held_instructions=instructions,
     )
 
+    if core_management_policy.enabled(cfg) and not getattr(cfg, 'CORE_MANAGEMENT_GPT_VERIFICATION', False):
+        prompt=prompt.replace('실제 청산/추가/부분감축은 별도 GPT 검토를 거칩니다.',
+            '보유 유지/감축/청산은 Gemini가 최종 판단하고 코드가 수량을 계산합니다. GPT는 신규·추가·반전 진입만 검토합니다.')
     client = _get_client(cfg)
-    response = client.models.generate_content(
+    response = _generate_content_observed(cfg, symbol, 'core_primary_decision',
         model=cfg.GEMINI_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_schema=GEMINI_DECISION_SCHEMA,
+            response_schema=schema,
             # Gemini 3.8 Flash는 thinking_budget 대신 thinking_level을 사용한다.
             # 실시간 매매 판단은 지연을 억제하면서도 3.8의 추론을 쓰도록 LOW로 고정한다.
             thinking_config=types.ThinkingConfig(thinking_level="low"),
@@ -259,7 +384,8 @@ def analyze(cfg, symbol: str, tf_list: list, candle_summary: str, position: dict
         output_tokens = (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0)
         try:
             usage_log.record_usage(
-                cfg.user_dir, symbol, input_tokens, output_tokens, purpose="core_primary_decision"
+                cfg.user_dir, symbol, input_tokens, output_tokens, purpose="core_primary_decision",
+                **usage_log.response_metadata(response, model=cfg.GEMINI_MODEL, prompt=prompt),
             )
         except Exception:
             log.exception("토큰 사용량 기록 실패")
@@ -297,6 +423,9 @@ def analyze(cfg, symbol: str, tf_list: list, candle_summary: str, position: dict
     if alignment not in ("with_regime", "counter_regime", "neutral"):
         alignment = None
     decision["trade_alignment"] = alignment
+
+    if core and position:
+        core_ai_context.bind(decision, cfg, symbol, tf_list, candle_summary, position, protection, started_at)
 
     log.info(
         "[%s] Gemini 판단: %s (확신도 %.2f) / regime=%s (%.2f) - %s",
@@ -411,13 +540,35 @@ def analyze_held_position(
         prior_regime_confidence=gemini_decision.get("regime_confidence") or 0.0,
     )
 
+    if getattr(cfg,'CORE_AI_STRATEGY_AUTHORITY',False):
+        prompt += ("\n[CORE 보유 전략 권한] 추세 유지 평가와 이익 보호 필요성을 따로 판단하세요. "
+                   "현재 수익, 동일 포지션 MFE/되돌림, 이미 감축한 수량, 잔여 수량을 검토하세요. "
+                   "추세가 유지되어도 부분익절이 필요한지, 손실 방어 감축이나 전량청산이 필요한지 "
+                   "reasoning에 구체적으로 권고하세요. 로컬 차트는 근거이고 주문 전략은 AI가 결정합니다.\n")
+    review_schema = POSITION_REVIEW_SCHEMA
+    if getattr(cfg, 'CORE_AI_STRATEGY_AUTHORITY', False) and (adaptive_reduction.enabled(cfg) or core_management_policy.enabled(cfg)):
+        prompt += ("\n[위험도별 부분감축] risk_level은 low/medium/high, suggested_reduce_fraction은 "
+                   "최초 계약수 대비 이번 추가 감축 비율입니다. 보유 권고는 0, 부분감축은 0.05..0.50의 "
+                   "숫자로 지정하세요. 수익보호/손실방어 근거와 변동성·되돌림·추세 위험도를 설명하세요. "
+                   "확신도가 높다는 이유만으로 감축을 키우지 마세요. 누적 부분감축은 최초수량50%까지이며 "
+                   "기존 감축을 빼고 남은 한도를 반영하세요. 전량청산은 별도 권고입니다.\n")
+        review_schema = copy.deepcopy(POSITION_REVIEW_SCHEMA)
+        review_schema['properties'].update(
+            risk_level={'type': 'STRING', 'enum': ['low', 'medium', 'high']},
+            suggested_reduce_fraction={'type': 'NUMBER', 'minimum': 0, 'maximum': .5})
+        review_schema['required'] += ['risk_level', 'suggested_reduce_fraction']
+    if core_management_policy.enabled(cfg):
+        review_schema=copy.deepcopy(review_schema)
+        review_schema['properties']['management_action']={'type':'STRING','enum':['HOLD','REDUCE_50','CLOSE_ALL','ADD_POSITION']}
+        review_schema['required'] += ['management_action']
+        prompt += CORE_MANAGEMENT_ACTION_INSTRUCTIONS
     client = _get_client(cfg)
-    response = client.models.generate_content(
+    response = _generate_content_observed(cfg, symbol, purpose,
         model=cfg.GEMINI_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_schema=POSITION_REVIEW_SCHEMA,
+            response_schema=review_schema,
             thinking_config=types.ThinkingConfig(thinking_level="low"),
         ),
     )
@@ -429,7 +580,10 @@ def analyze_held_position(
         input_tokens = usage.prompt_token_count or 0
         output_tokens = (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0)
         try:
-            usage_log.record_usage(cfg.user_dir, symbol, input_tokens, output_tokens, purpose=purpose)
+            usage_log.record_usage(
+                cfg.user_dir, symbol, input_tokens, output_tokens, purpose=purpose,
+                **usage_log.response_metadata(response, model=cfg.GEMINI_MODEL, prompt=prompt),
+            )
         except Exception:
             log.exception("[%s] 보유 포지션 AI 관리(Gemini 재점검) 토큰 사용량 기록 실패", symbol)
 
@@ -489,7 +643,7 @@ def review_strategy_report(cfg, snapshot: dict) -> dict:
         snapshot=json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
     )
     client = _get_client(cfg)
-    response = client.models.generate_content(
+    response = _generate_content_observed(cfg, 'STRATEGY_REVIEW', 'strategy_review',
         model=cfg.GEMINI_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(
@@ -504,6 +658,7 @@ def review_strategy_report(cfg, snapshot: dict) -> dict:
                 cfg.user_dir, 'STRATEGY_REVIEW', usage.prompt_token_count or 0,
                 (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0),
                 purpose='strategy_review',
+                **usage_log.response_metadata(response, model=cfg.GEMINI_MODEL, prompt=prompt),
             )
         except Exception:
             (cfg.logger or logger).exception('Gemini strategy review usage logging failed')

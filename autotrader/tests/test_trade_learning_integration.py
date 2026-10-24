@@ -60,7 +60,7 @@ def test_feature_backfill_reads_each_source_family_once(tmp_path, monkeypatch):
     monkeypatch.setattr(features,'_read_family',lambda _u,name: calls.append(name) or [])
     out=features.build_featured_trades(str(tmp_path))
     assert len(out)==2
-    assert calls==['market_structure_log.jsonl','candle_finality_log.jsonl','gpt_shadow_log.jsonl','position_ai_log.jsonl','low_follow_through_shadow.jsonl','entry_tf_daily_backfill.jsonl']
+    assert calls==['market_structure_log.jsonl','candle_finality_log.jsonl','gpt_shadow_log.jsonl','position_ai_log.jsonl','candidate_c_breakout_setup_provenance.jsonl']
 
 
 def test_analysis_cache_reuses_unchanged_sources(tmp_path, monkeypatch):
@@ -77,3 +77,16 @@ def test_analysis_cache_reuses_unchanged_sources(tmp_path, monkeypatch):
 def test_analysis_cache_fingerprint_includes_exit_reentry_shadow():
     import trade_learning_cache
     assert 'exit_reentry_shadow.jsonl*' in trade_learning_cache.SOURCE_PATTERNS
+
+
+def test_analysis_cache_can_refresh_without_learning_hypotheses(tmp_path, monkeypatch):
+    _seed(tmp_path)
+    calls=[]
+    monkeypatch.setattr(trade_learning_cache.strategy_learning,'update_hypotheses',
+                        lambda *_a,**_k: calls.append(True) or [{'should':'not happen'}])
+    payload=trade_learning_cache.run_analysis(str(tmp_path),update_hypotheses=False)
+    assert calls == []
+    assert payload['hypotheses_appended'] == 0
+    assert payload['hypotheses_update_enabled'] is False
+    assert (tmp_path/'trade_learning_analysis_cache.json').exists()
+    assert not (tmp_path/'strategy_learning.jsonl').exists()

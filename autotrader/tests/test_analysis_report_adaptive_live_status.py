@@ -86,7 +86,8 @@ def test_periodic_review_reports_branch_health_and_root_error(monkeypatch):
     }]
     monkeypatch.setattr(web_app.ai_strategy_review_log, "recent", lambda _u, limit=30: rows)
     out = web_app._analysis_report_review("/tmp/u")
-    assert out["kind"] == "scheduled_strategy_review"
+    assert out["kind"] == "historical_strategy_review"
+    assert out["scheduled_enabled"] is False
     assert out["success_count"] == 1 and out["attempt_count"] == 2
     assert out["gemini_status"] == "ok" and out["gpt_status"] == "error"
     assert out["gpt_error"] == "ReadTimeout"

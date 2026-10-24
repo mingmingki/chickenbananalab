@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import math
 import os
 
 import jsonl_cache
@@ -85,6 +86,9 @@ def record_ai_exit(user_dir: str, exit_record: dict) -> dict:
         "side": record["side"],
         "exit_time": record["exit_time"],
         "exit_price": record.get("exit_price"),
+        "exit_price_basis": record.get("exit_price_basis"),
+        "exit_order_id": record.get("exit_order_id"),
+        "exit_trade_ids": record.get("exit_trade_ids") or [],
         "original_sl": record.get("original_sl"),
         "original_tp": record.get("original_tp"),
         "assessment": record.get("assessment"),
@@ -136,7 +140,8 @@ def _crossings_and_excursions(row: dict, close: float, high: float, low: float) 
     return sl_crossed, tp_crossed, favorable, adverse
 
 
-def observe_confirmed_market(user_dir: str, symbol: str, observation_time, close, high, low) -> list[dict]:
+def observe_confirmed_market(user_dir: str, symbol: str, observation_time, close, high, low,
+                            *, require_complete_post_exit_candle: bool = False) -> list[dict]:
     obs_time = _time(observation_time)
     if obs_time is None:
         raise ValueError("invalid_observation_time")
@@ -154,6 +159,12 @@ def observe_confirmed_market(user_dir: str, symbol: str, observation_time, close
         exit_time = _time(current.get("exit_time"))
         exit_cmp = _wall(exit_time)
         if exit_cmp is None or obs_cmp <= exit_cmp:
+            continue
+        # When observation_time is the 5m candle *close*, high/low reflect
+        # all five minutes, including any portion BEFORE an intrabar exit.
+        # Ignore the overlapping bar for post-exit MFE/MAE and SL/TP checks.
+        if (require_complete_post_exit_candle
+                and obs_cmp-dt.timedelta(minutes=5)<exit_cmp):
             continue
         if obs_cmp > exit_cmp + dt.timedelta(minutes=125):
             continue
@@ -281,6 +292,8 @@ def recent(user_dir: str, limit: int = 50) -> list[dict]:
 def three_way_counterfactual(row: dict) -> dict:
     """Compare actual CLOSE_ALL, hypothetical REDUCE_50, and HOLD on the same post-exit path."""
     side=row.get("side")
+    if row.get("exit_price_basis") in ("unavailable", "gross_pnl_implied_estimate"):
+        return {"resolved":False,"reason":"exit_price_not_verified"}
     try: exit_price=float(row.get("exit_price")); sl=float(row.get("original_sl")); tp=float(row.get("original_tp"))
     except (TypeError,ValueError): return {"resolved":False,"reason":"missing_exit_or_protection"}
     if side not in ("long","short") or exit_price <= 0: return {"resolved":False,"reason":"invalid_side_or_exit"}
@@ -389,16 +402,32 @@ def _reconstructed_lifecycle_exit_meta(life: dict) -> dict:
         final_entry=float(cl.get("entry_price") or life.get("entry_price"))
     except (TypeError,ValueError,ZeroDivisionError,KeyError):
         contract_size=exit_quantity_coin=final_entry=None
+    # v33-1: OKX realized PnL may be supplied separately from the gross
+    # field. When that gross is a *zero placeholder*, dividing it by size
+    # fabricates an exit fill equal to entry. Never classify such a price
+    # as an observed trade, even if a net PnL value exists.
     exit_price=cl.get("close_price")
+    price_basis="journal_fill" if exit_price is not None else "unavailable"
     if exit_price is None and exit_quantity_coin and final_entry:
         try:
-            pnl=float(cl["pnl"]); exit_price=final_entry + pnl/exit_quantity_coin if life.get("side")=="long" else final_entry - pnl/exit_quantity_coin
-        except (TypeError,ValueError,ZeroDivisionError,KeyError): exit_price=None
-    try: exit_price=float(exit_price) if exit_price is not None else None
-    except (TypeError,ValueError): exit_price=None
+            pnl=float(cl["pnl"])
+            if math.isfinite(pnl) and pnl != 0.0:
+                computed=final_entry + pnl/exit_quantity_coin if life.get("side")=="long" else final_entry - pnl/exit_quantity_coin
+                if math.isfinite(computed) and computed > 0.0:
+                    exit_price=computed
+                    price_basis="gross_pnl_implied_estimate"
+        except (TypeError,ValueError,ZeroDivisionError,KeyError,OverflowError):
+            pass
+    try:
+        exit_price=float(exit_price) if exit_price is not None else None
+        if exit_price is not None and (not math.isfinite(exit_price) or exit_price <= 0):
+            exit_price=None; price_basis="unavailable"
+    except (TypeError,ValueError,OverflowError):
+        exit_price=None; price_basis="unavailable"
     fee=float(cl.get("fee") or 0.0); funding=float(cl.get("funding_fee") or 0.0)
     fee_rate=(fee/(exit_price*exit_quantity_coin)) if exit_price and exit_quantity_coin else None
-    return {"exit_price":exit_price,"original_sl":op.get("sl_price"),"original_tp":op.get("tp_price"),
+    return {"exit_price":exit_price,"exit_price_basis":price_basis,
+            "original_sl":op.get("sl_price"),"original_tp":op.get("tp_price"),
             "exit_quantity_coin":exit_quantity_coin,"contract_size":contract_size,"final_entry_price":final_entry,
             "actual_close_fee_rate":fee_rate,"actual_close_fee_usdt":fee,"actual_close_funding_fee":funding}
 
@@ -432,6 +461,24 @@ def backfill_ai_close_lifecycles(user_dir: str, lifecycles: list[dict]) -> int:
             if row.get("exit_price") is None: row["exit_price"]=exit_price
             if row.get("original_sl") is None: row["original_sl"]=sl
             if row.get("original_tp") is None: row["original_tp"]=tp
+        # An old backfill may already have written the false "entry == exit"
+        # from zero placeholder gross PnL. The canonical close journal is
+        # authoritative; invalidate that inferred price, while preserving the
+        # confirmed-bar path, observed SL/TP crossings and actual lifecycle net.
+        # No trading order or historical fill journal is modified here.
+        if meta.get("exit_price_basis") == "unavailable":
+            row["exit_price"] = None
+            row["max_favorable_excursion"] = 0.0
+            row["max_adverse_excursion"] = 0.0
+        closes=[x for x in life.get("events",[]) if x.get("type")=="close"]
+        receipt=closes[-1].get("close_execution_evidence") if closes else None
+        if isinstance(receipt,dict) and receipt.get("price_basis")=="verified_order_fills":
+            row["exit_price"]=receipt.get("vwap")
+            row["exit_order_id"]=receipt.get("order_id")
+            row["exit_trade_ids"]=receipt.get("trade_ids") or []
+            row["exit_price_basis"]="verified_order_fills"
+        else:
+            row["exit_price_basis"]=meta.get("exit_price_basis")
         for key in ("exit_quantity_coin","final_entry_price","actual_close_fee_rate","actual_close_fee_usdt","actual_close_funding_fee"):
             if row.get(key) is None and meta.get(key) is not None: row[key]=meta.get(key)
         prior=dict(existing) if existing is not None else None

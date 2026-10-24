@@ -250,7 +250,9 @@ def run_rollback(cfg,state,symbol,client,loss_guard,stop_event):
                         if current==records[symbol]['during']:
                             symbol_entry_control.set_paused(cfg.user_dir,symbol,records[symbol]['before']['paused'])
                     state.update_symbol(symbol,unified_status=None,position=None,live_position=None,entry_time=None)
-                    cfg.logger.info('[%s] 이전 CORE 복구 완료 · Gemini 5분 검토 + GPT 진입 승인 · 25%% 선행진입 해제',symbol)
+                    cfg.logger.info('[%s] 이전 CORE 복구 완료 · %s · 25%% 선행진입 해제', symbol,
+                                    'GPT 단독 이벤트 판단' if getattr(cfg, 'GPT_PRIMARY_ONLY', False)
+                                    else 'Gemini 5분 검토 + GPT 진입 승인')
                     return False
                 cfg.logger.info('[%s] 이전 CORE 전환 대기 · 기존 포지션 보호/체결 확인 중 · 사유=%s',symbol,outcome['reason'])
             except Exception as exc:
@@ -267,6 +269,21 @@ def run_symbol(cfg,state,symbol,client,loss_guard,stop_event,legacy_cycle,legacy
     """Return False only for OFF with no durable unified owner."""
     mode=getattr(cfg,'CORE_UNIFIED_MODE','OFF')
     if mode=='ROLLBACK':
+        # A symbol introduced *after* the original unified->legacy migration
+        # has no rollback record. It is already legacy-owned and must enter
+        # the normal CORE loop directly, not wait forever for records[symbol].
+        # Never bypass rollback if ownership is unknown/unified or a manifest
+        # is missing/corrupt; those cases remain fail-closed in run_rollback.
+        if owner(cfg,symbol)=='legacy':
+            from pathlib import Path
+            manifest=Path(cfg.user_dir)/'core_rollback_pause_manifest.json'
+            if manifest.is_file():
+                try:
+                    history=json.loads(manifest.read_text())
+                except (OSError,ValueError):
+                    history=None
+                if isinstance(history,dict) and symbol not in history:
+                    return False
         return run_rollback(cfg,state,symbol,client,loss_guard,stop_event)
     current=owner(cfg,symbol)
     if mode=='OFF' and current=='legacy': return False

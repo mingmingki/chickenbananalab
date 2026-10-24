@@ -309,8 +309,8 @@ def _fee_aware_entry_lines(data: dict):
     focus=[r for r in (data.get('symbols') or []) if r.get('symbol') in ('BTC/USDT:USDT','XRP/USDT:USDT')]
     if focus:
         lines.append('BTC/XRP:')
-        lines.extend(f"- {r.get('symbol')} | n={int(r.get('count') or 0)} | 실제 Net {_num(r.get('actual_net'),2,True)} | PF {_num(r.get('actual_pf'))} | 평균 edge/cost {_num(r.get('avg_edge_to_cost_ratio'),2)}x" for r in focus)
-    lines.append("※ CORE는 검증 가능한 왕복 fee-only, Candidate C는 저장된 spread/slippage까지 포함합니다. 실전 진입 권한이 없습니다.")
+        lines.extend(f"- {r.get('symbol')} | n={int(r.get('count') or 0)} | 실제 Net {_num(r.get('actual_net'),2,True)} | PF {_num(r.get('actual_pf'))} | 평균 TP 도달시 순이익/비용 {_num(r.get('avg_edge_to_cost_ratio'),2)}x" for r in focus)
+    lines.append("※ 이 비율은 계획 TP에 도달했을 때의 순이익/비용이며, TP 도달확률을 반영한 기대수익이 아닙니다. CORE는 왕복 fee-only, Candidate C는 저장된 spread/slippage까지 포함합니다. 실전 진입 권한이 없습니다.")
     return lines
 
 
@@ -372,7 +372,11 @@ def _entry_quality_lines(data: dict):
 def _review_lines(review: dict):
     if not review:
         return ["구간: - · 정기 전략리뷰 상태 -", "Gemini: -", "GPT: -", "공통 의견: -", "충돌 의견: -"]
-    lines = [
+    prefix = (["유료 정기 리뷰 중단 · 신규 유료 분석 실행 안 함", "아래는 과거 저장 기록입니다."]
+              if review.get('scheduled_enabled') is False else [])
+    if review.get('scheduled_enabled') is False and not review.get('window_id'):
+        return prefix + ["과거 저장 기록 없음"]
+    lines = prefix + [
         f"구간: {review.get('window_id','-')} · 정기 전략리뷰 상태 {review.get('status','-')} · AI 성공 {int(review.get('success_count') or 0)}/{int(review.get('attempt_count') or 2)}",
         f"Gemini({review.get('gemini_status','-')}): {review.get('gemini','-')}",
         f"GPT({review.get('gpt_status','-')}): {review.get('gpt','-')}",
@@ -381,7 +385,7 @@ def _review_lines(review: dict):
     ]
     if review.get('root_error'):
         lines.append(f"정기 리뷰 사전처리 오류: {review.get('root_error')}")
-    lines.append("※ 이 상태는 6시간 정기 전략요약 작업이며 실매매 Gemini/GPT 호출 상태와 별개입니다.")
+    lines.append("※ 저장된 전략요약 기록이며 현재 실매매 Gemini/GPT 호출 상태와 별개입니다.")
     return lines
 
 def build_report(snapshot: dict, previous: dict | None = None, now: dt.datetime | None = None) -> dict:
@@ -412,18 +416,22 @@ def build_report(snapshot: dict, previous: dict | None = None, now: dt.datetime 
         f"완전청산: {coverage.get('completed_trades', 0)}",
         f"lifecycle 매칭: {coverage.get('lifecycle_matched', 0)}",
         f"TF feature 완전결합: {coverage.get('feature_complete', 0)}",
-        f"원본 feature 완전결합: {coverage.get('feature_complete', 0)}",
-        f"TF 분석완전(원본+as-of): {coverage.get('tf_analysis_complete', 0)}",
-        f"as-of TF backfill: {coverage.get('asof_backfilled', 0)}",
         f"부분결합: {coverage.get('partially_enriched', 0)}",
         f"미매칭/제외: {coverage.get('unmatched_or_excluded', 0)}",
         "",
         "[2. 전체 성과]",
+        ("전체 실현손익 확인 불가 · 금액은 완료 lifecycle만의 대체 통계"
+         if snapshot.get('accounting_basis') == 'completed_lifecycle_fallback_v1' else
+         "금액: CLOSE+REDUCE 실현손익 · 진행 중 포지션의 실현 부분청산 포함"),
+        "거래수·승률·PF·종목/방향/조건별 통계: 완료 lifecycle 기준",
         f"거래수: {overall.get('count', 0)}",
+        f"실현 이벤트수: {overall.get('realized_event_count', '-')}",
         f"Gross: {_num(overall.get('gross_pnl'), 2, True)}",
         f"수수료: {_num(overall.get('fees'), 2, True)}",
         f"정산조정: {_num(overall.get('net_adjustment'), 2, True)}",
         f"Net: {_num(overall.get('net_pnl'), 2, True)}",
+        f"완료 lifecycle Net: {_num(snapshot.get('completed_lifecycle_net_pnl'), 2, True)}",
+        f"전체 실현 / 완료 lifecycle Net 차이: {_num(snapshot.get('realized_vs_completed_net_difference'), 2, True)}",
         f"승률: {_num(overall.get('win_rate'), 1)}%",
         f"PF: {_num(overall.get('profit_factor'))}",
         f"평균익: {_num(overall.get('avg_win'), 2, True)}",
@@ -459,7 +467,7 @@ def build_report(snapshot: dict, previous: dict | None = None, now: dt.datetime 
         "[11. 최근 counterfactual]",
         *_counterfactual_lines((snapshot.get("self_learning") or {}).get("recent_counterfactuals")),
         "",
-        "[12. 최근 6시간 AI 리뷰]",
+        "[12. 유료 전략 리뷰 운영 상태 / 과거 기록]",
         *_review_lines(review),
         "",
         "[13. 현재 실매매 설정]",
@@ -481,6 +489,7 @@ def build_report(snapshot: dict, previous: dict | None = None, now: dt.datetime 
                 f"- {p.get('engine', '-')} {p.get('symbol', '-')} {str(p.get('side', '-')).upper()} "
                 f"수량 {p.get('contracts', '-')} | 진입 {_num(p.get('entry_price'))} | 현재 {_num(p.get('mark_price'))} "
                 f"| 미실현 {_num(p.get('unrealized_pnl'), 2, True)} | SL {_num(p.get('sl'))} | TP {_num(p.get('tp'))}"
+                f" | 관측 {p.get('observation_status', '-')} · 보호 {p.get('protection_status', '-')}"
             )
     else:
         lines.append("- 없음")

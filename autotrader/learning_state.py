@@ -261,6 +261,28 @@ def prepare_checkpoint_evidence(user_dir: str, window_id: str, evidence_by_patte
                     material=True
         except (TypeError,ValueError):
             material=True
+        if bool(cur.get('post_epoch_required')):
+            epoch = cur.get('validation_epoch_at')
+            old_epoch = old.get('validation_epoch_at')
+            post_core = bool(
+                current_core
+                and int(cur.get('post_epoch_sample_count') or 0) >= learning_policy.MIN_POST_EPOCH_SAMPLES
+                and int(cur.get('post_epoch_resolved_count') or 0) >= learning_policy.MIN_POST_EPOCH_RESOLVED
+            )
+            old_post_core = bool(
+                previous_core
+                and bool(old.get('post_epoch_required'))
+                and old_epoch == epoch
+                and int(old.get('post_epoch_sample_count') or 0) >= learning_policy.MIN_POST_EPOCH_SAMPLES
+                and int(old.get('post_epoch_resolved_count') or 0) >= learning_policy.MIN_POST_EPOCH_RESOLVED
+            )
+            if post_core:
+                post_streak = (int(old.get('post_epoch_checkpoint_streak') or 0) + 1) if (consecutive and old_post_core) else 1
+            else:
+                post_streak = 0
+            cur['post_epoch_checkpoint_streak'] = post_streak
+        else:
+            cur.pop('post_epoch_checkpoint_streak', None)
         cur['checkpoint_streak']=streak
         cur['deteriorating_checkpoints']=deteriorating
         cur['material_pf_reversal']=material

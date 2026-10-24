@@ -35,7 +35,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_waiting_ai_does_not_block_risk_and_stop_invalidates(self):
         s=snapshot(); feed=Mock(); feed.snapshot.return_value=s
-        broker=Mock(); broker.drain.return_value=[]; broker.offer.return_value=True
+        broker=Mock(); broker.drain.return_value=[]; broker.drain_events.return_value=[]; broker.offer.return_value=True
         controller=Mock(); controller.status.return_value={'owner':'unified','state':None}
         coordinator=Coordinator('X',feed,broker,controller,lambda:3600000,lambda:0,lambda:('1',False))
         coordinator.tick(); coordinator.tick()
@@ -46,7 +46,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_control_change_discards_finished_approval(self):
         s=snapshot(); feed=Mock(); feed.snapshot.return_value=s
-        broker=Mock(); broker.drain.return_value=[]; broker.offer.return_value=True
+        broker=Mock(); broker.drain.return_value=[]; broker.drain_events.return_value=[]; broker.offer.return_value=True
         controller=Mock(); controller.status.return_value={'owner':'unified','state':None}
         controls=['1',False]
         c=Coordinator('X',feed,broker,controller,lambda:3600000,lambda:0,lambda:tuple(controls))

@@ -87,9 +87,52 @@ def activate(user_dir: str, reason: str) -> None:
         _save_state_atomic(user_dir, state)
 
 
+def clear_reconciled_entry_stop(user_dir: str, symbol: str, client_order_id: str) -> bool:
+    """Clear exactly the resolved-order latch; never an unrelated safety stop.
+
+    Called with the account order lock after the original exchange fill,
+    lifecycle, and matching live SL/TP have all been verified.
+    """
+    if not symbol or not client_order_id:
+        return False
+    eligible_reasons = {
+        f"{symbol} unresolved entry {client_order_id}",
+        f"{symbol} original filled lifecycle unconfirmed {client_order_id}",
+    }
+    with _lock_for(user_dir):
+        state = _load_state(user_dir)
+        if not state["kill_switch_active"] or state.get("kill_switch_reason") not in eligible_reasons:
+            return False
+        _save_state_atomic(user_dir, _default_state())
+        return True
+
+
 def reset(user_dir: str) -> None:
     with _lock_for(user_dir):
         state = _load_state(user_dir)
         state["kill_switch_active"] = False
         state["kill_switch_reason"] = None
         _save_state_atomic(user_dir, state)
+
+
+def clear_reconciled_flat_reduce(user_dir: str, symbol: str, *, verified_exchange_flat: bool,
+                                no_open_orders: bool, no_live_algos: bool,
+                                no_pending_reduces: bool) -> bool:
+    """Operator-initiated release ONLY for the historical exact REDUCE resize stop.
+
+    Call this only inside the shared account order lock after independently
+    querying the live exchange for every CORE symbol. This never auto-releases
+    unrelated UNKNOWN_ORDER_STATE, entry protection or risk-related stops.
+    """
+    if not symbol or not all(x is True for x in (
+        verified_exchange_flat,no_open_orders,no_live_algos,no_pending_reduces)):
+        return False
+    expected=f"{symbol} POSITION_AI_REDUCE_50 보호주문 재설정 실패"
+    with _lock_for(user_dir):
+        state=_load_state(user_dir)
+        if state.get('kill_switch_active') is not True:
+            return False
+        if state.get('kill_switch_reason')!=expected:
+            return False
+        _save_state_atomic(user_dir,_default_state())
+        return True

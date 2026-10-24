@@ -4,7 +4,7 @@ import glob, json, os, threading, time
 import trade_pattern_analysis, strategy_learning
 
 _LOCKS={}; _GUARD=threading.Lock(); _MEM={}
-SOURCE_PATTERNS=('trades_log.jsonl*','fast_live_trades.jsonl*','gpt_shadow_log.jsonl*','market_structure_log.jsonl*','candle_finality_log.jsonl*','position_ai_log.jsonl*','exit_reentry_shadow.jsonl*','low_follow_through_shadow.jsonl*','entry_tf_daily_backfill.jsonl*')
+SOURCE_PATTERNS=('trades_log.jsonl*','fast_live_trades.jsonl*','gpt_shadow_log.jsonl*','market_structure_log.jsonl*','candle_finality_log.jsonl*','position_ai_log.jsonl*','exit_reentry_shadow.jsonl*')
 CACHE_NAME='trade_learning_analysis_cache.json'
 
 def _lock(user_dir):
@@ -38,7 +38,7 @@ def get_cached(user_dir):
     payload['stale']=payload.get('source_fingerprint') != source_fingerprint(user_dir)
     return payload
 
-def run_analysis(user_dir):
+def run_analysis(user_dir, *, update_hypotheses=True):
     os.makedirs(user_dir,exist_ok=True)
     with _lock(user_dir):
         fingerprint = source_fingerprint(user_dir)
@@ -50,8 +50,9 @@ def run_analysis(user_dir):
             _MEM[os.path.abspath(user_dir)] = dict(cached)
             return reused
         analysis=trade_pattern_analysis.analyze(user_dir)
-        hypotheses=strategy_learning.update_hypotheses(user_dir,analysis)
-        payload={'analysis':analysis,'hypotheses_appended':len(hypotheses),'source_fingerprint':fingerprint,'generated_at':analysis.get('generated_at'),'stale':False,'reused_cache':False}
+        hypotheses=strategy_learning.update_hypotheses(user_dir,analysis) if update_hypotheses else []
+        payload={'analysis':analysis,'hypotheses_appended':len(hypotheses),'source_fingerprint':fingerprint,'generated_at':analysis.get('generated_at'),'stale':False,'reused_cache':False,
+                 'hypotheses_update_enabled':bool(update_hypotheses)}
         path=_cache_path(user_dir); tmp=path+'.tmp'
         with open(tmp,'w',encoding='utf-8') as f:
             json.dump(payload,f,ensure_ascii=False,allow_nan=False,separators=(',',':'))

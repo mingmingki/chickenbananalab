@@ -242,7 +242,13 @@ def _capture_runtime_setup_provenance(user_dir, symbol, fields):
 
 
 def _active_epochs(user_dir):
+    import display_read_cache
     path=os.path.join(user_dir,'candidate_c_epoch_store.jsonl')
+    return display_read_cache.get(path, lambda: _active_epochs_uncached(path),
+                                  namespace="candidate-c-shadow-epochs")
+
+
+def _active_epochs_uncached(path):
     states={}
     for row in _read_jsonl_path(path):
         position_id=row.get('position_id')

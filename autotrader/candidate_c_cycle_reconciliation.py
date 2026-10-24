@@ -145,7 +145,12 @@ def reconcile_managed_position(cfg, client, symbol, state, tick_ms):
             raise ValueError("exchange order status UNKNOWN")
     except Exception:
         return {"critical": True, "reason": "exchange_state_UNKNOWN"}
-    if not epoch.entry_intent_id:
+    if (not epoch.entry_intent_id or (
+            position is not None and adapter.protection_bounds.enabled(cfg, symbol)
+            and record.state == il.IntentState.PROTECTION_PENDING.value
+            and not epoch.protective_algo_ids and not record.protective_algo_ids)):
+        # A compact amendment can time out after the filled epoch was persisted.
+        # Retry using the durable submission's algoClOrdId before owner adoption.
         recovered = _recover_entry_fill(cfg, client, record, state, position, tick_ms)
         if recovered.get("critical") or not recovered.get("executed"):
             return recovered
@@ -314,14 +319,54 @@ def reconcile_managed_position(cfg, client, symbol, state, tick_ms):
             net -= epoch.realized_partial_pnl_usdt - epoch.realized_partial_fee_usdt
         classification = recon.classify_external_position_change(
             epoch=epoch, exchange_position=None, owned_algo_live=False,
-            exit_price=resolved.get("exit_price"),
+            # A settlement average cannot prove the closing order's cause.
+            exit_price=None,
         )
+        close_evidence = None
+        entry_order_id = getattr(record, 'exchange_order_id', None)
+        entry_client_id = getattr(record, 'cl_ord_id', None)
+        if isinstance(entry_order_id, str) and isinstance(entry_client_id, str):
+            try:
+                position_identity = f"{epoch.exchange_position_id}:{epoch.exchange_entry_timestamp_ms}:{epoch.side}"
+                close_evidence = client.fetch_owned_protection_close(
+                    {'position_id': epoch.exchange_position_id,
+                     'entry_timestamp_ms': epoch.exchange_entry_timestamp_ms,
+                     'side': epoch.side, 'contracts': epoch.remaining_contracts},
+                    bound_lifecycle=position_identity, entry_order_id=entry_order_id,
+                    entry_client_order_id=entry_client_id,
+                    owned_algo_ids=getattr(record, 'protective_algo_ids', ()) or (),
+                    attach_algo_cl_ord_id=getattr(record, 'attach_algo_cl_ord_id', None),
+                )
+            except Exception:
+                close_evidence = None
+        if (isinstance(close_evidence, dict)
+                and close_evidence.get('source') == 'owned_algo_order_fills'):
+            if close_evidence.get('reason') == 'stop_loss':
+                classification = recon.EXTERNAL_SL_FILLED_EXACT
+            elif close_evidence.get('reason') == 'take_profit':
+                classification = recon.EXTERNAL_TP_FILLED_EXACT
+        else:
+            close_evidence = None
+        # This is the final owned close order, not the roundtrip settlement average.
+        from close_execution_price_proof import proof_for_remaining_position
+        close_price_proof = proof_for_remaining_position(
+            close_evidence,
+            f"{epoch.exchange_position_id}:{epoch.exchange_entry_timestamp_ms}:{epoch.side}",
+            epoch.remaining_contracts,
+        )
+        # If part of the roundtrip closed earlier, an unproven lifetime
+        # closeAvgPx must not be reported as the final remaining fill price.
+        close_price = (close_price_proof["vwap"] if close_price_proof
+                       else (None if epoch.realized_partial_pnl_usdt or epoch.realized_partial_fee_usdt
+                             else resolved.get("exit_price")))
         trade_log.record_close(
             cfg.user_dir, symbol, epoch.side, epoch.raw_entry_price, epoch.remaining_contracts,
             gross, classification, False, fee=fee, pnl_source="okx_realized",
-            close_price=resolved.get("exit_price"), funding_fee=resolved.get("funding_fee"),
+            close_price=close_price, funding_fee=resolved.get("funding_fee"),
             okx_net_pnl=net,
             strategy_group="candidate_c", execution_id=execution_id,
+            close_reason_evidence=close_evidence,
+            close_execution_evidence=close_price_proof,
         )
         try:
             event = notification_delivery.trade_event(

@@ -11,21 +11,26 @@ def cfg(mode='LIVE_BOUNDED', approved=None):
         user_dir='/tmp/noop', logger=SimpleNamespace(warning=lambda *a,**k:None))
 
 def features():
-    return {'atr':2.0,'structural_support':90.0,'structural_resistance':110.0,
-      'near_resistance':118.0,'near_support':82.0,'continuation_resistance':125.0,
-      'continuation_support':75.0,'source_timestamps':(1000,), 'input_snapshot_hash':'core-snap'}
+    return {'atr':1.0,'structural_support':97.0,'structural_resistance':103.0,
+      'near_resistance':106.0,'near_support':94.0,'continuation_resistance':110.0,
+      'continuation_support':90.0,'source_timestamps':(1000,), 'input_snapshot_hash':'core-snap'}
 
-def test_live_bounded_requires_exact_approved_policy_hash():
+def test_live_bounded_policy_hash_mismatch_fails_closed():
     legacy=('long',25.0,98.0,104.0)
-    assert trader._core_adaptive_live_entry_decision(cfg(approved='wrong'),symbol='BTC/USDT:USDT',legacy_order_args=legacy,entry_price=100.0,equity=3000.0,market_features=features())['order_args'] == legacy
+    d=trader._core_adaptive_live_entry_decision(cfg(approved='wrong'),symbol='BTC/USDT:USDT',legacy_order_args=legacy,entry_price=100.0,equity=3000.0,market_features=features())
+    assert d['active'] is True
+    assert d['blocked'] is True
+    assert d['reason'] == 'policy_hash_not_approved'
+    assert d['order_args'] == legacy
 
 def test_approved_live_bounded_keeps_fixed_margin_and_uses_adaptive_geometry():
     legacy=('long',25.0,98.0,104.0)
     d=trader._core_adaptive_live_entry_decision(cfg(),symbol='BTC/USDT:USDT',legacy_order_args=legacy,entry_price=100.0,equity=3000.0,market_features=features())
     assert d['active'] is True and d['blocked'] is False
     side,amount,sl,tp=d['order_args']
-    assert side=="long" and amount*100.0 == 2500.0
-    assert sl < 90.0 and tp > 100.0
+    assert side=="long" and 0 < amount*100.0 <= 2500.0
+    assert d['plan'].planned_loss_usdt <= 30.0 + 1e-9
+    assert 96.0 <= sl < 100.0 and 100.0 < tp <= 112.0
 
 def test_off_shadow_advisory_keep_legacy_order_args():
     legacy=('long',25.0,98.0,104.0)

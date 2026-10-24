@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 
 import process_lock
 
@@ -103,23 +104,56 @@ class NotificationDeliveryStore:
         with process_lock.locked(self.user_dir, self.lock_key):
             return identity in self._load()["records"]
 
-    def claim_pending(self) -> list[dict]:
-        """Durably mark pending events attempted before returning them for I/O."""
+    def claim_pending(self, *, now=None, limit=10) -> list[dict]:
+        """Claim future new/retry events; old attempted rows are never replayed."""
+        now = time.time() if now is None else float(now)
         with process_lock.locked(self.user_dir, self.lock_key):
             data = self._load()
             claimed = []
             for record in data["records"].values():
-                if record.get("status") != "pending":
+                status = record.get("status")
+                retry_at = float(record.get("next_at") or 0)
+                if status not in ("pending", "retry", "sending") or retry_at > now:
                     continue
                 event = record.get("event")
                 if not isinstance(event, dict):
-                    raise RuntimeError("pending notification event missing")
+                    raise RuntimeError("notification event missing")
                 claimed.append(dict(event))
-                record["status"] = "attempted"
+                record["status"] = "sending"
+                record["attempts"] = int(record.get("attempts") or 0) + 1
+                record["next_at"] = now + 45  # crash-safe lease
+                if len(claimed)>=limit:break
             if claimed:
                 process_lock.save_json_atomic(self.path, data)
             return claimed
 
+    def finish_delivery(self, event, *, message_id=None, error_type=None, retry_after=None, now=None):
+        """Persist Telegram acknowledgement or bounded retry; no trading effects."""
+        identity=event_id(event)
+        now=time.time() if now is None else float(now)
+        with process_lock.locked(self.user_dir,self.lock_key):
+            data=self._load()
+            record=data["records"].get(identity)
+            if not record or record.get("status")!="sending":
+                raise RuntimeError("notification claim not owned")
+            if message_id is not None:
+                record["status"]="sent"
+                record["message_id"]=str(message_id)
+                record.pop("next_at",None)
+            else:
+                attempts=int(record.get("attempts") or 0)
+                record["status"]="retry" if attempts<4 else "unconfirmed"
+                wait=(float(retry_after) if isinstance(retry_after,(int,float))
+                      and not isinstance(retry_after,bool) and 0<=retry_after<=600
+                      else min(600,30*2**min(attempts-1,4)))
+                record["next_at"]=now+wait
+                record["last_error_type"]=str(error_type or "unknown")[:100]
+            process_lock.save_json_atomic(self.path,data)
+
+    def delivery_summary(self):
+        from collections import Counter
+        with process_lock.locked(self.user_dir,self.lock_key):
+            return dict(Counter(r.get("status") for r in self._load()["records"].values()))
 
 
 def _coin_amount(contracts, epoch):

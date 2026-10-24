@@ -85,6 +85,21 @@ def _advance(state, raw, step):
     return row
 
 
+def confirmed_5m_indicators(bars, *, donchian_n):
+    """Bounded native 5m confirmation; identical 200-bar seed in live and replay."""
+    import strategy_indicators
+    if not bars or donchian_n != 20:
+        raise IndicatorUnavailable('unsupported_indicator_request')
+    visible = bars[-200:]
+    normalized = [_canonical(bar, 300_000) for bar in visible]
+    for before, after in zip(normalized, normalized[1:]):
+        if before['open_time_ms'] + 300_000 != after['open_time_ms']:
+            raise IndicatorUnavailable('5m_history_gap')
+    if len(visible) < 50:
+        raise IndicatorUnavailable('5m_requires_50_confirmed_bars')
+    return strategy_indicators.augment_with_indicators(visible, donchian_n=20)
+
+
 class IndicatorBook:
     def __init__(self, symbol, path=None):
         self.symbol = symbol
@@ -168,6 +183,8 @@ class IndicatorBook:
             raise IndicatorUnavailable('unsupported_indicator_request')
         target = bars[-1]
         step = target['close_time_ms'] - target['open_time_ms']
+        if step in (300_000, 299_999):
+            return confirmed_5m_indicators(bars, donchian_n=donchian_n)
         timeframe = next((tf for tf, duration in STEPS.items() if step in (duration, duration - 1)), None)
         step = STEPS.get(timeframe, step)
         state = self.streams.get(timeframe, {})
@@ -222,6 +239,8 @@ def build_replay_lookup(bars_4h, bars_1h):
         if not bars or donchian_n != 20:
             raise IndicatorUnavailable('unsupported_indicator_request')
         bar = bars[-1]
+        if bar['close_time_ms'] - bar['open_time_ms'] in (300_000, 299_999):
+            return confirmed_5m_indicators(bars, donchian_n=donchian_n)
         row = lookup[(bar['open_time_ms'], bar['close_time_ms'])]
         duration = bar['close_time_ms'] - bar['open_time_ms']
         step = next(value for value in STEPS.values() if duration in (value, value-1))

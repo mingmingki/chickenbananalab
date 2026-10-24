@@ -22,9 +22,9 @@ def _core_cfg(tmp_path):
 
 
 def _features():
-    return {'atr':2.0,'structural_support':80.0,'structural_resistance':120.0,
-            'near_resistance':130.0,'near_support':70.0,
-            'continuation_resistance':140.0,'continuation_support':60.0,
+    return {'atr':1.5,'structural_support':98.0,'structural_resistance':102.0,
+            'near_resistance':112.0,'near_support':88.0,
+            'continuation_resistance':116.0,'continuation_support':84.0,
             'source_timestamps':(1000,), 'input_snapshot_hash':'risk-cap'}
 
 def test_fixed_margin_auto_exit_risk_cap_reduces_actual_order_size(tmp_path, monkeypatch):
@@ -32,9 +32,11 @@ def test_fixed_margin_auto_exit_risk_cap_reduces_actual_order_size(tmp_path, mon
     legacy=('long', 10.0, 98.0, 104.0)
     d=trader._core_adaptive_live_entry_decision(
         _core_cfg(tmp_path), symbol='XRP/USDT:USDT', legacy_order_args=legacy,
-        entry_price=100.0, equity=1000.0, market_features=_features())
+        entry_price=100.0, equity=500.0, market_features=_features())
     assert d['active'] is True and d['blocked'] is False
-    assert d['plan'].planned_loss_usdt <= 50.0 + 1e-9
+    assert d['plan'].planned_loss_usdt <= 25.0 + 1e-9
+    assert d['order_args'][1]*(abs(100-d['order_args'][2])+.1) <= 25.0+1e-9
+    assert abs(100-d['order_args'][2])/100*500 <= 20
     assert d['order_args'][1] < legacy[1]
 
 

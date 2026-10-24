@@ -66,7 +66,7 @@ def classify(
     gemini_action: str, gemini_confidence: float | None, regime: str | None,
     closed_1d_df, closed_4h_df, closed_1h_df, closed_3m_df, closed_5m_df,
     structure_3m: dict | None, structure_5m: dict | None, min_confidence: float = 0.65,
-    correction_ctx: dict | None = None,
+    correction_ctx: dict | None = None, live_4h_df=None,
 ) -> dict:
     """SHORT_LEVEL을 FULL_BEARISH > STRONG > TACTICAL > EARLY > NONE 순서로 판정한다."""
     tactical = core_tactical_short.evaluate(
@@ -104,16 +104,41 @@ def classify(
             "confidence": gemini_confidence, "correction_mode": True,
         }
 
-    # 기존 EARLY 경로는 그대로 유지한다. regime은 base 조건이 아니다.
-    if not base_ok or not (reasons["4h_bearish"] and reasons["1h_bearish"]):
-        return {"level": "NONE", "reasons": reasons, "regime": regime, "confidence": gemini_confidence}
-
+    # Lower-TF weakening is computed once and is also used by the live-4H EARLY path.
     weak_3m = _weakening(closed_3m_df)
     weak_5m = _weakening(closed_5m_df)
     reasons["3m_weakening"] = weak_3m
     reasons["5m_weakening"] = weak_5m
-    early_ok = (reasons["3m_bearish"] and weak_5m) or (reasons["5m_bearish"] and weak_3m)
-    level = "EARLY" if early_ok else "NONE"
+    lower_early_ok = (
+        (reasons["3m_bearish"] and weak_5m)
+        or (reasons["5m_bearish"] and weak_3m)
+        or (reasons["3m_bearish"] and reasons["5m_bearish"])
+        or (weak_3m and weak_5m)
+    )
+
+    # A sharp move can start just after a 4H boundary. Waiting for the next completed
+    # 4H bar can delay a valid short by hours. Permit only EARLY size when the current
+    # 4H bar is already bearish, the completed 1H is bearish, and completed lower TFs
+    # confirm/are weakening. GPT approve_now is still required downstream.
+    live_4h_bearish = bool(
+        live_4h_df is not None and core_tactical_short._bearish_4h(live_4h_df)
+    )
+    reasons["live_4h_bearish"] = live_4h_bearish
+    if (
+        base_ok and not reasons["4h_bearish"] and live_4h_bearish
+        and reasons["1h_bearish"] and lower_early_ok
+    ):
+        reasons["live_4h_early"] = True
+        return {
+            "level": "EARLY", "reasons": reasons, "regime": regime,
+            "confidence": gemini_confidence, "live_4h_early": True,
+        }
+
+    # Existing completed-4H EARLY path.
+    if not base_ok or not (reasons["4h_bearish"] and reasons["1h_bearish"]):
+        return {"level": "NONE", "reasons": reasons, "regime": regime, "confidence": gemini_confidence}
+
+    level = "EARLY" if lower_early_ok else "NONE"
     return {"level": level, "reasons": reasons, "regime": regime, "confidence": gemini_confidence}
 
 

@@ -48,15 +48,14 @@
 <h1>🐔 시작 전 준비항목 <a href="javascript:history.back()">← 뒤로</a></h1>
 
 <div class="panel">
-  <h2>1. Gemini API 키 발급</h2>
-  <div class="sub">시세 분석/매매 판단에 쓰이는 AI 키입니다. 무료로 만들 수 있습니다.</div>
+  <h2>1. GPT API 키 발급</h2>
+  <div class="sub">GPT 단독 판단 모드에서 필요한 분석 API 키입니다.</div>
   <ol>
-    <li><a class="ext" href="https://aistudio.google.com" target="_blank" rel="noopener">aistudio.google.com</a> 접속 후 구글 계정으로 로그인</li>
-    <li>화면의 <b>"Get API key"</b> 메뉴 클릭</li>
-    <li><b>"Create API key"</b> 버튼 클릭 → 새 프로젝트를 만들거나 기존 프로젝트 선택</li>
-    <li>생성된 키를 복사해서 이 사이트 회원가입 후 대시보드의 "Gemini API 키" 칸에 붙여넣기</li>
+    <li><a class="ext" href="https://platform.openai.com" target="_blank" rel="noopener">platform.openai.com</a>에 로그인</li>
+    <li>API keys에서 새 비밀 키를 생성하고 안전하게 보관</li>
+    <li>대시보드에서 GPT API 키 입력 및 확인</li>
   </ol>
-  <div class="warn"><b>참고:</b> 무료 등급도 이 봇 용도로는 충분하지만, 여러 종목을 자주 검토하면 비용이 조금씩 나갈 수 있습니다 (대시보드에서 실시간으로 확인 가능).</div>
+  <div class="warn">GPT API 사용은 과금될 수 있습니다. Gemini 키 입력은 현재 운영 UI에서 숨겨져 있으며 이전 설정은 복구용으로 보존됩니다.</div>
 </div>
 
 <div class="panel">
@@ -79,22 +78,9 @@
 </div>
 
 <div class="panel">
-  <h2>3. GPT API 키 발급 (선택 - GPT 검증/Shadow Mode)</h2>
-  <div class="sub">Gemini의 진입/청산 판단을 GPT가 한 번 더 승인/거절만 검증해서 로그로 남기는 선택 기능입니다.
-    비워두면 지금처럼 Gemini만으로 매매하며, 실제 주문에는 전혀 영향을 주지 않습니다.</div>
-  <ol>
-    <li><a class="ext" href="https://platform.openai.com" target="_blank" rel="noopener">platform.openai.com</a> 접속 후 로그인 (Gemini와 다른 별도 계정/가입 필요)</li>
-    <li>좌측 메뉴 또는 대시보드에서 <b>"API keys"</b> 메뉴로 이동</li>
-    <li><b>"Create new secret key"</b> 클릭 → 이름은 아무거나 입력하고 생성</li>
-    <li>생성된 키를 즉시 복사 (Secret Key는 <b>이 순간만 보여지고 다시 볼 수 없습니다</b>)</li>
-    <li>이 사이트 대시보드의 <b>"GPT API 키 (선택)"</b> 칸에 붙여넣고 "확인" 클릭</li>
-  </ol>
-  <div class="warn">
-    <b>Gemini와 달리 무료 등급이 없습니다:</b> OpenAI는 <b>Billing</b> 메뉴에서 결제 수단(카드) 등록과
-    최소 크레딧 충전이 필요합니다. 다만 이 봇은 Gemini가 실제 진입/청산을 판단할 때만 GPT를
-    검증용으로 짧게 호출하므로(hold일 때는 호출 안 함), 비용은 비교적 적게 나갑니다 — 대시보드
-    "API비용"에서 실시간으로 확인할 수 있습니다.
-  </div>
+  <h2>3. 자동매매 운영 안전 확인</h2>
+  <div class="sub">GPT가 판단한 주문 후보라도 위험 한도·가격·SL/TP·시장 상태의 코드 검증을 통과해야 거래소에 제출됩니다.</div>
+  <div class="warn">GPT 실패 시 신규 주문은 차단됩니다. 두 엔진의 매매 루프 실행 여부는 대시보드에서 별도로 확인하세요.</div>
 </div>
 
 <div class="panel">

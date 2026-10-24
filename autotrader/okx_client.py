@@ -1,6 +1,7 @@
 import logging
 import re
 import time
+from decimal import Decimal, InvalidOperation
 
 import ccxt
 import pandas as pd
@@ -113,6 +114,85 @@ def match_realized_close(
             "source": "okx_realized",
         }
     return None
+
+
+def match_owned_protection_close(position, entry_order, algo_history, exit_order, fills, *,
+                                 bound_lifecycle, entry_order_id, entry_client_order_id,
+                                 owned_algo_ids=(), attach_algo_cl_ord_id=None):
+    """Pure attribution from an owned lifecycle -> OCO -> exact order -> fills.
+
+    No price proximity or profit inference. OKX OCO actualPx can be blank even
+    after execution; actualSide identifies the trigger, while order/fills prove
+    that the owned trigger actually closed this remaining position.
+    """
+    def raw(row):
+        return row.get('info') or row
+
+    def positive(value):
+        value = Decimal(str(value))
+        if not value.is_finite() or value <= 0:
+            raise ValueError('invalid_evidence_number')
+        return value
+
+    try:
+        side = position['side']
+        created = int(position['entry_timestamp_ms'])
+        identity = f"{position['position_id']}:{created}:{side}"
+        if not position['position_id'] or side not in ('long', 'short') or identity != bound_lifecycle:
+            return None
+        inst = position['symbol'].split('/')[0] + '-USDT-SWAP'
+        entry, algo, order = map(raw, (entry_order, algo_history, exit_order))
+        entry_side, close_side = ('buy', 'sell') if side == 'long' else ('sell', 'buy')
+        if (not entry_order_id or not entry_client_order_id
+                or entry.get('ordId') != entry_order_id or entry.get('clOrdId') != entry_client_order_id
+                or entry.get('instId') != inst or entry.get('side') != entry_side
+                or entry.get('state') != 'filled' or str(entry.get('reduceOnly')).lower() != 'false'
+                or not int(entry['cTime']) <= created <= int(entry['uTime'])):
+            return None
+        attached = {a.get('attachAlgoClOrdId') for a in entry.get('attachAlgoOrds') or []
+                    if a.get('attachAlgoClOrdId')}
+        by_id = bool(owned_algo_ids) and algo.get('algoId') in owned_algo_ids
+        by_attach = bool(attach_algo_cl_ord_id) and (
+            attach_algo_cl_ord_id in attached and algo.get('algoClOrdId') == attach_algo_cl_ord_id)
+        if not (by_id or by_attach):
+            return None
+        if (algo.get('state') != 'effective' or algo.get('actualSide') not in ('sl', 'tp')
+                or algo.get('instId') != inst or algo.get('side') != close_side
+                or int(algo['cTime']) < created or int(algo['triggerTime']) < created):
+            return None
+        linked = set(algo.get('ordIdList') or [])
+        if algo.get('ordId'):
+            linked.add(algo['ordId'])
+        if (len(linked) != 1 or order.get('ordId') not in linked
+                or order.get('algoId') != algo.get('algoId')
+                or order.get('instId') != inst or order.get('side') != close_side
+                or order.get('state') != 'filled' or str(order.get('reduceOnly')).lower() != 'true'
+                or int(order['cTime']) < int(algo['triggerTime'])):
+            return None
+        quantity = positive(order['accFillSz'])
+        if abs(quantity - positive(position['contracts'])) > Decimal('0.00000001'):
+            return None
+        seen, fill_qty, fill_value = set(), Decimal(0), Decimal(0)
+        for trade in fills:
+            fill = raw(trade)
+            trade_id = fill.get('tradeId')
+            if (not trade_id or trade_id in seen or fill.get('ordId') != order['ordId']
+                    or fill.get('instId') != inst or fill.get('side') != close_side
+                    or int(fill['fillTime']) < int(algo['triggerTime'])
+                    or int(fill['fillTime']) > int(order['uTime'])):
+                return None
+            qty, price = positive(fill['fillSz']), positive(fill['fillPx'])
+            seen.add(trade_id)
+            fill_qty += qty
+            fill_value += qty * price
+        if abs(fill_qty - quantity) > Decimal('0.00000001'):
+            return None
+        return {'reason': 'stop_loss' if algo['actualSide'] == 'sl' else 'take_profit',
+                'source': 'owned_algo_order_fills', 'algo_id': algo['algoId'],
+                'order_id': order['ordId'], 'trade_ids': sorted(seen),
+                'lifecycle_id': identity, 'exit_price': float(fill_value / quantity)}
+    except (KeyError, TypeError, ValueError, InvalidOperation, AttributeError):
+        return None
 
 
 def validate_credentials(api_key: str, secret: str, passphrase: str) -> tuple[bool, str]:
@@ -239,6 +319,7 @@ class OkxClient:
                 return {
                     "side": pos.get("side"),
                     "position_id": (pos.get("info") or {}).get("posId") or pos.get("id"),
+                    "last_trade_id": (pos.get("info") or {}).get("tradeId"),
                     "entry_timestamp_ms": int((pos.get("info") or {}).get("cTime"))
                     if (pos.get("info") or {}).get("cTime") else None,
                     "contracts": float(contracts),
@@ -295,6 +376,51 @@ class OkxClient:
             return None
         now_ms = int(time.time() * 1000)
         return match_realized_close(history, side, entry_price, now_ms, max_age_minutes)
+
+    def fetch_owned_protection_close(self, position, *, bound_lifecycle, entry_order_id,
+                                    entry_client_order_id, owned_algo_ids=(),
+                                    attach_algo_cl_ord_id=None):
+        """Bounded GET-only attribution; incomplete history remains unknown."""
+        try:
+            identity = f"{position['position_id']}:{position['entry_timestamp_ms']}:{position['side']}"
+            if identity != bound_lifecycle or not entry_order_id or not entry_client_order_id:
+                return None
+            entry = self.exchange.fetch_order(entry_order_id, self.symbol)
+            if not attach_algo_cl_ord_id and not owned_algo_ids:
+                raw_entry = entry.get('info') or entry
+                attached = {a.get('attachAlgoClOrdId') for a in raw_entry.get('attachAlgoOrds') or []
+                            if a.get('attachAlgoClOrdId')}
+                if len(attached) != 1:
+                    return None
+                attach_algo_cl_ord_id = next(iter(attached))
+            response = self.exchange.private_get_trade_orders_algo_history({
+                'instId': self.symbol.split('/')[0] + '-USDT-SWAP',
+                'ordType': 'oco', 'state': 'effective', 'limit': '100',
+            })
+            candidates = [a for a in response.get('data') or []
+                          if int(a.get('cTime') or 0) >= int(position['entry_timestamp_ms'])
+                          and (a.get('algoId') in owned_algo_ids or
+                               (attach_algo_cl_ord_id and a.get('algoClOrdId') == attach_algo_cl_ord_id))]
+            if len(candidates) != 1:
+                return None
+            algo = candidates[0]
+            order_ids = set(algo.get('ordIdList') or [])
+            if algo.get('ordId'):
+                order_ids.add(algo['ordId'])
+            if len(order_ids) != 1:
+                return None
+            order_id = next(iter(order_ids))
+            order = self.exchange.fetch_order(order_id, self.symbol)
+            fills = self.fetch_trades_for_order(order_id, int(position['entry_timestamp_ms']), limit=100)
+            return match_owned_protection_close(
+                dict(position, symbol=self.symbol), entry, algo, order, fills,
+                bound_lifecycle=bound_lifecycle, entry_order_id=entry_order_id,
+                entry_client_order_id=entry_client_order_id, owned_algo_ids=owned_algo_ids,
+                attach_algo_cl_ord_id=attach_algo_cl_ord_id,
+            )
+        except Exception:
+            self._log().warning('[%s] owned close attribution unavailable', self.symbol, exc_info=True)
+            return None
 
     def fetch_realized_close_for_position(self, side: str, entry_price: float,
                                          position_id: str, entry_timestamp_ms: int) -> dict | None:
@@ -355,10 +481,20 @@ class OkxClient:
         if order is None:
             return None
         return {
-            "id": order.get("id"), "clientOrderId": client_order_id,
+            "id": order.get("id"), "clientOrderId": order.get("clientOrderId") or (order.get("info") or {}).get("clOrdId"),
+            "symbol":order.get("symbol"),"side":order.get("side"),
+            "timestamp":order.get("timestamp") or (order.get("info") or {}).get("cTime"),
+            "lastTradeTimestamp":order.get("lastTradeTimestamp") or (order.get("info") or {}).get("fillTime"),
             "status": order.get("status"), "filled": order.get("filled"),
             "remaining": order.get("remaining"), "average": order.get("average"),
         }
+
+    def fetch_entry_order_fills(self, order_id):
+        """Exchange reads only; incomplete/absent fill proof never authorizes recovery."""
+        rows = self.exchange.fetch_my_trades(self.symbol, limit=100, params={"ordId": str(order_id)})
+        if len(rows) >= 100:
+            return []  # Pagination could hide part of the original order.
+        return [row for row in rows if str(row.get('order')) == str(order_id)]
 
     def create_position_with_sl_tp(
         self, side: str, amount: float, stop_loss_price: float, take_profit_price: float | None,
@@ -638,7 +774,7 @@ class OkxClient:
         return None
 
     def amend_protective_stop(self, algo_id: str, *, new_sl_price: float | None = None,
-                               new_sz: float | None = None) -> dict:
+                               new_sz: float | None = None, new_tp_price: float | None = None) -> dict:
         """R1(2026-09-17, 외부 검토 R1 대응) - 소유권이 이미 확정된 기존 algoId의
         손절가/수량을 OKX POST /trade/amend-algos로 그 자리에서 바꾼다. 기존
         cancel_protection()+attach_protection() 순서(먼저 취소 -> 나중에 새로
@@ -657,13 +793,16 @@ class OkxClient:
         전체 성공 + 개별 결과 sCode == "0") - "새 SL이 실제로 그 값이 됐는지"는
         호출부가 fetch_protection_order_by_algo_id()로 별도 확정해야 한다(API
         접수 응답만으로 확정하지 않음, 사용자 지시)."""
-        if new_sl_price is None and new_sz is None:
-            raise ValueError("new_sl_price 또는 new_sz 중 하나는 반드시 지정해야 함")
+        if new_sl_price is None and new_sz is None and new_tp_price is None:
+            raise ValueError("new_sl_price, new_tp_price 또는 new_sz 중 하나는 반드시 지정해야 함")
         market = self.exchange.market(self.symbol)
         request = {"algoId": algo_id, "instId": market["id"], "cxlOnFail": False}
         if new_sl_price is not None:
             request["newSlTriggerPx"] = self.exchange.price_to_precision(self.symbol, new_sl_price)
             request["newSlTriggerPxType"] = "last"
+        if new_tp_price is not None:
+            request["newTpTriggerPx"] = self.exchange.price_to_precision(self.symbol, new_tp_price)
+            request["newTpTriggerPxType"] = "last"
         if new_sz is not None:
             request["newSz"] = self.exchange.amount_to_precision(self.symbol, new_sz)
         try:

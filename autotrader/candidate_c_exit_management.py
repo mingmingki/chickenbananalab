@@ -33,9 +33,12 @@ class PositionEpochState:
     CandidateCPositionState를 만든다."""
     derisk_done: bool = False
     partial_take_profit_done: bool = False
+    mfe_profit_reduce_done: bool = False
     profit_lock_active: bool = False
     profit_lock_stop_price: float | None = None
     weakening_prev: bool = False
+    pilot_entry: bool = False
+    pilot_4h_confirmed: bool = False
     last_action_tick_ms: int | None = None
     execution_mode_at_open: str | None = None
     # --- Phase 3.9 신규 필드 ---
@@ -80,6 +83,12 @@ class PositionEpochState:
     strategy_policy: dict | None = None
     adaptive_exit_policy: dict | None = None
     adaptive_exit_policy_hash: str | None = None
+    reduction_policy_hash: str | None = None  # Explicit management overlay; original entry snapshot is unchanged.
+
+
+def observe_pilot_4h_confirmation(epoch, *, side, direction_4h):
+    if epoch.pilot_entry and direction_4h == ("LONG" if side == "long" else "SHORT"):
+        epoch.pilot_4h_confirmed = True
 
 
 def capture_adaptive_exit_policy_snapshot(epoch: PositionEpochState, policy: dict, policy_hash: str) -> PositionEpochState:
@@ -165,6 +174,30 @@ class DeriskDecision:
     reason: str | None = None
 
 
+def risk_adaptive_quantity(decision, *, plan, current_quantity, original_quantity,
+                           lot_step, min_size, cumulative_cap=None):
+    """Resize an already-triggered action, preserving one-shot flags and residual.
+
+    Adaptive partials never turn dust into an implicit full exit. Full-exit signals
+    remain separate. Plan facts are from confirmed chart data, never provider text.
+    """
+    if decision.action == 'none':
+        return decision
+    if plan is None or not original_quantity or original_quantity <= 0:
+        return DeriskDecision(action='none', reason='adaptive_reduce_missing_risk_evidence')
+    basis = current_quantity if plan['basis'] == 'remaining' else original_quantity
+    quantity = basis * plan['fraction']
+    if cumulative_cap is not None:
+        quantity = min(quantity, max(0., original_quantity*cumulative_cap
+                                    - (original_quantity-current_quantity)))
+    quantity = floor_to_lot_step(min(quantity, max(0., current_quantity-min_size)), lot_step)
+    residual = current_quantity-quantity
+    if quantity < min_size-1e-12 or quantity <= 0 or residual < min_size-1e-12:
+        return DeriskDecision(action='none', reason='adaptive_reduce_below_minimum')
+    return DeriskDecision(action='partial_reduce', target_residual=residual,
+                          reduce_quantity=quantity, reason=decision.reason)
+
+
 def evaluate_1h_structural_derisk(
     *, current_quantity: float, lot_step: float, min_size: float,
     weakening_prev: bool, weakening_now: bool, epoch: PositionEpochState,
@@ -221,6 +254,8 @@ def evaluate_partial_take_profit(
     if target_residual < min_size:
         return DeriskDecision(action="dust_full_exit", reduce_quantity=current_quantity,
                               reason="PARTIAL_TP_2R_DUST_SAFE_FULL_EXIT")
+    if reduce_quantity < min_size - 1e-12:
+        return DeriskDecision(action="none", reason="partial_take_profit_below_minimum")
     return DeriskDecision(action="partial_reduce", target_residual=target_residual,
                           reduce_quantity=reduce_quantity, reason="partial_take_profit_2r")
 
@@ -240,7 +275,9 @@ PRIORITY_ORDER = [
     "already_occurred_stop_fill",
     "emergency_safety_action",
     "4h_full_exit",
+    "structure_profit_break",
     "1h_structural_derisk",
+    "mfe_profit_giveback",
     "partial_take_profit_2r",
     "profit_lock_tightening",
     "new_entry",

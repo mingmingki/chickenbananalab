@@ -166,6 +166,7 @@ def build_candidate_c_position_state(epoch) -> dict:
     return {
         "side": epoch.side, "position_id": epoch.entry_intent_id, "contracts": epoch.remaining_contracts,
         "raw_entry_price": epoch.raw_entry_price, "initial_stop_price": epoch.initial_stop_price,
+        "current_stop_price": epoch.current_stop_price,
         "high_water": epoch.high_water, "effective_entry_price": epoch.effective_entry_price,
         "entry_fee_usdt": epoch.entry_fee_usdt, "contract_size": epoch.contract_size,
         "fee_rate": epoch.fee_rate, "spread_bps": epoch.spread_bps, "slippage_bps": epoch.slippage_bps,

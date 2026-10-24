@@ -117,8 +117,18 @@ def build_completed_lifecycles(user_dir: str) -> list[dict]:
     canonical_realized = {
         _event_key(r): r for r in trade_log.load_realized_trades(user_dir, dry_run=False)
     }
+    projected_by_position = {}
+    for row in canonical_realized.values():
+        if row.get('history_source') == 'core_unified' and row.get('position_id'):
+            key = (row.get('symbol'), row['position_id'])
+            projected_by_position.setdefault(key, []).append(dict(row))
     journal = []
     for raw in _journal(user_dir):
+        canonical = canonical_realized.get(_event_key(raw), raw)
+        if canonical.get('history_source') == 'core_unified':
+            # The durable fill journal owns this lifecycle. A copied legacy row
+            # must not create a second close or strand its earlier reductions.
+            continue
         row = canonical_realized.get(_event_key(raw), raw) if raw.get('type') in ('reduce','close') else raw
         if raw.get('type') == 'close':
             row = canonical_close_map.get(_close_key(raw), row)
@@ -151,6 +161,13 @@ def build_completed_lifecycles(user_dir: str) -> list[dict]:
             continue
         ordinal += 1
         close_event = dict(close, type='close')
-        completed.append(_finish([close_event], close_event, ordinal, 'partial'))
+        events = [close_event]
+        if close.get('history_source') == 'core_unified' and close.get('position_id'):
+            projected = projected_by_position.get((close.get('symbol'), close['position_id']), [])
+            # Only an unambiguous completed position is grouped; open positions
+            # continue contributing money without entering completed statistics.
+            if sum(e.get('type') == 'close' for e in projected) == 1:
+                events = sorted(projected, key=lambda e: _parse_time(e.get('time')) or dt.datetime.min)
+        completed.append(_finish(events, close_event, ordinal, 'partial'))
 
     return sorted(completed, key=lambda t: _parse_time(t.get('exit_time')) or dt.datetime.min)

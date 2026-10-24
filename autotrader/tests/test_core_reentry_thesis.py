@@ -17,20 +17,20 @@ def _df(rows):
 
 
 def _one_h_long():
-    return _df([{"timestamp": dt.datetime(2026, 9, 25, 14, 0), "close": 102.0, "ema_20": 101.0, "ema_50": 100.0}])
+    return _df([{"timestamp": dt.datetime(2026, 9, 25, 4, 0), "close": 102.0, "ema_20": 101.0, "ema_50": 100.0}])
 
 
 def _one_h_short():
-    return _df([{"timestamp": dt.datetime(2026, 9, 25, 14, 0), "close": 98.0, "ema_20": 99.0, "ema_50": 100.0}])
+    return _df([{"timestamp": dt.datetime(2026, 9, 25, 4, 0), "close": 98.0, "ema_20": 99.0, "ema_50": 100.0}])
 
 
 def _five_m(side="long", count=2):
     rows = []
     for i in range(count):
         if side == "long":
-            rows.append({"timestamp": dt.datetime(2026, 9, 25, 14, 5 + i * 5), "close": 101.0 + i, "ema_20": 100.0})
+            rows.append({"timestamp": dt.datetime(2026, 9, 25, 4, 60 - count * 5 + i * 5), "close": 101.0 + i, "ema_20": 100.0})
         else:
-            rows.append({"timestamp": dt.datetime(2026, 9, 25, 14, 5 + i * 5), "close": 99.0 - i, "ema_20": 100.0})
+            rows.append({"timestamp": dt.datetime(2026, 9, 25, 4, 60 - count * 5 + i * 5), "close": 99.0 - i, "ema_20": 100.0})
     return _df(rows)
 
 
@@ -219,7 +219,7 @@ def test_entry_thesis_gate_after_30m_still_requires_exact_recovery(tmp_path):
     result = trader._evaluate_ai_close_thesis_entry_gate(
         _Cfg(tmp_path), state, SYMBOL, "long",
         {"1h": _one_h_long(), "5m": _five_m("long", 1)},
-        now=dt.datetime(2026, 9, 25, 14, 5),
+        now=dt.datetime(2026, 9, 25, 14, 2),
     )
     assert result["blocked"] is True
     assert result["reason"] == "thesis_not_recovered"
@@ -231,7 +231,7 @@ def test_entry_thesis_gate_clears_after_exact_recovery(tmp_path):
     result = trader._evaluate_ai_close_thesis_entry_gate(
         _Cfg(tmp_path), state, SYMBOL, "long",
         {"1h": _one_h_long(), "5m": _five_m("long", 2)},
-        now=dt.datetime(2026, 9, 25, 14, 5),
+        now=dt.datetime(2026, 9, 25, 14, 2),
     )
     assert result["blocked"] is False
     assert crt.get(str(tmp_path), SYMBOL)["status"] == "recovered"
@@ -240,7 +240,8 @@ def test_entry_thesis_gate_clears_after_exact_recovery(tmp_path):
     assert diag["reentry_thesis_5m_count"] >= 2
 
 
-def test_handle_new_entry_blocks_thesis_before_gpt(monkeypatch, tmp_path):
+@pytest.mark.parametrize("gpt_enabled", [False, True])
+def test_thesis_is_advisory_with_gpt_and_local_without_gpt(monkeypatch, tmp_path, gpt_enabled):
     import symbol_entry_control
 
     class Cfg(_Cfg):
@@ -254,17 +255,24 @@ def test_handle_new_entry_blocks_thesis_before_gpt(monkeypatch, tmp_path):
         "blocked": True, "reason": "thesis_not_recovered"
     })
     gpt_calls = []
-    monkeypatch.setattr(trader, "_gpt_entry_gate", lambda *a, **k: gpt_calls.append(1) or (True, "approved", {}))
+    monkeypatch.setattr(trader, "_gpt_entry_gate", lambda *a, **k: gpt_calls.append(1) or (
+        True, "approved", {"decision":"approve_now","confidence":.78}))
+    orders = []
+    monkeypatch.setattr(trader, "_execute_approved_entry_with_optional_reversal",
+                        lambda *a,**k: orders.append(a[5]) or True)
     state = TraderState()
+    current_cfg = Cfg(tmp_path)
+    current_cfg.GPT_ENTRY_GATE_ENABLED = gpt_enabled
     trader._handle_new_entry(
-        Cfg(tmp_path), state, object(), SYMBOL, "long",
-        {"confidence": 0.9}, "d1", "entry", ["5m", "1h"], "summary", None,
+        current_cfg, state, object(), SYMBOL, "long",
+        {"action":"long","confidence": 0.9}, "d1", "entry", ["5m", "1h"], "summary", None,
         100.0, 1.0, 98.0, 104.0, closed_dfs={"1h": _one_h_long(), "5m": _five_m("long", 2)},
     )
-    assert gpt_calls == []
+    assert gpt_calls == ([1] if gpt_enabled else [])
+    assert orders == ([1.0] if gpt_enabled else [])
     attempt = state.snapshot()["symbols"][SYMBOL]["last_entry_attempt"]
-    assert attempt["status"] == "LOCAL_BLOCKED"
-    assert attempt["reason"] == "ai_close_thesis_not_recovered"
+    assert attempt["status"] == ("FILLED" if gpt_enabled else "LOCAL_BLOCKED")
+    assert attempt["reason"] == ("protected_fill_confirmed" if gpt_enabled else "ai_close_thesis_not_recovered")
 
 def test_entry_thesis_gate_diagnostics_are_optional_for_minimal_state(tmp_path):
     class MinimalState:

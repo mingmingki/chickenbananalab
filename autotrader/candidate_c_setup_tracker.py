@@ -36,6 +36,8 @@ class SetupTracker:
     # Start of the current uninterrupted True setup run.  Unlike individual
     # per-bar setup_ids this timestamp does not advance while the condition
     # remains True, so a restart cannot make an old setup look fresh again.
+    _active_entry_started_ms: dict = field(default_factory=dict)
+    _entry_eligible_state: dict = field(default_factory=dict)
     _active_true_started_ms: dict = field(default_factory=dict)  # (symbol, side) -> first True timestamp
     # [2026-09-16, 사용자 직접 지시 - timeout 1회 재검토 정책] 최초 GPT 결과가
     # timeout일 때만, 원 setup의 바로 다음 확정 10분봉에서 딱 한 번 재검토할
@@ -80,6 +82,12 @@ class SetupTracker:
             elif not new_state:
                 self._active_true_started_ms.pop(key, None)
             self._last_state[key] = new_state
+            eligible = new_state and bool(rec.get("entry_eligible", False))
+            if eligible and not self._entry_eligible_state.get(key, False):
+                self._active_entry_started_ms[key] = rec["timestamp"]
+            elif not eligible:
+                self._active_entry_started_ms.pop(key, None)
+            self._entry_eligible_state[key] = eligible
             if rec.get("setup_id"):
                 self._all_setup_ids[rec["setup_id"]] = {
                     "symbol": rec["symbol"], "side": rec["side"], "timestamp": rec["timestamp"],
@@ -105,42 +113,34 @@ class SetupTracker:
             f.flush()
             os.fsync(f.fileno())
 
-    def observe(self, symbol: str, side: str, timestamp_ms: int, condition_true: bool) -> str | None:
-        """조건이 True인 새 확정 10분봉마다 setup_id를 정확히 하나 생성한다.
+    def observe(self, symbol: str, side: str, timestamp_ms: int,
+                condition_true: bool, *, entry_eligible: bool | None = None) -> str | None:
+        """Track raw per-bar identities and the distinct direction-eligible window.
 
-        같은 (symbol, side, timestamp) 봉은 몇 번 관측돼도 setup_id를 재발급하지
-        않는다. False는 기존처럼 True->False 상태 전이만 기록한다. 이 계약으로
-        조건이 여러 10분봉 동안 계속 True여도 다음 확정봉에서 한 번씩 다시
-        진입 검토할 수 있고, 같은 봉 중복 주문은 setup_id가 막는다.
+        Direction waiting never spends the 30-minute entry opportunity. Both
+        clocks survive restart; an already observed bar still cannot resubmit.
+        Omitted eligibility preserves the original standalone tracker contract.
         """
         key = (symbol, side)
-        prev = self._last_state.get(key, False)
-
-        if condition_true:
-            setup_id = make_setup_id(symbol, side, timestamp_ms)
-            if setup_id in self._all_setup_ids:
-                return None
-            self._append({
-                "type": "state", "symbol": symbol, "side": side, "timestamp": timestamp_ms,
-                "new_state": True, "setup_id": setup_id,
-            })
-            if not prev:
-                self._active_true_started_ms[key] = timestamp_ms
-            self._last_state[key] = True
-            self._all_setup_ids[setup_id] = {
-                "symbol": symbol, "side": side, "timestamp": timestamp_ms,
-            }
-            return setup_id
-
-        if not prev:
+        eligible = bool(condition_true and (True if entry_eligible is None else entry_eligible))
+        setup_id = make_setup_id(symbol, side, timestamp_ms) if condition_true else None
+        is_new = setup_id is not None and setup_id not in self._all_setup_ids
+        changed = (self._last_state.get(key, False) != bool(condition_true)
+                   or self._entry_eligible_state.get(key, False) != eligible)
+        if not is_new and not changed:
             return None
-        self._append({
-            "type": "state", "symbol": symbol, "side": side, "timestamp": timestamp_ms,
-            "new_state": False, "setup_id": None,
-        })
-        self._last_state[key] = False
-        self._active_true_started_ms.pop(key, None)
-        return None
+        record = {"type": "state", "symbol": symbol, "side": side,
+                  "timestamp": timestamp_ms, "new_state": bool(condition_true),
+                  "entry_eligible": eligible, "setup_id": setup_id if is_new else None}
+        self._append(record)
+        self._apply(record)
+        return setup_id if is_new else None
+
+    def entry_eligible_state(self, symbol: str, side: str) -> bool:
+        return self._entry_eligible_state.get((symbol, side), False)
+
+    def continuous_entry_eligible_started_ms(self, symbol: str, side: str) -> int | None:
+        return self._active_entry_started_ms.get((symbol, side))
 
     def continuous_true_started_ms(self, symbol: str, side: str) -> int | None:
         """First bar timestamp of the uninterrupted current True setup run."""

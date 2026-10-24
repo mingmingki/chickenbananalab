@@ -1,3 +1,4 @@
+import entry_attempt_notifications
 """Candidate C 하이브리드 엔진(DOGE/SOL)의 사이클 오케스트레이터.
 
 두 단계:
@@ -69,6 +70,16 @@ def _intent_observability_fields(intent) -> dict:
     이미 만든 Intent에 있는 값만 그대로 옮긴다."""
     return {
         "reason_code": intent.reason_code,
+        "symbol":intent.symbol,"side":intent.side,"kind":intent.kind,
+        "entry_attempt":intent.entry_attempt,"entry_validation_values":intent.entry_validation_values,
+        "idempotency_key":intent.idempotency_key,
+        "raw_stop_price":intent.raw_stop_price,"raw_target_price":intent.raw_target_price,
+        "reduction_plan":getattr(intent, 'reduction_plan', None),
+        "reduction_policy_hash":getattr(intent, 'reduction_policy_hash', None),
+        "reduce_quantity":intent.reduce_quantity,"target_residual":intent.target_residual,
+        "pilot_entry": getattr(intent, "pilot_entry", False),
+        "entry_size_fraction": getattr(intent, "entry_size_fraction", 1.0),
+        "entry_weakening_baseline": getattr(intent, "entry_weakening_baseline", None),
         "setup_id": intent.setup_id,
         "decision_timestamp": intent.decision_timestamp,
         "source_candle_close_timestamp": intent.source_candle_close_timestamp,
@@ -186,8 +197,8 @@ def _build_entry_still_valid_fn(client, intent: "dec.Intent", snapshot: dict):
     기준이 서로 다른 가격 기준을 섞어 쓰지 않는다.
 
     무효 조건(side별 대칭):
-    - 실시간가가 원래 돌파선(long=donchian_upper, short=donchian_lower)
-      안쪽으로 되돌아왔다 - 가짜 돌파(false breakout)로 판단.
+    - 실시간가가 신호와 동일한 Donchian 1% 접근 범위 밖으로 되돌아왔다.
+      신호의 접근 허용을 주문 직전 완전 돌파 조건으로 다시 뒤집지 않는다.
     - 실시간가가 이미 최초 stop을 넘어섰다 - 지금 진입해도 곧바로 손실 확정.
     - 실시간가가 이미 최초 target을 넘어섰다 - 뒤늦은 진입(추격).
     가격을 확인할 수 없거나(조회 실패/None) 유한하지 않거나(NaN/inf) 0 이하이면
@@ -199,12 +210,18 @@ def _build_entry_still_valid_fn(client, intent: "dec.Intent", snapshot: dict):
     donchian_lower = snapshot.get("donchian_lower")
     stop_price = intent.raw_stop_price
     target_price = intent.raw_target_price
+    approval_started_ms = int(time.time()*1000)
 
-    def _still_valid() -> bool:
-        try:
-            current_price = client.fetch_last_price()
-        except Exception:
-            return False
+    def _validate_price(current_price, *, now_ms=None) -> bool:
+        if now_ms is not None:
+            try:
+                decision_age = int(now_ms)-int(intent.decision_timestamp)
+                candle_age = int(now_ms)-int(intent.source_candle_close_timestamp)
+                if not (0 <= int(now_ms)-approval_started_ms <= 180000
+                        and 0 <= decision_age <= 360000 and 0 <= candle_age <= 360000):
+                    return False
+            except (TypeError, ValueError):
+                return False
         if current_price is None:
             return False
         try:
@@ -214,21 +231,37 @@ def _build_entry_still_valid_fn(client, intent: "dec.Intent", snapshot: dict):
         if not math.isfinite(current_price) or current_price <= 0:
             return False
         if side == "long":
-            if donchian_upper is not None and current_price < donchian_upper:
+            if donchian_upper is not None and current_price < donchian_upper * (1.0 - tfc.DONCHIAN_ENTRY_PROXIMITY_PCT / 100.0):
                 return False
             if stop_price is not None and current_price <= stop_price:
                 return False
             if target_price is not None and current_price >= target_price:
                 return False
         elif side == "short":
-            if donchian_lower is not None and current_price > donchian_lower:
+            if donchian_lower is not None and current_price > donchian_lower * (1.0 + tfc.DONCHIAN_ENTRY_PROXIMITY_PCT / 100.0):
                 return False
             if stop_price is not None and current_price >= stop_price:
                 return False
             if target_price is not None and current_price <= target_price:
                 return False
+        context = snapshot.get('entry_guard_context')
+        if context is not None:
+            # Reuse the causal decision guard, including both fixed-percent chase
+            # and ATR exhaustion/pullback rules, at this exact executable quote.
+            recent = dec._candidate_entry_overextension_gate(
+                side=side, entry_price=current_price, **context)
+            if not recent.get('allowed'):
+                return False
         return True
 
+    def _still_valid() -> bool:
+        try:
+            return _validate_price(client.fetch_last_price())
+        except Exception:
+            return False
+
+    # Final execution must validate the exact quote used for sizing, with clocks.
+    _still_valid.validate_price = _validate_price
     return _still_valid
 
 
@@ -655,6 +688,8 @@ def run_steady_state_cycle(cfg, client, symbol: str, **kwargs) -> dict:
     여기서 일어남) 자체는 락 밖에서, 그 결과를 반영하는 마무리만 다시 락 안에서
     한다 - 계좌 공통 주문락 자체를 없애거나 CORE/Candidate C를 분리하지 않는다
     (동시진입 한도·중복주문 방어는 전부 기존 그대로 유지)."""
+    try: entry_attempt_notifications.core_entry_events.kick(cfg)
+    except Exception: pass
     return _run_steady_state_cycle_impl(cfg, client, symbol, **kwargs)
 
 
@@ -695,7 +730,9 @@ def _run_steady_state_cycle_impl(
             max_concurrent_positions=max_concurrent_positions,
         )
     if "result" in prepared:
-        return prepared["result"]
+        result=prepared['result']
+        entry_attempt_notifications.record_candidate_block(cfg,dict(result,symbol=symbol),result)
+        return result
 
     intent, snapshot = prepared["intent"], prepared["snapshot"]
     if prepared["branch"] in ("entry_shadow", "entry_live"):
@@ -751,6 +788,8 @@ def _adaptive_decision_context_kwargs(cfg):
     return {
         "sizing_mode": "VARIABLE_RISK" if order_mode == "AUTO_ALL" else "FIXED_MARGIN",
         "adaptive_exit_mode": adaptive_mode,
+        "compact_protection_enabled": (getattr(cfg, 'CANDIDATE_C_COMPACT_PROTECTION_ENABLED', False)
+                                       and order_mode != 'MANUAL_ALL'),
         "adaptive_exit_policy": production_adaptive_exit_policy(),
         "adaptive_audit_user_dir": getattr(cfg, "user_dir", None),
         "adaptive_fixed_margin_usdt": float(getattr(cfg, "CANDIDATE_C_FIXED_MARGIN_USDT", 0.0) or 0.0),
@@ -835,6 +874,8 @@ def _prepare_steady_state_decision_locked(
         )
         state.epoch_store.save(current_position["position_id"], observed_epoch)
         current_position = recon.build_candidate_c_position_state(observed_epoch)
+    if current_position is not None:
+        current_position["mark_price"] = bars_5m[-1]["close"]
 
     if is_live and machine.state == rsm.State.REVERSAL_WAIT_FLAT:
         try:
@@ -858,6 +899,8 @@ def _prepare_steady_state_decision_locked(
         account_id=account_id, symbol=symbol, strategy_id="candidate_c",
         config_version_id=config_version_id, config_hash=config_hash,
         risk_per_trade_pct=risk_per_trade_pct, strategy_policy=strategy_policy,
+        risk_adaptive_partials=(getattr(cfg, 'RISK_ADAPTIVE_PARTIAL_ENABLED', False)
+                                and getattr(cfg, 'CANDIDATE_C_CHART_ONLY', False)),
         **_adaptive_decision_context_kwargs(cfg),
     )
 
@@ -892,7 +935,13 @@ def _prepare_steady_state_decision_locked(
             side=current_position["side"], close_1h=bars_1h_confirmed[-1]["close"], ema_20_1h=ema_20_1h,
         )
         if getattr(cfg, "CANDIDATE_C_LIVE_EXECUTE", False):
+            row4 = indicator_fn(bars_4h_confirmed, donchian_n=20)[-1]
+            cem.observe_pilot_4h_confirmation(epoch_for_weakening,
+                side=current_position["side"], direction_4h=dec.direction_from_4h_indicators(
+                    ema_20=row4.get("ema_20"), ema_50=row4.get("ema_50"), close=row4.get("close")))
             epoch_for_weakening.weakening_prev = weakening_now
+            if intent.reduction_policy_hash:
+                epoch_for_weakening.reduction_policy_hash = intent.reduction_policy_hash
             state.epoch_store.save(current_position["position_id"], epoch_for_weakening)
 
     # decide()는 setup_tracker를 직접 갱신하지 않는다 - 포지션이 없을 때는 이번
@@ -907,11 +956,9 @@ def _prepare_steady_state_decision_locked(
         except Exception:
             snap = None
         if snap is not None:
-            for side in ("long", "short"):
-                setup_tracker.observe(
-                    symbol, side, snap.bar_10m_current["open_time_ms"],
-                    tfc.donchian_setup_condition(snap, side),
-                )
+            dec.observe_entry_setups(setup_tracker, symbol, snap,
+                bars_4h=bars_4h_confirmed, bars_1h=bars_1h_confirmed,
+                bars_5m=bars_5m, indicator_fn=indicator_fn)
     source_bar_10m_open_time_ms = snap.bar_10m_current["open_time_ms"] if snap is not None else None
 
     if intent.kind == dec.INTENT_NO_ACTION:
@@ -946,6 +993,11 @@ def _prepare_steady_state_decision_locked(
         "symbol": symbol, "tf_list": ["4h", "1h"], "position": current_position,
         "trend_direction": trend_direction, "donchian_upper": donchian_upper, "donchian_lower": donchian_lower,
         "current_price": bars_5m[-1]["close"], "atr_4h": atr_4h,
+        "entry_guard_context": dict(
+            bars_1h=[b for b in bars_1h_confirmed if b['close_time_ms'] <= intent.decision_timestamp],
+            atr14_4h=atr_4h, as_of_ms=intent.decision_timestamp, indicator_fn=indicator_fn,
+            bars_5m=[b for b in bars_5m if b.get('confirm') == 1
+                     and b['close_time_ms'] <= intent.decision_timestamp]),
     }
 
     if intent.kind == dec.INTENT_ENTRY:

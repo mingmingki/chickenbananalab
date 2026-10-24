@@ -174,6 +174,8 @@ def _save_daily_loss_notification_state(user_dir: str, data: dict) -> None:
 
 
 def _daily_loss_guard_label(key: str) -> str:
+    if key == "account:intraday_peak_warning":
+        return "계좌 장중 고점대비 하락 경고"
     if key == "account":
         return "ACCOUNT"
     if key == "group:core":
@@ -205,7 +207,8 @@ def _notify_daily_loss_transition(cfg, *, trading_date: str, key: str, active: b
         except Exception:
             log.warning("[daily_loss] 텔레그램 중복방지 상태 저장 실패", exc_info=True)
         label = _daily_loss_guard_label(key)
-        scope = "전체 신규진입 중단" if key == "account" else "신규진입 중단"
+        scope = ("경고 전용 · 신규진입 차단 아님" if key == "account:intraday_peak_warning"
+                 else "전체 신규진입 중단" if key == "account" else "신규진입 중단")
         icon = "🚨" if active else "✅"
         event = "발동" if active else "해제"
         suffix = f" · {scope}" if active else ""
@@ -269,7 +272,8 @@ class DailyLossGuard:
             )
             return None
         if status == "absent" or data.get("trading_date") != today:
-            data = {"trading_date": today, "start_equity": equity}
+            data = {"trading_date": today, "start_equity": equity,
+                    "started_at_ms": int(datetime.datetime.now(pnl_reconciliation.KST).timestamp()*1000)}
             _save_daily_baseline_atomic(self.cfg.user_dir, data)
             self._log().info("[daily_loss] %s 신규 거래일(KST) 기준 자산 설정: %.2f USDT", today, equity)
         return data
@@ -277,14 +281,28 @@ class DailyLossGuard:
     def allow_new_entry(self, equity: float) -> bool:
         with self._lock:
             baseline = self._load_or_init_baseline(equity)
+            self.last_entry_check={'equity':equity,'baseline_available':baseline is not None}
             if baseline is None:
                 return False
             start_equity = baseline.get("start_equity")
             trading_date_text = str(baseline.get("trading_date") or self._today_kst().isoformat())
 
             if start_equity and start_equity > 0:
-                account_loss_pct = max(0.0, (start_equity - equity) / start_equity * 100)
-                account_cap = self.cfg.ACCOUNT_HARD_DAILY_LOSS_PCT
+                import daily_equity_flow_adjustment
+                flow_risk = daily_equity_flow_adjustment.from_user_dir(
+                    self.cfg.user_dir, start_equity, equity, baseline)
+                account_loss_pct = flow_risk["adjusted_drawdown_pct"]
+                self.last_entry_check.update(
+                    account_flow_status=flow_risk["status"],
+                    account_raw_equity_decline_pct=flow_risk["raw_equity_decline_pct"],
+                    account_net_capital_flow_usdt=flow_risk["net_flow_usdt"])
+                account_cap = float(self.cfg.ACCOUNT_HARD_DAILY_LOSS_PCT)
+                # v33-22: additional stricter account-only guard, does not
+                # loosen or mutate any previously approved Candidate C setting.
+                new_risk_cap = float(getattr(self.cfg, 'ACCOUNT_NEW_RISK_DAILY_LOSS_PCT', 0.0) or 0.0)
+                if new_risk_cap > 0 and self.group == "core":
+                    account_cap = min(account_cap, new_risk_cap)
+                self.last_entry_check.update(start_equity=start_equity,account_loss_pct=account_loss_pct,account_limit_pct=account_cap)
                 account_blocked = account_loss_pct >= account_cap
                 _notify_daily_loss_transition(
                     self.cfg, trading_date=trading_date_text, key="account", active=account_blocked,
@@ -297,12 +315,48 @@ class DailyLossGuard:
                     )
                     return False
 
+                # v33-22: account-wide peak-to-current drawdown blocks only
+                # NEW risk (CORE/Candidate C/manual/add), never existing exits.
+                peak_limit = float(getattr(self.cfg, 'ACCOUNT_INTRADAY_PEAK_DRAWDOWN_PCT', 0.0) or 0.0)
+                if peak_limit > 0:
+                    import account_peak_guard_v33_22
+                    peak = account_peak_guard_v33_22.evaluate(
+                        self.cfg.user_dir, baseline, equity, peak_limit,
+                    )
+                    self.last_entry_check.update(
+                        account_peak_status=peak.get('status'),
+                        account_peak_drawdown_pct=peak.get('drawdown_pct'),
+                        account_peak_limit_pct=peak_limit,
+                        account_peak_equity=peak.get('peak_equity'),
+                        account_peak_reason=peak.get('reason'),
+                    )
+                    peak_blocked = bool(peak['blocked'])
+                    _notify_daily_loss_transition(
+                        self.cfg, trading_date=trading_date_text, key='account:intraday_peak_warning',
+                        active=peak_blocked,
+                        current_pct=float(peak.get('drawdown_pct') or 0.0),
+                        limit_pct=peak_limit,
+                    )
+                    # v33-45: the 3%% intraday-peak *advisory* is not an
+                    # additional hidden entry gate. Explicit group and hard
+                    # daily limits below remain enforceable.
+                    self.last_entry_check['account_peak_warning_only'] = True
+                    if peak_blocked:
+                        self._log().warning(
+                            '[daily_loss][ACCOUNT_PEAK_WARNING] 경고 전용(신규 진입 차단 아님): '
+                            'peak=%.2f adjusted_drawdown=%s%% warning=%.2f%% status=%s reason=%s',
+                            float(peak.get('peak_equity') or 0),
+                            peak.get('drawdown_pct'), peak_limit,
+                            peak.get('status'), peak.get('reason'),
+                        )
+
                 trading_date = datetime.date.fromisoformat(trading_date_text)
                 group_realized_pnl = pnl_reconciliation.realized_pnl_for_kst_date(
                     self.cfg.user_dir, self.group, trading_date,
                 )
                 group_loss_pct = max(0.0, -group_realized_pnl / start_equity * 100)
                 limit_pct = getattr(self.cfg, self.limit_attr)
+                self.last_entry_check.update(group_realized_pnl=group_realized_pnl,group_loss_pct=group_loss_pct,group_limit_pct=limit_pct)
                 group_blocked = group_loss_pct >= limit_pct
                 _notify_daily_loss_transition(
                     self.cfg, trading_date=trading_date_text, key=f"group:{self.group}", active=group_blocked,
@@ -323,7 +377,9 @@ class DailyLossGuard:
             start_equity = baseline.get("start_equity")
             if not start_equity:
                 return 0.0
-            return max(0.0, (start_equity - equity) / start_equity * 100)
+            import daily_equity_flow_adjustment
+            return daily_equity_flow_adjustment.from_user_dir(
+                self.cfg.user_dir,start_equity,equity,baseline)["adjusted_drawdown_pct"]
 
 
 def calculate_adaptive_risk_capped_size(*, entry_price: float, stop_price: float, risk_budget_usdt: float,

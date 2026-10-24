@@ -35,10 +35,19 @@ def test_build_report_has_fixed_chatgpt_sections_and_no_secrets():
     report=analysis_report.build_report(sample_snapshot(), now=now)
     text=report["text"]
     assert report["report_id"].startswith("RPT-20260925T120000+")
-    for heading in ("[1. 데이터 품질]","[2. 전체 성과]","[3. 지난 리포트 대비]","[4. 종목별]","[5. LONG / SHORT]","[6. 좋은 조건 TOP 10]","[7. 나쁜 조건 TOP 10]","[8. TF 조합]","[9. Gemini / GPT confidence]","[10. 자가학습 상태]","[11. 최근 counterfactual]","[12. 최근 6시간 AI 리뷰]","[13. 현재 실매매 설정]","[14. 현재 포지션]","[15. 시스템 이상]"):
+    for heading in ("[1. 데이터 품질]","[2. 전체 성과]","[3. 지난 리포트 대비]","[4. 종목별]","[5. LONG / SHORT]","[6. 좋은 조건 TOP 10]","[7. 나쁜 조건 TOP 10]","[8. TF 조합]","[9. Gemini / GPT confidence]","[10. 자가학습 상태]","[11. 최근 counterfactual]","[12. 유료 전략 리뷰 운영 상태 / 과거 기록]","[13. 현재 실매매 설정]","[14. 현재 포지션]","[15. 시스템 이상]"):
         assert heading in text
     assert "sk-do-not-print" not in text
     assert "never-print" not in text
+    assert "실매매 설정 자동 변경 없음" in text
+
+
+def test_report_retired_review_preserves_observations_without_suggesting_active_schedule():
+    snap = sample_snapshot()
+    snap["review"].update(scheduled_enabled=False, kind="historical_strategy_review")
+    text = analysis_report.build_report(snap)["text"]
+    assert "유료 정기 리뷰 중단" in text
+    assert "관찰 A" in text and "관찰 B" in text
     assert "실매매 설정 자동 변경 없음" in text
 
 

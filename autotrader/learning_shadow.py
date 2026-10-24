@@ -147,10 +147,29 @@ def _pattern_direction(item):
     return item.get('direction') if isinstance(item, dict) else None
 
 
-def summarize_pattern_evidence(user_dir: str) -> dict[str, dict]:
+def summarize_pattern_evidence(user_dir: str, since=None) -> dict[str, dict]:
     decisions = _read(_path(user_dir, DECISIONS))
     resolved = _read(_path(user_dir, COUNTERFACTUALS))
-    by_decision = {r.get('decision_id'): r for r in resolved}
+    since_dt = _time(since) if since is not None else None
+    if since_dt is not None:
+        if since_dt.tzinfo is None:
+            since_dt = since_dt.replace(tzinfo=dt.timezone.utc)
+        else:
+            since_dt = since_dt.astimezone(dt.timezone.utc)
+        filtered = []
+        for d in decisions:
+            t = _time(d.get('timestamp'))
+            if t is None:
+                continue
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=dt.timezone.utc)
+            else:
+                t = t.astimezone(dt.timezone.utc)
+            if t >= since_dt:
+                filtered.append(d)
+        decisions = filtered
+    decision_ids = {d.get('decision_id') for d in decisions}
+    by_decision = {r.get('decision_id'): r for r in resolved if r.get('decision_id') in decision_ids}
     out = {}
     for d in decisions:
         for item in d.get('matched_patterns') or []:

@@ -47,6 +47,7 @@ from __future__ import annotations
 import datetime
 import glob
 import json
+import math
 import os
 import threading
 
@@ -272,7 +273,7 @@ def _build_current_position(open_state: dict) -> dict:
 
 def _paper_decide(open_state: dict, bars_5m_window: list, bars_4h: list, bars_1h: list,
                    strategy_policy: dict | None, *, indicator_fn=None,
-                   lot_step: float = 0.0001, min_size: float = 0.0001):
+                   lot_step: float = 0.0001, min_size: float = 0.0001, risk_adaptive_partials=False):
     """실제 라이브(run_steady_state_cycle)와 동일한 공식으로 high_water를 먼저
     갱신한 뒤 decide()를 호출한다. setup_tracker/reversal_machine은 이 호출에서
     실제로 쓰이지 않는다(current_position이 있는 관리 분기는 둘 다 참조하지
@@ -314,6 +315,7 @@ def _paper_decide(open_state: dict, bars_5m_window: list, bars_4h: list, bars_1h
         account_id="paper", symbol=open_state.get("symbol", ""), strategy_id="candidate_c_paper",
         config_version_id=open_state.get("config_hash", "v1"), config_hash=open_state.get("config_hash", "v1"),
         risk_per_trade_pct=1.0, strategy_policy=strategy_policy,
+        risk_adaptive_partials=risk_adaptive_partials,
     )
     intent = dec.decide(
         ctx, as_of_ms=as_of_ms,
@@ -325,6 +327,8 @@ def _paper_decide(open_state: dict, bars_5m_window: list, bars_4h: list, bars_1h
         lot_step=lot_step, min_size=min_size, indicator_fn=indicator_fn,
     )
 
+    if intent.reduction_policy_hash:
+        open_state['reduction_policy_hash'] = intent.reduction_policy_hash
     # 실제 라이브(run_steady_state_cycle)와 동일하게, weakening_prev는 이 결정
     # "이후"의 상태로 갱신해 저장한다(이번 판단 자체는 이전 값을 썼음) - 같은
     # indicator_fn을 써서 decide() 내부와 동일한 EMA를 본다.
@@ -333,6 +337,12 @@ def _paper_decide(open_state: dict, bars_5m_window: list, bars_4h: list, bars_1h
         open_state["weakening_prev"] = dec.weakening_from_1h(
             side=side, close_1h=bars_1h_confirmed[-1]["close"], ema_20_1h=ema_20_1h,
         )
+    if open_state.get("pilot_entry") and bars_4h_confirmed:
+        row4 = indicator_fn(bars_4h_confirmed, donchian_n=20)[-1]
+        direction4 = dec.direction_from_4h_indicators(
+            ema_20=row4.get("ema_20"), ema_50=row4.get("ema_50"), close=row4.get("close"))
+        if direction4 == ("LONG" if side == "long" else "SHORT"):
+            open_state["pilot_4h_confirmed"] = True
     return intent
 
 
@@ -354,6 +364,8 @@ class _PaperEpochView:
     def get(self, key):
         return cem.PositionEpochState(
             derisk_done=self._open_state.get("derisk_done", False),
+            pilot_entry=self._open_state.get("pilot_entry", False),
+            pilot_4h_confirmed=self._open_state.get("pilot_4h_confirmed", False),
             partial_take_profit_done=self._open_state.get("partial_take_profit_done", False),
             profit_lock_active=self._open_state.get("profit_lock_active", False),
             original_contracts=self._open_state.get("original_contracts",
@@ -501,7 +513,9 @@ def update(cfg, symbol: str, result: dict, bars_5m_confirmed: list, contract_siz
                     key=lambda b: b["open_time_ms"],
                 )
                 intent = _paper_decide(open_state, window, bars_4h, bars_1h, strategy_policy,
-                                        indicator_fn=indicator_fn, lot_step=lot_step, min_size=min_size)
+                                        indicator_fn=indicator_fn, lot_step=lot_step, min_size=min_size,
+                                        risk_adaptive_partials=(getattr(cfg,'RISK_ADAPTIVE_PARTIAL_ENABLED',False)
+                                            and getattr(cfg,'CANDIDATE_C_CHART_ONLY',False)))
                 closed = _apply_paper_intent(cfg.user_dir, symbol, open_state, intent, bar)
                 if closed:
                     return
@@ -529,7 +543,10 @@ def update(cfg, symbol: str, result: dict, bars_5m_confirmed: list, contract_siz
         )
         margin = getattr(cfg, "CANDIDATE_C_FIXED_MARGIN_USDT", 50.0)
         leverage = getattr(cfg, "CANDIDATE_C_LEVERAGE", 3)
-        notional = margin * leverage
+        entry_fraction = float(result.get("entry_size_fraction", 1.0))
+        if not math.isfinite(entry_fraction) or not 0 < entry_fraction <= 1:
+            return
+        notional = margin * leverage * entry_fraction
         base_qty = notional / effective_entry_price if effective_entry_price else 0.0
         contracts = base_qty / contract_size if contract_size else 0.0
         if contracts <= 0:
@@ -542,7 +559,8 @@ def update(cfg, symbol: str, result: dict, bars_5m_confirmed: list, contract_siz
             "entry_time_ms": latest["open_time_ms"], "contracts": contracts, "contract_size": contract_size,
             "stop_price": result.get("raw_stop_price"), "target_price": result.get("raw_target_price"),
             "initial_stop_price": result.get("raw_stop_price"), "high_water": raw_close,
-            "weakening_prev": False, "derisk_done": False,
+            "weakening_prev": bool(result.get("entry_weakening_baseline", False)), "derisk_done": False,
+            "pilot_entry": bool(result.get("pilot_entry", False)), "pilot_4h_confirmed": False,
             "partial_take_profit_done": False, "original_contracts": contracts,
             "profit_lock_active": False, "profit_lock_stop_price": None,
             # entry가 일어난 이 봉 자체는 "이미 처리됨"으로 표시한다 - 재시작 등으로

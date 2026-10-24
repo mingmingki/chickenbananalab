@@ -10,6 +10,7 @@ GPT Entry Gate가 timeout(설정 10초)인데도 실제로는 30초 이상 걸�
 건드리지 않음). 실거래 판단에는 전혀 영향을 주지 않는 순수 관측 로그다."""
 import datetime
 import json
+import usage_log
 import os
 
 import jsonl_cache
@@ -27,29 +28,36 @@ def record_call(
     request_start: str,
     response_ms: float,
     timed_out: bool,
-    retry_count: int,
+    retry_count: int | None = None,
     error_reason: str | None = None,
     prompt_chars: int | None = None,
     prompt_tokens: int | None = None,
     completion_tokens: int | None = None,
+    *, retry_limit: int | None = None, measured_retry_count: int | None = None,
 ) -> None:
     """request_start: 요청 시작 시각(ISO). response_ms: 응답까지 걸린 시간(성공/실패 무관).
-    retry_count: 이 호출에 실제로 허용된 SDK 재시도 횟수(호출부가 openai 클라이언트에
-    명시적으로 설정한 값 그대로 - SDK가 응답에 실제 재시도 횟수를 노출하지 않으므로,
-    "설정값 이상 재시도가 절대 발생할 수 없다"는 걸 보장하는 설정값 자체를 기록한다).
+    retry_count: legacy argument containing the configured ceiling, retained for old callers.
+    retry_limit: explicit configured ceiling. measured_retry_count: observed retries, if known.
+    A disabled ceiling proves zero; otherwise unobserved retries are JSON null.
     prompt_chars: 토큰 계산 라이브러리 의존성 없이 쓸 수 있는 프롬프트 크기 근사치."""
+    limit = retry_limit if retry_limit is not None else retry_count
+    limit = limit if type(limit) is int and limit >= 0 else None
+    measured = measured_retry_count if measured_retry_count is not None else (0 if limit == 0 else None)
     os.makedirs(user_dir, exist_ok=True)
     with open(_log_path(user_dir), "a", encoding="utf-8") as f:
         f.write(
             json.dumps(
                 {
+                    **usage_log._call_context.get(),
                     "symbol": symbol,
                     "purpose": purpose,
                     "model": model,
                     "request_start": request_start,
                     "response_ms": response_ms,
                     "timed_out": timed_out,
-                    "retry_count": retry_count,
+                    "retry_count": measured,
+                    "retry_limit": limit,
+                    "retry_measurement": "known" if measured is not None else "unknown",
                     "error_reason": error_reason,
                     "prompt_chars": prompt_chars,
                     "prompt_tokens": prompt_tokens,

@@ -19,13 +19,15 @@ def position(side="short", contracts=2.97):
 def test_verified_exchange_protection_is_exposed_exactly():
     client = Client({"algo_id": "a1", "sl_price": 2782.9, "tp_price": 2619.2, "sz": 2.97})
     snap = trader._live_protection_snapshot(client, position())
-    assert snap == {
+    assert {k: snap[k] for k in ("status","algo_id","sl_price","tp_price","sz")} == {
         "status": "VERIFIED",
         "algo_id": "a1",
         "sl_price": 2782.9,
         "tp_price": 2619.2,
         "sz": 2.97,
     }
+    assert snap["checked_at"]
+    assert snap["reason"] is None
 
 
 def test_mismatched_or_unknown_protection_is_not_synthesized():

@@ -44,6 +44,7 @@ def test_core_run_all_does_not_start_candidate_engine(monkeypatch, tmp_path):
         "run_candidate_c_engine",
         lambda *args, **kwargs: calls.append((args, kwargs)) or [],
     )
+    monkeypatch.setattr(trader.market_context, "start", lambda: None)
     monkeypatch.setattr(trader.threading, "Thread", FakeThread)
     monkeypatch.setattr(trader.pnl_store, "load_baseline", lambda _user_dir: 1000.0)
     monkeypatch.setattr(trader.risk_manager, "DailyLossGuard", lambda *a, **k: object())

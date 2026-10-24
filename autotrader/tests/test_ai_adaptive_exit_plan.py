@@ -10,13 +10,13 @@ def _ctx(side="long", risk_budget=20.0):
     kw = dict(
         symbol="X/USDT:USDT", side=side, entry_price=100.0, current_quantity=10.0,
         current_stop=None, equity_usdt=1000.0, trade_risk_budget_usdt=risk_budget,
-        atr=2.0, configured_margin_usdt=200.0, leverage=5.0,
+        atr=1.0, configured_margin_usdt=200.0, leverage=5.0,
         order_cap_notional=1000.0, mode="LIVE_BOUNDED",
     )
     if side == "long":
-        kw.update(structural_support=92.0, near_resistance=110.0)
+        kw.update(structural_support=98.0, near_resistance=112.0)
     else:
-        kw.update(structural_resistance=108.0, near_support=90.0)
+        kw.update(structural_resistance=102.0, near_support=88.0)
     return ae.AdaptiveExitContext(**kw)
 
 
@@ -84,7 +84,7 @@ def test_apply_ai_price_plan_rejects_unsafe_geometry_and_keeps_baseline():
     ctx = _ctx("long")
     base = ae.AdaptiveExitEngine(policy).plan(ctx)
     plan, reason = ae.apply_ai_price_plan(base, ctx, {
-        "stop_loss_price": 98.5, "take_profit_1_price": 103,
+        "stop_loss_price": 98.8, "take_profit_1_price": 103,
         "take_profit_2_price": 106,
     }, policy)
     assert reason == "ai_stop_below_atr_min"
@@ -106,12 +106,9 @@ def test_apply_ai_price_plan_supports_short_direction():
 
 
 def test_gemini_and_gpt_prompts_include_ai_exit_price_contract():
-    gemini_exit = gemini_analyzer.GEMINI_DECISION_SCHEMA["properties"]["exit_plan"]["properties"]
-    assert "stop_loss_price" in gemini_exit
-    assert "take_profit_1_price" in gemini_exit
-    assert "take_profit_2_price" in gemini_exit
-    assert "stop_loss_price" in gemini_analyzer.PROMPT_TEMPLATE
-    assert "take_profit_1_price" in gemini_analyzer.PROMPT_TEMPLATE
+    assert "exit_plan" in gemini_analyzer.GEMINI_DECISION_SCHEMA["properties"]
+    assert "stop_loss_price" in gemini_analyzer.EXIT_PRICE_SCHEMA["properties"]
+    assert "take_profit_1_price" in gemini_analyzer.EXIT_PRICE_SCHEMA["properties"]
     assert "exit_plan_decision" in openai_analyzer.PROMPT_TEMPLATE
     assert '"revise"' in openai_analyzer.PROMPT_TEMPLATE
 
@@ -126,10 +123,8 @@ def test_trader_applies_verified_ai_exit_plan_only_after_gpt_gate():
     assert gate_at < select_at < apply_at < execute_at
 
 
-def test_ai_exit_plan_json_braces_are_safe_for_python_format_templates():
-    rendered = gemini_analyzer.PROMPT_TEMPLATE.format(
-        symbol="BTC/USDT:USDT", timeframes_desc="1m, 5m", candle_summary="compact", position_desc="없음"
-    )
-    assert "response schema" in rendered
+def test_ai_exit_plan_json_contract_is_safe_for_each_provider():
+    # Gemini uses an out-of-band response schema, so no JSON braces are needed in its format template.
     assert "exit_plan" in gemini_analyzer.GEMINI_DECISION_SCHEMA["properties"]
+    # OpenAI still embeds the JSON contract in a Python .format() template, so braces must be escaped.
     assert '"exit_plan": {{' in openai_analyzer.PROMPT_TEMPLATE

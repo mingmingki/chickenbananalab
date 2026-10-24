@@ -685,7 +685,16 @@ def _execute_order(
             contract_size=meta["contract_size"], lot_step=meta["lot_step"],
             min_contracts=meta.get("min_size", meta.get("min_contracts")),
         )
-        base_quantity_full = size["amount_coin"]
+        entry_size_fraction = order.get("entry_size_fraction", 1.0)
+        try:
+            entry_size_fraction = float(entry_size_fraction)
+        except (TypeError, ValueError):
+            entry_size_fraction = 0.0
+        if not math.isfinite(entry_size_fraction) or not 0.0 < entry_size_fraction <= 1.0:
+            result.rejected_orders.append({"symbol": symbol, "ts": bar["open_time_ms"], "reason": "invalid_entry_size_fraction"})
+            risk_ledger.release(symbol)
+            return
+        base_quantity_full = size["amount_coin"] * entry_size_fraction
     else:
         notional_usdt = cfg.risk_per_trade_usdt / (cfg.stop_distance_pct / 100.0)
         base_quantity_full = notional_usdt / effective_price

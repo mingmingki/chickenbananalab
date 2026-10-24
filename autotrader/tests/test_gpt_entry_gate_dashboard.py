@@ -5,6 +5,7 @@ import gpt_shadow_log
 
 
 def _append(user_dir, **row):
+    row.setdefault("symbol", "ETH/USDT:USDT")
     path = Path(user_dir) / "gpt_shadow_log.jsonl"
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")

@@ -48,6 +48,23 @@ def latest_at_or_before(records: list[dict], symbol: str, cutoff: dt.datetime):
     return max(eligible, key=lambda pair: pair[0])[1] if eligible else None
 
 
+def candidate_setup_near(records: list[dict], symbol: str, side: str, cutoff: dt.datetime, slop_seconds: float = 60.0):
+    candidates = []
+    wanted = str(side or '').lower()
+    for row in records:
+        if row.get('symbol') != symbol or str(row.get('side') or '').lower() != wanted:
+            continue
+        if row.get('provenance_exact') is not True:
+            continue
+        stamp = _parse_time(row.get('captured_at') or row.get('time'))
+        if stamp is None:
+            continue
+        delta = abs((stamp - cutoff).total_seconds())
+        if delta <= slop_seconds:
+            candidates.append((delta, stamp, row))
+    return min(candidates, key=lambda item:(item[0], item[1]))[2] if candidates else None
+
+
 def successful_entry_gate_near(records: list[dict], symbol: str, cutoff: dt.datetime, slop_seconds: float = 10.0):
     candidates = []
     for row in records:
@@ -117,16 +134,46 @@ def _confidence_bucket(value):
 
 
 def _load_sources(user_dir: str) -> dict[str, list[dict]]:
-    out = {
+    return {
         'market': _read_family(user_dir, 'market_structure_log.jsonl'),
         'candle': _read_family(user_dir, 'candle_finality_log.jsonl'),
         'gpt': _read_family(user_dir, 'gpt_shadow_log.jsonl'),
         'posai': _read_family(user_dir, 'position_ai_log.jsonl'),
-        'lowfollow': _read_family(user_dir, 'low_follow_through_shadow.jsonl'),
-        'daily': _read_family(user_dir, 'entry_tf_daily_backfill.jsonl'),
+        'candidate_setup': _read_family(user_dir, 'candidate_c_breakout_setup_provenance.jsonl'),
     }
-    out['lowfollow_by_trade'] = {str(r.get('trade_id')): r for r in out['lowfollow'] if r.get('trade_id')}
-    out['daily_by_trade'] = {str(r.get('trade_id')): r for r in out['daily'] if r.get('trade_id')}
+
+
+def telemetry_epochs(user_dir: str) -> dict[str, dt.datetime]:
+    sources = _load_sources(user_dir)
+    def earliest(rows, *, candidate=False):
+        stamps=[]
+        for row in rows:
+            stamp=None
+            if candidate:
+                raw=row.get('source_candle_close_timestamp')
+                if raw is not None:
+                    try:
+                        stamp=dt.datetime.fromtimestamp(float(raw)/1000.0, tz=dt.timezone.utc)
+                        stamp=stamp.astimezone(dt.timezone(dt.timedelta(hours=9))).replace(tzinfo=None)
+                    except (TypeError, ValueError, OSError):
+                        stamp=None
+                if stamp is None:
+                    stamp=_parse_time(row.get('captured_at') or row.get('time'))
+            else:
+                stamp=_parse_time(row.get('time'))
+            if stamp is not None:
+                stamps.append(stamp)
+        return min(stamps) if stamps else None
+
+    market=earliest(sources.get('market', []))
+    candle=earliest(sources.get('candle', []))
+    gpt=earliest(sources.get('gpt', []))
+    candidate=earliest(sources.get('candidate_setup', []), candidate=True)
+    out={}
+    if market is not None and candle is not None and gpt is not None:
+        out['core']=max(market,candle,gpt)
+    if candidate is not None:
+        out['candidate_c']=candidate
     return out
 
 def enrich_lifecycle(user_dir: str, lifecycle: dict, sources: dict | None = None) -> dict:
@@ -139,28 +186,17 @@ def enrich_lifecycle(user_dir: str, lifecycle: dict, sources: dict | None = None
 
     symbol = lifecycle.get('symbol')
     sources = sources or _load_sources(user_dir)
-    trade_id = str(lifecycle.get('trade_id') or '')
-    lowfollow = (sources.get('lowfollow_by_trade') or {}).get(trade_id)
-    daily = (sources.get('daily_by_trade') or {}).get(trade_id)
     market = latest_at_or_before(sources.get('market', []), symbol, cutoff)
     candle = latest_at_or_before(sources.get('candle', []), symbol, cutoff)
     gpt = successful_entry_gate_near(sources.get('gpt', []), symbol, cutoff) or latest_at_or_before(sources.get('gpt', []), symbol, cutoff)
     posai = latest_at_or_before(sources.get('posai', []), symbol, cutoff)
+    group = lifecycle.get('strategy_group') or lifecycle.get('_group') or 'legacy'
+    candidate_setup = candidate_setup_near(
+        sources.get('candidate_setup', []), symbol, lifecycle.get('side'), cutoff
+    ) if group == 'candidate_c' else None
     indicators = (candle or {}).get('indicators') or {}
     for name in _TFS:
         tf[name] = {'state': classify_tf_state(indicators.get(name))}
-    fallback_used = False
-    low_states = (lowfollow or {}).get('states') or {}
-    for name in ('3m','5m','1h','4h'):
-        state = str(low_states.get(name) or 'unknown').lower()
-        if tf[name]['state'] == 'unknown' and state in ('bullish','bearish','mixed','neutral'):
-            tf[name] = {'state': state, 'source': 'asof_backfill'}
-            fallback_used = True
-    daily_state = str((daily or {}).get('state_1d') or 'unknown').lower()
-    if tf['1d']['state'] == 'unknown' and (daily or {}).get('resolved') and daily_state in ('bullish','bearish','mixed','neutral'):
-        tf['1d'] = {'state': daily_state, 'source': 'asof_backfill'}
-        fallback_used = True
-    analysis_tf_complete = bool(gpt is not None and all(tf[name]['state'] != 'unknown' for name in ('3m','5m','1h','4h','1d')))
 
     open_event = next((e for e in lifecycle.get('events',[]) if e.get('type') == 'open'), {})
     gemini_action = _first_value([candle, market, gpt], 'gemini_action','action')
@@ -198,8 +234,7 @@ def enrich_lifecycle(user_dir: str, lifecycle: dict, sources: dict | None = None
             'candle_finality': candle is not None,
             'gpt': gpt is not None,
             'position_ai': posai is not None,
-            'asof_tf_backfill': fallback_used,
-            'analysis_tf_complete': analysis_tf_complete,
+            'candidate_setup': candidate_setup is not None,
         },
     }
     return result

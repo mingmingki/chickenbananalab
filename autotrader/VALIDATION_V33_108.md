@@ -1,0 +1,12 @@
+# v33-108 · Claude historical-analysis plan · 2026-10-23 KST
+- CORE only: retain v33-106 confirmed 4H EMA-direction gate and routine AI exit suppression unchanged.
+- Add 4H confirmed EMA20/EMA50 separation >= 0.5 x ATR14 as an opt-in BEFORE GPT/order submission.
+- No new reversal, early-close, reentry, stop/target, leverage, margin, or risk expansion. Candidate C untouched.
+- Exit study ONLY: adverse 1H close relative to 1H EMA20 + adverse 15m EMA20 slope + initial-risk loss >= 0.3R. Trigger logs diagnostic signal, hypothetical mark/benchmark and follow-ups at 1h/4h/24h; NEVER dispatches close/order.
+- Experiment START 2026-10-23 14:00 KST, END 2026-11-06 14:00 KST, after which no new signals are generated.
+- Two-week discretionary strategy freeze; critical operational/financial/data/security defects may be fixed after verification.
+- Test evidence: synthetic boundary/shadow-dedup PASS; targeted 144 PASS; full 2499 PASS/30 FAIL, all 30 baseline or live-data-dependent (ETH rolling-factor test reproduced failing unmodified v33-107). Existing 29 failures in previous v33-107.
+- Shadow file: /opt/autotrader/users/chickenbananalab/core_1h_exit_shadow_v33_108.jsonl
+- Active entry flag: /opt/autotrader/users/chickenbananalab/core_trend_strength_v33_108.enabled
+- Rollback: remove flag, restore /opt/autotrader -> dashboard_latency_v33_107_20261023KST atomically, restart service; do not touch positions, account data, or protection.
+- Backtested numerical R figures from third-party report are NOT independently reproduced by these unit and regression tests; do not claim profitability proven.

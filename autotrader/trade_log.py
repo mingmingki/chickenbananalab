@@ -90,6 +90,9 @@ def record_close(
     funding_fee: float | None = None,
     strategy_group: str | None = None,
     execution_id: str | None = None,
+    close_reason_evidence: dict | None = None,
+    close_execution_evidence: dict | None = None,
+    close_order_reference: dict | None = None,
 ) -> None:
     """strategy_group: "core"/"fast"/None(레거시). CORE/FAST 아키텍처 분리(사용자
     지시 49~50번) 이전 기록에는 이 필드가 아예 없다 - 그런 과거 기록을 심볼만 보고
@@ -108,6 +111,9 @@ def record_close(
             "pnl": pnl,
             "fee": fee,
             "reason": reason,
+            **({"close_reason_evidence": close_reason_evidence} if close_reason_evidence else {}),
+            **({"close_execution_evidence": close_execution_evidence} if close_execution_evidence else {}),
+            **({"close_order_reference": close_order_reference} if close_order_reference else {}),
             "dry_run": dry_run,
             "pnl_source": pnl_source,
             "close_price": close_price,
@@ -135,6 +141,7 @@ def record_reduce(
     funding_fee: float | None = None,
     strategy_group: str | None = None,
     execution_id: str | None = None,
+    close_execution_evidence: dict | None = None,
 ) -> None:
     """보유 포지션 AI 관리 REDUCE_50(부분 감축) 전용 기록(2026-09-11 버그 수정으로
     도입) - record_close()와 필드는 동일하지만 type이 "close"가 아니라 "reduce"다.
@@ -153,6 +160,7 @@ def record_reduce(
         user_dir,
         {
             "type": "reduce",
+            **({"close_execution_evidence":close_execution_evidence} if close_execution_evidence else {}),
             **({"execution_id": execution_id} if execution_id else {}),
             "symbol": symbol,
             "side": side,
@@ -379,6 +387,34 @@ def last_external_close(user_dir: str, symbol: str) -> dict | None:
     return last
 
 
+def last_current_external_close(user_dir: str, symbol: str) -> dict | None:
+    """Allow external-close locks only for the latest close in that symbol.
+
+    A later AI/manual/signal close supersedes a prior favorable protection
+    stop. Read the journal ONCE so concurrent appends cannot cause a
+    cross-snapshot identity mismatch. Unparseable incomplete writes are
+    ignored, as elsewhere in the append-only journal.
+    """
+    path=_log_path(user_dir)
+    if not os.path.exists(path):
+        return None
+    latest=None
+    latest_external=None
+    with open(path,'r',encoding='utf-8') as f:
+        for line in f:
+            try:
+                rec=json.loads(line)
+            except (ValueError,TypeError):
+                continue
+            if (not isinstance(rec,dict) or rec.get('type')!='close'
+                    or rec.get('symbol')!=symbol):
+                continue
+            latest=rec
+            if rec.get('reason') in EXTERNAL_CLOSE_REASONS:
+                latest_external=rec
+    return latest_external if latest is not None and latest==latest_external else None
+
+
 def load_realized_trades(user_dir: str, dry_run: bool | None = None) -> list:
     """Legacy rows and replayed CORE fills; each execution is visible once."""
     import core_unified_history
@@ -486,7 +522,7 @@ def period_breakdown(user_dir: str, dry_run: bool | None = None) -> dict:
             b["total_pnl"] += pnl
             b["total_fee"] += fee
             b["total_net"] += net
-            if pnl > 0:
+            if net > 0:
                 b["wins"] += 1
 
     def finalize(bucket: dict) -> list:

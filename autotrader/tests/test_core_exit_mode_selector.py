@@ -26,9 +26,9 @@ def _cfg(mode='AUTO'):
 
 def _features():
     return {
-        'atr':2.0,'structural_support':90.0,'structural_resistance':110.0,
-        'near_resistance':118.0,'near_support':82.0,
-        'continuation_resistance':125.0,'continuation_support':75.0,
+        'atr':1.0,'structural_support':98.0,'structural_resistance':102.0,
+        'near_resistance':112.0,'near_support':88.0,
+        'continuation_resistance':116.0,'continuation_support':84.0,
         'source_timestamps':(1000,), 'input_snapshot_hash':'selector',
     }
 

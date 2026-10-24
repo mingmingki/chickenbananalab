@@ -5,8 +5,8 @@
 volume] 6개만 반환한다. 그래서 우리 코드는 ccxt를 쓰는 한 애초에 "이 캔들이 확정됐는지"를
 응답에서 직접 알 수 없고, timestamp + 타임프레임 길이로 직접 계산해서 판정해야 한다.
 
-Phase 1.5(Shadow): 여기서 만든 "확정봉만 남긴 df"는 로그 비교용이며, 실제 Gemini
-프롬프트/매매 판단(LIVE 경로)에는 아직 쓰지 않는다."""
+확정 시각은 UTC로 비교하며, 지정한 스냅샷 이후의 봉은 모두 제외한다.
+반환 데이터는 전략 입력과 로그에 사용하며 이 모듈에는 주문 권한이 없다."""
 import datetime
 
 from timeframes import LADDER
@@ -25,7 +25,11 @@ def is_last_candle_closed(last_open: datetime.datetime, timeframe: str,
                            grace_seconds: float = GRACE_SECONDS) -> bool:
     # pandas의 timestamp 컬럼(pd.to_datetime(..., unit="ms"))이 naive UTC라서, 여기서도
     # naive로 맞춰야 비교가 가능하다(aware datetime과 비교하면 TypeError).
-    now = now or datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if now.tzinfo is not None:
+        now = now.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    if last_open.tzinfo is not None:
+        last_open = last_open.astimezone(datetime.timezone.utc).replace(tzinfo=None)
     duration = TF_SECONDS[timeframe]
     expected_close = last_open + datetime.timedelta(seconds=duration)
     return expected_close <= now - datetime.timedelta(seconds=grace_seconds)
@@ -35,10 +39,14 @@ def split_live_closed(df, timeframe: str, now: datetime.datetime | None = None,
                        grace_seconds: float = GRACE_SECONDS):
     """반환: (live_df, closed_df, meta).
     live_df: 원본 df 그대로(현재 production과 동일 - 이 함수를 거쳐도 값이 바뀌지 않는다).
-    closed_df: 마지막 캔들이 미확정이면 그 행만 제거한 버전. 확정이면 live_df와 동일 내용."""
+    closed_df: 동일한 스냅샷 시각에 확정된 봉만 남긴 버전. 모두 확정이면 원본과 동일."""
     last_open = df["timestamp"].iloc[-1].to_pydatetime()
-    closed = is_last_candle_closed(last_open, timeframe, now, grace_seconds)
-    closed_df = df if closed else df.iloc[:-1].reset_index(drop=True)
+    clock = now or datetime.datetime.now(datetime.timezone.utc)
+    mask = df["timestamp"].map(lambda stamp: is_last_candle_closed(
+        stamp.to_pydatetime() if hasattr(stamp,"to_pydatetime") else stamp,
+        timeframe,clock,grace_seconds))
+    closed = bool(mask.iloc[-1])
+    closed_df = df if mask.all() else df.loc[mask].reset_index(drop=True)
     return df, closed_df, {"last_open": last_open, "is_last_closed": closed}
 
 

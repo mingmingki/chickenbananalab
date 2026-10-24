@@ -35,6 +35,8 @@ def effective_settings(cfg):
         'account_max_daily_loss_pct': cfg.ACCOUNT_HARD_DAILY_LOSS_PCT,
         'gpt_entry_gate_enabled': getattr(cfg, 'CANDIDATE_C_GPT_ENTRY_GATE_ENABLED', True),
         'ai_exit_plan_enabled': getattr(cfg, 'CANDIDATE_C_AI_EXIT_PLAN_ENABLED', True),
+        'risk_adaptive_partials': getattr(cfg, 'RISK_ADAPTIVE_PARTIAL_ENABLED', False)
+                                  and getattr(cfg, 'CANDIDATE_C_CHART_ONLY', False),
     }
 
 
@@ -154,23 +156,65 @@ def holdout_evidence() -> dict:
 # 재현했으므로 hash만 임의 갱신하지 않았다. 대신 현재 소스의 Live 오케스트레이터와
 # backtest adapter를 함께 실행하는 test_candidate_c_live_backtest_per_bar_recheck.py로
 # 새 봉 재검토/setup_id/동일봉 dedup을 검증한 뒤 변경된 파일만 재고정한다.
-BACKTEST_LIVE_PARITY_VERIFIED_SOURCE_HASHES = {
-    "candidate_c_decision_engine.py": "e096e7f7e5af6bc94a3f5b4998eb90f85e3a17dbd96c813e6659245b6e352849",
-    "candidate_c_backtest_signal_adapter.py": "055c510358fd4dbc26c16c4c237927cac34bf90cd2ab132d79bd4a95ca87d625",
-    "candidate_c_setup_tracker.py": "57764355b03db70d4880b9acf30ce3f03e76ee88fa76698248ea6e925c8ca0bb",
-    "backtest_engine.py": "85b35df2f99efff4dc0a879d7d2e32974af20e5965ae50cac5073cc5103b54e9",
-    "candidate_c_hybrid_live_adapter.py": "d78bc6e2eb7c2191c7b749532559d96bb055196c23cb0bcf23828845a5396678",
-    "candidate_c_indicator_contract.py": "54e01dae85dc0fd7eb8af27763ad8417f0832cd9e99597e367127fc9e0b62ee6",
-    "candidate_c_exit_management.py": "2f5593a2daf102bfc2e4da793c5b337aeab5e9bbaf4988bd5233e5816f1203d3",
-    "entry_overextension_guard.py": "a2452e4565fa5631249bd4079429767be8fff2dbc360ecb863182b1ba395818a",
-    "candidate_c_hybrid_cycle.py": "77859bab04800ff5512018d6bdf5ddc1dd023d632f19b5d7920181e287ec092d",
-    "candidate_c_manual_close.py": "2646d9b458d708581188824778b0b92089b15ab04f33f6f41761715a0cc0b234",
-    "candidate_c_trader_adapter.py": "733c11bb8ee210b397030395e4830d6f2a92650490210f18a7888419c68e03d8",
-    "candidate_c_notification_delivery.py": "b09c215c7ad13b69c58a7326b0b9cd8e14f429cc8c36468569acad5177e7ea78",
-    "candidate_c_strategy_policy.py": "3702ca6a159daec673b8632c057614b16859e5c67473fda8f01d9d19874b8d6b",
-    "candidate_c_preregistration_v3.json": "faa635c379885addaaed5747f0f53e253365f527ac0b979562ba0220d5b451f0",
-}
+BACKTEST_LIVE_PARITY_VERIFIED_SOURCE_HASHES = {'candidate_c_decision_engine.py': 'd1999946bfe17d3c145b05c72c90cb6d8875b7d494fec755002315da7699e317', 'unified_trade_guard.py': '53e32976f1814a9febb6c8938b50aaae8bae77d04ecd6e2e8aa4857cd1e1f2d0', 'candidate_c_backtest_signal_adapter.py': '85976f33ce7c96ce1b6e5c13ff24b96cff08b3af4fdfd1a731f4102e02b28daf', 'candidate_c_setup_tracker.py': '2fae18575745d77916f0a8d2ff66af4db9a12dceafe774554634bbb841daddc9', 'backtest_engine.py': 'dc38fb06e0247fa6a8e52e47ae30b6f80864bfbe64a0c958a00ef1b3d6141e4a', 'candidate_c_hybrid_live_adapter.py': '3b12fdb5e4903876211902c1cbb0e9f15025e930a8c75d435475ce956c69a0ea', 'candidate_c_indicator_contract.py': '8947c0232850e58176c041a8ee9a1c3aee5b4e04aab04463b15b106f6d49dfe5', 'candidate_c_exit_management.py': '5659f032b0536ce06920f68d3b79c9639c9bd01b121de5b4c98288b8110b6d6b', 'entry_overextension_guard.py': 'a2452e4565fa5631249bd4079429767be8fff2dbc360ecb863182b1ba395818a', 'candidate_c_hybrid_cycle.py': '67ee310d9e1528361f8c066d4ca41fe25c3c08db53019fd46ed1cb57fbcd8cfb', 'candidate_c_manual_close.py': '2646d9b458d708581188824778b0b92089b15ab04f33f6f41761715a0cc0b234', 'candidate_c_trader_adapter.py': '9745003b9725062f8238890f797ef42f6ee63a71b00211f1e01314052f122d4c', 'candidate_c_manual_entry.py': '89ec34ca6360ffa48b7b5f67a245f0cd49d7d38a1d2aea02068c88d2aee05e5e', 'candidate_c_notification_delivery.py': 'b27f4fb46e997d6b3092318b5cc37154a04fbf3fdf168fb0eebe20ad03e4066c', 'candidate_c_strategy_policy.py': '3702ca6a159daec673b8632c057614b16859e5c67473fda8f01d9d19874b8d6b', 'candidate_c_preregistration_v3.json': 'faa635c379885addaaed5747f0f53e253365f527ac0b979562ba0220d5b451f0', 'candidate_c_forward_paper_trading.py': '9aabe077455ef2002eb189f54fe6c36320730d648072c21be81e99d033e9e6fe', 'adaptive_exit_engine.py': '12639d488865e879632900021050760564f53b74649fd72579ff32e43c30da35', 'entry_attempt_notifications.py': '78499d346dc1f0195f4da65180816f2217aeebd94f3b2964d41986cadfcc61dd', 'core_entry_events.py': '6e4e1dc2a114f58c1c3a43f1a3caaf91203d096f9852cd83a18dcd45529fb190', 'notification_policy.py': '807a14dbe28a61eb66a0eecca54a580b09f6d1911669dbe54947f3ca3b4b1bb7', 'usage_log.py': '0371fb1fd7c61e64674cf2b6df1e24226458ad68c130e3159b9e854c5b5f2dff', 'risk_manager.py': 'fafe239ec8116eecec2fe8342778e871609b11c14f92f604b65e1506bec8b864', 'telegram_notify.py': '626759913edd2f8c4ad1d297da1d3b331122da652fb835f86c5a8648b6620285', 'adaptive_reduction.py': 'a77ab10fda98aa910ecbcd40165f44fcabe060b5e68238dcbff0e54dde22a8ab', 'candidate_c_protection_bounds.py': '880c1001f47750edad5496d361bd3e84677b53efc2fbba49b38f19f2eb4eab82', 'candidate_c_position_reconciliation.py': '02e11307e087adc063089f928dd8bfafe4aeb31cbf7a313253d091390c4bda56', 'okx_client.py': 'cbe5f6e90a2ea5c169897aceb17a461d524062eefa738aabdb829e6b8988dbb4', 'candidate_c_cycle_reconciliation.py': 'b93c9a44782789f93f7bdd3ce39f7c5c81218b7753d1869ef912d80648ae6b52'}
 BACKTEST_LIVE_PARITY_VERIFIED_SCOPE = (
+    "2026-10-22 v33-98 GPT-only candidate entry policy: full existing "
+    "risk/OCO/order paths unchanged; candidate chart-mode uses exactly one "
+    "GPT primary direction call on each rule-generated intent, without "
+    "secondary Gemini/GPT approval. A deterministic comparison covers "
+    "the same signal and order-preflight pipeline, 223 focused tests pass "
+    "excluding the checksum test before re-pin; 12 one-GPT tests pass. "
+    "AI model decisions and future profitability are NOT reproducible "
+    "from historical candles; this technical evidence is not profit validation. "
+    "2026-10-17 v33-22: risk_manager changed only to add a stricter "
+    "account-wide daily new-risk cap (5%) and 3% intraday peak guard, "
+    "before existing group limits; open-position exits/protective orders "
+    "and Candidate C decision signal/size unchanged. Validated "
+    "test_candidate_c_live_backtest_per_bar_recheck.py and all "
+    "daily-loss/account-peak/manual-entry risk regression tests before "
+    "re-pinning this one risk_manager.py SHA. No profitability proof. "
+    "2026-10-15 v33-11: Candidate C partial reduce accounting only. Exact "
+    "owned clOrdId, order ID, reduceOnly terminal receipt, all matching fill "
+    "IDs, quantities, VWAP, gross fillPnl and USDT fee required. Otherwise "
+    "existing estimated accounting remains. Historical evidence is sidecar "
+    "only, with original journal unchanged. Tested v33-11 offline fill/failure "
+    "and finalized journal integration suites, Candidate C LIVE/backtest "
+    "per-bar parity and risk/notification/reconciliation regressions. "
+    "2026-10-15 v33-8a: Telegram-only delivery lifecycle updates, including "
+    "durable Candidate C pending/sending/sent/retry states and CORE journal "
+    "notification outbox. No order, strategy, protection, sizing, or entry "
+    "decision changes. Confirmed notification unit suite, legacy format "
+    "compatibility, live/backtest per-bar execution and entry/exit regressions. "
+    "2026-10-15 v33-8: Shared risk_manager ACCOUNT drawdown guard excludes "
+    "freshly verified transfers after KST daily baseline; CORE 5%, Candidate C 10%, "
+    "ACCOUNT 30% configured caps unchanged. Flow coverage uncertainty retains "
+    "the old conservative raw-equity guard. Candidate C entry logic and order "
+    "sizing unchanged. Tested tests/test_daily_flow_risk_v33_8.py, "
+    "test_accounting.py, test_core_daily_loss_ui_telegram.py, "
+    "test_ops_observability.py and Candidate C LIVE/backtest per-bar suite. "
+    "2026-10-15 v33-4a: Candidate C close journal exact owned SL/TP fill VWAP "
+    "and execution evidence metadata only, without changes to entry, decide, "
+    "order submission, realized PnL, fees or quantity. Crosschecked diff "
+    "against v33-3 and reran live/backtest per-bar recheck, owned close, "
+    "close price and Candidate C entry guard regression tests. "
+    "2026-10-09 V15: Candidate C notification dispatcher entry/reduce/close allowlist only; "
+    "CORE GPT UI/outbox separate; no setup-generation or execution semantics changed. "
+    "tests/test_notification_engine_boundaries.py, test_candidate_c_telegram_notifications.py "
+    "and LIVE/Backtest strategy recheck suite run. Source hashes re-pinned after verification. "
+    "2026-10-09 v12: Candidate C 자동 신호 생성 규칙은 유지하고, 별도 operator manual EntryIntent 요청 수신·" 
+    "idempotent 예약·기존 LIVE 소유권/주문장부/계약수량/SLTP 검증 경로 통합. " 
+    "tests/test_candidate_c_manual_entry_process.py 및 test_candidate_c_manual_entry_ui_api.py에서 " 
+    "LONG/SHORT, 중복 재실행 방지, 미확정 주문 SAFE_HALT, API 요청은 주문 미실행, " 
+    "기존 test_candidate_c_live_backtest_per_bar_recheck.py + test_v6_review_important.py " 
+    "총 58개 정상 실행을 재검증. 실제 거래소 주문이나 수익성 검증 아님. " 
+    "2026-10-10 v10: 37 authority regressions pass; Candidate chart-only adapter AI suppression, existing chart risk/protection paths unchanged. qualifying-behavior-final.log의 현재 tests 1313개 통과 후 변경 소스 및 C 알림 의존성 재고정. "
+    "tests/test_v6_review_important.py의 native DOGE live preparation/replay adapter 비교(09:30 진입, "
+    "14:40 위험거절, 11:00 추격거절)와 real whole-cycle stale/direction/risk outbox, "
+    "test_candidate_c_live_backtest_per_bar_recheck.py의 동일봉 dedup·새 봉 setup_id·30분 신선도, "
+    "test_candidate_c_partial_take_profit_2r.py 및 test_v6_entry_cost_notifications.py의 "
+    "롱/숏 부분익절 최소수량·profit-lock 지속과 실행 ledger 경계를 검증. "
+    "공급자 응답과 거래소는 fake; 실제 LIVE 자연 체결 및 수익성/새 전략 승인 증거가 아님. "
+    "deployment-only preregistration은 기존 SHA를 보존하며 배포 대상에서 별도 검증해야 함. "
     "tests/test_candidate_c_backtest_engine_live_integration.py(2026-09-15 확장, 10개 테스트) - "
     "backtest_engine.run_backtest() 실제 내부 루프(초기 포지션 주입·전략 파라미터 변경 없음)로 "
     "Entry/Reduce/StopUpdate(trailing+profit-lock)/Reversal을 전부 실제로 발생시켜 라이브 구성 "
@@ -261,6 +305,60 @@ PARTIAL_TP_2R_VALIDATION_SCOPE = (
     "pre-existing CORE rollback failures while passes increase from 194 to 203."
 )
 
+UNIFIED_PROFIT_GUARD_VALIDATION_SCOPE = (
+    "2026-10-05 six-symbol unified capital-protection overlay: CORE BTC/ETH/XRP/PI and "
+    "Candidate C DOGE/SOL share unified_trade_guard.py for 30m chase, ATR freshness/pullback, "
+    "50% pilot sizing, +0.50R profit protection, +0.75R profit lock and -0.75R invalidated hard-loss exit. "
+    "Focused unified tests passed 54/54 and Candidate C live/backtest-related regression passed 28/28. "
+    "Signal generation remains strategy-specific; capital protection is shared."
+)
+
+PROFIT_RETENTION_V2_VALIDATION_SCOPE = (
+    "2026-10-05 six-symbol profit-retention v2: shared +0.75R MFE break-even+cost floor and "
+    "+0.50R MFE with 0.25R giveback live reduction. CORE reuses REDUCE v2 stage1/stage2 with "
+    "50% cumulative cap and exact owned OCO amend; Candidate C uses the same shared thresholds, "
+    "high-water activation, one-shot MFE reduction flag, live/backtest lifecycle symmetry, and never "
+    "places a profit-lock stop beyond current price. Focused tests test_profit_retention_v2.py + "
+    "test_mfe_profit_live_v1.py passed 15/15; all Candidate C tests passed before hash re-pin except "
+    "the expected source-hash assertion."
+)
+
+PROFIT_EVIDENCE_RECOVERY_VALIDATION_SCOPE = (
+    "2026-10-07 confirmed-evidence and residual protection repair: CORE reentry requires "
+    "fresh consecutive post-close UTC candles, and MFE uses only closed held-trade highs/lows. "
+    "Already reduced CORE/Candidate C positions may protect the remainder at the existing "
+    "+0.50R/0.25R giveback condition; CORE rechecks journal lifecycle under the account order "
+    "lock and attempts its exact owned OCO floor immediately after a confirmed MFE reduction. "
+    "tests/test_profit_evidence_recovery.py and tests/test_profit_retention_v2.py passed 30/30, "
+    "including long/short/time/gap/pre-entry/posId-reuse boundaries and an actual backtest "
+    "adapter versus live-shaped decide() raw StopUpdateIntent comparison with residual cost "
+    "geometry. Before re-pinning only the two changed policy hashes, canonical tests had 923 "
+    "passes and 27 subtest passes, with only the expected stale-source-hash assertion failing. "
+    "Earlier historical ten-test evidence is not claimed as rerun; these checks do not prove "
+    "real GPT/order execution parity or future profitability."
+)
+
+STRUCTURE_RISK_AI_VALIDATION_SCOPE = (
+    "2026-10-06 shared structure/risk/AI refinement: profitable positions at >=+0.75R use "
+    "the same six-symbol structure guard (two consecutive confirmed adverse 5m swing breaks or one "
+    "confirmed adverse 1H swing break) for one 25% protective reduction; entry risk score uses only "
+    "pre-entry facts weak-hours 12-17 KST / PI / short / TF-mixed with gradual 50% sizing, strong "
+    "confirmation at score2, and block at score>=3; held CORE AI budget ignores benign 5m oscillator "
+    "churn, still reacts immediately to adverse structure or >=0.50ATR moves, and uses 30m fallback. "
+    "Focused RED 15 failed/1 passed before implementation, GREEN 16/16 after implementation; combined "
+    "Candidate C + CORE regression passed 197/197 before these hashes were re-pinned."
+)
+
+PILOT_ENTRY_VALIDATION_SCOPE = (
+    "2026-10-05 DOGE early-entry refinement: when confirmed 4H direction is NONE, a Donchian "
+    "setup may produce a 50% pilot EntryIntent only if confirmed 1H and 5m are both strictly "
+    "aligned with the same side (price>EMA20>EMA50 for long, inverse for short). Explicit opposite "
+    "4H direction remains blocked. tests/test_candidate_c_pilot_entry.py verifies aligned allow, mixed "
+    "lower-TF block, and 50% fixed-margin sizing. candidate_c_backtest_signal_adapter.py carries the "
+    "same entry_size_fraction into backtest_engine.py, and the related live/backtest/per-bar/partial-TP "
+    "regression set passed 18/18 before these source hashes were re-pinned. "
+)
+
 VARIABLE_RISK_SIZING_VALIDATION_SCOPE = (
     "2026-09-23 Candidate C 신규진입 사이징: 기존 계정은 FIXED_MARGIN을 유지하고, "
     "VARIABLE_RISK 계정은 equity×risk%와 실제 entry~SL 거리로 수량을 계산하며 "
@@ -307,6 +405,40 @@ CLOSE_HISTORY_FRESHNESS_VALIDATION_SCOPE = (
     "comes from the exact final order fills. Candidate C suite passes 62/62."
 )
 
+DOGE_ENTRY_RECOVERY_VALIDATION_SCOPE = (
+    "2026-10-07 DOGE missed-entry recovery: confirmed native contiguous 5m EMA input, "
+    "direction-first Donchian candidate selection, eligibility-based setup freshness, "
+    "existing 1% setup/order proximity consistency, and durable 4H-NONE pilot thesis. "
+    "tests/test_candidate_c_doge_live_entry.py replays native OKX 2026-10-07 candles "
+    "and the recorded production indicator checkpoint causally: 08:30-09:35 live-cycle "
+    "preparation and backtest intent/setup identities agree; 09:30 permits the existing "
+    "risk-reduced short pilot; 11:00 chase and 14:40 strong-confirmation waits remain. "
+    "Restart, legacy raw-clock migration, timeout retry identity/GPT OFF, pilot 1H invalidation "
+    "and 4H promotion, pre-submit fsync epoch draft/fill recovery, monitor reason, native gap "
+    "fail-closed, and forward-paper fraction/latch checks pass. Canonical tests before hash "
+    "re-pin: 1023 passed, 27 subtests, only the expected old hash assertion failed. "
+    "The old ledger schema is unchanged; original baseline ledger/epoch parsers accept "
+    "the pilot draft and fake partial-fill journal. Recorded checkpoint replay and mocked "
+    "fills do not prove live exchange fills, actual trade profitability, or future performance."
+)
+
+ENTRY_ELIGIBLE_WIDE_STOP_VALIDATION_SCOPE = (
+    "2026-10-07 eligible-edge wide-stop correction: the existing eligible clock (age zero), "
+    "rather than a raw Donchian reason string, permits structural stop risk sizing. "
+    "Wide rechecks and timeout retries fail closed without clamping; normal-width rechecks, "
+    "30-minute age, exhaustion guards, legacy/manual modes and VARIABLE_RISK remain covered. "
+    "Actual TP2 is capped and net RR is checked at decision and final order-price refresh; "
+    "fixed-margin fallback is bounded by risk budget, fixed margin, order cap, equity and lot floors. "
+    "tests/test_entry_eligible_wide_stop_regression.py covers DOGE/SOL synthetic long/short "
+    "and native DOGE causal live/backtest trackers with equal adaptive contexts. "
+    "Historical adapter public defaults remain adaptive OFF; this verification does not prove "
+    "adaptive historical fill sizing or native SOL replay (no SOL fixture was supplied). "
+    "Before repinning, targeted tests passed 282; canonical full pytest passed 1092 plus 27 "
+    "subtests with only the expected old source-hash test failing. All verification used an "
+    "isolated local runtime and blocked socket network access; no exchange or paid AI calls occurred. "
+    "CORE returned rescue plan and audit agree so verified AI price application is preserved."
+)
+
 def backtest_live_parity_evidence() -> dict:
     """위 검증 대상 파일의 '지금 이 배포본' 실제 해시를 디스크에서 매번 다시 계산해
     (캐시 없음 - 재배포 직후 즉시 반영) 검증 당시 해시와 비교한다. 파일이
@@ -325,10 +457,17 @@ def backtest_live_parity_evidence() -> dict:
         "verified": verified,
         "scope": (BACKTEST_LIVE_PARITY_VERIFIED_SCOPE + " "
                   + PARTIAL_TP_2R_VALIDATION_SCOPE + " "
+                  + UNIFIED_PROFIT_GUARD_VALIDATION_SCOPE + " "
+                  + PROFIT_RETENTION_V2_VALIDATION_SCOPE + " "
+                  + PROFIT_EVIDENCE_RECOVERY_VALIDATION_SCOPE + " "
+                  + STRUCTURE_RISK_AI_VALIDATION_SCOPE + " "
+                  + PILOT_ENTRY_VALIDATION_SCOPE + " "
                   + VARIABLE_RISK_SIZING_VALIDATION_SCOPE + " "
                   + CLOSE_HISTORY_FRESHNESS_VALIDATION_SCOPE + " "
                   + AI_SL_TP_REVALIDATION_SCOPE + " "
-                  + SAFE_HALT_ACCOUNTING_REVALIDATION_SCOPE),
+                  + SAFE_HALT_ACCOUNTING_REVALIDATION_SCOPE + " "
+                  + DOGE_ENTRY_RECOVERY_VALIDATION_SCOPE + " "
+                  + ENTRY_ELIGIBLE_WIDE_STOP_VALIDATION_SCOPE + " Compact DOGE/SOL: enabled public backtest and live adapters replay identical causal entry geometry; inward tick rounding, actual-fill owned OCO amendment and cost-inclusive sizing validated. Historical fill simulator profit parity is not claimed. 2026-10-10 v11: risk-adaptive chart fractions, independent confirmed trigger eligibility, distinct management policy hash, long/short actual decide/backtest quantity parity, remaining-vs-original basis and dust residual; focused113tests pass. Historical fixed-policy tests remain opt-in OFF. No live fill/profit claim."),
         "verified_source_hashes": dict(BACKTEST_LIVE_PARITY_VERIFIED_SOURCE_HASHES),
         "current_source_hashes": current,
     }
@@ -499,3 +638,9 @@ def categorize_blockers(blockers: list) -> dict:
     for name in blockers:
         result[BLOCKER_CATEGORIES.get(name, CATEGORY_TECHNICAL_VERIFICATION_INCOMPLETE)].append(name)
     return result
+
+# 2026-10-08: final-entry boundary verified before source repinning: bilateral
+# CORE modeled costs/full OCO TP2, min-size and latest-quote loss/TP caps, gate-off
+# wiring/pre-close safety; Candidate exact-quote chase/candle/review clocks.
+# Native SOL causal replay: 86 morning bars, equal LIVE_BOUNDED contexts; no
+# historical evening-fill or earliest-opportunity reproduction is claimed.

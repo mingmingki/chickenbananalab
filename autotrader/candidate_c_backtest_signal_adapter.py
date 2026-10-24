@@ -63,6 +63,8 @@ class CandidateCBacktestAdapterState:
 def _apply_completed_reduce_epoch_flags(epoch, reason_code):
     if reason_code in ("partial_take_profit_2r", "PARTIAL_TP_2R_DUST_SAFE_FULL_EXIT"):
         epoch.partial_take_profit_done = True
+    elif reason_code == "unified_mfe_profit_giveback":
+        epoch.mfe_profit_reduce_done = True
     else:
         epoch.derisk_done = True
 
@@ -76,6 +78,11 @@ def build_candidate_c_signal(
     # 파라미터가 유일한 출처다(config_version_id/config_hash와 동일한 패턴 -
     # decide() 내부에 하드코딩하지 않음, Phase 3.10.2 Item 5).
     strategy_policy: dict | None = None,
+    risk_adaptive_partials: bool = False,
+    compact_protection_enabled: bool = False,
+    adaptive_exit_mode: str = "OFF", adaptive_exit_policy: dict | None = None,
+    adaptive_approved_policy_hash: str = "", adaptive_leverage: float = 1.0,
+    sizing_mode: str = "VARIABLE_RISK",
     # 항목7(2026-09-13) STOP-SHIP 수정 - 이 파라미터 자체가 아예 없어서 아래
     # DecisionContext가 항상 strategy_policy=None으로 생성되고 있었다.
     # decide()는 policy가 None이면 방향/ATR 조건을 통과한 진입 신호마저 전부
@@ -102,6 +109,7 @@ def build_candidate_c_signal(
     previous_positions = {}
     pending_management = {}
     pending_entry_weakening_baseline = {}
+    pending_pilot_entry = {}
     # Candidate C preregistration defines 1D as telemetry-only.  Do not
     # inspect, normalize, filter, hash, or forward caller-provided 1D values
     # into strategy decisions; malformed telemetry must be observationally
@@ -171,6 +179,7 @@ def build_candidate_c_signal(
                                                  or position_state.get("contracts", 0.0))
                 epoch.remaining_contracts = float(position_state.get("contracts", 0.0))
                 epoch.weakening_prev = weakening_prev.get(sym, False)
+                epoch.pilot_entry = pending_pilot_entry.pop(sym, False)
                 adapter_state.epoch_store.save(position_id, epoch)
             pending = pending_management.pop(sym, None)
             if pending and previous and previous["position_id"] == position_id:
@@ -189,6 +198,8 @@ def build_candidate_c_signal(
                 "contracts": position_state.get("contracts", 1.0),
                 "raw_entry_price": position_state.get("raw_entry_price") or position_state["entry_price"],
                 "initial_stop_price": initial_stop or position_state["entry_price"],
+                "current_stop_price": position_state.get("stop_price"),
+                "mark_price": decision_five[-1].get("close"),
                 "high_water": position_state["high_water"],
                 "effective_entry_price": position_state["entry_price"],
                 "entry_fee_usdt": position_state.get("entry_fee_usdt", 0.0),
@@ -210,6 +221,11 @@ def build_candidate_c_signal(
             account_id=account_id, symbol=sym, strategy_id="candidate_c",
             config_version_id=config_version_id, config_hash=config_hash,
             risk_per_trade_pct=risk_per_trade_pct, strategy_policy=strategy_policy,
+            risk_adaptive_partials=risk_adaptive_partials,
+            compact_protection_enabled=compact_protection_enabled,
+            adaptive_exit_mode=adaptive_exit_mode, adaptive_exit_policy=adaptive_exit_policy,
+            adaptive_approved_policy_hash=adaptive_approved_policy_hash,
+            adaptive_leverage=adaptive_leverage, sizing_mode=sizing_mode,
         )
         intent = dec.decide(
             ctx, as_of_ms=as_of_ms,
@@ -229,12 +245,18 @@ def build_candidate_c_signal(
         )
         adapter_state.all_intents_seen.append(intent)
         if current_position is not None:
+            if intent.reduction_policy_hash:
+                epoch.reduction_policy_hash = intent.reduction_policy_hash
             history_1h = _bounded_confirmed(bars_1h, _bars_1h_times, decision_time_ms)
             if history_1h:
                 ema = indicator_fn(history_1h, donchian_n=20)[-1]["ema_20"]
                 weakening_prev[sym] = dec.weakening_from_1h(
                     side=current_position["side"], close_1h=history_1h[-1]["close"], ema_20_1h=ema,
                 )
+                row4 = indicator_fn(_bounded_confirmed(bars_4h, _bars_4h_times, decision_time_ms), donchian_n=20)[-1]
+                cem.observe_pilot_4h_confirmation(epoch,
+                    side=current_position["side"], direction_4h=dec.direction_from_4h_indicators(
+                        ema_20=row4.get("ema_20"), ema_50=row4.get("ema_50"), close=row4.get("close")))
                 epoch.weakening_prev = weakening_prev[sym]
                 adapter_state.epoch_store.save(current_position["position_id"], epoch)
 
@@ -262,11 +284,10 @@ def build_candidate_c_signal(
             if snap is not None:
                 # Persistence failures are intentionally outside the warmup
                 # exception boundary and must never be hidden.
-                for side in ("long", "short"):
-                    adapter_state.setup_tracker.observe(
-                        sym, side, snap.bar_10m_current["open_time_ms"],
-                        tfc.donchian_setup_condition(snap, side),
-                    )
+                dec.observe_entry_setups(adapter_state.setup_tracker, sym, snap,
+                    bars_4h=_bounded_confirmed(bars_4h, _bars_4h_times, decision_time_ms),
+                    bars_1h=_bounded_confirmed(bars_1h, _bars_1h_times, decision_time_ms),
+                    bars_5m=decision_five, indicator_fn=indicator_fn)
 
         if (
             current_position is None
@@ -290,8 +311,9 @@ def build_candidate_c_signal(
 
         if intent.kind == dec.INTENT_ENTRY:
             pending_entry_weakening_baseline[sym] = bool(getattr(intent, "entry_weakening_baseline", False))
+            pending_pilot_entry[sym] = intent.pilot_entry
             adapter_state.setup_tracker.record_attempt_outcome(intent.setup_id, "accepted")
-            return {"target_side": intent.side, "stop_price": intent.raw_stop_price}
+            return {"target_side": intent.side, "stop_price": intent.raw_stop_price, "entry_size_fraction": getattr(intent, "entry_size_fraction", 1.0)}
         if intent.kind == dec.INTENT_REVERSAL:
             machine.request_reversal(len(window) - 1, intent.target_side)
             return "flat"

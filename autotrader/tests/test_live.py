@@ -57,8 +57,9 @@ class ControllerTests(unittest.TestCase):
             gemini_confidence=.8,gpt_decision='approve_now',gpt_confidence=.8,completed_ms=999100)
         self.risk=SimpleNamespace(calculate_position_size=lambda cfg,equity,price:100,sl_tp_prices=lambda cfg,side,price:(98,104))
     def tearDown(self): self.store.close()
-    def attach(self,side,qty,stop,tp,client_order_id):
-        self.ex.stops.append(dict(algoId='stop1',algoClOrdId=client_order_id,instId='X-USDT-SWAP',
+    def attach(self,side,qty,stop,tp,algo_client_order_id=None,client_order_id=None):
+        key=algo_client_order_id or client_order_id
+        self.ex.stops.append(dict(algoId='stop1',algoClOrdId=key,instId='X-USDT-SWAP',
             side='sell',posSide='net',state='live',reduceOnly='true',slTriggerPx=str(stop),sz=str(qty)))
     def run_entry(self):
         with patch.dict('sys.modules',{'risk_manager':self.risk}), patch('core_unified_live.validate_snapshot',return_value=(True,'ok')):

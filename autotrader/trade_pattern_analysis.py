@@ -8,7 +8,7 @@ import math
 import statistics
 from collections import defaultdict
 
-from trade_learning_features import build_featured_trades, enrich_lifecycle
+from trade_learning_features import build_featured_trades, enrich_lifecycle, telemetry_epochs, _parse_time
 from trade_learning_lifecycle import build_completed_lifecycles
 import exit_reentry_shadow
 
@@ -238,48 +238,114 @@ def analyze_rows(rows: list[dict]) -> dict:
         groups.append(summarize_group(members, dimension=dimension, value=value, condition=condition))
     tf_groups = [g for g in groups if str(g.get('dimension','')).startswith('tf_combo:')]
     summary = summarize_group(rows, dimension='all', value='all', condition='all')
+    coverage = _coverage(rows)
     return {
         'summary': {'completed_trades': len(rows), **summary},
         'groups': groups,
         'dimensions': groups,
         'tf_combinations': tf_groups,
-        'coverage': _coverage(rows),
+        'coverage': coverage,
         'filter_counterfactual': counterfactual_filter_analysis(rows),
         'trades': rows,
         'generated_at': dt.datetime.now().isoformat(timespec='seconds'),
     }
 
 
+
+
+def _feature_coverage_status(row: dict) -> dict:
+    group = row.get("strategy_group") or row.get("_group") or "legacy"
+    coverage = ((row.get("features") or {}).get("coverage") or {})
+    if group == "candidate_c":
+        required = ["candidate_setup"]
+    else:
+        required = ["market_structure", "candle_finality"]
+        if group == "core":
+            required.append("gpt")
+    missing = [key for key in required if not bool(coverage.get(key))]
+    return {"complete": not missing, "required": required, "missing": missing}
+
+
+def _telemetry_coverage(rows: list[dict], epochs: dict) -> dict:
+    active_groups=('core','candidate_c')
+    eligible=[]
+    pre=0
+    inactive=0
+    no_epoch=0
+    by_group={}
+    for row in rows:
+        group=row.get('strategy_group') or row.get('_group') or 'legacy'
+        if group not in active_groups:
+            inactive += 1
+            continue
+        epoch=epochs.get(group)
+        if epoch is None:
+            no_epoch += 1
+            continue
+        entry=_parse_time(row.get('entry_time'))
+        if entry is None or entry < epoch:
+            pre += 1
+            continue
+        eligible.append(row)
+        bucket=by_group.setdefault(group,{'eligible':0,'complete':0,'partial':0})
+        bucket['eligible'] += 1
+        if _feature_coverage_status(row)['complete']:
+            bucket['complete'] += 1
+        else:
+            bucket['partial'] += 1
+    complete=sum(1 for row in eligible if _feature_coverage_status(row)['complete'])
+    return {
+        'eligible':len(eligible),
+        'complete':complete,
+        'partial':len(eligible)-complete,
+        'complete_rate':(complete/len(eligible)) if eligible else None,
+        'pre_telemetry_excluded':pre,
+        'inactive_strategy_excluded':inactive,
+        'missing_epoch_excluded':no_epoch,
+        'epoch_by_group':{k:v.isoformat(timespec='seconds') for k,v in epochs.items()},
+        'by_strategy_group':by_group,
+    }
+
+
 def _coverage(rows: list[dict]) -> dict:
     total = len(rows)
-    matched = sum(1 for r in rows if r.get('coverage') == 'complete')
+    matched = sum(1 for r in rows if r.get("coverage") == "complete")
     feature_complete = 0
     partial = 0
+    missing_reasons = {}
+    by_group = {}
     for r in rows:
-        c = ((r.get('features') or {}).get('coverage') or {})
-        if c and all(bool(c.get(k)) for k in ('market_structure','candle_finality','gpt')):
+        status = _feature_coverage_status(r)
+        group = r.get("strategy_group") or r.get("_group") or "legacy"
+        bucket = by_group.setdefault(group, {"total":0, "complete":0, "partial":0, "missing_reasons":{}})
+        bucket["total"] += 1
+        if status["complete"]:
             feature_complete += 1
+            bucket["complete"] += 1
         else:
             partial += 1
-    times = [r.get('entry_time') or r.get('exit_time') for r in rows if r.get('entry_time') or r.get('exit_time')]
-    tf_analysis_complete = sum(1 for r in rows if ((r.get('features') or {}).get('coverage') or {}).get('analysis_tf_complete'))
-    asof_backfilled = sum(1 for r in rows if ((r.get('features') or {}).get('coverage') or {}).get('asof_tf_backfill'))
+            bucket["partial"] += 1
+            for reason in status["missing"]:
+                missing_reasons[reason] = missing_reasons.get(reason, 0) + 1
+                bucket["missing_reasons"][reason] = bucket["missing_reasons"].get(reason, 0) + 1
+    times = [r.get("entry_time") or r.get("exit_time") for r in rows if r.get("entry_time") or r.get("exit_time")]
     return {
-        'canonical_completed_trades': total,
-        'lifecycle_matched': matched,
-        'feature_complete': feature_complete,
-        'tf_analysis_complete': tf_analysis_complete,
-        'asof_backfilled': asof_backfilled,
-        'partially_enriched': partial,
-        'unmatched_or_excluded': total - matched,
-        'earliest_time': min(times) if times else None,
-        'latest_time': max(times) if times else None,
+        "canonical_completed_trades": total,
+        "lifecycle_matched": matched,
+        "feature_complete": feature_complete,
+        "partially_enriched": partial,
+        "feature_missing_reasons": missing_reasons,
+        "by_strategy_group": by_group,
+        "unmatched_or_excluded": total - matched,
+        "earliest_time": min(times) if times else None,
+        "latest_time": max(times) if times else None,
     }
 
 
 def analyze(user_dir: str) -> dict:
     rows = build_featured_trades(user_dir)
     result = analyze_rows(rows)
+    result.setdefault('coverage', {})['telemetry_current'] = _telemetry_coverage(rows, telemetry_epochs(user_dir))
     result["exit_reentry"] = summarize_exit_reentry(
         rows, exit_reentry_shadow.recent(user_dir, limit=5000),
     )

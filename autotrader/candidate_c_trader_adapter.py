@@ -20,11 +20,13 @@ run_cycle()/죽은 FAST 루프를 재사용하지 않는다 - 독립된 심볼 �
 import datetime
 import copy
 import logging
+import math
 import threading
 import time
 import hashlib
 
 import candidate_c_exit_management as cem
+import candidate_c_flat_gate_recheck_v33_49 as flat_recheck
 import candidate_c_forward_paper_trading
 import candidate_c_hybrid_bars as hybrid_bars
 import candidate_c_decision_engine as dec
@@ -32,6 +34,7 @@ import candidate_c_hybrid_cycle as cycle
 import candidate_c_hybrid_ownership as ownership
 import candidate_c_intent_ledger as il
 import candidate_c_manual_close as candidate_manual_close
+import candidate_c_manual_entry as candidate_manual_entry
 import candidate_c_notification_delivery as notification_delivery
 import candidate_c_position_reconciliation as recon
 import candidate_c_reversal_state_machine as rsm
@@ -44,6 +47,7 @@ import symbol_entry_control
 import order_safety
 import risk_manager
 import telegram_notify
+import notification_policy
 
 logger = logging.getLogger("trader.candidate_c")
 
@@ -66,6 +70,12 @@ _CANDIDATE_C_MONITOR_REASON_TEXT = {
     "safe_halt": "SAFE_HALT",
     "reversal_target_revalidation_failed": "반전 재검증 미충족",
     "WARMING_UP": "지표 준비 중",
+    "entry_risk_strong_confirmation_required": "진입 대기 · 1H·5m 방향 정렬 확인 필요",
+    "entry_risk_score_blocked": "위험 조건 중첩 · 신규진입 차단",
+    "short_chase_30m_drop": "급락 추격 숏 차단 · 되돌림 확인 대기",
+    "long_chase_30m_rise": "급등 추격 롱 차단 · 눌림 확인 대기",
+    "recent_entry_data_unavailable": "단기 가격·변동성 데이터 확인 대기",
+    "entry_late_exhaustion_no_pullback": "단기 움직임 과열 · 되돌림 확인 대기",
 }
 
 
@@ -100,6 +110,7 @@ def _candidate_c_monitor_telemetry(
         "reason_code": result.get("reason_code"),
         "reason_text": ("SAFE_HALT · 수동 해제 필요" if safe_halt_monitor else _candidate_c_monitor_reason_text(result.get("reason_code"))),
         "intent_kind": result.get("intent_kind"), "executed": bool(result.get("executed")),
+        "reduction_plan": result.get('reduction_plan'),
         "blockers": effective_blockers,
     }
     if not bars_5m:
@@ -148,7 +159,20 @@ def _candidate_c_monitor_telemetry(
             if decision_price:
                 distance_pct = (decision_price - target_price) / decision_price * 100.0
 
-        if base["blockers"]:
+        policy_wait = result.get("reason_code") in {
+            "entry_risk_strong_confirmation_required", "entry_risk_score_blocked",
+            "short_chase_30m_drop", "long_chase_30m_rise",
+            "entry_late_exhaustion_no_pullback", "setup_stale_after_30m", "recent_entry_data_unavailable",
+        }
+        if policy_wait:
+            base["blockers"].append(base["reason_text"])
+        if policy_wait and not blockers:
+            if result.get("reason_code") == "entry_risk_strong_confirmation_required":
+                stage_text = ("1H·5m 하락 정렬 확인 대기" if direction == "SHORT"
+                              else "1H·5m 상승 정렬 확인 대기")
+            else:
+                stage_text = base["reason_text"]
+        elif base["blockers"]:
             stage_text = "신규진입 차단 · 상태 감시 계속"
         elif result.get("executed"):
             stage_text = "실주문 실행"
@@ -259,6 +283,9 @@ def _dispatch_candidate_c_notifications(cfg, state, result=None) -> None:
     direct_event = (result or {}).get("notification_event")
     if direct_event:
         events.append(direct_event)
+    # Candidate C Telegram is only exchange-confirmed entry / partial-close / close.
+    # Discard GPT gate, decisions, signals and operational diagnostics.
+    events = [e for e in events if notification_policy.should_send_candidate_c_telegram(e)]
 
     logger_ = getattr(cfg, "logger", None) or logger
     store = getattr(state, "notification_store", None)
@@ -285,6 +312,9 @@ def _dispatch_candidate_c_notifications(cfg, state, result=None) -> None:
 
     seen = set()
     for event in deliver_now:
+        # Include pre-deploy queued items in the same outbound allowlist.
+        if not notification_policy.should_send_candidate_c_telegram(event):
+            continue
         identity = (
             event.get("event_type"), event.get("symbol"), event.get("intent_id"),
         )
@@ -292,12 +322,24 @@ def _dispatch_candidate_c_notifications(cfg, state, result=None) -> None:
             continue
         seen.add(identity)
         try:
-            telegram_notify.send(cfg, telegram_notify.format_candidate_c_event(event))
-        except Exception:
-            logger_.warning(
-                "[%s] Candidate C 텔레그램 알림 전송 실패 - 매매 흐름은 계속",
-                event.get("symbol"), exc_info=True,
-            )
+            ack=telegram_notify.send(cfg, telegram_notify.format_candidate_c_event(event))
+            if not isinstance(ack,dict) or ack.get("ok") is not True or not ack.get("message_id"):
+                raise RuntimeError("telegram_ack_missing")
+            if store is not None:
+                store.finish_delivery(event,message_id=ack["message_id"])
+            logger_.info("[%s] Candidate C 체결 알림 확인 event=%s id=%s",
+                         event.get("symbol"),event.get("event_type"),event.get("intent_id"))
+        except Exception as exc:
+            if store is not None:
+                try:
+                    store.finish_delivery(event,error_type=type(exc).__name__,
+                                          retry_after=getattr(exc,"retry_after",None))
+                except Exception as state_exc:
+                    logger_.warning("[%s] Candidate C 알림 상태 기록 실패 type=%s",
+                                    event.get("symbol"),type(state_exc).__name__)
+            logger_.warning("[%s] Candidate C 텔레그램 전송 미확인 event=%s id=%s type=%s",
+                            event.get("symbol"),event.get("event_type"),
+                            event.get("intent_id"),type(exc).__name__)
 
 
 def install_shadow_transport_audit(client):
@@ -413,6 +455,32 @@ def _confirmed_5m_open_time_ms(bars_5m: list) -> int | None:
     return bars_5m[-1]["open_time_ms"] if bars_5m else None
 
 
+def _candidate_c_sizing_observation(cfg, client, position, owned_epoch=None):
+    observation={'configured_margin_usdt':getattr(cfg,'CANDIDATE_C_FIXED_MARGIN_USDT',None),
+        'actual_margin_estimate_usdt':None,'sizing_reduction_reason':'historical_sizing_evidence_unavailable'}
+    if not position:
+        return observation
+    try:
+        meta=client.instrument_metadata()
+        lev=float(position.get('leverage') or cfg.CANDIDATE_C_LEVERAGE)
+        observation['actual_margin_estimate_usdt']=float(position['contracts'])*float(meta['contract_size'])*float(position['entry_price'])/lev
+        observation['basis']='observed_contracts_times_contract_size_times_entry_price_divided_by_leverage'
+    except (AttributeError,KeyError,TypeError,ValueError,ZeroDivisionError):
+        pass
+    try:
+        original=float(owned_epoch.original_contracts)
+        remaining=float(owned_epoch.remaining_contracts)
+        actual=float(position['contracts'])
+        if (all(math.isfinite(v) for v in (original,remaining,actual)) and original>0
+                and 0<=remaining<original and abs(remaining-actual)<=1e-9):
+            observation.update(original_contracts=original, remaining_contracts=remaining,
+                cumulative_reduced_ratio=(original-remaining)/original,
+                sizing_reduction_reason='confirmed_position_partial_reduction')
+    except (AttributeError,KeyError,TypeError,ValueError):
+        pass
+    return observation
+
+
 def observe_runtime_exchange(cfg, client, symbol, ledger, epochs, core_active_symbols=()):
     """Actual read-only observation. A missing/failed query is never flat proof."""
     snap = build_symbol_snapshot(cfg, client, symbol, ledger, epochs)
@@ -422,6 +490,7 @@ def observe_runtime_exchange(cfg, client, symbol, ledger, epochs, core_active_sy
     core_owners = set(core_active_symbols) | set(getattr(cfg, 'ENABLED_SYMBOLS', ()))
     owner = 'core' if symbol in core_owners else 'UNKNOWN'
     protection = {'status': 'UNKNOWN', 'algo_ids': snap.exchange_protective_algo_ids}
+    owned_epoch = None
     if symbol in core_owners:
         blockers.append('core_entry_owner_active')
     elif not unknown and snap.exchange_position is None and not snap.exchange_open_orders and not snap.exchange_protective_algo_ids:
@@ -433,6 +502,7 @@ def observe_runtime_exchange(cfg, client, symbol, ledger, epochs, core_active_sy
             owner = 'candidate_c'
             record = proof['entry_record']
             epoch = epochs.get(record.intent_id)
+            owned_epoch = epoch
             try:
                 verified = order_safety.verify_protection(client, epoch.side, epoch.remaining_contracts,
                     expected_sl_price=epoch.current_stop_price, expected_tp_price=epoch.target_price)
@@ -471,7 +541,8 @@ def observe_runtime_exchange(cfg, client, symbol, ledger, epochs, core_active_sy
             'side', 'contracts', 'entry_price', 'position_id', 'entry_timestamp_ms',
             'mark_price', 'unrealized_pnl', 'pnl_pct', 'leverage',
         )}
-    return dict(owner=owner, actual_position=position,
+    sizing_observation = _candidate_c_sizing_observation(cfg, client, position, owned_epoch)
+    return dict(owner=owner, actual_position=position,sizing_observation=sizing_observation,
                 shadow_transport_audit=copy.deepcopy(getattr(client, 'shadow_transport_audit', None)),
                 position_query_status='UNKNOWN' if unknown else 'KNOWN',
                 pending_orders=None if snap.exchange_open_orders is None else len(snap.exchange_open_orders),
@@ -520,9 +591,12 @@ def _candidate_c_symbol_loop(
     last_processed_5m_open_time_ms: int | None = None
     indicator_book = None
     indicator_path = f"{cfg.user_dir}/candidate_c_indicators_{hashlib.sha256(symbol.encode()).hexdigest()[:16]}.json"
+    last_flat_recheck_at = 0.0
 
     while not stop_event.is_set():
         try:
+            # Dispatch persisted retries even if no new 5-minute candle arrives.
+            _dispatch_candidate_c_notifications(cfg,state)
             # The running CORE threads retain their startup symbol list even if
             # a dashboard setting changes. Handoff therefore requires restart.
             core_entry_owners = set(core_active_symbols) | set(getattr(cfg, "ENABLED_SYMBOLS", ()) or ())
@@ -539,6 +613,53 @@ def _candidate_c_symbol_loop(
                         "[%s] CORE->Candidate C 소유권 이전 대기 중 - reason=%s position=%s. "
                         "신규진입 차단", symbol, foreign.get("reason"), foreign["position"],
                     )
+
+            # v33-49: only a stale *startup* flat/orphan blocker may be
+            # reconsidered, never risk/SAFE_HALT/manual/foreign-entry gates.
+            # Two fresh order-free exchange snapshots plus an owned EXACT
+            # external-close journal and terminal ledger are required.
+            if (not new_entries_allowed_from_startup
+                    and startup_result.get('reason') == flat_recheck.EXACT_REASON
+                    and time.monotonic() - last_flat_recheck_at >= 60):
+                last_flat_recheck_at = time.monotonic()
+                recovered, recheck_reason, recheck_evidence = flat_recheck.decide(
+                    cfg, client, symbol, state, build_symbol_snapshot,
+                    startup_result.get('reason'))
+                if recovered:
+                    new_entries_allowed_from_startup = True
+                    logger_.info(
+                        '[%s] V33_49_STARTUP_FLAT_GATE_RECHECK_RELEASED '
+                        'reason=%s close_id=%s ledger_sha256=%s; '
+                        'all other admission controls remain enforced',
+                        symbol, recheck_reason,
+                        recheck_evidence.get('close_execution_id'),
+                        recheck_evidence.get('ledger_sha256'))
+                else:
+                    logger_.info('[%s] V33_49_STARTUP_FLAT_GATE_RECHECK_HELD reason=%s',
+                                 symbol, recheck_reason)
+
+            # Explicit operator entry is consumed by the owning symbol loop;
+            # the HTTP request only leaves a durable reservation. Never
+            # rerun an ambiguous/executing request after a restart.
+            if new_entries_allowed_from_startup and transition_gate_ok:
+                manual_entry_result = candidate_manual_entry.process_request(
+                    cfg, client, symbol, state=state, account_id=account_id,
+                    config_version_id=config_version_id, config_hash=config_hash,
+                    strategy_policy=policy, stop_event=stop_event,
+                    clients_for_admission_check=clients_for_admission_check,
+                )
+                if manual_entry_result is not None:
+                    _dispatch_candidate_c_notifications(cfg, state, manual_entry_result)
+                    observation = observe_runtime_exchange(
+                        cfg, client, symbol, intent_ledger, shared_epoch_store, core_active_symbols)
+                    runtime.publish(cfg.user_dir, symbol, status='RUNNING',
+                                    last_cycle_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                    last_signal=dec.INTENT_ENTRY, **observation)
+                    logger_.info("[%s] Candidate C operator manual entry processed: executed=%s pending=%s reason=%s",
+                                 symbol, manual_entry_result.get('executed'),
+                                 manual_entry_result.get('pending'), manual_entry_result.get('reason'))
+                    stop_event.wait(1.0)
+                    continue
 
             manual_result = cycle.run_manual_close_request(
                 cfg, client, symbol, state=state, account_id=account_id,
@@ -705,6 +826,8 @@ def _candidate_c_symbol_loop(
                 "source_candle_close_timestamp": result.get('source_candle_close_timestamp'),
                 "config_version_id": result.get('config_version_id'),
                 "config_hash": result.get('config_hash'),
+                "reduction_plan": result.get('reduction_plan'),
+                "reduction_policy_hash": result.get('reduction_policy_hash'),
             }
             monitor = _candidate_c_monitor_telemetry(
                 symbol,
@@ -730,6 +853,8 @@ def _candidate_c_symbol_loop(
                     "executed": bool(result.get('executed')),
                     "gate_result": result.get('gate_result'),
                     "error_reason": result.get('error_reason'),
+                    "execution_evidence":result.get('execution_evidence'),
+                    "configured_margin_usdt":getattr(cfg,'CANDIDATE_C_FIXED_MARGIN_USDT',None),
                 }
             runtime.publish(cfg.user_dir, symbol, **publish_kwargs)
             # 새 확정 5분봉을 실제로 처리한 직후 딱 한 번만 진행상황을 남긴다.

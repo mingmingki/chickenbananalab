@@ -14,10 +14,10 @@ PROJECT_DIR = os.environ.get("AUTOTRADER_PROJECT_DIR") or os.path.expanduser("~/
 USERS_DIR = os.path.join(PROJECT_DIR, "users")
 ACCOUNTS_PATH = os.path.join(PROJECT_DIR, "accounts.json")
 
-DEFAULT_SYMBOLS = "BTC/USDT:USDT,ETH/USDT:USDT,XRP/USDT:USDT,PI/USDT:USDT,DOGE/USDT:USDT"
+DEFAULT_SYMBOLS = "BTC/USDT:USDT,ETH/USDT:USDT,XRP/USDT:USDT,ADA/USDT:USDT,DOGE/USDT:USDT"
 
 # 2026-08-30 사용자 지시 - FAST 서브시스템을 완전히 제거하고 XRP/PI를 CORE로
-# 통합한다. 실시간 매매 엔진은 이제 CORE 하나뿐이고, 모든 심볼이 동일한
+# 통합했다. 2026-10-10 신규 CORE 종목은 PI 대신 ADA를 사용한다. 모든 심볼이 동일한
 # Gemini 판단 -> deterministic confirmation -> GPT Entry Gate -> 주문 -> 5분마다
 # 재판단 흐름을 탄다. 예전에는 CORE_SYMBOLS/FAST_SYMBOLS 두 집합이 항상 서로소여야
 # 했지만(한 심볼이 두 LIVE 엔진에 동시에 들어가는 것 방지), 이제 엔진이 하나뿐이라
@@ -36,7 +36,7 @@ DEFAULT_SYMBOLS = "BTC/USDT:USDT,ETH/USDT:USDT,XRP/USDT:USDT,PI/USDT:USDT,DOGE/U
 # 심볼"은 다른 개념이다. pnl_reconciliation._group_of()는 strategy_group을 레코드에
 # 저장된 값으로만 판정하므로(심볼명으로 역추론하지 않음) 과거 DOGE CORE 거래 기록의
 # "core" 분류는 이 목록 변경과 무관하게 그대로 보존된다.
-CORE_SYMBOLS = ["BTC/USDT:USDT", "ETH/USDT:USDT", "XRP/USDT:USDT", "PI/USDT:USDT"]
+CORE_SYMBOLS = ["BTC/USDT:USDT", "ETH/USDT:USDT", "XRP/USDT:USDT", "ADA/USDT:USDT"]
 
 
 def _parse_env_file(path: str) -> dict:
@@ -108,12 +108,30 @@ class UserConfig:
         # 필수 항목에도 포함하지 않음 - 없어도 봇 시작/매매에는 전혀 지장 없음).
         self.OPENAI_API_KEY = g("OPENAI_API_KEY")
         self.OPENAI_MODEL = g("OPENAI_MODEL", "gpt-5-mini")
-        # 신규 진입(long/short)에 GPT를 실제 승인 게이트로 쓸지. 기본값은 꺼짐(opt-in) -
-        # 이 기능 자체를 모르거나 안 쓰는 계정은 기존 Gemini 단독 매매 그대로 간다.
-        # 명시적으로 켰는데 OPENAI_API_KEY가 없으면(설정하다 만 상태) 조용히 꺼진 것처럼
-        # 넘어가지 않고 fail-closed로 신규 진입을 막는다 - trader._handle_new_entry 참고.
+        self.GPT_PRIMARY_ONLY = gb("GPT_PRIMARY_ONLY", False) or os.path.isfile(os.path.join(self.user_dir, "gpt_primary_only_v33_97.enabled"))
+        # CORE AI 신규진입은 GPT 승인/정책 예외만 허용한다. 현재 계정은
+        # 명시적으로 활성화하며, 게이트 OFF/키 누락 상태는 fail-closed로 기록한다.
         self.CORE_EVENT_AI_ENABLED = gb("CORE_EVENT_AI_ENABLED", False)
         self.GPT_ENTRY_GATE_ENABLED = gb("GPT_ENTRY_GATE_ENABLED", False)
+        # Scoped to CORE new-entry GPT calls; migrate the active account explicitly.
+        self.CORE_GPT_ENTRY_TIMEOUT_BYPASS = gb("CORE_GPT_ENTRY_TIMEOUT_BYPASS", False)
+        self.CORE_PAID_SHADOW_ENABLED = gb("CORE_PAID_SHADOW_ENABLED", False)
+        self.CORE_TREND_SIMPLE_V33_106 = gb("CORE_TREND_SIMPLE_V33_106", False) or os.path.isfile(
+            os.path.join(self.user_dir, "core_trend_simple_v33_106.enabled"))
+        # Oct-23 approved opt-in: confirmed 4H EMA20-EMA50 spread >= 0.5 ATR14.
+        self.CORE_TREND_STRENGTH_V33_108 = gb("CORE_TREND_STRENGTH_V33_108", False) or os.path.isfile(
+            os.path.join(self.user_dir, "core_trend_strength_v33_108.enabled"))
+        self.CORE_ENTRY_AI_PREFILTER_V33_109 = gb("CORE_ENTRY_AI_PREFILTER_V33_109", False) or os.path.isfile(
+            os.path.join(self.user_dir, "core_entry_ai_prefilter_v33_109.enabled"))
+        self.CORE_TREND_SHADOW_V33_109 = gb("CORE_TREND_SHADOW_V33_109", False) or os.path.isfile(
+            os.path.join(self.user_dir, "core_trend_shadow_v33_109.enabled"))
+        self.CORE_TREND_NO_PROFIT_CUT_V33_111 = gb("CORE_TREND_NO_PROFIT_CUT_V33_111", False) or os.path.isfile(
+            os.path.join(self.user_dir, "core_trend_no_profit_cut_v33_111.enabled"))
+        self.CORE_AI_STRATEGY_AUTHORITY = gb("CORE_AI_STRATEGY_AUTHORITY", False)
+        self.CORE_GEMINI_MANAGEMENT_ONLY = gb("CORE_GEMINI_MANAGEMENT_ONLY", False)
+        # v33-77: Gemini proposes/sizes; discretionary exits require one GPT verification.
+        self.CORE_MANAGEMENT_GPT_VERIFICATION = gb("CORE_MANAGEMENT_GPT_VERIFICATION", True)
+        self.RISK_ADAPTIVE_PARTIAL_ENABLED = gb("RISK_ADAPTIVE_PARTIAL_ENABLED", False)
 
         # GPT Hold Audit(Shadow 전용 실험) - Gemini가 hold라고 판단하면 위 진입 게이트는
         # 아예 호출되지 않는다. 이 옵션을 켜면, "기회일 가능성이 높은 hold"만 골라
@@ -146,9 +164,27 @@ class UserConfig:
         # POSITION_AI_LIVE_EXECUTE) 모두 켜져야만 일어나고, AI_LIVE_CLOSE와는 이제
         # 완전히 무관하다(AI_LIVE_CLOSE를 계속 꺼둔 채로 이 기능만 실거래로 켤 수 있다).
         self.POSITION_AI_LIVE_EXECUTE = gb("POSITION_AI_LIVE_EXECUTE", False)
-        # 같은 심볼에서 보유 포지션 AI 관리를 다시 호출하기까지 최소 간격(분) -
-        # HOLD_AUDIT_COOLDOWN_MINUTES와 동일한 목적/기본값(API 비용 통제).
+        # 일반 HOLD 상태의 주기적 Gemini→GPT 보유 재검토는 기본 OFF. 손실 방어
+        # negative_guard와 signal_close/reversal_close의 즉시 exit escalation은 이 플래그를
+        # 보지 않으므로 그대로 살아 있다. 필요할 때만 명시적으로 opt-in 한다.
+        self.POSITION_AI_PERIODIC_HOLD_REVIEW_ENABLED = gb(
+            "POSITION_AI_PERIODIC_HOLD_REVIEW_ENABLED", False
+        )
+        # opt-in 한 일반 HOLD 재검토의 최소 간격(분). 이벤트 기반 위험 재검토는 별도
+        # 경로에서 이 일반 cooldown을 우회할 수 있다.
         self.POSITION_AI_REVIEW_COOLDOWN_MINUTES = gi("POSITION_AI_REVIEW_COOLDOWN_MINUTES", 15)
+        if self.CORE_AI_STRATEGY_AUTHORITY:
+            self.GPT_ENTRY_GATE_ENABLED = True
+            self.CORE_GPT_ENTRY_TIMEOUT_BYPASS = True
+            self.POSITION_AI_REVIEW_ENABLED = True
+            self.POSITION_AI_LIVE_EXECUTE = True
+            self.POSITION_AI_PERIODIC_HOLD_REVIEW_ENABLED = True
+            self.AI_LIVE_CLOSE = False  # Gemini alone cannot discretionary-close.
+
+        if self.GPT_PRIMARY_ONLY:
+            self.GPT_ENTRY_GATE_ENABLED = True
+            self.CORE_GPT_ENTRY_TIMEOUT_BYPASS = False  # Never bypass GPT failure.
+
         # EXECUTION_MODE(2026-08-31 Phase 1.5A, 기본값 OFF) - 전역 실행 모드.
         # "OFF": run_all()이 아예 분석 루프 자체를 시작하지 않는다(주문 API는
         # 물론 시장 데이터 조회조차 없음). "SHADOW": Gemini/confirmation/
@@ -171,6 +207,12 @@ class UserConfig:
         self.SYMBOLS = gl("SYMBOLS", DEFAULT_SYMBOLS)
         self.ENABLED_SYMBOLS = gl("ENABLED_SYMBOLS", ",".join(self.SYMBOLS))
         self.POLL_INTERVAL_SECONDS = gi("POLL_INTERVAL_SECONDS", 900)
+        # CORE Gemini: non-critical indicator/price changes may wait 10 minutes.
+        # Five-minute monitoring, fresh setups and material risk events are independent.
+        # Unchanged markets retain the separate 30-minute fallback (cost saving).
+        self.CORE_GEMINI_ROUTINE_INTERVAL_SECONDS = max(
+            600, min(1800, gi("CORE_GEMINI_ROUTINE_INTERVAL_SECONDS", 600))
+        )
         self.LEVERAGE = gi("LEVERAGE", 3)
 
         # Candidate C(신규 4H 추세 + Donchian 돌파 규칙 엔진, 2026-09-12) - CORE와 같은
@@ -195,6 +237,7 @@ class UserConfig:
         self.CANDIDATE_C_ORDER_MODE = _cc_order_mode
         self.CANDIDATE_C_SIZING_MODE = "VARIABLE_RISK" if _cc_order_mode == "AUTO_ALL" else "FIXED_MARGIN"
         self.CANDIDATE_C_RISK_PER_TRADE_PCT = gf("CANDIDATE_C_RISK_PER_TRADE_PCT", 1.0)
+        self.CANDIDATE_C_COMPACT_PROTECTION_ENABLED = gb("CANDIDATE_C_COMPACT_PROTECTION_ENABLED", True)
         self.CANDIDATE_C_STOP_LOSS_PCT = gf("CANDIDATE_C_STOP_LOSS_PCT", 2.0)
         self.CANDIDATE_C_TAKE_PROFIT_PCT = gf("CANDIDATE_C_TAKE_PROFIT_PCT", 4.0)
         # FIXED_MARGIN에서는 실제 고정 증거금, VARIABLE_RISK에서는 최대 증거금 상한이다.
@@ -234,12 +277,22 @@ class UserConfig:
         self.CANDIDATE_C_GPT_ENTRY_GATE_ENABLED = gb("CANDIDATE_C_GPT_ENTRY_GATE_ENABLED", True)
         # 2026-09-29: entry admission and AI exit-price review are independent.
         self.CANDIDATE_C_AI_EXIT_PLAN_ENABLED = gb("CANDIDATE_C_AI_EXIT_PLAN_ENABLED", True)
+        self.CANDIDATE_C_CHART_ONLY = gb("CANDIDATE_C_CHART_ONLY", False)
+        if self.CANDIDATE_C_CHART_ONLY:
+            self.CANDIDATE_C_GPT_ENTRY_GATE_ENABLED = False
+            self.CANDIDATE_C_AI_EXIT_PLAN_ENABLED = False
+            self.CANDIDATE_C_TIMEOUT_RETRY_ENABLED = False
         # 2026-09-13 추가(항목1, 실사이징 배선) - execution_units.
         # calculate_candidate_entry_size()의 FIXED_MARGIN 모드가 요구하는 절대 notional
         # 상한(사용자 설정 실수로 margin/leverage가 비정상적으로 커져도 이 값을 넘는
         # 주문은 절대 나가지 않는다). 기본값 200.0은 FIXED_MARGIN_USDT(50)*LEVERAGE(3)
         # =150의 자연 notional보다 살짝 높게 잡은 안전 상한일 뿐이다 - 실거래 배포
         # 전에 반드시 운영자가 직접 검토/확정해야 한다(추측값으로 그대로 쓰면 안 됨).
+        if self.GPT_PRIMARY_ONLY and not self.CANDIDATE_C_CHART_ONLY:
+            self.CANDIDATE_C_GPT_ENTRY_GATE_ENABLED = True
+        # CHART_ONLY has authority over candidate entry. CORE GPT_PRIMARY_ONLY
+        # must never silently turn Candidate C's chart-only entry into AI approval.
+
         self.CANDIDATE_C_MAX_ORDER_NOTIONAL_USDT = gf("CANDIDATE_C_MAX_ORDER_NOTIONAL_USDT", 200.0)
 
         self.RISK_PER_TRADE_PCT = gf("RISK_PER_TRADE_PCT", 1.0)
@@ -262,6 +315,10 @@ class UserConfig:
         # 넉넉히 높게 잡아(기본 10%) "개별 그룹 한도보다 항상 위에 있는 계좌 차원 최종
         # 서킷브레이커"로만 동작하게 한다 - 그룹별 한도를 대체하지 않는다.
         self.ACCOUNT_HARD_DAILY_LOSS_PCT = gf("ACCOUNT_HARD_DAILY_LOSS_PCT", 10.0)
+        # v33-22: 0 disables the optional account-wide intraday high-watermark guard.
+        self.ACCOUNT_INTRADAY_PEAK_DRAWDOWN_PCT = max(0.0, gf("ACCOUNT_INTRADAY_PEAK_DRAWDOWN_PCT", 0.0))
+        # Separate safety-only tightening, preserving approved Candidate C policy fingerprint.
+        self.ACCOUNT_NEW_RISK_DAILY_LOSS_PCT = max(0.0, gf("ACCOUNT_NEW_RISK_DAILY_LOSS_PCT", 0.0))
 
         # Gemini가 진입/청산(close·반대전환)을 결정할 때 지켜야 하는 최소 조건.
         # SL/TP(거래소 부착 주문)는 이 값과 무관하게 항상 그대로 작동한다.
@@ -383,7 +440,8 @@ class UserConfig:
                 ("OKX_API_KEY", self.OKX_API_KEY),
                 ("OKX_API_SECRET", self.OKX_API_SECRET),
                 ("OKX_API_PASSPHRASE", self.OKX_API_PASSPHRASE),
-                ("GEMINI_API_KEY", self.GEMINI_API_KEY),
+                ("OPENAI_API_KEY" if self.GPT_PRIMARY_ONLY else "GEMINI_API_KEY",
+                 self.OPENAI_API_KEY if self.GPT_PRIMARY_ONLY else self.GEMINI_API_KEY),
             ]
             if not val
         ]

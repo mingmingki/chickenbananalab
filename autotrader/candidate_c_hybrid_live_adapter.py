@@ -1,3 +1,4 @@
+import entry_attempt_notifications
 """Durable Candidate C exchange execution. All mutations are live-gated and
 account-locked; owned management uses confirmed fills and persisted recovery.
 Only entry decisions call the GPT gate. Quantities in stores are contracts.
@@ -12,10 +13,12 @@ import time
 import ccxt
 
 import candidate_c_decision_engine as dec
+import strategy_authority
 import candidate_c_gpt_gate_adapter as gga
 import ai_exit_plan_audit
 from adaptive_exit_engine import normalize_ai_price_plan
 from adaptive_exit_policy import production_adaptive_exit_policy
+import candidate_c_protection_bounds as protection_bounds
 import candidate_c_hybrid_ownership as ownership
 import execution_units
 import okx_client
@@ -27,6 +30,7 @@ import candidate_c_manual_close as candidate_manual_close
 import candidate_c_notification_delivery as notification_delivery
 import candidate_c_exit_management as cem
 import stop_contract
+import process_lock
 
 PROTECTION_VERIFY_RETRIES = 3  # CORE(_resolve_external_close_pnl)와 동일한 재시도
 # 횟수 - OKX의 OCO/algo 주문 등록이 포지션 생성보다 살짝 늦게 반영되는 eventual
@@ -64,6 +68,8 @@ def _scale_remaining_entry_fee(entry_fee_usdt,before_contracts,remaining_contrac
 def _apply_reduce_lifecycle_flags(epoch, reason_code):
     if reason_code in ("partial_take_profit_2r", "PARTIAL_TP_2R_DUST_SAFE_FULL_EXIT"):
         epoch.partial_take_profit_done = True
+    elif reason_code == "unified_mfe_profit_giveback":
+        epoch.mfe_profit_reduce_done = True
     else:
         epoch.derisk_done = True
 
@@ -104,7 +110,9 @@ def _candidate_c_new_entry_allowed(cfg, equity: float, start_equity_override: fl
         # 확정시킨 뒤(그 시점엔 손실이 없으니 항상 True), 실제 낮아진 equity로 다시
         # 확인한다 - DailyLossGuard의 private 구현에 의존하지 않는다.
         guard.allow_new_entry(start_equity_override)
-    return guard.allow_new_entry(equity)
+    allowed=guard.allow_new_entry(equity)
+    entry_attempt_notifications.add_candidate_evidence(daily_loss_check=getattr(guard,'last_entry_check',None))
+    return allowed
 
 
 def _verify_protection_with_retry(client, side: str, amount_coin: float,
@@ -152,7 +160,29 @@ def _candidate_c_order_mode(cfg) -> str:
 
 def _candidate_c_entry_protection_prices(cfg, intent, fresh_price: float) -> tuple[float, float]:
     if _candidate_c_order_mode(cfg) != "MANUAL_ALL":
-        return intent.raw_stop_price, intent.raw_target_price
+        stop, target = intent.raw_stop_price, intent.raw_target_price
+        if protection_bounds.enabled(cfg, getattr(intent, 'symbol', None)):
+            stop, target = protection_bounds.bound_prices(intent.side, fresh_price, stop, target)
+            cost = float(fresh_price) * dec.CANDIDATE_C_ROUNDTRIP_COST_RATE
+            if (abs(target-fresh_price)-cost)/(abs(stop-fresh_price)+cost) < float(production_adaptive_exit_policy()['min_post_cost_rr']):
+                raise ValueError('post_cost_rr_below_minimum')
+        if (getattr(intent, "adaptive_mode", None) == "LIVE_BOUNDED"
+                and getattr(intent, "adaptive_wide_stop_policy", "legacy") != "legacy"):
+            policy = production_adaptive_exit_policy()
+            entry = float(fresh_price)
+            stop, target = float(stop), float(target)
+            leverage = float(cfg.CANDIDATE_C_LEVERAGE)
+            if (not all(math.isfinite(v) and v > 0 for v in (entry, stop, target, leverage))
+                    or not ((intent.side == "long" and stop < entry < target)
+                            or (intent.side == "short" and target < entry < stop))):
+                raise ValueError("invalid_adaptive_price_direction")
+            cap = entry * float(policy["max_leveraged_tp2_gain_pct"]) / 100.0 / leverage
+            target_distance = min(abs(target - entry), cap)
+            cost = entry * dec.CANDIDATE_C_ROUNDTRIP_COST_RATE
+            if (target_distance - cost) / (abs(stop - entry) + cost) < float(policy["min_post_cost_rr"]):
+                raise ValueError("post_cost_rr_below_minimum")
+            target = entry + (target_distance if intent.side == "long" else -target_distance)
+        return stop, target
     sl = float(getattr(cfg, "CANDIDATE_C_STOP_LOSS_PCT", 0.0) or 0.0) / 100.0
     tp = float(getattr(cfg, "CANDIDATE_C_TAKE_PROFIT_PCT", 0.0) or 0.0) / 100.0
     if sl <= 0 or tp <= 0:
@@ -165,7 +195,7 @@ def _candidate_c_entry_protection_prices(cfg, intent, fresh_price: float) -> tup
 
 
 
-def _apply_verified_ai_exit_plan_to_intent(intent, gate: dict, *, entry_price: float, atr_4h: float | None):
+def _apply_verified_ai_exit_plan_to_intent(intent, gate: dict, *, entry_price: float, atr_4h: float | None, leverage: float = 5.0):
     """Apply only GPT-verified AI prices that fit the same bounded ATR/R:R envelope as CORE."""
     raw = (gate or {}).get("ai_exit_plan")
     plan = normalize_ai_price_plan(raw)
@@ -179,6 +209,7 @@ def _apply_verified_ai_exit_plan_to_intent(intent, gate: dict, *, entry_price: f
     if not math.isfinite(entry) or entry <= 0 or not math.isfinite(atr) or atr <= 0:
         return intent, "ai_missing_atr"
     policy = production_adaptive_exit_policy()
+    leverage = float(leverage or 1.0)
     stop = float(plan["stop_loss_price"])
     tp1 = float(plan["take_profit_1_price"])
     tp2 = plan.get("take_profit_2_price")
@@ -192,6 +223,15 @@ def _apply_verified_ai_exit_plan_to_intent(intent, gate: dict, *, entry_price: f
     else:
         return intent, "ai_side_invalid"
     risk = abs(entry - stop)
+    max_stop_width = float(policy["max_leveraged_stop_loss_pct"]) / 100.0 / leverage
+    max_tp1_width = float(policy["max_leveraged_tp1_gain_pct"]) / 100.0 / leverage
+    max_tp2_width = float(policy["max_leveraged_tp2_gain_pct"]) / 100.0 / leverage
+    if risk / entry > max_stop_width + 1e-12:
+        return intent, "ai_stop_width_out_of_bounds"
+    if abs(tp1 - entry) / entry > max_tp1_width + 1e-12:
+        return intent, "ai_tp1_width_out_of_bounds"
+    if tp2 is not None and abs(float(tp2) - entry) / entry > max_tp2_width + 1e-12:
+        return intent, "ai_tp2_width_out_of_bounds"
     stop_atr = risk / atr
     if stop_atr < float(policy["initial_atr_min"]):
         return intent, "ai_stop_below_atr_min"
@@ -200,7 +240,8 @@ def _apply_verified_ai_exit_plan_to_intent(intent, gate: dict, *, entry_price: f
     rr1 = abs(tp1 - entry) / risk
     if not float(policy["tp1_r_min"]) <= rr1 <= float(policy["tp1_r_max"]):
         return intent, "ai_tp1_r_out_of_bounds"
-    if rr1 < float(policy["min_post_cost_rr"]):
+    cost = entry * dec.CANDIDATE_C_ROUNDTRIP_COST_RATE
+    if (abs(tp1-entry)-cost)/(risk+cost) < float(policy["min_post_cost_rr"]):
         return intent, "ai_post_cost_rr_below_minimum"
     if tp2 is not None:
         rr2 = abs(float(tp2) - entry) / risk
@@ -266,14 +307,33 @@ def _calculate_candidate_c_entry_amount(cfg, client, intent, fresh_price: float,
 
     order_mode = _candidate_c_order_mode(cfg)
     sizing_mode = "VARIABLE_RISK" if order_mode == "AUTO_ALL" else "FIXED_MARGIN"
+    entry_size_fraction = getattr(intent, "entry_size_fraction", 1.0)
+    try:
+        entry_size_fraction = float(entry_size_fraction)
+    except (TypeError, ValueError):
+        return {"ok": False, "reason": "invalid_entry_size_fraction"}
+    if not math.isfinite(entry_size_fraction) or not 0.0 < entry_size_fraction <= 1.0:
+        return {"ok": False, "reason": "invalid_entry_size_fraction"}
     leverage = cfg.CANDIDATE_C_LEVERAGE
     max_order_notional = cfg.CANDIDATE_C_MAX_ORDER_NOTIONAL_USDT
+    wide_stop_fixed_margin_fallback = False
     if sizing_mode == "VARIABLE_RISK":
+        if protection_bounds.enabled(cfg, getattr(intent, 'symbol', None)):
+            stop_risk_per_coin += fresh_price * dec.CANDIDATE_C_ROUNDTRIP_COST_RATE
         risk_pct = getattr(cfg, "CANDIDATE_C_RISK_PER_TRADE_PCT", None)
         try:
             risk_pct = float(risk_pct)
             leverage_value = float(leverage)
-            max_order_notional = min(float(max_order_notional), float(fresh_equity) * leverage_value)
+            # v33-94: VARIABLE_RISK must ALSO respect the configured maximum
+            # initial margin. Historically only the account/gross notional cap
+            # was applied, despite the config contract calling this a margin cap.
+            margin_limit = float(cfg.CANDIDATE_C_FIXED_MARGIN_USDT)
+            if not math.isfinite(margin_limit) or margin_limit <= 0:
+                return {'ok': False, 'reason': 'invalid_margin_cap_for_variable_risk'}
+            max_order_notional = min(
+                float(max_order_notional), float(fresh_equity) * leverage_value,
+                margin_limit * leverage_value,
+            )
         except (TypeError, ValueError):
             return {"ok": False, "reason": "invalid_variable_risk_config"}
         if (not math.isfinite(risk_pct) or risk_pct <= 0
@@ -283,15 +343,54 @@ def _calculate_candidate_c_entry_amount(cfg, client, intent, fresh_price: float,
             "sizing_mode": "VARIABLE_RISK",
             "leverage": leverage,
             "max_order_notional_usdt": max_order_notional,
-            "risk_per_trade_pct": risk_pct,
+            "risk_per_trade_pct": risk_pct * entry_size_fraction,
         }
     elif sizing_mode == "FIXED_MARGIN":
-        config_payload = {
-            "sizing_mode": "FIXED_MARGIN",
-            "leverage": leverage,
-            "max_order_notional_usdt": max_order_notional,
-            "fixed_margin_usdt": cfg.CANDIDATE_C_FIXED_MARGIN_USDT,
-        }
+        try:
+            leverage_value = float(leverage)
+            fixed_margin = float(cfg.CANDIDATE_C_FIXED_MARGIN_USDT) * entry_size_fraction
+            fixed_notional_cap = min(float(max_order_notional), fixed_margin * leverage_value, fresh_equity * leverage_value)
+            risk_pct = getattr(cfg, "CANDIDATE_C_RISK_PER_TRADE_PCT", None)
+            adaptive_policy = production_adaptive_exit_policy()
+            max_stop_fraction = float(adaptive_policy["max_leveraged_stop_loss_pct"]) / 100.0 / leverage_value
+            stop_fraction = stop_risk_per_coin / fresh_price
+        except (TypeError, ValueError, ZeroDivisionError):
+            return {"ok": False, "reason": "invalid_fixed_margin_config"}
+        if (not math.isfinite(leverage_value) or leverage_value <= 0
+                or not math.isfinite(fixed_margin) or fixed_margin <= 0
+                or not math.isfinite(fixed_notional_cap) or fixed_notional_cap <= 0):
+            return {"ok": False, "reason": "invalid_fixed_margin_config"}
+        wide_policy = (str(getattr(intent, "adaptive_wide_stop_policy", "legacy") or "legacy")
+                       if (getattr(intent, "adaptive_mode", None) == "LIVE_BOUNDED"
+                           and order_mode == "FIXED_MARGIN_AUTO_EXIT") else "legacy")
+        if wide_policy == "risk_cap" and (
+                stop_fraction > max_stop_fraction + 1e-12
+                or getattr(intent, "adaptive_wide_stop_risk_sizing", False)):
+            try:
+                risk_pct = float(risk_pct) * entry_size_fraction
+            except (TypeError, ValueError):
+                return {"ok": False, "reason": "invalid_fixed_margin_config"}
+            if not math.isfinite(risk_pct) or risk_pct <= 0:
+                return {"ok": False, "reason": "invalid_fixed_margin_config"}
+            # Include the same two-leg costs used by bounded entry RR. The
+            # shared lot-flooring size solver therefore caps total stop loss.
+            stop_risk_per_coin += fresh_price * dec.CANDIDATE_C_ROUNDTRIP_COST_RATE
+            wide_stop_fixed_margin_fallback = True
+            config_payload = {
+                "sizing_mode": "VARIABLE_RISK",
+                "leverage": leverage,
+                "max_order_notional_usdt": fixed_notional_cap,
+                "risk_per_trade_pct": risk_pct,
+            }
+        elif stop_fraction > max_stop_fraction + 1e-12 and wide_policy == "block":
+            return {"ok": False, "reason": "stop_distance_above_leverage_cap"}
+        else:
+            config_payload = {
+                "sizing_mode": "FIXED_MARGIN",
+                "leverage": leverage,
+                "max_order_notional_usdt": max_order_notional,
+                "fixed_margin_usdt": fixed_margin,
+            }
     else:
         return {"ok": False, "reason": "unsupported_candidate_c_sizing_mode"}
     try:
@@ -304,16 +403,101 @@ def _calculate_candidate_c_entry_amount(cfg, client, intent, fresh_price: float,
         return {"ok": False, "reason": f"invalid_sizing_input:{exc}"}
     if result["action"] == "NO_ENTRY":
         return {"ok": False, "reason": result["reason"]}
-    output={"ok": True, "amount_coin": result["amount_coin"], "notional_usdt": result["notional_usdt"]}
-    if sizing_mode == "VARIABLE_RISK":
+    output={"ok": True, "amount_coin": result["amount_coin"], "notional_usdt": result["notional_usdt"],
+            "entry_size_fraction": entry_size_fraction}
+    if sizing_mode == "VARIABLE_RISK" or wide_stop_fixed_margin_fallback:
         output["planned_loss_usdt"] = result["amount_coin"] * stop_risk_per_coin
         output["adaptive_risk_capped"] = True
+        if sizing_mode == "FIXED_MARGIN":
+            output["wide_stop_fixed_margin_fallback"] = True
+            output["fixed_margin_notional_cap_usdt"] = fixed_notional_cap
+    output['configured_margin_usdt']=getattr(cfg,'CANDIDATE_C_FIXED_MARGIN_USDT',None)
+    output['margin_estimate_usdt']=result['notional_usdt']/float(leverage)
+    requested=float(result['uncapped_notional_usdt'])
+    applied_cap=float(result['max_order_notional_usdt'])
+    target_notional=min(requested,applied_cap)
+    output['sizing_reduction_reason']=[name for name,active in (
+        ('entry_size_fraction',entry_size_fraction<1),
+        ('wide_stop_risk_cap',wide_stop_fixed_margin_fallback and requested<fixed_notional_cap-1e-9),
+        ('configured_margin_cap',sizing_mode=='VARIABLE_RISK' and applied_cap<requested-1e-9
+            and math.isclose(applied_cap,float(cfg.CANDIDATE_C_FIXED_MARGIN_USDT)*float(leverage),rel_tol=1e-9)),
+        ('order_notional_cap',applied_cap<requested-1e-9 and applied_cap==float(cfg.CANDIDATE_C_MAX_ORDER_NOTIONAL_USDT)),
+        ('equity_notional_cap',(wide_stop_fixed_margin_fallback or sizing_mode=='VARIABLE_RISK')
+            and applied_cap<requested-1e-9 and applied_cap==fresh_equity*float(leverage)),
+        ('lot_floor',result['notional_usdt']<target_notional-1e-9)) if active]
+    output['sizing_calculation']=dict(uncapped_notional_usdt=requested,max_order_notional_usdt=applied_cap,
+        target_notional_usdt=target_notional,actual_notional_usdt=result['notional_usdt'],
+        equity_usdt=fresh_equity,leverage=leverage,entry_size_fraction=entry_size_fraction,
+        stop_risk_per_coin_including_applicable_cost=stop_risk_per_coin)
     return output
 
 
 def _pending(intent, reason="unknown_order_state", **extra):
     return {"intent_kind": intent.kind, "executed": False,
             "gate_result": reason, "reason": reason, "pending": True, **extra}
+
+
+def _persist_entry_basis_before_submit(epoch_store, record, intent):
+    """Persist entry thesis before submission using the existing epoch journal.
+
+    No new ledger fields: older release readers can still recover its rows.
+    This draft has no quantity/price and is never a protected position.
+    """
+    epoch = epoch_store.get(record.intent_id)
+    epoch.entry_intent_id = record.intent_id
+    epoch.account_id = intent.account_id
+    epoch.symbol = intent.symbol
+    epoch.side = intent.side
+    epoch.pilot_entry = getattr(intent, "pilot_entry", False) is True
+    epoch.reduction_policy_hash = getattr(intent, 'reduction_policy_hash', None)
+    epoch_store.save(record.intent_id, epoch)
+
+
+def _compact_actual_fill_protection(cfg, client, intent, position, record):
+    """Amend owned OCO in place after slippage; never cancel or change quantity."""
+    if not protection_bounds.enabled(cfg, intent.symbol):
+        return intent
+    if record is None or not record.attach_algo_cl_ord_id:
+        raise ValueError('compact_fill_ownership_missing')
+    ids = client.fetch_pending_protection_algo_ids()
+    if ids is None or len(ids) != 1:
+        raise ValueError('compact_fill_ownership_ambiguous')
+    observed = client.fetch_protection_order_by_algo_id(ids[0])
+    if (not observed or observed.get('algo_cl_ord_id') != record.attach_algo_cl_ord_id
+            or observed.get('side') != ('sell' if intent.side == 'long' else 'buy')
+            or not math.isclose(float(observed.get('sz') or 0), float(position['contracts']), abs_tol=1e-8)):
+        raise ValueError('compact_fill_ownership_mismatch')
+    entry = float(position['entry_price'])
+    planned_stop = intent.raw_stop_price
+    if str(getattr(cfg, 'CANDIDATE_C_SIZING_MODE', '')).upper() == 'VARIABLE_RISK':
+        # Preserve the original per-coin cost-inclusive budget after adverse fills.
+        requested_coins = float(record.requested_quantity) * float(record.contract_size)
+        quote = float(record.entry_price_estimate)
+        budget_per_coin = (float(record.reserved_risk_usdt) / requested_coins
+                           + quote * dec.CANDIDATE_C_ROUNDTRIP_COST_RATE)
+        allowed_distance = budget_per_coin - entry * dec.CANDIDATE_C_ROUNDTRIP_COST_RATE
+        if not math.isfinite(allowed_distance) or allowed_distance <= 0:
+            raise ValueError('compact_fill_cost_exceeds_budget')
+        planned_stop = (max(float(planned_stop), entry-allowed_distance) if intent.side == 'long'
+                        else min(float(planned_stop), entry+allowed_distance))
+    stop, target = protection_bounds.normalized_prices(
+        intent.side, entry, planned_stop, intent.raw_target_price, record.tick_size)
+    cost = entry * dec.CANDIDATE_C_ROUNDTRIP_COST_RATE
+    if (abs(target-entry)-cost)/(abs(stop-entry)+cost) < float(production_adaptive_exit_policy()['min_post_cost_rr']):
+        raise ValueError('compact_fill_post_cost_rr_below_minimum')
+    if (float(observed['sl_price']), float(observed['tp_price'])) != (stop, target):
+        mark = float(client.fetch_last_price())
+        if not (stop < mark < target if intent.side == 'long' else target < mark < stop):
+            raise ValueError('compact_fill_trigger_already_crossed')
+        client.amend_protective_stop(ids[0], new_sl_price=stop, new_tp_price=target)
+        # An ambiguous response never authorizes persistence; the actual order does.
+        verified = client.fetch_protection_order_by_algo_id(ids[0])
+        if (not verified or verified.get('algo_cl_ord_id') != record.attach_algo_cl_ord_id
+                or verified.get('side') != observed['side']
+                or not math.isclose(float(verified.get('sz') or 0), float(position['contracts']), abs_tol=1e-8)
+                or float(verified['sl_price']) != stop or float(verified['tp_price']) != target):
+            raise ValueError('compact_fill_amend_unverified')
+    return dataclasses.replace(intent, raw_stop_price=stop, raw_target_price=target)
 
 
 def _verify_and_finalize_entry(cfg, client, intent, snapshot, amount_coin, order,
@@ -345,13 +529,19 @@ def _verify_and_finalize_entry(cfg, client, intent, snapshot, amount_coin, order
     # 만들어 실제 attachAlgoOrds 요청에 실어 보낸 값이다(candidate_c_intent_ledger.
     # make_attach_algo_cl_ord_id) - 조건(방향/수량/SL·TP)만 보고 추측하지 않고, 이
     # ID로 "우리가 방금 그 요청으로 만든 그 보호주문"인지부터 확인한다.
+    compact_fill_error = None
+    try:
+        intent = _compact_actual_fill_protection(cfg, client, intent, position, record)
+    except Exception as exc:
+        compact_fill_error = str(exc)
     protection = _verify_protection_with_retry(
         client, intent.side, quantity, intent.raw_stop_price, intent.raw_target_price,
         expected_algo_cl_ord_id=record.attach_algo_cl_ord_id if record is not None else None)
     ids = client.fetch_pending_protection_algo_ids()
     if ids is None:
         return _pending(intent, "protection_query_unknown", critical=True)
-    protection_confirmed = protection.get("ok") and protection.get("oco_count") == 1 and len(ids) == 1
+    protection_confirmed = (compact_fill_error is None and protection.get("ok")
+                            and protection.get("oco_count") == 1 and len(ids) == 1)
     if record is not None:
         if quantity < record.requested_quantity:
             ledger.mark_partial_fill(record.intent_id, quantity)
@@ -362,7 +552,10 @@ def _verify_and_finalize_entry(cfg, client, intent, snapshot, amount_coin, order
             execution_mode_at_open="LIVE", account_id=intent.account_id, symbol=intent.symbol,
             side=intent.side, entry_intent_id=record.intent_id, setup_id=intent.setup_id,
             weakening_prev=bool(getattr(intent, "entry_weakening_baseline", False)),
+            pilot_entry=getattr(epoch_store.get(record.intent_id), "pilot_entry", False) is True,
+            pilot_4h_confirmed=getattr(epoch_store.get(record.intent_id), "pilot_4h_confirmed", False) is True,
             config_version_id=str(intent.config_version_id), config_hash=intent.config_hash,
+            reduction_policy_hash=getattr(intent, 'reduction_policy_hash', None),
             entry_time_ms=int(time.time()*1000), raw_entry_price=price,
             exchange_position_id=position.get("position_id") or (position.get("info") or {}).get("posId"),
             exchange_entry_timestamp_ms=position.get("entry_timestamp_ms"),
@@ -388,7 +581,8 @@ def _verify_and_finalize_entry(cfg, client, intent, snapshot, amount_coin, order
         dry_run=False, sl_price=intent.raw_stop_price, tp_price=intent.raw_target_price,
         strategy_group="candidate_c", execution_id=record.intent_id if record else None)
     if not protection_confirmed:
-        return _pending(intent, "critical_unprotected_position", critical=True,
+        return _pending(intent, "critical_compact_protection_unverified" if compact_fill_error else "critical_unprotected_position",
+                        critical=True, error_reason=compact_fill_error,
                         intent_id=record.intent_id if record else None,
                         filled_contracts=quantity, average_price=price)
     if record is not None:
@@ -449,7 +643,8 @@ def _reconcile_ambiguous_entry(cfg, client, intent, snapshot, amount_coin,
 def _execute_entry(cfg, client, intent, snapshot: dict, equity: float, is_still_valid_fn,
                     start_equity_override: float | None,
                     open_position_count_fn=None, max_concurrent_positions: int | None = None,
-                    ledger=None, epoch_store=None, strategy_policy=None, stop_event=None) -> dict:
+                    ledger=None, epoch_store=None, strategy_policy=None, stop_event=None,
+                    manual_operator_entry=False) -> dict:
     if not _candidate_c_new_entry_allowed(cfg, equity, start_equity_override):
         return {
             "intent_kind": dec.INTENT_ENTRY, "executed": False,
@@ -465,10 +660,19 @@ def _execute_entry(cfg, client, intent, snapshot: dict, equity: float, is_still_
     # [2026-09-16, 사용자 직접 지시 - Candidate C 전용 GPT ON/OFF] 기존 전역
     # GPT_ENTRY_GATE_ENABLED(CORE 쪽)와 완전히 분리된 별도 설정. 새 설정이 없는
     # 계정은 getattr 기본값 True로 기존 GPT ON 동작을 그대로 유지한다.
-    if getattr(cfg, "CANDIDATE_C_GPT_ENTRY_GATE_ENABLED", True):
+    if manual_operator_entry and (intent.reason_code != 'manual_operator_entry'
+                                   or not str(intent.setup_id or '').startswith('manual-')):
+        return {"intent_kind": dec.INTENT_ENTRY, "executed": False,
+                "gate_result": "blocked_invalid_manual_entry_identity"}
+    if manual_operator_entry:
+        gate = {"allowed": bool(is_still_valid_fn()),
+                "gate_result": "manual_operator_no_entry_ai", "error_reason": None}
+    elif (not strategy_authority.candidate_chart(cfg)
+          and getattr(cfg, "CANDIDATE_C_GPT_ENTRY_GATE_ENABLED", True)):
         gate = gga.verify_candidate_signal(cfg, intent, snapshot, is_still_valid_fn=is_still_valid_fn)
     else:
         gate = gga.rule_based_entry_without_gpt(cfg, intent, snapshot, is_still_valid_fn=is_still_valid_fn)
+    entry_attempt_notifications.add_candidate_evidence(gate=gate)
     if not gate["allowed"]:
         return {
             "intent_kind": dec.INTENT_ENTRY, "executed": False,
@@ -498,7 +702,8 @@ def _execute_entry(cfg, client, intent, snapshot: dict, equity: float, is_still_
 
     # Entry GPT OFF means only admission is rule-based. Price review remains independent:
     # Gemini proposes SL/TP and GPT reviews prices only. AI failure never blocks entry.
-    if (not getattr(cfg, "CANDIDATE_C_GPT_ENTRY_GATE_ENABLED", True)
+    if (not strategy_authority.candidate_chart(cfg)
+            and (manual_operator_entry or not getattr(cfg, "CANDIDATE_C_GPT_ENTRY_GATE_ENABLED", True))
             and getattr(cfg, "CANDIDATE_C_AI_EXIT_PLAN_ENABLED", True)
             and _candidate_c_order_mode(cfg) != "MANUAL_ALL"):
         try:
@@ -625,29 +830,72 @@ def _execute_entry(cfg, client, intent, snapshot: dict, equity: float, is_still_
         except Exception:
             fresh_price = None
         try:
-            effective_stop, effective_target = _candidate_c_entry_protection_prices(cfg, intent, fresh_price)
+            # Apply the already verified AI proposal before final bounded
+            # validation; it may safely tighten a drifted fallback stop.
+            if (_candidate_c_order_mode(cfg) == "MANUAL_ALL"
+                    or protection_bounds.enabled(cfg, intent.symbol)):
+                effective_stop, effective_target = _candidate_c_entry_protection_prices(cfg, intent, fresh_price)
+            else:
+                effective_stop, effective_target = intent.raw_stop_price, intent.raw_target_price
         except (TypeError, ValueError) as exc:
             return {"intent_kind": dec.INTENT_ENTRY, "executed": False,
-                    "gate_result": "blocked_invalid_manual_protection", "error_reason": str(exc)}
+                    "gate_result": ("blocked_invalid_manual_protection" if _candidate_c_order_mode(cfg) == "MANUAL_ALL"
+                                    else "blocked_invalid_adaptive_protection"), "error_reason": str(exc)}
         intent = dataclasses.replace(intent, raw_stop_price=effective_stop, raw_target_price=effective_target)
-        if _candidate_c_order_mode(cfg) != "MANUAL_ALL":
+        ai_exit_reason = "chart_risk_plan"
+        if not strategy_authority.candidate_chart(cfg) and _candidate_c_order_mode(cfg) != "MANUAL_ALL":
             intent, ai_exit_reason = _apply_verified_ai_exit_plan_to_intent(
                 intent, gate, entry_price=fresh_price, atr_4h=snapshot.get("atr_4h"),
+                leverage=float(getattr(cfg, "CANDIDATE_C_LEVERAGE", getattr(cfg, "LEVERAGE", 1.0)) or 1.0),
             )
             (cfg.logger or logger).info(
                 "[%s] Candidate C AI_EXIT_PLAN 실행결정 source=%s result=%s SL=%s TP=%s",
                 intent.symbol, gate.get("ai_exit_source"), ai_exit_reason,
                 intent.raw_stop_price, intent.raw_target_price,
             )
+        if (getattr(intent, "adaptive_mode", None) == "LIVE_BOUNDED"
+                and getattr(intent, "adaptive_wide_stop_policy", "legacy") != "legacy"
+                and _candidate_c_order_mode(cfg) != "MANUAL_ALL"):
+            try:
+                effective_stop, effective_target = _candidate_c_entry_protection_prices(cfg, intent, fresh_price)
+            except (TypeError, ValueError) as exc:
+                return {"intent_kind": dec.INTENT_ENTRY, "executed": False,
+                        "gate_result": "blocked_invalid_adaptive_protection", "error_reason": str(exc)}
+            intent = dataclasses.replace(intent, raw_stop_price=effective_stop, raw_target_price=effective_target)
+        if protection_bounds.enabled(cfg, intent.symbol):
+            try:
+                tick = client.instrument_metadata().get('tick_size')
+                stop, target = protection_bounds.normalized_prices(
+                    intent.side, fresh_price, intent.raw_stop_price, intent.raw_target_price, tick)
+                intent = dataclasses.replace(intent, raw_stop_price=stop, raw_target_price=target)
+                _candidate_c_entry_protection_prices(cfg, intent, fresh_price)  # RR on submitted ticks.
+            except (TypeError, ValueError) as exc:
+                return {"intent_kind": dec.INTENT_ENTRY, "executed": False,
+                        "gate_result": "blocked_invalid_compact_protection", "error_reason": str(exc)}
+        entry_attempt_notifications.add_candidate_evidence(entry_price=fresh_price,
+            sl_price=intent.raw_stop_price,tp_price=intent.raw_target_price,
+            equity=fresh_equity,max_concurrent_positions=max_concurrent_positions,
+            min_post_cost_rr=production_adaptive_exit_policy()['min_post_cost_rr'],
+            max_leveraged_tp2_gain_pct=production_adaptive_exit_policy()['max_leveraged_tp2_gain_pct'])
+        final_validator = getattr(is_still_valid_fn, 'validate_price', None)
+        if final_validator is not None and not final_validator(fresh_price, now_ms=int(time.time()*1000)):
+            return {"intent_kind": dec.INTENT_ENTRY, "executed": False,
+                    "gate_result": "blocked_final_signal_invalid_or_expired", "error_reason": None}
         sizing = _calculate_candidate_c_entry_amount(cfg, client, intent, fresh_price, fresh_equity)
         if not sizing["ok"]:
             return {
                 "intent_kind": dec.INTENT_ENTRY, "executed": False,
                 "gate_result": f"blocked_sizing_{sizing['reason']}", "error_reason": sizing["reason"],
             }
+        entry_attempt_notifications.add_candidate_evidence(entry_price=fresh_price,
+            sl_price=intent.raw_stop_price,tp_price=intent.raw_target_price,sizing=sizing,
+            equity=fresh_equity)
         amount_coin = sizing["amount_coin"]
         meta = client.instrument_metadata()
         quantity = amount_coin / meta["contract_size"]
+        entry_attempt_notifications.add_candidate_evidence(quantity_coin=amount_coin,contracts=quantity,
+            margin_estimate_usdt=sizing['notional_usdt']/float(getattr(cfg,'CANDIDATE_C_LEVERAGE',1)),
+            sizing_reduction_reason=sizing.get('sizing_reduction_reason'))
         record = ledger.persist_intent(
             account_id=intent.account_id, symbol=intent.symbol, strategy_id="candidate_c",
             setup_id=intent.setup_id or intent.idempotency_key, position_epoch=None,
@@ -662,6 +910,7 @@ def _execute_entry(cfg, client, intent, snapshot: dict, equity: float, is_still_
             strategy_policy=strategy_policy)
         if record.state != il.IntentState.INTENT_PERSISTED.value:
             return _pending(intent, "existing_durable_intent", intent_id=record.intent_id)
+        _persist_entry_basis_before_submit(epoch_store, record, intent)
         response = {}
         def submit():
             # F3(2026-09-16, 외부 검토 지적 + 직접 재현 확인) - okx_client.
@@ -882,13 +1131,14 @@ def _resolve_candidate_c_reduce_pnl(cfg, client, symbol: str, position: dict, re
     }
 
 
+@entry_attempt_notifications.observe_candidate_execution
 def execute_intent(
     cfg, client, intent, *, snapshot: dict, equity: float, is_still_valid_fn,
     current_position: dict | None = None, current_protection: dict | None = None,
     start_equity_override: float | None = None,
     open_position_count_fn=None, max_concurrent_positions: int | None = None,
     ledger=None, epoch_store=None, strategy_policy=None, allow_missing_protection=False,
-    stop_event=None,
+    stop_event=None, manual_operator_entry=False,
 ) -> dict:
     """decide()가 반환한 단일 Intent를 실행한다. 반환 dict는 항상 "intent_kind"와
     "executed"를 포함한다. 실행 성공/실패와 무관하게 setup_tracker/epoch_store/
@@ -932,7 +1182,7 @@ def execute_intent(
             cfg, client, intent, snapshot, equity, is_still_valid_fn, start_equity_override,
             open_position_count_fn=open_position_count_fn, max_concurrent_positions=max_concurrent_positions,
             ledger=ledger, epoch_store=epoch_store, strategy_policy=strategy_policy,
-            stop_event=stop_event,
+            stop_event=stop_event, manual_operator_entry=manual_operator_entry,
         )
     if intent.kind in (dec.INTENT_STOP_UPDATE, dec.INTENT_EXIT, dec.INTENT_REVERSAL, dec.INTENT_REDUCE):
         with ownership.account_order_lock(cfg.user_dir):
@@ -1098,7 +1348,12 @@ def _execute_managed(cfg, client, intent, ledger, epoch_store, proof):
     quantity = intent.reduce_quantity if intent.kind == dec.INTENT_REDUCE else before
     if not _positive(quantity) or quantity > before:
         return _pending(intent, "invalid_management_quantity", critical=True)
+    if intent.kind == dec.INTENT_REDUCE and epoch.min_contracts and quantity < epoch.min_contracts - 1e-12:
+        return {"intent_kind":intent.kind,"executed":False,"reason":"management_quantity_below_exchange_minimum"}
     # Every action has an independent ID, including subsequent trailing updates.
+    if getattr(intent, 'reduction_policy_hash', None):
+        epoch.reduction_policy_hash = intent.reduction_policy_hash
+        epoch_store.save(parent.intent_id, epoch)
     action = ledger.persist_intent(account_id=intent.account_id, symbol=intent.symbol,
         strategy_id="candidate_c", setup_id=None,
         position_epoch=parent.intent_id + ":" + intent.idempotency_key,
@@ -1107,6 +1362,13 @@ def _execute_managed(cfg, client, intent, ledger, epoch_store, proof):
         requested_stop_price=intent.raw_stop_price, contract_size=epoch.contract_size)
     if action.state != il.IntentState.INTENT_PERSISTED.value:
         return _pending(intent, "existing_durable_intent", intent_id=action.intent_id)
+    if getattr(intent, 'reduction_plan', None):
+        # Separate durable audit keeps the existing strict intent-ledger schema readable.
+        process_lock.append_jsonl(os.path.join(cfg.user_dir, 'risk_adaptive_reduction_audit.jsonl'),
+            dict(strategy_group='candidate_c', symbol=intent.symbol,
+                 position_epoch=parent.intent_id, action_id=action.intent_id,
+                 reduction_plan=intent.reduction_plan, requested_contracts=quantity,
+                 config_hash=intent.config_hash, decision_timestamp=intent.decision_timestamp))
     response = {}
     def submit():
         if intent.kind == dec.INTENT_STOP_UPDATE:
@@ -1124,7 +1386,12 @@ def _execute_managed(cfg, client, intent, ledger, epoch_store, proof):
             if len(parent.protective_algo_ids) != 1:
                 return {"outcome": "rejected",
                         "reason": "amend_target_not_singular:" + repr(list(parent.protective_algo_ids))}
-            ledger.mark_protection_pending(parent.intent_id)
+            # v33-46: STOP_UPDATE is an in-place amend (cxlOnFail=False).
+            # The owned OCO remains live even when OKX rejects the amend.
+            # Never demote the EntryIntent from PROTECTED to protection_pending
+            # before this request; otherwise a definite rejection permanently
+            # loses ownership and blocks SOL at the next startup.
+            # Ambiguous StopUpdateIntent remains pending/reconcile-required.
             try:
                 amend = client.amend_protective_stop(parent.protective_algo_ids[0], new_sl_price=intent.raw_stop_price)
             except ccxt.ExchangeError as exc:
@@ -1217,10 +1484,31 @@ def _finalize_managed(cfg, client, intent, ledger, epoch_store, parent, epoch,
         if _positive(order.get("average")):
             resolved["gross_pnl"] = (order["average"]-epoch.raw_entry_price) * reduced * epoch.contract_size * (1 if epoch.side=="long" else -1)
             resolved["exit_price"] = order["average"]
+        # v33-11: Mark a partial reduction as actual order-fills only after
+        # the owned client ID, terminal reduce-only order, ALL fill IDs,
+        # quantity, exchange fillPnl, VWAP and USDT fees agree exactly.
+        # If the exchange cannot supply full proof right now, preserve the
+        # previous estimated settlement (fail closed; never assert a fill).
+        fill_proof = None
+        if order.get("id") and getattr(action, "cl_ord_id", None):
+            import candidate_c_fill_reconciliation_v33_11 as fill_verified
+            fill_proof = fill_verified.fetch_verified_reduce(
+                client,symbol=intent.symbol,side=epoch.side,
+                entry_price=epoch.raw_entry_price,contracts=reduced,
+                contract_size=epoch.contract_size,
+                order_id=str(order["id"]),client_order_id=str(action.cl_ord_id),
+                since_ms=int((datetime.datetime.now()-datetime.timedelta(minutes=7)).timestamp()*1000))
+        if fill_proof is not None:
+            resolved.update(gross_pnl=fill_proof["gross_pnl"],
+                fee=fill_proof["fee"],exit_price=fill_proof["vwap"],
+                net_pnl=fill_proof["net_ex_funding_and_entry_fees"],
+                source="order_fills",fee_source="verified_order_fills")
         trade_log.record_reduce(cfg.user_dir,intent.symbol,epoch.side,epoch.raw_entry_price,reduced,
             resolved["gross_pnl"],reason=intent.reason_code,dry_run=False,fee=resolved["fee"],
             pnl_source=resolved["source"],close_price=resolved.get("exit_price"),strategy_group="candidate_c",
-            execution_id=action.intent_id)
+            execution_id=action.intent_id,
+            okx_net_pnl=resolved.get("net_pnl") if fill_proof else None,
+            close_execution_evidence=fill_proof)
         epoch.realized_partial_pnl_usdt += resolved["gross_pnl"]
         epoch.realized_partial_fee_usdt += resolved["fee"]
         epoch.entry_fee_usdt = _scale_remaining_entry_fee(epoch.entry_fee_usdt, before, remaining)
@@ -1262,9 +1550,8 @@ def _finalize_managed(cfg, client, intent, ledger, epoch_store, parent, epoch,
                     confirmed["sz"], remaining, amount_step, order_safety.SIZE_STEP_TOLERANCE_MULTIPLE):
                 raise RuntimeError("residual protection not verified")
             epoch.protective_algo_ids=[algo_id]
-            if intent.kind == dec.INTENT_REDUCE and intent.reason_code not in (
-                    "partial_take_profit_2r", "PARTIAL_TP_2R_DUST_SAFE_FULL_EXIT"):
-                epoch.derisk_done = True
+            if intent.kind == dec.INTENT_REDUCE:
+                _apply_reduce_lifecycle_flags(epoch, intent.reason_code)
             epoch_store.save(parent.intent_id, epoch)
             ledger.mark_protected(parent.intent_id,[algo_id])
             ledger.mark_terminal(action.intent_id)
@@ -1421,7 +1708,8 @@ def reconcile_pending_management(cfg, client, ledger, epoch_store):
                                                        amount_step, order_safety.SIZE_STEP_TOLERANCE_MULTIPLE):
                     return pending
                 epoch.protective_algo_ids=[algo_id]
-                epoch.derisk_done=action.kind==dec.INTENT_REDUCE or epoch.derisk_done
+                if action.kind == dec.INTENT_REDUCE:
+                    _apply_reduce_lifecycle_flags(epoch, getattr(action, "reason_code", None))
                 epoch_store.save(parent_id,epoch)
                 ledger.mark_protected(parent_id,[algo_id]);ledger.mark_terminal(action.intent_id)
                 result = {"reconciled":True,"pending":False,

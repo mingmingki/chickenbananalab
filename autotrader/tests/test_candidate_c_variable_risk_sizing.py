@@ -44,13 +44,34 @@ def test_variable_risk_sizes_to_one_percent_of_equity_at_stop():
     assert result["notional_usdt"] == 260.0
 
 
-def test_variable_risk_uses_risk_pct_and_order_safety_cap_not_fixed_margin():
+def test_variable_risk_uses_risk_pct_and_enforces_both_notional_and_margin_cap():
     result = live._calculate_candidate_c_entry_amount(
         cfg(), FakeClient(), intent(99.5), fresh_price=100.0, fresh_equity=2600.0,
     )
     assert result["ok"] is True
-    assert result["amount_coin"] == 50.0
-    assert result["notional_usdt"] == 5000.0
+    assert result["amount_coin"] == 25.0
+    assert result["notional_usdt"] == 2500.0
+    assert 'configured_margin_cap' in result['sizing_reduction_reason']
+
+
+def test_variable_risk_150_usdt_margin_cap_5x_even_with_tight_stop():
+    result = live._calculate_candidate_c_entry_amount(
+        cfg(CANDIDATE_C_FIXED_MARGIN_USDT=150.0), FakeClient(), intent(99.5),
+        fresh_price=100.0, fresh_equity=2600.0,
+    )
+    assert result['ok'] is True
+    assert result['notional_usdt'] <= 750.0 + 1e-8
+    assert result['margin_estimate_usdt'] <= 150.0 + 1e-8
+    assert 'configured_margin_cap' in result['sizing_reduction_reason']
+
+
+def test_variable_risk_bad_margin_cap_fails_closed():
+    result = live._calculate_candidate_c_entry_amount(
+        cfg(CANDIDATE_C_FIXED_MARGIN_USDT=0.0), FakeClient(), intent(99.5),
+        fresh_price=100.0, fresh_equity=2600.0,
+    )
+    assert result['ok'] is False
+    assert result['reason'] == 'invalid_margin_cap_for_variable_risk'
 
 
 def test_fixed_margin_mode_keeps_legacy_sizing_unchanged():
