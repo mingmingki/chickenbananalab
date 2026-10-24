@@ -128,12 +128,15 @@ def test_a_touch_in_the_partly_observed_first_bar_is_ambiguous(tmp_path):
     assert inspect(tmp_path)['comparisons'][0]['status']=='AMBIGUOUS_FIRST_BAR'
 
 
-def test_both_protections_touched_uses_conservative_stop_and_marks_ambiguity(tmp_path):
+def test_both_protections_touched_reports_bounds_without_an_exit_advantage(tmp_path):
     m=module();c=cfg(tmp_path);m.capture(c,SYM,CORE,**arguments())
     b=bar();b.update(low=103.,high=121.)
     m.capture(c,SYM,CORE,event='market_tick',now=T+dt.timedelta(minutes=5),bars=[b])
     e=inspect(tmp_path)['comparisons'][0]
-    assert e['hold_exit_price']==104.
+    assert e['status']=='AMBIGUOUS_BOTH_TOUCHED'
+    assert e.get('exit_minus_hold_r') is None
+    assert e['exit_minus_hold_r_lower_bound']==pytest.approx(-1.49925)
+    assert e['exit_minus_hold_r_upper_bound']==pytest.approx(.09995)
     assert e['same_bar_both'] is True
 
 
@@ -200,3 +203,21 @@ def test_horizon_returns_a_mark_with_no_realized_fill(tmp_path):
     assert e['status']=='HORIZON_MARK'
     assert e['realized'] is False
     assert e['hold_exit_price']==105.
+
+
+def test_missing_final_full_horizon_candle_is_incomplete(tmp_path):
+    m=module();c=cfg(tmp_path);m.capture(c,SYM,CORE,**arguments())
+    rows=[bar(T+dt.timedelta(minutes=5*i)) for i in range(287)]
+    m.capture(c,SYM,CORE,event='market_tick',now=T+dt.timedelta(hours=24),bars=rows)
+    assert inspect(tmp_path)['comparisons'][0]['status']=='INCOMPLETE_PATH'
+
+
+def test_inspection_closes_its_sqlite_connection(tmp_path,monkeypatch):
+    m=module();m.capture(cfg(tmp_path),SYM,CORE,**arguments())
+    real=m.sqlite3.connect;opened=[]
+    def tracked(*a,**kw):
+        connection=real(*a,**kw);opened.append(connection);return connection
+    monkeypatch.setattr(m.sqlite3,'connect',tracked)
+    assert m.read_snapshot(tmp_path)['observations']==1
+    with pytest.raises(sqlite3.ProgrammingError):
+        opened[0].execute('SELECT 1')

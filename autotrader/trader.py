@@ -4093,6 +4093,11 @@ def _handle_position_ai_review(
         )
         return
 
+    _observe_core_ai_plan_shadow(
+        cfg, symbol, event='held_ai_review', frames=raw_dfs,
+        decision=gemini_review, position=position, protection=protection, receipt=review_id,
+        context=dict(review_path=review_path, decision_regime=decision.get('market_regime'),
+                     market_asof=decision.get('_candle_asof')))
     position_ai_log.record_event(
         cfg.user_dir, "gemini_position_review", symbol, review_id,
         assessment=gemini_review.get("assessment"), confidence=gemini_review.get("confidence"),

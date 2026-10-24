@@ -6,6 +6,7 @@ comparisons are research estimates, never fills or permission to promote live.
 from __future__ import annotations
 
 import datetime as dt
+from contextlib import closing
 import hashlib
 import json
 import math
@@ -51,11 +52,15 @@ def _connect(root):
     # The existing account directory must already exist; do not manufacture it.
     con = sqlite3.connect(path, timeout=.05)
     os.chmod(path, 0o600)
-    con.execute('PRAGMA busy_timeout=50')
-    con.execute('CREATE TABLE IF NOT EXISTS observations '
-                '(id TEXT PRIMARY KEY, symbol TEXT, event TEXT, at_ms INTEGER, payload TEXT)')
-    con.execute('CREATE TABLE IF NOT EXISTS comparisons '
-                '(id TEXT PRIMARY KEY, symbol TEXT, status TEXT, payload TEXT)')
+    try:
+        con.execute('PRAGMA busy_timeout=50')
+        con.execute('CREATE TABLE IF NOT EXISTS observations '
+                    '(id TEXT PRIMARY KEY, symbol TEXT, event TEXT, at_ms INTEGER, payload TEXT)')
+        con.execute('CREATE TABLE IF NOT EXISTS comparisons '
+                    '(id TEXT PRIMARY KEY, symbol TEXT, status TEXT, payload TEXT)')
+    except Exception:
+        con.close()
+        raise
     return con
 
 
@@ -175,11 +180,22 @@ def _advance(e, bars, now_ms):
         e.update(cursor_ms=end,last_mark=close,last_mark_at_ms=end)
         if sl_hit or tp_hit:
             fill = (min(stop,op) if sign==1 else max(stop,op)) if sl_hit else target
+            if sl_hit and tp_hit:
+                stop_case=dict(e); target_case=dict(e)
+                _settle(stop_case,fill,end,'STOP')
+                _settle(target_case,target,end,'TARGET')
+                bounds=[stop_case['exit_minus_hold_r'],target_case['exit_minus_hold_r']]
+                e.update(status='AMBIGUOUS_BOTH_TOUCHED',same_bar_both=True,
+                         resolved_at_ms=end,exit_minus_hold_r_lower_bound=min(bounds),
+                         exit_minus_hold_r_upper_bound=max(bounds),
+                         result_label='UNRESOLVED_ORDERING_NO_POINT_ESTIMATE')
+                return
             e['same_bar_both']=bool(sl_hit and tp_hit)
             _settle(e,fill,end,'STOP' if sl_hit else 'TARGET')
             return
     if now_ms >= e['deadline_ms']:
-        if e['last_mark_at_ms'] < e['deadline_ms']-BAR_MS:
+        expected_last_end=e['deadline_ms']//BAR_MS*BAR_MS
+        if e['last_mark_at_ms'] < expected_last_end:
             e['status']='INCOMPLETE_PATH'
         else:
             _settle(e,e['last_mark'],e['last_mark_at_ms'],'HORIZON_MARK')
@@ -225,6 +241,8 @@ def capture(cfg, symbol, core_symbols, *, event, now, bars=None, decision=None,
             entry,mark=(_num(p.get(k)) for k in ('entry_price','mark_price'))
             pnl=(_net(entry,mark,sign,fee,slip) if entry and mark and p.get('side') in ('long','short') else None)
             row=dict(id=key,symbol=symbol,event=event,at_ms=clock,lifecycle_id=lifecycle,
+                     receipt=str(receipt) if receipt is not None else None,
+                     decision_origin='LOCAL_MANAGEMENT_RESULT' if event=='management_decision' else 'AI_RESPONSE' if d else 'NOT_EVALUATED',
                      may_execute=False,mode='SHADOW_ONLY',ai_evaluated=bool(d),
                      decision=d,contract=contract,position=p,opening=o,protection=g,
                      gates=gates or {},context=ctx,entry_alignment=o.get('trade_alignment'),
@@ -263,7 +281,7 @@ def read_snapshot(user_dir, details=False):
     if not path.exists():
         return dict(base,status='no_observations')
     try:
-        with sqlite3.connect(path.as_uri()+'?mode=ro',uri=True,timeout=.05) as con:
+        with closing(sqlite3.connect(path.as_uri()+'?mode=ro',uri=True,timeout=.05)) as con:
             base['observations']=con.execute('SELECT count(*) FROM observations').fetchone()[0]
             base['experiments']=con.execute('SELECT count(*) FROM comparisons').fetchone()[0]
             base['status_counts']=dict(con.execute('SELECT status,count(*) FROM comparisons GROUP BY status'))

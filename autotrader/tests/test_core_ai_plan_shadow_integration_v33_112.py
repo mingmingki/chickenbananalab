@@ -72,3 +72,31 @@ def test_authenticated_route_reads_only_the_session_account(tmp_path,monkeypatch
     assert data['report']['observations']==1
     assert data['execution_permission'] is False
     assert requested==['research-test']
+
+
+def test_raw_held_ai_reduce_survives_local_sizing_hold(tmp_path,monkeypatch):
+    from state import TraderState
+    cfg=config(tmp_path)
+    cfg.POSITION_AI_REVIEW_COOLDOWN_MINUTES=15
+    cfg.MIN_CONFIDENCE=.6
+    cfg.CORE_GEMINI_MANAGEMENT_ONLY=True
+    position=dict(side='long',entry_price=100.,mark_price=105.,contracts=2.)
+    opened=dict(execution_id='open-raw',symbol=SYM,side='long',price=100.,
+                contracts=2.,sl_price=90.,tp_price=120.)
+    raw=dict(assessment='weakening',confidence=.8,reasoning='structure changed',
+             management_action='REDUCE_50',risk_level='medium',suggested_reduce_fraction=.25)
+    monkeypatch.setattr(trader.trade_log,'last_unclosed_open',lambda *a:opened)
+    monkeypatch.setattr(trader,'_position_management_evidence',lambda *a:'')
+    monkeypatch.setattr(trader.gemini_analyzer,'analyze_held_position',lambda *a,**k:copy.deepcopy(raw))
+    client=SimpleNamespace(fetch_current_protection=lambda *a:dict(algo_id='guard',sl_price=104.,tp_price=120.,sz=2.))
+    trader._handle_position_ai_review(cfg,TraderState(),client,SYM,['5m'],'snapshot',position,
+                                     dict(action='hold',market_regime='transition'),{})
+    rows=shadow.read_snapshot(tmp_path)['latest']
+    raw_row=next(row for row in rows if row['event']=='held_ai_review')
+    local_row=next(row for row in rows if row['event']=='management_decision')
+    assert raw_row['decision']==raw
+    assert raw_row['contract']['action']=='REDUCE'
+    assert local_row['contract']['action']=='HOLD'
+    assert raw_row['receipt']==local_row['receipt']
+    assert raw_row['decision_origin']=='AI_RESPONSE'
+    assert local_row['decision_origin']=='LOCAL_MANAGEMENT_RESULT'
