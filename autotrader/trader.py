@@ -5796,6 +5796,79 @@ def _handle_new_entry(
         )
 
 
+def _record_external_core_close_if_flat(cfg, state, client, symbol, position):
+    """Journal an observed exchange close on the symbol's existing worker only.
+
+    The display thread never calls this writer. Keep the cached lifecycle until
+    the existing fill resolver and journal succeed, so later ticks can retry.
+    """
+    if position is not None:
+        return False
+    prev_position = state.snapshot().get("symbols", {}).get(symbol, {}).get("position")
+    if prev_position is None:
+        return False
+    import core_entry_events
+    if core_entry_events.pending_order(cfg.user_dir, symbol):
+        return False
+    logger = cfg.logger
+    logger.info("[%s] 포지션이 외부에서(스탑로스/익절 등) 사라짐 - 거래 기록", symbol)
+    # close_reason 판별에 쓸 sl_price/tp_price는 "닫히기 전"(아직 record_close를
+    # 부르기 전)에 미리 찾아둬야 last_unclosed_open()이 이 포지션의 open을 정확히 찾는다.
+    open_record = trade_log.last_unclosed_open(cfg.user_dir, symbol)
+    resolved = _resolve_external_close_pnl(cfg, client, symbol, prev_position, open_record=open_record)
+    close_reason = _classify_close_reason(open_record, resolved.get("exit_price"), resolved.get('close_reason_evidence'))
+    logger.info("[%s] 외부청산 사유 판정: %s (pnl_source=%s)", symbol, close_reason, resolved["source"])
+
+    trade_log.record_close(
+        cfg.user_dir,
+        symbol,
+        prev_position["side"],
+        prev_position["entry_price"],
+        prev_position["contracts"],
+        resolved["gross_pnl"],
+        reason=close_reason,
+        dry_run=False,
+        fee=resolved["fee"],
+        pnl_source=resolved["source"],
+        close_price=resolved.get("exit_price"),
+        okx_net_pnl=resolved.get("net_pnl"),
+        funding_fee=resolved.get("funding_fee"),
+        strategy_group="core",
+        execution_id=(
+            f"core-external-close:{reduce_v2_state.position_identity(prev_position)}"
+            if reduce_v2_state.position_identity(prev_position) else None
+        ),
+        close_reason_evidence=resolved.get('close_reason_evidence'),
+        close_execution_evidence=resolved.get('close_execution_evidence'),
+    )
+    _notify_web_push_only(cfg, _format_close_notification(symbol, prev_position["side"], resolved, close_reason))
+    # CORE SHORT 연속 stop_loss cooldown/downgrade 추적(2026-08-29, 사용자 지시
+    # section 11) - side!="short"면 아무 것도 안 한다(core_short_downgrade 참고).
+    core_short_downgrade.record_close(cfg.user_dir, symbol, prev_position["side"], close_reason)
+    # REDUCE v2(2026-09-13) - 포지션이 완전히 닫혔으니 이 포지션의 누적 감축
+    # 상태를 정리한다(다음에 같은 심볼에 새 포지션이 열리면 어차피 entry_price가
+    # 달라 자동으로 리셋되지만, 청산 즉시 정리해두는 편이 더 깔끔하다).
+    reduce_v2_state.clear(cfg.user_dir, symbol)
+    core_add_position_state.clear(cfg.user_dir, symbol)  # ADD_POSITION(2026-09-15)도 동일하게 정리
+    # 외부청산 후 같은 심볼에 곧바로 반대방향 재진입해서 휩쏘를 맞는 걸 막기 위한 쿨다운.
+    # 이 사이클에서 이미 설정해야, 아래에서 Gemini가 곧바로 long/short를 반환해도 막힌다.
+    # close_reason이 stop_loss/take_profit처럼 확실할 때만 같은 방향 재진입을 예외로
+    # 허용한다(2026-09-11 사례) - external_close_unknown(수동으로 거래소에서 직접
+    # 청산 등 사유가 불확실한 경우)은 side를 None으로 둬서 _reentry_blocked가 방향
+    # 무관하게 쿨다운 전체를 막게 한다(2026-09-18, 사용자 지시).
+    cooldown_until = datetime.datetime.now() + datetime.timedelta(minutes=cfg.REENTRY_COOLDOWN_MINUTES)
+    state.update_symbol(
+        symbol, position=None, live_position=None,
+        live_protection=_live_protection_snapshot(client, None),
+        last_update=datetime.datetime.now(), entry_time=None, reentry_block_until=cooldown_until,
+        reentry_block_side=(
+            prev_position["side"] if close_reason in ("stop_loss", "take_profit") else None
+        ),
+        reentry_recovered=True,
+    )
+    return True
+
+
 def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manager.DailyLossGuard):
     cycle_started_at = time.time()
     if getattr(cfg, 'EXECUTION_MODE', 'LIVE') != 'SHADOW':
@@ -5965,61 +6038,7 @@ def run_cycle(cfg, state, client: OkxClient, symbol: str, loss_guard: risk_manag
                 logger.warning('[%s] CORE_1H_EXIT_SHADOW_UNAVAILABLE (live trading unaffected)',
                                symbol, exc_info=True)
 
-        prev_position = state.snapshot()["symbols"].get(symbol, {}).get("position")
-        if prev_position is not None and position is None:
-            logger.info("[%s] 포지션이 외부에서(스탑로스/익절 등) 사라짐 - 거래 기록", symbol)
-            # close_reason 판별에 쓸 sl_price/tp_price는 "닫히기 전"(아직 record_close를
-            # 부르기 전)에 미리 찾아둬야 last_unclosed_open()이 이 포지션의 open을 정확히 찾는다.
-            open_record = trade_log.last_unclosed_open(cfg.user_dir, symbol)
-            resolved = _resolve_external_close_pnl(cfg, client, symbol, prev_position, open_record=open_record)
-            close_reason = _classify_close_reason(open_record, resolved.get("exit_price"), resolved.get('close_reason_evidence'))
-            logger.info("[%s] 외부청산 사유 판정: %s (pnl_source=%s)", symbol, close_reason, resolved["source"])
-
-            trade_log.record_close(
-                cfg.user_dir,
-                symbol,
-                prev_position["side"],
-                prev_position["entry_price"],
-                prev_position["contracts"],
-                resolved["gross_pnl"],
-                reason=close_reason,
-                dry_run=False,
-                fee=resolved["fee"],
-                pnl_source=resolved["source"],
-                close_price=resolved.get("exit_price"),
-                okx_net_pnl=resolved.get("net_pnl"),
-                funding_fee=resolved.get("funding_fee"),
-                strategy_group="core",
-                execution_id=(
-                    f"core-external-close:{reduce_v2_state.position_identity(prev_position)}"
-                    if reduce_v2_state.position_identity(prev_position) else None
-                ),
-                close_reason_evidence=resolved.get('close_reason_evidence'),
-                close_execution_evidence=resolved.get('close_execution_evidence'),
-            )
-            _notify_web_push_only(cfg, _format_close_notification(symbol, prev_position["side"], resolved, close_reason))
-            # CORE SHORT 연속 stop_loss cooldown/downgrade 추적(2026-08-29, 사용자 지시
-            # section 11) - side!="short"면 아무 것도 안 한다(core_short_downgrade 참고).
-            core_short_downgrade.record_close(cfg.user_dir, symbol, prev_position["side"], close_reason)
-            # REDUCE v2(2026-09-13) - 포지션이 완전히 닫혔으니 이 포지션의 누적 감축
-            # 상태를 정리한다(다음에 같은 심볼에 새 포지션이 열리면 어차피 entry_price가
-            # 달라 자동으로 리셋되지만, 청산 즉시 정리해두는 편이 더 깔끔하다).
-            reduce_v2_state.clear(cfg.user_dir, symbol)
-            core_add_position_state.clear(cfg.user_dir, symbol)  # ADD_POSITION(2026-09-15)도 동일하게 정리
-            # 외부청산 후 같은 심볼에 곧바로 반대방향 재진입해서 휩쏘를 맞는 걸 막기 위한 쿨다운.
-            # 이 사이클에서 이미 설정해야, 아래에서 Gemini가 곧바로 long/short를 반환해도 막힌다.
-            # close_reason이 stop_loss/take_profit처럼 확실할 때만 같은 방향 재진입을 예외로
-            # 허용한다(2026-09-11 사례) - external_close_unknown(수동으로 거래소에서 직접
-            # 청산 등 사유가 불확실한 경우)은 side를 None으로 둬서 _reentry_blocked가 방향
-            # 무관하게 쿨다운 전체를 막게 한다(2026-09-18, 사용자 지시).
-            cooldown_until = datetime.datetime.now() + datetime.timedelta(minutes=cfg.REENTRY_COOLDOWN_MINUTES)
-            state.update_symbol(
-                symbol, entry_time=None, reentry_block_until=cooldown_until,
-                reentry_block_side=(
-                    prev_position["side"] if close_reason in ("stop_loss", "take_profit") else None
-                ),
-                reentry_recovered=True,
-            )
+        _record_external_core_close_if_flat(cfg, state, client, symbol, position)
 
     state.update_symbol(symbol, position=position, live_position=position, last_update=datetime.datetime.now())
 
@@ -8387,6 +8406,11 @@ def _run_core_fast_tick(cfg, state, client, symbol):
             if manual.get('position') and not manual.get('journaled'):
                 _execute_close(cfg, state, client, symbol, manual['position'], 'manual_stop')
             return False
+    # Same worker and existing exchange reads: settle a completed lifecycle
+    # without waiting for the slower AI/candle cycle or starting a new entry.
+    if position is None and _record_external_core_close_if_flat(
+            cfg, state, client, symbol, position):
+        return True
     raw = {}
     fast_candle_asof=datetime.datetime.now(datetime.timezone.utc)
     if position is not None:

@@ -3350,6 +3350,15 @@ function renderMarketContext(snapshot, symbols) {
   used.textContent = receipts.length ? '최근 AI에 전달한 자료 시각: ' + receipts.join(' · ') : '다음 CORE AI 검토에서 자료를 전달합니다.';
 }
 
+function corePositionForDisplay(info) {
+  if (info.live_position !== null && info.live_position !== undefined) {
+    return info.live_position;
+  }
+  // A successful exchange read confirming flat is different from no reading.
+  if (info.live_protection?.status === "NOT_REQUIRED_FLAT") return null;
+  return info.position ?? null;
+}
+
 async function refreshState() {
   let res;
   try {
@@ -3572,7 +3581,7 @@ async function refreshState() {
       return;
     }
     card.className = "pos-card";
-    const pos = pick(info.live_position, info.position);
+    const pos = corePositionForDisplay(info);
 
     const sideEl = document.getElementById("side-" + id);
     const pnlEl = document.getElementById("pnl-" + id);
