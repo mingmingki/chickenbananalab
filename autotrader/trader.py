@@ -3967,6 +3967,14 @@ def _observe_core_ai_plan_shadow(cfg, symbol, *, event, frames=None, now=None,
             return
         import core_ai_plan_shadow_v33_112 as plan_shadow
         opening = trade_log.last_unclosed_open(cfg.user_dir, symbol) if position else None
+        context = dict(context or {})
+        if position:
+            reduction = reduce_v2_state.get(cfg.user_dir, symbol) or {}
+            identity = reduce_v2_state.position_identity(position)
+            if (identity and reduction.get('lifecycle_id') == identity
+                    and reduction.get('baseline_known') is True):
+                context.update(initial_contracts=reduction.get('initial_contracts'),
+                               initial_contracts_verified=True)
         frame = frames.get('5m') if isinstance(frames, dict) else None
         result = plan_shadow.capture(
             cfg, symbol, config.CORE_SYMBOLS, event=event,

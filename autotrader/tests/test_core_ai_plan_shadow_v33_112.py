@@ -180,11 +180,24 @@ def test_insufficient_evidence_is_recorded_but_not_used_for_comparison(tmp_path,
     assert inspect(tmp_path)['experiments']==0
 
 
-def test_initial_basis_reduction_is_converted_to_remaining_fraction(tmp_path):
+@pytest.mark.parametrize('quantity_field',['contracts','verified_context'])
+def test_initial_basis_reduction_is_converted_to_remaining_fraction(tmp_path,quantity_field):
     a=arguments();a['decision'].update(action='REDUCE_50',reduce_fraction=.25)
+    if quantity_field=='verified_context':
+        a['opening'].pop('contracts');a['opening']['amount']=.02
+        a['context'].update(initial_contracts=2.,initial_contracts_verified=True)
     a['position']['contracts']=1.;a['protection']['sz']=1.
     m=module();m.capture(cfg(tmp_path),SYM,CORE,**a)
     assert inspect(tmp_path)['comparisons'][0]['exit_fraction']==.5
+
+
+def test_opening_coin_amount_is_not_interpreted_as_contracts(tmp_path):
+    a=arguments();a['decision'].update(action='REDUCE_50',reduce_fraction=.25)
+    a['opening'].pop('contracts');a['opening']['amount']=2.
+    a['position']['contracts']=1.;a['protection']['sz']=1.
+    m=module();m.capture(cfg(tmp_path),SYM,CORE,**a)
+    assert inspect(tmp_path)['experiments']==0
+    assert inspect(tmp_path)['latest'][0]['comparison_exclusion']=='initial_quantity_unknown'
 
 
 def test_storage_error_cannot_break_live_trading(tmp_path,monkeypatch):

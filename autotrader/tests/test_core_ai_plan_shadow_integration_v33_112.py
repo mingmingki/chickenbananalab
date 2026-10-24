@@ -100,3 +100,18 @@ def test_raw_held_ai_reduce_survives_local_sizing_hold(tmp_path,monkeypatch):
     assert raw_row['receipt']==local_row['receipt']
     assert raw_row['decision_origin']=='AI_RESPONSE'
     assert local_row['decision_origin']=='LOCAL_MANAGEMENT_RESULT'
+
+
+def test_trader_uses_verified_lifecycle_contract_baseline_not_coin_amount(tmp_path,monkeypatch):
+    import reduce_v2_state
+    position=dict(side='long',entry_price=100.,mark_price=105.,contracts=1.,
+                  position_id='pos-1',entry_timestamp_ms=int(NOW.timestamp()*1000))
+    opened=dict(execution_id='open-1',symbol=SYM,side='long',price=100.,
+                amount=.02,sl_price=90.,tp_price=120.)
+    reduce_v2_state.ensure_position(str(tmp_path),SYM,position,initial_contracts=2.)
+    monkeypatch.setattr(trader.trade_log,'last_unclosed_open',lambda *a:opened)
+    trader._observe_core_ai_plan_shadow(config(tmp_path),SYM,event='management_decision',
+        now=NOW,decision=dict(action='REDUCE_50',reduce_fraction=.25),position=position,
+        protection=dict(algo_id='guard',sl_price=104.,tp_price=120.,sz=1.),
+        context=dict(fraction_basis='initial'))
+    assert shadow.read_snapshot(tmp_path)['comparisons'][0]['exit_fraction']==.5

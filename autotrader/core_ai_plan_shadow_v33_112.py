@@ -118,7 +118,11 @@ def _comparison(row):
         if fraction is None or not 0 < fraction <= 1 or basis not in ('initial','remaining'):
             return None, 'reduction_fraction_unknown'
         if basis == 'initial':
+            # Journal amount is COIN quantity. Only an explicit contracts field
+            # or a baseline verified against this exchange lifecycle is usable.
             initial_qty = _num(o.get('contracts'))
+            if initial_qty is None and row['context'].get('initial_contracts_verified') is True:
+                initial_qty = _num(row['context'].get('initial_contracts'))
             if initial_qty is None or initial_qty < qty:
                 return None, 'initial_quantity_unknown'
             fraction *= initial_qty / qty
