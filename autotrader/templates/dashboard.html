@@ -4731,9 +4731,25 @@ async function fetchWithTimeout(url, options, timeoutMs = FETCH_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, Object.assign({}, options, { signal: controller.signal }));
-  } finally {
+    const response = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
+    // The deadline includes the response body. Headers alone are not a completed
+    // refresh; a stalled JSON body must release shared refresh requests as well.
+    for (const method of ['json', 'text', 'arrayBuffer', 'blob', 'formData']) {
+      if (typeof response[method] !== 'function') continue;
+      const read = response[method].bind(response);
+      response[method] = async (...args) => {
+        try {
+          return await read(...args);
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+    }
+    if (!response.body) clearTimeout(timer);
+    return response;
+  } catch (error) {
     clearTimeout(timer);
+    throw error;
   }
 }
 
@@ -4802,10 +4818,6 @@ refreshCandidateC = coalesceRefresh(refreshCandidateC);
 refreshPnlSummary = coalesceRefresh(refreshPnlSummary);
 refreshOperatingCosts = coalesceRefresh(refreshOperatingCosts);
 refreshOpsObservability = coalesceRefresh(refreshOpsObservability);
-refreshTradesFiltered = coalesceRefresh(refreshTradesFiltered);
-refreshShadow = coalesceRefresh(refreshShadow);
-refreshLogs = coalesceRefresh(refreshLogs);
-refreshMarketStructure = coalesceRefresh(refreshMarketStructure);
 
 guardedPoll(refreshOperatingCosts, 60000);
 guardedPoll(refreshOpsObservability, 60000);

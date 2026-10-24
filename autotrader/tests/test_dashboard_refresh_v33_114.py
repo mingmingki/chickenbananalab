@@ -126,3 +126,67 @@ await refreshOpsObservability();
 assert.deepEqual(calls, ['/api/ops-observability']);
 assert.deepEqual(rendered, {generated_at: 'now'});
 """)
+
+
+def test_filter_changes_are_not_discarded_by_shared_refresh_bindings():
+    source = (ROOT / "templates/dashboard.html").read_text()
+    start = source.index("refreshState = coalesceRefresh(refreshState);")
+    end = source.index("guardedPoll(refreshOperatingCosts", start)
+    bindings = source[start:end]
+    run_js(function("coalesceRefresh"), """
+const queries = [];
+let selected = 'all';
+for (const name of ['refreshState','refreshCandidateC','refreshPnlSummary',
+                   'refreshOperatingCosts','refreshOpsObservability','refreshShadow','refreshLogs']) {
+  global[name] = async () => {};
+}
+global.refreshTradesFiltered = () => {
+  queries.push(['trades', selected]);
+  return new Promise(() => {});
+};
+global.refreshMarketStructure = () => {
+  queries.push(['structure', selected]);
+  return new Promise(() => {});
+};
+""" + bindings + """
+refreshTradesFiltered();
+refreshMarketStructure();
+await Promise.resolve();
+selected = 'core';
+refreshTradesFiltered();
+refreshMarketStructure();
+await Promise.resolve();
+assert.deepEqual(queries, [['trades','all'], ['structure','all'],
+                          ['trades','core'], ['structure','core']]);
+""")
+
+
+def test_stalled_json_body_times_out_and_shared_refresh_can_recover():
+    run_js(function("fetchWithTimeout") + "\n" + function("coalesceRefresh"), """
+const http = require('node:http');
+let stall = true;
+const server = http.createServer((req, res) => {
+  res.writeHead(200, {'content-type': 'application/json'});
+  if (stall) res.write('{"value":');
+  else res.end('{"value":"fresh"}');
+});
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+try {
+  const url = 'http://127.0.0.1:' + server.address().port;
+  const refresh = coalesceRefresh(async () => {
+    const response = await fetchWithTimeout(url, undefined, 150);
+    return response.json();
+  });
+  const result = await Promise.race([
+    refresh().then(() => 'unexpected-success', error => error.name),
+    new Promise(resolve => setTimeout(() => resolve('still-locked'), 700))
+  ]);
+  assert.notEqual(result, 'still-locked', 'headers cleared deadline before the JSON body completed');
+  assert.match(result, /Abort|Timeout/);
+  stall = false;
+  assert.deepEqual(await refresh(), {value:'fresh'});
+} finally {
+  server.closeAllConnections();
+  await new Promise(resolve => server.close(resolve));
+}
+""")
