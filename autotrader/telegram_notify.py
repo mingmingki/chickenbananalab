@@ -45,10 +45,19 @@ def format_core_entry_event(event):
     import datetime
     when=event.get('time') or datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).isoformat(timespec='seconds')
     timeout_text = ("\nGPT 응답 없음 — 설정에 따른 예외 통과" if event.get('timeout_bypass') else "")
+    # Historical field names are retained in the audit ledger. Provider labels
+    # follow the event's actual authorization, not today's account setting.
+    primary_gpt = (event.get('gate_processing') == 'GPT_PRIMARY_AUTHORIZED'
+                   or event.get('gpt_raw_result') == 'primary_authorized')
+    decision_rows = (
+        [f"GPT 판단={event.get('gemini_action')} 확신도={_format_number(event.get('gemini_confidence'))}",
+         f"판단 사유={str(event.get('gpt_reason') or '')[:700]}"]
+        if primary_gpt else
+        [f"Gemini={event.get('gemini_action')} 확신도={_format_number(event.get('gemini_confidence'))}",
+         f"GPT 원본={event.get('gpt_raw_result')} 확신도={_format_number(event.get('gpt_confidence'))} 사유={str(event.get('gpt_reason') or '')[:700]}"])
     rows=[f"[{event.get('engine') or 'CORE'}] {when} KST {event.get('symbol')} {str(event.get('side') or '').upper()}",
           f"decision_id={event.get('decision_id')} setup_id={event.get('setup_id') or 'UNKNOWN'}",
-          f"Gemini={event.get('gemini_action')} 확신도={_format_number(event.get('gemini_confidence'))}",
-          f"GPT 원본={event.get('gpt_raw_result')} 확신도={_format_number(event.get('gpt_confidence'))} 사유={str(event.get('gpt_reason') or '')[:700]}",
+          *decision_rows,
           f"게이트={event.get('gate_processing')} timeout 예외={bool(event.get('timeout_bypass'))}{timeout_text}",
           f"최종 상태={event.get('status')} 사유={str(event.get('reason') or '')[:400]}"]
     if event.get('validation_values'):
