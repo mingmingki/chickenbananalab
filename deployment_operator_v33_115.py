@@ -7,6 +7,7 @@ Run from the staged release with --apply only after the printed dry run.
 import hashlib
 import json
 import os
+import pwd
 from pathlib import Path
 import subprocess
 import sys
@@ -26,9 +27,22 @@ def run(*args):
 
 
 def write_intent(data):
+    # A root-launched operator must not leave a root-only file for a
+    # non-root trading service to read during startup.
+    service_user=run('systemctl','show','autotrader','-p','User','--value') or 'root'
+    owner=pwd.getpwnam(service_user)
+    effective_uid=os.geteuid()
+    if effective_uid not in (0,owner.pw_uid):
+        raise PermissionError('run_deployment_as_service_user_or_root')
     fd=os.open(PENDING,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
-    with os.fdopen(fd,'w') as stream:
-        json.dump(data,stream);stream.flush();os.fsync(stream.fileno())
+    try:
+        with os.fdopen(fd,'w') as stream:
+            if effective_uid==0:
+                os.fchown(stream.fileno(),owner.pw_uid,owner.pw_gid)
+            json.dump(data,stream);stream.flush();os.fsync(stream.fileno())
+    except BaseException:
+        PENDING.unlink(missing_ok=True)
+        raise
 
 
 def switch(target):
