@@ -245,12 +245,12 @@ class QuantityCadSourceTests(SimpleTestCase):
         self.assertEqual(parsed.get('source_texts', [])[0]['insert'][:2], [20.0, 40.0])
         self.assertTrue(parsed['source_texts'][0]['handle'])
 
-    def test_gemini_does_not_receive_large_raw_source_index(self):
+    def test_ai_does_not_receive_large_raw_source_index(self):
         calls = []
         def generate(**kwargs):
             calls.append(kwargs['contents'])
             return SimpleNamespace(text='{}')
-        client = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+        client = SimpleNamespace(generate=generate)
         data = {'a.dxf': {'texts': ['C1'], 'source_texts': [
                     {'text': 'RAW_METADATA_ONLY' * 200, 'handle': str(i)} for i in range(5000)]}}
         views._extract_structural_members_one_batch(client, data, [], 1, 1)

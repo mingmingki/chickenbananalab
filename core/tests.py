@@ -678,7 +678,7 @@ class GeneralNotesRegressionTests(SimpleTestCase):
     @patch("core.quantity_views._cbl_v5_classify_general_notes")
     @patch("core.quantity_views._general_notes_page_candidates")
     @patch("core.quantity_views.pdfinfo_from_bytes", return_value={"Pages": 79})
-    @patch("core.quantity_views.get_gemini_client")
+    @patch("core.quantity_views.get_ai_client")
     def test_extraction_sends_content_pages_not_drawing_list(
         self, get_client, _pdfinfo, candidates, classify, _render, _jpeg,
     ):
@@ -710,16 +710,15 @@ class GeneralNotesRegressionTests(SimpleTestCase):
                 },
             },
         }
-        response = SimpleNamespace(text=json.dumps(payload, ensure_ascii=False),
-                                   candidates=[], usage_metadata=None)
+        response = SimpleNamespace(text=json.dumps(payload, ensure_ascii=False))
         client = Mock()
-        client.models.generate_content.return_value = response
+        client.generate.return_value = response
         get_client.return_value = client
 
         result = extract_general_notes(b"pdf", job_id="mock-image-locator")
 
         self.assertEqual(result["selected_pages"], [3])
-        contents = client.models.generate_content.call_args.kwargs["contents"]
+        contents = client.generate.call_args.kwargs["contents"]
         labels = [item for item in contents if isinstance(item, str)]
         self.assertFalse(any("실제 1페이지" in item for item in labels))
         self.assertTrue(any("실제 3페이지" in item for item in labels))
@@ -728,7 +727,7 @@ class GeneralNotesRegressionTests(SimpleTestCase):
     @patch("core.quantity_views._cbl_v5_classify_general_notes", return_value=[])
     @patch("core.quantity_views._general_notes_page_candidates")
     @patch("core.quantity_views.pdfinfo_from_bytes", return_value={"Pages": 12})
-    @patch("core.quantity_views.get_gemini_client")
+    @patch("core.quantity_views.get_ai_client")
     def test_failed_image_locator_uses_parsed_cad_text_fallback(
         self, get_client, _pdfinfo, candidates, _classify,
     ):
@@ -752,7 +751,7 @@ class GeneralNotesRegressionTests(SimpleTestCase):
         )
 
         self.assertEqual(result["concrete_materials"][0]["fck_mpa"], 30)
-        client.models.generate_content.assert_not_called()
+        client.generate.assert_not_called()
         self.assertEqual(result["diagnostics"]["cad_fallback_reason"],
                          "no_pdf_content_candidate")
 
@@ -1305,7 +1304,7 @@ class OjeongOverviewRegressionTests(SimpleTestCase):
 
     def test_first_ten_pages_use_one_render_and_one_vision_request(self):
         fake_client = Mock()
-        fake_client.models.generate_content.return_value = object()
+        fake_client.generate.return_value = object()
         rendered = [[Image.new("RGB", (100, 50), "white")] for _ in range(10)]
         encoded_sizes = []
 
@@ -1314,15 +1313,15 @@ class OjeongOverviewRegressionTests(SimpleTestCase):
             return b"jpeg"
 
         with (
-            patch("core.quantity_views.get_gemini_client", return_value=fake_client),
+            patch("core.quantity_views.get_ai_client", return_value=fake_client),
             patch("core.quantity_views._render_pdf_page_range", side_effect=rendered) as render,
             patch("core.quantity_views.image_to_jpeg_bytes", side_effect=encode),
             patch(
-                "core.quantity_views.types.Part.from_bytes",
+                "core.quantity_views.image_part",
                 side_effect=lambda **kwargs: ("IMAGE", kwargs["data"]),
             ),
             patch(
-                "core.quantity_views._extract_text_from_gemini_response",
+                "core.quantity_views._ai_response_text",
                 return_value='{"pages":[]}',
             ),
         ):
@@ -1331,21 +1330,21 @@ class OjeongOverviewRegressionTests(SimpleTestCase):
         self.assertEqual(
             render.call_args_list,
             [
-                ((b"pdf", page, page), {"dpi": 120, "timeout": 60})
+                ((b"pdf", page, page), {"dpi": 120, "timeout": 180})
                 for page in range(1, 11)
             ],
         )
-        self.assertEqual(fake_client.models.generate_content.call_count, 1)
-        contents = fake_client.models.generate_content.call_args.kwargs["contents"]
+        self.assertEqual(fake_client.generate.call_count, 1)
+        contents = fake_client.generate.call_args.kwargs["contents"]
         for page in range(1, 11):
             label_index = contents.index(f"[PDF_PAGE={page}]")
             self.assertEqual(contents[label_index + 1], ("IMAGE", b"jpeg"))
         self.assertEqual(sum(item == ("IMAGE", b"jpeg") for item in contents), 10)
         self.assertEqual(len(encoded_sizes), 10)
         self.assertTrue(all(max(size) >= 2000 for size in encoded_sizes))
-        config = fake_client.models.generate_content.call_args.kwargs["config"]
-        self.assertEqual(config.max_output_tokens, 8192)
-        self.assertEqual(config.thinking_config.thinking_budget, 512)
+        options = fake_client.generate.call_args.kwargs
+        self.assertEqual(options["max_output_tokens"], 8192)
+        self.assertEqual(options["effort"], "low")
 
     def test_truncated_first_batch_retries_only_missing_pages_and_stops(self):
         calls = []
@@ -1465,15 +1464,15 @@ class OjeongOverviewRegressionTests(SimpleTestCase):
 
     def test_locator_response_accepts_top_level_json_array(self):
         fake_client = Mock()
-        fake_client.models.generate_content.return_value = object()
+        fake_client.generate.return_value = object()
         with (
-            patch("core.quantity_views.get_gemini_client", return_value=fake_client),
+            patch("core.quantity_views.get_ai_client", return_value=fake_client),
             patch(
                 "core.quantity_views._render_pdf_page_range",
                 return_value=[Image.new("RGB", (100, 50), "white")],
             ),
             patch(
-                "core.quantity_views._extract_text_from_gemini_response",
+                "core.quantity_views._ai_response_text",
                 return_value=(
                     '[{"page_number":1,"page_type":"overview","confidence":0.9,'
                     '"title_text":"사업개요","evidence_terms":["사업명칭","대지위치"]}]'

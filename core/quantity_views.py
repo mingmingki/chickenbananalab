@@ -1,9 +1,9 @@
 """
 AI 구조산출 자동화 — views.py
-구조도면 ZIP(DWG) + 구조/건축 PDF 합본을 받아 Gemini로 수량 추출
+구조도면 ZIP(DWG) + 구조/건축 PDF 합본을 받아 AI로 수량 추출
 
 필요 패키지:
-    pip install ezdxf pdf2image pillow google-genai openpyxl
+    pip install ezdxf pdf2image pillow openai openpyxl
     apt-get install poppler-utils  (pdf2image 의존, macOS는 brew install poppler)
 """
 
@@ -41,11 +41,9 @@ from urllib.parse import urlencode
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_http_methods
 
-from google import genai
-from google.genai import types
-
 from .views import (admin_required, _CBLAcadSharpBusy, _cbl_decode_dxf_unicode_escapes_v1,
                     _cbl_free_dwg_to_dxf_text_v1, _cbl_free_dwg_unreadable_objects_v1)
+from .quantity_ai import QUANTITY_AI_MODEL, get_ai_client, image_part
 from .quantity_calc import compute_structural_quantities, compute_massing_model, REBAR_UNIT_WEIGHT
 from .quantity_state import QuantityStateStore, RETENTION_SECONDS, worker_alive
 from .table_semantic_model import parse_typed_scalars
@@ -61,7 +59,7 @@ logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────
-#  접근 제한: 이 수량산출 도구는 요청 1건마다 Gemini API 비용이 실제로 발생한다.
+#  접근 제한: 이 수량산출 도구는 요청 1건마다 AI API 비용이 실제로 발생한다.
 #  로그인/권한 체크 없이 공개돼 있으면 누구든(봇 포함) 파일 없이/의미없는 파일로 반복
 #  호출해서 크레딧을 소모시킬 수 있다 — 아직 결제 시스템을 붙이기 전(관리자 테스트 단계)
 #  이므로, 실제로 비용이 드는 화면/엔드포인트는 전부 관리자(스태프/슈퍼유저)만 쓸 수
@@ -152,26 +150,14 @@ def _admin_only_json(view_func):
         return response
     return _wrapped
 
-# core/ai_writer.py와 동일한 방식으로 .env의 GEMINI_API_KEY를 사용합니다.
-GEMINI_QUANTITY_MODEL = os.environ.get("GEMINI_QUANTITY_MODEL") or os.environ.get("GEMINI_TEXT_MODEL", "gemini-2.5-pro")
-
-
-def get_gemini_client():
-    """GEMINI_API_KEY가 없으면 None을 반환합니다 (import 시점에 죽지 않도록 지연 초기화)."""
-    api_key = (getattr(settings, "GEMINI_API_KEY", None) or os.environ.get("GEMINI_API_KEY", "")).strip()
-    if not api_key:
-        return None
-    return genai.Client(api_key=api_key)
-
-
 # ─────────────────────────────────────────────
 #  개발용 추출 결과 캐시: 팝업 UI/계산 로직을 다듬는 동안 같은 도면으로 반복 테스트하면
-#  로직만 바뀌었을 뿐인데도 매번 Gemini(구조부재 추출)를 다시 호출해서 비용이 든다.
+#  로직만 바뀌었을 뿐인데도 매번 AI(구조부재 추출)를 다시 호출해서 비용이 든다.
 #  QTY_DEV_CACHE=1 환경변수가 켜져 있을 때만 동작하며, 기본값(꺼짐)에서는 실제 서비스
 #  동작에 전혀 영향을 주지 않는다 — 같은 PDF+DWG 조합이면 이전에 저장해둔 추출 결과를
-#  그대로 재사용하고(Gemini 호출 0회), 처음 보는 조합이면 평소처럼 호출한 뒤 결과를
+#  그대로 재사용하고(AI 호출 0회), 처음 보는 조합이면 평소처럼 호출한 뒤 결과를
 #  로컬 임시 폴더에 저장해 다음 테스트부터 재사용한다. 실제 물량 계산(quantity_calc)과
-#  검토 팝업(UI)은 캐시와 무관하게 매번 새로 돈다 — 아끼는 건 Gemini 호출뿐이다.
+#  검토 팝업(UI)은 캐시와 무관하게 매번 새로 돈다 — 아끼는 건 AI 호출뿐이다.
 # ─────────────────────────────────────────────
 _DEV_CACHE_ENABLED = os.environ.get("QTY_DEV_CACHE", "").strip().lower() in ("1", "true", "yes")
 _DEV_CACHE_DIR = os.path.join(tempfile.gettempdir(), "cbl_qty_dev_cache")
@@ -194,7 +180,7 @@ def _dev_cache_load(cache_key):
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        data["notes"] = ["[개발 캐시] 이전에 같은 도면으로 추출한 결과를 그대로 재사용했습니다 — Gemini를 다시 호출하지 않았습니다."] + list(data.get("notes") or [])
+        data["notes"] = ["[개발 캐시] 이전에 같은 도면으로 추출한 결과를 그대로 재사용했습니다 — AI를 다시 호출하지 않았습니다."] + list(data.get("notes") or [])
         return data
     except Exception:
         return None
@@ -243,11 +229,11 @@ def _progress_get(job_id):
 
 
 # ─────────────────────────────────────────────
-#  결과 저장소: api_run_quantity는 이제 Gemini 작업을 백그라운드 스레드로 던져놓고
+#  결과 저장소: api_run_quantity는 이제 AI 작업을 백그라운드 스레드로 던져놓고
 #  즉시 응답한다(진행률 폴링 저장소와 같은 이유 — 응답을 안 보내고 몇 분~몇십 분씩
 #  연결을 붙잡고 있으면, 그 사이 브라우저/OS/공유기 어딘가의 유휴 커넥션 타임아웃에
 #  걸려 "네트워크 오류: Load failed"로 끊길 수 있다. 이때 서버는 클라이언트가
-#  끊긴 걸 알 방법이 없어 Gemini 호출을 계속 실행하므로, 돈은 나가는데 사용자는
+#  끊긴 걸 알 방법이 없어 AI 호출을 계속 실행하므로, 돈은 나가는데 사용자는
 #  결과를 영영 못 받는 상황이 생긴다 — 실제로 재현된 문제다).
 #  백그라운드 스레드가 끝나면 최종 결과(성공/실패 모두)를 여기에 job_id로 저장해두고,
 #  프론트엔드는 기존에 쓰던 진행률 폴링(api_quantity_progress)을 그대로 계속 돌리다가
@@ -273,7 +259,7 @@ def _result_get(job_id):
 #  취소 요청: 사용자가 분석 도중 "취소" 버튼을 누르면, 그 job_id를 이 집합에 넣어둔다.
 #  api_run_quantity가 각 단계(건축분석/입면검토/구조부재 배치추출)를 시작하기 직전에
 #  이 집합을 확인해서, 이미 취소 요청이 온 경우 그 단계부터는 건너뛰고 지금까지
-#  모인 결과만 반환한다. 이미 Gemini에 보낸(진행 중인) 배치 1개는 어차피 끝까지
+#  모인 결과만 반환한다. 이미 AI에 보낸(진행 중인) 배치 1개는 어차피 끝까지
 #  가야 하지만, 아직 시작 안 한 나머지 배치는 호출 자체를 안 해서 비용을 아낀다.
 #  진행률 저장소와 동일하게 로컬 단일 프로세스 개발 서버 기준의 단순 구현이다.
 # ─────────────────────────────────────────────
@@ -294,7 +280,7 @@ def _cancel_clear(job_id):
 
 
 # ─────────────────────────────────────────────
-#  도면 확인(검토) 단계: 구조 부재 추출(Gemini)까지만 끝내고 실제 물량 계산은 바로
+#  도면 확인(검토) 단계: 구조 부재 추출(AI)까지만 끝내고 실제 물량 계산은 바로
 #  하지 않는다 — 대신 추출된 members를 job_id로 임시 저장해두고, 채팅창에 "도면 확인"
 #  버튼을 띄운다. 사용자가 색칠된 도면 팝업을 보고 틀린 부재를 체크/수정한 뒤 "진행"을
 #  누르면, 그 수정사항(corrections)과 함께 job_id로 이 저장소에서 members를 꺼내와
@@ -490,13 +476,13 @@ _MEMBER_BOOLEAN_FIELDS = {
 # extract_structural_members()가 남기는 notes 중, "이 결과는 온전하지 않다"는 신호로 볼 수 있는
 # 문구들 — 이런 note가 하나라도 있으면 검토 팝업에서 "일부만 인식됨"을 눈에 띄게 알려야 한다.
 # 그냥 notes 목록 맨 아래 묻혀 있으면 사용자가 놓치고 "확정" 취급해버릴 위험이 크다(실제로
-# 지적받은 문제 — Gemini 응답이 잘리거나 배치가 실패해도 지금까지는 조용히 부분 결과로
+# 지적받은 문제 — AI 응답이 잘리거나 배치가 실패해도 지금까지는 조용히 부분 결과로
 # 진행할 수 있었다).
 _INCOMPLETE_EXTRACTION_MARKERS = [
     "부재 목록 형식 오류",
     "도중에 잘려", "렌더링 중 오류가 발생했습니다", "취소를 요청하여", "JSON 파싱 오류",
-    "Gemini 부재 추출 요청 중 오류", "PDF 페이지 수 확인 중 오류",
-    "읽을 수 있는 페이지가 없습니다", "GEMINI_API_KEY가 설정되지", "CAD 보조 판독 미완료",
+    "AI 부재 추출 요청 중 오류", "PDF 페이지 수 확인 중 오류",
+    "읽을 수 있는 페이지가 없습니다", "OPENAI_QUANTITY_API_KEY가 설정되지", "CAD 보조 판독 미완료",
 ]
 
 
@@ -660,12 +646,12 @@ def _validate_rebar_layers_correction(value):
 
 
 def _sanitize_raw_members(members):
-    """Gemini가 추출한 원본 부재 데이터를 실제 계산(compute_structural_quantities)에
+    """AI가 추출한 원본 부재 데이터를 실제 계산(compute_structural_quantities)에
     넣기 전에 마지막으로 한 번 더 검증한다.
 
     검토 팝업에서 사용자가 직접 고친 필드는 _apply_member_corrections가
     _validate_correction_field로 이미 검증하지만, 사용자가 건드리지 않은 나머지 필드
-    (실무에서는 대부분의 필드가 여기 해당한다)는 Gemini 원본값이 그대로 계산에
+    (실무에서는 대부분의 필드가 여기 해당한다)는 AI 원본값이 그대로 계산에
     들어간다 — count=0이 `it.get("count", 1) or 1` 폴백 때문에 조용히 1로 바뀌거나,
     count=-2 같은 값이 그대로 들어가 콘크리트/거푸집/철근량이 통째로 음수로 계산되는
     문제가 실제로 재현/확인됐다. 이 함수는 카테고리별 계산용 필드(_MEMBER_SUMMARY_FIELDS)를
@@ -704,7 +690,7 @@ def _apply_member_corrections(members, corrections):
     무효한 값을 조용히 버리기만 하면 사용자가 "수정했는데 왜 그대로지"라고 헷갈릴
     수 있어서, 호출부(api_quantity_confirm_review)가 이 리스트를 결과 warnings에 같이 붙인다.
 
-    사용자가 고치지 않은 나머지 필드(Gemini 원본값)는 마지막에 _sanitize_raw_members로
+    사용자가 고치지 않은 나머지 필드(AI 원본값)는 마지막에 _sanitize_raw_members로
     한 번 더 걸러서 반환한다 — 그래서 이 함수의 반환값은 "사용자 수정 반영 + 원본값
     안전성 검증"까지 끝난, 곧바로 계산에 넣어도 되는 상태다."""
     corrected = json.loads(json.dumps(members))  # 얕은 복사로는 중첩 dict가 공유돼서 깊은 복사 사용
@@ -757,7 +743,7 @@ def _apply_member_corrections(members, corrections):
             new_items.append(it)
         corrected[cat_key] = new_items
 
-    # 사용자가 건드리지 않은 나머지 필드(Gemini 원본값)까지 마지막으로 한 번 더 검증한다.
+    # 사용자가 건드리지 않은 나머지 필드(AI 원본값)까지 마지막으로 한 번 더 검증한다.
     sanitized = _sanitize_raw_members(corrected)
     sanitize_notes = sanitized.get("notes") or []
     original_note_count = len(corrected.get("notes") or [])
@@ -767,76 +753,34 @@ def _apply_member_corrections(members, corrections):
     return sanitized, rejected_notes + new_sanitize_notes
 
 
-def _extract_text_from_gemini_response(response):
-    """core/ai_writer.py의 동명 함수와 동일한 방식으로 응답 텍스트를 안전하게 추출합니다."""
-    text = getattr(response, "text", None)
-    if text:
-        return str(text).strip()
-
-    pieces = []
-    for candidate in getattr(response, "candidates", []) or []:
-        content = getattr(candidate, "content", None)
-        for part in getattr(content, "parts", []) or []:
-            part_text = getattr(part, "text", None)
-            if part_text:
-                pieces.append(str(part_text))
-    return "\n".join(piece for piece in pieces if piece).strip()
+def _ai_response_text(response):
+    return str(getattr(response, "text", "") or "").strip()
 
 
-def _gemini_response_diagnostics(response):
-    """Gemini 응답 본문을 저장하지 않고 종료 사유·토큰·후보 길이만 진단한다."""
-    candidates = list(getattr(response, "candidates", None) or [])
-    candidate_details = []
-    for index, candidate in enumerate(candidates):
-        content = getattr(candidate, "content", None)
-        parts = list(getattr(content, "parts", None) or [])
-        text_length = sum(
-            len(str(part_text))
-            for part in parts
-            for part_text in [getattr(part, "text", None)]
-            if part_text
-        )
-        finish_reason = getattr(candidate, "finish_reason", None)
-        candidate_details.append({
-            "index": index,
-            "finish_reason": (
-                getattr(finish_reason, "name", None)
-                or (str(finish_reason) if finish_reason is not None else None)
-            ),
-            "part_count": len(parts),
-            "text_length": text_length,
-        })
-
-    usage = getattr(response, "usage_metadata", None)
-
-    def usage_value(name):
-        if usage is None:
-            return None
-        if isinstance(usage, dict):
-            return usage.get(name)
-        return getattr(usage, name, None)
-
-    prompt_feedback = getattr(response, "prompt_feedback", None)
-    block_reason = getattr(prompt_feedback, "block_reason", None)
+def _ai_response_diagnostics(response):
+    """AI 응답 본문을 저장하지 않고 종료 사유·토큰·길이만 진단한다."""
+    text = _ai_response_text(response)
     return {
-        "candidate_count": len(candidates),
-        "candidates": candidate_details,
-        "prompt_block_reason": (
-            getattr(block_reason, "name", None)
-            or (str(block_reason) if block_reason is not None else None)
-        ),
+        "candidate_count": 1,
+        "candidates": [{
+            "index": 0,
+            "finish_reason": getattr(response, "finish_reason", None),
+            "part_count": 1 if text else 0,
+            "text_length": len(text),
+        }],
+        "prompt_block_reason": None,
         "usage": {
-            "prompt_token_count": usage_value("prompt_token_count"),
-            "candidates_token_count": usage_value("candidates_token_count"),
-            "thoughts_token_count": usage_value("thoughts_token_count"),
-            "total_token_count": usage_value("total_token_count"),
+            "prompt_token_count": getattr(response, "input_tokens", None),
+            "candidates_token_count": getattr(response, "output_tokens", None),
+            "thoughts_token_count": getattr(response, "reasoning_tokens", None),
+            "total_token_count": getattr(response, "total_tokens", None),
         },
     }
 
 
 def _try_repair_truncated_json(raw_clean):
     """
-    Gemini 응답이 max_output_tokens 한도에 걸려 중간에 잘렸을 때, 마지막으로 완전히 끝난
+    AI 응답이 max_output_tokens 한도에 걸려 중간에 잘렸을 때, 마지막으로 완전히 끝난
     항목까지만 남기고 열린 배열/객체를 강제로 닫아서 부분 복구를 시도한다.
     (전체 파싱 실패로 데이터를 통째로 버리는 것보다, 끝부분 몇 개 항목만 못 읽더라도
     앞부분 데이터는 건지는 게 낫기 때문 — 실제로 큰 프로젝트에서 이 문제가 발생했음)
@@ -1978,7 +1922,7 @@ def _extract_dxf_quantities(doc):
 # 임의로 지어낸 도면번호(target_codes)에 매칭되는 파일만 골라 파싱했다. 그 코드 체계가
 # 실제 프로젝트 번호 규칙과 전혀 안 맞는다는 게 확인된 이상, api_run_quantity 본 산출
 # 파이프라인에서 이 함수를 호출할 때마다 매칭되는 파일이 0개라서 dwg_data가 항상 빈
-# 딕셔너리로 나왔을 가능성이 크다(= 구조/건축 PDF 기반 Gemini 추출은 정상 진행되지만,
+# 딕셔너리로 나왔을 가능성이 크다(= 구조/건축 PDF 기반 AI 추출은 정상 진행되지만,
 # ZIP으로 올린 DWG의 기하 데이터가 보조 검증용으로 전혀 반영되지 않고 조용히 버려졌다).
 # 도면번호는 사무소마다 달라 신뢰할 수 없으므로, keywords가 주어지면 파일명 키워드로
 # 필터링하고(핵심 항목 확인용), keywords=None이면 ZIP 안의 모든 dwg/dxf를 대상으로
@@ -2169,7 +2113,7 @@ def _check_critical_content(zip_bytes):
 # 무관하게 일정하다. 이 상한은 실수로 올린 초대형 파일의 비용만 막는 안전장치이고, 넘는 쪽은
 # 결과에 "읽지 않았다"는 안내가 남는다. 2026-10-21 이전에는 80쪽이었고, 건축도면은 그 80쪽을
 # 한 번의 요청으로 보내서 81쪽 이후(실제 도면집에서는 입면·단면도 전부)가 경고 없이 빠졌다.
-MAX_PDF_PAGES_TO_GEMINI = int(os.environ.get("QTY_MAX_PDF_PAGES", "300"))
+MAX_PDF_PAGES_TO_AI = int(os.environ.get("QTY_MAX_PDF_PAGES", "300"))
 ARCHITECTURAL_BATCH_PAGE_SIZE = 8
 
 # 도면 쪽은 항상 필요한 몇 쪽만 그때그때 렌더링한다(_render_pdf_page_range) — 도면집 전체를
@@ -2194,7 +2138,7 @@ def _render_pdf_page_range(pdf_bytes, first_page, last_page, dpi=PDF_RENDER_DPI,
 #  일람표/구조일반사항 페이지 자동 감지
 #  — 실제 프로젝트에서 확인된 문제: 보/계단 등의 "마크"는 평면도(N번째 배치)에 있는데,
 #  그 마크의 실제 치수가 담긴 부재일람표는 도면집 앞쪽(다른 배치)에 몰려있는 경우가 많다.
-#  배치는 서로 독립적으로 Gemini에 보내지므로, 평면도만 본 배치는 그 일람표 내용을
+#  배치는 서로 독립적으로 AI에 보내지므로, 평면도만 본 배치는 그 일람표 내용을
 #  전혀 모른 채로 "마크만 확인, 치수 미확인"으로 남게 된다. 이걸 완화하기 위해
 #  일람표/구조일반사항으로 보이는 페이지를 텍스트 키워드로 미리 찾아서, 모든 배치의
 #  이미지에 함께 끼워 넣는다(자기 배치 범위와 겹치는 페이지는 중복이라 제외).
@@ -2293,7 +2237,7 @@ def _build_source_manifest(dwg_data, pdf_bytes):
 #  프로젝트 개요와 분리해 구조 PDF의 목차/제목/텍스트로 후보를 먼저 좁힌 뒤,
 #  선택된 페이지만 고해상도로 판독한다. 파일명은 후보 힌트일 뿐 값의 근거로 쓰지 않는다.
 # ─────────────────────────────────────────────
-GENERAL_NOTES_TIMEOUT_SEC = 120
+GENERAL_NOTES_TIMEOUT_SEC = 300
 GENERAL_NOTES_MAX_TEXT_SCAN_PAGES = 40
 GENERAL_NOTES_MAX_SELECTED_PAGES = 12
 GENERAL_NOTES_RENDER_DPI = 180
@@ -2451,12 +2395,14 @@ GENERAL_NOTES_LOCATOR_PROMPT = """구조 PDF 페이지 종류를 짧은 JSON으�
 confidence, evidence_terms(최대 6개)를 반환하세요. 도면목록은 page_type=drawing_list,
 is_general_notes=false입니다. 단일 구조 도면번호 타이틀블록, 구조일반사항/구조설계개요/
 GENERAL NOTES 제목, 또는 콘크리트·철근·피복·정착·이음 표식이 강한 실제 내용 페이지만
-is_general_notes=true로 하세요. 페이지 순서만 보고 도면번호를 추정하지 마세요."""
+is_general_notes=true로 하세요. 페이지 순서만 보고 도면번호를 추정하지 마세요.
+JSON 객체 하나만 반환하세요: {"pages":[{"pdf_page":1,"page_type":"...","drawing_number":"...",
+"drawing_title":"...","is_general_notes":false,"confidence":0.9,"evidence_terms":["..."]}]}"""
 
 
 def _classify_general_notes_image_pages(pdf_bytes, page_numbers, job_id=None):
     """텍스트가 없는 초기 페이지를 저해상도 vision으로 실제 분류한다."""
-    client = get_gemini_client()
+    client = get_ai_client()
     if client is None or not page_numbers:
         return []
     decisions = []
@@ -2473,7 +2419,7 @@ def _classify_general_notes_image_pages(pdf_bytes, page_numbers, job_id=None):
             rendered_pages.append(page)
             contents.extend([
                 f"[PDF 실제 {page}페이지]",
-                types.Part.from_bytes(
+                image_part(
                     data=image_to_jpeg_bytes(images[0], max_size=(1400, 1400)),
                     mime_type="image/jpeg",
                 ),
@@ -2481,18 +2427,13 @@ def _classify_general_notes_image_pages(pdf_bytes, page_numbers, job_id=None):
         if not rendered_pages:
             continue
         _general_notes_log("vision_locator_call", job_id=job_id, pages=rendered_pages)
-        response = client.models.generate_content(
-            model=GEMINI_QUANTITY_MODEL,
+        response = client.generate(
             contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=GENERAL_NOTES_LOCATOR_PROMPT,
-                response_mime_type="application/json",
-                temperature=0.0,
-                max_output_tokens=4096,
-                thinking_config=types.ThinkingConfig(thinking_budget=512),
-            ),
+            system=GENERAL_NOTES_LOCATOR_PROMPT,
+            max_output_tokens=4096,
+            effort="low",
         )
-        raw = _extract_text_from_gemini_response(response)
+        raw = _ai_response_text(response)
         try:
             parsed = json.loads(raw.replace("```json", "").replace("```", "").strip())
         except json.JSONDecodeError:
@@ -2725,7 +2666,7 @@ def _detect_basement_plan_pages(pdf_bytes, total_pages,
 
 
 def image_to_jpeg_bytes(img: Image.Image, max_size=(1536, 1536)) -> bytes:
-    """PIL Image → JPEG 바이트 (Gemini Vision 입력용)"""
+    """PIL Image → JPEG 바이트 (AI Vision 입력용)"""
     img = img.convert("RGB")
     img.thumbnail(max_size, Image.LANCZOS)
     buf = io.BytesIO()
@@ -2734,7 +2675,7 @@ def image_to_jpeg_bytes(img: Image.Image, max_size=(1536, 1536)) -> bytes:
 
 
 # ─────────────────────────────────────────────
-#  구조: Gemini는 "부재 리스트만 읽기" (계산은 quantity_calc.py가 결정론적으로 수행)
+#  구조: AI는 "부재 리스트만 읽기" (계산은 quantity_calc.py가 결정론적으로 수행)
 # ─────────────────────────────────────────────
 MEMBER_EXTRACTION_SYSTEM_PROMPT = """당신은 구조도면을 판독하는 전문가입니다.
 도면(부재일람표, 배근도, 평면도, 구조일반사항)에서 보이는 부재의 치수와 철근 정보를
@@ -2933,7 +2874,7 @@ _EMPTY_MEMBERS = {
 #  꽤 든다. 그 전에 "이 프로젝트가 뭔지, 구조 설계 기준이 뭔지"부터 사용자에게 맞는지
 #  확인받아서, 애초에 도면을 잘못 이해한 채로 비싼 본 추출을 돌리는 걸 막기 위한
 #  가벼운 사전 단계다. 표지(개요) 몇 페이지 + 구조일반사항 페이지만 뽑아서 1번만
-#  Gemini에 보낸다 — 본 추출(배치 여러 번)에 비하면 토큰이 훨씬 적게 든다.
+#  AI에 보낸다 — 본 추출(배치 여러 번)에 비하면 토큰이 훨씬 적게 든다.
 # ─────────────────────────────────────────────
 OVERVIEW_SPEC_SYSTEM_PROMPT = """당신은 건축/구조도면의 표지(개요)와 구조일반사항을 판독하는 전문가입니다.
 아래 두 가지만 "있는 그대로" 읽어서 구조화된 JSON으로 추출하세요. 절대 물량을 계산하지 마세요.
@@ -3150,7 +3091,7 @@ OVERVIEW_CHECK_MAX_PAGES = 12  # 사업개요 관련 최대 6장 + 구조일반�
 # 실제 프로젝트에서 확인된 문제: 무조건 앞 2페이지만 "표지"로 간주해서 보냈더니, 표지/목차/
 # 조감도가 앞쪽에 오고 정작 사업명·대지위치·층별면적·부대복리시설이 담긴 "사업개요표"는
 # 3페이지 이후에 있는 문서에서 프로젝트명/지하층수/부대시설 목록이 통째로 "확인 안 됨"으로
-# 나왔다(그 페이지 자체를 Gemini에 아예 보내지 않았으므로 당연한 결과). _detect_schedule_
+# 나왔다(그 페이지 자체를 AI에 아예 보내지 않았으므로 당연한 결과). _detect_schedule_
 # pages와 같은 방식으로 "사업개요" 관련 키워드가 있는 페이지를 먼저 찾아서 우선 포함한다.
 OVERVIEW_CLASSIFY_DPI = 120
 OVERVIEW_CLASSIFY_MIN_LONG_EDGE = 2000
@@ -3162,8 +3103,8 @@ OVERVIEW_CLASSIFY_MAX_LONG_EDGE = 2800
 # 아래에서 실제로 max_pages로 전달해 30쪽 이후는 스캔하지 않도록 한다.
 OVERVIEW_CLASSIFY_MAX_PAGES = int(os.environ.get("QTY_OVERVIEW_CLASSIFY_MAX_PAGES", "30"))
 OVERVIEW_LOCATOR_VERSION = "vision-evidence-validated-v12"
-OVERVIEW_VISION_TIMEOUT_SEC = 60
-OVERVIEW_LOCATOR_TIMEOUT_SEC = 120
+OVERVIEW_VISION_TIMEOUT_SEC = 180
+OVERVIEW_LOCATOR_TIMEOUT_SEC = 420
 
 
 class OverviewLocatorTimeout(RuntimeError):
@@ -3239,7 +3180,7 @@ def _prepare_overview_classifier_image(image):
 
 def _classify_overview_page_batch(pdf_bytes, page_numbers, needed_types=None):
     """페이지를 독립 이미지로 렌더링하되 단 한 번의 Vision 요청으로 분류한다."""
-    client = get_gemini_client()
+    client = get_ai_client()
     if client is None or not page_numbers:
         return []
     contents = [
@@ -3267,7 +3208,7 @@ def _classify_overview_page_batch(pdf_bytes, page_numbers, needed_types=None):
             page_num, image.width, image.height,
         )
         contents.append(f"[PDF_PAGE={page_num}]")
-        contents.append(types.Part.from_bytes(
+        contents.append(image_part(
             data=image_to_jpeg_bytes(
                 image,
                 max_size=(OVERVIEW_CLASSIFY_MAX_LONG_EDGE, OVERVIEW_CLASSIFY_MAX_LONG_EDGE),
@@ -3277,24 +3218,21 @@ def _classify_overview_page_batch(pdf_bytes, page_numbers, needed_types=None):
     if len(contents) == 1:
         logger.warning("[OVERVIEW_LOCATOR] no_page_images_rendered pages=%s", page_numbers)
         return []
-    response = client.models.generate_content(
-        model=GEMINI_QUANTITY_MODEL,
+    response = client.generate(
         contents=contents,
-        config=types.GenerateContentConfig(
-            system_instruction=OVERVIEW_PAGE_CLASSIFIER_PROMPT,
-            # 실제 사용자 문서에서 재현된 버그: 10페이지 배치(첫 배치 1-10쪽, 이후 21쪽부터의
-            # 10쪽 단위 배치)는 페이지당 title_text/evidence_terms까지 포함하면 2048 토큰을
-            # 쉽게 넘겨 응답이 중간에 잘렸다. json.loads가 실패하면 무조건 빈 리스트를
-            # 반환했으므로, 그 배치의 모든 페이지가 "다시 시도 없이 통째로 other/미발견"
-            # 처리됐다(5쪽 배치인 11-15/16-20은 토큰이 부족하지 않아 정상 동작했음 —
-            # 로그에서 10쪽 배치만 raw_response가 중간에 끊긴 것으로 확인됨). 5쪽 배치
-            # 기준 실측 크기에 여유를 크게 둬서 10쪽 배치도 안전하게 담기도록 올린다.
-            response_mime_type="application/json", temperature=0.0, max_output_tokens=8192,
-            thinking_config=types.ThinkingConfig(thinking_budget=512),
-            http_options=types.HttpOptions(timeout=OVERVIEW_VISION_TIMEOUT_SEC * 1000),
-        ),
+        system=OVERVIEW_PAGE_CLASSIFIER_PROMPT,
+        # 실제 사용자 문서에서 재현된 버그: 10페이지 배치(첫 배치 1-10쪽, 이후 21쪽부터의
+        # 10쪽 단위 배치)는 페이지당 title_text/evidence_terms까지 포함하면 2048 토큰을
+        # 쉽게 넘겨 응답이 중간에 잘렸다. json.loads가 실패하면 무조건 빈 리스트를
+        # 반환했으므로, 그 배치의 모든 페이지가 "다시 시도 없이 통째로 other/미발견"
+        # 처리됐다(5쪽 배치인 11-15/16-20은 토큰이 부족하지 않아 정상 동작했음 —
+        # 로그에서 10쪽 배치만 raw_response가 중간에 끊긴 것으로 확인됨). 5쪽 배치
+        # 기준 실측 크기에 여유를 크게 둬서 10쪽 배치도 안전하게 담기도록 올린다.
+        max_output_tokens=8192,
+        effort="low",
+        timeout=OVERVIEW_VISION_TIMEOUT_SEC,
     )
-    raw = _extract_text_from_gemini_response(response).replace("```json", "").replace("```", "").strip()
+    raw = _ai_response_text(response).replace("```json", "").replace("```", "").strip()
     logger.info("[OVERVIEW_LOCATOR] raw_response=%s", raw[:12000])
     partial_repair_used = False
     try:
@@ -3331,7 +3269,7 @@ def _classify_overview_page_batch(pdf_bytes, page_numbers, needed_types=None):
     missing_page_numbers = [
         page for page in requested_page_numbers if page not in set(parsed_page_numbers)
     ]
-    response_diagnostics = _gemini_response_diagnostics(response)
+    response_diagnostics = _ai_response_diagnostics(response)
     candidate_diagnostics = response_diagnostics.get("candidates") or []
     finish_reason = (
         candidate_diagnostics[0].get("finish_reason")
@@ -3814,7 +3752,7 @@ def _find_incremental_overview_pages(pdf_bytes, total_pages, classify_batch=None
                 f"사업개요 페이지 자동 탐색이 {OVERVIEW_LOCATOR_TIMEOUT_SEC}초를 초과했습니다 "
                 f"(단계: {scan_range} Vision 완료)."
             )
-        # 실제 Gemini 분류기는 요청/응답 페이지 집합을 함께 반환한다. 부분 JSON이
+        # 실제 AI 분류기는 요청/응답 페이지 집합을 함께 반환한다. 부분 JSON이
         # 복구됐더라도 누락 페이지는 성공으로 확정하지 않고, 다음 범위로 넘어가기 전에
         # 최대 3페이지씩 한 번만 재분류한다. 일반 list를 반환하는 기존 주입 테스트와
         # 내부 호출은 기존 동작을 유지한다.
@@ -4101,7 +4039,7 @@ def _tile_page_image(image, columns=2, rows=2, overlap_ratio=0.04):
 def extract_overview_and_spec(structural_pdf_bytes=None, architectural_pdf_bytes=None,
                               correction_context=None, progress_callback=None,
                               architectural_page_hints=None, structural_page_hints=None):
-    """표지(개요) 몇 페이지 + 구조일반사항 페이지만 뽑아서 가볍게 1번만 Gemini에 보내
+    """표지(개요) 몇 페이지 + 구조일반사항 페이지만 뽑아서 가볍게 1번만 AI에 보내
     프로젝트 개요와 구조일반사항을 추출한다. 본 추출(extract_structural_members)보다
     훨씬 적은 페이지/토큰만 쓰는 사전 확인용 함수다.
 
@@ -4113,15 +4051,15 @@ def extract_overview_and_spec(structural_pdf_bytes=None, architectural_pdf_bytes
     {페이지번호: {"filename":..., "hints": {"overview", "area_table", "general_spec"}}}
     매핑. 파일명 자체에 내용이 명시돼 있으면 Vision 추측보다 이 힌트를 우선 신뢰한다
     (2026-07-27 사용자 지적: "캐드에 별도로 있잖아")."""
-    client = get_gemini_client()
+    client = get_ai_client()
     if client is None:
         _log_overview_diagnostic(
             "extractor_stopped",
             level=logging.WARNING,
             stage="client_initialization",
-            reason="gemini_client_unavailable",
+            reason="ai_client_unavailable",
         )
-        return dict(_EMPTY_OVERVIEW_SPEC, notes=["GEMINI_API_KEY가 설정되지 않았습니다. .env 확인 후 서버를 재시작해 주세요."])
+        return dict(_EMPTY_OVERVIEW_SPEC, notes=["OPENAI_QUANTITY_API_KEY가 설정되지 않았습니다. .env 확인 후 서버를 재시작해 주세요."])
 
     if not structural_pdf_bytes and not architectural_pdf_bytes:
         _log_overview_diagnostic(
@@ -4321,7 +4259,7 @@ def extract_overview_and_spec(structural_pdf_bytes=None, architectural_pdf_bytes
         contents.append(f"\n[사용자 확인/정정 내용]\n{correction_context}\n")
     for label, img in all_pairs:
         contents.append(f"[{label}]")
-        contents.append(types.Part.from_bytes(
+        contents.append(image_part(
             data=image_to_jpeg_bytes(img, max_size=OVERVIEW_TABLE_IMAGE_MAX_SIZE),
             mime_type="image/jpeg",
         ))
@@ -4332,20 +4270,11 @@ def extract_overview_and_spec(structural_pdf_bytes=None, architectural_pdf_bytes
             image_count=len(all_pairs),
             image_labels=[label for label, _image in all_pairs],
         )
-        response = client.models.generate_content(
-            model=GEMINI_QUANTITY_MODEL,
+        response = client.generate(
             contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=OVERVIEW_SPEC_SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                temperature=0.0,
-                max_output_tokens=8192,
-                # Gemini 2.5 Pro의 동적 생각이 실제 재현에서 7,862토큰을 사용해
-                # JSON 출력이 316토큰만 남고 MAX_TOKENS로 잘렸다. 이 요청은
-                # 복잡한 추론이 아닌 표 원문 전사이므로 생각을 1,024토큰으로 제한해
-                # 값과 sources 근거 JSON이 끝까지 출력될 공간을 확보한다.
-                thinking_config=types.ThinkingConfig(thinking_budget=1024),
-            ),
+            system=OVERVIEW_SPEC_SYSTEM_PROMPT,
+            max_output_tokens=8192,
+            effort="low",
         )
     except Exception as e:
         _log_overview_diagnostic(
@@ -4354,14 +4283,14 @@ def extract_overview_and_spec(structural_pdf_bytes=None, architectural_pdf_bytes
             stage="value_extraction_request",
             error=str(e)[:200],
         )
-        return dict(_EMPTY_OVERVIEW_SPEC, notes=[f"Gemini 개요/구조일반사항 판독 요청 중 오류가 발생했습니다: {str(e)[:200]}"])
+        return dict(_EMPTY_OVERVIEW_SPEC, notes=[f"AI 개요/구조일반사항 판독 요청 중 오류가 발생했습니다: {str(e)[:200]}"])
 
-    raw = _extract_text_from_gemini_response(response)
+    raw = _ai_response_text(response)
     _log_overview_diagnostic(
         "value_extraction_raw_response",
         raw_length=len(raw),
         raw_preview=raw[:12000],
-        response_diagnostics=_gemini_response_diagnostics(response),
+        response_diagnostics=_ai_response_diagnostics(response),
     )
     try:
         raw_clean = raw.replace("```json", "").replace("```", "").strip()
@@ -4565,7 +4494,7 @@ def _validate_overview_arithmetic(overview):
 
 
 def _sanity_check_overview(data):
-    """Gemini가 사업개요를 읽으면서 도면목록/시트 인덱스의 도면 번호(예: "A-101"~"A-126")를
+    """AI가 사업개요를 읽으면서 도면목록/시트 인덱스의 도면 번호(예: "A-101"~"A-126")를
     실제 층수로 착각해 "지하 26개층"처럼 명백히 비현실적인 값을 만들어내는 사례가 실제로
     확인됐다(2026-07-26, 사용자 프로젝트에서 재현). 프롬프트 지시만으로 완전히 막힌다는
     보장이 없어서, 코드에서 한 번 더 상식적인 범위를 벗어난 값을 걸러 null로 되돌리고
@@ -4798,9 +4727,9 @@ def revise_overview_and_spec_with_text(prior_result, correction_text):
     수정된 JSON을 만든다. 도면 이미지를 다시 보내지 않고 텍스트만 주고받으므로
     extract_overview_and_spec()(이미지 재전송)보다 훨씬 저렴하다 — 사용자가 "아니요"를
     누르고 정정 내용을 입력했을 때, 전체 도면을 다시 읽는 대신 이 함수로 가볍게 재검토한다."""
-    client = get_gemini_client()
+    client = get_ai_client()
     if client is None:
-        return dict(prior_result or _EMPTY_OVERVIEW_SPEC, notes=["GEMINI_API_KEY가 설정되지 않았습니다. .env 확인 후 서버를 재시작해 주세요."])
+        return dict(prior_result or _EMPTY_OVERVIEW_SPEC, notes=["OPENAI_QUANTITY_API_KEY가 설정되지 않았습니다. .env 확인 후 서버를 재시작해 주세요."])
     if not correction_text:
         return _fill_overview_spec_defaults(prior_result or _EMPTY_OVERVIEW_SPEC)
 
@@ -4816,20 +4745,15 @@ def revise_overview_and_spec_with_text(prior_result, correction_text):
     )
 
     try:
-        response = client.models.generate_content(
-            model=GEMINI_QUANTITY_MODEL,
+        response = client.generate(
             contents=[prompt],
-            config=types.GenerateContentConfig(
-                system_instruction=OVERVIEW_SPEC_SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                temperature=0.0,
-                max_output_tokens=8192,
-            ),
+            system=OVERVIEW_SPEC_SYSTEM_PROMPT,
+            max_output_tokens=8192,
         )
     except Exception as e:
-        return dict(prior_result or _EMPTY_OVERVIEW_SPEC, notes=[f"Gemini 재검토 요청 중 오류가 발생했습니다: {str(e)[:200]}"])
+        return dict(prior_result or _EMPTY_OVERVIEW_SPEC, notes=[f"AI 재검토 요청 중 오류가 발생했습니다: {str(e)[:200]}"])
 
-    raw = _extract_text_from_gemini_response(response)
+    raw = _ai_response_text(response)
     try:
         raw_clean = raw.replace("```json", "").replace("```", "").strip()
         data = json.loads(raw_clean)
@@ -4841,13 +4765,13 @@ def revise_overview_and_spec_with_text(prior_result, correction_text):
     return _fill_overview_spec_defaults(data)
 
 
-# 대형 프로젝트(수십~백 페이지)를 한 번의 Gemini 호출에 몰아넣으면 부재가 많을수록
+# 대형 프로젝트(수십~백 페이지)를 한 번의 AI 호출에 몰아넣으면 부재가 많을수록
 # 응답 JSON이 커져서 max_output_tokens(65536)를 넘어 잘리거나, 요청 자체가 타임아웃/오류로
 # 실패해서 "전체 결과 0건"이 되는 문제가 실제로 발생했다. 그래서 페이지를 이 크기 단위로
 # 나눠 순차 호출하고 결과를 합친다 — 배치 하나가 실패해도 나머지 배치의 데이터는 살아남는다.
 # 15페이지였을 때 실제 대형 아파트 프로젝트(경성빌라 참고 사례)에서 배치 6개 중 4개가
 # max_output_tokens에 걸려 응답이 중간에 잘리는 게 확인돼서 8로 낮췄다 — 배치당 예상
-# 출력 토큰을 줄여 잘림 위험을 낮추는 대신, Gemini 호출 횟수(=비용)는 그만큼 늘어난다.
+# 출력 토큰을 줄여 잘림 위험을 낮추는 대신, AI 호출 횟수(=비용)는 그만큼 늘어난다.
 EXTRACTION_BATCH_PAGE_SIZE = 8
 
 
@@ -4969,7 +4893,7 @@ def _merge_extracted_members(batch_results: list) -> dict:
 def _apply_confirmed_general_spec_override(result, confirmed_general_spec):
     """사용자가 개요/구조일반사항 사전 확인 단계에서 이미 확인한 general_spec을, 본 추출
     결과의 general_spec 위에 강제로 덮어쓴다. 배치 프롬프트에 이미 확인된 값을 우선하라고
-    안내는 해두었지만(_extract_structural_members_one_batch의 confirmed_note), Gemini가
+    안내는 해두었지만(_extract_structural_members_one_batch의 confirmed_note), AI가
     그래도 다르게 읽어올 가능성을 코드 차원에서 한 번 더 막기 위한 마지막 안전장치다 —
     사용자가 직접 확인한 값이 AI가 다시 읽은 값보다 항상 우선해야 한다."""
     if not confirmed_general_spec:
@@ -5056,23 +4980,18 @@ def _extract_structural_members_one_batch(client, dwg_data, image_batch, batch_i
     for i, img in enumerate(image_batch):
         page_label = page_numbers[i] if i < len(page_numbers) else (i + 1)
         contents.append(f"[도면 {page_label}페이지]")
-        contents.append(types.Part.from_bytes(data=image_to_jpeg_bytes(img), mime_type="image/jpeg"))
+        contents.append(image_part(data=image_to_jpeg_bytes(img), mime_type="image/jpeg"))
 
     try:
-        response = client.models.generate_content(
-            model=GEMINI_QUANTITY_MODEL,
+        response = client.generate(
             contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=MEMBER_EXTRACTION_SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                temperature=0.0,
-                max_output_tokens=65536,
-            ),
+            system=MEMBER_EXTRACTION_SYSTEM_PROMPT,
+            max_output_tokens=65536,
         )
     except Exception as e:
-        return dict(_EMPTY_MEMBERS, notes=_tag_notes([f"Gemini 부재 추출 요청 중 오류가 발생했습니다: {str(e)[:200]}"]))
+        return dict(_EMPTY_MEMBERS, notes=_tag_notes([f"AI 부재 추출 요청 중 오류가 발생했습니다: {str(e)[:200]}"]))
 
-    raw = _extract_text_from_gemini_response(response)
+    raw = _ai_response_text(response)
 
     try:
         raw_clean = raw.replace("```json", "").replace("```", "").strip()
@@ -5083,7 +5002,7 @@ def _extract_structural_members_one_batch(client, dwg_data, image_batch, batch_i
             return dict(_EMPTY_MEMBERS, notes=_tag_notes([f"JSON 파싱 오류 - 원본 응답 확인 필요: {raw[:300]}"]))
         data.setdefault("notes", [])
         data["notes"].append(
-            "Gemini 응답이 도중에 잘려(max_output_tokens 한도) 마지막 일부 부재는 누락됐을 수 있습니다 "
+            "AI 응답이 도중에 잘려(max_output_tokens 한도) 마지막 일부 부재는 누락됐을 수 있습니다 "
             "— 부분 복구된 데이터입니다. 개수가 적어 보이면 도면을 더 잘게 나눠서 재실행해 주세요."
         )
 
@@ -5096,7 +5015,7 @@ def _extract_structural_members_one_batch(client, dwg_data, image_batch, batch_i
     return data
 
 
-_AI_STEP_FAILURE_MARKERS = ("요청 중 오류", "JSON 파싱 오류", "GEMINI_API_KEY", "렌더링 중 오류")
+_AI_STEP_FAILURE_MARKERS = ("요청 중 오류", "JSON 파싱 오류", "OPENAI_QUANTITY_API_KEY", "렌더링 중 오류")
 
 
 def _ai_step_failed(value):
@@ -5118,7 +5037,7 @@ def _cad_summary_key(dwg_data):
 def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, cancel_cb=None, confirmed_general_spec=None,
                                steps=None) -> dict:
     """
-    DWG 파싱 데이터 + 구조도면 PDF(원본 바이트) 를 Gemini Vision에 보내
+    DWG 파싱 데이터 + 구조도면 PDF(원본 바이트) 를 AI Vision에 보내
     '부재 리스트만' 구조화된 JSON으로 추출한다 (계산은 하지 않음).
     실제 물량 계산은 quantity_calc.compute_structural_quantities가 결정론적으로 수행한다.
 
@@ -5127,21 +5046,21 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
     잡은 실수(Fck/철근강종/이음등급 등)를 다시 반복하지 않게 한다.
 
     두 가지 방식으로 대형 프로젝트(수십~백 페이지)에서의 실패를 막는다:
-    1) Gemini 호출을 EXTRACTION_BATCH_PAGE_SIZE 페이지 단위로 나눠 순차 호출 후 병합
+    1) AI 호출을 EXTRACTION_BATCH_PAGE_SIZE 페이지 단위로 나눠 순차 호출 후 병합
        — 한 번에 몰아넣으면 응답이 max_output_tokens를 넘어 잘리거나 요청이 타임아웃/
        오류로 실패해서 전체 결과가 0건이 되는 문제를 막는다.
     2) PDF 페이지도 한꺼번에 다 렌더링하지 않고 배치 단위로 그때그때만 렌더링한다
        — 79페이지 같은 대형 도면집을 한 번에 전부 이미지로 뽑으면(pdf2image가 전체를
        메모리에 올림) 수 GB 메모리가 필요해져 서버가 죽거나(MemoryError) 매우 느려질
        수 있기 때문이다.
-    배치 1개(렌더링이든 Gemini 호출이든)가 실패해도 다른 배치의 데이터는 그대로 살아남는다.
+    배치 1개(렌더링이든 AI 호출이든)가 실패해도 다른 배치의 데이터는 그대로 살아남는다.
 
     progress_cb(idx, total_batches)가 주어지면, 각 배치를 처리하기 직전에 호출해서
     "지금 몇 배치째"인지 외부(예: 진행률 폴링 저장소)에 알릴 수 있게 한다. 필수 아님 —
     None이면 그냥 진행률 보고를 생략한다(기존 호출부와 호환).
 
-    cancel_cb()가 주어지고 True를 반환하면, 다음 배치를 아예 Gemini에 보내지 않고
-    루프를 즉시 멈춘다(이미 시작된 배치 1개는 어차피 끝까지 처리— Gemini 호출 자체를
+    cancel_cb()가 주어지고 True를 반환하면, 다음 배치를 아예 AI에 보내지 않고
+    루프를 즉시 멈춘다(이미 시작된 배치 1개는 어차피 끝까지 처리— AI 호출 자체를
     중간에 끊을 방법은 없다). 사용자가 "취소"를 누른 뒤 아직 시작 안 한 배치들의
     비용을 아끼기 위한 용도다. None이면 취소 체크를 생략한다.
 
@@ -5158,9 +5077,9 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
                 progress_cb(1, 1)
             return _apply_confirmed_general_spec_override(cached, confirmed_general_spec)
 
-    client = get_gemini_client()
+    client = get_ai_client()
     if client is None:
-        return dict(_EMPTY_MEMBERS, notes=["GEMINI_API_KEY가 설정되지 않았습니다. .env 확인 후 서버를 재시작해 주세요."])
+        return dict(_EMPTY_MEMBERS, notes=["OPENAI_QUANTITY_API_KEY가 설정되지 않았습니다. .env 확인 후 서버를 재시작해 주세요."])
 
     cad_key = _cad_summary_key(dwg_data) if steps else None
     if not pdf_bytes:
@@ -5180,25 +5099,25 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
     try:
         info = pdfinfo_from_bytes(pdf_bytes)
         actual_pages = int(info.get("Pages", 0) or 0)
-        total_pages = min(actual_pages, MAX_PDF_PAGES_TO_GEMINI)
+        total_pages = min(actual_pages, MAX_PDF_PAGES_TO_AI)
     except Exception as e:
         return dict(_EMPTY_MEMBERS, notes=[f"구조도면 PDF 페이지 수 확인 중 오류가 발생했습니다: {str(e)[:200]}"])
 
     if total_pages <= 0:
         return dict(_EMPTY_MEMBERS, notes=["구조도면 PDF에서 읽을 수 있는 페이지가 없습니다 — 파일이 비어있거나 손상됐을 수 있습니다."])
 
-    # 페이지가 MAX_PDF_PAGES_TO_GEMINI(80장)를 넘으면 그 이후 페이지는 아예 처리하지 않고
+    # 페이지가 MAX_PDF_PAGES_TO_AI(80장)를 넘으면 그 이후 페이지는 아예 처리하지 않고
     # 조용히 잘려나갔다 — 대형 프로젝트(80장 초과 도면집)에서 결과가 "완전"해 보이지만
     # 실제로는 일부 부재가 통째로 누락될 수 있는 위험한 상황이라, 반드시 눈에 띄는 note를
     # 남긴다. 이 문구는 _INCOMPLETE_EXTRACTION_MARKERS에도 등록해서, 검토 팝업의 "불완전
     # 추출" 경고 배너(진행 전 확인 강제)가 이 경우도 자동으로 잡아내게 한다.
-    page_cap_truncated = actual_pages > MAX_PDF_PAGES_TO_GEMINI
+    page_cap_truncated = actual_pages > MAX_PDF_PAGES_TO_AI
     page_cap_note = None
     if page_cap_truncated:
         page_cap_note = (
             f"구조도면 PDF가 총 {actual_pages}페이지인데, 한 번에 처리 가능한 최대 페이지 수"
-            f"({MAX_PDF_PAGES_TO_GEMINI}장)를 넘어서 {MAX_PDF_PAGES_TO_GEMINI + 1}페이지부터 "
-            f"{actual_pages}페이지까지({actual_pages - MAX_PDF_PAGES_TO_GEMINI}페이지)는 도중에 잘려 "
+            f"({MAX_PDF_PAGES_TO_AI}장)를 넘어서 {MAX_PDF_PAGES_TO_AI + 1}페이지부터 "
+            f"{actual_pages}페이지까지({actual_pages - MAX_PDF_PAGES_TO_AI}페이지)는 도중에 잘려 "
             "처리하지 못했습니다 — 해당 페이지의 부재는 결과에서 완전히 누락됩니다. 도면을 나눠서 "
             "여러 번 업로드하거나, 필요한 페이지만 추려서 다시 시도해 주세요."
         )
@@ -5269,7 +5188,7 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
         extra_images = [img for _, img in extra_pairs]
         combined_batch = extra_images + image_batch
         # image_batch의 각 이미지는 first_page..last_page 순서 그대로이므로, 실제 페이지
-        # 번호를 그 순서에 맞춰 만들어 붙인다 — 이래야 Gemini에게 보여주는 "[도면 N페이지]"
+        # 번호를 그 순서에 맞춰 만들어 붙인다 — 이래야 AI에게 보여주는 "[도면 N페이지]"
         # 라벨과 부재 위치(bbox.page)가 실제 PDF 페이지 번호와 정확히 일치한다.
         combined_page_numbers = [p for p, _ in extra_pairs] + list(range(first_page, last_page + 1))
 
@@ -5299,7 +5218,7 @@ def extract_structural_members(dwg_data: dict, pdf_bytes, progress_cb=None, canc
 
 
 # ─────────────────────────────────────────────
-#  색칠된 도면 미리보기: Gemini가 채운 bbox(부재 위치)를 원본 도면 페이지 위에
+#  색칠된 도면 미리보기: AI가 채운 bbox(부재 위치)를 원본 도면 페이지 위에
 #  부재종류별 색상 박스로 그려서, 의뢰인이 채팅창에서 "빠진 벽/보가 있는지" 눈으로
 #  직접 확인할 수 있게 한다. bbox가 없는 항목/페이지는 조용히 건너뛴다(이 기능이
 #  실패하거나 데이터가 없어도 나머지 수량산출 결과에는 영향이 없어야 한다).
@@ -5466,9 +5385,9 @@ def extract_basement_plan_members(pdf_bytes, page_numbers, correction_context=No
     위치(bbox)만 뽑는다 — 본 추출(extract_structural_members)처럼 치수/철근까지 전부 읽지
     않고 "어디에 뭐가 있는지"만 확인해서, 본 추출 전에 색칠 미리보기로 사람이 눈으로
     검증할 수 있게 한다. 페이지 수가 적어(보통 지하층 수만큼, 몇 장) 본 추출보다 훨씬 싸다."""
-    client = get_gemini_client()
+    client = get_ai_client()
     if client is None:
-        return dict(_EMPTY_BASEMENT_PLAN_CHECK, notes=["GEMINI_API_KEY가 설정되지 않았습니다. .env 확인 후 서버를 재시작해 주세요."])
+        return dict(_EMPTY_BASEMENT_PLAN_CHECK, notes=["OPENAI_QUANTITY_API_KEY가 설정되지 않았습니다. .env 확인 후 서버를 재시작해 주세요."])
     if not pdf_bytes or not page_numbers:
         return dict(_EMPTY_BASEMENT_PLAN_CHECK)
 
@@ -5487,27 +5406,22 @@ def extract_basement_plan_members(pdf_bytes, page_numbers, correction_context=No
         if not imgs:
             continue
         contents.append(f"[도면 {page_num}페이지]")
-        contents.append(types.Part.from_bytes(data=image_to_jpeg_bytes(imgs[0]), mime_type="image/jpeg"))
+        contents.append(image_part(data=image_to_jpeg_bytes(imgs[0]), mime_type="image/jpeg"))
         page_count += 1
 
     if page_count == 0:
         return dict(_EMPTY_BASEMENT_PLAN_CHECK, notes=["지하주차장 평면도로 보이는 페이지를 렌더링하지 못했습니다."])
 
     try:
-        response = client.models.generate_content(
-            model=GEMINI_QUANTITY_MODEL,
+        response = client.generate(
             contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=BASEMENT_PLAN_CHECK_SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                temperature=0.0,
-                max_output_tokens=16384,
-            ),
+            system=BASEMENT_PLAN_CHECK_SYSTEM_PROMPT,
+            max_output_tokens=16384,
         )
     except Exception as e:
         return dict(_EMPTY_BASEMENT_PLAN_CHECK, notes=[f"지하주차장 평면도 사전 확인 요청 중 오류가 발생했습니다: {str(e)[:200]}"])
 
-    raw = _extract_text_from_gemini_response(response)
+    raw = _ai_response_text(response)
     try:
         raw_clean = raw.replace("```json", "").replace("```", "").strip()
         data = json.loads(raw_clean)
@@ -5604,9 +5518,9 @@ def extract_elevation_section_data(dwg_data: dict, pdf_images: list, page_labels
     구조화된 JSON으로 추출한다. 물량 계산에는 관여하지 않고, quantity_calc.py가
     구조 부재 데이터의 층고 누락 보완 / 개구부 정합성 대조용 참고자료로만 사용한다.
     """
-    client = get_gemini_client()
+    client = get_ai_client()
     if client is None:
-        return dict(_EMPTY_ELEVATION_SECTION, notes=["GEMINI_API_KEY가 설정되지 않았습니다. .env 확인 후 서버를 재시작해 주세요."])
+        return dict(_EMPTY_ELEVATION_SECTION, notes=["OPENAI_QUANTITY_API_KEY가 설정되지 않았습니다. .env 확인 후 서버를 재시작해 주세요."])
 
     if not pdf_images:
         return dict(_EMPTY_ELEVATION_SECTION)
@@ -5620,25 +5534,20 @@ def extract_elevation_section_data(dwg_data: dict, pdf_images: list, page_labels
            "묶음별 결과를 합칠 때 같은 줄은 하나로 합쳐집니다." if batch else "")
     ]
 
-    for i, img in enumerate(pdf_images[:MAX_PDF_PAGES_TO_GEMINI]):
+    for i, img in enumerate(pdf_images[:MAX_PDF_PAGES_TO_AI]):
         contents.append(f"[도면 {_image_label(page_labels, i)}]")
-        contents.append(types.Part.from_bytes(data=image_to_jpeg_bytes(img), mime_type="image/jpeg"))
+        contents.append(image_part(data=image_to_jpeg_bytes(img), mime_type="image/jpeg"))
 
     try:
-        response = client.models.generate_content(
-            model=GEMINI_QUANTITY_MODEL,
+        response = client.generate(
             contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=ELEVATION_SECTION_SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                temperature=0.0,
-                max_output_tokens=32768,
-            ),
+            system=ELEVATION_SECTION_SYSTEM_PROMPT,
+            max_output_tokens=32768,
         )
     except Exception as e:
-        return dict(_EMPTY_ELEVATION_SECTION, notes=[f"Gemini 입면/단면 판독 요청 중 오류가 발생했습니다: {str(e)[:200]}"])
+        return dict(_EMPTY_ELEVATION_SECTION, notes=[f"AI 입면/단면 판독 요청 중 오류가 발생했습니다: {str(e)[:200]}"])
 
-    raw = _extract_text_from_gemini_response(response)
+    raw = _ai_response_text(response)
 
     try:
         raw_clean = raw.replace("```json", "").replace("```", "").strip()
@@ -5649,7 +5558,7 @@ def extract_elevation_section_data(dwg_data: dict, pdf_images: list, page_labels
             return dict(_EMPTY_ELEVATION_SECTION, notes=[f"JSON 파싱 오류 - 원본 응답 확인 필요: {raw[:300]}"])
         data.setdefault("notes", [])
         data["notes"].append(
-            "Gemini 응답이 도중에 잘려(max_output_tokens 한도) 마지막 일부 항목은 누락됐을 수 있습니다 "
+            "AI 응답이 도중에 잘려(max_output_tokens 한도) 마지막 일부 항목은 누락됐을 수 있습니다 "
             "— 부분 복구된 데이터입니다."
         )
 
@@ -5679,22 +5588,22 @@ ARCHITECTURAL_SYSTEM_PROMPT = """당신은 건설 건축 수량산출 전문가�
 }"""
 
 
-def analyze_with_gemini(dwg_data: dict, pdf_images: list, system_prompt: str, drawing_type: str,
+def analyze_with_ai(dwg_data: dict, pdf_images: list, system_prompt: str, drawing_type: str,
                         page_labels=None, batch=None) -> dict:
     """
-    DWG 파싱 데이터 + PDF 이미지를 Gemini Vision으로 분석
+    DWG 파싱 데이터 + PDF 이미지를 AI Vision으로 분석
     Returns: 수량산출 결과 dict
     """
-    client = get_gemini_client()
+    client = get_ai_client()
     if client is None:
         return {
             "items": [],
-            "summary": "GEMINI_API_KEY가 설정되지 않았습니다.",
-            "warnings": [".env 파일에 GEMINI_API_KEY를 추가한 뒤 서버를 재시작해 주세요."],
+            "summary": "OPENAI_QUANTITY_API_KEY가 설정되지 않았습니다.",
+            "warnings": [".env 파일에 OPENAI_QUANTITY_API_KEY를 추가한 뒤 서버를 재시작해 주세요."],
             "missing_info": [],
         }
 
-    # contents 구성: 파싱 데이터 텍스트 + 도면 이미지(최대 MAX_PDF_PAGES_TO_GEMINI 페이지)
+    # contents 구성: 파싱 데이터 텍스트 + 도면 이미지(최대 MAX_PDF_PAGES_TO_AI 페이지)
     contents = [
         f"[{drawing_type} DWG 파싱 데이터]\n"
         f"{json.dumps(_ai_cad_summary(dwg_data), ensure_ascii=False, indent=2)[:60000]}\n\n"
@@ -5703,30 +5612,25 @@ def analyze_with_gemini(dwg_data: dict, pdf_images: list, system_prompt: str, dr
         + _batch_instruction(batch)
     ]
 
-    for i, img in enumerate(pdf_images[:MAX_PDF_PAGES_TO_GEMINI]):
+    for i, img in enumerate(pdf_images[:MAX_PDF_PAGES_TO_AI]):
         contents.append(f"[도면 {_image_label(page_labels, i)}]")
-        contents.append(types.Part.from_bytes(data=image_to_jpeg_bytes(img), mime_type="image/jpeg"))
+        contents.append(image_part(data=image_to_jpeg_bytes(img), mime_type="image/jpeg"))
 
     try:
-        response = client.models.generate_content(
-            model=GEMINI_QUANTITY_MODEL,
+        response = client.generate(
             contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                response_mime_type="application/json",
-                temperature=0.1,
-                max_output_tokens=32768,
-            ),
+            system=system_prompt,
+            max_output_tokens=32768,
         )
     except Exception as e:
         return {
             "items": [],
-            "summary": f"Gemini 분석 요청 중 오류가 발생했습니다: {str(e)[:200]}",
+            "summary": f"AI 분석 요청 중 오류가 발생했습니다: {str(e)[:200]}",
             "warnings": [],
             "missing_info": [],
         }
 
-    raw = _extract_text_from_gemini_response(response)
+    raw = _ai_response_text(response)
 
     # JSON 파싱
     try:
@@ -5738,7 +5642,7 @@ def analyze_with_gemini(dwg_data: dict, pdf_images: list, system_prompt: str, dr
             repaired.setdefault("items", [])
             repaired.setdefault("warnings", [])
             repaired["warnings"].append(
-                "Gemini 응답이 도중에 잘려(max_output_tokens 한도) 마지막 일부 항목은 누락됐을 수 있습니다 "
+                "AI 응답이 도중에 잘려(max_output_tokens 한도) 마지막 일부 항목은 누락됐을 수 있습니다 "
                 "— 부분 복구된 데이터입니다."
             )
             repaired.setdefault("summary", "일부 데이터가 잘려 복구된 결과입니다.")
@@ -5797,7 +5701,7 @@ def _architectural_page_plan(pdf_bytes, dwg_data):
     if not elevation:
         elevation, source = list(range(1, total + 1)), "all_pages"
     return {"total": total, "identified_pages": len(page_map), "elevation_source": source,
-            "elevation_pages": elevation[:MAX_PDF_PAGES_TO_GEMINI],
+            "elevation_pages": elevation[:MAX_PDF_PAGES_TO_AI],
             "labels": {page: quantity_pdf_pages.page_label(page, page_map, titles) for page in page_map}}
 
 
@@ -5859,7 +5763,7 @@ def analyze_architectural_drawings(dwg_data, pdf_bytes, plan=None, steps=None, p
     if not pdf_bytes:
         result = steps.load("architectural-cad-only", cad_key) if steps else None
         if result is None:
-            result = analyze_with_gemini(dwg_data, [], ARCHITECTURAL_SYSTEM_PROMPT, "건축도면")
+            result = analyze_with_ai(dwg_data, [], ARCHITECTURAL_SYSTEM_PROMPT, "건축도면")
             if steps and not _ai_step_failed(result):
                 steps.save("architectural-cad-only", result, cad_key)
         return result
@@ -5867,10 +5771,10 @@ def analyze_architectural_drawings(dwg_data, pdf_bytes, plan=None, steps=None, p
     if plan["total"] <= 0:
         return {"items": [], "summary": "", "warnings": [], "missing_info": [
             "건축도면 PDF에서 읽을 수 있는 페이지가 없습니다 — 파일이 비어있거나 손상됐을 수 있습니다."]}
-    pages = list(range(1, min(plan["total"], MAX_PDF_PAGES_TO_GEMINI) + 1))
+    pages = list(range(1, min(plan["total"], MAX_PDF_PAGES_TO_AI) + 1))
     parts = _read_pages_in_batches(
         pdf_bytes, pages,
-        lambda images, labels, batch: analyze_with_gemini(dwg_data, images, ARCHITECTURAL_SYSTEM_PROMPT, "건축도면",
+        lambda images, labels, batch: analyze_with_ai(dwg_data, images, ARCHITECTURAL_SYSTEM_PROMPT, "건축도면",
                                                           page_labels=labels, batch=batch),
         "architectural", steps=steps, step_parts=(cad_key,), progress_cb=progress_cb, cancel_cb=cancel_cb,
         labels=plan["labels"])
@@ -6452,7 +6356,7 @@ def _run_overview_revise_job(job_id, review_id, prior_result, correction_text, r
 @_admin_only_json
 def api_quantity_overview_revise(request):
     """개요/구조일반사항 "아니요" 정정을 텍스트 전용으로 재검토한다. api_quantity_overview_check와
-    달리 도면 이미지를 다시 보내지 않는다 — 이전 추출 결과(JSON)와 사용자 정정 텍스트만 Gemini에
+    달리 도면 이미지를 다시 보내지 않는다 — 이전 추출 결과(JSON)와 사용자 정정 텍스트만 AI에
     보내서 토큰을 크게 아낀다.
     POST 필드: job_id(필수), review_id(필수), prior_result(필수, JSON 문자열), correction_text(필수)."""
     job_id = request.POST.get("job_id") or None
@@ -6666,15 +6570,15 @@ def api_run_quantity(request):
     - architectural_zip: 건축도면 ZIP (DWG)
     - architectural_pdf: 건축도면 합본 PDF
 
-    예전에는 이 요청 하나가 Gemini 배치 호출을 전부 끝낼 때까지(실제 도면 기준
+    예전에는 이 요청 하나가 AI 배치 호출을 전부 끝낼 때까지(실제 도면 기준
     수십 분 걸릴 수 있음) 응답을 내보내지 않고 연결을 계속 붙잡고 있었다. 문제는
     응답 바이트가 1바이트도 안 나가는 채로 이렇게 오래 연결이 떠 있으면, 브라우저/
     OS/공유기 등 어딘가의 유휴(idle) 커넥션 타임아웃에 걸려 "네트워크 오류:
     Load failed"로 끊겨버릴 수 있다는 것 — 실제로 재현됐다. 이때 서버는 클라이언트가
-    끊긴 걸 알 방법이 없어서 이미 시작한 Gemini 호출들을 계속 실행한다: 돈은
+    끊긴 걸 알 방법이 없어서 이미 시작한 AI 호출들을 계속 실행한다: 돈은
     나가는데 사용자는 결과를 영영 못 받는 최악의 조합이다.
 
-    그래서 지금은 실제 작업(파일 파싱 + Gemini 호출)을 별도 스레드(_run_quantity_job)로
+    그래서 지금은 실제 작업(파일 파싱 + AI 호출)을 별도 스레드(_run_quantity_job)로
     던져놓고, 이 뷰는 파일을 바이트로 읽어 확보한 뒤 곧장 {"accepted": true, "job_id"}를
     돌려준다. 프론트엔드는 이미 갖고 있던 진행률 폴링(api_quantity_progress)을
     계속 돌리다가 done=true가 되면 같이 담겨오는 결과를 쓴다. 폴링은 몇 초짜리
@@ -6781,9 +6685,9 @@ def _job_step_base(meta):
     """Everything shared by the AI steps of one job; part of every saved step's key."""
     prompts = "\x00".join((MEMBER_EXTRACTION_SYSTEM_PROMPT, ARCHITECTURAL_SYSTEM_PROMPT,
                            ELEVATION_SECTION_SYSTEM_PROMPT))
-    return {"version": _JOB_STEP_VERSION, "model": GEMINI_QUANTITY_MODEL,
+    return {"version": _JOB_STEP_VERSION, "model": QUANTITY_AI_MODEL,
             "prompts": hashlib.sha256(prompts.encode("utf-8")).hexdigest(),
-            "batch_pages": EXTRACTION_BATCH_PAGE_SIZE, "max_pages": MAX_PDF_PAGES_TO_GEMINI,
+            "batch_pages": EXTRACTION_BATCH_PAGE_SIZE, "max_pages": MAX_PDF_PAGES_TO_AI,
             "architectural_batch_pages": ARCHITECTURAL_BATCH_PAGE_SIZE,
             "inputs": {name: info.get("sha256") for name, info in (meta.get("files") or {}).items()},
             "general_spec": (meta.get("settings") or {}).get("confirmed_general_spec")}
@@ -6912,7 +6816,7 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                     # 2026-07-27: 여기서 REQUIRED_STRUCTURAL의 임의 코드(S-001~S-501 등)로
                     # 필터링하던 게 실제 프로젝트(부천 현장 등)의 실제 도면번호 규칙과 전혀
                     # 안 맞아 항상 매칭 0건 -> dwg_data가 매번 빈 딕셔너리로 나왔을 가능성이
-                    # 크다(구조 PDF 기반 Gemini 추출은 그대로 진행되지만, ZIP으로 올린 DWG의
+                    # 크다(구조 PDF 기반 AI 추출은 그대로 진행되지만, ZIP으로 올린 DWG의
                     # 기하 데이터가 보조 자료로 전혀 반영되지 않고 조용히 버려진 것). 도면번호
                     # 목록에 의존하지 않고 ZIP 안의 모든 dwg/dxf를 대상으로 바꾼다.
                     dwg_data = parse_dwg_from_zip(structural_zip_bytes, background=True)
@@ -6930,7 +6834,7 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                     }
                 elif dwg_data or structural_pdf_bytes:
                     try:
-                        # 1단계: Gemini는 '읽기'만 (구조화된 부재 리스트). progress_cb로 배치별
+                        # 1단계: AI는 '읽기'만 (구조화된 부재 리스트). progress_cb로 배치별
                         # 진행상황("배치 3/6 처리 중")을 폴링 저장소에 실시간으로 남긴다. cancel_cb는
                         # 취소 요청이 들어오면 아직 시작 안 한 배치들을 건너뛰게 한다(비용 절약).
                         def _structural_progress_cb(idx, total):
@@ -6954,7 +6858,7 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
                             if reason:
                                 members.setdefault("notes", []).append(f"CAD 보조 판독 미완료: {filename} — {reason}")
                         members["input_coverage"] = input_coverage
-                        # 색칠된 도면 미리보기 — Gemini가 채운 bbox(부재 위치)를 원본 페이지 위에
+                        # 색칠된 도면 미리보기 — AI가 채운 bbox(부재 위치)를 원본 페이지 위에
                         # 색상 박스로 그려서, 의뢰인이 채팅창에서 놓친 벽/보가 있는지 직접 확인할
                         # 수 있게 한다. bbox 데이터가 없거나 실패해도 예외를 던지지 않는 보조
                         # 기능이라, 여기서 문제가 생겨도 이후 흐름에는 영향이 없다.
@@ -7035,7 +6939,7 @@ def _run_quantity_job(job_id, structural_zip_bytes, structural_pdf_bytes,
         # 위 로직 내부의 각 단계는 이미 자체적으로 try/except를 갖고 있어 개별 오류를
         # results 안에 담아 처리하지만, 혹시 그 바깥에서 예상 못한 예외가 튀어나오는
         # 경우까지의 안전망이다 — 이게 없으면 스레드가 조용히 죽어버리고 프론트는
-        # 영원히 "진행 중"만 보게 된다(그리고 그 시점까지 쓴 Gemini 비용은 그냥 날아간다).
+        # 영원히 "진행 중"만 보게 된다(그리고 그 시점까지 쓴 AI 비용은 그냥 날아간다).
         _result_set(job_id, {"ok": False, "error": f"수량산출 처리 중 예상치 못한 오류가 발생했습니다: {str(e)[:300]}"})
         _progress_clear(job_id)
         _cancel_clear(job_id)
@@ -7083,7 +6987,7 @@ def api_quantity_confirm_review(request):
 
     # pop이 아니라 get(읽기 전용)으로 꺼낸다 — 여기서 바로 지워버리면, 아래 계산 중
     # 예외가 나서 500을 반환했을 때 저장 데이터가 이미 사라져서 사용자가 재시도할
-    # 방법이 없어(Gemini 추출부터 다시 해야 함) 비용 낭비가 컸다. 계산이 실제로
+    # 방법이 없어(AI 추출부터 다시 해야 함) 비용 낭비가 컸다. 계산이 실제로
     # 성공했을 때만 아래에서 별도로 pop해서 지운다.
     stored = _extraction_store_get(job_id)
     if not stored:
@@ -7153,7 +7057,7 @@ def api_quantity_confirm_review(request):
     except Exception as e:
         state.pop("confirmation_lock", job_id)
         # 계산 실패 — 저장 데이터를 지우지 않았으니(_extraction_store_get을 썼음) 같은
-        # job_id/corrections로 다시 POST하면 Gemini 재추출 없이 재시도할 수 있다.
+        # job_id/corrections로 다시 POST하면 AI 재추출 없이 재시도할 수 있다.
         return JsonResponse({
             "error": f"수정사항 반영 후 물량 계산 중 오류가 발생했습니다: {str(e)[:300]} "
                      "— 도면을 다시 분석하지 않아도 같은 화면에서 다시 시도할 수 있습니다.",
@@ -7176,7 +7080,7 @@ def api_quantity_cancel(request):
     """취소 요청 엔드포인트. 프론트엔드가 "취소" 버튼을 누르면 job_id를 담아 호출한다.
     api_run_quantity가 아직 처리 중이면(같은 job_id로 폴링 저장소에 진행상황이 있으면)
     다음 체크포인트(다음 배치/다음 단계 시작 전)에서 이 요청을 확인하고 이후 단계를
-    건너뛴다. 이미 시작된 Gemini 호출 1개는 중간에 끊을 방법이 없어 끝까지 처리된다."""
+    건너뛴다. 이미 시작된 AI 호출 1개는 중간에 끊을 방법이 없어 끝까지 처리된다."""
     job_id = request.POST.get("job_id") or None
     if not job_id:
         return JsonResponse({"error": "job_id가 없습니다."}, status=400)
@@ -7319,7 +7223,7 @@ def _xlsx_injection_guard(value):
     """엑셀/구글시트 수식 인젝션(CSV/XLSX Injection) 방지.
 
     openpyxl은 셀 값이 "="로 시작하는 문자열이면 자동으로 그 셀을 수식(formula) 타입으로
-    인식해서 저장한다 — 즉 Gemini가 도면에서 읽어온 mark/note/zone 같은 텍스트에 우연히
+    인식해서 저장한다 — 즉 AI가 도면에서 읽어온 mark/note/zone 같은 텍스트에 우연히
     (또는 악의적으로 조작된 도면 파일을 통해 의도적으로) "=1+1", "=CMD(...)" 같은 문자열이
     들어있으면, 그게 그대로 실행 가능한 엑셀 수식이 돼서 파일을 여는 사람의 PC에서
     임의 동작(외부 프로그램 실행 등, 구버전 Excel의 DDE 취약점 포함)으로 이어질 수 있다.
@@ -7490,7 +7394,7 @@ def _append_schedule_rows(schedule_sheet, notes_sheet, type_name, links):
 
 
 def _sanitize_for_excel(obj):
-    """results(=Gemini 추출 결과가 섞여 있는 JSON)를 엑셀로 옮기기 전에 재귀적으로 훑어서
+    """results(=AI 추출 결과가 섞여 있는 JSON)를 엑셀로 옮기기 전에 재귀적으로 훑어서
     모든 문자열값에 _xlsx_injection_guard를 적용한다. write_sheet를 비롯한 모든 시트
     작성 코드가 어디서 값을 꺼내 쓰든 이 한 번의 전처리로 전부 보호되게 하기 위함이다
     (각 ws.cell(value=...) 호출부마다 개별적으로 방어하는 것보다 훨씬 빠뜨리기 어렵다)."""
@@ -8387,27 +8291,23 @@ def extract_general_notes(structural_pdf_bytes, page_hints=None, overview=None,
                     "B. 설계도서 일반사항", "C. 철근콘크리트 일반사항",
                 ],
             )
-            client = get_gemini_client()
+            client = get_ai_client()
             if client is None:
-                raise ValueError("GEMINI_API_KEY가 설정되지 않았습니다.")
-            response = client.models.generate_content(
-                model=GEMINI_QUANTITY_MODEL,
+                raise ValueError("OPENAI_QUANTITY_API_KEY가 설정되지 않았습니다.")
+            response = client.generate(
                 contents=[
                     f"[구조 PDF 실제 {page}페이지 · 도면번호는 이미지에서 확인]",
-                    types.Part.from_bytes(
+                    image_part(
                         data=image_to_jpeg_bytes(panel, max_size=(1600, 2600)),
                         mime_type="image/jpeg",
                     ),
                 ],
-                config=types.GenerateContentConfig(
-                    system_instruction=GENERAL_NOTES_OVERVIEW_TRANSCRIPTION_PROMPT_V5,
-                    response_mime_type="application/json", temperature=0.0,
-                    max_output_tokens=4096,
-                    thinking_config=types.ThinkingConfig(thinking_budget=256),
-                ),
+                system=GENERAL_NOTES_OVERVIEW_TRANSCRIPTION_PROMPT_V5,
+                max_output_tokens=4096,
+                effort="low",
             )
-            raw = _extract_text_from_gemini_response(response)
-            diagnostics = _gemini_response_diagnostics(response)
+            raw = _ai_response_text(response)
+            diagnostics = _ai_response_diagnostics(response)
             first_candidate = (diagnostics.get("candidates") or [{}])[0]
             usage = diagnostics.get("usage") or {}
             _general_notes_log(
@@ -8640,9 +8540,9 @@ def _coordination_probe_pages(pdf_bytes, discipline, total):
 
 def _locate_coordination_pages(pdf_bytes, discipline, job_id=None):
     total = int((pdfinfo_from_bytes(pdf_bytes) or {}).get("Pages", 0) or 0)
-    client = get_gemini_client()
+    client = get_ai_client()
     if not client:
-        raise ValueError("GEMINI_API_KEY가 설정되지 않았습니다.")
+        raise ValueError("OPENAI_QUANTITY_API_KEY가 설정되지 않았습니다.")
     rows = {}
     probe_pages, probe_limit = _coordination_probe_pages(pdf_bytes, discipline, total)
     _drawing_coordination_log(
@@ -8660,22 +8560,19 @@ def _locate_coordination_pages(pdf_bytes, discipline, job_id=None):
             rendered.append(page)
             contents.extend([
                 f"[PDF 실제 {page}페이지]",
-                types.Part.from_bytes(data=image_to_jpeg_bytes(
+                image_part(data=image_to_jpeg_bytes(
                     _coordination_title_crop(images[0]), max_size=(850, 1200),
                 ), mime_type="image/jpeg"),
             ])
         if not rendered:
             continue
-        response = client.models.generate_content(
-            model=GEMINI_QUANTITY_MODEL, contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=DRAWING_COORDINATION_LOCATOR_PROMPT,
-                response_mime_type="application/json", temperature=0,
-                max_output_tokens=4096,
-                thinking_config=types.ThinkingConfig(thinking_budget=128),
-            ),
+        response = client.generate(
+            contents=contents,
+            system=DRAWING_COORDINATION_LOCATOR_PROMPT,
+            max_output_tokens=4096,
+            effort="low",
         )
-        parsed = _coordination_json(_extract_text_from_gemini_response(response))
+        parsed = _coordination_json(_ai_response_text(response))
         items = parsed.get("pages") if isinstance(parsed, dict) else parsed
         for item in items or []:
             if not isinstance(item, dict):
@@ -8686,7 +8583,7 @@ def _locate_coordination_pages(pdf_bytes, discipline, job_id=None):
                 continue
             if page in rendered:
                 rows[page] = item
-        diagnostics = _gemini_response_diagnostics(response)
+        diagnostics = _ai_response_diagnostics(response)
         _drawing_coordination_log(
             "locator_batch", job_id=job_id, discipline=discipline,
             requested_pages=rendered,
@@ -8736,7 +8633,7 @@ def _coordination_target_pages(locator_rows):
 
 
 def _extract_coordination_details(pdf_bytes, discipline, locator_rows, job_id=None):
-    client = get_gemini_client()
+    client = get_ai_client()
     selected = _coordination_target_pages(locator_rows)
     locator = {int(row["pdf_page"]): row for row in locator_rows}
     details = {}
@@ -8753,22 +8650,19 @@ def _extract_coordination_details(pdf_bytes, discipline, locator_rows, job_id=No
             rendered.append(page)
             contents.extend([
                 f"[PDF 실제 {page}페이지]",
-                types.Part.from_bytes(data=image_to_jpeg_bytes(
+                image_part(data=image_to_jpeg_bytes(
                     images[0], max_size=(1800, 1800),
                 ), mime_type="image/jpeg"),
             ])
         if not rendered:
             continue
-        response = client.models.generate_content(
-            model=GEMINI_QUANTITY_MODEL, contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=DRAWING_COORDINATION_DETAIL_PROMPT,
-                response_mime_type="application/json", temperature=0,
-                max_output_tokens=8192,
-                thinking_config=types.ThinkingConfig(thinking_budget=512),
-            ),
+        response = client.generate(
+            contents=contents,
+            system=DRAWING_COORDINATION_DETAIL_PROMPT,
+            max_output_tokens=8192,
+            effort="low",
         )
-        parsed = _coordination_json(_extract_text_from_gemini_response(response))
+        parsed = _coordination_json(_ai_response_text(response))
         for item in (parsed.get("sheets") if isinstance(parsed, dict) else []) or []:
             if not isinstance(item, dict):
                 continue
@@ -8800,24 +8694,20 @@ def _extract_coordination_details(pdf_bytes, discipline, locator_rows, job_id=No
         if not images:
             continue
         try:
-            response = client.models.generate_content(
-                model=GEMINI_QUANTITY_MODEL,
+            response = client.generate(
                 contents=[
                     "이 한 장의 도면에서 실제로 보이는 레벨, 구조범위, 코어, 개구부, 램프만 JSON으로 추출하세요.",
                     "locator=" + json.dumps(source, ensure_ascii=False),
                     f"[PDF 실제 {page}페이지]",
-                    types.Part.from_bytes(data=image_to_jpeg_bytes(
+                    image_part(data=image_to_jpeg_bytes(
                         images[0], max_size=(1800, 1800),
                     ), mime_type="image/jpeg"),
                 ],
-                config=types.GenerateContentConfig(
-                    system_instruction=DRAWING_COORDINATION_DETAIL_PROMPT,
-                    response_mime_type="application/json", temperature=0,
-                    max_output_tokens=4096,
-                    thinking_config=types.ThinkingConfig(thinking_budget=256),
-                ),
+                system=DRAWING_COORDINATION_DETAIL_PROMPT,
+                max_output_tokens=4096,
+                effort="low",
             )
-            parsed = _coordination_json(_extract_text_from_gemini_response(response))
+            parsed = _coordination_json(_ai_response_text(response))
             candidates = (parsed.get("sheets") if isinstance(parsed, dict) else []) or []
             for item in candidates:
                 if not isinstance(item, dict):
@@ -8836,7 +8726,7 @@ def _extract_coordination_details(pdf_bytes, discipline, locator_rows, job_id=No
             _drawing_coordination_log(
                 "detail_retry", job_id=job_id, discipline=discipline,
                 page=page, extracted=page in details,
-                finish_reason=((_gemini_response_diagnostics(response).get("candidates") or [{}])[0]).get("finish_reason"),
+                finish_reason=((_ai_response_diagnostics(response).get("candidates") or [{}])[0]).get("finish_reason"),
             )
         except Exception as exc:
             _drawing_coordination_log(

@@ -59,7 +59,7 @@ class BatchReadTests(SimpleTestCase):
         with patch.object(views, "_pdf_page_count", return_value=total or self.total), \
                 patch.object(views, "_extract_pdf_page_texts", return_value=texts), \
                 patch.object(views, "_render_pdf_page_range", side_effect=lambda pdf, a, b, **k: [f"page {a}"]), \
-                patch.object(views, "analyze_with_gemini", self.analyze), \
+                patch.object(views, "analyze_with_ai", self.analyze), \
                 patch.object(views, "extract_elevation_section_data", self.elevation):
             plan = views._architectural_page_plan(b"pdf", self.dwg if dwg is None else dwg)
             architectural = views.analyze_architectural_drawings(self.dwg if dwg is None else dwg, b"pdf", plan=plan,
@@ -110,12 +110,12 @@ class BatchReadTests(SimpleTestCase):
 
     def test_pages_past_the_ceiling_and_failed_or_cancelled_batches_are_reported(self):
         failing = Mock(side_effect=lambda dwg, images, *a, batch=None, **k: (
-            {"items": [], "summary": "Gemini 분석 요청 중 오류가 발생했습니다: 503", "warnings": [], "missing_info": []}
+            {"items": [], "summary": "AI 분석 요청 중 오류가 발생했습니다: 503", "warnings": [], "missing_info": []}
             if batch[0] == 2 else {"items": [{"category": "미장"}], "summary": "ok", "warnings": [], "missing_info": []}))
-        with patch.object(views, "MAX_PDF_PAGES_TO_GEMINI", 20):
+        with patch.object(views, "MAX_PDF_PAGES_TO_AI", 20):
             _, architectural, _ = self.run_readers(analyze=failing, total=30)
         self.assertIn("처리 한도(20쪽)를 넘는 21~30쪽은 읽지 않았습니다", architectural["missing_info"][0])
-        self.assertIn("[9~16쪽] 건축 수량산출을 읽지 못했습니다: Gemini 분석 요청 중 오류", architectural["missing_info"][1])
+        self.assertIn("[9~16쪽] 건축 수량산출을 읽지 못했습니다: AI 분석 요청 중 오류", architectural["missing_info"][1])
         self.assertEqual(len(architectural["items"]), 2)
         calls = iter([False, True])
         _, architectural, _ = self.run_readers(cancel_cb=lambda: next(calls, True))
@@ -125,7 +125,7 @@ class BatchReadTests(SimpleTestCase):
 
     def test_cad_only_set_asks_once_without_images(self):
         analyze = Mock(return_value={"items": [], "summary": "ok", "warnings": [], "missing_info": []})
-        with patch.object(views, "analyze_with_gemini", analyze), patch.object(views, "extract_elevation_section_data") as elevation:
+        with patch.object(views, "analyze_with_ai", analyze), patch.object(views, "extract_elevation_section_data") as elevation:
             views.analyze_architectural_drawings(self.dwg, None)
             self.assertEqual(views.review_elevations_and_sections(self.dwg, None), views._EMPTY_ELEVATION_SECTION)
         self.assertEqual(analyze.call_args.args[1], [])
@@ -133,17 +133,17 @@ class BatchReadTests(SimpleTestCase):
 
     def test_each_request_names_its_batch_and_pages(self):
         client = Mock()
-        client.models.generate_content.return_value = Mock()
-        with patch.object(views, "get_gemini_client", return_value=client), \
-                patch.object(views, "_extract_text_from_gemini_response", return_value='{"items": []}'), \
+        client.generate.return_value = Mock()
+        with patch.object(views, "get_ai_client", return_value=client), \
+                patch.object(views, "_ai_response_text", return_value='{"items": []}'), \
                 patch.object(views, "image_to_jpeg_bytes", return_value=b"jpg"):
-            views.analyze_with_gemini({}, ["image"], "prompt", "건축도면", page_labels=["117쪽 · A-410 주동단면도"],
+            views.analyze_with_ai({}, ["image"], "prompt", "건축도면", page_labels=["117쪽 · A-410 주동단면도"],
                                       batch=(2, 5, "113~120쪽"))
-        contents = client.models.generate_content.call_args.kwargs["contents"]
+        contents = client.generate.call_args.kwargs["contents"]
         self.assertIn("2/5번째 묶음(113~120쪽)", contents[0])
         self.assertEqual(contents[1], "[도면 117쪽 · A-410 주동단면도]")
-        with patch.object(views, "get_gemini_client", return_value=client), \
-                patch.object(views, "_extract_text_from_gemini_response", return_value='{"floor_heights": []}'), \
+        with patch.object(views, "get_ai_client", return_value=client), \
+                patch.object(views, "_ai_response_text", return_value='{"floor_heights": []}'), \
                 patch.object(views, "image_to_jpeg_bytes", return_value=b"jpg"):
             views.extract_elevation_section_data({}, ["image"], page_labels=["117쪽"], batch=(1, 2, "117쪽"))
-        self.assertIn("동/건물 이름과 입면 이름", client.models.generate_content.call_args.kwargs["contents"][0])
+        self.assertIn("동/건물 이름과 입면 이름", client.generate.call_args.kwargs["contents"][0])

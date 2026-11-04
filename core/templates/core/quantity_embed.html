@@ -282,7 +282,7 @@
       <div class="divider">오늘</div>
 
       <!-- 봇 인사 -->
-      {% include "core/partials/_bot_msg.html" with text="안녕하세요! AI 구조산출 자동화입니다.<br>구조도면 ZIP + PDF, 건축도면 ZIP + PDF를 올려주시면 Gemini가 수량을 자동으로 산출해 드릴게요." %}
+      {% include "core/partials/_bot_msg.html" with text="안녕하세요! AI 구조산출 자동화입니다.<br>구조도면 ZIP + PDF, 건축도면 ZIP + PDF를 올려주시면 AI가 수량을 자동으로 산출해 드릴게요." %}
       {% include "core/partials/_bot_msg.html" with text="4개 파일이 모두 있으면 교차 검증까지 가능해요. 일부만 있어도 분석 가능합니다." %}
 
       <!-- 필요 도면 목록 -->
@@ -566,7 +566,7 @@ async function runAnalysis(el) {
     </div>
     <div class="ai-thinking" id="ext-thinking">
       <div class="spin"></div>
-      <span>Gemini가 구조/건축 도면을 분석하고 있어요… (1~2분 소요)</span>
+      <span>AI가 구조/건축 도면을 분석하고 있어요… (1~2분 소요)</span>
     </div>
   `);
   scroll();

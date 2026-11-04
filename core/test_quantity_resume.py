@@ -81,10 +81,10 @@ class StructuralBatchReuseTests(TempState):
         def one_batch(client, dwg, images, idx, total, page_numbers=None, confirmed_general_spec=None):
             calls.append(idx)
             if idx in failing:
-                return dict(views._EMPTY_MEMBERS, notes=[f"[배치 {idx}/{total}] Gemini 부재 추출 요청 중 오류가 발생했습니다: 503"])
+                return dict(views._EMPTY_MEMBERS, notes=[f"[배치 {idx}/{total}] AI 부재 추출 요청 중 오류가 발생했습니다: 503"])
             return dict(views._EMPTY_MEMBERS, walls=[{"mark": f"W{idx}", "count": 1}], notes=[])
 
-        with patch.object(views, "get_gemini_client", return_value=object()), \
+        with patch.object(views, "get_ai_client", return_value=object()), \
                 patch.object(views, "pdfinfo_from_bytes", return_value={"Pages": 20}), \
                 patch.object(views, "_detect_schedule_pages", return_value=[]), \
                 patch.object(views, "_render_pdf_page_range", side_effect=lambda pdf, a, b, **k: [f"p{p}" for p in range(a, b + 1)]), \
@@ -119,7 +119,7 @@ class JobRunReuseTests(TempState):
                 patch.object(views, "_pdf_page_count", return_value=3), \
                 patch.object(views, "_extract_pdf_page_texts", return_value={}), \
                 patch.object(views, "_render_pdf_page_range", render), \
-                patch.object(views, "analyze_with_gemini", analyze), \
+                patch.object(views, "analyze_with_ai", analyze), \
                 patch.object(views, "extract_elevation_section_data", elevation), \
                 patch.object(views, "extract_structural_members", return_value=members), \
                 patch.object(views, "_build_source_manifest", return_value={}), \
@@ -148,7 +148,7 @@ class JobRunReuseTests(TempState):
     def test_a_failed_ai_answer_is_not_saved(self):
         meta = self.inputs.save("job", 7, {"architectural_pdf": b"apdf"}, SETTINGS)
         base = views._job_step_base(meta)
-        analyze = Mock(return_value={"items": [], "summary": "Gemini 분석 요청 중 오류가 발생했습니다: 503", "warnings": [], "missing_info": []})
+        analyze = Mock(return_value={"items": [], "summary": "AI 분석 요청 중 오류가 발생했습니다: 503", "warnings": [], "missing_info": []})
         elevation = Mock(return_value=dict(views._EMPTY_ELEVATION_SECTION, notes=[]))
         render = Mock(side_effect=lambda pdf, first, last, **k: [f"page {first}"])
         result = self.run_job(self.inputs.steps("job", base), analyze, elevation, render)
