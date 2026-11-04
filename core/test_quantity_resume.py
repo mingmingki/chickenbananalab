@@ -81,10 +81,10 @@ class StructuralBatchReuseTests(TempState):
         def one_batch(client, dwg, images, idx, total, page_numbers=None, confirmed_general_spec=None):
             calls.append(idx)
             if idx in failing:
-                return dict(views._EMPTY_MEMBERS, notes=[f"[배치 {idx}/{total}] Gemini 부재 추출 요청 중 오류가 발생했습니다: 503"])
+                return dict(views._EMPTY_MEMBERS, notes=[f"[배치 {idx}/{total}] AI 부재 추출 요청 중 오류가 발생했습니다: 503"])
             return dict(views._EMPTY_MEMBERS, walls=[{"mark": f"W{idx}", "count": 1}], notes=[])
 
-        with patch.object(views, "get_gemini_client", return_value=object()), \
+        with patch.object(views, "get_ai_client", return_value=object()), \
                 patch.object(views, "pdfinfo_from_bytes", return_value={"Pages": 20}), \
                 patch.object(views, "_detect_schedule_pages", return_value=[]), \
                 patch.object(views, "_render_pdf_page_range", side_effect=lambda pdf, a, b, **k: [f"p{p}" for p in range(a, b + 1)]), \
@@ -116,8 +116,10 @@ class JobRunReuseTests(TempState):
     def run_job(self, steps, analyze, elevation, render):
         members = dict(views._EMPTY_MEMBERS, walls=[], notes=[])
         with patch.object(views, "parse_dwg_from_zip", return_value={}), \
-                patch.object(views, "pdf_to_images", render), \
-                patch.object(views, "analyze_with_gemini", analyze), \
+                patch.object(views, "_pdf_page_count", return_value=3), \
+                patch.object(views, "_extract_pdf_page_texts", return_value={}), \
+                patch.object(views, "_render_pdf_page_range", render), \
+                patch.object(views, "analyze_with_ai", analyze), \
                 patch.object(views, "extract_elevation_section_data", elevation), \
                 patch.object(views, "extract_structural_members", return_value=members), \
                 patch.object(views, "_build_source_manifest", return_value={}), \
@@ -127,29 +129,31 @@ class JobRunReuseTests(TempState):
                                     3, None, steps=steps)
         return views._result_get("job")
 
-    def test_saved_architectural_steps_skip_the_ai_and_the_pdf_rendering(self):
+    def test_saved_architectural_batches_skip_the_ai_and_the_pdf_rendering(self):
         meta = self.inputs.save("job", 7, {"structural_pdf": b"spdf", "architectural_pdf": b"apdf"}, SETTINGS)
         base = views._job_step_base(meta)
-        analyze = Mock(return_value={"items": [{"name": "창호"}], "summary": "ok", "warnings": [], "missing_info": []})
+        analyze = Mock(return_value={"items": [{"category": "창호"}], "summary": "ok", "warnings": [], "missing_info": []})
         elevation = Mock(return_value=dict(views._EMPTY_ELEVATION_SECTION, notes=[]))
-        render = Mock(return_value=["image"])
+        render = Mock(side_effect=lambda pdf, first, last, **k: [f"page {first}"])
         first = self.run_job(self.inputs.steps("job", base), analyze, elevation, render)
-        self.assertEqual((analyze.call_count, elevation.call_count, render.call_count), (1, 1, 1))
+        self.assertEqual((analyze.call_count, elevation.call_count, render.call_count), (1, 1, 6))
         second = self.run_job(self.inputs.steps("job", base), analyze, elevation, render)
-        self.assertEqual((analyze.call_count, elevation.call_count, render.call_count), (1, 1, 1))
+        self.assertEqual((analyze.call_count, elevation.call_count, render.call_count), (1, 1, 6))
         self.assertEqual(second["results"]["architectural"], first["results"]["architectural"])
         self.assertNotIn("error", second["results"]["structural"], second["results"]["structural"])
         notes = views._extraction_store_get("job")["members"]["notes"]
-        self.assertTrue(any("이어서 실행" in note and "건축도면 분석" in note for note in notes))
+        self.assertTrue(any("이어서 실행" in note and "건축도면 분석 묶음 1개" in note for note in notes))
         self.assertFalse(views._extraction_incomplete_reasons({"notes": notes}))
 
     def test_a_failed_ai_answer_is_not_saved(self):
         meta = self.inputs.save("job", 7, {"architectural_pdf": b"apdf"}, SETTINGS)
         base = views._job_step_base(meta)
-        analyze = Mock(return_value={"items": [], "summary": "Gemini 분석 요청 중 오류가 발생했습니다: 503", "warnings": [], "missing_info": []})
+        analyze = Mock(return_value={"items": [], "summary": "AI 분석 요청 중 오류가 발생했습니다: 503", "warnings": [], "missing_info": []})
         elevation = Mock(return_value=dict(views._EMPTY_ELEVATION_SECTION, notes=[]))
-        self.run_job(self.inputs.steps("job", base), analyze, elevation, Mock(return_value=["image"]))
-        self.run_job(self.inputs.steps("job", base), analyze, elevation, Mock(return_value=["image"]))
+        render = Mock(side_effect=lambda pdf, first, last, **k: [f"page {first}"])
+        result = self.run_job(self.inputs.steps("job", base), analyze, elevation, render)
+        self.assertIn("건축 수량산출을 읽지 못했습니다", result["results"]["architectural"]["missing_info"][0])
+        self.run_job(self.inputs.steps("job", base), analyze, elevation, render)
         self.assertEqual((analyze.call_count, elevation.call_count), (2, 1))
 
 

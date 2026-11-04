@@ -321,7 +321,7 @@ class QuantityNumericGuardTests(SimpleTestCase):
 
 class QuantityCoverageTests(SimpleTestCase):
     def test_provider_failure_marks_extraction_as_incomplete(self):
-        self.assertTrue(views._extraction_incomplete_reasons({'notes': ['[배치 2/3] Gemini 부재 추출 요청 중 오류가 발생했습니다: timeout']}))
+        self.assertTrue(views._extraction_incomplete_reasons({'notes': ['[배치 2/3] AI 부재 추출 요청 중 오류가 발생했습니다: timeout']}))
 
     def test_dxf_unit_metadata_and_raw_measurement_tokens_are_preserved(self):
         import ezdxf

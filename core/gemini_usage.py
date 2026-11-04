@@ -39,7 +39,7 @@ FEATURE_LABELS = {
 _FEATURE_STACK_RULES = (
     ("_extract_structural_members_one_batch", "quantity_structural"),
     ("extract_elevation_section_data", "quantity_elevation"),
-    ("analyze_with_gemini", "quantity_architectural"),
+    ("analyze_with_ai", "quantity_architectural"),
     ("generate_ai_fallback_topics", "ai_fallback_topics"),
     ("generate_image_bytes", "ai_image"),
     ("_cbl_generate_title_thumbnail_pair", "ai_headline"),
@@ -122,7 +122,7 @@ def _summarize_contents(value, depth=0):
     return chars, parts
 
 
-def _infer_call_context():
+def _infer_call_context(skip_modules=()):
     names = []
     callsite = ""
     batch_index = None
@@ -137,7 +137,7 @@ def _infer_call_context():
                 break
             module_name = str(frame.f_globals.get("__name__", ""))
             function_name = str(frame.f_code.co_name or "")
-            if module_name != __name__:
+            if module_name != __name__ and module_name not in skip_modules:
                 names.append(function_name)
                 if not callsite:
                     callsite = f"{module_name}.{function_name}"[:240]

@@ -70,9 +70,6 @@ class StepStore:
             return None
         return saved if saved.get("key") == self._key(parts) else None
 
-    def has(self, name, *parts):
-        return self._read(name, parts) is not None
-
     def load(self, name, *parts):
         saved = self._read(name, parts)
         if saved is None:
