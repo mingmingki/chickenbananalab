@@ -63,6 +63,14 @@
     cursor: pointer;
   }
 
+  a.cbl-ask-login {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    text-decoration: none;
+  }
+
   .cbl-community-tabs {
     display: flex;
     align-items: center;
@@ -396,13 +404,18 @@
 
 <main class="cbl-community-page">
   <section class="cbl-community-head">
-    <button type="button" class="cbl-ask-open" data-cbl-ask-open>문의하기</button>
+    {% if user.is_authenticated %}
+      <button type="button" class="cbl-ask-open" data-cbl-ask-open>문의하기</button>
+    {% else %}
+      <a class="cbl-ask-open cbl-ask-login" href="{% url 'login' %}?next={% url 'community' %}">로그인하고 문의하기</a>
+    {% endif %}
 
     <h1>커뮤니티</h1>
 
     <ul class="cbl-community-guide">
       <li>건설 실무, BIM, 프로그램 사용 중 궁금한 내용을 남길 수 있습니다.</li>
       <li><strong>질문/답변, 오류 제보, 프로그램 요청, 자주하는 질문</strong>을 이곳에서 정리합니다.</li>
+      <li>문의는 로그인 후 등록할 수 있고, 관리자 확인 후 공개됩니다.</li>
       <li>답변은 확인 후 순차적으로 등록됩니다.</li>
       <li>개인정보나 민감한 정보는 문의 내용에 남기지 마세요.</li>
     </ul>
@@ -476,6 +489,7 @@
   </section>
 </main>
 
+{% if user.is_authenticated %}
 <div class="cbl-ask-modal" data-cbl-ask-modal hidden>
   <div class="cbl-ask-backdrop" data-cbl-ask-close></div>
   <div class="cbl-ask-dialog" role="dialog" aria-modal="true" aria-labelledby="cblAskTitle">
@@ -502,23 +516,23 @@
 
       <div class="cbl-form-row">
         <label for="cblAskTitleInput">제목</label>
-        <input id="cblAskTitleInput" name="title" type="text" required placeholder="문의 제목을 입력하세요.">
+        <input id="cblAskTitleInput" name="title" type="text" required maxlength="200" placeholder="문의 제목을 입력하세요.">
       </div>
 
       <div class="cbl-form-row">
         <label for="cblAskBody">문의 내용</label>
-        <textarea id="cblAskBody" name="body" required placeholder="내용을 자세히 입력하세요."></textarea>
+        <textarea id="cblAskBody" name="body" required maxlength="5000" placeholder="내용을 자세히 입력하세요."></textarea>
       </div>
 
       <div class="cbl-form-grid">
         <div class="cbl-form-row">
           <label for="cblAskName">작성자</label>
-          <input id="cblAskName" name="author_name" type="text" placeholder="익명">
+          <input id="cblAskName" name="author_name" type="text" maxlength="40" placeholder="익명">
         </div>
 
         <div class="cbl-form-row">
           <label for="cblAskContact">연락처/이메일 선택</label>
-          <input id="cblAskContact" name="contact" type="text" placeholder="비공개 관리용">
+          <input id="cblAskContact" name="contact" type="text" maxlength="120" placeholder="비공개 관리용">
         </div>
       </div>
 
@@ -526,6 +540,7 @@
     </form>
   </div>
 </div>
+{% endif %}
 
 <script>
 (function () {

@@ -732,6 +732,14 @@ class CommunityQuestion(models.Model):
     body = models.TextField("문의 내용")
     author_name = models.CharField("작성자", max_length=40, blank=True, default="익명")
     contact = models.CharField("연락처/이메일", max_length=120, blank=True)
+    author = models.ForeignKey(
+        User,
+        verbose_name="작성 계정",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="community_questions",
+    )
     answer = models.TextField("답변", blank=True)
     is_public = models.BooleanField("공개 여부", default=True)
     created_at = models.DateTimeField("등록일", auto_now_add=True)

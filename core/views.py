@@ -5904,13 +5904,30 @@ def community(request):
 
 
 # CBL_COMMUNITY_QNA_VIEW_START
+COMMUNITY_QUESTION_DAILY_LIMIT = 10
+COMMUNITY_QUESTION_FIELD_LIMITS = {
+    "title": 200,
+    "body": 5000,
+    "author_name": 40,
+    "contact": 120,
+}
+
+
 def community(request):
-    from django.shortcuts import render, redirect
+    from datetime import timedelta
+
     from django.contrib import messages
+    from django.contrib.auth.views import redirect_to_login
     from django.db.models import Q
+    from django.shortcuts import render, redirect
+    from django.urls import reverse
+    from django.utils import timezone
     from .models import CommunityQuestion
 
     if request.method == "POST":
+        if not request.user.is_authenticated:
+            return redirect_to_login(reverse("community"))
+
         category = request.POST.get("category", "question").strip()
         title = request.POST.get("title", "").strip()
         body = request.POST.get("body", "").strip()
@@ -5925,16 +5942,38 @@ def community(request):
             messages.error(request, "제목과 문의 내용을 입력해주세요.")
             return redirect("community")
 
+        submitted = {"title": title, "body": body, "author_name": author_name, "contact": contact}
+        if any(len(submitted[name]) > limit for name, limit in COMMUNITY_QUESTION_FIELD_LIMITS.items()):
+            messages.error(
+                request,
+                "입력한 내용이 너무 깁니다. 제목은 200자, 문의 내용은 5,000자 이내로 입력해주세요.",
+            )
+            return redirect("community")
+
+        is_staff = request.user.is_staff
+        if not is_staff:
+            recent_count = CommunityQuestion.objects.filter(
+                author=request.user,
+                created_at__gte=timezone.now() - timedelta(hours=24),
+            ).count()
+            if recent_count >= COMMUNITY_QUESTION_DAILY_LIMIT:
+                messages.error(request, "오늘 등록할 수 있는 문의를 모두 사용했습니다. 내일 다시 등록해주세요.")
+                return redirect("community")
+
         CommunityQuestion.objects.create(
             category=category,
             title=title,
             body=body,
             author_name=author_name,
             contact=contact,
-            is_public=True,
+            author=request.user,
+            is_public=is_staff,
         )
 
-        messages.success(request, "문의가 등록되었습니다. 답변은 확인 후 순차적으로 추가됩니다.")
+        if is_staff:
+            messages.success(request, "문의가 등록되어 바로 공개되었습니다.")
+        else:
+            messages.success(request, "문의가 접수되었습니다. 관리자 확인 후 공개되고, 답변도 순차적으로 추가됩니다.")
         return redirect("community")
 
     keyword = request.GET.get("q", "").strip()
