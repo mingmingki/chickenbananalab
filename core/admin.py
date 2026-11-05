@@ -20,13 +20,15 @@ from .models import CommunityQuestion
 
 @admin.register(CommunityQuestion)
 class CommunityQuestionAdmin(admin.ModelAdmin):
-    list_display = ("title", "category", "author_name", "is_public", "created_at", "answered_at")
-    list_filter = ("category", "is_public", "created_at")
+    list_display = ("title", "category", "author_name", "author", "is_public", "created_at", "answered_at")
+    list_editable = ("is_public",)
+    list_filter = ("is_public", "category", "created_at")
+    list_select_related = ("author",)
     search_fields = ("title", "body", "answer", "author_name", "contact")
-    readonly_fields = ("created_at", "answered_at")
+    readonly_fields = ("author", "created_at", "answered_at")
     fieldsets = (
         ("문의 내용", {
-            "fields": ("category", "title", "body", "author_name", "contact", "is_public")
+            "fields": ("category", "title", "body", "author_name", "author", "contact", "is_public")
         }),
         ("답변", {
             "fields": ("answer", "created_at", "answered_at")

@@ -6,6 +6,7 @@ import unicodedata
 import zipfile
 import zlib
 from copy import deepcopy
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -14,6 +15,7 @@ from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.utils import timezone
 from PIL import Image
 
 from .quantity_views import (
@@ -59,7 +61,7 @@ from .management.commands.run_ai_auto_writer import (
     AUTO_NAVER_CATEGORY_ORDER,
     save_ai_data_to_post,
 )
-from .models import CalendarEvent, Post
+from .models import CalendarEvent, CommunityQuestion, Post
 
 
 class DrawingCoordinationRegressionTests(SimpleTestCase):
@@ -1920,3 +1922,128 @@ class CalendarWorkflowRegressionTests(TestCase):
         self.assertEqual(event.title, "BIM 검토")
         self.assertEqual(event.category, "업무")
         self.assertTrue(event.is_all_day)
+
+
+class CommunityQuestionPostingTests(TestCase):
+    def setUp(self):
+        users = get_user_model()
+        self.member = users.objects.create_user(username="member", password="test-password")
+        self.staff = users.objects.create_user(username="manager", password="test-password", is_staff=True)
+
+    def _payload(self, **overrides):
+        payload = {
+            "category": "question",
+            "title": "도면 저장 질문",
+            "body": "저장 방법이 궁금합니다.",
+            "author_name": "회원",
+            "contact": "",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_signed_out_post_goes_to_login_and_saves_nothing(self):
+        response = self.client.post("/community/", self._payload())
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/accounts/login/", response["Location"])
+        self.assertIn("next=/community/", response["Location"])
+        self.assertEqual(CommunityQuestion.objects.count(), 0)
+
+    def test_signed_out_page_links_to_login_instead_of_the_form(self):
+        response = self.client.get("/community/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'id="cblAskTitleInput"')
+        self.assertContains(response, "/accounts/login/?next=/community/")
+
+    def test_login_returns_to_the_community_page(self):
+        response = self.client.post(
+            "/accounts/login/?next=/community/",
+            {"username": "member", "password": "test-password"},
+        )
+        self.assertRedirects(response, "/community/", fetch_redirect_response=False)
+
+    def test_member_page_has_the_form(self):
+        self.client.force_login(self.member)
+        response = self.client.get("/community/")
+        self.assertContains(response, 'id="cblAskTitleInput"')
+        self.assertContains(response, "data-cbl-ask-open")
+
+    def test_member_question_waits_for_review(self):
+        self.client.force_login(self.member)
+        response = self.client.post("/community/", self._payload(), follow=True)
+        question = CommunityQuestion.objects.get()
+        self.assertFalse(question.is_public)
+        self.assertEqual(question.author, self.member)
+        self.assertContains(response, "확인 후 공개")
+        self.assertNotContains(response, "저장 방법이 궁금합니다.")
+
+    def test_published_question_is_listed_for_everyone(self):
+        question = CommunityQuestion.objects.create(title="공개 문의", body="공개 본문", is_public=False)
+        self.assertNotContains(self.client.get("/community/"), "공개 본문")
+        question.is_public = True
+        question.save()
+        self.assertContains(self.client.get("/community/"), "공개 본문")
+
+    def test_staff_question_is_published_at_once(self):
+        self.client.force_login(self.staff)
+        self.client.post("/community/", self._payload())
+        question = CommunityQuestion.objects.get()
+        self.assertTrue(question.is_public)
+        self.assertEqual(question.author, self.staff)
+
+    def test_member_daily_limit(self):
+        self.client.force_login(self.member)
+        for number in range(core_views.COMMUNITY_QUESTION_DAILY_LIMIT):
+            self.client.post("/community/", self._payload(title=f"문의 {number}"))
+        self.assertEqual(
+            CommunityQuestion.objects.count(),
+            core_views.COMMUNITY_QUESTION_DAILY_LIMIT,
+        )
+        response = self.client.post("/community/", self._payload(title="초과 문의"), follow=True)
+        self.assertEqual(
+            CommunityQuestion.objects.count(),
+            core_views.COMMUNITY_QUESTION_DAILY_LIMIT,
+        )
+        self.assertContains(response, "내일 다시")
+
+    def test_daily_limit_ignores_older_questions_and_other_members(self):
+        other = get_user_model().objects.create_user(username="other", password="test-password")
+        for number in range(core_views.COMMUNITY_QUESTION_DAILY_LIMIT):
+            CommunityQuestion.objects.create(title=f"다른 회원 {number}", body="본문", author=other)
+        old = [
+            CommunityQuestion.objects.create(title=f"옛 문의 {number}", body="본문", author=self.member)
+            for number in range(core_views.COMMUNITY_QUESTION_DAILY_LIMIT)
+        ]
+        CommunityQuestion.objects.filter(id__in=[item.id for item in old]).update(
+            created_at=timezone.now() - timedelta(hours=25),
+        )
+        self.client.force_login(self.member)
+        self.client.post("/community/", self._payload(title="오늘 문의"))
+        self.assertTrue(CommunityQuestion.objects.filter(title="오늘 문의", author=self.member).exists())
+
+    def test_staff_are_not_limited(self):
+        self.client.force_login(self.staff)
+        for number in range(core_views.COMMUNITY_QUESTION_DAILY_LIMIT + 1):
+            self.client.post("/community/", self._payload(title=f"안내 {number}"))
+        self.assertEqual(
+            CommunityQuestion.objects.count(),
+            core_views.COMMUNITY_QUESTION_DAILY_LIMIT + 1,
+        )
+
+    def test_overlong_fields_are_refused(self):
+        self.client.force_login(self.member)
+        for field, size in (("title", 201), ("body", 5001), ("author_name", 41), ("contact", 121)):
+            with self.subTest(field=field):
+                response = self.client.post("/community/", self._payload(**{field: "가" * size}), follow=True)
+                self.assertContains(response, "너무 깁니다")
+                self.assertEqual(CommunityQuestion.objects.count(), 0)
+
+    def test_limits_at_exact_length_are_accepted(self):
+        self.client.force_login(self.member)
+        self.client.post("/community/", self._payload(title="가" * 200, body="나" * 5000))
+        self.assertEqual(CommunityQuestion.objects.count(), 1)
+
+    def test_blank_title_or_body_still_refused(self):
+        self.client.force_login(self.member)
+        self.client.post("/community/", self._payload(title="  "))
+        self.client.post("/community/", self._payload(body=""))
+        self.assertEqual(CommunityQuestion.objects.count(), 0)
