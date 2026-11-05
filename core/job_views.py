@@ -38,15 +38,24 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
-def get_openai_client():
-    """프로젝트 .env, Django 설정 또는 서버 환경변수에서 API 키를 읽습니다."""
-    if load_dotenv:
-        load_dotenv(Path(settings.BASE_DIR) / ".env", override=False)
-    api_key = (
+def _openai_api_key():
+    return (
         getattr(settings, "OPENAI_API_KEY", "")
         or getattr(settings, "OPENAI_KEY", "")
         or os.environ.get("OPENAI_API_KEY", "")
     )
+
+
+def interview_analysis_available():
+    """면접 입구에서 분석을 쓸 수 있는지 확인합니다."""
+    return bool(OpenAI and _openai_api_key())
+
+
+def get_openai_client():
+    """프로젝트 .env, Django 설정 또는 서버 환경변수에서 API 키를 읽습니다."""
+    if load_dotenv:
+        load_dotenv(Path(settings.BASE_DIR) / ".env", override=False)
+    api_key = _openai_api_key()
     if not OpenAI or not api_key:
         return None
     return OpenAI(api_key=api_key)
@@ -293,6 +302,7 @@ def job_main(request):
         "user_display": user_display,
         "career_levels": CAREER_LEVELS,
         "job_fields": JOB_FIELDS,
+        "interview_ready": interview_analysis_available(),
     })
 
 

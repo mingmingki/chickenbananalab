@@ -624,7 +624,10 @@ def home(request):
         published.filter(cbl_video_post_q()).distinct()[:8]
     )
 
+    from .job_views import interview_analysis_available
+
     return render(request, "core/home.html", {
+        "job_interview_ready": interview_analysis_available(),
         "latest_posts": latest_all,
         "latest_all": latest_all,
         "latest_architecture": latest_architecture,
