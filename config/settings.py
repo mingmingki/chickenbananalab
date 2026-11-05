@@ -1,6 +1,9 @@
 from pathlib import Path
 import os
+import sys
 from dotenv import load_dotenv
+
+from config.secret_key import resolve_secret_key
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -13,13 +16,10 @@ load_dotenv(BASE_DIR / ".env", override=True)
 # 기본 설정
 # ================================
 
-SECRET_KEY = os.getenv(
-    "DJANGO_SECRET_KEY",
-    "django-insecure-j+*2gox^lvvm(@_*5s9d8e7^x3^jh&pv)$p$_pc4!m&v94puom"
-)
-
 # Production must be non-debug unless a local developer explicitly opts in.
 DEBUG = os.getenv("DJANGO_DEBUG", "False") == "True"
+
+SECRET_KEY = resolve_secret_key(os.getenv("DJANGO_SECRET_KEY"), debug=DEBUG, argv=sys.argv)
 
 ALLOWED_HOSTS = [
     "*",
