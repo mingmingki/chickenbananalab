@@ -3844,6 +3844,7 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
 
   var LOGO = "{% static 'core/images/cbl_program_icon_logo_v3.png' %}";
   var USER = "{% if user.is_authenticated %}{{ user.username|escapejs }}{% else %}게스트{% endif %}";
+  var JOB_INTERVIEW_READY = {{ job_interview_ready|yesno:"true,false" }};
   var bodyEl = document.getElementById("job-body");
   var inputArea = document.getElementById("job-input-area");
   var inputEl = document.getElementById("job-inp");
@@ -4115,6 +4116,10 @@ body[data-cbl-url-name="home"] .cbl-home-calendar-add-btn {
     hideInput();
     bodyEl.innerHTML = '<div class="divider">오늘</div>';
     add(botRow('안녕하세요! 건설 AI 구인구직입니다.<br>집에서 편하게 면접보고, 직무에 맞는 분을 빠르게 찾아드릴게요.'));
+    if (!JOB_INTERVIEW_READY) {
+      add(botRow('AI 면접은 지금 준비 중이에요. 준비가 끝나면 이곳에서 바로 시작할 수 있어요.'));
+      return;
+    }
     add(botRow('어떤 역할로 오셨나요?'));
     chips('role-chips', [
       { label: '👤 구직자 — 일 구하기', value: 'job' },

@@ -270,15 +270,17 @@
            onerror="this.style.display='none'" /></div>
       <div class="bubble-wrap">
         <div class="sender-name">CBL 봇</div>
-        <div class="bubble bot">어떤 역할로 오셨나요?</div>
+        <div class="bubble bot">{% if interview_ready %}어떤 역할로 오셨나요?{% else %}AI 면접은 지금 준비 중이에요. 준비가 끝나면 이곳에서 바로 시작할 수 있어요.{% endif %}</div>
       </div>
       <div class="msg-time" id="time-1"></div>
     </div>
 
+    {% if interview_ready %}
     <div class="chips" id="role-chips">
       <div class="chip" onclick="selectRole(this,'job')">👤 구직자 — 일 구하기</div>
       <div class="chip" onclick="selectRole(this,'hire')">🏗️ 구인자 — 사람 찾기</div>
     </div>
+    {% endif %}
 
     <div id="flow" style="display:contents"></div>
   </div>
@@ -587,7 +589,11 @@ async function saveAnswer(idx, question, answer, duration) {
 ─────────────────────────────────────────────*/
 async function endInterview() {
   await botSay('면접 완료! OpenAI가 답변을 분석하고 있어요 ✨');
-  await addFlow(`<div class="msg-row left">
+  await analyzeAnswers();
+}
+
+async function analyzeAnswers() {
+  await addFlow(`<div class="msg-row left" id="report-loading">
     <div class="av bot"><img src="${LOGO}" alt="" onerror="this.style.display='none'"/></div>
     <div class="bubble-wrap">
       <div class="sender-name">CBL 봇</div>
@@ -595,11 +601,11 @@ async function endInterview() {
         <div style="width:12px;height:12px;border:1.5px solid rgba(255,255,255,.2);border-top-color:#F9C20A;border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0"></div>
         <span>AI 보고서 생성 중… (30초~1분 소요)</span>
       </div>
+      <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
     </div>
-  </div>
-  <style>@keyframes spin{to{transform:rotate(360deg)}}</style>`, 300);
+  </div>`, 300);
 
-  let result = {};
+  let result = null;
   try {
     const res = await fetch('/api/job/analyze/', {
       method: 'POST',
@@ -607,15 +613,29 @@ async function endInterview() {
       body: JSON.stringify({ profile: state.profile, answers: state.answers }),
     });
     const data = await res.json();
-    result = data.result || {};
+    if (res.ok && data.ok && data.result && data.result.grade) {
+      result = data.result;
+    }
   } catch(e) {
-    result = { grade: 'B', scores: {}, summary: '분석 중 오류', strengths: [], fit_jobs: [] };
+    console.error('[AI Job Analysis]', e);
   }
 
-  // 로딩 행 제거
-  document.querySelector('.job-body .msg-row.left:last-of-type')?.remove();
+  document.getElementById('report-loading')?.remove();
+
+  if (!result) {
+    await botSay('AI 분석에 실패해서 보고서를 만들지 못했어요. 답변은 이 화면에 그대로 있으니 잠시 뒤 다시 시도해 주세요. 페이지를 닫으면 답변이 사라져요.');
+    await addFlow(`<div class="chips" id="analysis-retry-chips">
+      <div class="chip navy" onclick="retryAnalysis(this)">다시 분석하기</div>
+    </div>`);
+    return;
+  }
 
   renderReport(result);
+}
+
+async function retryAnalysis(el) {
+  el.closest('.chips')?.remove();
+  await analyzeAnswers();
 }
 
 /* ────────────────────────────────────────────
@@ -633,13 +653,15 @@ function renderReport(r) {
 
   let scoreRows = '';
   Object.entries(scoreMap).forEach(([key, label]) => {
-    const sc = scores[key] || 3;
-    const stars = '★'.repeat(sc) + '<span class="empty-s">' + '★'.repeat(5-sc) + '</span>';
+    const sc = Number(scores[key]);
+    const stars = sc >= 1 && sc <= 5
+      ? '★'.repeat(sc) + '<span class="empty-s">' + '★'.repeat(5-sc) + '</span>'
+      : '<span class="empty-s">평가 없음</span>';
     scoreRows += `<div class="rpt-row"><span>${label}</span><span class="stars">${stars}</span></div>`;
   });
 
   const gradeColors = {S:'#24633c',A:'#1a5276',B:'#d97706',C:'#dc2626',D:'#888'};
-  const grade = r.grade || 'B';
+  const grade = r.grade;
   const gradeColor = gradeColors[grade] || '#073A5B';
 
   const fitTags = (r.fit_jobs || []).map(j => `<span class="tag">${esc(j)}</span>`).join('');
