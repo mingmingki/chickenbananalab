@@ -2043,6 +2043,7 @@
     </div>
 
     <div class="cbl-header-v7-icons">
+      {% if user.is_staff %}<a href="{% url 'ai_lab' %}" style="font-size:12px;font-weight:800;white-space:nowrap;padding:8px 11px;border:1px solid #d9e4f7;border-radius:11px;background:#eef3ff;color:#3554a0;text-decoration:none" aria-label="치킨바나나 AI 연구소">🧠 AI 연구소</a>{% endif %}
       <a href="{% url 'search' %}" class="cbl-header-v7-icon" aria-label="검색">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.7" cy="10.7" r="6.6"></circle><path d="M15.7 15.7 21 21"></path></svg>
       </a>
