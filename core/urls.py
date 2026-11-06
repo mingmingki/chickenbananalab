@@ -1,5 +1,4 @@
 from . import quantity_views
-from . import ai_lab_views
 from . import gemini_usage_views
 from . import ai_topic_pool
 from .ip_tools import ip_lookup_api
@@ -25,14 +24,7 @@ from . import views as cbl_views
 from . import views as cbl_views_v21_2
 
 urlpatterns = [
-    # Chicken Banana Lab AI Research — independent of trading infrastructure
-    path("ai-lab/", ai_lab_views.page, name="ai_lab"),
-    path("api/ai-lab/state/", ai_lab_views.state, name="ai_lab_state"),
-    path("api/ai-lab/conversations/", ai_lab_views.conversations, name="ai_lab_conversations"),
-    path("api/ai-lab/conversations/<str:conversation_id>/", ai_lab_views.messages, name="ai_lab_messages"),
-    path("api/ai-lab/chat/", ai_lab_views.chat, name="ai_lab_chat"),
-    path("api/ai-lab/uploads/", ai_lab_views.uploads, name="ai_lab_uploads"),
-    path("api/cblcad/v29/open-session/",  views.cblcad_oda_removed_api, name="cblcad_v29_open_session"),
+    path("api/cblcad/v29/open-session/", views.cblcad_oda_removed_api, name="cblcad_v29_open_session"),
     path("api/cblcad/free-dwg-to-dxf/", views.cblcad_free_dwg_local_api, name="cblcad_free_dwg_local_api"),
     path("api/cblcad/free-dwg-native-open/", views.cblcad_free_dwg_native_open_api, name="cblcad_free_dwg_native_open_api"),
     path("api/cblcad/free-dwg-native-save-path/", views.cblcad_free_dwg_native_save_path_api, name="cblcad_free_dwg_native_save_path_api"),
