@@ -492,8 +492,52 @@ def is_foundation_plan(title):
 
 
 def read_sheet_content(texts, title):
-    return {"tables": read_tables(texts), "notes": read_notes(texts),
-            "specs": read_specs(texts) if is_foundation_plan(title) else []}
+    content = {"tables": read_tables(texts), "notes": read_notes(texts),
+               "specs": read_specs(texts) if is_foundation_plan(title) else []}
+    if "슬래브" in _key(title) or "SLAB" in _key(title):
+        thickness = read_slab_thickness(texts)
+        if thickness:
+            content["slab_thickness"] = thickness
+    return content
+
+
+SLAB_MARK = re.compile(r"^-?\d{0,2}[A-Z]{0,3}S\d{1,2}[A-Z]?$")
+THK_HEADER = re.compile(r"^(THK\.?|두께)$")
+THK_NOTE = re.compile(r"THK\.?\s*(\d{2,4})", re.I)
+
+
+def read_slab_thickness(texts):
+    """Slab thickness in mm by mark from a slab schedule (a MARK column and a THK. column) and
+    the default from notes such as ": THK.210". Notes with a parenthesis ("THK.180 (욕실부분)",
+    "FS1(THK. 300)") name exceptions and are not the default."""
+    marks, default = {}, None
+    for header in texts:
+        if not THK_HEADER.match(_key(header["text"])):
+            continue
+        h = header.get("h") or 100.0
+        mark_headers = [t for t in texts if _key(t["text"]) == "MARK" and abs(t["y"] - header["y"]) < 3 * h]
+        if not mark_headers:
+            continue
+        mark_x = min(mark_headers, key=lambda t: abs(t["x"] - header["x"]))["x"]
+        span = abs(header["x"] - mark_x) or 10 * h
+        for value in texts:
+            digits = _key(value["text"]).replace(",", "")
+            if value["y"] >= header["y"] - h or not digits.isdigit() or not 80 <= int(digits) <= 1500:
+                continue
+            if abs(value["x"] - header["x"]) > 0.6 * span:
+                continue
+            row = [t for t in texts if abs(t["y"] - value["y"]) < 0.8 * h and abs(t["x"] - mark_x) < 0.6 * span
+                   and SLAB_MARK.match(_key(t["text"]))]
+            if row:
+                mark = _key(min(row, key=lambda t: abs(t["x"] - mark_x))["text"])
+                marks.setdefault(mark, int(digits))
+    for text in texts:
+        found = THK_NOTE.search(text["text"])
+        if found and "(" not in text["text"] and default is None:
+            default = int(found.group(1))
+    if not marks and default is None:
+        return None
+    return {"marks": marks, "default": default}
 
 
 # ── values and comparison with extracted members ────────────────────────────

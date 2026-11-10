@@ -226,6 +226,48 @@ class PodiumSplitTests(SimpleTestCase):
         self.assertTrue(take["101동"]["rows"][0]["approximate"])
 
 
+class SlabThicknessTests(SimpleTestCase):
+    def texts(self):
+        t = lambda text, x, y: {"text": text, "x": x, "y": y, "h": 120.0}
+        return [t("MARK", 2060, 11660), t("THK.", 3620, 11776), t("(mm)", 3600, 11544),
+                t("RS1", 2190, 10370), t("C", 3005, 10370), t("250", 3692, 10370),
+                t("-1S2", 2166, 8750), t("C", 3005, 8750), t("150", 3692, 8750),
+                t("D10@300", 4446, 8615), t("-  : THK.210", 30000, 18600), t("-  : THK.180 (욕실부분)", 30000, 18370),
+                t("미표기 내수압 : FS1(THK. 300)", 30000, 18000)]
+
+    def test_a_slab_schedule_and_its_notes_give_thickness_by_mark(self):
+        from core import quantity_schedules as qs
+        self.assertEqual(qs.read_slab_thickness(self.texts()), {"marks": {"RS1": 250, "-1S2": 150}, "default": 210})
+        self.assertIn("slab_thickness", qs.read_sheet_content(self.texts(), "주차장 슬래브 배근도"))
+        self.assertNotIn("slab_thickness", qs.read_sheet_content(self.texts(), "지하2층 구조평면도"))
+
+    def links(self):
+        return {"slab_thickness": {"marks": {"-1S2": 150, "RAS1": 250}, "default": 210},
+                "plans": [{"drawing_number": "S-2", "kind": "floor_plan", "section": "101동"}],
+                "marks": [{"category": "slabs", "mark": "S2", "occurrences": [{"plan": 0, "count": 3}]},
+                          {"category": "slabs", "mark": "RAS1", "occurrences": [{"plan": 0, "count": 1}]}]}
+
+    def test_plan_marks_take_the_level_prefix_and_are_weighted_by_count(self):
+        t, note = ft.slab_thickness_for(self.links(), "101동", "S-2", "B1")
+        self.assertAlmostEqual(t, (3 * 150 + 250) / 4 / 1000, places=3)
+        self.assertIn("-1S2", note)
+        self.assertIsNone(ft.slab_thickness_for(self.links(), "101동", "S-9", "B1"))
+
+    def test_rows_use_the_drawn_thickness_and_the_notes_default_above_ground(self):
+        model = FloorRuleTests().model()
+        model["buildings"][0]["levels"][1]["sheet"] = "S-2"
+        links = self.links()
+        links["plans"][0]["drawing_number"] = "S-2x"  # the B1 row's slab (plan of floor 1) has no marks here
+        rows = {r["key"]: r for r in ft.build_takeoff(model, links)["buildings"][0]["rows"]}
+        self.assertTrue(any("210mm" in n for n in rows["1"]["notes"]))  # ground floor: the notes' default
+        self.assertAlmostEqual(rows["1"]["concrete"]["wall"], 30 * (2.85 - 0.21), places=1)
+        links["plans"][0]["drawing_number"] = "S-2"
+        b1 = {r["key"]: r for r in ft.build_takeoff(model, links)["buildings"][0]["rows"]}["B1"]
+        # the slab on top of B1 is drawn on the floor-1 plan: prefix "1", so only RAS1 (250) is known
+        self.assertAlmostEqual(b1["concrete"]["wall"], 50 * (3.5 - 0.25), places=1)
+        self.assertTrue(any("250mm" in n for n in b1["notes"]))
+
+
 class _Shim:
     pass
 

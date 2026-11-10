@@ -645,6 +645,39 @@ def _ground_slab(building):
     return _net_slab(plan) if plan else None
 
 
+def _level_prefix(key):
+    """Mark prefix of a level in slab schedules: B1 → "-1", R → "R", 3 → "3"."""
+    if key.startswith("B") and key[1:].isdigit():
+        return "-" + key[1:]
+    return key if key in ("R", "PH") or key.isdigit() else ""
+
+
+def slab_thickness_for(links, building, sheet, level_key):
+    """(thickness m, note) of the slab drawn on one plan: the slab marks placed on it looked up in
+    the slab schedules (plain or with the level prefix, "S2" on B1 → "-1S2"), weighted by count."""
+    table = ((links or {}).get("slab_thickness") or {}).get("marks") or {}
+    if not table:
+        return None
+    plans = links.get("plans") or []
+    wanted = {i for i, p in enumerate(plans) if p.get("drawing_number") == sheet and p.get("kind") == "floor_plan"
+              and (p.get("section") or "") in (building or "")}
+    prefix = _level_prefix(level_key or "")
+    found = []
+    for item in links.get("marks") or []:
+        if item.get("category") != "slabs":
+            continue
+        mark = str(item.get("mark") or "").upper()
+        mm = table.get(mark) or (table.get(prefix + mark) if prefix else None)
+        count = sum(o.get("count") or 0 for o in item.get("occurrences") or [] if o.get("plan") in wanted)
+        if mm and count:
+            found.append((mark if mark in table else prefix + mark, mm, count))
+    if not found:
+        return None
+    total = sum(c for _m, _mm, c in found)
+    thickness = sum(mm * c for _m, mm, c in found) / total / 1000.0
+    return round(thickness, 3), "슬래브 두께 {:.0f}mm (일람표 {})".format(thickness * 1000, "·".join(sorted({m for m, _mm, _c in found})))
+
+
 def _region(plan, index):
     regions = ((plan or {}).get("measure") or {}).get("regions") or []
     return regions[index] if index is not None and 0 <= index < len(regions) else None
@@ -670,9 +703,21 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS):
             measure = vplan.get("measure") or {}
             hmeasure = (hplan or {}).get("measure") or {}
             t = slab_thickness
+            thickness_note = None
+            if above is not None and links:
+                source = (name, above.get("sheet"))
+                if (kind == "basement" and name in match and _storey_kind(above.get("key") or "") == "basement"
+                        and host_levels.get(above.get("key"))):
+                    source = (host_name, host_levels[above["key"]].get("sheet"))
+                found = slab_thickness_for(links, source[0], source[1], above.get("key"))
+                default = ((links.get("slab_thickness") or {}).get("default"))
+                if found:
+                    t, thickness_note = found
+                elif default and kind == "ground":
+                    t, thickness_note = default / 1000.0, f"슬래브 두께 {default}mm (슬래브 배근도 주기)"
             height = float(level.get("height") or 0)
             wall_h = max(height - t, 0.0)
-            notes, approximate = [], kind == "basement"
+            notes, approximate = ([thickness_note] if thickness_note else []), kind == "basement"
             vertical_area = float(measure.get("area") or 0) + float(measure.get("col_area") or 0)
             faces = float(measure.get("faces") or 0) + float(measure.get("col_perimeter") or 0)
             outside = min(float(measure.get("outside_faces") or 0), faces)
@@ -752,6 +797,20 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS):
                 slab_area = max(upper - taken, 0.0)
                 beam_share = slab_area / upper if upper else 0.0
                 hplan = None
+            elif podium_split and name == host_name and hplan is not None and (measure.get("regions") or []):
+                # the podium roof: its sheet often leaves the outline open; the storey below less the
+                # tower parts is the roof unless the roof sheet itself shows more
+                own = _net_slab(vplan) or 0.0
+                for tower, i in matched:
+                    part = float((_region(vplan, i) or {}).get("slab_area") or 0)
+                    cap = _ground_slab(next((b for b in all_buildings if b.get("name") == tower), {}))
+                    own -= min(part, cap) if cap else part
+                upper = _net_slab(hplan)
+                if upper is None or upper < 0.9 * own:
+                    slab_area = max(own, 0.0)
+                    notes.append("주차장 지붕은 아래층 평면에서 동 영역을 뺀 크기로 봤어요")
+                else:
+                    slab_area = upper
             if slab_area > 0 or (podium_split and region is not None and next_is_basement):
                 pass
             elif hplan is None and len(vplan.get("sub_slabs") or []) >= 2:

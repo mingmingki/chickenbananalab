@@ -7736,7 +7736,7 @@ def _write_floor_takeoff_sheet(ws, takeoff, navy_fill, yellow_fill, light_fill, 
     ws.cell(row=1, column=1).fill = navy_fill
     ws.cell(row=1, column=1).alignment = center
     assumptions = takeoff.get("assumptions") or {}
-    note = (f"가정: 슬래브 두께 {assumptions.get('slab_thickness', '')}m, 춤이 없는 보 {assumptions.get('beam_depth_default', '')}m, "
+    note = (f"가정: 슬래브 두께는 슬래브 배근도·일람표에서 읽고 못 읽은 곳만 {assumptions.get('slab_thickness', '')}m, 춤이 없는 보 {assumptions.get('beam_depth_default', '')}m, "
             f"외벽 개구부 높이 {assumptions.get('window_height', '')}m. "
             f"빠진 항목: {', '.join(takeoff.get('not_included') or [])}. 회색 행(근사)은 합계에서 뺐습니다.")
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last)

@@ -9307,8 +9307,8 @@ body.cbl-modal-open {
     render();
     if (deck) { deck.append(bar); deck.append(table); } else { flowEl.appendChild(bar); flowEl.appendChild(table); }
     var assumptions = takeoff.assumptions || {};
-    appendLeft('<p class="qd-sub" style="margin:0">가정: 슬래브 두께 ' + esc(String(assumptions.slab_thickness || "")) +
-      'm · 일람표에 춤이 없는 보 ' + esc(String(assumptions.beam_depth_default || "")) + 'm · 외벽 개구부 높이 ' +
+    appendLeft('<p class="qd-sub" style="margin:0">가정: 슬래브 두께는 슬래브 배근도·일람표에서 읽고, 못 읽은 곳만 ' +
+      esc(String(assumptions.slab_thickness || "")) + 'm · 일람표에 춤이 없는 보 ' + esc(String(assumptions.beam_depth_default || "")) + 'm · 외벽 개구부 높이 ' +
       esc(String(assumptions.window_height || "")) + 'm (그 위·아래는 벽으로 계산). 아직 빠진 항목: ' +
       esc((takeoff.not_included || []).join(", ")) + '. "근사"로 표시된 행은 합계에서 뺐고, 행에 마우스를 올리면 근거가 보여요. ' +
       '엑셀에는 "층별 집계(N층 기준)" 시트로 담겨요.</p>');

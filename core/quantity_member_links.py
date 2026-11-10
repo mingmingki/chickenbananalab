@@ -305,8 +305,23 @@ def build_member_links(cad_data):
             flag(target, "placed_in_two_areas")
     ordered = sorted(rows.values(), key=lambda r: (CATEGORIES.index(r["category"]) if r["category"] in CATEGORIES else 99,
                                                     re.sub(r"\d+", lambda m: m.group().zfill(6), r["mark"])))
+    slab_marks, slab_defaults, slab_sources = {}, [], []
+    for sheets in sheets_by_file.values():
+        for sheet in sheets:
+            found = sheet.get("slab_thickness") or {}
+            if found:
+                slab_sources.append(sheet.get("drawing_number"))
+            for mark, mm in (found.get("marks") or {}).items():
+                slab_marks.setdefault(mark, mm)
+            if found.get("default"):
+                slab_defaults.append(found["default"])
+    slab_thickness = None
+    if slab_marks or slab_defaults:
+        slab_thickness = {"marks": slab_marks,
+                          "default": max(set(slab_defaults), key=slab_defaults.count) if slab_defaults else None,
+                          "sources": sorted({s for s in slab_sources if s})}
     return {"schema": "quantity_member_links_v2", "marks": ordered, "plans": plans, "schedule_rows": row_sets,
-            "issues": registry["issues"], "quantity_verified": False}
+            "issues": registry["issues"], "quantity_verified": False, "slab_thickness": slab_thickness}
 
 
 def spec_rows(spec, matrix):
