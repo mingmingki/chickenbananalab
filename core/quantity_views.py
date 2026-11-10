@@ -1649,7 +1649,8 @@ def _floor_view_inputs(uploaded_files):
         name = unicodedata.normalize("NFC", os.path.basename(name or ""))
         if not name.lower().endswith((".dwg", ".dxf")) or not data:
             return
-        if not (quantity_floor_views.is_plan_file(name) or quantity_floor_views.is_reference_file(name)):
+        if not (quantity_floor_views.is_plan_file(name) or quantity_floor_views.is_reference_file(name)
+                or quantity_floor_views.is_level_file(name)):
             return
         base, ext, n = name[:-4], name[-4:], 2
         while name in names:
@@ -1729,6 +1730,7 @@ def _run_floor_views_job(job_id, inputs):
                 files.append({"name": name, "path": path})
             inputs = None  # the bytes live on disk from here on
             plans = [f for f in files if fv.is_plan_file(f["name"])]
+            level_files = [f for f in files if fv.is_level_file(f["name"]) and f not in plans]
             refs = {fv.reference_key(f["name"]): f for f in files
                     if fv.is_reference_file(f["name"]) and f not in plans}
             manifest, needed = [], set()
@@ -1765,6 +1767,16 @@ def _run_floor_views_job(job_id, inputs):
                     logger.warning("quantity_floor_views_convert_failed file=%s error=%s", key, str(exc)[:200])
                     continue
                 manifest.append(entry)
+            level_names = []
+            for item in level_files:
+                _progress_set(job_id, "convert", len(plans), len(plans) + 1, "단면도에서 층고 읽는 중")
+                try:
+                    entry, _text = to_dxf(item)
+                except Exception as exc:
+                    logger.warning("quantity_floor_views_convert_failed file=%s error=%s", item["name"], str(exc)[:200])
+                    continue
+                manifest.append(entry)
+                level_names.append(item["name"])
             if not any(entry["name"] in {p["name"] for p in plans} for entry in manifest):
                 _result_set(job_id, {"ok": False, "error": "평면도 캐드 파일을 열지 못했어요."})
                 return
@@ -1773,7 +1785,8 @@ def _run_floor_views_job(job_id, inputs):
             manifest_path = os.path.join(work, "manifest.json")
             out_path = os.path.join(work, "floor_views.json")
             with open(manifest_path, "w", encoding="utf-8") as handle:
-                json.dump({"files": manifest, "plans": [p["name"] for p in plans]}, handle, ensure_ascii=False)
+                json.dump({"files": manifest, "plans": [p["name"] for p in plans], "levels": level_names},
+                          handle, ensure_ascii=False)
             command = [sys.executable, "-m", "core.quantity_floor_views", manifest_path, out_path]
             if shutil.which("nice"):
                 command = ["nice", "-n", "15"] + command

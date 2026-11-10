@@ -6219,6 +6219,7 @@ body.cbl-modal-open {
 <link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261110-floor1">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
+<script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261110-mass1"></script>
 
 <script>
 (function () {
@@ -9004,6 +9005,225 @@ body.cbl-modal-open {
   // runQuantityAnalysis()의 완료 후 처리(층별표/색칠 미리보기/엑셀·3D 버튼)를 분리해둔 함수.
   // 도면 확인 팝업 없이 바로 끝난 경우(job_id 없는 옛 클라이언트 호환, 취소/오류 등)와,
   // 도면 확인 팝업에서 "진행"을 눌러 confirm-review까지 마친 경우 둘 다에서 재사용한다.
+  // ─────────────────────────────────────────────
+  //  3D 검토: AI 판독 뒤, 구조평면도로 세운 매스 → 철근 → 거푸집을 차례로 확인받고
+  //  2D 수량산출(엑셀)로 넘어간다. 모델은 층별 확인 작업(floor views)이 만든다.
+  // ─────────────────────────────────────────────
+  state.massReview = {};
+
+  function massModel() {
+    var result = state.floorJob && state.floorJob.result;
+    var model = result && result.model;
+    return model && model.buildings && model.buildings.length ? model : null;
+  }
+
+  function threeReady() {
+    return new Promise(function (resolve) {
+      if (window.THREE) { resolve(true); return; }
+      var settled = false;
+      loadThreeJs(function () { settled = true; resolve(!!window.THREE); });
+      setTimeout(function () { if (!settled) resolve(!!window.THREE); }, 15000);
+    });
+  }
+
+  var MASS_LEGEND = {
+    mass: [["#facc15", "벽·기둥"], ["#e2e8f0", "슬래브"], ["#fb923c", "보"]],
+    rebar: [["#ef4444", "벽 수직·수평근"], ["#f87171", "슬래브 상·하부근"], ["#facc15", "아래층 (흐리게)"]],
+    form: [["#38bdf8", "AL폼 수직(내벽)"], ["#a78bfa", "갱폼(외벽 바깥면)"], ["#2dd4bf", "유로폼(지하)"],
+           ["#7dd3fc", "AL폼 수평(슬래브)"], ["#fbbf24", "보 거푸집"]]
+  };
+
+  function massToolbar(viewer, mode, pick) {
+    var bar = document.createElement("div");
+    bar.className = "qd-mass-bar";
+    bar.setAttribute("data-qd-keep", "");
+    var names = viewer.buildings();
+    function levelOptions() {
+      if (!pick.building) return '<option value="">동을 고르면 층을 볼 수 있어요</option>';
+      return (mode !== "rebar" ? '<option value="">전체 층</option>' : '') + viewer.levels(pick.building).map(function (l, i) {
+        return '<option value="' + i + '"' + (pick.level === i ? " selected" : "") + '>' + esc(l.label) + ' (EL ' + l.elev.toFixed(2) + ')</option>';
+      }).join("");
+    }
+    function render() {
+      bar.innerHTML =
+        '<div class="qd-mass-chips">' + (mode === "mass" ? '<button type="button" data-b=""' + (!pick.building ? ' class="is-on"' : '') + '>전체</button>' : '') +
+          names.map(function (n) {
+            return '<button type="button" data-b="' + esc(n) + '"' + (pick.building === n ? ' class="is-on"' : '') + '>' + esc(n) + '</button>';
+          }).join("") + '</div>' +
+        '<select class="qd-mass-level" aria-label="층 선택"' + (pick.building ? '' : ' disabled') + '>' + levelOptions() + '</select>' +
+        '<div class="qd-mass-legend">' + MASS_LEGEND[mode].map(function (l) {
+          return '<span><i style="background:' + l[0] + '"></i>' + l[1] + '</span>';
+        }).join("") + '</div>';
+    }
+    bar.addEventListener("click", function (e) {
+      var chip = e.target.closest("[data-b]");
+      if (!chip) return;
+      pick.building = chip.getAttribute("data-b") || null;
+      var levels = pick.building ? viewer.levels(pick.building) : [];
+      pick.level = mode === "mass" ? null : firstAbove(levels);
+      viewer.setBuilding(pick.building);
+      viewer.setLevel(pick.level);
+      render();
+      if (pick.onChange) pick.onChange();
+    });
+    bar.addEventListener("change", function (e) {
+      if (!e.target.matches(".qd-mass-level")) return;
+      pick.level = e.target.value === "" ? null : Number(e.target.value);
+      viewer.setLevel(pick.level);
+      if (pick.onChange) pick.onChange();
+    });
+    render();
+    return bar;
+  }
+
+  function firstAbove(levels) {
+    for (var i = 0; i < levels.length; i++) if (/^\d+$/.test(levels[i].key) && Number(levels[i].key) >= 2) return i;
+    return levels.length ? 0 : null;
+  }
+
+  function massReviewRow(stage, nextLabel) {
+    var wrap = document.createElement("div");
+    wrap.innerHTML =
+      '<div class="qd-floor-memo" data-qd-keep hidden><input class="qd-input" placeholder="무엇이 이상한지 적어주세요 (예: 102동 13층 슬래브가 비어 있어요)"></div>' +
+      '<div class="qd-actions"><button type="button" class="qd-btn" data-flag data-qd-keep>이상해요</button>' +
+        '<span class="qd-spacer"></span><button type="button" class="qd-btn primary" data-go>' + nextLabel + '</button></div>';
+    var memo = wrap.querySelector(".qd-floor-memo");
+    wrap.querySelector("[data-flag]").addEventListener("click", function () {
+      memo.hidden = false;
+      memo.querySelector("input").focus();
+    });
+    return {
+      el: wrap,
+      go: wrap.querySelector("[data-go]"),
+      note: function () {
+        var text = memo.querySelector("input").value.trim();
+        if (!memo.hidden) state.massReview[stage] = text || "이상 있음";
+        return memo.hidden ? "" : (text || "이상 있음");
+      }
+    };
+  }
+
+  function massCard(meta, title, sub) {
+    return qCard(meta, title, sub);
+  }
+
+  async function showMassStage() {
+    var model = massModel();
+    if (!model) return;
+    stageStep(4);
+    if (deck) await deck.transition(4, "3D 검토", "AI 판독이 끝났습니다.<br>이제 3D 매스로 확인할게요.");
+    var ok = await threeReady();
+    if (!ok) {
+      await addBot("3D 뷰어를 불러오지 못해 3D 검토는 건너뛸게요.", 150);
+      return;
+    }
+    var host = document.createElement("div");
+    host.className = "qd-mass-stage";
+    host.setAttribute("data-qd-keep", "");
+    var viewer = null;
+    var pick = { building: null, level: null };
+
+    // card 1: the whole mass
+    await massCard({ eyebrow: "01", label: "Mass", art: false, wide: true, total: 4, index: 1 },
+      "전체 매스를 세웠어요. 돌려 보며 확인해 주세요.",
+      "구조평면도의 벽·기둥·보·슬래브를 층고만큼 쌓았어요. 드래그로 돌리고 휠로 확대해요 (오른쪽 버튼·Shift 드래그는 이동).");
+    if (deck) deck.append(host); else flowEl.appendChild(host);
+    viewer = window.cblQuantityMass3D.mount(host, model);
+    var summary = viewer.summary();
+    var bar1 = massToolbar(viewer, "mass", pick);
+    host.parentNode.insertBefore(bar1, host);
+    appendLeft('<p class="qd-sub" style="margin:0">' + summary.buildings + '개 동 · 지상 ' + summary.storeys + '층 · 지하 ' + summary.basements +
+      '층 · 층고는 ' + (model.heights_from_drawings ? "단면도·입면도의 EL 표기에서 읽었어요" : "도면에서 못 읽어 기본값(지하 3.5m·지상 2.85m)을 썼어요") +
+      '. 동 배치는 보기 좋게 나란히 놓은 것이라 실제 배치와 달라요.</p>');
+    var row1 = massReviewRow("mass", "맞아요 → 철근 입히기");
+    if (deck) deck.append(row1.el); else flowEl.appendChild(row1.el);
+    await new Promise(function (resolve) {
+      onceClick(row1.go, function () { var n = row1.note(); addUser(n ? "매스: " + esc(n) : "매스 확인"); resolve(); });
+    });
+
+    // card 2: rebar on one storey
+    var names = viewer.buildings();
+    var towers = names.filter(function (n) { return /동$/.test(n); });
+    pick.building = pick.building || towers[0] || names[0];
+    pick.level = firstAbove(viewer.levels(pick.building));
+    viewer.setMode("rebar");
+    viewer.setBuilding(pick.building);
+    viewer.setLevel(pick.level);
+    await massCard({ eyebrow: "02", label: "Rebar", art: false, wide: true, total: 4, index: 2 },
+      "철근을 입혔어요.",
+      "벽은 수직·수평근, 슬래브는 상·하부근, 보는 주근을 300mm 간격으로 그렸어요. 실제 지름·간격·개수는 일람표 기준으로 2D 산출에서 계산해요.");
+    if (deck) deck.append(host); else flowEl.appendChild(host);
+    var info = document.createElement("p");
+    info.className = "qd-sub";
+    info.style.margin = "0";
+    pick.onChange = function () {
+      if (pick.building != null && pick.level != null) {
+        var level = viewer.levels(pick.building)[pick.level];
+        info.textContent = pick.building + " " + (level ? level.label : "") + " · 철근 선 " +
+          viewer.rebarBars(pick.building, pick.level).toLocaleString("ko-KR") + "가닥을 그렸어요.";
+      }
+    };
+    var bar2 = massToolbar(viewer, "rebar", pick);
+    host.parentNode.insertBefore(bar2, host);
+    host.parentNode.insertBefore(info, host.nextSibling);
+    pick.onChange();
+    viewer.resize();
+    var row2 = massReviewRow("rebar", "맞아요 → 거푸집 입히기");
+    if (deck) deck.append(row2.el); else flowEl.appendChild(row2.el);
+    await new Promise(function (resolve) {
+      onceClick(row2.go, function () { var n = row2.note(); addUser(n ? "철근: " + esc(n) : "철근 확인"); resolve(); });
+    });
+
+    // card 3: formwork with estimated areas per storey
+    viewer.setMode("form");
+    viewer.setLevel(null);
+    pick.level = null;
+    await massCard({ eyebrow: "03", label: "Formwork", art: false, wide: true, total: 4, index: 3 },
+      "거푸집을 입혔어요.",
+      "벽 면과 슬래브 밑면, 보 옆·밑면에 거푸집을 붙였어요. 아래 표는 CAD 선 길이와 층고로 낸 추정 면적이에요 (개구부·접합부 공제 전).");
+    if (deck) deck.append(host); else flowEl.appendChild(host);
+    var table = document.createElement("div");
+    table.className = "qd-mass-table";
+    function drawTable() {
+      var rows = viewer.formwork(pick.building);
+      var sum = { wall: 0, gang: 0, slab: 0, beam: 0 };
+      var skipped = 0;
+      table.innerHTML = '<table><thead><tr><th>' + esc(pick.building) + '</th><th>벽 AL폼·유로폼</th><th>갱폼</th><th>슬래브</th><th>보</th></tr></thead><tbody>' +
+        rows.map(function (r, i) {
+          if (r.approximate) skipped += 1;
+          else { sum.wall += r.wall; sum.gang += r.gang; sum.slab += r.slab; sum.beam += r.beam; }
+          return '<tr data-level="' + i + '"' + (pick.level === i ? ' class="is-on"' : '') + '><td>' + esc(r.label) +
+            (r.approximate ? ' <em class="qd-approx" title="외곽이 열린 층이라 바깥 윤곽으로 근사했어요">근사</em>' : '') +
+            '</td><td>' + Math.round(r.wall).toLocaleString("ko-KR") +
+            '</td><td>' + Math.round(r.gang).toLocaleString("ko-KR") + '</td><td>' + Math.round(r.slab).toLocaleString("ko-KR") +
+            '</td><td>' + Math.round(r.beam).toLocaleString("ko-KR") + '</td></tr>';
+        }).join("") +
+        '<tr class="is-sum"><td>합계 (㎡, 추정' + (skipped ? ', 근사 ' + skipped + '개 층 제외' : '') + ')</td><td>' + Math.round(sum.wall).toLocaleString("ko-KR") + '</td><td>' + Math.round(sum.gang).toLocaleString("ko-KR") +
+        '</td><td>' + Math.round(sum.slab).toLocaleString("ko-KR") + '</td><td>' + Math.round(sum.beam).toLocaleString("ko-KR") + '</td></tr></tbody></table>';
+    }
+    table.setAttribute("data-qd-keep", "");
+    table.addEventListener("click", function (e) {
+      var tr = e.target.closest("tr[data-level]");
+      if (!tr) return;
+      var index = Number(tr.getAttribute("data-level"));
+      pick.level = pick.level === index ? null : index;
+      viewer.setLevel(pick.level);
+      drawTable();
+    });
+    pick.onChange = drawTable;
+    var bar3 = massToolbar(viewer, "form", pick);
+    host.parentNode.insertBefore(bar3, host);
+    host.parentNode.insertBefore(table, host.nextSibling);
+    drawTable();
+    viewer.resize();
+    var row3 = massReviewRow("form", "맞아요 → 2D 수량산출");
+    if (deck) deck.append(row3.el); else flowEl.appendChild(row3.el);
+    await new Promise(function (resolve) {
+      onceClick(row3.go, function () { var n = row3.note(); addUser(n ? "거푸집: " + esc(n) : "거푸집 확인"); resolve(); });
+    });
+    if (deck) deck.next({ eyebrow: "04", label: "Takeoff", art: "sheet", total: 4, index: 4 });
+  }
+
   async function finishQuantityAnalysisFlow(data, cancelRequestedFlag) {
     stageStep(4);
     var items = (data.results && data.results.structural && data.results.structural.items) || [];
@@ -9019,6 +9239,12 @@ body.cbl-modal-open {
       await addBot("도면에서 수량 항목을 추출하지 못했어요. 도면 품질이나 파일을 확인해 주세요." + detailHtml, 200);
       showRunButton();
       return;
+    }
+
+    // 3D 검토(매스 → 철근 → 거푸집)를 먼저 확인받고 2D 수량산출로 간다.
+    if (massModel() && !data._massReviewed) {
+      data._massReviewed = true;
+      await showMassStage();
     }
 
     lastAnalysisResults = data.results || {};
@@ -9058,11 +9284,12 @@ body.cbl-modal-open {
     var dlWrap = appendLeft(
       '<div class="qty-btn-row wide">' +
         '<button type="button" class="qty-action primary full" id="qty-download-excel">엑셀로 다운로드</button>' +
-        '<button type="button" class="qty-action full" id="qty-view-3d">3D로 교차검증 (개략 매싱)</button>' +
+        // the CAD-built 3D review above replaces the old box massing when it ran
+        (massModel() ? '' : '<button type="button" class="qty-action full" id="qty-view-3d">3D로 교차검증 (개략 매싱)</button>') +
       '</div>'
     );
     dlWrap.querySelector("#qty-download-excel").addEventListener("click", downloadExcel);
-    dlWrap.querySelector("#qty-view-3d").addEventListener("click", open3DMassingViewer);
+    if (dlWrap.querySelector("#qty-view-3d")) dlWrap.querySelector("#qty-view-3d").addEventListener("click", open3DMassingViewer);
   }
 
   async function downloadExcel() {

@@ -43,6 +43,18 @@ class WizardTemplateTests(SimpleTestCase):
         for button in ("qty-summary-go", "qty-pdf-back", "qty-missing-go", "qty-floor-go", "qty-ai-back"):
             self.assertIn(f'onceClick(row.querySelector("#{button}")', self.html)
 
+    def test_the_3d_review_comes_after_the_ai_reading_and_before_the_takeoff(self):
+        self.assertLess(self.html.index("core/js/quantity_mass3d.js"),
+                        self.html.index('var modal = document.getElementById("cblQuantityMessengerModal");'))
+        finish = self.html.index("async function finishQuantityAnalysisFlow(data, cancelRequestedFlag) {")
+        body = self.html[finish:finish + 4000]
+        self.assertLess(body.index("await showMassStage();"), body.index("lastAnalysisResults = data.results || {};"))
+        stage = self.html.index("async function showMassStage()")
+        order = ["전체 매스를 세웠어요.", "철근을 입혔어요.", "거푸집을 입혔어요.", "맞아요 → 2D 수량산출"]
+        position = stage
+        for text in order:
+            position = self.html.index(text, position)
+
     def test_notes_travel_with_the_overview_check(self):
         self.assertIn('fd.append("drawing_notes", state.drawingNotes)', self.html)
         self.assertIn('lines.push("- [층별 확인] "', self.html)

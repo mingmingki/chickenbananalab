@@ -126,6 +126,71 @@ class DrawingWalkTests(SimpleTestCase):
         self.assertEqual(result["warnings"], [])
 
 
+class BuildingModelTests(SimpleTestCase):
+    def square(self, x0, y0, x1, y1):
+        return [[x0, y0, x1, y0], [x1, y0, x1, y1], [x1, y1, x0, y1], [x0, y1, x0, y0]]
+
+    def test_the_floor_is_filled_inside_walls_even_with_a_door_gap(self):
+        walls = self.square(0, 0, 20, 10)
+        walls[0] = [0, 0, 9.5, 0]  # a 0.5 m gap closes by itself
+        walls.append([10, 0, 20, 0])
+        rects, outside = fv._footprint(walls)
+        area = sum((r[2] - r[0]) * (r[3] - r[1]) for r in rects)
+        self.assertAlmostEqual(area, 200, delta=12)
+        self.assertTrue(outside(-3, 5))
+        self.assertFalse(outside(10, 5))
+
+    def test_a_wide_gap_needs_the_slab_edge_line(self):
+        walls = self.square(0, 0, 20, 10)
+        walls[0] = [0, 0, 8, 0]
+        walls.append([9.5, 0, 20, 0])  # a 1.5 m window gap
+        open_rects, _ = fv._footprint(walls)
+        closed_rects, _ = fv._footprint(walls + [[8, 0, 9.5, 0]])  # the slab edge drawn across it
+        area = lambda rects: sum((r[2] - r[0]) * (r[3] - r[1]) for r in rects)
+        self.assertLess(area(open_rects), 50)
+        self.assertAlmostEqual(area(closed_rects), 200, delta=12)
+
+    def test_outer_faces_are_marked_for_gang_forms(self):
+        outer = self.square(0, 0, 20, 10)
+        inner = self.square(0.2, 0.2, 19.8, 9.8)
+        members = [("wall", min(w[0], w[2]) * 1000, min(w[1], w[3]) * 1000, max(w[0], w[2]) * 1000,
+                    max(w[1], w[3]) * 1000, [(w[0] * 1000, w[1] * 1000), (w[2] * 1000, w[3] * 1000)])
+                   for w in outer + inner]
+        model = fv._plan_model(members, [0, 0, 84100, 59400])
+        flags = [w[4] for w in model["walls"]]
+        self.assertEqual(flags[:4], [1, 1, 1, 1])
+        self.assertEqual(flags[4:], [0, 0, 0, 0])
+        self.assertFalse(model["slab_approximate"])
+        self.assertAlmostEqual(model["slab_area"], 200, delta=15)
+
+    def test_storeys_stack_on_drawn_elevations_and_ranges_repeat_a_plan(self):
+        plans = [
+            {"floor": fv.floor_of("101동 지하 1층 구조평면도"), "sheet": "S-112", "model": {"walls": []}},
+            {"floor": fv.floor_of("101동 지상 1층 구조평면도"), "sheet": "S-113", "model": {"walls": []}},
+            {"floor": fv.floor_of("101동 지상 2층~지상 4층 구조평면도"), "sheet": "S-115", "model": {"walls": []}},
+            {"floor": fv.floor_of("101동 지붕 구조평면도"), "sheet": "S-116", "model": {"walls": []}},
+        ]
+        table = {"sections": {"101동": {"elevations": {"B1": 10.9, "GL": 16.2, "2": 19.45, "3": 22.3}}}}
+        model = fv.build_model(plans, table)
+        levels = model["buildings"][0]["levels"]
+        self.assertEqual([l["key"] for l in levels], ["B1", "1", "2", "3", "4", "R"])
+        self.assertEqual([l["elev"] for l in levels[:4]], [10.9, 16.2, 19.45, 22.3])
+        self.assertEqual([l["plan"] for l in levels], [0, 1, 2, 2, 2, 3])
+        self.assertAlmostEqual(levels[0]["height"], 5.3)
+        self.assertTrue(model["heights_from_drawings"])
+
+    def test_level_files_are_sections_and_elevations_of_the_buildings(self):
+        self.assertTrue(fv.is_level_file("A-410,424 주동 단면도.dwg"))
+        self.assertTrue(fv.is_level_file("A-407~423 동입면도.dwg"))
+        self.assertFalse(fv.is_level_file("A-505~531 코아 단면도.dwg"))
+        self.assertFalse(fv.is_level_file("A-401~419 주동 평면도.dwg"))
+        self.assertEqual(fv.model_category("0_STR_CONC"), "wall")
+        self.assertEqual(fv.model_category("0_STR_CORE"), "wall")
+        self.assertIsNone(fv.model_category("0_STR_CONC_BELOW"))
+        self.assertEqual(fv.model_category("0_STR_GIRDER-APT"), "beam")
+        self.assertEqual(fv.model_category("0_STR_OUTLINE"), "outline")
+
+
 class _NoThread:
     started = []
 
@@ -187,13 +252,16 @@ class FloorViewJobTests(TestCase):
             return type("Run", (), {"returncode": 0, "stderr": b""})()
 
         inputs = [("A-401~419 주동 평면도.dwg", b"plan"), ("XR-주동 평면도.dwg", b"xref"),
-                  ("XR-지하주차장 평면도.dwg", b"unused"), ("XR-FORM-A(A3).dwg", b"form")]
+                  ("XR-지하주차장 평면도.dwg", b"unused"), ("XR-FORM-A(A3).dwg", b"form"),
+                  ("A-410,424 주동 단면도.dwg", b"section")]
         with patch.object(views, "_cbl_free_dwg_to_dxf_text_v1", side_effect=fake_convert), \
                 patch.object(views.subprocess, "run", side_effect=fake_run):
             views._run_floor_views_job("fv-3", inputs)
         names = sorted(item["name"] for item in self.seen["files"])
-        self.assertEqual(names, ["A-401~419 주동 평면도.dwg", "XR-FORM-A(A3).dwg", "XR-주동 평면도.dwg"])
+        self.assertEqual(names, ["A-401~419 주동 평면도.dwg", "A-410,424 주동 단면도.dwg", "XR-FORM-A(A3).dwg",
+                                 "XR-주동 평면도.dwg"])
         self.assertEqual(self.seen["plans"], ["A-401~419 주동 평면도.dwg"])
+        self.assertEqual(self.seen["levels"], ["A-410,424 주동 단면도.dwg"])
         result = views._result_get("fv-3")
         self.assertTrue(result["ok"])
         self.assertEqual(result["results"]["floor_views"]["views"], [{"floor": "1층"}])

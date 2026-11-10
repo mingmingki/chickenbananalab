@@ -11,6 +11,7 @@ low-priority process so the drawing walk never holds the web worker's memory.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sys
@@ -133,7 +134,7 @@ reference_key = _key
 
 # ── drawing walk ──────────────────────────────
 
-def _walk(doc, entities, matrix, inherit, xrefs, out, depth=0):
+def _walk(doc, entities, matrix, inherit, xrefs, out, depth=0, classify=None):
     from ezdxf import path as ezpath
     from ezdxf.math import Matrix44
     for entity in entities:
@@ -155,16 +156,16 @@ def _walk(doc, entities, matrix, inherit, xrefs, out, depth=0):
                 path = block.block.dxf.get("xref_path", "") or entity.dxf.name
                 target = xrefs.get(_key(re.split(r"[\\/]", path)[-1])) or xrefs.get(_key(entity.dxf.name))
                 if target is not None and "form" not in _key(path):
-                    _walk(target, target.modelspace(), placed, None, xrefs, target_out, depth + 1)
+                    _walk(target, target.modelspace(), placed, None, xrefs, target_out, depth + 1, classify)
             else:
-                _walk(doc, block, placed, layer, xrefs, target_out, depth + 1)
+                _walk(doc, block, placed, layer, xrefs, target_out, depth + 1, classify)
             if clip:
                 polygon, inverted = clip
                 out.extend(item for item in target_out if _kept_by_clip(item, polygon, inverted))
             continue
         if kind not in ("LINE", "LWPOLYLINE", "POLYLINE", "ARC", "CIRCLE", "ELLIPSE", "SPLINE"):
             continue
-        category = layer_category(layer)
+        category = (classify or layer_category)(layer)
         if category is None:
             continue
         try:
@@ -311,6 +312,325 @@ def build_views(docs, evidence_by_name):
     return _finish(views, warnings)
 
 
+# ── 3D model data (structural plans) ───────────
+_MODEL_RULES = (
+    ("wall", re.compile(r"str_(conc|core|wall)$", re.I)),
+    ("col", re.compile(r"str_col$", re.I)),
+    ("beam", re.compile(r"str_(beam|girder)(-[a-z]+)?$", re.I)),
+    ("outline", re.compile(r"str_outline$", re.I)),
+    ("open", re.compile(r"str_open$", re.I)),
+)
+DEFAULT_STOREY_M = {"basement": 3.5, "1": 3.25, "ground": 2.85, "roof": 3.0}
+LEVEL_FILE = re.compile(r"단면도|입면도")
+LEVEL_FILE_EXCLUDE = re.compile(r"단위세대|코아|코어|상세|계단|경사로|창호|부대|경비")
+
+
+def model_category(layer):
+    """Structural member family of a layer for the 3D model (cut walls, columns, beams, slab edges)."""
+    base = _nfc(layer).split("|")[-1]
+    for name, rule in _MODEL_RULES:
+        if rule.search(base):
+            return name
+    return None
+
+
+def is_level_file(name):
+    """Section / elevation sheets whose EL marks give the storey heights."""
+    text = re.sub(r"\s+", "", _nfc(os.path.basename(name)))
+    return bool(_SHEET_FILE.match(text)) and bool(LEVEL_FILE.search(text)) and not LEVEL_FILE_EXCLUDE.search(text)
+
+
+def _loops(segments, tolerance=0.02):
+    """Closed polygons chained from loose edge segments (slab edges are drawn as LINEs)."""
+    def key(point):
+        return (round(point[0] / tolerance), round(point[1] / tolerance))
+    adjacency, points = defaultdict(list), {}
+    for index, (a, b) in enumerate(segments):
+        ka, kb = key(a), key(b)
+        if ka == kb:
+            continue
+        points[ka], points[kb] = a, b
+        adjacency[ka].append((kb, index))
+        adjacency[kb].append((ka, index))
+    used, loops = set(), []
+    for start in list(adjacency):
+        for nxt, edge in adjacency[start]:
+            if edge in used:
+                continue
+            path, current, prev_edge = [start], nxt, edge
+            used.add(edge)
+            while current != start and len(path) < 5000:
+                path.append(current)
+                options = [(n, e) for n, e in adjacency[current] if e not in used]
+                if not options:
+                    break
+                current, prev_edge = options[0]
+                used.add(prev_edge)
+            if current == start and len(path) >= 3:
+                polygon = [points[k] for k in path]
+                if abs(_area(polygon)) >= 4.0:
+                    loops.append(polygon)
+    return loops
+
+
+def _area(polygon):
+    return sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(polygon, polygon[1:] + polygon[:1])) / 2.0
+
+
+def _hull(points):
+    points = sorted(set(points))
+    if len(points) < 3:
+        return points
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    lower, upper = [], []
+    for p in points:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    for p in reversed(points):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
+def _footprint(segments, cell=0.15, close_cells=2):
+    """Floor area enclosed by member lines, as rectangles [x0, y0, x1, y1] in metres.
+
+    Slab edges are drawn as loose lines broken at every wall, so the enclosed area is found on
+    a grid instead: lines are drawn, small gaps (window and door gaps up to about 2*close_cells
+    cells) are closed, the outside is flood-filled and what is left is the floor.
+    """
+    from collections import deque
+    if not segments:
+        return [], (lambda x, y: True)
+    xs = [v for seg in segments for v in (seg[0], seg[2])]
+    ys = [v for seg in segments for v in (seg[1], seg[3])]
+    minx, miny = min(xs) - 1.0, min(ys) - 1.0
+    width, height = max(xs) + 1.0 - minx, max(ys) + 1.0 - miny
+    cell = max(cell, width / 1200.0, height / 1200.0)
+    nx, ny = int(width / cell) + 1, int(height / cell) + 1
+    grid = bytearray(nx * ny)
+    for ax, ay, bx, by in segments:
+        steps = int(max(abs(bx - ax), abs(by - ay)) / (cell / 2)) + 1
+        for k in range(steps + 1):
+            t = k / steps
+            gx, gy = int((ax + (bx - ax) * t - minx) / cell), int((ay + (by - ay) * t - miny) / cell)
+            grid[gy * nx + gx] = 1
+    for _ in range(close_cells):
+        grown = bytearray(grid)
+        for index, value in enumerate(grid):
+            if value:
+                gx, gy = index % nx, index // nx
+                if gx > 0: grown[index - 1] = 1
+                if gx < nx - 1: grown[index + 1] = 1
+                if gy > 0: grown[index - nx] = 1
+                if gy < ny - 1: grown[index + nx] = 1
+        grid = grown
+    outside = bytearray(nx * ny)
+    queue = deque(i for i in range(nx * ny) if (i % nx in (0, nx - 1) or i // nx in (0, ny - 1)) and not grid[i])
+    for i in queue:
+        outside[i] = 1
+    while queue:
+        index = queue.popleft()
+        gx, gy = index % nx, index // nx
+        for n, ok in ((index - 1, gx > 0), (index + 1, gx < nx - 1), (index - nx, gy > 0), (index + nx, gy < ny - 1)):
+            if ok and not outside[n] and not grid[n]:
+                outside[n] = 1
+                queue.append(n)
+    # the closing grew the walls outward; shrink the floor back by the same amount
+    floor = bytearray(0 if outside[i] else 1 for i in range(nx * ny))
+    for _ in range(close_cells):
+        shrunk = bytearray(floor)
+        for index, value in enumerate(floor):
+            if value:
+                gx, gy = index % nx, index // nx
+                if (gx == 0 or not floor[index - 1] or gx == nx - 1 or not floor[index + 1]
+                        or gy == 0 or not floor[index - nx] or gy == ny - 1 or not floor[index + nx]):
+                    shrunk[index] = 0
+        floor = shrunk
+    rects, open_runs = [], {}
+    for gy in range(ny):
+        runs, gx = [], 0
+        while gx < nx:
+            if floor[gy * nx + gx]:
+                start = gx
+                while gx < nx and floor[gy * nx + gx]:
+                    gx += 1
+                runs.append((start, gx))
+            gx += 1
+        next_runs = {}
+        for run in runs:
+            if run in open_runs:
+                next_runs[run] = open_runs.pop(run)
+            else:
+                next_runs[run] = gy
+        for (a, b), start_row in open_runs.items():
+            rects.append([a, start_row, b, gy])
+        open_runs = next_runs
+    for (a, b), start_row in open_runs.items():
+        rects.append([a, start_row, b, ny])
+    r = lambda v: round(v, 2)
+
+    def is_outside(x, y):
+        gx, gy = int((x - minx) / cell), int((y - miny) / cell)
+        if gx < 0 or gy < 0 or gx >= nx or gy >= ny:
+            return True
+        return bool(outside[gy * nx + gx])
+
+    return ([[r(minx + a * cell), r(miny + y0 * cell), r(minx + b * cell), r(miny + y1 * cell)]
+             for a, y0, b, y1 in rects if (b - a) * (y1 - y0) * cell * cell >= 0.1], is_outside)
+
+
+def _plan_model(paths, box):
+    """Members of one structural frame in metres, frame-local (x right, y up)."""
+    x0, y0, x1, y1 = box
+    r = lambda v: round(v, 2)
+    walls, beams, edges, cols, opens = [], [], [], [], []
+    for category, ax, ay, bx, by, points in paths:
+        if bx < x0 or ax > x1 or by < y0 or ay > y1:
+            continue
+        local = [((px - x0) / 1000.0, (py - y0) / 1000.0) for px, py in points]
+        closed = len(local) >= 4 and abs(local[0][0] - local[-1][0]) < 0.005 and abs(local[0][1] - local[-1][1]) < 0.005
+        if category == "col" and closed:
+            cols.append([[r(x), r(y)] for x, y in local[:-1]])
+            continue
+        target = {"wall": walls, "col": walls, "beam": beams, "outline": edges, "open": opens}[category]
+        for (ax_, ay_), (bx_, by_) in zip(local, local[1:]):
+            if abs(ax_ - bx_) + abs(ay_ - by_) < 0.05:
+                continue
+            target.append(((ax_, ay_), (bx_, by_)) if category == "outline" else [r(ax_), r(ay_), r(bx_), r(by_)])
+    outline = [[a[0], a[1], b[0], b[1]] for a, b in edges]
+    edge_lines = walls + outline + [[c[i][0], c[i][1], c[(i + 1) % len(c)][0], c[(i + 1) % len(c)][1]]
+                                    for c in cols for i in range(len(c))]
+    slab, is_outside = _footprint(edge_lines)
+    for wall in walls:  # 5th value 1: an exterior face (one side of it is outside the building)
+        ax, ay, bx, by = wall[:4]
+        length = math.hypot(bx - ax, by - ay) or 1.0
+        # probe past the gap-closing growth (2 cells): only an outer face has open air on one side
+        nx_, ny_ = (by - ay) / length * 0.5, -(bx - ax) / length * 0.5
+        mx, my = (ax + bx) / 2, (ay + by) / 2
+        wall.append(1 if is_outside(mx + nx_, my + ny_) != is_outside(mx - nx_, my - ny_) else 0)
+    area = sum((x1 - x0) * (y1 - y0) for x0, y0, x1, y1 in slab)
+    hull = _hull([(w[0], w[1]) for w in edge_lines] + [(w[2], w[3]) for w in edge_lines])
+    hull_area = abs(_area(hull)) if len(hull) >= 3 else 0.0
+    model = {"walls": walls, "beams": beams, "cols": cols, "slab": slab, "opens": opens,
+             "slab_area": round(area, 1), "slab_approximate": False}
+    if hull_area and area < 0.35 * hull_area:
+        # an open outline (basements joined to a parking deck): the outer hull stands in
+        model.update(slab=[], slab_polygon=[[r(x), r(y)] for x, y in hull], slab_area=round(hull_area, 1),
+                     slab_approximate=True)
+    return model
+
+
+def _storey_keys(floor):
+    """Level keys a plan covers: '지하2층' → ['B2'], '3~13층' → ['3', ..., '13'], '지붕·옥탑' → ['R']."""
+    label = floor["floor"]
+    if floor["group"] == "basement":
+        match = re.search(r"지하(\d+)층", label)
+        return ["B" + match.group(1)] if match else ["FT"]
+    if floor["group"] == "roof":
+        return ["R"]
+    match = re.match(r"(\d+)~(\d+)층", label)
+    if match:
+        return [str(n) for n in range(int(match.group(1)), int(match.group(2)) + 1)]
+    match = re.match(r"(\d+)층", label)
+    return [match.group(1)] if match else []
+
+
+def _level_order(key):
+    if key == "FT":
+        return -100
+    if key.startswith("B"):
+        return -int(key[1:])
+    if key.isdigit():
+        return int(key)
+    return {"R": 500, "PH": 501, "PHR": 502}.get(key, 999)
+
+
+def _elevations(keys, table, section):
+    """Floor elevation (m) of each level key; read from the level table, gaps filled with defaults."""
+    sections = (table or {}).get("sections") or {}
+    known = {}
+    for name in (section, "주동", "공통"):
+        info = sections.get(name) or {}
+        for level, value in (info.get("elevations") or {}).items():
+            known.setdefault(level, value)
+    if "1" not in known and "GL" in known:
+        known["1"] = known["GL"]
+    ordered = sorted(set(keys) | {k for k in known if k in keys}, key=_level_order)
+    result, last = {}, None
+    for key in ordered:
+        if key in known:
+            result[key] = known[key]
+        elif last is not None:
+            prev_key, prev_elev = last
+            group = "basement" if prev_key.startswith("B") else ("1" if prev_key == "1" else "ground")
+            result[key] = round(prev_elev + DEFAULT_STOREY_M[group], 3)
+        else:
+            result[key] = 0.0
+        last = (key, result[key])
+    # a basement level read below its upper neighbour only by default stays consistent upward
+    return result
+
+
+def build_model(plans, table):
+    """Buildings as stacks of storeys from structural plans.
+
+    plans: [{"floor": floor_of(...), "sheet", "model": _plan_model(...)}].
+    A plan's walls stand on its own level up to the next one; its slab, beams and openings sit at
+    the top of that storey (the takeoff rule "N층 = N층 수직재 + N+1층 바닥 수평재").
+    """
+    by_building = defaultdict(list)
+    for plan in plans:
+        by_building[plan["floor"]["building"]].append(plan)
+    buildings = []
+    for name, rows in by_building.items():
+        storeys, foundation = {}, None
+        for index, plan in enumerate(rows):
+            if plan["floor"]["floor"] == "기초":
+                foundation = index
+                continue
+            for key in _storey_keys(plan["floor"]):
+                storeys.setdefault(key, index)
+        keys = sorted(storeys, key=_level_order)
+        if not keys:
+            continue
+        top = keys[-1]
+        upper = {"R": "PH"}.get(top) or (str(int(top) + 1) if top.isdigit() else ("1" if top == "B1" else None))
+        elevations = _elevations(keys + ([upper] if upper else []), table, name)
+        levels = []
+        for position, key in enumerate(keys):
+            nxt = keys[position + 1] if position + 1 < len(keys) else upper
+            base = elevations.get(key, 0.0)
+            height = round((elevations.get(nxt) - base) if nxt in elevations else DEFAULT_STOREY_M["ground"], 3)
+            if not 1.5 <= height <= 12:
+                height = DEFAULT_STOREY_M["basement" if key.startswith("B") else "ground"]
+            levels.append({"key": key, "label": ("지하" + key[1:] + "층") if key.startswith("B") else
+                           ("지붕·옥탑" if key == "R" else key + "층"), "elev": base, "height": height,
+                           "plan": storeys[key], "sheet": rows[storeys[key]].get("sheet")})
+        buildings.append({"name": name, "levels": levels, "foundation": foundation,
+                          "plans": [plan["model"] for plan in rows]})
+    return {"version": 1, "buildings": buildings,
+            "heights_from_drawings": bool((table or {}).get("sections"))}
+
+
+def level_table(evidence_by_name):
+    """quantity_levels table from the sheet evidence of section / elevation drawings (+ forms)."""
+    from . import quantity_levels as levels
+    from . import quantity_sheet_identity as identity
+    cad = {}
+    for name, rows in identity.resolve_cad_sheets(evidence_by_name).items():
+        sheets = []
+        for row in rows:
+            found = levels.read_sheet_levels(identity.frame_texts(row, evidence_by_name[name]))
+            if found:
+                sheets.append(dict(row, levels=found))
+        cad[name] = {"sheets": sheets}
+    return levels.build_level_table(cad)
+
+
 def _xref_names(doc):
     names = set()
     for block in doc.blocks:
@@ -356,7 +676,22 @@ def main(manifest_path, out_path):
         evidence["inserts"] = []  # only its title-block template is used
         forms[item["name"]] = evidence
         del doc
-    views, warnings = [], []
+    level_evidence = dict(forms)
+    for name in manifest.get("levels") or []:
+        if name not in items:
+            continue
+        try:
+            doc = _read(items[name])
+            level_evidence[name] = identity.extract_sheet_evidence(doc)
+        except Exception:
+            failed.append(name)
+            continue
+        del doc
+    try:
+        table = level_table(level_evidence)
+    except Exception:
+        table = {}
+    views, warnings, model_plans = [], [], []
     for name in plans:
         try:
             doc = _read(items[name])
@@ -377,9 +712,21 @@ def main(manifest_path, out_path):
         if missing:
             warnings.append({"file": name, "missing_xrefs": missing})
         views.extend(_plan_views(name, doc, rows, xrefs))
+        structural = [row for row in rows if row.get("frame_bbox") and is_plan_title(row.get("drawing_title"))
+                      and floor_of(row["drawing_title"])["discipline"] == "struct"]
+        if structural:
+            from ezdxf.math import Matrix44
+            members = []
+            _walk(doc, doc.modelspace(), Matrix44(), None, xrefs, members, classify=model_category)
+            for row in structural:
+                model_plans.append({"floor": floor_of(row["drawing_title"]), "sheet": row.get("drawing_number"),
+                                    "model": _plan_model(members, row["frame_bbox"])})
+            del members
         del doc, xrefs, evidence
         gc.collect()
     result = _finish(views, warnings)
+    result["model"] = build_model(model_plans, table)
+    result["levels"] = table
     result["unreadable"] = sorted(set(failed))
     with open(out_path, "w", encoding="utf-8") as handle:
         json.dump(result, handle, ensure_ascii=False)
