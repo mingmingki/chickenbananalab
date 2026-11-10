@@ -266,6 +266,7 @@ def measure_walls(segments, is_outside=None, probe=0.5):
 
     # faces: sample each line, look a little to both sides
     faces = outside_faces = 0.0
+    outer = []
     reach = (GROW + 2) * cell
     for ax, ay, bx, by in lines:
         length = math.hypot(bx - ax, by - ay)
@@ -295,8 +296,82 @@ def measure_walls(segments, is_outside=None, probe=0.5):
             if is_outside(float(px[k] + sign * nx * scale), float(py[k] + sign * ny * scale)):
                 out += 1
         outside_faces += length * out / n
+        if out >= 0.6 * n and length >= 0.15:
+            wall_side = 1.0 if wall_a.sum() >= wall_b.sum() else -1.0
+            if bx < ax - 1e-9 or (abs(bx - ax) <= 1e-9 and by < ay):  # one direction per line, so each gap is met once
+                outer.append((bx, by, ax, ay, -wall_side))
+            else:
+                outer.append((ax, ay, bx, by, wall_side))
+    gaps = _window_gaps(outer, band, minx, miny, cell, is_outside, probe) if is_outside else []
     return {"area": round(area, 3), "faces": round(faces, 2), "outside_faces": round(outside_faces, 2),
-            "caps": len(caps), "cell": round(cell, 3)}
+            "caps": len(caps), "cell": round(cell, 3),
+            "window_gaps": round(sum(g[0] for g in gaps), 2),
+            "window_gap_area": round(sum(g[0] * g[1] for g in gaps), 3)}
+
+
+GAP_MIN, GAP_MAX = 0.3, 4.0
+WALL_THICKNESS_DEFAULT = 0.2
+
+
+def _wall_depth(band, minx, miny, cell, x, y, ux, uy):
+    """Thickness of the wall behind an outer face point, walking inward through wall cells."""
+    shape = band.shape
+    depth = 0
+    for step in range(1, int(1.0 / cell)):
+        gx, gy = int((x + ux * step * cell - minx) / cell), int((y + uy * step * cell - miny) / cell)
+        if not (0 <= gx < shape[1] and 0 <= gy < shape[0]):
+            break
+        if band[gy, gx]:
+            depth = step
+        elif depth:
+            break
+    return (depth + 1) * cell if depth else WALL_THICKNESS_DEFAULT  # the face line cell is half wall
+
+
+def _window_gaps(outer, band, minx, miny, cell, is_outside, probe):
+    """Openings in the outer walls (windows, balcony sashes): two outer faces on one line whose
+    ends stop 0.3-4 m apart with no wall between, the gap lying on the building edge.
+    Returns [(length, wall thickness)]."""
+    found, seen = [], set()
+    for i, (ax, ay, bx, by, side) in enumerate(outer):
+        length = math.hypot(bx - ax, by - ay)
+        ux, uy = (bx - ax) / length, (by - ay) / length
+        nx, ny = -uy * side, ux * side  # towards the wall
+        t1 = 0.0
+        best = None
+        for j, (cx, cy, dx, dy, _side) in enumerate(outer):
+            if j == i:
+                continue
+            if abs((cx - ax) * -uy + (cy - ay) * ux) > 0.06 or abs((dx - ax) * -uy + (dy - ay) * ux) > 0.06:
+                continue  # not on the same line
+            s1, s2 = sorted(((cx - ax) * ux + (cy - ay) * uy, (dx - ax) * ux + (dy - ay) * uy))
+            gap = s1 - length
+            if GAP_MIN <= gap <= GAP_MAX and (best is None or gap < best[0]):
+                best = (gap, j, s1)
+        if best is None:
+            continue
+        gap, j, s1 = best
+        key = (min(i, j), max(i, j))
+        if key in seen:
+            continue
+        mx, my = ax + ux * (length + gap / 2), ay + uy * (length + gap / 2)
+        if not is_outside(mx - nx * probe, my - ny * probe) or is_outside(mx + nx * probe, my + ny * probe):
+            continue  # not on the building edge
+        n = max(2, int(gap / cell))
+        blocked = 0
+        for k in range(1, n):
+            px, py = ax + ux * (length + gap * k / n), ay + uy * (length + gap * k / n)
+            gx, gy = int((px + nx * 2 * cell - minx) / cell), int((py + ny * 2 * cell - miny) / cell)
+            if 0 <= gx < band.shape[1] and 0 <= gy < band.shape[0] and band[gy, gx]:
+                blocked += 1
+        if blocked > 0.2 * n:
+            continue  # a wall runs across: not an opening
+        seen.add(key)
+        depth_a = _wall_depth(band, minx, miny, cell, bx - ux * 0.1, by - uy * 0.1, nx, ny)
+        cx, cy = ax + ux * (s1 + 0.1), ay + uy * (s1 + 0.1)
+        depth_b = _wall_depth(band, minx, miny, cell, cx, cy, nx, ny)
+        found.append((gap, (depth_a + depth_b) / 2))
+    return found
 
 
 def measure_plan(walls, cols, opens, stairs, is_outside=None):
@@ -316,10 +391,15 @@ def measure_plan(walls, cols, opens, stairs, is_outside=None):
 
 SLAB_THICKNESS = 0.21      # assumed; slab schedules are rarely readable from the plans
 BEAM_DEPTH_DEFAULT = 0.6   # beams whose schedule gives no depth ("180 X 건축치수", unlabelled runs)
-FORM_KEYS = ("al_vertical", "al_horizontal", "gang", "euro", "plywood")
-FORM_LABELS = {"al_vertical": "AL폼 수직", "al_horizontal": "AL폼 수평", "gang": "갱폼", "euro": "유로폼", "plywood": "합판"}
-CONCRETE_KEYS = ("wall", "column", "beam", "slab")
-CONCRETE_LABELS = {"wall": "벽", "column": "기둥", "beam": "보", "slab": "슬래브"}
+WINDOW_HEIGHT = 1.8        # assumed opening height; the wall above and below an outer opening is concrete
+# stairs per m² of stair hall in plan: 150 mm waist slab and landings plus 178 x 260 mm steps
+STAIR_CONCRETE_PER_M2 = 0.2
+STAIR_FORM_PER_M2 = 1.4
+FORM_KEYS = ("al_vertical", "al_horizontal", "gang", "euro", "plywood", "stair")
+FORM_LABELS = {"al_vertical": "AL폼 수직", "al_horizontal": "AL폼 수평", "gang": "갱폼", "euro": "유로폼", "plywood": "합판",
+               "stair": "계단"}
+CONCRETE_KEYS = ("wall", "column", "beam", "slab", "stair")
+CONCRETE_LABELS = {"wall": "벽", "column": "기둥", "beam": "보", "slab": "슬래브", "stair": "계단"}
 
 
 def _size(text):
@@ -425,11 +505,25 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS):
             faces = float(measure.get("faces") or 0) + float(measure.get("col_perimeter") or 0)
             outside = min(float(measure.get("outside_faces") or 0), faces)
 
+            gaps, gap_area = float(measure.get("window_gaps") or 0), float(measure.get("window_gap_area") or 0)
             members = _link_members(links, building.get("name"), level.get("sheet")) if links else None
             column_area = sum(c["count"] * c["b"] * c["h"] for c in (members or {}).get("columns") or [])
             column_area = min(column_area, vertical_area)
-            concrete = {"wall": (vertical_area - column_area) * wall_h, "column": column_area * wall_h, "beam": 0.0, "slab": 0.0}
+            concrete = {"wall": (vertical_area - column_area) * wall_h, "column": column_area * wall_h, "beam": 0.0,
+                        "slab": 0.0, "stair": 0.0}
             form = dict.fromkeys(FORM_KEYS, 0.0)
+            if gaps and kind != "basement":
+                # the wall left above and below the openings in the outer walls
+                left = max(wall_h - WINDOW_HEIGHT, 0.0)
+                concrete["wall"] += gap_area * left
+                form["gang"] += gaps * left
+                form["euro" if kind == "roof" else "al_vertical"] += gaps * left
+                notes.append(f"창·발코니 개구부 {gaps:.0f}m 위·아래 벽 포함 (개구부 높이 {WINDOW_HEIGHT}m 가정)")
+            stair_area = sum(measure.get("stairs") or [])
+            if stair_area and kind != "basement":
+                concrete["stair"] = stair_area * STAIR_CONCRETE_PER_M2
+                form["stair"] = stair_area * STAIR_FORM_PER_M2
+                notes.append(f"계단은 평면의 계단 {stair_area:.0f}㎡로 추정")
             if kind == "basement":
                 form["euro"] += faces * wall_h
             elif kind == "roof":
@@ -514,7 +608,8 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS):
                           "approximate_totals": {g: _round(v, 1) for g, v in approx.items()}})
     return {
         "version": TAKEOFF_VERSION, "rule": "N층 = N층 벽·기둥 + N+1층 바닥 슬래브·보",
-        "assumptions": {"slab_thickness": slab_thickness, "beam_depth_default": BEAM_DEPTH_DEFAULT},
+        "assumptions": {"slab_thickness": slab_thickness, "beam_depth_default": BEAM_DEPTH_DEFAULT,
+                        "window_height": WINDOW_HEIGHT},
         "uses_schedules": bool(links), "buildings": buildings,
-        "not_included": ["기초(매트)", "계단", "창호 위·아래 벽(난간벽)", "철근(AI 판독 층별 수량산출 참고)"],
+        "not_included": ["기초(매트)", "발코니 쪽 개구부 위·아래 벽 일부", "철근(AI 판독 층별 수량산출 참고)"],
     }

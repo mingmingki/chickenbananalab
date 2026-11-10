@@ -48,6 +48,17 @@ class WallMeasureTests(SimpleTestCase):
         self.assertAlmostEqual(measured["outside_faces"], 2 * (4.4 + 3.4), delta=0.6)
         self.assertAlmostEqual(measured["faces"], 2 * (4.4 + 3.4) + 2 * (4.0 + 3.0), delta=1.0)
 
+    def test_an_opening_between_outer_walls_on_one_line_is_found(self):
+        # a 10 x 6 m building: the bottom wall has a 1.5 m window, the slab edge runs across it
+        lines = [(0, 0, 4, 0), (0, 0.2, 4, 0.2), (4, 0, 4, 0.2), (5.5, 0, 10, 0), (5.5, 0.2, 10, 0.2), (5.5, 0, 5.5, 0.2),
+                 (0, 0, 0, 6), (0.2, 0.2, 0.2, 5.8), (10, 0, 10, 6), (9.8, 0.2, 9.8, 5.8),
+                 (0, 6, 10, 6), (0.2, 5.8, 9.8, 5.8)]
+        outside = lambda x, y: not (0 <= x <= 10 and 0 <= y <= 6)
+        measured = ft.measure_walls(lines, outside)
+        self.assertAlmostEqual(measured["window_gaps"], 1.5, delta=0.01)
+        self.assertAlmostEqual(measured["window_gap_area"], 1.5 * 0.2, delta=0.03)
+        self.assertEqual(ft.measure_walls(lines)["window_gaps"], 0)  # no outline, no openings
+
     def test_grid_algebra_never_overwrites_its_inputs(self):
         a = np.zeros((5, 5), bool)
         a[2, 2] = True
@@ -159,6 +170,17 @@ class FloorRuleTests(SimpleTestCase):
         expected_beams = 0.5 * (1.3 - 0.21) * 10 + 0.4 * (0.6 - 0.21) * 2
         self.assertAlmostEqual(one["concrete"]["beam"], expected_beams, places=2)
         self.assertTrue(any("춤이 도면에 없어" in n for n in one["notes"]))
+
+    def test_openings_add_the_wall_above_and_below_and_stairs_are_estimated(self):
+        model = self.model()
+        model["buildings"][0]["plans"][1]["measure"].update(window_gaps=20.0, window_gap_area=4.0)
+        one = {r["key"]: r for r in ft.build_takeoff(model)["buildings"][0]["rows"]}["1"]
+        left = 2.85 - 0.21 - ft.WINDOW_HEIGHT
+        self.assertAlmostEqual(one["concrete"]["wall"], 30 * 2.64 + 4.0 * left, places=2)
+        self.assertAlmostEqual(one["formwork"]["gang"], 40 * 2.64 + 20 * left + (40 + 20) * 0.21, places=1)
+        self.assertAlmostEqual(one["concrete"]["stair"], 10 * ft.STAIR_CONCRETE_PER_M2, places=2)
+        self.assertAlmostEqual(one["formwork"]["stair"], 10 * ft.STAIR_FORM_PER_M2, places=2)
+        self.assertTrue(any("개구부" in n for n in one["notes"]))
 
     def test_schedule_sizes_read_millimetres(self):
         self.assertEqual(ft._size("500 X 1,300"), (0.5, 1.3))

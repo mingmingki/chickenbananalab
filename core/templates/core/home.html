@@ -9227,8 +9227,8 @@ body.cbl-modal-open {
   //  2D 수량산출: "N층 = N층 벽·기둥 + N+1층 바닥 슬래브·보" 기준 층별 콘크리트·거푸집.
   //  층별 확인 작업의 CAD 실측과 AI 판독의 일람표 연결(member_links)로 서버가 계산한다(AI 호출 없음).
   // ─────────────────────────────────────────────
-  var TAKEOFF_CONCRETE = [["wall", "벽"], ["column", "기둥"], ["beam", "보"], ["slab", "슬래브"]];
-  var TAKEOFF_FORMS = [["al_vertical", "AL 수직"], ["al_horizontal", "AL 수평"], ["gang", "갱폼"], ["euro", "유로폼"], ["plywood", "합판"]];
+  var TAKEOFF_CONCRETE = [["wall", "벽"], ["column", "기둥"], ["beam", "보"], ["slab", "슬래브"], ["stair", "계단"]];
+  var TAKEOFF_FORMS = [["al_vertical", "AL 수직"], ["al_horizontal", "AL 수평"], ["gang", "갱폼"], ["euro", "유로폼"], ["plywood", "합판"], ["stair", "계단"]];
 
   function takeoffNumber(value) {
     var n = Number(value) || 0;
@@ -9242,7 +9242,7 @@ body.cbl-modal-open {
         TAKEOFF_FORMS.map(function (f) { return '<td>' + takeoffNumber(form[f[0]]) + '</td>'; }).join("") +
         '<td class="qd-strong">' + takeoffNumber(form.total) + '</td>';
     }
-    var head = '<tr><th rowspan="2">' + esc(building.name) + '</th><th colspan="5">콘크리트 (㎥)</th><th colspan="6">거푸집 (㎡)</th></tr><tr>' +
+    var head = '<tr><th rowspan="2">' + esc(building.name) + '</th><th colspan="' + (TAKEOFF_CONCRETE.length + 1) + '">콘크리트 (㎥)</th><th colspan="' + (TAKEOFF_FORMS.length + 1) + '">거푸집 (㎡)</th></tr><tr>' +
       TAKEOFF_CONCRETE.map(function (c) { return '<th>' + c[1] + '</th>'; }).join("") + '<th>계</th>' +
       TAKEOFF_FORMS.map(function (f) { return '<th>' + f[1] + '</th>'; }).join("") + '<th>계</th></tr>';
     var body = (building.rows || []).map(function (row) {
@@ -9308,7 +9308,8 @@ body.cbl-modal-open {
     if (deck) { deck.append(bar); deck.append(table); } else { flowEl.appendChild(bar); flowEl.appendChild(table); }
     var assumptions = takeoff.assumptions || {};
     appendLeft('<p class="qd-sub" style="margin:0">가정: 슬래브 두께 ' + esc(String(assumptions.slab_thickness || "")) +
-      'm · 일람표에 춤이 없는 보 ' + esc(String(assumptions.beam_depth_default || "")) + 'm. 아직 빠진 항목: ' +
+      'm · 일람표에 춤이 없는 보 ' + esc(String(assumptions.beam_depth_default || "")) + 'm · 외벽 개구부 높이 ' +
+      esc(String(assumptions.window_height || "")) + 'm (그 위·아래는 벽으로 계산). 아직 빠진 항목: ' +
       esc((takeoff.not_included || []).join(", ")) + '. 근사 행(지하·열린 외곽)은 합계에서 뺐고, 행에 마우스를 올리면 근거가 보여요. ' +
       '엑셀에는 "층별 집계(N층 기준)" 시트로 담겨요.</p>');
     return takeoff;
