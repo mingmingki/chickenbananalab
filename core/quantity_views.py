@@ -1718,9 +1718,84 @@ def _wait_for_free_memory(minimum_mb=FLOOR_VIEWS_MIN_FREE_MB, timeout=180):
         time.sleep(5)
 
 
+FLOOR_CACHE_SECONDS = 24 * 60 * 60
+
+
+def _quantity_dir():
+    state = getattr(settings, "QUANTITY_STATE_DB", None)
+    return os.path.dirname(state) if state else os.path.join(str(settings.BASE_DIR), "var", "quantity")
+
+
+def _brain():
+    from .quantity_brain import Brain
+    return Brain(os.path.join(_quantity_dir(), "brain.sqlite3"))
+
+
+def _floor_cache_dir(job_id):
+    return os.path.join(_quantity_dir(), "floor_cache", hashlib.sha256(job_id.encode("utf-8")).hexdigest()[:24])
+
+
+def _prune_floor_cache():
+    root = os.path.join(_quantity_dir(), "floor_cache")
+    if not os.path.isdir(root):
+        return
+    cutoff = time.time() - FLOOR_CACHE_SECONDS
+    for name in os.listdir(root):
+        path = os.path.join(root, name)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            continue
+
+
+def _keep_floor_inputs(job_id, manifest, plans, level_names):
+    """Keep the converted drawings for a day, so a corrected reading can run again without uploads."""
+    import gzip
+    cache = _floor_cache_dir(job_id)
+    os.makedirs(cache, exist_ok=True)
+    stored = []
+    for index, entry in enumerate(manifest):
+        target = os.path.join(cache, f"{index:03d}.dxf.gz")
+        with open(entry["dxf"], "rb") as source, gzip.open(target, "wb", compresslevel=3) as packed:
+            shutil.copyfileobj(source, packed)
+        stored.append(dict(entry, dxf=os.path.basename(target)))
+    with open(os.path.join(cache, "manifest.json"), "w", encoding="utf-8") as handle:
+        json.dump({"files": stored, "plans": plans, "levels": level_names}, handle, ensure_ascii=False)
+
+
+def _render_floor_views(job_id, work, manifest):
+    """Run the colored plans + 3D model + layer reading in a low-priority process; store the result."""
+    try:
+        manifest["profiles"] = _brain().profiles()
+    except Exception as exc:
+        logger.warning("quantity_brain_read_failed error=%s", str(exc)[:200])
+        manifest["profiles"] = []
+    _progress_set(job_id, "render", 1, 2, "층별로 색을 칠하고 있어요")
+    _wait_for_free_memory()
+    manifest_path = os.path.join(work, "manifest.json")
+    out_path = os.path.join(work, "floor_views.json")
+    with open(manifest_path, "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, ensure_ascii=False)
+    command = [sys.executable, "-m", "core.quantity_floor_views", manifest_path, out_path]
+    if shutil.which("nice"):
+        command = ["nice", "-n", "15"] + command
+    run = subprocess.run(command, cwd=str(settings.BASE_DIR), timeout=FLOOR_VIEWS_RENDER_SECONDS,
+                         capture_output=True)
+    if run.returncode != 0 or not os.path.exists(out_path):
+        logger.warning("quantity_floor_views_render_failed code=%s stderr=%s", run.returncode,
+                       run.stderr.decode("utf-8", errors="replace")[-500:])
+        _result_set(job_id, {"ok": False, "error": "평면도를 칠하지 못했어요."})
+        return
+    with open(out_path, encoding="utf-8") as handle:
+        result = json.load(handle)
+    _result_set(job_id, {"ok": True, "results": {"floor_views": result}})
+
+
 def _run_floor_views_job(job_id, inputs):
     from . import quantity_floor_views as fv
     try:
+        _prune_floor_cache()
         with tempfile.TemporaryDirectory(prefix="cbl_qty_fv_") as work:
             files = []
             for index, (name, data) in enumerate(inputs):
@@ -1780,26 +1855,12 @@ def _run_floor_views_job(job_id, inputs):
             if not any(entry["name"] in {p["name"] for p in plans} for entry in manifest):
                 _result_set(job_id, {"ok": False, "error": "평면도 캐드 파일을 열지 못했어요."})
                 return
-            _progress_set(job_id, "render", len(plans), len(plans) + 1, "층별로 색을 칠하고 있어요")
-            _wait_for_free_memory()
-            manifest_path = os.path.join(work, "manifest.json")
-            out_path = os.path.join(work, "floor_views.json")
-            with open(manifest_path, "w", encoding="utf-8") as handle:
-                json.dump({"files": manifest, "plans": [p["name"] for p in plans], "levels": level_names},
-                          handle, ensure_ascii=False)
-            command = [sys.executable, "-m", "core.quantity_floor_views", manifest_path, out_path]
-            if shutil.which("nice"):
-                command = ["nice", "-n", "15"] + command
-            run = subprocess.run(command, cwd=str(settings.BASE_DIR), timeout=FLOOR_VIEWS_RENDER_SECONDS,
-                                 capture_output=True)
-            if run.returncode != 0 or not os.path.exists(out_path):
-                logger.warning("quantity_floor_views_render_failed code=%s stderr=%s", run.returncode,
-                               run.stderr.decode("utf-8", errors="replace")[-500:])
-                _result_set(job_id, {"ok": False, "error": "평면도를 칠하지 못했어요."})
-                return
-            with open(out_path, encoding="utf-8") as handle:
-                result = json.load(handle)
-        _result_set(job_id, {"ok": True, "results": {"floor_views": result}})
+            plan_names = [p["name"] for p in plans]
+            try:
+                _keep_floor_inputs(job_id, manifest, plan_names, level_names)
+            except Exception as exc:  # a re-run is a convenience; the reading itself goes on
+                logger.warning("quantity_floor_views_cache_failed job=%s error=%s", job_id[:16], str(exc)[:200])
+            _render_floor_views(job_id, work, {"files": manifest, "plans": plan_names, "levels": level_names})
     except subprocess.TimeoutExpired:
         _result_set(job_id, {"ok": False, "error": "평면도를 칠하는 데 시간이 너무 오래 걸려 멈췄어요."})
     except Exception as exc:
@@ -1807,6 +1868,80 @@ def _run_floor_views_job(job_id, inputs):
         _result_set(job_id, {"ok": False, "error": "평면도를 칠하지 못했어요: " + str(exc)[:160]})
     finally:
         _progress_clear(job_id)
+
+
+def _rerun_floor_views_job(job_id):
+    """Read the kept drawings again (after the reading of their layers was corrected)."""
+    import gzip
+    try:
+        cache = _floor_cache_dir(job_id)
+        with open(os.path.join(cache, "manifest.json"), encoding="utf-8") as handle:
+            kept = json.load(handle)
+        with tempfile.TemporaryDirectory(prefix="cbl_qty_fv_") as work:
+            files = []
+            for entry in kept["files"]:
+                target = os.path.join(work, entry["dxf"][:-3])
+                with gzip.open(os.path.join(cache, entry["dxf"]), "rb") as packed, open(target, "wb") as out:
+                    shutil.copyfileobj(packed, out)
+                files.append(dict(entry, dxf=target))
+            os.utime(cache)  # kept for another day from now
+            _render_floor_views(job_id, work, {"files": files, "plans": kept.get("plans") or [],
+                                               "levels": kept.get("levels") or []})
+    except subprocess.TimeoutExpired:
+        _result_set(job_id, {"ok": False, "error": "평면도를 다시 읽는 데 시간이 너무 오래 걸려 멈췄어요."})
+    except Exception as exc:
+        logger.exception("quantity_floor_views_rerun_failed job=%s", job_id)
+        _result_set(job_id, {"ok": False, "error": "평면도를 다시 읽지 못했어요: " + str(exc)[:160]})
+    finally:
+        _progress_clear(job_id)
+
+
+DRAWING_PROFILE_MAX_LAYERS = 400
+
+
+@require_POST
+@_admin_only_json
+def api_quantity_drawing_profile(request):
+    """Keep how a drawing's layers should be read (the user confirmed or corrected it), and
+    optionally read the kept drawings again with it.
+
+    Body (JSON): {"floor_job_id", "layers": {layer: role or null}, "corrected": bool, "rerun": bool}.
+    Only the owner of the floor job may teach from it."""
+    from . import quantity_layer_roles as roles
+    try:
+        body = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "잘못된 요청입니다."}, status=400)
+    if not isinstance(body, dict):
+        return JsonResponse({"error": "잘못된 요청입니다."}, status=400)
+    floor_job = body.get("floor_job_id")
+    floor_job = floor_job.strip()[:200] if isinstance(floor_job, str) else ""
+    job = _quantity_state().get("job", floor_job) if floor_job else None
+    if not job or job.get("owner") != str(request.user.pk) or job.get("operation") != "api_quantity_floor_views":
+        return JsonResponse({"error": "층별 확인 작업을 찾을 수 없어요."}, status=404)
+    layers = body.get("layers")
+    if not isinstance(layers, dict) or not layers:
+        return JsonResponse({"error": "레이어 정보가 없어요."}, status=400)
+    clean = {}
+    for name, role in list(layers.items())[:DRAWING_PROFILE_MAX_LAYERS]:
+        if isinstance(name, str) and name.strip():
+            clean[roles.base_name(name)[:200]] = role if role in roles.ROLES else None
+    profile_id = body.get("profile_id") if isinstance(body.get("profile_id"), str) else None
+    try:
+        profile = _brain().learn(clean, owner=request.user.pk, job=floor_job, profile_id=profile_id,
+                                 kind="correct" if body.get("corrected") else "confirm")
+    except Exception:
+        logger.exception("quantity_brain_learn_failed job=%s", floor_job[:16])
+        return JsonResponse({"error": "배운 내용을 저장하지 못했어요."}, status=500)
+    rerun = bool(body.get("rerun"))
+    if rerun:
+        if not os.path.exists(os.path.join(_floor_cache_dir(floor_job), "manifest.json")):
+            return JsonResponse({"ok": True, "profile_id": profile, "rerun": False,
+                                 "error": "보관된 도면이 없어(하루 지남) 다시 읽으려면 업로드를 다시 해 주세요."})
+        _quantity_state().pop("result", floor_job)
+        _progress_set(floor_job, "queued", 0, 1, "고친 내용으로 다시 읽는 중")
+        threading.Thread(target=_rerun_floor_views_job, args=(floor_job,), daemon=True).start()
+    return JsonResponse({"ok": True, "profile_id": profile, "rerun": rerun})
 
 
 FLOOR_TAKEOFF_MAX_BODY = 8 * 1024 * 1024

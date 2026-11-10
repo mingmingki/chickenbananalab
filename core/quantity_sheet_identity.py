@@ -22,7 +22,7 @@ import unicodedata
 from collections import Counter, defaultdict
 from xml.etree import ElementTree as ET
 
-NUMBER_RE = re.compile(r"^[A-Z]{1,3}-\d{2,4}[A-Z]?$")
+NUMBER_RE = re.compile(r"^[A-Z]{1,3}\d{0,2}-\d{2,4}[A-Z]?$")  # S-111, S02-001, S1-511, A03-101
 LABEL_PATTERNS = {
     "number": re.compile(r"도\s*면\s*번\s*호|DRAWING\s*N(?:O\b|O\.|UMBER)|DWG\.?\s*NO|SHEET\s*N(?:O\b|O\.|UMBER)", re.I),
     "title": re.compile(r"도\s*면\s*명|DRAWING\s*(?:TITLE|NAME)|SHEET\s*TITLE", re.I),
@@ -458,9 +458,149 @@ def resolve_cad_sheets(evidence_by_file):
                 row = _sheet(file, evidence, insert, template, method, available)
                 claimed.update(row["text_handles"])
                 rows.append(row)
+        _complete_frames(rows, evidence, texts)
+        if not rows:
+            rows = _fallback_rows(file, evidence, texts, groups)
         rows.sort(key=lambda row: (natural_key(row["drawing_number"]), row["frame_bbox"] or [0, 0]))
         result[file] = rows
     return result
+
+
+TITLE_TEXT = re.compile(r"평면도|단면도|입면도|일람표|상세도|배근도|계획도|구조도|목록|리스트|"
+                        r"PLAN|SECTION|ELEVATION|SCHEDULE|DETAIL", re.I)
+A_SERIES = 1 / math.sqrt(2)
+FORM_NAME = re.compile(r"FORM|도곽|FRAME|TITLE|SHEET|양식|도면틀|BORDER", re.I)
+
+
+def _spacing(values):
+    values = sorted({round(v) for v in values})
+    gaps = [b - a for a, b in zip(values, values[1:]) if b - a > 100]
+    return min(gaps) if gaps else None
+
+
+def _fallback_rows(file, evidence, texts, groups):
+    """Sheets when neither a form nor a number cell was found (the form xref is missing and the
+    numbers were inside it): frames from a repeated form-named insert, else the whole drawing as
+    one sheet. Titles are the largest title-like texts; numbers only when one sits in the frame."""
+    titles = [t for t in texts if TITLE_TEXT.search(t.get("text") or "")]
+    if not titles:
+        return []
+
+    def row_for(box, handle, block, method):
+        inside = [t for t in titles if box[0] <= t["x"] <= box[2] and box[1] <= t["y"] <= box[3]]
+        if not inside:
+            return None
+        top = max(inside, key=lambda t: (t.get("h") or 0, len(t["text"])))
+        numbers = []
+        for text in texts:
+            number = normalize_number(text.get("text"))
+            if number and box[0] <= text["x"] <= box[2] and box[1] <= text["y"] <= box[3] and number not in numbers:
+                numbers.append(number)
+        return {"file": file, "source_member_sha": evidence.get("source_member_sha"), "frame_handle": handle,
+                "frame_block": block, "method": method, "drawing_number": numbers[0] if len(numbers) == 1 else None,
+                "number_candidates": numbers, "drawing_title": re.sub(r"\s+", " ", top["text"]).strip(), "scale": None,
+                "identity_status": "identified" if len(numbers) == 1 else "title_only", "frame_bbox": [round(v, 3) for v in box],
+                "text_handles": [top.get("handle")] if top.get("handle") else []}
+
+    candidates = [inserts for name, inserts in groups.items()
+                  if len(inserts) >= 2 and FORM_NAME.search(inserts[0].get("raw_name") or name or "")]
+    best = []
+    for inserts in candidates:
+        dx, dy = _spacing(i["x"] for i in inserts), _spacing(i["y"] for i in inserts)
+        if dx and not dy:
+            dy = dx * A_SERIES
+        elif dy and not dx:
+            dx = dy / A_SERIES
+        if not dx:
+            continue
+        for ox, oy in ((0, 0), (-1, 0), (0, -1), (-1, -1)):
+            made = [row_for([i["x"] + ox * dx, i["y"] + oy * dy, i["x"] + (ox + 1) * dx, i["y"] + (oy + 1) * dy],
+                            i.get("handle"), i.get("raw_name"), "form_repeat_spacing") for i in inserts]
+            made = [r for r in made if r]
+            if len(made) > len(best):
+                best = made
+    if best:
+        return best
+    whole = row_for([-1e12, -1e12, 1e12, 1e12], None, None, "whole_drawing")
+    return [whole] if whole else []
+
+
+def _complete_frames(rows, evidence, texts):
+    """Frames without a known form: the form is repeated once per sheet, so its size is the
+    spacing between copies (A-series proportion when there is one row), placed so that each frame
+    holds a drawing title; a missing title is the frame's largest title-like text.
+
+    The copies used to learn the number cell may be a small block in a corner of each sheet, so the
+    frames are anchored on a repeated insert named like a form when there is one."""
+    by_handle = {insert.get("handle"): insert for insert in evidence.get("inserts", [])}
+    groups = defaultdict(list)
+    for row in rows:
+        if not row.get("frame_bbox") and by_handle.get(row.get("frame_handle")):
+            groups[row.get("frame_block")].append(row)
+    titles = [t for t in texts if TITLE_TEXT.search(t.get("text") or "")]
+    named = defaultdict(list)
+    for insert in evidence.get("inserts", []):
+        if FORM_NAME.search(insert.get("raw_name") or insert.get("name") or ""):
+            named[insert.get("name")].append(insert)
+    for block, members in groups.items():
+        inserts = [by_handle[row["frame_handle"]] for row in members]
+        dx, dy = _spacing(i["x"] for i in inserts), _spacing(i["y"] for i in inserts)
+        if dx and not dy:
+            dy = dx * A_SERIES
+        elif dy and not dx:
+            dx = dy / A_SERIES
+        if not dx:
+            continue
+        anchors = [inserts]
+        for copies in named.values():
+            spacing = _spacing(i["x"] for i in copies) or _spacing(i["y"] for i in copies)
+            if len(copies) >= 2 and spacing and abs(spacing - dx) <= 0.01 * dx:
+                anchors.insert(0, copies)
+        margin = 0.005 * dx
+
+        def owner(insert, boxes):
+            """The frame an insert lies well inside (an insert on a frame edge also touches the next one)."""
+            return next((b for b in boxes if b[0] + margin < insert["x"] < b[2] - margin
+                         and b[1] + margin < insert["y"] < b[3] - margin), None)
+        best = None
+        for rank, anchor in enumerate(anchors):
+            for ox, oy in ((0, 0), (-1, 0), (0, -1), (-1, -1)):
+                boxes = [[i["x"] + ox * dx, i["y"] + oy * dy, i["x"] + (ox + 1) * dx, i["y"] + (oy + 1) * dy] for i in anchor]
+                hits = sum(1 for b in boxes if any(b[0] <= t["x"] <= b[2] and b[1] <= t["y"] <= b[3] for t in titles))
+                same = anchor is inserts
+                placed = boxes if same else [owner(i, boxes) for i in inserts]
+                held = sum(1 for b in placed if b is not None)
+                score = (held, hits, -rank)
+                if best is None or score > best[0]:
+                    best = (score, placed)
+        if not best or best[0][1] < max(1, len(inserts) // 2):
+            continue
+        for row, box in zip(members, best[1]):
+            if box is None:
+                continue
+            row["frame_bbox"] = [round(v, 3) for v in box]
+            row["method"] = (row.get("method") or "") + "+repeat_spacing"
+            # a number cell learned from the copies may point into the neighbouring frame: the
+            # number written inside this frame wins
+            inside = []
+            for text in texts:
+                number = normalize_number(text.get("text"))
+                if number and box[0] <= text["x"] <= box[2] and box[1] <= text["y"] <= box[3] and number not in inside:
+                    inside.append(number)
+            if len(inside) == 1:
+                row["drawing_number"], row["number_candidates"] = inside[0], inside
+            elif not inside:
+                row["drawing_number"], row["number_candidates"] = None, []
+    for row in rows:
+        if row.get("drawing_title") or not row.get("frame_bbox"):
+            continue
+        x0, y0, x1, y1 = row["frame_bbox"]
+        inside = [t for t in titles if x0 <= t["x"] <= x1 and y0 <= t["y"] <= y1]
+        if inside:
+            top = max(inside, key=lambda t: (t.get("h") or 0, len(t["text"])))
+            row["drawing_title"] = re.sub(r"\s+", " ", top["text"]).strip()
+            if row.get("identity_status") == "number_only":
+                row["identity_status"] = "identified"
 
 
 def parse_drawing_index(sheets_by_file, evidence_by_file):

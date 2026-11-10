@@ -79,7 +79,11 @@ def floor_of(title):
         extra = re.search(r"\((기본형|확장형)\)", text)
         label = (unit.group(1) + "형" if unit else "단위세대") + (" " + extra.group(1) if extra else "")
         return {"building": building, "floor": label, "group": "unit", "order": 0, "discipline": discipline}
+    # "4~23층" / "4-23층" / "지상4~지상23층": a range whose first number has no 층
+    span = re.search(r"(지하|지상)?(\d+)층?[~∼\-](지하|지상)?(\d+)층", text)
     floors = re.findall(r"(지하|지상)?(\d+)층", text)
+    if span and (span.group(1) or "") != "지하" and (span.group(3) or "") != "지하":
+        floors = [(span.group(1) or "", span.group(2)), (span.group(3) or "", span.group(4))]
     if "기초" in text:
         return {"building": building or "기타", "floor": "기초", "group": "basement", "order": -99, "discipline": discipline}
     if floors:
@@ -134,7 +138,7 @@ reference_key = _key
 
 # ── drawing walk ──────────────────────────────
 
-def _walk(doc, entities, matrix, inherit, xrefs, out, depth=0, classify=None):
+def _walk(doc, entities, matrix, inherit, xrefs, out, depth=0, classify=None, describe=None, kinds=None):
     from ezdxf import path as ezpath
     from ezdxf.math import Matrix44
     for entity in entities:
@@ -156,16 +160,16 @@ def _walk(doc, entities, matrix, inherit, xrefs, out, depth=0, classify=None):
                 path = block.block.dxf.get("xref_path", "") or entity.dxf.name
                 target = xrefs.get(_key(re.split(r"[\\/]", path)[-1])) or xrefs.get(_key(entity.dxf.name))
                 if target is not None and "form" not in _key(path):
-                    _walk(target, target.modelspace(), placed, None, xrefs, target_out, depth + 1, classify)
+                    _walk(target, target.modelspace(), placed, None, xrefs, target_out, depth + 1, classify, describe, kinds)
             else:
-                _walk(doc, block, placed, layer, xrefs, target_out, depth + 1, classify)
+                _walk(doc, block, placed, layer, xrefs, target_out, depth + 1, classify, describe, kinds)
             if clip:
                 polygon, inverted = clip
                 out.extend(item for item in target_out if _kept_by_clip(item, polygon, inverted))
             continue
-        if kind not in ("LINE", "LWPOLYLINE", "POLYLINE", "ARC", "CIRCLE", "ELLIPSE", "SPLINE"):
+        if kind not in (kinds or ("LINE", "LWPOLYLINE", "POLYLINE", "ARC", "CIRCLE", "ELLIPSE", "SPLINE")):
             continue
-        category = (classify or layer_category)(layer)
+        category = describe(entity, doc, layer) if describe else (classify or layer_category)(layer)
         if category is None:
             continue
         try:
@@ -249,14 +253,33 @@ def _svg(paths, box):
     return svg, dict(counts)
 
 
-def _plan_views(name, doc, rows, xrefs):
-    """Views of one drawing's plan frames; `xrefs` maps reference keys to loaded documents."""
+VIEW_OF_ROLE = {"wall": "frame", "column": "frame", "beam": "beam"}
+
+
+def _plan_views(name, doc, rows, xrefs, roles=None):
+    """Views of one drawing's plan frames; `xrefs` maps reference keys to loaded documents.
+    ``roles`` (layer → member role, read from the drawing) colours the structural members of an
+    office whose layer names the name rules do not know."""
     from ezdxf.math import Matrix44
     plans = [row for row in rows if row.get("frame_bbox") and is_plan_title(row.get("drawing_title"))]
     if not plans:
         return []
+    classify = None
+    if roles:
+        def classify(layer):
+            role = roles.get(_nfc(layer).split("|")[-1])
+            return VIEW_OF_ROLE.get(role) if role else layer_category(layer)
     paths = []
-    _walk(doc, doc.modelspace(), Matrix44(), None, xrefs, paths)
+    _walk(doc, doc.modelspace(), Matrix44(), None, xrefs, paths, classify=classify)
+    whole = [row for row in plans if row["frame_bbox"][2] - row["frame_bbox"][0] > 1e11]
+    if whole and paths:
+        # a one-sheet drawing read without a frame: the drawn extent, ignoring a few stray objects
+        xs = sorted(v for p in paths for v in (p[1], p[3]))
+        ys = sorted(v for p in paths for v in (p[2], p[4]))
+        cut = lambda values, q: values[min(len(values) - 1, max(0, int(q * (len(values) - 1))))]
+        box = [cut(xs, 0.01), cut(ys, 0.01), cut(xs, 0.99), cut(ys, 0.99)]
+        for row in whole:
+            row["frame_bbox"] = [round(v, 3) for v in box]
     views = []
     for row in plans:
         svg, counts = _svg(paths, row["frame_bbox"])
@@ -404,7 +427,8 @@ def _footprint(segments, cell=0.15, close_cells=2):
     a grid instead: lines are drawn, small gaps (window and door gaps up to about 2*close_cells
     cells) are closed, the outside is flood-filled and what is left is the floor.
     """
-    from collections import deque
+    import numpy as np
+    from .quantity_floor_takeoff import _and, _dil4, _erode4, _fill, _not, _raster
     if not segments:
         return [], (lambda x, y: True)
     xs = [v for seg in segments for v in (seg[0], seg[2])]
@@ -413,55 +437,23 @@ def _footprint(segments, cell=0.15, close_cells=2):
     width, height = max(xs) + 1.0 - minx, max(ys) + 1.0 - miny
     cell = max(cell, width / 1200.0, height / 1200.0)
     nx, ny = int(width / cell) + 1, int(height / cell) + 1
-    grid = bytearray(nx * ny)
-    for ax, ay, bx, by in segments:
-        steps = int(max(abs(bx - ax), abs(by - ay)) / (cell / 2)) + 1
-        for k in range(steps + 1):
-            t = k / steps
-            gx, gy = int((ax + (bx - ax) * t - minx) / cell), int((ay + (by - ay) * t - miny) / cell)
-            grid[gy * nx + gx] = 1
+    grid = _raster([tuple(seg[:4]) for seg in segments], minx, miny, cell, (ny, nx))
     for _ in range(close_cells):
-        grown = bytearray(grid)
-        for index, value in enumerate(grid):
-            if value:
-                gx, gy = index % nx, index // nx
-                if gx > 0: grown[index - 1] = 1
-                if gx < nx - 1: grown[index + 1] = 1
-                if gy > 0: grown[index - nx] = 1
-                if gy < ny - 1: grown[index + nx] = 1
-        grid = grown
-    outside = bytearray(nx * ny)
-    queue = deque(i for i in range(nx * ny) if (i % nx in (0, nx - 1) or i // nx in (0, ny - 1)) and not grid[i])
-    for i in queue:
-        outside[i] = 1
-    while queue:
-        index = queue.popleft()
-        gx, gy = index % nx, index // nx
-        for n, ok in ((index - 1, gx > 0), (index + 1, gx < nx - 1), (index - nx, gy > 0), (index + nx, gy < ny - 1)):
-            if ok and not outside[n] and not grid[n]:
-                outside[n] = 1
-                queue.append(n)
+        grid = _dil4(grid)
+    open_cells = _not(grid)
+    border = np.zeros((ny, nx), dtype=bool)
+    border[0, :] = border[-1, :] = True
+    border[:, 0] = border[:, -1] = True
+    outside = _fill(_and(border, open_cells), open_cells)
     # the closing grew the walls outward; shrink the floor back by the same amount
-    floor = bytearray(0 if outside[i] else 1 for i in range(nx * ny))
+    floor = _not(outside)
     for _ in range(close_cells):
-        shrunk = bytearray(floor)
-        for index, value in enumerate(floor):
-            if value:
-                gx, gy = index % nx, index // nx
-                if (gx == 0 or not floor[index - 1] or gx == nx - 1 or not floor[index + 1]
-                        or gy == 0 or not floor[index - nx] or gy == ny - 1 or not floor[index + nx]):
-                    shrunk[index] = 0
-        floor = shrunk
+        floor = _erode4(floor)
     rects, open_runs = [], {}
     for gy in range(ny):
-        runs, gx = [], 0
-        while gx < nx:
-            if floor[gy * nx + gx]:
-                start = gx
-                while gx < nx and floor[gy * nx + gx]:
-                    gx += 1
-                runs.append((start, gx))
-            gx += 1
+        row = floor[gy]
+        edges = np.flatnonzero(np.diff(np.concatenate(([0], row.astype(np.int8), [0]))))
+        runs = [(int(a), int(b)) for a, b in zip(edges[::2], edges[1::2])]
         next_runs = {}
         for run in runs:
             if run in open_runs:
@@ -476,10 +468,21 @@ def _footprint(segments, cell=0.15, close_cells=2):
     r = lambda v: round(v, 2)
 
     def is_outside(x, y):
+        """Outside the floor as finally shaped (after the gap-closing growth is taken back)."""
         gx, gy = int((x - minx) / cell), int((y - miny) / cell)
         if gx < 0 or gy < 0 or gx >= nx or gy >= ny:
             return True
-        return bool(outside[gy * nx + gx])
+        return not floor[gy, gx]
+
+    def is_outside_grown(x, y):
+        """Outside the grown lines (used with a probe longer than the growth)."""
+        gx, gy = int((x - minx) / cell), int((y - miny) / cell)
+        if gx < 0 or gy < 0 or gx >= nx or gy >= ny:
+            return True
+        return bool(outside[gy, gx])
+
+    is_outside.grown = is_outside_grown
+    is_outside.reach = close_cells * cell
 
     return ([[r(minx + a * cell), r(miny + y0 * cell), r(minx + b * cell), r(miny + y1 * cell)]
              for a, y0, b, y1 in rects if (b - a) * (y1 - y0) * cell * cell >= 0.1], is_outside)
@@ -518,19 +521,26 @@ def _plan_model(paths, box):
     edge_lines = walls + outline + [[c[i][0], c[i][1], c[(i + 1) % len(c)][0], c[(i + 1) % len(c)][1]]
                                     for c in cols for i in range(len(c))]
     slab, is_outside = _footprint(edge_lines)
-    for wall in walls:  # 5th value 1: an exterior face (one side of it is outside the building)
-        ax, ay, bx, by = wall[:4]
-        length = math.hypot(bx - ax, by - ay) or 1.0
-        # probe past the gap-closing growth (2 cells): only an outer face has open air on one side
-        nx_, ny_ = (by - ay) / length * 0.5, -(bx - ax) / length * 0.5
-        mx, my = (ax + bx) / 2, (ay + by) / 2
-        wall.append(1 if is_outside(mx + nx_, my + ny_) != is_outside(mx - nx_, my - ny_) else 0)
+    _flag_outer_faces(walls, is_outside, append=True)
     area = sum((x1 - x0) * (y1 - y0) for x0, y0, x1, y1 in slab)
     hull = _hull([(w[0], w[1]) for w in edge_lines] + [(w[2], w[3]) for w in edge_lines])
     hull_area = abs(_area(hull)) if len(hull) >= 3 else 0.0
     model = {"walls": walls, "beams": beams, "cols": cols, "slab": slab, "opens": opens,
              "slab_area": round(area, 1), "slab_approximate": False}
     sub_slabs = []
+    if hull_area and area < 0.35 * hull_area:
+        # windows break the outer wall lines and some offices draw no slab edge: bridge gaps up to
+        # about 3 m around the main group of lines (a key map or a stray line is left out)
+        main = _main_cluster([line[:4] for line in edge_lines])
+        main_hull = _hull([(w[0], w[1]) for w in main] + [(w[2], w[3]) for w in main])
+        main_hull_area = abs(_area(main_hull)) if len(main_hull) >= 3 else 0.0
+        bridged, bridged_outside = _footprint(main, close_cells=10)
+        bridged_area = sum((x1 - x0) * (y1 - y0) for x0, y0, x1, y1 in bridged)
+        if main_hull_area and bridged_area >= 0.5 * main_hull_area:
+            slab, is_outside, area = bridged, bridged_outside, bridged_area
+            hull, hull_area = main_hull, main_hull_area
+            _flag_outer_faces(walls, is_outside, append=False)  # again, against the bridged outline
+            model.update(slab=slab, slab_area=round(area, 1), slab_bridged=True)
     if hull_area and area < 0.35 * hull_area:
         # one frame may hold several small plans side by side (roof, penthouse, penthouse roof)
         sub_slabs = _separate_slabs(edge_lines)
@@ -548,6 +558,50 @@ def _plan_model(paths, box):
     except Exception as exc:  # the colored plans and the 3D model must not depend on the takeoff
         model["measure"] = {"error": str(exc)[:200]}
     return model
+
+
+def _flag_outer_faces(walls, is_outside, append):
+    """5th value 1: an exterior face (one side of it is outside the building). The probe reaches
+    past the gap-closing growth, so only an outer face has open air on one side."""
+    outside = getattr(is_outside, "grown", is_outside)
+    reach = max(0.5, getattr(is_outside, "reach", 0.3) + 0.1)
+    for wall in walls:
+        ax, ay, bx, by = wall[:4]
+        length = math.hypot(bx - ax, by - ay) or 1.0
+        nx_, ny_ = (by - ay) / length * reach, -(bx - ax) / length * reach
+        mx, my = (ax + bx) / 2, (ay + by) / 2
+        flag = 1 if outside(mx + nx_, my + ny_) != outside(mx - nx_, my - ny_) else 0
+        if append:
+            wall.append(flag)
+        else:
+            wall[4] = flag
+
+
+def _main_cluster(lines, gap=2.0):
+    """The group of lines (joined within ``gap`` m) holding most of the drawn length."""
+    if not lines:
+        return []
+    parent = list(range(len(lines)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    boxes = [(min(l[0], l[2]) - gap, min(l[1], l[3]) - gap, max(l[0], l[2]) + gap, max(l[1], l[3]) + gap) for l in lines]
+    order = sorted(range(len(lines)), key=lambda i: boxes[i][0])
+    active = []
+    for i in order:
+        active = [j for j in active if boxes[j][2] >= boxes[i][0]]
+        for j in active:
+            if boxes[j][1] <= boxes[i][3] and boxes[i][1] <= boxes[j][3]:
+                parent[find(i)] = find(j)
+        active.append(i)
+    weight = defaultdict(float)
+    for i, l in enumerate(lines):
+        weight[find(i)] += math.hypot(l[2] - l[0], l[3] - l[1])
+    root = max(weight, key=weight.get)
+    return [l for i, l in enumerate(lines) if find(i) == root]
 
 
 def _separate_slabs(lines, gap=3.0, min_lines=12):
@@ -691,6 +745,56 @@ def level_table(evidence_by_name):
     return levels.build_level_table(cad)
 
 
+ROLE_CATEGORY = {"wall": "wall", "column": "col", "beam": "beam", "outline": "outline", "opening": "open",
+                 "stair": "stair", "wall_above": "above"}
+
+
+def _describe(entity, doc, layer):
+    from . import quantity_layer_roles as roles
+    name = _nfc(layer).split("|")[-1]
+    if roles.surely_not_member(name):
+        return None  # dimensions, text, symbols: not worth turning into paths
+    return (name, roles.linetype_class(roles.entity_linetype(entity, doc)))
+
+
+def structural_members(doc, xrefs, frames, profiles=None):
+    """Member lines of a drawing's structural frames by layer role (geometry first, names as a hint).
+
+    Returns (members for _plan_model, role report). Falls back to the layer-name rules when no
+    layer reads as a cut wall. A saved office profile (``profiles``, from people's corrections)
+    whose layer names match this drawing's gives its roles first."""
+    from ezdxf.math import Matrix44
+    from . import quantity_layer_roles as roles
+    raw = []  # first look: straight lines only, enough to tell walls from beams and hatches
+    _walk(doc, doc.modelspace(), Matrix44(), None, xrefs, raw, describe=_describe,
+          kinds=("LINE", "LWPOLYLINE", "POLYLINE"))
+
+    def in_frames(ax, ay, bx, by):
+        return any(not (bx < x0 or ax > x1 or by < y0 or ay > y1) for x0, y0, x1, y1 in frames)
+    inside = [(key[0], key[1], points) for key, ax, ay, bx, by, points in raw if in_frames(ax, ay, bx, by)]
+    del raw
+    from . import quantity_brain as brain
+    names = {roles.base_name(layer) for layer, _lt, _points in inside}
+    profile = brain.match(profiles, names) if profiles else None
+    known = {name: role for name, role in (profile or {}).get("layers", {}).items() if name in names} if profile else None
+    judged = roles.judge(inside, known=known)
+    del inside
+    category_of = {layer: ROLE_CATEGORY[info["role"]] for layer, info in judged.items() if info["role"] in ROLE_CATEGORY}
+    method = "geometry"
+    if "wall" not in category_of.values():
+        category_of, method = None, "layer_names"
+    members = []  # second look: the member layers only, arcs included
+    _walk(doc, doc.modelspace(), Matrix44(), None, xrefs, members,
+          classify=(lambda layer: category_of.get(_nfc(layer).split("|")[-1])) if category_of is not None else model_category)
+    report = [{"layer": layer, "role": info["role"], "reason": info["reason"], "by": info["by"], "m": info["m"],
+               "linetype": info["linetype"], "pair": info["pair"], "width": info["width"]}
+              for layer, info in sorted(judged.items(), key=lambda kv: -kv[1]["m"])
+              if info["role"] or info["m"] >= 50][:40]
+    used = {"id": profile["id"], "label": profile.get("label") or "", "shared": len(known or {})} if profile else None
+    member_roles = {layer: info["role"] for layer, info in judged.items() if info["role"]} if category_of is not None else {}
+    return members, {"method": method, "layers": report, "profile": used}, member_roles
+
+
 def _xref_names(doc):
     names = set()
     for block in doc.blocks:
@@ -751,7 +855,7 @@ def main(manifest_path, out_path):
         table = level_table(level_evidence)
     except Exception:
         table = {}
-    views, warnings, model_plans = [], [], []
+    views, warnings, model_plans, layer_roles = [], [], [], {}
     for name in plans:
         try:
             doc = _read(items[name])
@@ -771,23 +875,25 @@ def main(manifest_path, out_path):
         missing = sorted(ref for ref in _xref_names(doc) if ref not in xrefs and "form" not in ref)
         if missing:
             warnings.append({"file": name, "missing_xrefs": missing})
-        views.extend(_plan_views(name, doc, rows, xrefs))
         structural = [row for row in rows if row.get("frame_bbox") and is_plan_title(row.get("drawing_title"))
                       and floor_of(row["drawing_title"])["discipline"] == "struct"]
+        members, member_roles = [], {}
         if structural:
-            from ezdxf.math import Matrix44
-            members = []
-            _walk(doc, doc.modelspace(), Matrix44(), None, xrefs, members, classify=model_category)
-            for row in structural:
-                model_plans.append({"floor": floor_of(row["drawing_title"]), "sheet": row.get("drawing_number"),
-                                    "model": _plan_model(members, row["frame_bbox"])})
-            del members
+            members, role_report, member_roles = structural_members(
+                doc, xrefs, [row["frame_bbox"] for row in structural], manifest.get("profiles"))
+            layer_roles[name] = role_report
+        views.extend(_plan_views(name, doc, rows, xrefs, member_roles))  # also settles one-sheet frames
+        for row in structural:
+            model_plans.append({"floor": floor_of(row["drawing_title"]), "sheet": row.get("drawing_number"),
+                                "model": _plan_model(members, row["frame_bbox"])})
+        del members
         del doc, xrefs, evidence
         gc.collect()
     result = _finish(views, warnings)
     result["model"] = build_model(model_plans, table)
     result["levels"] = table
     result["unreadable"] = sorted(set(failed))
+    result["layer_roles"] = layer_roles
     with open(out_path, "w", encoding="utf-8") as handle:
         json.dump(result, handle, ensure_ascii=False)
 

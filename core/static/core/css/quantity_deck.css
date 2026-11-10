@@ -408,6 +408,19 @@
 .qd-mass-table tr[data-level]:hover td, .qd-mass-table tr.is-on td { background: rgba(165, 243, 252, .1); }
 .qd-mass-table .qd-approx { margin-left: 4px; padding: 1px 6px; border-radius: 6px; background: rgba(252, 211, 77, .18); color: var(--qd-amber); font-size: 11px; font-style: normal; font-weight: 800; }
 .qd-mass-table tr.is-sum td { font-weight: 800; color: #fff; border-top: 1px solid rgba(255, 255, 255, .3); }
+.qd-roles { margin-top: 12px; border: 1px solid var(--qd-line); border-radius: 12px; padding: 8px 12px; }
+.qd-roles summary { cursor: pointer; color: var(--qd-soft); font-weight: 800; font-size: 13px; }
+.qd-role-file { margin-top: 10px; }
+.qd-role-file h5 { margin: 0 0 6px; font-size: 12px; color: var(--qd-faint); font-weight: 700; word-break: break-all; }
+.qd-role-file h5 small { margin-left: 6px; color: var(--qd-amber); }
+.qd-role-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px; }
+.qd-role-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: 10px; background: rgba(255, 255, 255, .08); font-size: 12px; }
+.qd-role-item span { min-width: 0; color: #fff; word-break: break-all; }
+.qd-role-item small { display: block; color: var(--qd-faint); font-size: 10px; }
+.qd-role-item.is-guess { background: rgba(252, 211, 77, .16); }
+.qd-role-item.is-candidate { opacity: .7; }
+.qd-role-item select { flex: none; min-height: 28px; border: 1px solid rgba(255, 255, 255, .28); border-radius: 8px; background: rgba(10, 14, 48, .6); color: #fff; font: inherit; font-size: 12px; }
+.qd-role-status { color: var(--qd-soft); font-size: 12px; }
 .qd-takeoff { max-height: 52dvh; }
 .qd-takeoff th { text-align: center; }
 .qd-takeoff thead tr:first-child th[rowspan] { vertical-align: bottom; text-align: left; }

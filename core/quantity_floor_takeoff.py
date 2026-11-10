@@ -148,17 +148,55 @@ def _erode4(a):
     return _and(a, _shift(a, 1, 0), _shift(a, -1, 0), _shift(a, 0, 1), _shift(a, 0, -1))
 
 
-def _fill(seed, mask, step=16):
-    current = _and(seed, mask)
-    count = int(current.sum())
-    while True:
-        grown = current
-        for _ in range(step):
-            grown = _and(_dil4(grown), mask)
-        grown_count = int(grown.sum())
-        if grown_count == count:
-            return grown
-        current, count = grown, grown_count
+def _runs(row):
+    """[start, end) column runs of True cells in one grid row."""
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], row.astype(np.int8), [0]))))
+    return list(zip(edges[::2].tolist(), edges[1::2].tolist()))
+
+
+def _fill(seed, mask):
+    """Cells of ``mask`` 4-connected to a ``seed`` cell inside it (a flood fill, done on row runs:
+    a run touches the runs of the next row it overlaps)."""
+    height = mask.shape[0]
+    rows = [_runs(mask[y]) for y in range(height)]
+    parent = []
+    first = []
+    for y, runs in enumerate(rows):
+        first.append(len(parent))
+        parent.extend(range(len(parent), len(parent) + len(runs)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for y in range(1, height):
+        above, below = rows[y - 1], rows[y]
+        i = j = 0
+        while i < len(above) and j < len(below):
+            a0, a1 = above[i]
+            b0, b1 = below[j]
+            if max(a0, b0) < min(a1, b1):
+                ra, rb = find(first[y - 1] + i), find(first[y] + j)
+                if ra != rb:
+                    parent[ra] = rb
+            if a1 < b1:
+                i += 1
+            else:
+                j += 1
+    picked = set()
+    seeded = _and(seed, mask)
+    for y in np.flatnonzero(seeded.any(axis=1)).tolist():
+        for k, (a, b) in enumerate(rows[y]):
+            if seeded[y, a:b].any():
+                picked.add(find(first[y] + k))
+    out = np.zeros_like(mask)
+    if picked:
+        for y, runs in enumerate(rows):
+            for k, (a, b) in enumerate(runs):
+                if find(first[y] + k) in picked:
+                    out[y, a:b] = True
+    return out
 
 
 def _raster(segments, minx, miny, cell, shape):

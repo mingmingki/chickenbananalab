@@ -6216,7 +6216,7 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261110-takeoff1">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261111-roles2">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261110-takeoff1"></script>
@@ -6871,6 +6871,7 @@ body.cbl-modal-open {
   state.checkRun = null;
   state.floorJob = null;
   state.floorReview = {};
+  state.roleEdits = {};
 
   function cadSelectionKey() {
     return state.cadFiles.concat(state.elevCadFiles).map(function (f) {
@@ -7153,6 +7154,63 @@ body.cbl-modal-open {
     return floors;
   }
 
+  // How each structural drawing's layers were read (shape first, the name only as a hint).
+  var ROLE_NAMES = { wall: "벽", wall_below: "아래층 벽", wall_above: "위층 벽", column: "기둥", beam: "보",
+                     outline: "슬래브 외곽", opening: "개구부", stair: "계단" };
+
+  function shortLayer(name) {
+    var at = String(name || "").lastIndexOf("$0$");
+    return at >= 0 ? name.slice(at + 3) : String(name || "");
+  }
+
+  function roleOptions(selected) {
+    return Object.keys(ROLE_NAMES).map(function (r) {
+      return '<option value="' + r + '"' + (selected === r ? ' selected' : '') + '>' + ROLE_NAMES[r] + '</option>';
+    }).join("") + '<option value=""' + (!selected ? ' selected' : '') + '>부재 아님</option>';
+  }
+
+  function layerRolesHtml(result) {
+    var files = (result && result.layer_roles) || {};
+    var names = Object.keys(files);
+    if (!names.length) return "";
+    var unsure = 0, counted = 0, learned = 0;
+    var body = names.map(function (file) {
+      var report = files[file] || {};
+      if (report.profile) learned++;
+      // one line per layer name: the same layer comes through several xrefs
+      var byName = {}, order = [];
+      (report.layers || []).filter(function (l) { return l.role || (l.pair >= 0.5 && l.m >= 30); }).forEach(function (l) {
+        var name = shortLayer(l.layer);
+        if (!byName[name]) { byName[name] = { name: name, m: 0, role: l.role, by: l.by, reason: l.reason }; order.push(name); }
+        byName[name].m += l.m || 0;
+        if (!byName[name].role && l.role) { byName[name].role = l.role; byName[name].by = l.by; byName[name].reason = l.reason; }
+      });
+      var items = order.map(function (name) {
+        var l = byName[name];
+        var guess = l.role && l.by === "geometry";
+        if (l.role) counted++;
+        if (guess) unsure++;
+        var edit = state.roleEdits[file + "\u0000" + name];
+        var role = edit !== undefined ? edit : (l.role || "");
+        return '<label class="qd-role-item' + (guess ? ' is-guess' : '') + (l.role ? '' : ' is-candidate') + '" title="' + esc(l.reason || "") + '">' +
+          '<span>' + esc(name) + '<small>' + Math.round(l.m) + 'm · ' + esc(l.by === "profile" ? "기억한 대로" : (l.reason || "")) + '</small></span>' +
+          '<select data-role-file="' + esc(file) + '" data-role-layer="' + esc(name) + '">' + roleOptions(role) + '</select></label>';
+      }).join("");
+      return '<div class="qd-role-file"><h5>' + esc(file) +
+        (report.profile ? ' <small>저장된 도면 프로필로 읽음 (레이어 ' + report.profile.shared + '개)</small>' :
+          report.method === "layer_names" ? ' <small>레이어 이름으로 읽음</small>' : '') + '</h5>' +
+        (items ? '<div class="qd-role-list">' + items + '</div>' : '<p class="qd-sub">벽으로 읽은 레이어가 없어요.</p>') + '</div>';
+    }).join("");
+    return '<details class="qd-roles" data-qd-keep' + (unsure ? ' open' : '') + '><summary>도면을 이렇게 읽었어요 · 레이어 ' + counted +
+      (unsure ? ' · 확인 필요 ' + unsure : '') + (learned ? ' · 기억한 프로필 사용' : '') + '</summary>' + body +
+      '<p class="qd-sub">레이어 이름보다 선 모양(실선·점선, 평행선 간격, 닫힌 사각형, 벽과 겹치는지)으로 판단했고 이름은 참고만 했어요. ' +
+      '노란 칸은 이름에 단서가 없어 모양으로만 정한 레이어, 흐린 칸은 부재로 보지 않은 후보예요. 고치면 이 사무소 도면을 읽을 때마다 기억해요.</p>' +
+      '<div class="qd-actions"><span class="qd-role-status"></span><span class="qd-spacer"></span>' +
+        '<button type="button" class="qd-btn" data-roles="confirm">이대로 맞아요 · 기억하기</button>' +
+        '<button type="button" class="qd-btn primary" data-roles="rerun"' + (Object.keys(state.roleEdits).length ? '' : ' disabled') + '>고친 대로 다시 읽기</button></div>' +
+      '</details>';
+  }
+
   async function showFloorCheckCard() {
     await qCard({ eyebrow: "04", label: "Floor check", art: false, wide: true, total: 5, index: 4 },
       "층별로 칠해 봤어요. 맞는지 확인해 주세요.");
@@ -7258,7 +7316,7 @@ body.cbl-modal-open {
               '<button type="button" class="qd-btn primary" data-review="ok">맞아요 →</button>' +
             '</div>' +
           '</div>' +
-        '</div>';
+        '</div>' + layerRolesHtml(result);
       Object.keys(hidden).forEach(function (k) { root.querySelector(".qd-floor-stage").classList.toggle("hide-" + k, hidden[k]); });
       paintRail();
       var first = floors.filter(function (f) { return !state.floorReview[f.key]; })[0] || floors[0];
@@ -7348,6 +7406,11 @@ body.cbl-modal-open {
         applyTransform();
         return;
       }
+      var teach = e.target.closest("[data-roles]");
+      if (teach) {
+        if (!teach.disabled) { teach.disabled = true; teachRoles(teach.getAttribute("data-roles") === "rerun"); }
+        return;
+      }
       var review = e.target.closest("[data-review]");
       if (review && current) {
         var memo = root.querySelector(".qd-floor-memo");
@@ -7370,6 +7433,50 @@ body.cbl-modal-open {
         setProgress();
       }
     });
+    root.addEventListener("change", function (e) {
+      var select = e.target.closest("select[data-role-layer]");
+      if (!select) return;
+      state.roleEdits[select.getAttribute("data-role-file") + "\u0000" + select.getAttribute("data-role-layer")] = select.value;
+      var rerun = root.querySelector('[data-roles="rerun"]');
+      if (rerun) rerun.disabled = false;
+    });
+
+    function teachRoles(rerun) {
+      var files = (job && job.result && job.result.layer_roles) || {};
+      var layers = {}, corrected = false;
+      Object.keys(files).forEach(function (file) {
+        ((files[file] || {}).layers || []).forEach(function (l) {
+          var name = shortLayer(l.layer);
+          var edit = state.roleEdits[file + "\u0000" + name];
+          if (edit !== undefined) { corrected = corrected || edit !== (l.role || ""); layers[name] = edit || null; }
+          else if (l.role && !(name in layers)) layers[name] = l.role;
+        });
+      });
+      var status = root.querySelector(".qd-role-status");
+      if (status) status.textContent = "저장하는 중…";
+      return fetch("/api/quantity/drawing-profile/", {
+        method: "POST",
+        headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
+        body: JSON.stringify({ floor_job_id: job.id, layers: layers, corrected: corrected, rerun: !!rerun })
+      }).then(function (res) { return res.json().catch(function () { return {}; }); }).then(function (body) {
+        if (!body || !body.ok) { if (status) status.textContent = (body && body.error) || "저장하지 못했어요."; return; }
+        if (body.error && status) status.textContent = body.error;
+        if (!body.rerun) { if (status && !body.error) status.textContent = "기억했어요. 이 사무소 도면을 다음에 읽을 때 써요."; return; }
+        state.roleEdits = {};
+        job.status = "running";
+        job.result = null;
+        job.started = Date.now();
+        job.label = "고친 내용으로 다시 읽는 중";
+        job.onUpdate = update;
+        pollFloorJob(job);
+        update();
+        var again = setInterval(function () {
+          if (!job || job.status !== "running" || !root.isConnected) { clearInterval(again); return; }
+          renderWaiting();
+        }, 1000);
+      }).catch(function () { if (status) status.textContent = "저장하지 못했어요."; });
+    }
+
     root.addEventListener("input", function (e) {
       if (current && e.target.closest(".qd-floor-memo")) {
         state.floorReview[current.key] = { status: "flag", note: e.target.value.trim() };
