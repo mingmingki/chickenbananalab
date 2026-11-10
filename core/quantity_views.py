@@ -1780,8 +1780,19 @@ def _render_floor_views(job_id, work, manifest):
     command = [sys.executable, "-m", "core.quantity_floor_views", manifest_path, out_path]
     if shutil.which("nice"):
         command = ["nice", "-n", "15"] + command
-    run = subprocess.run(command, cwd=str(settings.BASE_DIR), timeout=FLOOR_VIEWS_RENDER_SECONDS,
-                         capture_output=True)
+    try:
+        run = subprocess.run(command, cwd=str(settings.BASE_DIR), timeout=FLOOR_VIEWS_RENDER_SECONDS,
+                             capture_output=True)
+    except subprocess.TimeoutExpired:
+        # a big project: keep what was read in time (structural plans go first)
+        partial = out_path + ".partial"
+        if not os.path.exists(partial):
+            raise
+        with open(partial, encoding="utf-8") as handle:
+            result = json.load(handle)
+        _result_set(job_id, {"ok": True, "results": {"floor_views": result}})
+        logger.warning("quantity_floor_views_partial job=%s views=%s", job_id[:16], len(result.get("views") or []))
+        return
     if run.returncode != 0 or not os.path.exists(out_path):
         logger.warning("quantity_floor_views_render_failed code=%s stderr=%s", run.returncode,
                        run.stderr.decode("utf-8", errors="replace")[-500:])

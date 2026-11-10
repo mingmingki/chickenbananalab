@@ -7291,6 +7291,7 @@ body.cbl-modal-open {
       var buildings = [];
       floors.forEach(function (f) { if (buildings.indexOf(f.building) < 0) buildings.push(f.building); });
       root.innerHTML =
+        (result && result.partial ? '<p class="qd-note warn">도면이 많아 제한 시간 안에 일부만 칠했어요. 구조평면을 먼저 읽었고, 나머지는 AI 판독에서 확인해요.</p>' : '') +
         '<p class="qd-sub">노란색이 골조(콘크리트), 초록색이 조적이에요. 층을 고르면 크게 보이고, 휠·드래그로 확대해 볼 수 있어요.</p>' +
         '<div class="qd-floor">' +
           '<nav class="qd-floor-rail" aria-label="층 목록">' + buildings.map(function (b) {

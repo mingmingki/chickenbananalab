@@ -132,3 +132,34 @@ class DrawingProfileApiTests(TestCase):
         os.utime(cache, (old, old))
         views._prune_floor_cache()
         self.assertFalse(cache.exists())
+
+
+class PartialFloorResultTests(TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+        override = override_settings(QUANTITY_STATE_DB=str(self.dir / "state.sqlite3"))
+        override.enable()
+        self.addCleanup(override.disable)
+
+    def test_a_timed_out_reading_keeps_what_was_read(self):
+        import subprocess
+
+        def slow(command, **kwargs):
+            out = command[-1]
+            with open(out + ".partial", "w", encoding="utf-8") as handle:
+                json.dump({"views": [{"floor": "1층"}], "partial": True}, handle)
+            raise subprocess.TimeoutExpired(command, 900)
+
+        with patch.object(views.subprocess, "run", slow), patch.object(views, "_wait_for_free_memory", lambda: None):
+            views._render_floor_views("fv-9", str(self.dir), {"files": [], "plans": [], "levels": []})
+        result = views._result_get("fv-9")
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["results"]["floor_views"]["partial"])
+
+    def test_structural_files_are_read_first(self):
+        from core import quantity_floor_views as fv
+        names = ["A2-101 101동평면도.dwg", "S1-501 101동구조평면도.dwg", "S-111 동 구조평면도.dwg"]
+        self.assertEqual(sorted(names, key=lambda n: 0 if fv._is_structural_file(n) else 1)[:2],
+                         ["S1-501 101동구조평면도.dwg", "S-111 동 구조평면도.dwg"])

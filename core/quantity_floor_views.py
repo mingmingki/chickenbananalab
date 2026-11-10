@@ -138,7 +138,39 @@ reference_key = _key
 
 # ── drawing walk ──────────────────────────────
 
-def _walk(doc, entities, matrix, inherit, xrefs, out, depth=0, classify=None, describe=None, kinds=None):
+def _quick_corners(entity, kind):
+    """A few points spanning a plain entity, in its own coordinates (no curve flattening)."""
+    try:
+        if kind == "LINE":
+            a, b = entity.dxf.start, entity.dxf.end
+            return [(a.x, a.y), (b.x, b.y)]
+        if kind == "LWPOLYLINE":
+            points = entity.get_points("xy")
+            if not points:
+                return None
+            xs, ys = [p[0] for p in points], [p[1] for p in points]
+            return [(min(xs), min(ys)), (max(xs), max(ys)), (min(xs), max(ys)), (max(xs), min(ys))]
+        if kind in ("ARC", "CIRCLE"):
+            c, r = entity.dxf.center, entity.dxf.radius
+            return [(c.x - r, c.y - r), (c.x + r, c.y + r), (c.x - r, c.y + r), (c.x + r, c.y - r)]
+    except Exception:
+        return None
+    return None
+
+
+def _outside_limit(corners, matrix, limit):
+    xs, ys = [], []
+    for x, y in corners:
+        p = matrix.transform((x, y, 0))
+        xs.append(p.x)
+        ys.append(p.y)
+    return max(xs) < limit[0] or min(xs) > limit[2] or max(ys) < limit[1] or min(ys) > limit[3]
+
+
+def _walk(doc, entities, matrix, inherit, xrefs, out, depth=0, classify=None, describe=None, kinds=None, limit=None):
+    """Member paths in drawing coordinates. ``limit`` (a drawing-coordinate box, e.g. the plan
+    frames or an xref's clip window) skips plain entities that cannot reach it before any curve is
+    flattened, which is most of a site-wide xref inserted once per sheet."""
     from ezdxf import path as ezpath
     from ezdxf.math import Matrix44
     for entity in entities:
@@ -156,13 +188,19 @@ def _walk(doc, entities, matrix, inherit, xrefs, out, depth=0, classify=None, de
                 continue
             clip = _clip_polygon(entity, matrix)
             target_out = [] if clip else out
+            inner = limit
+            if clip and not clip[1]:
+                xs, ys = [p[0] for p in clip[0]], [p[1] for p in clip[0]]
+                box = (min(xs), min(ys), max(xs), max(ys))
+                inner = box if limit is None else (max(box[0], limit[0]), max(box[1], limit[1]),
+                                                   min(box[2], limit[2]), min(box[3], limit[3]))
             if block.block_record.is_xref:
                 path = block.block.dxf.get("xref_path", "") or entity.dxf.name
                 target = xrefs.get(_key(re.split(r"[\\/]", path)[-1])) or xrefs.get(_key(entity.dxf.name))
                 if target is not None and "form" not in _key(path):
-                    _walk(target, target.modelspace(), placed, None, xrefs, target_out, depth + 1, classify, describe, kinds)
+                    _walk(target, target.modelspace(), placed, None, xrefs, target_out, depth + 1, classify, describe, kinds, inner)
             else:
-                _walk(doc, block, placed, layer, xrefs, target_out, depth + 1, classify, describe, kinds)
+                _walk(doc, block, placed, layer, xrefs, target_out, depth + 1, classify, describe, kinds, inner)
             if clip:
                 polygon, inverted = clip
                 out.extend(item for item in target_out if _kept_by_clip(item, polygon, inverted))
@@ -172,6 +210,10 @@ def _walk(doc, entities, matrix, inherit, xrefs, out, depth=0, classify=None, de
         category = describe(entity, doc, layer) if describe else (classify or layer_category)(layer)
         if category is None:
             continue
+        if limit is not None:
+            corners = _quick_corners(entity, kind)
+            if corners and _outside_limit(corners, matrix, limit):
+                continue
         try:
             path = ezpath.make_path(entity).transform(matrix)
             points = [(p.x, p.y) for p in path.flattening(40)]
@@ -184,6 +226,14 @@ def _walk(doc, entities, matrix, inherit, xrefs, out, depth=0, classify=None, de
         if max(xs) - min(xs) < MIN_EXTENT_MM and max(ys) - min(ys) < MIN_EXTENT_MM:
             continue
         out.append((category, min(xs), min(ys), max(xs), max(ys), points))
+
+
+def _frames_limit(rows):
+    """The box around a drawing's plan frames (None when a frame is the whole drawing)."""
+    boxes = [row["frame_bbox"] for row in rows if row.get("frame_bbox")]
+    if not boxes or any(b[2] - b[0] > 1e11 for b in boxes):
+        return None
+    return (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
 
 
 def _clip_polygon(insert, matrix):
@@ -270,7 +320,7 @@ def _plan_views(name, doc, rows, xrefs, roles=None):
             role = roles.get(_nfc(layer).split("|")[-1])
             return VIEW_OF_ROLE.get(role) if role else layer_category(layer)
     paths = []
-    _walk(doc, doc.modelspace(), Matrix44(), None, xrefs, paths, classify=classify)
+    _walk(doc, doc.modelspace(), Matrix44(), None, xrefs, paths, classify=classify, limit=_frames_limit(plans))
     whole = [row for row in plans if row["frame_bbox"][2] - row["frame_bbox"][0] > 1e11]
     if whole and paths:
         # a one-sheet drawing read without a frame: the drawn extent, ignoring a few stray objects
@@ -765,9 +815,11 @@ def structural_members(doc, xrefs, frames, profiles=None):
     whose layer names match this drawing's gives its roles first."""
     from ezdxf.math import Matrix44
     from . import quantity_layer_roles as roles
+    limit = None if any(x1 - x0 > 1e11 for x0, y0, x1, y1 in frames) else (
+        min(f[0] for f in frames), min(f[1] for f in frames), max(f[2] for f in frames), max(f[3] for f in frames))
     raw = []  # first look: straight lines only, enough to tell walls from beams and hatches
     _walk(doc, doc.modelspace(), Matrix44(), None, xrefs, raw, describe=_describe,
-          kinds=("LINE", "LWPOLYLINE", "POLYLINE"))
+          kinds=("LINE", "LWPOLYLINE", "POLYLINE"), limit=limit)
 
     def in_frames(ax, ay, bx, by):
         return any(not (bx < x0 or ax > x1 or by < y0 or ay > y1) for x0, y0, x1, y1 in frames)
@@ -785,7 +837,8 @@ def structural_members(doc, xrefs, frames, profiles=None):
         category_of, method = None, "layer_names"
     members = []  # second look: the member layers only, arcs included
     _walk(doc, doc.modelspace(), Matrix44(), None, xrefs, members,
-          classify=(lambda layer: category_of.get(_nfc(layer).split("|")[-1])) if category_of is not None else model_category)
+          classify=(lambda layer: category_of.get(_nfc(layer).split("|")[-1])) if category_of is not None else model_category,
+          limit=limit)
     report = [{"layer": layer, "role": info["role"], "reason": info["reason"], "by": info["by"], "m": info["m"],
                "linetype": info["linetype"], "pair": info["pair"], "width": info["width"]}
               for layer, info in sorted(judged.items(), key=lambda kv: -kv[1]["m"])
@@ -826,6 +879,8 @@ def main(manifest_path, out_path):
         manifest = json.load(handle)
     items = {item["name"]: item for item in manifest.get("files", [])}
     plans = [name for name in manifest.get("plans") or [] if name in items]
+    # structural plans first: the 3D model and the takeoff need them, the colours can wait
+    plans.sort(key=lambda name: (0 if _is_structural_file(name) else 1, _nfc(name)))
     others = {_key(name): item for name, item in items.items() if name not in plans}
     forms, failed = {}, []
     for key, item in others.items():
@@ -856,6 +911,7 @@ def main(manifest_path, out_path):
     except Exception:
         table = {}
     views, warnings, model_plans, layer_roles = [], [], [], {}
+    xref_cache = {}  # the next sheet set of a series usually inserts the same xrefs
     for name in plans:
         try:
             doc = _read(items[name])
@@ -865,13 +921,16 @@ def main(manifest_path, out_path):
         evidence = dict(forms)
         evidence[name] = identity.extract_sheet_evidence(doc)
         rows = identity.resolve_cad_sheets(evidence).get(name, [])
-        xrefs = {}
-        for ref in _xref_names(doc):
-            if ref in others and "form" not in ref:
-                try:
-                    xrefs[ref] = _read(others[ref])
-                except Exception:
-                    failed.append(others[ref]["name"])
+        wanted = {ref for ref in _xref_names(doc) if ref in others and "form" not in ref}
+        for ref in [ref for ref in xref_cache if ref not in wanted]:
+            del xref_cache[ref]  # only the xrefs of this drawing stay loaded
+        gc.collect()
+        for ref in sorted(wanted - set(xref_cache)):
+            try:
+                xref_cache[ref] = _read(others[ref])
+            except Exception:
+                failed.append(others[ref]["name"])
+        xrefs = {ref: xref_cache[ref] for ref in wanted if ref in xref_cache}
         missing = sorted(ref for ref in _xref_names(doc) if ref not in xrefs and "form" not in ref)
         if missing:
             warnings.append({"file": name, "missing_xrefs": missing})
@@ -889,13 +948,36 @@ def main(manifest_path, out_path):
         del members
         del doc, xrefs, evidence
         gc.collect()
-    result = _finish(views, warnings)
+        _write(out_path + ".partial", _assemble(views, warnings, model_plans, table, failed, layer_roles, partial=True))
+    _write(out_path, _assemble(views, warnings, model_plans, table, failed, layer_roles))
+    try:
+        os.remove(out_path + ".partial")
+    except OSError:
+        pass
+
+
+def _is_structural_file(name):
+    text = re.sub(r"\s+", "", _nfc(os.path.basename(name)))
+    return "구조" in text or bool(re.match(r"^S\d*[-_ ]", text, re.I))
+
+
+def _assemble(views, warnings, model_plans, table, failed, layer_roles, partial=False):
+    result = _finish(list(views), list(warnings))
     result["model"] = build_model(model_plans, table)
     result["levels"] = table
     result["unreadable"] = sorted(set(failed))
     result["layer_roles"] = layer_roles
-    with open(out_path, "w", encoding="utf-8") as handle:
+    if partial:
+        result["partial"] = True
+    return result
+
+
+def _write(path, result):
+    """Atomic write, so a reader never sees half a file (the web job may read the partial one)."""
+    temporary = path + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
         json.dump(result, handle, ensure_ascii=False)
+    os.replace(temporary, path)
 
 
 if __name__ == "__main__":
