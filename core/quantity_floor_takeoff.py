@@ -195,8 +195,8 @@ def _hull(points):
     return lower[:-1] + upper[:-1]
 
 
-def cluster_areas(segments, margin=0.3, min_area=0.5, max_area=80.0):
-    """Hull areas of groups of lines that lie together (an opening's cross, a stair's treads)."""
+def _clusters(segments, margin):
+    """Point lists of groups of lines whose boxes come within ``margin`` of each other."""
     parent = list(range(len(segments)))
 
     def find(i):
@@ -216,8 +216,63 @@ def cluster_areas(segments, margin=0.3, min_area=0.5, max_area=80.0):
     groups = {}
     for i, (ax, ay, bx, by) in enumerate(segments):
         groups.setdefault(find(i), []).extend(((ax, ay), (bx, by)))
+    return list(groups.values())
+
+
+def outline_regions(segments, margin=3.0, min_area=100.0, limit=6):
+    """Convex outlines of the buildings drawn above a podium plan (walls of the floor above),
+    largest first: the parts of a parking deck that belong to each tower."""
+    hulls = []
+    for points in _clusters(segments, margin):
+        hull = _hull(points)
+        if len(hull) >= 3 and _polygon_area(hull) >= min_area:
+            hulls.append(hull)
+    hulls.sort(key=lambda h: -_polygon_area(h))
+    return hulls[:limit]
+
+
+def _clip(polygon, x0, y0, x1, y1):
+    """A convex polygon clipped to a rectangle (Sutherland-Hodgman)."""
+    def cut(points, inside, cross):
+        out = []
+        for i, current in enumerate(points):
+            previous = points[i - 1]
+            if inside(current):
+                if not inside(previous):
+                    out.append(cross(previous, current))
+                out.append(current)
+            elif inside(previous):
+                out.append(cross(previous, current))
+        return out
+
+    def at_x(x):
+        return lambda p, q: (x, p[1] + (q[1] - p[1]) * (x - p[0]) / ((q[0] - p[0]) or 1e-12))
+
+    def at_y(y):
+        return lambda p, q: (p[0] + (q[0] - p[0]) * (y - p[1]) / ((q[1] - p[1]) or 1e-12), y)
+    points = list(polygon)
+    for inside, cross in ((lambda p: p[0] >= x0, at_x(x0)), (lambda p: p[0] <= x1, at_x(x1)),
+                          (lambda p: p[1] >= y0, at_y(y0)), (lambda p: p[1] <= y1, at_y(y1))):
+        if not points:
+            break
+        points = cut(points, inside, cross)
+    return points
+
+
+def area_within(rects, polygon):
+    """Area of floor rectangles [x0, y0, x1, y1] inside a convex polygon."""
+    total = 0.0
+    for x0, y0, x1, y1 in rects:
+        clipped = _clip(polygon, x0, y0, x1, y1)
+        if len(clipped) >= 3:
+            total += _polygon_area(clipped)
+    return total
+
+
+def cluster_areas(segments, margin=0.3, min_area=0.5, max_area=80.0):
+    """Hull areas of groups of lines that lie together (an opening's cross, a stair's treads)."""
     areas = []
-    for points in groups.values():
+    for points in _clusters(segments, margin):
         hull = _hull(points)
         area = _polygon_area(hull) if len(hull) >= 3 else 0.0
         if min_area <= area <= max_area:
@@ -225,7 +280,43 @@ def cluster_areas(segments, margin=0.3, min_area=0.5, max_area=80.0):
     return sorted(areas, reverse=True)
 
 
-def measure_walls(segments, is_outside=None, probe=0.5):
+def _inside_convex(polygon, x, y):
+    sign = 0
+    for (x1, y1), (x2, y2) in zip(polygon, polygon[1:] + polygon[:1]):
+        cross = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
+        if cross:
+            if sign and (cross > 0) != (sign > 0):
+                return False
+            sign = cross
+    return True
+
+
+def _region_grid(regions, minx, miny, cell, shape):
+    """int8 grid: 1 + index of the convex region a cell centre lies in, 0 outside all of them."""
+    grid = np.zeros(shape, dtype=np.int8)
+    for index, polygon in enumerate(regions or []):
+        if len(polygon) < 3:
+            continue
+        ys = [p[1] for p in polygon]
+        row0 = max(0, int((min(ys) - miny) / cell))
+        row1 = min(shape[0] - 1, int((max(ys) - miny) / cell) + 1)
+        edges = list(zip(polygon, polygon[1:] + polygon[:1]))
+        for row in range(row0, row1 + 1):
+            y = miny + (row + 0.5) * cell
+            xs = []
+            for (x1, y1), (x2, y2) in edges:
+                if (y1 <= y < y2) or (y2 <= y < y1):
+                    xs.append(x1 + (y - y1) * (x2 - x1) / (y2 - y1))
+            if len(xs) >= 2:
+                c0 = max(0, int((min(xs) - minx) / cell + 0.5))
+                c1 = min(shape[1], int((max(xs) - minx) / cell + 0.5))
+                if c1 > c0:
+                    segment = grid[row, c0:c1]
+                    segment[segment == 0] = index + 1
+    return grid
+
+
+def measure_walls(segments, is_outside=None, probe=0.5, regions=None):
     """Plan area of the cut concrete walls and the length of their faces (all / outside).
 
     The wall lines are drawn on a fine grid; open wall ends are closed first. Regions enclosed
@@ -263,6 +354,11 @@ def measure_walls(segments, is_outside=None, probe=0.5):
         band = _and(_dil8(band), _or(solid, band))
     centre = _and(drawn, _dil8(band), _not(band))
     area = (int(band.sum()) + 0.5 * int(centre.sum())) * cell * cell
+    labels = _region_grid(regions, minx, miny, cell, shape) if regions else None
+    by_region = [{"area": 0.0, "faces": 0.0, "outside_faces": 0.0} for _ in (regions or [])]
+    for index, part in enumerate(by_region):
+        inside = np.equal(labels, index + 1)
+        part["area"] = (int(np.logical_and(band, inside).sum()) + 0.5 * int(np.logical_and(centre, inside).sum())) * cell * cell
 
     # faces: sample each line, look a little to both sides
     faces = outside_faces = 0.0
@@ -287,6 +383,12 @@ def measure_walls(segments, is_outside=None, probe=0.5):
         if not hits:
             continue
         faces += length * hits / n
+        if labels is not None:
+            gx = np.clip(((px - minx) / cell).astype(int), 0, shape[1] - 1)
+            gy = np.clip(((py - miny) / cell).astype(int), 0, shape[0] - 1)
+            owner = labels[gy, gx]
+            for index, part in enumerate(by_region):
+                part["faces"] += length * int(np.logical_and(is_face, np.equal(owner, index + 1)).sum()) / n
         if is_outside is None:
             continue
         scale = probe / reach
@@ -306,7 +408,8 @@ def measure_walls(segments, is_outside=None, probe=0.5):
     return {"area": round(area, 3), "faces": round(faces, 2), "outside_faces": round(outside_faces, 2),
             "caps": len(caps), "cell": round(cell, 3),
             "window_gaps": round(sum(g[0] for g in gaps), 2),
-            "window_gap_area": round(sum(g[0] * g[1] for g in gaps), 3)}
+            "window_gap_area": round(sum(g[0] * g[1] for g in gaps), 3),
+            **({"regions": [{k: round(v, 3) for k, v in part.items()} for part in by_region]} if regions else {})}
 
 
 GAP_MIN, GAP_MAX = 0.3, 4.0
@@ -374,9 +477,20 @@ def _window_gaps(outer, band, minx, miny, cell, is_outside, probe):
     return found
 
 
-def measure_plan(walls, cols, opens, stairs, is_outside=None):
-    """Takeoff measures of one plan frame. walls/opens/stairs: polylines; cols: closed outlines."""
-    measured = measure_walls(_segments_of(walls), is_outside)
+def measure_plan(walls, cols, opens, stairs, is_outside=None, above=(), slab_rects=()):
+    """Takeoff measures of one plan frame. walls/opens/stairs/above: polylines; cols: closed outlines.
+
+    ``above`` are the walls of the floor above drawn on a podium plan; their outlines split the
+    plan into tower parts (``regions``: wall section, faces, columns and slab inside each)."""
+    regions = outline_regions(_segments_of(above)) if above else []
+    measured = measure_walls(_segments_of(walls), is_outside, regions=regions or None)
+    if regions:
+        for polygon, part in zip(regions, measured["regions"]):
+            inside = [c for c in cols if len(c) >= 3 and _inside_convex(polygon, sum(p[0] for p in c) / len(c), sum(p[1] for p in c) / len(c))]
+            part.update(polygon=[[round(x, 2), round(y, 2)] for x, y in polygon], hull_area=round(_polygon_area(polygon), 1),
+                        col_area=round(sum(_polygon_area(c) for c in inside), 3),
+                        col_perimeter=round(sum(math.hypot(c[i][0] - c[i - 1][0], c[i][1] - c[i - 1][1]) for c in inside for i in range(len(c))), 2),
+                        slab_area=round(area_within(slab_rects, polygon), 1))
     col_area = sum(_polygon_area(c) for c in cols if len(c) >= 3)
     col_perimeter = sum(math.hypot(c[i][0] - c[i - 1][0], c[i][1] - c[i - 1][1]) for c in cols for i in range(len(c)))
     measured.update(
@@ -482,11 +596,71 @@ def _storey_kind(key):
     return "ground"
 
 
+def _plan_at(building, level):
+    plans = building.get("plans") or []
+    index = (level or {}).get("plan")
+    return plans[index] if isinstance(index, int) and 0 <= index < len(plans) else None
+
+
+def tower_regions(buildings):
+    """(podium building, {tower name: region index}): the tower outlines drawn on the podium's
+    basement plans matched to the towers by outline area (each tower's ground-floor plan)."""
+    host = sample = None
+    for building in buildings:
+        if any((l.get("key") or "").isdigit() for l in building.get("levels") or []):
+            continue  # a podium has basement levels and a roof only
+        for plan in building.get("plans") or []:
+            regions = (plan.get("measure") or {}).get("regions")
+            if regions:
+                host, sample = building, regions
+                break
+        if host:
+            break
+    if not host:
+        return None, {}
+    towers = []
+    for building in buildings:
+        levels = building.get("levels") or []
+        if building is host or not any((l.get("key") or "").startswith("B") for l in levels):
+            continue
+        ground = next((l for l in levels if l.get("key") == "1"), None) or next((l for l in levels if (l.get("key") or "").isdigit()), None)
+        plan = _plan_at(building, ground)
+        if plan and plan.get("hull_area"):
+            towers.append((building.get("name"), float(plan["hull_area"])))
+    pairs = sorted((abs(math.log(float(region["hull_area"]) / hull)), name, i)
+                   for name, hull in towers for i, region in enumerate(sample) if region.get("hull_area"))
+    match, used = {}, set()
+    for score, name, i in pairs:
+        if score <= math.log(1.6) and name not in match and i not in used:
+            match[name] = i
+            used.add(i)
+    return host.get("name"), match
+
+
+def _ground_slab(building):
+    """Closed slab area of a tower's lowest above-ground plan: caps the slab of its podium part."""
+    levels = building.get("levels") or []
+    ground = next((l for l in levels if l.get("key") == "1"), None) or next((l for l in levels if (l.get("key") or "").isdigit()), None)
+    plan = _plan_at(building, ground)
+    return _net_slab(plan) if plan else None
+
+
+def _region(plan, index):
+    regions = ((plan or {}).get("measure") or {}).get("regions") or []
+    return regions[index] if index is not None and 0 <= index < len(regions) else None
+
+
 def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS):
     """Rows per building and storey: walls/columns of the storey + slab/beams on top of it."""
     buildings = []
-    for building in (model or {}).get("buildings") or []:
+    all_buildings = (model or {}).get("buildings") or []
+    host_name, match = tower_regions(all_buildings)
+    host = next((b for b in all_buildings if b.get("name") == host_name), None)
+    host_levels = {l.get("key"): l for l in (host or {}).get("levels") or []}
+    matched = sorted(match.items(), key=lambda item: item[1])
+    for building in all_buildings:
         plans, levels = building.get("plans") or [], building.get("levels") or []
+        name = building.get("name")
         rows = []
         for index, level in enumerate(levels):
             key, kind = level.get("key") or "", _storey_kind(level.get("key") or "")
@@ -499,11 +673,32 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS):
             height = float(level.get("height") or 0)
             wall_h = max(height - t, 0.0)
             notes, approximate = [], kind == "basement"
-            if kind == "basement":
-                notes.append("지하층은 동 평면과 주차장 평면이 겹쳐 그려져 있어 근사값이에요")
             vertical_area = float(measure.get("area") or 0) + float(measure.get("col_area") or 0)
             faces = float(measure.get("faces") or 0) + float(measure.get("col_perimeter") or 0)
             outside = min(float(measure.get("outside_faces") or 0), faces)
+            # podium basements: each tower takes its outline out of the podium plan of the same level
+            region = None
+            podium_split = kind == "basement" and match and (name in match or name == host_name)
+            if podium_split and name in match:
+                region = _region(_plan_at(host, host_levels.get(key)), match[name])
+                if region:
+                    vertical_area = float(region.get("area") or 0) + float(region.get("col_area") or 0)
+                    faces = float(region.get("faces") or 0) + float(region.get("col_perimeter") or 0)
+                    outside = 0.0
+                    approximate = False
+                    notes.append(f"지하는 {host_name} 평면에서 이 동 영역을 잘라 계산했어요")
+            elif podium_split:
+                taken = [_region(vplan, i) for _n, i in matched]
+                taken = [r for r in taken if r]
+                if taken:
+                    vertical_area -= sum(float(r.get("area") or 0) + float(r.get("col_area") or 0) for r in taken)
+                    faces -= sum(float(r.get("faces") or 0) + float(r.get("col_perimeter") or 0) for r in taken)
+                    vertical_area, faces = max(vertical_area, 0.0), max(faces, 0.0)
+                    outside = min(outside, faces)
+                    approximate = False
+                    notes.append(f"동 지하 영역({', '.join(n for n, _i in matched)})은 각 동 행에서 계산했어요")
+            if kind == "basement" and approximate:
+                notes.append("지하층은 동 평면과 주차장 평면이 겹쳐 그려져 있어 근사값이에요")
 
             gaps, gap_area = float(measure.get("window_gaps") or 0), float(measure.get("window_gap_area") or 0)
             members = _link_members(links, building.get("name"), level.get("sheet")) if links else None
@@ -534,7 +729,32 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS):
                 form["al_vertical"] += (faces - outside) * wall_h
 
             slab_area = 0.0
-            if hplan is None and len(vplan.get("sub_slabs") or []) >= 2:
+            beam_source, beam_share = (name, above.get("sheet")) if above else (None, None), 1.0
+            next_is_basement = bool(above) and _storey_kind(above.get("key") or "") == "basement"
+            podium_next = _plan_at(host, host_levels.get(above.get("key"))) if (above and podium_split) else None
+            if region is not None and next_is_basement and podium_next is not None:
+                upper_region = _region(podium_next, match[name])
+                total = float(podium_next.get("slab_area") or 0)
+                slab_area = float((upper_region or {}).get("slab_area") or 0)
+                cap = _ground_slab(building)
+                if cap:
+                    slab_area = min(slab_area, cap)  # the outline hull also spans the notches of an L-shaped tower
+                beam_source = (host_name, host_levels[above["key"]].get("sheet"))
+                beam_share = slab_area / total if total else 0.0
+                hplan = None  # handled here
+            elif podium_split and name == host_name and hplan is not None and (hmeasure.get("regions") or []):
+                upper = _net_slab(hplan) or 0.0
+                taken = 0.0
+                for tower, i in matched:
+                    part = float((_region(hplan, i) or {}).get("slab_area") or 0)
+                    cap = _ground_slab(next((b for b in all_buildings if b.get("name") == tower), {}))
+                    taken += min(part, cap) if cap else part
+                slab_area = max(upper - taken, 0.0)
+                beam_share = slab_area / upper if upper else 0.0
+                hplan = None
+            if slab_area > 0 or (podium_split and region is not None and next_is_basement):
+                pass
+            elif hplan is None and len(vplan.get("sub_slabs") or []) >= 2:
                 # the roof sheet also draws the penthouse roof: the smallest plan on it
                 slab_area = float(vplan["sub_slabs"][-1])
                 notes.append("옥탑 지붕은 지붕 도면 안의 가장 작은 평면으로 봤어요")
@@ -546,7 +766,7 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS):
                     # the roof slab covers the storey under it
                     slab_area = own
                     notes.append("지붕 슬래브는 바로 아래층 평면 크기로 봤어요")
-                elif upper is not None and own is not None and upper < 0.9 * own:
+                elif upper is not None and own is not None and upper < 0.9 * own and kind != "basement":
                     # the floor above is set back: the slab still covers this storey (terraces)
                     slab_area = own
                     notes.append("위층이 들어가 있어 테라스까지 이 층 평면 크기로 슬래브를 잡았어요")
@@ -564,8 +784,12 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS):
                 if kind == "ground":  # slab edge along the outer walls and the open slab outline
                     edge = (outside + float(hmeasure.get("outline") or measure.get("outline") or 0)) * t
                     form["gang"] += edge
-            if hplan is not None:
-                above_members = _link_members(links, building.get("name"), above.get("sheet")) if links else None
+            if above is not None and (hplan is not None or slab_area > 0):
+                above_members = _link_members(links, beam_source[0], beam_source[1]) if links else None
+                if above_members and beam_share < 1.0:
+                    above_members = {"beams": [dict(b, length=b["length"] * beam_share) for b in above_members["beams"]],
+                                     "columns": above_members["columns"]}
+                    notes.append(f"보는 주차장 평면의 보를 슬래브 면적 비율({beam_share:.0%})로 나눴어요")
                 if above_members is None:
                     if links:
                         notes.append("보는 일람표와 연결된 평면을 찾지 못해 빠졌어요")

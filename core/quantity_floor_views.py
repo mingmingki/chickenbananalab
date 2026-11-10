@@ -320,6 +320,7 @@ _MODEL_RULES = (
     ("outline", re.compile(r"str_outline$", re.I)),
     ("open", re.compile(r"str_open$", re.I)),
     ("stair", re.compile(r"(^|[_-])a-stair$", re.I)),
+    ("above", re.compile(r"str_conc_above$", re.I)),
 )
 DEFAULT_STOREY_M = {"basement": 3.5, "1": 3.25, "ground": 2.85, "roof": 3.0}
 LEVEL_FILE = re.compile(r"단면도|입면도")
@@ -491,7 +492,7 @@ def _plan_model(paths, box):
     x0, y0, x1, y1 = box
     r = lambda v: round(v, 2)
     walls, beams, edges, cols, opens = [], [], [], [], []
-    raw = {"wall": [], "col": [], "open": [], "stair": []}
+    raw = {"wall": [], "col": [], "open": [], "stair": [], "above": []}
     for category, ax, ay, bx, by, points in paths:
         if bx < x0 or ax > x1 or by < y0 or ay > y1:
             continue
@@ -501,8 +502,8 @@ def _plan_model(paths, box):
             cols.append([[r(x), r(y)] for x, y in local[:-1]])
             raw["col"].append(local[:-1])
             continue
-        if category == "stair":
-            raw["stair"].append(local)
+        if category in ("stair", "above"):
+            raw[category].append(local)
             continue
         if category in ("wall", "col"):
             raw["wall"].append(local)
@@ -540,7 +541,9 @@ def _plan_model(paths, box):
         model["sub_slabs"] = sub_slabs
     try:
         model["measure"] = takeoff.measure_plan(raw["wall"], raw["col"], raw["open"], raw["stair"],
-                                                None if model["slab_approximate"] else is_outside)
+                                                None if model["slab_approximate"] else is_outside,
+                                                above=raw["above"], slab_rects=slab)
+        model["hull_area"] = round(hull_area, 1)
         model["measure"]["outline"] = round(sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in edges), 1)
     except Exception as exc:  # the colored plans and the 3D model must not depend on the takeoff
         model["measure"] = {"error": str(exc)[:200]}

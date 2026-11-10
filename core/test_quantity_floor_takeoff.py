@@ -187,6 +187,45 @@ class FloorRuleTests(SimpleTestCase):
         self.assertEqual(ft._size("180 X 건축치수"), (0.18, None))
 
 
+class PodiumSplitTests(SimpleTestCase):
+    def test_tower_outlines_on_a_podium_plan_become_regions(self):
+        walls = [box(0, 0, 20, 0.3), box(30, 0, 50, 0.3)]
+        walls = [[(a, b), (c, d)] for seg in walls for a, b, c, d in seg]
+        above = [[(-1, -1), (10, -1)], [(10, -1), (10, 10)], [(10, 10), (-1, 10)], [(-1, 10), (-1, -1)]]
+        measured = ft.measure_plan(walls, [], [], [], above=above, slab_rects=[[0, 0, 50, 20]])
+        region = measured["regions"][0]
+        self.assertEqual(region["hull_area"], 121.0)
+        self.assertAlmostEqual(region["slab_area"], 100.0, places=1)
+        # only the wall part inside the outline: half of the first of two equal walls
+        self.assertAlmostEqual(region["area"], measured["area"] / 4, delta=0.1)
+        self.assertAlmostEqual(measured["area"], 40 * 0.3, delta=0.9)
+
+    def model(self):
+        region = {"hull_area": 700.0, "area": 20.0, "faces": 100.0, "col_area": 0, "col_perimeter": 0, "slab_area": 650.0}
+        podium = {"name": "주차장", "levels": [level("B1", 0, 3.5, "P-1"), level("R", 1, 3.0, "P-2")],
+                  "plans": [plan(3000, 80, faces=500, outside=100) | {"measure": dict(plan(3000, 80, faces=500, outside=100)["measure"], regions=[region])},
+                            plan(2000, 10)]}
+        tower = {"name": "101동", "levels": [level("B1", 0, 5.0, "T-1"), level("1", 1, sheet="T-2"), level("2", 1, sheet="T-2")],
+                 "plans": [plan(2800, 60, approximate=True), plan(600, 30) | {"hull_area": 690.0}]}
+        return {"buildings": [tower, podium]}
+
+    def test_a_tower_takes_its_part_of_the_podium_and_the_podium_keeps_the_rest(self):
+        self.assertEqual(ft.tower_regions(self.model()["buildings"]), ("주차장", {"101동": 0}))
+        take = {b["name"]: {r["key"]: r for r in b["rows"]} for b in ft.build_takeoff(self.model())["buildings"]}
+        tower, podium = take["101동"]["B1"], take["주차장"]["B1"]
+        self.assertFalse(tower["approximate"])
+        self.assertAlmostEqual(tower["concrete"]["wall"], 20 * (5.0 - 0.21), places=1)  # the tower's own storey height
+        self.assertAlmostEqual(podium["measures"]["vertical_area"], 80 - 20, places=1)
+        self.assertFalse(podium["approximate"])
+        self.assertAlmostEqual(tower["concrete"]["slab"], 600 * 0.21, places=1)  # the tower's own ground floor
+
+    def test_without_a_matching_outline_basements_stay_approximate(self):
+        model = self.model()
+        model["buildings"][0]["plans"][1]["hull_area"] = 5000.0
+        take = {b["name"]: b for b in ft.build_takeoff(model)["buildings"]}
+        self.assertTrue(take["101동"]["rows"][0]["approximate"])
+
+
 class _Shim:
     pass
 
