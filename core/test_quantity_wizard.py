@@ -22,13 +22,14 @@ class WizardTemplateTests(SimpleTestCase):
         self.assertLess(self.html.index("core/css/quantity_deck.css"), workflow)
         self.assertIn("window.cblQuantityDeck.create(flowEl", self.html)
 
-    def test_upload_step_runs_cad_then_pdf_then_check_then_ai_question(self):
+    def test_upload_step_runs_cad_then_pdf_then_check_then_floors_then_ai_question(self):
         order = [
             "프로젝트 확인이 끝났습니다.<br>다음, 도면 업로드로 넘어갈게요.",
             "건축·구조 캐드 파일을 올려주세요.",
             "이번엔 건축·구조 PDF를 올려주세요.",
-            "/api/quantity/check-zip/",
+            "빠진 도면이 있는지 확인했어요.",
             "다른 파일에 함께 있다면 적어주세요",
+            "층별로 칠해 봤어요. 맞는지 확인해 주세요.",
             "AI 판독을 시작할까요?",
         ]
         position = self.html.index("async function startUploadStep()")
@@ -37,8 +38,19 @@ class WizardTemplateTests(SimpleTestCase):
         for chip in ("낱장 PDF", "합본 PDF", "폴더째"):
             self.assertIn(chip, self.html)
 
+    def test_moving_on_buttons_act_once(self):
+        self.assertIn('row.setAttribute("data-used", "1");', self.html)
+        for button in ("qty-summary-go", "qty-pdf-back", "qty-missing-go", "qty-floor-go", "qty-ai-back"):
+            self.assertIn(f'onceClick(row.querySelector("#{button}")', self.html)
+
     def test_notes_travel_with_the_overview_check(self):
         self.assertIn('fd.append("drawing_notes", state.drawingNotes)', self.html)
+        self.assertIn('lines.push("- [층별 확인] "', self.html)
+
+    def test_check_starts_the_floor_job_from_the_same_upload(self):
+        self.assertIn('fd.append("floor_views_job_id", floorJobId)', self.html)
+        cad_next = self.html.index('onceClick(next, function () {\n      addUser("캐드 "')
+        self.assertIn("kickCheck();", self.html[cad_next:cad_next + 400])
 
 
 class DrawingNotesTests(SimpleTestCase):

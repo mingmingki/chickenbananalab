@@ -6216,9 +6216,9 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261110-deck1">
-<script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-deck1"></script>
-<script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-deck1"></script>
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261110-floor1">
+<script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
+<script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
 
 <script>
 (function () {
@@ -6507,6 +6507,17 @@ body.cbl-modal-open {
     return deck.transition(n, title, text);
   }
 
+  // A card's moving-on buttons act once: a quick double click must not open two next cards.
+  function onceClick(button, handler) {
+    button.addEventListener("click", function (event) {
+      var row = button.closest(".qd-actions") || button.parentNode;
+      if (row.getAttribute("data-used")) return;
+      row.setAttribute("data-used", "1");
+      row.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
+      handler.call(button, event);
+    });
+  }
+
   // Extra spoken sentence after a card's title (the title itself is spoken by addBot).
   function narrate(text) {
     if (window.cblQuantityStage && window.cblQuantityStage.say) window.cblQuantityStage.say(text);
@@ -6573,12 +6584,12 @@ body.cbl-modal-open {
         '<button type="button" class="qd-btn primary" id="qty-summary-go">맞아요, 다음으로 →</button>' +
       '</div>'
     );
-    row.querySelector("#qty-summary-edit").addEventListener("click", function () {
+    onceClick(row.querySelector("#qty-summary-edit"), function () {
       addUser("다시 고를게요");
       state.answers = { projectType: null, structureType: null, excavationType: null };
       askProjectType();
     });
-    row.querySelector("#qty-summary-go").addEventListener("click", function () {
+    onceClick(row.querySelector("#qty-summary-go"), function () {
       addUser("확인했어요");
       startUploadStep();
     });
@@ -6854,8 +6865,75 @@ body.cbl-modal-open {
     showCadUploadCard();
   }
 
+  // The check and the floor coloring start as soon as the CAD card is done, so the server
+  // works while the PDFs are being picked. A changed CAD selection starts them again.
+  state.checkRun = null;
+  state.floorJob = null;
+  state.floorReview = {};
+
+  function cadSelectionKey() {
+    return state.cadFiles.concat(state.elevCadFiles).map(function (f) {
+      return f.name + ":" + f.size + ":" + f.lastModified;
+    }).sort().join("|");
+  }
+
+  function kickCheck() {
+    var cadUploads = state.cadFiles.concat(state.elevCadFiles || []);
+    var key = cadSelectionKey();
+    if (!cadUploads.length) { state.checkRun = null; return null; }
+    if (state.checkRun && state.checkRun.key === key) return state.checkRun;
+    var floorJobId = "fv-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+    var fd = new FormData();
+    cadUploads.forEach(function (file) { fd.append("cad_files", file); });
+    fd.append("floor_views_job_id", floorJobId);
+    state.floorJob = null;
+    state.floorReview = {};
+    var run = { key: key, started: Date.now(), count: cadUploads.length };
+    run.promise = fetch("/api/quantity/check-zip/", {
+      method: "POST",
+      headers: { "X-CSRFToken": csrfToken() },
+      body: fd
+    }).then(function (res) { return res.json(); }).catch(function (e) {
+      return { error: "네트워크 오류: " + (e && e.message ? e.message : String(e)) };
+    }).then(function (data) {
+      if (state.checkRun !== run) return data;
+      var fv = data && data.floor_views;
+      if (fv && fv.started) {
+        state.floorJob = { id: fv.job_id, status: "running", label: "평면도를 준비하고 있어요", started: Date.now() };
+        pollFloorJob(state.floorJob);
+      } else {
+        state.floorJob = { status: "none", reason: (fv && fv.reason) || "" };
+      }
+      return data;
+    });
+    state.checkRun = run;
+    return run;
+  }
+
+  function pollFloorJob(job) {
+    function tick() {
+      if (state.floorJob !== job || job.status !== "running") return;
+      fetch("/api/quantity/progress/?job_id=" + encodeURIComponent(job.id), {
+        method: "POST", headers: { "X-CSRFToken": csrfToken() }
+      }).then(function (res) { return res.json().catch(function () { return {}; }); }).then(function (p) {
+        if (state.floorJob !== job) return;
+        if (p && p.done) {
+          job.status = p.ok === false ? "failed" : "done";
+          job.error = p.error || "";
+          job.result = (p.results && p.results.floor_views) || null;
+          if (job.onUpdate) job.onUpdate();
+          return;
+        }
+        if (p && p.label) job.label = p.label;
+        if (job.onUpdate) job.onUpdate();
+        setTimeout(tick, 2500);
+      }).catch(function () { setTimeout(tick, 4000); });
+    }
+    setTimeout(tick, 2500);
+  }
+
   async function showCadUploadCard() {
-    await qCard({ eyebrow: "01", label: "CAD files", art: "cad", total: 4, index: 1 },
+    await qCard({ eyebrow: "01", label: "CAD files", art: "cad", total: 5, index: 1 },
       "건축·구조 캐드 파일을 올려주세요.",
       "DWG·DXF 낱장이나 ZIP 묶음 모두 괜찮아요. 프로젝트 폴더를 통째로 놓으면 건축·구조를 알아서 나눠 담아요.");
     narrate("폴더째 끌어다 놓으셔도 돼요.");
@@ -6871,22 +6949,26 @@ body.cbl-modal-open {
     );
     next = row.querySelector("#qty-cad-next");
     next.disabled = !uploadCount("cad");
-    next.addEventListener("click", function () {
+    onceClick(next, function () {
       addUser("캐드 " + uploadCount("cad") + "개");
+      refreshQuantityFingerprint();
+      if (state.checkRun && state.checkRun.key !== cadSelectionKey()) state.stageCache.basicDrawings = null;
+      kickCheck();
       showPdfUploadCard();
     });
-    row.querySelector("#qty-cad-skip").addEventListener("click", function () {
+    onceClick(row.querySelector("#qty-cad-skip"), function () {
       addUser("PDF만으로 진행");
       showPdfUploadCard();
     });
   }
 
   async function showPdfUploadCard() {
-    await qCard({ eyebrow: "02", label: "PDF files", art: "pdf", total: 4, index: 2 },
+    await qCard({ eyebrow: "02", label: "PDF files", art: "pdf", total: 5, index: 2 },
       "이번엔 건축·구조 PDF를 올려주세요.");
     appendLeft('<div class="qd-chips"><span class="qd-chip">낱장 PDF</span><span class="qd-chip">합본 PDF</span><span class="qd-chip">폴더째</span><span class="qd-chip">순서 상관없음</span></div>');
     narrate("낱장이든 합본이든 상관없어요.");
-    if (deck) deck.line("도면을 한 장씩 뽑은 PDF든, 한 권으로 묶은 PDF든 상관없어요. 둘이 섞여 있어도 돼요.");
+    if (deck) deck.line("도면을 한 장씩 뽑은 PDF든, 한 권으로 묶은 PDF든 상관없어요. 둘이 섞여 있어도 돼요." +
+      (state.checkRun ? " 그사이 캐드 도면은 미리 열어 보고 있어요." : ""));
     var next;
     var drops = buildDropCard("pdf", function () { if (next) next.disabled = !uploadCount("pdf"); });
     if (deck) deck.append(drops); else flowEl.appendChild(drops);
@@ -6899,53 +6981,40 @@ body.cbl-modal-open {
     );
     next = row.querySelector("#qty-pdf-next");
     next.disabled = !uploadCount("pdf");
-    next.addEventListener("click", function () {
+    onceClick(next, function () {
       addUser("PDF " + uploadCount("pdf") + "개");
       runCheckZip();
     });
-    row.querySelector("#qty-pdf-back").addEventListener("click", function () {
+    onceClick(row.querySelector("#qty-pdf-back"), function () {
       addUser("캐드 파일 다시 볼게요");
       showCadUploadCard();
     });
   }
 
-  var CHECK_META = { eyebrow: "03", label: "Drawing check", art: "check", total: 4, index: 3 };
+  var CHECK_META = { eyebrow: "03", label: "Drawing check", art: "check", total: 5, index: 3 };
 
   async function runCheckZip() {
     refreshQuantityFingerprint();
-    if (state.stageCache.basicDrawings) {
+    if (state.stageCache.basicDrawings && state.checkRun && state.checkRun.key === cadSelectionKey()) {
       renderCadPrecheckResult(state.stageCache.basicDrawings);
       return;
     }
-    var cadUploads = state.cadFiles.concat(state.elevCadFiles || []);
-    if (!cadUploads.length) {
+    var run = kickCheck();
+    if (!run) {
+      state.floorJob = null;
       await qCard(CHECK_META, "캐드 없이 PDF로만 진행할게요.",
         "기본도면 누락 점검은 캐드 도면 목록으로 해요. PDF만 있을 때는 AI 판독 중에 빠진 도면을 따로 알려드릴게요.");
       showDrawingNotes(null);
       return;
     }
     if (deck) deck.next(CHECK_META);
-    var started = Date.now();
-    var think = appendLeft('<div class="qty-thinking"><div class="qty-spin"></div><span>캐드 도면 ' + cadUploads.length +
-      '개를 열어 기본도면이 다 있는지 대조하고 있어요<br><small class="qd-elapsed">0초</small></span></div>');
+    var think = appendLeft('<div class="qty-thinking"><div class="qty-spin"></div><span>캐드 도면 ' + run.count +
+      '개를 열어 기본도면이 다 있는지 대조하고 있어요<br><small class="qd-elapsed"></small></span></div>');
     var ticker = setInterval(function () {
       var el = think.querySelector(".qd-elapsed");
-      if (el) el.textContent = Math.round((Date.now() - started) / 1000) + "초";
+      if (el) el.textContent = Math.round((Date.now() - run.started) / 1000) + "초";
     }, 1000);
-
-    var fd = new FormData();
-    cadUploads.forEach(function (file) { fd.append("cad_files", file); });
-    var data = {};
-    try {
-      var res = await fetch("/api/quantity/check-zip/", {
-        method: "POST",
-        headers: { "X-CSRFToken": csrfToken() },
-        body: fd
-      });
-      data = await res.json();
-    } catch (e) {
-      data = { error: "네트워크 오류: " + (e && e.message ? e.message : String(e)) };
-    }
+    var data = await run.promise;
     clearInterval(ticker);
     think.remove();
     if (data.error) {
@@ -6982,6 +7051,19 @@ body.cbl-modal-open {
       '</div>'
     );
     showDrawingNotes(data);
+  }
+
+  // Everything the user told us on the upload step, as one note for the AI.
+  function buildDrawingNotes() {
+    var lines = Object.keys(state.drawingCheckNotes).filter(function (k) { return state.drawingCheckNotes[k]; })
+      .map(function (k) { return "- " + k.replace("|", " 기본도면 '") + "': " + state.drawingCheckNotes[k]; });
+    Object.keys(state.floorReview).forEach(function (key) {
+      var review = state.floorReview[key];
+      if (review.status === "flag") lines.push("- [층별 확인] " + key.replace("|", " ") + ": " + (review.note || "이상 있음"));
+    });
+    if (state.drawingGeneralNote) lines.push("- 기타: " + state.drawingGeneralNote);
+    state.drawingNotes = lines.join("\n");
+    return lines.length;
   }
 
   function showDrawingNotes(data) {
@@ -7035,28 +7117,292 @@ body.cbl-modal-open {
         state.drawingCheckNotes[input.getAttribute("data-note")] = input.value.trim();
       });
       state.drawingGeneralNote = general.querySelector("textarea").value.trim();
-      var lines = Object.keys(state.drawingCheckNotes).filter(function (k) { return state.drawingCheckNotes[k]; })
-        .map(function (k) { return "- " + k.replace("|", " 기본도면 '") + "': " + state.drawingCheckNotes[k]; });
-      if (state.drawingGeneralNote) lines.push("- 기타: " + state.drawingGeneralNote);
-      state.drawingNotes = lines.join("\n");
-      return lines.length;
+      return buildDrawingNotes();
     }
-    row.querySelector("#qty-missing-add").addEventListener("click", function () {
+    onceClick(row.querySelector("#qty-missing-add"), function () {
       collect();
       addUser("도면을 더 올릴게요");
       state.stageCache.basicDrawings = null;
       showCadUploadCard();
     });
-    row.querySelector("#qty-missing-go").addEventListener("click", function () {
+    onceClick(row.querySelector("#qty-missing-go"), function () {
       var n = collect();
       addUser(n ? "의견 " + n + "건 남김" : "이대로 진행");
-      showAiStartCard();
+      if (state.floorJob && state.floorJob.status !== "none") showFloorCheckCard();
+      else showAiStartCard();
     });
   }
 
+  // ── floor-by-floor colored plans ──────────────
+  var FLOOR_LEGEND = [
+    ["frame", "골조(콘크리트)"], ["masonry", "조적"], ["alc", "ALC"], ["dry", "건식벽"],
+    ["opening", "창호"], ["beam", "보"]
+  ];
+
+  function floorGroups(views) {
+    var floors = [], byKey = {};
+    views.forEach(function (view, index) {
+      var key = view.building + "|" + view.floor;
+      if (!byKey[key]) {
+        byKey[key] = { key: key, building: view.building, floor: view.floor, variants: [] };
+        floors.push(byKey[key]);
+      }
+      byKey[key].variants.push(index);
+    });
+    return floors;
+  }
+
+  async function showFloorCheckCard() {
+    await qCard({ eyebrow: "04", label: "Floor check", art: false, wide: true, total: 5, index: 4 },
+      "층별로 칠해 봤어요. 맞는지 확인해 주세요.");
+    var root = document.createElement("div");
+    root.className = "qd-floor-host";
+    root.setAttribute("data-qd-keep", "");
+    if (deck) deck.append(root); else flowEl.appendChild(root);
+    var row = appendLeft(
+      '<div class="qd-actions">' +
+        '<span class="qd-floor-progress"></span>' +
+        '<span class="qd-spacer"></span>' +
+        '<button type="button" class="qd-btn primary" id="qty-floor-go">다음 →</button>' +
+      '</div>'
+    );
+    var progressEl = row.querySelector(".qd-floor-progress");
+    var titleEl = root.closest(".qd-card") ? root.closest(".qd-card").querySelector(".qd-title") : null;
+    var job = state.floorJob;
+    var current = null, variantIndex = 0, view = { s: 1, x: 0, y: 0 }, hidden = {};
+    var floors = [], views = [];
+
+    function setProgress() {
+      if (!floors.length) { progressEl.textContent = ""; return; }
+      var ok = floors.filter(function (f) { return (state.floorReview[f.key] || {}).status === "ok"; }).length;
+      var flag = floors.filter(function (f) { return (state.floorReview[f.key] || {}).status === "flag"; }).length;
+      progressEl.textContent = floors.length + "개 층 중 " + (ok + flag) + "개 확인" + (flag ? " · 이상 " + flag : "");
+    }
+
+    function renderWaiting() {
+      var seconds = Math.round((Date.now() - (job.started || Date.now())) / 1000);
+      root.innerHTML = '<div class="qty-thinking"><div class="qty-spin"></div><span>평면도를 층별로 칠하고 있어요<br><small>' +
+        esc(job.label || "") + (seconds ? " · " + seconds + "초" : "") + '</small></span></div>';
+      if (titleEl) titleEl.textContent = "평면도를 층별로 칠하고 있어요.";
+    }
+
+    function renderFailed(message) {
+      root.innerHTML = '<p class="qd-note warn">' + esc(message) + '</p>' +
+        '<p class="qd-sub">층별 확인 없이 진행해도 돼요. AI 판독 단계에서 다시 확인해요.</p>';
+      if (titleEl) titleEl.textContent = "층별 평면을 만들지 못했어요.";
+    }
+
+    function applyTransform() {
+      var svg = root.querySelector(".qd-floor-canvas svg");
+      if (svg) svg.style.transform = "translate(" + view.x + "px," + view.y + "px) scale(" + view.s + ")";
+    }
+
+    function showFloor(floor, keepVariant) {
+      current = floor;
+      if (!keepVariant) variantIndex = 0;
+      view = { s: 1, x: 0, y: 0 };
+      var item = views[floor.variants[variantIndex]];
+      root.querySelectorAll(".qd-floor-item").forEach(function (b) {
+        b.classList.toggle("is-on", b.getAttribute("data-key") === floor.key);
+      });
+      root.querySelector(".qd-floor-name").textContent = floor.building + " · " + floor.floor;
+      root.querySelector(".qd-floor-sheet").textContent = [item.sheet, item.title].filter(Boolean).join(" · ");
+      root.querySelector(".qd-floor-variants").innerHTML = floor.variants.length > 1 ? floor.variants.map(function (vi, i) {
+        return '<button type="button" class="' + (i === variantIndex ? "is-on" : "") + '" data-variant="' + i + '">' +
+          esc(views[vi].variant) + '</button>';
+      }).join("") : '<span>' + esc(item.variant) + '</span>';
+      var canvas = root.querySelector(".qd-floor-canvas");
+      canvas.innerHTML = item.svg;
+      applyTransform();
+      var review = state.floorReview[floor.key] || {};
+      var memo = root.querySelector(".qd-floor-memo");
+      memo.hidden = review.status !== "flag";
+      memo.querySelector("input").value = review.note || "";
+    }
+
+    function renderViews(result) {
+      views = (result && result.views) || [];
+      floors = floorGroups(views);
+      if (!floors.length) {
+        renderFailed("평면도로 볼 수 있는 도면 틀을 찾지 못했어요.");
+        return;
+      }
+      if (titleEl) titleEl.textContent = "층별로 칠해 봤어요. 맞는지 확인해 주세요.";
+      narrate("노란색이 골조, 초록색이 조적이에요. 층마다 맞는지 봐주세요.");
+      var buildings = [];
+      floors.forEach(function (f) { if (buildings.indexOf(f.building) < 0) buildings.push(f.building); });
+      root.innerHTML =
+        '<p class="qd-sub">노란색이 골조(콘크리트), 초록색이 조적이에요. 층을 고르면 크게 보이고, 휠·드래그로 확대해 볼 수 있어요.</p>' +
+        '<div class="qd-floor">' +
+          '<nav class="qd-floor-rail" aria-label="층 목록">' + buildings.map(function (b) {
+            return '<div class="qd-floor-building"><h4>' + esc(b) + '</h4>' + floors.filter(function (f) { return f.building === b; })
+              .map(function (f) {
+                return '<button type="button" class="qd-floor-item" data-key="' + esc(f.key) + '"><i></i>' + esc(f.floor) + '</button>';
+              }).join("") + '</div>';
+          }).join("") + '</nav>' +
+          '<div class="qd-floor-main">' +
+            '<div class="qd-floor-head"><div><b class="qd-floor-name"></b><small class="qd-floor-sheet"></small></div>' +
+              '<div class="qd-floor-variants"></div></div>' +
+            '<div class="qd-floor-legend">' + FLOOR_LEGEND.map(function (l) {
+              return '<button type="button" class="fv-key-' + l[0] + (hidden[l[0]] ? " is-off" : "") + '" data-layer="' + l[0] + '"><i></i>' + l[1] + '</button>';
+            }).join("") + '</div>' +
+            '<div class="qd-floor-stage">' +
+              '<div class="qd-floor-canvas"></div>' +
+              '<div class="qd-floor-zoom"><button type="button" data-zoom="in" aria-label="확대">＋</button>' +
+                '<button type="button" data-zoom="out" aria-label="축소">－</button><button type="button" data-zoom="fit">맞춤</button></div>' +
+            '</div>' +
+            '<div class="qd-floor-memo" hidden><input class="qd-input" placeholder="무엇이 이상한지 적어주세요 (예: 계단실 벽이 조적으로 칠해짐)"></div>' +
+            '<div class="qd-floor-actions">' +
+              '<button type="button" class="qd-btn" data-review="flag">이상해요</button>' +
+              '<button type="button" class="qd-btn primary" data-review="ok">맞아요 →</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      Object.keys(hidden).forEach(function (k) { root.querySelector(".qd-floor-stage").classList.toggle("hide-" + k, hidden[k]); });
+      paintRail();
+      var first = floors.filter(function (f) { return !state.floorReview[f.key]; })[0] || floors[0];
+      showFloor(first);
+      setProgress();
+      wireStage();
+    }
+
+    function paintRail() {
+      root.querySelectorAll(".qd-floor-item").forEach(function (b) {
+        var review = state.floorReview[b.getAttribute("data-key")] || {};
+        b.classList.toggle("is-ok", review.status === "ok");
+        b.classList.toggle("is-flag", review.status === "flag");
+      });
+    }
+
+    function nextFloor() {
+      var at = floors.indexOf(current);
+      for (var i = 1; i <= floors.length; i++) {
+        var f = floors[(at + i) % floors.length];
+        if (!state.floorReview[f.key]) return f;
+      }
+      return null;
+    }
+
+    function wireStage() {
+      var stage = root.querySelector(".qd-floor-stage");
+      var drag = null;
+      stage.addEventListener("wheel", function (e) {
+        e.preventDefault();
+        var rect = stage.getBoundingClientRect();
+        var mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        var factor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
+        var s = Math.min(40, Math.max(0.6, view.s * factor));
+        view.x = mx - (mx - view.x) * (s / view.s);
+        view.y = my - (my - view.y) * (s / view.s);
+        view.s = s;
+        applyTransform();
+      }, { passive: false });
+      stage.addEventListener("pointerdown", function (e) {
+        if (e.target.closest("button")) return;
+        drag = { x: e.clientX - view.x, y: e.clientY - view.y };
+        stage.setPointerCapture(e.pointerId);
+      });
+      stage.addEventListener("pointermove", function (e) {
+        if (!drag) return;
+        view.x = e.clientX - drag.x;
+        view.y = e.clientY - drag.y;
+        applyTransform();
+      });
+      stage.addEventListener("pointerup", function () { drag = null; });
+    }
+
+    root.addEventListener("click", function (e) {
+      var item = e.target.closest(".qd-floor-item");
+      if (item) {
+        var floor = floors.filter(function (f) { return f.key === item.getAttribute("data-key"); })[0];
+        if (floor) showFloor(floor);
+        return;
+      }
+      var variant = e.target.closest("[data-variant]");
+      if (variant && current) {
+        variantIndex = Number(variant.getAttribute("data-variant"));
+        showFloor(current, true);
+        return;
+      }
+      var layer = e.target.closest("[data-layer]");
+      if (layer) {
+        var key = layer.getAttribute("data-layer");
+        hidden[key] = !hidden[key];
+        layer.classList.toggle("is-off", hidden[key]);
+        root.querySelector(".qd-floor-stage").classList.toggle("hide-" + key, hidden[key]);
+        return;
+      }
+      var zoom = e.target.closest("[data-zoom]");
+      if (zoom) {
+        var mode = zoom.getAttribute("data-zoom");
+        if (mode === "fit") view = { s: 1, x: 0, y: 0 };
+        else {
+          var stageEl = root.querySelector(".qd-floor-stage");
+          var cx = stageEl.clientWidth / 2, cy = stageEl.clientHeight / 2;
+          var s = Math.min(40, Math.max(0.6, view.s * (mode === "in" ? 1.5 : 1 / 1.5)));
+          view.x = cx - (cx - view.x) * (s / view.s);
+          view.y = cy - (cy - view.y) * (s / view.s);
+          view.s = s;
+        }
+        applyTransform();
+        return;
+      }
+      var review = e.target.closest("[data-review]");
+      if (review && current) {
+        var memo = root.querySelector(".qd-floor-memo");
+        if (review.getAttribute("data-review") === "flag") {
+          if (memo.hidden) {
+            memo.hidden = false;
+            memo.querySelector("input").focus();
+            state.floorReview[current.key] = { status: "flag", note: memo.querySelector("input").value.trim() };
+          } else {
+            state.floorReview[current.key] = { status: "flag", note: memo.querySelector("input").value.trim() };
+            var after = nextFloor();
+            if (after) showFloor(after);
+          }
+        } else {
+          state.floorReview[current.key] = { status: "ok" };
+          var following = nextFloor();
+          if (following) showFloor(following);
+        }
+        paintRail();
+        setProgress();
+      }
+    });
+    root.addEventListener("input", function (e) {
+      if (current && e.target.closest(".qd-floor-memo")) {
+        state.floorReview[current.key] = { status: "flag", note: e.target.value.trim() };
+      }
+    });
+
+    function update() {
+      if (job.status === "running") { renderWaiting(); return; }
+      job.onUpdate = null;
+      if (job.status === "done") renderViews(job.result);
+      else renderFailed(job.error || "평면도를 칠하지 못했어요.");
+    }
+
+    onceClick(row.querySelector("#qty-floor-go"), function () {
+      if (job) job.onUpdate = null;
+      var reviewed = Object.keys(state.floorReview).length;
+      buildDrawingNotes();
+      addUser(floors.length ? "층별 확인 " + reviewed + "/" + floors.length : "층별 확인 건너뜀");
+      showAiStartCard();
+    });
+
+    if (!job) { renderFailed("평면도 작업이 시작되지 않았어요."); return; }
+    job.onUpdate = update;
+    update();
+    var waitTimer = setInterval(function () {
+      if (!job || job.status !== "running" || !root.isConnected) { clearInterval(waitTimer); return; }
+      renderWaiting();
+    }, 1000);
+  }
+
   async function showAiStartCard() {
-    await qCard({ eyebrow: "04", label: "Ready", art: "ai", total: 4, index: 4 }, "AI 판독을 시작할까요?",
+    await qCard({ eyebrow: "05", label: "Ready", art: "ai", total: 5, index: 5 }, "AI 판독을 시작할까요?",
       "프로젝트 개요부터 구조일반사항, 동·층·층고, 부재까지 차례로 읽어 갈게요. 단계마다 확인을 받고 넘어가요.");
+    buildDrawingNotes();
     function bytes(list) { return fileSizeText(list.reduce(function (s, f) { return s + f.size; }, 0)); }
     function stat(label, list) {
       return '<div class="qd-stat"><span>' + label + '</span><b>' + list.length + '<em> 개 · ' + (list.length ? bytes(list) : "없음") + '</em></b></div>';
@@ -7077,7 +7423,7 @@ body.cbl-modal-open {
         '<button type="button" class="qd-btn primary glow" id="qty-ai-go">AI 판독 시작</button>' +
       '</div>'
     );
-    row.querySelector("#qty-ai-back").addEventListener("click", function () {
+    onceClick(row.querySelector("#qty-ai-back"), function () {
       addUser("파일 다시 볼게요");
       showCadUploadCard();
     });

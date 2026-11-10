@@ -15,7 +15,9 @@ import logging
 import math
 import os
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -1620,7 +1622,178 @@ def api_check_zip(request):
         "quantity_cad_precheck_received upload_count=%s upload_names=%s",
         len(uploaded_files), [uploaded.name for uploaded in uploaded_files],
     )
-    return JsonResponse(_build_cad_precheck(uploaded_files))
+    payload = _build_cad_precheck(uploaded_files)
+    floor_job = request.POST.get("floor_views_job_id")
+    floor_job = floor_job.strip() if isinstance(floor_job, str) else ""
+    if floor_job:
+        # The same upload feeds the floor-by-floor colored plans, so nothing is sent twice.
+        payload["floor_views"] = _start_floor_views_job(request, floor_job[:200], uploaded_files)
+    return JsonResponse(payload)
+
+
+# ─────────────────────────────────────────────
+#  층별 색칠 평면(업로드 단계 확인용): 평면도와 그 외부참조만 DXF로 바꾼 뒤, 별도의
+#  낮은 우선순위 프로세스(core.quantity_floor_views)에서 재료별로 칠한다. AI는 쓰지 않는다.
+# ─────────────────────────────────────────────
+FLOOR_VIEWS_CONVERT_SECONDS = 300
+FLOOR_VIEWS_RENDER_SECONDS = 900
+FLOOR_VIEWS_MIN_FREE_MB = 750
+
+
+def _floor_view_inputs(uploaded_files):
+    """(name, bytes) of the plan sheets and possible xrefs among the uploads (ZIPs unpacked)."""
+    from . import quantity_floor_views
+    found, names = [], set()
+
+    def keep(name, data):
+        name = unicodedata.normalize("NFC", os.path.basename(name or ""))
+        if not name.lower().endswith((".dwg", ".dxf")) or not data:
+            return
+        if not (quantity_floor_views.is_plan_file(name) or quantity_floor_views.is_reference_file(name)):
+            return
+        base, ext, n = name[:-4], name[-4:], 2
+        while name in names:
+            name, n = f"{base} ({n}){ext}", n + 1
+        names.add(name)
+        found.append((name, data))
+
+    for uploaded in uploaded_files:
+        try:
+            uploaded.seek(0)
+        except Exception:
+            pass
+        data = uploaded.read()
+        if (uploaded.name or "").lower().endswith(".zip"):
+            try:
+                archive = zipfile.ZipFile(io.BytesIO(data))
+            except zipfile.BadZipFile:
+                continue
+            for info in archive.infolist():
+                member = _decode_zip_member_name(info)["decoded_name"].replace("\\", "/")
+                if _is_macos_zip_metadata(member) or info.is_dir():
+                    continue
+                if member.lower().endswith((".dwg", ".dxf")):
+                    keep(member, archive.read(info))
+        else:
+            keep(uploaded.name, data)
+    return found
+
+
+def _start_floor_views_job(request, job_id, uploaded_files):
+    from . import quantity_floor_views
+    try:
+        inputs = _floor_view_inputs(uploaded_files)
+    except Exception as exc:
+        logger.warning("quantity_floor_views_inputs_failed error=%s", str(exc)[:200])
+        return {"started": False, "reason": "평면도 파일을 읽지 못했어요."}
+    plans = [name for name, _data in inputs if quantity_floor_views.is_plan_file(name)]
+    if not plans:
+        return {"started": False, "reason": "평면도 캐드 파일을 찾지 못했어요."}
+    digest = hashlib.sha256("\n".join(sorted(
+        f"{name}:{_sha256_bytes(data)}" for name, data in inputs)).encode("utf-8")).hexdigest()
+    status = _quantity_state().begin_job(job_id, request.user.pk, "api_quantity_floor_views", digest)
+    if status == "duplicate":
+        return {"started": True, "job_id": job_id, "plans": len(plans)}
+    if status != "new":
+        return {"started": False, "reason": "이 작업 ID는 쓸 수 없어요. 새로 시작해 주세요."}
+    _progress_set(job_id, "queued", 0, 1, "평면도를 준비하고 있어요")
+    threading.Thread(target=_run_floor_views_job, args=(job_id, inputs), daemon=True).start()
+    return {"started": True, "job_id": job_id, "plans": len(plans)}
+
+
+def _wait_for_free_memory(minimum_mb=FLOOR_VIEWS_MIN_FREE_MB, timeout=180):
+    """On Linux, wait (up to `timeout` s) until MemAvailable reaches `minimum_mb`."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            with open("/proc/meminfo", encoding="ascii") as handle:
+                available = next(int(line.split()[1]) // 1024 for line in handle if line.startswith("MemAvailable:"))
+        except (OSError, StopIteration, ValueError):
+            return True
+        if available >= minimum_mb:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(5)
+
+
+def _run_floor_views_job(job_id, inputs):
+    from . import quantity_floor_views as fv
+    try:
+        with tempfile.TemporaryDirectory(prefix="cbl_qty_fv_") as work:
+            files = []
+            for index, (name, data) in enumerate(inputs):
+                path = os.path.join(work, f"{index:03d}{os.path.splitext(name)[1].lower()}")
+                with open(path, "wb") as handle:
+                    handle.write(data)
+                files.append({"name": name, "path": path})
+            inputs = None  # the bytes live on disk from here on
+            plans = [f for f in files if fv.is_plan_file(f["name"])]
+            refs = {fv.reference_key(f["name"]): f for f in files
+                    if fv.is_reference_file(f["name"]) and f not in plans}
+            manifest, needed = [], set()
+
+            def to_dxf(item):
+                if item["path"].endswith(".dxf"):
+                    with open(item["path"], "rb") as handle:
+                        text = handle.read().decode("utf-8", errors="ignore")
+                    return {"name": item["name"], "dxf": item["path"], "raw": True}, text
+                text, _metadata = _cbl_free_dwg_to_dxf_text_v1(
+                    item["path"], timeout=FLOOR_VIEWS_CONVERT_SECONDS, wait=FLOOR_VIEWS_CONVERT_SECONDS, background=True)
+                out = item["path"] + ".dxf"
+                with open(out, "w", encoding="utf-8") as handle:
+                    handle.write(text)
+                return {"name": item["name"], "dxf": out, "raw": False}, text
+
+            for index, item in enumerate(plans):
+                _progress_set(job_id, "convert", index, len(plans) + 1, f"평면도 여는 중 ({index + 1}/{len(plans)})")
+                try:
+                    entry, text = to_dxf(item)
+                except Exception as exc:
+                    logger.warning("quantity_floor_views_convert_failed file=%s error=%s", item["name"], str(exc)[:200])
+                    continue
+                manifest.append(entry)
+                needed |= fv.referenced_files(text)
+            needed |= {key for key in refs if "form" in key}
+            for key in sorted(needed):
+                if key not in refs:
+                    continue
+                _progress_set(job_id, "convert", len(plans), len(plans) + 1, "외부참조 도면 여는 중")
+                try:
+                    entry, _text = to_dxf(refs[key])
+                except Exception as exc:
+                    logger.warning("quantity_floor_views_convert_failed file=%s error=%s", key, str(exc)[:200])
+                    continue
+                manifest.append(entry)
+            if not any(entry["name"] in {p["name"] for p in plans} for entry in manifest):
+                _result_set(job_id, {"ok": False, "error": "평면도 캐드 파일을 열지 못했어요."})
+                return
+            _progress_set(job_id, "render", len(plans), len(plans) + 1, "층별로 색을 칠하고 있어요")
+            _wait_for_free_memory()
+            manifest_path = os.path.join(work, "manifest.json")
+            out_path = os.path.join(work, "floor_views.json")
+            with open(manifest_path, "w", encoding="utf-8") as handle:
+                json.dump({"files": manifest, "plans": [p["name"] for p in plans]}, handle, ensure_ascii=False)
+            command = [sys.executable, "-m", "core.quantity_floor_views", manifest_path, out_path]
+            if shutil.which("nice"):
+                command = ["nice", "-n", "15"] + command
+            run = subprocess.run(command, cwd=str(settings.BASE_DIR), timeout=FLOOR_VIEWS_RENDER_SECONDS,
+                                 capture_output=True)
+            if run.returncode != 0 or not os.path.exists(out_path):
+                logger.warning("quantity_floor_views_render_failed code=%s stderr=%s", run.returncode,
+                               run.stderr.decode("utf-8", errors="replace")[-500:])
+                _result_set(job_id, {"ok": False, "error": "평면도를 칠하지 못했어요."})
+                return
+            with open(out_path, encoding="utf-8") as handle:
+                result = json.load(handle)
+        _result_set(job_id, {"ok": True, "results": {"floor_views": result}})
+    except subprocess.TimeoutExpired:
+        _result_set(job_id, {"ok": False, "error": "평면도를 칠하는 데 시간이 너무 오래 걸려 멈췄어요."})
+    except Exception as exc:
+        logger.exception("quantity_floor_views_failed job=%s", job_id)
+        _result_set(job_id, {"ok": False, "error": "평면도를 칠하지 못했어요: " + str(exc)[:160]})
+    finally:
+        _progress_clear(job_id)
 
 
 # ─────────────────────────────────────────────
