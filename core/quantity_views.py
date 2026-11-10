@@ -6217,6 +6217,24 @@ def _run_overview_check_job(job_id, review_id, structural_pdf_bytes, architectur
         _progress_clear(job_id)
 
 
+QUANTITY_DRAWING_NOTES_MAX_CHARS = 2000
+
+
+def _drawing_notes_from_request(request):
+    """The upload step's drawing notes, trimmed and capped; None when empty."""
+    text = (request.POST.get("drawing_notes") or "").strip()
+    return text[:QUANTITY_DRAWING_NOTES_MAX_CHARS] or None
+
+
+def _with_drawing_notes(correction_context, drawing_notes):
+    """Adds the drawing notes to the user context the overview prompt already carries."""
+    if not drawing_notes:
+        return correction_context
+    block = ("[사용자 도면 메모 — 업로드 단계 누락 점검에서 입력. 도면이 다른 파일에 함께 "
+             "들어 있다는 등 도면 위치 안내로 참고]\n" + drawing_notes)
+    return f"{correction_context}\n\n{block}" if correction_context else block
+
+
 @require_POST
 @_admin_only_json
 def api_quantity_overview_check(request):
@@ -6255,7 +6273,14 @@ def api_quantity_overview_check(request):
     rec = _review_ensure(review_id, request.user.pk, file_hashes)
     correction_context = (request.POST.get("correction_context") or "").strip() or None
     force = str(request.POST.get("force") or "").lower() in {"1", "true", "yes"}
-    if rec.get("overview") is not None and not force and not correction_context:
+    # Notes typed on the upload step's drawing check ("the schedule is inside S-311" ...).
+    # They reach the AI with the overview check and stay on the review record.
+    drawing_notes = _drawing_notes_from_request(request)
+    notes_changed = drawing_notes != rec.get("drawing_notes")
+    if notes_changed:
+        _review_update(review_id, drawing_notes=drawing_notes)
+    if (rec.get("overview") is not None and not force and not correction_context
+            and not notes_changed):
         _result_set(job_id, {
             "ok": True,
             "results": {
@@ -6272,7 +6297,7 @@ def api_quantity_overview_check(request):
     thread = threading.Thread(
         target=_run_overview_check_job,
         args=(job_id, review_id, structural_pdf_bytes, architectural_pdf_bytes,
-              correction_context),
+              _with_drawing_notes(correction_context, drawing_notes)),
         kwargs={
             "architectural_page_hints": architectural_page_hints,
             "structural_page_hints": structural_page_hints,

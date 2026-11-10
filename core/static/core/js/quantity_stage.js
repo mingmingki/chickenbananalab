@@ -79,6 +79,7 @@
 
   function setSpeaking(on) {
     orbs.forEach(function (orb) { orb.classList.toggle("is-speaking", on); });
+    modal.classList.toggle("qty-is-speaking", on);
   }
 
   function pulse() {
@@ -205,6 +206,10 @@
     userSaid: function () { if (synth) synth.cancel(); pending = 0; setSpeaking(false); },
     step: step,
     stop: stop,
+    say: function (text, onDone) {
+      if (text) caption.textContent = text;
+      speak(text, onDone);
+    },
     dismissIntro: dismissIntro
   };
 })();

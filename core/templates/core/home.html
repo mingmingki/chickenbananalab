@@ -6216,7 +6216,9 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<script src="{% static 'core/js/quantity_stage.js' %}"></script>
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261110-deck1">
+<script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-deck1"></script>
+<script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-deck1"></script>
 
 <script>
 (function () {
@@ -6227,6 +6229,11 @@ body.cbl-modal-open {
 
   var bodyEl = document.getElementById("qty-body");
   var flowEl = document.getElementById("qty-flow");
+  // One card at a time (quantity_deck.js); without it the old chat log still works.
+  var deck = window.cblQuantityDeck ? window.cblQuantityDeck.create(flowEl, {
+    labels: ["", "Project", "Drawings", "AI reading", "Takeoff"]
+  }) : null;
+  if (deck) modal.classList.add("qty-deck-mode");
 
   var LOGO_SRC = "{% static 'core/images/cbl_program_icon_logo_v3.png' %}";
 
@@ -6323,6 +6330,7 @@ body.cbl-modal-open {
   }
 
   function scrollBottom() {
+    if (deck) { deck.scrollLatest(); return; }
     bodyEl.scrollTop = bodyEl.scrollHeight;
   }
 
@@ -6350,12 +6358,16 @@ body.cbl-modal-open {
   function addBot(html, delay) {
     return new Promise(function (resolve) {
       setTimeout(function () {
-        flowEl.insertAdjacentHTML("beforeend",
-          '<div class="sender-name">CBL 봇</div>' +
-          '<div class="msg-row left">' + botAvatarHtml() +
-            '<div class="bubble bot">' + html + '</div>' +
-          '</div>'
-        );
+        if (deck) {
+          deck.say(html);
+        } else {
+          flowEl.insertAdjacentHTML("beforeend",
+            '<div class="sender-name">CBL 봇</div>' +
+            '<div class="msg-row left">' + botAvatarHtml() +
+              '<div class="bubble bot">' + html + '</div>' +
+            '</div>'
+          );
+        }
         scrollBottom();
         if (window.cblQuantityStage) window.cblQuantityStage.botSaid(html);
         resolve();
@@ -6364,11 +6376,13 @@ body.cbl-modal-open {
   }
 
   function stageStep(n) {
+    if (deck) deck.step(n);
     if (window.cblQuantityStage) window.cblQuantityStage.step(n);
   }
 
   function addUser(html) {
     if (window.cblQuantityStage) window.cblQuantityStage.userSaid();
+    if (deck) { deck.answer(html); return; }
     flowEl.insertAdjacentHTML("beforeend",
       '<div class="sender-name right">게스트</div>' +
       '<div class="msg-row right">' + userAvatarHtml() +
@@ -6382,12 +6396,36 @@ body.cbl-modal-open {
     var el = document.createElement("div");
     el.innerHTML = html;
     var target = el.children.length === 1 ? el.firstElementChild : el;
-    flowEl.appendChild(target);
+    if (deck) deck.append(target); else flowEl.appendChild(target);
     scrollBottom();
     return target;
   }
 
   function askChoice(options, onPick) {
+    if (deck) {
+      var tiles = document.createElement("div");
+      tiles.className = "qd-tiles";
+      options.forEach(function (opt) {
+        var isEtc = opt === "그외";
+        var tile = document.createElement("button");
+        tile.type = "button";
+        tile.className = "qd-tile" + (isEtc ? " is-etc" : "");
+        var icon = (typeof TILE_ICONS !== "undefined" && TILE_ICONS[opt]) || "";
+        var hint = (typeof TILE_HINTS !== "undefined" && TILE_HINTS[opt]) || "";
+        tile.innerHTML = (icon ? '<svg viewBox="0 0 24 24" aria-hidden="true">' + icon + '</svg>' : "") +
+          '<b>' + esc(isEtc ? "그 외" : opt) + '</b>' + (hint ? '<small>' + esc(hint) + '</small>' : "");
+        tile.addEventListener("click", function () {
+          tiles.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
+          tile.classList.add("is-picked");
+          if (isEtc) { onPick(null, true); return; }
+          addUser(esc(opt));
+          onPick(opt, false);
+        });
+        tiles.appendChild(tile);
+      });
+      deck.append(tiles);
+      return;
+    }
     var wrap = document.createElement("div");
     wrap.className = "qty-choice-stack";
 
@@ -6415,11 +6453,13 @@ body.cbl-modal-open {
 
   function askEtcInput(placeholder, onSubmit) {
     var row = document.createElement("div");
-    row.className = "qty-etc-row";
-    row.innerHTML =
-      '<input type="text" class="qty-etc-input" placeholder="' + esc(placeholder) + '">' +
-      '<button type="button" class="qty-etc-send">↑</button>';
-    flowEl.appendChild(row);
+    row.className = deck ? "qd-entry" : "qty-etc-row";
+    row.innerHTML = deck
+      ? '<input type="text" class="qd-input qty-etc-input" placeholder="' + esc(placeholder) + '">' +
+        '<button type="button" class="qd-btn primary qty-etc-send">확인</button>'
+      : '<input type="text" class="qty-etc-input" placeholder="' + esc(placeholder) + '">' +
+        '<button type="button" class="qty-etc-send">↑</button>';
+    if (deck) deck.append(row); else flowEl.appendChild(row);
     scrollBottom();
 
     var input = row.querySelector(".qty-etc-input");
@@ -6440,254 +6480,436 @@ body.cbl-modal-open {
     });
   }
 
-  async function askProjectType() {
-    await addBot("수량산출하는 프로젝트가 어떤 유형이죠?", 250);
-    askChoice(["아파트", "일반건축물", "단독주택", "그외"], async function (val, isEtc) {
-      if (isEtc) {
-        await addBot("어떠한 유형이죠?", 150);
-        askEtcInput("프로젝트 유형을 입력해 주세요", function (text) {
-          state.answers.projectType = text;
-          askStructureType();
-        });
-      } else {
-        state.answers.projectType = val;
-        askStructureType();
-      }
+  // ─────────────────────────────────────────────
+  //  1단계 프로젝트 확인 · 2단계 도면 업로드 — 카드 한 장씩.
+  //  CAD → PDF(낱장·합본 무관) → 누락 점검(항목별 의견) → "AI 판독을 시작할까요?"
+  // ─────────────────────────────────────────────
+  var TILE_ICONS = {
+    "아파트": '<path d="M5 21V5l7-3 7 3v16M12 2v19M8 8h1M15 8h1M8 12h1M15 12h1M8 16h1M15 16h1M3 21h18"/>',
+    "일반건축물": '<path d="M4 21V8h16v13M4 8l8-5 8 5M8 12h2M14 12h2M8 16h2M14 16h2M3 21h18"/>',
+    "단독주택": '<path d="M3 11l9-7 9 7M5 9.5V21h14V9.5M10 21v-6h4v6"/>',
+    "철근콘크리트조": '<path d="M3 6h18M3 12h18M3 18h18M6 3v18M12 3v18M18 3v18"/>',
+    "철근철골콘크리트조": '<path d="M5 5h14M5 19h14M12 5v14M5 5v3M19 5v3M5 19v-3M19 19v-3"/><path d="M2 12h20" stroke-dasharray="2 3"/>',
+    "철골조": '<path d="M5 4h14M5 20h14M12 4v16M5 4v2.5M19 4v2.5M5 20v-2.5M19 20v-2.5"/>',
+    "오픈컷": '<path d="M2 8h5l3 10h4l3-10h5"/><path d="M2 5h20" stroke-dasharray="2 3"/>',
+    "CIP등 흙막이공사": '<path d="M2 7h20M6 7v14M10 7v14M14 7v14M18 7v14"/>',
+    "그외": '<circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/>'
+  };
+  var TILE_HINTS = {
+    "아파트": "공동주택·주상복합", "일반건축물": "근생·업무·공장 등", "단독주택": "단독·다가구",
+    "철근콘크리트조": "RC", "철근철골콘크리트조": "SRC", "철골조": "S",
+    "오픈컷": "사면 굴착", "CIP등 흙막이공사": "CIP · H-Pile · SCW 등", "그외": "직접 입력"
+  };
+
+  function stepTransition(n, title, text) {
+    stageStep(n);
+    if (!deck) return addBot(text, 200);
+    return deck.transition(n, title, text);
+  }
+
+  // Extra spoken sentence after a card's title (the title itself is spoken by addBot).
+  function narrate(text) {
+    if (window.cblQuantityStage && window.cblQuantityStage.say) window.cblQuantityStage.say(text);
+  }
+
+  function qCard(meta, title, sub) {
+    if (deck) deck.next(meta);
+    return addBot(title, 200).then(function () {
+      if (sub && deck) deck.line(sub);
     });
+  }
+
+  function askAnswer(meta, title, sub, options, etcTitle, etcPlaceholder, onDone) {
+    qCard(meta, title, sub).then(function () {
+      askChoice(options, function (val, isEtc) {
+        if (isEtc) {
+          qCard(meta, etcTitle).then(function () {
+            askEtcInput(etcPlaceholder, onDone);
+          });
+        } else {
+          onDone(val);
+        }
+      });
+    });
+  }
+
+  async function askProjectType() {
+    askAnswer({ eyebrow: "01", label: "Project type", art: "building", total: 4, index: 1 },
+      "수량산출할 프로젝트는 어떤 유형인가요?", "수량산출 전에 몇 가지만 여쭤볼게요.",
+      ["아파트", "일반건축물", "단독주택", "그외"],
+      "어떤 유형인지 적어주세요.", "예: 오피스텔, 지식산업센터",
+      function (val) { state.answers.projectType = val; askStructureType(); });
   }
 
   async function askStructureType() {
-    await addBot("주요구조는 어떤것이죠?", 250);
-    askChoice(["철근콘크리트조", "철근철골콘크리트조", "철골조", "그외"], async function (val, isEtc) {
-      if (isEtc) {
-        await addBot("어떠한 구조이죠?", 150);
-        askEtcInput("주요구조를 입력해 주세요", function (text) {
-          state.answers.structureType = text;
-          askExcavationType();
-        });
-      } else {
-        state.answers.structureType = val;
-        askExcavationType();
-      }
-    });
+    askAnswer({ eyebrow: "02", label: "Main structure", art: "frame", total: 4, index: 2 },
+      "주요 구조는 무엇인가요?", "가장 큰 비중을 차지하는 구조형식을 골라주세요.",
+      ["철근콘크리트조", "철근철골콘크리트조", "철골조", "그외"],
+      "어떤 구조인지 적어주세요.", "예: 철골철근콘크리트 + 목조 혼합",
+      function (val) { state.answers.structureType = val; askExcavationType(); });
   }
 
   async function askExcavationType() {
-    await addBot("터파기는 유형은 어떤것이죠?", 250);
-    askChoice(["오픈컷", "CIP등 흙막이공사", "그외"], async function (val, isEtc) {
-      if (isEtc) {
-        await addBot("어떠한 유형이죠?", 150);
-        askEtcInput("터파기 유형을 입력해 주세요", function (text) {
-          state.answers.excavationType = text;
-          showSummary();
-        });
-      } else {
-        state.answers.excavationType = val;
-        showSummary();
-      }
-    });
+    askAnswer({ eyebrow: "03", label: "Excavation", art: "ground", total: 4, index: 3 },
+      "터파기는 어떤 방식인가요?", "지하층 굴착 방식에 따라 터파기·되메우기 산출이 달라져요.",
+      ["오픈컷", "CIP등 흙막이공사", "그외"],
+      "어떤 방식인지 적어주세요.", "예: 어스앵커 + 토류판",
+      function (val) { state.answers.excavationType = val; showSummary(); });
   }
 
   async function showSummary() {
-    await addBot("입력하신 내용을 정리했어요. 맞는지 확인해 주세요.", 250);
-
-    function row(label, val) {
-      return '<div class="qty-summary-row"><span class="qty-summary-label">' + label + '</span><span class="qty-summary-value">' + esc(val) + '</span></div>';
-    }
-
+    await qCard({ eyebrow: "04", label: "Confirm", art: "check", total: 4, index: 4 },
+      "입력하신 내용이 맞는지 확인해 주세요.");
     appendLeft(
-      '<div class="qty-summary-card">' +
-        '<div class="qty-summary-title">프로젝트 개요</div>' +
-        row("프로젝트 유형", state.answers.projectType) +
-        row("주요구조", state.answers.structureType) +
-        row("터파기 유형", state.answers.excavationType) +
+      '<div class="qd-stats">' +
+        '<div class="qd-stat"><span>프로젝트 유형</span><b>' + esc(state.answers.projectType) + '</b></div>' +
+        '<div class="qd-stat"><span>주요 구조</span><b>' + esc(state.answers.structureType) + '</b></div>' +
+        '<div class="qd-stat"><span>터파기</span><b>' + esc(state.answers.excavationType) + '</b></div>' +
       '</div>'
     );
-
-    var btnRow = appendLeft(
-      '<div class="qty-btn-row" id="qty-summary-actions">' +
-        '<button type="button" class="qty-action" id="qty-summary-edit">수정</button>' +
-        '<button type="button" class="qty-action primary" id="qty-summary-go">진행</button>' +
+    var row = appendLeft(
+      '<div class="qd-actions">' +
+        '<button type="button" class="qd-btn" id="qty-summary-edit">다시 고르기</button>' +
+        '<button type="button" class="qd-btn primary" id="qty-summary-go">맞아요, 다음으로 →</button>' +
       '</div>'
     );
-
-    btnRow.querySelector("#qty-summary-edit").addEventListener("click", function () {
-      btnRow.remove();
-      addUser("내용을 수정할게요.");
+    row.querySelector("#qty-summary-edit").addEventListener("click", function () {
+      addUser("다시 고를게요");
       state.answers = { projectType: null, structureType: null, excavationType: null };
       askProjectType();
     });
-    btnRow.querySelector("#qty-summary-go").addEventListener("click", function () {
-      btnRow.remove();
-      addUser("네, 맞아요. 진행할게요.");
+    row.querySelector("#qty-summary-go").addEventListener("click", function () {
+      addUser("확인했어요");
       startUploadStep();
     });
   }
 
+  // ── uploads ──────────────────────────────────
+  // state.uploads[kind][disc] = [{file, rel, group}], kind cad|pdf, disc arch|struct.
+  // Folder groups can be switched off (archives, duplicate copies); the legacy arrays the
+  // rest of the flow posts (cadFiles / elevCadFiles / pdfFiles / elevPdfFiles) follow them.
+  var UPLOAD_DISC = { arch: "건축", struct: "구조" };
+  var CAD_EXT = /\.(dwg|dxf|zip)$/i;
+  var PDF_EXT = /\.pdf$/i;
+  var ARCHIVE_DIR = /(아카이브|archive|backup|백업|구버전|이전|old)(\/|$)/i;
+  state.uploads = { cad: { arch: [], struct: [] }, pdf: { arch: [], struct: [] } };
+  state.groupOff = {};
+  state.groupNotes = {};
+  state.drawingCheckNotes = {};
+  state.drawingGeneralNote = "";
+  state.drawingNotes = "";
+
+  function fileSizeText(bytes) {
+    if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + "MB";
+    return Math.max(1, Math.round(bytes / 1024)) + "KB";
+  }
+
+  // Sheet-number prefix first (S-101 / A-301), then the nearest folder named 구조 / 건축.
+  function disciplineOf(rel, name, fallback) {
+    if (/^s[-_ ]?\d/i.test(name || "")) return "struct";
+    if (/^a[-_ ]?\d/i.test(name || "")) return "arch";
+    var parts = String(rel || "").split("/").reverse();
+    for (var i = 0; i < parts.length; i++) {
+      if (/구조|struct/i.test(parts[i])) return "struct";
+      if (/건축|archit/i.test(parts[i])) return "arch";
+    }
+    return fallback;
+  }
+
+  function groupOf(rel) {
+    var parts = String(rel || "").replace(/^\/+/, "").split("/");
+    parts.pop();
+    return parts.length ? parts.join("/") : "(선택한 파일)";
+  }
+
+  function syncLegacyUploads() {
+    function on(list) {
+      return list.filter(function (e) { return !state.groupOff[e.kind + "|" + e.disc + "|" + e.group]; })
+        .map(function (e) { return e.file; });
+    }
+    state.cadFiles = on(state.uploads.cad.struct);
+    state.elevCadFiles = on(state.uploads.cad.arch);
+    state.pdfFiles = on(state.uploads.pdf.struct);
+    state.elevPdfFiles = on(state.uploads.pdf.arch);
+    state.reviewId = null;
+  }
+
+  // Default off: archive folders, and a folder whose drawings already came in through an
+  // earlier folder (same file names), e.g. BIND copies next to the working set.
+  function applyGroupDefaults(kind, disc) {
+    var list = state.uploads[kind][disc];
+    var groups = {};
+    list.forEach(function (e) { (groups[e.group] = groups[e.group] || []).push(e); });
+    var names = Object.keys(groups).sort(function (a, b) {
+      return (groups[b].length - groups[a].length) || (/bind/i.test(a) - /bind/i.test(b)) || a.localeCompare(b);
+    });
+    var seen = {};
+    names.forEach(function (g) {
+      var key = kind + "|" + disc + "|" + g;
+      if (key in state.groupOff) {
+        if (!state.groupOff[key]) groups[g].forEach(function (e) { seen[e.file.name.toLowerCase()] = true; });
+        return;
+      }
+      var off = false, note = "";
+      if (ARCHIVE_DIR.test(g + "/")) { off = true; note = "보관 폴더라 꺼 둠"; }
+      else {
+        var dup = groups[g].filter(function (e) { return seen[e.file.name.toLowerCase()]; }).length;
+        if (groups[g].length >= 3 && dup / groups[g].length >= 0.6) { off = true; note = "같은 도면 사본이라 꺼 둠"; }
+      }
+      state.groupOff[key] = off;
+      state.groupNotes[key] = note;
+      if (!off) groups[g].forEach(function (e) { seen[e.file.name.toLowerCase()] = true; });
+    });
+  }
+
+  // Returns {added: {cad:{arch,struct}, pdf:{...}}, skipped}
+  function takeFiles(entries, zoneKind, zoneDisc) {
+    var added = { cad: { arch: 0, struct: 0 }, pdf: { arch: 0, struct: 0 } };
+    var skipped = 0;
+    entries.forEach(function (item) {
+      var file = item.file;
+      // macOS hands over decomposed Hangul (NFD) for many folders; compare in NFC.
+      var rel = String(item.rel || file.webkitRelativePath || file.name).normalize("NFC");
+      var kind = CAD_EXT.test(file.name) ? "cad" : (PDF_EXT.test(file.name) ? "pdf" : null);
+      if (!kind || /\.(bak|dwl2?)$/i.test(file.name)) { skipped += 1; return; }
+      var disc = disciplineOf(rel.replace(/[^/]*$/, ""), file.name.normalize("NFC"), zoneDisc);
+      var list = state.uploads[kind][disc];
+      var dupe = list.some(function (e) { return e.rel === rel && e.file.size === file.size; });
+      if (dupe) return;
+      list.push({ file: file, rel: rel, group: groupOf(rel), kind: kind, disc: disc });
+      added[kind][disc] += 1;
+    });
+    ["cad", "pdf"].forEach(function (k) { ["arch", "struct"].forEach(function (d) { applyGroupDefaults(k, d); }); });
+    syncLegacyUploads();
+    return { added: added, skipped: skipped };
+  }
+
+  function readDroppedEntries(dataTransfer) {
+    var items = Array.from(dataTransfer.items || []);
+    var roots = items.map(function (it) { return it.webkitGetAsEntry ? it.webkitGetAsEntry() : null; }).filter(Boolean);
+    if (!roots.length) {
+      return Promise.resolve(Array.from(dataTransfer.files || []).map(function (f) { return { file: f, rel: f.name }; }));
+    }
+    var out = [];
+    function walk(entry) {
+      if (entry.isFile) {
+        return new Promise(function (resolve) {
+          entry.file(function (f) { out.push({ file: f, rel: entry.fullPath.replace(/^\//, "") }); resolve(); },
+                     function () { resolve(); });
+        });
+      }
+      if (entry.isDirectory) {
+        var reader = entry.createReader();
+        return new Promise(function (resolve) {
+          var all = [];
+          (function more() {
+            reader.readEntries(function (batch) {
+              if (!batch.length) { Promise.all(all.map(walk)).then(resolve); return; }
+              all = all.concat(Array.from(batch));
+              more();
+            }, function () { Promise.all(all.map(walk)).then(resolve); });
+          })();
+        });
+      }
+      return Promise.resolve();
+    }
+    return Promise.all(roots.map(walk)).then(function () { return out; });
+  }
+
+  var ZONE_ICON = {
+    cad: '<svg viewBox="0 0 24 24"><path d="M4 4h11l5 5v11H4z"/><path d="M15 4v5h5M8 16l3-4 2 2 3-4"/></svg>',
+    pdf: '<svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h6M9 15h6M9 18h4"/></svg>'
+  };
+
+  function buildDropCard(kind, onChange) {
+    var wrap = document.createElement("div");
+    wrap.setAttribute("data-qd-keep", "");
+    wrap.innerHTML = '<div class="qd-drops">' + ["arch", "struct"].map(function (disc) {
+      return '<div class="qd-drop" data-disc="' + disc + '">' +
+        '<div class="qd-drop-head"><b>' + UPLOAD_DISC[disc] + ' ' + (kind === "cad" ? "CAD" : "PDF") + '</b><span class="qd-drop-count"></span></div>' +
+        '<div class="qd-zone">' + ZONE_ICON[kind] +
+          '<p>여기에 끌어다 놓으세요<br>파일 여러 개, 폴더째 모두 돼요</p>' +
+          '<div class="qd-zone-buttons">' +
+            '<button type="button" class="qd-btn" data-pick="files">파일 선택</button>' +
+            '<button type="button" class="qd-btn" data-pick="folder">폴더 선택</button>' +
+          '</div>' +
+          '<input type="file" multiple data-input="files" accept="' + (kind === "cad" ? ".dwg,.dxf,.zip" : ".pdf") + '">' +
+          '<input type="file" multiple webkitdirectory data-input="folder">' +
+        '</div>' +
+        '<div class="qd-files"></div>' +
+      '</div>';
+    }).join("") + '</div><p class="qd-note" hidden></p>';
+
+    var note = wrap.querySelector(".qd-note");
+
+    function report(result) {
+      var other = kind === "cad" ? "pdf" : "cad";
+      var otherCount = result.added[other].arch + result.added[other].struct;
+      var found = result.added[kind].arch + result.added[kind].struct;
+      var label = kind === "cad" ? "CAD" : "PDF";
+      var msg = [];
+      if (found) {
+        var on = uploadCount(kind);
+        var all = state.uploads[kind].arch.length + state.uploads[kind].struct.length;
+        msg.push(label + " " + found + "개를 건축 " + result.added[kind].arch + " · 구조 " + result.added[kind].struct + "개로 나눠 담았어요." +
+          (on < all ? " 보관·사본 폴더 " + (all - on) + "개 파일은 꺼 두었어요." : ""));
+      }
+      if (otherCount) msg.push((other === "pdf" ? "PDF " : "CAD ") + otherCount + "개도 찾아서 " + (other === "pdf" ? "다음 단계에" : "앞 단계에") + " 미리 담아 두었어요.");
+      if (result.skipped) msg.push("그 외 파일 " + result.skipped + "개(백업·로그 등)는 건너뛰었어요.");
+      note.hidden = !msg.length;
+      note.textContent = msg.join(" ");
+    }
+
+    function render() {
+      ["arch", "struct"].forEach(function (disc) {
+        var box = wrap.querySelector('.qd-drop[data-disc="' + disc + '"]');
+        var list = state.uploads[kind][disc];
+        var groups = {};
+        list.forEach(function (e) { (groups[e.group] = groups[e.group] || []).push(e); });
+        var onCount = 0, onBytes = 0;
+        var html = Object.keys(groups).sort().map(function (g) {
+          var key = kind + "|" + disc + "|" + g;
+          var off = !!state.groupOff[key];
+          var bytes = groups[g].reduce(function (s, e) { return s + e.file.size; }, 0);
+          if (!off) { onCount += groups[g].length; onBytes += bytes; }
+          var label = g.split("/").slice(-2).join(" / ");
+          var single = groups[g].length === 1 ? groups[g][0].file.name : label;
+          return '<div class="qd-group' + (off ? " is-off" : "") + '" title="' + esc(g) + '">' +
+            '<input type="checkbox" data-group="' + esc(key) + '"' + (off ? "" : " checked") + ' aria-label="' + esc(single) + ' 포함">' +
+            '<span class="qd-group-text"><span class="qd-group-name">' + esc(single) + '</span>' +
+            '<span class="qd-group-meta">' + (groups[g].length > 1 ? groups[g].length + "개 · " : "") + fileSizeText(bytes) +
+              (state.groupNotes[key] && off ? " · " + esc(state.groupNotes[key]) : "") + '</span></span>' +
+            '<button type="button" data-remove="' + esc(key) + '" aria-label="빼기">×</button>' +
+          '</div>';
+        }).join("");
+        box.querySelector(".qd-files").innerHTML = html;
+        box.querySelector(".qd-zone").classList.toggle("has-files", list.length > 0);
+        box.querySelector(".qd-drop-count").textContent = onCount ? (onCount + "개 · " + fileSizeText(onBytes)) : "";
+      });
+      onChange();
+    }
+
+    wrap.addEventListener("change", function (e) {
+      var t = e.target;
+      if (t.matches("input[data-group]")) {
+        state.groupOff[t.getAttribute("data-group")] = !t.checked;
+        syncLegacyUploads();
+        render();
+        return;
+      }
+      if (t.matches("input[data-input]")) {
+        var disc = t.closest(".qd-drop").getAttribute("data-disc");
+        var entries = Array.from(t.files || []).map(function (f) { return { file: f, rel: f.webkitRelativePath || f.name }; });
+        t.value = "";
+        report(takeFiles(entries, kind, disc));
+        render();
+      }
+    });
+    wrap.addEventListener("click", function (e) {
+      var pick = e.target.closest("[data-pick]");
+      if (pick) {
+        pick.closest(".qd-zone").querySelector('input[data-input="' + pick.getAttribute("data-pick") + '"]').click();
+        return;
+      }
+      var rm = e.target.closest("[data-remove]");
+      if (rm) {
+        var parts = rm.getAttribute("data-remove").split("|");
+        state.uploads[parts[0]][parts[1]] = state.uploads[parts[0]][parts[1]].filter(function (en) { return en.group !== parts.slice(2).join("|"); });
+        delete state.groupOff[rm.getAttribute("data-remove")];
+        syncLegacyUploads();
+        render();
+      }
+    });
+    wrap.querySelectorAll(".qd-zone").forEach(function (zone) {
+      var disc = zone.closest(".qd-drop").getAttribute("data-disc");
+      zone.addEventListener("dragover", function (e) { e.preventDefault(); zone.classList.add("is-over"); });
+      zone.addEventListener("dragleave", function () { zone.classList.remove("is-over"); });
+      zone.addEventListener("drop", function (e) {
+        e.preventDefault();
+        zone.classList.remove("is-over");
+        note.hidden = false;
+        note.textContent = "파일을 살펴보는 중이에요…";
+        readDroppedEntries(e.dataTransfer).then(function (entries) {
+          report(takeFiles(entries, kind, disc));
+          render();
+        });
+      });
+    });
+    render();
+    return wrap;
+  }
+
+  function uploadCount(kind) {
+    return kind === "cad" ? state.cadFiles.length + state.elevCadFiles.length
+                          : state.pdfFiles.length + state.elevPdfFiles.length;
+  }
+
   async function startUploadStep() {
-    stageStep(2);
-    await addBot("건축·구조 캐드 및 PDF 파일을 올려주세요. 구조도면은 누락된 게 있으면 따로 알려드릴게요.", 250);
-
-    var uploadEl = appendLeft(
-      '<label class="qty-upload" id="qty-upload">' +
-        '<input type="file" id="qty-file-input" multiple accept=".zip,.dwg,.dxf,.pdf">' +
-        '<strong>구조도면 ZIP / PDF 파일 업로드</strong>' +
-        '<span>DWG 묶음 ZIP과 구조도면 합본 PDF를 올려주세요.<br>클릭하거나 파일을 끌어다 놓으세요.</span>' +
-      '</label>'
-    );
-
-    var inputEl = uploadEl.querySelector("#qty-file-input");
-
-    inputEl.addEventListener("change", function () {
-      addFiles(inputEl.files);
-      inputEl.value = "";
-    });
-
-    uploadEl.addEventListener("dragover", function (e) {
-      e.preventDefault();
-      uploadEl.style.background = "#dcfce7";
-    });
-    uploadEl.addEventListener("dragleave", function () {
-      uploadEl.style.background = "";
-    });
-    uploadEl.addEventListener("drop", function (e) {
-      e.preventDefault();
-      uploadEl.style.background = "";
-      addFiles(e.dataTransfer.files);
-    });
-
-    var elevUploadEl = appendLeft(
-      '<label class="qty-upload" id="qty-elev-upload">' +
-        '<input type="file" id="qty-elev-file-input" multiple accept=".zip,.dwg,.dxf,.pdf">' +
-        '<strong>건축도면(입면도·단면도 등) ZIP / PDF 업로드</strong>' +
-        '<span>층고·개구부(창호) 대조에 사용해요. 없으면 비워두고 진행해도 돼요.<br>클릭하거나 파일을 끌어다 놓으세요.</span>' +
-      '</label>'
-    );
-
-    var elevInputEl = elevUploadEl.querySelector("#qty-elev-file-input");
-
-    elevInputEl.addEventListener("change", function () {
-      addElevFiles(elevInputEl.files);
-      elevInputEl.value = "";
-    });
-
-    elevUploadEl.addEventListener("dragover", function (e) {
-      e.preventDefault();
-      elevUploadEl.style.background = "#dcfce7";
-    });
-    elevUploadEl.addEventListener("dragleave", function () {
-      elevUploadEl.style.background = "";
-    });
-    elevUploadEl.addEventListener("drop", function (e) {
-      e.preventDefault();
-      elevUploadEl.style.background = "";
-      addElevFiles(e.dataTransfer.files);
-    });
-
-    renderFileStatus();
+    if (!state.uploadIntroDone) {
+      state.uploadIntroDone = true;
+      await stepTransition(2, "도면 업로드", "프로젝트 확인이 끝났습니다.<br>다음, 도면 업로드로 넘어갈게요.");
+    } else {
+      stageStep(2);
+    }
+    showCadUploadCard();
   }
 
-  function addFiles(fileList) {
-    var list = Array.from(fileList || []);
-    if (!list.length) return;
-
-    var added = 0, ignored = 0;
-    list.forEach(function (file) {
-      var name = file.name.toLowerCase();
-      if (name.endsWith(".pdf")) {
-        state.pdfFiles.push(file);
-        added += 1;
-      } else if (name.endsWith(".zip") || name.endsWith(".dwg") || name.endsWith(".dxf")) {
-        state.cadFiles.push(file);
-        added += 1;
-      } else {
-        ignored += 1;
-      }
-    });
-    if (added > 0) state.reviewId = null;
-
-    if (added > 0) addUser(added + "개 구조도면 파일을 올렸어요.");
-    if (ignored > 0) addBot("지원하지 않는 파일 " + ignored + "개는 제외했어요. (ZIP, DWG, DXF, PDF만 가능)", 200);
-
-    renderFileStatus();
-  }
-
-  function addElevFiles(fileList) {
-    var list = Array.from(fileList || []);
-    if (!list.length) return;
-
-    var added = 0, ignored = 0;
-    list.forEach(function (file) {
-      var name = file.name.toLowerCase();
-      if (name.endsWith(".pdf")) {
-        state.elevPdfFiles.push(file);
-        added += 1;
-      } else if (name.endsWith(".zip") || name.endsWith(".dwg") || name.endsWith(".dxf")) {
-        state.elevCadFiles.push(file);
-        added += 1;
-      } else {
-        ignored += 1;
-      }
-    });
-    if (added > 0) state.reviewId = null;
-
-    if (added > 0) addUser(added + "개 건축도면 파일을 올렸어요.");
-    if (ignored > 0) addBot("지원하지 않는 파일 " + ignored + "개는 제외했어요. (ZIP, DWG, DXF, PDF만 가능)", 200);
-
-    renderFileStatus();
-  }
-
-  var fileStatusEl = null;
-  var fileActionsEl = null;
-
-  function renderFileStatus() {
-    if (fileStatusEl) fileStatusEl.remove();
-    if (fileActionsEl) fileActionsEl.remove();
-
-    var cadNames = state.cadFiles.length ? state.cadFiles.map(function (f) { return f.name; }).join(", ") : "확인되지 않음";
-    var pdfNames = state.pdfFiles.length ? state.pdfFiles.map(function (f) { return f.name; }).join(", ") : "확인되지 않음";
-    var elevCadNames = state.elevCadFiles.length ? state.elevCadFiles.map(function (f) { return f.name; }).join(", ") : "없음 (선택)";
-    var elevPdfNames = state.elevPdfFiles.length ? state.elevPdfFiles.map(function (f) { return f.name; }).join(", ") : "없음 (선택)";
-
-    fileStatusEl = appendLeft(
-      '<div class="qty-file-box">' +
-        '<div class="qty-file-label">구조도면 ZIP / CAD</div>' +
-        '<div class="qty-file-name">' + esc(cadNames) + '</div>' +
-        '<div class="qty-file-label" style="margin-top:8px">구조도면 PDF</div>' +
-        '<div class="qty-file-name">' + esc(pdfNames) + '</div>' +
-        '<div class="qty-file-label" style="margin-top:8px">건축도면 ZIP / CAD</div>' +
-        '<div class="qty-file-name">' + esc(elevCadNames) + '</div>' +
-        '<div class="qty-file-label" style="margin-top:8px">건축도면 PDF</div>' +
-        '<div class="qty-file-name">' + esc(elevPdfNames) + '</div>' +
+  async function showCadUploadCard() {
+    await qCard({ eyebrow: "01", label: "CAD files", art: "cad", total: 4, index: 1 },
+      "건축·구조 캐드 파일을 올려주세요.",
+      "DWG·DXF 낱장이나 ZIP 묶음 모두 괜찮아요. 프로젝트 폴더를 통째로 놓으면 건축·구조를 알아서 나눠 담아요.");
+    narrate("폴더째 끌어다 놓으셔도 돼요.");
+    var next;
+    var drops = buildDropCard("cad", function () { if (next) next.disabled = !uploadCount("cad"); });
+    if (deck) deck.append(drops); else flowEl.appendChild(drops);
+    var row = appendLeft(
+      '<div class="qd-actions">' +
+        '<button type="button" class="qd-btn link" id="qty-cad-skip">캐드 없이 PDF만 올릴게요</button>' +
+        '<span class="qd-spacer"></span>' +
+        '<button type="button" class="qd-btn primary" id="qty-cad-next">다음 →</button>' +
       '</div>'
     );
+    next = row.querySelector("#qty-cad-next");
+    next.disabled = !uploadCount("cad");
+    next.addEventListener("click", function () {
+      addUser("캐드 " + uploadCount("cad") + "개");
+      showPdfUploadCard();
+    });
+    row.querySelector("#qty-cad-skip").addEventListener("click", function () {
+      addUser("PDF만으로 진행");
+      showPdfUploadCard();
+    });
+  }
 
-    fileActionsEl = appendLeft(
-      '<div class="qty-btn-row">' +
-        '<button type="button" class="qty-action" id="qty-re-upload">재등록</button>' +
-        '<button type="button" class="qty-action primary" id="qty-upload-go" ' +
-          (state.cadFiles.length || state.pdfFiles.length ? '' : 'disabled') + '>1. 기본도면 확인</button>' +
+  async function showPdfUploadCard() {
+    await qCard({ eyebrow: "02", label: "PDF files", art: "pdf", total: 4, index: 2 },
+      "이번엔 건축·구조 PDF를 올려주세요.");
+    appendLeft('<div class="qd-chips"><span class="qd-chip">낱장 PDF</span><span class="qd-chip">합본 PDF</span><span class="qd-chip">폴더째</span><span class="qd-chip">순서 상관없음</span></div>');
+    narrate("낱장이든 합본이든 상관없어요.");
+    if (deck) deck.line("도면을 한 장씩 뽑은 PDF든, 한 권으로 묶은 PDF든 상관없어요. 둘이 섞여 있어도 돼요.");
+    var next;
+    var drops = buildDropCard("pdf", function () { if (next) next.disabled = !uploadCount("pdf"); });
+    if (deck) deck.append(drops); else flowEl.appendChild(drops);
+    var row = appendLeft(
+      '<div class="qd-actions">' +
+        '<button type="button" class="qd-btn link" id="qty-pdf-back">← 캐드 파일 다시 보기</button>' +
+        '<span class="qd-spacer"></span>' +
+        '<button type="button" class="qd-btn primary" id="qty-pdf-next">다음 →</button>' +
       '</div>'
     );
-
-    fileActionsEl.querySelector("#qty-re-upload").addEventListener("click", function () {
-      state.cadFiles = [];
-      state.pdfFiles = [];
-      state.elevCadFiles = [];
-      state.elevPdfFiles = [];
-      state.reviewId = null;
-      fileStatusEl.remove();
-      fileActionsEl.remove();
-      addUser("파일을 다시 올릴게요.");
-      addBot("좋아요, 건축·구조 도면을 다시 올려주세요.", 200);
-    });
-
-    fileActionsEl.querySelector("#qty-upload-go").addEventListener("click", function () {
-      fileActionsEl.remove();
-      addUser("업로드한 도면으로 진행할게요.");
+    next = row.querySelector("#qty-pdf-next");
+    next.disabled = !uploadCount("pdf");
+    next.addEventListener("click", function () {
+      addUser("PDF " + uploadCount("pdf") + "개");
       runCheckZip();
     });
+    row.querySelector("#qty-pdf-back").addEventListener("click", function () {
+      addUser("캐드 파일 다시 볼게요");
+      showCadUploadCard();
+    });
   }
+
+  var CHECK_META = { eyebrow: "03", label: "Drawing check", art: "check", total: 4, index: 3 };
 
   async function runCheckZip() {
     refreshQuantityFingerprint();
@@ -6695,21 +6917,24 @@ body.cbl-modal-open {
       renderCadPrecheckResult(state.stageCache.basicDrawings);
       return;
     }
-    var think = appendLeft('<div class="qty-thinking"><div class="qty-spin"></div><span>제가 열심히 분석중입니다.. (오픈AI검토)</span></div>');
-    scrollBottom();
-
     var cadUploads = state.cadFiles.concat(state.elevCadFiles || []);
-
     if (!cadUploads.length) {
-      think.remove();
-      await addBot("검토할 CAD ZIP/DWG/DXF 파일이 없어 도면명 대조는 생략할게요.", 200);
-      showRunButton();
+      await qCard(CHECK_META, "캐드 없이 PDF로만 진행할게요.",
+        "기본도면 누락 점검은 캐드 도면 목록으로 해요. PDF만 있을 때는 AI 판독 중에 빠진 도면을 따로 알려드릴게요.");
+      showDrawingNotes(null);
       return;
     }
+    if (deck) deck.next(CHECK_META);
+    var started = Date.now();
+    var think = appendLeft('<div class="qty-thinking"><div class="qty-spin"></div><span>캐드 도면 ' + cadUploads.length +
+      '개를 열어 기본도면이 다 있는지 대조하고 있어요<br><small class="qd-elapsed">0초</small></span></div>');
+    var ticker = setInterval(function () {
+      var el = think.querySelector(".qd-elapsed");
+      if (el) el.textContent = Math.round((Date.now() - started) / 1000) + "초";
+    }, 1000);
 
     var fd = new FormData();
     cadUploads.forEach(function (file) { fd.append("cad_files", file); });
-
     var data = {};
     try {
       var res = await fetch("/api/quantity/check-zip/", {
@@ -6721,79 +6946,155 @@ body.cbl-modal-open {
     } catch (e) {
       data = { error: "네트워크 오류: " + (e && e.message ? e.message : String(e)) };
     }
-
+    clearInterval(ticker);
     think.remove();
-
     if (data.error) {
-      await addBot("ZIP 확인 중 오류가 발생했어요.<br>" + esc(data.error), 200);
-      showRunButton();
+      await addBot("도면 목록을 확인하지 못했어요.", 150);
+      if (deck) deck.line(esc(data.error), "qd-note warn");
+      showDrawingNotes(null);
       return;
     }
-
     state.stageCache.basicDrawings = data;
     renderCadPrecheckResult(data);
   }
 
   async function renderCadPrecheckResult(data) {
-    var statusLabels = {
-      confirmed: "확인됨", candidate_unverified: "후보 발견·내용 확인 필요",
-      missing: "파일 없음", scan_incomplete: "업로드 탐색 미완료"
-    };
-    function renderChecklist(title, items) {
-      var rows = (items || []).map(function (item) {
-        var files = (item.files || []).map(function (file) {
-          return '<div class="qty-missing-reason">' + esc(file.filename) +
-            '<br>위치: ' + esc(file.path) + ' · 분류: ' + esc(file.source_folder) + '</div>';
-        }).join("");
-        return '<div class="qty-missing-line">• <b>' + esc(item.name) + '</b> — ' +
-          esc(statusLabels[item.status] || item.status) + files + '</div>';
-      }).join("");
-      appendLeft('<div class="qty-missing-box"><div class="qty-missing-title">' +
-        esc(title) + '</div>' + rows + '</div>');
-    }
     var scan = data.scan || {};
-    var allChecklist = (data.structural_checklist || []).concat(data.architectural_checklist || []);
-    var candidateCount = allChecklist.reduce(function (count, item) {
-      return count + ((item.files || []).length);
-    }, 0);
+    var all = (data.structural_checklist || []).concat(data.architectural_checklist || []);
+    var open = all.filter(function (item) { return item.status !== "confirmed"; });
+    var title = !scan.cad_count ? "캐드 파일에서 도면을 찾지 못했어요."
+      : (open.length ? "빠진 도면이 있는지 확인했어요. " + open.length + "개는 직접 확인이 필요해요."
+                     : "기본도면이 모두 확인됐어요.");
+    await qCard(CHECK_META, title);
+    if (open.length) narrate("다른 파일에 함께 들어 있는 도면이면, 의견칸에 적어주세요.");
     if (scan.complete === false) {
-      await addBot("일부 업로드를 끝까지 확인하지 못했어요.", 200);
-    } else if (!scan.cad_count) {
-      await addBot("업로드에서 DWG/DXF 도면을 찾지 못했어요.", 200);
-    } else {
-      await addBot("CAD 도면 " + scan.cad_count + "개와 ZIP 내부 하위 폴더를 확인했어요.", 200);
-      if (!candidateCount) {
-        await addBot("CAD 파일은 찾았지만 도면명이 정상적으로 판독되지 않아 기본도면을 분류하지 못했어요.", 160);
-      }
+      appendLeft('<p class="qd-note warn">일부 파일은 시간 안에 다 열지 못했어요. 그 도면은 AI 판독 때 다시 확인해요.</p>');
     }
-    renderChecklist("구조 기본도면", data.structural_checklist);
-    renderChecklist("건축 기본도면", data.architectural_checklist);
-
-    var missBtns = appendLeft(
-      '<div class="qty-btn-row">' +
-        '<button type="button" class="qty-action" id="qty-missing-add">도면 추가/교체</button>' +
-        '<button type="button" class="qty-action primary" id="qty-missing-skip">현재 도면으로 진행</button>' +
+    function count(items) {
+      var ok = (items || []).filter(function (i) { return i.status === "confirmed"; }).length;
+      return ok + ' <em>/ ' + (items || []).length + '</em>';
+    }
+    appendLeft(
+      '<div class="qd-stats">' +
+        '<div class="qd-stat"><span>열어 본 캐드 도면</span><b>' + esc(scan.cad_count || 0) + '<em> 개</em></b></div>' +
+        '<div class="qd-stat"><span>구조 기본도면</span><b>' + count(data.structural_checklist) + '</b></div>' +
+        '<div class="qd-stat"><span>건축 기본도면</span><b>' + count(data.architectural_checklist) + '</b></div>' +
       '</div>'
     );
-    missBtns.querySelector("#qty-missing-add").addEventListener("click", function () {
-      missBtns.remove();
-      addUser("도면을 추가/교체해서 다시 올릴게요.");
-      startUploadStep();
+    showDrawingNotes(data);
+  }
+
+  function showDrawingNotes(data) {
+    var STATUS = {
+      confirmed: ["ok", "확인됨"], candidate_unverified: ["maybe", "후보만 찾음"],
+      missing: ["miss", "못 찾음"], scan_incomplete: ["maybe", "다 못 열어봄"]
+    };
+    function column(title, items) {
+      if (!items || !items.length) return "";
+      var attention = items.filter(function (item) { return item.status !== "confirmed"; });
+      var ok = items.filter(function (item) { return item.status === "confirmed"; });
+      var rows = attention.map(function (item) {
+        var st = STATUS[item.status] || ["maybe", item.status];
+        var key = title + "|" + item.name;
+        var files = (item.files || []).slice(0, 2).map(function (f) { return esc(f.filename); }).join(", ");
+        return '<div class="qd-item">' +
+          '<div class="qd-item-head"><b>' + esc(item.name) + '</b><span class="qd-status ' + st[0] + '">' + st[1] + '</span></div>' +
+          (files ? '<div class="qd-item-files">' + files + '</div>' : '') +
+          '<input class="qd-input" data-note="' + esc(key) + '" value="' + esc(state.drawingCheckNotes[key] || "") +
+            '" placeholder="다른 파일에 함께 있다면 적어주세요 (예: S-311 파일 안에 있음)">' +
+        '</div>';
+      }).join("");
+      var chips = ok.map(function (item) {
+        var files = (item.files || []).map(function (f) { return f.filename; }).join(", ");
+        return '<span class="qd-okchip" title="' + esc(files) + '">' + esc(item.name) + '</span>';
+      }).join("");
+      return '<div class="qd-check-col"><h3>' + esc(title) + ' 기본도면</h3>' + rows +
+        (ok.length ? '<details class="qd-okset"' + (attention.length ? '' : ' open') + '><summary>확인된 도면 ' + ok.length +
+          '개</summary><div class="qd-okchips">' + chips + '</div></details>' : '') +
+      '</div>';
+    }
+    if (data) {
+      var html = column("구조", data.structural_checklist) + column("건축", data.architectural_checklist);
+      if (html) appendLeft('<div class="qd-check-grid" data-qd-keep>' + html + '</div>');
+    }
+    var general = appendLeft(
+      '<div data-qd-keep><label class="qd-sub" for="qty-drawing-note" style="display:block;margin:0 0 8px">그 밖에 AI가 알아야 할 내용 (선택)</label>' +
+      '<textarea id="qty-drawing-note" class="qd-textarea" placeholder="예: 일람표는 구조평면도 파일 뒤쪽에 붙어 있어요 / 102동은 101동과 대칭이에요">' +
+      esc(state.drawingGeneralNote) + '</textarea></div>'
+    );
+    var row = appendLeft(
+      '<div class="qd-actions">' +
+        '<button type="button" class="qd-btn" id="qty-missing-add">도면 더 올리기</button>' +
+        '<span class="qd-spacer"></span>' +
+        '<button type="button" class="qd-btn primary" id="qty-missing-go">다음 →</button>' +
+      '</div>'
+    );
+    function collect() {
+      var card = general.closest(".qd-body") || flowEl;
+      card.querySelectorAll("input[data-note]").forEach(function (input) {
+        state.drawingCheckNotes[input.getAttribute("data-note")] = input.value.trim();
+      });
+      state.drawingGeneralNote = general.querySelector("textarea").value.trim();
+      var lines = Object.keys(state.drawingCheckNotes).filter(function (k) { return state.drawingCheckNotes[k]; })
+        .map(function (k) { return "- " + k.replace("|", " 기본도면 '") + "': " + state.drawingCheckNotes[k]; });
+      if (state.drawingGeneralNote) lines.push("- 기타: " + state.drawingGeneralNote);
+      state.drawingNotes = lines.join("\n");
+      return lines.length;
+    }
+    row.querySelector("#qty-missing-add").addEventListener("click", function () {
+      collect();
+      addUser("도면을 더 올릴게요");
+      state.stageCache.basicDrawings = null;
+      showCadUploadCard();
     });
-    missBtns.querySelector("#qty-missing-skip").addEventListener("click", function () {
-      missBtns.remove();
-      addUser("현재 도면으로 진행할게요.");
-      showRunButton();
+    row.querySelector("#qty-missing-go").addEventListener("click", function () {
+      var n = collect();
+      addUser(n ? "의견 " + n + "건 남김" : "이대로 진행");
+      showAiStartCard();
+    });
+  }
+
+  async function showAiStartCard() {
+    await qCard({ eyebrow: "04", label: "Ready", art: "ai", total: 4, index: 4 }, "AI 판독을 시작할까요?",
+      "프로젝트 개요부터 구조일반사항, 동·층·층고, 부재까지 차례로 읽어 갈게요. 단계마다 확인을 받고 넘어가요.");
+    function bytes(list) { return fileSizeText(list.reduce(function (s, f) { return s + f.size; }, 0)); }
+    function stat(label, list) {
+      return '<div class="qd-stat"><span>' + label + '</span><b>' + list.length + '<em> 개 · ' + (list.length ? bytes(list) : "없음") + '</em></b></div>';
+    }
+    appendLeft(
+      '<div class="qd-stats">' +
+        stat("건축 CAD", state.elevCadFiles) + stat("구조 CAD", state.cadFiles) +
+        stat("건축 PDF", state.elevPdfFiles) + stat("구조 PDF", state.pdfFiles) +
+      '</div>'
+    );
+    if (state.drawingNotes) {
+      appendLeft('<p class="qd-note">남겨주신 의견 ' + state.drawingNotes.split("\n").length + '건도 함께 AI에게 전달해요.</p>');
+    }
+    var row = appendLeft(
+      '<div class="qd-actions">' +
+        '<button type="button" class="qd-btn" id="qty-ai-back">파일 다시 보기</button>' +
+        '<span class="qd-spacer"></span>' +
+        '<button type="button" class="qd-btn primary glow" id="qty-ai-go">AI 판독 시작</button>' +
+      '</div>'
+    );
+    row.querySelector("#qty-ai-back").addEventListener("click", function () {
+      addUser("파일 다시 볼게요");
+      showCadUploadCard();
+    });
+    row.querySelector("#qty-ai-go").addEventListener("click", async function () {
+      this.disabled = true;
+      addUser("AI 판독 시작");
+      await stepTransition(3, "AI 판독", "도면 업로드가 끝났습니다.<br>이제 AI 판독을 시작할게요.");
+      runOverviewCheck();
     });
   }
 
   function showRunButton() {
     var wrap = appendLeft(
-      '<div class="qty-btn-row wide"><button type="button" class="qty-action primary full" id="qty-run-go">2. 프로젝트 개요 확인</button></div>'
+      '<div class="qd-actions"><button type="button" class="qd-btn primary" id="qty-run-go">AI 판독 다시 시작</button></div>'
     );
     wrap.querySelector("#qty-run-go").addEventListener("click", function () {
-      wrap.remove();
-      addUser("프로젝트 개요를 확인할게요.");
+      addUser("AI 판독 다시 시작");
       runOverviewCheck();
     });
   }
@@ -6827,6 +7128,7 @@ body.cbl-modal-open {
     state.cadFiles.forEach(function (f) { fd.append("cad_files", f); });
     state.elevCadFiles.forEach(function (f) { fd.append("cad_files", f); });
     if (correctionContext) fd.append("correction_context", correctionContext);
+    if (state.drawingNotes) fd.append("drawing_notes", state.drawingNotes);
     if (force) fd.append("force", "true");
 
     function fail(msg) {
@@ -9083,7 +9385,7 @@ body.cbl-modal-open {
   async function startFlow() {
     stageStep(1);
     if (!window.cblQuantityStage) await addBot("안녕하세요. AI 구조산출 자동화 봇입니다.", 200);
-    await addBot("수량산출 전 몇가지 궁금한점이 있습니다.", 350);
+    if (!deck) await addBot("수량산출 전 몇가지 궁금한점이 있습니다.", 350);
     askProjectType();
   }
 
