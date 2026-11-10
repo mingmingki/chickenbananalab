@@ -6216,10 +6216,10 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261110-mass1">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261110-takeoff1">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
-<script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261110-mass1"></script>
+<script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261110-takeoff1"></script>
 
 <script>
 (function () {
@@ -9221,7 +9221,97 @@ body.cbl-modal-open {
     await new Promise(function (resolve) {
       onceClick(row3.go, function () { var n = row3.note(); addUser(n ? "거푸집: " + esc(n) : "거푸집 확인"); resolve(); });
     });
-    if (deck) deck.next({ eyebrow: "04", label: "Takeoff", art: "sheet", total: 4, index: 4 });
+  }
+
+  // ─────────────────────────────────────────────
+  //  2D 수량산출: "N층 = N층 벽·기둥 + N+1층 바닥 슬래브·보" 기준 층별 콘크리트·거푸집.
+  //  층별 확인 작업의 CAD 실측과 AI 판독의 일람표 연결(member_links)로 서버가 계산한다(AI 호출 없음).
+  // ─────────────────────────────────────────────
+  var TAKEOFF_CONCRETE = [["wall", "벽"], ["column", "기둥"], ["beam", "보"], ["slab", "슬래브"]];
+  var TAKEOFF_FORMS = [["al_vertical", "AL 수직"], ["al_horizontal", "AL 수평"], ["gang", "갱폼"], ["euro", "유로폼"], ["plywood", "합판"]];
+
+  function takeoffNumber(value) {
+    var n = Number(value) || 0;
+    return n ? Math.round(n).toLocaleString("ko-KR") : "-";
+  }
+
+  function takeoffTable(building) {
+    function cells(concrete, form) {
+      return TAKEOFF_CONCRETE.map(function (c) { return '<td>' + takeoffNumber(concrete[c[0]]) + '</td>'; }).join("") +
+        '<td class="qd-strong">' + takeoffNumber(concrete.total) + '</td>' +
+        TAKEOFF_FORMS.map(function (f) { return '<td>' + takeoffNumber(form[f[0]]) + '</td>'; }).join("") +
+        '<td class="qd-strong">' + takeoffNumber(form.total) + '</td>';
+    }
+    var head = '<tr><th rowspan="2">' + esc(building.name) + '</th><th colspan="5">콘크리트 (㎥)</th><th colspan="6">거푸집 (㎡)</th></tr><tr>' +
+      TAKEOFF_CONCRETE.map(function (c) { return '<th>' + c[1] + '</th>'; }).join("") + '<th>계</th>' +
+      TAKEOFF_FORMS.map(function (f) { return '<th>' + f[1] + '</th>'; }).join("") + '<th>계</th></tr>';
+    var body = (building.rows || []).map(function (row) {
+      var title = (row.notes || []).join(" / ");
+      return '<tr' + (row.approximate ? ' class="is-approx"' : '') + (title ? ' title="' + esc(title) + '"' : '') + '><td>' + esc(row.label) +
+        (row.approximate ? '<i class="qd-approx">근사</i>' : '') + '</td>' + cells(row.concrete || {}, row.formwork || {}) + '</tr>';
+    }).join("");
+    var totals = building.totals || {}, approx = building.approximate_totals || {};
+    body += '<tr class="is-sum"><td>합계</td>' + cells(totals.concrete || {}, totals.formwork || {}) + '</tr>';
+    if ((approx.concrete || {}).total) {
+      body += '<tr class="is-approx"><td>근사 행 합계</td>' + cells(approx.concrete || {}, approx.formwork || {}) + '</tr>';
+    }
+    return '<table><thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
+  }
+
+  async function showFloorTakeoff(data) {
+    var job = state.floorJob;
+    if (!job || !job.id || !massModel()) return null;
+    var links = (data.results && data.results.structural && data.results.structural.member_links) || null;
+    await qCard({ eyebrow: "04", label: "Takeoff", art: false, wide: true, total: 4, index: 4 },
+      "층별 수량을 냈어요.",
+      "N층 = N층 벽·기둥 + N+1층 바닥 슬래브·보. CAD 평면에서 잰 길이·면적과 일람표 크기로 계산했어요.");
+    var body = null;
+    try {
+      var res = await fetch("/api/quantity/floor-takeoff/", {
+        method: "POST",
+        headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
+        body: JSON.stringify({ floor_job_id: job.id, member_links: links })
+      });
+      body = await res.json();
+      if (!res.ok) body = { error: (body && body.error) || ("HTTP " + res.status) };
+    } catch (e) {
+      body = { error: e && e.message ? e.message : String(e) };
+    }
+    if (!body || !body.takeoff) {
+      await addBot("층별 수량표를 만들지 못했어요" + (body && body.error ? " (" + esc(body.error) + ")" : "") + ". AI 판독 결과로 이어갈게요.", 120);
+      return null;
+    }
+    var takeoff = body.takeoff;
+    var buildings = takeoff.buildings || [];
+    if (!buildings.length) return null;
+    var pick = { name: buildings[0].name };
+    var bar = document.createElement("div");
+    bar.className = "qd-mass-bar";
+    bar.setAttribute("data-qd-keep", "");
+    var table = document.createElement("div");
+    table.className = "qd-mass-table qd-takeoff";
+    table.setAttribute("data-qd-keep", "");
+    function render() {
+      bar.innerHTML = '<div class="qd-mass-chips">' + buildings.map(function (b) {
+        return '<button type="button" data-b="' + esc(b.name) + '"' + (b.name === pick.name ? ' class="is-on"' : '') + '>' + esc(b.name) + '</button>';
+      }).join("") + '</div>';
+      var building = buildings.filter(function (b) { return b.name === pick.name; })[0] || buildings[0];
+      table.innerHTML = takeoffTable(building);
+    }
+    bar.addEventListener("click", function (e) {
+      var chip = e.target.closest("[data-b]");
+      if (!chip) return;
+      pick.name = chip.getAttribute("data-b");
+      render();
+    });
+    render();
+    if (deck) { deck.append(bar); deck.append(table); } else { flowEl.appendChild(bar); flowEl.appendChild(table); }
+    var assumptions = takeoff.assumptions || {};
+    appendLeft('<p class="qd-sub" style="margin:0">가정: 슬래브 두께 ' + esc(String(assumptions.slab_thickness || "")) +
+      'm · 일람표에 춤이 없는 보 ' + esc(String(assumptions.beam_depth_default || "")) + 'm. 아직 빠진 항목: ' +
+      esc((takeoff.not_included || []).join(", ")) + '. 근사 행(지하·열린 외곽)은 합계에서 뺐고, 행에 마우스를 올리면 근거가 보여요. ' +
+      '엑셀에는 "층별 집계(N층 기준)" 시트로 담겨요.</p>');
+    return takeoff;
   }
 
   async function finishQuantityAnalysisFlow(data, cancelRequestedFlag) {
@@ -9245,6 +9335,9 @@ body.cbl-modal-open {
     if (massModel() && !data._massReviewed) {
       data._massReviewed = true;
       await showMassStage();
+      var takeoff = await showFloorTakeoff(data);
+      if (takeoff && data.results) data.results.floor_takeoff = takeoff;
+      else if (deck) deck.next({ eyebrow: "04", label: "Takeoff", art: "sheet", total: 4, index: 4 });
     }
 
     lastAnalysisResults = data.results || {};

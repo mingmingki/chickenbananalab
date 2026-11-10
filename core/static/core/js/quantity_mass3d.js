@@ -58,6 +58,19 @@
     return merged;
   }
 
+  // The plan of floor N draws the walls standing on N and the slab and beams of floor N, so the
+  // top of storey N comes from the plan of N+1 ("N층 = N층 수직재 + N+1층 바닥 수평재"). When that
+  // plan's outline is open (a roof sheet) or set back, the storey's own outline covers it.
+  function topPlans(b, index) {
+    var own = b.plans[b.levels[index].plan];
+    var next = index + 1 < b.levels.length ? b.plans[b.levels[index + 1].plan] : null;
+    if (!next) return null;
+    var ownArea = own && !own.slab_approximate ? (own.slab_area || 0) : 0;
+    var nextOk = !next.slab_approximate && (next.slab || []).length;
+    if (ownArea && (!nextOk || next.slab_area < 0.9 * ownArea)) return { slab: own, beams: next };
+    return { slab: next, beams: next };
+  }
+
   function slabBounds(plan) {
     var xs = [], ys = [];
     (plan.slab || []).forEach(function (r) { xs.push(r[0], r[2]); ys.push(r[1], r[3]); });
@@ -99,6 +112,8 @@
       var entry = { name: b.name, data: b, group: group, levels: [], bounds: bounds };
       b.levels.forEach(function (level, index) {
         var plan = b.plans[level.plan];
+        var above = topPlans(b, index);
+        var slabPlan = above ? above.slab : null;
         var t = slabThickness(level);
         var top = level.elev + level.height;
         var walls = [], cols = [], slab = [], beams = [];
@@ -109,29 +124,31 @@
             addQuad(cols, a[0], -a[1], z[0], -z[1], level.elev, top - t);
           }
         });
-        (plan.slab || []).forEach(function (r) {
+        ((slabPlan && slabPlan.slab) || []).forEach(function (r) {
           addFlat(slab, r[0], -r[1], r[2], -r[3], top);
           addFlat(slab, r[0], -r[1], r[2], -r[3], top - t);
         });
-        (plan.beams || []).forEach(function (s) { addQuad(beams, s[0], -s[1], s[2], -s[3], top - t - BEAM_DEPTH, top - t); });
+        if (index === 0) (plan.slab || []).forEach(function (r) { addFlat(slab, r[0], -r[1], r[2], -r[3], level.elev); });
+        ((above && above.beams.beams) || []).forEach(function (s) { addQuad(beams, s[0], -s[1], s[2], -s[3], top - t - BEAM_DEPTH, top - t); });
         var levelGroup = new THREE.Group();
         var massMeshes = [];
         if (walls.length) massMeshes.push(mesh(THREE, walls, COLOR.wall, 0.92));
         if (cols.length) massMeshes.push(mesh(THREE, cols, COLOR.col, 0.95));
         if (slab.length) massMeshes.push(mesh(THREE, slab, COLOR.slab, 0.8));
-        if (plan.slab_polygon && plan.slab_polygon.length >= 3) {
-          var shape = new THREE.Shape(plan.slab_polygon.map(function (p) { return new THREE.Vector2(p[0], p[1]); }));
+        var polygonPlan = slabPlan && slabPlan.slab_polygon ? slabPlan : (index === 0 && plan.slab_polygon ? plan : null);
+        if (polygonPlan && polygonPlan.slab_polygon.length >= 3) {
+          var shape = new THREE.Shape(polygonPlan.slab_polygon.map(function (p) { return new THREE.Vector2(p[0], p[1]); }));
           var geometry = new THREE.ShapeGeometry(shape);
           geometry.rotateX(-Math.PI / 2); // shape y → -z
           var flat = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: COLOR.slab, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }));
-          flat.position.y = top;
+          flat.position.y = polygonPlan === plan && !slabPlan ? level.elev : top;
           flat.userData.baseOpacity = 0.16;
           massMeshes.push(flat);
         }
         if (beams.length) massMeshes.push(mesh(THREE, beams, COLOR.beam, 0.9));
         massMeshes.forEach(function (m) { levelGroup.add(m); });
         group.add(levelGroup);
-        entry.levels.push({ index: index, data: level, plan: plan, group: levelGroup, mass: massMeshes, rebar: null, form: null });
+        entry.levels.push({ index: index, data: level, plan: plan, top: above, group: levelGroup, mass: massMeshes, rebar: null, form: null });
       });
       buildings.push(entry);
     });
@@ -149,12 +166,13 @@
         if (w[4] && !basement) { addQuad(outer, w[0], -w[1], w[2], -w[3], level.elev, top - t); area.gang += face; }
         else { addQuad(inner, w[0], -w[1], w[2], -w[3], level.elev, top - t); area.wall += face; }
       });
-      (plan.slab || []).forEach(function (r) {
+      var slabPlan = lv.top ? lv.top.slab : null, beamPlan = lv.top ? lv.top.beams : null;
+      ((slabPlan && slabPlan.slab) || []).forEach(function (r) {
         addFlat(soffit, r[0], -r[1], r[2], -r[3], top - t - 0.01);
         area.slab += (r[2] - r[0]) * (r[3] - r[1]);
       });
-      if (!(plan.slab || []).length && plan.slab_area) area.slab = plan.slab_area;
-      (plan.beams || []).forEach(function (s) {
+      if (slabPlan && !(slabPlan.slab || []).length && slabPlan.slab_area) area.slab = slabPlan.slab_area;
+      ((beamPlan && beamPlan.beams) || []).forEach(function (s) {
         addQuad(beamForm, s[0], -s[1], s[2], -s[3], top - t - BEAM_DEPTH, top - t);
         area.beam += Math.hypot(s[2] - s[0], s[3] - s[1]) * BEAM_DEPTH;
       });
@@ -186,9 +204,10 @@
         }
       });
       var wallEnd = pos.length;
-      var rects = plan.slab || [];
+      var slabPlan = lv.top ? lv.top.slab : null;
+      var rects = (slabPlan && slabPlan.slab) || [];
       if (rects.length) {
-        var bb = slabBounds(plan);
+        var bb = slabBounds(slabPlan);
         [top - 0.04, top - t + 0.04].forEach(function (y) {
           for (var at = bb[1] + 0.15; at < bb[3]; at += SPACING) {
             spans(rects, "x", at).forEach(function (s) { pos.push(s[0], y, -at, s[1], y, -at); });
@@ -198,7 +217,7 @@
           }
         });
       }
-      (plan.beams || []).forEach(function (s) {
+      ((lv.top && lv.top.beams.beams) || []).forEach(function (s) {
         [top - t - 0.06, top - t - BEAM_DEPTH + 0.06].forEach(function (y) { pos.push(s[0], y, -s[1], s[2], y, -s[3]); });
       });
       var segment = new THREE.Group();
@@ -350,7 +369,7 @@
           f.group.visible = state.mode === "form" && (state.level == null || state.level === lv.index) &&
             (!state.building || state.building === b.name);
           return { label: lv.data.label, basement: f.basement, wall: f.area.wall, gang: f.area.gang, slab: f.area.slab,
-                   beam: f.area.beam, approximate: !!lv.plan.slab_approximate };
+                   beam: f.area.beam, approximate: f.basement || !lv.top || !!lv.top.slab.slab_approximate };
         });
       },
       rebarBars: function (name, index) {

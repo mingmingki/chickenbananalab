@@ -408,6 +408,11 @@
 .qd-mass-table tr[data-level]:hover td, .qd-mass-table tr.is-on td { background: rgba(165, 243, 252, .1); }
 .qd-mass-table .qd-approx { margin-left: 4px; padding: 1px 6px; border-radius: 6px; background: rgba(252, 211, 77, .18); color: var(--qd-amber); font-size: 11px; font-style: normal; font-weight: 800; }
 .qd-mass-table tr.is-sum td { font-weight: 800; color: #fff; border-top: 1px solid rgba(255, 255, 255, .3); }
+.qd-takeoff { max-height: 52dvh; }
+.qd-takeoff th { text-align: center; }
+.qd-takeoff thead tr:first-child th[rowspan] { vertical-align: bottom; text-align: left; }
+.qd-takeoff td.qd-strong { color: #fff; font-weight: 800; }
+.qd-takeoff tr.is-approx td { color: var(--qd-soft); opacity: .72; }
 @media (max-width: 760px) { .qd-mass-stage { height: 46dvh; } .qd-mass-legend { margin-left: 0; } }
 
 /* AI is thinking */

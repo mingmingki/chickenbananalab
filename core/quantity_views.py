@@ -1809,6 +1809,44 @@ def _run_floor_views_job(job_id, inputs):
         _progress_clear(job_id)
 
 
+FLOOR_TAKEOFF_MAX_BODY = 8 * 1024 * 1024
+
+
+@require_POST
+@_admin_only_json
+def api_quantity_floor_takeoff(request):
+    """층별 수량(N층 = N층 벽·기둥 + N+1층 바닥 슬래브·보)을 CAD로 계산한다. AI는 쓰지 않는다.
+
+    Body (JSON): {"floor_job_id": 층별 확인 작업, "member_links": AI 판독 결과의 CAD 일람표 연결(선택)}.
+    층별 확인 작업은 요청한 사람의 것만 쓴다."""
+    from . import quantity_floor_takeoff
+    if len(request.body or b"") > FLOOR_TAKEOFF_MAX_BODY:
+        return JsonResponse({"error": "요청이 너무 커요."}, status=413)
+    try:
+        body = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "잘못된 요청입니다."}, status=400)
+    if not isinstance(body, dict):
+        return JsonResponse({"error": "잘못된 요청입니다."}, status=400)
+    floor_job = body.get("floor_job_id")
+    floor_job = floor_job.strip()[:200] if isinstance(floor_job, str) else ""
+    job = _quantity_state().get("job", floor_job) if floor_job else None
+    if not job or job.get("owner") != str(request.user.pk) or job.get("operation") != "api_quantity_floor_views":
+        return JsonResponse({"error": "층별 확인 작업을 찾을 수 없어요."}, status=404)
+    result = _result_get(floor_job) or {}
+    model = ((result.get("results") or {}).get("floor_views") or {}).get("model") or {}
+    if not result.get("ok") or not model.get("buildings"):
+        return JsonResponse({"error": "층별 확인 결과에 구조 평면이 없어요."}, status=409)
+    links = body.get("member_links")
+    links = links if isinstance(links, dict) and links.get("marks") else None
+    try:
+        takeoff = quantity_floor_takeoff.build_takeoff(model, links)
+    except Exception:
+        logger.exception("quantity_floor_takeoff_failed job=%s", floor_job[:16])
+        return JsonResponse({"error": "층별 수량을 계산하지 못했어요."}, status=500)
+    return JsonResponse({"ok": True, "takeoff": takeoff})
+
+
 # ─────────────────────────────────────────────
 #  DWG: 치킨바나나캐드와 같은 무료 변환기(ACadSharp)로 DXF로 바꿔 읽는다.
 #  ODA File Converter는 라이선스 때문에 쓰지 않는다.
@@ -7686,6 +7724,63 @@ _IDENTITY_WARNING_LABELS = {
 }
 
 
+def _write_floor_takeoff_sheet(ws, takeoff, navy_fill, yellow_fill, light_fill, header_font, body_font, center, left, thin):
+    """층별 집계표: 동마다 층 행, 콘크리트(부재별)와 거푸집(종류별). 근사 행은 회색, 합계에서 뺀다."""
+    from .quantity_floor_takeoff import CONCRETE_KEYS, CONCRETE_LABELS, FORM_KEYS, FORM_LABELS
+    headers = (["층", "층고(m)"] + [f"{CONCRETE_LABELS[k]}(㎥)" for k in CONCRETE_KEYS] + ["콘크리트 계(㎥)"]
+               + [f"{FORM_LABELS[k]}(㎡)" for k in FORM_KEYS] + ["거푸집 계(㎡)", "비고"])
+    last = len(headers)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last)
+    ws.cell(row=1, column=1, value=f"층별 집계 — {takeoff.get('rule') or 'N층 기준'} (CAD 평면·일람표 기준 추정)")
+    ws.cell(row=1, column=1).font = Font(name="맑은 고딕", bold=True, color="FFFFFF", size=13)
+    ws.cell(row=1, column=1).fill = navy_fill
+    ws.cell(row=1, column=1).alignment = center
+    assumptions = takeoff.get("assumptions") or {}
+    note = (f"가정: 슬래브 두께 {assumptions.get('slab_thickness', '')}m, 춤이 없는 보 {assumptions.get('beam_depth_default', '')}m. "
+            f"빠진 항목: {', '.join(takeoff.get('not_included') or [])}. 회색 행(근사)은 합계에서 뺐습니다.")
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last)
+    ws.cell(row=2, column=1, value=note).alignment = left
+    ws.row_dimensions[2].height = 30
+    row = 3
+    grey = PatternFill("solid", fgColor="EEEEEE")
+    for building in takeoff.get("buildings") or []:
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=last)
+        ws.cell(row=row, column=1, value=f"[{building.get('name') or ''}]").font = Font(name="맑은 고딕", bold=True, color="073A5B", size=11)
+        ws.cell(row=row, column=1).fill = yellow_fill
+        row += 1
+        for col, text in enumerate(headers, 1):
+            cell = ws.cell(row=row, column=col, value=text)
+            cell.font, cell.fill, cell.alignment, cell.border = header_font, navy_fill, center, thin
+        row += 1
+        for item in building.get("rows") or []:
+            concrete, form = item.get("concrete") or {}, item.get("formwork") or {}
+            values = ([item.get("label"), item.get("height")] + [concrete.get(k, 0) for k in CONCRETE_KEYS]
+                      + [concrete.get("total", 0)] + [form.get(k, 0) for k in FORM_KEYS] + [form.get("total", 0),
+                      ("근사 · " if item.get("approximate") else "") + " / ".join(item.get("notes") or [])])
+            for col, value in enumerate(values, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.font, cell.border = body_font, thin
+                cell.alignment = left if col in (1, last) else center
+                if item.get("approximate"):
+                    cell.fill = grey
+            row += 1
+        for label, block in (("합계", building.get("totals") or {}), ("근사 행 합계(참고)", building.get("approximate_totals") or {})):
+            concrete, form = block.get("concrete") or {}, block.get("formwork") or {}
+            values = ([label, ""] + [concrete.get(k, 0) for k in CONCRETE_KEYS] + [concrete.get("total", 0)]
+                      + [form.get(k, 0) for k in FORM_KEYS] + [form.get("total", 0), ""])
+            for col, value in enumerate(values, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.font = Font(name="맑은 고딕", bold=True, size=10)
+                cell.fill, cell.border = light_fill, thin
+                cell.alignment = left if col == 1 else center
+            row += 1
+        row += 1
+    widths = [12, 8] + [10] * 5 + [11] * 6 + [60]
+    for col, width in enumerate(widths[:last], 1):
+        ws.column_dimensions[get_column_letter(col)].width = width
+    ws.freeze_panes = "B3"
+
+
 def _build_excel_response(request):
     """
     수량산출 결과 JSON을 받아 엑셀 파일로 반환
@@ -7936,6 +8031,12 @@ def _build_excel_response(request):
     if struct_floor_breakdown:
         ws_floor = wb.create_sheet("층별 수량산출")
         write_floor_breakdown_sheet(ws_floor, struct_floor_breakdown)
+
+    # 층별 집계(N층 기준): CAD 평면·일람표로 낸 층별 콘크리트·거푸집 (화면의 2D 수량산출 표와 같다)
+    floor_takeoff = results.get("floor_takeoff")
+    if isinstance(floor_takeoff, dict) and floor_takeoff.get("buildings"):
+        _write_floor_takeoff_sheet(wb.create_sheet("층별 집계(N층 기준)"), floor_takeoff,
+                                   navy_fill, yellow_fill, light_fill, header_font, body_font, center, left, thin)
 
     # 건축 시트
     if "architectural" in results and results["architectural"].get("items"):

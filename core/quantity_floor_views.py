@@ -319,6 +319,7 @@ _MODEL_RULES = (
     ("beam", re.compile(r"str_(beam|girder)(-[a-z]+)?$", re.I)),
     ("outline", re.compile(r"str_outline$", re.I)),
     ("open", re.compile(r"str_open$", re.I)),
+    ("stair", re.compile(r"(^|[_-])a-stair$", re.I)),
 )
 DEFAULT_STOREY_M = {"basement": 3.5, "1": 3.25, "ground": 2.85, "roof": 3.0}
 LEVEL_FILE = re.compile(r"단면도|입면도")
@@ -484,10 +485,13 @@ def _footprint(segments, cell=0.15, close_cells=2):
 
 
 def _plan_model(paths, box):
-    """Members of one structural frame in metres, frame-local (x right, y up)."""
+    """Members of one structural frame in metres, frame-local (x right, y up), plus the takeoff
+    measures (wall section area, faces, openings) taken on the unrounded lines."""
+    from . import quantity_floor_takeoff as takeoff
     x0, y0, x1, y1 = box
     r = lambda v: round(v, 2)
     walls, beams, edges, cols, opens = [], [], [], [], []
+    raw = {"wall": [], "col": [], "open": [], "stair": []}
     for category, ax, ay, bx, by, points in paths:
         if bx < x0 or ax > x1 or by < y0 or ay > y1:
             continue
@@ -495,7 +499,15 @@ def _plan_model(paths, box):
         closed = len(local) >= 4 and abs(local[0][0] - local[-1][0]) < 0.005 and abs(local[0][1] - local[-1][1]) < 0.005
         if category == "col" and closed:
             cols.append([[r(x), r(y)] for x, y in local[:-1]])
+            raw["col"].append(local[:-1])
             continue
+        if category == "stair":
+            raw["stair"].append(local)
+            continue
+        if category in ("wall", "col"):
+            raw["wall"].append(local)
+        elif category == "open":
+            raw["open"].append(local)
         target = {"wall": walls, "col": walls, "beam": beams, "outline": edges, "open": opens}[category]
         for (ax_, ay_), (bx_, by_) in zip(local, local[1:]):
             if abs(ax_ - bx_) + abs(ay_ - by_) < 0.05:
@@ -517,11 +529,56 @@ def _plan_model(paths, box):
     hull_area = abs(_area(hull)) if len(hull) >= 3 else 0.0
     model = {"walls": walls, "beams": beams, "cols": cols, "slab": slab, "opens": opens,
              "slab_area": round(area, 1), "slab_approximate": False}
+    sub_slabs = []
     if hull_area and area < 0.35 * hull_area:
+        # one frame may hold several small plans side by side (roof, penthouse, penthouse roof)
+        sub_slabs = _separate_slabs(edge_lines)
         # an open outline (basements joined to a parking deck): the outer hull stands in
         model.update(slab=[], slab_polygon=[[r(x), r(y)] for x, y in hull], slab_area=round(hull_area, 1),
                      slab_approximate=True)
+    if len(sub_slabs) >= 2:
+        model["sub_slabs"] = sub_slabs
+    try:
+        model["measure"] = takeoff.measure_plan(raw["wall"], raw["col"], raw["open"], raw["stair"],
+                                                None if model["slab_approximate"] else is_outside)
+        model["measure"]["outline"] = round(sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in edges), 1)
+    except Exception as exc:  # the colored plans and the 3D model must not depend on the takeoff
+        model["measure"] = {"error": str(exc)[:200]}
     return model
+
+
+def _separate_slabs(lines, gap=3.0, min_lines=12):
+    """Closed slab areas of plans drawn apart inside one frame, largest first (m²)."""
+    parent = list(range(len(lines)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    boxes = [(min(l[0], l[2]) - gap, min(l[1], l[3]) - gap, max(l[0], l[2]) + gap, max(l[1], l[3]) + gap) for l in lines]
+    order = sorted(range(len(lines)), key=lambda i: boxes[i][0])
+    active = []
+    for i in order:
+        active = [j for j in active if boxes[j][2] >= boxes[i][0]]
+        for j in active:
+            if boxes[j][1] <= boxes[i][3] and boxes[i][1] <= boxes[j][3]:
+                parent[find(i)] = find(j)
+        active.append(i)
+    groups = defaultdict(list)
+    for i, line in enumerate(lines):
+        groups[find(i)].append(line)
+    areas = []
+    for group in groups.values():
+        if len(group) < min_lines:
+            continue
+        rects, _outside = _footprint([line[:4] for line in group])
+        area = sum((x1 - x0) * (y1 - y0) for x0, y0, x1, y1 in rects)
+        hull = _hull([(w[0], w[1]) for w in group] + [(w[2], w[3]) for w in group])
+        hull_area = abs(_area(hull)) if len(hull) >= 3 else 0.0
+        if area >= 5 and hull_area and area >= 0.35 * hull_area:
+            areas.append(round(area, 1))
+    return sorted(areas, reverse=True)
 
 
 def _storey_keys(floor):
