@@ -1842,7 +1842,7 @@ def _run_floor_views_job(job_id, inputs):
                     continue
                 manifest.append(entry)
                 needed |= fv.referenced_files(text)
-            needed |= {key for key in refs if "form" in key}
+            needed |= {key for key in refs if fv.is_form_key(key)}
             for key in sorted(needed):
                 if key not in refs:
                     continue

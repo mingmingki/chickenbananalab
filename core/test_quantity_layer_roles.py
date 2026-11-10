@@ -127,3 +127,12 @@ class FloorTitleAndColourTests(SimpleTestCase):
         self.assertEqual(fv._plan_views("s.dwg", doc, rows, {}), [])  # the name rules do not know "WAL"
         views = fv._plan_views("s.dwg", doc, rows, {}, {"WAL": "wall"})
         self.assertGreater(views[0]["counts"]["frame"], 0)
+
+
+class SheetAndFoundationTests(SimpleTestCase):
+    def test_title_block_and_foundation_layers_are_never_members(self):
+        self.assertTrue(lr.from_sheet("칠성24지구 sheet$0$동우CI_1"))
+        self.assertTrue(lr.surely_not_member("XR-FORM(현장)$0$COL"))
+        self.assertTrue(lr.surely_not_member("0_기초"))
+        self.assertFalse(lr.surely_not_member("0_벽체부호"))  # one office draws wall pieces as outlines here
+        self.assertFalse(lr.from_sheet("XR-구조101동$0$A-CONC"))

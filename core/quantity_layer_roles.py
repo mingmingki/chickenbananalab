@@ -36,7 +36,9 @@ _EXCLUDE = re.compile(
     re.I)
 _MASONRY = re.compile(r"BRICK|벽돌|조적|BLOCK|블록|블럭|DRY|건식|경량|ALC|석고|GYPS|PARTITION|칸막이|MASONRY", re.I)
 # never members even when the name also says wall or column (a wall hatch, a punching-shear outline)
-_NEVER = re.compile(r"HATCH|해치|위험\s*단면|PATTERN|패턴", re.I)
+_NEVER = re.compile(r"HATCH|해치|위험\s*단면|PATTERN|패턴|기초|FOOTING|FTG|FDN", re.I)
+# layers of a title-block xref ("칠성24지구 sheet$0$...", "XR-FORM$0$..."): never members
+_SHEET_XREF = re.compile(r"SHEET|FORM|시트|도곽|양식|TITLE|BORDER", re.I)
 _STAIR = re.compile(r"STAIR|계단|(^|[^A-Z])STA($|[^A-Z])", re.I)
 _OPEN = re.compile(r"OPEN|개구|SHAFT|DUCT|덕트", re.I)
 _OUTLINE = re.compile(r"OUTLINE|외곽|EDGE|단부|SLAB|슬래브|LEVEL|레벨", re.I)
@@ -55,6 +57,12 @@ MAX_SEGMENTS = 30000
 
 def _nfc(text):
     return unicodedata.normalize("NFC", str(text or ""))
+
+
+def from_sheet(layer):
+    """A layer brought in by a title-block or sheet xref."""
+    name = _nfc(layer).split("|")[-1]
+    return "$0$" in name and bool(_SHEET_XREF.search(name.split("$0$")[0]))
 
 
 def base_name(layer):
@@ -97,7 +105,7 @@ def _segments(paths):
 def surely_not_member(layer):
     """Layers whose name alone rules them out (text, dimensions, symbols), unless it also names a member."""
     name = base_name(layer)
-    if _NEVER.search(name):
+    if _NEVER.search(name) or from_sheet(layer):
         return True
     if _STAIR.search(name) or _OPEN.search(name) or _OUTLINE.search(name):
         return False
@@ -181,8 +189,10 @@ def assign_roles(features, segments_by_layer=None, known=None):
         named_wall = bool(_WALL.search(name) or _COLUMN.search(name))
         # many equally spaced lines are treads or hatching, unless the name says wall (cores are dense)
         wall_like = paired >= 0.5 and 100 <= width <= 1000 and (named_wall or ladder < 0.75)
-        if _NEVER.search(name):
-            role, reason, by = None, "이름이 해치·표시선", "name"
+        if from_sheet(layer):
+            role, reason, by = None, "도곽(시트) 외부참조의 레이어", "name"
+        elif _NEVER.search(name):
+            role, reason, by = None, "이름이 해치·표시선·기초", "name"
         elif _STAIR.search(name):
             role, reason, by = "stair", "이름이 계단", "name"
         elif _MASONRY.search(name):

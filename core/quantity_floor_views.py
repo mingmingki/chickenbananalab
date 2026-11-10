@@ -134,6 +134,12 @@ def _key(name):
 
 
 reference_key = _key
+_FORM_KEY = re.compile(r"form|시트|sheet|도곽|양식|title|border", re.I)
+
+
+def is_form_key(key):
+    """A title-block xref (its name says form, sheet, 시트, 도곽...): used to find sheets, never members."""
+    return bool(_FORM_KEY.search(key or ""))
 
 
 # ── drawing walk ──────────────────────────────
@@ -197,7 +203,7 @@ def _walk(doc, entities, matrix, inherit, xrefs, out, depth=0, classify=None, de
             if block.block_record.is_xref:
                 path = block.block.dxf.get("xref_path", "") or entity.dxf.name
                 target = xrefs.get(_key(re.split(r"[\\/]", path)[-1])) or xrefs.get(_key(entity.dxf.name))
-                if target is not None and "form" not in _key(path):
+                if target is not None and not is_form_key(_key(path)):
                     _walk(target, target.modelspace(), placed, None, xrefs, target_out, depth + 1, classify, describe, kinds, inner)
             else:
                 _walk(doc, block, placed, layer, xrefs, target_out, depth + 1, classify, describe, kinds, inner)
@@ -378,7 +384,7 @@ def build_views(docs, evidence_by_name):
     for name, rows in sheets.items():
         if name not in docs:
             continue
-        missing = sorted(ref for ref in _xref_names(docs[name]) if ref not in xrefs and "form" not in ref)
+        missing = sorted(ref for ref in _xref_names(docs[name]) if ref not in xrefs and not is_form_key(ref))
         if missing:
             warnings.append({"file": name, "missing_xrefs": missing})
         views.extend(_plan_views(name, docs[name], rows, xrefs))
@@ -884,7 +890,7 @@ def main(manifest_path, out_path):
     others = {_key(name): item for name, item in items.items() if name not in plans}
     forms, failed = {}, []
     for key, item in others.items():
-        if "form" not in key:
+        if not is_form_key(key):
             continue
         try:
             doc = _read(item)
@@ -921,7 +927,7 @@ def main(manifest_path, out_path):
         evidence = dict(forms)
         evidence[name] = identity.extract_sheet_evidence(doc)
         rows = identity.resolve_cad_sheets(evidence).get(name, [])
-        wanted = {ref for ref in _xref_names(doc) if ref in others and "form" not in ref}
+        wanted = {ref for ref in _xref_names(doc) if ref in others and not is_form_key(ref)}
         for ref in [ref for ref in xref_cache if ref not in wanted]:
             del xref_cache[ref]  # only the xrefs of this drawing stay loaded
         gc.collect()
@@ -931,7 +937,7 @@ def main(manifest_path, out_path):
             except Exception:
                 failed.append(others[ref]["name"])
         xrefs = {ref: xref_cache[ref] for ref in wanted if ref in xref_cache}
-        missing = sorted(ref for ref in _xref_names(doc) if ref not in xrefs and "form" not in ref)
+        missing = sorted(ref for ref in _xref_names(doc) if ref not in xrefs and not is_form_key(ref))
         if missing:
             warnings.append({"file": name, "missing_xrefs": missing})
         structural = [row for row in rows if row.get("frame_bbox") and is_plan_title(row.get("drawing_title"))
