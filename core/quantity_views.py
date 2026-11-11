@@ -1958,6 +1958,43 @@ def api_quantity_drawing_profile(request):
 FLOOR_TAKEOFF_MAX_BODY = 8 * 1024 * 1024
 
 
+FLOOR_EDITS_MAX_BODY = 2 * 1024 * 1024
+
+
+def _floor_edits(floor_job):
+    return (_quantity_state().get("floor_edits", floor_job) or {}).get("edits") or []
+
+
+@require_POST
+@_admin_only_json
+def api_quantity_floor_edits(request):
+    """People's fixes to the plan reading of one floor job (members added or taken out).
+
+    Body (JSON): {"floor_job_id", "edits": [...]} saves the whole list (quantity_edits.clean);
+    without "edits" it returns the saved list. Only the owner of the floor job may read or change it."""
+    from . import quantity_edits
+    if len(request.body or b"") > FLOOR_EDITS_MAX_BODY:
+        return JsonResponse({"error": "요청이 너무 커요."}, status=413)
+    try:
+        body = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "잘못된 요청입니다."}, status=400)
+    if not isinstance(body, dict):
+        return JsonResponse({"error": "잘못된 요청입니다."}, status=400)
+    floor_job = body.get("floor_job_id")
+    floor_job = floor_job.strip()[:200] if isinstance(floor_job, str) else ""
+    job = _quantity_state().get("job", floor_job) if floor_job else None
+    if not job or job.get("owner") != str(request.user.pk) or job.get("operation") != "api_quantity_floor_views":
+        return JsonResponse({"error": "층별 확인 작업을 찾을 수 없어요."}, status=404)
+    if "edits" not in body:
+        return JsonResponse({"ok": True, "edits": _floor_edits(floor_job)})
+    if not isinstance(body.get("edits"), list):
+        return JsonResponse({"error": "고친 내용이 없어요."}, status=400)
+    edits = quantity_edits.clean(body["edits"])
+    _quantity_state().put("floor_edits", floor_job, {"edits": edits, "owner": str(request.user.pk)}, ttl=_RESULT_TTL_SEC)
+    return JsonResponse({"ok": True, "edits": edits})
+
+
 @require_POST
 @_admin_only_json
 def api_quantity_floor_takeoff(request):
@@ -1985,8 +2022,9 @@ def api_quantity_floor_takeoff(request):
         return JsonResponse({"error": "층별 확인 결과에 구조 평면이 없어요."}, status=409)
     links = body.get("member_links")
     links = links if isinstance(links, dict) and links.get("marks") else None
+    edits = _floor_edits(floor_job)
     try:
-        takeoff = quantity_floor_takeoff.build_takeoff(model, links)
+        takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits)
     except Exception:
         logger.exception("quantity_floor_takeoff_failed job=%s", floor_job[:16])
         return JsonResponse({"error": "층별 수량을 계산하지 못했어요."}, status=500)

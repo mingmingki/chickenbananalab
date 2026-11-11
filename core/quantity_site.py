@@ -282,8 +282,15 @@ def _share_at(moving, fixed, turn, dx, dy):
 # ── moving a plan's display lines ──
 
 def move_plan(plan, turn, dx, dy):
+    """Turn (quarter turns) and slide a plan's display lines. ``plan["moved"]`` keeps the whole
+    move from the sheet's own coordinates, so a fix drawn on the sheet lands on the 3D plan too."""
     if not turn and not dx and not dy:
         return
+    before = plan.get("moved") or {"turn": 0, "dx": 0.0, "dy": 0.0}
+    bx, by = before["dx"], before["dy"]
+    for _ in range(turn % 4):
+        bx, by = -by, bx
+    plan["moved"] = {"turn": (before["turn"] + turn) % 4, "dx": round(bx + dx, 3), "dy": round(by + dy, 3)}
 
     def point(x, y):
         for _ in range(turn % 4):

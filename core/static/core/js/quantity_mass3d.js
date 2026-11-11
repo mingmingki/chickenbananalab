@@ -6,7 +6,7 @@
 
   var COLOR = {
     wall: 0xfacc15, col: 0xeab308, slab: 0xe2e8f0, beam: 0xfb923c, rebar: 0xef4444,
-    parkingWall: 0x94a3b8, parkingCol: 0x64748b, facilityWall: 0x2dd4bf, facilityCol: 0x14b8a6,
+    parkingWall: 0x94a3b8, parkingCol: 0x64748b, facilityWall: 0x2dd4bf, facilityCol: 0x14b8a6, user: 0x22d3ee,
     alWall: 0x38bdf8, gang: 0xa78bfa, euro: 0x2dd4bf, alSlab: 0x7dd3fc, beamForm: 0xfbbf24
   };
   var SPACING = 0.3;     // rebar drawing spacing (m), a sketch of the bars, not their count
@@ -72,6 +72,63 @@
     return { slab: next, beams: next };
   }
 
+  // People's fixes (quantity_plan_edit) on a copy of the model: drawn on the sheet, moved like the
+  // plan was moved onto the site (plan.moved), added members kept apart so they show in their colour.
+  function applyEdits(model, edits) {
+    if (!edits || !edits.length) return model;
+    model = JSON.parse(JSON.stringify(model));
+    var byPlan = {};
+    edits.forEach(function (e) { (byPlan[e.plan] = byPlan[e.plan] || []).push(e); });
+    (model.buildings || []).forEach(function (b) {
+      (b.plans || []).forEach(function (plan) {
+        var list = plan && plan.id ? byPlan[plan.id] : null;
+        if (!list) return;
+        var move = plan.moved || { turn: 0, dx: 0, dy: 0 };
+        function place(p) {
+          var x = p[0], y = p[1];
+          for (var k = 0; k < (move.turn || 0) % 4; k++) { var t = x; x = -y; y = t; }
+          return [x + (move.dx || 0), y + (move.dy || 0)];
+        }
+        plan.user = plan.user || { walls: [], beams: [], cols: [] };
+        list.forEach(function (e) {
+          if (e.kind === "column") {
+            var c = place(e.c), w = e.w / 2, h = e.h / 2;
+            var corners = [[-w, -h], [w, -h], [w, h], [-w, h]].map(function (d) {
+              var q = place([e.c[0] + d[0], e.c[1] + d[1]]);
+              return [q[0], q[1]];
+            });
+            if (e.op === "add") plan.user.cols.push(corners);
+            else plan.cols = (plan.cols || []).filter(function (poly) {
+              var cx = 0, cy = 0;
+              poly.forEach(function (q) { cx += q[0]; cy += q[1]; });
+              cx /= poly.length; cy /= poly.length;
+              return Math.abs(cx - c[0]) > w + 0.1 || Math.abs(cy - c[1]) > h + 0.1;
+            });
+            return;
+          }
+          var a = place(e.a), z = place(e.b);
+          var dx = z[0] - a[0], dy = z[1] - a[1], len = Math.hypot(dx, dy) || 1;
+          var ux = dx / len, uy = dy / len, half = (e.kind === "beam" ? e.w : e.t) / 2;
+          if (e.op === "add") {
+            var nx = -uy * half, ny = ux * half;
+            var faces = [[a[0] + nx, a[1] + ny, z[0] + nx, z[1] + ny], [a[0] - nx, a[1] - ny, z[0] - nx, z[1] - ny]];
+            if (e.kind === "beam") plan.user.beams.push([a[0], a[1], z[0], z[1], e.w]);
+            else faces.forEach(function (f) { plan.user.walls.push(f); });
+            return;
+          }
+          // taken out: the drawn lines lying inside the member's strip
+          function inside(x, y) {
+            var t = (x - a[0]) * ux + (y - a[1]) * uy, off = Math.abs((x - a[0]) * uy - (y - a[1]) * ux);
+            return t >= -0.15 && t <= len + 0.15 && off <= half + 0.12;
+          }
+          var key = e.kind === "beam" ? "beams" : "walls";
+          plan[key] = (plan[key] || []).filter(function (l) { return !(inside(l[0], l[1]) && inside(l[2], l[3])); });
+        });
+      });
+    });
+    return model;
+  }
+
   function slabBounds(plan) {
     var xs = [], ys = [];
     (plan.slab || []).forEach(function (r) { xs.push(r[0], r[2]); ys.push(r[1], r[3]); });
@@ -81,9 +138,27 @@
     return [Math.min.apply(null, xs), Math.min.apply(null, ys), Math.max.apply(null, xs), Math.max.apply(null, ys)];
   }
 
+  // the controller stays the same object when the model is drawn again with new fixes
   function mount(container, model, options) {
-    var THREE = window.THREE;
     options = options || {};
+    var inner = mountOnce(container, model, options);
+    var outer = {};
+    Object.keys(inner).forEach(function (name) {
+      outer[name] = function () { return inner[name].apply(null, arguments); };
+    });
+    outer.setEdits = function (edits) {
+      var keep = inner.getState();
+      inner.dispose();
+      options = Object.assign({}, options, { edits: edits });
+      inner = mountOnce(container, model, options);
+      inner.restore(keep);
+    };
+    return outer;
+  }
+
+  function mountOnce(container, model, options) {
+    var THREE = window.THREE;
+    model = applyEdits(model, options.edits);
     var width = container.clientWidth || 800, height = container.clientHeight || 480;
     var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -153,8 +228,30 @@
         });
         if (index === 0) (plan.slab || []).forEach(function (r) { addFlat(slab, r[0], -r[1], r[2], -r[3], level.elev); });
         ((above && above.beams.beams) || []).forEach(function (s) { addQuad(beams, s[0], -s[1], s[2], -s[3], top - t - BEAM_DEPTH, top - t); });
+        var user = plan.user || { walls: [], cols: [] }, userWalls = [];
+        user.walls.forEach(function (w) { addQuad(userWalls, w[0], -w[1], w[2], -w[3], level.elev, top - t); });
+        (user.cols || []).forEach(function (c) {
+          for (var i = 0; i < c.length; i++) {
+            var a = c[i], z = c[(i + 1) % c.length];
+            addQuad(userWalls, a[0], -a[1], z[0], -z[1], level.elev, top - t);
+          }
+        });
+        var userBeams = [];
+        (((above && above.beams.user) || {}).beams || []).forEach(function (s) {
+          var dx = s[2] - s[0], dy = s[3] - s[1], len = Math.hypot(dx, dy) || 1, h = (s[4] || 0.4) / 2;
+          var nx = -dy / len * h, ny = dx / len * h;
+          [[nx, ny], [-nx, -ny]].forEach(function (o) {
+            addQuad(userBeams, s[0] + o[0], -(s[1] + o[1]), s[2] + o[0], -(s[3] + o[1]), top - t - BEAM_DEPTH, top - t);
+          });
+          var corners = [[s[0] + nx, s[1] + ny], [s[2] + nx, s[3] + ny], [s[2] - nx, s[3] - ny], [s[0] - nx, s[1] - ny]];
+          userBeams.push(corners[0][0], top - t - BEAM_DEPTH, -corners[0][1], corners[1][0], top - t - BEAM_DEPTH, -corners[1][1],
+                         corners[2][0], top - t - BEAM_DEPTH, -corners[2][1], corners[0][0], top - t - BEAM_DEPTH, -corners[0][1],
+                         corners[2][0], top - t - BEAM_DEPTH, -corners[2][1], corners[3][0], top - t - BEAM_DEPTH, -corners[3][1]);
+        });
         var levelGroup = new THREE.Group();
         var massMeshes = [];
+        if (userWalls.length) massMeshes.push(kind(mesh(THREE, userWalls, COLOR.user, 0.95), "wall"));
+        if (userBeams.length) massMeshes.push(kind(mesh(THREE, userBeams, COLOR.user, 0.95), "beam"));
         function kind(m, k) { m.userData.kind = k; return m; }
         if (walls.length) massMeshes.push(kind(mesh(THREE, walls, wallColor, 0.92), "wall"));
         if (cols.length) massMeshes.push(kind(mesh(THREE, cols, colColor, 0.95), "col"));
@@ -524,9 +621,9 @@
             for (var k = 0; k + 1 < hs.length; k += 2) add([hs[k], hs[k + 1]], y0, y1, "slab", true);
           }
           var hits = [];
-          lv.plan.walls.forEach(function (w) { var c = crossing(w, planAxis, p); if (c != null) hits.push(c); });
+          lv.plan.walls.concat((lv.plan.user || {}).walls || []).forEach(function (w) { var c = crossing(w, planAxis, p); if (c != null) hits.push(c); });
           pairs(hits, 0.08, 1.0).forEach(function (r) { add(r, level.elev, top - t, "wall"); });
-          (lv.plan.cols || []).forEach(function (poly) {
+          (lv.plan.cols || []).concat((lv.plan.user || {}).cols || []).forEach(function (poly) {
             var hs = [];
             for (var i = 0; i < poly.length; i++) {
               var a = poly[i], z = poly[(i + 1) % poly.length];
@@ -543,6 +640,10 @@
             beamPlan.beams.forEach(function (s) { var c = crossing(s, planAxis, p); if (c != null) bh.push(c); });
             pairs(bh, 0.15, 1.3).forEach(function (r) { add(r, top - t - BEAM_DEPTH, top - t, "beam"); });
           }
+          (((lv.top && lv.top.beams.user) || {}).beams || []).forEach(function (s) {
+            var c = crossing(s, planAxis, p);
+            if (c != null) add([c - (s[4] || 0.4) / 2, c + (s[4] || 0.4) / 2], top - t - BEAM_DEPTH, top - t, "beam");
+          });
         });
       });
       return out;
@@ -941,6 +1042,21 @@
       sectionSvg: function (axis) { return sectionSvg(axis); },
       clipCount: function () { return clipPlanes.length; },
       resetRanges: resetRanges,
+      getState: function () {
+        return { mode: state.mode, building: state.building, level: state.level, kinds: Object.assign({}, state.kinds),
+                 orbit: { theta: orbit.theta, phi: orbit.phi, radius: orbit.radius, target: orbit.target.toArray() },
+                 ortho: camera === orthographic };
+      },
+      restore: function (keep) {
+        if (!keep) return;
+        state.mode = keep.mode; state.building = keep.building; state.level = keep.level;
+        state.kinds = keep.kinds || {};
+        orbit.theta = keep.orbit.theta; orbit.phi = keep.orbit.phi; orbit.radius = keep.orbit.radius;
+        orbit.target.fromArray(keep.orbit.target);
+        camera = keep.ortho ? orthographic : perspective;
+        if (ui) ui.querySelectorAll("[data-kind]").forEach(function (box) { box.checked = state.kinds[box.getAttribute("data-kind")] !== false; });
+        apply(); place(); render();
+      },
       dispose: function () {
         if (observer) observer.disconnect();
         if (ui && ui.parentNode) ui.parentNode.removeChild(ui);

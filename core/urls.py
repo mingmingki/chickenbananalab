@@ -58,6 +58,7 @@ cbl_path("api/cblcad/csrf/", cbl_views.cblcad_csrf, name="cblcad_csrf"),
     path('api/quantity/download-excel/', quantity_views.api_download_excel, name='api_download_excel'),
     path('api/quantity/floor-takeoff/', quantity_views.api_quantity_floor_takeoff, name='api_quantity_floor_takeoff'),
     path('api/quantity/drawing-profile/', quantity_views.api_quantity_drawing_profile, name='api_quantity_drawing_profile'),
+    path('api/quantity/floor-edits/', quantity_views.api_quantity_floor_edits, name='api_quantity_floor_edits'),
 
     path("job/", job_main, name="job_main"),
     path("ai-construction-jobs/", job_main, name="ai_construction_jobs"),

@@ -6216,10 +6216,11 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261111-viewer1">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261111-fix1">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
-<script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261111-site1"></script>
+<script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261111-fix1"></script>
+<script src="{% static 'core/js/quantity_plan_edit.js' %}?v=20261111-fix1"></script>
 
 <script>
 (function () {
@@ -7138,7 +7139,7 @@ body.cbl-modal-open {
   // ── floor-by-floor colored plans ──────────────
   var FLOOR_LEGEND = [
     ["frame", "골조(콘크리트)"], ["masonry", "조적"], ["alc", "ALC"], ["dry", "건식벽"],
-    ["opening", "창호"], ["beam", "보"]
+    ["opening", "창호"], ["beam", "보"], ["other", "분류 안 된 선"]
   ];
 
   function floorGroups(views) {
@@ -7228,7 +7229,8 @@ body.cbl-modal-open {
     var progressEl = row.querySelector(".qd-floor-progress");
     var titleEl = root.closest(".qd-card") ? root.closest(".qd-card").querySelector(".qd-title") : null;
     var job = state.floorJob;
-    var current = null, variantIndex = 0, view = { s: 1, x: 0, y: 0 }, hidden = {};
+    var current = null, variantIndex = 0, view = { s: 1, x: 0, y: 0 }, hidden = { other: true };
+    var fixing = false, editor = null;
     var floors = [], views = [];
 
     function setProgress() {
@@ -7273,10 +7275,30 @@ body.cbl-modal-open {
       var canvas = root.querySelector(".qd-floor-canvas");
       canvas.innerHTML = item.svg;
       applyTransform();
+      fixFloor(item);
       var review = state.floorReview[floor.key] || {};
       var memo = root.querySelector(".qd-floor-memo");
       memo.hidden = review.status !== "flag";
       memo.querySelector("input").value = review.note || "";
+    }
+
+    // fixing: the editor on the shown structural plan (members added or taken out)
+    function fixFloor(item) {
+      if (editor) { editor.destroy(); editor = null; }
+      var slot = root.querySelector(".qd-floor-fixbar");
+      if (!slot) return;
+      slot.innerHTML = "";
+      var button = root.querySelector("[data-fix]");
+      if (button) button.classList.toggle("is-on", fixing);
+      if (!fixing || !item) return;
+      if (!item.plan_id || !planUsedBy(item.plan_id).length || !window.cblQuantityPlanEdit) {
+        slot.innerHTML = '<p class="qd-note">이 도면(' + esc(item.variant || "") + ')은 수량에 쓰는 구조평면이 아니라 고칠 수 없어요. 구조평면을 골라 주세요.</p>';
+        return;
+      }
+      editor = window.cblQuantityPlanEdit.mount(root.querySelector(".qd-floor-stage"), {
+        planId: item.plan_id, edits: floorEdits(), onChange: function () { floorEditsSave(); }, note: planUseNote(item.plan_id)
+      });
+      slot.appendChild(editor.bar);
     }
 
     function renderViews(result) {
@@ -7302,7 +7324,9 @@ body.cbl-modal-open {
           }).join("") + '</nav>' +
           '<div class="qd-floor-main">' +
             '<div class="qd-floor-head"><div><b class="qd-floor-name"></b><small class="qd-floor-sheet"></small></div>' +
-              '<div class="qd-floor-variants"></div></div>' +
+              '<div class="qd-floor-variants"></div>' +
+              '<button type="button" class="qd-btn qd-floor-fix" data-fix>빠진 부재 고치기</button></div>' +
+            '<div class="qd-floor-fixbar"></div>' +
             '<div class="qd-floor-legend">' + FLOOR_LEGEND.map(function (l) {
               return '<button type="button" class="fv-key-' + l[0] + (hidden[l[0]] ? " is-off" : "") + '" data-layer="' + l[0] + '"><i></i>' + l[1] + '</button>';
             }).join("") + '</div>' +
@@ -7384,7 +7408,19 @@ body.cbl-modal-open {
         showFloor(current, true);
         return;
       }
-      var layer = e.target.closest("[data-layer]");
+      if (e.target.closest("[data-fix]")) {
+        fixing = !fixing;
+        if (fixing && hidden.other) {
+          hidden.other = false;
+          var key = root.querySelector('.qd-floor-legend [data-layer="other"]');
+          if (key) key.classList.remove("is-off");
+          root.querySelector(".qd-floor-stage").classList.remove("hide-other");
+        }
+        fixFloor(current ? views[current.variants[variantIndex]] : null);
+        return;
+      }
+      if (e.target.closest(".qpe-bar")) return;
+      var layer = e.target.closest(".qd-floor-legend [data-layer]");
       if (layer) {
         var key = layer.getAttribute("data-layer");
         hidden[key] = !hidden[key];
@@ -9125,6 +9161,64 @@ body.cbl-modal-open {
     return model && model.buildings && model.buildings.length ? model : null;
   }
 
+  // People's fixes to the plan reading (members added or taken out), kept on the server with the
+  // floor job; the takeoff adds them to the storeys using each plan.
+  function floorEdits() {
+    state.floorEdits = state.floorEdits || [];
+    return state.floorEdits;
+  }
+  async function floorEditsLoad() {
+    var job = state.floorJob;
+    if (!job || !job.id) return floorEdits();
+    try {
+      var res = await fetch("/api/quantity/floor-edits/", {
+        method: "POST", headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
+        body: JSON.stringify({ floor_job_id: job.id })
+      });
+      var body = await res.json();
+      if (res.ok && body && Array.isArray(body.edits)) {
+        var list = floorEdits();
+        list.length = 0;
+        body.edits.forEach(function (e) { list.push(e); });
+      }
+    } catch (e) { /* keep what is here */ }
+    return floorEdits();
+  }
+  var floorEditsTimer = null;
+  function floorEditsSave(now) {
+    var job = state.floorJob;
+    if (!job || !job.id) return Promise.resolve();
+    if (floorEditsTimer) { clearTimeout(floorEditsTimer); floorEditsTimer = null; }
+    function send() {
+      return fetch("/api/quantity/floor-edits/", {
+        method: "POST", headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
+        body: JSON.stringify({ floor_job_id: job.id, edits: floorEdits() })
+      }).catch(function () {});
+    }
+    if (now) return send();
+    floorEditsTimer = setTimeout(send, 500);
+    return Promise.resolve();
+  }
+  // storeys (building, level) built from one plan frame
+  function planUsedBy(planId) {
+    var model = massModel(), out = [];
+    ((model && model.buildings) || []).forEach(function (b) {
+      (b.levels || []).forEach(function (l, i) {
+        var plan = (b.plans || [])[l.plan];
+        if (plan && plan.id === planId) out.push({ building: b.name, level: l, index: i, levels: b.levels });
+      });
+    });
+    return out;
+  }
+  function planUseNote(planId) {
+    var used = planUsedBy(planId);
+    if (!used.length) return "";
+    var names = used.map(function (u) { return u.level.label; });
+    var below = used.map(function (u) { return u.index > 0 ? u.levels[u.index - 1].label : null; }).filter(Boolean);
+    return used[0].building + " " + (names.length > 3 ? names[0] + "~" + names[names.length - 1] + "(" + names.length + "개 층)" : names.join(", ")) +
+      "에 쓰이는 평면이에요. 벽·기둥은 이 층, 보는 " + (below.length ? "바로 아래층(" + below[0] + (below.length > 1 ? " 등" : "") + ")" : "아래층") + " 수량에 들어가요";
+  }
+
   // The coloured plan of one storey for the 3D viewer's horizontal section: the sheet the storey
   // was built from, else a structural view of that building whose floor names or covers the storey.
   function planSvgFor(building, level) {
@@ -9179,11 +9273,13 @@ body.cbl-modal-open {
             return '<button type="button" data-b="' + esc(n) + '"' + (pick.building === n ? ' class="is-on"' : '') + '>' + esc(n) + '</button>';
           }).join("") + '</div>' +
         '<select class="qd-mass-level" aria-label="층 선택"' + (pick.building ? '' : ' disabled') + '>' + levelOptions() + '</select>' +
+        '<button type="button" class="qd-btn" data-fix2d>2D에서 고치기</button>' +
         '<div class="qd-mass-legend">' + MASS_LEGEND[mode].concat(kindLegend).map(function (l) {
           return '<span><i style="background:' + l[0] + '"></i>' + l[1] + '</span>';
         }).join("") + '</div>';
     }
     bar.addEventListener("click", function (e) {
+      if (e.target.closest("[data-fix2d]")) { fixIn2d(viewer, pick); return; }
       var chip = e.target.closest("[data-b]");
       if (!chip) return;
       pick.building = chip.getAttribute("data-b") || null;
@@ -9202,6 +9298,27 @@ body.cbl-modal-open {
     });
     render();
     return bar;
+  }
+
+  // from the 3D review to the plan of the chosen storey; the 3D is drawn again with the fixes
+  function fixIn2d(viewer, pick) {
+    var model = massModel();
+    var building = ((model && model.buildings) || []).filter(function (b) { return b.name === pick.building; })[0];
+    var level = building && pick.level != null ? building.levels[pick.level] : null;
+    if (!level) { addBot("고칠 동과 층을 위에서 먼저 골라 주세요.", 0); return; }
+    var plan = (building.plans || [])[level.plan] || {};
+    var result = state.floorJob && state.floorJob.result;
+    var view = ((result && result.views) || []).filter(function (v) { return v.plan_id && v.plan_id === plan.id; })[0];
+    if (!view || !window.cblQuantityPlanEdit) { addBot("이 층 평면 그림을 찾지 못해 고칠 수 없어요.", 0); return; }
+    window.cblQuantityPlanEdit.open({
+      svg: view.svg, title: building.name + " " + level.label + " 평면 고치기 (" + (view.sheet || view.title || "") + ")",
+      planId: plan.id, edits: floorEdits(), note: planUseNote(plan.id), tool: "beam",
+      onChange: function () { floorEditsSave(); },
+      onClose: function () {
+        floorEditsSave(true);
+        if (viewer.setEdits) viewer.setEdits(floorEdits().slice());
+      }
+    });
   }
 
   function firstAbove(levels) {
@@ -9264,7 +9381,8 @@ body.cbl-modal-open {
       "구조평면도의 벽·기둥·보·슬래브를 층고만큼 쌓았어요. 드래그로 돌리고 휠로 확대해요 (오른쪽 버튼·Shift 드래그는 이동). " +
       "위쪽 단추로 평면·정면·측면을 보고, 단면·단면 상자로 잘라 보고, 단면도와 거리 측정도 할 수 있어요.");
     if (deck) deck.append(host); else flowEl.appendChild(host);
-    viewer = window.cblQuantityMass3D.mount(host, model, { planSvg: planSvgFor });
+    await floorEditsLoad();
+    viewer = window.cblQuantityMass3D.mount(host, model, { planSvg: planSvgFor, edits: floorEdits().slice() });
     var summary = viewer.summary();
     var bar1 = massToolbar(viewer, "mass", pick);
     host.parentNode.insertBefore(bar1, host);
@@ -9384,7 +9502,8 @@ body.cbl-modal-open {
     var body = (building.rows || []).map(function (row) {
       var title = (row.notes || []).join(" / ");
       return '<tr' + (row.approximate ? ' class="is-approx"' : '') + (title ? ' title="' + esc(title) + '"' : '') + '><td>' + esc(row.label) +
-        (row.approximate ? '<i class="qd-approx">근사</i>' : '') + '</td>' + cells(row.concrete || {}, row.formwork || {}) + '</tr>';
+        (row.approximate ? '<i class="qd-approx">근사</i>' : '') + (row.fixed ? '<i class="qd-fixed">고침 ' + row.fixed.count + '</i>' : '') +
+        '</td>' + cells(row.concrete || {}, row.formwork || {}) + '</tr>';
     }).join("");
     var totals = building.totals || {}, approx = building.approximate_totals || {};
     body += '<tr class="is-sum"><td>합계</td>' + cells(totals.concrete || {}, totals.formwork || {}) + '</tr>';
@@ -9402,6 +9521,7 @@ body.cbl-modal-open {
       "층별 수량을 냈어요.",
       "N층 = N층 벽·기둥 + N+1층 바닥 슬래브·보. CAD 평면에서 잰 길이·면적과 일람표 크기로 계산했어요.");
     var body = null;
+    await floorEditsSave(true);
     try {
       var res = await fetch("/api/quantity/floor-takeoff/", {
         method: "POST",

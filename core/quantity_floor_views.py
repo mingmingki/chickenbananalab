@@ -10,6 +10,7 @@ low-priority process so the drawing walk never holds the web worker's memory.
 """
 from __future__ import annotations
 
+import html
 import json
 import math
 import os
@@ -19,9 +20,9 @@ import unicodedata
 from collections import defaultdict
 
 FLOOR_VIEWS_VERSION = 1
-CATEGORIES = ("frame", "beam", "masonry", "alc", "dry", "opening")
+CATEGORIES = ("frame", "beam", "masonry", "alc", "dry", "opening", "other")
 CATEGORY_LABELS = {"frame": "골조(콘크리트)", "beam": "보", "masonry": "조적", "alc": "ALC",
-                   "dry": "건식벽", "opening": "창호"}
+                   "dry": "건식벽", "opening": "창호", "other": "분류 안 된 선"}
 # first match wins; anything that matches none is not drawn
 _LAYER_RULES = (
     ("skip", re.compile(r"text|bubble|dim|defpoint|(^|[-_ ])cen($|[-_ ])|center|sym|title|form|keyplan|"
@@ -37,6 +38,8 @@ _PLAN_EXCLUDE = re.compile(r"배근|일람|상세|단면|입면|창호|방화|�
                            r"확대|면적|성능|마감|안내|계획도|조경")
 _SHEET_FILE = re.compile(r"^[A-Z]{1,2}[-_ ]?\d", re.I)
 MAX_SUBPATHS_PER_VIEW = 60000
+MAX_OTHER_SUBPATHS = 5000  # unclassified lines shown faintly on structural plans, to trace a missed member
+MIN_OTHER_MM = 150.0      # shorter unclassified lines (hatching, symbols) are left out
 MIN_EXTENT_MM = 30.0
 
 
@@ -46,11 +49,24 @@ def _nfc(text):
 
 def layer_category(layer):
     """Material category of a layer name (xref layers 'XREF|name' use the part after '|')."""
+    rule = _layer_rule(layer)
+    return None if rule == "skip" else rule
+
+
+def _layer_rule(layer):
     base = _nfc(layer).split("|")[-1]
     for name, rule in _LAYER_RULES:
         if rule.search(base):
-            return None if name == "skip" else name
+            return name
     return None
+
+
+def plan_key(name, row):
+    """Stable id of one plan frame of one file: links its picture, its 3D storey and people's fixes."""
+    import hashlib
+    box = ",".join(str(round(float(v))) for v in row.get("frame_bbox") or [])
+    raw = f"{name}|{row.get('drawing_number') or ''}|{box}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
 
 
 def is_plan_title(title):
@@ -297,15 +313,23 @@ def _kept_by_clip(item, polygon, inverted):
     return inside != inverted
 
 
-def _svg(paths, box):
+def _svg(paths, box, other=True):
+    """Plan picture of one frame (1 unit = 10 mm, y down). A path category may be (category, layer):
+    the path then carries the layer, so a person picking a line in the editor learns its layer."""
     x0, y0, x1, y1 = box
     width, height = (x1 - x0) / 10.0, (y1 - y0) / 10.0
-    groups, counts, total = defaultdict(list), defaultdict(int), 0
-    for category, ax, ay, bx, by, points in paths:
+    groups, counts, total, others = defaultdict(list), defaultdict(int), 0, 0
+    ordered = sorted(paths, key=lambda p: (p[0][0] if isinstance(p[0], tuple) else p[0]) == "other")
+    for category, ax, ay, bx, by, points in ordered:
         if bx < x0 or ax > x1 or by < y0 or ay > y1:
             continue
         if total >= MAX_SUBPATHS_PER_VIEW:
             break
+        kind = category[0] if isinstance(category, tuple) else category
+        if kind == "other":
+            if not other or others >= MAX_OTHER_SUBPATHS or max(bx - ax, by - ay) < MIN_OTHER_MM:
+                continue
+            others += 1
         coords, last = [], None
         for px, py in points:
             pair = (round((px - x0) / 10.0), round((y1 - py) / 10.0))
@@ -315,9 +339,16 @@ def _svg(paths, box):
         if len(coords) < 2:
             continue
         groups[category].append("M" + "L".join(coords))
-        counts[category] += 1
+        counts[kind] += 1
         total += 1
-    body = "".join(f'<path class="fv-{c}" d="{"".join(groups[c])}"/>' for c in CATEGORIES if groups[c])
+
+    def attr(text):
+        return html.escape(str(text), quote=True)
+    rank = {c: i for i, c in enumerate(CATEGORIES)}
+    body = "".join(
+        f'<path class="fv-{c[0]}" data-layer="{attr(c[1])}" d="{"".join(groups[c])}"/>' if isinstance(c, tuple)
+        else f'<path class="fv-{c}" d="{"".join(groups[c])}"/>'
+        for c in sorted(groups, key=lambda c: (rank.get(c[0] if isinstance(c, tuple) else c, 99), str(c))))
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:.0f} {height:.0f}" '
            f'preserveAspectRatio="xMidYMid meet">{body}</svg>')
     return svg, dict(counts)
@@ -334,11 +365,18 @@ def _plan_views(name, doc, rows, xrefs, roles=None):
     plans = [row for row in rows if row.get("frame_bbox") and is_plan_title(row.get("drawing_title"))]
     if not plans:
         return []
-    classify = None
-    if roles:
-        def classify(layer):
-            role = roles.get(_nfc(layer).split("|")[-1])
-            return VIEW_OF_ROLE.get(role) if role else layer_category(layer)
+    from . import quantity_layer_roles as layer_roles
+
+    def classify(layer):
+        base = _nfc(layer).split("|")[-1]
+        role = (roles or {}).get(base)
+        category = VIEW_OF_ROLE.get(role) if role else layer_category(layer)
+        if category is None:
+            # not a member as read: shown faintly (a missed beam can be traced), except sheet clutter
+            if _layer_rule(layer) == "skip" or layer_roles.surely_not_member(base):
+                return None
+            category = "other"
+        return (category, layer_roles.base_name(base))
     paths = []
     _walk(doc, doc.modelspace(), Matrix44(), None, xrefs, paths, classify=classify, limit=_frames_limit(plans))
     whole = [row for row in plans if row["frame_bbox"][2] - row["frame_bbox"][0] > 1e11]
@@ -352,15 +390,16 @@ def _plan_views(name, doc, rows, xrefs, roles=None):
             row["frame_bbox"] = [round(v, 3) for v in box]
     views = []
     for row in plans:
-        svg, counts = _svg(paths, row["frame_bbox"])
-        if not counts:
+        structural = floor_of(row["drawing_title"])["discipline"] == "struct"
+        svg, counts = _svg(paths, row["frame_bbox"], other=structural)
+        if not any(v for k, v in counts.items() if k != "other"):
             continue
         floor = floor_of(row["drawing_title"])
         variant = "구조평면" if floor["discipline"] == "struct" else "건축평면"
         if "보완" in _nfc(name):
             variant += " (보완)"
         views.append(dict(floor, file=name, sheet=row.get("drawing_number"), title=row.get("drawing_title"),
-                          variant=variant, counts=counts, svg=svg))
+                          variant=variant, counts=counts, svg=svg, plan_id=plan_key(name, row)))
     return views
 
 
@@ -982,8 +1021,9 @@ def main(manifest_path, out_path):
             layer_roles[name] = role_report
         views.extend(_plan_views(name, doc, rows, xrefs, member_roles))  # also settles one-sheet frames
         for row in structural:
-            model_plans.append({"floor": floor_of(row["drawing_title"]), "sheet": row.get("drawing_number"),
-                                "model": _plan_model(members, row["frame_bbox"])})
+            model = _plan_model(members, row["frame_bbox"])
+            model["id"] = plan_key(name, row)
+            model_plans.append({"floor": floor_of(row["drawing_title"]), "sheet": row.get("drawing_number"), "model": model})
         del members
         del doc, xrefs, evidence
         gc.collect()

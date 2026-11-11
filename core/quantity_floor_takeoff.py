@@ -721,8 +721,11 @@ def _region(plan, index):
     return regions[index] if index is not None and 0 <= index < len(regions) else None
 
 
-def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS):
-    """Rows per building and storey: walls/columns of the storey + slab/beams on top of it."""
+def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None):
+    """Rows per building and storey: walls/columns of the storey + slab/beams on top of it.
+    ``edits``: people's fixes (quantity_edits.clean), added to the storeys using their plans."""
+    from . import quantity_edits
+    fixes_by_plan = quantity_edits.by_plan(edits)
     buildings = []
     all_buildings = (model or {}).get("buildings") or []
     host_name, match = tower_regions(all_buildings)
@@ -738,6 +741,7 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS):
             vplan = plans[level["plan"]] if isinstance(level.get("plan"), int) and level["plan"] < len(plans) else {}
             above = levels[index + 1] if index + 1 < len(levels) else None
             hplan = plans[above["plan"]] if above and isinstance(above.get("plan"), int) and above["plan"] < len(plans) else None
+            hplan_id = (hplan or {}).get("id")
             measure = vplan.get("measure") or {}
             hmeasure = (hplan or {}).get("measure") or {}
             t = slab_thickness
@@ -907,6 +911,23 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS):
                 notes.append("위층 평면이 없어 이 층 위 슬래브·보는 빠졌어요")
             if not links:
                 notes.append("보와 기둥 구분은 AI 판독 뒤 일람표로 채워져요")
+            # people's fixes: walls and columns drawn on this storey's plan, beams on the plan above
+            fixes = [e for e in fixes_by_plan.get(vplan.get("id"), []) if e["kind"] != "beam"]
+            if above is not None and hplan_id:
+                fixes += [e for e in fixes_by_plan.get(hplan_id, []) if e["kind"] == "beam"]
+            fixed = None
+            if fixes:
+                added_concrete = added_form = 0.0
+                for fix in fixes:
+                    concrete_part, form_part = quantity_edits.effect(fix, kind, wall_h, t)
+                    for k, v in concrete_part.items():
+                        concrete[k] = max(concrete.get(k, 0.0) + v, 0.0)
+                        added_concrete += v
+                    for k, v in form_part.items():
+                        form[k] = max(form.get(k, 0.0) + v, 0.0)
+                        added_form += v
+                notes.append(quantity_edits.note(fixes, added_concrete, added_form))
+                fixed = {"count": len(fixes), "concrete": round(added_concrete, 2), "formwork": round(added_form, 2)}
             concrete["total"] = sum(concrete[k] for k in CONCRETE_KEYS)
             form["total"] = sum(form[k] for k in FORM_KEYS)
             rows.append({
@@ -915,7 +936,7 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS):
                 "concrete": _round(concrete, 2), "formwork": _round(form, 2),
                 "measures": {"vertical_area": round(vertical_area, 2), "faces": round(faces, 1),
                              "outside_faces": round(outside, 1), "slab_area": round(slab_area, 1)},
-                "approximate": approximate, "notes": notes,
+                "approximate": approximate, "notes": notes, "fixed": fixed,
             })
         totals = {"concrete": dict.fromkeys(CONCRETE_KEYS + ("total",), 0.0), "formwork": dict.fromkeys(FORM_KEYS + ("total",), 0.0)}
         approx = {"concrete": dict.fromkeys(CONCRETE_KEYS + ("total",), 0.0), "formwork": dict.fromkeys(FORM_KEYS + ("total",), 0.0)}
