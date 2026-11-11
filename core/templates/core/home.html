@@ -6484,7 +6484,7 @@ body.cbl-modal-open {
 
   // ─────────────────────────────────────────────
   //  1단계 프로젝트 확인 · 2단계 도면 업로드 — 카드 한 장씩.
-  //  CAD → PDF(낱장·합본 무관) → 누락 점검(항목별 의견) → "AI 판독을 시작할까요?"
+  //  CAD → PDF(낱장·합본 무관) → 누락 점검(항목별 의견) → 층별 칠하기 → "어떻게 읽어 갈까요?" (CAD만 무료 / AI 판독 유료)
   // ─────────────────────────────────────────────
   var TILE_ICONS = {
     "아파트": '<path d="M5 21V5l7-3 7 3v16M12 2v19M8 8h1M15 8h1M8 12h1M15 12h1M8 16h1M15 16h1M3 21h18"/>',
@@ -6979,6 +6979,8 @@ body.cbl-modal-open {
       '<div class="qd-actions">' +
         '<button type="button" class="qd-btn link" id="qty-pdf-back">← 캐드 파일 다시 보기</button>' +
         '<span class="qd-spacer"></span>' +
+        // the free CAD-only path needs no PDFs
+        (uploadCount("cad") ? '<button type="button" class="qd-btn" id="qty-pdf-skip">PDF 없이 진행 (CAD만)</button>' : '') +
         '<button type="button" class="qd-btn primary" id="qty-pdf-next">다음 →</button>' +
       '</div>'
     );
@@ -6986,6 +6988,11 @@ body.cbl-modal-open {
     next.disabled = !uploadCount("pdf");
     onceClick(next, function () {
       addUser("PDF " + uploadCount("pdf") + "개");
+      runCheckZip();
+    });
+    var skip = row.querySelector("#qty-pdf-skip");
+    if (skip) onceClick(skip, function () {
+      addUser("PDF 없이 진행");
       runCheckZip();
     });
     onceClick(row.querySelector("#qty-pdf-back"), function () {
@@ -7546,8 +7553,8 @@ body.cbl-modal-open {
   }
 
   async function showAiStartCard() {
-    await qCard({ eyebrow: "05", label: "Ready", art: "ai", total: 5, index: 5 }, "AI 판독을 시작할까요?",
-      "프로젝트 개요부터 구조일반사항, 동·층·층고, 부재까지 차례로 읽어 갈게요. 단계마다 확인을 받고 넘어가요.");
+    await qCard({ eyebrow: "05", label: "Ready", art: "ai", total: 5, index: 5 }, "어떻게 읽어 갈까요?",
+      "CAD로만(무료) 바로 3D·수량·철근까지 가거나, AI 판독(유료)으로 개요·구조일반사항·동·층·부재를 차례로 읽어 갈 수 있어요.");
     buildDrawingNotes();
     function bytes(list) { return fileSizeText(list.reduce(function (s, f) { return s + f.size; }, 0)); }
     function stat(label, list) {
@@ -7562,23 +7569,70 @@ body.cbl-modal-open {
     if (state.drawingNotes) {
       appendLeft('<p class="qd-note">남겨주신 의견 ' + state.drawingNotes.split("\n").length + '건도 함께 AI에게 전달해요.</p>');
     }
+    appendLeft('<p class="qd-note">CAD 도면만으로 칠하기 → 3D → 레미콘 → 철근까지 AI 비용 없이 진행할 수 있어요. ' +
+      'AI 판독(유료)은 PDF를 읽거나 CAD로 못 읽은 부분을 보완할 때 써요.</p>');
     var row = appendLeft(
       '<div class="qd-actions">' +
         '<button type="button" class="qd-btn" id="qty-ai-back">파일 다시 보기</button>' +
         '<span class="qd-spacer"></span>' +
-        '<button type="button" class="qd-btn primary glow" id="qty-ai-go">AI 판독 시작</button>' +
+        '<button type="button" class="qd-btn" id="qty-cad-go">AI 없이 CAD로만 진행 (무료)</button>' +
+        '<button type="button" class="qd-btn primary glow" id="qty-ai-go">AI 판독 시작 (유료)</button>' +
       '</div>'
     );
+    row.querySelector("#qty-cad-go").addEventListener("click", function () {
+      this.disabled = true;
+      row.querySelector("#qty-ai-go").disabled = true;
+      addUser("AI 없이 CAD로만 진행");
+      runCadOnlyFlow();
+    });
     onceClick(row.querySelector("#qty-ai-back"), function () {
       addUser("파일 다시 볼게요");
       showCadUploadCard();
     });
     row.querySelector("#qty-ai-go").addEventListener("click", async function () {
       this.disabled = true;
+      row.querySelector("#qty-cad-go").disabled = true;
+      state.cadOnly = false;
       addUser("AI 판독 시작");
       await stepTransition(3, "AI 판독", "도면 업로드가 끝났습니다.<br>이제 AI 판독을 시작할게요.");
       runOverviewCheck();
     });
+  }
+
+  // CAD only (no AI): the floor job's plans, 3D, takeoff and rebar, with the schedules it read from
+  // the structural CAD; the Excel carries the floor sheets
+  async function runCadOnlyFlow() {
+    var job = state.floorJob;
+    if (!job || !job.id) {
+      await addBot("층별 확인 작업이 없어요. 평면도 CAD를 올리면 시작돼요.", 0);
+      return;
+    }
+    if (job.status === "running") {
+      await addBot("평면도와 일람표를 읽는 중이에요. 끝나면 바로 이어 갈게요.", 0);
+      await new Promise(function (resolve) {
+        var timer = setInterval(function () {
+          if (job.status !== "running" || state.floorJob !== job) { clearInterval(timer); resolve(); }
+        }, 1500);
+      });
+    }
+    if (state.floorJob !== job) return;
+    if (!massModel()) {
+      await addBot("평면도에서 3D로 세울 구조평면을 찾지 못했어요" + (job.error ? " (" + esc(job.error) + ")" : "") + ". 파일을 확인해 주세요.", 0);
+      return;
+    }
+    state.cadOnly = true;
+    var data = { results: {} };
+    await showMassStage();
+    var takeoff = await showFloorTakeoff(data);
+    if (takeoff) data.results.floor_takeoff = takeoff;
+    if (takeoff) {
+      var rebar = await showFloorRebar(data);
+      if (rebar) data.results.floor_rebar = rebar;
+    }
+    lastAnalysisResults = data.results;
+    await addBot("CAD로 층별 수량과 철근을 정리했어요. AI 비용은 들지 않았어요.", 150);
+    var dl = appendLeft('<div class="qty-btn-row wide"><button type="button" class="qty-action primary full" id="qty-download-excel-cad">엑셀로 다운로드</button></div>');
+    dl.querySelector("#qty-download-excel-cad").addEventListener("click", downloadExcel);
   }
 
   function showRunButton() {
@@ -9378,7 +9432,7 @@ body.cbl-modal-open {
     var model = massModel();
     if (!model) return;
     stageStep(4);
-    if (deck) await deck.transition(4, "3D 검토", "AI 판독이 끝났습니다.<br>이제 3D 매스로 확인할게요.");
+    if (deck) await deck.transition(4, "3D 검토", state.cadOnly ? "CAD 도면을 다 읽었습니다.<br>이제 3D 매스로 확인할게요." : "AI 판독이 끝났습니다.<br>이제 3D 매스로 확인할게요.");
     var ok = await threeReady();
     if (!ok) {
       await addBot("3D 뷰어를 불러오지 못해 3D 검토는 건너뛸게요.", 150);
@@ -9550,7 +9604,7 @@ body.cbl-modal-open {
       body = { error: e && e.message ? e.message : String(e) };
     }
     if (!body || !body.takeoff) {
-      await addBot("층별 수량표를 만들지 못했어요" + (body && body.error ? " (" + esc(body.error) + ")" : "") + ". AI 판독 결과로 이어갈게요.", 120);
+      await addBot("층별 수량표를 만들지 못했어요" + (body && body.error ? " (" + esc(body.error) + ")" : "") + (state.cadOnly ? "." : ". AI 판독 결과로 이어갈게요."), 120);
       return null;
     }
     var takeoff = body.takeoff;

@@ -30,7 +30,7 @@ class WizardTemplateTests(SimpleTestCase):
             "빠진 도면이 있는지 확인했어요.",
             "다른 파일에 함께 있다면 적어주세요",
             "층별로 칠해 봤어요. 맞는지 확인해 주세요.",
-            "AI 판독을 시작할까요?",
+            "어떻게 읽어 갈까요?",  # free CAD-only or paid AI reading
         ]
         position = self.html.index("async function startUploadStep()")
         for text in order:

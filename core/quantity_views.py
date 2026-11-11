@@ -1641,7 +1641,9 @@ FLOOR_VIEWS_MIN_FREE_MB = 750
 
 
 def _floor_view_inputs(uploaded_files):
-    """(name, bytes) of the plan sheets and possible xrefs among the uploads (ZIPs unpacked)."""
+    """(name, bytes) of the plan sheets, possible xrefs, section sheets and the other structural
+    sheets (schedules, slab and wall bars: the CAD-only takeoff reads them) among the uploads (ZIPs
+    unpacked)."""
     from . import quantity_floor_views
     found, names = [], set()
 
@@ -1650,7 +1652,7 @@ def _floor_view_inputs(uploaded_files):
         if not name.lower().endswith((".dwg", ".dxf")) or not data:
             return
         if not (quantity_floor_views.is_plan_file(name) or quantity_floor_views.is_reference_file(name)
-                or quantity_floor_views.is_level_file(name)):
+                or quantity_floor_views.is_level_file(name) or quantity_floor_views._is_structural_file(name)):
             return
         base, ext, n = name[:-4], name[-4:], 2
         while name in names:
@@ -1764,6 +1766,61 @@ def _keep_floor_inputs(job_id, manifest, plans, level_names):
         json.dump({"files": stored, "plans": plans, "levels": level_names}, handle, ensure_ascii=False)
 
 
+CAD_LINKS_TIME_BUDGET_SECONDS = 300
+
+
+def _cad_member_links(job_id, files, manifest):
+    """The schedules linked to the plan marks, read from the structural CAD alone (no AI): the
+    same reading the AI run attaches, here for the CAD-only path. Plans already opened for the
+    pictures are not converted again; the time is bounded and a file that fails is left out."""
+    from . import quantity_floor_views as fv
+    opened = {entry["name"]: entry["dxf"] for entry in manifest}
+    structural = [f for f in files if fv._is_structural_file(f["name"])]
+    if not structural:
+        return None
+    _wait_for_free_memory()  # read in this process, one drawing at a time
+    deadline = time.monotonic() + CAD_LINKS_TIME_BUDGET_SECONDS
+    dwg_data, evidence, seen = {}, {}, set()
+    for index, item in enumerate(structural):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            logger.warning("quantity_cad_links_time_budget job=%s read=%s of=%s", job_id[:16], len(dwg_data), len(structural))
+            break
+        _progress_set(job_id, "schedules", index, len(structural) + 1, f"일람표 읽는 중 ({index + 1}/{len(structural)})")
+        try:
+            with open(item["path"], "rb") as handle:
+                identity = {"source_member_sha": _sha256_bytes(handle.read()), "normalized_member_path": item["name"]}
+            if identity["source_member_sha"] in seen:  # the same sheet uploaded from two folders
+                continue
+            seen.add(identity["source_member_sha"])
+            if item["name"] in opened:
+                doc = ezdxf.readfile(opened[item["name"]])
+            elif item["path"].lower().endswith(".dxf"):
+                doc = ezdxf.readfile(item["path"])
+            else:
+                text, _metadata = _cbl_free_dwg_to_dxf_text_v1(item["path"], timeout=remaining, wait=remaining, background=True)
+                doc = ezdxf.read(io.StringIO(text))
+            dwg_data[item["name"]] = dict(_extract_dxf_quantities(doc), **identity)
+            evidence[item["name"]] = quantity_sheet_identity.extract_sheet_evidence(doc, decode=_cad_text, source_member_sha=identity["source_member_sha"])
+        except Exception as exc:
+            logger.warning("quantity_cad_links_file_failed job=%s file=%s error=%s", job_id[:16], item["name"][:60], str(exc)[:160])
+        finally:
+            doc = None
+    if not dwg_data:
+        return None
+    try:
+        quantity_sheet_identity.attach_sheet_identity(dwg_data, evidence)
+        return quantity_member_links.build_member_links(dwg_data)
+    except Exception as exc:
+        logger.warning("quantity_cad_links_failed job=%s error=%s", job_id[:16], str(exc)[:200])
+        return None
+
+
+def _floor_links(floor_job):
+    """The CAD schedule links read with a floor job (None when there were no structural files)."""
+    return (_quantity_state().get("floor_links", floor_job) or {}).get("links")
+
+
 def _render_floor_views(job_id, work, manifest):
     """Run the colored plans + 3D model + layer reading in a low-priority process; store the result."""
     try:
@@ -1873,6 +1930,12 @@ def _run_floor_views_job(job_id, inputs):
                 _keep_floor_inputs(job_id, manifest, plan_names, level_names)
             except Exception as exc:  # a re-run is a convenience; the reading itself goes on
                 logger.warning("quantity_floor_views_cache_failed job=%s error=%s", job_id[:16], str(exc)[:200])
+            try:
+                links = _cad_member_links(job_id, files, manifest)
+                if links:
+                    _quantity_state().put("floor_links", job_id, {"links": links}, ttl=_RESULT_TTL_SEC)
+            except Exception as exc:  # the pictures and the 3D do not depend on the schedules
+                logger.warning("quantity_cad_links_failed job=%s error=%s", job_id[:16], str(exc)[:200])
             _render_floor_views(job_id, work, {"files": manifest, "plans": plan_names, "levels": level_names})
     except subprocess.TimeoutExpired:
         _result_set(job_id, {"ok": False, "error": "평면도를 칠하는 데 시간이 너무 오래 걸려 멈췄어요."})
@@ -1986,7 +2049,7 @@ def api_quantity_floor_rebar(request):
     if not result.get("ok") or not model.get("buildings"):
         return JsonResponse({"error": "층별 확인 결과에 구조 평면이 없어요."}, status=409)
     links = body.get("member_links")
-    links = links if isinstance(links, dict) and links.get("marks") else None
+    links = links if isinstance(links, dict) and links.get("marks") else _floor_links(floor_job)
     spec = body.get("general_spec") if isinstance(body.get("general_spec"), dict) else None
     edits = _floor_edits(floor_job)
     foundations = _floor_foundations(floor_job, body)
@@ -2104,7 +2167,7 @@ def api_quantity_floor_takeoff(request):
     if not result.get("ok") or not model.get("buildings"):
         return JsonResponse({"error": "층별 확인 결과에 구조 평면이 없어요."}, status=409)
     links = body.get("member_links")
-    links = links if isinstance(links, dict) and links.get("marks") else None
+    links = links if isinstance(links, dict) and links.get("marks") else _floor_links(floor_job)
     edits = _floor_edits(floor_job)
     foundations = _floor_foundations(floor_job, body)
     try:
@@ -8368,11 +8431,18 @@ def _build_excel_response(request):
 
         ws.freeze_panes = "A3"
 
+    floor_takeoff = results.get("floor_takeoff")
+    floor_rebar = results.get("floor_rebar")
+    has_floor_takeoff = isinstance(floor_takeoff, dict) and bool(floor_takeoff.get("buildings"))
+    # "AI 없이 CAD로만 진행": no AI reading, so the floor sheets lead and the AI-only sheets are left out
+    cad_only = has_floor_takeoff and not any(results.get(k) for k in ("structural", "architectural"))
+    CAD_ONLY_SHEETS = ("층별 집계(N층 기준)", "층별 철근(N층 기준)", "검토 사항")
+
     # 구조 시트
     if "structural" in results and results["structural"].get("items"):
         ws_s = wb.active
         write_sheet(ws_s, results["structural"], "구조 수량산출")
-    else:
+    elif not cad_only:
         wb.active.title = "구조 수량산출"
         wb.active["A1"] = "구조도면 데이터 없음"
 
@@ -8383,15 +8453,18 @@ def _build_excel_response(request):
         write_floor_breakdown_sheet(ws_floor, struct_floor_breakdown)
 
     # 층별 집계(N층 기준): CAD 평면·일람표로 낸 층별 콘크리트·거푸집 (화면의 2D 수량산출 표와 같다)
-    floor_takeoff = results.get("floor_takeoff")
-    if isinstance(floor_takeoff, dict) and floor_takeoff.get("buildings"):
-        _write_floor_takeoff_sheet(wb.create_sheet("층별 집계(N층 기준)"), floor_takeoff,
+    if has_floor_takeoff:
+        if cad_only:
+            ws_floor_takeoff = wb.active
+            ws_floor_takeoff.title = CAD_ONLY_SHEETS[0]
+        else:
+            ws_floor_takeoff = wb.create_sheet(CAD_ONLY_SHEETS[0])
+        _write_floor_takeoff_sheet(ws_floor_takeoff, floor_takeoff,
                                    navy_fill, yellow_fill, light_fill, header_font, body_font, center, left, thin)
-    floor_rebar = results.get("floor_rebar")
     if isinstance(floor_rebar, dict) and floor_rebar.get("buildings"):
         _write_floor_rebar_sheet(wb.create_sheet("층별 철근(N층 기준)"), floor_rebar,
                                  navy_fill, yellow_fill, header_font, body_font, center, left, thin)
-    if isinstance(floor_takeoff, dict) and floor_takeoff.get("buildings"):
+    if has_floor_takeoff:
         _write_review_notes_sheet(wb.create_sheet("검토 사항"), navy_fill, header_font, body_font, left, thin)
 
     # 건축 시트
@@ -8564,6 +8637,11 @@ def _build_excel_response(request):
     for column, width in zip("ABCD", [12, 30, 55, 90]):
         coverage_sheet.column_dimensions[column].width = width
     coverage_sheet.freeze_panes = "A2"
+
+    if cad_only:
+        for sheet in list(wb.worksheets):
+            if sheet.title not in CAD_ONLY_SHEETS:
+                wb.remove(sheet)
 
     # 응답
     buf = io.BytesIO()

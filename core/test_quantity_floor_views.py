@@ -215,9 +215,10 @@ class FloorViewJobTests(TestCase):
     def upload(self, name, data=b"0"):
         return SimpleUploadedFile(name, data, content_type="application/octet-stream")
 
-    def test_the_check_starts_the_floor_job_with_plans_and_xrefs_only(self):
+    def test_the_check_starts_the_floor_job_with_plans_xrefs_and_structural_sheets(self):
+        # structural schedules ride along: the CAD-only takeoff links them to the plans without AI
         files = [self.upload("A-401~419 주동 평면도.dwg", b"plan"), self.upload("XR-주동 평면도.dwg", b"xref"),
-                 self.upload("S-301 아파트 기둥 일람표.dwg", b"schedule")]
+                 self.upload("S-301 아파트 기둥 일람표.dwg", b"schedule"), self.upload("A-501 창호도.dwg", b"window")]
         with patch.object(views, "_build_cad_precheck", return_value={"scan": {"cad_count": 3}}), \
                 patch.object(views.threading, "Thread", _NoThread):
             response = self.client.post("/api/quantity/check-zip/", {"cad_files": files, "floor_views_job_id": "fv-1"})
@@ -225,7 +226,8 @@ class FloorViewJobTests(TestCase):
         self.assertEqual(body["floor_views"], {"started": True, "job_id": "fv-1", "plans": 1})
         job_id, inputs = _NoThread.started[-1]
         self.assertEqual(job_id, "fv-1")
-        self.assertEqual(sorted(name for name, _data in inputs), ["A-401~419 주동 평면도.dwg", "XR-주동 평면도.dwg"])
+        self.assertEqual(sorted(name for name, _data in inputs),
+                         ["A-401~419 주동 평면도.dwg", "S-301 아파트 기둥 일람표.dwg", "XR-주동 평면도.dwg"])
         self.assertEqual(views._quantity_state().get("job", "fv-1")["owner"], str(self.staff.pk))
         self.assertEqual(self.client.post("/api/quantity/progress/?job_id=fv-1").json()["found"], True)
 
