@@ -461,9 +461,32 @@ def resolve_cad_sheets(evidence_by_file):
         _complete_frames(rows, evidence, texts)
         if not rows:
             rows = _fallback_rows(file, evidence, texts, groups)
+        _prefer_floor_titles(rows, texts)
         rows.sort(key=lambda row: (natural_key(row["drawing_number"]), row["frame_bbox"] or [0, 0]))
         result[file] = rows
     return result
+
+
+FLOOR_WORDS = re.compile(r"\d+\s*층|지하|지상|지붕|옥탑|기초|기준층|PIT|피트", re.I)
+
+
+def _prefer_floor_titles(rows, texts):
+    """A title-block name without a floor ("101동 바닥 구조 평면도 1", a sheet's running name) gives way
+    to the drawing's own caption inside the frame that names the floor ("101동 3~25층 바닥 구조 평면도")."""
+    for row in rows:
+        title, box = row.get("drawing_title") or "", row.get("frame_bbox")
+        if not box or "평면도" not in re.sub(r"\s+", "", title) or FLOOR_WORDS.search(title):
+            continue
+        own = [t for t in texts if re.sub(r"\s+", " ", t.get("text") or "").strip() == title]
+        height = max((t.get("h") or 0 for t in own), default=0)
+        x0, y0, x1, y1 = box
+        captions = [t for t in texts if x0 <= t["x"] <= x1 and y0 <= t["y"] <= y1 and t.get("text")
+                    and FLOOR_WORDS.search(t["text"]) and "평면도" in re.sub(r"\s+", "", t["text"])
+                    and (t.get("h") or 0) >= 0.4 * height]  # a list of sheets in small type is not a caption
+        if captions:
+            best = max(captions, key=lambda t: (t.get("h") or 0, len(t["text"])))
+            row["sheet_title"] = title
+            row["drawing_title"] = re.sub(r"\s+", " ", best["text"]).strip()
 
 
 TITLE_TEXT = re.compile(r"평면도|단면도|입면도|일람표|상세도|배근도|계획도|구조도|목록|리스트|"

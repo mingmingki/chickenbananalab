@@ -40,6 +40,8 @@ _SHEET_FILE = re.compile(r"^[A-Z]{1,2}[-_ ]?\d", re.I)
 MAX_SUBPATHS_PER_VIEW = 60000
 MAX_OTHER_SUBPATHS = 5000  # unclassified lines shown faintly on structural plans, to trace a missed member
 MIN_OTHER_MM = 150.0      # shorter unclassified lines (hatching, symbols) are left out
+OTHER_KINDS = ("LINE", "LWPOLYLINE", "POLYLINE")
+OTHER_DEPTH = 2           # an xref inside the sheet and a block in it; deeper blocks are symbols
 MIN_EXTENT_MM = 30.0
 
 
@@ -249,6 +251,8 @@ def _walk(doc, entities, matrix, inherit, xrefs, out, depth=0, classify=None, de
         category = describe(entity, doc, layer) if describe else (classify or layer_category)(layer)
         if category is None:
             continue
+        if isinstance(category, tuple) and category[0] == "other" and (kind not in OTHER_KINDS or depth > OTHER_DEPTH):
+            continue  # unclassified lines: straight ones near the drawing's top only (curves and symbol blocks cost the most)
         if limit is not None:
             corners = _quick_corners(entity, kind)
             if corners and _outside_limit(corners, matrix, limit):
@@ -369,6 +373,7 @@ def _plan_views(name, doc, rows, xrefs, roles=None):
     if not plans:
         return []
     from . import quantity_layer_roles as layer_roles
+    with_other = any(floor_of(row.get("drawing_title"))["discipline"] == "struct" for row in plans)
 
     def classify(layer):
         base = _nfc(layer).split("|")[-1]
@@ -376,7 +381,7 @@ def _plan_views(name, doc, rows, xrefs, roles=None):
         category = VIEW_OF_ROLE.get(role) if role else layer_category(layer)
         if category is None:
             # not a member as read: shown faintly (a missed beam can be traced), except sheet clutter
-            if _layer_rule(layer) == "skip" or layer_roles.surely_not_member(base):
+            if not with_other or _layer_rule(layer) == "skip" or layer_roles.surely_not_member(base):
                 return None
             category = "other"
         return (category, layer_roles.base_name(base))
@@ -1064,7 +1069,27 @@ def _is_structural_file(name):
     return "구조" in text or bool(re.match(r"^S\d*[-_ ]", text, re.I))
 
 
+def site_deck_titles(floors):
+    """True when sheets titled without a building ("지하1층 구조평면도") are the site's parking deck:
+    the project has towers and those sheets only cover basements, the ground floor or the
+    foundation (a one-building project keeps its untitled sheets as that building)."""
+    towers = any(re.fullmatch(r"\d{3,4}동", f.get("building") or "") for f in floors)
+    untitled = [f for f in floors if f.get("building") == "기타"]
+    return bool(towers and untitled and all(f["group"] == "basement" or f["floor"] in ("1층", "기초") for f in untitled))
+
+
+def _as_deck(floor):
+    """An untitled site sheet read as the parking deck: its ground floor is the deck's roof."""
+    floor = dict(floor, building="지하주차장")
+    if floor["floor"] == "1층":
+        floor.update(floor="지붕·옥탑", group="roof", order=900)
+    return floor
+
+
 def _assemble(views, warnings, model_plans, table, failed, layer_roles, partial=False):
+    if site_deck_titles([p["floor"] for p in model_plans] + [v for v in views]):
+        model_plans = [dict(p, floor=_as_deck(p["floor"])) if p["floor"].get("building") == "기타" else p for p in model_plans]
+        views = [_as_deck(v) if v.get("building") == "기타" and v.get("group") != "unit" else v for v in views]
     result = _finish(list(views), list(warnings))
     result["model"] = build_model(model_plans, table, site=not partial)
     result["levels"] = table

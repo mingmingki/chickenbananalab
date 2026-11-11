@@ -171,3 +171,25 @@ class ParkingRoofTitleTests(SimpleTestCase):
         self.assertEqual(fv.floor_of("102동 지하주차장 지붕 구조평면도")["floor"], "1층")
         self.assertEqual(fv.floor_of("지붕 주차장 구조평면도")["floor"], "지붕·옥탑")  # the deck itself
         self.assertEqual(fv.floor_of("101동 지붕 구조평면도")["floor"], "지붕·옥탑")
+
+
+class SiteDeckTitleTests(SimpleTestCase):
+    def test_untitled_basement_sheets_of_a_tower_project_are_the_parking_deck(self):
+        from core import quantity_floor_views as fv
+        floors = [fv.floor_of(t) for t in ("101동 3층 구조평면도", "지하1층 구조평면도", "지상1층 구조평면도", "지하2층 기초구조평면도")]
+        self.assertTrue(fv.site_deck_titles(floors))
+        self.assertEqual(fv._as_deck(floors[2])["floor"], "지붕·옥탑")
+        self.assertEqual(fv._as_deck(floors[1])["building"], "지하주차장")
+        # one building without a name: its sheets stay together
+        single = [fv.floor_of(t) for t in ("지하1층 구조평면도", "지상1층 구조평면도", "지상2층 구조평면도")]
+        self.assertFalse(fv.site_deck_titles(single))
+
+
+class FloorCaptionTests(SimpleTestCase):
+    def test_a_title_block_name_without_a_floor_gives_way_to_the_caption(self):
+        evidence = {"inserts": [], "templates": [], "block_texts": [],
+                    "texts": [text("101동 바닥 구조 평면도 3", 500, 100, h=800),
+                              text("101동 3~25층 바닥 구조 평면도", 300, 400, h=500)]}
+        rows = identity.resolve_cad_sheets({"S-205.dwg": evidence})["S-205.dwg"]
+        self.assertEqual(rows[0]["drawing_title"], "101동 3~25층 바닥 구조 평면도")
+        self.assertEqual(rows[0]["sheet_title"], "101동 바닥 구조 평면도 3")
