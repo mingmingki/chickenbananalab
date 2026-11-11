@@ -6,6 +6,7 @@
 
   var COLOR = {
     wall: 0xfacc15, col: 0xeab308, slab: 0xe2e8f0, beam: 0xfb923c, rebar: 0xef4444,
+    parkingWall: 0x94a3b8, parkingCol: 0x64748b, facilityWall: 0x2dd4bf, facilityCol: 0x14b8a6,
     alWall: 0x38bdf8, gang: 0xa78bfa, euro: 0x2dd4bf, alSlab: 0x7dd3fc, beamForm: 0xfbbf24
   };
   var SPACING = 0.3;     // rebar drawing spacing (m), a sketch of the bars, not their count
@@ -100,20 +101,38 @@
     scene.add(sun);
 
     var buildings = [];
-    var offset = 0;
-    (model.buildings || []).forEach(function (b) {
+    function boundsOf(b) {
       var bounds = null;
       b.levels.forEach(function (l) {
         var bb = slabBounds(b.plans[l.plan]);
         if (!bb) return;
         bounds = bounds ? [Math.min(bounds[0], bb[0]), Math.min(bounds[1], bb[1]), Math.max(bounds[2], bb[2]), Math.max(bounds[3], bb[3])] : bb;
       });
+      return bounds;
+    }
+    function placed(b) { return !!(b.site && b.site.placed); }
+    var siteBounds = null;
+    (model.buildings || []).forEach(function (b) {
+      var bb = placed(b) ? boundsOf(b) : null;
+      if (bb) siteBounds = siteBounds ? [Math.min(siteBounds[0], bb[0]), Math.min(siteBounds[1], bb[1]),
+                                          Math.max(siteBounds[2], bb[2]), Math.max(siteBounds[3], bb[3])] : bb;
+    });
+    var offset = siteBounds ? siteBounds[2] - siteBounds[0] + 24 : 0;
+    (model.buildings || []).forEach(function (b) {
+      var bounds = boundsOf(b);
       if (!bounds) return;
       var group = new THREE.Group();
-      group.position.set(offset - bounds[0], 0, bounds[3]); // plan y → -z, the plan's top edge at z = 0
-      offset += (bounds[2] - bounds[0]) + 18;
+      var lift = (b.site && b.site.lift) || 0;
+      if (placed(b) && siteBounds) {
+        group.position.set(-siteBounds[0], lift, siteBounds[3]); // the parking's plan; plan y → -z
+      } else {
+        group.position.set(offset - bounds[0], lift, bounds[3]); // beside the site, the plan's top edge at z = 0
+        offset += (bounds[2] - bounds[0]) + 18;
+      }
       scene.add(group);
-      var entry = { name: b.name, data: b, group: group, levels: [], bounds: bounds };
+      var entry = { name: b.name, data: b, group: group, levels: [], bounds: bounds, lift: lift, kind: b.kind || "", placed: placed(b) };
+      var wallColor = b.kind === "parking" ? COLOR.parkingWall : (b.kind === "facility" ? COLOR.facilityWall : COLOR.wall);
+      var colColor = b.kind === "parking" ? COLOR.parkingCol : (b.kind === "facility" ? COLOR.facilityCol : COLOR.col);
       b.levels.forEach(function (level, index) {
         var plan = b.plans[level.plan];
         var above = topPlans(b, index);
@@ -137,8 +156,8 @@
         var levelGroup = new THREE.Group();
         var massMeshes = [];
         function kind(m, k) { m.userData.kind = k; return m; }
-        if (walls.length) massMeshes.push(kind(mesh(THREE, walls, COLOR.wall, 0.92), "wall"));
-        if (cols.length) massMeshes.push(kind(mesh(THREE, cols, COLOR.col, 0.95), "col"));
+        if (walls.length) massMeshes.push(kind(mesh(THREE, walls, wallColor, 0.92), "wall"));
+        if (cols.length) massMeshes.push(kind(mesh(THREE, cols, colColor, 0.95), "col"));
         if (slab.length) massMeshes.push(kind(mesh(THREE, slab, COLOR.slab, 0.8), "slab"));
         var polygonPlan = slabPlan && slabPlan.slab_polygon ? slabPlan : (index === 0 && plan.slab_polygon ? plan : null);
         if (polygonPlan && polygonPlan.slab_polygon.length >= 3) {
@@ -474,7 +493,7 @@
     function cutRects(axis, value) {
       var out = [];
       visibleEntries().forEach(function (b) {
-        var gx = b.group.position.x, gz = b.group.position.z;
+        var gx = b.group.position.x, gz = b.group.position.z, lift = b.lift || 0;
         var planAxis = axis === "x" ? "x" : "y";
         var p = axis === "x" ? value - gx : gz - value;
         function toU(range) {
@@ -486,7 +505,7 @@
           function add(range, y0, y1, kind, approx) {
             if (state.kinds[kind] === false) return;
             var u = toU(range);
-            out.push({ u0: u[0], u1: u[1], y0: y0, y1: y1, kind: kind, building: b.name, approx: !!approx });
+            out.push({ u0: u[0], u1: u[1], y0: y0 + lift, y1: y1 + lift, kind: kind, building: b.name, approx: !!approx });
           }
           // a slab read as rectangles, else as its outline polygon (an approximate slab)
           function slabSpans(slabPlan, y0, y1) {
@@ -580,10 +599,10 @@
       var seen = {}, out = [];
       visibleEntries().forEach(function (b) {
         b.levels.forEach(function (lv) {
-          var key = lv.data.elev.toFixed(2);
+          var y = lv.data.elev + (b.lift || 0), key = y.toFixed(2);
           if (seen[key]) return;
           seen[key] = 1;
-          out.push({ y: lv.data.elev, label: lv.data.label });
+          out.push({ y: y, label: lv.data.label, elev: lv.data.elev });
         });
       });
       return out.sort(function (a, b) { return a.y - b.y; });
@@ -609,7 +628,7 @@
       var parts = levels.map(function (l) {
         var y = (y1 - l.y).toFixed(2);
         return '<line x1="' + (u0 - font * 0.5).toFixed(2) + '" y1="' + y + '" x2="' + u1.toFixed(2) + '" y2="' + y + '" class="lv"/>' +
-          '<text x="' + (u0 - font).toFixed(2) + '" y="' + y + '" class="lt">' + escapeXml(l.label) + ' EL ' + l.y.toFixed(2) + '</text>';
+          '<text x="' + (u0 - font).toFixed(2) + '" y="' + y + '" class="lt">' + escapeXml(l.label) + ' EL ' + l.elev.toFixed(2) + '</text>';
       });
       rects.forEach(function (r) {
         parts.push('<rect x="' + r.u0.toFixed(3) + '" y="' + (y1 - r.y1).toFixed(3) + '" width="' + Math.max(0.02, r.u1 - r.u0).toFixed(3) +
@@ -629,7 +648,7 @@
       var b = visibleEntries()[0];
       if (!b) return null;
       var hit = null;
-      b.levels.forEach(function (lv) { if (lv.data.elev <= height + 1e-6) hit = lv; });
+      b.levels.forEach(function (lv) { if (lv.data.elev + (b.lift || 0) <= height + 1e-6) hit = lv; });
       return hit ? { building: b.name, level: hit.data } : null;
     }
 
@@ -903,7 +922,10 @@
             slab += lv.plan.slab_area || 0;
           });
         });
-        return { buildings: buildings.length, storeys: storeys, basements: basements, slab: slab };
+        var site = model.site || {};
+        return { buildings: buildings.length, storeys: storeys, basements: basements, slab: slab,
+                 host: site.host || null, placed: site.placed || [], beside: site.host ? (site.beside || []) : [],
+                 kinds: buildings.map(function (b) { return b.kind; }) };
       },
       snapshot: function () { renderer.render(scene, camera); return renderer.domElement.toDataURL("image/png"); },
       setView: setView,

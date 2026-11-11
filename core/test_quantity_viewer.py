@@ -33,7 +33,7 @@ class ViewerToolTests(SimpleTestCase):
 
     def test_the_section_drawing_is_made_from_the_model(self):
         for piece in ("function cutRects(axis, value)", "pairs(hits, 0.08, 1.0)", "pairs(bh, 0.15, 1.3)",
-                      "function slabSpans(slabPlan, y0, y1)", "function levelLines()", "' EL ' + l.y.toFixed(2)",
+                      "function slabSpans(slabPlan, y0, y1)", "function levelLines()", "' EL ' + l.elev.toFixed(2)",
                       "function sectionSvg(axis)", "function buildCaps()"):
             self.assertIn(piece, self.js)
 
@@ -58,5 +58,20 @@ class ViewerToolTests(SimpleTestCase):
         for selector in (".q3d-ui", ".q3d-bar", ".q3d-panel", ".q3d-sheet", ".q3d-status"):
             self.assertIn(selector, css)
         html = HOME.read_text()
-        self.assertIn("quantity_mass3d.js' %}?v=20261111-viewer1", html)
+        self.assertIn("quantity_mass3d.js' %}?v=20261111-site1", html)
         self.assertIn("quantity_deck.css' %}?v=20261111-viewer1", html)
+
+
+class SiteLayoutTests(SimpleTestCase):
+    def test_placed_buildings_share_the_parkings_coordinates_and_heights(self):
+        js = JS.read_text()
+        self.assertIn("group.position.set(-siteBounds[0], lift, siteBounds[3]);", js)
+        self.assertIn("var offset = siteBounds ? siteBounds[2] - siteBounds[0] + 24 : 0;", js)  # the rest beside it
+        self.assertIn("y0: y0 + lift, y1: y1 + lift", js)  # section drawings in site heights
+        self.assertIn('b.kind === "parking" ? COLOR.parkingWall', js)
+
+    def test_the_page_says_how_the_site_was_put_together(self):
+        html = HOME.read_text()
+        self.assertIn("'. ' + siteNote(summary) + '</p>'", html)
+        self.assertIn("도면에서 벽이 겹치는 자리를 찾아 제자리에 놓았어요", html)
+        self.assertIn('[["#94a3b8", "지하주차장", "parking"], ["#2dd4bf", "부대시설", "facility"]]', html)

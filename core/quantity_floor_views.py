@@ -58,6 +58,18 @@ def is_plan_title(title):
     return "평면도" in text and not _PLAN_EXCLUDE.search(text)
 
 
+FACILITY_NAME = re.compile(r"관리사무소|관리동|경로당|커뮤니티|주민공동|주민운동|근린생활|근생|어린이집|보육|도서관|"
+                           r"피트니스|휘트니스|독서실|경비실|상가|복리")
+
+
+def _facility_name(raw):
+    """'관리사무소 및 경로당 1층 구조평면도' → '관리사무소 및 경로당' (the floor and sheet words left out)."""
+    name = re.sub(r"\(.*?\)|(구조)?평면도|구조도|지하\s*\d+\s*층|지상\s*\d+\s*층|\d+\s*층|PIT\s*층|피트\s*층|"
+                  r"기초|지붕|옥탑|기준층|[~∼]", " ", raw)
+    name = re.sub(r"\s+", " ", name).strip(" ,·-")
+    return name or "부대시설"
+
+
 def floor_of(title):
     """{building, floor, group, order, discipline} from a sheet title such as
     '101동 지하 2층 평면도', '지하2층 지하주차장 평면도' or '66A형 단위세대 평면도 (확장형)'."""
@@ -72,8 +84,10 @@ def floor_of(title):
         building = "지하주차장"
     elif "단위세대" in text:
         building = "단위세대"
-    elif "부대" in text or "경비실" in text:
+    elif "부대" in text:
         building = "부대시설"
+    elif FACILITY_NAME.search(text):
+        building = _facility_name(raw)
     if building == "단위세대":
         unit = re.search(r"(\d{2,3}[A-Z0-9]*?)(형|타입|TYPE)", text, re.I)
         extra = re.search(r"\((기본형|확장형)\)", text)
@@ -729,9 +743,23 @@ def _elevations(keys, table, section):
             known.setdefault(level, value)
     if "1" not in known and "GL" in known:
         known["1"] = known["GL"]
-    ordered = sorted(set(keys) | {k for k in known if k in keys}, key=_level_order)
-    result, last = {}, None
-    for key in ordered:
+    if "1" in known and "1" not in keys and "R" in keys and not any(k.isdigit() for k in keys):
+        known.setdefault("R", known["1"])  # a parking deck: its roof is the ground floor of the towers
+    ordered = sorted(set(keys), key=_level_order)
+    first = next((i for i, key in enumerate(ordered) if key in known), None)
+    result = {}
+    if first is not None:
+        # below the first known level: each storey's default height downward from it
+        result[ordered[first]] = known[ordered[first]]
+        for i in range(first - 1, -1, -1):
+            key = ordered[i]
+            group = "basement" if key.startswith("B") else ("1" if key == "1" else "ground")
+            result[key] = round(result[ordered[i + 1]] - DEFAULT_STOREY_M[group], 3)
+    last = None
+    for i, key in enumerate(ordered):
+        if key in result and (first is None or i <= first):
+            last = (key, result[key])
+            continue
         if key in known:
             result[key] = known[key]
         elif last is not None:
@@ -741,11 +769,10 @@ def _elevations(keys, table, section):
         else:
             result[key] = 0.0
         last = (key, result[key])
-    # a basement level read below its upper neighbour only by default stays consistent upward
     return result
 
 
-def build_model(plans, table):
+def build_model(plans, table, site=True):
     """Buildings as stacks of storeys from structural plans.
 
     plans: [{"floor": floor_of(...), "sheet", "model": _plan_model(...)}].
@@ -782,8 +809,14 @@ def build_model(plans, table):
                            "plan": storeys[key], "sheet": rows[storeys[key]].get("sheet")})
         buildings.append({"name": name, "levels": levels, "foundation": foundation,
                           "plans": [plan["model"] for plan in rows]})
-    return {"version": 1, "buildings": buildings,
-            "heights_from_drawings": bool((table or {}).get("sections"))}
+    model = {"version": 1, "buildings": buildings, "heights_from_drawings": bool((table or {}).get("sections"))}
+    if site:
+        from . import quantity_site
+        try:
+            model["site"] = quantity_site.assemble(buildings)
+        except Exception as exc:  # the 3D layout must never cost the takeoff
+            model["site"] = {"error": str(exc)[:200]}
+    return model
 
 
 def level_table(evidence_by_name):
@@ -969,7 +1002,7 @@ def _is_structural_file(name):
 
 def _assemble(views, warnings, model_plans, table, failed, layer_roles, partial=False):
     result = _finish(list(views), list(warnings))
-    result["model"] = build_model(model_plans, table)
+    result["model"] = build_model(model_plans, table, site=not partial)
     result["levels"] = table
     result["unreadable"] = sorted(set(failed))
     result["layer_roles"] = layer_roles
