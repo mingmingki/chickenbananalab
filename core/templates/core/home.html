@@ -6216,10 +6216,10 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261111-fix1">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261111-rebar1">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
-<script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261111-fix1"></script>
+<script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261111-rebar1"></script>
 <script src="{% static 'core/js/quantity_plan_edit.js' %}?v=20261111-fix1"></script>
 
 <script>
@@ -9246,7 +9246,7 @@ body.cbl-modal-open {
 
   var MASS_LEGEND = {
     mass: [["#facc15", "벽·기둥"], ["#e2e8f0", "슬래브"], ["#fb923c", "보"]],
-    rebar: [["#ef4444", "벽 수직·수평근"], ["#f87171", "슬래브 상·하부근"], ["#facc15", "아래층 (흐리게)"]],
+    rebar: [["#4ade80", "SD400"], ["#f59e0b", "SD500"], ["#f43f5e", "SD600"], ["#facc15", "아래층 (흐리게)"]],
     form: [["#38bdf8", "AL폼 수직(내벽)"], ["#a78bfa", "갱폼(외벽 바깥면)"], ["#2dd4bf", "유로폼(지하)"],
            ["#7dd3fc", "AL폼 수평(슬래브)"], ["#fbbf24", "보 거푸집"]]
   };
@@ -9376,7 +9376,7 @@ body.cbl-modal-open {
     var pick = { building: null, level: null };
 
     // card 1: the whole mass
-    await massCard({ eyebrow: "01", label: "Mass", art: false, wide: true, total: 4, index: 1 },
+    await massCard({ eyebrow: "01", label: "Mass", art: false, wide: true, total: 5, index: 1 },
       "전체 매스를 세웠어요. 돌려 보며 확인해 주세요.",
       "구조평면도의 벽·기둥·보·슬래브를 층고만큼 쌓았어요. 드래그로 돌리고 휠로 확대해요 (오른쪽 버튼·Shift 드래그는 이동). " +
       "위쪽 단추로 평면·정면·측면을 보고, 단면·단면 상자로 잘라 보고, 단면도와 거리 측정도 할 수 있어요.");
@@ -9403,7 +9403,7 @@ body.cbl-modal-open {
     viewer.setMode("rebar");
     viewer.setBuilding(pick.building);
     viewer.setLevel(pick.level);
-    await massCard({ eyebrow: "02", label: "Rebar", art: false, wide: true, total: 4, index: 2 },
+    await massCard({ eyebrow: "02", label: "Rebar", art: false, wide: true, total: 5, index: 2 },
       "철근을 입혔어요.",
       "벽은 수직·수평근, 슬래브는 상·하부근, 보는 주근을 300mm 간격으로 그렸어요. 실제 지름·간격·개수는 일람표 기준으로 2D 산출에서 계산해요.");
     if (deck) deck.append(host); else flowEl.appendChild(host);
@@ -9432,7 +9432,7 @@ body.cbl-modal-open {
     viewer.setMode("form");
     viewer.setLevel(null);
     pick.level = null;
-    await massCard({ eyebrow: "03", label: "Formwork", art: false, wide: true, total: 4, index: 3 },
+    await massCard({ eyebrow: "03", label: "Formwork", art: false, wide: true, total: 5, index: 3 },
       "거푸집을 입혔어요.",
       "벽 면과 슬래브 밑면, 보 옆·밑면에 거푸집을 붙였어요. 아래 표는 CAD 선 길이와 층고로 낸 추정 면적이에요 (개구부·접합부 공제 전).");
     if (deck) deck.append(host); else flowEl.appendChild(host);
@@ -9475,6 +9475,7 @@ body.cbl-modal-open {
     await new Promise(function (resolve) {
       onceClick(row3.go, function () { var n = row3.note(); addUser(n ? "거푸집: " + esc(n) : "거푸집 확인"); resolve(); });
     });
+    state.mass3d = { viewer: viewer, host: host };
   }
 
   // ─────────────────────────────────────────────
@@ -9517,7 +9518,7 @@ body.cbl-modal-open {
     var job = state.floorJob;
     if (!job || !job.id || !massModel()) return null;
     var links = (data.results && data.results.structural && data.results.structural.member_links) || null;
-    await qCard({ eyebrow: "04", label: "Takeoff", art: false, wide: true, total: 4, index: 4 },
+    await qCard({ eyebrow: "04", label: "Takeoff", art: false, wide: true, total: 5, index: 4 },
       "층별 수량을 냈어요.",
       "N층 = N층 벽·기둥 + N+1층 바닥 슬래브·보. CAD 평면에서 잰 길이·면적과 일람표 크기로 계산했어요.");
     var body = null;
@@ -9571,6 +9572,126 @@ body.cbl-modal-open {
     return takeoff;
   }
 
+  // ─────────────────────────────────────────────
+  //  레미콘(콘크리트) 확정 → 철근: 층별 수량과 같은 규칙으로 일람표 배근을 CAD 길이·면적에 깔고,
+  //  3D는 고른 층만 가는 선으로 강종별 색(SD400 초록·SD500 주황·SD600 빨강)으로 그린다.
+  // ─────────────────────────────────────────────
+  var REBAR_KINDS = [["wall", "벽"], ["opening", "개구부·단부 보강"], ["column", "기둥"], ["beam", "보"], ["slab", "슬래브"]];
+
+  function rebarTon(kg) {
+    var n = Number(kg) || 0;
+    return n ? (n / 1000).toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
+  }
+
+  function rebarTable(building) {
+    var head = '<tr><th>' + esc(building.name) + '</th>' + REBAR_KINDS.map(function (k) { return '<th>' + k[1] + '</th>'; }).join("") + '<th>계 (t)</th></tr>';
+    var body = (building.rows || []).map(function (row) {
+      var kg = row.kg || {}, title = (row.notes || []).join(" / ");
+      return '<tr' + (row.approximate ? ' class="is-approx"' : '') + (title ? ' title="' + esc(title) + '"' : '') + '><td>' + esc(row.label) +
+        (row.approximate ? '<i class="qd-approx">근사</i>' : '') + '</td>' +
+        REBAR_KINDS.map(function (k) { return '<td>' + rebarTon(kg[k[0]]) + '</td>'; }).join("") +
+        '<td class="qd-strong">' + rebarTon(kg.total) + '</td></tr>';
+    }).join("");
+    var totals = building.totals || {};
+    body += '<tr class="is-sum"><td>합계</td>' + REBAR_KINDS.map(function (k) { return '<td>' + rebarTon(totals[k[0]]) + '</td>'; }).join("") +
+      '<td class="qd-strong">' + rebarTon(totals.total) + '</td></tr>';
+    return '<table><thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
+  }
+
+  function rebarBarTable(rebar) {
+    var colors = rebar.grade_colors || {};
+    var rows = Object.keys(rebar.by_bar || {}).map(function (key) {
+      var parts = key.split("|"), kg = rebar.by_bar[key];
+      return '<tr><td><i class="qd-grade" style="background:' + esc(colors[parts[1]] || "#94a3b8") + '"></i>' + esc(parts[0]) + '</td><td>' + esc(parts[1]) +
+        '</td><td>' + rebarTon(kg) + '</td><td>' + rebarTon(kg * (rebar.loss_factor || 1)) + '</td></tr>';
+    }).join("");
+    return '<table><thead><tr><th>규격</th><th>강종</th><th>순중량 (t)</th><th>할증 포함 (t)</th></tr></thead><tbody>' + rows +
+      '<tr class="is-sum"><td>합계</td><td></td><td>' + rebarTon(rebar.net_kg) + '</td><td>' + rebarTon(rebar.with_loss_kg) + '</td></tr></tbody></table>';
+  }
+
+  async function showFloorRebar(data) {
+    var job = state.floorJob;
+    if (!job || !job.id || !massModel()) return null;
+    var gate = appendLeft('<div class="qd-actions"><span class="qd-sub" style="margin:0">콘크리트(레미콘) 수량이 맞으면 확정하고 철근을 배근할게요.</span>' +
+      '<span class="qd-spacer"></span><button type="button" class="qd-btn" data-skip>철근은 건너뛰기</button>' +
+      '<button type="button" class="qd-btn primary" data-go>레미콘 확정 → 철근 배근</button></div>');
+    var go = await new Promise(function (resolve) {
+      gate.querySelector("[data-go]").addEventListener("click", function () { resolve(true); }, { once: true });
+      gate.querySelector("[data-skip]").addEventListener("click", function () { resolve(false); }, { once: true });
+    });
+    gate.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
+    if (!go) { addUser("철근은 건너뛰기"); return null; }
+    addUser("레미콘 확정 → 철근 배근");
+    await qCard({ eyebrow: "05", label: "Rebar", art: false, wide: true, total: 5, index: 5 },
+      "철근을 배근했어요.",
+      "일람표 배근(벽 수직·수평근, 기둥 주근·띠철근, 보 상·하부근·늑근, 슬래브)을 층별 수량과 같은 길이·면적에 깔았어요. 3D는 고른 층만 가는 선으로, 강종별 색으로 그려요.");
+    var links = (data.results && data.results.structural && data.results.structural.member_links) || null;
+    var spec = (data.results && data.results.general_spec) || (state.stageCache && state.stageCache.generalSpec) || null;
+    var body = null;
+    await floorEditsSave(true);
+    try {
+      var res = await fetch("/api/quantity/floor-rebar/", {
+        method: "POST",
+        headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
+        body: JSON.stringify({ floor_job_id: job.id, member_links: links, general_spec: spec })
+      });
+      body = await res.json();
+      if (!res.ok) body = { error: (body && body.error) || ("HTTP " + res.status) };
+    } catch (e) {
+      body = { error: e && e.message ? e.message : String(e) };
+    }
+    var rebar = body && body.rebar;
+    if (!rebar) {
+      appendLeft('<p class="qd-note warn">철근을 계산하지 못했어요: ' + esc((body && body.error) || "알 수 없는 오류") + '</p>');
+      return null;
+    }
+    var buildings = rebar.buildings || [];
+    var mass = state.mass3d;
+    if (mass && mass.viewer && mass.host) {
+      if (deck) deck.append(mass.host); else flowEl.appendChild(mass.host);
+      mass.viewer.setRebar(rebar);
+      var names = mass.viewer.buildings(), towers = names.filter(function (n) { return /동$/.test(n); });
+      var pick = { building: towers[0] || names[0], level: null };
+      pick.level = firstAbove(mass.viewer.levels(pick.building));
+      mass.viewer.setMode("rebar");
+      mass.viewer.setBuilding(pick.building);
+      mass.viewer.setLevel(pick.level);
+      var bar3d = massToolbar(mass.viewer, "rebar", pick);
+      mass.host.parentNode.insertBefore(bar3d, mass.host);
+      mass.viewer.resize();
+    }
+    var choose = { name: (buildings[0] || {}).name };
+    var bar = document.createElement("div");
+    bar.className = "qd-mass-bar";
+    bar.setAttribute("data-qd-keep", "");
+    var table = document.createElement("div");
+    table.className = "qd-mass-table qd-takeoff";
+    table.setAttribute("data-qd-keep", "");
+    var sum = document.createElement("div");
+    sum.className = "qd-mass-table qd-rebar-sum";
+    sum.setAttribute("data-qd-keep", "");
+    function render() {
+      bar.innerHTML = '<div class="qd-mass-chips">' + buildings.map(function (b) {
+        return '<button type="button" data-b="' + esc(b.name) + '"' + (b.name === choose.name ? ' class="is-on"' : '') + '>' + esc(b.name) + '</button>';
+      }).join("") + '</div>';
+      var building = buildings.filter(function (b) { return b.name === choose.name; })[0] || buildings[0];
+      table.innerHTML = building ? rebarTable(building) : "";
+    }
+    bar.addEventListener("click", function (e) {
+      var chip = e.target.closest("[data-b]");
+      if (!chip) return;
+      choose.name = chip.getAttribute("data-b");
+      render();
+    });
+    render();
+    sum.innerHTML = rebarBarTable(rebar);
+    [bar, table, sum].forEach(function (el) { if (deck) deck.append(el); else flowEl.appendChild(el); });
+    appendLeft('<p class="qd-sub" style="margin:0">전체 ' + esc(rebarTon(rebar.net_kg)) + 't (할증 ' + esc(String(Math.round(((rebar.loss_factor || 1) - 1) * 100))) +
+      '% 포함 ' + esc(rebarTon(rebar.with_loss_kg)) + 't). 이음·정착은 구조일반사항 표를 읽었으면 그 값, 아니면 KDS 공식 추정이에요. ' +
+      '아직 빠진 항목: ' + esc((rebar.not_included || []).join(", ")) + '. 행에 마우스를 올리면 근거가 보여요. 엑셀에는 "층별 철근(N층 기준)" 시트로 담겨요.</p>');
+    return rebar;
+  }
+
   async function finishQuantityAnalysisFlow(data, cancelRequestedFlag) {
     stageStep(4);
     var items = (data.results && data.results.structural && data.results.structural.items) || [];
@@ -9594,7 +9715,11 @@ body.cbl-modal-open {
       await showMassStage();
       var takeoff = await showFloorTakeoff(data);
       if (takeoff && data.results) data.results.floor_takeoff = takeoff;
-      else if (deck) deck.next({ eyebrow: "04", label: "Takeoff", art: "sheet", total: 4, index: 4 });
+      if (takeoff) {
+        var floorRebar = await showFloorRebar(data);
+        if (floorRebar && data.results) data.results.floor_rebar = floorRebar;
+      }
+      else if (deck) deck.next({ eyebrow: "04", label: "Takeoff", art: "sheet", total: 5, index: 4 });
     }
 
     lastAnalysisResults = data.results || {};

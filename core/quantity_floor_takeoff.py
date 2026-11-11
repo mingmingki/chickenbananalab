@@ -445,7 +445,7 @@ def measure_walls(segments, is_outside=None, probe=0.5, regions=None):
     gaps = _window_gaps(outer, band, minx, miny, cell, is_outside, probe) if is_outside else []
     return {"area": round(area, 3), "faces": round(faces, 2), "outside_faces": round(outside_faces, 2),
             "caps": len(caps), "cell": round(cell, 3),
-            "window_gaps": round(sum(g[0] for g in gaps), 2),
+            "window_gaps": round(sum(g[0] for g in gaps), 2), "window_gap_count": len(gaps),
             "window_gap_area": round(sum(g[0] * g[1] for g in gaps), 3),
             **({"regions": [{k: round(v, 3) for k, v in part.items()} for part in by_region]} if regions else {})}
 

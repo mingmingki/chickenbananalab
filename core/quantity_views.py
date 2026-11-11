@@ -1961,6 +1961,43 @@ FLOOR_TAKEOFF_MAX_BODY = 8 * 1024 * 1024
 FLOOR_EDITS_MAX_BODY = 2 * 1024 * 1024
 
 
+@require_POST
+@_admin_only_json
+def api_quantity_floor_rebar(request):
+    """층별 철근(N층 기준): 층별 수량과 같은 규칙으로 일람표 배근을 CAD 길이·면적에 깐다. AI는 쓰지 않는다.
+
+    Body (JSON): {"floor_job_id", "member_links"(선택), "general_spec"(선택: 강종·이음/정착 표)}."""
+    from . import quantity_floor_rebar, quantity_floor_takeoff
+    if len(request.body or b"") > FLOOR_TAKEOFF_MAX_BODY:
+        return JsonResponse({"error": "요청이 너무 커요."}, status=413)
+    try:
+        body = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "잘못된 요청입니다."}, status=400)
+    if not isinstance(body, dict):
+        return JsonResponse({"error": "잘못된 요청입니다."}, status=400)
+    floor_job = body.get("floor_job_id")
+    floor_job = floor_job.strip()[:200] if isinstance(floor_job, str) else ""
+    job = _quantity_state().get("job", floor_job) if floor_job else None
+    if not job or job.get("owner") != str(request.user.pk) or job.get("operation") != "api_quantity_floor_views":
+        return JsonResponse({"error": "층별 확인 작업을 찾을 수 없어요."}, status=404)
+    result = _result_get(floor_job) or {}
+    model = ((result.get("results") or {}).get("floor_views") or {}).get("model") or {}
+    if not result.get("ok") or not model.get("buildings"):
+        return JsonResponse({"error": "층별 확인 결과에 구조 평면이 없어요."}, status=409)
+    links = body.get("member_links")
+    links = links if isinstance(links, dict) and links.get("marks") else None
+    spec = body.get("general_spec") if isinstance(body.get("general_spec"), dict) else None
+    edits = _floor_edits(floor_job)
+    try:
+        takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits)
+        rebar = quantity_floor_rebar.build_rebar(model, links, takeoff, general_spec=spec, edits=edits)
+    except Exception:
+        logger.exception("quantity_floor_rebar_failed job=%s", floor_job[:16])
+        return JsonResponse({"error": "층별 철근을 계산하지 못했어요."}, status=500)
+    return JsonResponse({"ok": True, "rebar": rebar})
+
+
 def _floor_edits(floor_job):
     return (_quantity_state().get("floor_edits", floor_job) or {}).get("edits") or []
 
@@ -7908,6 +7945,69 @@ _IDENTITY_WARNING_LABELS = {
 }
 
 
+def _write_floor_rebar_sheet(ws, rebar, navy_fill, yellow_fill, header_font, body_font, center, left, thin):
+    """층별 철근: 동마다 층 행(부재별 kg)과 직경·강종별 합계(t). 근사 행은 회색, 합계에서 뺀다."""
+    from .quantity_floor_rebar import KINDS, KIND_LABELS
+    headers = ["층"] + [f"{KIND_LABELS[k]}(kg)" for k in KINDS] + ["계(kg)", "비고"]
+    last = len(headers)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last)
+    ws.cell(row=1, column=1, value=f"층별 철근 — {rebar.get('rule') or 'N층 기준'} (CAD 평면·일람표 기준 추정)")
+    ws.cell(row=1, column=1).font = Font(name="맑은 고딕", bold=True, color="FFFFFF", size=13)
+    ws.cell(row=1, column=1).fill = navy_fill
+    ws.cell(row=1, column=1).alignment = center
+    note = (f"순중량 {rebar.get('net_kg', 0) / 1000:.1f}t, 할증 {((rebar.get('loss_factor') or 1) - 1) * 100:.0f}% 포함 "
+            f"{rebar.get('with_loss_kg', 0) / 1000:.1f}t. 빠진 항목: {', '.join(rebar.get('not_included') or [])}. 회색 행(근사)은 합계에서 뺐습니다.")
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last)
+    ws.cell(row=2, column=1, value=note).alignment = left
+    ws.row_dimensions[2].height = 30
+    grey = PatternFill("solid", fgColor="EEEEEE")
+    row = 3
+    for building in rebar.get("buildings") or []:
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=last)
+        ws.cell(row=row, column=1, value=f"[{building.get('name') or ''}]").font = Font(name="맑은 고딕", bold=True, color="073A5B", size=11)
+        ws.cell(row=row, column=1).fill = yellow_fill
+        row += 1
+        for col, text in enumerate(headers, 1):
+            cell = ws.cell(row=row, column=col, value=text)
+            cell.font, cell.fill, cell.alignment, cell.border = header_font, navy_fill, center, thin
+        row += 1
+        for item in building.get("rows") or []:
+            kg = item.get("kg") or {}
+            values = [item.get("label")] + [kg.get(k, 0) for k in KINDS] + [kg.get("total", 0),
+                      ("근사 · " if item.get("approximate") else "") + " / ".join(item.get("notes") or [])]
+            for col, value in enumerate(values, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.font, cell.border = body_font, thin
+                cell.alignment = left if col in (1, last) else center
+                if item.get("approximate"):
+                    cell.fill = grey
+            row += 1
+        totals = building.get("totals") or {}
+        values = ["합계"] + [totals.get(k, 0) for k in KINDS] + [totals.get("total", 0), "근사 행 제외"]
+        for col, value in enumerate(values, 1):
+            cell = ws.cell(row=row, column=col, value=value)
+            cell.font, cell.border = Font(name="맑은 고딕", bold=True), thin
+            cell.alignment = left if col in (1, last) else center
+        row += 2
+    ws.cell(row=row, column=1, value="직경·강종별 (근사 행 제외)").font = Font(name="맑은 고딕", bold=True, size=11)
+    row += 1
+    for col, text in enumerate(["규격", "강종", "순중량(t)", "할증 포함(t)"], 1):
+        cell = ws.cell(row=row, column=col, value=text)
+        cell.font, cell.fill, cell.alignment, cell.border = header_font, navy_fill, center, thin
+    row += 1
+    factor = rebar.get("loss_factor") or 1
+    for bar, kg in (rebar.get("by_bar") or {}).items():
+        size, _sep, grade = bar.partition("|")
+        for col, value in enumerate([size, grade, round(kg / 1000, 3), round(kg * factor / 1000, 3)], 1):
+            cell = ws.cell(row=row, column=col, value=value)
+            cell.font, cell.border, cell.alignment = body_font, thin, center
+        row += 1
+    ws.column_dimensions["A"].width = 12
+    for letter in "BCDEFG":
+        ws.column_dimensions[letter].width = 16
+    ws.column_dimensions[chr(ord("A") + last - 1)].width = 80
+
+
 def _write_floor_takeoff_sheet(ws, takeoff, navy_fill, yellow_fill, light_fill, header_font, body_font, center, left, thin):
     """층별 집계표: 동마다 층 행, 콘크리트(부재별)와 거푸집(종류별). 근사 행은 회색, 합계에서 뺀다."""
     from .quantity_floor_takeoff import CONCRETE_KEYS, CONCRETE_LABELS, FORM_KEYS, FORM_LABELS
@@ -8222,6 +8322,10 @@ def _build_excel_response(request):
     if isinstance(floor_takeoff, dict) and floor_takeoff.get("buildings"):
         _write_floor_takeoff_sheet(wb.create_sheet("층별 집계(N층 기준)"), floor_takeoff,
                                    navy_fill, yellow_fill, light_fill, header_font, body_font, center, left, thin)
+    floor_rebar = results.get("floor_rebar")
+    if isinstance(floor_rebar, dict) and floor_rebar.get("buildings"):
+        _write_floor_rebar_sheet(wb.create_sheet("층별 철근(N층 기준)"), floor_rebar,
+                                 navy_fill, yellow_fill, header_font, body_font, center, left, thin)
 
     # 건축 시트
     if "architectural" in results and results["architectural"].get("items"):

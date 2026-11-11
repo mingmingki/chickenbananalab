@@ -610,3 +610,6 @@
 .qpe-sheet header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .qpe-sheet .qpe-stage { flex: 1; height: auto; min-height: 0; }
 @media (max-width: 760px) { .qpe-modal { padding: 0; } .qpe-sheet { height: 100dvh; border-radius: 0; } .qpe-tools [data-qpe-undo] { margin-left: 0; } }
+/* rebar: grade swatches and the bar summary */
+.qd-mass-table .qd-grade { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: -1px; }
+.qd-rebar-sum { max-width: 560px; }

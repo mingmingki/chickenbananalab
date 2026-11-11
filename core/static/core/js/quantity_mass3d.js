@@ -309,51 +309,75 @@
       return lv.form;
     }
 
-    function rebarFor(lv) {
+    // rebar of one storey as thin lines, one colour per steel grade; spacing from the schedules
+    // (state.rebar: the server's floor rebar, its "draw" per storey) or a 300 mm sketch
+    var GRADE = { SD400: 0x4ade80, SD500: 0xf59e0b, SD600: 0xf43f5e };
+    function gradeColor(grade) { return GRADE[grade] || GRADE.SD400; }
+    function rebarFor(entry, lv) {
       if (lv.rebar) return lv.rebar;
       var level = lv.data, plan = lv.plan, t = slabThickness(level), top = level.elev + level.height;
-      var pos = [];
+      var spec = (state.rebarSpec && state.rebarSpec[entry.name + "|" + level.key]) || {};
+      var byColor = {}, bars = 0;
+      function push(color, a, b) {
+        var list = byColor[color] = byColor[color] || [];
+        list.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+        bars += 1;
+      }
       var bottom = level.elev + 0.05, ceiling = top - t - 0.05;
-      plan.walls.forEach(function (w) {
+      var wv = spec.wall_vertical || { s: SPACING, grade: "SD400" }, wh = spec.wall_horizontal || { s: SPACING, grade: "SD400" };
+      var cv = gradeColor(wv.grade), ch = gradeColor(wh.grade);
+      plan.walls.concat((plan.user || {}).walls || []).forEach(function (w) {
         var dx = w[2] - w[0], dy = w[3] - w[1], len = Math.hypot(dx, dy);
         if (len < 0.2) return;
-        var nx = dy / len * 0.06, ny = -dx / len * 0.06; // a little inside the face
-        for (var s = 0.1; s < len; s += SPACING) {
+        var nx = dy / len * 0.05, ny = -dx / len * 0.05; // just inside the face: each face is a layer
+        for (var s = Math.min(0.1, len / 2); s < len; s += Math.max(wv.s, 0.08)) {
           var x = w[0] + dx * s / len + nx, y = w[1] + dy * s / len + ny;
-          pos.push(x, bottom, -y, x, ceiling, -y);
+          push(cv, [x, bottom, -y], [x, ceiling, -y]);
         }
-        for (var h = bottom + 0.1; h < ceiling; h += SPACING) {
-          pos.push(w[0] + nx, h, -(w[1] + ny), w[2] + nx, h, -(w[3] + ny));
+        for (var h = bottom + 0.1; h < ceiling; h += Math.max(wh.s, 0.08)) {
+          push(ch, [w[0] + nx, h, -(w[1] + ny)], [w[2] + nx, h, -(w[3] + ny)]);
         }
       });
-      var wallEnd = pos.length;
       var slabPlan = lv.top ? lv.top.slab : null;
       var rects = (slabPlan && slabPlan.slab) || [];
       if (rects.length) {
-        var bb = slabBounds(slabPlan);
+        var bb = slabBounds(slabPlan), sl = spec.slab || { s: SPACING, grade: "SD400" }, cs = gradeColor(sl.grade);
+        var step = Math.max(sl.s, 0.08);
         [top - 0.04, top - t + 0.04].forEach(function (y) {
-          for (var at = bb[1] + 0.15; at < bb[3]; at += SPACING) {
-            spans(rects, "x", at).forEach(function (s) { pos.push(s[0], y, -at, s[1], y, -at); });
+          for (var at = bb[1] + step / 2; at < bb[3]; at += step) {
+            spans(rects, "x", at).forEach(function (sp) { push(cs, [sp[0], y, -at], [sp[1], y, -at]); });
           }
-          for (var ax = bb[0] + 0.15; ax < bb[2]; ax += SPACING) {
-            spans(rects, "y", ax).forEach(function (s) { pos.push(ax, y, -s[0], ax, y, -s[1]); });
+          for (var ax = bb[0] + step / 2; ax < bb[2]; ax += step) {
+            spans(rects, "y", ax).forEach(function (sp) { push(cs, [ax, y, -sp[0]], [ax, y, -sp[1]]); });
           }
         });
       }
-      ((lv.top && lv.top.beams.beams) || []).forEach(function (s) {
-        [top - t - 0.06, top - t - BEAM_DEPTH + 0.06].forEach(function (y) { pos.push(s[0], y, -s[1], s[2], y, -s[3]); });
+      var bm = spec.beam || { grade: "SD400" }, cb = gradeColor(bm.grade);
+      ((lv.top && lv.top.beams.beams) || []).concat(((lv.top && lv.top.beams.user) || {}).beams || []).forEach(function (sg) {
+        [top - t - 0.06, top - t - BEAM_DEPTH + 0.06].forEach(function (y) { push(cb, [sg[0], y, -sg[1]], [sg[2], y, -sg[3]]); });
       });
       var segment = new THREE.Group();
-      segment.add(lines(THREE, pos.slice(0, wallEnd), COLOR.rebar, 0.9));
-      segment.add(lines(THREE, pos.slice(wallEnd), 0xf87171, 0.45));
+      Object.keys(byColor).forEach(function (color) {
+        segment.add(lines(THREE, byColor[color], Number(color), 0.85));
+      });
       useClip(segment);
       lv.group.add(segment);
-      lv.rebar = { object: segment, bars: pos.length / 6 };
+      lv.rebar = { object: segment, bars: bars };
       return lv.rebar;
+    }
+    function clearRebar() {
+      buildings.forEach(function (b) {
+        b.levels.forEach(function (lv) {
+          if (!lv.rebar) return;
+          lv.group.remove(lv.rebar.object);
+          lv.rebar.object.children.forEach(function (c) { c.geometry.dispose(); c.material.dispose(); });
+          lv.rebar = null;
+        });
+      });
     }
 
     // ── view state ──
-    var state = { mode: "mass", building: null, level: null, kinds: {} }; // level: index in the chosen building, null = all
+    var state = { mode: "mass", building: null, level: null, kinds: {}, rebarSpec: null }; // level: index in the chosen building, null = all
     function visibleEntries() {
       return buildings.filter(function (b) { return !state.building || b.name === state.building; });
     }
@@ -373,7 +397,7 @@
             m.material.depthWrite = !faint && m.userData.baseOpacity >= 0.6;
           });
           var wantRebar = state.mode === "rebar" && shown && (state.level == null ? i === 0 && false : i === state.level);
-          if (wantRebar) rebarFor(lv);
+          if (wantRebar) rebarFor(b, lv);
           if (lv.rebar) lv.rebar.object.visible = wantRebar;
           var wantForm = state.mode === "form" && shown && (state.level == null || i === state.level);
           if (wantForm) formFor(b, lv);
@@ -1012,7 +1036,7 @@
       },
       rebarBars: function (name, index) {
         var b = buildings.filter(function (x) { return x.name === name; })[0];
-        return b && b.levels[index] ? rebarFor(b.levels[index]).bars : 0;
+        return b && b.levels[index] ? rebarFor(b, b.levels[index]).bars : 0;
       },
       summary: function () {
         var storeys = 0, basements = 0, slab = 0;
@@ -1042,8 +1066,18 @@
       sectionSvg: function (axis) { return sectionSvg(axis); },
       clipCount: function () { return clipPlanes.length; },
       resetRanges: resetRanges,
+      // the server's floor rebar: each storey's bar spacing and grade for the drawing
+      setRebar: function (rebar) {
+        var spec = {};
+        ((rebar && rebar.buildings) || []).forEach(function (b) {
+          (b.rows || []).forEach(function (r) { spec[b.name + "|" + r.key] = r.draw || {}; });
+        });
+        state.rebarSpec = spec;
+        clearRebar();
+        apply();
+      },
       getState: function () {
-        return { mode: state.mode, building: state.building, level: state.level, kinds: Object.assign({}, state.kinds),
+        return { mode: state.mode, building: state.building, level: state.level, kinds: Object.assign({}, state.kinds), rebarSpec: state.rebarSpec,
                  orbit: { theta: orbit.theta, phi: orbit.phi, radius: orbit.radius, target: orbit.target.toArray() },
                  ortho: camera === orthographic };
       },
@@ -1051,6 +1085,7 @@
         if (!keep) return;
         state.mode = keep.mode; state.building = keep.building; state.level = keep.level;
         state.kinds = keep.kinds || {};
+        state.rebarSpec = keep.rebarSpec || null;
         orbit.theta = keep.orbit.theta; orbit.phi = keep.orbit.phi; orbit.radius = keep.orbit.radius;
         orbit.target.fromArray(keep.orbit.target);
         camera = keep.ortho ? orthographic : perspective;
