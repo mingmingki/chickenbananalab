@@ -143,7 +143,7 @@ class FloorEditsApiTests(TestCase):
 class FixingPageTests(SimpleTestCase):
     def test_the_plan_check_and_the_3d_review_both_open_the_editor(self):
         html = HOME.read_text()
-        self.assertIn("quantity_plan_edit.js' %}?v=20261111-learn1", html)
+        self.assertIn("quantity_plan_edit.js' %}?v=20261112-zoom1", html)
         self.assertIn("data-fix>빠진 부재 고치기</button>", html)
         self.assertIn("window.cblQuantityPlanEdit.mount(root.querySelector(\".qd-floor-stage\")", html)
         self.assertIn("'<button type=\"button\" class=\"qd-btn\" data-fix2d>2D에서 고치기</button>'", html)
@@ -160,3 +160,28 @@ class FixingPageTests(SimpleTestCase):
         mass = MASS_JS.read_text()
         self.assertIn("model = applyEdits(model, options.edits);", mass)
         self.assertIn("var move = plan.moved || { turn: 0, dx: 0, dy: 0 };", mass)
+
+
+class SharpPlanZoomTests(SimpleTestCase):
+    """Plan pictures are zoomed through the SVG viewBox, not a CSS scale: lines are drawn again at
+    every zoom, sharp and as thin as set (a CSS scale blew a 1.7 px line up to a blurred band)."""
+
+    def test_the_helper_moves_the_viewbox_and_fits_the_plan_not_the_sheet(self):
+        js = EDIT_JS.read_text()
+        self.assertIn("function zoomSvg(svg, view) {", js)
+        self.assertIn('svg.setAttribute("viewBox", [f.b[0] + (-view.x / view.s - f.ox) / f.k', js)
+        self.assertIn("function fitView(svg, margin) {", js)
+        self.assertIn("var rx = range(xs, f.b[0], f.b[0] + f.b[2]), ry = range(ys, f.b[1], f.b[1] + f.b[3]);", js)  # kept on the sheet
+        self.assertIn("zoomSvg: zoomSvg, fitView: fitView", js)
+        # the editor reads sheet metres from the drawing's own viewBox, not the zoomed one
+        self.assertIn("var box = baseBox(svg);", js)
+        self.assertNotIn('svg.style.transform = "translate(" + view.x', js)
+
+    def test_the_floor_check_and_the_3d_sheet_use_it(self):
+        html = HOME.read_text()
+        self.assertIn("window.cblQuantityPlanEdit.zoomSvg(svg, view);", html)
+        show = html[html.index("function showFloor(floor, keepVariant) {"):][:1600]
+        self.assertLess(show.index("fitPlan();"), show.index("applyTransform();"))
+        self.assertIn('if (mode === "fit") fitPlan();', html)
+        mass = MASS_JS.read_text()
+        self.assertIn("if (api && api.zoomSvg) { api.zoomSvg(svg, sheetView); return; }", mass)

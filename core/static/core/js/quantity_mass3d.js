@@ -974,7 +974,12 @@
     var sheetView = { s: 1, x: 0, y: 0 }, sheetDrag = null;
     function sheetTransform() {
       var svg = sheetEl && sheetEl.querySelector(".q3d-sheet-body svg");
-      if (svg) { svg.style.transformOrigin = "0 0"; svg.style.transform = "translate(" + sheetView.x + "px," + sheetView.y + "px) scale(" + sheetView.s + ")"; }
+      if (!svg) return;
+      // through the viewBox when the plan editor is loaded: lines redrawn sharp at every zoom
+      var api = window.cblQuantityPlanEdit;
+      if (api && api.zoomSvg) { api.zoomSvg(svg, sheetView); return; }
+      svg.style.transformOrigin = "0 0";
+      svg.style.transform = "translate(" + sheetView.x + "px," + sheetView.y + "px) scale(" + sheetView.s + ")";
     }
     function sheetEvents() {
       var body = sheetEl.querySelector(".q3d-sheet-body");

@@ -58,7 +58,7 @@ class ViewerToolTests(SimpleTestCase):
         for selector in (".q3d-ui", ".q3d-bar", ".q3d-panel", ".q3d-sheet", ".q3d-status"):
             self.assertIn(selector, css)
         html = HOME.read_text()
-        self.assertIn("quantity_mass3d.js' %}?v=20261111-rebar1", html)
+        self.assertIn("quantity_mass3d.js' %}?v=20261112-zoom1", html)
         self.assertIn("quantity_deck.css' %}?v=20261111-notes1", html)
 
 

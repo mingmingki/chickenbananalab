@@ -337,7 +337,7 @@ class TakeoffPageTests(SimpleTestCase):
         self.assertLess(body.index("await showMassStage();"), body.index("await showFloorTakeoff(data);"))
         self.assertLess(body.index("data.results.floor_takeoff = takeoff"), body.index("lastAnalysisResults = data.results || {};"))
         self.assertIn('fetch("/api/quantity/floor-takeoff/"', html)
-        self.assertIn("quantity_mass3d.js' %}?v=20261111-rebar1", html)
+        self.assertIn("quantity_mass3d.js' %}?v=20261112-zoom1", html)
         self.assertIn("quantity_deck.css' %}?v=20261111-notes1", html)
 
     def test_the_3d_view_puts_the_slab_of_plan_n_plus_1_on_top_of_storey_n(self):

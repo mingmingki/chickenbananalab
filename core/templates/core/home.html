@@ -6219,8 +6219,8 @@ body.cbl-modal-open {
 <link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261111-notes1">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
-<script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261111-rebar1"></script>
-<script src="{% static 'core/js/quantity_plan_edit.js' %}?v=20261111-learn1"></script>
+<script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261112-zoom1"></script>
+<script src="{% static 'core/js/quantity_plan_edit.js' %}?v=20261112-zoom1"></script>
 
 <script>
 (function () {
@@ -7260,9 +7260,17 @@ body.cbl-modal-open {
       if (titleEl) titleEl.textContent = "층별 평면을 만들지 못했어요.";
     }
 
+    // zoomed through the viewBox (sharp lines at every zoom), see cblQuantityPlanEdit.zoomSvg
+    function planSvg() { return root.querySelector(".qd-floor-canvas svg"); }
     function applyTransform() {
-      var svg = root.querySelector(".qd-floor-canvas svg");
-      if (svg) svg.style.transform = "translate(" + view.x + "px," + view.y + "px) scale(" + view.s + ")";
+      var svg = planSvg();
+      if (!svg) return;
+      if (window.cblQuantityPlanEdit && window.cblQuantityPlanEdit.zoomSvg) window.cblQuantityPlanEdit.zoomSvg(svg, view);
+      else svg.style.transform = "translate(" + view.x + "px," + view.y + "px) scale(" + view.s + ")";
+    }
+    function fitPlan() {
+      var api = window.cblQuantityPlanEdit;
+      view = api && api.fitView && planSvg() ? api.fitView(planSvg()) : { s: 1, x: 0, y: 0 };
     }
 
     function showFloor(floor, keepVariant) {
@@ -7281,6 +7289,7 @@ body.cbl-modal-open {
       }).join("") : '<span>' + esc(item.variant) + '</span>';
       var canvas = root.querySelector(".qd-floor-canvas");
       canvas.innerHTML = item.svg;
+      fitPlan();  // the plan, not the whole sheet frame
       applyTransform();
       fixFloor(item);
       var review = state.floorReview[floor.key] || {};
@@ -7439,7 +7448,7 @@ body.cbl-modal-open {
       var zoom = e.target.closest("[data-zoom]");
       if (zoom) {
         var mode = zoom.getAttribute("data-zoom");
-        if (mode === "fit") view = { s: 1, x: 0, y: 0 };
+        if (mode === "fit") fitPlan();
         else {
           var stageEl = root.querySelector(".qd-floor-stage");
           var cx = stageEl.clientWidth / 2, cy = stageEl.clientHeight / 2;

@@ -136,10 +136,66 @@
     };
   }
 
+  // Plan pictures are zoomed through their viewBox, not a CSS transform: the browser draws the lines
+  // again at every zoom, so they stay sharp and keep their width (vector-effect: non-scaling-stroke);
+  // a CSS scale blew a 1.7 px line up to a blurred 8 px band at 5x. view = {s, x, y}: the scale and
+  // the offset in screen pixels, as if the whole picture at s = 1 were scaled and moved.
+  function baseBox(svg) {
+    var vb = svg.getAttribute("data-vb");
+    if (!vb) {
+      vb = svg.getAttribute("viewBox") || "0 0 1 1";
+      svg.setAttribute("data-vb", vb);
+    }
+    return vb.split(/[\s,]+/).map(Number);
+  }
+  function frame(svg) {
+    var b = baseBox(svg);
+    svg.style.transform = "";
+    var W = svg.clientWidth || svg.getBoundingClientRect().width, H = svg.clientHeight || svg.getBoundingClientRect().height;
+    var k = Math.min(W / b[2], H / b[3]);
+    return { b: b, W: W, H: H, k: k, ox: (W - b[2] * k) / 2, oy: (H - b[3] * k) / 2, ok: W > 0 && H > 0 && k > 0 && isFinite(k) };
+  }
+  function zoomSvg(svg, view) {
+    if (!svg) return;
+    var f = frame(svg);
+    if (!f.ok) return;
+    var s = view.s * f.k;
+    svg.setAttribute("viewBox", [f.b[0] + (-view.x / view.s - f.ox) / f.k, f.b[1] + (-view.y / view.s - f.oy) / f.k, f.W / s, f.H / s]
+      .map(function (n) { return +n.toFixed(2); }).join(" "));
+  }
+  // the view that fills the stage with what is drawn (the plan), not the whole sheet frame: the
+  // range of the line ends, a few stray ends trimmed (long lines running off the plan), kept on the sheet
+  var FIT_TRIM = 0.004, FIT_MAX_POINTS = 200000;
+  function fitView(svg, margin) {
+    var f = svg && frame(svg);
+    if (!f || !f.ok) return { s: 1, x: 0, y: 0 };
+    var xs = [], ys = [];
+    Array.prototype.forEach.call(svg.querySelectorAll("path"), function (p) {
+      if (xs.length >= FIT_MAX_POINTS || getComputedStyle(p).display === "none") return;
+      var nums = (p.getAttribute("d") || "").match(/-?\d+(?:\.\d+)?/g) || [];
+      for (var i = 0; i + 1 < nums.length && xs.length < FIT_MAX_POINTS; i += 2) {
+        xs.push(+nums[i]);
+        ys.push(+nums[i + 1]);
+      }
+    });
+    if (xs.length < 2) return { s: 1, x: 0, y: 0 };
+    function range(values, lo, hi) {
+      values.sort(function (a, b) { return a - b; });
+      var cut = Math.floor(values.length * FIT_TRIM);
+      return [Math.max(lo, values[cut]), Math.min(hi, values[values.length - 1 - cut])];
+    }
+    var rx = range(xs, f.b[0], f.b[0] + f.b[2]), ry = range(ys, f.b[1], f.b[1] + f.b[3]);
+    if (!(rx[1] > rx[0]) || !(ry[1] > ry[0])) return { s: 1, x: 0, y: 0 };
+    var w = Math.max((rx[1] - rx[0]) * f.k, 1), h = Math.max((ry[1] - ry[0]) * f.k, 1);
+    var s = Math.max(1, Math.min(40, (1 - (margin == null ? 0.08 : margin)) * Math.min(f.W / w, f.H / h)));
+    var cx = ((rx[0] + rx[1]) / 2 - f.b[0]) * f.k + f.ox, cy = ((ry[0] + ry[1]) / 2 - f.b[1]) * f.k + f.oy;
+    return { s: s, x: f.W / 2 - s * cx, y: f.H / 2 - s * cy };
+  }
+
   function mount(stage, options) {
     options = options || {};
     var svg = stage.querySelector("svg");
-    var box = (svg.getAttribute("viewBox") || "0 0 0 0").split(/\s+/).map(Number);
+    var box = baseBox(svg);
     var H = box[3];
     var lines = readLines(svg);
     var edits = options.edits || [];
@@ -439,8 +495,7 @@
     var stage = shade.querySelector(".qpe-stage");
     var view = { s: 1, x: 0, y: 0 }, drag = null;
     function apply() {
-      var svg = stage.querySelector(".qd-floor-canvas svg");
-      if (svg) svg.style.transform = "translate(" + view.x + "px," + view.y + "px) scale(" + view.s + ")";
+      zoomSvg(stage.querySelector(".qd-floor-canvas svg"), view);
     }
     function zoom(factor, mx, my) {
       var s = Math.min(60, Math.max(0.6, view.s * factor));
@@ -470,12 +525,14 @@
       var b = e.target.closest("[data-z]");
       if (!b) return;
       var mode = b.getAttribute("data-z");
-      if (mode === "fit") { view = { s: 1, x: 0, y: 0 }; apply(); return; }
+      if (mode === "fit") { view = fitView(stage.querySelector(".qd-floor-canvas svg")); apply(); return; }
       zoom(mode === "in" ? 1.5 : 1 / 1.5, stage.clientWidth / 2, stage.clientHeight / 2);
     });
     var editor = mount(stage, options);
     shade.querySelector(".qpe-slot").appendChild(editor.bar);
     editor.setTool(options.tool || "beam");
+    view = fitView(stage.querySelector(".qd-floor-canvas svg"));
+    apply();
     function close() {
       editor.destroy();
       if (shade.parentNode) shade.parentNode.removeChild(shade);
@@ -488,5 +545,6 @@
     return { close: close, editor: editor };
   }
 
-  window.cblQuantityPlanEdit = { mount: mount, open: open, partner: partner, extend: extend, readLines: readLines };
+  window.cblQuantityPlanEdit = { mount: mount, open: open, partner: partner, extend: extend, readLines: readLines,
+    zoomSvg: zoomSvg, fitView: fitView };
 })();
