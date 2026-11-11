@@ -17,7 +17,7 @@ class BrainTests(SimpleTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        self.brain = Brain(os.path.join(tmp.name, "brain.sqlite3"))
+        self.brain = Brain(os.path.join(tmp.name, "brain.sqlite3"), seed=None)  # the shipped facts left out
 
     def test_one_store_for_every_drawing_names_need_two_jobs_to_agree(self):
         self.brain.learn({"A-CONC": "wall", "%%BEAM": "beam", "A-PLANAR LINE": None}, owner=1, job="fv-1", kind="correct")
@@ -182,3 +182,24 @@ class PartialFloorResultTests(TestCase):
         names = ["A2-101 101동평면도.dwg", "S1-501 101동구조평면도.dwg", "S-111 동 구조평면도.dwg"]
         self.assertEqual(sorted(names, key=lambda n: 0 if fv._is_structural_file(n) else 1)[:2],
                          ["S1-501 101동구조평면도.dwg", "S-111 동 구조평면도.dwg"])
+
+
+class SeedTests(SimpleTestCase):
+    def test_facts_checked_by_hand_ship_with_the_code_one_job_per_project(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        seed = os.path.join(tmp.name, "seed.json")
+        with open(seed, "w", encoding="utf-8") as handle:
+            json.dump({"jobs": {"reference:a": {"layers": {"0_STR_GIRDER": "beam", "X-NOTE": None}, "values": {"foundation:tower": 1.0}},
+                                "reference:b": {"layers": {"X-NOTE": None}}}}, handle)
+        brain = Brain(os.path.join(tmp.name, "brain.sqlite3"), seed=seed)
+        known = brain.knowledge()
+        self.assertEqual(brain_module.trusted_names(known, {"X-NOTE", "0_STR_GIRDER"}), {"X-NOTE": None})  # two projects agree
+        self.assertEqual(known["values"]["foundation:tower"], 1.0)
+        brain.learn({"0_STR_GIRDER": "beam"}, job="fv-9")  # a person agrees on a real job: now trusted too
+        self.assertEqual(brain_module.trusted_names(brain.knowledge(), {"0_STR_GIRDER"}), {"0_STR_GIRDER": "beam"})
+
+    def test_the_shipped_seed_reads(self):
+        events = brain_module.seed_events()
+        self.assertGreaterEqual(len({job for job, _k, _p in events}), 4)
+        self.assertTrue(all(job.startswith("reference:") for job, _k, _p in events))

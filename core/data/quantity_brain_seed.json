@@ -1,0 +1,30 @@
+{
+  "note": "Facts checked by hand on reference projects (drawings, 3D review, manual takeoffs). Each project is one job; owner claude-check.",
+  "jobs": {
+    "reference:check-project-a": {
+      "basis": "takeoff matched the manual takeoff within about 1-7 percent",
+      "layers": {
+        "0_STR_CONC": "wall", "0_STR_CORE": "wall", "0_STR_CONC_BELOW": "wall_below", "0_STR_CONC_ABOVE": "wall_above",
+        "0_STR_COL": "column", "0_STR_BEAM": "beam", "0_STR_BEAM-APT": "beam", "0_STR_GIRDER": "beam",
+        "0_STR_GIRDER-APT": "beam", "0_STR_GIRDER-AWG": "beam", "0_STR_GIRDER-WG": "beam",
+        "0_STR_OPEN": "opening", "0_STR_OPEN_HID": "opening", "0_STR_OUTLINE": "outline", "0_A-STAIR": "stair",
+        "A-하향식피난구": null
+      },
+      "values": {"foundation:tower": 1.0}
+    },
+    "reference:project-b": {
+      "basis": "3D review checked by eye",
+      "layers": {"A-CONC": "wall", "A-콘크리트": "wall", "A-하부벽체": "wall_below", "%%BEAM": "beam",
+                 "A-STAIR": "stair", "A-계단": "stair", "A-PLANAR LINE": null}
+    },
+    "reference:project-c": {
+      "basis": "plan pictures checked by eye",
+      "layers": {"C": "wall"}
+    },
+    "reference:project-d": {
+      "basis": "plan pictures checked by eye (wall-mark frames and revision notes)",
+      "layers": {"0_벽체부호": null, "--220905~221117 지붕층 스라브다운에 따른 보 사이즈 변경": null,
+                 "--221117 어린이집 하부 구조변경": null, "--221129 관리사무소 하부 구조변경": null, "--보 폭 표기오류": null}
+    }
+  }
+}

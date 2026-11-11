@@ -13,6 +13,10 @@ next drawing is the sum over all of them:
 
 A job's own answers apply to that job at once (when its drawings are read again). Plain SQLite
 next to the job state, kept for good, never sent to an AI.
+
+Facts checked by hand while building the tool (reference projects: drawings, the 3D review, manual
+takeoffs) ship with the code in core/data/quantity_brain_seed.json; each project counts as one job,
+like any other, so they are reviewed and changed through the code, not by writing to the store.
 """
 from __future__ import annotations
 
@@ -32,6 +36,25 @@ NAME_MIN_SHARE = 0.8         # ... agreeing this much
 WORD_MIN_VOTES = 3           # a word in layer names is a hint after this many votes ...
 WORD_MIN_SHARE = 0.75        # ... this much for one role
 MAX_EVENTS_READ = 20000
+SEED_PATH = os.path.join(os.path.dirname(__file__), "data", "quantity_brain_seed.json")
+
+
+def seed_events(path=SEED_PATH):
+    """[(job, kind, payload)] of the facts checked by hand (one job per reference project)."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            seed = json.load(handle)
+    except (OSError, ValueError):
+        return []
+    out = []
+    for job, info in (seed.get("jobs") or {}).items():
+        layers = {str(n)[:200]: (r if r in ROLES else None) for n, r in (info.get("layers") or {}).items()}
+        if layers:
+            out.append((job, "check", layers))
+        for name, value in (info.get("values") or {}).items():
+            if isinstance(value, (int, float)):
+                out.append((job, "value", {"name": name, "value": float(value)}))
+    return out
 
 
 def words_of(name):
@@ -40,8 +63,9 @@ def words_of(name):
 
 
 class Brain:
-    def __init__(self, path):
+    def __init__(self, path, seed=SEED_PATH):
         self.path = path
+        self.seed = seed
 
     @contextmanager
     def connection(self):
@@ -94,7 +118,7 @@ class Brain:
         and a job's value its latest entry."""
         per_job = defaultdict(dict)
         per_job_values = defaultdict(dict)
-        for job, kind, payload in self._events():  # newest first
+        for job, kind, payload in self._events() + (seed_events(self.seed) if self.seed else []):  # newest first, the seed last
             if kind == "value":
                 per_job_values[job].setdefault(payload.get("name"), payload.get("value"))
                 continue
