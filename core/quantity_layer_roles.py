@@ -102,10 +102,15 @@ def _segments(paths):
     return out[:MAX_SEGMENTS]
 
 
+# a member word with a notation word ("벽체부호", "COL-MARK", "BEAM_TEXT", "WALL-DIM", "벽체철근"):
+# the marks, labels, dimensions or bars of that member, not the member itself
+_NOTATION = re.compile(r"부호|MARK|TAG|SYM|기호|명칭|NAME|TEXT|TXT|문자|치수|DIM|배근|철근|REBAR", re.I)
+
+
 def surely_not_member(layer):
     """Layers whose name alone rules them out (text, dimensions, symbols), unless it also names a member."""
     name = base_name(layer)
-    if _NEVER.search(name) or from_sheet(layer):
+    if _NEVER.search(name) or from_sheet(layer) or _NOTATION.search(name):
         return True
     if _STAIR.search(name) or _OPEN.search(name) or _OUTLINE.search(name):
         return False
@@ -131,11 +136,15 @@ def layer_features(items):
         segs = _segments([pts for _lt, pts in rows])
         pieces = geometry.pieces(segs, "beams") if segs else []
         paired = sum(p["t2"] - p["t1"] for p in pieces)
-        partners = Counter()
-        for piece in pieces:  # lines met from both sides at one spacing: ladders (treads, hatches)
-            partners[(round(piece["angle"]), round(piece["offset"] - piece["width"] / 2))] += 1
-            partners[(round(piece["angle"]), round(piece["offset"] + piece["width"] / 2))] += 1
-        ladder = sum(1 for count in partners.values() if count >= 2) / len(partners) if partners else 0.0
+        # ladders (treads, hatching): a line paired on both of its sides, with the line below and
+        # the line above. A wall face is paired on one side only (the wall), however many pieces
+        # a long face is cut into.
+        low, high = set(), set()
+        for piece in pieces:
+            low.add((round(piece["angle"]), round(piece["offset"] - piece["width"] / 2)))
+            high.add((round(piece["angle"]), round(piece["offset"] + piece["width"] / 2)))
+        keys = low | high
+        ladder = len(low & high) / len(keys) if keys else 0.0
         widths = [p["width"] for p in pieces for _ in range(max(1, int((p["t2"] - p["t1"]) / 500)))]
         kinds = Counter(linetype_class(lt) for lt, _pts in rows)
         features[layer] = {

@@ -171,7 +171,7 @@
         '<label data-for="wall">벽 두께<input type="number" data-size="wall.t" step="10" min="50">mm</label>' +
         '<label data-for="column">기둥<input type="number" data-size="column.w" step="10" min="50">×<input type="number" data-size="column.h" step="10" min="50">mm</label>' +
       '</div>' +
-      '<p class="qpe-hint"></p><p class="qpe-count"></p>';
+      '<p class="qpe-hint"></p><p class="qpe-count"></p><div class="qpe-learn" hidden></div>';
     bar.querySelectorAll("[data-size]").forEach(function (input) {
       var key = input.getAttribute("data-size").split(".");
       input.value = Math.round(sizes[key[0]][key[1]] * 1000);
@@ -180,7 +180,38 @@
     function mine() { return edits.filter(function (e) { return e.plan === options.planId; }); }
     function changed() {
       draw();
+      suggest();
       if (options.onChange) options.onChange(edits);
+    }
+    // the same layer fixed the same way twice: offer to learn the layer's role for the next drawings
+    var ROLE_OF = { beam: "beam", wall: "wall", column: "column" };
+    var learned = {};
+    function suggest() {
+      var box = bar.querySelector(".qpe-learn");
+      if (!options.onLearn) { box.hidden = true; return; }
+      var votes = {};
+      edits.forEach(function (e) {
+        if (!e.layer) return;
+        var role = e.op === "add" ? ROLE_OF[e.kind] : "";
+        var key = e.layer + "\u0000" + role;
+        votes[key] = (votes[key] || 0) + 1;
+      });
+      var best = Object.keys(votes).filter(function (k) { return votes[k] >= 2 && !learned[k]; })
+        .sort(function (a, b) { return votes[b] - votes[a]; })[0];
+      if (!best) { box.hidden = true; return; }
+      var parts = best.split("\u0000"), layerName = parts[0], role = parts[1];
+      var what = role ? LABEL[role === "column" ? "column" : role] : "부재 아님";
+      box.hidden = false;
+      box.innerHTML = '<span>‘' + esc(layerName) + '’ 레이어 선을 ' + votes[best] + '번 ' + (role ? what + "(으)로 넣었어요" : "지웠어요") +
+        '. 이 레이어를 모두 ' + what + '(으)로 배울까요?</span><button type="button" data-qpe-learn>배우기</button><button type="button" data-qpe-nolearn>아니요</button>';
+      box.querySelector("[data-qpe-learn]").onclick = function () {
+        learned[best] = true;
+        box.innerHTML = "<span>기억하는 중…</span>";
+        Promise.resolve(options.onLearn(layerName, role || null)).then(function (text) {
+          box.innerHTML = "<span>" + esc(text || "기억했어요. 이 사무소 도면을 다음에 읽을 때 써요.") + "</span>";
+        }, function () { box.innerHTML = "<span>저장하지 못했어요.</span>"; });
+      };
+      box.querySelector("[data-qpe-nolearn]").onclick = function () { learned[best] = true; box.hidden = true; };
     }
     function status(text) { bar.querySelector(".qpe-hint").textContent = text || HINT[tool]; }
     function count() {

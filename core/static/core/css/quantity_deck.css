@@ -613,3 +613,7 @@
 /* rebar: grade swatches and the bar summary */
 .qd-mass-table .qd-grade { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: -1px; }
 .qd-rebar-sum { max-width: 560px; }
+.qpe-learn { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; background: rgba(250, 204, 21, .14); color: #fde68a; font-size: 12px; font-weight: 700; }
+.qpe-learn[hidden] { display: none; }
+.qpe-learn button { padding: 4px 10px; border: 0; border-radius: 7px; background: #facc15; color: #422006; font: inherit; font-weight: 800; cursor: pointer; }
+.qpe-learn button + button { background: rgba(255, 255, 255, .12); color: #fde68a; }

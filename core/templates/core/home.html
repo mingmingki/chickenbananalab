@@ -6220,7 +6220,7 @@ body.cbl-modal-open {
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261111-rebar1"></script>
-<script src="{% static 'core/js/quantity_plan_edit.js' %}?v=20261111-fix1"></script>
+<script src="{% static 'core/js/quantity_plan_edit.js' %}?v=20261111-learn1"></script>
 
 <script>
 (function () {
@@ -7296,7 +7296,8 @@ body.cbl-modal-open {
         return;
       }
       editor = window.cblQuantityPlanEdit.mount(root.querySelector(".qd-floor-stage"), {
-        planId: item.plan_id, edits: floorEdits(), onChange: function () { floorEditsSave(); }, note: planUseNote(item.plan_id)
+        planId: item.plan_id, edits: floorEdits(), onChange: function () { floorEditsSave(); }, note: planUseNote(item.plan_id),
+        onLearn: learnLayer
       });
       slot.appendChild(editor.bar);
     }
@@ -9199,6 +9200,20 @@ body.cbl-modal-open {
     floorEditsTimer = setTimeout(send, 500);
     return Promise.resolve();
   }
+  // a layer fixed the same way again and again: kept in the office profile (the brain), so the
+  // next drawing of this office reads it right from the start
+  async function learnLayer(layer, role) {
+    var job = state.floorJob;
+    if (!job || !job.id) throw new Error("no job");
+    var res = await fetch("/api/quantity/drawing-profile/", {
+      method: "POST", headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
+      body: JSON.stringify({ floor_job_id: job.id, layers: (function () { var o = {}; o[layer] = role; return o; })(), corrected: true, rerun: false })
+    });
+    var body = await res.json().catch(function () { return {}; });
+    if (!res.ok || !body.ok) throw new Error((body && body.error) || "HTTP " + res.status);
+    return "기억했어요. 이 사무소 도면을 다음에 읽을 때 ‘" + layer + "’ 레이어를 " + (role ? ({ beam: "보", wall: "벽", column: "기둥" }[role] || role) : "부재 아님") + "(으)로 읽어요.";
+  }
+
   // storeys (building, level) built from one plan frame
   function planUsedBy(planId) {
     var model = massModel(), out = [];
@@ -9312,7 +9327,7 @@ body.cbl-modal-open {
     if (!view || !window.cblQuantityPlanEdit) { addBot("이 층 평면 그림을 찾지 못해 고칠 수 없어요.", 0); return; }
     window.cblQuantityPlanEdit.open({
       svg: view.svg, title: building.name + " " + level.label + " 평면 고치기 (" + (view.sheet || view.title || "") + ")",
-      planId: plan.id, edits: floorEdits(), note: planUseNote(plan.id), tool: "beam",
+      planId: plan.id, edits: floorEdits(), note: planUseNote(plan.id), tool: "beam", onLearn: learnLayer,
       onChange: function () { floorEditsSave(); },
       onClose: function () {
         floorEditsSave(true);

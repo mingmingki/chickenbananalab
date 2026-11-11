@@ -116,6 +116,9 @@ def floor_of(title):
         floors = [(span.group(1) or "", span.group(2)), (span.group(3) or "", span.group(4))]
     if "기초" in text:
         return {"building": building or "기타", "floor": "기초", "group": "basement", "order": -99, "discipline": discipline}
+    if building and building.endswith("동") and re.search(r"(지하)?주차장지붕", text) and not re.search(r"\d+층", text):
+        # a tower's "parking deck roof" plan is its ground-floor slab: the tower's 1st floor
+        return {"building": building, "floor": "1층", "group": "ground", "order": 1, "discipline": discipline}
     if floors:
         under, first = floors[0][0] == "지하", int(floors[0][1])
         if under:
@@ -610,6 +613,8 @@ def _plan_model(paths, box):
             continue
         local = [((px - x0) / 1000.0, (py - y0) / 1000.0) for px, py in points]
         closed = len(local) >= 4 and abs(local[0][0] - local[-1][0]) < 0.005 and abs(local[0][1] - local[-1][1]) < 0.005
+        if category == "col" and closed and _wall_outline(local):
+            category = "wall"  # some offices draw each wall piece as a closed outline
         if category == "col" and closed:
             cols.append([[r(x), r(y)] for x, y in local[:-1]])
             raw["col"].append(local[:-1])
@@ -667,6 +672,25 @@ def _plan_model(paths, box):
     except Exception as exc:  # the colored plans and the 3D model must not depend on the takeoff
         model["measure"] = {"error": str(exc)[:200]}
     return model
+
+
+WALL_OUTLINE_MAX_T = 0.35  # m: a closed outline this thin ...
+WALL_OUTLINE_MIN_RATIO = 4.0  # ... and this many times longer than thick is a wall piece, not a column
+
+
+def _wall_outline(points):
+    """A closed outline shaped like a wall piece: thin (2·area/perimeter, the thickness of a
+    long strip) and long for its thickness. Columns are squat."""
+    pts = points[:-1] if len(points) > 1 and points[0] == points[-1] else points
+    if len(pts) < 4:
+        return False
+    area = abs(_area(pts))
+    perimeter = sum(math.hypot(pts[(i + 1) % len(pts)][0] - pts[i][0], pts[(i + 1) % len(pts)][1] - pts[i][1]) for i in range(len(pts)))
+    if area <= 0 or perimeter <= 0:
+        return False
+    thickness = 2 * area / perimeter
+    length = perimeter / 2 - thickness
+    return thickness <= WALL_OUTLINE_MAX_T and length >= WALL_OUTLINE_MIN_RATIO * thickness
 
 
 def _flag_outer_faces(walls, is_outside, append):

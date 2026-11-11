@@ -134,5 +134,40 @@ class SheetAndFoundationTests(SimpleTestCase):
         self.assertTrue(lr.from_sheet("칠성24지구 sheet$0$동우CI_1"))
         self.assertTrue(lr.surely_not_member("XR-FORM(현장)$0$COL"))
         self.assertTrue(lr.surely_not_member("0_기초"))
-        self.assertFalse(lr.surely_not_member("0_벽체부호"))  # one office draws wall pieces as outlines here
+        # the wall marks' frames (boxes round "W1" and corner ticks), not walls
+        self.assertTrue(lr.surely_not_member("0_벽체부호"))
+        self.assertTrue(lr.surely_not_member("S-COL-MARK"))
+        self.assertFalse(lr.surely_not_member("0_벽체"))
         self.assertFalse(lr.from_sheet("XR-구조101동$0$A-CONC"))
+
+
+class WallShapeTests(SimpleTestCase):
+    def test_long_wall_faces_cut_into_pieces_are_not_a_ladder(self):
+        items = []
+        for k in range(10):  # walls 250 mm thick whose faces are cut every 1.5 m (openings, crossings)
+            y = k * 4000
+            for x in range(0, 12000, 1500):
+                items.append(("C", "solid", [(x, y), (x + 1400, y)]))
+                items.append(("C", "solid", [(x, y + 250), (x + 1400, y + 250)]))
+        judged = lr.judge(items)
+        self.assertEqual(judged["C"]["role"], "wall")
+
+    def test_closed_outlines_shaped_like_wall_pieces_are_walls_not_columns(self):
+        from core import quantity_floor_views as fv
+        strip = [(0, 0), (3000, 0), (3000, 200), (0, 200), (0, 0)]           # a 200 mm wall piece
+        column = [(5000, 0), (5600, 0), (5600, 600), (5000, 600), (5000, 0)]  # a 600 mm column
+        members = [("col", min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts), pts)
+                   for pts in (strip, column)]
+        model = fv._plan_model(members, [-1000, -1000, 20000, 10000])
+        self.assertEqual(len(model["cols"]), 1)
+        self.assertEqual(len(model["walls"]), 4)
+        self.assertGreater(model["measure"]["area"], 0.5)  # the strip is measured as wall section
+
+
+class ParkingRoofTitleTests(SimpleTestCase):
+    def test_a_towers_parking_deck_roof_plan_is_its_first_floor(self):
+        from core import quantity_floor_views as fv
+        self.assertEqual(fv.floor_of("101동 지하주차장지붕 구조평면도")["floor"], "1층")
+        self.assertEqual(fv.floor_of("102동 지하주차장 지붕 구조평면도")["floor"], "1층")
+        self.assertEqual(fv.floor_of("지붕 주차장 구조평면도")["floor"], "지붕·옥탑")  # the deck itself
+        self.assertEqual(fv.floor_of("101동 지붕 구조평면도")["floor"], "지붕·옥탑")
