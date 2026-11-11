@@ -4,27 +4,231 @@
     "reference:check-project-a": {
       "basis": "takeoff matched the manual takeoff within about 1-7 percent",
       "layers": {
-        "0_STR_CONC": "wall", "0_STR_CORE": "wall", "0_STR_CONC_BELOW": "wall_below", "0_STR_CONC_ABOVE": "wall_above",
-        "0_STR_COL": "column", "0_STR_BEAM": "beam", "0_STR_BEAM-APT": "beam", "0_STR_GIRDER": "beam",
-        "0_STR_GIRDER-APT": "beam", "0_STR_GIRDER-AWG": "beam", "0_STR_GIRDER-WG": "beam",
-        "0_STR_OPEN": "opening", "0_STR_OPEN_HID": "opening", "0_STR_OUTLINE": "outline", "0_A-STAIR": "stair",
+        "0_STR_CONC": "wall",
+        "0_STR_CORE": "wall",
+        "0_STR_CONC_BELOW": "wall_below",
+        "0_STR_CONC_ABOVE": "wall_above",
+        "0_STR_COL": "column",
+        "0_STR_BEAM": "beam",
+        "0_STR_BEAM-APT": "beam",
+        "0_STR_GIRDER": "beam",
+        "0_STR_GIRDER-APT": "beam",
+        "0_STR_GIRDER-AWG": "beam",
+        "0_STR_GIRDER-WG": "beam",
+        "0_STR_OPEN": "opening",
+        "0_STR_OPEN_HID": "opening",
+        "0_STR_OUTLINE": "outline",
+        "0_A-STAIR": "stair",
         "A-하향식피난구": null
       },
-      "values": {"foundation:tower": 1.0}
+      "values": {
+        "foundation:tower": 1.0
+      }
     },
     "reference:project-b": {
       "basis": "3D review checked by eye",
-      "layers": {"A-CONC": "wall", "A-콘크리트": "wall", "A-하부벽체": "wall_below", "%%BEAM": "beam",
-                 "A-STAIR": "stair", "A-계단": "stair", "A-PLANAR LINE": null}
+      "layers": {
+        "A-CONC": "wall",
+        "A-콘크리트": "wall",
+        "A-하부벽체": "wall_below",
+        "%%BEAM": "beam",
+        "A-STAIR": "stair",
+        "A-계단": "stair",
+        "A-PLANAR LINE": null
+      }
     },
     "reference:project-c": {
       "basis": "plan pictures checked by eye",
-      "layers": {"C": "wall"}
+      "layers": {
+        "C": "wall"
+      }
     },
     "reference:project-d": {
       "basis": "plan pictures checked by eye (wall-mark frames and revision notes)",
-      "layers": {"0_벽체부호": null, "--220905~221117 지붕층 스라브다운에 따른 보 사이즈 변경": null,
-                 "--221117 어린이집 하부 구조변경": null, "--221129 관리사무소 하부 구조변경": null, "--보 폭 표기오류": null}
+      "layers": {
+        "0_벽체부호": null,
+        "--220905~221117 지붕층 스라브다운에 따른 보 사이즈 변경": null,
+        "--221117 어린이집 하부 구조변경": null,
+        "--221129 관리사무소 하부 구조변경": null,
+        "--보 폭 표기오류": null
+      }
     }
-  }
+  },
+  "notes": [
+    {
+      "id": "opening-bars",
+      "topic": "개구부 보강근",
+      "applies": [
+        "rebar"
+      ],
+      "status": "added",
+      "seen": "4개 현장 중 4곳: 평면·일람표에 개구부 보강 표기 없음. 수작업 산출서에는 개구부마다 양면 2-D16(위·아래·양옆, 정착 0.5m)이 들어감",
+      "handling": "표준 상세(양면 2-D16)로 '개구부·단부 보강' 항목에 따로 넣음 — 추가 항목에서 뺄 수 있음"
+    },
+    {
+      "id": "wall-end-bars",
+      "topic": "벽 끝 U·C형 바·수직보강근",
+      "applies": [
+        "rebar"
+      ],
+      "status": "added",
+      "seen": "벽체 일람표에 단부 상세 미표기. 수작업은 벽 토막마다 U·C형 바(수평근 간격)와 수직보강근 6~8가닥",
+      "handling": "벽 토막마다 U·C형 바와 수직보강근 6가닥을 '개구부·단부 보강' 항목에 넣음 — 추가 항목에서 뺄 수 있음"
+    },
+    {
+      "id": "plain-wall-bars",
+      "topic": "부호 없는 벽 배근",
+      "applies": [
+        "rebar"
+      ],
+      "status": "assumed",
+      "seen": "층 평면에 부호 없는 벽이 대부분. 도면 주기에 기본 부호(W0) 배근이 없으면 수작업은 D10@300을 씀",
+      "handling": "도면 주기의 미표기 벽 부호가 있으면 그 배근, 없으면 D10@300 양방향 — 확인 필요"
+    },
+    {
+      "id": "slab-bars",
+      "topic": "슬래브 배근",
+      "applies": [
+        "rebar"
+      ],
+      "status": "assumed",
+      "seen": "슬래브 배근도가 일람표로 연결되지 않는 현장이 많음",
+      "handling": "연결 안 되면 D10@200 상·하부 양방향으로 봄 — 확인 필요"
+    },
+    {
+      "id": "mat-thickness",
+      "topic": "기초 매트 두께",
+      "applies": [
+        "takeoff",
+        "rebar"
+      ],
+      "status": "assumed",
+      "seen": "매트 두께를 글자(THK)로 쓰지 않고 부호(예: 101MAT_1.0)로 쓰는 현장이 있음",
+      "handling": "기초 평면 표기 → 사람이 입력한 값 → 다른 현장 입력값 중앙값 → 가정값 순. 가정·중앙값은 합계에서 빼고 확인을 요청"
+    },
+    {
+      "id": "mat-bars",
+      "topic": "기초 매트 배근",
+      "applies": [
+        "rebar"
+      ],
+      "status": "planned",
+      "seen": "매트 배근(예: H19@300 상·하부 + 보강근)이 기초 일람표에 있고 평면 문구와 다름. 지금은 평면 문구를 씀(수작업의 약 절반)",
+      "handling": "기초 일람표 연결 — 추가 예정"
+    },
+    {
+      "id": "wall-footings",
+      "topic": "줄기초",
+      "applies": [
+        "takeoff",
+        "rebar"
+      ],
+      "status": "planned",
+      "seen": "주차장 줄기초(WF)는 부호가 없는 경우가 많아 길이를 못 셈 (주차장 기초 콘크리트 −31%)",
+      "handling": "외벽 아래 줄기초 길이로 계산 — 추가 예정"
+    },
+    {
+      "id": "footing-formwork",
+      "topic": "매트·독립기초 거푸집",
+      "applies": [
+        "takeoff"
+      ],
+      "status": "added",
+      "seen": "수작업은 매트·독립기초 옆 거푸집을 거의 넣지 않음(흙막이·버림 위 타설)",
+      "handling": "단독 건물 매트 둘레만 넣고, 주차장과 이어진 매트·독립기초는 넣지 않음"
+    },
+    {
+      "id": "chair-bars",
+      "topic": "고임철근(우마)",
+      "applies": [
+        "rebar"
+      ],
+      "status": "added",
+      "seen": "도면에 표기가 거의 없음. 수작업은 매트에 1.5m 간격 D16",
+      "handling": "매트에 1.5m 간격 D16 우마를 넣음 — 추가 항목에서 뺄 수 있음"
+    },
+    {
+      "id": "stair-bars",
+      "topic": "계단 철근",
+      "applies": [
+        "rebar"
+      ],
+      "status": "assumed",
+      "seen": "계단 배근 상세가 평면과 연결되지 않음",
+      "handling": "계단 평면 면적 × 35kg/㎡(D13)로 봄 — 추가 항목에서 뺄 수 있음, 확인 필요"
+    },
+    {
+      "id": "penthouse",
+      "topic": "옥탑층",
+      "applies": [
+        "takeoff",
+        "rebar"
+      ],
+      "status": "planned",
+      "seen": "옥탑 지붕 슬래브와 옥탑 벽 높이가 빠져 지붕층이 수작업보다 적음(콘크리트 약 1/3)",
+      "handling": "지붕 도면 안 옥탑 평면을 따로 쌓기 — 추가 예정"
+    },
+    {
+      "id": "basement-split",
+      "topic": "지하층 부재별 배분",
+      "applies": [
+        "takeoff",
+        "rebar"
+      ],
+      "status": "known",
+      "seen": "지하층은 합계가 수작업과 맞지만 벽·보·슬래브 배분이 다름(주차장 도면과 동 도면이 겹침)",
+      "handling": "합계 기준으로 보고, 부재별은 참고"
+    },
+    {
+      "id": "wall-mark-frames",
+      "topic": "벽 부호 표식",
+      "applies": [
+        "reading"
+      ],
+      "status": "added",
+      "seen": "'벽체부호'처럼 부재 이름 + 부호·MARK·TAG·치수 레이어는 글자를 감싼 상자·표식(한 현장에서 기준층 콘크리트가 144㎥ 부풀었음)",
+      "handling": "부재 표기 레이어로 보고 빼기"
+    },
+    {
+      "id": "frame-captions",
+      "topic": "도곽 제목과 그림 제목",
+      "applies": [
+        "reading"
+      ],
+      "status": "added",
+      "seen": "도곽 제목은 순번('바닥 구조 평면도 3')이고 층은 그림 아래 제목('3~25층 바닥 구조 평면도')에만 있는 현장이 있음",
+      "handling": "층 정보가 있는 그림 제목을 우선"
+    },
+    {
+      "id": "untitled-deck",
+      "topic": "이름 없는 단지 지하 평면",
+      "applies": [
+        "reading",
+        "3d"
+      ],
+      "status": "added",
+      "seen": "'지하1층 구조평면도'처럼 동·주차장 이름 없이 단지 전체 지하를 그린 현장이 있음",
+      "handling": "동이 있는 현장에서 지하·1층·기초만 있으면 지하주차장으로 읽고 1층은 주차장 지붕으로 봄"
+    },
+    {
+      "id": "unit-plans",
+      "topic": "기준층 벽이 단위세대 도면에만 있는 경우",
+      "applies": [
+        "reading"
+      ],
+      "status": "planned",
+      "seen": "한 현장은 기준층 구조평면에 벽 선이 거의 없고 단위세대 도면에만 있음",
+      "handling": "단위세대 도면을 층 평면에 맞춰 조립 — 추가 예정 (지금은 2D 고치기로 보완)"
+    },
+    {
+      "id": "two-towers-one-frame",
+      "topic": "한 도면 틀에 동 두 개",
+      "applies": [
+        "reading"
+      ],
+      "status": "planned",
+      "seen": "한 현장은 한 틀에 두 동을 나란히 그리고 제목에는 한 동만 씀",
+      "handling": "틀 안 그림을 동별로 나누기 — 추가 예정"
+    }
+  ]
 }

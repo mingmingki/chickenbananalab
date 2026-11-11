@@ -156,3 +156,26 @@ class WallDetailTests(SimpleTestCase):
         self.assertEqual(counted, (2, 3))  # the door and two windows
         self.assertGreater(tally.kg["opening"], 0)
         self.assertIn("D16|SD400", tally.bars)
+
+
+class ExtrasAndNotesTests(SimpleTestCase):
+    def test_items_the_drawings_leave_out_can_be_switched_off(self):
+        m = model()
+        m["buildings"][0]["plans"][1]["measure"].update(window_gaps=6.0, window_gap_count=3)
+        on = {r["key"]: r for r in fr.build_rebar(m, links())["buildings"][0]["rows"]}
+        off = fr.build_rebar(m, links(), extras={"opening": False, "chair": False, "stair": False})
+        rows = {r["key"]: r for r in off["buildings"][0]["rows"]}
+        self.assertGreater(on["1"]["kg"]["opening"], 0)
+        self.assertEqual(rows["1"]["kg"]["opening"], 0)
+        self.assertEqual(rows["1"]["kg"]["stair"], 0)
+        self.assertFalse(off["extras"]["opening"]["on"])
+        self.assertIn(fr.EXTRAS["opening"], off["not_included"])
+
+    def test_what_was_learned_across_projects_is_shown_by_step(self):
+        from core import quantity_brain
+        rebar_notes = quantity_brain.review_notes("rebar")
+        self.assertTrue(any(n["id"] == "opening-bars" and n["status_label"] == "적용" for n in rebar_notes))
+        self.assertTrue(all("rebar" in (n.get("applies") or ["rebar"]) for n in rebar_notes))
+        reading = {n["id"] for n in quantity_brain.review_notes("reading")}
+        self.assertIn("wall-mark-frames", reading)
+        self.assertNotIn("opening-bars", reading)

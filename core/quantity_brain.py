@@ -151,6 +151,28 @@ class Brain:
         return [{"at": r[0], "owner": r[1], "job": r[2], "kind": r[3], "payload": json.loads(r[4])} for r in rows]
 
 
+NOTE_STATUS = {"added": "적용", "assumed": "가정·확인 필요", "planned": "추가 예정", "known": "알고 있음"}
+
+
+def review_notes(applies=None, path=SEED_PATH):
+    """What was learned while building and checking the tool across projects (what the drawings
+    leave out, what is assumed, what is still to come): [{id, topic, status, status_label, seen,
+    handling}], those for one part ("takeoff", "rebar", "reading", "3d") when ``applies`` is given."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            notes = json.load(handle).get("notes") or []
+    except (OSError, ValueError):
+        return []
+    out = []
+    for note in notes:
+        if applies and applies not in (note.get("applies") or []):
+            continue
+        out.append({"id": note.get("id"), "topic": note.get("topic"), "status": note.get("status"),
+                    "status_label": NOTE_STATUS.get(note.get("status"), note.get("status")),
+                    "seen": note.get("seen"), "handling": note.get("handling")})
+    return out
+
+
 def trusted_names(knowledge, names):
     """{layer name: role or None} for the names of a drawing that enough jobs agree on."""
     out = {}

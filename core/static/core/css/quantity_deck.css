@@ -624,3 +624,17 @@
 .qd-foundation input { width: 70px; min-height: 28px; padding: 0 6px; border: 1px solid rgba(255, 255, 255, .28); border-radius: 8px; background: rgba(10, 14, 48, .6); color: #fff; font: inherit; }
 .qd-foundation small { color: var(--qd-faint); font-weight: 600; }
 .qd-ft-status { color: var(--qd-soft); font-size: 12px; }
+/* review notes (what the tool learned across projects) and extra items */
+.qd-review { border: 1px solid var(--qd-line); border-radius: 12px; padding: 8px 12px; font-size: 12px; }
+.qd-review summary { cursor: pointer; color: var(--qd-soft); font-weight: 800; font-size: 13px; }
+.qd-review ul { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.qd-review li { display: grid; gap: 2px; padding: 6px 8px; border-radius: 8px; background: rgba(255, 255, 255, .05); }
+.qd-review li b { color: #fff; }
+.qd-review li i { justify-self: start; padding: 1px 7px; border-radius: 6px; font-style: normal; font-weight: 800; font-size: 11px; background: rgba(255, 255, 255, .1); color: var(--qd-soft); }
+.qd-review li i.is-added { background: rgba(74, 222, 128, .16); color: #86efac; }
+.qd-review li i.is-assumed { background: rgba(252, 211, 77, .18); color: var(--qd-amber); }
+.qd-review li i.is-planned { background: rgba(125, 211, 252, .16); color: #7dd3fc; }
+.qd-review li span { color: var(--qd-soft); }
+.qd-review .qd-review-how { color: #e2e8f0; }
+.qd-extras { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 10px; border: 1px solid var(--qd-line); border-radius: 12px; font-size: 13px; }
+.qd-extras label { display: inline-flex; align-items: center; gap: 6px; color: #fff; font-weight: 700; }

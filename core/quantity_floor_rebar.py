@@ -330,8 +330,14 @@ def _most_used(counter, fallback):
     return counter.most_common(1)[0][0] if counter else fallback
 
 
-def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None):
-    """Rebar rows per building and storey, in step with ``takeoff`` (quantity_floor_takeoff)."""
+EXTRAS = {"opening": "개구부·벽 끝 보강근 (표준 상세)", "chair": "기초 고임철근(우마)", "stair": "계단 철근 (면적당)"}
+
+
+def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, extras=None):
+    """Rebar rows per building and storey, in step with ``takeoff`` (quantity_floor_takeoff).
+    ``extras``: {"opening", "chair", "stair": bool} — items the drawings do not show, added from
+    standard details unless switched off."""
+    extras = {key: (extras or {}).get(key, True) is not False for key in EXTRAS}
     from . import quantity_edits
     from . import quantity_floor_takeoff as ft
     fixes_by_plan = quantity_edits.by_plan(edits)
@@ -345,7 +351,7 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None):
         rows = []
         ft_row = rows_by.get((name, "FT"))
         if ft_row and ft_row.get("foundation"):
-            rows.append(_foundation_rebar(ft_row, links, name, general_spec, overall))
+            rows.append(_foundation_rebar(ft_row, links, name, general_spec, overall, extras["chair"]))
         for index, level in enumerate(levels):
             key = level.get("key") or ""
             row = rows_by.get((name, key))
@@ -387,10 +393,12 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None):
                 _wall(tally, {"vertical_bar": vertical, "horizontal_bar": horizontal}, rest_length, thickness, height, top_storey)
                 source = (f"도면 주기의 미표기 벽 {noted_mark} 배근" if noted_spec else "미표기 벽 기본 배근")
                 tally.note(f"부호 없는 벽 {rest_length:.0f}m는 {source}({vertical}·{horizontal})으로 봤어요")
-            pieces, opened = _wall_details(tally, vplan.get("walls"), height, vertical, horizontal,
-                                           vplan.get("measure") if ft._storey_kind(key) != "basement" else None)
-            if not pieces:
-                opened = _openings(tally, vplan.get("measure"), height, horizontal, thickness) if ft._storey_kind(key) != "basement" else 0
+            pieces = opened = 0
+            if extras["opening"]:
+                pieces, opened = _wall_details(tally, vplan.get("walls"), height, vertical, horizontal,
+                                               vplan.get("measure") if ft._storey_kind(key) != "basement" else None)
+                if not pieces:
+                    opened = _openings(tally, vplan.get("measure"), height, horizontal, thickness) if ft._storey_kind(key) != "basement" else 0
             if pieces or opened:
                 tally.note(f"벽 {pieces}토막 끝에 U·C형 바와 수직보강근 {END_VERTICAL_BARS}가닥, 개구부 {opened}곳에 보강근(양면 2-D16 둘레)을 넣었어요")
             # the 3D draws the bars of the walls that run longest on the storey
@@ -436,7 +444,7 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None):
                     draw["slab"] = {"bars": layers}
 
             stair_area = float(concrete.get("stair") or 0) / ft.STAIR_CONCRETE_PER_M2 if concrete.get("stair") else 0.0
-            if stair_area:
+            if stair_area and extras["stair"]:
                 tally.kg["stair"] += stair_area * STAIR_KG_PER_M2
                 tally.bars["D13|" + grade_of("D13", 13, general_spec)[0]] += stair_area * STAIR_KG_PER_M2
                 tally.note(f"계단 {stair_area:.0f}㎡는 {STAIR_KG_PER_M2:.0f}kg/㎡(D13)로 봤어요")
@@ -494,11 +502,12 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None):
         "by_bar": {b: round(v, 1) for b, v in sorted(overall.items(), key=_bar_order)},
         "net_kg": round(net, 1), "loss_factor": qc.REBAR_WASTE_FACTOR, "with_loss_kg": round(net * qc.REBAR_WASTE_FACTOR, 1),
         "grade_colors": GRADE_COLORS,
-        "not_included": ["기초(매트)", "계단", "개구부·단부 보강근", "우마근"],
+        "extras": {key: {"label": label, "on": extras[key]} for key, label in EXTRAS.items()},
+        "not_included": ["줄기초", "매트 보강근(기초 일람표)", "옥탑 지붕"] + [label for key, label in EXTRAS.items() if not extras[key]],
     }
 
 
-def _foundation_rebar(row, links, name, general_spec, overall):
+def _foundation_rebar(row, links, name, general_spec, overall, chairs_on=True):
     """Mat bars (layers × both ways at the spacing over the area, laps every stock length) and the
     isolated footings' bars, for the foundation storey."""
     from . import quantity_floor_takeoff as ft
@@ -517,10 +526,11 @@ def _foundation_rebar(row, links, name, general_spec, overall):
     tally.add("foundation", text, bar[0], layers * run)
     # chair bars holding the top mat: one per 1.5 m square, legs the mat depth less the covers,
     # plus half as many fixing bars (the SK manual's rule, D16)
-    height = max(info["thickness"] - 0.1, 0.2)
-    chairs = math.ceil(area / (1.5 * 1.5))
-    tally.add("foundation", "D16", 16, chairs * (2 * height + 0.8) + math.ceil(chairs * 0.5) * 2 * height)
-    tally.note(f"고임철근(우마) D16 {chairs}개를 1.5m 간격으로 넣었어요")
+    if chairs_on:
+        height = max(info["thickness"] - 0.1, 0.2)
+        chairs = math.ceil(area / (1.5 * 1.5))
+        tally.add("foundation", "D16", 16, chairs * (2 * height + 0.8) + math.ceil(chairs * 0.5) * 2 * height)
+        tally.note(f"고임철근(우마) D16 {chairs}개를 1.5m 간격으로 넣었어요")
     for foot in info.get("footings") or []:
         spaced = _spaced(str(foot.get("bars") or "")) or (16, 0.3)
         per = 2 * (qc._spacing_bar_count(foot["x"], spaced[1]) * foot["y"] + qc._spacing_bar_count(foot["y"], spaced[1]) * foot["x"]) / 2

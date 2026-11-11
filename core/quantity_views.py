@@ -1967,7 +1967,7 @@ def api_quantity_floor_rebar(request):
     """층별 철근(N층 기준): 층별 수량과 같은 규칙으로 일람표 배근을 CAD 길이·면적에 깐다. AI는 쓰지 않는다.
 
     Body (JSON): {"floor_job_id", "member_links"(선택), "general_spec"(선택: 강종·이음/정착 표)}."""
-    from . import quantity_floor_rebar, quantity_floor_takeoff
+    from . import quantity_brain, quantity_floor_rebar, quantity_floor_takeoff
     if len(request.body or b"") > FLOOR_TAKEOFF_MAX_BODY:
         return JsonResponse({"error": "요청이 너무 커요."}, status=413)
     try:
@@ -1993,7 +1993,9 @@ def api_quantity_floor_rebar(request):
     try:
         takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations,
                                                        learned=_learned_values(floor_job))
-        rebar = quantity_floor_rebar.build_rebar(model, links, takeoff, general_spec=spec, edits=edits)
+        extras = body.get("extras") if isinstance(body.get("extras"), dict) else None
+        rebar = quantity_floor_rebar.build_rebar(model, links, takeoff, general_spec=spec, edits=edits, extras=extras)
+        rebar["review_notes"] = quantity_brain.review_notes("rebar")
     except Exception:
         logger.exception("quantity_floor_rebar_failed job=%s", floor_job[:16])
         return JsonResponse({"error": "층별 철근을 계산하지 못했어요."}, status=500)
@@ -2108,6 +2110,8 @@ def api_quantity_floor_takeoff(request):
     try:
         takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations,
                                                        learned=_learned_values(floor_job))
+        from . import quantity_brain
+        takeoff["review_notes"] = quantity_brain.review_notes("takeoff")
     except Exception:
         logger.exception("quantity_floor_takeoff_failed job=%s", floor_job[:16])
         return JsonResponse({"error": "층별 수량을 계산하지 못했어요."}, status=500)
@@ -7991,6 +7995,21 @@ _IDENTITY_WARNING_LABELS = {
 }
 
 
+def _write_review_notes_sheet(ws, navy_fill, header_font, body_font, left, thin):
+    """검토 사항: 여러 현장을 보며 알게 된 것 — 도면에 없는 항목, 가정한 값, 추가 예정."""
+    from .quantity_brain import review_notes
+    headers = ["항목", "상태", "현장에서 본 것", "처리"]
+    for col, text in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=text)
+        cell.font, cell.fill, cell.border = header_font, navy_fill, thin
+    for row, note in enumerate(review_notes(), 2):
+        for col, value in enumerate([note["topic"], note["status_label"], note["seen"], note["handling"]], 1):
+            cell = ws.cell(row=row, column=col, value=value)
+            cell.font, cell.border, cell.alignment = body_font, thin, left
+    for letter, width in zip("ABCD", (24, 14, 70, 60)):
+        ws.column_dimensions[letter].width = width
+
+
 def _write_floor_rebar_sheet(ws, rebar, navy_fill, yellow_fill, header_font, body_font, center, left, thin):
     """층별 철근: 동마다 층 행(부재별 kg)과 직경·강종별 합계(t). 근사 행은 회색, 합계에서 뺀다."""
     from .quantity_floor_rebar import KINDS, KIND_LABELS
@@ -8372,6 +8391,8 @@ def _build_excel_response(request):
     if isinstance(floor_rebar, dict) and floor_rebar.get("buildings"):
         _write_floor_rebar_sheet(wb.create_sheet("층별 철근(N층 기준)"), floor_rebar,
                                  navy_fill, yellow_fill, header_font, body_font, center, left, thin)
+    if isinstance(floor_takeoff, dict) and floor_takeoff.get("buildings"):
+        _write_review_notes_sheet(wb.create_sheet("검토 사항"), navy_fill, header_font, body_font, left, thin)
 
     # 건축 시트
     if "architectural" in results and results["architectural"].get("items"):

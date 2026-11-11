@@ -6216,7 +6216,7 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261111-found1">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261111-notes1">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261111-rebar1"></script>
@@ -9620,6 +9620,8 @@ body.cbl-modal-open {
         }
       });
     }
+    var takeoffNotes = reviewNotesBox(takeoff.review_notes);
+    if (takeoffNotes) { if (deck) deck.append(takeoffNotes); else flowEl.appendChild(takeoffNotes); }
     var assumptions = takeoff.assumptions || {};
     appendLeft('<p class="qd-sub" style="margin:0">가정: 슬래브 두께는 슬래브 배근도·일람표에서 읽고, 못 읽은 곳만 ' +
       esc(String(assumptions.slab_thickness || "")) + 'm · 일람표에 춤이 없는 보 ' + esc(String(assumptions.beam_depth_default || "")) + 'm · 외벽 개구부 높이 ' +
@@ -9634,6 +9636,22 @@ body.cbl-modal-open {
   //  3D는 고른 층만 가는 선으로 강종별 색(SD400 초록·SD500 주황·SD600 빨강)으로 그린다.
   // ─────────────────────────────────────────────
   var REBAR_KINDS = [["foundation", "기초"], ["wall", "벽"], ["opening", "개구부·단부 보강"], ["column", "기둥"], ["beam", "보"], ["slab", "슬래브"], ["stair", "계단"]];
+
+  // what the tool learned across projects for this step (drawings leaving things out, assumptions, to come)
+  function reviewNotesBox(notes) {
+    if (!notes || !notes.length) return null;
+    var box = document.createElement("details");
+    box.className = "qd-review";
+    box.setAttribute("data-qd-keep", "");
+    var assumed = notes.filter(function (n) { return n.status === "assumed"; }).length;
+    var planned = notes.filter(function (n) { return n.status === "planned"; }).length;
+    box.innerHTML = '<summary>검토 사항 ' + notes.length + '개 — 가정·확인 필요 ' + assumed + ' · 추가 예정 ' + planned + '</summary><ul>' +
+      notes.map(function (n) {
+        return '<li><b>' + esc(n.topic) + '</b><i class="is-' + esc(n.status) + '">' + esc(n.status_label) + '</i>' +
+          '<span>' + esc(n.seen) + '</span><span class="qd-review-how">→ ' + esc(n.handling) + '</span></li>';
+      }).join("") + '</ul>';
+    return box;
+  }
 
   function rebarTon(kg) {
     var n = Number(kg) || 0;
@@ -9742,7 +9760,41 @@ body.cbl-modal-open {
     });
     render();
     sum.innerHTML = rebarBarTable(rebar);
-    [bar, table, sum].forEach(function (el) { if (deck) deck.append(el); else flowEl.appendChild(el); });
+    // items the drawings do not show, added from standard details: each can be left out
+    var extras = document.createElement("div");
+    extras.className = "qd-extras";
+    extras.setAttribute("data-qd-keep", "");
+    function drawExtras() {
+      extras.innerHTML = '<b>도면에 없는 추가 항목</b>' + Object.keys(rebar.extras || {}).map(function (key) {
+        var item = rebar.extras[key];
+        return '<label><input type="checkbox" data-extra="' + esc(key) + '"' + (item.on ? ' checked' : '') + '> ' + esc(item.label) + '</label>';
+      }).join("") + '<span class="qd-ft-status"></span>';
+    }
+    drawExtras();
+    extras.addEventListener("change", async function () {
+      var chosen = {};
+      extras.querySelectorAll("[data-extra]").forEach(function (box) { chosen[box.getAttribute("data-extra")] = box.checked; });
+      var status = extras.querySelector(".qd-ft-status");
+      status.textContent = "다시 계산하는 중…";
+      try {
+        var again = await fetch("/api/quantity/floor-rebar/", {
+          method: "POST", headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
+          body: JSON.stringify({ floor_job_id: job.id, member_links: links, general_spec: spec, foundations: state.floorFoundations || undefined, extras: chosen })
+        });
+        var fresh = await again.json();
+        if (!again.ok || !fresh.rebar) throw new Error((fresh && fresh.error) || ("HTTP " + again.status));
+        Object.keys(fresh.rebar).forEach(function (k) { rebar[k] = fresh.rebar[k]; });
+        buildings = rebar.buildings || [];
+        render();
+        sum.innerHTML = rebarBarTable(rebar);
+        drawExtras();
+        extras.querySelector(".qd-ft-status").textContent = "반영했어요.";
+      } catch (e) {
+        status.textContent = "다시 계산하지 못했어요: " + (e && e.message ? e.message : e);
+      }
+    });
+    var rebarNotes = reviewNotesBox(rebar.review_notes);
+    [bar, table, sum, extras].concat(rebarNotes ? [rebarNotes] : []).forEach(function (el) { if (deck) deck.append(el); else flowEl.appendChild(el); });
     appendLeft('<p class="qd-sub" style="margin:0">전체 ' + esc(rebarTon(rebar.net_kg)) + 't (할증 ' + esc(String(Math.round(((rebar.loss_factor || 1) - 1) * 100))) +
       '% 포함 ' + esc(rebarTon(rebar.with_loss_kg)) + 't). 이음·정착은 구조일반사항 표를 읽었으면 그 값, 아니면 KDS 공식 추정이에요. ' +
       '아직 빠진 항목: ' + esc((rebar.not_included || []).join(", ")) + '. 행에 마우스를 올리면 근거가 보여요. 엑셀에는 "층별 철근(N층 기준)" 시트로 담겨요.</p>');
