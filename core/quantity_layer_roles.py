@@ -180,22 +180,34 @@ def _coincidence(segments, wall_segments, tolerance=40.0):
     return on / total if total else 0.0
 
 
-def assign_roles(features, segments_by_layer=None, known=None):
-    """{layer: {"role": role or None, "reason": text, "by": "name"|"geometry"|"both"|"profile"}}.
+def _fits(role, f):
+    """Does a layer's geometry allow a role learned from other drawings?"""
+    if role in ("wall", "wall_below", "wall_above", "beam"):
+        return f["pair"] >= 0.3
+    if role == "column":
+        return f["closed"] >= 1 or f["pair"] >= 0.3
+    return True
 
-    ``known`` maps layer names to roles confirmed before (a saved office profile); they win."""
+
+def assign_roles(features, segments_by_layer=None, known=None, learned=None, hints=None):
+    """{layer: {"role": role or None, "reason": text, "by": "name"|"geometry"|"both"|"person"|"learned"}}.
+
+    ``known``: this job's own answers {layer name: role} — they win. ``learned``: names that enough
+    other jobs agree on — used when the geometry allows them. ``hints``: {layer: role} the words
+    of a name point to (from every job's answers) — a name hint like the built-in word rules."""
     roles = {}
     for layer, f in features.items():
         name = base_name(layer)
-        if known and layer in known:
-            roles[layer] = {"role": known[layer], "reason": "저장된 도면 프로필", "by": "profile"}
+        if known and (layer in known or name in known):
+            roles[layer] = {"role": known[layer] if layer in known else known[name], "reason": "이 작업에서 고친 대로", "by": "person"}
             continue
-        if known and name in known:
-            roles[layer] = {"role": known[name], "reason": "저장된 도면 프로필", "by": "profile"}
+        if learned and name in learned and _fits(learned[name], f):
+            roles[layer] = {"role": learned[name], "reason": "다른 도면들에서 확인된 이름", "by": "learned"}
             continue
+        hint = (hints or {}).get(layer)
         role, reason, by = None, "", "geometry"
         paired, width, ladder = f["pair"], f["width"] or 0, f["ladder"]
-        named_wall = bool(_WALL.search(name) or _COLUMN.search(name))
+        named_wall = bool(_WALL.search(name) or _COLUMN.search(name)) or hint in ("wall", "column")
         # many equally spaced lines are treads or hatching, unless the name says wall (cores are dense)
         wall_like = paired >= 0.5 and 100 <= width <= 1000 and (named_wall or ladder < 0.75)
         if from_sheet(layer):
@@ -215,11 +227,11 @@ def assign_roles(features, segments_by_layer=None, known=None):
         elif f["linetype"] == "dashed":
             if paired < 0.4:
                 role, reason = None, "점선이지만 짝선이 아님"
-            elif _ABOVE.search(name):
+            elif _ABOVE.search(name) or hint == "wall_above":
                 role, reason, by = "wall_above", "점선 짝선 + 이름이 위층", "both"
-            elif _BEAM.search(name):
+            elif _BEAM.search(name) or hint == "beam":
                 role, reason, by = "beam", "점선 짝선 + 이름이 보", "both"
-            elif _BELOW.search(name) and (_WALL.search(name) or wall_like):
+            elif (_BELOW.search(name) or hint == "wall_below") and (_WALL.search(name) or wall_like):
                 role, reason, by = "wall_below", "점선 짝선 + 이름이 아래층 벽", "both"
             else:
                 on_walls = (segments_by_layer or {}).get("_coincidence", {}).get(layer, 0.0)
@@ -231,12 +243,13 @@ def assign_roles(features, segments_by_layer=None, known=None):
                     role, reason = None, "점선 짝선이지만 폭이 보·벽 범위 밖"
         else:
             # mostly closed outlines are columns (a rectangle's sides also pair up like a wall)
+            named_column = bool(_COLUMN.search(name)) or hint == "column"
             column_like = f["closed"] >= 3 and (f["closed"] >= 0.6 * f["count"]
-                                                 or (_COLUMN.search(name) and f["closed"] >= 0.35 * f["count"]))
+                                                 or (named_column and f["closed"] >= 0.35 * f["count"]))
             if column_like:
                 role, reason, by = "column", f"닫힌 사각형 {f['closed']}개" + (" + 이름이 기둥" if _COLUMN.search(name) else ""), \
                     ("both" if _COLUMN.search(name) else "geometry")
-            elif _BEAM.search(name) and paired >= 0.5 and not _WALL.search(name):
+            elif (_BEAM.search(name) or hint == "beam") and paired >= 0.5 and not _WALL.search(name):
                 role, reason, by = "beam", "실선 짝선 + 이름이 보", "both"
             elif wall_like and width >= 120:
                 role, reason, by = "wall", f"실선 짝선 {paired:.0%}, 두께 {width}mm" + (" + 이름이 벽" if named_wall else ""), \
@@ -249,10 +262,10 @@ def assign_roles(features, segments_by_layer=None, known=None):
     return roles
 
 
-def judge(items, known=None):
+def judge(items, known=None, learned=None, hints=None):
     """Roles for the layers of one drawing's structural frames. items: [(layer, linetype, points mm)]."""
     features = layer_features(items)
-    first = assign_roles(features, known=known)
+    first = assign_roles(features, known=known, learned=learned, hints=hints)
     walls = {layer for layer, r in first.items() if r["role"] == "wall"}
     by_layer = defaultdict(list)
     for layer, _lt, points in items:
@@ -260,7 +273,7 @@ def judge(items, known=None):
     wall_segments = _segments([p for layer in walls for p in by_layer[layer]])
     coincidence = {layer: _coincidence(_segments(by_layer[layer]), wall_segments)
                    for layer, f in features.items() if f["linetype"] == "dashed" and f["pair"] >= 0.4}
-    roles = assign_roles(features, {"_coincidence": coincidence}, known=known)
+    roles = assign_roles(features, {"_coincidence": coincidence}, known=known, learned=learned, hints=hints)
     for layer, info in roles.items():
         info.update(features[layer])
     return roles

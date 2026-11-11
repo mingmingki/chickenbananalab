@@ -370,3 +370,11 @@ class FoundationTests(SimpleTestCase):
         rebar = {r["key"]: r for r in fr.build_rebar(FloorRuleTests().model(), links)["buildings"][0]["rows"]}["FT"]
         self.assertIn("D13|SD400", rebar["by_bar"])
         self.assertTrue(any("고임철근" in n for n in rebar["notes"]))
+
+
+class LearnedFoundationTests(SimpleTestCase):
+    def test_what_people_entered_elsewhere_replaces_the_fixed_assumption_but_still_asks(self):
+        model = FloorRuleTests().model()
+        row = {r["key"]: r for r in ft.build_takeoff(model, learned={"foundation:tower": 1.4})["buildings"][0]["rows"]}["FT"]
+        self.assertEqual((row["foundation"]["source"], row["foundation"]["thickness"]), ("learned", 1.4))
+        self.assertTrue(row["approximate"])  # still to be confirmed for this drawing

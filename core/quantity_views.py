@@ -1767,10 +1767,12 @@ def _keep_floor_inputs(job_id, manifest, plans, level_names):
 def _render_floor_views(job_id, work, manifest):
     """Run the colored plans + 3D model + layer reading in a low-priority process; store the result."""
     try:
-        manifest["profiles"] = _brain().profiles()
+        brain = _brain()
+        manifest["knowledge"] = brain.knowledge(exclude_job=job_id)  # what every other job taught
+        manifest["corrections"] = brain.corrections(job_id)         # this job's own answers
     except Exception as exc:
         logger.warning("quantity_brain_read_failed error=%s", str(exc)[:200])
-        manifest["profiles"] = []
+        manifest["knowledge"], manifest["corrections"] = {}, {}
     _progress_set(job_id, "render", 1, 2, "층별로 색을 칠하고 있어요")
     _wait_for_free_memory()
     manifest_path = os.path.join(work, "manifest.json")
@@ -1937,22 +1939,20 @@ def api_quantity_drawing_profile(request):
     for name, role in list(layers.items())[:DRAWING_PROFILE_MAX_LAYERS]:
         if isinstance(name, str) and name.strip():
             clean[roles.base_name(name)[:200]] = role if role in roles.ROLES else None
-    profile_id = body.get("profile_id") if isinstance(body.get("profile_id"), str) else None
     try:
-        profile = _brain().learn(clean, owner=request.user.pk, job=floor_job, profile_id=profile_id,
-                                 kind="correct" if body.get("corrected") else "confirm")
+        kept = _brain().learn(clean, owner=request.user.pk, job=floor_job, kind="correct" if body.get("corrected") else "confirm")
     except Exception:
         logger.exception("quantity_brain_learn_failed job=%s", floor_job[:16])
         return JsonResponse({"error": "배운 내용을 저장하지 못했어요."}, status=500)
     rerun = bool(body.get("rerun"))
     if rerun:
         if not os.path.exists(os.path.join(_floor_cache_dir(floor_job), "manifest.json")):
-            return JsonResponse({"ok": True, "profile_id": profile, "rerun": False,
+            return JsonResponse({"ok": True, "learned": kept, "rerun": False,
                                  "error": "보관된 도면이 없어(하루 지남) 다시 읽으려면 업로드를 다시 해 주세요."})
         _quantity_state().pop("result", floor_job)
         _progress_set(floor_job, "queued", 0, 1, "고친 내용으로 다시 읽는 중")
         threading.Thread(target=_rerun_floor_views_job, args=(floor_job,), daemon=True).start()
-    return JsonResponse({"ok": True, "profile_id": profile, "rerun": rerun})
+    return JsonResponse({"ok": True, "learned": kept, "rerun": rerun})
 
 
 FLOOR_TAKEOFF_MAX_BODY = 8 * 1024 * 1024
@@ -1991,7 +1991,8 @@ def api_quantity_floor_rebar(request):
     edits = _floor_edits(floor_job)
     foundations = _floor_foundations(floor_job, body)
     try:
-        takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations)
+        takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations,
+                                                       learned=_learned_values(floor_job))
         rebar = quantity_floor_rebar.build_rebar(model, links, takeoff, general_spec=spec, edits=edits)
     except Exception:
         logger.exception("quantity_floor_rebar_failed job=%s", floor_job[:16])
@@ -2001,6 +2002,27 @@ def api_quantity_floor_rebar(request):
 
 def _floor_edits(floor_job):
     return (_quantity_state().get("floor_edits", floor_job) or {}).get("edits") or []
+
+
+def _learn_foundations(floor_job, foundations, owner):
+    """Foundation thickness people entered, kept for every drawing (tower and parking deck apart)."""
+    model = (((_result_get(floor_job) or {}).get("results") or {}).get("floor_views") or {}).get("model") or {}
+    kinds = {b.get("name"): ("parking" if b.get("name") == "지하주차장" or not any((l.get("key") or "").isdigit() for l in b.get("levels") or [])
+                             else "tower") for b in model.get("buildings") or []}
+    try:
+        brain = _brain()
+        for name, thickness in foundations.items():
+            if name in kinds:
+                brain.learn_value(f"foundation:{kinds[name]}", thickness, owner=owner, job=floor_job)
+    except Exception:
+        logger.exception("quantity_brain_value_failed job=%s", floor_job[:16])
+
+
+def _learned_values(floor_job):
+    try:
+        return _brain().knowledge(exclude_job=floor_job).get("values") or {}
+    except Exception:
+        return {}
 
 
 def _floor_foundations(floor_job, body=None):
@@ -2047,6 +2069,8 @@ def api_quantity_floor_edits(request):
         return JsonResponse({"error": "고친 내용이 없어요."}, status=400)
     edits = quantity_edits.clean(body["edits"]) if "edits" in body else (kept.get("edits") or [])
     foundations = _floor_foundations(floor_job, body) if "foundations" in body else (kept.get("foundations") or {})
+    if "foundations" in body and foundations:
+        _learn_foundations(floor_job, foundations, request.user.pk)
     _quantity_state().put("floor_edits", floor_job, {"edits": edits, "foundations": foundations, "owner": str(request.user.pk)},
                           ttl=_RESULT_TTL_SEC)
     return JsonResponse({"ok": True, "edits": edits, "foundations": foundations})
@@ -2082,7 +2106,8 @@ def api_quantity_floor_takeoff(request):
     edits = _floor_edits(floor_job)
     foundations = _floor_foundations(floor_job, body)
     try:
-        takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations)
+        takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations,
+                                                       learned=_learned_values(floor_job))
     except Exception:
         logger.exception("quantity_floor_takeoff_failed job=%s", floor_job[:16])
         return JsonResponse({"error": "층별 수량을 계산하지 못했어요."}, status=500)

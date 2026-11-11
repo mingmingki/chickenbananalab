@@ -770,7 +770,7 @@ def footings(links, building):
     return out
 
 
-def _foundation_row(building, plans, levels, host_name, host, match, links, given):
+def _foundation_row(building, plans, levels, host_name, host, match, links, given, learned=None):
     """The foundation storey: the lowest floor's outline × the mat thickness (the drawing's, a
     person's, else an assumption kept out of the totals)."""
     if not levels:
@@ -801,7 +801,9 @@ def _foundation_row(building, plans, levels, host_name, host, match, links, give
         return None
     drawn, _rebar = foundation_specs(links, name)
     kind = "parking" if name == "지하주차장" or not any((l.get("key") or "").isdigit() for l in levels) else "tower"
-    thickness, source = (given, "person") if given else ((drawn, "drawing") if drawn else (FOUNDATION_DEFAULT_M[kind], "assumed"))
+    usual = (learned or {}).get(f"foundation:{kind}")  # the median of what people entered on other jobs
+    thickness, source = (given, "person") if given else ((drawn, "drawing") if drawn else
+                                                          (usual, "learned") if usual else (FOUNDATION_DEFAULT_M[kind], "assumed"))
     perimeter = float((plan.get("measure") or {}).get("outline") or 0) or 4 * math.sqrt(area)
     concrete = dict.fromkeys(CONCRETE_KEYS, 0.0)
     concrete["foundation"] = area * thickness
@@ -817,18 +819,19 @@ def _foundation_row(building, plans, levels, host_name, host, match, links, give
     if feet:
         notes.append("독립기초 " + ", ".join(f"{m} {c}개({lx:.1f}×{ly:.1f}×{d:.2f}m)" for m, c, lx, ly, d, _v in feet) + " 포함")
     notes.insert(0, f"기초 {area:.0f}㎡ × 두께 {thickness:.2f}m" + {"person": " (입력값)", "drawing": " (기초 평면 표기)",
+                                                                  "learned": " (다른 현장 입력값의 중앙값 — 확인해 주세요)",
                                                                   "assumed": " (가정값 — 두께를 확인해 주세요)"}[source])
     concrete["total"] = sum(concrete[k] for k in CONCRETE_KEYS)
     form["total"] = sum(form[k] for k in FORM_KEYS)
     return {"key": "FT", "label": "기초", "height": round(thickness, 3), "sheets": {"vertical": None, "horizontal": None},
             "concrete": _round(concrete, 2), "formwork": _round(form, 2),
             "measures": {"vertical_area": 0.0, "faces": 0.0, "outside_faces": 0.0, "slab_area": round(area, 1)},
-            "approximate": source == "assumed", "notes": notes, "fixed": None,
+            "approximate": source in ("assumed", "learned"), "notes": notes, "fixed": None,
             "foundation": {"area": round(area, 1), "thickness": thickness, "source": source, "perimeter": round(perimeter, 1),
                            "footings": [{"mark": m, "count": c, "x": lx, "y": ly, "depth": d} for m, c, lx, ly, d, _v in feet]}}
 
 
-def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, foundations=None):
+def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, foundations=None, learned=None):
     """Rows per building and storey: walls/columns of the storey + slab/beams on top of it.
     ``edits``: people's fixes (quantity_edits.clean), added to the storeys using their plans."""
     from . import quantity_edits
@@ -850,7 +853,7 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
             given = None
         if given is not None and not 0.1 <= given <= 5.0:
             given = None
-        ft_row = _foundation_row(building, plans, levels, host_name, host, match, links, given)
+        ft_row = _foundation_row(building, plans, levels, host_name, host, match, links, given, learned)
         if ft_row:
             rows.append(ft_row)
         for index, level in enumerate(levels):

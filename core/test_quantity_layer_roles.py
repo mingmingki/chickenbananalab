@@ -96,10 +96,10 @@ class LayerRoleTests(SimpleTestCase):
         self.assertEqual(judged["0"]["role"], "wall")
         self.assertEqual(judged["0"]["by"], "geometry")
 
-    def test_a_saved_profile_wins(self):
+    def test_a_persons_answer_in_this_job_wins(self):
         judged = lr.judge(self.items(), known={"X1": "wall_above"})
         self.assertEqual(judged["X1"]["role"], "wall_above")
-        self.assertEqual(judged["X1"]["by"], "profile")
+        self.assertEqual(judged["X1"]["by"], "person")
 
     def test_xref_prefixes_and_linetypes(self):
         self.assertEqual(lr.base_name("XR-구조101동 (오정동)$0$A-하부벽체"), "A-하부벽체")

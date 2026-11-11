@@ -1,4 +1,4 @@
-"""The quantity tool learns how offices draw: profiles from people's answers, used on the next drawing."""
+"""The quantity tool learns from people's answers in one store for every drawing (no office profiles)."""
 import json
 import os
 import tempfile
@@ -9,7 +9,8 @@ from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from core import quantity_views as views
-from core.quantity_brain import Brain, match
+from core import quantity_brain as brain_module
+from core.quantity_brain import Brain
 
 
 class BrainTests(SimpleTestCase):
@@ -18,36 +19,54 @@ class BrainTests(SimpleTestCase):
         self.addCleanup(tmp.cleanup)
         self.brain = Brain(os.path.join(tmp.name, "brain.sqlite3"))
 
-    def test_answers_build_a_profile_that_the_next_drawing_finds(self):
-        first = self.brain.learn({"A-CONC": "wall", "A-하부벽체": "wall_below", "%%BEAM": "beam", "A-PLANAR LINE": None},
-                                 owner=1, job="fv-1", kind="correct")
-        again = self.brain.learn({"A-CONC": "wall", "A-콘크리트": "wall", "%%BEAM": "beam", "A-하부벽체": "wall_below"},
-                                 owner=1, job="fv-2")
-        self.assertEqual(first, again)  # the same office: merged, not a second profile
-        profile = self.brain.profile(first)
-        self.assertEqual(profile["uses"], 2)
-        self.assertIsNone(profile["layers"]["A-PLANAR LINE"])
-        self.assertEqual(profile["layers"]["A-콘크리트"], "wall")
-        found = match(self.brain.profiles(), {"A-CONC", "A-하부벽체", "%%BEAM", "XC", "0"})
-        self.assertEqual(found["id"], first)
-        self.assertIsNone(match(self.brain.profiles(), {"0_STR_CONC", "0_STR_BEAM", "CEN"}))
-        self.assertEqual([e["kind"] for e in self.brain.events(first)], ["confirm", "correct"])
+    def test_one_store_for_every_drawing_names_need_two_jobs_to_agree(self):
+        self.brain.learn({"A-CONC": "wall", "%%BEAM": "beam", "A-PLANAR LINE": None}, owner=1, job="fv-1", kind="correct")
+        once = brain_module.trusted_names(self.brain.knowledge(), {"A-CONC", "%%BEAM", "A-PLANAR LINE"})
+        self.assertEqual(once, {})  # one job is not enough for other drawings
+        self.brain.learn({"A-CONC": "wall", "A-PLANAR LINE": None}, owner=2, job="fv-2")
+        known = self.brain.knowledge()
+        self.assertEqual(brain_module.trusted_names(known, {"A-CONC", "A-PLANAR LINE", "%%BEAM"}),
+                         {"A-CONC": "wall", "A-PLANAR LINE": None})
+        # a job's latest answer per name counts once; a split vote is not trusted
+        self.brain.learn({"A-CONC": "beam"}, owner=3, job="fv-3")
+        self.assertEqual(brain_module.trusted_names(self.brain.knowledge(), {"A-CONC"}), {})
 
-    def test_unknown_roles_are_kept_as_not_a_member(self):
-        pid = self.brain.learn({"X": "roof-ish", "Y": "wall", "Z": "beam", "W": "column"})
-        self.assertIsNone(self.brain.profile(pid)["layers"]["X"])
+    def test_words_of_names_are_hints_from_every_job(self):
+        for job, name in (("j1", "0_STR_CONC"), ("j2", "S-CONC-WALL"), ("j3", "CONC")):
+            self.brain.learn({name: "wall"}, job=job)
+        self.assertEqual(brain_module.word_hint(self.brain.knowledge(), "NEW_CONC_X"), "wall")
+        self.assertIsNone(brain_module.word_hint(self.brain.knowledge(), "SOMETHING"))
+
+    def test_a_jobs_own_answers_apply_to_it_and_values_give_a_median(self):
+        self.brain.learn({"X1": "beam"}, job="fv-1")
+        self.brain.learn({"X1": "wall_above"}, job="fv-1")
+        self.assertEqual(self.brain.corrections("fv-1"), {"X1": "wall_above"})  # the latest answer
+        self.assertEqual(self.brain.knowledge(exclude_job="fv-1")["names"], {})
+        for job, value in (("a", 1.0), ("b", 1.2), ("c", 1.5)):
+            self.brain.learn_value("foundation:tower", value, job=job)
+        self.assertEqual(self.brain.knowledge()["values"]["foundation:tower"], 1.2)
 
 
-class ProfileInFloorJobTests(SimpleTestCase):
-    def test_a_matching_profile_overrides_the_geometry(self):
-        from core import quantity_layer_roles as lr
+class LearnedRolesInReadingTests(SimpleTestCase):
+    def items(self):
         from core.test_quantity_layer_roles import LayerRoleTests
-        items = LayerRoleTests().items()
-        profiles = [{"id": "p1", "label": "", "layers": {"X1": "wall_above", "A-콘크리트": "wall", "6A": "wall_below"}}]
-        known = match(profiles, {layer for layer, _lt, _pts in items})["layers"]
-        roles = lr.judge(items, known=known)
-        self.assertEqual(roles["X1"]["role"], "wall_above")
-        self.assertEqual(roles["X1"]["by"], "profile")
+        return LayerRoleTests().items()
+
+    def test_a_jobs_own_answer_wins(self):
+        from core import quantity_layer_roles as lr
+        roles = lr.judge(self.items(), known={"X1": "wall_above"})
+        self.assertEqual((roles["X1"]["role"], roles["X1"]["by"]), ("wall_above", "person"))
+
+    def test_names_learned_elsewhere_are_used_only_where_the_geometry_allows(self):
+        from core import quantity_layer_roles as lr
+        roles = lr.judge(self.items(), learned={"X1": "wall_above", "CEN": "wall"})
+        self.assertEqual((roles["X1"]["role"], roles["X1"]["by"]), ("wall_above", "learned"))
+        self.assertIsNone(roles["CEN"]["role"])  # a single centre line has no wall faces
+
+    def test_word_hints_name_a_layer_the_built_in_rules_do_not_know(self):
+        from core import quantity_layer_roles as lr
+        items = [("QQ", "dashed", pts) for _l, lt, pts in self.items() if _l == "X1"]
+        self.assertEqual(lr.judge(items, hints={"QQ": "beam"})["QQ"]["role"], "beam")
 
 
 class _NoThread:
@@ -86,9 +105,9 @@ class DrawingProfileApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertFalse(body["rerun"])
-        profile = views._brain().profile(body["profile_id"])
-        self.assertEqual(profile["layers"], {"A-CONC": "wall", "A-PLANAR LINE": None})
-        self.assertEqual(views._brain().events(body["profile_id"])[0]["kind"], "correct")
+        self.assertEqual(body["learned"], 2)
+        self.assertEqual(views._brain().corrections("fv-1"), {"A-CONC": "wall", "A-PLANAR LINE": None})
+        self.assertEqual(views._brain().events()[0]["kind"], "correct")
 
     def test_only_the_owner_may_teach(self):
         self.assertEqual(self.post({"floor_job_id": "fv-2", "layers": {"A": "wall"}}).status_code, 404)
@@ -107,13 +126,13 @@ class DrawingProfileApiTests(TestCase):
         self.assertEqual(_NoThread.started[-1], ("_rerun_floor_views_job", ("fv-1",)))
         self.assertIsNone(views._result_get("fv-1"))  # polling shows it running again
 
-    def test_kept_drawings_are_read_again_with_the_profiles(self):
+    def test_kept_drawings_are_read_again_with_what_was_learned(self):
         work = self.dir / "work"
         work.mkdir()
         dxf = work / "000.dwg.dxf"
         dxf.write_text("0\nEOF\n")
         views._keep_floor_inputs("fv-1", [{"name": "S-1 평면도.dwg", "dxf": str(dxf), "raw": False}], ["S-1 평면도.dwg"], [])
-        views._brain().learn({"A-CONC": "wall", "B": "beam", "C": "column"}, owner=self.staff.pk)
+        views._brain().learn({"A-CONC": "wall", "B": "beam", "C": "column"}, owner=self.staff.pk, job="fv-1")
         seen = {}
 
         def fake_render(job_id, folder, manifest):

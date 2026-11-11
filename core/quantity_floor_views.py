@@ -914,12 +914,12 @@ def _describe(entity, doc, layer):
     return (name, roles.linetype_class(roles.entity_linetype(entity, doc)))
 
 
-def structural_members(doc, xrefs, frames, profiles=None):
+def structural_members(doc, xrefs, frames, knowledge=None, corrections=None):
     """Member lines of a drawing's structural frames by layer role (geometry first, names as a hint).
 
     Returns (members for _plan_model, role report). Falls back to the layer-name rules when no
-    layer reads as a cut wall. A saved office profile (``profiles``, from people's corrections)
-    whose layer names match this drawing's gives its roles first."""
+    layer reads as a cut wall. ``corrections``: this job's own answers (they win); ``knowledge``:
+    what every other job's answers taught (quantity_brain), used where the geometry allows."""
     from ezdxf.math import Matrix44
     from . import quantity_layer_roles as roles
     limit = None if any(x1 - x0 > 1e11 for x0, y0, x1, y1 in frames) else (
@@ -933,10 +933,12 @@ def structural_members(doc, xrefs, frames, profiles=None):
     inside = [(key[0], key[1], points) for key, ax, ay, bx, by, points in raw if in_frames(ax, ay, bx, by)]
     del raw
     from . import quantity_brain as brain
-    names = {roles.base_name(layer) for layer, _lt, _points in inside}
-    profile = brain.match(profiles, names) if profiles else None
-    known = {name: role for name, role in (profile or {}).get("layers", {}).items() if name in names} if profile else None
-    judged = roles.judge(inside, known=known)
+    layers = {layer for layer, _lt, _points in inside}
+    names = {roles.base_name(layer) for layer in layers}
+    known = {name: role for name, role in (corrections or {}).items() if name in names} or None
+    learned = brain.trusted_names(knowledge, names - set(known or {})) or None
+    hints = {layer: hint for layer in layers if (hint := brain.word_hint(knowledge, roles.base_name(layer)))} or None
+    judged = roles.judge(inside, known=known, learned=learned, hints=hints)
     del inside
     category_of = {layer: ROLE_CATEGORY[info["role"]] for layer, info in judged.items() if info["role"] in ROLE_CATEGORY}
     method = "geometry"
@@ -950,9 +952,10 @@ def structural_members(doc, xrefs, frames, profiles=None):
                "linetype": info["linetype"], "pair": info["pair"], "width": info["width"]}
               for layer, info in sorted(judged.items(), key=lambda kv: -kv[1]["m"])
               if info["role"] or info["m"] >= 50][:40]
-    used = {"id": profile["id"], "label": profile.get("label") or "", "shared": len(known or {})} if profile else None
+    used = {"person": len(known or {}), "shared": sum(1 for info in judged.values() if info["by"] == "learned"),
+            "words": len(hints or {})} if (known or learned or hints) else None
     member_roles = {layer: info["role"] for layer, info in judged.items() if info["role"]} if category_of is not None else {}
-    return members, {"method": method, "layers": report, "profile": used}, member_roles
+    return members, {"method": method, "layers": report, "learned": used}, member_roles
 
 
 def _xref_names(doc):
@@ -1046,7 +1049,7 @@ def main(manifest_path, out_path):
         members, member_roles = [], {}
         if structural:
             members, role_report, member_roles = structural_members(
-                doc, xrefs, [row["frame_bbox"] for row in structural], manifest.get("profiles"))
+                doc, xrefs, [row["frame_bbox"] for row in structural], manifest.get("knowledge"), manifest.get("corrections"))
             layer_roles[name] = role_report
         views.extend(_plan_views(name, doc, rows, xrefs, member_roles))  # also settles one-sheet frames
         for row in structural:
