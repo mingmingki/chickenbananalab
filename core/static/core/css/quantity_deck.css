@@ -617,3 +617,10 @@
 .qpe-learn[hidden] { display: none; }
 .qpe-learn button { padding: 4px 10px; border: 0; border-radius: 7px; background: #facc15; color: #422006; font: inherit; font-weight: 800; cursor: pointer; }
 .qpe-learn button + button { background: rgba(255, 255, 255, .12); color: #fde68a; }
+/* foundation thickness in the takeoff card */
+.qd-foundation { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 10px; border: 1px solid var(--qd-line); border-radius: 12px; font-size: 13px; }
+.qd-foundation label { display: inline-flex; align-items: center; gap: 6px; color: #fff; font-weight: 700; }
+.qd-foundation label.is-assumed { color: var(--qd-amber); }
+.qd-foundation input { width: 70px; min-height: 28px; padding: 0 6px; border: 1px solid rgba(255, 255, 255, .28); border-radius: 8px; background: rgba(10, 14, 48, .6); color: #fff; font: inherit; }
+.qd-foundation small { color: var(--qd-faint); font-weight: 600; }
+.qd-ft-status { color: var(--qd-soft); font-size: 12px; }

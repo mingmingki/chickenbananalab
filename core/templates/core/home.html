@@ -6216,7 +6216,7 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261111-rebar1">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261111-found1">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261111-rebar1"></script>
@@ -9497,7 +9497,7 @@ body.cbl-modal-open {
   //  2D 수량산출: "N층 = N층 벽·기둥 + N+1층 바닥 슬래브·보" 기준 층별 콘크리트·거푸집.
   //  층별 확인 작업의 CAD 실측과 AI 판독의 일람표 연결(member_links)로 서버가 계산한다(AI 호출 없음).
   // ─────────────────────────────────────────────
-  var TAKEOFF_CONCRETE = [["wall", "벽"], ["column", "기둥"], ["beam", "보"], ["slab", "슬래브"], ["stair", "계단"]];
+  var TAKEOFF_CONCRETE = [["foundation", "기초"], ["wall", "벽"], ["column", "기둥"], ["beam", "보"], ["slab", "슬래브"], ["stair", "계단"]];
   var TAKEOFF_FORMS = [["al_vertical", "AL 수직"], ["al_horizontal", "AL 수평"], ["gang", "갱폼"], ["euro", "유로폼"], ["plywood", "합판"], ["stair", "계단"]];
 
   function takeoffNumber(value) {
@@ -9542,7 +9542,7 @@ body.cbl-modal-open {
       var res = await fetch("/api/quantity/floor-takeoff/", {
         method: "POST",
         headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
-        body: JSON.stringify({ floor_job_id: job.id, member_links: links })
+        body: JSON.stringify({ floor_job_id: job.id, member_links: links, foundations: state.floorFoundations || undefined })
       });
       body = await res.json();
       if (!res.ok) body = { error: (body && body.error) || ("HTTP " + res.status) };
@@ -9578,6 +9578,48 @@ body.cbl-modal-open {
     });
     render();
     if (deck) { deck.append(bar); deck.append(table); } else { flowEl.appendChild(bar); flowEl.appendChild(table); }
+    // the foundation: its thickness from the drawing, or confirmed here (until then it stays out of the totals)
+    var feet = buildings.map(function (b) { return { name: b.name, info: ((b.rows || [])[0] || {}).foundation }; })
+      .filter(function (f) { return f.info; });
+    if (feet.length) {
+      var ask = document.createElement("div");
+      ask.className = "qd-foundation";
+      ask.setAttribute("data-qd-keep", "");
+      ask.innerHTML = '<b>기초 두께</b>' + feet.map(function (f) {
+        var label = { person: "입력값", drawing: "도면 표기", assumed: "가정 — 확인해 주세요" }[f.info.source] || "";
+        return '<label' + (f.info.source === "assumed" ? ' class="is-assumed"' : '') + '>' + esc(f.name) + ' <input type="number" step="0.05" min="0.1" max="5" data-ft="' +
+          esc(f.name) + '" value="' + esc(String(f.info.thickness)) + '"> m <small>' + esc(label) + ' · ' + esc(String(Math.round(f.info.area))) + '㎡</small></label>';
+      }).join("") + '<button type="button" class="qd-btn" data-ft-apply>두께 반영해 다시 계산</button><span class="qd-ft-status"></span>';
+      if (deck) deck.append(ask); else flowEl.appendChild(ask);
+      ask.querySelector("[data-ft-apply]").addEventListener("click", async function () {
+        var given = {};
+        ask.querySelectorAll("[data-ft]").forEach(function (input) {
+          var v = Number(input.value);
+          if (v >= 0.1 && v <= 5) given[input.getAttribute("data-ft")] = v;
+        });
+        state.floorFoundations = given;
+        var status = ask.querySelector(".qd-ft-status");
+        status.textContent = "다시 계산하는 중…";
+        try {
+          await fetch("/api/quantity/floor-edits/", {
+            method: "POST", headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
+            body: JSON.stringify({ floor_job_id: job.id, foundations: given })
+          });
+          var again = await fetch("/api/quantity/floor-takeoff/", {
+            method: "POST", headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
+            body: JSON.stringify({ floor_job_id: job.id, member_links: links, foundations: given })
+          });
+          var fresh = await again.json();
+          if (!again.ok || !fresh.takeoff) throw new Error((fresh && fresh.error) || ("HTTP " + again.status));
+          takeoff.buildings = fresh.takeoff.buildings;
+          buildings = takeoff.buildings || [];
+          render();
+          status.textContent = "반영했어요.";
+        } catch (e) {
+          status.textContent = "다시 계산하지 못했어요: " + (e && e.message ? e.message : e);
+        }
+      });
+    }
     var assumptions = takeoff.assumptions || {};
     appendLeft('<p class="qd-sub" style="margin:0">가정: 슬래브 두께는 슬래브 배근도·일람표에서 읽고, 못 읽은 곳만 ' +
       esc(String(assumptions.slab_thickness || "")) + 'm · 일람표에 춤이 없는 보 ' + esc(String(assumptions.beam_depth_default || "")) + 'm · 외벽 개구부 높이 ' +
@@ -9591,7 +9633,7 @@ body.cbl-modal-open {
   //  레미콘(콘크리트) 확정 → 철근: 층별 수량과 같은 규칙으로 일람표 배근을 CAD 길이·면적에 깔고,
   //  3D는 고른 층만 가는 선으로 강종별 색(SD400 초록·SD500 주황·SD600 빨강)으로 그린다.
   // ─────────────────────────────────────────────
-  var REBAR_KINDS = [["wall", "벽"], ["opening", "개구부·단부 보강"], ["column", "기둥"], ["beam", "보"], ["slab", "슬래브"]];
+  var REBAR_KINDS = [["foundation", "기초"], ["wall", "벽"], ["opening", "개구부·단부 보강"], ["column", "기둥"], ["beam", "보"], ["slab", "슬래브"], ["stair", "계단"]];
 
   function rebarTon(kg) {
     var n = Number(kg) || 0;
@@ -9648,7 +9690,7 @@ body.cbl-modal-open {
       var res = await fetch("/api/quantity/floor-rebar/", {
         method: "POST",
         headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
-        body: JSON.stringify({ floor_job_id: job.id, member_links: links, general_spec: spec })
+        body: JSON.stringify({ floor_job_id: job.id, member_links: links, general_spec: spec, foundations: state.floorFoundations || undefined })
       });
       body = await res.json();
       if (!res.ok) body = { error: (body && body.error) || ("HTTP " + res.status) };

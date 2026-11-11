@@ -25,13 +25,16 @@ from . import quantity_calc as qc
 from . import quantity_schedules as sch
 
 REBAR_VERSION = 1
-KINDS = ("wall", "opening", "column", "beam", "slab")
-KIND_LABELS = {"wall": "벽", "opening": "개구부·단부 보강", "column": "기둥", "beam": "보", "slab": "슬래브"}
+KINDS = ("foundation", "wall", "opening", "column", "beam", "slab", "stair")
+KIND_LABELS = {"foundation": "기초", "wall": "벽", "opening": "개구부·단부 보강", "column": "기둥", "beam": "보", "slab": "슬래브",
+               "stair": "계단"}
+STAIR_KG_PER_M2 = 35.0  # stair flights and landings per m² of stair plan (an assumption, said in the notes)
+FOUNDATION_BARS = "D16@300"  # top and bottom, each way, when the foundation plan gives none
 COVER_M = 0.04
 HOOK_M = 0.2               # two 135° hooks of a stirrup or hoop, roughly
 DOUBLE_LAYER_MIN_M = 0.18  # walls this thick get bars at both faces
 DEFAULTS = {
-    "wall": {"vertical_bar": "D10@200", "horizontal_bar": "D10@200"},
+    "wall": {"vertical_bar": "D10@300", "horizontal_bar": "D10@300"},  # the usual unmarked wall (W0)
     "slab": ["D10@200", "D10@200", "D10@200", "D10@200"],  # top and bottom, both ways
     "beam": {"top_bar": "3-D19", "bottom_bar": "3-D19", "stirrup": "D10@200"},
     "column": {"main_bar": "8-D19", "hoop_mid": "D10@200"},
@@ -234,6 +237,61 @@ def _openings(tally, measure, height, horizontal, thickness):
     return count
 
 
+# standard wall details, per straight wall piece (between corners, crossings and openings):
+# U- or C-bars closing both ends at the horizontal bar spacing (back = wall thickness, legs = one
+# anchorage each), and vertical bars at the ends; per opening (a gap between two pieces on one
+# line, or a window in an outer wall): 2 bars on each side and 2 above and below, at both wall
+# faces, running a lap length past it.
+END_VERTICAL_BARS = 6
+OPENING_HEIGHT_M = 2.1
+OPENING_LAP_M = 0.5
+OPENING_LAYERS = 2
+OPENING_MIN_M, OPENING_MAX_M = 0.5, 5.0
+
+
+def wall_pieces(walls):
+    """(pieces [(length m, thickness m)], openings [width m]) of a plan's wall face lines: faces
+    paired into straight pieces; a gap of 0.5–5 m between two pieces on one line is an opening."""
+    from . import quantity_geometry as geometry
+    segments = [(w[0] * 1000, w[1] * 1000, w[2] * 1000, w[3] * 1000) for w in walls or []]
+    if not segments:
+        return [], []
+    found = [p for p in geometry.pieces(segments, "walls") if 100 <= p["width"] <= 600 and p["t2"] - p["t1"] >= 150]
+    lines = defaultdict(list)
+    for p in found:
+        lines[(round(p["angle"]) % 180, round(p["offset"] / 60), round(p["width"] / 40))].append(p)
+    openings = []
+    for row in lines.values():
+        row.sort(key=lambda p: p["t1"])
+        for a, b in zip(row, row[1:]):
+            gap = (b["t1"] - a["t2"]) / 1000.0
+            if OPENING_MIN_M <= gap <= OPENING_MAX_M:
+                openings.append(gap)
+    return [((p["t2"] - p["t1"]) / 1000.0, p["width"] / 1000.0) for p in found], openings
+
+
+def _wall_details(tally, walls, height, vertical, horizontal, measure=None):
+    """Standard end and opening bars of one storey's walls; returns (pieces, openings) counted."""
+    pieces, openings = wall_pieces(walls)
+    windows = int((measure or {}).get("window_gap_count") or 0)
+    if windows:
+        width = float((measure or {}).get("window_gaps") or 0) / windows
+        openings = openings + [width] * windows
+    h, v = _spaced(horizontal), _spaced(vertical)
+    if h:
+        ends = 2 * tally.anchor(h[0], "전단벽", hook=False)
+        rows = qc._spacing_bar_count(height, h[1])
+        tally.add("opening", horizontal, h[0], sum(rows * (2 * t + 2 * ends) for _length, t in pieces))
+    if v:
+        tally.add("opening", vertical, v[0], len(pieces) * END_VERTICAL_BARS * (height + tally.lap(v[0], "전단벽")))
+    if openings:
+        dia = int(OPENING_BAR[1:])
+        bars = OPENING_BARS * 2 * OPENING_LAYERS  # two sides (or above and below) at both faces
+        tally.add("opening", OPENING_BAR, dia, sum(bars * (OPENING_HEIGHT_M + 2 * OPENING_LAP_M) + bars * (w + 2 * OPENING_LAP_M)
+                                                   for w in openings))
+    return len(pieces), len(openings)
+
+
 def _project_wall_rows(links):
     """Every wall schedule row weighted by the wall length drawn with its mark (on any plan)."""
     weighted = []
@@ -285,6 +343,9 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None):
     for building in (model or {}).get("buildings") or []:
         name, plans, levels = building.get("name"), building.get("plans") or [], building.get("levels") or []
         rows = []
+        ft_row = rows_by.get((name, "FT"))
+        if ft_row and ft_row.get("foundation"):
+            rows.append(_foundation_rebar(ft_row, links, name, general_spec, overall))
         for index, level in enumerate(levels):
             key = level.get("key") or ""
             row = rows_by.get((name, key))
@@ -316,19 +377,26 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None):
             noted = (_row_for_level(noted_rows, key) or {}).get("values") or {}
             noted_spec = ((noted.get("vertical_bar"), noted.get("horizontal_bar"), (sch.parse_mm(noted.get("thickness")) or 200) / 1000.0)
                           if noted.get("vertical_bar") and noted.get("horizontal_bar") else None)
-            project = noted_spec or _project_wall_spec(project_walls, key)
+            # walls drawn without a mark are the plain wall type: the drawing's noted default, else
+            # D10@300 each way (the marked rows belong to the special walls that carry the mark)
+            project = noted_spec
             fallback = project or (DEFAULTS["wall"]["vertical_bar"], DEFAULTS["wall"]["horizontal_bar"], 0.2)
-            vertical, horizontal, thickness = _most_used(used, fallback)
+            vertical, horizontal, thickness = fallback
             if rest_area > 0.05:
                 rest_length = rest_area / max(thickness, 0.1)
                 _wall(tally, {"vertical_bar": vertical, "horizontal_bar": horizontal}, rest_length, thickness, height, top_storey)
-                source = ("이 층에 가장 많은 벽 배근" if used else f"도면 주기의 미표기 벽 {noted_mark} 배근" if noted_spec
-                          else "이 현장 벽 일람표에서 가장 많이 쓴 배근" if project else "기본 배근")
+                source = (f"도면 주기의 미표기 벽 {noted_mark} 배근" if noted_spec else "미표기 벽 기본 배근")
                 tally.note(f"부호 없는 벽 {rest_length:.0f}m는 {source}({vertical}·{horizontal})으로 봤어요")
-            opened = _openings(tally, vplan.get("measure"), height, horizontal, thickness) if ft._storey_kind(key) != "basement" else 0
-            if opened:
-                tally.note(f"바깥벽 개구부 {opened}곳에 보강근(양옆·위아래 2-D16, 벽 끝 U형 바)을 넣었어요. 실내 문 개구부 보강은 아직 빠졌어요")
-            draw["wall"] = {"vertical": vertical, "horizontal": horizontal, "layers": 2 if thickness >= DOUBLE_LAYER_MIN_M else 1}
+            pieces, opened = _wall_details(tally, vplan.get("walls"), height, vertical, horizontal,
+                                           vplan.get("measure") if ft._storey_kind(key) != "basement" else None)
+            if not pieces:
+                opened = _openings(tally, vplan.get("measure"), height, horizontal, thickness) if ft._storey_kind(key) != "basement" else 0
+            if pieces or opened:
+                tally.note(f"벽 {pieces}토막 끝에 U·C형 바와 수직보강근 {END_VERTICAL_BARS}가닥, 개구부 {opened}곳에 보강근(양면 2-D16 둘레)을 넣었어요")
+            # the 3D draws the bars of the walls that run longest on the storey
+            rest_run = rest_area / max(thickness, 0.1) if rest_area > 0.05 else 0.0
+            shown = _most_used(used, None) if used and sum(used.values()) >= rest_run else (vertical, horizontal, thickness)
+            draw["wall"] = {"vertical": shown[0], "horizontal": shown[1], "layers": 2 if shown[2] >= DOUBLE_LAYER_MIN_M else 1}
 
             # columns on this storey's plan
             members = ft._link_members(links, name, level.get("sheet")) if links else None
@@ -366,6 +434,12 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None):
                         if bar:
                             tally.add("slab", text, bar[0], slab_area / bar[1] * 1.0)
                     draw["slab"] = {"bars": layers}
+
+            stair_area = float(concrete.get("stair") or 0) / ft.STAIR_CONCRETE_PER_M2 if concrete.get("stair") else 0.0
+            if stair_area:
+                tally.kg["stair"] += stair_area * STAIR_KG_PER_M2
+                tally.bars["D13|" + grade_of("D13", 13, general_spec)[0]] += stair_area * STAIR_KG_PER_M2
+                tally.note(f"계단 {stair_area:.0f}㎡는 {STAIR_KG_PER_M2:.0f}kg/㎡(D13)로 봤어요")
 
             # people's fixes: added members take the storey's usual bars, taken-out ones give them back
             fixes = [e for e in fixes_by_plan.get(vplan.get("id"), []) if e["kind"] != "beam"]
@@ -422,6 +496,47 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None):
         "grade_colors": GRADE_COLORS,
         "not_included": ["기초(매트)", "계단", "개구부·단부 보강근", "우마근"],
     }
+
+
+def _foundation_rebar(row, links, name, general_spec, overall):
+    """Mat bars (layers × both ways at the spacing over the area, laps every stock length) and the
+    isolated footings' bars, for the foundation storey."""
+    from . import quantity_floor_takeoff as ft
+    info = row["foundation"]
+    tally = _Tally(general_spec)
+    _thickness, text = ft.foundation_specs(links, name)
+    bar = _spaced(text) if text else None
+    if not bar:
+        text, bar = FOUNDATION_BARS + "(T/B, EW)", _spaced(FOUNDATION_BARS)
+        tally.note(f"기초 배근 표기를 못 찾아 {FOUNDATION_BARS} 상·하부 양방향으로 봤어요")
+    key = _key(text)
+    layers = (2 if re.search(r"T/?B|TOP.*BOT", key) else 1) * 2  # each way unless told otherwise
+    area, side = info["area"], math.sqrt(max(info["area"], 0.0))
+    laps = max(0, math.ceil(side / qc.STOCK_BAR_LENGTH_M) - 1)
+    run = area / bar[1] * (1 + laps * tally.lap(bar[0], "기초") / max(side, 1.0))
+    tally.add("foundation", text, bar[0], layers * run)
+    # chair bars holding the top mat: one per 1.5 m square, legs the mat depth less the covers,
+    # plus half as many fixing bars (the SK manual's rule, D16)
+    height = max(info["thickness"] - 0.1, 0.2)
+    chairs = math.ceil(area / (1.5 * 1.5))
+    tally.add("foundation", "D16", 16, chairs * (2 * height + 0.8) + math.ceil(chairs * 0.5) * 2 * height)
+    tally.note(f"고임철근(우마) D16 {chairs}개를 1.5m 간격으로 넣었어요")
+    for foot in info.get("footings") or []:
+        spaced = _spaced(str(foot.get("bars") or "")) or (16, 0.3)
+        per = 2 * (qc._spacing_bar_count(foot["x"], spaced[1]) * foot["y"] + qc._spacing_bar_count(foot["y"], spaced[1]) * foot["x"]) / 2
+        tally.add("foundation", f"D{spaced[0]}", spaced[0], foot["count"] * per)
+    if info.get("footings"):
+        tally.note("독립기초는 하부 양방향 D16@300으로 봤어요 (기초 일람표 배근을 읽으면 그 값을 써요)")
+    if row.get("approximate"):
+        tally.note("기초 두께가 가정값이라 철근도 근사예요")
+    kg = {k: round(max(v, 0.0), 1) for k, v in tally.kg.items()}
+    kg["total"] = round(sum(kg[k] for k in KINDS), 1)
+    bars = {b: round(v, 1) for b, v in sorted(tally.bars.items(), key=_bar_order) if v > 0.05}
+    if not row.get("approximate"):
+        for b, v in bars.items():
+            overall[b] += v
+    return {"key": "FT", "label": "기초", "kg": kg, "by_bar": bars, "notes": tally.notes,
+            "approximate": bool(row.get("approximate")), "draw": {}}
 
 
 def _bar_order(item):

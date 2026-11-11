@@ -73,7 +73,8 @@ class RebarTests(SimpleTestCase):
         self.assertIn("D13|SD400", one["by_bar"])
         self.assertIn("D22|SD500", one["by_bar"])
         self.assertAlmostEqual(rebar["with_loss_kg"], rebar["net_kg"] * qc.REBAR_WASTE_FACTOR, delta=0.5)
-        self.assertEqual(one["draw"]["wall_vertical"], {"d": 13, "s": 0.2, "grade": "SD400"})
+        # the unmarked walls (140 m) run longer than W1 (10 m): the 3D shows the plain wall bars
+        self.assertEqual(one["draw"]["wall_vertical"], {"d": 10, "s": 0.3, "grade": "SD400"})
 
     def test_outer_openings_get_their_bars(self):
         m = model()
@@ -111,7 +112,7 @@ class RebarApiTests(TestCase):
 
     def test_the_owner_gets_rebar_rows(self):
         body = self.post({"floor_job_id": "fv-1", "member_links": links()}).json()
-        self.assertEqual([r["key"] for r in body["rebar"]["buildings"][0]["rows"]], ["B1", "1", "2", "3", "R"])
+        self.assertEqual([r["key"] for r in body["rebar"]["buildings"][0]["rows"]], ["FT", "B1", "1", "2", "3", "R"])
         self.assertEqual(self.post({"floor_job_id": "fv-2"}).status_code, 404)
         self.client.logout()
         self.assertIn(self.post({"floor_job_id": "fv-1"}).status_code, (302, 401, 403))
@@ -141,3 +142,17 @@ class RebarPageTests(SimpleTestCase):
         js = (CORE / "static" / "core" / "js" / "quantity_mass3d.js").read_text()
         self.assertIn("var GRADE = { SD400: 0x4ade80, SD500: 0xf59e0b, SD600: 0xf43f5e };", js)
         self.assertIn("setRebar: function (rebar) {", js)
+
+
+class WallDetailTests(SimpleTestCase):
+    def test_pieces_ends_and_openings_from_the_wall_faces(self):
+        # one wall line 0.2 m thick: two pieces 3 m long with a 1.5 m gap (a door) between them
+        walls = [[0, 0, 3, 0], [0, 0.2, 3, 0.2], [4.5, 0, 7.5, 0], [4.5, 0.2, 7.5, 0.2]]
+        pieces, openings = fr.wall_pieces(walls)
+        self.assertEqual(len(pieces), 2)
+        self.assertEqual([round(w, 2) for w in openings], [1.5])
+        tally = fr._Tally(None)
+        counted = fr._wall_details(tally, walls, 2.64, "D10@300", "D10@300", {"window_gaps": 3.6, "window_gap_count": 2})
+        self.assertEqual(counted, (2, 3))  # the door and two windows
+        self.assertGreater(tally.kg["opening"], 0)
+        self.assertIn("D16|SD400", tally.bars)

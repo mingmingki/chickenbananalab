@@ -299,7 +299,7 @@ class FloorTakeoffApiTests(TestCase):
         takeoff = response.json()["takeoff"]
         self.assertEqual(takeoff["rule"], "N층 = N층 벽·기둥 + N+1층 바닥 슬래브·보")
         self.assertFalse(takeoff["uses_schedules"])
-        self.assertEqual([r["key"] for r in takeoff["buildings"][0]["rows"]], ["B1", "1", "2", "3", "R"])
+        self.assertEqual([r["key"] for r in takeoff["buildings"][0]["rows"]], ["FT", "B1", "1", "2", "3", "R"])
 
     def test_someone_elses_or_missing_job_is_not_found(self):
         self.assertEqual(self.post({"floor_job_id": "fv-2"}).status_code, 404)
@@ -338,9 +338,35 @@ class TakeoffPageTests(SimpleTestCase):
         self.assertLess(body.index("data.results.floor_takeoff = takeoff"), body.index("lastAnalysisResults = data.results || {};"))
         self.assertIn('fetch("/api/quantity/floor-takeoff/"', html)
         self.assertIn("quantity_mass3d.js' %}?v=20261111-rebar1", html)
-        self.assertIn("quantity_deck.css' %}?v=20261111-rebar1", html)
+        self.assertIn("quantity_deck.css' %}?v=20261111-found1", html)
 
     def test_the_3d_view_puts_the_slab_of_plan_n_plus_1_on_top_of_storey_n(self):
         js = Path(__file__).with_name("static").joinpath("core", "js", "quantity_mass3d.js").read_text()
         self.assertIn("function topPlans(b, index)", js)
         self.assertIn("var next = index + 1 < b.levels.length ? b.plans[b.levels[index + 1].plan] : null;", js)
+
+
+class FoundationTests(SimpleTestCase):
+    def test_the_foundation_is_the_lowest_outline_times_the_mat_thickness(self):
+        model = FloorRuleTests().model()  # lowest storey B1: plan of 900 m²
+        assumed = {r["key"]: r for r in ft.build_takeoff(model)["buildings"][0]["rows"]}["FT"]
+        self.assertTrue(assumed["approximate"])                    # thickness not known: out of the totals
+        self.assertEqual(assumed["foundation"]["source"], "assumed")
+        given = {r["key"]: r for r in ft.build_takeoff(model, foundations={"101동": 1.2})["buildings"][0]["rows"]}["FT"]
+        self.assertFalse(given["approximate"])
+        self.assertAlmostEqual(given["concrete"]["foundation"], 900 * 1.2, places=1)
+        self.assertGreater(given["formwork"]["plywood"], 0)         # a standalone mat has its edge formed
+
+    def test_drawn_thickness_and_footings_from_the_foundation_plan(self):
+        links = {"plans": [{"drawing_number": "S-501", "kind": "floor_plan", "section": "101동", "levels": ["FDN"],
+                            "specs": [{"kind": "thickness", "text": '내수압 슬래브 "FS1" THK. 300'},
+                                      {"kind": "rebar", "text": "D13@300(T/B)"}]}],
+                 "schedule_rows": [[{"values": {"length_x": "2,000", "length_y": "2,000", "depth": "600"}}]],
+                 "marks": [{"category": "foundations", "mark": "F1", "specs": [{"rows": 0}], "occurrences": [{"plan": 0, "count": 10}]}]}
+        row = {r["key"]: r for r in ft.build_takeoff(FloorRuleTests().model(), links)["buildings"][0]["rows"]}["FT"]
+        self.assertEqual(row["foundation"]["source"], "drawing")
+        self.assertAlmostEqual(row["concrete"]["foundation"], 900 * 0.3 + 10 * 2 * 2 * 0.6, places=1)
+        from core import quantity_floor_rebar as fr
+        rebar = {r["key"]: r for r in fr.build_rebar(FloorRuleTests().model(), links)["buildings"][0]["rows"]}["FT"]
+        self.assertIn("D13|SD400", rebar["by_bar"])
+        self.assertTrue(any("고임철근" in n for n in rebar["notes"]))

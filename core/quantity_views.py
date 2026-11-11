@@ -1989,8 +1989,9 @@ def api_quantity_floor_rebar(request):
     links = links if isinstance(links, dict) and links.get("marks") else None
     spec = body.get("general_spec") if isinstance(body.get("general_spec"), dict) else None
     edits = _floor_edits(floor_job)
+    foundations = _floor_foundations(floor_job, body)
     try:
-        takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits)
+        takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations)
         rebar = quantity_floor_rebar.build_rebar(model, links, takeoff, general_spec=spec, edits=edits)
     except Exception:
         logger.exception("quantity_floor_rebar_failed job=%s", floor_job[:16])
@@ -2000,6 +2001,22 @@ def api_quantity_floor_rebar(request):
 
 def _floor_edits(floor_job):
     return (_quantity_state().get("floor_edits", floor_job) or {}).get("edits") or []
+
+
+def _floor_foundations(floor_job, body=None):
+    """Foundation thickness (m) per building a person gave: the request's, else the kept ones."""
+    given = (body or {}).get("foundations")
+    if not isinstance(given, dict):
+        given = (_quantity_state().get("floor_edits", floor_job) or {}).get("foundations") or {}
+    clean = {}
+    for name, value in list(given.items())[:200]:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(name, str) and 0.1 <= number <= 5.0:
+            clean[name[:100]] = round(number, 3)
+    return clean
 
 
 @require_POST
@@ -2023,13 +2040,16 @@ def api_quantity_floor_edits(request):
     job = _quantity_state().get("job", floor_job) if floor_job else None
     if not job or job.get("owner") != str(request.user.pk) or job.get("operation") != "api_quantity_floor_views":
         return JsonResponse({"error": "층별 확인 작업을 찾을 수 없어요."}, status=404)
-    if "edits" not in body:
-        return JsonResponse({"ok": True, "edits": _floor_edits(floor_job)})
-    if not isinstance(body.get("edits"), list):
+    kept = _quantity_state().get("floor_edits", floor_job) or {}
+    if "edits" not in body and "foundations" not in body:
+        return JsonResponse({"ok": True, "edits": kept.get("edits") or [], "foundations": kept.get("foundations") or {}})
+    if "edits" in body and not isinstance(body.get("edits"), list):
         return JsonResponse({"error": "고친 내용이 없어요."}, status=400)
-    edits = quantity_edits.clean(body["edits"])
-    _quantity_state().put("floor_edits", floor_job, {"edits": edits, "owner": str(request.user.pk)}, ttl=_RESULT_TTL_SEC)
-    return JsonResponse({"ok": True, "edits": edits})
+    edits = quantity_edits.clean(body["edits"]) if "edits" in body else (kept.get("edits") or [])
+    foundations = _floor_foundations(floor_job, body) if "foundations" in body else (kept.get("foundations") or {})
+    _quantity_state().put("floor_edits", floor_job, {"edits": edits, "foundations": foundations, "owner": str(request.user.pk)},
+                          ttl=_RESULT_TTL_SEC)
+    return JsonResponse({"ok": True, "edits": edits, "foundations": foundations})
 
 
 @require_POST
@@ -2060,8 +2080,9 @@ def api_quantity_floor_takeoff(request):
     links = body.get("member_links")
     links = links if isinstance(links, dict) and links.get("marks") else None
     edits = _floor_edits(floor_job)
+    foundations = _floor_foundations(floor_job, body)
     try:
-        takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits)
+        takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations)
     except Exception:
         logger.exception("quantity_floor_takeoff_failed job=%s", floor_job[:16])
         return JsonResponse({"error": "층별 수량을 계산하지 못했어요."}, status=500)

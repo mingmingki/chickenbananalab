@@ -126,6 +126,13 @@ class FloorEditsApiTests(TestCase):
         rows = self.post("/api/quantity/floor-takeoff/", {"floor_job_id": "fv-1"}).json()["takeoff"]["buildings"][0]["rows"]
         self.assertEqual({r["key"]: r for r in rows}["1"]["fixed"]["count"], 1)
 
+    def test_foundation_thickness_is_kept_and_used(self):
+        saved = self.post("/api/quantity/floor-edits/", {"floor_job_id": "fv-1", "foundations": {"101동": 1.1, "x": 99}}).json()
+        self.assertEqual(saved["foundations"], {"101동": 1.1})
+        rows = self.post("/api/quantity/floor-takeoff/", {"floor_job_id": "fv-1"}).json()["takeoff"]["buildings"][0]["rows"]
+        self.assertEqual(rows[0]["foundation"]["source"], "person")
+        self.assertEqual(rows[0]["foundation"]["thickness"], 1.1)
+
     def test_only_the_owner_may_read_or_change_fixes(self):
         self.assertEqual(self.post("/api/quantity/floor-edits/", {"floor_job_id": "fv-2", "edits": []}).status_code, 404)
         self.assertEqual(self.post("/api/quantity/floor-edits/", {"floor_job_id": "fv-1", "edits": "x"}).status_code, 400)
