@@ -386,7 +386,7 @@
 
 /* 3D review: mass → rebar → formwork */
 .qd-mass-stage {
-  position: relative; height: min(50dvh, 520px); border: 1px solid var(--qd-line); border-radius: 14px; overflow: hidden;
+  position: relative; height: min(60dvh, 620px); border: 1px solid var(--qd-line); border-radius: 14px; overflow: hidden;
   background: radial-gradient(circle at 45% 35%, rgba(30, 58, 95, .75), rgba(6, 10, 32, .85));
 }
 .qd-mass-stage canvas { display: block; width: 100% !important; height: 100% !important; cursor: grab; }
@@ -426,7 +426,37 @@
 .qd-takeoff thead tr:first-child th[rowspan] { vertical-align: bottom; text-align: left; }
 .qd-takeoff td.qd-strong { color: #fff; font-weight: 800; }
 .qd-takeoff tr.is-approx td { color: var(--qd-soft); opacity: .72; }
-@media (max-width: 760px) { .qd-mass-stage { height: 46dvh; } .qd-mass-legend { margin-left: 0; } }
+/* 3D viewer tools: views, sections, section sheet, member filter, measure */
+.q3d-ui { position: absolute; inset: 0; pointer-events: none; font-size: 12px; }
+.q3d-ui > * { pointer-events: auto; box-sizing: border-box; }
+.q3d-bar { position: absolute; top: 8px; display: flex; flex-wrap: wrap; gap: 3px; padding: 3px; border-radius: 10px; background: rgba(6, 10, 32, .72); backdrop-filter: blur(6px); }
+.q3d-views { left: 8px; }
+.q3d-tools { right: 8px; justify-content: flex-end; }
+.q3d-bar button, .q3d-panel button { padding: 5px 9px; border: 0; border-radius: 7px; background: none; color: var(--qd-soft); font: inherit; font-weight: 800; cursor: pointer; }
+.q3d-bar button:hover, .q3d-panel button:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+.q3d-bar button.is-on { background: #fff; color: #0f3d55; }
+.q3d-panel { position: absolute; top: 50px; right: 8px; width: min(300px, calc(100% - 16px)); display: grid; gap: 6px; padding: 10px; border-radius: 12px; background: rgba(6, 10, 32, .86); color: #fff; backdrop-filter: blur(6px); }
+.q3d-panel[hidden], .q3d-sheet[hidden] { display: none; }
+.q3d-panel label { display: inline-flex; align-items: center; gap: 5px; margin-right: 8px; font-weight: 700; cursor: pointer; }
+.q3d-row { display: grid; grid-template-columns: 82px 1fr auto; align-items: center; gap: 6px; }
+.q3d-panel[data-panel="box"] .q3d-row { grid-template-columns: 62px 1fr 1fr; }
+.q3d-row input[type="range"] { width: 100%; min-width: 0; accent-color: #22d3ee; }
+.q3d-wide { justify-self: stretch; background: rgba(255, 255, 255, .1) !important; color: #fff !important; }
+.q3d-status { position: absolute; left: 10px; bottom: 8px; max-width: calc(100% - 20px); color: #a5f3fc; font-weight: 800; text-shadow: 0 1px 2px rgba(0, 0, 0, .8); pointer-events: none; }
+.q3d-sheet { position: absolute; inset: 50px 8px 8px; display: flex; flex-direction: column; border: 1px solid var(--qd-line); border-radius: 12px; background: #070b22; }
+.q3d-sheet header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 6px 12px; color: #fff; }
+.q3d-sheet header button { padding: 4px 10px; border: 1px solid rgba(255, 255, 255, .3); border-radius: 8px; background: none; color: #fff; font: inherit; cursor: pointer; }
+.q3d-sheet-body { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.q3d-sheet-body > svg { width: 100%; height: 100%; }
+.q3d-empty { margin: 16px; color: var(--qd-soft); }
+@media (max-width: 760px) {
+  .q3d-bar { position: static; margin: 6px 6px 0; }
+  .q3d-bar button { padding: 5px 7px; }
+  .q3d-ui { display: flex; flex-direction: column; align-items: stretch; }
+  .q3d-panel { top: auto; bottom: 30px; }
+  .q3d-sheet { inset: 8px; }
+}
+@media (max-width: 760px) { .qd-mass-stage { height: 62dvh; } .qd-mass-legend { margin-left: 0; } }
 
 /* AI is thinking */
 #cblQuantityMessengerModal.qty-deck-mode .qd-card .qty-thinking {

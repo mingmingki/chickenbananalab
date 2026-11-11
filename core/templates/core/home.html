@@ -6216,10 +6216,10 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261111-roles2">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261111-viewer1">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
-<script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261110-takeoff1"></script>
+<script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261111-viewer1"></script>
 
 <script>
 (function () {
@@ -9125,6 +9125,22 @@ body.cbl-modal-open {
     return model && model.buildings && model.buildings.length ? model : null;
   }
 
+  // The coloured plan of one storey for the 3D viewer's horizontal section: the sheet the storey
+  // was built from, else a structural view of that building whose floor names or covers the storey.
+  function planSvgFor(building, level) {
+    var result = state.floorJob && state.floorJob.result;
+    var views = ((result && result.views) || []).filter(function (v) { return v.building === building && v.svg; });
+    function covers(v) {
+      if (v.floor === level.label) return true;
+      var m = /^(\d+)~(\d+)층$/.exec(v.floor || "");
+      return !!m && /^\d+$/.test(level.key) && Number(m[1]) <= Number(level.key) && Number(level.key) <= Number(m[2]);
+    }
+    var ranked = views.filter(function (v) { return level.sheet && v.sheet === level.sheet; })
+      .concat(views.filter(function (v) { return v.discipline !== "arch" && covers(v); }))
+      .concat(views.filter(covers));
+    return ranked.length ? ranked[0].svg : null;
+  }
+
   function threeReady() {
     return new Promise(function (resolve) {
       if (window.THREE) { resolve(true); return; }
@@ -9234,9 +9250,10 @@ body.cbl-modal-open {
     // card 1: the whole mass
     await massCard({ eyebrow: "01", label: "Mass", art: false, wide: true, total: 4, index: 1 },
       "전체 매스를 세웠어요. 돌려 보며 확인해 주세요.",
-      "구조평면도의 벽·기둥·보·슬래브를 층고만큼 쌓았어요. 드래그로 돌리고 휠로 확대해요 (오른쪽 버튼·Shift 드래그는 이동).");
+      "구조평면도의 벽·기둥·보·슬래브를 층고만큼 쌓았어요. 드래그로 돌리고 휠로 확대해요 (오른쪽 버튼·Shift 드래그는 이동). " +
+      "위쪽 단추로 평면·정면·측면을 보고, 단면·단면 상자로 잘라 보고, 단면도와 거리 측정도 할 수 있어요.");
     if (deck) deck.append(host); else flowEl.appendChild(host);
-    viewer = window.cblQuantityMass3D.mount(host, model);
+    viewer = window.cblQuantityMass3D.mount(host, model, { planSvg: planSvgFor });
     var summary = viewer.summary();
     var bar1 = massToolbar(viewer, "mass", pick);
     host.parentNode.insertBefore(bar1, host);
