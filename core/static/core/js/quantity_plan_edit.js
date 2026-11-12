@@ -34,7 +34,7 @@
     opening: "개구부: 벽 선 위에서 시작점과 끝점을 누르세요. 두께는 맞은편 벽 선에서 재요. " + TYPED,
     remove: "부재 빼기: 잘못 잡힌 벽·보를 누르면 수량에서 바로 빠져요 (고친 표시를 누르면 그 표시가 지워져요).",
     erase: "선 지우기: 쓸데없는 선을 누르거나, 끌어서 상자 안의 선을 한꺼번에 고르세요. '다시 읽기'를 누르면 그 선을 빼고 다시 재요.",
-    keep: "되살리기: 빨간 점선(자동으로 뺐거나 지운 선)을 누르면 다시 넣어요.",
+    keep: "되살리기: 빨간 점선(지운 선)을 누르면 다시 넣어요. 주황 점선(후보)을 누르면 후보에서 빼요.",
     measure: "거리 재기: 두 점을 누르세요.",
     mark: "표시·AI: 이상한 곳을 끌어서 동그라미로 감싸고 무엇이 이상한지 적으면, AI가 고칠 안을 내요 (보내기 전에 비용을 보여줘요)."
   };
@@ -266,6 +266,7 @@
       '<div class="qpe-props" hidden></div>' +
       '<div class="qpe-ask" hidden></div>' +
       '<p class="qpe-hint"></p><p class="qpe-count"></p>' +
+      '<div class="qpe-suspects" hidden><span></span><button type="button" class="qd-btn" data-qpe-suspects>후보 모두 지우기</button></div>' +
       '<div class="qpe-reread" hidden><span></span><button type="button" class="qd-btn primary" data-qpe-reread>지운 선 빼고 다시 읽기</button></div>' +
       '<div class="qpe-learn" hidden></div>';
     if (!options.onAsk) { var markTool = bar.querySelector('[data-qpe-tool="mark"]'); if (markTool) markTool.remove(); }
@@ -317,6 +318,11 @@
       bar.querySelector(".qpe-count").textContent = (list.length ? "이 평면에서 고친 것 " + list.length + "건 (추가 " + added + " · 뺌 " + (list.length - added) + ")" : "아직 고친 것이 없어요") +
         (erased || kept ? " · 지운 선 " + erased + "개" + (kept ? " · 되살린 선 " + kept + "개" : "") : "") +
         (options.note ? " · " + options.note : "");
+      // stray lines the reading found: only suggested (orange), out when a person erases them
+      var suspects = lines.segs.filter(function (q) { return q.cls === "suspect" && findSeg(planLines().erase, sheetSeg(q)) < 0 && findSeg(planLines().keep, sheetSeg(q)) < 0; });
+      var hint = bar.querySelector(".qpe-suspects");
+      hint.hidden = !suspects.length;
+      if (suspects.length) hint.querySelector("span").textContent = "주황 점선은 읽으면서 찾은 쓸데없는 선 후보 " + suspects.length + "조각이에요 (틀 밖으로 나간 외톨이 선, 동떨어진 외톨이 선). 아직 수량에 들어 있어요.";
       var reread = bar.querySelector(".qpe-reread");
       var pending = options.linesPending ? options.linesPending() : false;
       reread.hidden = !pending;
@@ -405,7 +411,7 @@
       segs.forEach(function (s) {
         var key = sheetSeg(s), k = findSeg(item.erase, key);
         if (k >= 0) { item.erase.splice(k, 1); n++; return; } // erased by a person: just not erased
-        if (s.cls === "removed" && findSeg(item.keep, key) < 0) { item.keep.push(key); n++; }
+        if ((s.cls === "removed" || s.cls === "suspect") && findSeg(item.keep, key) < 0) { item.keep.push(key); n++; }
       });
       if (n) linesChanged();
       return n;
@@ -602,7 +608,7 @@
       }
       if (tool === "keep") {
         var back = pick(p, null);
-        if (!back) { status("되살릴 빨간 점선을 눌러 주세요."); return; }
+        if (!back) { status("되살릴 빨간 점선이나 후보(주황)를 눌러 주세요."); return; }
         var m = keepSegs(runOf(back));
         status(m ? "선 " + m + "조각을 되살렸어요. '다시 읽기'를 누르면 수량에 들어가요." : "자동으로 뺐거나 지운 선이 아니에요.");
         return;
@@ -880,6 +886,11 @@
       var t = e.target.closest("[data-qpe-tool]");
       if (t) { setTool(t.getAttribute("data-qpe-tool")); return; }
       if (e.target.closest("[data-qpe-delete]")) { deleteSelected(); return; }
+      if (e.target.closest("[data-qpe-suspects]")) {
+        var n = eraseSegs(lines.segs.filter(function (q) { return q.cls === "suspect"; }));
+        status("후보 " + n + "조각을 지웠어요. '지운 선 빼고 다시 읽기'를 누르면 수량에서 빠져요.");
+        return;
+      }
       var askStep = e.target.closest("[data-qpe-ask]");
       if (askStep) { markAsk(askStep.getAttribute("data-qpe-ask")); return; }
       if (e.target.closest("[data-qpe-reread]")) {

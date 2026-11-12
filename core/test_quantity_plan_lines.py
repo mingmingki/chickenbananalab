@@ -53,7 +53,11 @@ class StrayLineTests(SimpleTestCase):
         self.assertEqual(left.why(15.02, 5.0, 5.0, 4.99), "person")   # rounding of the picture, other direction
         self.assertIsNone(left.why(30, 20, 36, 24))                    # brought back
         self.assertIsNone(left.why(5, 11, 15, 11))
-        self.assertEqual(fv.LeftOut(stray=[(1, 1, 2, 2)]).why(1, 1, 2, 2), "stray")
+        # stray lines are only suggested: they stay in until a person erases them
+        suggested = fv.LeftOut(stray=[(1, 1, 2, 2)])
+        self.assertIsNone(suggested.why(1, 1, 2, 2))
+        self.assertTrue(suggested.suspect(2, 2, 1, 1))
+        self.assertFalse(fv.LeftOut(stray=[(1, 1, 2, 2)], keep=[(1, 1, 2, 2)]).suspect(1, 1, 2, 2))
 
     def test_a_polyline_is_split_where_a_piece_is_left_out(self):
         left = fv.LeftOut(erase=[(1, 0, 2, 0)])
@@ -62,15 +66,15 @@ class StrayLineTests(SimpleTestCase):
 
 
 class LeftOutModelTests(SimpleTestCase):
-    def test_erased_and_stray_lines_leave_the_model_and_its_measures(self):
+    def test_erased_lines_leave_the_model_and_its_measures_and_suspects_stay(self):
         room, lone, outside, _short, _column = plan_paths()
         paths = room + [lone, outside]
         before = fv._plan_model(paths, FRAME)
         left = fv.LeftOut.find(paths, FRAME, {"erase": [[5, 5, 15, 5]]})  # one face of the bottom wall
         after = fv._plan_model(paths, FRAME, left)
-        self.assertEqual(after["left_out"], {"stray": 2, "person": 1})
+        self.assertEqual(after["left_out"], {"person": 1})
         self.assertNotIn([5.0, 5.0, 15.0, 5.0], after["walls"])
-        self.assertNotIn([30.0, 20.0, 36.0, 24.0], after["walls"])
+        self.assertIn([30.0, 20.0, 36.0, 24.0], [w[:4] for w in after["walls"]])   # a suspect, still counted
         # the bottom wall lost a face, so its section is no longer measured
         self.assertAlmostEqual(before["measure"]["area"] - after["measure"]["area"], 10 * 0.2, delta=0.15)
 
@@ -87,10 +91,9 @@ class LeftOutModelTests(SimpleTestCase):
         paths = [((("frame", "WALL") if p[0] == "wall" else p[0]),) + p[1:] for p in room + [lone]]
         left = fv.LeftOut.find([p for p in room + [lone]], FRAME, {"erase": [[5, 5, 15, 5]]})
         svg, counts = fv._svg(paths, FRAME, left_out=left)
-        self.assertIn('class="fv-removed" data-why="stray" d="M3000 1000L3600 600"', svg)
+        self.assertIn('class="fv-suspect" data-why="stray" d="M3000 1000L3600 600"', svg)   # drawn over, still a member
         self.assertIn('class="fv-removed" data-why="person" d="M500 2500L1500 2500"', svg)
-        self.assertEqual(counts["removed"], 2)
-        self.assertEqual(counts["frame"], 7)
+        self.assertEqual((counts["removed"], counts["suspect"], counts["frame"]), (1, 1, 8))
 
 
 class OpeningFixTests(SimpleTestCase):
@@ -176,7 +179,8 @@ class EditorToolTests(SimpleTestCase):
         html = HOME.read_text()
         self.assertIn('fetch("/api/quantity/floor-lines/"', html)
         self.assertIn("lines: floorLines(), linesPending: floorLinesPending,", html)
-        self.assertIn('["removed", "뺀 선(자동·지움)"]', html)
+        self.assertIn('["suspect", "쓸데없는 선 후보"], ["removed", "지운 선"]', html)
+        self.assertIn("data-qpe-suspects>후보 모두 지우기", EDIT_JS.read_text())
         self.assertIn("viewer.setModel(massModel());", html)
         mass = MASS_JS.read_text()
         self.assertIn("outer.setModel = function (next) {", mass)

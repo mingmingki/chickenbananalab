@@ -321,9 +321,12 @@ def _kept_by_clip(item, polygon, inverted):
 
 
 # ── lines left out of a structural plan ───────────
-# Stray lines found by the reading (a small group far from the plan, a line mostly outside its
-# frame) and lines people erased are left out of both the picture's members and the 3D/takeoff
-# model; the picture still shows them, dashed red, so a person can bring one back.
+# Lines people erased are left out of both the picture's members and the 3D/takeoff model; the
+# picture still shows them, dashed red, so a person can bring one back. Stray lines the reading
+# finds (a lone line far from the plan, a line past its frame with no face beside it) are only
+# suggested: drawn over in orange as "suspect" and left in the quantities until a person erases
+# them, since a lone line can still close a slab outline (left out automatically they changed some
+# projects' concrete by 2 to 30 %).
 STRAY_GAP_M = 3.0         # member lines closer than this belong to one group
 STRAY_OUTSIDE = 0.5       # a line more than half outside its frame is no member of the plan in it
 MATCH_TOL_M = 0.03        # a person's erased line is found again within this (pictures round to 1 cm)
@@ -371,13 +374,16 @@ class LeftOut:
         return cls(_stray_segments(paths, box, outside=frame_drawn), _clean_segments(lines.get("erase")), _clean_segments(lines.get("keep")))
 
     def why(self, x0, y0, x1, y1):
+        """Why a segment is left out ("person"), or None: suspects stay in."""
         if self.keep.has(x0, y0, x1, y1):
             return None
         if self.erase.has(x0, y0, x1, y1):
             return "person"
-        if self.stray.has(x0, y0, x1, y1):
-            return "stray"
         return None
+
+    def suspect(self, x0, y0, x1, y1):
+        """A stray line the reading found, not yet erased or kept by a person."""
+        return self.stray.has(x0, y0, x1, y1) and not self.keep.has(x0, y0, x1, y1) and not self.erase.has(x0, y0, x1, y1)
 
 
 def _clean_segments(items, limit=20000):
@@ -593,6 +599,12 @@ def _svg(paths, box, other=True, left_out=None):
                 counts["removed"] += 1
             else:
                 drawn = True
+                if piece is not None and left_out is not None:
+                    for (ax_, ay_), (bx_, by_) in zip(piece, piece[1:]):
+                        if left_out.suspect(ax_, ay_, bx_, by_):
+                            groups[("suspect", "stray")].append(
+                                f"M{round(ax_ * 100)} {round(height - ay_ * 100)}L{round(bx_ * 100)} {round(height - by_ * 100)}")
+                            counts["suspect"] += 1
         if not drawn:
             continue
         counts[kind] += 1
@@ -602,11 +614,12 @@ def _svg(paths, box, other=True, left_out=None):
         return html.escape(str(text), quote=True)
     rank = {c: i for i, c in enumerate(CATEGORIES)}
     rank["removed"] = len(rank) + 1  # drawn last, over the lines they lie on
+    rank["suspect"] = len(rank) + 2
 
     def path(c):
         d = "".join(groups[c])
-        if isinstance(c, tuple) and c[0] == "removed":
-            return f'<path class="fv-removed" data-why="{attr(c[1])}" d="{d}"/>'
+        if isinstance(c, tuple) and c[0] in ("removed", "suspect"):
+            return f'<path class="fv-{c[0]}" data-why="{attr(c[1])}" d="{d}"/>'
         if isinstance(c, tuple):
             return f'<path class="fv-{c[0]}" data-layer="{attr(c[1])}" d="{d}"/>'
         return f'<path class="fv-{c}" d="{d}"/>'

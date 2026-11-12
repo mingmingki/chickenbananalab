@@ -684,3 +684,10 @@
 .qpe-ask-error { color: #fecaca; font-weight: 800; }
 .qpe-ask-list { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 .qpe-ask-list small { color: #f9a8d4; }
+
+/* stray lines the reading found: suggested only, still counted until erased */
+.fv-key-suspect i { background: repeating-linear-gradient(90deg, #fb923c 0 5px, transparent 5px 8px) !important; }
+.qd-floor-canvas .fv-suspect { stroke: #fb923c; stroke-width: 2.6; stroke-dasharray: 3 5; stroke-opacity: .95; }
+.qd-floor-stage.hide-suspect .fv-suspect { display: none; }
+.qpe-suspects { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: rgba(251, 146, 60, .14); color: #fed7aa; font-size: 12px; font-weight: 700; }
+.qpe-suspects[hidden] { display: none; }

@@ -6216,11 +6216,11 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261112-tools1">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261112-tools2">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
-<script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261112-tools1"></script>
-<script src="{% static 'core/js/quantity_plan_edit.js' %}?v=20261112-tools1"></script>
+<script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261112-tools2"></script>
+<script src="{% static 'core/js/quantity_plan_edit.js' %}?v=20261112-tools2"></script>
 
 <script>
 (function () {
@@ -7146,7 +7146,7 @@ body.cbl-modal-open {
   // ── floor-by-floor colored plans ──────────────
   var FLOOR_LEGEND = [
     ["frame", "골조(콘크리트)"], ["masonry", "조적"], ["alc", "ALC"], ["dry", "건식벽"],
-    ["opening", "창호"], ["beam", "보"], ["removed", "뺀 선(자동·지움)"], ["other", "분류 안 된 선"]
+    ["opening", "창호"], ["beam", "보"], ["suspect", "쓸데없는 선 후보"], ["removed", "지운 선"], ["other", "분류 안 된 선"]
   ];
 
   function floorGroups(views) {
