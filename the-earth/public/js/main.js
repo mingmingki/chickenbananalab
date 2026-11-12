@@ -261,7 +261,8 @@ async function openCreator() {
   w3d.mode = 'pick-country';
   w3d.setSelectedCountry(geo.countries.indexOf(country));
   w3d.flyToCountry(country, 4500);
-  creator = new Creator($('#creator'), { culture: country.culture, countryName: country.name, room: ctx.session.room ?? meta.maxAnns, max: meta.maxAnns });
+  const info = await api(`/api/servers/${ctx.session.serverId}/country/${country.code}`).catch(() => ({ mode: 'pioneer', families: 0 }));
+  creator = new Creator($('#creator'), { culture: country.culture, countryName: country.name, room: ctx.session.room ?? meta.maxAnns, max: meta.maxAnns, mode: info.mode, families: info.families });
   await creator.open();
   $('#creator').onclick = async e => {
     const act = e.target.closest('[data-act]')?.dataset.act;
@@ -280,14 +281,14 @@ async function deploy() {
   if (ok !== 'ok') return;
   try {
     const specs = creator.anns.map(a => ({ name: a.name, gender: a.gender, age: a.age, traits: a.traits, abilities: a.abilities, ambition: a.ambition }));
-    await api(`/api/servers/${ctx.session.serverId}/deploy`, { token: ctx.session.token, anns: specs });
+    const r = await api(`/api/servers/${ctx.session.serverId}/deploy`, { token: ctx.session.token, anns: specs });
     creator = null;
-    observe(true);
+    observe(true, r.anns?.[0]?.id);
   } catch (e) { toast(e.message); }
 }
 
 // ── 관찰 ──
-function observe(justDeployed = false) {
+function observe(justDeployed = false, firstAnn = null) {
   ctx.mode = 'observe';
   show(null);
   connect(ctx.server.id);
@@ -324,7 +325,11 @@ function observe(justDeployed = false) {
       const c = state.countries.get(me.country);
       const s = c && (state.settlements.get(c.capital) || [...state.settlements.values()].find(x => x.country === me.country));
       if (s) w3d.rig.flyTo({ lat: s.lat, lon: s.lon, alt: justDeployed ? 0.9 : 2.2 });
-      if (justDeployed) hud.toast('앤들이 지구에 내려섰습니다. 이제 지켜보세요.');
+      if (justDeployed) {
+        const a = firstAnn && state.anns.get(firstAnn);
+        hud.toast(a && a.gen > 1 ? '앤이 한 가정에서 태어났습니다. 연대기에서 그 삶을 지켜보세요.' : '앤들이 자연 속에 내려섰습니다. 이제 지켜보세요.');
+        if (firstAnn) setTimeout(() => hud.select(firstAnn, true), 1200);
+      }
     } else {
       const s = [...state.settlements.values()].sort((a, b) => b.pop - a.pop)[0];
       if (s) w3d.rig.flyTo({ lat: s.lat, lon: s.lon, alt: 3 });

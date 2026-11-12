@@ -54,7 +54,7 @@ export class Creator {
     $('#roster').innerHTML = this.anns.map((a, i) => `
       <div class="roster-item ${i === this.cur ? 'on' : ''}" data-i="${i}">
         <img src="${avatarURL({ ...a, g: a.gender, lk: { ...a.look, skin: '#e9c5a2', hair: '#2b2018' } }, '#58b4ff', 48)}" width="30" height="30" style="border-radius:50%">
-        <span class="nm">${esc(a.name)}<br><small class="sub small">${a.gender === 'M' ? '남' : '여'} · ${a.age}세</small></span>
+        <span class="nm">${esc(a.name)}<br><small class="sub small">${a.gender === 'M' ? '남' : '여'} · ${this.opts.mode === 'baby' ? '아기' : a.age + '세'}</small></span>
         <button class="x" data-del="${i}" title="빼기">×</button>
       </div>`).join('');
     $('#roster-room').textContent = `${this.anns.length} / ${this.opts.room}명 (한 플레이어 최대 ${this.opts.max}명)`;
@@ -73,15 +73,19 @@ export class Creator {
     const a = this.anns[this.cur];
     if (!a) { ed.innerHTML = '<p class="empty">앤을 추가하세요.</p>'; return; }
     const used = ABILS.reduce((s, [k]) => s + a.abilities[k], 0);
-    ed.innerHTML = `
+    const baby = this.opts.mode === 'baby';
+    const banner = baby
+      ? `<div class="creator-mode">👶 <b>${esc(this.opts.countryName)}에는 지금 가정이 ${this.opts.families}개 있어요.</b> 앤들은 무작위로 고른 가정에서 <b>아기로 태어납니다</b> — 다른 플레이어가 먼저 투입한 앤들의 아이가 될 수도 있어요. 성은 태어난 집안을 따르고, 여기서 정한 성격·능력·야망은 타고난 기질이 됩니다. 학교가 있어야 학교에 다니고, 자라서 스스로 일과 사랑을 찾습니다.</div>`
+      : `<div class="creator-mode">🌱 <b>${esc(this.opts.countryName)}에는 아직 가정이 없어요.</b> 앤들은 <b>개척자(어른)</b>로 도착합니다. 산과 강과 바다, 숲뿐인 땅에서 먹을 것과 쉴 곳을 찾는 것부터 시작해요. 목수가 생겨야 제대로 된 집을, 학교가 생겨야 아이들이 공부를 할 수 있습니다.</div>`;
+    ed.innerHTML = `${banner}
       <div>
         <h4>기본</h4>
-        <label class="field"><span>이름</span><input data-f="name" maxlength="20" value="${esc(a.name)}"></label>
+        <label class="field"><span>${baby ? '이름 <small>(성은 태어난 집안을 따릅니다)</small>' : '이름'}</span><input data-f="name" maxlength="20" value="${esc(a.name)}"></label>
         <div class="ed-row" style="margin-top:12px">
           <div class="seg"><button data-g="M" class="${a.gender === 'M' ? 'on' : ''}">남자</button><button data-g="F" class="${a.gender === 'F' ? 'on' : ''}">여자</button></div>
           <button class="btn small" data-act="rand-one">🎲 무작위</button>
         </div>
-        <div class="slider" style="margin-top:12px"><span class="lab">나이</span><input type="range" min="16" max="45" value="${a.age}" data-f="age"><b>${a.age}</b></div>
+        ${baby ? '<p class="sub small" style="margin:12px 0 0">🍼 갓난아기로 태어납니다</p>' : `<div class="slider" style="margin-top:12px"><span class="lab">나이</span><input type="range" min="16" max="45" value="${a.age}" data-f="age"><b>${a.age}</b></div>`}
         <div class="slider"><span class="lab">야망<small>꿈의 크기</small></span><input type="range" min="1" max="100" value="${a.ambition}" data-f="ambition"><b>${a.ambition}</b></div>
       </div>
       <div>

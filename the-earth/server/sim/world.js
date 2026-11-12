@@ -1,14 +1,15 @@
 // 세계: 시계(1년 1월 1일 0시에서 시작), 나라, 정착지, 건물, 회사, 앤, 플레이어
 import { randomUUID } from 'node:crypto';
 import { clamp, rand, pick, chance, gauss, ageOf, dateOf, fmtDate, localHour, YEAR, DAY, ga, neun, reul, wa, ida, fixJosa } from './util.js';
-import { ERAS, DISCOVERIES, BUILDINGS, PUBLIC, JOBS, GOALS, HOME_BY_ERA, SETTLEMENT_LEVELS, INDUSTRIES } from './data.js';
-import { makeAnn, makeBaby, remember, think, feel, lifeEvent, ageStage, STAGE_NAMES, TRAIT_NAMES, ABILITY_NAMES } from './ann.js';
-import { makeSettlement, placeBuilding, removeBuilding, updateSettlementLevel, plazaPoint, CELL } from './settlement.js';
+import { ERAS, DISCOVERIES, BUILDINGS, PUBLIC, JOBS, GOALS, HOME_BY_ERA, SETTLEMENT_LEVELS, INDUSTRIES, SCHOOLS, EDU_NAMES } from './data.js';
+import { makeAnn, makeBaby, remember, think, feel, lifeEvent, ageStage, STAGE_NAMES, TRAIT_NAMES, ABILITY_NAMES, deriveValues, deriveGoals } from './ann.js';
+import { makeSettlement, placeBuilding, removeBuilding, updateSettlementLevel, plazaPoint, CELL, siteFeatures, ensureSite } from './settlement.js';
 import { updateAnn, nightlyReview, ACTS, isAvailable } from './mind.js';
 import { rel, decayRelations, breakUp, opinionText, updateKind } from './social.js';
 import { companyDaily, considerPromotion, jobTitle, leaveJob, foundPublic, dailyCost, wageBase, setJob } from './economy.js';
-import { childName } from './names.js';
-import { getCountry, randomLandPoint } from '../geo.js';
+import { childName, givenOf, familyName } from './names.js';
+import { runEvents, rollWeather } from './events.js';
+import { getCountry, randomLandPoint, seaNear } from '../geo.js';
 import { RELATION_NAMES, SKILLS } from './data.js';
 
 const PLAYER_COLORS = ['#ff6b6b', '#4dabf7', '#ffd43b', '#69db7c', '#da77f2', '#ff922b', '#3bc9db', '#f783ac', '#a9e34b', '#9775fa', '#ffa8a8', '#74c0fc'];
@@ -137,6 +138,10 @@ export class World {
     const def = BUILDINGS[b.type];
     const s = this.settlements.get(b.sid);
     this.dirtyBuildings.add(b.id);
+    const cty = this.countries[s.country];
+    if (b.type === 'campfire') this.first(cty, 'fire', `${s.name}에 첫 불을 피웠다`, '🔥');
+    if (def.kind === 'home') this.first(cty, 'home:' + b.type, `첫 ${def.name}이(가) ${s.name}에 세워졌다`, '🏠');
+    if (PUBLIC[b.type] || ['seodang', 'school', 'middle', 'high', 'university', 'kinder', 'clinic', 'market', 'hall'].includes(b.type)) this.first(cty, 'bld:' + b.type, `첫 ${def.name} — ${s.name}`, '🏛️');
     if (def.kind === 'home') {
       const owner = b.owner && this.anns.get(b.owner);
       if (owner && owner.alive) {
@@ -153,6 +158,20 @@ export class World {
       if (builder) remember(this, builder, `${b.name} 건설을 마무리했다`, 4, 0.5, [], 'work');
     }
     updateSettlementLevel(this, s);
+  }
+
+  /** 나라의 '처음' — 문명이 어떻게 시작되었는지가 나라의 연대기에 남는다 */
+  first(c, key, text, icon = '✨') {
+    if (!c) return false;
+    c.firsts = c.firsts || {};
+    if (c.firsts[key]) return false;
+    c.firsts[key] = Math.round(this.clock);
+    text = fixJosa(text);
+    c.history.push({ t: Math.round(this.clock), text, icon });
+    if (c.history.length > 80) c.history.splice(0, c.history.length - 80);
+    this.news('first', `${icon} ${c.name} 최초: ${text}`, { country: c.code }, 2);
+    this.dirtyCountries.add(c.code);
+    return true;
   }
 
   achieveGoal(a, g) {
@@ -197,6 +216,7 @@ export class World {
     const g = a.goals.find(g => g.k === 'knowledge' && !g.done);
     if (g) this.achieveGoal(a, g);
     this.news('tech', `💡 ${c.name}의 ${ga(a.name)} '${d}'을(를) 발견했다`, { anns: [a.id], country: c.code }, 3);
+    c.history.push({ t: Math.round(this.clock), text: `'${d}' 발견 — ${a.name}`, icon: '💡' });
     for (const other of this.residents(a.sid)) if (other.id !== a.id && chance(0.5)) remember(this, other, `${ga(a.name)} '${d}'을(를) 발견했다고 한다`, 4, 0.3, [a.id], 'news');
   }
 
@@ -205,7 +225,7 @@ export class World {
     if (!next || c.tech < next.tech) return;
     c.era++;
     c.eraAt = Math.round(this.clock);
-    c.history.push({ t: Math.round(this.clock), text: `${next.name} 개막` });
+    c.history.push({ t: Math.round(this.clock), text: `${next.name} 개막`, icon: '🌅' });
     this.news('era', `🌅 ${c.name}이(가) ${next.name}에 들어섰다!`, { country: c.code }, 4);
     for (const a of this.anns.values()) if (a.alive && a.country === c.code && ageOf(a, this.clock) > 10) {
       remember(this, a, `세상이 ${next.name}${ro_(next.name)} 바뀌었다`, 7, 0.6, [], 'era');
@@ -247,7 +267,7 @@ export class World {
     c.tax = clamp(0.08 + (100 - a.tr.A) * 0.0012 + a.amb * 0.0005, 0.04, 0.3);
     if (c.era < 2) c.tax = 0;
     c.capital = a.sid;
-    c.history.push({ t: Math.round(this.clock), text: `${a.name} ${title} 취임 (${how})` });
+    if (!this.first(c, 'leader', `첫 ${title} ${a.name}`, '👑')) c.history.push({ t: Math.round(this.clock), text: `${a.name} ${title} 취임 (${how})`, icon: '👑' });
     this.news('power', `👑 ${ga(a.name)} ${c.name}의 ${title}${ga_(title)} 되었다 (${how})`, { anns: [a.id], country: c.code }, 3);
     this.dirtyCountries.add(c.code);
     this.dirtyAnnMeta.add(a.id);
@@ -291,6 +311,7 @@ export class World {
     const people = [...this.anns.values()].filter(a => a.alive && a.country === c.code);
     c.pop = people.length;
     if (!people.length) return;
+    c.topEdu = people.reduce((m, a) => ageOf(a, this.clock) >= 19 ? Math.max(m, a.eduLv || 0) : m, 0);
     const leader = c.leader && this.anns.get(c.leader);
     // 지도자 공백 → 선출/계승/추대
     if (!leader || !leader.alive || leader.country !== c.code) {
@@ -345,11 +366,12 @@ export class World {
   govern(c, L) {
     if (!L || c.era < 2) return;
     const lead = 1 + L.sk.leadership / 200;
+    const edu = 22 + L.tr.A * 0.25 + L.val.family * 0.25 + L.tr.O * 0.1;
     const prefs = [
       ['hall', 30 + L.tr.C * 0.3 + L.amb * 0.2],
       ['academy', 20 + L.tr.O * 0.4 + L.ab.int * 0.2],
       ['temple', 10 + L.tr.A * 0.3 + L.tr.N * 0.1],
-      ['school', 20 + L.tr.A * 0.3 + L.val.family * 0.2],
+      ['seodang', edu + 6], ['kinder', edu - 8], ['school', edu + 8], ['middle', edu + 2], ['high', edu], ['univ', edu - 4 + L.ab.int * 0.2],
       ['lab', 20 + L.tr.O * 0.4 + L.ab.int * 0.3],
     ].sort((a, b) => b[1] - a[1]);
     for (const sid of new Set([c.capital, ...[...this.settlements.values()].filter(s => s.country === c.code).map(s => s.id)])) {
@@ -357,10 +379,17 @@ export class World {
       if (!s) continue;
       for (const [key] of prefs) {
         const def = PUBLIC[key];
-        if (def.era > c.era) continue;
+        if (def.era > c.era || (def.maxEra != null && c.era > def.maxEra)) continue;
         if (key === 'hall' && sid !== c.capital && s.pop < 30) continue;
+        if (key === 'univ' && (sid !== c.capital || c.pop < 35)) continue;
         const have = [...this.companies.values()].filter(co => co.pub && co.ind === key && co.sid === sid && !co.dead).length;
-        const want = key === 'hall' ? 1 : Math.floor(s.pop / (def.per * 2.5)) + (s.pop >= def.per ? 1 : 0);
+        let want;
+        if (def.school) {
+          // 학교는 그 나이의 아이들이 있어야 세운다
+          const range = { seodang: [7, 16], kinder: [4, 7], school: [7, 13], middle: [13, 16], high: [16, 19], univ: [17, 23] }[key];
+          const kids = this.residents(sid).filter(x => { const g = ageOf(x, this.clock); return g >= range[0] && g < range[1]; }).length;
+          want = kids >= 3 ? 1 + Math.floor(kids / 45) : 0;
+        } else want = key === 'hall' ? 1 : Math.floor(s.pop / (def.per * 2.5)) + (s.pop >= def.per ? 1 : 0);
         const cost = wageBase(c.era) * 10 + BUILDINGS[def.building].work * 0.5;
         if (have < want && c.treasury > cost * 1.5 / lead) {
           const org = foundPublic(this, c, s, key, L);
@@ -411,7 +440,15 @@ export class World {
     if (list.length) return list.sort((a, b) => b.pop - a.pop)[0];
     const g = getCountry(code);
     const c = this.ensureCountry(code);
-    const [lon, lat] = randomLandPoint(code, g.centroid, 0, 1.2);
+    // 사람들은 물가에 모여 산다: 해안이나 강을 고른다
+    let pick_ = null;
+    for (let i = 0; i < 6; i++) {
+      const p = randomLandPoint(code, g.centroid, 0, 1.4);
+      const sea = seaNear(p[0], p[1]);
+      const sc = (sea ? 2 + (sea.km < 15 ? 1 : 0) : 0) + rand() * 2;
+      if (!pick_ || sc > pick_.sc) pick_ = { p, sc };
+    }
+    const [lon, lat] = pick_.p;
     const s = makeSettlement(this, c, lon, lat, null);
     c.capital = s.id;
     this.news('city', `⛺ ${c.name}의 첫 정착지 ${s.name}이(가) 생겼다`, { country: code, sid: s.id }, 2);
@@ -420,9 +457,25 @@ export class World {
 
   deployAnns(player, specs) {
     // 투입 한도는 직접 투입한 1세대만 센다 (태어난 후손은 제외)
-    const room = MAX_ANNS_PER_PLAYER - player.anns.filter(id => this.anns.get(id)?.gen === 1).length;
+    const room = MAX_ANNS_PER_PLAYER - player.anns.filter(id => this.anns.get(id)?.pdeploy || this.anns.get(id)?.gen === 1 && !this.anns.get(id)?.parents.length).length;
     if (room <= 0) throw new Error(`한 플레이어는 앤을 최대 ${MAX_ANNS_PER_PLAYER}명까지 투입할 수 있습니다`);
     const c = this.ensureCountry(player.country);
+    // 이 나라에 가정이 있으면, 앤은 무작위 가정에 아기로 태어난다
+    if (this.pickFamily(c.code)) {
+      const born = [];
+      for (const raw of specs.slice(0, room)) {
+        // 가정이 모자라면 이미 고른 가정에 형제·쌍둥이로
+        const fam = this.pickFamily(c.code, born.map(b => b.fam)) || this.pickFamily(c.code);
+        if (!fam) break;
+        const baby = this.bornIntoFamily(player, sanitizeSpec(raw), fam);
+        born.push({ baby, fam });
+      }
+      if (born.length) {
+        this.news('player', `👶 ${player.name}의 앤 ${born.length}명이 ${c.name}의 가정에서 태어났다`, { country: c.code, anns: born.map(b => b.baby.id) }, 2);
+        this.rebuildResidents();
+        return born.map(b => b.baby);
+      }
+    }
     const s = this.homeSettlement(player.country);
     const out = [];
     for (const raw of specs.slice(0, room)) {
@@ -431,8 +484,9 @@ export class World {
       const a = makeAnn(this, { ...spec, culture: c.culture, owner: player.id, country: c.code, sid: s.id, x, z, money: wageBase(c.era) * 5 });
       this.anns.set(a.id, a);
       player.anns.push(a.id);
+      a.pdeploy = true;
       remember(this, a, `${s.name}에 첫발을 내디뎠다`, 9, 0.6, [], 'life');
-      lifeEvent(this, a, `${c.name} ${s.name}에 투입되다`, '🌱');
+      lifeEvent(this, a, `개척자로 ${c.name} ${s.name}에 도착했다 — 아직 아무것도 없는 자연`, '🌱');
       think(this, a, pick(['여기는 어디지? …새로운 삶이 시작되는구나.', '낯선 땅이다. 그래도 왠지 설렌다.', '살아남아야 한다. 그리고 행복해져야지.']));
       out.push(a);
       this.dirtyAnnMeta.add(a.id);
@@ -442,6 +496,144 @@ export class World {
     this.news('player', `👥 ${player.name}의 앤 ${out.length}명이 ${c.name} ${s.name}에 도착했다`, { country: c.code, sid: s.id, anns: out.map(a => a.id) }, 2);
     this.rebuildResidents();
     return out;
+  }
+
+  /** 아기를 맞을 수 있는 가정 (부부·연인, 같은 마을) */
+  pickFamily(code, exclude = []) {
+    const now = this.clock;
+    const fams = [];
+    for (const a of this.anns.values()) {
+      if (!a.alive || a.country !== code || a.travel) continue;
+      const pid = a.spouse || a.partner;
+      if (!pid || a.id > pid) continue;
+      const b = this.anns.get(pid);
+      if (!b || !b.alive || b.sid !== a.sid || b.travel) continue;
+      const ages = [ageOf(a, now), ageOf(b, now)];
+      if (Math.min(...ages) < 18 || Math.max(...ages) > 58) continue;
+      if (exclude.some(f => f.a === a)) continue;
+      const mother = a.gender === 'F' ? a : b.gender === 'F' ? b : null;
+      const father = a.gender === 'M' ? a : b.gender === 'M' ? b : null;
+      const bio = !!(mother && father && ageOf(mother, now) <= 46 && !mother.preg);
+      const recent = mother && now - (mother.lastBirth || -1e9) < YEAR * 0.8;
+      const w = (a.spouse ? 2 : 1) * (1 + (a.val.family + b.val.family) / 100) / (1 + a.kids.length * 0.5) * (recent ? 0.15 : 1);
+      fams.push({ a, b, mother, father, bio, w });
+    }
+    if (!fams.length) return null;
+    let tot = fams.reduce((t, f) => t + f.w, 0), r = rand() * tot;
+    for (const f of fams) { r -= f.w; if (r <= 0) return f; }
+    return fams[fams.length - 1];
+  }
+
+  bornIntoFamily(player, spec, fam) {
+    const { a, b, mother, father, bio } = fam;
+    const m = mother || a, f = father || b;
+    const gender = spec.gender;
+    const name = familyName(m.culture, gender, (father || a).name, givenOf(spec.name, m.culture));
+    const baby = makeBaby(this, m, f, name, gender);
+    // 플레이어가 정한 성격·능력·야망은 이 아이의 타고난 기질이 된다
+    baby.tr = { ...spec.traits }; baby.ab = { ...spec.abilities }; baby.amb = spec.ambition;
+    if (spec.orient) baby.orient = spec.orient;
+    baby.val = deriveValues(baby); baby.goals = deriveGoals(baby);
+    baby.health = clamp(70 + baby.ab.hea * 0.3);
+    baby.owner = player.id; baby.pdeploy = true;
+    baby.parents = [a.id, b.id];
+    this.anns.set(baby.id, baby);
+    player.anns.push(baby.id);
+    a.kids.push(baby.id); b.kids.push(baby.id);
+    if (bio) { mother.lastBirth = Math.round(this.clock); }
+    const home = a.home && this.buildings.get(a.home) || b.home && this.buildings.get(b.home);
+    if (home) this.moveHome(baby, home);
+    const s = this.settlements.get(a.sid);
+    const c = this.countries[a.country];
+    const where = home ? `${home.name === BUILDINGS[home.type].name ? '' : home.name + ' '}${BUILDINGS[home.type].name}` : '모닥불 곁 천막';
+    const parentsTxt = `${wa(a.name)} ${b.name}`;
+    for (const p of [a, b]) {
+      const r = rel(p, baby); r.a = 85; r.f = 50; r.t = 90; r.k = 'child';
+      const rb = rel(baby, p); rb.a = 70; rb.f = 50; rb.t = 90; rb.k = 'parent';
+      remember(this, p, bio ? `${gender === 'M' ? '아들' : '딸'} ${ga(name)} 태어났다` : `${gender === 'M' ? '아들' : '딸'} ${reul(name)} 입양했다`, 10, 1, [baby.id], 'family');
+      lifeEvent(this, p, `${gender === 'M' ? '아들' : '딸'} ${name} ${bio ? '탄생' : '입양'}`, '👶');
+      feel(p, 35, '감격', name);
+      think(this, p, bio ? pick([`${name}… 세상에 온 걸 환영해.`, '이렇게 작은 손이라니.', '이 아이를 위해서라면 뭐든 할 수 있을 것 같다.']) : `${name}, 오늘부터 우리 가족이야.`);
+    }
+    for (const sibId of [...new Set([...a.kids, ...b.kids])]) {
+      if (sibId === baby.id) continue;
+      const sib = this.anns.get(sibId);
+      if (sib && sib.alive) { const r = rel(sib, baby); r.a = 50; r.f = 20; r.k = 'sibling'; const rb = rel(baby, sib); rb.a = 50; rb.f = 20; rb.k = 'sibling'; remember(this, sib, `동생 ${ga(name)} 생겼다`, 6, 0.7, [baby.id], 'family'); }
+    }
+    lifeEvent(this, baby, `${c.name} ${s.name}, ${parentsTxt}의 ${where}에서 ${bio ? '태어났다' : '새 가족을 만났다'}`, '👶');
+    remember(this, baby, '세상에 태어났다', 10, 1, [a.id, b.id], 'life');
+    this.first(c, 'baby', `첫 아기 ${name} — ${parentsTxt}의 아이`, '👶');
+    this.news('family', `👶 ${parentsTxt}의 가정에 ${gender === 'M' ? '아들' : '딸'} ${ga(name)} ${bio ? '태어났다' : '찾아왔다'} (${this.players[player.id]?.name}의 앤)`, { anns: [baby.id, a.id, b.id], country: c.code }, 2);
+    this.dirtyAnnMeta.add(baby.id); this.dirtyAnnMeta.add(a.id); this.dirtyAnnMeta.add(b.id);
+    return baby;
+  }
+
+  // ── 학교: 나이에 맞는 학교가 마을에 있어야 다닌다 ──
+  schoolDaily(a, age, s, c) {
+    const stage = SCHOOLS.find(x => age >= x.ages[0] && age < x.ages[1]);
+    const cur = a.school;
+    if (cur && (!stage || stage.key !== cur.key)) {
+      const def = SCHOOLS.find(x => x.key === cur.key);
+      const years = def.ages[1] - def.ages[0];
+      const needDays = years * 140;
+      const org = this.companies.get(cur.org);
+      if (cur.days >= needDays * 0.55) {
+        a.eduLv = Math.max(a.eduLv || 0, def.level);
+        const rank = cur.grade > 85 ? ' — 수석 졸업!' : cur.grade > 70 ? ' (우수한 성적)' : '';
+        lifeEvent(this, a, `${cur.name} 졸업${rank}`, '🎓');
+        remember(this, a, `${cur.name}을(를) 졸업했다${rank}`, def.level >= 3 ? 8 : 6, 0.7, [], 'school');
+        think(this, a, def.key === 'univ' ? '드디어 졸업! 이제 진짜 어른의 세계다.' : pick(['졸업이라니, 시간 참 빠르다.', '친구들이랑 헤어지는 게 아쉽다.', '다음엔 어떤 일이 기다리고 있을까?']));
+        for (const pid of a.parents) { const p = this.anns.get(pid); if (p?.alive) remember(this, p, `${ga(a.name)} ${cur.name}을(를) 졸업했다`, 6, 0.8, [a.id], 'family'); }
+        if (def.key === 'univ') this.first(c, 'graduate', `첫 대학 졸업생 ${a.name}`, '🎓');
+        else if (def.level >= 1) this.first(c, 'grad' + def.key, `첫 ${def.name} 졸업생 ${a.name}`, '🎓');
+      } else if (def.level > 0) {
+        lifeEvent(this, a, `${cur.name}을(를) 끝까지 다니지 못했다`, '📕');
+        remember(this, a, `${cur.name}을(를) 마치지 못했다`, 5, -0.4, [], 'school');
+      }
+      a.school = null;
+      this.dirtyAnnMeta.add(a.id);
+    }
+    if (!stage || a.school) return;
+    a.noSchool = a.noSchool || {};
+    if (stage.optional) {
+      if (a.noSchool[stage.key]) return;
+      a.noSchool[stage.key] = 1;
+      const want = a.ab.int * 0.35 + a.tr.O * 0.2 + a.amb * 0.25 + a.tr.C * 0.15 + (a.eduLv >= 3 ? 10 : -30) + gauss() * 10;
+      const org = this.findSchool(s, stage);
+      if (org && want > 52) this.enroll(a, stage, org, s, c);
+      else if (org) { lifeEvent(this, a, '대학 대신 일을 시작하기로 했다', '🧰'); think(this, a, '공부는 이만하면 됐다. 이제 돈을 벌어야지.'); }
+      return;
+    }
+    const org = this.findSchool(s, stage);
+    if (org) { this.enroll(a, stage, org, s, c); return; }
+    s.need = s.need || {};
+    s.need.school = (s.need.school || 0) + 1;
+    if (!a.noSchool[stage.key] && stage.level >= 1 && c.era >= 2) {
+      a.noSchool[stage.key] = 1;
+      lifeEvent(this, a, `${s.name}에는 ${stage.name}이(가) 없어 학교에 가지 못했다`, '🏚️');
+      think(this, a, '다른 동네 아이들은 학교에 간다던데…');
+      for (const pid of a.parents) { const p = this.anns.get(pid); if (p?.alive && chance(0.5)) think(this, p, `우리 마을에도 학교가 있으면 ${a.name}도 배울 수 있을 텐데.`); }
+    }
+  }
+  findSchool(s, stage) {
+    let best = null;
+    for (const co of this.companies.values()) {
+      if (co.dead || co.sid !== s.id || !co.pub || !stage.orgs.includes(co.ind)) continue;
+      const b = this.buildings.get(co.b);
+      if (!b?.done) continue;
+      if (!best || stage.orgs.indexOf(co.ind) < stage.orgs.indexOf(best.ind)) best = co;
+    }
+    return best;
+  }
+  enroll(a, stage, org, s, c) {
+    const name = `${s.name} ${PUBLIC[org.ind].name}`;
+    a.school = { key: stage.key, org: org.id, name, since: Math.round(this.clock), days: 0, grade: 50 + (a.ab.int - 50) * 0.4 + (a.tr.C - 50) * 0.2 };
+    lifeEvent(this, a, `${name} 입학`, stage.key === 'univ' ? '🏫' : '🎒');
+    remember(this, a, `${name}에 입학했다`, 6, 0.6, [], 'school');
+    think(this, a, stage.key === 'elem' ? pick(['학교는 어떤 곳일까? 두근두근.', '친구를 많이 사귀고 싶다!', '선생님이 무서우면 어떡하지…']) : stage.key === 'univ' ? '대학생이 됐다. 하고 싶은 공부를 마음껏 해 보자.' : pick(['새 학교, 새 친구들.', '공부가 점점 어려워지겠지.']));
+    for (const pid of a.parents) { const p = this.anns.get(pid); if (p?.alive) { remember(this, p, `${ga(a.name)} ${name}에 들어갔다`, 5, 0.6, [a.id], 'family'); if (chance(0.5)) think(this, p, `${a.name}${a.name ? '' : ''}, 학교 잘 다녀오렴.`); } }
+    this.first(c, 'student:' + stage.key, `첫 ${stage.name} 학생 ${a.name}`, '🎒');
+    this.dirtyAnnMeta.add(a.id);
   }
 
   // ── 이주 · 개척 ──
@@ -557,6 +749,10 @@ export class World {
       a.retired = true;
       if (co) remember(this, a, `${co.name}을(를) 후배들에게 맡겼다`, 7, 0.3, [], 'work');
     }
+    if (age >= 3.5 && age < 24) this.schoolDaily(a, age, s, c);
+    if (!a.home && age >= 19) { s.need = s.need || {}; s.need.homes = (s.need.homes || 0) + 1; }
+    if (a.sick > 30 && !this.findCivic(s, 'clinic')) { s.need = s.need || {}; s.need.clinic = (s.need.clinic || 0) + 1; }
+    runEvents(this, a, { age, s, c });
     considerPromotion(this, a);
     if (a.job && !a.job.co) {
       const j = JOBS[a.job.id];
@@ -644,7 +840,13 @@ export class World {
     }
     think(this, mother, `${name}… 세상에 온 걸 환영해.`);
     if (father) think(this, father, `내가 아빠라니. ${reul(name)} 꼭 지켜 줄 거야.`);
-    lifeEvent(this, baby, `${fmtDate(this.clock)} ${this.settlements.get(baby.sid).name}에서 태어남`, '👶');
+    {
+      const hb = mother.home && this.buildings.get(mother.home);
+      const where = hb ? BUILDINGS[hb.type].name : '모닥불 곁 천막';
+      const cc = this.countries[mother.country];
+      lifeEvent(this, baby, `${cc.name} ${this.settlements.get(baby.sid).name}, ${father ? `${wa(father.name)} ${mother.name}` : mother.name}의 ${where}에서 태어났다`, '👶');
+      this.first(cc, 'baby', `첫 아기 ${name} — ${mother.name}의 아이`, '👶');
+    }
     remember(this, baby, '세상에 태어났다', 10, 1, [mother.id], 'life');
     const fam = mother.kids.length;
     if (mother.goals.some(g => g.k === 'family' && !g.done) && mother.spouse && fam >= 2) this.achieveGoal(mother, mother.goals.find(g => g.k === 'family'));
@@ -690,6 +892,9 @@ export class World {
 
   settlementDaily(s) {
     const pop = this.residents(s.id).length;
+    s.needPrev = s.need || {};
+    s.need = {};
+    s.weather = rollWeather(this, s);
     s.pop = pop;
     s.food = Math.max(0, s.food * 0.985); // 썩는다
     const granary = this.findCivic(s, 'granary');
@@ -753,7 +958,7 @@ export class World {
     const w = new World(o);
     w.nextEventId = o.nextEventId || 1;
     w.countries = o.countries || {};
-    for (const s of o.settlements || []) w.settlements.set(s.id, s);
+    for (const s of o.settlements || []) { ensureSite(s); w.settlements.set(s.id, s); }
     for (const b of o.buildings || []) w.buildings.set(b.id, b);
     for (const c of o.companies || []) w.companies.set(c.id, c);
     for (const a of o.anns || []) w.anns.set(a.id, a);
@@ -779,7 +984,7 @@ export class World {
     return {
       id: a.id, n: a.name, g: a.gender, o: a.owner, c: a.country, s: a.sid, b: a.born, al: a.alive, d: a.died, j: jobTitle(this, a),
       h: a.home, sp: a.spouse, p: a.partner, lk: a.look, ld: c?.leader === a.id ? ERAS[c.era].leader : null, gen: a.gen, tr: a.travel ? 1 : 0,
-      jk: a.job?.id || null, ceo: !!a.job?.ceo,
+      jk: a.job?.id || null, ceo: !!a.job?.ceo, sc: a.school?.name || null,
     };
   }
   annPos(a) {
@@ -789,14 +994,19 @@ export class World {
     return { id: b.id, sid: b.sid, type: b.type, name: b.name, x: b.x, z: b.z, w: b.w, d: b.d, h: b.h, done: b.done, p: Math.round(b.progress / b.work * 100) / 100, era: b.era, co: b.co, owner: b.owner, res: b.res.length };
   }
   settlementOut(s) {
-    return { id: s.id, name: s.name, country: s.country, lon: s.lon, lat: s.lat, level: s.level, levelName: SETTLEMENT_LEVELS[s.level].name, pop: s.pop, food: Math.round(s.food), founded: s.founded, abandoned: !!s.abandoned, radius: Math.round(s.radius) };
+    const inst = [];
+    for (const co of this.companies.values()) if (co.sid === s.id && !co.dead) inst.push(co.pub ? co.ind : 'co:' + co.ind);
+    return {
+      id: s.id, name: s.name, country: s.country, lon: s.lon, lat: s.lat, level: s.level, levelName: SETTLEMENT_LEVELS[s.level].name, pop: s.pop, food: Math.round(s.food), founded: s.founded, abandoned: !!s.abandoned, radius: Math.round(s.radius),
+      site: s.site, feat: siteFeatures(s), weather: s.weather || null, need: s.needPrev || {}, inst,
+    };
   }
   countryOut(c) {
     const L = c.leader && this.anns.get(c.leader);
     return {
       code: c.code, name: c.name, era: c.era, eraName: ERAS[c.era].name, tech: Math.round(c.tech), nextTech: ERAS[c.era + 1]?.tech ?? null, curTech: ERAS[c.era].tech,
       leader: L ? { id: L.id, name: L.name, title: ERAS[c.era].leader } : null, pop: c.pop, treasury: Math.round(c.treasury), tax: Math.round(c.tax * 100),
-      discoveries: c.discoveries, capital: c.capital, history: c.history.slice(-15), founded: c.founded,
+      discoveries: c.discoveries, capital: c.capital, history: c.history.slice(-40), founded: c.founded, topEdu: c.topEdu || 0,
     };
   }
   companyOut(co) {
@@ -868,6 +1078,8 @@ export class World {
       settlement: s ? { id: s.id, name: s.name } : null, country: c ? { code: c.code, name: c.name } : null,
       owner: a.owner && this.players[a.owner] ? { id: a.owner, name: this.players[a.owner].name, color: this.players[a.owner].color } : null,
       techMade: Math.round(a.techMade || 0), discoveries: a.discoveries || [], wantsMigrate: a.wantsMigrate || null,
+      school: a.school ? { name: a.school.name, key: a.school.key, grade: Math.round(a.school.grade), since: a.school.since } : null,
+      eduLv: a.eduLv || 0, eduName: EDU_NAMES[a.eduLv || 0], born: a.born, pdeploy: !!a.pdeploy,
     };
   }
 }

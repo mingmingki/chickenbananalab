@@ -135,3 +135,56 @@ export function randomLandPoint(code, near = null, minDeg = 0, maxDeg = 6) {
   }
   return near ? [...near] : [...c.centroid];
 }
+
+// ── 육지/바다 래스터 (0.05° 격자) : 해안 근처 정착지에 바다를 놓기 위해 ──
+const RES = 0.05, RW = Math.round(360 / RES), RH = Math.round(180 / RES);
+let land = null;
+function buildLandRaster() {
+  const { list } = loadGeo();
+  const rows = Array.from({ length: RH }, () => []);
+  for (const c of list) for (const flat of c.rings) {
+    for (let k = 0; k < flat.length; k += 2) {
+      const k2 = (k + 2) % flat.length;
+      const x1 = flat[k], y1 = flat[k + 1], x2 = flat[k2], y2 = flat[k2 + 1];
+      if (Math.abs(x2 - x1) > 180) continue; // 날짜변경선에서 잘린 변
+      const r1 = (90 - y1) / RES - 0.5, r2 = (90 - y2) / RES - 0.5;
+      const lo = Math.ceil(Math.min(r1, r2)), hi = Math.floor(Math.max(r1, r2));
+      if (r1 === r2) continue;
+      for (let r = Math.max(0, lo); r <= Math.min(RH - 1, hi); r++) {
+        if ((r === hi && r === Math.max(r1, r2))) continue; // 꼭짓점 중복 방지
+        const t = (r - r1) / (r2 - r1);
+        rows[r].push((x1 + (x2 - x1) * t + 180) / RES);
+      }
+    }
+  }
+  land = new Uint8Array(RW * RH);
+  for (let r = 0; r < RH; r++) {
+    const xs = rows[r].sort((a, b) => a - b);
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      const a = Math.max(0, Math.ceil(xs[i] - 0.5)), b = Math.min(RW - 1, Math.floor(xs[i + 1] - 0.5));
+      land.fill(1, r * RW + a, r * RW + b + 1);
+    }
+  }
+  // 남극 끝
+  land.fill(1, Math.round((90 + 78) / RES) * RW);
+}
+export function isLand(lon, lat) {
+  if (!land) buildLandRaster();
+  let x = Math.floor((lon + 180) / RES), y = Math.floor((90 - lat) / RES);
+  x = ((x % RW) + RW) % RW; y = Math.min(RH - 1, Math.max(0, y));
+  return land[y * RW + x] === 1;
+}
+/** 주변 바다 방향: 16방향 × 여러 거리에서 바다를 찾는다. 없으면 null */
+export function seaNear(lon, lat, maxKm = 30) {
+  const kmLon = 111.32 * Math.cos(lat * Math.PI / 180), kmLat = 110.57;
+  let sx = 0, sz = 0, nearest = Infinity, hits = 0;
+  for (let i = 0; i < 16; i++) {
+    const ang = i / 16 * Math.PI * 2; // 0 = 동쪽, π/2 = 남쪽 (로컬 x=동, z=남)
+    for (const km of [3, 6, 10, 16, 23, maxKm]) {
+      const lo = lon + Math.cos(ang) * km / kmLon, la = lat - Math.sin(ang) * km / kmLat;
+      if (!isLand(lo, la)) { sx += Math.cos(ang) / km; sz += Math.sin(ang) / km; hits++; nearest = Math.min(nearest, km); break; }
+    }
+  }
+  if (!hits) return null;
+  return { angle: Math.atan2(sz, sx), km: nearest, open: hits / 16 };
+}

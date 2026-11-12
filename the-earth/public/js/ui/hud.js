@@ -1,7 +1,10 @@
 // 관찰 화면: 앤은 조종할 수 없다. 대신 그들의 속마음과 인생을 들여다볼 수 있다.
 import { fmtDate, fmtTime, fmtDateTime, localHour, MIN_YEAR } from '../state.js';
+import { josa } from './josa.js';
 import { avatarHTML } from './avatar.js';
 
+const WEMO = { 맑음: '☀️', 구름: '☁️', 비: '🌧️', 소나기: '🌦️', 폭우: '⛈️', 눈: '🌨️', 폭설: '❄️', 바람: '🌬️', 안개: '🌫️', 무더위: '🥵', 한파: '🥶', 태풍: '🌀' };
+const INST = { hall: '🏛️ 관청', academy: '📚 학당', temple: '⛩️ 신전', seodang: '📜 서당', kinder: '🧸 유치원', school: '🏫 초등학교', middle: '🏫 중학교', high: '🏫 고등학교', univ: '🎓 대학교', lab: '🔬 국립 연구소' };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const pct = v => Math.max(0, Math.min(100, v));
 const bar = (v, color = 'var(--accent)') => `<div class="bar"><i style="width:${pct(v)}%;background:${color}"></i></div>`;
@@ -15,7 +18,7 @@ export class Hud {
     this.left = document.getElementById('left-body');
     this.right = document.getElementById('right');
     this.tab = me ? 'mine' : 'all';
-    this.innerTab = 'mind';
+    this.innerTab = 'chron';
     this.selected = null;
     this.detail = null;
     this.filter = '';
@@ -87,17 +90,55 @@ export class Hud {
     if (s) this.flyTown(s.id);
   }
 
-  flyTown(sid) {
+  flyTown(sid, card = true) {
     const s = this.state.settlements.get(sid);
     if (!s) return;
     this.w3d.rig.follow = null;
     this.w3d.rig.flyTo({ lat: s.lat, lon: s.lon, alt: 1.6 });
+    if (card) this.showTown(sid);
+  }
+
+  /** 마을 정보: 자연, 날씨, 있는 것과 없는 것, 주민 */
+  showTown(sid) {
+    const st = this.state, s = st.settlements.get(sid);
+    if (!s) return;
+    this.selected = null; this.detail = null; this.townId = sid;
+    this.w3d.cities.selected = null; this.live?.watch(null);
+    const c = st.countries.get(s.country);
+    const f = s.feat || {};
+    const nature = [f.mountain ? '🏔️ 험한 산' : '⛰️ 언덕과 산', f.sea && '🌊 바다', f.river && '🏞️ 강', f.lake && '💧 호수', '🌲 숲', { desert: '🏜️ 사막 기후', snow: '❄️ 추운 땅', tropical: '🌴 더운 땅' }[f.biome]].filter(Boolean);
+    const inst = s.inst || [];
+    const pubs = inst.filter(x => !x.startsWith('co:')).map(k => INST[k] || k);
+    const cos = {};
+    for (const x of inst.filter(x => x.startsWith('co:'))) { const k = x.slice(3); cos[k] = (cos[k] || 0) + 1; }
+    const coList = Object.entries(cos).map(([k, n]) => `${this.meta.industries[k]?.name || k}${n > 1 ? ' ×' + n : ''}`);
+    const n = s.need || {};
+    const hasBuilder = !!cos.construction;
+    const needs = [];
+    if (n.homes) needs.push(`🏠 집이 필요한 사람 ${n.homes}명${hasBuilder ? '' : ' — 건설회사가 없어 움집밖에 못 짓는다'}`);
+    if (n.school) needs.push(`🎒 학교에 못 가는 아이 ${n.school}명 — 나이에 맞는 학교가 없다`);
+    if (n.clinic) needs.push(`🤒 아픈데 병원이 없는 사람 ${n.clinic}명`);
+    if (!hasBuilder && (c?.era || 0) >= 1) needs.push('🔨 건설회사가 없다 — 제대로 된 집과 가게를 지을 수 없다');
+    if (s.food < s.pop * 2) needs.push('🍚 식량이 모자란다');
+    const people = [...st.anns.values()].filter(a => a.al && a.s === sid).sort((a, b) => a.b - b.b);
+    this.right.classList.remove('hidden');
+    this.right.innerHTML = `<div id="ann-panel"><div class="ap-head" style="grid-template-columns:1fr auto">
+      <div><h2>${esc(s.name)} <span class="chip">${esc(s.levelName)}</span></h2><div class="meta">${esc(c?.name || '')} · ${esc(c?.eraName || '')} · 인구 ${s.pop}명 · ${fmtDate(s.founded)} 세워짐</div></div>
+      <div class="acts"><button class="btn small ghost" data-act="close-ann">닫기 ✕</button></div></div>
+      <div class="ap-body">
+        ${s.weather ? `<div class="now"><div class="what"><span class="em">${WEMO[s.weather.k] || '🌤️'}</span>${esc(s.weather.season)} · ${esc(s.weather.k)} · ${s.weather.temp}°C</div><div class="line">식량 ${s.food} · 마을 반경 ${s.radius}m</div></div>` : ''}
+        <div class="sec">자연</div><div class="tags">${nature.map(x => `<span>${x}</span>`).join('')}</div>
+        <div class="sec">있는 것</div>${pubs.length || coList.length ? `<div class="tags">${pubs.map(x => `<span>${esc(x)}</span>`).join('')}${coList.map(x => `<span>🏢 ${esc(x)}</span>`).join('')}</div>` : '<p class="sub">아직 아무것도 없다. 자연뿐.</p>'}
+        <div class="sec">없어서 아쉬운 것</div>${needs.length ? needs.map(x => `<div class="mem neg">${esc(x)}</div>`).join('') : '<p class="sub">지금은 큰 불편이 없다.</p>'}
+        <div class="sec">사는 사람들 (${people.length})</div>${people.map(a => this.annRow(a)).join('')}
+      </div></div>`;
   }
 
   select(id, fly = false) {
     this.selected = id;
     this.w3d.cities.selected = id;
     this.live?.watch(id);
+    this.townId = null;
     if (!id) { this.right.classList.add('hidden'); this.w3d.rig.follow = null; this.detail = null; this.renderLeft(true); return; }
     this.detail = null;
     this.right.classList.remove('hidden');
@@ -129,6 +170,7 @@ export class Hud {
 
   onTick() {
     this.renderLeft(false);
+    if (this.townId && !this.selected && performance.now() - (this.lastTown || 0) > 3000) { this.lastTown = performance.now(); const sc = this.right.querySelector('.ap-body')?.scrollTop; this.showTown(this.townId); const b = this.right.querySelector('.ap-body'); if (b && sc) b.scrollTop = sc; }
     // 새 소식: 내 앤 관련은 토스트
     const evs = this.state.events.filter(e => e.id > this.lastEventId);
     if (evs.length) {
@@ -160,7 +202,7 @@ export class Hud {
     let sub = `세계시 · ×${st.scale}`;
     const focus = this.selected && st.anns.get(this.selected);
     const s = focus ? st.settlements.get(focus.s) : (this.me && st.settlements.get(st.countries.get(this.me.country)?.capital));
-    if (s) sub = `${s.name} 현지 ${String(Math.floor(localHour(now, s.lon))).padStart(2, '0')}:${String(Math.floor((localHour(now, s.lon) % 1) * 60)).padStart(2, '0')} · ${sub}`;
+    if (s) sub = `${s.name} 현지 ${String(Math.floor(localHour(now, s.lon))).padStart(2, '0')}:${String(Math.floor((localHour(now, s.lon) % 1) * 60)).padStart(2, '0')}${s.weather ? ` · ${WEMO[s.weather.k] || ''} ${s.weather.k} ${s.weather.temp}°` : ''} · ${sub}`;
     let pop = 0; for (const a of st.anns.values()) if (a.al) pop++;
     document.getElementById('hud-sub').textContent = `${sub} · 세계 인구 ${pop}명`;
     const meEl = document.getElementById('hud-me');
@@ -180,7 +222,7 @@ export class Hud {
     return `<div class="ann-row ${a.id === this.selected ? 'on' : ''} ${a.al ? '' : 'dead'}" data-ann="${a.id}">
       ${avatarHTML({ ...a, age }, color)}
       <div style="min-width:0"><div class="nm">${esc(a.n)} <small>${a.g === 'M' ? '♂' : '♀'} ${age}세</small>${a.ld ? `<span class="badge">${esc(a.ld)}</span>` : ''}</div>
-      <div class="job">${a.al ? esc(a.j || (age < 19 ? (age < 3 ? '아기' : '학생') : '무직')) : '세상을 떠남'}${a.gen > 1 ? ` · ${a.gen}세대` : ''}</div></div>
+      <div class="job">${a.al ? esc(a.sc ? '🎒 ' + a.sc : a.j || (age < 4 ? '아기' : age < 19 ? '집에서 지냄' : '무직')) : '세상을 떠남'}${a.gen > 1 ? ` · ${a.gen}세대` : ''}</div></div>
       <div class="act" title="${esc(this.meta.acts[ps?.act]?.label || '')}">${emoji}</div>
     </div>`;
   }
@@ -224,7 +266,7 @@ export class Hud {
           <div class="row"><span>국고 · 세율</span><b>${c.treasury.toLocaleString()} · ${c.tax}%</b></div>
           <div class="row"><span>정착지</span><b>${towns.map(s => `<span class="linklike" data-town="${s.id}">${esc(s.name)}</span>(${esc(s.levelName)})`).join(', ')}</b></div>
           ${c.discoveries.length ? `<div class="tags">${c.discoveries.map(d => `<span>💡${esc(d)}</span>`).join('')}</div>` : ''}
-          ${c.history.length ? `<p class="sub small">${c.history.slice(-4).reverse().map(h => `${fmtDate(h.t)} ${esc(h.text)}`).join('<br>')}</p>` : ''}
+          ${c.history.length ? `<div class="sec">나라의 연대기</div>${c.history.slice(-14).reverse().map(h => `<div class="life"><span>${h.icon || '•'}</span><div>${esc(h.text)}<time>${fmtDate(h.t)}</time></div></div>`).join('')}` : ''}
         </div>`;
       }).join('') || '<p class="empty">아직 문명이 시작된 나라가 없습니다.</p>';
     } else if (this.tab === 'biz') {
@@ -310,8 +352,18 @@ export class Hud {
       </div>`).join('') || '<p class="sub">아직 아는 사람이 없다.</p>');
     } else if (tab === 'mem') {
       body += `<div class="sec">기억 (중요한 것일수록 오래 남는다)</div>` + d.mem.map(m => `<div class="mem ${m.v > 0.2 ? 'pos' : m.v < -0.2 ? 'neg' : ''} ${m.imp >= 7 ? 'big' : ''}">${m.imp >= 8 ? '⭐ ' : ''}${esc(m.text)}<time>${fmtDateTime(m.t)}</time></div>`).join('');
-    } else if (tab === 'life') {
-      body += `<div class="sec">인생</div>` + d.life.slice().reverse().map(l => `<div class="life"><span>${l.icon}</span><div>${esc(l.text)}<time>${fmtDate(l.t)}</time></div></div>`).join('');
+    } else if (tab === 'chron') {
+      // 연대기: 어느 집에서 태어나, 무엇을 하며, 어떻게 살아왔는가 (나이별)
+      const ageAt = t => Math.max(0, Math.floor((t - d.born) / MIN_YEAR));
+      const now2 = d.al ? '지금' : '마지막';
+      const doing = d.al ? `${act?.emoji || '🙂'} ${esc(act?.label || '쉬는 중')}${act?.target ? ` — ${esc(act.target.name)}` : ''}` : '🕯️ 세상을 떠남';
+      const role = d.school ? `🎒 ${esc(d.school.name)} ${d.age}살 학생 (성적 ${d.school.grade})` : d.job ? `💼 ${esc(d.job.title)}` : d.age < 4 ? '🍼 아기' : d.age < 19 ? '🏠 집에서 지냄' : d.retired ? '🌿 은퇴' : '일자리를 찾는 중';
+      body += `<div class="chron-now"><b>${now2}</b> ${doing}<br><span class="sub small">${role} · 학력: ${esc(d.eduName || '')}${d.home ? ` · 집: ${esc(d.home.name)}` : ' · 집 없음'}</span></div>`;
+      const groups = new Map();
+      for (const l of d.life) { const g = ageAt(l.t); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(l); }
+      const ages = [...groups.keys()].sort((x, y) => y - x);
+      body += ages.map(g => `<div class="chron-age"><span>${g}살</span><i>${fmtDate(d.born + g * MIN_YEAR).replace(/ \d+월 \d+일$/, '')}</i></div>` +
+        groups.get(g).slice().reverse().map(l => `<div class="life"><span>${l.icon}</span><div>${esc(l.text)}<time>${fmtDate(l.t)}</time></div></div>`).join('')).join('');
     } else if (tab === 'dream') {
       body += `<div class="sec">꿈</div>` + d.goals.map(g => `<div class="goal ${g.done ? 'done' : ''}"><span>${g.done ? (g.given ? '🍂' : '✅') : '✨'}</span><div>${esc(g.text)}${g.done ? `<div class="sub small" style="margin:0">${g.given ? '내려놓음' : `이룸 · ${g.at ? fmtDate(g.at) : ''}`}</div>` : ''}</div></div>`).join('');
       const vals = Object.entries(d.val).sort((a, b) => b[1] - a[1]);
@@ -331,12 +383,12 @@ export class Hud {
       <div class="ap-head">
         ${avatarHTML({ ...d, age: d.age }, color)}
         <div><h2>${esc(d.n)} <small style="font-size:13px;color:var(--muted);font-weight:400">${d.g === 'M' ? '♂' : '♀'} ${d.age}세 · ${esc(d.stage)}</small>${d.ld ? `<span class="badge">${esc(d.ld)}</span>` : ''}</h2>
-          <div class="meta">${d.job ? esc(d.job.title) : d.retired ? '은퇴' : d.age < 19 ? '' : '무직'}${d.settlement ? ` · ${esc(d.country?.name)} <span class="linklike" data-town="${d.settlement.id}">${esc(d.settlement.name)}</span>` : ''}<br>
+          <div class="meta">${d.school ? '🎒 ' + esc(d.school.name) : d.job ? esc(d.job.title) : d.retired ? '은퇴' : d.age < 4 ? '아기' : d.age < 19 ? '' : '무직'}${d.settlement ? ` · ${esc(d.country?.name)} <span class="linklike" data-town="${d.settlement.id}">${esc(d.settlement.name)}</span>` : ''}<br>
           ${d.owner ? `<span class="dot" style="background:${d.owner.color}"></span> ${esc(d.owner.name)}의 앤` : '야생의 앤'}${d.gen > 1 ? ` · ${d.gen}세대` : ''}</div></div>
         <div class="acts">${d.al ? `<button class="btn small ${follow ? 'primary' : ''}" data-act="follow">${follow ? '📍 따라가는 중' : '📍 따라가기'}</button>` : ''}<button class="btn small ghost" data-act="close-ann">닫기 ✕</button></div>
       </div>
       <div class="ap-body">${nowBox}
-        <div class="inner-tabs">${[['mind', '💭 생각'], ['self', '🧬 성격·능력'], ['rels', '💞 관계'], ['mem', '📔 기억'], ['life', '📜 인생'], ['dream', '✨ 꿈']].map(([k, n]) => `<button data-itab="${k}" class="${tab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+        <div class="inner-tabs">${[['chron', '📜 연대기'], ['mind', '💭 생각'], ['self', '🧬 성격·능력'], ['rels', '💞 관계'], ['mem', '📔 기억'], ['dream', '✨ 꿈']].map(([k, n]) => `<button data-itab="${k}" class="${tab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
         ${body}
       </div></div>`;
     const nb = this.right.querySelector('.ap-body');

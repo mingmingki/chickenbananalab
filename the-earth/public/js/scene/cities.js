@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { R, frameAt, llToVec, localToLL } from './geo.js';
 import { glowTexture } from './space.js';
+import { Terrain, TERRAIN_R } from '../shared/terrain.js';
 
 const CELL = 20, BLOCK = 5;
 const mod = (n, m) => ((n % m) + m) % m;
@@ -142,8 +143,142 @@ export class Cities {
     marker.position.copy(up).multiplyScalar(R + 2);
     this.root.add(marker);
     const t = { s, g, marker, base, center: up.clone().multiplyScalar(base), up, buildings: new THREE.Group(), bmap: new Map(), ground: null, anns: null, dots: null, ids: [], groundKey: '' };
+    t.terrain = new Terrain(s.site);
+    const hc = new Map();
+    t.hAt = (x, z) => {
+      const k = Math.round(x / 2) * 100003 + Math.round(z / 2);
+      let h = hc.get(k);
+      if (h === undefined) { h = Math.max(0, t.terrain.height(x, z)); if (hc.size > 50000) hc.clear(); hc.set(k, h); }
+      return h;
+    };
     g.add(t.buildings);
     return t;
+  }
+
+  /** 자연: 산과 언덕(지형), 물(바다·강·호수), 숲. 가까워졌을 때 한 번 만든다 */
+  buildNature(t) {
+    const T = t.terrain, N = 168, TR = TERRAIN_R, step = 2 * TR / N;
+    const pos = new Float32Array((N + 1) * (N + 1) * 3), col = new Float32Array((N + 1) * (N + 1) * 3), H = new Float32Array((N + 1) * (N + 1));
+    for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+      const x = -TR + i * step, z = -TR + j * step, k = j * (N + 1) + i;
+      const rr = Math.hypot(x, z);
+      // 가장자리는 지구 표면 아래로 살짝 가라앉혀 절벽 없이 이어지게
+      const h = T.height(x, z) - 60 * Math.min(1, Math.max(0, (rr - TR * 0.955) / (TR * 0.045)));
+      H[k] = h; pos[k * 3] = x; pos[k * 3 + 1] = h; pos[k * 3 + 2] = z;
+    }
+    const grass = new THREE.Color(biomeGround(t.s.lat)), forest = new THREE.Color('#2f5a2e'), sand = new THREE.Color('#d9c89a'), rock = new THREE.Color('#7b7166'),
+      snow = new THREE.Color('#eef1f4'), wet = new THREE.Color('#6d6a52'), cc = new THREE.Color(), muted = new THREE.Color(biomeGround(t.s.lat)).lerp(new THREE.Color('#8a9a78'), 0.5);
+    const snowLine = t.s.site?.biome === 'snow' ? 180 : t.s.site?.biome === 'tropical' ? 900 : 520;
+    for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+      const k = j * (N + 1) + i, h = H[k], x = pos[k * 3], z = pos[k * 3 + 2];
+      const hx = H[j * (N + 1) + Math.min(N, i + 1)] - H[j * (N + 1) + Math.max(0, i - 1)], hz = H[Math.min(N, j + 1) * (N + 1) + i] - H[Math.max(0, j - 1) * (N + 1) + i];
+      const slope = Math.hypot(hx, hz) / (2 * step);
+      const fr = T.forest(x, z, h);
+      if (h < 0.4) cc.copy(wet).lerp(sand, 0.4);
+      else if (h < 2.2 && t.s.site?.coast) cc.copy(sand);
+      else { cc.copy(grass).lerp(forest, Math.min(1, fr * 1.3)); if (t.s.site?.biome === 'desert') cc.lerp(sand, 0.55); }
+      cc.lerp(rock, Math.min(1, Math.max(0, (slope - 0.35) * 2.2) + Math.max(0, (h - 260) / 300)));
+      if (h > snowLine) cc.lerp(snow, Math.min(1, (h - snowLine) / 120));
+      const edge = Math.min(1, Math.max(0, (Math.hypot(x, z) - TR * 0.8) / (TR * 0.17)));
+      cc.lerp(muted, edge * 0.7);
+      const n = 0.92 + ((i * 928371 + j * 1237) % 97) / 97 * 0.12;
+      col[k * 3] = cc.r * n; col[k * 3 + 1] = cc.g * n; col[k * 3 + 2] = cc.b * n;
+    }
+    const idx = [];
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const cx = -TR + (i + 0.5) * step, cz = -TR + (j + 0.5) * step;
+      if (cx * cx + cz * cz > TR * TR) continue;
+      const a = j * (N + 1) + i, b = a + N + 1;
+      idx.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const land = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }));
+    land.userData.terrain = true;
+    const water = new THREE.Mesh(new THREE.CircleGeometry(TR * 0.955, 96).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x2b6a96, transparent: true, opacity: 0.86, roughness: 0.12, metalness: 0.15 }));
+    water.position.y = -0.3;
+    t.g.add(land, water);
+    // 강: 지형 격자보다 가는 물길도 끊기지 않도록 지형 위에 덮는 띠
+    const rv = t.s.site?.river;
+    if (rv) {
+      const hGrid = (x, z) => {
+        const fx = (x + TR) / step, fz = (z + TR) / step, i = Math.max(0, Math.min(N - 1, Math.floor(fx))), j = Math.max(0, Math.min(N - 1, Math.floor(fz)));
+        const u = fx - i, v = fz - j, k = j * (N + 1) + i;
+        return (H[k] * (1 - u) + H[k + 1] * u) * (1 - v) + (H[k + N + 1] * (1 - u) + H[k + N + 2] * u) * v;
+      };
+      const rc = Math.cos(rv.a), rs = Math.sin(rv.a);
+      const center = u => rv.off + rv.m * Math.sin(u / 950 + rv.p) + rv.m * 0.35 * Math.sin(u / 330 + rv.p2);
+      const rp = [], ri = [];
+      let prevOk = false;
+      for (let u = -TR; u <= TR; u += 16) {
+        const v = center(u), dv = (center(u + 1) - center(u - 1)) / 2;
+        const x = u * rc - v * rs, z = u * rs + v * rc;
+        const ok = x * x + z * z < (TR * 0.95) ** 2;
+        const tx = rc - dv * rs, tz = rs + dv * rc, tl = Math.hypot(tx, tz);
+        const nx = -tz / tl, nz = tx / tl, hw = rv.w * 0.85;
+        const base = rp.length / 3;
+        for (const sgn of [-1, 1]) { const px = x + nx * hw * sgn, pz = z + nz * hw * sgn; rp.push(px, Math.max(hGrid(px, pz), hGrid(x, z)) + 0.5, pz); }
+        if (ok && prevOk) ri.push(base - 2, base - 1, base, base - 1, base + 1, base);
+        prevOk = ok;
+      }
+      const rg = new THREE.BufferGeometry();
+      rg.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3)); rg.setIndex(ri); rg.computeVertexNormals();
+      const river = new THREE.Mesh(rg, new THREE.MeshStandardMaterial({ color: 0x2f74a6, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.92, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, depthWrite: false }));
+      river.renderOrder = 2;
+      t.g.add(river);
+    }
+    // 나무 후보 (숲은 촘촘히, 들판엔 드문드문)
+    const trees = [];
+    const SP = 30;
+    for (let x = -TR * 0.9; x < TR * 0.9; x += SP) for (let z = -TR * 0.9; z < TR * 0.9; z += SP) {
+      const hh = (Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1, r1 = Math.abs(hh), r2 = Math.abs((hh * 7.31) % 1);
+      const px = x + (r1 - 0.5) * SP, pz = z + (r2 - 0.5) * SP;
+      if (px * px + pz * pz > (TR * 0.88) ** 2) continue;
+      const p = T.sample(px, pz);
+      if (p.water || p.h < 1.2) continue;
+      const f = T.forest(px, pz, p.h);
+      if (r1 > f * 0.95 + 0.03) continue;
+      trees.push([px, p.h, pz, 0.7 + r2 * 0.7, f > 0.5 && p.h > 120 ? 1 : 0]);
+      if (trees.length > 14000) break;
+    }
+    t.treeList = trees;
+    const crown = new THREE.ConeGeometry(3.2, 9, 7).translate(0, 8, 0), trunk = new THREE.CylinderGeometry(0.45, 0.6, 4, 5).translate(0, 2, 0);
+    t.treeCrown = new THREE.InstancedMesh(crown, new THREE.MeshStandardMaterial({ color: 0x2f6b34, roughness: 0.9 }), trees.length);
+    t.treeTrunk = new THREE.InstancedMesh(trunk, new THREE.MeshStandardMaterial({ color: 0x5b4330, roughness: 1 }), trees.length);
+    t.treeCrown.frustumCulled = t.treeTrunk.frustumCulled = false;
+    t.g.add(t.treeCrown, t.treeTrunk);
+    t.nature = { land, water };
+    this.refreshTrees(t);
+  }
+
+  /** 건물과 도로가 들어선 자리의 나무는 베어진다 */
+  refreshTrees(t, blds = null) {
+    if (!t.treeList) return;
+    blds = blds || t.lastBlds || [];
+    const cleared = [];
+    for (const b of blds) cleared.push([b.x, b.z, Math.max(b.w, b.d) / 2 + 9]);
+    let devR = 0;
+    for (const b of blds) if (b.type !== 'farm') devR = Math.max(devR, Math.hypot(b.x, b.z));
+    const core = devR > 0 ? devR + 40 : 45;
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3(), col = new THREE.Color();
+    let n = 0;
+    for (const [x, h, z, s, kind] of t.treeList) {
+      if (x * x + z * z < core * core) continue;
+      let hit = false;
+      for (const [cx, cz, r] of cleared) if ((x - cx) ** 2 + (z - cz) ** 2 < r * r) { hit = true; break; }
+      if (hit) continue;
+      sc.set(s, s * (kind ? 1.25 : 1), s); p.set(x, h - 0.3, z);
+      m.compose(p, q, sc);
+      t.treeCrown.setMatrixAt(n, m); t.treeTrunk.setMatrixAt(n, m);
+      t.treeCrown.setColorAt(n, col.setHSL(0.3 + (s % 0.1) * 0.4, 0.45, kind ? 0.2 : 0.24 + (s % 0.05)));
+      n++;
+    }
+    t.treeCrown.count = t.treeTrunk.count = n;
+    t.treeCrown.instanceMatrix.needsUpdate = t.treeTrunk.instanceMatrix.needsUpdate = true;
+    if (t.treeCrown.instanceColor) t.treeCrown.instanceColor.needsUpdate = true;
   }
 
   /** 정착지 하나의 건물/지면 다시 만들기 */
@@ -161,13 +296,18 @@ export class Cities {
       if (t.ground) { t.g.remove(t.ground); t.ground.geometry.dispose(); t.ground.material.map.dispose(); }
       const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1024;
       const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
-      // 가장자리가 투명하게 사라져 주변 지형과 이어진다
-      const ground = new THREE.Mesh(new THREE.CircleGeometry(rg, 72).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: tex, roughness: 1, transparent: true }));
-      ground.position.y = 1.2;
-      ground.renderOrder = -1;
+      // 도로·광장·밭을 지형 위에 덮는 얇은 막 (지형의 높낮이를 따른다)
+      const M = 96, geo = new THREE.PlaneGeometry(2 * rg, 2 * rg, M, M).rotateX(-Math.PI / 2);
+      const pa = geo.attributes.position;
+      for (let i = 0; i < pa.count; i++) pa.setY(i, t.hAt(pa.getX(i), pa.getZ(i)) + 0.45);
+      geo.computeVertexNormals();
+      const ground = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 1, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+      ground.renderOrder = 1;
       t.g.add(ground);
       t.ground = ground; t.groundR = rg; t.canvas = canvas; t.groundTex = tex;
     }
+    t.lastBlds = blds;
+    this.refreshTrees(t, blds);
     this.paintGround(t, blds, era);
     // 건물
     const keep = new Set();
@@ -188,16 +328,7 @@ export class Cities {
   paintGround(t, blds, era) {
     const c = t.canvas, g = c.getContext('2d'), S = c.width, rg = t.groundR;
     const px = v => (v + rg) / (2 * rg) * S, sc = S / (2 * rg);
-    const base = biomeGround(t.s.lat);
-    g.fillStyle = base; g.fillRect(0, 0, S, S);
-    // 잔디 질감
-    for (let i = 0; i < 2600; i++) {
-      g.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '255,255,230'},${Math.random() * 0.06})`;
-      const r = 2 + Math.random() * 10; g.beginPath(); g.arc(Math.random() * S, Math.random() * S, r, 0, 6.28); g.fill();
-    }
-    // 가장자리는 자연스럽게 흐려지도록
-    const vg = g.createRadialGradient(S / 2, S / 2, S * 0.38, S / 2, S / 2, S / 2);
-    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, base);
+    g.clearRect(0, 0, S, S);
     const roadCol = era >= 5 ? '#3b3f45' : era >= 3 ? '#8b8780' : '#a28b66';
     const roadW = (era >= 5 ? 10 : era >= 3 ? 7 : 4.5) * sc;
     // 개발된 블록 주변 도로
@@ -239,7 +370,6 @@ export class Cities {
         g.fillRect(px(b.x - b.w / 2 - m), px(b.z - b.d / 2 - m), (b.w + 2 * m) * sc, (b.d + 2 * m) * sc);
       }
     }
-    g.fillStyle = vg; g.fillRect(0, 0, S, S);
     const fade = g.createRadialGradient(S / 2, S / 2, S * 0.3, S / 2, S / 2, S / 2);
     fade.addColorStop(0, 'rgba(0,0,0,1)'); fade.addColorStop(0.75, 'rgba(0,0,0,0.75)'); fade.addColorStop(1, 'rgba(0,0,0,0)');
     g.globalCompositeOperation = 'destination-in'; g.fillStyle = fade; g.fillRect(0, 0, S, S);
@@ -250,8 +380,13 @@ export class Cities {
   buildingMesh(b, s) {
     const def = this.meta.buildings[b.type] || { roof: 'flat', color: '#999', kind: 'work' };
     const grp = new THREE.Group();
-    grp.position.set(b.x, 1.2, b.z);
+    const tt = this.towns.get(b.sid);
+    grp.position.set(b.x, tt ? tt.hAt(b.x, b.z) + 0.3 : 1.2, b.z);
     grp.userData.bid = b.id;
+    if (b.type !== 'farm' && b.type !== 'campfire') {
+      const f = new THREE.Mesh(G.box, this.mat('#7d746a'));
+      f.scale.set(b.w + 0.8, 4, b.d + 0.8); f.position.y = -3.9; f.userData.bid = b.id; grp.add(f);
+    }
     const p = b.done ? 1 : Math.max(0.1, b.p);
     const v = hash(b.id);
     const col = new THREE.Color(def.color).offsetHSL((v - 0.5) * 0.04, 0, (v - 0.5) * 0.12);
@@ -346,6 +481,7 @@ export class Cities {
     for (const m of this.winMats) m.emissiveIntensity = this.night * 1.4;
     const tmpM = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3(), col = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
     this.selMarker.visible = false;
+    this.builtThisFrame = false;
     // 최근 대화 (말풍선)
     const nowMin = state.now();
     const talkLine = new Map();
@@ -359,6 +495,7 @@ export class Cities {
       const dist = camPos.distanceTo(t.center);
       const facing = t.up.dot(p.copy(camPos).sub(t.center)) > -50;
       t.g.visible = dist < 900 && facing;
+      if (t.g.visible && !t.nature && dist < 600 && !this.builtThisFrame) { this.buildNature(t); this.builtThisFrame = true; }
       t.marker.visible = alt > 40 && facing;
       if (facing && alt < 9000 && dist < 9000) labels.push({ key: 'town' + t.s.id, pos: t.center.clone().addScaledVector(t.up, alt < 30 ? 0.12 : 0), cls: 'town lv' + t.s.level, sid: t.s.id, html: `<b>${t.s.name}</b><small>${t.s.levelName} · ${t.s.pop}명</small>`, pri: 1 });
       if (!t.g.visible) continue;
@@ -381,14 +518,14 @@ export class Cities {
         if (showDots && !hidden) {
           col.set(state.playerColor(a.o));
           if (selected) col.set('#ffffff');
-          dpos[dn * 3] = ip.x; dpos[dn * 3 + 1] = 4; dpos[dn * 3 + 2] = ip.z;
+          dpos[dn * 3] = ip.x; dpos[dn * 3 + 1] = t.hAt(ip.x, ip.z) + 3; dpos[dn * 3 + 2] = ip.z;
           dcol[dn * 3] = col.r; dcol[dn * 3 + 1] = col.g; dcol[dn * 3 + 2] = col.b;
           dn++;
         }
         if (selected) {
           this.selMarker.visible = true;
           if (this.selMarker.parent !== t.g) t.g.add(this.selMarker);
-          this.selMarker.position.set(ip.x, 1.3, ip.z);
+          this.selMarker.position.set(ip.x, t.hAt(ip.x, ip.z) + 0.2, ip.z);
           const s = Math.max(1, Math.min(40, dist * 30));
           this.selMarker.children[0].scale.setScalar(Math.max(1, s * 0.15));
         }
@@ -400,7 +537,7 @@ export class Cities {
         const bob = walking ? Math.abs(Math.sin(time * 9 + id)) * 0.06 : 0;
         q.setFromAxisAngle(up, ps.heading || 0);
         sc.set(hs, hs, hs);
-        p.set(ip.x, 1.25 + bob, ip.z);
+        p.set(ip.x, t.hAt(ip.x, ip.z) + 0.1 + bob, ip.z);
         tmpM.compose(p, q, sc);
         t.anns.body.setMatrixAt(n, tmpM); t.anns.head.setMatrixAt(n, tmpM); t.anns.hair.setMatrixAt(n, tmpM);
         t.anns.body.setColorAt(n, col.set(state.playerColor(a.o)));
@@ -441,7 +578,7 @@ export class Cities {
     const ip = state.interp(ps);
     const ll = localToLL(s, ip.x, ip.z);
     const t = this.towns.get(ps.sid);
-    return { lat: ll.lat, lon: ll.lon, h: (t ? t.base - R : 0) + 0.0012 };
+    return { lat: ll.lat, lon: ll.lon, h: (t ? t.base - R + t.hAt(ip.x, ip.z) / 1000 : 0) + 0.0012 };
   }
 
   pick(raycaster) {
@@ -477,7 +614,7 @@ export class Cities {
       for (const [id, ps] of state.pos) {
         if (ps.sid !== t.s.id || ps.travel || ps.act === 'sleep') continue;
         const ip = state.interp(ps);
-        v.set(ip.x, 1, ip.z).applyMatrix4(t.g.matrix).project(camera);
+        v.set(ip.x, t.hAt(ip.x, ip.z) + 1, ip.z).applyMatrix4(t.g.matrix).project(camera);
         if (v.z > 1) continue;
         const sx = (v.x + 1) / 2 * w, sy = (1 - v.y) / 2 * h;
         const d = Math.hypot(sx - x, sy - y);

@@ -31,7 +31,7 @@ function mixHex(a, b, t) {
   return '#' + ((r << 16) | (g << 8) | bl).toString(16).padStart(6, '0');
 }
 
-function deriveValues(a) {
+export function deriveValues(a) {
   const { O, C, E, A, N } = a.tr, { int, ath, cre, cha } = a.ab, amb = a.amb;
   const r = () => rand() * 22;
   return {

@@ -4,9 +4,10 @@ import { remember, think, feel, lifeEvent, ageStage } from './ann.js';
 import { JOBS, ERAS, BUILDINGS, HOME_BY_ERA, INDUSTRIES, GOALS } from './data.js';
 import { rel, converse, attraction, updateKind } from './social.js';
 import {
-  openings, apply, jobFit, produce, dailyCost, wageBase, bestIndustry, startupCost, foundCompany, jobTitle, leaveJob,
+  openings, apply, jobFit, produce, dailyCost, wageBase, bestIndustry, startupCost, foundCompany, jobTitle, leaveJob, hasConstruction,
 } from './economy.js';
-import { plazaPoint, wildPoint, doorPoint, placeBuilding, addWork } from './settlement.js';
+import { plazaPoint, wildPoint, shorePoint, doorPoint, placeBuilding, addWork, siteFeatures } from './settlement.js';
+import { compose } from './thoughts.js';
 
 export const ACTS = {
   sleep: { label: '잠', emoji: '💤' },
@@ -93,7 +94,11 @@ function workPlace(world, a) {
   const j = JOBS[a.job.id];
   const co = a.job.co && world.companies.get(a.job.co);
   if (co) return co.b;
-  if (j.out === 'food' || a.job.id === 'hunter') return 'wild';
+  const s = world.settlements.get(a.sid);
+  if (a.job.id === 'fisher') return shorePoint(s) || wildPoint(s);
+  if (a.job.id === 'hunter') return wildPoint(s, 'forest');
+  if (a.job.id === 'gatherer') return wildPoint(s, chance(0.6) ? 'forest' : null);
+  if (j.out === 'food') return 'wild';
   if (j.out === 'build') {
     const site = world.constructionSite(world.settlements.get(a.sid), a);
     return site ? site.id : 'plaza';
@@ -132,6 +137,8 @@ export function decide(world, a) {
 
   const opts = [];
   const add = (type, score, reasons, data = {}) => opts.push({ type, score, reasons, ...data });
+  const wk = s.weather?.k || '맑음';
+  const weatherBad = ['비', '폭우', '눈', '태풍', '한파', '폭설'].includes(wk);
   const cost = dailyCost(era);
   const moneyStress = clamp(((cost * 6) - a.money) / (cost * 6) * 100);
   const goal = k => a.goals.some(g => g.k === k && !g.done);
@@ -152,11 +159,14 @@ export function decide(world, a) {
     add('forage', 18 + shortage * 0.45 + (100 - a.nd.food) * 0.3 + a.tr.C * 0.1, ['마을 식량 부족', a.tr.A > 60 ? '모두를 위해' : '살아남아야 한다']);
   }
 
-  if (stage === 'child' || stage === 'teen') {
-    const school = world.findCivic(s, 'school');
-    const weekday = dayN % 7 < 5;
-    if (h >= 8.5 && h < 15 && weekday && !a.day.studied) add('study', 50 + a.tr.C * 0.2 + (school ? 15 : -10), [school ? '학교 갈 시간' : '부모님께 배우기', a.ab.int > 60 ? '배우는 게 즐겁다' : null], { school });
-    add('play', 30 + (100 - a.nd.fun) * 0.45 + a.tr.E * 0.1, ['놀고 싶다', a.nd.fun < 40 ? '심심함' : null]);
+  const weekday = dayN % 7 < 5;
+  const schoolB = a.school ? world.buildings.get(world.companies.get(a.school.org)?.b) : null;
+  if (stage === 'child' || stage === 'teen' || a.school) {
+    if (h >= 8.5 && h < 15.5 && weekday && !a.day.studied) {
+      if (schoolB) add('study', 58 + a.tr.C * 0.22 - (a.tr.C < 30 && chance(0.15) ? 40 : 0), [`${a.school.name} 갈 시간`, a.ab.int > 60 ? '배우는 게 즐겁다' : a.tr.C < 35 ? '학교 가기 싫다…' : null], { school: schoolB });
+      else if (stage !== 'adult') add('study', 30 + a.tr.C * 0.15, [a.parents.length ? '부모님께 배우기' : '혼자 익히기', '학교가 없다'], { school: null });
+    }
+    if (stage !== 'adult') add('play', 30 + (100 - a.nd.fun) * 0.45 + a.tr.E * 0.1 + (weatherBad ? -15 : 0), ['놀고 싶다', a.nd.fun < 40 ? '심심함' : null]);
   }
 
   // 일
@@ -191,10 +201,17 @@ export function decide(world, a) {
     const outdated = homeB && homeB.owner === a.id && BUILDINGS[homeB.type].era < era - 1 && a.money > (BUILDINGS[HOME_BY_ERA[era]].cost || 0) * 1.5;
     if (own) add('build', 34 + a.tr.C * 0.22 + (a.home ? 0 : 22), [`${own.name} 짓는 중 (${Math.round(own.progress / own.work * 100)}%)`], { site: own.id });
     else if (!a.home || (livesWithParents && age > 22 + (100 - a.val.adventure) * 0.1) || (homeB && homeB.res.length > BUILDINGS[homeB.type].cap) || outdated) {
-      const t = HOME_BY_ERA[Math.min(era, 7)];
-      const c = BUILDINGS[t].cost || 0;
-      if (a.money >= c * 0.6 || era === 0) {
-        add('build', (a.home ? 22 : 48) + a.tr.C * 0.1 + (outdated ? 6 : 0), [a.home ? (outdated ? '집이 낡았다' : '독립하고 싶다') : '집이 없다', c ? `비용 ${c}` : null], { newHome: t });
+      let t = HOME_BY_ERA[Math.min(era, 7)];
+      // 제대로 된 집은 건설회사(목수)가 있어야 지을 수 있다. 없으면 손수 움집뿐.
+      const builder = hasConstruction(world, s.id);
+      if (t !== 'hut' && !builder) {
+        s.need = s.need || {}; s.need.homes = (s.need.homes || 0) + 1;
+        t = a.home ? null : 'hut';
+        if (!t && chance(0.08)) think(world, a, pick(['제대로 된 집을 짓고 싶은데, 이 마을엔 목수가 없다.', '건설하는 사람이 있으면 좋을 텐데…', '집을 지어 줄 사람이 없으니 직접 회사를 차려 볼까?']));
+      }
+      const c = t ? BUILDINGS[t].cost || 0 : 0;
+      if (t && (a.money >= c * 0.6 || t === 'hut')) {
+        add('build', (a.home ? 22 : 48) + a.tr.C * 0.1 + (outdated ? 6 : 0) - (weatherBad ? 10 : 0), [a.home ? (outdated ? '집이 낡았다' : '독립하고 싶다') : '집이 없다', t === 'hut' && era > 0 ? '목수가 없어 움집이라도' : c ? `비용 ${c}` : null], { newHome: t });
       }
     }
     if (!world.campfireOf(s)) add('build', 70, ['모일 곳(모닥불)이 필요하다'], { civic: 'campfire' });
@@ -221,7 +238,7 @@ export function decide(world, a) {
   if (adult || stage === 'teen') {
     add('research', 1 + a.tr.O * 0.15 + a.ab.int * 0.12 + (goal('knowledge') ? 16 : 0) + (100 - a.nd.fun) * 0.05 - (100 - a.nd.energy) * 0.15,
       [a.tr.O > 60 ? '호기심' : null, goal('knowledge') ? '꿈: 위대한 발견' : null, a.ab.int > 65 ? '생각하는 게 좋다' : null]);
-    add('art', 4 + a.ab.cre * 0.22 + (goal('art') ? 18 : 0) + (100 - a.nd.fun) * 0.1,
+    add('art', 1 + a.ab.cre * 0.18 + (goal('art') ? 16 : 0) + (100 - a.nd.fun) * 0.08,
       [a.ab.cre > 60 ? '영감이 떠오른다' : null, goal('art') ? '꿈: 걸작' : null]);
     add('exercise', 3 + a.ab.ath * 0.22 + (goal('sport') ? 18 : 0) - (100 - a.nd.energy) * 0.35 + (a.health < 60 ? 6 : 0),
       [a.ab.ath > 60 ? '몸을 움직이고 싶다' : null, goal('sport') ? '꿈: 최고의 선수' : null]);
@@ -250,6 +267,11 @@ export function decide(world, a) {
   // 아픔
   if (a.sick > 0) add('rest_sick', 40 + a.sick * 0.5, ['몸이 아프다']);
 
+  // 날씨: 궂은 날엔 밖에 나가기 싫다
+  if (weatherBad) for (const o of opts) {
+    if (['wander', 'exercise', 'forage', 'play'].includes(o.type)) { o.score -= 14; o.reasons.push(`${wk}`); }
+    if (['relax', 'family', 'reflect', 'art'].includes(o.type)) o.score += 6;
+  } else if (wk === '맑음') for (const o of opts) if (o.type === 'wander' || o.type === 'exercise') { o.score += 5; o.reasons.push('날씨가 좋다'); }
   // 노이즈: 성실하지 않을수록 즉흥적
   const noise = 5 + (100 - a.tr.C) * 0.07;
   for (const o of opts) o.final = o.score + gauss() * noise;
@@ -316,10 +338,14 @@ function execute(world, a, o, ctx) {
   switch (o.type) {
     case 'sleep': start(world, a, 'sleep', 600, 'home'); thinkDecision(world, a, o); break;
     case 'eat': start(world, a, 'eat', 35, a.home || era < 2 ? 'home' : (world.findWork(s, 'market')?.id ?? 'home')); break;
-    case 'forage': start(world, a, 'forage', 150, 'wild'); thinkDecision(world, a, o); break;
+    case 'forage': {
+      const shore = chance(0.5) ? shorePoint(s) : null;
+      start(world, a, 'forage', 150, shore || wildPoint(s, 'forest'), { fishing: !!shore });
+      thinkDecision(world, a, o); break;
+    }
     case 'work': start(world, a, 'work', o.dur, workPlace(world, a)); thinkDecision(world, a, o); break;
     case 'seek_job': a.lastSeek = world.clock; start(world, a, 'seek_job', 60, 'plaza'); thinkDecision(world, a, o); break;
-    case 'study': start(world, a, 'study', 240, o.school ? o.school.id : 'home'); break;
+    case 'study': start(world, a, 'study', o.school ? 300 : 150, o.school ? o.school.id : 'home', { school: !!o.school }); break;
     case 'play': start(world, a, 'play', 90, 'plaza'); break;
     case 'build': {
       let site = o.site ? world.buildings.get(o.site) : null;
@@ -370,6 +396,7 @@ function execute(world, a, o, ctx) {
 
 // ── 문득 드는 생각: 지금 내 삶에서 가장 마음에 걸리는 것을 떠올린다 ──
 export function musing(world, a) {
+  if (chance(0.65)) { const t = compose(world, a); if (t) return t; }
   const now = world.clock;
   const s = world.settlements.get(a.sid);
   const h = localHour(now, s.lon);
@@ -524,7 +551,11 @@ function onArrive(world, a, act) {
     if (s.food >= 1) { s.food -= 1; act.fed = 1; } else act.fed = 0.25;
   }
   if (act.type === 'seek_job') {
-    const ops = openings(world, a);
+    const { out: ops, blocked } = openings(world, a, true);
+    if (blocked.length && chance(0.5)) {
+      const b = blocked.sort((x, y) => y.fit - x.fit)[0];
+      if (b.fit > 55) think(world, a, `${JOBS[b.jobKey].name}이(가) 되고 싶지만, ${['', '기초 교육', '중학교', '고등학교', '대학교'][JOBS[b.jobKey].edu || 1]}도 못 나온 나는 안 된다고 한다.`);
+    }
     if (!ops.length) {
       think(world, a, '일자리가 하나도 없다…'); feel(a, -5, '불안', '일자리');
       return;
@@ -569,7 +600,7 @@ function maybeConceive(world, a, b) {
   const want = (x) => x.val.family / 22 + (x.tr.A - 50) / 50;
   if (mother.kids.length >= Math.max(want(mother), want(father)) + 0.6) return;
   if (mother.kids.length && world.clock - (mother.lastBirth || 0) < YEAR * 1.2) return;
-  const fert = clamp(1 - (age - 28) / 22, 0.15, 1) * 0.22;
+  const fert = clamp(1 - (age - 28) / 22, 0.15, 1) * 0.3;
   if (chance(fert)) {
     mother.preg = { father: father.id, due: Math.round(world.clock + 270 * DAY) };
     remember(world, mother, '아기가 생겼다!', 9, 0.9, [father.id], 'family');
@@ -613,7 +644,9 @@ function onTick(world, a, act, dt) {
     case 'build': {
       const b = world.buildings.get(act.site);
       if (!b || b.done) { act.done = true; break; }
-      const work = (0.5 + a.sk.construction / 100) * Math.sqrt(world.prod(a)) * hours * (0.7 + a.ab.ath / 200);
+      let work = (0.5 + a.sk.construction / 100) * Math.sqrt(world.prod(a)) * hours * (0.7 + a.ab.ath / 200);
+      // 움집·모닥불·밭은 손수 지을 수 있지만, 그 밖의 건물은 건설회사 없이는 아주 더디다
+      if (!['hut', 'campfire', 'farm', 'granary'].includes(b.type) && !hasConstruction(world, b.sid)) work *= 0.3;
       a.sk.construction = clamp(a.sk.construction + 0.05 * hours);
       if (b.owner !== a.id && b.budget > 0) {
         const pay = Math.min(b.budget, b.budget / Math.max(1, b.work - b.progress) * work);
@@ -623,8 +656,12 @@ function onTick(world, a, act, dt) {
       break;
     }
     case 'study': {
-      const s = world.settlements.get(a.sid);
-      const rate = (act.tx && world.findCivic(s, 'school') ? 1.6 : 0.8) * (0.5 + a.ab.int / 100);
+      const inSchool = !!(a.school && act.school);
+      const rate = (inSchool ? 1.7 : 0.7) * (0.5 + a.ab.int / 100);
+      if (inSchool) {
+        a.school.days += hours / 6;
+        a.school.grade = clamp(a.school.grade + ((a.ab.int * 0.55 + a.tr.C * 0.35 + 10 - a.school.grade) * 0.002 + gauss() * 0.15) * hours);
+      }
       a.edu = clamp(a.edu + 0.25 * rate * hours);
       for (const k of ['science', 'teaching', 'commerce', 'art', 'crafting']) a.sk[k] = clamp(a.sk[k] + 0.03 * rate * hours * (k === 'science' ? a.ab.int / 60 : 1));
       a.day.studied = true;
@@ -644,7 +681,7 @@ function onTick(world, a, act, dt) {
     case 'art': {
       a.sk.art = clamp(a.sk.art + 0.07 * hours * (a.ab.cre / 60));
       a.nd.fun = clamp(a.nd.fun + 0.1 * dt);
-      if (chance(0.002 * hours * a.ab.cre / 50 * (a.sk.art / 50))) masterpiece(world, a);
+      if (a.sk.art > 38 && chance(0.0006 * hours * a.ab.cre / 50 * (a.sk.art / 50))) masterpiece(world, a);
       break;
     }
     case 'exercise':
@@ -725,7 +762,12 @@ function finishAct(world, a, interrupted) {
       }
       break;
     case 'forage':
-      if (chance(0.3)) remember(world, a, '마을을 위해 먹을거리를 구해 왔다', 2, 0.3, [], 'work');
+      if (act.fishing) {
+        const s = world.settlements.get(a.sid);
+        s.food += 1.5;
+        if (chance(0.35)) remember(world, a, `물가에서 ${pick(['붕어', '잉어', '송어', '조개', '고등어', '메기'])}을(를) 잡아 왔다`, 2, 0.4, [], 'work');
+        world.first(world.countries[a.country], 'fish', `첫 고기잡이 — ${a.name}`, '🐟');
+      } else if (chance(0.3)) remember(world, a, pick(['숲에서 열매와 버섯을 따 왔다', '들에서 먹을 풀뿌리를 캐 왔다', '덫에 걸린 토끼를 가져왔다']), 2, 0.3, [], 'work');
       a.rep = clamp(a.rep + 0.3, -100, 100);
       break;
     case 'reflect': reflect(world, a); break;

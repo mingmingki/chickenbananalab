@@ -9,7 +9,7 @@ import { loadGeo, getCountry } from './geo.js';
 import { World, MAX_ANNS_PER_PLAYER } from './sim/world.js';
 import { loadWorlds, saveWorld } from './store.js';
 import { ACTS } from './sim/mind.js';
-import { ERAS, BUILDINGS, INDUSTRIES, PUBLIC, JOBS, SETTLEMENT_LEVELS } from './sim/data.js';
+import { ERAS, BUILDINGS, INDUSTRIES, PUBLIC, JOBS, SETTLEMENT_LEVELS, EDU_NAMES } from './sim/data.js';
 import { TRAIT_NAMES, ABILITY_NAMES } from './sim/ann.js';
 import { randomName } from './sim/names.js';
 
@@ -49,7 +49,7 @@ app.get('/api/geo', (req, res) => {
 
 app.get('/api/meta', (req, res) => {
   res.json({
-    acts: ACTS, eras: ERAS, buildings: BUILDINGS, industries: INDUSTRIES, publicOrgs: PUBLIC, levels: SETTLEMENT_LEVELS,
+    acts: ACTS, eras: ERAS, buildings: BUILDINGS, industries: INDUSTRIES, publicOrgs: PUBLIC, levels: SETTLEMENT_LEVELS, eduNames: EDU_NAMES,
     jobs: Object.fromEntries(Object.entries(JOBS).map(([k, j]) => [k, { name: j.name, era: j.era }])),
     traitNames: TRAIT_NAMES, abilityNames: ABILITY_NAMES, maxAnns: MAX_ANNS_PER_PLAYER, adminRequired: !!ADMIN_KEY,
   });
@@ -91,7 +91,20 @@ app.get('/api/servers/:id/me', (req, res) => {
   const w = getWorld(req, res); if (!w) return;
   const p = w.playerByToken(String(req.query.token || ''));
   if (!p) return res.status(404).json({ error: '플레이어를 찾을 수 없습니다' });
-  res.json({ player: w.playerOut(p), anns: p.anns.map(id => w.anns.get(id)).filter(Boolean).map(a => w.annMeta(a)), room: MAX_ANNS_PER_PLAYER - p.anns.filter(id => w.anns.get(id)?.gen === 1).length });
+  res.json({ player: w.playerOut(p), anns: p.anns.map(id => w.anns.get(id)).filter(Boolean).map(a => w.annMeta(a)), room: MAX_ANNS_PER_PLAYER - p.anns.filter(id => { const a = w.anns.get(id); return a && (a.pdeploy || (a.gen === 1 && !a.parents.length)); }).length });
+});
+
+// 이 나라에 투입하면 어떻게 되는가: 가정에 아기로 태어나는지, 개척자로 도착하는지
+app.get('/api/servers/:id/country/:code', (req, res) => {
+  const w = getWorld(req, res); if (!w) return;
+  const code = req.params.code;
+  let families = 0;
+  for (const a of w.anns.values()) {
+    const pid = a.spouse || a.partner;
+    if (a.alive && a.country === code && pid && a.id < pid && w.anns.get(pid)?.alive) families++;
+  }
+  const c = w.countries[code];
+  res.json({ families, mode: families ? 'baby' : 'pioneer', pop: c?.pop || 0, era: c?.era ?? 0, eraName: ERAS[c?.era ?? 0].name, settlements: [...w.settlements.values()].filter(s => s.country === code).length });
 });
 
 app.post('/api/servers/:id/deploy', (req, res) => {

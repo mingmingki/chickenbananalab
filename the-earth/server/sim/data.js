@@ -31,6 +31,7 @@ export const DISCOVERIES = [
 // 직업. self = 고용주 없이 스스로 하는 일, pub = 나라가 고용
 // out: food(식량), tech(기술), build(건설), money(매출), art, heal
 export const JOBS = {
+  fisher: { name: '어부', era: 0, skill: 'farming', self: true, out: 'food', rate: 2.5, water: true, fit: { ath: .3, C: .2, N: -.2 } },
   gatherer: { name: '채집꾼', era: 0, maxEra: 1, skill: 'farming', self: true, out: 'food', rate: 2.2, fit: { ath: .3, C: .3 } },
   hunter: { name: '사냥꾼', era: 0, maxEra: 1, skill: 'athletics', self: true, out: 'food', rate: 2.6, fit: { ath: .7, N: -.2 } },
   toolmaker: { name: '도구 장인', era: 0, maxEra: 1, skill: 'crafting', self: true, out: 'tech', rate: 0.9, fit: { int: .3, cre: .4, C: .2 } },
@@ -39,25 +40,26 @@ export const JOBS = {
   builder: { name: '목수', era: 1, skill: 'construction', ind: 'construction', out: 'build', rate: 1, fit: { ath: .4, C: .4 } },
   farmer: { name: '농부', era: 1, skill: 'farming', ind: 'farm', out: 'food', rate: 4, fit: { C: .4, ath: .3, A: .1 } },
   craftsman: { name: '장인', era: 1, skill: 'crafting', ind: 'workshop', out: 'money', rate: 1, fit: { cre: .4, C: .4 } },
-  merchant: { name: '상인', era: 2, skill: 'commerce', ind: 'trade', out: 'money', rate: 1.2, fit: { E: .5, cha: .5, int: .2 } },
+  merchant: { edu: 1, name: '상인', era: 2, skill: 'commerce', ind: 'trade', out: 'money', rate: 1.2, fit: { E: .5, cha: .5, int: .2 } },
   blacksmith: { name: '대장장이', era: 2, skill: 'crafting', ind: 'smithy', out: 'money', rate: 1.1, fit: { ath: .5, C: .3 } },
-  scholar: { name: '학자', era: 2, skill: 'science', pub: 'academy', out: 'tech', rate: 2, fit: { int: .7, O: .5 } },
-  priest: { name: '사제', era: 2, maxEra: 4, skill: 'leadership', pub: 'temple', out: 'heal', rate: 1, fit: { A: .4, cha: .3, C: .2 } },
-  official: { name: '관리', era: 2, skill: 'leadership', pub: 'hall', out: 'gov', rate: 1, fit: { C: .5, int: .3, cha: .2 } },
+  scholar: { edu: 2, name: '학자', era: 2, skill: 'science', pub: 'academy', out: 'tech', rate: 2, fit: { int: .7, O: .5 } },
+  priest: { edu: 1, name: '사제', era: 2, maxEra: 4, skill: 'leadership', pub: 'temple', out: 'heal', rate: 1, fit: { A: .4, cha: .3, C: .2 } },
+  official: { edu: 2, name: '관리', era: 2, skill: 'leadership', pub: 'hall', out: 'gov', rate: 1, fit: { C: .5, int: .3, cha: .2 } },
   soldier: { name: '병사', era: 2, maxEra: 5, skill: 'athletics', pub: 'hall', out: 'gov', rate: 1, fit: { ath: .7, C: .2, A: -.2 } },
-  doctor: { name: '의사', era: 3, skill: 'medicine', ind: 'clinic', out: 'heal', rate: 1.4, fit: { int: .5, A: .4, C: .3 } },
-  teacher: { name: '교사', era: 3, skill: 'teaching', pub: 'school', out: 'teach', rate: 1, fit: { A: .4, E: .3, int: .3 } },
-  artist: { name: '예술가', era: 3, skill: 'art', ind: 'studio', out: 'art', rate: 1.2, fit: { cre: .7, O: .5 } },
-  banker: { name: '은행원', era: 4, skill: 'commerce', ind: 'bank', out: 'money', rate: 1.6, fit: { int: .4, C: .5 } },
+  doctor: { edu: 4, name: '의사', era: 3, skill: 'medicine', ind: 'clinic', out: 'heal', rate: 1.4, fit: { int: .5, A: .4, C: .3 } },
+  teacher: { edu: 3, name: '교사', era: 2, skill: 'teaching', pub: 'school', out: 'teach', rate: 1, fit: { A: .4, E: .3, int: .3 } },
+  artist: { edu: 0, name: '예술가', era: 3, skill: 'art', ind: 'studio', out: 'art', rate: 1.2, fit: { cre: .7, O: .5 } },
+  banker: { edu: 3, name: '은행원', era: 4, skill: 'commerce', ind: 'bank', out: 'money', rate: 1.6, fit: { int: .4, C: .5 } },
   worker: { name: '공장 노동자', era: 4, skill: 'crafting', ind: 'factory', out: 'money', rate: 1.5, fit: { C: .4, ath: .3 } },
-  engineer: { name: '엔지니어', era: 4, skill: 'science', ind: 'factory', out: 'tech', rate: 1.5, fit: { int: .6, C: .3 } },
-  scientist: { name: '과학자', era: 5, skill: 'science', pub: 'lab', out: 'tech', rate: 3, fit: { int: .8, O: .5 } },
-  journalist: { name: '기자', era: 5, skill: 'art', ind: 'media', out: 'money', rate: 1.6, fit: { E: .4, O: .4, int: .2 } },
+  engineer: { edu: 4, name: '엔지니어', era: 4, skill: 'science', ind: 'factory', out: 'tech', rate: 1.5, fit: { int: .6, C: .3 } },
+  professor: { edu: 4, name: '교수', era: 4, skill: 'science', out: 'tech', rate: 2.6, fit: { int: .7, O: .4, E: .1 } },
+  scientist: { edu: 4, name: '과학자', era: 5, skill: 'science', pub: 'lab', out: 'tech', rate: 3, fit: { int: .8, O: .5 } },
+  journalist: { edu: 3, name: '기자', era: 5, skill: 'art', ind: 'media', out: 'money', rate: 1.6, fit: { E: .4, O: .4, int: .2 } },
   athlete: { name: '운동선수', era: 5, skill: 'athletics', ind: 'sports', out: 'money', rate: 2, fit: { ath: 1, E: .2 } },
-  programmer: { name: '프로그래머', era: 6, skill: 'science', ind: 'tech', out: 'tech', rate: 2.2, fit: { int: .7, C: .3, E: -.1 } },
-  designer: { name: '디자이너', era: 6, skill: 'art', ind: 'tech', out: 'money', rate: 2, fit: { cre: .7, O: .4 } },
-  astronaut: { name: '우주비행사', era: 7, skill: 'athletics', ind: 'aerospace', out: 'tech', rate: 3, fit: { ath: .6, int: .5, N: -.4 } },
-  rocketeer: { name: '로켓 엔지니어', era: 7, skill: 'science', ind: 'aerospace', out: 'tech', rate: 3.5, fit: { int: .8, C: .4 } },
+  programmer: { edu: 4, name: '프로그래머', era: 6, skill: 'science', ind: 'tech', out: 'tech', rate: 2.2, fit: { int: .7, C: .3, E: -.1 } },
+  designer: { edu: 3, name: '디자이너', era: 6, skill: 'art', ind: 'tech', out: 'money', rate: 2, fit: { cre: .7, O: .4 } },
+  astronaut: { edu: 4, name: '우주비행사', era: 7, skill: 'athletics', ind: 'aerospace', out: 'tech', rate: 3, fit: { ath: .6, int: .5, N: -.4 } },
+  rocketeer: { edu: 4, name: '로켓 엔지니어', era: 7, skill: 'science', ind: 'aerospace', out: 'tech', rate: 3.5, fit: { int: .8, C: .4 } },
 };
 
 // 민간 산업(회사). k = 종사자 1명이 감당하는 인구 (수요), price = 시간당 매출 단가 배수
@@ -82,7 +84,12 @@ export const PUBLIC = {
   hall: { name: '관청', era: 2, building: 'hall', jobs: ['official', 'soldier'], per: 18 },
   academy: { name: '학당', era: 2, building: 'academy', jobs: ['scholar'], per: 10 },
   temple: { name: '신전', era: 2, building: 'temple', jobs: ['priest'], per: 25 },
-  school: { name: '학교', era: 3, building: 'school', jobs: ['teacher'], per: 12 },
+  seodang: { name: '서당', era: 2, maxEra: 3, building: 'seodang', jobs: ['teacher'], per: 14, school: true },
+  kinder: { name: '유치원', era: 5, building: 'kinder', jobs: ['teacher'], per: 14, school: true },
+  school: { name: '초등학교', era: 3, building: 'school', jobs: ['teacher'], per: 16, school: true },
+  middle: { name: '중학교', era: 4, building: 'middle', jobs: ['teacher'], per: 18, school: true },
+  high: { name: '고등학교', era: 4, building: 'high', jobs: ['teacher'], per: 18, school: true },
+  univ: { name: '대학교', era: 4, building: 'university', jobs: ['professor', 'teacher'], per: 30, school: true },
   lab: { name: '국립 연구소', era: 5, building: 'lab', jobs: ['scientist'], per: 10 },
 };
 
@@ -106,7 +113,12 @@ export const BUILDINGS = {
   academy: { name: '학당', era: 2, cells: [1, 1], size: [16, 12, 7], work: 90, kind: 'civic', color: '#ece2c6', roof: 'gable', roofColor: '#3d5a40', cost: 0 },
   temple: { name: '신전', era: 2, cells: [1, 1], size: [16, 16, 12], work: 140, kind: 'civic', color: '#f2efe6', roof: 'pyramid', roofColor: '#c8a04a', cost: 0 },
   clinic: { name: '병원', era: 3, cells: [1, 1], size: [16, 14, 10], work: 120, kind: 'work', color: '#f5f5f5', roof: 'flat', accent: '#d33', cost: 300 },
-  school: { name: '학교', era: 3, cells: [2, 1], size: [32, 14, 11], work: 150, kind: 'civic', color: '#e6c79a', roof: 'gable', roofColor: '#7a3b2b', cost: 0 },
+  seodang: { name: '서당', era: 2, cells: [1, 1], size: [12, 10, 5], work: 60, kind: 'civic', color: '#dccca4', roof: 'gable', roofColor: '#3d3832', cost: 0 },
+  kinder: { name: '유치원', era: 5, cells: [1, 1], size: [16, 13, 8], work: 180, kind: 'civic', color: '#ffe0a8', roof: 'flat', accent: '#ff8fab', cost: 0 },
+  middle: { name: '중학교', era: 4, cells: [2, 1], size: [34, 14, 13], work: 260, kind: 'civic', color: '#d9c4a2', roof: 'flat', cost: 0 },
+  high: { name: '고등학교', era: 4, cells: [2, 1], size: [36, 15, 15], work: 300, kind: 'civic', color: '#c7b39b', roof: 'flat', cost: 0 },
+  university: { name: '대학교', era: 4, cells: [2, 2], size: [40, 30, 20], work: 650, kind: 'civic', color: '#b9a58d', roof: 'dome', cost: 0 },
+  school: { name: '초등학교', era: 3, cells: [2, 1], size: [32, 14, 11], work: 150, kind: 'civic', color: '#e6c79a', roof: 'gable', roofColor: '#7a3b2b', cost: 0 },
   studio: { name: '화실', era: 3, cells: [1, 1], size: [12, 10, 7], work: 70, kind: 'work', color: '#c7a7d4', roof: 'gable', roofColor: '#5e4370', cost: 200 },
   bank: { name: '은행', era: 4, cells: [1, 1], size: [16, 14, 16], work: 220, kind: 'work', color: '#d8d2c2', roof: 'flat', cost: 900 },
   factory: { name: '공장', era: 4, cells: [2, 2], size: [36, 30, 14], work: 400, kind: 'work', color: '#8a8f94', roof: 'saw', chimney: true, cost: 1500 },
@@ -149,3 +161,15 @@ export const RELATION_NAMES = {
   stranger: '모르는 사이', acquaintance: '아는 사이', friend: '친구', best: '절친', rival: '라이벌', enemy: '원수',
   crush: '짝사랑', partner: '연인', spouse: '배우자', ex: '전 연인', parent: '부모', child: '자녀', sibling: '형제자매',
 };
+
+// 학교 과정: 나이에 맞는 학교가 마을에 있어야 다닐 수 있다
+export const SCHOOLS = [
+  { key: 'kinder', name: '유치원', ages: [4, 7], level: 0, orgs: ['kinder'] },
+  { key: 'elem', name: '초등학교', ages: [7, 13], level: 1, orgs: ['school', 'seodang'] },
+  { key: 'middle', name: '중학교', ages: [13, 16], level: 2, orgs: ['middle', 'seodang'] },
+  { key: 'high', name: '고등학교', ages: [16, 19], level: 3, orgs: ['high'] },
+  { key: 'univ', name: '대학교', ages: [19, 23], level: 4, orgs: ['univ'], optional: true },
+];
+export const EDU_NAMES = ['배운 적 없음', '기초 교육', '중학교 졸업', '고등학교 졸업', '대학교 졸업'];
+/** 시대가 허락하는 최고 학력 */
+export const maxEduForEra = era => (era <= 1 ? 0 : era <= 3 ? 1 : 4);

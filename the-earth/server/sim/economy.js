@@ -1,8 +1,8 @@
 // 경제: 회사·공공기관·일자리·임금·생산·세금
-import { INDUSTRIES, PUBLIC, JOBS, ERAS, BUILDINGS, RANKS, DISCOVERIES } from './data.js';
+import { INDUSTRIES, PUBLIC, JOBS, ERAS, BUILDINGS, RANKS, DISCOVERIES, EDU_NAMES, maxEduForEra } from './data.js';
 import { clamp, rand, pick, chance, ageOf, YEAR, ga, neun, reul, wa } from './util.js';
 import { remember, think, feel, lifeEvent } from './ann.js';
-import { placeBuilding, addWork } from './settlement.js';
+import { placeBuilding, addWork, siteFeatures } from './settlement.js';
 import { companyName } from './names.js';
 import { rel } from './social.js';
 
@@ -59,25 +59,42 @@ export function demandFactor(world, s, indKey) {
 }
 
 /** 지원 가능한 일자리 */
-export function openings(world, a) {
+/** 이 직업에 필요한 학력. 시대가 허락하는 수준, 그리고 나라에서 가장 많이 배운 사람의 수준을 넘지 않는다
+ *  (대학이 막 생긴 시대에는 아직 졸업생이 없으니, 가장 많이 배운 사람이 가르친다) */
+export function eduReq(world, a, jobKey) {
+  const j = JOBS[jobKey];
+  const c = world.countries[a.country];
+  return Math.min(j.edu || 0, maxEduForEra(c.era), c.topEdu ?? 0);
+}
+export function hasConstruction(world, sid) {
+  for (const co of world.companies.values()) if (co.sid === sid && !co.dead && co.ind === 'construction') return true;
+  return false;
+}
+
+export function openings(world, a, withBlocked = false) {
   const s = world.settlements.get(a.sid);
   const era = eraOfAnn(world, a);
-  const out = [];
+  const out = [], blocked = [];
+  const lv = a.eduLv || 0;
+  const water = (() => { const f = siteFeatures(s); return f.sea || f.river || f.lake; })();
   for (const co of companiesIn(world, a.sid)) {
     if (co.emp.length >= co.slots) continue;
     const jobs = co.pub ? PUBLIC[co.ind].jobs : INDUSTRIES[co.ind].jobs;
     for (const jk of jobs) {
       const j = JOBS[jk];
       if (j.era > era || (j.maxEra != null && era > j.maxEra)) continue;
-      out.push({ co, jobKey: jk, wage: co.wage * (0.75 + a.sk[j.skill] / 120), fit: jobFit(a, jk) });
+      const op = { co, jobKey: jk, wage: co.wage * (0.75 + a.sk[j.skill] / 120) * (1 + (j.edu || 0) * 0.12), fit: jobFit(a, jk) };
+      if (lv < eduReq(world, a, jk)) { blocked.push(op); continue; }
+      out.push(op);
     }
   }
   for (const jk in JOBS) {
     const j = JOBS[jk];
     if (!j.self || j.era > era || (j.maxEra != null && era > j.maxEra)) continue;
+    if (j.water && !water) continue; // 물가가 없으면 어부도 없다
     out.push({ co: null, jobKey: jk, wage: wageBase(era) * 0.55 * (0.5 + a.sk[j.skill] / 100) * (j.rate / 2 + 0.5), fit: jobFit(a, jk) });
   }
-  return out;
+  return withBlocked ? { out, blocked } : out;
 }
 
 export function setJob(world, a, jobKey, co = null, opts = {}) {
@@ -187,11 +204,17 @@ export function bestIndustry(world, a) {
   const era = eraOfAnn(world, a);
   const s = world.settlements.get(a.sid);
   let best = null, bs = -Infinity, best_df = 1;
+  const builder = hasConstruction(world, s.id);
   for (const k in INDUSTRIES) {
     const ind = INDUSTRIES[k];
     if (ind.era > era) continue;
+    // 건물이 필요한 사업은 지어 줄 건설회사가 있어야 시작할 수 있다 (농장과 건설회사 자신은 예외)
+    if (!builder && k !== 'construction' && k !== 'farm') continue;
     const jk = ind.jobs[0];
-    const df = demandFactor(world, s, k);
+    let df = demandFactor(world, s, k);
+    // 집을 지어 달라는 사람이 많은데 건설회사가 없다 → 큰 기회
+    if (k === 'construction' && !builder) df = Math.max(df, 1 + Math.min(0.8, (s.need?.homes || 0) * 0.15));
+    if (k === 'farm' && s.food < s.pop * 2) df += 0.3;
     const score = jobFit(a, jk) * 0.6 + a.sk[JOBS[jk].skill] * 0.3 + (df - 1) * 45 + rand() * 12;
     if (score > bs) { bs = score; best = k; best_df = df; }
   }
@@ -230,6 +253,11 @@ export function foundCompany(world, a, indKey) {
   const g = a.goals.find(g => g.k === 'company' && !g.done);
   if (g) world.achieveGoal(a, g);
   world.news('biz', `🏢 ${ga(a.name)} ${s.name}에 '${name}'(${ind.name})을(를) 창업했다`, { anns: [a.id], country: a.country, sid: s.id }, 2);
+  world.first(country, 'company', `첫 회사 '${name}' 탄생 (${a.name})`);
+  if (indKey === 'construction') {
+    world.first(country, 'builder', `첫 건설회사 '${name}' — 이제 제대로 된 집을 지을 수 있다`);
+    think(world, a, '이제 이 마을 사람들 집은 우리가 짓는다.');
+  }
   world.dirtyCompanies.add(co.id);
   return co;
 }

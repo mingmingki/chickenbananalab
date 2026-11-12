@@ -241,6 +241,7 @@ function confess(world, a, b) {
     think(world, a, `${ga(b.name)} 받아줬다! 꿈만 같아.`);
     think(world, b, `사실 나도 ${ga(callName(a.name, b.culture))} 좋았어.`);
     world.news('love', `💕 ${wa(a.name)} ${ga(b.name)} 연인이 되었다`, { anns: [a.id, b.id], country: a.country }, 1);
+    world.first(world.countries[a.country], 'couple', `첫 연인 — ${wa(a.name)} ${b.name}`, '💕');
     return { topic: '고백', line: `${neun(a.name)} ${b.name}에게 마음을 고백했고, ${neun(b.name)} 웃으며 받아들였다`, quarrel: false };
   }
   ra.rej = (ra.rej || 0) + 1; ra.lastConf = Math.round(world.clock);
@@ -288,6 +289,7 @@ export function marry(world, a, b) {
   const target = ha && hb ? (hb.h * hb.w > ha.h * ha.w ? hb : ha) : ha || hb;
   if (target) { world.moveHome(a, target); world.moveHome(b, target); }
   world.news('love', `💍 ${wa(a.name)} ${ga(b.name)} 결혼했다`, { anns: [a.id, b.id], country: a.country }, 2);
+  world.first(world.countries[a.country], 'wedding', `첫 결혼식 — ${wa(a.name)} ${b.name}`, '💍');
   world.dirtyAnnMeta.add(a.id); world.dirtyAnnMeta.add(b.id);
   // 친구들도 기뻐한다
   for (const x of [a, b]) for (const id in x.rels) {

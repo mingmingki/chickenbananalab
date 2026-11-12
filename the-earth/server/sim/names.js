@@ -160,3 +160,21 @@ export function companyName(ind, founder, culture, taken = new Set()) {
   }
   return `${pick(BRAND)} ${suffix} ${Math.floor(Math.random() * 90 + 10)}`;
 }
+
+/** 플레이어가 지은 이름에서 '이름' 부분만 떼어 가족의 성을 붙인다 */
+export function givenOf(name, culture) {
+  const t = String(name || '').trim();
+  if (!t) return null;
+  const parts = t.split(/\s+/);
+  if (culture === 'ko') return parts.length > 1 ? parts[parts.length - 1] : t.length >= 3 ? t.slice(1) : t;
+  const p = pool(culture);
+  if (parts.length === 1) return t;
+  return p.order === 'sur-given' ? parts.slice(1).join(' ') : parts[0];
+}
+export function familyName(culture, gender, parentName, given) {
+  const p = pool(culture);
+  let sur = surnameOf(parentName, culture);
+  if (gender === 'F' && p.femSur) sur = p.femSur(sur);
+  if (!given) given = pick(p[gender] || p.M);
+  return p.order === 'sur-given' ? sur + p.sep + given : given + p.sep + sur;
+}

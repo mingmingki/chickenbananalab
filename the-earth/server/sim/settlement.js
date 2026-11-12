@@ -2,6 +2,27 @@
 import { BUILDINGS, SETTLEMENT_LEVELS, ERAS } from './data.js';
 import { rand, clamp } from './util.js';
 import { settlementName } from './names.js';
+import { Terrain, makeSite } from '../../public/js/shared/terrain.js';
+import { seaNear } from '../geo.js';
+
+// 큰 산맥 (지형을 더 험하게)
+const RANGES = [[72, 98, 26, 37], [-80, -64, -50, 8], [-125, -104, 35, 62], [5, 16, 44, 48], [38, 50, 40, 44], [44, 60, 26, 38], [-9, 10, 29, 36], [126.5, 130, 35.5, 39], [136, 140, 35, 37]];
+const DESERTS = [[-17, 35, 15, 30], [34, 60, 15, 31], [116, 142, -31, -20], [90, 115, 38, 46], [75, 92, 36, 42], [-118, -104, 30, 37]];
+const inBox = (lon, lat, b) => lon >= b[0] && lon <= b[1] && lat >= b[2] && lat <= b[3];
+export function biomeAt(lon, lat) {
+  if (Math.abs(lat) > 60) return 'snow';
+  if (DESERTS.some(b => inBox(lon, lat, b))) return 'desert';
+  if (Math.abs(lat) < 16) return 'tropical';
+  return 'temperate';
+}
+
+const terrains = new Map();
+/** 정착지의 지형 (저장되지 않는 계산 결과는 캐시) */
+export function terrainOf(s) {
+  let t = terrains.get(s.id);
+  if (!t) { t = new Terrain(s.site); terrains.set(s.id, t); }
+  return t;
+}
 
 export const CELL = 20;
 const BLOCK = 5;
@@ -26,16 +47,22 @@ export function makeSettlement(world, country, lon, lat, founder) {
     lon, lat, founded: Math.round(world.clock), founder: founder?.id ?? null,
     level: 0, occ: {}, radius: 40, food: 40, pop: 0, buildings: [],
   };
+  // 처음엔 자연뿐: 산, 언덕, 강, 바다, 숲
+  s.site = makeSite(s.id * 2654435761 + Math.floor(rand() * 1e6), {
+    sea: seaNear(lon, lat), biome: biomeAt(lon, lat), mountainous: RANGES.some(b => inBox(lon, lat, b)),
+  });
   world.settlements.set(s.id, s);
   world.dirtySettlements.add(s.id);
   return s;
 }
 
 function fits(s, i, j, w, d) {
+  const t = s.site ? terrainOf(s) : null;
   for (let a = 0; a < w; a++) for (let b = 0; b < d; b++) {
     const ci = i + a, cj = j + b;
     if (isRoad(ci, cj)) return false;
     if (s.occ[ci + ',' + cj]) return false;
+    if (t && !t.cellInfo(ci, cj).ok) return false; // 물, 가파른 비탈, 높은 산에는 못 짓는다
   }
   return true;
 }
@@ -145,9 +172,45 @@ export function plazaPoint(s, spread = 14) {
   return [Math.cos(ang) * r, Math.sin(ang) * r];
 }
 
-export function wildPoint(s) {
-  const ang = rand() * Math.PI * 2, r = s.radius + 40 + rand() * 160;
-  return [Math.cos(ang) * r, Math.sin(ang) * r];
+/** 마을 밖 자연 속 (물이 아닌 땅) */
+export function wildPoint(s, kind = null) {
+  const t = s.site ? terrainOf(s) : null;
+  let best = null;
+  for (let k = 0; k < 24; k++) {
+    const ang = rand() * Math.PI * 2, r = s.radius + 40 + rand() * (kind === 'mountain' ? 1400 : 320);
+    const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
+    if (!t) return [x, z];
+    const p = t.sample(x, z);
+    if (p.water || p.h < 0.8) continue;
+    if (kind === 'forest' && t.forest(x, z, p.h) < 0.3) { best = best || [x, z]; continue; }
+    if (kind === 'mountain' && p.h < 90) { if (!best || p.h > best[2]) best = [x, z, p.h]; continue; }
+    if (p.h > 160 && kind !== 'mountain') continue;
+    return [x, z];
+  }
+  return best ? [best[0], best[1]] : [s.radius + 60, 0];
+}
+
+/** 물가 (강·바다·호수) — 없으면 null */
+export function shorePoint(s) {
+  const t = s.site ? terrainOf(s) : null;
+  if (!t || !(s.site.river || s.site.coast || s.site.lake)) return null;
+  for (let k = 0; k < 16; k++) {
+    const ang = rand() * Math.PI * 2;
+    let prev = null;
+    for (let r = 20; r < 2600; r += 25) {
+      const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
+      const p = t.sample(x, z);
+      if (p.water) { if (prev) return prev; break; }
+      prev = [x, z];
+    }
+  }
+  return null;
+}
+
+export function siteFeatures(s) {
+  if (!s.site) return {};
+  const st = s.site;
+  return { sea: !!st.coast, river: !!st.river, lake: !!st.lake, mountain: st.mtn > 420, biome: st.biome };
 }
 
 export function doorPoint(b) {
@@ -161,4 +224,10 @@ export function eraOf(world, s) {
 
 export function prodMul(world, s) {
   return ERAS[clamp(eraOf(world, s), 0, 7)].prod;
+}
+
+/** 예전 저장 파일처럼 지형 정보가 없는 정착지에 지형을 만든다 */
+export function ensureSite(s) {
+  if (s.site) return;
+  s.site = makeSite(s.id * 2654435761 + 12345, { sea: seaNear(s.lon, s.lat), biome: biomeAt(s.lon, s.lat), mountainous: RANGES.some(b => inBox(s.lon, s.lat, b)) });
 }
