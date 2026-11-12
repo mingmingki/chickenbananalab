@@ -170,6 +170,26 @@ export const PUBLIC = {
 // 건물. cells = 차지하는 칸(20m 격자), size = [가로, 세로, 높이] m
 // work = 짓는 데 드는 작업량(사람×시간). 예: 아파트 24000 → 10명이 하루 8시간씩 약 1년
 // jobs = 이 건물에서 일할 수 있는 최대 인원, cap = 사는 사람 수
+// ── 도로 등급과 관청 부서 ──
+export const ROAD_GRADES = [
+  { name: '흙길', era: 0, work: 0, verb: '' },
+  { name: '자갈길', era: 2, work: 520, verb: '자갈 깔기' },
+  { name: '돌길', era: 3, work: 1300, verb: '돌길 포장' },
+  { name: '포장도로', era: 4, work: 2600, verb: '아스팔트 포장' },
+  { name: '대로', era: 5, work: 4200, verb: '대로 확장' },
+];
+export const maxRoadGrade = era => (era >= 5 ? 4 : era >= 4 ? 3 : era >= 3 ? 2 : era >= 2 ? 1 : 0);
+
+/** 관청(시청)의 부서: 시대와 공무원 수에 따라 생긴다 */
+export const DEPTS = [
+  { key: 'general', name: '총무과', era: 2, staff: 1, does: '행정·문서' },
+  { key: 'urban', name: '도시환경과', era: 2, staff: 3, does: '도로 정비·가로수' },
+  { key: 'welfare', name: '복지과', era: 4, staff: 5, does: '가난한 이웃 지원' },
+  { key: 'traffic', name: '교통과', era: 5, staff: 7, does: '대로·신호등·횡단보도' },
+];
+
+export const deptName = key => DEPTS.find(d => d.key === key)?.name || '';
+
 const B = (name, era, cells, size, work, kind, color, roof, extra = {}) => ({ name, era, cells, size, work, kind, color, roof, ...extra });
 export const BUILDINGS = {
   campfire: B('모닥불', 0, [1, 1], [4, 4, 1.2], 4, 'civic', '#c96a2b', 'fire'),
@@ -180,6 +200,7 @@ export const BUILDINGS = {
   townhouse: B('연립주택', 4, [1, 1], [14, 12, 12], 6000, 'home', '#c9b9a6', 'flat', { cap: 12, cost: 500 }),
   apartment: B('아파트', 5, [2, 2], [30, 22, 42], 24000, 'home', '#dfe3e8', 'flat', { cap: 40, cost: 2500 }),
   skytower: B('초고층 주상복합', 6, [2, 2], [32, 32, 140], 120000, 'home', '#9fc3dc', 'flat', { glass: true, cap: 140, cost: 12000 }),
+  roadwork: B('도로 공사', 0, [0, 0], [10, 10, 0], 0, 'infra', '#777777', 'none', { cost: 0 }),
   farm: B('농장', 1, [2, 2], [34, 34, 0.4], 120, 'farm', '#9bb547', 'field', { jobs: 12, cost: 15 }),
   granary: B('곡물 창고', 1, [1, 1], [10, 10, 6], 300, 'civic', '#b89a68', 'cone', { roofColor: '#8a6d3e', jobs: 4, cost: 0 }),
   lumberyard: B('목재소', 1, [2, 1], [30, 14, 6], 600, 'work', '#9b7653', 'gable', { roofColor: '#5d4430', jobs: 30, cost: 30 }),

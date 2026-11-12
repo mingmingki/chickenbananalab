@@ -122,6 +122,18 @@ export class Hud {
     if (n.clinic) needs.push(`🤒 아픈데 병원이 없는 사람 ${n.clinic}명`);
     if (!hasBuilder && (c?.era || 0) >= 2 && !n.builder) needs.push('🔨 건설회사가 없어 시장·관청 같은 큰 건물은 공사가 더디다');
     if (s.food < s.pop * 2) needs.push('🍚 식량이 모자란다');
+    if ((c?.era || 0) >= 4 && !inst.includes('fire') && s.pop >= 20) needs.push(`🚒 소방서가 없다 — 불이 나면 이웃들이 물을 길어 날라야 하고, 다 타 버리기 쉽다${n.fire ? ' (최근 화재)' : ''}`);
+    if ((c?.era || 0) >= 4 && !inst.includes('police') && s.pop >= 30) needs.push('🚓 경찰서가 없어 도둑이 들어도 잡기 어렵다');
+    // 도로와 관청 부서
+    const RG = this.meta.roadGrades || [];
+    const roadCount = {};
+    for (const g of Object.values(s.roads || {})) roadCount[g] = (roadCount[g] || 0) + 1;
+    const works = [...st.buildings.values()].filter(b => b.sid === sid && b.infra && !b.done);
+    const hall = [...st.companies.values()].find(co => co.sid === sid && co.pub && co.ind === 'hall');
+    const deptNames = (hall?.depts || []).map(k => (this.meta.depts || []).find(d => d.key === k)).filter(Boolean);
+    const roadHtml = `<div class="sec">도로</div><div class="tags">${Object.keys(roadCount).sort((a, b) => b - a).map(g => `<span>${['🟫', '⚪', '🪨', '⬛', '🛣️'][g] || ''} ${esc(RG[g]?.name || '길')} ${roadCount[g]}구간</span>`).join('') || '<span>아직 길이 없다</span>'}</div>`
+      + works.map(w => `<div class="row" style="display:flex;justify-content:space-between;font-size:13px;padding:3px 2px"><span>🚧 ${esc(w.name)} <span class="sub small">${w.segs?.length || 0}구간 → ${esc(RG[w.grade]?.name || '')}</span></span><b>${Math.round((w.p || 0) * 100)}%${w.ct ? ` · ${esc(st.companies.get(w.ct)?.name || '')} ${w.crew}명` : ' · 일용직·이웃'}</b></div>`).join('')
+      + (hall ? `<div class="sub small" style="margin:4px 2px">🏛️ ${esc(hall.name)}: ${deptNames.length ? deptNames.map(d => `${esc(d.name)}(${esc(d.does)})`).join(' · ') : '아직 부서가 없다'}${deptNames.some(d => d.key === 'urban') ? '' : ' — 도시환경과가 생겨야 길을 고친다'}</div>` : `<div class="sub small" style="margin:4px 2px">관청이 없어 길은 사람들이 밟아 다진 흙길뿐이다</div>`);
     const people = [...st.anns.values()].filter(a => a.al && a.s === sid).sort((a, b) => a.b - b.b);
     this.right.classList.remove('hidden');
     this.right.innerHTML = `<div id="ann-panel"><div class="ap-head" style="grid-template-columns:1fr auto">
@@ -132,6 +144,7 @@ export class Hud {
         <div class="sec">자연</div><div class="tags">${nature.map(x => `<span>${x}</span>`).join('')}</div>
         <div class="sec">있는 것</div>${pubs.length || coList.length ? `<div class="tags">${pubs.map(x => `<span>${esc(x)}</span>`).join('')}${coList.map(x => `<span>🏢 ${esc(x)}</span>`).join('')}</div>` : '<p class="sub">아직 아무것도 없다. 자연뿐.</p>'}
         ${(() => { const cl = [...st.companies.values()].filter(co => co.sid === sid).sort((x, y) => y.emp - x.emp); return cl.length ? `<div class="sec">일터 (${cl.reduce((t, co) => t + co.emp, 0)}명 근무)</div>` + cl.map(co => `<div class="row" style="display:flex;justify-content:space-between;font-size:13px;padding:3px 2px"><span>${co.pub ? '🏛️' : '🏢'} ${esc(co.name)} <span class="sub small">${esc(co.indName)}</span></span><b>${co.emp}${co.cap ? '/' + co.cap : ''}명${co.sites ? ` · 현장 ${co.sites}` : ''}</b></div>`).join('') : ''; })()}
+        ${roadHtml}
         <div class="sec">없어서 아쉬운 것</div>${needs.length ? needs.map(x => `<div class="mem neg">${esc(x)}</div>`).join('') : '<p class="sub">지금은 큰 불편이 없다.</p>'}
         <div class="sec">사는 사람들 (${people.length})</div>${people.map(a => this.annRow(a)).join('')}
       </div></div>`;
@@ -205,7 +218,7 @@ export class Hud {
     let sub = `세계시 · ×${st.scale}`;
     const focus = this.selected && st.anns.get(this.selected);
     const s = focus ? st.settlements.get(focus.s) : (this.me && st.settlements.get(st.countries.get(this.me.country)?.capital));
-    if (s) sub = `${s.name} 현지 ${String(Math.floor(localHour(now, s.lon))).padStart(2, '0')}:${String(Math.floor((localHour(now, s.lon) % 1) * 60)).padStart(2, '0')}${s.weather ? ` · ${WEMO[s.weather.k] || ''} ${s.weather.k} ${s.weather.temp}°` : ''} · ${sub}`;
+    if (s) sub = `${s.name} 현지 ${String(Math.floor(localHour(now, s.lon))).padStart(2, '0')}:${String(Math.floor((localHour(now, s.lon) % 1) * 60)).padStart(2, '0')}${s.weather ? ` · ${s.weather.season} ${WEMO[s.weather.k] || ''} ${s.weather.k} ${s.weather.temp}°${s.snow > 0.15 ? ' · 눈 쌓임' : ''}` : ''} · ${sub}`;
     let pop = 0; for (const a of st.anns.values()) if (a.al) pop++;
     document.getElementById('hud-sub').textContent = `${sub} · 세계 인구 ${pop}명`;
     const meEl = document.getElementById('hud-me');
@@ -411,7 +424,7 @@ export class Hud {
     const owner = b.owner && this.state.anns.get(b.owner);
     const co = b.co && this.state.companies.get(b.co);
     tip.innerHTML = `<b>${esc(b.name)}</b> <span class="sub small">${esc(def?.name || b.type)}</span><br>
-      ${b.done ? '' : `🏗️ 공사 중 ${Math.round(b.p * 100)}%${b.stalled ? ' — 벽돌이 모자라 멈춤' : ''}<br>`}${!b.done && b.ct ? `🦺 시공: ${esc(this.state.companies.get(b.ct)?.name || '')} · 현장 인원 ${b.crew}명<br>` : !b.done ? '손수 짓는 중<br>' : ''}${co ? `🏢 ${esc(co.name)}<br>` : ''}${owner ? `주인: ${esc(owner.n)}<br>` : ''}${b.res ? `사는 사람 ${b.res}명` : ''}`;
+      ${b.done ? '' : `🏗️ 공사 중 ${Math.round(b.p * 100)}%${b.stalled ? ' — 벽돌이 모자라 멈춤' : ''}<br>`}${!b.done && b.ct ? `🦺 시공: ${esc(this.state.companies.get(b.ct)?.name || '')} · 현장 인원 ${b.crew}명<br>` : !b.done ? '손수 짓는 중<br>' : ''}${co ? `🏢 ${esc(co.name)}<br>` : ''}${owner ? `주인: ${esc(owner.n)}<br>` : ''}${b.res ? `사는 사람 ${b.res}명` : ''}${b.fire ? '<br>🔥 <b>불이 났다!</b>' : ''}${b.burnt && !b.done ? '<br>🔥 화재로 타 버려 다시 짓는 중' : ''}`;
     tip.style.left = x + 'px'; tip.style.top = y + 'px';
     tip.classList.remove('hidden');
     clearTimeout(this.tipT);

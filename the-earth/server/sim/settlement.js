@@ -199,6 +199,7 @@ export function addWork(world, b, hours) {
   }
   b.progress = Math.min(b.work, b.progress + hours);
   world.dirtyBuildings.add(b.id);
+  if (b.infra) world.onRoadProgress?.(b);
   if (b.progress >= b.work) {
     b.done = true;
     b.built = Math.round(world.clock);

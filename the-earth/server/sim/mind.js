@@ -8,6 +8,7 @@ import {
 } from './economy.js';
 import { plazaPoint, wildPoint, shorePoint, doorPoint, placeBuilding, addWork, siteFeatures, buildRule } from './settlement.js';
 import { compose } from './thoughts.js';
+import { segCenter } from './infra.js';
 
 export const ACTS = {
   sleep: { label: '잠', emoji: '💤' },
@@ -126,10 +127,22 @@ function start(world, a, type, dur, place, extra = {}) {
   world.dirtyAct.add(a.id);
 }
 
+/** 순찰 지점: 길 위의 아무 곳 */
+function patrolPoint(world, a) {
+  const s = world.settlements.get(a.sid);
+  const keys = Object.keys(s.roads || {});
+  if (!keys.length) return plazaPoint(s, 30);
+  const k = pick(keys), [x, z] = segCenter(k), t = (rand() - 0.5) * 90;
+  return k[0] === 'h' ? [x + t, z + (rand() - 0.5) * 4] : [x + (rand() - 0.5) * 4, z + t];
+}
+const isGuard = a => a.job && (a.job.id === 'police' || a.job.id === 'soldier');
+
 function workPlace(world, a) {
   const j = JOBS[a.job.id];
   const co = a.job.co && world.companies.get(a.job.co);
   if (a.job.site) { const site = world.buildings.get(a.job.site); if (site && !site.done) return site.id; }
+  // 경찰·포졸은 절반쯤은 동네를 돌며 순찰한다
+  if (isGuard(a) && chance(0.6)) return patrolPoint(world, a);
   if (co) return co.b;
   const s = world.settlements.get(a.sid);
   if (a.job.id === 'fisher') return shorePoint(s) || wildPoint(s);
@@ -588,7 +601,7 @@ export function updateAnn(world, a, dt) {
     if (d <= step + 0.5) {
       a.x = act.tx; a.z = act.tz;
       act.ph = 'do';
-      act.until = world.clock + act.dur;
+      if (act.repath) act.repath = false; else act.until = world.clock + act.dur;
       world.dirtyAct.add(a.id);
       onArrive(world, a, act);
     } else {
@@ -727,6 +740,13 @@ function onTick(world, a, act, dt) {
     case 'work':
       if (a.job) { produce(world, a, dt); a.day.work += hours; a.payHours = (a.payHours || 0) + hours; a.lastWork = world.clock; }
       else act.done = true;
+      // 순찰: 한 곳에 오래 서 있지 않고 다음 골목으로
+      if (isGuard(a) && !act.site && world.clock - (act.patrolT || act.started) > 35 + rand() * 40 && chance(0.7)) {
+        act.patrolT = world.clock;
+        [act.tx, act.tz] = patrolPoint(world, a);
+        act.ph = 'move'; act.repath = true; act.patrol = true;
+        world.dirtyAct.add(a.id);
+      }
       break;
     case 'forage': {
       const s = world.settlements.get(a.sid);

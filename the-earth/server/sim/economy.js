@@ -1,5 +1,5 @@
 // 경제: 회사·공공기관·일자리·임금·생산·세금
-import { INDUSTRIES, PUBLIC, JOBS, ERAS, BUILDINGS, RANKS, DISCOVERIES, EDU_NAMES, maxEduForEra } from './data.js';
+import { INDUSTRIES, PUBLIC, JOBS, ERAS, BUILDINGS, RANKS, DISCOVERIES, EDU_NAMES, maxEduForEra, deptName } from './data.js';
 import { clamp, rand, pick, chance, ageOf, YEAR, ga, neun, reul, wa, ro } from './util.js';
 import { remember, think, feel, lifeEvent } from './ann.js';
 import { placeBuilding, addWork, siteFeatures, buildRule } from './settlement.js';
@@ -33,7 +33,7 @@ export function jobTitle(world, a) {
   const j = JOBS[a.job.id];
   const rank = a.job.rank > 0 ? ` (${RANKS[a.job.rank]})` : '';
   const site = a.job.site && world.buildings.get(a.job.site);
-  return (co ? `${co.name} ` : '') + (j?.name || '일') + rank + (site && !site.done ? ` · ${site.name} 현장` : '');
+  return (co ? `${co.name} ` : '') + (a.job.dept ? deptName(a.job.dept) + ' ' : '') + (j?.name || '일') + rank + (site && !site.done ? ` · ${site.name} 현장` : '');
 }
 
 export function companiesIn(world, sid) {

@@ -9,7 +9,7 @@ import { loadGeo, getCountry } from './geo.js';
 import { World, MAX_ANNS_PER_PLAYER } from './sim/world.js';
 import { loadWorlds, saveWorld } from './store.js';
 import { ACTS } from './sim/mind.js';
-import { ERAS, BUILDINGS, INDUSTRIES, PUBLIC, JOBS, SETTLEMENT_LEVELS, EDU_NAMES } from './sim/data.js';
+import { ERAS, BUILDINGS, INDUSTRIES, PUBLIC, JOBS, SETTLEMENT_LEVELS, EDU_NAMES, DEPTS, ROAD_GRADES } from './sim/data.js';
 import { TRAIT_NAMES, ABILITY_NAMES } from './sim/ann.js';
 import { randomName } from './sim/names.js';
 
@@ -52,7 +52,7 @@ app.get('/api/geo', (req, res) => {
 
 app.get('/api/meta', (req, res) => {
   res.json({
-    acts: ACTS, eras: ERAS, buildings: BUILDINGS, industries: INDUSTRIES, publicOrgs: PUBLIC, levels: SETTLEMENT_LEVELS, eduNames: EDU_NAMES,
+    acts: ACTS, eras: ERAS, buildings: BUILDINGS, industries: INDUSTRIES, publicOrgs: PUBLIC, levels: SETTLEMENT_LEVELS, eduNames: EDU_NAMES, depts: DEPTS, roadGrades: ROAD_GRADES,
     jobs: Object.fromEntries(Object.entries(JOBS).map(([k, j]) => [k, { name: j.name, era: j.era }])),
     traitNames: TRAIT_NAMES, abilityNames: ABILITY_NAMES, maxAnns: MAX_ANNS_PER_PLAYER, adminRequired: !!ADMIN_KEY,
   });

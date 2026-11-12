@@ -6,6 +6,7 @@ import { rel, updateKind, attraction } from './social.js';
 import { ERAS, JOBS, BUILDINGS, DISCOVERIES } from './data.js';
 import { siteFeatures, removeBuilding } from './settlement.js';
 import { seasonOf } from './thoughts.js';
+import { policeResponse, coverage } from './safety.js';
 
 const EV = [];
 /** 사건 정의: id, [최소 나이, 최대 나이), 하루 확률, 조건, 실행, 재발 간격(일) */
@@ -184,7 +185,11 @@ E('found_money', [8, 90], 0.002, c => c.era >= 2, c => {
   if (c.a.tr.A + c.a.tr.C > 110) { c.life('길에서 돈주머니를 주워 주인을 찾아 돌려주었다', '👛'); c.a.rep = clamp(c.a.rep + 6, -100, 100); c.feel(8, '뿌듯함'); }
   else { c.money(m); c.mem('길에서 돈주머니를 주웠다 — 몰래 챙겼다', 4, 0.3); if (c.a.tr.C > 50) c.think('주인이 찾고 있을 텐데…'); }
 }, 400);
-E('robbed', [16, 95], 0.0025, c => c.era >= 2 && c.a.money > c.wage * 5, c => { const loss = c.a.money * (0.1 + rand() * 0.25); c.money(-loss); c.life(`도둑이 들어 재산 ${Math.round(loss)}을(를) 잃었다`, '🦹'); c.feel(-15, '분노', '도둑'); c.stress(15); }, 300);
+E('robbed', [16, 95], 0.0012, c => c.era >= 2 && c.a.money > c.wage * 5 && !chance(coverage(c.w, c.s) * 0.6), c => {
+  const loss = c.a.money * (0.1 + rand() * 0.25); c.money(-loss);
+  const caught = policeResponse(c.w, c.a, loss);
+  c.life(`도둑이 들어 재산 ${Math.round(loss)}을(를) 잃었다${caught ? ' — ' + caught : ''}`, '🦹'); c.feel(caught && caught.includes('되찾') ? -5 : -15, '분노', '도둑'); c.stress(caught ? 6 : 15);
+}, 300);
 E('scammed', [20, 90], 0.0015, c => c.era >= 3 && c.a.money > c.wage * 20 && c.a.tr.O + c.a.ab.int < 110, c => { const loss = c.a.money * (0.2 + rand() * 0.4); c.money(-loss); c.life(`그럴듯한 말에 속아 사기를 당했다 (${Math.round(loss)})`, '🎭'); c.feel(-25, '절망', '사기'); c.stress(25); c.think('사람을 믿은 내가 바보였다.'); }, 1000);
 E('windfall', [18, 95], 0.0008, null, c => { const m = c.wage * (30 + rand() * 120); c.money(m); const how = c.era >= 4 ? '복권에 당첨되었다' : c.feat.mountain ? '산에서 귀한 약초 군락을 발견해 큰돈을 벌었다' : '땅을 일구다 옛 보물을 발견했다'; c.life(`${how}! (${Math.round(m)})`, '🍀'); c.feel(35, '환희', '횡재'); }, ONCE);
 E('housewarming', [19, 90], 0.03, c => c.a.home && c.w.buildings.get(c.a.home)?.owner === c.a.id && c.w.clock - (c.w.buildings.get(c.a.home)?.built || 0) < DAY * 10 && c.friend(), c => { const f = c.friend(); c.mem(`새집에 ${reul(f.name)} 초대해 집들이를 했다`, 4, 0.7, [f.id]); c.bond(f, 6, 4); c.other(f, `${c.a.name}의 집들이에 갔다`, 3, 0.5); }, 400);

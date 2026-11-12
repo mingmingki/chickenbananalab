@@ -6,6 +6,7 @@ import { makeSpace, glowTexture } from './space.js';
 import { CameraRig } from './camera.js';
 import { Cities } from './cities.js';
 import { Labels } from './labels.js';
+import { Weather } from './weather.js';
 
 export class World3D {
   constructor(container, meta, countries) {
@@ -28,6 +29,7 @@ export class World3D {
     this.earth = makeEarth(this.tex);
     this.earthRoot.add(this.earth.group);
     this.cities = new Cities(this.earthRoot, meta, this.earth.mesh);
+    this.weather = new Weather(this.scene);
     this.rig = new CameraRig(this.camera, renderer.domElement);
     this.labels = new Labels(document.getElementById('labels'), sid => this.onTownClick?.(sid));
     this.ray = new THREE.Raycaster();
@@ -265,6 +267,23 @@ export class World3D {
       this.space.ambient.intensity = THREE.MathUtils.lerp(1.05, 0.35, this.cities.night);
       this.space.ambient.color.setHex(this.cities.night > 0.5 ? 0x7f98d8 : 0xcfe0ff);
       labels = this.cities.update(st, this.camera, this.rig, this.time);
+      // 마을 가까이에서는 카메라 초점을 실제 땅 높이에 맞춘다 (지구 구면은 마을 땅보다 높을 수 있다)
+      const nt = this.cities.nearest?.t;
+      if (!this.rig.follow) {
+        if (nt && alt < 4 && this.rig.focus) {
+          this._inv = (this._inv || new THREE.Matrix4()).copy(nt.g.matrixWorld).invert();
+          const lp = this.rig.focus.clone().setLength(R).applyMatrix4(this._inv);
+          if (Math.hypot(lp.x, lp.z) < 4000) this.rig.tgt.h = nt.base - R + Math.max(0, nt.hAt(lp.x, lp.z)) / 1000;
+        } else if (alt > 8) this.rig.tgt.h = 0;
+      }
+      // 날씨: 가장 가까운 마을의 하늘
+      const wx = this.weather.update(dt, this.camera, this.cities.nearest?.t || null, alt, this.cities.night);
+      this.space.light.intensity = 3.2 * (1 - wx.dim) + wx.flash * 6;
+      this.space.ambient.intensity *= 1 - wx.dim * 0.5;
+      this.space.ambient.intensity += wx.flash * 1.5;
+    } else {
+      this.weather.update(dt, this.camera, null, alt, 0);
+      this.space.light.intensity = 3.2;
     }
     if (alt > 2e5) {
       const wp = new THREE.Vector3();
