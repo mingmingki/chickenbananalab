@@ -10,7 +10,7 @@ const days = +(process.argv[2] || 120);
 const nPlayers = +(process.argv[3] || 2);
 const country = process.argv[4] || 'KR';
 loadGeo();
-const w = new World({ id: 'sim', name: 'sim', timeScale: 10 });
+const w = new World({ id: 'sim', name: 'sim', timeScale: 24 });
 w.techSrc = {};
 const KO = ['민준', '서연', '도윤', '지우', '하준', '서윤', '시우', '하은', '주원', '지민', '예준', '수아'];
 for (let p = 0; p < nPlayers; p++) {

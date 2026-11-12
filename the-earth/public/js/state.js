@@ -23,7 +23,7 @@ export class GameState {
     this.world = null;
     this.clock = 0;
     this.clockAt = performance.now();
-    this.scale = 10;
+    this.scale = 24;
     this.countries = new Map();
     this.settlements = new Map();
     this.buildings = new Map();
@@ -48,7 +48,7 @@ export class GameState {
     this.world = m.world;
     this.clock = m.world.clock;
     this.clockAt = performance.now();
-    this.scale = m.world.timeScale || 10;
+    this.scale = m.world.timeScale || 24;
     this.countries.clear(); this.settlements.clear(); this.buildings.clear(); this.companies.clear(); this.players.clear(); this.anns.clear(); this.pos.clear();
     for (const c of m.countries) this.countries.set(c.code, c);
     for (const s of m.settlements) this.settlements.set(s.id, s);

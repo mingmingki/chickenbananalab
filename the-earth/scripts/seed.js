@@ -9,7 +9,7 @@ import { fmtDate, DAY } from '../server/sim/util.js';
 const days = +(process.argv[2] || 900);
 const id = process.argv[3] || 'demo';
 loadGeo();
-const w = new World({ id, name: `데모 서버 (${days}일 진행)`, timeScale: 10 });
+const w = new World({ id, name: `데모 서버 (${days}일 진행)`, timeScale: 24 });
 const groups = [['한별', 'KR', 10], ['Mika', 'JP', 8], ['Alex', 'US', 8]];
 for (const [name, code, n] of groups) {
   const p = w.joinPlayer(name, code);

@@ -15,7 +15,7 @@ import { randomName } from './sim/names.js';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const PORT = +process.env.PORT || 3000;
-const DEFAULT_SCALE = 10; // 게임 시간은 현실의 10배 (현실 2.4시간 = 게임 하루)
+const DEFAULT_SCALE = 24; // 현실 1시간 = 게임 하루 (현실 하루 = 게임 24일, 현실 15일 = 게임 1년)
 const RUN_SCALE = process.env.TIME_SCALE ? +process.env.TIME_SCALE : null; // 개발용 가속
 const ADMIN_KEY = process.env.ADMIN_KEY || '';
 const SAVE_EVERY_MS = 60_000;
@@ -28,7 +28,10 @@ if (!worlds.size) {
   saveWorld(w);
   console.log('새 월드를 만들었습니다:', w.name);
 }
-for (const w of worlds.values()) if (RUN_SCALE) w.runScale = RUN_SCALE;
+for (const w of worlds.values()) {
+  if (w.timeScale === 10) w.timeScale = DEFAULT_SCALE; // 예전 기본값(10배)으로 만든 서버도 새 기준으로
+  if (RUN_SCALE) w.runScale = RUN_SCALE;
+}
 
 const app = express();
 app.use(compression());

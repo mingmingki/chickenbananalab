@@ -20,7 +20,7 @@ export class World {
     this.id = meta.id || 's1';
     this.name = meta.name || '제1서버';
     this.created = meta.created || Date.now();
-    this.timeScale = meta.timeScale || 10;
+    this.timeScale = meta.timeScale || 24;
     this.clock = meta.clock || 0;
     this.nextIdV = meta.nextIdV || 1;
     this.countries = {};
