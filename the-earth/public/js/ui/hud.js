@@ -3,6 +3,7 @@ import { fmtDate, fmtTime, fmtDateTime, localHour, MIN_YEAR } from '../state.js'
 import { josa } from './josa.js';
 import { avatarHTML } from './avatar.js';
 
+const isMobile = () => innerWidth <= 860;
 const WEMO = { 맑음: '☀️', 구름: '☁️', 비: '🌧️', 소나기: '🌦️', 폭우: '⛈️', 눈: '🌨️', 폭설: '❄️', 바람: '🌬️', 안개: '🌫️', 무더위: '🥵', 한파: '🥶', 태풍: '🌀' };
 const INST = { hall: '🏛️ 관청', academy: '📚 학당', temple: '⛩️ 신전', seodang: '📜 서당', kinder: '🧸 유치원', school: '🏫 초등학교', middle: '🏫 중학교', high: '🏫 고등학교', univ: '🎓 대학교', lab: '🔬 국립 연구소' };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -28,6 +29,9 @@ export class Hud {
     document.querySelectorAll('#left-tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === this.tab));
     document.getElementById('btn-deploy-more').classList.toggle('hidden', !me);
     this.bind();
+    // 휴대폰: 목록은 아래쪽 시트로, 처음엔 접어 두고 세상을 먼저 보여 준다
+    document.getElementById('left').classList.toggle('closed', isMobile());
+    this.layout();
     this.renderTop();
     this.renderLeft(true);
     this.timer = setInterval(() => this.renderTop(), 250);
@@ -63,7 +67,7 @@ export class Hud {
       if (e.target.closest('#left-body [data-ann]') || e.target.closest('#right')) return;
       const t = e.target;
       const tab = t.closest('#left-tabs button');
-      if (tab) { this.tab = tab.dataset.tab; document.querySelectorAll('#left-tabs button').forEach(b => b.classList.toggle('on', b === tab)); this.renderLeft(true); return; }
+      if (tab) { this.tab = tab.dataset.tab; document.querySelectorAll('#left-tabs button').forEach(b => b.classList.toggle('on', b === tab)); if (isMobile()) { document.getElementById('left').classList.remove('closed'); this.layout(); } this.renderLeft(true); return; }
       const ann = t.closest('[data-ann]');
       if (ann) { this.select(+ann.dataset.ann, true); return; }
       const town = t.closest('[data-town]');
@@ -78,10 +82,17 @@ export class Hud {
       if (act === 'deploy-more') this.onDeployMore?.();
       if (act === 'home') this.goHome();
       if (act === 'space') this.w3d.rig.flyTo({ alt: 1.4e8 });
-      if (act === 'toggle-left') document.getElementById('left').classList.toggle('closed');
+      if (act === 'toggle-left') { document.getElementById('left').classList.toggle('closed'); this.layout(); }
       if (t.closest('.brand')) this.onExit?.();
     };
     this.left.oninput = e => { if (e.target.id === 'ann-search') { this.filter = e.target.value.trim(); this.renderLeft(true, true); } };
+  }
+
+  /** 휴대폰: 열린 시트에 가려지지 않게 3D 화면을 위로 올린다 */
+  layout() {
+    if (!isMobile()) return this.w3d.setLift(0);
+    const right = !this.right.classList.contains('hidden'), left = !document.getElementById('left').classList.contains('closed');
+    this.w3d.setLift(right ? 0.27 : left ? 0.22 : 0);
   }
 
   goHome() {
@@ -136,6 +147,8 @@ export class Hud {
       + (hall ? `<div class="sub small" style="margin:4px 2px">🏛️ ${esc(hall.name)}: ${deptNames.length ? deptNames.map(d => `${esc(d.name)}(${esc(d.does)})`).join(' · ') : '아직 부서가 없다'}${deptNames.some(d => d.key === 'urban') ? '' : ' — 도시환경과가 생겨야 길을 고친다'}</div>` : `<div class="sub small" style="margin:4px 2px">관청이 없어 길은 사람들이 밟아 다진 흙길뿐이다</div>`);
     const people = [...st.anns.values()].filter(a => a.al && a.s === sid).sort((a, b) => a.b - b.b);
     this.right.classList.remove('hidden');
+    if (isMobile() && !this.townShown) { document.getElementById('left').classList.add('closed'); this.layout(); }
+    this.townShown = true;
     this.right.innerHTML = `<div id="ann-panel"><div class="ap-head" style="grid-template-columns:1fr auto">
       <div><h2>${esc(s.name)} <span class="chip">${esc(s.levelName)}</span></h2><div class="meta">${esc(c?.name || '')} · ${esc(c?.eraName || '')} · 인구 ${s.pop}명 · ${fmtDate(s.founded)} 세워짐</div></div>
       <div class="acts"><button class="btn small ghost" data-act="close-ann">닫기 ✕</button></div></div>
@@ -155,9 +168,11 @@ export class Hud {
     this.w3d.cities.selected = id;
     this.live?.watch(id);
     this.townId = null;
-    if (!id) { this.right.classList.add('hidden'); this.w3d.rig.follow = null; this.detail = null; this.renderLeft(true); return; }
+    if (!id) { this.right.classList.add('hidden'); this.w3d.rig.follow = null; this.detail = null; this.layout(); this.renderLeft(true); return; }
     this.detail = null;
     this.right.classList.remove('hidden');
+    if (isMobile()) document.getElementById('left').classList.add('closed');
+    this.layout();
     this.right.innerHTML = '<div id="ann-panel"><p class="empty">앤의 마음을 읽는 중…</p></div>';
     if (fly) {
       const a = this.state.anns.get(id);

@@ -246,8 +246,24 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
   .creator-body { grid-template-columns: 1fr; }
   .ann-roster { border-right: 0; border-bottom: 1px solid var(--line); flex-direction: row; flex-wrap: wrap; max-height: 140px; }
   .ann-editor { grid-template-columns: 1fr; padding: 14px 16px; }
-  .side.left { width: calc(100vw - 24px); bottom: 50%; }
-  .side.right { width: calc(100vw - 24px); top: 50%; }
+  /* 휴대폰: 목록과 앤 정보는 아래에서 올라오는 시트. 위쪽 절반은 언제나 세상이 보인다 */
+  .side.left { left: 8px; right: 8px; width: auto; top: auto; bottom: 8px; height: 46vh; transition: transform .25s; z-index: 5; }
+  .side.left.closed { transform: translateY(calc(100% - 46px)); }
+  .side.left .tabs button { padding: 12px 4px; }
+  .side.left .collapse { right: auto; left: 50%; top: -1px; width: 64px; height: 14px; line-height: 10px; font-size: 13px; border-radius: 0 0 10px 10px; transform: translateX(-50%) rotate(0deg); }
+  .side.left.closed .collapse { transform: translateX(-50%) rotate(0deg); }
+  .side.left .collapse { color: transparent; }
+  .side.left .collapse::after { content: ''; position: absolute; left: 50%; top: 5px; width: 28px; height: 4px; border-radius: 4px; background: rgba(255,255,255,0.35); transform: translateX(-50%); }
+  .side.right { left: 8px; right: 8px; width: auto; top: auto; bottom: 8px; height: 56vh; z-index: 6; }
+  /* 위쪽: 1줄 서버·시각, 2줄 날씨, 3줄 버튼. 소식은 그 아래 */
+  .topbar { display: grid; grid-template-columns: auto 1fr; grid-template-areas: 'brand clock' 'acts acts'; row-gap: 6px; background: linear-gradient(180deg, rgba(2,4,10,0.92) 60%, rgba(2,4,10,0)); padding-bottom: 14px; }
+  .topbar .brand { grid-area: brand; }
+  .topbar .clock { grid-area: clock; text-align: right; }
+  .topbar .top-actions { grid-area: acts; justify-content: flex-end; flex-wrap: wrap; }
+  .clock .sub { white-space: normal; line-height: 1.35; }
+  .ticker { bottom: auto; top: 128px; font-size: 12px; }
+  .toast { top: 160px; }
+  .toast { max-width: calc(100vw - 24px); }
   .topbar { height: auto; padding: 8px 10px; flex-wrap: wrap; }
   .brand .logo { display: none; }
   .ticker { max-width: calc(100vw - 24px); }
