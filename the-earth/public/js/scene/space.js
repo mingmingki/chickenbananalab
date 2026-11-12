@@ -188,7 +188,8 @@ export function makeSpace() {
   const moon = new THREE.Mesh(new THREE.SphereGeometry(1737, 64, 48), new THREE.MeshStandardMaterial({ map: planetTexture('moon'), roughness: 1, metalness: 0 }));
   ecliptic.add(moon);
 
-  const ambient = new THREE.AmbientLight(0x6b7fa8, 0.22);
+  // 하늘에서 오는 채움빛 (그늘진 벽이 새까맣지 않게)
+  const ambient = new THREE.HemisphereLight(0xcfe0ff, 0x6b5a45, 0.9);
 
   const space = { sky, equatorial, ecliptic, sunGroup, sunMesh, sunGlow, sunFar, light, planets, moon, ambient, sunDir: new THREE.Vector3(1, 0, 0), sunWorld: new THREE.Vector3() };
 

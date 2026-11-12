@@ -11,6 +11,7 @@ import { loadWorlds, saveWorld } from './store.js';
 import { ACTS } from './sim/mind.js';
 import { ERAS, BUILDINGS, INDUSTRIES, PUBLIC, JOBS, SETTLEMENT_LEVELS } from './sim/data.js';
 import { TRAIT_NAMES, ABILITY_NAMES } from './sim/ann.js';
+import { randomName } from './sim/names.js';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const PORT = +process.env.PORT || 3000;
@@ -52,6 +53,11 @@ app.get('/api/meta', (req, res) => {
     jobs: Object.fromEntries(Object.entries(JOBS).map(([k, j]) => [k, { name: j.name, era: j.era }])),
     traitNames: TRAIT_NAMES, abilityNames: ABILITY_NAMES, maxAnns: MAX_ANNS_PER_PLAYER, adminRequired: !!ADMIN_KEY,
   });
+});
+
+app.get('/api/random-name', (req, res) => {
+  const culture = String(req.query.culture || 'en').slice(0, 4);
+  res.json({ name: randomName(culture, req.query.gender === 'F' ? 'F' : 'M') });
 });
 
 app.get('/api/servers', (req, res) => {

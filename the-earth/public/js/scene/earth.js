@@ -76,8 +76,8 @@ export function buildEarthTextures(countries, maxTex) {
   // 얼룩덜룩한 질감
   bg.globalCompositeOperation = 'soft-light';
   bg.drawImage(noiseCanvas(512, 256, 9, 3), 0, 0, W, H);
-  bg.globalAlpha = 0.6;
-  bg.drawImage(noiseCanvas(1024, 512, 4, 7), 0, 0, W, H);
+  bg.globalAlpha = 0.28;
+  bg.drawImage(noiseCanvas(1024, 512, 6, 7), 0, 0, W, H);
   bg.globalAlpha = 1;
   bg.globalCompositeOperation = 'destination-in';
   bg.drawImage(mask, 0, 0);
@@ -114,13 +114,31 @@ export function buildEarthTextures(countries, maxTex) {
   });
   const idData = ig.getImageData(0, 0, IW, IH).data;
 
+  // 5) 부드러운 마스크: R=육지, G=선택한 나라, B=내 나라 (선형 보간으로 해안선이 매끈하게)
+  const ov = document.createElement('canvas'); ov.width = 4096; ov.height = 2048;
+  const ovTex = new THREE.CanvasTexture(ov);
+  ovTex.generateMipmaps = true; ovTex.minFilter = THREE.LinearMipmapLinearFilter; ovTex.magFilter = THREE.LinearFilter;
+  const paintOverlay = (selIdx = -1, myIdx = -1) => {
+    const g = ov.getContext('2d');
+    g.globalCompositeOperation = 'source-over';
+    g.fillStyle = '#000'; g.fillRect(0, 0, ov.width, ov.height);
+    g.drawImage(mask, 0, 0, ov.width, ov.height);
+    g.globalCompositeOperation = 'multiply'; g.fillStyle = '#ff0000'; g.fillRect(0, 0, ov.width, ov.height);
+    g.globalCompositeOperation = 'lighter';
+    if (selIdx >= 0) { g.fillStyle = '#00ff00'; g.beginPath(); drawCountry(g, countries[selIdx], ov.width, ov.height); g.fill('evenodd'); }
+    if (myIdx >= 0) { g.fillStyle = '#0000ff'; g.beginPath(); drawCountry(g, countries[myIdx], ov.width, ov.height); g.fill('evenodd'); }
+    g.globalCompositeOperation = 'source-over';
+    ovTex.needsUpdate = true;
+  };
+  paintOverlay();
+
   const dayTex = new THREE.CanvasTexture(day);
   dayTex.colorSpace = THREE.SRGBColorSpace;
   dayTex.anisotropy = 8;
   const idTex = new THREE.CanvasTexture(idc);
   idTex.magFilter = idTex.minFilter = THREE.NearestFilter;
   idTex.generateMipmaps = false;
-  return { dayTex, idTex, idData, IW, IH };
+  return { dayTex, idTex, idData, IW, IH, ovTex, paintOverlay };
 }
 
 export function makeEarth(textures) {
@@ -130,8 +148,8 @@ export function makeEarth(textures) {
   lightsTex.colorSpace = THREE.SRGBColorSpace;
 
   const uniforms = {
-    dayMap: { value: textures.dayTex }, idMap: { value: textures.idTex }, lightsMap: { value: lightsTex },
-    sunDir: { value: new THREE.Vector3(1, 0, 0) }, hoverId: { value: -1 }, myId: { value: -1 }, activeBoost: { value: 0 },
+    dayMap: { value: textures.dayTex }, idMap: { value: textures.idTex }, lightsMap: { value: lightsTex }, ovMap: { value: textures.ovTex },
+    sunDir: { value: new THREE.Vector3(1, 0, 0) }, hoverId: { value: -1 }, myId: { value: -1 }, lightsFade: { value: 1 },
   };
   const mat = new THREE.ShaderMaterial({
     uniforms,
@@ -144,8 +162,8 @@ export function makeEarth(textures) {
         #include <logdepthbuf_vertex>
       }`,
     fragmentShader: LOGF + `
-      uniform sampler2D dayMap; uniform sampler2D idMap; uniform sampler2D lightsMap;
-      uniform vec3 sunDir; uniform float hoverId; uniform float myId;
+      uniform sampler2D dayMap; uniform sampler2D idMap; uniform sampler2D lightsMap; uniform sampler2D ovMap;
+      uniform vec3 sunDir; uniform float hoverId; uniform float myId; uniform float lightsFade;
       varying vec2 vUv; varying vec3 vN; varying vec3 vW;
       void main() {
         #include <logdepthbuf_fragment>
@@ -155,20 +173,22 @@ export function makeEarth(textures) {
         vec3 col = texture2D(dayMap, vUv).rgb;
         vec4 idc = texture2D(idMap, vUv);
         float id = floor(idc.r * 255.0 + 0.5) + floor(idc.g * 255.0 + 0.5) * 256.0;
-        float land = step(0.5, id);
-        if (hoverId > 0.0 && abs(id - hoverId) < 0.5) col = mix(col, vec3(1.0, 0.82, 0.35), 0.45);
-        if (myId > 0.0 && abs(id - myId) < 0.5) col = mix(col, vec3(0.35, 0.85, 1.0), 0.18);
+        vec3 ov = texture2D(ovMap, vUv).rgb;
+        float land = ov.r;
+        if (hoverId > 0.0 && abs(id - hoverId) < 0.5) col = mix(col, vec3(1.0, 0.82, 0.35), 0.3);
+        col = mix(col, vec3(1.0, 0.82, 0.35), ov.g * 0.42);
+        col = mix(col, vec3(0.35, 0.85, 1.0), ov.b * 0.16);
         vec3 V = normalize(cameraPosition - vW);
         vec3 lit = col * (0.035 + max(ndl, 0.0) * 1.05);
         vec3 H = normalize(sunDir + V);
         float spec = pow(max(dot(n, H), 0.0), 70.0) * (1.0 - land) * day * 0.75;
         vec3 lights = texture2D(lightsMap, vUv).rgb;
-        vec3 night = col * 0.025 + lights * 1.8 * land;
+        vec3 night = col * 0.03 + lights * 1.8 * land * lightsFade;
         vec3 c = mix(night, lit, day) + spec * vec3(1.0, 0.92, 0.75);
         float rim = pow(1.0 - max(dot(n, V), 0.0), 4.0);
         c += vec3(0.25, 0.5, 1.0) * rim * 0.55 * smoothstep(-0.35, 0.35, ndl);
         // 노을빛 경계
-        c += vec3(0.6, 0.25, 0.05) * smoothstep(0.2, 0.0, abs(ndl)) * 0.12 * (1.0 - land * 0.5);
+        c += vec3(0.55, 0.18, 0.05) * smoothstep(0.12, 0.0, abs(ndl)) * 0.05;
         gl_FragColor = vec4(c, 1.0);
         #include <colorspace_fragment>
       }`,
@@ -194,9 +214,9 @@ export function makeEarth(textures) {
         #include <logdepthbuf_fragment>
         float lat = vP.y;
         vec3 q = vP*3.2 + vec3(time*0.012, 0.0, time*0.007);
-        float band = 0.55 + 0.25*cos(lat*9.0);
+        float th = 0.6 - 0.07*cos(lat*7.0) + 0.05*abs(lat);
         float d = fbm(q + fbm(q*1.7)*0.9);
-        float a = smoothstep(band*0.62, band*0.62+0.22, d);
+        float a = smoothstep(th, th + 0.16, d) * 0.92;
         float ndl = dot(normalize(vN), sunDir);
         float lightAmt = smoothstep(-0.2, 0.3, ndl);
         vec3 c = mix(vec3(0.02,0.03,0.05), vec3(1.0), 0.06 + lightAmt*0.94);

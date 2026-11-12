@@ -329,8 +329,11 @@ export function decayRelations(world, a) {
     n++;
     const days = (now - r.last) / 1440;
     if (days > 3) {
-      r.f = clamp(r.f - 0.25);
-      if (r.a > 10) r.a -= 0.15;
+      // 오랜 우정은 쉽게 사라지지 않는다 (만난 횟수와 함께한 시간이 바닥을 만든다)
+      const floorF = Math.min(35, r.n * 0.4);
+      const floorA = r.fl?.best ? 40 : r.fl?.friend ? 25 : 10;
+      if (r.f > floorF) r.f = clamp(r.f - 0.25);
+      if (r.a > floorA) r.a -= 0.15;
       if (r.a < -10) r.a += 0.1; // 미움도 시간이 지나면 옅어진다
       if (r.r > 0 && a.partner !== +id) r.r = clamp(r.r - 0.4);
     }

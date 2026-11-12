@@ -317,6 +317,25 @@ export class World {
       if (c.era >= 4 && c.nextElection && this.clock >= c.nextElection) this.electLeader(c);
       this.govern(c, this.anns.get(c.leader));
     }
+    // 우주 시대: 우주 센터에서 로켓이 발사된다
+    if (c.era >= 7 && chance(0.06)) {
+      const pad = [...this.buildings.values()].find(b => b.type === 'spacecenter' && b.done && this.settlements.get(b.sid)?.country === c.code);
+      if (pad) {
+        const crew = people.filter(a => a.job && (a.job.id === 'astronaut' || a.job.id === 'rocketeer'));
+        const astro = crew.find(a => a.job.id === 'astronaut');
+        const names = ['새벽', '누리', '하늘', '미르', '별빛', '아리랑', 'Aurora', 'Pioneer', 'Odyssey'];
+        const ship = `${pick(names)}-${Math.floor(rand() * 9) + 1}호`;
+        if (astro) {
+          remember(this, astro, `${ship}를 타고 우주로 날아올랐다`, 10, 1, crew.map(x => x.id), 'space');
+          lifeEvent(this, astro, `${ship} 탑승, 우주 비행`, '🚀');
+          feel(astro, 40, '경이', '우주');
+          think(this, astro, '지구가… 이렇게 작고 아름다웠구나.');
+        }
+        for (const a of crew) if (a !== astro) remember(this, a, `우리가 만든 ${ship}가 하늘로 솟아올랐다`, 8, 0.9, [], 'space');
+        this.addTech(c, (ERAS[c.era].tech) * 0.004, 'space');
+        this.news('space', `🚀 ${c.name} ${pad ? this.settlements.get(pad.sid).name : ''}에서 ${ship} 발사${astro ? ` — 우주비행사 ${astro.name}` : ''}`, { country: c.code, sid: pad.sid, anns: astro ? [astro.id] : [] }, 3);
+      }
+    }
     // 생활 속 기술 축적
     this.addTech(c, people.length * 0.12 * Math.sqrt(ERAS[c.era].prod), 'passive');
     this.checkEra(c);
@@ -400,7 +419,8 @@ export class World {
   }
 
   deployAnns(player, specs) {
-    const room = MAX_ANNS_PER_PLAYER - player.anns.length;
+    // 투입 한도는 직접 투입한 1세대만 센다 (태어난 후손은 제외)
+    const room = MAX_ANNS_PER_PLAYER - player.anns.filter(id => this.anns.get(id)?.gen === 1).length;
     if (room <= 0) throw new Error(`한 플레이어는 앤을 최대 ${MAX_ANNS_PER_PLAYER}명까지 투입할 수 있습니다`);
     const c = this.ensureCountry(player.country);
     const s = this.homeSettlement(player.country);
@@ -853,16 +873,18 @@ export class World {
 }
 
 function sanitizeSpec(raw = {}) {
-  const num = (v, d, lo = 1, hi = 100) => clamp(Math.round(Number.isFinite(+v) ? +v : d), lo, hi);
+  const num = (v, d, lo = 1, hi = 100) => clamp(Math.round(v != null && v !== '' && Number.isFinite(+v) ? +v : d), lo, hi);
+  const rnd = (sd = 18) => clamp(Math.round(50 + gauss() * sd), 5, 95);
   const traits = {}, abilities = {};
-  for (const k of ['O', 'C', 'E', 'A', 'N']) traits[k] = num(raw.traits?.[k], 50);
-  for (const k of ['int', 'ath', 'cre', 'cha', 'hea']) abilities[k] = num(raw.abilities?.[k], 50);
+  // 정하지 않은 값은 무작위 (모두가 똑같은 사람이 되지 않도록)
+  for (const k of ['O', 'C', 'E', 'A', 'N']) traits[k] = num(raw.traits?.[k], rnd());
+  for (const k of ['int', 'ath', 'cre', 'cha', 'hea']) abilities[k] = num(raw.abilities?.[k], rnd(15));
   // 능력치 총합 제한 (슈퍼맨 방지)
   const sum = Object.values(abilities).reduce((s, v) => s + v, 0);
   if (sum > 300) for (const k in abilities) abilities[k] = Math.max(1, Math.round(abilities[k] * 300 / sum));
   const name = String(raw.name || '').trim().slice(0, 20) || '이름없음';
   return {
-    name, gender: raw.gender === 'F' ? 'F' : 'M', age: num(raw.age, 22, 16, 45), traits, abilities, ambition: num(raw.ambition, 50),
+    name, gender: raw.gender === 'F' ? 'F' : 'M', age: num(raw.age, 22, 16, 45), traits, abilities, ambition: num(raw.ambition, rnd(22)),
     orient: ['straight', 'gay', 'bi'].includes(raw.orient) ? raw.orient : undefined,
   };
 }

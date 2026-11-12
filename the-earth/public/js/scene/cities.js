@@ -1,0 +1,493 @@
+// 정착지 렌더링: 지면(도로·광장·밭), 건물(시대별 양식, 공사 중 비계, 밤의 창문 불빛), 앤들(사람 모형·점)
+import * as THREE from 'three';
+import { R, frameAt, llToVec, localToLL } from './geo.js';
+import { glowTexture } from './space.js';
+
+const CELL = 20, BLOCK = 5;
+const mod = (n, m) => ((n % m) + m) % m;
+const hash = n => { let h = (n * 2654435761) >>> 0; h ^= h >>> 15; return (h % 1000) / 1000; };
+
+function prismGeometry() {
+  const s = new THREE.Shape();
+  s.moveTo(-0.5, 0); s.lineTo(0.5, 0); s.lineTo(0, 1); s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, { depth: 1, bevelEnabled: false });
+  g.translate(0, 0, -0.5);
+  return g;
+}
+const G = {
+  box: new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0),
+  cone: new THREE.ConeGeometry(0.74, 1, 10).translate(0, 0.5, 0),
+  pyr: new THREE.ConeGeometry(0.72, 1, 4).rotateY(Math.PI / 4).translate(0, 0.5, 0),
+  dome: new THREE.SphereGeometry(0.5, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+  prism: prismGeometry(),
+  cyl: new THREE.CylinderGeometry(0.5, 0.5, 1, 16).translate(0, 0.5, 0),
+  flame: new THREE.ConeGeometry(0.5, 1, 7).translate(0, 0.5, 0),
+  torus: new THREE.TorusGeometry(1, 0.22, 10, 40).rotateX(Math.PI / 2),
+  body: new THREE.CapsuleGeometry(0.21, 0.72, 4, 10).translate(0, 0.59, 0),
+  head: new THREE.SphereGeometry(0.165, 14, 10).translate(0, 1.36, 0),
+  hair: new THREE.SphereGeometry(0.178, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.55).translate(0, 1.38, 0),
+};
+
+// 창문 타일 (낮: 유리 / 밤: 켜진 창)
+function windowTextures() {
+  const S = 128;
+  const a = document.createElement('canvas'); a.width = a.height = S;
+  const e = document.createElement('canvas'); e.width = e.height = S;
+  const ga = a.getContext('2d'), ge = e.getContext('2d');
+  ga.fillStyle = '#fff'; ga.fillRect(0, 0, S, S);
+  ge.fillStyle = '#000'; ge.fillRect(0, 0, S, S);
+  for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
+    const x = i * 64 + 16, y = j * 64 + 14, w = 32, h = 34;
+    ga.fillStyle = '#5d7389'; ga.fillRect(x, y, w, h);
+    ga.fillStyle = 'rgba(255,255,255,0.35)'; ga.fillRect(x + 3, y + 3, 8, h - 6);
+    if (Math.random() < 0.72) { ge.fillStyle = Math.random() < 0.5 ? '#ffd98a' : '#ffe9bd'; ge.fillRect(x, y, w, h); }
+  }
+  ga.fillStyle = '#ddd'; ga.fillRect(0, 0, 6, 6);
+  const ta = new THREE.CanvasTexture(a), te = new THREE.CanvasTexture(e);
+  for (const t of [ta, te]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; }
+  return { map: ta, emissive: te };
+}
+
+/** 벽 크기에 맞춘 UV (창문이 늘어나지 않게) */
+function boxWithUV(w, h, d) {
+  const g = new THREE.BoxGeometry(w, h, d).translate(0, h / 2, 0);
+  const uv = g.attributes.uv;
+  const spans = [[d, h], [d, h], null, null, [w, h], [w, h]];
+  for (let f = 0; f < 6; f++) for (let k = 0; k < 4; k++) {
+    const i = f * 4 + k;
+    if (!spans[f]) { uv.setXY(i, 0.01, 0.01); continue; }
+    uv.setXY(i, uv.getX(i) * spans[f][0] / 12, uv.getY(i) * spans[f][1] / 7);
+  }
+  return g;
+}
+
+function biomeGround(lat) {
+  const a = Math.abs(lat);
+  if (a > 64) return '#a7ae98';
+  if (a > 50) return '#5e8250';
+  if (a > 36) return '#6f954f';
+  if (a > 22) return '#9a9a5e';
+  return '#5e9146';
+}
+
+export class Cities {
+  constructor(parent, meta, earthMesh) {
+    this.meta = meta;
+    this.earthMesh = earthMesh;
+    this.ray = new THREE.Raycaster();
+    this.root = new THREE.Group(); this.root.name = 'cities';
+    parent.add(this.root);
+    this.towns = new Map();
+    this.mats = new Map();
+    this.win = windowTextures();
+    this.winMats = [];
+    this.markerTex = glowTexture('rgba(255,236,190,1)', 'rgba(255,180,90,0.45)', 64);
+    this.flameMats = [];
+    this.selected = null;
+    this.night = 0;
+    this.selMarker = this.makeSelMarker();
+  }
+
+  mat(color, opts = {}) {
+    const key = color + JSON.stringify(opts);
+    let m = this.mats.get(key);
+    if (!m) {
+      if (opts.windows) {
+        m = new THREE.MeshStandardMaterial({ color, map: this.win.map, emissiveMap: this.win.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughness: opts.glass ? 0.35 : 0.85, metalness: opts.glass ? 0.3 : 0 });
+        this.winMats.push(m);
+      } else if (opts.basic) m = new THREE.MeshBasicMaterial({ color, transparent: !!opts.opacity, opacity: opts.opacity ?? 1, depthWrite: !opts.opacity });
+      else m = new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0, transparent: !!opts.opacity, opacity: opts.opacity ?? 1, emissive: opts.emissive || 0x000000, emissiveIntensity: opts.emissive ? 1 : 0 });
+      this.mats.set(key, m);
+    }
+    return m;
+  }
+
+  makeSelMarker() {
+    const g = new THREE.Group();
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.7, 0.95, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x58b4ff, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }));
+    ring.position.y = 0.05;
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.25, 60, 8, 1, true).translate(0, 30, 0), new THREE.MeshBasicMaterial({ color: 0x7ec8ff, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending }));
+    g.add(ring, beam);
+    g.visible = false;
+    return g;
+  }
+
+  /** 정착지 목록을 반영 */
+  syncTowns(state) {
+    for (const s of state.settlements.values()) {
+      let t = this.towns.get(s.id);
+      if (!t) { t = this.makeTown(s); this.towns.set(s.id, t); state.dirty.buildings.add(s.id); }
+      t.s = s;
+      t.marker.scale.setScalar(0.012 + s.level * 0.005 + Math.min(0.012, s.pop * 0.0004));
+      t.marker.material.opacity = s.abandoned ? 0.25 : 1;
+    }
+  }
+
+  makeTown(s) {
+    const { up, east, north } = frameAt(s.lat, s.lon);
+    const south = north.clone().negate();
+    const g = new THREE.Group();
+    g.matrixAutoUpdate = false;
+    // 지구 다각형 면은 실제 구보다 최대 ~200m 낮다 → 렌더링된 지표 위에 정확히 앉힌다
+    this.ray.set(up.clone().multiplyScalar(R + 5), up.clone().negate());
+    const hit = this.ray.intersectObject(this.earthMesh, false)[0];
+    const base = hit ? hit.point.length() + 0.0008 : R;
+    const m = new THREE.Matrix4().makeBasis(east, up, south);
+    m.multiply(new THREE.Matrix4().makeScale(0.001, 0.001, 0.001));
+    m.setPosition(up.clone().multiplyScalar(base));
+    g.matrix.copy(m);
+    g.matrixWorldNeedsUpdate = true;
+    this.root.add(g);
+    const marker = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.markerTex, transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, sizeAttenuation: false }));
+    marker.position.copy(up).multiplyScalar(R + 2);
+    this.root.add(marker);
+    const t = { s, g, marker, base, center: up.clone().multiplyScalar(base), up, buildings: new THREE.Group(), bmap: new Map(), ground: null, anns: null, dots: null, ids: [], groundKey: '' };
+    g.add(t.buildings);
+    return t;
+  }
+
+  /** 정착지 하나의 건물/지면 다시 만들기 */
+  rebuild(state, sid) {
+    const t = this.towns.get(sid);
+    if (!t) return;
+    const s = t.s;
+    const era = state.countries.get(s.country)?.era ?? 0;
+    const blds = [...state.buildings.values()].filter(b => b.sid === sid);
+    // 지면
+    let maxR = 60;
+    for (const b of blds) maxR = Math.max(maxR, Math.hypot(b.x, b.z) + Math.max(b.w, b.d));
+    const rg = Math.ceil((maxR + 90) / 100) * 100;
+    if (!t.ground || t.groundR !== rg) {
+      if (t.ground) { t.g.remove(t.ground); t.ground.geometry.dispose(); t.ground.material.map.dispose(); }
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1024;
+      const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+      // 가장자리가 투명하게 사라져 주변 지형과 이어진다
+      const ground = new THREE.Mesh(new THREE.CircleGeometry(rg, 72).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: tex, roughness: 1, transparent: true }));
+      ground.position.y = 1.2;
+      ground.renderOrder = -1;
+      t.g.add(ground);
+      t.ground = ground; t.groundR = rg; t.canvas = canvas; t.groundTex = tex;
+    }
+    this.paintGround(t, blds, era);
+    // 건물
+    const keep = new Set();
+    for (const b of blds) {
+      keep.add(b.id);
+      const key = `${b.type}|${b.done}|${Math.round(b.p * 10)}|${b.h}`;
+      const old = t.bmap.get(b.id);
+      if (old && old.userData.key === key) continue;
+      if (old) { t.buildings.remove(old); disposeGroup(old); }
+      const m = this.buildingMesh(b, s);
+      m.userData.key = key;
+      t.buildings.add(m);
+      t.bmap.set(b.id, m);
+    }
+    for (const [id, m] of t.bmap) if (!keep.has(id)) { t.buildings.remove(m); disposeGroup(m); t.bmap.delete(id); }
+  }
+
+  paintGround(t, blds, era) {
+    const c = t.canvas, g = c.getContext('2d'), S = c.width, rg = t.groundR;
+    const px = v => (v + rg) / (2 * rg) * S, sc = S / (2 * rg);
+    const base = biomeGround(t.s.lat);
+    g.fillStyle = base; g.fillRect(0, 0, S, S);
+    // 잔디 질감
+    for (let i = 0; i < 2600; i++) {
+      g.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '255,255,230'},${Math.random() * 0.06})`;
+      const r = 2 + Math.random() * 10; g.beginPath(); g.arc(Math.random() * S, Math.random() * S, r, 0, 6.28); g.fill();
+    }
+    // 가장자리는 자연스럽게 흐려지도록
+    const vg = g.createRadialGradient(S / 2, S / 2, S * 0.38, S / 2, S / 2, S / 2);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, base);
+    const roadCol = era >= 5 ? '#3b3f45' : era >= 3 ? '#8b8780' : '#a28b66';
+    const roadW = (era >= 5 ? 10 : era >= 3 ? 7 : 4.5) * sc;
+    // 개발된 블록 주변 도로
+    const blocks = new Set();
+    for (const b of blds) {
+      if (b.type === 'farm') continue;
+      const bi = Math.floor(Math.floor(b.x / CELL) / BLOCK), bj = Math.floor(Math.floor(b.z / CELL) / BLOCK);
+      blocks.add(bi + ',' + bj);
+    }
+    blocks.add('0,0'); blocks.add('-1,-1'); blocks.add('-1,0'); blocks.add('0,-1');
+    g.strokeStyle = roadCol; g.lineWidth = roadW; g.lineCap = 'square';
+    const BW = BLOCK * CELL;
+    const seg = (x1, z1, x2, z2) => { g.beginPath(); g.moveTo(px(x1), px(z1)); g.lineTo(px(x2), px(z2)); g.stroke(); };
+    const off = CELL / 2;
+    for (const k of blocks) {
+      const [bi, bj] = k.split(',').map(Number);
+      const x0 = bi * BW + off, z0 = bj * BW + off, x1 = x0 + BW, z1 = z0 + BW;
+      seg(x0, z0, x1, z0); seg(x0, z1, x1, z1); seg(x0, z0, x0, z1); seg(x1, z0, x1, z1);
+    }
+    if (era >= 5) { // 차선
+      g.strokeStyle = 'rgba(255,240,180,0.55)'; g.lineWidth = Math.max(1, 0.4 * sc); g.setLineDash([3 * sc, 3 * sc]);
+      for (const k of blocks) { const [bi, bj] = k.split(',').map(Number); const x0 = bi * BW + off, z0 = bj * BW + off; seg(x0, z0, x0 + BW, z0); seg(x0, z0, x0, z0 + BW); }
+      g.setLineDash([]);
+    }
+    // 광장
+    g.fillStyle = era >= 3 ? '#b9b2a4' : '#b09a74';
+    g.beginPath(); g.arc(px(off), px(off), 18 * sc, 0, 6.28); g.fill();
+    // 건물 바닥과 밭
+    for (const b of blds) {
+      if (b.type === 'farm') {
+        const x = px(b.x - b.w / 2), z = px(b.z - b.d / 2), w = b.w * sc, d = b.d * sc;
+        g.fillStyle = b.done ? (hash(b.id) < 0.5 ? '#c9b24f' : '#7fa83a') : '#8a7350';
+        g.fillRect(x, z, w, d);
+        g.strokeStyle = 'rgba(70,50,20,0.35)'; g.lineWidth = Math.max(1, 0.8 * sc);
+        for (let k = 1.5; k < b.d; k += 2.5) { g.beginPath(); g.moveTo(x, z + k * sc); g.lineTo(x + w, z + k * sc); g.stroke(); }
+      } else {
+        g.fillStyle = era >= 4 ? 'rgba(150,150,150,0.8)' : 'rgba(120,100,70,0.55)';
+        const m = 3;
+        g.fillRect(px(b.x - b.w / 2 - m), px(b.z - b.d / 2 - m), (b.w + 2 * m) * sc, (b.d + 2 * m) * sc);
+      }
+    }
+    g.fillStyle = vg; g.fillRect(0, 0, S, S);
+    const fade = g.createRadialGradient(S / 2, S / 2, S * 0.3, S / 2, S / 2, S / 2);
+    fade.addColorStop(0, 'rgba(0,0,0,1)'); fade.addColorStop(0.75, 'rgba(0,0,0,0.75)'); fade.addColorStop(1, 'rgba(0,0,0,0)');
+    g.globalCompositeOperation = 'destination-in'; g.fillStyle = fade; g.fillRect(0, 0, S, S);
+    g.globalCompositeOperation = 'source-over';
+    t.groundTex.needsUpdate = true;
+  }
+
+  buildingMesh(b, s) {
+    const def = this.meta.buildings[b.type] || { roof: 'flat', color: '#999', kind: 'work' };
+    const grp = new THREE.Group();
+    grp.position.set(b.x, 1.2, b.z);
+    grp.userData.bid = b.id;
+    const p = b.done ? 1 : Math.max(0.1, b.p);
+    const v = hash(b.id);
+    const col = new THREE.Color(def.color).offsetHSL((v - 0.5) * 0.04, 0, (v - 0.5) * 0.12);
+    const hex = '#' + col.getHexString();
+    const add = (geo, material, sx, sy, sz, x = 0, y = 0, z = 0, ry = 0) => {
+      const m = new THREE.Mesh(geo, material);
+      m.scale.set(sx, sy, sz); m.position.set(x, y, z); m.rotation.y = ry;
+      m.userData.bid = b.id;
+      grp.add(m);
+      return m;
+    };
+    const roof = def.roof;
+    if (roof === 'field') {
+      // 밭은 지면에 그려지고, 작은 헛간 하나
+      if (b.done) {
+        const bx = b.w / 2 - 5, bz = -b.d / 2 + 5;
+        add(G.box, this.mat('#8b4a32'), 6, 3.2, 5, bx, 0, bz);
+        add(G.prism, this.mat('#5a3324'), 6.6, 2, 5.4, bx, 3.2, bz, Math.PI / 2);
+      }
+      return grp;
+    }
+    if (roof === 'fire') {
+      add(G.cyl, this.mat('#6b6158'), 3.4, 0.35, 3.4);
+      add(G.box, this.mat('#5a3d22'), 2.6, 0.35, 0.35, 0, 0.35, 0, 0.6);
+      add(G.box, this.mat('#5a3d22'), 2.6, 0.35, 0.35, 0, 0.35, 0, -0.6);
+      const fm = new THREE.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, opacity: 0.9 });
+      const f = add(G.flame, fm, 1.2, 1.9, 1.2, 0, 0.5, 0);
+      this.flameMats.push(f);
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.markerTex, color: 0xffa040, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      glow.scale.set(14, 14, 1); glow.position.y = 1.5; grp.add(glow);
+      return grp;
+    }
+    const tall = b.h >= 7 || def.glass;
+    const bodyMat = !b.done ? this.mat('#d9c7a3', { opacity: 0.55 }) : tall ? this.mat(hex, { windows: true, glass: def.glass }) : this.mat(hex);
+    const h = Math.max(0.6, b.h * p);
+    if (roof === 'bowl') {
+      add(G.torus, this.mat(hex), b.w * 0.42, b.h * 0.9 * p, b.d * 0.42, 0, b.h * 0.35 * p);
+      add(G.cyl, this.mat('#4f9a3c'), b.w * 0.62, 0.3, b.d * 0.62);
+    } else if (tall && b.done) {
+      const m = new THREE.Mesh(boxWithUV(b.w, h, b.d), bodyMat); m.userData.bid = b.id; grp.add(m);
+    } else add(G.box, bodyMat, b.w, h, b.d);
+    if (b.done) {
+      const rc = def.roofColor ? this.mat(def.roofColor) : this.mat(new THREE.Color(hex).multiplyScalar(0.7).getStyle());
+      const long = b.w >= b.d;
+      if (roof === 'cone') add(G.cone, rc, b.w * 1.05, Math.max(b.w, b.d) * 0.55, b.d * 1.05, 0, h);
+      else if (roof === 'gable') add(G.prism, rc, long ? b.d * 1.12 : b.w * 1.12, Math.min(b.w, b.d) * 0.42, long ? b.w * 1.06 : b.d * 1.06, 0, h, 0, long ? Math.PI / 2 : 0);
+      else if (roof === 'pyramid') add(G.pyr, rc, b.w, b.h * 0.6, b.d, 0, h);
+      else if (roof === 'dome') add(G.dome, this.mat('#cfd8e0'), Math.min(b.w, b.d) * 0.8, Math.min(b.w, b.d) * 0.8, Math.min(b.w, b.d) * 0.8, 0, h);
+      else if (roof === 'saw') { for (let k = 0; k < 3; k++) add(G.prism, this.mat('#6f757b'), b.w / 3, 3.5, b.d, -b.w / 3 + k * b.w / 3, h, 0); add(G.cyl, this.mat('#7a6f69'), 2.4, 14, 2.4, b.w * 0.35, h, b.d * 0.3); }
+      else if (roof === 'flat') add(G.box, this.mat('#5c6168'), b.w + 0.6, 0.6, b.d + 0.6, 0, h);
+      else if (roof === 'rocket') {
+        add(G.cyl, this.mat('#f4f6f8'), 5, 46, 5, b.w * 0.3, 0, -b.d * 0.3);
+        add(G.cone, this.mat('#d33b3b'), 4, 8, 4, b.w * 0.3, 46, -b.d * 0.3);
+        add(G.box, this.mat('#9aa3ad'), 2.4, 52, 2.4, b.w * 0.3 + 5, 0, -b.d * 0.3);
+      }
+      if (def.accent) add(G.box, this.mat(def.accent), 3, 3, 0.4, 0, h * 0.7, b.d / 2 + 0.2);
+    } else {
+      // 비계
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(b.w, b.h, b.d).translate(0, b.h / 2, 0)), new THREE.LineBasicMaterial({ color: 0xffb347 }));
+      edges.userData.bid = b.id; edges.userData.ownGeo = true;
+      grp.add(edges);
+    }
+    return grp;
+  }
+
+  ensureAnnMeshes(t, n) {
+    if (t.anns && t.cap >= n) return;
+    const cap = Math.max(32, 2 ** Math.ceil(Math.log2(n + 1)));
+    if (t.anns) for (const m of Object.values(t.anns)) { t.g.remove(m); m.dispose(); }
+    const mk = (geo, mat) => { const m = new THREE.InstancedMesh(geo, mat, cap); m.count = 0; m.frustumCulled = false; t.g.add(m); return m; };
+    t.anns = {
+      body: mk(G.body, new THREE.MeshStandardMaterial({ roughness: 0.8 })),
+      head: mk(G.head, new THREE.MeshStandardMaterial({ roughness: 0.7 })),
+      hair: mk(G.hair, new THREE.MeshStandardMaterial({ roughness: 0.9 })),
+    };
+    t.cap = cap;
+    if (t.dots) { t.g.remove(t.dots); t.dots.geometry.dispose(); }
+    const dg = new THREE.BufferGeometry();
+    dg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(cap * 3), 3));
+    dg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(cap * 3), 3));
+    t.dots = new THREE.Points(dg, new THREE.PointsMaterial({ size: 5, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0.95, depthWrite: false }));
+    t.dots.frustumCulled = false;
+    t.g.add(t.dots);
+  }
+
+  /** 매 프레임: 거리별 표시, 앤 위치 갱신. 라벨 요청 목록을 돌려준다 */
+  update(state, camera, rig, time) {
+    const labels = [];
+    const camPos = camera.position;
+    const alt = rig.alt;
+    for (const fm of this.flameMats) { fm.scale.y = 1.7 + Math.sin(time * 9 + fm.id) * 0.35; }
+    for (const m of this.winMats) m.emissiveIntensity = this.night * 1.4;
+    const tmpM = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3(), col = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
+    this.selMarker.visible = false;
+    // 최근 대화 (말풍선)
+    const nowMin = state.now();
+    const talkLine = new Map();
+    for (let i = state.chat.length - 1; i >= 0 && i > state.chat.length - 80; i--) {
+      const c = state.chat[i];
+      if (nowMin - c.t > 90) break;
+      if (!talkLine.has(c.a) && !talkLine.has(c.b)) talkLine.set(Math.min(c.a, c.b), c.line);
+    }
+    let bubbles = 0;
+    for (const t of this.towns.values()) {
+      const dist = camPos.distanceTo(t.center);
+      const facing = t.up.dot(p.copy(camPos).sub(t.center)) > -50;
+      t.g.visible = dist < 900 && facing;
+      t.marker.visible = alt > 40 && facing;
+      if (facing && alt < 9000 && dist < 9000) labels.push({ key: 'town' + t.s.id, pos: t.center.clone().addScaledVector(t.up, alt < 30 ? 0.12 : 0), cls: 'town lv' + t.s.level, sid: t.s.id, html: `<b>${t.s.name}</b><small>${t.s.levelName} · ${t.s.pop}명</small>`, pri: 1 });
+      if (!t.g.visible) continue;
+      // 앤들
+      const list = [];
+      for (const [id, ps] of state.pos) if (ps.sid === t.s.id && !ps.travel && ps.act !== 'dead') list.push([id, ps]);
+      this.ensureAnnMeshes(t, list.length);
+      const showFig = dist < 5;
+      const showDots = dist < 200 && dist > 0.6;
+      let n = 0;
+      const dpos = t.dots.geometry.attributes.position.array, dcol = t.dots.geometry.attributes.color.array;
+      let dn = 0;
+      t.ids.length = 0;
+      for (const [id, ps] of list) {
+        const a = state.anns.get(id);
+        if (!a) continue;
+        const ip = state.interp(ps);
+        const hidden = ps.act === 'sleep' || (ps.act === 'baby' && ps.moving === 0 && false);
+        const selected = this.selected === id;
+        if (showDots && !hidden) {
+          col.set(state.playerColor(a.o));
+          if (selected) col.set('#ffffff');
+          dpos[dn * 3] = ip.x; dpos[dn * 3 + 1] = 4; dpos[dn * 3 + 2] = ip.z;
+          dcol[dn * 3] = col.r; dcol[dn * 3 + 1] = col.g; dcol[dn * 3 + 2] = col.b;
+          dn++;
+        }
+        if (selected) {
+          this.selMarker.visible = true;
+          if (this.selMarker.parent !== t.g) t.g.add(this.selMarker);
+          this.selMarker.position.set(ip.x, 1.3, ip.z);
+          const s = Math.max(1, Math.min(40, dist * 30));
+          this.selMarker.children[0].scale.setScalar(Math.max(1, s * 0.15));
+        }
+        if (!showFig || hidden) continue;
+        const age = state.ageOf(a);
+        const ageS = age < 3 ? 0.42 : age < 13 ? 0.55 + age * 0.03 : age < 18 ? 0.92 : 1;
+        const hs = (a.lk?.height || 168) / 170 * ageS;
+        const walking = ps.moving;
+        const bob = walking ? Math.abs(Math.sin(time * 9 + id)) * 0.06 : 0;
+        q.setFromAxisAngle(up, ps.heading || 0);
+        sc.set(hs, hs, hs);
+        p.set(ip.x, 1.25 + bob, ip.z);
+        tmpM.compose(p, q, sc);
+        t.anns.body.setMatrixAt(n, tmpM); t.anns.head.setMatrixAt(n, tmpM); t.anns.hair.setMatrixAt(n, tmpM);
+        t.anns.body.setColorAt(n, col.set(state.playerColor(a.o)));
+        t.anns.head.setColorAt(n, col.set(a.lk?.skin || '#e0b896'));
+        t.anns.hair.setColorAt(n, col.set(a.lk?.hair || '#222'));
+        t.ids[n] = id;
+        n++;
+        // 이름표
+        if (dist < 1.6) {
+          const wp = p.clone().setY(3.3).applyMatrix4(t.g.matrix);
+          const emoji = this.meta.acts[ps.act]?.emoji || '';
+          const named = selected || dist < 0.45;
+          labels.push({ key: 'ann' + id, pos: wp, cls: 'ann' + (selected ? ' sel' : '') + (named ? '' : ' mini'), html: named ? `<span class="e">${emoji}</span>${a.n}` : `<span class="e">${emoji}</span>`, pri: selected ? 3 : 2, annId: id, d: camPos.distanceTo(wp) });
+          const line = (ps.act === 'talk' || ps.act === 'date' || ps.act === 'family' || ps.act === 'play') && talkLine.get(Math.min(id, ps.target || id));
+          if (line && dist < 0.9 && bubbles < 6 && id < (ps.target || Infinity)) {
+            bubbles++;
+            const bp = p.clone().setY(4.6).applyMatrix4(t.g.matrix);
+            const short = line.length > 70 ? line.slice(0, 68) + '…' : line;
+            labels.push({ key: 'bub' + id, pos: bp, cls: 'bubble', html: short.replace(/[<>&]/g, ''), pri: 4, d: camPos.distanceTo(bp) });
+          }
+        }
+      }
+      for (const m of Object.values(t.anns)) { m.count = n; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+      t.dots.geometry.setDrawRange(0, dn);
+      t.dots.geometry.attributes.position.needsUpdate = true;
+      t.dots.geometry.attributes.color.needsUpdate = true;
+      t.dots.visible = showDots;
+    }
+    return labels;
+  }
+
+  /** 앤의 지구 좌표 (카메라 추적용) */
+  annLL(state, id) {
+    const ps = state.pos.get(id);
+    if (!ps) return null;
+    const s = state.settlements.get(ps.sid);
+    if (!s) return null;
+    const ip = state.interp(ps);
+    const ll = localToLL(s, ip.x, ip.z);
+    const t = this.towns.get(ps.sid);
+    return { lat: ll.lat, lon: ll.lon, h: (t ? t.base - R : 0) + 0.0012 };
+  }
+
+  pick(raycaster) {
+    // 앤 우선, 그 다음 건물
+    let best = null;
+    for (const t of this.towns.values()) {
+      if (!t.g.visible || !t.anns) continue;
+      const hits = raycaster.intersectObjects([t.anns.body, t.anns.head], false);
+      if (hits.length && hits[0].instanceId != null) {
+        const h = hits[0];
+        if (!best || h.distance < best.distance) best = { distance: h.distance, annId: t.ids[h.instanceId] };
+      }
+    }
+    if (best) return best;
+    for (const t of this.towns.values()) {
+      if (!t.g.visible) continue;
+      const hits = raycaster.intersectObject(t.buildings, true);
+      if (hits.length) {
+        const h = hits[0];
+        let o = h.object; while (o && o.userData.bid == null) o = o.parent;
+        if (o && (!best || h.distance < best.distance)) best = { distance: h.distance, bid: o.userData.bid };
+      }
+    }
+    return best;
+  }
+
+  /** 화면의 한 점에서 가장 가까운 앤 (점으로 보일 때 클릭용) */
+  nearestAnnOnScreen(state, camera, x, y, w, h, maxPx = 14) {
+    let best = null, bd = maxPx;
+    const v = new THREE.Vector3();
+    for (const t of this.towns.values()) {
+      if (!t.g.visible || !t.dots?.visible && !(t.anns?.body.count)) continue;
+      for (const [id, ps] of state.pos) {
+        if (ps.sid !== t.s.id || ps.travel || ps.act === 'sleep') continue;
+        const ip = state.interp(ps);
+        v.set(ip.x, 1, ip.z).applyMatrix4(t.g.matrix).project(camera);
+        if (v.z > 1) continue;
+        const sx = (v.x + 1) / 2 * w, sy = (1 - v.y) / 2 * h;
+        const d = Math.hypot(sx - x, sy - y);
+        if (d < bd) { bd = d; best = id; }
+      }
+    }
+    return best;
+  }
+}
+
+function disposeGroup(g) {
+  g.traverse(o => { if (o.userData.ownGeo || (o.geometry && !Object.values(G).includes(o.geometry))) o.geometry?.dispose(); });
+}
