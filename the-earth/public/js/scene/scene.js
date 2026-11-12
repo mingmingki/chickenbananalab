@@ -7,13 +7,15 @@ import { CameraRig } from './camera.js';
 import { Cities } from './cities.js';
 import { Labels } from './labels.js';
 import { Weather } from './weather.js';
+import { PHONE, TOUCH } from '../device.js';
 
 export class World3D {
   constructor(container, meta, countries) {
     this.meta = meta;
     this.countries = countries;
     const renderer = this.renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+    // 휴대폰은 화면 밀도가 3배라 그대로 그리면 느리고 뜨거워진다 → 1.5배까지만
+    renderer.setPixelRatio(Math.min(PHONE ? 1.5 : 2, devicePixelRatio));
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
@@ -50,6 +52,7 @@ export class World3D {
     el.addEventListener('pointermove', e => this.onMove(e));
     el.addEventListener('pointerup', e => { if (!this.rig.dragged && e.button === 0) this.onClick(e); });
     el.addEventListener('dblclick', e => this.onDblClick(e));
+    this.rig.onDoubleTap = e => this.onDblClick(e);
     this.loop = this.loop.bind(this);
     requestAnimationFrame(this.loop);
   }
@@ -222,8 +225,11 @@ export class World3D {
     this.camera.setViewOffset(w, h, 0, this.lift * h, w, h);
   }
 
-  loop() {
+  loop(ts = 0) {
     requestAnimationFrame(this.loop);
+    // 휴대폰은 초당 30장이면 충분하다 (배터리·발열)
+    if (PHONE && ts - (this.lastTs || 0) < 30) return;
+    this.lastTs = ts;
     const dt = Math.min(0.1, this.clock.getDelta());
     this.time += dt;
     const st = this.state;

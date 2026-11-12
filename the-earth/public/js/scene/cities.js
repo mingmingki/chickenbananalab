@@ -7,6 +7,7 @@ import { makeBuilding, BGEO } from './buildings.js';
 import { paintRoads, buildRoadProps, roadLampMats } from './roads.js';
 import { treeColor, seasonOfMonth } from './weather.js';
 import { dateOf } from '../state.js';
+import { PHONE } from '../device.js';
 
 const CELL = 20, BLOCK = 5;
 const mod = (n, m) => ((n % m) + m) % m;
@@ -291,7 +292,7 @@ export class Cities {
       const f = T.forest(px, pz, p.h);
       if (r1 > f * 0.95 + 0.03) continue;
       trees.push([px, p.h, pz, 0.7 + r2 * 0.7, f > 0.5 && p.h > 120 ? 1 : 0]);
-      if (trees.length > 14000) break;
+      if (trees.length > (PHONE ? 6000 : 14000)) break;
     }
     t.treeList = trees;
     const crown = new THREE.ConeGeometry(3.2, 9, 7).translate(0, 8, 0), trunk = new THREE.CylinderGeometry(0.45, 0.6, 4, 5).translate(0, 2, 0);
@@ -365,7 +366,7 @@ export class Cities {
     const rg = Math.ceil((maxR + 90) / 100) * 100;
     if (!t.ground || t.groundR !== rg) {
       if (t.ground) { t.g.remove(t.ground); t.ground.geometry.dispose(); t.ground.material.map.dispose(); }
-      const canvas = document.createElement('canvas'); canvas.width = canvas.height = rg > 300 ? 2048 : 1024;
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = rg > 300 && !PHONE ? 2048 : 1024;
       const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
       // 도로·광장·밭을 지형 위에 덮는 얇은 막 (지형의 높낮이를 따른다)
       const M = 96, geo = new THREE.PlaneGeometry(2 * rg, 2 * rg, M, M).rotateX(-Math.PI / 2);

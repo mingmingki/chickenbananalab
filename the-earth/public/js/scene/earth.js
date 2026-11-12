@@ -52,6 +52,8 @@ function noiseCanvas(w, h, scale, seed = 1) {
 }
 
 export function buildEarthTextures(countries, maxTex) {
+  // 휴대폰은 캔버스 메모리가 작다 (iOS Safari 는 넘치면 화면이 하얗게 죽는다)
+  const phone = Math.min(screen.width, screen.height) <= 540;
   const W = maxTex >= 8192 && Math.min(screen.width, screen.height) > 700 ? 8192 : 4096, H = W / 2;
   const sx = W / 4096;
   // 1) 육지 마스크
@@ -105,9 +107,10 @@ export function buildEarthTextures(countries, maxTex) {
   // 국경선
   dg.strokeStyle = 'rgba(255,255,255,0.28)'; dg.lineWidth = 1.1 * sx; dg.lineJoin = 'round';
   for (const c of countries) { dg.beginPath(); drawCountry(dg, c, W, H); dg.stroke(); }
+  bio.width = bio.height = 0; shelf.width = shelf.height = 0; // 다 쓴 중간 캔버스는 바로 비운다
 
   // 4) 국가 ID 지도 (선택/강조용)
-  const IW = 4096, IH = 2048;
+  const IW = phone ? 2048 : 4096, IH = IW / 2;
   const idc = document.createElement('canvas'); idc.width = IW; idc.height = IH;
   const ig = idc.getContext('2d', { willReadFrequently: true });
   ig.fillStyle = '#000'; ig.fillRect(0, 0, IW, IH);
@@ -119,14 +122,18 @@ export function buildEarthTextures(countries, maxTex) {
   const idData = ig.getImageData(0, 0, IW, IH).data;
 
   // 5) 부드러운 마스크: R=육지, G=선택한 나라, B=내 나라 (선형 보간으로 해안선이 매끈하게)
-  const ov = document.createElement('canvas'); ov.width = 4096; ov.height = 2048;
+  const ov = document.createElement('canvas'); ov.width = phone ? 2048 : 4096; ov.height = ov.width / 2;
+  // 육지 마스크는 오버레이 크기로 줄여서만 남긴다
+  const maskS = document.createElement('canvas'); maskS.width = ov.width; maskS.height = ov.height;
+  maskS.getContext('2d').drawImage(mask, 0, 0, ov.width, ov.height);
+  mask.width = mask.height = 0;
   const ovTex = new THREE.CanvasTexture(ov);
   ovTex.generateMipmaps = true; ovTex.minFilter = THREE.LinearMipmapLinearFilter; ovTex.magFilter = THREE.LinearFilter;
   const paintOverlay = (selIdx = -1, myIdx = -1) => {
     const g = ov.getContext('2d');
     g.globalCompositeOperation = 'source-over';
     g.fillStyle = '#000'; g.fillRect(0, 0, ov.width, ov.height);
-    g.drawImage(mask, 0, 0, ov.width, ov.height);
+    g.drawImage(maskS, 0, 0);
     g.globalCompositeOperation = 'multiply'; g.fillStyle = '#ff0000'; g.fillRect(0, 0, ov.width, ov.height);
     g.globalCompositeOperation = 'lighter';
     if (selIdx >= 0) { g.fillStyle = '#00ff00'; g.beginPath(); drawCountry(g, countries[selIdx], ov.width, ov.height); g.fill('evenodd'); }

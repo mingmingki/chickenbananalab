@@ -1,6 +1,8 @@
 // 3D 위에 띄우는 HTML 라벨 (정착지 이름, 앤 이름표, 말풍선, 행성 이름)
 import * as THREE from 'three';
 import { R } from './geo.js';
+import { PHONE } from '../device.js';
+const MAX_ANN = PHONE ? 22 : 60, MAX_TOWN = PHONE ? 30 : 80;
 
 export class Labels {
   constructor(root, onTownClick) {
@@ -24,8 +26,8 @@ export class Labels {
     reqs.sort((a, b) => (b.pri || 0) - (a.pri || 0) || (a.d || 0) - (b.d || 0));
     let nAnn = 0, nTown = 0;
     for (const r of reqs) {
-      if (r.cls.startsWith('ann') && ++nAnn > 60) continue;
-      if (r.cls.startsWith('town') && ++nTown > 80) continue;
+      if (r.cls.startsWith('ann') && ++nAnn > MAX_ANN) continue;
+      if (r.cls.startsWith('town') && ++nTown > MAX_TOWN) continue;
       if (this.occluded(cam, r.pos)) continue;
       const p = this.v.copy(r.pos).project(cam);
       if (p.z > 1 || p.x < -1.1 || p.x > 1.1 || p.y < -1.1 || p.y > 1.1) continue;

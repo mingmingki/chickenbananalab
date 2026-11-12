@@ -4,6 +4,8 @@ import { api, Live, loadSessions, saveSession, forgetSession } from './net.js';
 import { World3D } from './scene/scene.js';
 import { Creator } from './ui/creator.js';
 import { Hud } from './ui/hud.js';
+// 휴대폰 세로 화면: 아래쪽 시트에 가리지 않게 지구를 위로 올린다
+const phoneLift = v => (innerWidth <= 860 && innerHeight > innerWidth ? v : 0);
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -175,6 +177,7 @@ function pickCountry() {
   ctx.mode = 'country';
   connect(ctx.server.id);
   w3d.menuSpin(false);
+  w3d.setLift(phoneLift(0.25));
   w3d.mode = 'pick-country';
   w3d.rig.enabled = true;
   w3d.rig.flyTo({ alt: 15000, tilt: 90 });

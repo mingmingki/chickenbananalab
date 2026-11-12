@@ -94,7 +94,7 @@ export class Creator {
       </div>
       <div style="grid-column:1/-1">
         <h4>성격</h4>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 26px">
+        <div class="trait-grid">
         ${TRAITS.map(([k, n, d, lo, hi]) => `<div class="slider"><span class="lab">${n}<small>${a.traits[k] < 35 ? lo : a.traits[k] > 65 ? hi : d}</small></span><input type="range" min="1" max="100" value="${a.traits[k]}" data-tr="${k}"><b>${a.traits[k]}</b></div>`).join('')}
         </div>
       </div>

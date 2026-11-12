@@ -1,6 +1,7 @@
 // 날씨 연출: 가까이 내려가면 비·눈이 내리고, 흐린 날엔 하늘이 잿빛으로 낮아지고, 안개가 끼고, 폭우엔 번개가 친다.
 // 계절: 나무 색(봄꽃·신록·단풍·앙상한 겨울나무), 쌓인 눈.
 import * as THREE from 'three';
+import { PHONE } from '../device.js';
 
 export const WX = {
   맑음: { cloud: 0 }, 구름: { cloud: 0.55, fog: 0.05 }, 안개: { cloud: 0.5, fog: 1.1 },
@@ -21,7 +22,7 @@ function dotTexture() {
 export class Weather {
   constructor(scene) {
     this.scene = scene;
-    this.NR = 6000; this.NS = 5000;
+    this.NR = PHONE ? 2500 : 6000; this.NS = PHONE ? 2200 : 5000;
     const rg = new THREE.BufferGeometry();
     rg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.NR * 6), 3));
     this.rain = new THREE.LineSegments(rg, new THREE.LineBasicMaterial({ color: 0xb4c8dc, transparent: true, opacity: 0.5, depthWrite: false }));

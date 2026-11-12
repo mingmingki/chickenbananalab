@@ -3,7 +3,8 @@ import { fmtDate, fmtTime, fmtDateTime, localHour, MIN_YEAR } from '../state.js'
 import { josa } from './josa.js';
 import { avatarHTML } from './avatar.js';
 
-const isMobile = () => innerWidth <= 860;
+const landscapePhone = () => innerWidth <= 960 && innerHeight <= 500 && innerWidth > innerHeight;
+const isMobile = () => innerWidth <= 860 && !landscapePhone();
 const WEMO = { 맑음: '☀️', 구름: '☁️', 비: '🌧️', 소나기: '🌦️', 폭우: '⛈️', 눈: '🌨️', 폭설: '❄️', 바람: '🌬️', 안개: '🌫️', 무더위: '🥵', 한파: '🥶', 태풍: '🌀' };
 const INST = { hall: '🏛️ 관청', academy: '📚 학당', temple: '⛩️ 신전', seodang: '📜 서당', kinder: '🧸 유치원', school: '🏫 초등학교', middle: '🏫 중학교', high: '🏫 고등학교', univ: '🎓 대학교', lab: '🔬 국립 연구소' };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -45,24 +46,41 @@ export class Hud {
   }
 
   bind() {
-    this.left.onpointerdown = e => {
-      const ann = e.target.closest('[data-ann]');
-      if (ann && e.button === 0) { e.preventDefault(); this.select(+ann.dataset.ann, true); }
+    // 마우스는 누르는 순간 바로, 손가락은 '톡' 하고 뗐을 때만 (목록을 밀어 올리다가 잘못 눌리지 않게)
+    const tapSafe = (panel, actionAt) => {
+      panel.onpointerdown = e => {
+        if (e.button !== 0) return;
+        const fn = actionAt(e.target);
+        if (!fn) return;
+        const finger = e.pointerType === 'touch' || e.pointerType === 'pen';
+        if (!finger) { e.preventDefault(); fn(); return; }
+        this.tap = { fn, x: e.clientX, y: e.clientY, t: performance.now(), panel };
+      };
+      panel.onpointerup = e => {
+        const tp = this.tap;
+        this.tap = null;
+        if (!tp || tp.panel !== panel) return;
+        if (Math.hypot(e.clientX - tp.x, e.clientY - tp.y) < 12 && performance.now() - tp.t < 700) tp.fn();
+      };
+      panel.onpointercancel = () => { this.tap = null; };
     };
-    // 앤 상세 창은 실시간으로 다시 그려지므로, 누르는 순간 바로 반응한다
-    this.right.onpointerdown = e => {
-      if (e.button !== 0) return;
-      const t = e.target;
-      const it = t.closest('[data-itab]');
-      if (it) { e.preventDefault(); this.innerTab = it.dataset.itab; this.renderAnn(); return; }
+    tapSafe(this.left, t => {
       const ann = t.closest('[data-ann]');
-      if (ann) { e.preventDefault(); this.select(+ann.dataset.ann, true); return; }
+      return ann ? () => this.select(+ann.dataset.ann, true) : null;
+    });
+    // 앤 상세 창은 실시간으로 다시 그려지므로, 누르는 순간 무엇을 눌렀는지 기억해 둔다
+    tapSafe(this.right, t => {
+      const it = t.closest('[data-itab]');
+      if (it) return () => { this.innerTab = it.dataset.itab; this.renderAnn(); };
+      const ann = t.closest('[data-ann]');
+      if (ann) return () => this.select(+ann.dataset.ann, true);
       const town = t.closest('[data-town]');
-      if (town) { e.preventDefault(); this.flyTown(+town.dataset.town); return; }
+      if (town) return () => this.flyTown(+town.dataset.town);
       const act = t.closest('[data-act]')?.dataset.act;
-      if (act === 'close-ann') { e.preventDefault(); this.select(null); }
-      if (act === 'follow') { e.preventDefault(); this.toggleFollow(); }
-    };
+      if (act === 'close-ann') return () => this.select(null);
+      if (act === 'follow') return () => this.toggleFollow();
+      return null;
+    });
     this.el.onclick = e => {
       if (e.target.closest('#left-body [data-ann]') || e.target.closest('#right')) return;
       const t = e.target;
@@ -171,7 +189,7 @@ export class Hud {
     if (!id) { this.right.classList.add('hidden'); this.w3d.rig.follow = null; this.detail = null; this.layout(); this.renderLeft(true); return; }
     this.detail = null;
     this.right.classList.remove('hidden');
-    if (isMobile()) document.getElementById('left').classList.add('closed');
+    if (isMobile() || landscapePhone()) document.getElementById('left').classList.add('closed');
     this.layout();
     this.right.innerHTML = '<div id="ann-panel"><p class="empty">앤의 마음을 읽는 중…</p></div>';
     if (fly) {
@@ -440,8 +458,12 @@ export class Hud {
     const co = b.co && this.state.companies.get(b.co);
     tip.innerHTML = `<b>${esc(b.name)}</b> <span class="sub small">${esc(def?.name || b.type)}</span><br>
       ${b.done ? '' : `🏗️ 공사 중 ${Math.round(b.p * 100)}%${b.stalled ? ' — 벽돌이 모자라 멈춤' : ''}<br>`}${!b.done && b.ct ? `🦺 시공: ${esc(this.state.companies.get(b.ct)?.name || '')} · 현장 인원 ${b.crew}명<br>` : !b.done ? '손수 짓는 중<br>' : ''}${co ? `🏢 ${esc(co.name)}<br>` : ''}${owner ? `주인: ${esc(owner.n)}<br>` : ''}${b.res ? `사는 사람 ${b.res}명` : ''}${b.fire ? '<br>🔥 <b>불이 났다!</b>' : ''}${b.burnt && !b.done ? '<br>🔥 화재로 타 버려 다시 짓는 중' : ''}`;
-    tip.style.left = x + 'px'; tip.style.top = y + 'px';
     tip.classList.remove('hidden');
+    // 화면 밖으로 나가지 않게
+    const tw = tip.offsetWidth || 260, th = tip.offsetHeight || 120;
+    tip.style.left = Math.max(8, Math.min(x + 14, innerWidth - tw - 8)) + 'px';
+    tip.style.top = Math.max(8, Math.min(y + 14, innerHeight - th - 8)) + 'px';
+    tip.style.transform = 'none';
     clearTimeout(this.tipT);
     this.tipT = setTimeout(() => tip.classList.add('hidden'), 3500);
   }

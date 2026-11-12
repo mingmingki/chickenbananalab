@@ -14,13 +14,21 @@ export class Live {
     this.closed = false;
     this.watchId = null;
     this.retry = 0;
+    this.lastMsg = Date.now();
     this.connect();
+    // 휴대폰이 잠들었다 깨면 연결이 죽어 있기 쉽다 → 바로 다시 잇는다
+    this.onVis = () => {
+      if (document.hidden || this.closed) return;
+      if (this.ws.readyState !== 1 || Date.now() - this.lastMsg > 4000) { this.retry = 0; try { this.ws.close(); } catch { /* */ } }
+    };
+    document.addEventListener('visibilitychange', this.onVis);
   }
   connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = this.ws = new WebSocket(`${proto}://${location.host}/ws?server=${encodeURIComponent(this.serverId)}`);
     ws.onopen = () => { this.retry = 0; if (this.watchId) this.watch(this.watchId); this.h.open?.(); };
     ws.onmessage = ev => {
+      this.lastMsg = Date.now();
       let m;
       try { m = JSON.parse(ev.data); } catch { return; }
       this.h[m.t]?.(m);
@@ -35,7 +43,7 @@ export class Live {
     this.watchId = id;
     if (this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: 'watch', id }));
   }
-  close() { this.closed = true; this.ws.close(); }
+  close() { this.closed = true; document.removeEventListener('visibilitychange', this.onVis); this.ws.close(); }
 }
 
 // 저장된 게임 (이어하기)

@@ -51,21 +51,26 @@ export class CameraRig {
       el.setPointerCapture(e.pointerId);
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, btn: e.button, shift: e.shiftKey || e.ctrlKey });
       this.vel.lat = this.vel.lon = 0;
-      this.dragged = false;
+      if (this.pointers.size === 1) this.dragged = false;
+      this.g2 = this.pointers.size === 2 ? this.twoFinger() : null;
     });
     el.addEventListener('pointermove', e => {
       const p = this.pointers.get(e.pointerId);
       if (!p || !this.enabled) return;
       const dx = e.clientX - p.x, dy = e.clientY - p.y;
       if (Math.hypot(e.clientX - p.sx, e.clientY - p.sy) > 4) this.dragged = true;
-      if (this.pointers.size === 2) {
-        const [a, b] = [...this.pointers.values()];
-        const before = Math.hypot(a.x - b.x, a.y - b.y);
+      if (this.pointers.size >= 2) {
+        // 두 손가락: 벌리고 오므리기 = 확대·축소, 비틀기 = 회전, 함께 위아래로 = 기울이기
         p.x = e.clientX; p.y = e.clientY;
-        const after = Math.hypot(a.x - b.x, a.y - b.y);
-        if (before > 0 && after > 0) this.zoomBy(before / after);
-        // 두 손가락 세로 이동 = 기울이기
-        this.tgt.tilt = clamp(this.tgt.tilt + dy * 0.15, this.minTilt(this.tgt.alt), 90); this.userTilt = true;
+        const g = this.twoFinger(), prev = this.g2 || g;
+        if (prev.d > 0 && g.d > 0) this.zoomBy(prev.d / g.d);
+        let da = g.ang - prev.ang;
+        if (da > Math.PI) da -= Math.PI * 2; if (da < -Math.PI) da += Math.PI * 2;
+        if (Math.abs(da) < 0.5) this.tgt.heading -= da;
+        const dcy = g.cy - prev.cy;
+        if (Math.abs(dcy) > 0.5) { this.tgt.tilt = clamp(this.tgt.tilt + dcy * 0.22, this.minTilt(this.tgt.alt), 90); this.userTilt = true; }
+        this.g2 = g;
+        this.dragged = true;
         return;
       }
       p.x = e.clientX; p.y = e.clientY;
@@ -78,7 +83,17 @@ export class CameraRig {
       }
       if (this.dragged) this.onUserMove?.();
     });
-    const up = e => { this.pointers.delete(e.pointerId); };
+    const up = e => {
+      const p = this.pointers.get(e.pointerId);
+      this.pointers.delete(e.pointerId);
+      if (this.pointers.size < 2) this.g2 = null;
+      // 손가락으로 두 번 톡톡 = 그곳으로 확대
+      if (p && e.pointerType !== 'mouse' && !this.dragged && !this.pointers.size) {
+        const now = performance.now(), lt = this.lastTap;
+        if (lt && now - lt.t < 320 && Math.hypot(lt.x - e.clientX, lt.y - e.clientY) < 30) { this.lastTap = null; this.onDoubleTap?.(e); }
+        else this.lastTap = { t: now, x: e.clientX, y: e.clientY };
+      }
+    };
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
     el.addEventListener('wheel', e => {
@@ -86,6 +101,11 @@ export class CameraRig {
       e.preventDefault();
       this.zoomBy(Math.exp(e.deltaY * 0.0012 * (e.deltaMode === 1 ? 30 : 1)));
     }, { passive: false });
+  }
+
+  twoFinger() {
+    const [a, b] = [...this.pointers.values()];
+    return { d: Math.hypot(a.x - b.x, a.y - b.y), ang: Math.atan2(b.y - a.y, b.x - a.x), cy: (a.y + b.y) / 2 };
   }
 
   zoomBy(f) {
