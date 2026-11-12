@@ -208,12 +208,14 @@ export function bestIndustry(world, a) {
   for (const k in INDUSTRIES) {
     const ind = INDUSTRIES[k];
     if (ind.era > era) continue;
-    // 건물이 필요한 사업은 지어 줄 건설회사가 있어야 시작할 수 있다 (농장과 건설회사 자신은 예외)
-    if (!builder && k !== 'construction' && k !== 'farm') continue;
+    // 가게·대장간처럼 고대 이후의 사업 건물은 건설회사가 지어 줘야 한다 (농장·공방·벽돌 가마·건설회사는 손수)
+    if (!builder && (BUILDINGS[ind.building]?.era ?? 0) >= 2) continue;
     const jk = ind.jobs[0];
     let df = demandFactor(world, s, k);
     // 집을 지어 달라는 사람이 많은데 건설회사가 없다 → 큰 기회
-    if (k === 'construction' && !builder) df = Math.max(df, 1 + Math.min(0.8, (s.need?.homes || 0) * 0.15));
+    if (k === 'construction' && !builder) df = Math.max(df, 1 + Math.min(0.8, ((s.need?.builder || 0) + (s.needPrev?.builder || 0)) * 0.1 + (era >= 4 ? (s.needPrev?.homes || 0) * 0.15 : 0)));
+    // 벽돌이 없어 공사가 멈춘 곳이 있다 → 벽돌 가마를 차릴 기회
+    if (k === 'brickworks') { const kilns = companiesIn(world, s.id).filter(c => c.ind === 'brickworks').length; df = kilns ? df : Math.max(df, 1 + Math.min(0.9, ((s.need?.bricks || 0) + (s.needPrev?.bricks || 0)) * 0.08 + (era >= 2 ? 0.25 : 0))); }
     if (k === 'farm' && s.food < s.pop * 2) df += 0.3;
     const score = jobFit(a, jk) * 0.6 + a.sk[JOBS[jk].skill] * 0.3 + (df - 1) * 45 + rand() * 12;
     if (score > bs) { bs = score; best = k; best_df = df; }
@@ -254,8 +256,9 @@ export function foundCompany(world, a, indKey) {
   if (g) world.achieveGoal(a, g);
   world.news('biz', `🏢 ${ga(a.name)} ${s.name}에 '${name}'(${ind.name})을(를) 창업했다`, { anns: [a.id], country: a.country, sid: s.id }, 2);
   world.first(country, 'company', `첫 회사 '${name}' 탄생 (${a.name})`);
+  if (indKey === 'brickworks') world.first(country, 'kiln', `첫 벽돌 가마 '${name}' — 이제 기와집과 벽돌집을 지을 수 있다`, '🧱');
   if (indKey === 'construction') {
-    world.first(country, 'builder', `첫 건설회사 '${name}' — 이제 제대로 된 집을 지을 수 있다`);
+    world.first(country, 'builder', `첫 건설회사 '${name}' — 이제 관청·시장 같은 큰 건물을 지을 수 있다`);
     think(world, a, '이제 이 마을 사람들 집은 우리가 짓는다.');
   }
   world.dirtyCompanies.add(co.id);
@@ -316,6 +319,12 @@ export function produce(world, a, dt) {
         if (co) co.money += pay; else a.money += pay * 0.8;
         if (addWork(world, site, work)) world.onBuilt(site);
       }
+      break;
+    }
+    case 'bricks': {
+      const water = (() => { const f = siteFeatures(s); return f.river || f.lake || f.sea; })();
+      const cap = 300 + s.pop * 25;
+      if ((s.bricks || 0) < cap) s.bricks = (s.bricks || 0) + j.rate * eff * Math.sqrt(prod) * hours * (water ? 1 : 0.6);
       break;
     }
     case 'heal': s.heal = (s.heal || 0) + eff * hours; break;

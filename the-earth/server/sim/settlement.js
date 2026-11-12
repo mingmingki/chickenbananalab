@@ -139,9 +139,46 @@ export function removeBuilding(world, b) {
   world.removedBuildings.add(b.id);
 }
 
-/** 건설 진척. 완공되면 true */
+/** 어떻게 지어지는가.
+ *  self: 주인과 이웃이 손수 지을 수 있다 (원시·농경의 모든 건물, 중세까지의 집, 밭·모닥불·창고)
+ *  bricks: 구운 벽돌·기와(건자재)가 있어야 한다 (고대 이후 건물) */
+export function buildRule(b) {
+  const def = BUILDINGS[b.type] || {};
+  const era = def.era ?? 0;
+  const self = era <= 1 || ['farm', 'campfire', 'granary'].includes(b.type) || (def.kind === 'home' && era <= 3);
+  return { self, bricks: era >= 2 && def.kind !== 'farm' };
+}
+export const MAT_PER_WORK = 0.6;
+
+/** 건설 진척. 벽돌이 모자라면 그만큼만 나아간다. 완공되면 true */
 export function addWork(world, b, hours) {
   if (b.done) return false;
+  if (buildRule(b).bricks) {
+    const s = world.settlements.get(b.sid);
+    const total = b.work * MAT_PER_WORK;
+    b.mat = b.mat || 0;
+    const need = Math.min(total, total * (b.progress + hours) / b.work) - b.mat;
+    if (need > 0) {
+      const have = s.bricks || 0;
+      const take = Math.min(have, need);
+      s.bricks = have - take; b.mat += take;
+      // 벽돌 값은 벽돌 가마에게 (건축 예산이나 주인의 돈에서)
+      const price = take * ERAS[world.countries[s.country]?.era ?? 0].wage * 0.06;
+      const owner = b.owner != null && world.anns.get(b.owner);
+      const from = b.budget > price ? 'budget' : owner && owner.money > price ? 'owner' : null;
+      if (from && take > 0) {
+        if (from === 'budget') b.budget -= price; else owner.money -= price;
+        const kilns = [...world.companies.values()].filter(c => c.sid === s.id && c.ind === 'brickworks' && !c.dead);
+        if (kilns.length) { const k = kilns[Math.floor(Math.random() * kilns.length)]; k.money += price; k.rev += price; }
+      }
+      if (take < need) {
+        hours *= take / need;
+        b.stalled = true;
+        s.need = s.need || {}; s.need.bricks = (s.need.bricks || 0) + 1;
+      } else b.stalled = false;
+      if (hours <= 0) { world.dirtyBuildings.add(b.id); return false; }
+    }
+  }
   b.progress = Math.min(b.work, b.progress + hours);
   world.dirtyBuildings.add(b.id);
   if (b.progress >= b.work) {

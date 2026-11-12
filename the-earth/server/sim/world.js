@@ -147,8 +147,11 @@ export class World {
       if (owner && owner.alive) {
         const family = [owner, owner.spouse && this.anns.get(owner.spouse), ...owner.kids.map(id => this.anns.get(id)).filter(k => k && ageOf(k, this.clock) < 19)];
         for (const m of family) if (m && m.alive && m.sid === b.sid) this.moveHome(m, b);
-        remember(this, owner, `${reul(def.name)} 완성했다. 이제 여기가 우리 집이다`, 7, 0.9, [], 'home');
-        lifeEvent(this, owner, `${def.name} 완공`, '🏠');
+        const how = { hut: '나뭇가지와 흙으로 손수 움집을 지었다', cottage: '흙벽돌을 찍어 쌓고 짚을 얹어 초가집을 지었다', house: '구운 벽돌을 쌓고 기와를 올려 기와집을 지었다', brickhouse: '붉은 벽돌로 2층 벽돌집을 지었다' }[b.type] || `${reul(def.name)} 완성했다`;
+        const helpers = (b.helpers || []).map(id => this.anns.get(id)).filter(x => x && x.alive && x.id !== owner.id && x.id !== owner.spouse);
+        remember(this, owner, `${how}${helpers.length ? ` — ${helpers.slice(0, 3).map(x => x.name).join(', ')}이(가) 품앗이로 도와주었다` : ''}`, 7, 0.9, helpers.map(x => x.id), 'home');
+        lifeEvent(this, owner, `${def.name} 완공${helpers.length ? ` (이웃 ${helpers.length}명의 품앗이)` : ''}`, '🏠');
+        for (const h of helpers) { const r = rel(owner, h), rh = rel(h, owner); r.a = clamp(r.a + 6, -100, 100); rh.a = clamp(rh.a + 3, -100, 100); remember(this, h, `${owner.name}네 ${def.name} 짓는 일을 도왔다`, 3, 0.5, [owner.id], 'home'); }
         feel(owner, 20, '뿌듯함', def.name);
         think(this, owner, pick(['드디어 내 집이다!', '비바람 걱정 없이 잘 수 있겠다.', '이 집에서 행복하게 살자.']));
       }
@@ -495,6 +498,8 @@ export class World {
     for (const a of out) for (const b of out) if (a !== b) { const r = rel(a, b); r.f = Math.max(r.f, 5); r.k = 'acquaintance'; }
     this.news('player', `👥 ${player.name}의 앤 ${out.length}명이 ${c.name} ${s.name}에 도착했다`, { country: c.code, sid: s.id, anns: out.map(a => a.id) }, 2);
     this.rebuildResidents();
+    s.pop = this.residents(s.id).length; c.pop = [...this.anns.values()].filter(a => a.alive && a.country === c.code).length;
+    this.dirtySettlements.add(s.id); this.dirtyCountries.add(c.code);
     return out;
   }
 

@@ -434,7 +434,7 @@ export class Cities {
       if (roof === 'cone') add(G.cone, rc, b.w * 1.05, Math.max(b.w, b.d) * 0.55, b.d * 1.05, 0, h);
       else if (roof === 'gable') add(G.prism, rc, long ? b.d * 1.12 : b.w * 1.12, Math.min(b.w, b.d) * 0.42, long ? b.w * 1.06 : b.d * 1.06, 0, h, 0, long ? Math.PI / 2 : 0);
       else if (roof === 'pyramid') add(G.pyr, rc, b.w, b.h * 0.6, b.d, 0, h);
-      else if (roof === 'dome') add(G.dome, this.mat('#cfd8e0'), Math.min(b.w, b.d) * 0.8, Math.min(b.w, b.d) * 0.8, Math.min(b.w, b.d) * 0.8, 0, h);
+      else if (roof === 'dome') add(G.dome, def.roofColor ? rc : this.mat('#cfd8e0'), Math.min(b.w, b.d) * 0.8, Math.min(b.w, b.d) * 0.8, Math.min(b.w, b.d) * 0.8, 0, h);
       else if (roof === 'saw') { for (let k = 0; k < 3; k++) add(G.prism, this.mat('#6f757b'), b.w / 3, 3.5, b.d, -b.w / 3 + k * b.w / 3, h, 0); add(G.cyl, this.mat('#7a6f69'), 2.4, 14, 2.4, b.w * 0.35, h, b.d * 0.3); }
       else if (roof === 'flat') add(G.box, this.mat('#5c6168'), b.w + 0.6, 0.6, b.d + 0.6, 0, h);
       else if (roof === 'rocket') {

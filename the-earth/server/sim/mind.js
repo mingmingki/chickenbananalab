@@ -6,7 +6,7 @@ import { rel, converse, attraction, updateKind } from './social.js';
 import {
   openings, apply, jobFit, produce, dailyCost, wageBase, bestIndustry, startupCost, foundCompany, jobTitle, leaveJob, hasConstruction,
 } from './economy.js';
-import { plazaPoint, wildPoint, shorePoint, doorPoint, placeBuilding, addWork, siteFeatures } from './settlement.js';
+import { plazaPoint, wildPoint, shorePoint, doorPoint, placeBuilding, addWork, siteFeatures, buildRule } from './settlement.js';
 import { compose } from './thoughts.js';
 
 export const ACTS = {
@@ -202,17 +202,37 @@ export function decide(world, a) {
     if (own) add('build', 34 + a.tr.C * 0.22 + (a.home ? 0 : 22), [`${own.name} 짓는 중 (${Math.round(own.progress / own.work * 100)}%)`], { site: own.id });
     else if (!a.home || (livesWithParents && age > 22 + (100 - a.val.adventure) * 0.1) || (homeB && homeB.res.length > BUILDINGS[homeB.type].cap) || outdated) {
       let t = HOME_BY_ERA[Math.min(era, 7)];
-      // 제대로 된 집은 건설회사(목수)가 있어야 지을 수 있다. 없으면 손수 움집뿐.
-      const builder = hasConstruction(world, s.id);
-      if (t !== 'hut' && !builder) {
-        s.need = s.need || {}; s.need.homes = (s.need.homes || 0) + 1;
-        t = a.home ? null : 'hut';
-        if (!t && chance(0.08)) think(world, a, pick(['제대로 된 집을 짓고 싶은데, 이 마을엔 목수가 없다.', '건설하는 사람이 있으면 좋을 텐데…', '집을 지어 줄 사람이 없으니 직접 회사를 차려 볼까?']));
+      let why = null;
+      // 중세까지의 집은 손수 짓는다. 연립·아파트는 건설회사가 있어야 한다.
+      if (BUILDINGS[t].era >= 4 && !hasConstruction(world, s.id)) {
+        s.need = s.need || {}; s.need.builder = (s.need.builder || 0) + 1; s.need.homes = (s.need.homes || 0) + 1;
+        t = 'brickhouse'; why = '건설회사가 없어 손수 벽돌집을';
+        if (a.home && chance(0.85)) t = null;
+        if (chance(0.06)) think(world, a, pick(['연립주택은 건설회사가 있어야 짓는다는데…', '집 지어 주는 회사가 이 마을엔 없다.', '아예 건설회사를 차려 볼까?']));
+      }
+      // 기와·벽돌이 필요한 집인데 벽돌 가마가 없고 벽돌도 없다면 초가집으로
+      if (t && BUILDINGS[t].era >= 2 && (s.bricks || 0) < 5 && ![...world.companies.values()].some(c => c.sid === s.id && c.ind === 'brickworks' && !c.dead)) {
+        s.need = s.need || {}; s.need.bricks = (s.need.bricks || 0) + 1;
+        if (!a.home) { t = 'cottage'; why = '벽돌이 없어 흙벽돌로'; } else t = null;
+        if (chance(0.06)) think(world, a, pick(['기와집을 짓고 싶은데 벽돌과 기와를 구할 데가 없다.', '누가 벽돌 가마라도 차리면 좋을 텐데.', '흙벽돌로는 한계가 있다.']));
       }
       const c = t ? BUILDINGS[t].cost || 0 : 0;
-      if (t && (a.money >= c * 0.6 || t === 'hut')) {
-        add('build', (a.home ? 22 : 48) + a.tr.C * 0.1 + (outdated ? 6 : 0) - (weatherBad ? 10 : 0), [a.home ? (outdated ? '집이 낡았다' : '독립하고 싶다') : '집이 없다', t === 'hut' && era > 0 ? '목수가 없어 움집이라도' : c ? `비용 ${c}` : null], { newHome: t });
+      if (t && (a.money >= c * 0.6 || BUILDINGS[t].era <= 1)) {
+        add('build', (a.home ? 22 : 48) + a.tr.C * 0.1 + (outdated ? 6 : 0) - (weatherBad ? 10 : 0), [a.home ? (outdated ? '집이 낡았다' : '독립하고 싶다') : '집이 없다', why || (c ? `비용 ${c}` : '손수 짓는다')], { newHome: t });
       }
+    }
+    // 품앗이: 친한 사람이 집을 짓고 있으면 거든다
+    {
+      let best = null;
+      for (const id in a.rels) {
+        const r = a.rels[id];
+        if (r.f < 18 || r.a < 15) continue;
+        const b = world.anns.get(+id);
+        if (!b || !b.alive || b.sid !== a.sid) continue;
+        const site = homeWork(world, b);
+        if (site && !site.stalled && (!best || r.a > best.r)) best = { site, b, r: r.a };
+      }
+      if (best && best.site.owner !== a.id) add('build', 6 + a.tr.A * 0.2 + best.r * 0.12 + (era <= 2 ? 8 : 0) - (weatherBad ? 10 : 0), ['품앗이', `${best.b.name}네 ${best.site.name} 짓기 돕기`], { site: best.site.id });
     }
     if (!world.campfireOf(s)) add('build', 70, ['모일 곳(모닥불)이 필요하다'], { civic: 'campfire' });
     const cs = world.communitySite(s);
@@ -597,7 +617,9 @@ function maybeConceive(world, a, b) {
   if (mother.spouse !== father.id && !(mother.partner === father.id && chance(0.15))) return;
   const age = ageOf(mother, world.clock);
   if (age < 19 || age > 44) return;
-  const want = (x) => x.val.family / 22 + (x.tr.A - 50) / 50;
+  // 옛날엔 아이를 많이 낳았고, 근대 이후엔 적게 낳는다
+  const era = world.countries[mother.country].era;
+  const want = (x) => x.val.family / 22 + (x.tr.A - 50) / 50 + (era <= 3 ? 2 : era === 4 ? 1 : 0);
   if (mother.kids.length >= Math.max(want(mother), want(father)) + 0.6) return;
   if (mother.kids.length && world.clock - (mother.lastBirth || 0) < YEAR * 1.2) return;
   const fert = clamp(1 - (age - 28) / 22, 0.15, 1) * 0.3;
@@ -645,8 +667,9 @@ function onTick(world, a, act, dt) {
       const b = world.buildings.get(act.site);
       if (!b || b.done) { act.done = true; break; }
       let work = (0.5 + a.sk.construction / 100) * Math.sqrt(world.prod(a)) * hours * (0.7 + a.ab.ath / 200);
-      // 움집·모닥불·밭은 손수 지을 수 있지만, 그 밖의 건물은 건설회사 없이는 아주 더디다
-      if (!['hut', 'campfire', 'farm', 'granary'].includes(b.type) && !hasConstruction(world, b.sid)) work *= 0.3;
+      // 손수 지을 수 없는 건물(관청·가게·연립 등)은 건설회사 없이는 아주 더디다
+      if (!buildRule(b).self && !hasConstruction(world, b.sid)) work *= 0.25;
+      if (b.owner != null && b.owner !== a.id) { b.helpers = b.helpers || []; if (!b.helpers.includes(a.id)) b.helpers.push(a.id); }
       a.sk.construction = clamp(a.sk.construction + 0.05 * hours);
       if (b.owner !== a.id && b.budget > 0) {
         const pay = Math.min(b.budget, b.budget / Math.max(1, b.work - b.progress) * work);

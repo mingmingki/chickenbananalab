@@ -9,12 +9,12 @@ export const SKILLS = {
 export const ERAS = [
   { id: 0, name: '원시 시대', tech: 0, leader: '족장', prod: 1.0, mort: 2.0, wage: 4, cityK: 1.0 },
   { id: 1, name: '농경 시대', tech: 600, leader: '촌장', prod: 1.35, mort: 1.7, wage: 6, cityK: 1.2 },
-  { id: 2, name: '고대 문명', tech: 6000, leader: '왕', prod: 1.8, mort: 1.45, wage: 10, cityK: 1.5 },
-  { id: 3, name: '중세', tech: 24000, leader: '국왕', prod: 2.4, mort: 1.3, wage: 16, cityK: 1.8 },
-  { id: 4, name: '산업 혁명', tech: 70000, leader: '총리', prod: 3.5, mort: 1.1, wage: 30, cityK: 2.3 },
-  { id: 5, name: '근대', tech: 190000, leader: '대통령', prod: 5, mort: 0.9, wage: 55, cityK: 3 },
-  { id: 6, name: '정보화 시대', tech: 440000, leader: '대통령', prod: 7, mort: 0.75, wage: 90, cityK: 4 },
-  { id: 7, name: '우주 시대', tech: 1000000, leader: '대통령', prod: 10, mort: 0.6, wage: 140, cityK: 5 },
+  { id: 2, name: '고대 문명', tech: 3800, leader: '왕', prod: 1.8, mort: 1.45, wage: 10, cityK: 1.5 },
+  { id: 3, name: '중세', tech: 16500, leader: '국왕', prod: 2.4, mort: 1.3, wage: 16, cityK: 1.8 },
+  { id: 4, name: '산업 혁명', tech: 50000, leader: '총리', prod: 3.5, mort: 1.1, wage: 30, cityK: 2.3 },
+  { id: 5, name: '근대', tech: 165000, leader: '대통령', prod: 5, mort: 0.9, wage: 55, cityK: 3 },
+  { id: 6, name: '정보화 시대', tech: 400000, leader: '대통령', prod: 7, mort: 0.75, wage: 90, cityK: 4 },
+  { id: 7, name: '우주 시대', tech: 950000, leader: '대통령', prod: 10, mort: 0.6, wage: 140, cityK: 5 },
 ];
 
 export const DISCOVERIES = [
@@ -37,6 +37,7 @@ export const JOBS = {
   toolmaker: { name: '도구 장인', era: 0, maxEra: 1, skill: 'crafting', self: true, out: 'tech', rate: 0.9, fit: { int: .3, cre: .4, C: .2 } },
   storyteller: { name: '이야기꾼', era: 0, maxEra: 2, skill: 'art', self: true, out: 'art', rate: 1, fit: { cre: .5, E: .4, cha: .3 } },
   shaman: { name: '주술사', era: 0, maxEra: 2, skill: 'medicine', self: true, out: 'heal', rate: 1, fit: { int: .3, O: .4, cha: .2 } },
+  brickmaker: { name: '벽돌공', era: 1, skill: 'crafting', ind: 'brickworks', out: 'bricks', rate: 3, fit: { ath: .3, C: .4 } },
   builder: { name: '목수', era: 1, skill: 'construction', ind: 'construction', out: 'build', rate: 1, fit: { ath: .4, C: .4 } },
   farmer: { name: '농부', era: 1, skill: 'farming', ind: 'farm', out: 'food', rate: 4, fit: { C: .4, ath: .3, A: .1 } },
   craftsman: { name: '장인', era: 1, skill: 'crafting', ind: 'workshop', out: 'money', rate: 1, fit: { cre: .4, C: .4 } },
@@ -65,6 +66,7 @@ export const JOBS = {
 // 민간 산업(회사). k = 종사자 1명이 감당하는 인구 (수요), price = 시간당 매출 단가 배수
 export const INDUSTRIES = {
   farm: { name: '농장', era: 1, building: 'farm', jobs: ['farmer'], k: 5, suffix: ['농장', '농원', '영농'] },
+  brickworks: { name: '벽돌·기와', era: 1, building: 'kiln', jobs: ['brickmaker'], k: 24, suffix: ['벽돌', '기와', '요업', '건자재'] },
   construction: { name: '건설', era: 1, building: 'workshop', jobs: ['builder'], k: 7, suffix: ['건설', '건축', '목공소'] },
   workshop: { name: '공방', era: 1, building: 'workshop', jobs: ['craftsman'], k: 8, suffix: ['공방', '공예', '도자기'] },
   trade: { name: '상회', era: 2, building: 'market', jobs: ['merchant'], k: 9, suffix: ['상회', '상점', '무역'] },
@@ -105,6 +107,7 @@ export const BUILDINGS = {
   apartment: { name: '아파트', era: 5, cells: [2, 2], size: [30, 22, 42], work: 700, kind: 'home', cap: 40, color: '#dfe3e8', roof: 'flat', cost: 2500 },
   skytower: { name: '초고층 주상복합', era: 6, cells: [2, 2], size: [32, 32, 140], work: 2400, kind: 'home', cap: 140, color: '#9fc3dc', roof: 'flat', glass: true, cost: 12000 },
   farm: { name: '농장', era: 1, cells: [2, 2], size: [34, 34, 0.4], work: 12, kind: 'farm', color: '#9bb547', roof: 'field', cost: 15 },
+  kiln: { name: '벽돌 가마', era: 1, cells: [1, 1], size: [10, 9, 4.5], work: 24, kind: 'work', color: '#9a5a3c', roof: 'dome', roofColor: '#6b3a24', cost: 25 },
   workshop: { name: '작업장', era: 1, cells: [1, 1], size: [12, 10, 5], work: 40, kind: 'work', color: '#a68660', roof: 'gable', roofColor: '#6b4f33', cost: 40 },
   granary: { name: '곡물 창고', era: 1, cells: [1, 1], size: [10, 10, 6], work: 35, kind: 'civic', color: '#b89a68', roof: 'cone', roofColor: '#8a6d3e', cost: 0 },
   market: { name: '시장', era: 2, cells: [1, 1], size: [16, 14, 4.5], work: 60, kind: 'work', color: '#d9a35c', roof: 'gable', roofColor: '#a3402c', cost: 120 },

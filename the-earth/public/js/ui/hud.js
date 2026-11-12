@@ -115,10 +115,12 @@ export class Hud {
     const n = s.need || {};
     const hasBuilder = !!cos.construction;
     const needs = [];
-    if (n.homes) needs.push(`🏠 집이 필요한 사람 ${n.homes}명${hasBuilder ? '' : ' — 건설회사가 없어 움집밖에 못 짓는다'}`);
+    if (n.homes) needs.push(`🏠 집이 필요한 사람 ${n.homes}명`);
+    if (n.bricks) needs.push(`🧱 벽돌·기와가 모자라 공사가 멈추거나 초가집에 머문다${cos.brickworks ? '' : ' — 벽돌 가마가 없다'}`);
+    if (n.builder) needs.push('🔨 큰 건물·연립주택을 지어 줄 건설회사가 없다');
     if (n.school) needs.push(`🎒 학교에 못 가는 아이 ${n.school}명 — 나이에 맞는 학교가 없다`);
     if (n.clinic) needs.push(`🤒 아픈데 병원이 없는 사람 ${n.clinic}명`);
-    if (!hasBuilder && (c?.era || 0) >= 1) needs.push('🔨 건설회사가 없다 — 제대로 된 집과 가게를 지을 수 없다');
+    if (!hasBuilder && (c?.era || 0) >= 2 && !n.builder) needs.push('🔨 건설회사가 없어 시장·관청 같은 큰 건물은 공사가 더디다');
     if (s.food < s.pop * 2) needs.push('🍚 식량이 모자란다');
     const people = [...st.anns.values()].filter(a => a.al && a.s === sid).sort((a, b) => a.b - b.b);
     this.right.classList.remove('hidden');
@@ -362,7 +364,7 @@ export class Hud {
       const groups = new Map();
       for (const l of d.life) { const g = ageAt(l.t); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(l); }
       const ages = [...groups.keys()].sort((x, y) => y - x);
-      body += ages.map(g => `<div class="chron-age"><span>${g}살</span><i>${fmtDate(d.born + g * MIN_YEAR).replace(/ \d+월 \d+일$/, '')}</i></div>` +
+      body += ages.map(g => `<div class="chron-age"><span>${g}살</span><i>${fmtDate(groups.get(g)[0].t).replace(/ \d+월 \d+일$/, '')}</i></div>` +
         groups.get(g).slice().reverse().map(l => `<div class="life"><span>${l.icon}</span><div>${esc(l.text)}<time>${fmtDate(l.t)}</time></div></div>`).join('')).join('');
     } else if (tab === 'dream') {
       body += `<div class="sec">꿈</div>` + d.goals.map(g => `<div class="goal ${g.done ? 'done' : ''}"><span>${g.done ? (g.given ? '🍂' : '✅') : '✨'}</span><div>${esc(g.text)}${g.done ? `<div class="sub small" style="margin:0">${g.given ? '내려놓음' : `이룸 · ${g.at ? fmtDate(g.at) : ''}`}</div>` : ''}</div></div>`).join('');
