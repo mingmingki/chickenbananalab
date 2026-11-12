@@ -307,3 +307,11 @@ class MarkAndFix3dPageTests(SimpleTestCase):
         self.assertIn('["mark", "표시·AI"]', mass)
         self.assertIn("fix: { on: fix.on, mode: fix.mode", mass)          # fixing goes on after redrawing
         self.assertIn("onEdit: function (edit) {", html)
+
+
+class FacedOffSheetTests(SimpleTestCase):
+    def test_a_wall_running_past_a_frame_read_too_small_is_kept(self):
+        room, _lone, outside, _short, _column = plan_paths()
+        wall_past = [path("wall", [(30, 10), (60, 10)]), path("wall", [(30, 10.2), (60, 10.2)])]  # two faces, mostly past x = 40
+        stray = fv._stray_segments(room + [outside] + wall_past, FRAME)
+        self.assertEqual([tuple(round(v, 2) for v in s) for s in stray], [(10.0, 12.0, 12.0, 60.0)])

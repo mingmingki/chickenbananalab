@@ -436,17 +436,41 @@ def _has_pair(segs):
     return False
 
 
+def _faced(seg, others):
+    """Another line runs beside ``seg``, parallel, 5 cm to 1.3 m away (it is one face of a member)."""
+    ax, ay = seg[2] - seg[0], seg[3] - seg[1]
+    la = math.hypot(ax, ay)
+    if la < 0.05:
+        return False
+    ux, uy = ax / la, ay / la
+    for b in others:
+        if b is seg:
+            continue
+        bx, by = b[2] - b[0], b[3] - b[1]
+        lb = math.hypot(bx, by)
+        if lb < 0.05 or abs(ux * by / lb - uy * bx / lb) > 0.03:
+            continue
+        gap = abs((b[0] - seg[0]) * uy - (b[1] - seg[1]) * ux)
+        if not 0.05 <= gap <= 1.3:
+            continue
+        t0, t1 = (b[0] - seg[0]) * ux + (b[1] - seg[1]) * uy, (b[2] - seg[0]) * ux + (b[3] - seg[1]) * uy
+        if max(t0, t1) > 0 and min(t0, t1) < la:
+            return True
+    return False
+
+
 def _stray_segments(paths, box, outside=True):
     """Member segments (frame-local metres) that are no part of the plan in one frame: mostly
-    outside the frame, or a group with no two parallel faces (no wall or beam in it) at least
-    STRAY_GAP_M away from every other member line. Kept on purpose: groups with faces (a short
+    outside the frame with no parallel face beside it (a frame read smaller than its plan leaves
+    real walls running past it, and those have two faces), or a group with no two parallel faces
+    (no wall or beam in it) at least STRAY_GAP_M away from every other member line. Kept on purpose: groups with faces (a short
     wall apart, a column drawn as four lines), closed outlines (columns of a parking deck stand
     apart by design), stairs and the floor above. People erase the rest themselves.
     ``outside``: False when the frame is only the drawn extent (a drawing without a frame), whose
     edge walls may run past it."""
     x0, y0, x1, y1 = box
     width, height = (x1 - x0) / 1000.0, (y1 - y0) / 1000.0
-    segs, stray = [], []
+    segs, stray, off_sheet = [], [], []
     for category, ax, ay, bx, by, points in paths:
         if bx < x0 or ax > x1 or by < y0 or ay > y1:
             continue
@@ -458,9 +482,28 @@ def _stray_segments(paths, box, outside=True):
                 continue
             seg = (px, py, qx, qy)
             if outside and not fixed and _inside_share(seg, width, height) < STRAY_OUTSIDE:
-                stray.append(seg)
+                off_sheet.append(seg)
             else:
                 segs.append((seg, fixed))
+    if off_sheet:
+        # lines past the frame are stray only without a face beside them
+        cell, near = 2.0, defaultdict(list)
+        for item in [s_[0] for s_ in segs] + off_sheet:
+            for cx in range(math.floor(min(item[0], item[2]) / cell), math.floor(max(item[0], item[2]) / cell) + 1):
+                for cy in range(math.floor(min(item[1], item[3]) / cell), math.floor(max(item[1], item[3]) / cell) + 1):
+                    near[(cx, cy)].append(item)
+        for seg in off_sheet:
+            around, seen = [], set()
+            for cx in range(math.floor((min(seg[0], seg[2]) - 1.3) / cell), math.floor((max(seg[0], seg[2]) + 1.3) / cell) + 1):
+                for cy in range(math.floor((min(seg[1], seg[3]) - 1.3) / cell), math.floor((max(seg[1], seg[3]) + 1.3) / cell) + 1):
+                    for other in near.get((cx, cy), ()):
+                        if id(other) not in seen:
+                            seen.add(id(other))
+                            around.append(other)
+            if _faced(seg, around):
+                segs.append((seg, False))
+            else:
+                stray.append(seg)
     if not segs:
         return stray
     parent = list(range(len(segs)))
