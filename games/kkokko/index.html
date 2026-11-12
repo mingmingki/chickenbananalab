@@ -1,0 +1,671 @@
+<title>꼬꼬 직진</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Do+Hyeon&display=swap">
+<style>
+  /* Layout: full-bleed 3D country road; distance sticker pinned top, one big hold-to-walk button bottom-center */
+  :root {
+    --sky: #8fd3ff;
+    --ink: #1d2a1f;
+    --paper: #fffaf0;
+    --comb: #e8402b;
+    --yolk: #ffc93c;
+    --yolk-deep: #eaa814;
+    --font-display: "Do Hyeon", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+    --font-body: system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+    color-scheme: light;
+  }
+
+  [hidden] { display: none !important; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: var(--sky);
+    color: var(--ink);
+    font-family: var(--font-body);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+
+  #stage { position: fixed; inset: 0; touch-action: none; cursor: pointer; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+
+  #hud {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    left: max(16px, env(safe-area-inset-left, 0px));
+    right: max(16px, env(safe-area-inset-right, 0px));
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    pointer-events: none;
+  }
+
+  .sticker {
+    background: var(--paper);
+    color: var(--ink);
+    border: 3px solid var(--ink);
+    border-radius: 14px;
+    box-shadow: 4px 4px 0 var(--ink);
+  }
+
+  .meter { padding: 8px 14px 10px; display: grid; gap: 4px; min-width: 0; }
+  .meter-row {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+  }
+  .meter-label { font-size: 15px; letter-spacing: 0.06em; margin-right: 6px; }
+  #dist { font-size: 42px; line-height: 1; }
+  .meter-unit { font-size: 20px; }
+  .meter-sub {
+    display: flex;
+    gap: 14px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  .meter-sub b { font-weight: 700; }
+
+  .chip {
+    pointer-events: auto;
+    font-family: var(--font-display);
+    font-size: 17px;
+    padding: 8px 14px;
+    cursor: pointer;
+  }
+  .chip:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--ink); }
+
+  #go {
+    position: fixed;
+    left: 50%;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 28px);
+    transform: translateX(-50%);
+    width: 116px;
+    height: 116px;
+    border-radius: 50%;
+    background: var(--yolk);
+    color: var(--ink);
+    border: 4px solid var(--ink);
+    box-shadow: 0 8px 0 var(--ink);
+    font-family: var(--font-display);
+    font-size: 24px;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 0;
+    padding: 0;
+    touch-action: none;
+    cursor: pointer;
+    transition: transform 60ms, box-shadow 60ms, background-color 60ms;
+  }
+  #go svg { width: 34px; height: 34px; margin-bottom: -2px; }
+  #go.is-down {
+    transform: translate(-50%, 6px);
+    box-shadow: 0 2px 0 var(--ink);
+    background: var(--yolk-deep);
+  }
+
+  #hint {
+    position: fixed;
+    left: 50%;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 168px);
+    transform: translateX(-50%);
+    margin: 0;
+    padding: 6px 12px;
+    font-size: 14px;
+    white-space: nowrap;
+    max-width: calc(100vw - 32px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+    border-width: 2px;
+    box-shadow: 3px 3px 0 var(--ink);
+    border-radius: 999px;
+  }
+
+  #toast {
+    position: fixed;
+    top: 38%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: var(--font-display);
+    font-size: 34px;
+    padding: 10px 20px 12px;
+    background: var(--comb);
+    color: var(--paper);
+    border: 4px solid var(--ink);
+    border-radius: 16px;
+    box-shadow: 5px 5px 0 var(--ink);
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+  }
+  #toast.show { animation: pop 1.8s ease-out forwards; }
+  @keyframes pop {
+    0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+    14%  { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+    24%  { transform: translate(-50%, -50%) scale(1); }
+    80%  { opacity: 1; }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+  }
+
+  #nogl {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    text-align: center;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  button:focus-visible { outline: 3px solid var(--comb); outline-offset: 4px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    #go { transition: none; }
+    #toast.show { animation-name: fade; }
+    @keyframes fade { 0% { opacity: 0; } 12% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
+  }
+</style>
+
+<div id="stage" aria-label="3D 길 위의 닭. 누르고 있으면 앞으로 걸어요."></div>
+
+<div id="hud">
+  <div class="sticker meter" role="status" aria-live="off">
+    <div class="meter-row">
+      <span class="meter-label">거리</span>
+      <span id="dist">0.0</span>
+      <span class="meter-unit">m</span>
+    </div>
+    <div class="meter-sub">
+      <span>걸음 <b id="steps">0</b></span>
+      <span>최고 <b id="best">0</b>m</span>
+    </div>
+  </div>
+  <button id="reset" class="sticker chip" type="button">처음으로</button>
+</div>
+
+<p id="hint" class="sticker">꾹 누르고 있으면 걸어요 · 키보드 ↑ W 스페이스</p>
+
+<button id="go" type="button" aria-label="앞으로 걷기, 누르고 있는 동안 걸어요">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15 L12 7 L20 15" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <span>앞으로</span>
+</button>
+
+<div id="toast" aria-live="polite"></div>
+
+<div id="nogl" hidden>이 기기에서는 3D(WebGL)를 켤 수 없어요.<br>다른 브라우저나 기기에서 열어 주세요.</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const stage = $('stage');
+  const distEl = $('dist'), stepsEl = $('steps'), bestEl = $('best');
+  const goBtn = $('go'), resetBtn = $('reset'), hintEl = $('hint'), toastEl = $('toast');
+
+  function failGL() {
+    $('nogl').hidden = false;
+    goBtn.hidden = true;
+    hintEl.hidden = true;
+  }
+  if (!window.THREE) { failGL(); return; }
+
+  /* ---------- tuning ---------- */
+  const SEG = 10;          // metres per world chunk (one distance post each)
+  const NSEG = 12;         // chunks alive at once (120 m of road)
+  const MAX_SPEED = 2.6;   // m/s
+  const ACCEL = 5.0;       // m/s^2 while holding
+  const DECEL = 7.0;       // m/s^2 after letting go
+  const STRIDE = 0.5;      // metres per step
+  const SKY = 0x8fd3ff;
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  /* ---------- renderer & scene ---------- */
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  } catch (e) { failGL(); return; }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  stage.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(SKY);
+  scene.fog = new THREE.Fog(SKY, 26, 82);
+
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 200);
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x5a8f3c, 0.78));
+  const sun = new THREE.DirectionalLight(0xfff3d6, 0.85);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  Object.assign(sun.shadow.camera, { left: -18, right: 18, top: 18, bottom: -18, near: 1, far: 60 });
+  sun.shadow.bias = -0.0008;
+  scene.add(sun, sun.target);
+
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(320, 320),
+    new THREE.MeshLambertMaterial({ color: 0x6cbf4a })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  /* ---------- shared pieces ---------- */
+  function makeRoadTexture() {
+    const c = document.createElement('canvas');
+    c.width = 128; c.height = 128;
+    const g = c.getContext('2d');
+    g.fillStyle = '#d8b47a'; g.fillRect(0, 0, 128, 128);
+    const r = mulberry32(42);
+    for (let i = 0; i < 80; i++) {
+      const x = 10 + r() * 108, y = r() * 128, s = 1.5 + r() * 4, rot = r() * Math.PI;
+      g.fillStyle = r() < 0.55 ? '#c39758' : '#ead09d';
+      for (const dy of [-128, 0, 128]) {   // draw wrapped copies so the tile repeats without seams
+        g.beginPath(); g.ellipse(x, y + dy, s, s * 0.7, rot, 0, Math.PI * 2); g.fill();
+      }
+    }
+    g.fillStyle = 'rgba(110,78,36,0.35)';
+    g.fillRect(0, 0, 7, 128); g.fillRect(121, 0, 7, 128);
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1, 3);
+    t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    return t;
+  }
+
+  const G = {
+    road: new THREE.PlaneGeometry(3.2, SEG),
+    trunk: new THREE.CylinderGeometry(0.14, 0.2, 1.2, 6).translate(0, 0.6, 0),
+    crown: new THREE.IcosahedronGeometry(1, 0),
+    pine: new THREE.ConeGeometry(0.95, 2.3, 7).translate(0, 2.0, 0),
+    tuft: new THREE.ConeGeometry(0.12, 0.36, 5),
+    flower: new THREE.SphereGeometry(0.09, 6, 4),
+    post: new THREE.BoxGeometry(0.1, 1.1, 0.1),
+    sign: new THREE.PlaneGeometry(0.96, 0.48),
+  };
+  const M = {
+    road: new THREE.MeshLambertMaterial({ map: makeRoadTexture() }),
+    trunk: new THREE.MeshLambertMaterial({ color: 0x8a5a33 }),
+    leafA: new THREE.MeshPhongMaterial({ color: 0x3f9a3a, flatShading: true, shininess: 0 }),
+    leafB: new THREE.MeshPhongMaterial({ color: 0x2c7a45, flatShading: true, shininess: 0 }),
+    tuft: new THREE.MeshLambertMaterial({ color: 0x4c9b35 }),
+    flowers: [0xffc93c, 0xffffff, 0xe8402b].map((c) => new THREE.MeshLambertMaterial({ color: c })),
+    post: new THREE.MeshLambertMaterial({ color: 0xf3eee2 }),
+  };
+
+  // start line across the road at 0 m
+  const startLine = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.2, 0.32),
+    new THREE.MeshLambertMaterial({ color: 0xffffff })
+  );
+  startLine.rotation.x = -Math.PI / 2;
+  startLine.position.set(0, 0.02, 0);
+  startLine.receiveShadow = true;
+  scene.add(startLine);
+
+  /* ---------- world chunks (recycled as the chicken walks) ---------- */
+  const TUFTS = 6, FLOWERS = 5;
+
+  function makeSegment() {
+    const grp = new THREE.Group();
+
+    const road = new THREE.Mesh(G.road, M.road);
+    road.rotation.x = -Math.PI / 2;
+    road.position.set(0, 0.01, SEG / 2);
+    road.receiveShadow = true;
+    grp.add(road);
+
+    const trees = [];
+    for (let i = 0; i < 4; i++) {
+      const t = new THREE.Group();
+      const trunk = new THREE.Mesh(G.trunk, M.trunk);
+      trunk.castShadow = true;
+      const isPine = i >= 2;
+      const crown = new THREE.Mesh(isPine ? G.pine : G.crown, i % 2 ? M.leafB : M.leafA);
+      crown.castShadow = true;
+      if (!isPine) crown.position.y = 1.9;
+      t.add(trunk, crown);
+      grp.add(t);
+      trees.push(t);
+    }
+
+    const bits = [];
+    for (let i = 0; i < TUFTS + FLOWERS; i++) {
+      const isTuft = i < TUFTS;
+      const m = new THREE.Mesh(isTuft ? G.tuft : G.flower, isTuft ? M.tuft : M.flowers[i % 3]);
+      grp.add(m);
+      bits.push(m);
+    }
+
+    const marker = new THREE.Group();
+    const post = new THREE.Mesh(G.post, M.post);
+    post.position.y = 0.55;
+    post.castShadow = true;
+    const cv = document.createElement('canvas');
+    cv.width = 256; cv.height = 128;
+    const tex = new THREE.CanvasTexture(cv);
+    tex.anisotropy = 4;
+    const sign = new THREE.Mesh(G.sign, new THREE.MeshBasicMaterial({ map: tex }));
+    sign.position.y = 1.3;
+    sign.rotation.y = Math.PI;      // face the camera that follows from behind
+    marker.add(post, sign);
+    marker.position.set(-2.25, 0, 0);
+    grp.add(marker);
+
+    scene.add(grp);
+    return { grp, trees, bits, marker, cv, tex, index: 0 };
+  }
+
+  function drawSign(seg) {
+    const idx = seg.index;
+    const metres = idx * SEG;
+    const major = idx === 0 || metres % 100 === 0;
+    const g = seg.cv.getContext('2d');
+    g.fillStyle = major ? '#e8402b' : '#fffaf0';
+    g.fillRect(0, 0, 256, 128);
+    g.lineWidth = 12;
+    g.strokeStyle = '#1d2a1f';
+    g.strokeRect(6, 6, 244, 116);
+    g.fillStyle = major ? '#fffaf0' : '#1d2a1f';
+    g.font = '76px "Do Hyeon", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(idx === 0 ? '출발' : metres + 'm', 128, 70);
+    seg.tex.needsUpdate = true;
+  }
+
+  function layout(seg) {
+    const idx = seg.index;
+    const r = mulberry32(idx * 7919 + 1000003);
+    seg.grp.position.z = idx * SEG;
+
+    seg.trees.forEach((t) => {
+      const side = r() < 0.5 ? -1 : 1;
+      t.position.set(side * (3.8 + r() * 13), 0, r() * SEG);
+      const s = 0.75 + r() * 0.8;
+      t.scale.set(s, s * (0.9 + r() * 0.3), s);
+      t.rotation.y = r() * Math.PI * 2;
+    });
+
+    seg.bits.forEach((b, i) => {
+      const side = r() < 0.5 ? -1 : 1;
+      b.position.set(side * (1.9 + r() * 9), i < TUFTS ? 0.17 : 0.1, r() * SEG);
+    });
+
+    seg.marker.visible = idx >= 0;
+    if (idx >= 0) drawSign(seg);
+  }
+
+  const segs = Array.from({ length: NSEG }, makeSegment);
+
+  function relayoutAll() {
+    const base = Math.floor(state.z / SEG) - 1;
+    segs.forEach((s, i) => { s.index = base + i; layout(s); });
+  }
+
+  /* ---------- the chicken ---------- */
+  function makeChicken() {
+    const root = new THREE.Group();
+    const body = new THREE.Group();
+    root.add(body);
+
+    const white = new THREE.MeshLambertMaterial({ color: 0xfff8ea });
+    const cream = new THREE.MeshLambertMaterial({ color: 0xf1e4cb });
+    const red = new THREE.MeshLambertMaterial({ color: 0xe8402b });
+    const orange = new THREE.MeshLambertMaterial({ color: 0xf5a524 });
+    const black = new THREE.MeshBasicMaterial({ color: 0x1d2a1f });
+    const mk = (geo, mat, x, y, z) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      m.castShadow = true;
+      return m;
+    };
+
+    const torso = mk(new THREE.SphereGeometry(0.5, 22, 16), white, 0, 0.92, 0);
+    torso.scale.set(1, 0.9, 1.15);
+    body.add(torso);
+
+    const tail = mk(new THREE.ConeGeometry(0.22, 0.5, 9), white, 0, 1.16, -0.55);
+    tail.rotation.x = -0.7;
+    body.add(tail);
+
+    const head = new THREE.Group();
+    head.position.set(0, 1.42, 0.42);
+    body.add(head);
+    head.add(mk(new THREE.SphereGeometry(0.28, 20, 14), white, 0, 0, 0));
+    const beak = mk(new THREE.ConeGeometry(0.085, 0.24, 8), orange, 0, -0.03, 0.33);
+    beak.rotation.x = Math.PI / 2;
+    head.add(beak);
+    head.add(mk(new THREE.SphereGeometry(0.07, 8, 6), red, 0, -0.16, 0.24));       // wattle
+    const combG = new THREE.SphereGeometry(0.085, 10, 8);
+    [[-0.1, 0.24], [0.02, 0.29], [0.14, 0.25]].forEach(([z, y]) => head.add(mk(combG, red, 0, y, z)));
+    const eyeG = new THREE.SphereGeometry(0.045, 10, 8);
+    head.add(mk(eyeG, black, 0.165, 0.07, 0.2), mk(eyeG, black, -0.165, 0.07, 0.2));
+
+    const wingG = new THREE.SphereGeometry(0.5, 14, 10);
+    const wings = [-1, 1].map((s) => {
+      const pivot = new THREE.Group();
+      pivot.position.set(s * 0.46, 1.06, -0.03);
+      const w = mk(wingG, cream, 0, -0.18, 0);
+      w.scale.set(0.14, 0.36, 0.52);
+      pivot.add(w);
+      body.add(pivot);
+      return { pivot, s };
+    });
+
+    const legG = new THREE.CylinderGeometry(0.045, 0.045, 0.48, 6).translate(0, -0.24, 0);
+    const footG = new THREE.BoxGeometry(0.2, 0.04, 0.27);
+    const legs = [-1, 1].map((s) => {
+      const hip = new THREE.Group();
+      hip.position.set(s * 0.18, 0.5, 0.02);
+      hip.add(mk(legG, orange, 0, 0, 0), mk(footG, orange, 0, -0.48, 0.07));
+      root.add(hip);
+      return { hip, s };
+    });
+
+    scene.add(root);
+    return { root, body, head, wings, legs };
+  }
+
+  const chick = makeChicken();
+
+  /* ---------- state ---------- */
+  const state = { z: 0, phase: 0, speed: 0, best: 0 };
+  try { state.best = Number(localStorage.getItem('kkokko-best')) || 0; } catch (e) { /* storage off */ }
+
+  function saveBest() {
+    try { localStorage.setItem('kkokko-best', String(Math.floor(state.best))); } catch (e) { /* storage off */ }
+  }
+
+  window.claude?.hot?.snapshot?.(() => ({ z: state.z, phase: state.phase }));
+
+  /* ---------- input: hold to walk ---------- */
+  const pointers = new Set();
+  const keys = new Set();
+  const WALK_KEYS = ['ArrowUp', 'KeyW', 'Space'];
+
+  function press(e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    pointers.add(e.pointerId);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) { /* fine */ }
+    e.preventDefault();
+  }
+  function release(e) { pointers.delete(e.pointerId); }
+
+  [stage, goBtn].forEach((el) => {
+    el.addEventListener('pointerdown', press);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  });
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
+  window.addEventListener('keydown', (e) => {
+    if (WALK_KEYS.includes(e.code)) { keys.add(e.code); e.preventDefault(); }
+  });
+  window.addEventListener('keyup', (e) => keys.delete(e.code));
+  function letGo() { pointers.clear(); keys.clear(); }
+  window.addEventListener('blur', letGo);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { letGo(); saveBest(); } });
+  window.addEventListener('pagehide', saveBest);
+  document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+
+  resetBtn.addEventListener('click', () => {
+    state.z = 0; state.phase = 0; state.speed = 0;
+    lastMilestone = 0;
+    relayoutAll();
+    snapCamera();
+    resetBtn.blur();
+  });
+
+  /* ---------- camera ---------- */
+  const CAM_OFFSET = new THREE.Vector3(2.4, 3.3, -6.4);
+  const LOOK_AHEAD = 5;
+  const camPos = new THREE.Vector3();
+  const lookAt = new THREE.Vector3();
+  const tmp = new THREE.Vector3();
+
+  function snapCamera() {
+    camPos.set(CAM_OFFSET.x, CAM_OFFSET.y, state.z + CAM_OFFSET.z);
+    lookAt.set(0, 1.0, state.z + LOOK_AHEAD);
+    camera.position.copy(camPos);
+    camera.lookAt(lookAt);
+  }
+
+  function resize() {
+    const w = stage.clientWidth || window.innerWidth;
+    const h = stage.clientHeight || window.innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.fov = camera.aspect < 0.8 ? 68 : 52;   // wider view on a phone held upright
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+
+  /* ---------- HUD ---------- */
+  let shown = { dist: '', steps: -1, best: -1 };
+  let lastMilestone = 0;
+  let hintHidden = false;
+  let saveTimer = 0;
+
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.remove('show');
+    void toastEl.offsetWidth;
+    toastEl.classList.add('show');
+  }
+
+  function updateHud(holding) {
+    const d = state.z.toFixed(1);
+    if (d !== shown.dist) { distEl.textContent = d; shown.dist = d; }
+    const steps = Math.floor(state.phase / Math.PI);
+    if (steps !== shown.steps) { stepsEl.textContent = steps.toLocaleString('ko-KR'); shown.steps = steps; }
+    const best = Math.floor(state.best);
+    if (best !== shown.best) { bestEl.textContent = best.toLocaleString('ko-KR'); shown.best = best; }
+    goBtn.classList.toggle('is-down', holding);
+
+    const m = Math.floor(state.z / 100);
+    if (m > lastMilestone) { lastMilestone = m; toast(m * 100 + 'm 돌파!'); }
+    if (!hintHidden && state.z > 3) { hintHidden = true; hintEl.hidden = true; }
+  }
+
+  /* ---------- loop ---------- */
+  let last = performance.now();
+  let clock = 0;
+
+  function frame(now) {
+    const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
+    last = now;
+    clock += dt;
+
+    const holding = pointers.size > 0 || keys.size > 0;
+    state.speed = holding
+      ? Math.min(MAX_SPEED, state.speed + ACCEL * dt)
+      : Math.max(0, state.speed - DECEL * dt);
+
+    const dz = state.speed * dt;
+    state.z += dz;
+    state.phase += (dz * Math.PI) / STRIDE;
+    if (state.z > state.best) state.best = state.z;
+
+    // recycle chunks that fell behind
+    const behind = state.z - 14;
+    for (const s of segs) {
+      if ((s.index + 1) * SEG < behind) { s.index += NSEG; layout(s); }
+    }
+
+    // chicken pose
+    const amt = Math.min(1, state.speed / 1.0);
+    const sp = Math.sin(state.phase);
+    chick.root.position.z = state.z;
+    chick.root.rotation.z = sp * 0.05 * amt;                              // waddle
+    chick.body.position.y = Math.abs(sp) * 0.05 * amt + Math.sin(clock * 2.2) * 0.008 * (1 - amt);
+    chick.body.rotation.x = 0.1 * amt;                                    // lean in
+    chick.head.position.z = 0.42 + Math.sin(state.phase * 2) * 0.05 * amt; // head thrust
+    chick.head.rotation.y = Math.sin(clock * 0.8) * 0.45 * (1 - amt);     // look around when idle
+    chick.head.rotation.x = Math.max(0, Math.sin(clock * 0.5) - 0.92) * 4 * (1 - amt); // the odd peck
+    chick.legs.forEach(({ hip, s }) => { hip.rotation.x = s * sp * 0.62 * amt; });
+    chick.wings.forEach(({ pivot, s }) => {
+      pivot.rotation.z = s * (0.06 + amt * 0.22 * Math.abs(Math.sin(state.phase * 2)));
+    });
+
+    // follow camera, sun and ground
+    const k = 1 - Math.exp(-dt * 6);
+    camPos.lerp(tmp.set(CAM_OFFSET.x, CAM_OFFSET.y, state.z + CAM_OFFSET.z), k);
+    lookAt.lerp(tmp.set(0, 1.0, state.z + LOOK_AHEAD), k);
+    camera.position.copy(camPos);
+    camera.lookAt(lookAt);
+    sun.position.set(6, 16, state.z + 2);
+    sun.target.position.set(0, 0, state.z + 8);
+    ground.position.z = state.z;
+
+    updateHud(holding);
+
+    saveTimer += dt;
+    if (saveTimer > 2) { saveTimer = 0; saveBest(); }
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+
+  function start(data) {
+    data = data || {};
+    state.z = Number(data.z) || 0;
+    state.phase = Number(data.phase) || 0;
+    lastMilestone = Math.floor(state.z / 100);
+    if (state.z > 3) { hintHidden = true; hintEl.hidden = true; }
+    resize();
+    relayoutAll();
+    snapCamera();
+    if (document.fonts && document.fonts.load) {
+      document.fonts.load('76px "Do Hyeon"', '출발0123456789m')
+        .then(() => segs.forEach((s) => { if (s.index >= 0) drawSign(s); }))
+        .catch(() => {});
+    }
+    last = performance.now();
+    requestAnimationFrame(frame);
+  }
+
+  window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
+})();
+</script>
