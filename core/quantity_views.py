@@ -1830,6 +1830,10 @@ def _render_floor_views(job_id, work, manifest):
     except Exception as exc:
         logger.warning("quantity_brain_read_failed error=%s", str(exc)[:200])
         manifest["knowledge"], manifest["corrections"] = {}, {}
+    try:
+        manifest["lines"] = _floor_lines(job_id)  # lines people erased or brought back, per plan
+    except Exception as exc:
+        logger.warning("quantity_floor_lines_read_failed job=%s error=%s", job_id[:16], str(exc)[:200])
     _progress_set(job_id, "render", 1, 2, "층별로 색을 칠하고 있어요")
     _wait_for_free_memory()
     manifest_path = os.path.join(work, "manifest.json")
@@ -2104,6 +2108,189 @@ def _floor_foundations(floor_job, body=None):
         if isinstance(name, str) and 0.1 <= number <= 5.0:
             clean[name[:100]] = round(number, 3)
     return clean
+
+
+FLOOR_LINES_MAX_PER_PLAN = 20000
+
+
+def _clean_floor_lines(lines):
+    """{plan id: {"erase": [[x0, y0, x1, y1] m], "keep": [...]}}: people's erased lines and the
+    left-out lines they brought back, per plan frame (sheet metres, as the pictures give them)."""
+    out = {}
+    if not isinstance(lines, dict):
+        return out
+    for plan, item in list(lines.items())[:2000]:
+        if not isinstance(plan, str) or not plan.strip() or not isinstance(item, dict):
+            continue
+        clean = {}
+        for key in ("erase", "keep"):
+            segs = []
+            for seg in (item.get(key) or [])[:FLOOR_LINES_MAX_PER_PLAN]:
+                if not isinstance(seg, (list, tuple)) or len(seg) != 4:
+                    continue
+                try:
+                    values = [round(float(v), 3) for v in seg]
+                except (TypeError, ValueError):
+                    continue
+                if all(math.isfinite(v) and abs(v) < 1e5 for v in values) and (values[0], values[1]) != (values[2], values[3]):
+                    segs.append(values)
+            if segs:
+                clean[key] = segs
+        if clean:
+            out[plan.strip()[:40]] = clean
+    return out
+
+
+def _floor_lines(floor_job):
+    return (_quantity_state().get("floor_lines", floor_job) or {}).get("lines") or {}
+
+
+@require_POST
+@_admin_only_json
+def api_quantity_floor_lines(request):
+    """Lines people erased from (or brought back to) the plan reading of one floor job.
+
+    Body (JSON): {"floor_job_id", "lines": {plan: {"erase": [...], "keep": [...]}}, "rerun": bool}
+    saves the whole set and, with "rerun", reads the kept drawings again without the erased lines
+    (so the walls are measured again, not guessed); without "lines" it returns the saved set."""
+    if len(request.body or b"") > FLOOR_EDITS_MAX_BODY:
+        return JsonResponse({"error": "요청이 너무 커요."}, status=413)
+    try:
+        body = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "잘못된 요청입니다."}, status=400)
+    if not isinstance(body, dict):
+        return JsonResponse({"error": "잘못된 요청입니다."}, status=400)
+    floor_job = body.get("floor_job_id")
+    floor_job = floor_job.strip()[:200] if isinstance(floor_job, str) else ""
+    job = _quantity_state().get("job", floor_job) if floor_job else None
+    if not job or job.get("owner") != str(request.user.pk) or job.get("operation") != "api_quantity_floor_views":
+        return JsonResponse({"error": "층별 확인 작업을 찾을 수 없어요."}, status=404)
+    if "lines" not in body:
+        return JsonResponse({"ok": True, "lines": _floor_lines(floor_job)})
+    if not isinstance(body.get("lines"), dict):
+        return JsonResponse({"error": "지운 선이 없어요."}, status=400)
+    lines = _clean_floor_lines(body["lines"])
+    _quantity_state().put("floor_lines", floor_job, {"lines": lines, "owner": str(request.user.pk)}, ttl=_RESULT_TTL_SEC)
+    rerun = bool(body.get("rerun"))
+    if rerun:
+        if not os.path.exists(os.path.join(_floor_cache_dir(floor_job), "manifest.json")):
+            return JsonResponse({"ok": True, "lines": lines, "rerun": False,
+                                 "error": "보관된 도면이 없어(하루 지남) 다시 읽으려면 업로드를 다시 해 주세요."})
+        _quantity_state().pop("result", floor_job)
+        _progress_set(floor_job, "queued", 0, 1, "지운 선을 빼고 다시 읽는 중")
+        threading.Thread(target=_rerun_floor_views_job, args=(floor_job,), daemon=True).start()
+    return JsonResponse({"ok": True, "lines": lines, "rerun": rerun})
+
+
+PLAN_ASK_MAX_BODY = 4 * 1024 * 1024
+PLAN_ASK_LOCK_SEC = 300
+
+
+def _plan_ask_image(body):
+    """(bytes, mime, (width, height)) of the marked part's picture drawn in the browser, or None."""
+    data = body.get("image")
+    match = re.match(r"^data:(image/(?:png|jpeg));base64,([A-Za-z0-9+/=]+)$", data) if isinstance(data, str) else None
+    if not match:
+        return None
+    try:
+        raw = base64.b64decode(match.group(2), validate=True)
+    except (ValueError, TypeError):
+        return None
+    from . import quantity_plan_ask
+    if not raw or len(raw) > quantity_plan_ask.MAX_IMAGE_BYTES:
+        return None
+    try:
+        width, height = int(body.get("width") or 0), int(body.get("height") or 0)
+    except (TypeError, ValueError):
+        width = height = 0
+    width, height = min(max(width, 0), 4096), min(max(height, 0), 4096)
+    return raw, match.group(1), (width, height)
+
+
+@require_POST
+@_admin_only_json
+def api_quantity_plan_ask(request):
+    """A question about one marked spot of a plan picture, answered by the AI with proposed fixes.
+
+    Body (JSON): {"floor_job_id", "plan", "box": [x0, y0, x1, y1] (sheet metres), "text", "image": data
+    URL (png/jpeg), "width", "height", "confirm": bool}. Without "confirm" nothing is sent: the answer
+    is what would be sent and its estimated tokens (and money when prices are set). With
+    {"accepted": [...], "rejected": n} it only keeps what the person took (brain, kind "ask")."""
+    from . import quantity_ai, quantity_plan_ask
+    if len(request.body or b"") > PLAN_ASK_MAX_BODY:
+        return JsonResponse({"error": "요청이 너무 커요."}, status=413)
+    try:
+        body = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "잘못된 요청입니다."}, status=400)
+    if not isinstance(body, dict):
+        return JsonResponse({"error": "잘못된 요청입니다."}, status=400)
+    floor_job = body.get("floor_job_id")
+    floor_job = floor_job.strip()[:200] if isinstance(floor_job, str) else ""
+    job = _quantity_state().get("job", floor_job) if floor_job else None
+    if not job or job.get("owner") != str(request.user.pk) or job.get("operation") != "api_quantity_floor_views":
+        return JsonResponse({"error": "층별 확인 작업을 찾을 수 없어요."}, status=404)
+    text = str(body.get("text") or "").strip()[:quantity_plan_ask.MAX_TEXT]
+    if isinstance(body.get("accepted"), list):
+        accepted = quantity_edits_clean_kinds(body["accepted"])
+        try:
+            _brain().remember("ask", {"text": text, "answer": str(body.get("answer") or "")[:500], "accepted": accepted,
+                                      "rejected": int(body.get("rejected") or 0)}, owner=request.user.pk, job=floor_job)
+        except Exception:
+            logger.exception("quantity_plan_ask_remember_failed job=%s", floor_job[:16])
+        return JsonResponse({"ok": True})
+    plan = body.get("plan")
+    plan = plan.strip()[:40] if isinstance(plan, str) else ""
+    try:
+        box = [float(v) for v in (body.get("box") or [])][:4]
+    except (TypeError, ValueError):
+        box = []
+    if len(box) != 4 or not all(math.isfinite(v) and abs(v) < 1e5 for v in box):
+        return JsonResponse({"error": "표시한 구역이 없어요."}, status=400)
+    box = [min(box[0], box[2]), min(box[1], box[3]), max(box[0], box[2]), max(box[1], box[3])]
+    if box[2] - box[0] > 300 or box[3] - box[1] > 300 or box[2] - box[0] < 0.2 or box[3] - box[1] < 0.2:
+        return JsonResponse({"error": "표시한 구역이 너무 크거나 작아요."}, status=400)
+    if not text:
+        return JsonResponse({"error": "무엇이 이상한지 적어 주세요."}, status=400)
+    result = _result_get(floor_job) or {}
+    views = ((result.get("results") or {}).get("floor_views") or {}).get("views") or []
+    view = next((v for v in views if v.get("plan_id") == plan and v.get("svg")), None)
+    if not view:
+        return JsonResponse({"error": "이 평면을 찾지 못했어요."}, status=404)
+    lines = quantity_plan_ask.svg_lines(view["svg"], box)
+    image = _plan_ask_image(body)
+    estimate = quantity_plan_ask.estimate(text, lines, image[2] if image else (0, 0))
+    sending = {"lines": len(lines), "image_kb": round(len(image[0]) / 1024) if image else 0, "text": len(text)}
+    if not body.get("confirm"):
+        return JsonResponse({"ok": True, "estimate": estimate, "sending": sending})
+    client = quantity_ai.get_ai_client()
+    if client is None:
+        return JsonResponse({"error": "AI 키가 설정되지 않아 물어볼 수 없어요."}, status=503)
+    lock = f"{request.user.pk}"
+    if _quantity_state().get("plan_ask_lock", lock):
+        return JsonResponse({"error": "앞의 질문에 답하는 중이에요. 끝나면 다시 물어봐 주세요."}, status=429)
+    _quantity_state().put("plan_ask_lock", lock, {"at": time.time()}, ttl=PLAN_ASK_LOCK_SEC)
+    try:
+        answer = quantity_plan_ask.ask(client, text, lines, box, image[:2] if image else None, plan,
+                                       plan_note=" · ".join(str(v) for v in (view.get("building"), view.get("floor"), view.get("sheet")) if v))
+    except TimeoutError:
+        return JsonResponse({"error": "AI 답이 늦어 멈췄어요. 잠시 뒤 다시 해 주세요."}, status=504)
+    except Exception:
+        logger.exception("quantity_plan_ask_failed job=%s", floor_job[:16])
+        return JsonResponse({"error": "AI에게 묻지 못했어요."}, status=502)
+    finally:
+        _quantity_state().pop("plan_ask_lock", lock)
+    return JsonResponse({"ok": True, "estimate": estimate, "sending": sending, **answer})
+
+
+def quantity_edits_clean_kinds(items):
+    """The kinds and ops of accepted fixes, for the brain (no coordinates)."""
+    out = []
+    for item in items[:100]:
+        if isinstance(item, dict) and item.get("kind") in ("wall", "beam", "column", "opening") and item.get("op") in ("add", "remove"):
+            out.append(f'{item["op"]}:{item["kind"]}')
+    return out
 
 
 @require_POST

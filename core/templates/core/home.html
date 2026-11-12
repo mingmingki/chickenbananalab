@@ -6216,11 +6216,11 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261111-notes1">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261112-tools1">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
-<script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261112-zoom1"></script>
-<script src="{% static 'core/js/quantity_plan_edit.js' %}?v=20261112-zoom1"></script>
+<script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261112-tools1"></script>
+<script src="{% static 'core/js/quantity_plan_edit.js' %}?v=20261112-tools1"></script>
 
 <script>
 (function () {
@@ -7146,7 +7146,7 @@ body.cbl-modal-open {
   // ── floor-by-floor colored plans ──────────────
   var FLOOR_LEGEND = [
     ["frame", "골조(콘크리트)"], ["masonry", "조적"], ["alc", "ALC"], ["dry", "건식벽"],
-    ["opening", "창호"], ["beam", "보"], ["other", "분류 안 된 선"]
+    ["opening", "창호"], ["beam", "보"], ["removed", "뺀 선(자동·지움)"], ["other", "분류 안 된 선"]
   ];
 
   function floorGroups(views) {
@@ -7313,14 +7313,34 @@ body.cbl-modal-open {
       }
       editor = window.cblQuantityPlanEdit.mount(root.querySelector(".qd-floor-stage"), {
         planId: item.plan_id, edits: floorEdits(), onChange: function () { floorEditsSave(); }, note: planUseNote(item.plan_id),
-        onLearn: learnLayer
+        onLearn: learnLayer, lines: floorLines(), linesPending: floorLinesPending, onAsk: planAsk,
+        onLines: function (lines, readAgain) {
+          if (!readAgain) { floorLinesSave(false); return; }
+          floorLinesSave(true).then(function (body) {
+            if (!body || !body.ok) { addBot("지운 선을 저장하지 못했어요" + (body && body.error ? " (" + esc(body.error) + ")" : "") + ".", 0); return; }
+            if (!body.rerun) { addBot(esc(body.error || "다시 읽지 못했어요."), 0); return; }
+            rereadStarted();
+          });
+        }
       });
       slot.appendChild(editor.bar);
+    }
+    // the job reads the drawings again: wait here, then show the new pictures
+    function rereadStarted() {
+      if (editor) { editor.destroy(); editor = null; }
+      fixing = false;
+      job.onUpdate = update;
+      update();
+      var again = setInterval(function () {
+        if (!job || job.status !== "running" || !root.isConnected) { clearInterval(again); return; }
+        renderWaiting();
+      }, 1000);
     }
 
     function renderViews(result) {
       views = (result && result.views) || [];
       floors = floorGroups(views);
+      floorLinesLoad().then(function () { if (editor && editor.refresh) editor.refresh(); });
       if (!floors.length) {
         renderFailed("평면도로 볼 수 있는 도면 틀을 찾지 못했어요.");
         return;
@@ -9263,6 +9283,69 @@ body.cbl-modal-open {
     floorEditsTimer = setTimeout(send, 500);
     return Promise.resolve();
   }
+  // Lines people erased (or brought back) per plan, kept with the floor job. The drawings are read
+  // again without them, so the walls are measured again rather than guessed.
+  function floorLines() {
+    state.floorLines = state.floorLines || {};
+    return state.floorLines;
+  }
+  function floorLinesPending() { return JSON.stringify(floorLines()) !== (state.floorLinesRead || "{}"); }
+  async function floorLinesLoad() {
+    var job = state.floorJob;
+    if (!job || !job.id) return floorLines();
+    try {
+      var res = await fetch("/api/quantity/floor-lines/", {
+        method: "POST", headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
+        body: JSON.stringify({ floor_job_id: job.id })
+      });
+      var body = await res.json();
+      if (res.ok && body && body.lines && typeof body.lines === "object") {
+        state.floorLines = body.lines;
+        state.floorLinesRead = JSON.stringify(body.lines);
+      }
+    } catch (e) { /* keep what is here */ }
+    return floorLines();
+  }
+  var floorLinesTimer = null;
+  // readAgain: save and read the drawings again; resolves to the server's answer
+  function floorLinesSave(readAgain) {
+    var job = state.floorJob;
+    if (!job || !job.id) return Promise.resolve(null);
+    if (floorLinesTimer) { clearTimeout(floorLinesTimer); floorLinesTimer = null; }
+    var lines = floorLines();
+    function send() {
+      return fetch("/api/quantity/floor-lines/", {
+        method: "POST", headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
+        body: JSON.stringify({ floor_job_id: job.id, lines: lines, rerun: !!readAgain })
+      }).then(function (res) { return res.json().catch(function () { return {}; }); }).catch(function () { return null; });
+    }
+    if (!readAgain) { floorLinesTimer = setTimeout(send, 600); return Promise.resolve(null); }
+    return send().then(function (body) {
+      if (body && body.ok && body.rerun) {
+        state.floorLinesRead = JSON.stringify(lines);
+        job.status = "running";
+        job.result = null;
+        job.started = Date.now();
+        job.label = "지운 선을 빼고 다시 읽는 중";
+        pollFloorJob(job);
+      }
+      return body;
+    });
+  }
+
+  // a marked spot of a plan, asked to the AI: first what would be sent and its cost, then (confirm)
+  // the proposals; accepted ones are kept in the brain as an "ask" event
+  function planAsk(payload) {
+    var job = state.floorJob;
+    if (!job || !job.id) return Promise.resolve({ ok: false, error: "층별 확인 작업이 없어요." });
+    return fetch("/api/quantity/plan-ask/", {
+      method: "POST", headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ floor_job_id: job.id }, payload))
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (body) { return res.ok ? body : Object.assign({}, body, { ok: false }); });
+    }).catch(function (e) { return { ok: false, error: "네트워크 오류: " + (e && e.message ? e.message : String(e)) }; });
+  }
+
   // a layer fixed the same way again and again: kept in the brain shared by every drawing (used on
   // other drawings where their geometry agrees)
   async function learnLayer(layer, role) {
@@ -9379,7 +9462,7 @@ body.cbl-modal-open {
   }
 
   // from the 3D review to the plan of the chosen storey; the 3D is drawn again with the fixes
-  function fixIn2d(viewer, pick) {
+  function fixIn2d(viewer, pick, focus, tool) {
     var model = massModel();
     var building = ((model && model.buildings) || []).filter(function (b) { return b.name === pick.building; })[0];
     var level = building && pick.level != null ? building.levels[pick.level] : null;
@@ -9388,10 +9471,30 @@ body.cbl-modal-open {
     var result = state.floorJob && state.floorJob.result;
     var view = ((result && result.views) || []).filter(function (v) { return v.plan_id && v.plan_id === plan.id; })[0];
     if (!view || !window.cblQuantityPlanEdit) { addBot("이 층 평면 그림을 찾지 못해 고칠 수 없어요.", 0); return; }
-    window.cblQuantityPlanEdit.open({
+    floorLinesLoad();
+    var editorShade = null;
+    editorShade = window.cblQuantityPlanEdit.open({
       svg: view.svg, title: building.name + " " + level.label + " 평면 고치기 (" + (view.sheet || view.title || "") + ")",
-      planId: plan.id, edits: floorEdits(), note: planUseNote(plan.id), tool: "beam", onLearn: learnLayer,
-      onChange: function () { floorEditsSave(); },
+      planId: plan.id, edits: floorEdits(), note: planUseNote(plan.id), tool: tool || (focus ? "view" : "beam"), onLearn: learnLayer,
+      focus: focus || null, lines: floorLines(), linesPending: floorLinesPending, onAsk: planAsk,
+      onLines: function (lines, readAgain) {
+        if (!readAgain) { floorLinesSave(false); return; }
+        if (editorShade && editorShade.close) editorShade.close();
+        floorLinesSave(true).then(function (body) {
+          if (!body || !body.ok || !body.rerun) { addBot("다시 읽지 못했어요" + (body && body.error ? " (" + esc(body.error) + ")" : "") + ".", 0); return; }
+          addBot("지운 선을 빼고 도면을 다시 읽고 있어요. 끝나면 3D를 새로 세울게요 (1~4분).", 0);
+          var job = state.floorJob;
+          var wait = setInterval(function () {
+            if (!job || job.status === "running") return;
+            clearInterval(wait);
+            if (job.status === "done" && massModel() && viewer.setModel) {
+              viewer.setModel(massModel());
+              if (viewer.setEdits) viewer.setEdits(floorEdits().slice());
+              addBot("다시 읽은 도면으로 3D를 새로 세웠어요. 수량은 다음 단계에서 새로 계산돼요.", 0);
+            } else addBot("다시 읽지 못했어요" + (job.error ? " (" + esc(job.error) + ")" : "") + ".", 0);
+          }, 1500);
+        });
+      },
       onClose: function () {
         floorEditsSave(true);
         if (viewer.setEdits) viewer.setEdits(floorEdits().slice());
@@ -9460,7 +9563,17 @@ body.cbl-modal-open {
       "위쪽 단추로 평면·정면·측면을 보고, 단면·단면 상자로 잘라 보고, 단면도와 거리 측정도 할 수 있어요.");
     if (deck) deck.append(host); else flowEl.appendChild(host);
     await floorEditsLoad();
-    viewer = window.cblQuantityMass3D.mount(host, model, { planSvg: planSvgFor, edits: floorEdits().slice() });
+    viewer = window.cblQuantityMass3D.mount(host, model, {
+      planSvg: planSvgFor, edits: floorEdits().slice(),
+      // fixed in 3D: kept like a 2D fix (same plan, sheet metres), the 3D drawn again with it
+      onEdit: function (edit) {
+        edit.id = Math.random().toString(36).slice(2, 10);
+        floorEdits().push(edit);
+        floorEditsSave();
+        setTimeout(function () { if (viewer && viewer.setEdits) viewer.setEdits(floorEdits().slice()); }, 0);
+      },
+      onFix2d: function (at) { fixIn2d(viewer, { building: at.building, level: at.level }, at.point, at.tool); }
+    });
     var summary = viewer.summary();
     var bar1 = massToolbar(viewer, "mass", pick);
     host.parentNode.insertBefore(bar1, host);

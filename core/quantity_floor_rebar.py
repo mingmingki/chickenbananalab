@@ -456,7 +456,19 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, 
             for fix in fixes:
                 sign = -1.0 if fix["op"] == "remove" else 1.0
                 part = _Tally(general_spec)
-                if fix["kind"] == "wall":
+                if fix["kind"] == "opening":
+                    # the wall bars across the opening come out, the bars round it go in
+                    width, high = quantity_edits.length(fix), min(fix["h"], height)
+                    _wall(part, {"vertical_bar": vertical, "horizontal_bar": horizontal}, width, fix["t"], high, False)
+                    sign = -1.0
+                    if extras["opening"]:
+                        round_it = _Tally(general_spec)
+                        _openings(round_it, {"window_gaps": width, "window_gap_count": 1}, high, horizontal, fix["t"])
+                        for kind in KINDS:
+                            tally.kg[kind] += round_it.kg[kind]
+                        for bar, kg in round_it.bars.items():
+                            tally.bars[bar] += kg
+                elif fix["kind"] == "wall":
                     _wall(part, {"vertical_bar": vertical, "horizontal_bar": horizontal}, quantity_edits.length(fix), fix["t"], height, top_storey)
                 elif fix["kind"] == "beam":
                     _beam(part, [{"values": DEFAULTS["beam"]}], quantity_edits.length(fix), fix["w"], fix["d"])

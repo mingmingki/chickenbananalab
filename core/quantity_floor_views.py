@@ -320,7 +320,196 @@ def _kept_by_clip(item, polygon, inverted):
     return inside != inverted
 
 
-def _svg(paths, box, other=True):
+# ── lines left out of a structural plan ───────────
+# Stray lines found by the reading (a small group far from the plan, a line mostly outside its
+# frame) and lines people erased are left out of both the picture's members and the 3D/takeoff
+# model; the picture still shows them, dashed red, so a person can bring one back.
+STRAY_GAP_M = 3.0         # member lines closer than this belong to one group
+STRAY_OUTSIDE = 0.5       # a line more than half outside its frame is no member of the plan in it
+MATCH_TOL_M = 0.03        # a person's erased line is found again within this (pictures round to 1 cm)
+
+
+class _Segments:
+    """Segments in frame-local metres, found again in either direction within MATCH_TOL_M."""
+
+    CELL = 0.2
+
+    def __init__(self, segments=()):
+        self.cells = defaultdict(list)
+        self.count = 0
+        for seg in segments:
+            self.add(seg)
+
+    def add(self, seg):
+        x0, y0, x1, y1 = (float(v) for v in seg[:4])
+        self.cells[(round((x0 + x1) / 2 / self.CELL), round((y0 + y1) / 2 / self.CELL))].append((x0, y0, x1, y1))
+        self.count += 1
+
+    def has(self, x0, y0, x1, y1):
+        if not self.count:
+            return False
+        cx, cy = round((x0 + x1) / 2 / self.CELL), round((y0 + y1) / 2 / self.CELL)
+        tol = MATCH_TOL_M
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for a0, b0, a1, b1 in self.cells.get((cx + dx, cy + dy), ()):
+                    if (abs(a0 - x0) <= tol and abs(b0 - y0) <= tol and abs(a1 - x1) <= tol and abs(b1 - y1) <= tol) or \
+                            (abs(a0 - x1) <= tol and abs(b0 - y1) <= tol and abs(a1 - x0) <= tol and abs(b1 - y0) <= tol):
+                        return True
+        return False
+
+
+class LeftOut:
+    """The member lines left out of one structural frame: why(segment) → "person", "stray" or None."""
+
+    def __init__(self, stray=(), erase=(), keep=()):
+        self.stray, self.erase, self.keep = _Segments(stray), _Segments(erase), _Segments(keep)
+
+    @classmethod
+    def find(cls, paths, box, lines=None, frame_drawn=True):
+        lines = lines if isinstance(lines, dict) else {}
+        return cls(_stray_segments(paths, box, outside=frame_drawn), _clean_segments(lines.get("erase")), _clean_segments(lines.get("keep")))
+
+    def why(self, x0, y0, x1, y1):
+        if self.keep.has(x0, y0, x1, y1):
+            return None
+        if self.erase.has(x0, y0, x1, y1):
+            return "person"
+        if self.stray.has(x0, y0, x1, y1):
+            return "stray"
+        return None
+
+
+def _clean_segments(items, limit=20000):
+    out = []
+    for item in (items or [])[:limit]:
+        try:
+            seg = [float(v) for v in item[:4]]
+        except (TypeError, ValueError):
+            continue
+        if len(seg) == 4 and all(math.isfinite(v) and abs(v) < 1e6 for v in seg):
+            out.append(seg)
+    return out
+
+
+def _inside_share(seg, width, height):
+    """Share of a segment's length inside the frame [0, width] x [0, height] (Liang-Barsky)."""
+    x0, y0, x1, y1 = seg
+    dx, dy = x1 - x0, y1 - y0
+    lo, hi = 0.0, 1.0
+    for p, q in ((-dx, x0), (dx, width - x0), (-dy, y0), (dy, height - y0)):
+        if p == 0:
+            if q < 0:
+                return 0.0
+            continue
+        t = q / p
+        if p < 0:
+            lo = max(lo, t)
+        else:
+            hi = min(hi, t)
+        if lo > hi:
+            return 0.0
+    return hi - lo
+
+
+def _has_pair(segs):
+    """Two parallel lines 5 cm to 1.3 m apart running side by side (the faces of a wall or a beam)."""
+    if len(segs) > 200:
+        return True
+    for i, a in enumerate(segs):
+        ax, ay = a[2] - a[0], a[3] - a[1]
+        la = math.hypot(ax, ay)
+        if la < 0.05:
+            continue
+        ux, uy = ax / la, ay / la
+        for b in segs[i + 1:]:
+            bx, by = b[2] - b[0], b[3] - b[1]
+            lb = math.hypot(bx, by)
+            if lb < 0.05 or abs(ux * by / lb - uy * bx / lb) > 0.03:
+                continue
+            gap = abs((b[0] - a[0]) * uy - (b[1] - a[1]) * ux)
+            if not 0.05 <= gap <= 1.3:
+                continue
+            t0, t1 = (b[0] - a[0]) * ux + (b[1] - a[1]) * uy, (b[2] - a[0]) * ux + (b[3] - a[1]) * uy
+            if max(t0, t1) > 0 and min(t0, t1) < la:
+                return True
+    return False
+
+
+def _stray_segments(paths, box, outside=True):
+    """Member segments (frame-local metres) that are no part of the plan in one frame: mostly
+    outside the frame, or a group with no two parallel faces (no wall or beam in it) at least
+    STRAY_GAP_M away from every other member line. Kept on purpose: groups with faces (a short
+    wall apart, a column drawn as four lines), closed outlines (columns of a parking deck stand
+    apart by design), stairs and the floor above. People erase the rest themselves.
+    ``outside``: False when the frame is only the drawn extent (a drawing without a frame), whose
+    edge walls may run past it."""
+    x0, y0, x1, y1 = box
+    width, height = (x1 - x0) / 1000.0, (y1 - y0) / 1000.0
+    segs, stray = [], []
+    for category, ax, ay, bx, by, points in paths:
+        if bx < x0 or ax > x1 or by < y0 or ay > y1:
+            continue
+        local = [((px - x0) / 1000.0, (py - y0) / 1000.0) for px, py in points]
+        closed = len(local) >= 4 and abs(local[0][0] - local[-1][0]) < 0.005 and abs(local[0][1] - local[-1][1]) < 0.005
+        fixed = closed or category in ("stair", "above")
+        for (px, py), (qx, qy) in zip(local, local[1:]):
+            if abs(px - qx) + abs(py - qy) < 0.005:
+                continue
+            seg = (px, py, qx, qy)
+            if outside and not fixed and _inside_share(seg, width, height) < STRAY_OUTSIDE:
+                stray.append(seg)
+            else:
+                segs.append((seg, fixed))
+    if not segs:
+        return stray
+    parent = list(range(len(segs)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    owner, half = {}, STRAY_GAP_M / 2
+    for i, ((px, py, qx, qy), _fixed) in enumerate(segs):
+        for cx in range(math.floor((min(px, qx) - half) / STRAY_GAP_M), math.floor((max(px, qx) + half) / STRAY_GAP_M) + 1):
+            for cy in range(math.floor((min(py, qy) - half) / STRAY_GAP_M), math.floor((max(py, qy) + half) / STRAY_GAP_M) + 1):
+                first = owner.setdefault((cx, cy), i)
+                if first != i:
+                    parent[find(i)] = find(first)
+    groups = defaultdict(list)
+    for i in range(len(segs)):
+        groups[find(i)].append(i)
+    length = lambda seg: math.hypot(seg[2] - seg[0], seg[3] - seg[1])
+    weight = {root: sum(length(segs[i][0]) for i in members) for root, members in groups.items()}
+    main = max(weight, key=weight.get)
+    for root, members in groups.items():
+        if root == main or any(segs[i][1] for i in members):
+            continue
+        lines = [segs[i][0] for i in members]
+        if not _has_pair(lines):
+            stray.extend(lines)
+    return stray
+
+
+def _runs(local, left_out):
+    """A polyline split where its segments are left out: [(points, why)] with why None for kept runs."""
+    if not left_out or len(local) < 2:
+        return [(local, None)]
+    runs, run, current = [], [local[0]], None
+    for a, b in zip(local, local[1:]):
+        why = left_out.why(a[0], a[1], b[0], b[1])
+        if why != current:
+            if len(run) >= 2:
+                runs.append((run, current))
+            run, current = [a], why
+        run.append(b)
+    if len(run) >= 2:
+        runs.append((run, current))
+    return runs
+
+
+def _svg(paths, box, other=True, left_out=None):
     """Plan picture of one frame (1 unit = 10 mm, y down). A path category may be (category, layer):
     the path then carries the layer, so a person picking a line in the editor learns its layer."""
     x0, y0, x1, y1 = box
@@ -337,25 +526,48 @@ def _svg(paths, box, other=True):
             if not other or others >= MAX_OTHER_SUBPATHS or max(bx - ax, by - ay) < MIN_OTHER_MM:
                 continue
             others += 1
-        coords, last = [], None
-        for px, py in points:
-            pair = (round((px - x0) / 10.0), round((y1 - py) / 10.0))
-            if pair != last:
-                coords.append(f"{pair[0]} {pair[1]}")
-                last = pair
-        if len(coords) < 2:
+        local = [((px - x0) / 1000.0, (py - y0) / 1000.0) for px, py in points] if left_out else None
+        pieces = _runs(local, left_out) if local else [(None, None)]
+        drawn = False
+        for piece, why in pieces:
+            coords, last = [], None
+            for lx, ly in (piece if piece is not None else ()):
+                pair = (round(lx * 100), round(height - ly * 100))
+                if pair != last:
+                    coords.append(f"{pair[0]} {pair[1]}")
+                    last = pair
+            if piece is None:
+                for px, py in points:
+                    pair = (round((px - x0) / 10.0), round((y1 - py) / 10.0))
+                    if pair != last:
+                        coords.append(f"{pair[0]} {pair[1]}")
+                        last = pair
+            if len(coords) < 2:
+                continue
+            target = ("removed", why) if why else category
+            groups[target].append("M" + "L".join(coords))
+            if why:
+                counts["removed"] += 1
+            else:
+                drawn = True
+        if not drawn:
             continue
-        groups[category].append("M" + "L".join(coords))
         counts[kind] += 1
         total += 1
 
     def attr(text):
         return html.escape(str(text), quote=True)
     rank = {c: i for i, c in enumerate(CATEGORIES)}
-    body = "".join(
-        f'<path class="fv-{c[0]}" data-layer="{attr(c[1])}" d="{"".join(groups[c])}"/>' if isinstance(c, tuple)
-        else f'<path class="fv-{c}" d="{"".join(groups[c])}"/>'
-        for c in sorted(groups, key=lambda c: (rank.get(c[0] if isinstance(c, tuple) else c, 99), str(c))))
+    rank["removed"] = len(rank) + 1  # drawn last, over the lines they lie on
+
+    def path(c):
+        d = "".join(groups[c])
+        if isinstance(c, tuple) and c[0] == "removed":
+            return f'<path class="fv-removed" data-why="{attr(c[1])}" d="{d}"/>'
+        if isinstance(c, tuple):
+            return f'<path class="fv-{c[0]}" data-layer="{attr(c[1])}" d="{d}"/>'
+        return f'<path class="fv-{c}" d="{d}"/>'
+    body = "".join(path(c) for c in sorted(groups, key=lambda c: (rank.get(c[0] if isinstance(c, tuple) else c, 99), str(c))))
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:.0f} {height:.0f}" '
            f'preserveAspectRatio="xMidYMid meet">{body}</svg>')
     return svg, dict(counts)
@@ -364,10 +576,11 @@ def _svg(paths, box, other=True):
 VIEW_OF_ROLE = {"wall": "frame", "column": "frame", "beam": "beam"}
 
 
-def _plan_views(name, doc, rows, xrefs, roles=None):
+def _plan_views(name, doc, rows, xrefs, roles=None, left_out_for=None):
     """Views of one drawing's plan frames; `xrefs` maps reference keys to loaded documents.
     ``roles`` (layer → member role, read from the drawing) colours the structural members of an
-    office whose layer names the name rules do not know."""
+    office whose layer names the name rules do not know. ``left_out_for(row)``: the LeftOut of a
+    structural frame (stray and erased lines, drawn dashed apart from the members)."""
     from ezdxf.math import Matrix44
     plans = [row for row in rows if row.get("frame_bbox") and is_plan_title(row.get("drawing_title"))]
     if not plans:
@@ -396,10 +609,12 @@ def _plan_views(name, doc, rows, xrefs, roles=None):
         box = [cut(xs, 0.01), cut(ys, 0.01), cut(xs, 0.99), cut(ys, 0.99)]
         for row in whole:
             row["frame_bbox"] = [round(v, 3) for v in box]
+            row["frame_estimated"] = True  # the drawn extent, not a drawn frame: lines may run past it
     views = []
     for row in plans:
         structural = floor_of(row["drawing_title"])["discipline"] == "struct"
-        svg, counts = _svg(paths, row["frame_bbox"], other=structural)
+        left_out = left_out_for(row) if structural and left_out_for else None
+        svg, counts = _svg(paths, row["frame_bbox"], other=structural, left_out=left_out)
         if not any(v for k, v in counts.items() if k != "other"):
             continue
         floor = floor_of(row["drawing_title"])
@@ -605,37 +820,55 @@ def _footprint(segments, cell=0.15, close_cells=2):
              for a, y0, b, y1 in rects if (b - a) * (y1 - y0) * cell * cell >= 0.1], is_outside)
 
 
-def _plan_model(paths, box):
+def _plan_model(paths, box, left_out=None):
     """Members of one structural frame in metres, frame-local (x right, y up), plus the takeoff
-    measures (wall section area, faces, openings) taken on the unrounded lines."""
+    measures (wall section area, faces, openings) taken on the unrounded lines. ``left_out``
+    (LeftOut): stray and erased segments, not members (a column loses its outline whole)."""
     from . import quantity_floor_takeoff as takeoff
     x0, y0, x1, y1 = box
     r = lambda v: round(v, 2)
     walls, beams, edges, cols, opens = [], [], [], [], []
     raw = {"wall": [], "col": [], "open": [], "stair": [], "above": []}
+    left = defaultdict(int)
     for category, ax, ay, bx, by, points in paths:
         if bx < x0 or ax > x1 or by < y0 or ay > y1:
             continue
-        local = [((px - x0) / 1000.0, (py - y0) / 1000.0) for px, py in points]
-        closed = len(local) >= 4 and abs(local[0][0] - local[-1][0]) < 0.005 and abs(local[0][1] - local[-1][1]) < 0.005
-        if category == "col" and closed and _wall_outline(local):
-            category = "wall"  # some offices draw each wall piece as a closed outline
-        if category == "col" and closed:
-            cols.append([[r(x), r(y)] for x, y in local[:-1]])
-            raw["col"].append(local[:-1])
-            continue
-        if category in ("stair", "above"):
-            raw[category].append(local)
-            continue
-        if category in ("wall", "col"):
-            raw["wall"].append(local)
-        elif category == "open":
-            raw["open"].append(local)
-        target = {"wall": walls, "col": walls, "beam": beams, "outline": edges, "open": opens}[category]
-        for (ax_, ay_), (bx_, by_) in zip(local, local[1:]):
-            if abs(ax_ - bx_) + abs(ay_ - by_) < 0.05:
+        whole = [((px - x0) / 1000.0, (py - y0) / 1000.0) for px, py in points]
+        closed = len(whole) >= 4 and abs(whole[0][0] - whole[-1][0]) < 0.005 and abs(whole[0][1] - whole[-1][1]) < 0.005
+        runs = _runs(whole, left_out)
+        if closed and category == "col" and len(runs) > 1:
+            runs = [(whole, "stray" if any(why == "stray" for _p, why in runs) else "person")]  # a column whole
+        for local, why in runs:
+            if why:
+                left[why] += len(local) - 1
                 continue
-            target.append(((ax_, ay_), (bx_, by_)) if category == "outline" else [r(ax_), r(ay_), r(bx_), r(by_)])
+            _plan_model_path(category, local, closed and len(runs) == 1, walls, beams, edges, cols, opens, raw, r)
+    return _plan_model_finish(walls, beams, edges, cols, opens, raw, r, takeoff, dict(left))
+
+
+def _plan_model_path(category, local, closed, walls, beams, edges, cols, opens, raw, r):
+    """One drawn polyline (or a kept piece of it) into the plan's member lists."""
+    if category == "col" and closed and _wall_outline(local):
+        category = "wall"  # some offices draw each wall piece as a closed outline
+    if category == "col" and closed:
+        cols.append([[r(x), r(y)] for x, y in local[:-1]])
+        raw["col"].append(local[:-1])
+        return
+    if category in ("stair", "above"):
+        raw[category].append(local)
+        return
+    if category in ("wall", "col"):
+        raw["wall"].append(local)
+    elif category == "open":
+        raw["open"].append(local)
+    target = {"wall": walls, "col": walls, "beam": beams, "outline": edges, "open": opens}[category]
+    for (ax_, ay_), (bx_, by_) in zip(local, local[1:]):
+        if abs(ax_ - bx_) + abs(ay_ - by_) < 0.05:
+            continue
+        target.append(((ax_, ay_), (bx_, by_)) if category == "outline" else [r(ax_), r(ay_), r(bx_), r(by_)])
+
+
+def _plan_model_finish(walls, beams, edges, cols, opens, raw, r, takeoff, left):
     outline = [[a[0], a[1], b[0], b[1]] for a, b in edges]
     edge_lines = walls + outline + [[c[i][0], c[i][1], c[(i + 1) % len(c)][0], c[(i + 1) % len(c)][1]]
                                     for c in cols for i in range(len(c))]
@@ -646,6 +879,8 @@ def _plan_model(paths, box):
     hull_area = abs(_area(hull)) if len(hull) >= 3 else 0.0
     model = {"walls": walls, "beams": beams, "cols": cols, "slab": slab, "opens": opens,
              "slab_area": round(area, 1), "slab_approximate": False}
+    if left:
+        model["left_out"] = left  # segments left out: {"stray": n, "person": n}
     sub_slabs = []
     if hull_area and area < 0.35 * hull_area:
         # windows break the outer wall lines and some offices draw no slab edge: bridge gaps up to
@@ -1051,9 +1286,17 @@ def main(manifest_path, out_path):
             members, role_report, member_roles = structural_members(
                 doc, xrefs, [row["frame_bbox"] for row in structural], manifest.get("knowledge"), manifest.get("corrections"))
             layer_roles[name] = role_report
-        views.extend(_plan_views(name, doc, rows, xrefs, member_roles))  # also settles one-sheet frames
+        left_out = {}
+
+        def left_out_for(row, members=members, name=name):
+            key = plan_key(name, row)
+            if key not in left_out:
+                left_out[key] = LeftOut.find(members, row["frame_bbox"], (manifest.get("lines") or {}).get(key),
+                                             frame_drawn=not row.get("frame_estimated"))
+            return left_out[key]
+        views.extend(_plan_views(name, doc, rows, xrefs, member_roles, left_out_for))  # also settles one-sheet frames
         for row in structural:
-            model = _plan_model(members, row["frame_bbox"])
+            model = _plan_model(members, row["frame_bbox"], left_out_for(row))
             model["id"] = plan_key(name, row)
             model_plans.append({"floor": floor_of(row["drawing_title"]), "sheet": row.get("drawing_number"), "model": model})
         del members

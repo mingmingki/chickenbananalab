@@ -1,5 +1,6 @@
 """People's fixes to how a plan was read: members added where the reading missed them (a concrete
-beam, a wall, a column) and members taken out where it read something that is not one.
+beam, a wall, a column) and members taken out where it read something that is not one; and
+openings people cut into a wall (a door or a window the plan did not show as a gap).
 
 A fix is drawn on one plan frame (``plan`` = the frame's id) in that sheet's own coordinates
 (metres, x right, y up from the frame's lower left), the same coordinates the plan picture and the
@@ -13,12 +14,14 @@ from __future__ import annotations
 import math
 import uuid
 
-KINDS = ("beam", "wall", "column")
+KINDS = ("beam", "wall", "column", "opening")
 OPS = ("add", "remove")
 MAX_EDITS = 3000
 MAX_LENGTH_M = 400.0
 SIZE_M = (0.05, 3.0)
-KIND_LABEL = {"beam": "보", "wall": "벽", "column": "기둥"}
+KIND_LABEL = {"beam": "보", "wall": "벽", "column": "기둥", "opening": "개구부"}
+OPENING_H_M = (0.3, 6.0)
+OPENING_H_DEFAULT = 2.1
 
 
 def _point(value):
@@ -52,6 +55,8 @@ def clean(edits):
         kind, op, plan = raw.get("kind"), raw.get("op"), raw.get("plan")
         if kind not in KINDS or op not in OPS or not isinstance(plan, str) or not plan.strip():
             continue
+        if kind == "opening" and op != "add":
+            continue  # an opening is taken back by deleting the fix
         edit = {"id": str(raw.get("id") or uuid.uuid4().hex[:10])[:40], "plan": plan.strip()[:40], "op": op, "kind": kind}
         if kind == "column":
             centre = _point(raw.get("c"))
@@ -68,6 +73,14 @@ def clean(edits):
             edit.update(a=a, b=b)
             if kind == "beam":
                 edit.update(w=_size(raw.get("w"), 0.4), d=_size(raw.get("d"), 0.6))
+            elif kind == "opening":
+                try:
+                    height = float(raw.get("h"))
+                except (TypeError, ValueError):
+                    height = OPENING_H_DEFAULT
+                if not math.isfinite(height):
+                    height = OPENING_H_DEFAULT
+                edit.update(t=_size(raw.get("t"), 0.2), h=round(min(max(height, OPENING_H_M[0]), OPENING_H_M[1]), 3))
             else:
                 edit.update(t=_size(raw.get("t"), 0.2))
         layer = raw.get("layer")
@@ -100,6 +113,11 @@ def effect(edit, storey_kind, wall_height, slab_thickness):
     if edit["kind"] == "column":
         return ({"column": sign * edit["w"] * edit["h"] * wall_height},
                 {face_key: sign * 2 * (edit["w"] + edit["h"]) * wall_height})
+    if edit["kind"] == "opening":
+        # the wall where the opening is, out; the opening's sides and head take formwork instead
+        run, high = length(edit), min(edit["h"], wall_height)
+        return ({"wall": -run * edit["t"] * high},
+                {face_key: -2 * run * high + edit["t"] * (run + 2 * high)})
     drop = max(edit["d"] - slab_thickness, 0.0)
     run = length(edit)
     beam_key = "plywood" if storey_kind == "basement" else "al_vertical"

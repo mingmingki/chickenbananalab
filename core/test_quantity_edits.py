@@ -143,7 +143,7 @@ class FloorEditsApiTests(TestCase):
 class FixingPageTests(SimpleTestCase):
     def test_the_plan_check_and_the_3d_review_both_open_the_editor(self):
         html = HOME.read_text()
-        self.assertIn("quantity_plan_edit.js' %}?v=20261112-zoom1", html)
+        self.assertIn("quantity_plan_edit.js' %}?v=20261112-tools1", html)
         self.assertIn("data-fix>빠진 부재 고치기</button>", html)
         self.assertIn("window.cblQuantityPlanEdit.mount(root.querySelector(\".qd-floor-stage\")", html)
         self.assertIn("'<button type=\"button\" class=\"qd-btn\" data-fix2d>2D에서 고치기</button>'", html)

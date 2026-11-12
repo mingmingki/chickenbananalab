@@ -6,25 +6,45 @@
    the takeoff start from. Points snap to the drawn lines' ends and onto the lines; double-clicking a
    line puts the member along it (between the line and its parallel partner when there is one).
 
+   Lines can be erased too (a stray line, a sign drawn on the wall layer): they are kept per plan in
+   sheet metres and the drawing is read again without them, so the walls are measured again rather
+   than guessed; lines the reading left out itself (dashed red) can be brought back the same way.
+
    window.cblQuantityPlanEdit.mount(stage, options) → controller
      stage: an element holding the plan <svg> (pan/zoom is the caller's)
      options: { planId, edits: shared array of every plan's fixes, onChange(edits), note: text,
-                sizes: { beam: {w, d}, wall: {t}, column: {w, h} } (metres) }
+                sizes: { beam: {w, d}, wall: {t}, column: {w, h}, opening: {h} } (metres),
+                lines: shared {plan: {erase: [[x0, y0, x1, y1]], keep: [...]}}, onLines(lines, readAgain),
+                linesPending(): true when lines changed since the last reading }
    window.cblQuantityPlanEdit.open(options) → a full-screen editor with its own pan/zoom:
      options as above plus { svg, title, onClose(edits) } */
 (function () {
   "use strict";
 
   var SNAP_PX = 10, PICK_PX = 8, PAIR_MAX = 1.3, PAIR_MIN = 0.05; // metres for pairs
-  var LABEL = { beam: "보", wall: "벽", column: "기둥" };
-  var TOOLS = [["view", "보기"], ["beam", "보 추가"], ["wall", "벽 추가"], ["column", "기둥 추가"], ["remove", "지우기"]];
+  var LABEL = { beam: "보", wall: "벽", column: "기둥", opening: "개구부" };
+  var TOOLS = [["view", "선택"], ["beam", "보 추가"], ["wall", "벽 추가"], ["column", "기둥 추가"], ["opening", "개구부"],
+               ["remove", "부재 빼기"], ["erase", "선 지우기"], ["keep", "되살리기"], ["measure", "거리 재기"], ["mark", "표시·AI"]];
+  var TYPED = "길이를 숫자(mm)로 치고 Enter로 정할 수 있어요. Shift를 누르면 수평·수직.";
   var HINT = {
-    view: "드래그로 옮기고 휠로 확대해요. 고칠 도구를 골라 주세요.",
-    beam: "보 추가: 시작점과 끝점을 누르세요. 선을 두 번 누르면 그 선을 따라 넣어요.",
-    wall: "벽 추가: 시작점과 끝점을 누르세요. 벽 선을 두 번 누르면 그 벽을 따라 넣어요.",
+    view: "선택: 고친 것을 누르면 크기를 바꾸거나 지울 수 있어요 (Delete). 드래그로 옮기고 휠로 확대해요.",
+    beam: "보 추가: 시작점과 끝점을 누르세요. " + TYPED + " 선을 두 번 누르면 그 선을 따라 넣어요.",
+    wall: "벽 추가: 시작점과 끝점을 누르세요. " + TYPED + " 벽 선을 두 번 누르면 그 벽을 따라 넣어요.",
     column: "기둥 추가: 기둥 가운데를 누르세요.",
-    remove: "지우기: 잘못 잡힌 벽·보 선이나 고친 표시를 누르세요."
+    opening: "개구부: 벽 선 위에서 시작점과 끝점을 누르세요. 두께는 맞은편 벽 선에서 재요. " + TYPED,
+    remove: "부재 빼기: 잘못 잡힌 벽·보를 누르면 수량에서 바로 빠져요 (고친 표시를 누르면 그 표시가 지워져요).",
+    erase: "선 지우기: 쓸데없는 선을 누르거나, 끌어서 상자 안의 선을 한꺼번에 고르세요. '다시 읽기'를 누르면 그 선을 빼고 다시 재요.",
+    keep: "되살리기: 빨간 점선(자동으로 뺐거나 지운 선)을 누르면 다시 넣어요.",
+    measure: "거리 재기: 두 점을 누르세요.",
+    mark: "표시·AI: 이상한 곳을 끌어서 동그라미로 감싸고 무엇이 이상한지 적으면, AI가 고칠 안을 내요 (보내기 전에 비용을 보여줘요)."
   };
+  // colours of the picture's classes, for the image of a marked part sent to the AI
+  var PICTURE_STYLE = "path{fill:none;stroke-linecap:round}.fv-frame{stroke:#facc15;stroke-width:2.4}.fv-beam{stroke:#fb923c;stroke-width:1.8;stroke-dasharray:6 4}" +
+    ".fv-masonry{stroke:#4ade80;stroke-width:2}.fv-alc{stroke:#bef264;stroke-width:1.8}.fv-dry{stroke:#7dd3fc;stroke-width:1.4}.fv-opening{stroke:#c4b5fd;stroke-width:1.2}" +
+    ".fv-other{stroke:#94a3b8;stroke-width:1;stroke-opacity:.7}.fv-removed{stroke:#f87171;stroke-width:1.4;stroke-dasharray:5 4}" +
+    ".qpe-add{fill:rgba(34,211,238,.45);stroke:#22d3ee}.qpe-remove{fill:rgba(248,113,113,.2);stroke:#f87171}.qpe-opening{fill:rgba(192,132,252,.45);stroke:#c084fc}" +
+    ".qpe-erased{stroke:#f87171;stroke-dasharray:5 4}.qpe-erased-under{stroke:#0b1238;stroke-width:4}" +
+    ".qpe-mark{fill:rgba(244,114,182,.08);stroke:#f472b6;stroke-width:3;stroke-dasharray:10 6}";
 
   function uid() { return Math.random().toString(36).slice(2, 10); }
   function esc(text) {
@@ -39,7 +59,8 @@
     var grid = {};
     svg.querySelectorAll("path").forEach(function (path) {
       var cls = (path.getAttribute("class") || "").replace("fv-", "");
-      var layer = path.getAttribute("data-layer") || "";
+      if (cls.indexOf("qpe-") === 0) return; // the editor's own drawing
+      var layer = path.getAttribute("data-layer") || path.getAttribute("data-why") || "";
       var nums = (path.getAttribute("d") || "").match(/[ML]|-?\d+(?:\.\d+)?/g) || [];
       var last = null, i = 0;
       while (i < nums.length) {
@@ -192,6 +213,15 @@
     return { s: s, x: f.W / 2 - s * cx, y: f.H / 2 - s * cy };
   }
 
+  // a close view centred on one point of the sheet (metres), e.g. a member picked in 3D
+  function focusView(svg, point, scale) {
+    var f = svg && frame(svg);
+    if (!f || !f.ok || !point) return { s: 1, x: 0, y: 0 };
+    var x = point[0] * 100, y = f.b[3] - point[1] * 100;
+    var cx = (x - f.b[0]) * f.k + f.ox, cy = (y - f.b[1]) * f.k + f.oy, s = scale || 6;
+    return { s: s, x: f.W / 2 - s * cx, y: f.H / 2 - s * cy };
+  }
+
   function mount(stage, options) {
     options = options || {};
     var svg = stage.querySelector("svg");
@@ -203,7 +233,9 @@
     sizes.beam = sizes.beam || { w: 0.4, d: 0.6 };
     sizes.wall = sizes.wall || { t: 0.2 };
     sizes.column = sizes.column || { w: 0.5, h: 0.5 };
-    var tool = "view", start = null, down = null;
+    sizes.opening = sizes.opening || { h: 2.1 };
+    var tool = "view", start = null, down = null, box = null, lastP = null, typed = "", selected = null, opening = null, mark = null;
+    var linesState = options.lines || {};
 
     // sheet metres ↔ picture units
     function toSheet(p) { return [Math.round(p.x) / 100, Math.round(H - p.y) / 100]; }
@@ -215,6 +247,9 @@
     var preview = document.createElementNS("http://www.w3.org/2000/svg", "g");
     preview.setAttribute("class", "qpe-preview");
     svg.appendChild(preview);
+    var linesLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    linesLayer.setAttribute("class", "qpe-lines");
+    svg.insertBefore(linesLayer, layer);
 
     var bar = document.createElement("div");
     bar.className = "qpe-bar";
@@ -226,8 +261,14 @@
         '<label data-for="beam">보 폭<input type="number" data-size="beam.w" step="10" min="50"> 춤<input type="number" data-size="beam.d" step="10" min="50">mm</label>' +
         '<label data-for="wall">벽 두께<input type="number" data-size="wall.t" step="10" min="50">mm</label>' +
         '<label data-for="column">기둥<input type="number" data-size="column.w" step="10" min="50">×<input type="number" data-size="column.h" step="10" min="50">mm</label>' +
+        '<label data-for="opening">개구부 높이<input type="number" data-size="opening.h" step="50" min="300">mm</label>' +
       '</div>' +
-      '<p class="qpe-hint"></p><p class="qpe-count"></p><div class="qpe-learn" hidden></div>';
+      '<div class="qpe-props" hidden></div>' +
+      '<div class="qpe-ask" hidden></div>' +
+      '<p class="qpe-hint"></p><p class="qpe-count"></p>' +
+      '<div class="qpe-reread" hidden><span></span><button type="button" class="qd-btn primary" data-qpe-reread>지운 선 빼고 다시 읽기</button></div>' +
+      '<div class="qpe-learn" hidden></div>';
+    if (!options.onAsk) { var markTool = bar.querySelector('[data-qpe-tool="mark"]'); if (markTool) markTool.remove(); }
     bar.querySelectorAll("[data-size]").forEach(function (input) {
       var key = input.getAttribute("data-size").split(".");
       input.value = Math.round(sizes[key[0]][key[1]] * 1000);
@@ -272,8 +313,14 @@
     function status(text) { bar.querySelector(".qpe-hint").textContent = text || HINT[tool]; }
     function count() {
       var list = mine(), added = list.filter(function (e) { return e.op === "add"; }).length;
-      bar.querySelector(".qpe-count").textContent = (list.length ? "이 평면에서 고친 것 " + list.length + "건 (추가 " + added + " · 지움 " + (list.length - added) + ")" : "아직 고친 것이 없어요") +
+      var item = linesState[options.planId] || {}, erased = (item.erase || []).length, kept = (item.keep || []).length;
+      bar.querySelector(".qpe-count").textContent = (list.length ? "이 평면에서 고친 것 " + list.length + "건 (추가 " + added + " · 뺌 " + (list.length - added) + ")" : "아직 고친 것이 없어요") +
+        (erased || kept ? " · 지운 선 " + erased + "개" + (kept ? " · 되살린 선 " + kept + "개" : "") : "") +
         (options.note ? " · " + options.note : "");
+      var reread = bar.querySelector(".qpe-reread");
+      var pending = options.linesPending ? options.linesPending() : false;
+      reread.hidden = !pending;
+      if (pending) reread.querySelector("span").textContent = "지운 선·되살린 선은 다시 읽어야 수량에 들어가요 (전체 평면을 다시 읽어 1~4분 걸려요).";
     }
     function setTool(name) {
       tool = name;
@@ -282,6 +329,12 @@
       bar.querySelectorAll("[data-qpe-tool]").forEach(function (b) { b.classList.toggle("is-on", b.getAttribute("data-qpe-tool") === name); });
       bar.querySelectorAll(".qpe-sizes [data-for]").forEach(function (l) { l.hidden = l.getAttribute("data-for") !== name; });
       stage.classList.toggle("qpe-drawing", name !== "view");
+      stage.classList.toggle("qpe-erasing", name === "erase" || name === "mark");
+      if (name !== "mark") closeMark();
+      typed = "";
+      opening = null;
+      box = null;
+      if (name !== "view") select(null);
       status();
     }
 
@@ -293,19 +346,133 @@
         .map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" ");
     }
     function shape(e) {
-      var cls = "qpe-" + e.op + " qpe-" + e.kind;
+      var cls = "qpe-" + e.op + " qpe-" + e.kind + (selected === e.id ? " is-selected" : "");
       if (e.kind === "column") {
         var c = toPicture(e.c), w = e.w * 50, h = e.h * 50;
         return '<rect data-edit="' + esc(e.id) + '" class="' + cls + '" x="' + (c.x - w).toFixed(1) + '" y="' + (c.y - h).toFixed(1) +
           '" width="' + (2 * w).toFixed(1) + '" height="' + (2 * h).toFixed(1) + '"/>';
       }
       var a = toPicture(e.a), b = toPicture(e.b), width = (e.kind === "beam" ? e.w : e.t) * 50;
+      if (e.kind === "opening") cls = "qpe-opening" + (selected === e.id ? " is-selected" : "");
       return '<polygon data-edit="' + esc(e.id) + '" class="' + cls + '" points="' + rect(a, b, Math.max(width, 6)) + '"/>' +
         (e.op === "remove" ? '<line class="qpe-cross" x1="' + a.x.toFixed(1) + '" y1="' + a.y.toFixed(1) + '" x2="' + b.x.toFixed(1) + '" y2="' + b.y.toFixed(1) + '"/>' : "");
     }
     function draw() {
       layer.innerHTML = mine().map(shape).join("");
+      drawLines();
       count();
+    }
+
+    // ── erased and brought-back lines (sheet metres, as the picture rounds them) ──
+    function planLines() {
+      var item = linesState[options.planId] = linesState[options.planId] || {};
+      item.erase = item.erase || [];
+      item.keep = item.keep || [];
+      return item;
+    }
+    function sheetSeg(s) {
+      var a = toSheet({ x: s.x0, y: s.y0 }), b = toSheet({ x: s.x1, y: s.y1 });
+      return [a[0], a[1], b[0], b[1]];
+    }
+    function sameSeg(p, q) {
+      var t = 0.03;
+      function near(i, j) { return Math.abs(p[i] - q[j]) <= t; }
+      return (near(0, 0) && near(1, 1) && near(2, 2) && near(3, 3)) || (near(0, 2) && near(1, 3) && near(2, 0) && near(3, 1));
+    }
+    function findSeg(list, seg) {
+      for (var i = 0; i < list.length; i++) if (sameSeg(list[i], seg)) return i;
+      return -1;
+    }
+    function linesChanged() {
+      drawLines();
+      count();
+      if (options.onLines) options.onLines(linesState, false);
+    }
+    function eraseSegs(segs) {
+      var item = planLines(), n = 0;
+      segs.forEach(function (s) {
+        var key = sheetSeg(s), k = findSeg(item.keep, key);
+        if (k >= 0) { item.keep.splice(k, 1); n++; return; } // it was brought back: out again
+        if (s.cls === "removed" || findSeg(item.erase, key) >= 0) return;
+        item.erase.push(key);
+        n++;
+      });
+      if (n) linesChanged();
+      return n;
+    }
+    function keepSegs(segs) {
+      var item = planLines(), n = 0;
+      segs.forEach(function (s) {
+        var key = sheetSeg(s), k = findSeg(item.erase, key);
+        if (k >= 0) { item.erase.splice(k, 1); n++; return; } // erased by a person: just not erased
+        if (s.cls === "removed" && findSeg(item.keep, key) < 0) { item.keep.push(key); n++; }
+      });
+      if (n) linesChanged();
+      return n;
+    }
+    function drawLines() {
+      var item = linesState[options.planId] || {};
+      function d(list) {
+        return (list || []).map(function (q) {
+          var a = toPicture([q[0], q[1]]), b = toPicture([q[2], q[3]]);
+          return "M" + a.x.toFixed(1) + " " + a.y.toFixed(1) + "L" + b.x.toFixed(1) + " " + b.y.toFixed(1);
+        }).join("");
+      }
+      var erased = d(item.erase), kept = d(item.keep);
+      linesLayer.innerHTML = (erased ? '<path class="qpe-erased-under" d="' + erased + '"/><path class="qpe-erased" d="' + erased + '"/>' : "") +
+        (kept ? '<path class="qpe-kept" d="' + kept + '"/>' : "");
+    }
+    // the drawn pieces making up one straight run (as extend() joins them), for erasing a whole line
+    function runOf(seg) {
+      var run = extend(lines, seg);
+      var dx = run.x1 - run.x0, dy = run.y1 - run.y0, len = Math.hypot(dx, dy);
+      if (!len) return [seg];
+      var ux = dx / len, uy = dy / len, out = [], seen = [];
+      for (var t = 0; t <= len + 150; t += 150) {
+        var at = Math.min(t, len);
+        lines.near(run.x0 + ux * at, run.y0 + uy * at, 160).forEach(function (o) {
+          if (seen.indexOf(o) >= 0 || o.cls !== seg.cls) return;
+          if (Math.abs((o.x0 - run.x0) * uy - (o.y0 - run.y0) * ux) > 1.5 || Math.abs((o.x1 - run.x0) * uy - (o.y1 - run.y0) * ux) > 1.5) return;
+          var a = (o.x0 - run.x0) * ux + (o.y0 - run.y0) * uy, b = (o.x1 - run.x0) * ux + (o.y1 - run.y0) * uy;
+          if (Math.min(a, b) < -2 || Math.max(a, b) > len + 2) return;
+          seen.push(o);
+          out.push(o);
+        });
+      }
+      return out.length ? out : [seg];
+    }
+    function inBox(b) {
+      var x0 = Math.min(b.x0, b.x1), x1 = Math.max(b.x0, b.x1), y0 = Math.min(b.y0, b.y1), y1 = Math.max(b.y0, b.y1);
+      return lines.segs.filter(function (s) {
+        return s.cls !== "removed" && Math.min(s.x0, s.x1) >= x0 && Math.max(s.x0, s.x1) <= x1 && Math.min(s.y0, s.y1) >= y0 && Math.max(s.y0, s.y1) <= y1;
+      });
+    }
+
+    // ── the selected fix: its sizes, or out ──
+    function editById(id) {
+      for (var i = 0; i < edits.length; i++) if (edits[i].id === id) return edits[i];
+      return null;
+    }
+    function select(id) {
+      selected = id && editById(id) ? id : null;
+      var panel = bar.querySelector(".qpe-props"), e = selected && editById(selected);
+      panel.hidden = !e;
+      if (e) {
+        var fields = { beam: [["w", "폭"], ["d", "춤"]], wall: [["t", "두께"]], column: [["w", "가로"], ["h", "세로"]], opening: [["t", "벽 두께"], ["h", "높이"]] }[e.kind] || [];
+        panel.innerHTML = '<b>' + (e.op === "remove" ? "뺀 " : "") + LABEL[e.kind] + '</b><span>' + esc(lengthText(e)) + '</span>' +
+          fields.map(function (f) {
+            return '<label>' + f[1] + '<input type="number" data-prop="' + f[0] + '" step="10" min="50" value="' + Math.round(e[f[0]] * 1000) + '">mm</label>';
+          }).join("") + '<button type="button" class="qd-btn" data-qpe-delete>이것 지우기</button>';
+      }
+      layer.querySelectorAll("[data-edit]").forEach(function (el) { el.classList.toggle("is-selected", el.getAttribute("data-edit") === selected); });
+    }
+    function deleteSelected() {
+      if (!selected) return false;
+      for (var i = edits.length - 1; i >= 0; i--) if (edits[i].id === selected) edits.splice(i, 1);
+      select(null);
+      status("고친 것을 지웠어요.");
+      changed();
+      return true;
     }
 
     // ── pointer: picture units under the pointer, snapping ──
@@ -366,12 +533,80 @@
     }
     function lengthText(edit) {
       return edit.kind === "column" ? (Math.round(edit.w * 1000) + "×" + Math.round(edit.h * 1000)) :
-        (Math.hypot(edit.b[0] - edit.a[0], edit.b[1] - edit.a[1]).toFixed(2) + "m");
+        (Math.hypot(edit.b[0] - edit.a[0], edit.b[1] - edit.a[1]).toFixed(2) + "m" + (edit.kind === "opening" ? " × " + edit.h.toFixed(2) + "m" : ""));
+    }
+    // Shift: straight across or up from the start
+    function ortho(q, e) {
+      if (!start || !e || !e.shiftKey) return q;
+      return Math.abs(q.x - start.x) >= Math.abs(q.y - start.y) ? { x: q.x, y: start.y } : { x: start.x, y: q.y };
+    }
+    // the end point a typed length (mm) away from the start, towards the pointer
+    function typedEnd() {
+      var mm = Number(typed);
+      if (!start || !(mm > 0)) return null;
+      var dx = lastP ? lastP.x - start.x : 1, dy = lastP ? lastP.y - start.y : 0, len = Math.hypot(dx, dy) || 1;
+      if (!lastP || len < 1) { dx = 1; dy = 0; len = 1; }
+      return { x: start.x + dx / len * mm / 10, y: start.y + dy / len * mm / 10 };
+    }
+    // an opening lies on the wall picked first: its points go onto that wall's centre line
+    function onWall(p) {
+      if (!opening) return p;
+      var a = opening.a, b = opening.b, dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy || 1;
+      var t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+      return { x: a.x + dx * t, y: a.y + dy * t };
+    }
+    function finish(q) {
+      if (tool === "measure") {
+        var dx = (q.x - start.x) / 100, dy = (q.y - start.y) / 100;
+        drawMeasure(start, q);
+        status("거리 " + Math.hypot(dx, dy).toFixed(3) + "m (가로 " + Math.abs(dx).toFixed(2) + " · 세로 " + Math.abs(dy).toFixed(2) + ")");
+        start = null;
+        typed = "";
+        return;
+      }
+      if (Math.hypot(q.x - start.x, q.y - start.y) < 5) return;
+      var edit = { op: "add", kind: tool, a: toSheet(start), b: toSheet(q) };
+      if (tool === "beam") { edit.w = sizeOf("beam").w; edit.d = sizeOf("beam").d; }
+      else if (tool === "opening") { edit.t = opening ? opening.t : sizeOf("wall").t; edit.h = sizeOf("opening").h; if (opening && opening.layer) edit.layer = opening.layer; }
+      else edit.t = sizeOf("wall").t;
+      start = null;
+      opening = null;
+      typed = "";
+      preview.innerHTML = "";
+      add(edit);
+      status(LABEL[tool] + " " + lengthText(edit) + "을(를) 넣었어요. 이어서 다음 시작점을 누르세요.");
+    }
+    function drawMeasure(a, b) {
+      var u = unitsPerPx(), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      var text = (Math.hypot(b.x - a.x, b.y - a.y) / 100).toFixed(2) + "m";
+      preview.innerHTML = '<line class="qpe-measure" x1="' + a.x.toFixed(1) + '" y1="' + a.y.toFixed(1) + '" x2="' + b.x.toFixed(1) + '" y2="' + b.y.toFixed(1) + '"/>' +
+        '<text class="qpe-measure-text" x="' + mx.toFixed(1) + '" y="' + (my - 6 * u).toFixed(1) + '" font-size="' + (13 * u).toFixed(1) + '">' + text + '</text>';
     }
 
     function onClick(e) {
       var p = at(e);
       if (!p) return;
+      if (tool === "view") {
+        var picked = e.target.closest && e.target.closest("[data-edit]");
+        select(picked ? picked.getAttribute("data-edit") : null);
+        if (picked) status(LABEL[(editById(selected) || {}).kind] + "을(를) 골랐어요. 크기를 바꾸거나 지울 수 있어요 (Delete).");
+        return;
+      }
+      if (tool === "erase") {
+        var line = pick(p, null);
+        if (!line) { status("지울 선을 찾지 못했어요. 선 가까이 누르거나 끌어서 상자로 고르세요."); return; }
+        if (line.cls === "removed") { status("이미 빠진 선이에요 (되살리기로 다시 넣을 수 있어요)."); return; }
+        var n = eraseSegs(runOf(line));
+        status(n ? "선 " + n + "조각을 지웠어요. '다시 읽기'를 누르면 수량에서 빠져요." : "이미 지운 선이에요.");
+        return;
+      }
+      if (tool === "keep") {
+        var back = pick(p, null);
+        if (!back) { status("되살릴 빨간 점선을 눌러 주세요."); return; }
+        var m = keepSegs(runOf(back));
+        status(m ? "선 " + m + "조각을 되살렸어요. '다시 읽기'를 누르면 수량에 들어가요." : "자동으로 뺐거나 지운 선이 아니에요.");
+        return;
+      }
       if (tool === "remove") {
         var hit = e.target.closest && e.target.closest("[data-edit]");
         if (hit) {
@@ -382,14 +617,14 @@
           return;
         }
         var seg = pick(p, ["frame", "beam"]);
-        if (!seg) { status("지울 벽·보 선을 찾지 못했어요. 선 가까이 눌러 주세요."); return; }
+        if (!seg) { status("뺄 벽·보 선을 찾지 못했어요. 선 가까이 눌러 주세요."); return; }
         seg = extend(lines, seg);
         var kind = seg.cls === "beam" ? "beam" : "wall";
         var removal = memberAlong(kind, seg);
         removal.op = "remove";
         if (kind === "beam") removal.d = sizeOf("beam").d;
         add(removal);
-        status(LABEL[kind] + " " + lengthText(removal) + "을(를) 지웠어요 (수량에서 빠져요).");
+        status(LABEL[kind] + " " + lengthText(removal) + "을(를) 뺐어요 (수량에서 빠져요).");
         return;
       }
       if (tool === "column") {
@@ -398,16 +633,20 @@
         status("기둥 " + lengthText(col) + "을(를) 넣었어요.");
         return;
       }
-      if (tool === "beam" || tool === "wall") {
-        var q = snap(p);
-        if (!start) { start = q; status(LABEL[tool] + " 끝점을 누르세요 (Esc 취소)."); return; }
-        if (Math.hypot(q.x - start.x, q.y - start.y) < 5) return;
-        var edit = { op: "add", kind: tool, a: toSheet(start), b: toSheet(q) };
-        if (tool === "beam") { edit.w = sizeOf("beam").w; edit.d = sizeOf("beam").d; } else edit.t = sizeOf("wall").t;
-        start = null;
-        preview.innerHTML = "";
-        add(edit);
-        status(LABEL[tool] + " " + lengthText(edit) + "을(를) 넣었어요. 이어서 다음 시작점을 누르세요.");
+      if (tool === "opening" && !start) {
+        var wall = pick(p, ["frame"]);
+        if (!wall) { status("개구부를 낼 벽 선 위를 눌러 주세요."); return; }
+        var run = extend(lines, wall), pair = partner(lines, run);
+        opening = pair ? { a: pair.a, b: pair.b, t: Math.round(pair.width * 1000) / 1000, layer: wall.layer }
+          : { a: { x: run.x0, y: run.y0 }, b: { x: run.x1, y: run.y1 }, t: sizeOf("wall").t, layer: wall.layer };
+        start = onWall(snap(p));
+        status("개구부 끝점을 누르거나 폭(mm)을 치고 Enter (벽 두께 " + Math.round(opening.t * 1000) + "mm).");
+        return;
+      }
+      if (tool === "beam" || tool === "wall" || tool === "opening" || tool === "measure") {
+        var q = tool === "opening" ? onWall(snap(p)) : ortho(snap(p), e);
+        if (!start) { start = q; typed = ""; status(tool === "measure" ? "끝점을 누르세요." : LABEL[tool] + " 끝점을 누르거나 길이(mm)를 치고 Enter (Esc 취소)."); return; }
+        finish(q);
       }
     }
     function onDouble(e) {
@@ -423,16 +662,195 @@
       status("선을 따라 " + LABEL[tool] + " " + lengthText(edit) + "을(를) 넣었어요" + (edit.layer ? " (레이어 " + edit.layer + ")" : "") + ".");
     }
     function onMove(e) {
-      if (!start || (tool !== "beam" && tool !== "wall")) return;
       var p = at(e);
       if (!p) return;
-      var q = snap(p), half = (tool === "beam" ? sizeOf("beam").w : sizeOf("wall").t) * 50;
-      preview.innerHTML = '<polygon class="qpe-ghost" points="' + rect(start, q, Math.max(half, 6)) + '"/>';
+      lastP = p;
+      if (box) {
+        box.x1 = p.x;
+        box.y1 = p.y;
+        var x = Math.min(box.x0, box.x1), y = Math.min(box.y0, box.y1);
+        preview.innerHTML = tool === "mark" ? ellipse(box, "qpe-mark") : '<rect class="qpe-box" x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + Math.abs(box.x1 - box.x0).toFixed(1) +
+          '" height="' + Math.abs(box.y1 - box.y0).toFixed(1) + '"/>';
+        return;
+      }
+      if (!start || ["beam", "wall", "opening", "measure"].indexOf(tool) < 0) return;
+      var q = tool === "opening" ? onWall(snap(p)) : ortho(snap(p), e);
+      if (tool === "measure") { drawMeasure(start, q); return; }
+      var half = (tool === "beam" ? sizeOf("beam").w : tool === "opening" ? (opening ? opening.t : sizeOf("wall").t) : sizeOf("wall").t) * 50;
+      preview.innerHTML = '<polygon class="qpe-ghost' + (tool === "opening" ? " qpe-ghost-opening" : "") + '" points="' + rect(start, q, Math.max(half, 6)) + '"/>';
     }
 
-    stage.addEventListener("pointerdown", function (e) { down = { x: e.clientX, y: e.clientY, t: Date.now() }; }, true);
+    // ── a marked spot and the AI's proposals for it ──
+    function ellipse(b, cls) {
+      var cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, rx = Math.abs(b.x1 - b.x0) / 2, ry = Math.abs(b.y1 - b.y0) / 2;
+      return '<ellipse class="' + cls + '" cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" rx="' + rx.toFixed(1) + '" ry="' + ry.toFixed(1) + '"/>';
+    }
+    function markBox() {
+      var b = mark.box, a = toSheet({ x: Math.min(b.x0, b.x1), y: Math.max(b.y0, b.y1) }), z = toSheet({ x: Math.max(b.x0, b.x1), y: Math.min(b.y0, b.y1) });
+      return [a[0], a[1], z[0], z[1]];
+    }
+    function closeMark() {
+      mark = null;
+      var panel = bar.querySelector(".qpe-ask");
+      if (panel) { panel.hidden = true; panel.innerHTML = ""; }
+      if (tool === "mark") preview.innerHTML = "";
+    }
+    function drawMark() {
+      if (!mark) return;
+      var shapes = (mark.fixes || []).map(function (f, i) {
+        var e = Object.assign({ id: "p" + i }, f), html = shape(e);
+        return html.replace(/class="[^"]*"/, 'class="qpe-proposal' + (mark.pick && mark.pick[i] === false ? " is-off" : "") + '"');
+      }).join("");
+      preview.innerHTML = ellipse(mark.box, "qpe-mark") + shapes;
+    }
+    // the marked part of the picture as an image (drawn here, from the picture itself)
+    function markImage() {
+      var b = mark.box, pad = 0.15;
+      var x0 = Math.min(b.x0, b.x1), y0 = Math.min(b.y0, b.y1), w = Math.abs(b.x1 - b.x0), h = Math.abs(b.y1 - b.y0);
+      var vb = [x0 - w * pad, y0 - h * pad, w * (1 + 2 * pad), h * (1 + 2 * pad)];
+      var copy = svg.cloneNode(true);
+      copy.setAttribute("viewBox", vb.map(function (v) { return v.toFixed(1); }).join(" "));
+      copy.removeAttribute("style");
+      copy.querySelectorAll(".qpe-proposal, .qpe-measure, .qpe-measure-text, .qpe-ghost").forEach(function (n) { n.parentNode.removeChild(n); });  // the mark stays
+      var width = 1024, height = Math.max(256, Math.min(1024, Math.round(width * vb[3] / vb[2])));
+      copy.setAttribute("width", width);
+      copy.setAttribute("height", height);
+      var style = document.createElementNS("http://www.w3.org/2000/svg", "style");
+      style.textContent = PICTURE_STYLE;
+      copy.insertBefore(style, copy.firstChild);
+      var bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      ["x", "y", "width", "height"].forEach(function (k, i) { bg.setAttribute(k, vb[i]); });
+      bg.setAttribute("fill", "#0b1238");
+      copy.insertBefore(bg, style.nextSibling);
+      var text = new XMLSerializer().serializeToString(copy);
+      return new Promise(function (resolve) {
+        var img = new Image();
+        img.onload = function () {
+          var canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+          resolve({ image: canvas.toDataURL("image/png"), width: width, height: height });
+        };
+        img.onerror = function () { resolve({ image: null, width: 0, height: 0 }); };
+        img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(text);
+      });
+    }
+    function askPanel(html) {
+      var panel = bar.querySelector(".qpe-ask");
+      panel.hidden = false;
+      panel.innerHTML = html;
+      return panel;
+    }
+    function markWrite() {
+      var b = markBox();
+      var panel = askPanel('<b>표시한 곳 ' + Math.abs(b[2] - b[0]).toFixed(1) + '×' + Math.abs(b[1] - b[3]).toFixed(1) + 'm</b>' +
+        '<textarea data-qpe-ask-text rows="2" placeholder="무엇이 이상한가요? 예: 여기 벽이 빠졌어요 / 이 보는 400×700이에요 / 이 선들은 벽이 아니에요">' + esc(mark.text || "") + '</textarea>' +
+        '<div class="qpe-ask-row"><button type="button" class="qd-btn primary" data-qpe-ask="estimate">AI에게 물어보기 (비용 먼저 보기)</button>' +
+        '<button type="button" class="qd-btn" data-qpe-ask="close">닫기</button></div>');
+      setTimeout(function () { var t = panel.querySelector("textarea"); if (t) t.focus(); }, 0);
+    }
+    function markRequest(confirm) {
+      return markImage().then(function (pic) {
+        mark.pic = pic;
+        return options.onAsk({ plan: options.planId, box: markBox(), text: mark.text, image: pic.image, width: pic.width, height: pic.height, confirm: !!confirm });
+      });
+    }
+    function money(est) {
+      return (est.krw != null ? "약 " + est.krw.toLocaleString() + "원 · " : "") + "토큰 입력 약 " + est.input_tokens.toLocaleString() + " · 출력 최대 약 " + est.output_tokens.toLocaleString() +
+        (est.krw == null ? " (단가가 설정되지 않아 금액은 표시하지 않아요)" : "");
+    }
+    function markAsk(step) {
+      if (!mark) return;
+      if (step === "close") { closeMark(); status(); return; }
+      if (step === "estimate") {
+        var field = bar.querySelector("[data-qpe-ask-text]");
+        mark.text = field ? field.value.trim() : mark.text;
+        if (!mark.text) { status("무엇이 이상한지 적어 주세요."); return; }
+        askPanel('<span>보낼 것을 정리하는 중…</span>');
+        markRequest(false).then(function (body) {
+          if (!body || !body.ok) { askPanel('<span class="qpe-ask-error">' + esc((body && body.error) || "비용을 계산하지 못했어요.") + '</span><div class="qpe-ask-row"><button type="button" class="qd-btn" data-qpe-ask="write">다시</button></div>'); return; }
+          var s = body.sending || {};
+          askPanel('<b>AI에게 보낼 것</b><span>표시한 곳 그림 1장(약 ' + (s.image_kb || 0) + 'KB) · 그 안의 선 ' + (s.lines || 0) + '개(좌표·레이어) · 적은 글 ' + (s.text || 0) + '자</span>' +
+            '<span class="qpe-ask-cost">예상 비용: ' + esc(money(body.estimate)) + '</span>' +
+            '<div class="qpe-ask-row"><button type="button" class="qd-btn primary" data-qpe-ask="send">보내기 (유료)</button><button type="button" class="qd-btn" data-qpe-ask="write">글 고치기</button><button type="button" class="qd-btn" data-qpe-ask="close">그만두기</button></div>');
+        });
+        return;
+      }
+      if (step === "write") { markWrite(); return; }
+      if (step === "send") {
+        askPanel('<span>AI가 표시한 곳을 보고 있어요… (1분 안팎)</span>');
+        markRequest(true).then(function (body) {
+          if (!body || !body.ok) { askPanel('<span class="qpe-ask-error">' + esc((body && body.error) || "AI에게 묻지 못했어요.") + '</span><div class="qpe-ask-row"><button type="button" class="qd-btn" data-qpe-ask="write">다시</button><button type="button" class="qd-btn" data-qpe-ask="close">닫기</button></div>'); return; }
+          mark.answer = body.answer || "";
+          mark.fixes = body.fixes || [];
+          mark.pick = mark.fixes.map(function () { return true; });
+          var used = body.usage ? " (쓴 토큰 입력 " + (body.usage.input_tokens || 0).toLocaleString() + " · 출력 " + (body.usage.output_tokens || 0).toLocaleString() + (body.usage.krw != null ? " · 약 " + body.usage.krw.toLocaleString() + "원" : "") + ")" : "";
+          showAnswer(used);
+          drawMark();
+        });
+        return;
+      }
+      if (step === "take") {
+        var taken = [];
+        (mark.fixes || []).forEach(function (f, i) {
+          if (mark.pick[i] === false) return;
+          var e = Object.assign({}, f);
+          delete e.reason; delete e.by; delete e.id;
+          e.id = uid();
+          e.plan = options.planId;
+          edits.push(e);
+          taken.push(e);
+        });
+        if (options.onAsk) options.onAsk({ plan: options.planId, text: mark.text, answer: mark.answer, accepted: taken, rejected: (mark.fixes || []).length - taken.length });
+        closeMark();
+        changed();
+        status(taken.length ? "AI가 낸 안 " + taken.length + "개를 넣었어요. 선택 도구로 고칠 수 있어요." : "넣은 것이 없어요.");
+      }
+    }
+    function showAnswer(used) {
+      var label = { wall: "벽", beam: "보", column: "기둥", opening: "개구부" };
+      askPanel('<b>AI 답</b><span>' + esc(mark.answer || "고칠 안이 없어요.") + esc(used || "") + '</span>' +
+        (mark.fixes.length ? '<ul class="qpe-ask-list">' + mark.fixes.map(function (f, i) {
+          var size = f.kind === "column" ? Math.round(f.w * 1000) + "×" + Math.round(f.h * 1000) : Math.hypot(f.b[0] - f.a[0], f.b[1] - f.a[1]).toFixed(2) + "m";
+          return '<li><label><input type="checkbox" data-qpe-pick="' + i + '"' + (mark.pick[i] !== false ? " checked" : "") + '> ' +
+            (f.op === "remove" ? "빼기 " : "") + label[f.kind] + ' ' + size + '</label> <small>' + esc(f.reason || "") + '</small></li>';
+        }).join("") + '</ul>' : '') +
+        '<div class="qpe-ask-row">' + (mark.fixes.length ? '<button type="button" class="qd-btn primary" data-qpe-ask="take">고른 것 넣기</button>' : '') +
+        '<button type="button" class="qd-btn" data-qpe-ask="write">다시 묻기</button><button type="button" class="qd-btn" data-qpe-ask="close">버리기</button></div>');
+    }
+
+    // erase: a drag draws a box (no panning), a click picks one line
+    function onDown(e) {
+      down = { x: e.clientX, y: e.clientY, t: Date.now() };
+      if ((tool !== "erase" && tool !== "mark") || e.button > 0 || (e.target.closest && e.target.closest("button"))) return;
+      var p = at(e);
+      if (!p) return;
+      e.stopImmediatePropagation();
+      box = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+      try { stage.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    }
+    stage.addEventListener("pointerdown", onDown, true);
     function onUp(e) {
-      if (tool === "view" || !down || e.button > 0) return;
+      if (box) {
+        var b = box, moved = down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6;
+        box = null;
+        preview.innerHTML = "";
+        if (moved && tool === "mark") {
+          mark = { box: b, text: "" };
+          drawMark();
+          markWrite();
+          status("무엇이 이상한지 적고 'AI에게 물어보기'를 누르세요.");
+          return;
+        }
+        if (tool === "mark") { if (mark) drawMark(); status("이상한 곳을 끌어서 동그라미로 감싸 주세요."); return; }
+        if (moved) {
+          var picked = inBox(b), n = eraseSegs(picked);
+          status(picked.length ? "상자 안 선 " + n + "조각을 지웠어요. '다시 읽기'를 누르면 수량에서 빠져요." : "상자 안에 지울 선이 없어요 (상자에 완전히 들어온 선만 골라요).");
+          return;
+        }
+      }
+      if (!down || e.button > 0) return;
       if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return; // a drag pans
       onClick(e);
     }
@@ -440,13 +858,34 @@
     stage.addEventListener("dblclick", onDouble);
     stage.addEventListener("pointermove", onMove);
     function onKey(e) {
-      if (e.key === "Escape" && start) { start = null; preview.innerHTML = ""; status(); }
+      if (!stage.isConnected) return;
+      var inField = e.target && /input|textarea|select/i.test(e.target.tagName || "");
+      if (e.key === "Escape" && (start || box)) { start = null; box = null; opening = null; typed = ""; preview.innerHTML = ""; status(); return; }
+      if (inField) return;
+      if ((e.key === "Delete" || e.key === "Backspace") && !start && selected) { e.preventDefault(); deleteSelected(); return; }
+      if (!start || ["beam", "wall", "opening", "measure"].indexOf(tool) < 0) return;
+      if (/^[0-9]$/.test(e.key)) { typed += e.key; e.preventDefault(); }
+      else if (e.key === "Backspace" && typed) { typed = typed.slice(0, -1); e.preventDefault(); }
+      else if (e.key === "Enter" && typed) {
+        e.preventDefault();
+        var end = typedEnd();
+        if (end) finish(tool === "opening" ? onWall(end) : end);
+        return;
+      } else return;
+      status(typed ? "길이 " + typed + "mm — Enter로 정해요 (마우스 쪽 방향)." : HINT[tool]);
     }
     document.addEventListener("keydown", onKey);
 
     bar.addEventListener("click", function (e) {
       var t = e.target.closest("[data-qpe-tool]");
       if (t) { setTool(t.getAttribute("data-qpe-tool")); return; }
+      if (e.target.closest("[data-qpe-delete]")) { deleteSelected(); return; }
+      var askStep = e.target.closest("[data-qpe-ask]");
+      if (askStep) { markAsk(askStep.getAttribute("data-qpe-ask")); return; }
+      if (e.target.closest("[data-qpe-reread]")) {
+        if (options.onLines) options.onLines(linesState, true);
+        return;
+      }
       if (e.target.closest("[data-qpe-undo]")) {
         for (var i = edits.length - 1; i >= 0; i--) {
           if (edits[i].plan === options.planId) { edits.splice(i, 1); status("마지막 고친 것을 되돌렸어요."); changed(); return; }
@@ -454,10 +893,27 @@
         status("되돌릴 것이 없어요.");
       }
     });
+    bar.addEventListener("change", function (e) {
+      var pickIndex = e.target.getAttribute("data-qpe-pick");
+      if (pickIndex != null && mark) { mark.pick[Number(pickIndex)] = e.target.checked; drawMark(); }
+    });
     bar.addEventListener("input", function (e) {
+      if (e.target.hasAttribute("data-qpe-ask-text") && mark) { mark.text = e.target.value; return; }
+      var prop = e.target.getAttribute("data-prop"), chosen = selected && editById(selected);
+      if (prop && chosen) {
+        var mm = Number(e.target.value);
+        var limit = chosen.kind === "opening" && prop === "h" ? [300, 6000] : [50, 3000];
+        if (mm >= limit[0] && mm <= limit[1]) {
+          chosen[prop] = mm / 1000;
+          draw();
+          select(chosen.id);
+          if (options.onChange) options.onChange(edits);
+        }
+        return;
+      }
       var key = (e.target.getAttribute("data-size") || "").split(".");
       var value = Number(e.target.value);
-      if (key.length === 2 && value >= 50 && value <= 3000) sizes[key[0]][key[1]] = value / 1000;
+      if (key.length === 2 && value >= 50 && value <= 6000) sizes[key[0]][key[1]] = value / 1000;
     });
 
     setTool("view");
@@ -466,12 +922,16 @@
       bar: bar,
       setTool: setTool,
       edits: function () { return edits; },
+      refresh: function () { draw(); },
       destroy: function () {
         document.removeEventListener("keydown", onKey);
+        stage.removeEventListener("pointerdown", onDown, true);
         stage.removeEventListener("pointerup", onUp, true);
         stage.removeEventListener("dblclick", onDouble);
         stage.removeEventListener("pointermove", onMove);
         stage.classList.remove("qpe-drawing");
+        stage.classList.remove("qpe-erasing");
+        if (linesLayer.parentNode) linesLayer.parentNode.removeChild(linesLayer);
         if (layer.parentNode) layer.parentNode.removeChild(layer);
         if (preview.parentNode) preview.parentNode.removeChild(preview);
         if (bar.parentNode) bar.parentNode.removeChild(bar);
@@ -531,8 +991,16 @@
     var editor = mount(stage, options);
     shade.querySelector(".qpe-slot").appendChild(editor.bar);
     editor.setTool(options.tool || "beam");
-    view = fitView(stage.querySelector(".qd-floor-canvas svg"));
+    view = options.focus ? focusView(stage.querySelector(".qd-floor-canvas svg"), options.focus, 8) : fitView(stage.querySelector(".qd-floor-canvas svg"));
     apply();
+    if (options.focus) {
+      var mark = document.createElementNS("http://www.w3.org/2000/svg", "circle"), H0 = baseBox(stage.querySelector(".qd-floor-canvas svg"))[3];
+      mark.setAttribute("class", "qpe-focus");
+      mark.setAttribute("cx", options.focus[0] * 100);
+      mark.setAttribute("cy", H0 - options.focus[1] * 100);
+      mark.setAttribute("r", 60);
+      stage.querySelector(".qd-floor-canvas svg").appendChild(mark);
+    }
     function close() {
       editor.destroy();
       if (shade.parentNode) shade.parentNode.removeChild(shade);
@@ -546,5 +1014,5 @@
   }
 
   window.cblQuantityPlanEdit = { mount: mount, open: open, partner: partner, extend: extend, readLines: readLines,
-    zoomSvg: zoomSvg, fitView: fitView };
+    zoomSvg: zoomSvg, fitView: fitView, focusView: focusView };
 })();

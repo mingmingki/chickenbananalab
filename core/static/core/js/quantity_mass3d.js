@@ -6,7 +6,7 @@
 
   var COLOR = {
     wall: 0xfacc15, col: 0xeab308, slab: 0xe2e8f0, beam: 0xfb923c, rebar: 0xef4444,
-    parkingWall: 0x94a3b8, parkingCol: 0x64748b, facilityWall: 0x2dd4bf, facilityCol: 0x14b8a6, user: 0x22d3ee,
+    parkingWall: 0x94a3b8, parkingCol: 0x64748b, facilityWall: 0x2dd4bf, facilityCol: 0x14b8a6, user: 0x22d3ee, opening: 0xc084fc,
     alWall: 0x38bdf8, gang: 0xa78bfa, euro: 0x2dd4bf, alSlab: 0x7dd3fc, beamForm: 0xfbbf24
   };
   var SPACING = 0.3;     // rebar drawing spacing (m), a sketch of the bars, not their count
@@ -89,7 +89,7 @@
           for (var k = 0; k < (move.turn || 0) % 4; k++) { var t = x; x = -y; y = t; }
           return [x + (move.dx || 0), y + (move.dy || 0)];
         }
-        plan.user = plan.user || { walls: [], beams: [], cols: [] };
+        plan.user = plan.user || { walls: [], beams: [], cols: [], opens: [] };
         list.forEach(function (e) {
           if (e.kind === "column") {
             var c = place(e.c), w = e.w / 2, h = e.h / 2;
@@ -107,6 +107,7 @@
             return;
           }
           var a = place(e.a), z = place(e.b);
+          if (e.kind === "opening") { plan.user.opens.push([a[0], a[1], z[0], z[1], e.t || 0.2, e.h || 2.1]); return; }
           var dx = z[0] - a[0], dy = z[1] - a[1], len = Math.hypot(dx, dy) || 1;
           var ux = dx / len, uy = dy / len, half = (e.kind === "beam" ? e.w : e.t) / 2;
           if (e.op === "add") {
@@ -150,6 +151,15 @@
       var keep = inner.getState();
       inner.dispose();
       options = Object.assign({}, options, { edits: edits });
+      inner = mountOnce(container, model, options);
+      inner.restore(keep);
+    };
+    // the drawings were read again (lines erased or brought back): the new model, same view
+    outer.setModel = function (next) {
+      if (!next || !next.buildings || !next.buildings.length) return;
+      var keep = inner.getState();
+      inner.dispose();
+      model = next;
       inner = mountOnce(container, model, options);
       inner.restore(keep);
     };
@@ -248,8 +258,18 @@
                          corners[2][0], top - t - BEAM_DEPTH, -corners[2][1], corners[0][0], top - t - BEAM_DEPTH, -corners[0][1],
                          corners[2][0], top - t - BEAM_DEPTH, -corners[2][1], corners[3][0], top - t - BEAM_DEPTH, -corners[3][1]);
         });
+        // openings people cut into a wall: a box a little thicker than the wall, so it shows through
+        var userOpens = [];
+        (user.opens || []).forEach(function (o) {
+          var dx = o[2] - o[0], dy = o[3] - o[1], len = Math.hypot(dx, dy) || 1, h = (o[4] || 0.2) / 2 + 0.03;
+          var nx = -dy / len * h, ny = dx / len * h, y0 = level.elev, y1 = Math.min(level.elev + (o[5] || 2.1), top - t);
+          var c = [[o[0] + nx, o[1] + ny], [o[2] + nx, o[3] + ny], [o[2] - nx, o[3] - ny], [o[0] - nx, o[1] - ny]];
+          for (var i = 0; i < 4; i++) addQuad(userOpens, c[i][0], -c[i][1], c[(i + 1) % 4][0], -c[(i + 1) % 4][1], y0, y1);
+          userOpens.push(c[0][0], y1, -c[0][1], c[1][0], y1, -c[1][1], c[2][0], y1, -c[2][1], c[0][0], y1, -c[0][1], c[2][0], y1, -c[2][1], c[3][0], y1, -c[3][1]);
+        });
         var levelGroup = new THREE.Group();
         var massMeshes = [];
+        if (userOpens.length) massMeshes.push(kind(mesh(THREE, userOpens, COLOR.opening, 0.55), "wall"));
         if (userWalls.length) massMeshes.push(kind(mesh(THREE, userWalls, COLOR.user, 0.95), "wall"));
         if (userBeams.length) massMeshes.push(kind(mesh(THREE, userBeams, COLOR.user, 0.95), "beam"));
         function kind(m, k) { m.userData.kind = k; return m; }
@@ -270,7 +290,9 @@
         if (beams.length) massMeshes.push(kind(mesh(THREE, beams, COLOR.beam, 0.9), "beam"));
         massMeshes.forEach(function (m) { levelGroup.add(m); });
         group.add(levelGroup);
-        entry.levels.push({ index: index, data: level, plan: plan, top: above, group: levelGroup, mass: massMeshes, rebar: null, form: null });
+        var lvEntry = { index: index, data: level, plan: plan, top: above, group: levelGroup, mass: massMeshes, rebar: null, form: null };
+        levelGroup.userData.fixRef = { entry: entry, lv: lvEntry };
+        entry.levels.push(lvEntry);
       });
       buildings.push(entry);
     });
@@ -864,6 +886,7 @@
         '<div class="q3d-bar q3d-tools">' +
           '<button type="button" data-tool="section">단면</button><button type="button" data-tool="box">단면 상자</button>' +
           '<button type="button" data-tool="kinds">부재</button><button type="button" data-tool="measure">측정</button>' +
+          (options.onEdit ? '<button type="button" data-tool="fix">고치기</button>' : '') +
           '<button type="button" data-tool="fit">맞춤</button><button type="button" data-tool="shot">저장</button>' +
         '</div>' +
         '<div class="q3d-panel" data-panel="section" hidden>' + ["x", "z", "y"].map(function (a) {
@@ -876,6 +899,15 @@
         '<div class="q3d-panel" data-panel="kinds" hidden>' + [["wall", "벽"], ["col", "기둥"], ["beam", "보"], ["slab", "슬래브"]].map(function (k) {
           return '<label><input type="checkbox" data-kind="' + k[0] + '" checked> ' + k[1] + '</label>';
         }).join("") + '</div>' +
+        (options.onEdit ? '<div class="q3d-panel q3d-fix" data-panel="fix" hidden><div class="q3d-row">' +
+          [["pick", "부재 고르기"], ["wall", "벽 그리기"], ["beam", "보 그리기"], ["opening", "개구부"], ["mark", "표시·AI"]].map(function (m) {
+            return '<button type="button" data-fix-mode="' + m[0] + '"' + (m[0] === "pick" ? ' class="is-on"' : '') + '>' + m[1] + '</button>';
+          }).join("") + '</div><div class="q3d-row q3d-sizes">' +
+          '<label>벽<input type="number" data-fix-size="wall" value="200" step="10">mm</label>' +
+          '<label>보<input type="number" data-fix-size="beamW" value="400" step="10">×<input type="number" data-fix-size="beamD" value="600" step="10">mm</label>' +
+          '<label>개구부 높이<input type="number" data-fix-size="openH" value="2100" step="50">mm</label></div>' +
+          '<div class="q3d-picked" data-fix-picked hidden></div>' +
+          '<p class="q3d-note">고친 것은 2D에서 고친 것과 같이 그 층 수량·철근에 들어가요. 그리기는 위에서 동·층을 고른 뒤에 해요.</p></div>' : '') +
         '<div class="q3d-status"></div>' +
         '<div class="q3d-sheet" hidden><header><b></b><button type="button" data-close>닫기</button></header><div class="q3d-sheet-body"></div></div>';
       container.appendChild(ui);
@@ -907,13 +939,32 @@
           link.click();
           return;
         }
+        if (tool === "fix") {
+          fix.on = !fix.on;
+          t.classList.toggle("is-on", fix.on);
+          var panelFix = ui.querySelector('[data-panel="fix"]');
+          if (panelFix) panelFix.hidden = !fix.on;
+          if (fix.on) {
+            measure.on = false;
+            clearMeasure();
+            var mb = ui.querySelector('[data-tool="measure"]');
+            if (mb) mb.classList.remove("is-on");
+            setFixMode(fix.mode);
+          } else { clearFix(); status(""); }
+          render();
+          return;
+        }
+        if (t.hasAttribute("data-fix-mode")) { clearFix(); setFixMode(t.getAttribute("data-fix-mode")); render(); return; }
+        if (t.hasAttribute("data-fix-act")) { pickedAction(t.getAttribute("data-fix-act")); render(); return; }
         if (tool === "measure") {
+          if (fix.on) { fix.on = false; clearFix(); var fb = ui.querySelector('[data-tool="fix"]'); if (fb) fb.classList.remove("is-on"); var fp = ui.querySelector('[data-panel="fix"]'); if (fp) fp.hidden = true; }
           measure.on = !measure.on;
           t.classList.toggle("is-on", measure.on);
           if (!measure.on) { clearMeasure(); status(""); render(); } else { status("첫 번째 점을 누르세요"); }
           return;
         }
         if (tool) {
+          if (fix.on) { fix.on = false; clearFix(); status(""); render(); }
           ui.querySelectorAll("[data-panel]").forEach(function (p) {
             var open = p.getAttribute("data-panel") === tool && p.hidden;
             p.hidden = !open;
@@ -931,6 +982,10 @@
         if (t.hasAttribute("data-cut")) { var a = t.getAttribute("data-cut"); section[a].value = Number(t.value); if (section[a].on) later(); }
         else if (t.hasAttribute("data-boxlo")) { sbox[t.getAttribute("data-boxlo")][0] = Number(t.value); if (sbox.on) later(); }
         else if (t.hasAttribute("data-boxhi")) { sbox[t.getAttribute("data-boxhi")][1] = Number(t.value); if (sbox.on) later(); }
+        else if (t.hasAttribute("data-fix-size")) {
+          var mm = Number(t.value), key = t.getAttribute("data-fix-size");
+          if (mm >= (key === "openH" ? 300 : 50) && mm <= (key === "openH" ? 6000 : 3000)) fix.sizes[key] = mm / 1000;
+        }
       });
       ui.addEventListener("change", function (e) {
         var t = e.target;
@@ -1002,10 +1057,271 @@
       body.addEventListener("dblclick", function () { sheetView = { s: 1, x: 0, y: 0 }; sheetTransform(); });
     }
 
+    // ── fixing in 3D: pick a member (take it out, cut an opening, fix it in 2D) or draw a wall or a
+    // beam on the chosen storey. Kept as the same fixes as the 2D editor, in the sheet's own metres:
+    // a point in 3D goes back through the building's placing and the plan's move onto the site. ──
+    var fix = { on: false, mode: "pick", picked: null, first: null, marks: new THREE.Group(),
+                sizes: { wall: 0.2, beamW: 0.4, beamD: 0.6, openH: 2.1 } };
+    scene.add(fix.marks);
+    function hitAt(clientX, clientY, skipSlab) {
+      var rect = el.getBoundingClientRect();
+      var ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+      raycaster.setFromCamera(ndc, camera);
+      var targets = [];
+      scene.traverse(function (o) {
+        if (o.isMesh && shown(o) && o.parent !== measure.marks && o.parent !== fix.marks && !(skipSlab && o.userData.kind === "slab")) targets.push(o);
+      });
+      var hits = raycaster.intersectObjects(targets, false);
+      for (var i = 0; i < hits.length; i++) {
+        if (clipPlanes.every(function (pl) { return pl.distanceToPoint(hits[i].point) >= -0.01; })) return hits[i];
+      }
+      return null;
+    }
+    function refOf(object) {
+      for (var o = object; o; o = o.parent) if (o.userData && o.userData.fixRef) return o.userData.fixRef;
+      return null;
+    }
+    function toPlaced(entry, world) { var p = entry.group.worldToLocal(world.clone()); return [p.x, -p.z, p.y]; }
+    function toWorld(entry, q, y) { return entry.group.localToWorld(new THREE.Vector3(q[0], y, -q[1])); }
+    function toSheet(plan, q) {
+      var m = (plan && plan.moved) || { turn: 0, dx: 0, dy: 0 }, x = q[0] - (m.dx || 0), y = q[1] - (m.dy || 0);
+      for (var k = 0; k < (m.turn || 0) % 4; k++) { var t = x; x = y; y = -t; }
+      return [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000];
+    }
+    function sheetSize(plan, w, h) { return ((plan && plan.moved && plan.moved.turn) || 0) % 2 ? [h, w] : [w, h]; }
+    function segDist(s, q) {
+      var dx = s[2] - s[0], dy = s[3] - s[1], len2 = dx * dx + dy * dy || 1e-9;
+      var t = Math.max(0, Math.min(1, ((q[0] - s[0]) * dx + (q[1] - s[1]) * dy) / len2));
+      return Math.hypot(q[0] - s[0] - dx * t, q[1] - s[1] - dy * t);
+    }
+    // the member strip along a face line: the parallel face 5 cm to 1.3 m away gives the width
+    function strip(lines, q, maxGap) {
+      var best = null;
+      lines.forEach(function (s) { var d = segDist(s, q); if (d < 1.0 && (!best || d < best.d)) best = { s: s, d: d }; });
+      if (!best) return null;
+      var s = best.s, dx = s[2] - s[0], dy = s[3] - s[1], len = Math.hypot(dx, dy);
+      if (len < 0.05) return null;
+      var ux = dx / len, uy = dy / len, pair = null;
+      lines.forEach(function (o) {
+        if (o === s) return;
+        var ox = o[2] - o[0], oy = o[3] - o[1], ol = Math.hypot(ox, oy);
+        if (ol < 0.05 || Math.abs(ux * oy / ol - uy * ox / ol) > 0.03) return;
+        var side = (o[0] - s[0]) * uy - (o[1] - s[1]) * ux, gap = Math.abs(side);
+        if (gap < 0.05 || gap > (maxGap || 1.3)) return;
+        var t0 = (o[0] - s[0]) * ux + (o[1] - s[1]) * uy, t1 = (o[2] - s[0]) * ux + (o[3] - s[1]) * uy;
+        var lo = Math.max(0, Math.min(t0, t1)), hi = Math.min(len, Math.max(t0, t1));
+        if (hi - lo < 0.05) return;
+        var dq = Math.abs((q[0] - s[0]) * uy - (q[1] - s[1]) * ux - side / 2);  // the strip under the point first
+        if (!pair || dq < pair.dq || (Math.abs(dq - pair.dq) < 0.01 && gap < pair.gap)) pair = { side: side, gap: gap, lo: lo, hi: hi, dq: dq };
+      });
+      var lo = pair ? pair.lo : 0, hi = pair ? pair.hi : len, half = pair ? pair.side / 2 : 0, nx = uy, ny = -ux;
+      return { a: [s[0] + ux * lo + nx * half, s[1] + uy * lo + ny * half], b: [s[0] + ux * hi + nx * half, s[1] + uy * hi + ny * half],
+               width: pair ? Math.round(pair.gap * 1000) / 1000 : null };
+    }
+    function onLine(st, q) {
+      var dx = st.b[0] - st.a[0], dy = st.b[1] - st.a[1], len2 = dx * dx + dy * dy || 1e-9;
+      var t = ((q[0] - st.a[0]) * dx + (q[1] - st.a[1]) * dy) / len2;
+      return [st.a[0] + dx * t, st.a[1] + dy * t];
+    }
+    function markStrip(entry, a, b, width, y0, y1, color) {
+      var dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1, h = (width || 0.2) / 2 + 0.03;
+      var nx = -dy / len * h, ny = dx / len * h, c = [[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]];
+      var pts = [];
+      [y0, y1].forEach(function (y) { for (var i = 0; i < 4; i++) { var p0 = toWorld(entry, c[i], y), p1 = toWorld(entry, c[(i + 1) % 4], y); pts.push(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z); } });
+      for (var i = 0; i < 4; i++) { var u = toWorld(entry, c[i], y0), v = toWorld(entry, c[i], y1); pts.push(u.x, u.y, u.z, v.x, v.y, v.z); }
+      fix.marks.add(lines(THREE, pts, color || 0xffffff, 1));
+    }
+    function clearFix() {
+      fix.picked = null;
+      fix.first = null;
+      while (fix.marks.children.length) fix.marks.remove(fix.marks.children[0]);
+      showPicked();
+    }
+    function chosenLevel() {
+      var b = buildings.filter(function (x) { return x.name === state.building; })[0];
+      return b && state.level != null ? { entry: b, lv: b.levels[state.level] } : null;
+    }
+    function storeyFloor(ref, clientX, clientY, y) {
+      var rect = el.getBoundingClientRect();
+      var ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+      raycaster.setFromCamera(ndc, camera);
+      var plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(ref.entry.group.position.y + y));
+      var out = new THREE.Vector3();
+      return raycaster.ray.intersectPlane(plane, out) ? out : null;
+    }
+    function snapPlaced(plan, q) {
+      var best = null;
+      ((plan && plan.walls) || []).forEach(function (w) {
+        [[w[0], w[1]], [w[2], w[3]]].forEach(function (p) { var d = Math.hypot(p[0] - q[0], p[1] - q[1]); if (d < 0.25 && (!best || d < best.d)) best = { p: p, d: d }; });
+      });
+      return best ? [best.p[0], best.p[1], q[2]] : q;
+    }
+    function send(edit, text) {
+      // a typical-floor plan is used by many storeys: the fix goes into every one of them
+      var used = [];
+      buildings.forEach(function (b) {
+        b.levels.forEach(function (lv) {
+          var plan = edit.kind === "beam" ? lv.top && lv.top.beams : lv.plan;
+          if (plan && plan.id === edit.plan) used.push(b.name + " " + lv.data.label);
+        });
+      });
+      status(text + (used.length > 1 ? " 이 평면을 쓰는 " + used[0] + "~" + used[used.length - 1].split(" ").pop() + " (" + used.length + "개 층) 모두에 들어가요." : ""));
+      if (options.onEdit) options.onEdit(edit);
+    }
+    // which member lies nearest a point of a storey (walls and columns of its plan, beams of the plan above)
+    function nearestKind(lv, q, wallsOnly) {
+      var best = null;
+      function consider(kind, d) { if (d < 0.8 && (!best || d < best.d)) best = { kind: kind, d: d }; }
+      ((lv.plan.walls || []).concat((lv.plan.user || {}).walls || [])).forEach(function (s) { consider("wall", segDist(s, q)); });
+      if (wallsOnly) return best && best.kind;
+      (lv.plan.cols || []).forEach(function (c) {
+        var xs = c.map(function (p) { return p[0]; }), ys = c.map(function (p) { return p[1]; });
+        var inside = q[0] >= Math.min.apply(null, xs) && q[0] <= Math.max.apply(null, xs) && q[1] >= Math.min.apply(null, ys) && q[1] <= Math.max.apply(null, ys);
+        if (inside) consider("col", 0);
+      });
+      ((lv.top && lv.top.beams && lv.top.beams.beams) || []).forEach(function (s) { consider("beam", segDist(s, q) + 0.05); });
+      return best && best.kind;
+    }
+    function onFixClick(e) {
+      var mode = fix.mode;
+      if (mode === "wall" || mode === "beam") {
+        var ref = chosenLevel();
+        if (!ref) { status("위에서 동과 층을 먼저 고르세요. 그 층 바닥에 그려요."); return; }
+        var level = ref.lv.data, plan = mode === "beam" ? ref.lv.top && ref.lv.top.beams : ref.lv.plan;
+        if (!plan || !plan.id) { status(mode === "beam" ? "이 층 위에 슬래브 평면이 없어 보를 넣을 수 없어요." : "이 층 평면을 찾지 못했어요."); return; }
+        var y = mode === "beam" ? level.elev + level.height - 0.3 : level.elev;
+        var w = storeyFloor(ref, e.clientX, e.clientY, y);
+        if (!w) { status("층 바닥 위를 눌러 주세요."); return; }
+        var q = snapPlaced(ref.lv.plan, toPlaced(ref.entry, w));
+        if (!fix.first) {
+          fix.first = { q: q, ref: ref };
+          markStrip(ref.entry, [q[0] - 0.05, q[1]], [q[0] + 0.05, q[1]], 0.1, y, y + 0.3, 0x22d3ee);
+          render();
+          status((mode === "wall" ? "벽" : "보") + " 끝점을 누르세요.");
+          return;
+        }
+        var a = fix.first.q;
+        clearFix();
+        if (Math.hypot(q[0] - a[0], q[1] - a[1]) < 0.05) { status("두 점이 너무 가까워요."); return; }
+        var edit = { plan: plan.id, op: "add", kind: mode, a: toSheet(plan, a), b: toSheet(plan, q) };
+        if (mode === "wall") edit.t = fix.sizes.wall; else { edit.w = fix.sizes.beamW; edit.d = fix.sizes.beamD; }
+        send(edit, (mode === "wall" ? "벽" : "보") + " " + Math.hypot(q[0] - a[0], q[1] - a[1]).toFixed(2) + "m를 넣었어요.");
+        return;
+      }
+      // a chosen storey: the point at mid-height under the pointer (works from straight above, where
+      // a ray runs along the wall faces); else the member the ray meets, through the slabs
+      var ref2 = chosenLevel(), kind = null, placed = null;
+      if (ref2) {
+        var mid = storeyFloor(ref2, e.clientX, e.clientY, ref2.lv.data.elev + ref2.lv.data.height / 2);
+        if (mid) placed = toPlaced(ref2.entry, mid);
+      } else {
+        var hit = hitAt(e.clientX, e.clientY, true);
+        ref2 = hit && refOf(hit.object);
+        if (hit && ref2) { kind = hit.object.userData.kind; placed = toPlaced(ref2.entry, hit.point); }
+      }
+      if (!ref2 || !placed) { status("모델 위를 눌러 주세요."); return; }
+      var lv = ref2.lv, lvData = lv.data;
+      if (mode === "mark") {  // mark it on the plan, where the AI can be asked about it
+        if (options.onFix2d) options.onFix2d({ building: ref2.entry.name, level: lv.index, point: toSheet(lv.plan, placed), tool: "mark" });
+        return;
+      }
+      if (!kind || mode === "opening") kind = nearestKind(lv, placed, mode === "opening");
+      if (!kind) { status("가까운 벽·보·기둥이 없어요. 부재 위를 눌러 주세요."); return; }
+      if (mode === "opening") {
+        if (kind !== "wall") { status("개구부는 벽 위를 눌러요."); return; }
+        if (!fix.first) {
+          var wall = strip(((lv.plan.walls || []).concat((lv.plan.user || {}).walls || [])), placed);
+          if (!wall) { status("벽을 찾지 못했어요. 벽 면 위를 눌러 주세요."); return; }
+          fix.first = { wall: wall, q: onLine(wall, placed), ref: ref2 };
+          markStrip(ref2.entry, wall.a, wall.b, wall.width, lvData.elev, lvData.elev + lvData.height, 0xc084fc);
+          render();
+          status("개구부 끝점을 같은 벽 위에서 누르세요 (벽 두께 " + Math.round((wall.width || fix.sizes.wall) * 1000) + "mm).");
+          return;
+        }
+        var first = fix.first;
+        clearFix();
+        if (first.ref.lv !== lv) { status("같은 층의 같은 벽 위를 눌러 주세요."); return; }
+        var b2 = onLine(first.wall, placed);
+        if (Math.hypot(b2[0] - first.q[0], b2[1] - first.q[1]) < 0.1) { status("개구부가 너무 좁아요."); return; }
+        send({ plan: lv.plan.id, op: "add", kind: "opening", a: toSheet(lv.plan, first.q), b: toSheet(lv.plan, b2),
+               t: first.wall.width || fix.sizes.wall, h: fix.sizes.openH },
+             "개구부 " + Math.hypot(b2[0] - first.q[0], b2[1] - first.q[1]).toFixed(2) + "m × " + fix.sizes.openH.toFixed(2) + "m를 냈어요.");
+        return;
+      }
+      // pick: what is under the pointer
+      clearFix();
+      var picked = null;
+      if (kind === "wall") {
+        var st = strip(lv.plan.walls || [], placed);
+        if (st) picked = { kind: "wall", plan: lv.plan, a: st.a, b: st.b, t: st.width || fix.sizes.wall };
+      } else if (kind === "beam") {
+        var bp = lv.top && lv.top.beams, sb = bp && strip(bp.beams || [], placed);
+        if (sb) picked = { kind: "beam", plan: bp, a: sb.a, b: sb.b, w: sb.width || fix.sizes.beamW };
+      } else if (kind === "col") {
+        var bestCol = null;
+        (lv.plan.cols || []).forEach(function (c) {
+          var xs = c.map(function (p) { return p[0]; }), ys = c.map(function (p) { return p[1]; });
+          var cx = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2, cy = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+          var d = Math.hypot(cx - placed[0], cy - placed[1]);
+          if (d < 1.5 && (!bestCol || d < bestCol.d)) bestCol = { d: d, c: [cx, cy], w: Math.max.apply(null, xs) - Math.min.apply(null, xs), h: Math.max.apply(null, ys) - Math.min.apply(null, ys) };
+        });
+        if (bestCol) picked = { kind: "column", plan: lv.plan, c: bestCol.c, w: bestCol.w, h: bestCol.h };
+      }
+      if (!picked) { status(kind === "slab" ? "슬래브는 2D에서 고쳐요. 벽·보·기둥을 눌러 주세요." : "부재를 찾지 못했어요."); return; }
+      picked.ref = ref2;
+      picked.point = toSheet(lv.plan, placed);
+      fix.picked = picked;
+      var y0 = picked.kind === "beam" ? lvData.elev + lvData.height - 0.75 : lvData.elev, y1 = lvData.elev + lvData.height;
+      if (picked.kind === "column") markStrip(ref2.entry, [picked.c[0] - picked.w / 2, picked.c[1]], [picked.c[0] + picked.w / 2, picked.c[1]], picked.h, y0, y1);
+      else markStrip(ref2.entry, picked.a, picked.b, picked.t || picked.w, y0, y1);
+      render();
+      showPicked();
+    }
+    function showPicked() {
+      var box = ui && ui.querySelector("[data-fix-picked]");
+      if (!box) return;
+      var p = fix.picked;
+      if (!p) { box.hidden = true; return; }
+      var name = { wall: "벽", beam: "보", column: "기둥" }[p.kind];
+      var size = p.kind === "column" ? Math.round(p.w * 1000) + "×" + Math.round(p.h * 1000) + "mm" :
+        Math.hypot(p.b[0] - p.a[0], p.b[1] - p.a[1]).toFixed(2) + "m · " + (p.kind === "wall" ? "두께 " + Math.round(p.t * 1000) : "폭 " + Math.round(p.w * 1000)) + "mm";
+      box.hidden = false;
+      box.innerHTML = '<b>' + escapeXml(p.ref.entry.name + " " + p.ref.lv.data.label) + ' · ' + name + '</b> <span>' + size + '</span>' +
+        '<div class="q3d-row"><button type="button" data-fix-act="remove">이 ' + name + ' 빼기</button>' +
+        (p.kind === "wall" ? '<button type="button" data-fix-act="opening">이 벽에 개구부</button>' : '') +
+        '<button type="button" data-fix-act="2d">2D에서 이 자리</button></div>';
+    }
+    function pickedAction(act) {
+      var p = fix.picked;
+      if (!p) return;
+      if (act === "2d") { if (options.onFix2d) options.onFix2d({ building: p.ref.entry.name, level: p.ref.lv.index, point: p.point }); return; }
+      if (act === "opening") { setFixMode("opening"); status("개구부 시작점을 이 벽 위에서 누르세요."); return; }
+      var edit = { plan: p.plan.id, op: "remove", kind: p.kind };
+      if (p.kind === "column") {
+        var size = sheetSize(p.plan, p.w, p.h);
+        Object.assign(edit, { c: toSheet(p.plan, p.c), w: Math.max(size[0], 0.05), h: Math.max(size[1], 0.05) });
+      } else {
+        Object.assign(edit, { a: toSheet(p.plan, p.a), b: toSheet(p.plan, p.b) });
+        if (p.kind === "wall") edit.t = p.t; else { edit.w = p.w; edit.d = fix.sizes.beamD; }
+      }
+      clearFix();
+      send(edit, { wall: "벽", beam: "보", column: "기둥" }[edit.kind] + "을(를) 뺐어요 (수량에서 빠져요).");
+    }
+    function setFixMode(mode) {
+      fix.mode = mode;
+      fix.first = null;
+      ui.querySelectorAll("[data-fix-mode]").forEach(function (b) { b.classList.toggle("is-on", b.getAttribute("data-fix-mode") === mode); });
+      status({ pick: "고칠 벽·보·기둥을 누르세요.", wall: "벽 그리기: 위에서 고른 층 바닥에 시작점과 끝점을 누르세요.",
+               beam: "보 그리기: 위에서 고른 층 위 슬래브 밑에 시작점과 끝점을 누르세요.", opening: "개구부: 벽 위에서 시작점과 끝점을 누르세요.",
+               mark: "표시·AI: 이상한 곳을 누르면 그 자리 평면이 열려요. 동그라미로 감싸고 적으면 AI가 고칠 안을 내요." }[mode]);
+    }
+
     var down = null;
     el.addEventListener("pointerdown", function (e) { down = { x: e.clientX, y: e.clientY }; });
     el.addEventListener("pointerup", function (e) {
-      if (!measure.on || !down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
+      if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
+      if (fix.on) { onFixClick(e); return; }
+      if (!measure.on) return;
       var p = pick(e.clientX, e.clientY);
       if (p) addMeasurePoint(p); else status("모델 위를 눌러 주세요");
     });
@@ -1084,7 +1400,8 @@
       getState: function () {
         return { mode: state.mode, building: state.building, level: state.level, kinds: Object.assign({}, state.kinds), rebarSpec: state.rebarSpec,
                  orbit: { theta: orbit.theta, phi: orbit.phi, radius: orbit.radius, target: orbit.target.toArray() },
-                 ortho: camera === orthographic };
+                 ortho: camera === orthographic,
+                 fix: { on: fix.on, mode: fix.mode, sizes: Object.assign({}, fix.sizes), said: statusEl ? statusEl.textContent : "" } };
       },
       restore: function (keep) {
         if (!keep) return;
@@ -1095,6 +1412,16 @@
         orbit.target.fromArray(keep.orbit.target);
         camera = keep.ortho ? orthographic : perspective;
         if (ui) ui.querySelectorAll("[data-kind]").forEach(function (box) { box.checked = state.kinds[box.getAttribute("data-kind")] !== false; });
+        // fixing goes on where it was (the model is drawn again after every fix)
+        if (keep.fix && keep.fix.on && ui && ui.querySelector('[data-tool="fix"]')) {
+          fix.sizes = Object.assign(fix.sizes, keep.fix.sizes || {});
+          ui.querySelectorAll("[data-fix-size]").forEach(function (input) { input.value = Math.round(fix.sizes[input.getAttribute("data-fix-size")] * 1000); });
+          fix.on = true;
+          ui.querySelector('[data-tool="fix"]').classList.add("is-on");
+          ui.querySelector('[data-panel="fix"]').hidden = false;
+          setFixMode(keep.fix.mode || "pick");
+          if (keep.fix.said) status(keep.fix.said);
+        }
         apply(); place(); render();
       },
       dispose: function () {

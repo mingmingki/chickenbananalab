@@ -36,6 +36,7 @@ NAME_MIN_SHARE = 0.8         # ... agreeing this much
 WORD_MIN_VOTES = 3           # a word in layer names is a hint after this many votes ...
 WORD_MIN_SHARE = 0.75        # ... this much for one role
 MAX_EVENTS_READ = 20000
+LAYER_KINDS = ("confirm", "correct", "check")  # events whose payload is {layer name: role}
 SEED_PATH = os.path.join(os.path.dirname(__file__), "data", "quantity_brain_seed.json")
 
 
@@ -97,6 +98,13 @@ class Brain:
                       (time.time(), str(owner or ""), str(job or "")[:200], "value",
                        json.dumps({"name": str(name)[:60], "value": float(value)})))
 
+    def remember(self, kind, payload, owner=None, job=None):
+        """Keep another kind of answer for later learning (e.g. kind "ask": a question about a marked
+        spot of a plan, what the AI proposed and what the person accepted). Not read as layer roles."""
+        with self.connection() as c:
+            c.execute("INSERT INTO event (at, owner, job, kind, payload) VALUES (?,?,?,?,?)",
+                      (time.time(), str(owner or ""), str(job or "")[:200], str(kind)[:20], json.dumps(payload, ensure_ascii=False)[:20000]))
+
     def _events(self):
         with self.connection() as c:
             rows = c.execute("SELECT job, kind, payload FROM event ORDER BY id DESC LIMIT ?", (MAX_EVENTS_READ,)).fetchall()
@@ -106,7 +114,7 @@ class Brain:
         """The latest answer per layer name given in one job (applied to that job as they are)."""
         latest = {}
         for event_job, kind, payload in self._events():  # newest first
-            if event_job != job or kind == "value":
+            if event_job != job or kind not in LAYER_KINDS:
                 continue
             for name, role in payload.items():
                 latest.setdefault(name, role)
@@ -121,6 +129,8 @@ class Brain:
         for job, kind, payload in self._events() + (seed_events(self.seed) if self.seed else []):  # newest first, the seed last
             if kind == "value":
                 per_job_values[job].setdefault(payload.get("name"), payload.get("value"))
+                continue
+            if kind not in LAYER_KINDS:
                 continue
             if exclude_job and job == exclude_job:
                 continue
