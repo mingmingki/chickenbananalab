@@ -631,7 +631,7 @@ export class World {
     lifeEvent(this, a, `${name} 입학`, stage.key === 'univ' ? '🏫' : '🎒');
     remember(this, a, `${name}에 입학했다`, 6, 0.6, [], 'school');
     think(this, a, stage.key === 'elem' ? pick(['학교는 어떤 곳일까? 두근두근.', '친구를 많이 사귀고 싶다!', '선생님이 무서우면 어떡하지…']) : stage.key === 'univ' ? '대학생이 됐다. 하고 싶은 공부를 마음껏 해 보자.' : pick(['새 학교, 새 친구들.', '공부가 점점 어려워지겠지.']));
-    for (const pid of a.parents) { const p = this.anns.get(pid); if (p?.alive) { remember(this, p, `${ga(a.name)} ${name}에 들어갔다`, 5, 0.6, [a.id], 'family'); if (chance(0.5)) think(this, p, `${a.name}${a.name ? '' : ''}, 학교 잘 다녀오렴.`); } }
+    for (const pid of a.parents) { const p = this.anns.get(pid); if (p?.alive) { remember(this, p, `${ga(a.name)} ${name}에 들어갔다`, 5, 0.6, [a.id], 'family'); if (chance(0.5)) think(this, p, `${a.name}, 학교 잘 다녀오렴.`); } }
     this.first(c, 'student:' + stage.key, `첫 ${stage.name} 학생 ${a.name}`, '🎒');
     this.dirtyAnnMeta.add(a.id);
   }
@@ -795,7 +795,7 @@ export class World {
     }
     // 목표 진척
     for (const g of a.goals) {
-      if (g.done) continue;
+      if (g.done || age < 16) continue;
       if (g.k === 'wealth' && a.money > wageBase(c.era) * 250) this.achieveGoal(a, g);
       if (g.k === 'family' && a.spouse && a.kids.length >= 2) this.achieveGoal(a, g);
       if (g.k === 'community' && Object.values(a.rels).filter(r => r.k === 'friend' || r.k === 'best').length >= 6) this.achieveGoal(a, g);

@@ -91,7 +91,11 @@ E('water_play', [5, 15], 0.02, c => c.waters.length && c.season === '여름', c 
   if (chance(0.08)) { c.life(`${pl}에서 물놀이하다 물에 빠질 뻔했다 — ${b ? b.name + '이(가) 구해 주었다' : '겨우 헤엄쳐 나왔다'}`, '🌊'); c.feel(-10, '공포', '물'); if (b) { c.bond(b, 25, 8); c.other(b, `물에 빠진 ${reul(c.a.name)} 구했다`, 7, 0.8); } }
   else { c.mem(`${b ? b.name + '와(과) ' : ''}${pl}에서 신나게 물놀이를 했다`, 3, 0.7, b ? [b.id] : []); c.fun(30); if (b) c.bond(b, 4, 4); }
 }, 10);
-E('kid_fishing', [6, 15], 0.015, c => c.waters.length, c => { const f = pick(FISH); const pl = pick(PLACES_N[pick(c.waters)]); c.mem(`${pl}에서 ${reul(f)} 잡았다`, 3, 0.6); c.sk('farming', 1.5); c.s.food += 1; if (chance(0.3)) c.life(`${pl}에서 처음으로 ${reul(f)} 잡았다`, '🐟'); }, 25);
+E('kid_fishing', [6, 15], 0.015, c => c.waters.length, c => {
+  const f = pick(FISH); const pl = pick(PLACES_N[pick(c.waters)]); c.sk('farming', 1.5); c.s.food += 1;
+  if (!c.a.flags?.firstFish) { c.a.flags = { ...(c.a.flags || {}), firstFish: 1 }; c.life(`${pl}에서 처음으로 ${reul(f)} 잡았다`, '🐟'); }
+  else c.mem(`${pl}에서 ${reul(f)} 잡았다`, 3, 0.6);
+}, 25);
 E('lost_mountain', [6, 14], 0.002, c => c.feat.mountain || true, c => { c.life(`${pick(PLACES_N.mountain)}에서 길을 잃었다가 해가 진 뒤에야 겨우 집을 찾았다`, '🌲'); c.feel(-12, '공포', '산'); const p = c.parent(); if (p) { think(c.w, p, '애가 탄다는 게 이런 거구나.'); c.bond(p, 6, 3); } }, ONCE);
 E('bugs', [5, 12], 0.015, c => c.season === '여름', c => { const bug = pick(['잠자리', '매미', '반딧불이', '사슴벌레', '나비']); c.mem(`${reul(bug)} 잡으러 뛰어다녔다`, 2, 0.5); c.fun(20); }, 12);
 E('snowman', [4, 14], 0.04, c => c.wk === '눈' || c.wk === '폭설', c => { const b = c.peer(3); c.mem(`${b ? b.name + '와(과) ' : ''}눈사람을 만들고 눈싸움을 했다`, 3, 0.7, b ? [b.id] : []); if (b) c.bond(b, 5, 4); c.fun(30); }, 20);
@@ -118,7 +122,9 @@ E('lost_tooth', [5.5, 8], 0.02, null, c => { c.life('처음으로 이가 빠졌�
 E('talent', [6, 16], 0.006, null, c => {
   const a = c.a; const best = [['ath', '마을 달리기 시합에서 1등을 했다', '🏃'], ['cre', '그린 그림을 보고 어른들이 깜짝 놀랐다', '🎨'], ['int', '어른들도 못 푸는 문제를 풀어 칭찬받았다', '🧮'], ['cha', '노래를 불러 마을 사람들의 박수를 받았다', '🎤']].sort((x, y) => a.ab[y[0]] - a.ab[x[0]])[0];
   if (a.ab[best[0]] < 62) return;
-  c.life(best[1], best[2]); a.conf = clamp(a.conf + 8); a.rep = clamp(a.rep + 3, -100, 100); c.feel(15, '뿌듯함', '재능');
+  a.flags = a.flags || {};
+  if (!a.flags['talent_' + best[0]]) { a.flags['talent_' + best[0]] = 1; c.life(best[1], best[2]); } else c.mem(best[1], 4, 0.7);
+  a.conf = clamp(a.conf + 8); a.rep = clamp(a.rep + 3, -100, 100); c.feel(15, '뿌듯함', '재능');
 }, 200);
 E('grand_story', [4, 14], 0.01, c => c.a.parents.some(pid => (c.w.anns.get(pid)?.parents || []).some(g => c.w.anns.get(g)?.alive)), c => {
   const g = c.a.parents.flatMap(pid => c.w.anns.get(pid)?.parents || []).map(id => c.w.anns.get(id)).find(x => x?.alive);

@@ -9,12 +9,12 @@ export const SKILLS = {
 export const ERAS = [
   { id: 0, name: '원시 시대', tech: 0, leader: '족장', prod: 1.0, mort: 2.0, wage: 4, cityK: 1.0 },
   { id: 1, name: '농경 시대', tech: 600, leader: '촌장', prod: 1.35, mort: 1.7, wage: 6, cityK: 1.2 },
-  { id: 2, name: '고대 문명', tech: 4000, leader: '왕', prod: 1.8, mort: 1.45, wage: 10, cityK: 1.5 },
-  { id: 3, name: '중세', tech: 15000, leader: '국왕', prod: 2.4, mort: 1.3, wage: 16, cityK: 1.8 },
-  { id: 4, name: '산업 혁명', tech: 45000, leader: '총리', prod: 3.5, mort: 1.1, wage: 30, cityK: 2.3 },
-  { id: 5, name: '근대', tech: 120000, leader: '대통령', prod: 5, mort: 0.9, wage: 55, cityK: 3 },
-  { id: 6, name: '정보화 시대', tech: 280000, leader: '대통령', prod: 7, mort: 0.75, wage: 90, cityK: 4 },
-  { id: 7, name: '우주 시대', tech: 620000, leader: '대통령', prod: 10, mort: 0.6, wage: 140, cityK: 5 },
+  { id: 2, name: '고대 문명', tech: 6000, leader: '왕', prod: 1.8, mort: 1.45, wage: 10, cityK: 1.5 },
+  { id: 3, name: '중세', tech: 24000, leader: '국왕', prod: 2.4, mort: 1.3, wage: 16, cityK: 1.8 },
+  { id: 4, name: '산업 혁명', tech: 70000, leader: '총리', prod: 3.5, mort: 1.1, wage: 30, cityK: 2.3 },
+  { id: 5, name: '근대', tech: 190000, leader: '대통령', prod: 5, mort: 0.9, wage: 55, cityK: 3 },
+  { id: 6, name: '정보화 시대', tech: 440000, leader: '대통령', prod: 7, mort: 0.75, wage: 90, cityK: 4 },
+  { id: 7, name: '우주 시대', tech: 1000000, leader: '대통령', prod: 10, mort: 0.6, wage: 140, cityK: 5 },
 ];
 
 export const DISCOVERIES = [
