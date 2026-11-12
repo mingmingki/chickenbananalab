@@ -1,0 +1,26 @@
+{
+  "name": "the-earth",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Earth — 3D 지구 위에서 스스로 생각하고 살아가는 '앤'들의 문명 시뮬레이션",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "TIME_SCALE=600 node server/index.js",
+    "simulate": "node scripts/simulate.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "compression": "^1.8.2",
+    "d3-geo": "^3.1.2",
+    "express": "^4.22.3",
+    "i18n-iso-countries": "^7.14.0",
+    "three": "^0.170.0",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2",
+    "ws": "^8.22.2"
+  }
+}

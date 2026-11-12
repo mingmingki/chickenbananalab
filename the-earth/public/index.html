@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>The Earth</title>
+  <meta name="description" content="지구 위에서 스스로 생각하고 살아가는 앤들의 문명 시뮬레이션" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='28' fill='%230d3b66'/><path d='M14 26c6-8 14-6 18-2s10 4 14-2c3 6 2 16-4 22-4-6-10-4-14 0s-10 4-14-4c-2-4-2-10 0-14z' fill='%234caf50'/></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <script type="importmap">
+    { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <div id="scene"></div>
+  <div id="labels"></div>
+  <div id="flash"></div>
+
+  <!-- 인트로 -->
+  <section id="intro" class="screen">
+    <div class="intro-title">
+      <h1 class="logo"><span>THE</span> EARTH</h1>
+      <p class="tagline">스스로 생각하고, 사랑하고, 나라를 세우는 사람들 — <b>앤</b></p>
+      <div class="intro-buttons">
+        <button class="btn big primary" data-act="start">시작하기</button>
+        <button class="btn big" data-act="continue">이어하기</button>
+      </div>
+      <p class="intro-note">한 번 투입된 앤은 조종할 수 없습니다. 그저 지켜보세요.</p>
+    </div>
+    <div class="skip-hint">클릭하면 건너뜁니다</div>
+  </section>
+
+  <!-- 서버 선택 -->
+  <section id="servers" class="screen panel-screen hidden">
+    <div class="sheet">
+      <header class="sheet-head">
+        <button class="btn ghost back" data-act="back">← 처음으로</button>
+        <h2>서버 선택</h2>
+        <p class="sub">모든 서버는 <b>1년 1월 1일</b>에 시작합니다. 시간은 현실보다 <b>10배</b> 빠르게 흐릅니다 (현실 2시간 24분 = 게임 하루).</p>
+      </header>
+      <div id="server-list" class="server-list"></div>
+      <div class="sheet-foot">
+        <button class="btn" data-act="new-server">＋ 새 서버 열기</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 나라 선택 -->
+  <section id="country" class="screen hidden">
+    <div class="country-side">
+      <button class="btn ghost back" data-act="back">← 서버 목록</button>
+      <h2>나라 선택</h2>
+      <p class="sub">지구를 돌려 나라를 고르세요. 같은 나라를 고른 다른 플레이어의 앤들과 함께 살아가게 됩니다.</p>
+      <label class="field">
+        <span>플레이어 이름</span>
+        <input id="player-name" maxlength="20" placeholder="이름을 입력하세요" />
+      </label>
+      <input id="country-search" class="search" placeholder="나라 이름으로 찾기…" />
+      <div id="country-results" class="country-results"></div>
+      <div id="country-card" class="country-card hidden"></div>
+      <button id="country-confirm" class="btn primary big" disabled>이 나라에서 시작</button>
+    </div>
+    <div id="country-hover" class="hover-tip hidden"></div>
+  </section>
+
+  <!-- 앤 만들기 -->
+  <section id="creator" class="screen panel-screen hidden">
+    <div class="sheet wide">
+      <header class="sheet-head">
+        <button class="btn ghost back" data-act="back">← 나라 선택</button>
+        <h2>앤 만들기 <small id="creator-country"></small></h2>
+        <p class="sub">성격과 능력, 야망을 정해 주세요. 그 다음부터는 앤이 스스로 생각하고 선택합니다.</p>
+      </header>
+      <div class="creator-body">
+        <aside class="ann-roster">
+          <div id="roster"></div>
+          <button class="btn" data-act="add-ann">＋ 앤 추가</button>
+          <p id="roster-room" class="sub small"></p>
+        </aside>
+        <div class="ann-editor" id="editor"></div>
+      </div>
+      <div class="sheet-foot">
+        <button class="btn" data-act="random-all">🎲 모두 무작위</button>
+        <button class="btn primary big" data-act="deploy">🌱 투입하기</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 관찰 HUD -->
+  <section id="hud" class="hidden">
+    <header class="topbar">
+      <div class="brand"><span class="logo small">THE EARTH</span><span id="hud-server" class="chip"></span></div>
+      <div class="clock">
+        <div id="hud-date" class="date"></div>
+        <div id="hud-sub" class="sub"></div>
+      </div>
+      <div class="top-actions">
+        <span id="hud-me" class="chip"></span>
+        <button class="btn small" data-act="deploy-more" id="btn-deploy-more">＋ 앤 투입</button>
+        <button class="btn small ghost" data-act="space">🌌 우주</button>
+        <button class="btn small ghost" data-act="home">🏠</button>
+      </div>
+    </header>
+    <aside class="side left" id="left">
+      <nav class="tabs" id="left-tabs">
+        <button data-tab="mine" class="on">내 앤</button>
+        <button data-tab="all">모든 앤</button>
+        <button data-tab="nations">나라</button>
+        <button data-tab="biz">회사</button>
+        <button data-tab="news">소식</button>
+      </nav>
+      <div class="tab-body" id="left-body"></div>
+      <button class="collapse" data-act="toggle-left" title="접기">‹</button>
+    </aside>
+    <aside class="side right hidden" id="right">
+      <div id="ann-panel"></div>
+    </aside>
+    <div id="ticker" class="ticker"></div>
+    <div id="toast" class="toast hidden"></div>
+    <div id="bld-tip" class="hover-tip hidden"></div>
+  </section>
+
+  <div id="modal" class="modal hidden"><div class="modal-box"></div></div>
+  <div id="loading" class="loading hidden"><div class="spinner"></div><p>지구를 만드는 중…</p></div>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>
