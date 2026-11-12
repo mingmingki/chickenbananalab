@@ -1,12 +1,12 @@
 // 세계: 시계(1년 1월 1일 0시에서 시작), 나라, 정착지, 건물, 회사, 앤, 플레이어
 import { randomUUID } from 'node:crypto';
 import { clamp, rand, pick, chance, gauss, ageOf, dateOf, fmtDate, localHour, YEAR, DAY, ga, neun, reul, wa, ida, fixJosa } from './util.js';
-import { ERAS, DISCOVERIES, BUILDINGS, PUBLIC, JOBS, GOALS, HOME_BY_ERA, SETTLEMENT_LEVELS, INDUSTRIES, SCHOOLS, EDU_NAMES } from './data.js';
+import { ERAS, DISCOVERIES, BUILDINGS, PUBLIC, JOBS, GOALS, HOME_BY_ERA, SETTLEMENT_LEVELS, INDUSTRIES, SCHOOLS, EDU_NAMES, SHIFTS } from './data.js';
 import { makeAnn, makeBaby, remember, think, feel, lifeEvent, ageStage, STAGE_NAMES, TRAIT_NAMES, ABILITY_NAMES, deriveValues, deriveGoals } from './ann.js';
-import { makeSettlement, placeBuilding, removeBuilding, updateSettlementLevel, plazaPoint, CELL, siteFeatures, ensureSite } from './settlement.js';
+import { makeSettlement, placeBuilding, removeBuilding, updateSettlementLevel, plazaPoint, CELL, siteFeatures, ensureSite, buildRule } from './settlement.js';
 import { updateAnn, nightlyReview, ACTS, isAvailable } from './mind.js';
 import { rel, decayRelations, breakUp, opinionText, updateKind } from './social.js';
-import { companyDaily, considerPromotion, jobTitle, leaveJob, foundPublic, dailyCost, wageBase, setJob } from './economy.js';
+import { companyDaily, considerPromotion, jobTitle, leaveJob, foundPublic, dailyCost, wageBase, setJob, assignContractor, siteName, hasConstruction } from './economy.js';
 import { childName, givenOf, familyName } from './names.js';
 import { runEvents, rollWeather } from './events.js';
 import { getCountry, randomLandPoint, seaNear } from '../geo.js';
@@ -138,6 +138,27 @@ export class World {
     const def = BUILDINGS[b.type];
     const s = this.settlements.get(b.sid);
     this.dirtyBuildings.add(b.id);
+    // 현장 사람들: 준공을 함께 맞는다
+    if (b.contractor) {
+      const co = this.companies.get(b.contractor);
+      const months = Math.max(1, Math.round((this.clock - (b.started || this.clock)) / (DAY * 30)));
+      if (co) {
+        co.sites = (co.sites || []).filter(id => id !== b.id);
+        for (const id of co.emp) {
+          const e = this.anns.get(id);
+          if (!e || e.job?.site !== b.id) continue;
+          e.job.site = null;
+          if (b.work >= 800) {
+            lifeEvent(this, e, `'${siteName(this, b)}' 준공 — ${months}개월 만에`, '🏗️');
+            remember(this, e, `우리가 지은 ${b.name}이(가) 드디어 완공되었다`, 6, 0.8, [], 'work');
+            feel(e, 14, '뿌듯함', b.name);
+            if (chance(0.5)) think(this, e, pick([`${b.name}… 내 손으로 올린 건물이다.`, '저 건물을 볼 때마다 생각나겠지.', '다음 현장은 어디려나.']));
+          }
+          this.dirtyAnnMeta.add(e.id);
+        }
+        if (b.work >= (def.kind === 'home' ? 20000 : 3000)) this.news('build', `🏁 ${co.name}이(가) '${siteName(this, b)}'을(를) ${months}개월 만에 준공했다`, { sid: b.sid, country: s.country }, 1);
+      }
+    }
     const cty = this.countries[s.country];
     if (b.type === 'campfire') this.first(cty, 'fire', `${s.name}에 첫 불을 피웠다`, '🔥');
     if (def.kind === 'home') this.first(cty, 'home:' + b.type, `첫 ${def.name}이(가) ${s.name}에 세워졌다`, '🏠');
@@ -313,6 +334,10 @@ export class World {
   countryDaily(c) {
     const people = [...this.anns.values()].filter(a => a.alive && a.country === c.code);
     c.pop = people.length;
+    // 나라 살림: 하루 세수·공무원 인건비의 이동 평균
+    c.taxAvg = (c.taxAvg ?? (c.taxIn || 0)) * 0.95 + (c.taxIn || 0) * 0.05;
+    c.pubAvg = (c.pubAvg ?? (c.pubOut || 0)) * 0.95 + (c.pubOut || 0) * 0.05;
+    c.taxIn = 0; c.pubOut = 0;
     if (!people.length) return;
     c.topEdu = people.reduce((m, a) => ageOf(a, this.clock) >= 19 ? Math.max(m, a.eduLv || 0) : m, 0);
     const leader = c.leader && this.anns.get(c.leader);
@@ -376,35 +401,68 @@ export class World {
       ['temple', 10 + L.tr.A * 0.3 + L.tr.N * 0.1],
       ['seodang', edu + 6], ['kinder', edu - 8], ['school', edu + 8], ['middle', edu + 2], ['high', edu], ['univ', edu - 4 + L.ab.int * 0.2],
       ['lab', 20 + L.tr.O * 0.4 + L.ab.int * 0.3],
+      ['hospital', 22 + L.tr.A * 0.3], ['police', 16 + L.tr.C * 0.25], ['fire', 15 + L.tr.A * 0.2], ['post', 10 + L.tr.C * 0.1],
+      ['station', 12 + L.amb * 0.15], ['power', 14 + L.tr.O * 0.15],
     ].sort((a, b) => b[1] - a[1]);
-    for (const sid of new Set([c.capital, ...[...this.settlements.values()].filter(s => s.country === c.code).map(s => s.id)])) {
-      const s = this.settlements.get(sid);
-      if (!s) continue;
-      for (const [key] of prefs) {
-        const def = PUBLIC[key];
-        if (def.era > c.era || (def.maxEra != null && c.era > def.maxEra)) continue;
-        if (key === 'hall' && sid !== c.capital && s.pop < 30) continue;
-        if (key === 'univ' && (sid !== c.capital || c.pop < 35)) continue;
-        const have = [...this.companies.values()].filter(co => co.pub && co.ind === key && co.sid === sid && !co.dead).length;
-        let want;
-        if (def.school) {
-          // 학교는 그 나이의 아이들이 있어야 세운다
-          const range = { seodang: [7, 16], kinder: [4, 7], school: [7, 13], middle: [13, 16], high: [16, 19], univ: [17, 23] }[key];
-          const kids = this.residents(sid).filter(x => { const g = ageOf(x, this.clock); return g >= range[0] && g < range[1]; }).length;
-          want = kids >= 3 ? 1 + Math.floor(kids / 45) : 0;
-        } else want = key === 'hall' ? 1 : Math.floor(s.pop / (def.per * 2.5)) + (s.pop >= def.per ? 1 : 0);
-        const cost = wageBase(c.era) * 10 + BUILDINGS[def.building].work * 0.5;
-        if (have < want && c.treasury > cost * 1.5 / lead) {
+    // 관청과 학교가 먼저다: 그게 모자란 동안에는 다른 기관은 미루고 돈을 모은다
+    let pending = false;
+    const sids = [...new Set([c.capital, ...[...this.settlements.values()].filter(s => s.country === c.code).map(s => s.id)])];
+    for (const pass of [0, 1]) {
+      if (pass === 1 && pending) break;
+      for (const sid of sids) {
+        const s = this.settlements.get(sid);
+        if (!s) continue;
+        for (const [key] of prefs) {
+          const def = PUBLIC[key];
+          const essential = key === 'hall' || (!!def.school && key !== 'univ');
+          if ((pass === 0) !== essential) continue;
+          if (def.era > c.era || (def.maxEra != null && c.era > def.maxEra)) continue;
+          if (key === 'hall' && sid !== c.capital && s.pop < 30) continue;
+          if (key === 'univ' && (sid !== c.capital || c.pop < 35)) continue;
+          const have = [...this.companies.values()].filter(co => co.pub && co.ind === key && co.sid === sid && !co.dead).length;
+          let want;
+          if (def.school) {
+            // 학교는 그 나이의 아이들이 있어야 세운다
+            const range = { seodang: [7, 16], kinder: [4, 7], school: [7, 13], middle: [13, 16], high: [16, 19], univ: [17, 23] }[key];
+            const kids = this.residents(sid).filter(x => { const g = ageOf(x, this.clock); return g >= range[0] && g < range[1]; }).length;
+            want = kids >= 3 ? 1 + Math.floor(kids / 45) : 0;
+          } else if (def.pop) want = s.pop >= def.pop ? 1 + Math.floor(s.pop / (def.per * 4)) : 0;
+          else want = key === 'hall' ? 1 : s.pop >= def.per * 2 ? 1 + Math.floor(s.pop / 300) : 0;
+          if (have >= want) continue;
+          const cost = wageBase(c.era) * 10 + BUILDINGS[def.building].work * 0.5;
+          if (c.treasury <= cost * 1.5 / lead) {
+            if (!essential) continue;
+            // 꼭 필요한 관청·학교를 지을 돈이 없으면 결국 세금을 올린다
+            pending = true;
+            c.unfunded = (c.unfunded || 0) + 1;
+            if (c.unfunded > 45 && c.tax < 0.3) {
+              c.unfunded = 0;
+              c.tax = Math.min(0.3, c.tax + 0.02);
+              this.news('gov', `💰 ${L.name} ${ERAS[c.era].leader}: "${s.name}에 ${reul(def.name)} 세우려면 돈이 필요합니다" — 세금을 ${Math.round(c.tax * 100)}%로 올렸다`, { country: c.code, anns: [L.id] }, 1);
+            }
+            continue;
+          }
+          if (essential) c.unfunded = 0;
           const org = foundPublic(this, c, s, key, L);
           if (org) {
             remember(this, L, `${s.name}에 ${reul(def.name)} 세우도록 명했다`, 5, 0.5, [], 'power');
-            think(this, L, key === 'academy' || key === 'lab' ? '배움이 나라를 키운다.' : key === 'school' ? '아이들이 미래다.' : key === 'temple' ? '사람들의 마음을 보살펴야 한다.' : '나라에는 질서가 필요하다.');
+            think(this, L, key === 'academy' || key === 'lab' ? '배움이 나라를 키운다.' : def.school ? '아이들이 미래다.' : key === 'temple' ? '사람들의 마음을 보살펴야 한다.' : '나라에는 질서가 필요하다.');
             return;
           }
         }
       }
     }
+    c.pending = pending;
     const wage = wageBase(c.era);
+    // 곳간이 넘치면 세금을 내린다
+    if (!pending && c.treasury > wage * 600 && c.tax > 0.05) {
+      c.richDays = (c.richDays || 0) + 1;
+      if (c.richDays > 60) {
+        c.richDays = 0;
+        c.tax = Math.max(0.04, c.tax - 0.02);
+        this.news('gov', `💸 ${L.name} ${ERAS[c.era].leader}: 나라 곳간이 넉넉하다 — 세금을 ${Math.round(c.tax * 100)}%로 내렸다`, { country: c.code, anns: [L.id] }, 1);
+      }
+    } else c.richDays = 0;
     // 복지: 마음이 따뜻한 지도자일수록 가난한 이웃을 돕는다
     if (c.treasury > wage * 40 && chance(0.2 + L.tr.A / 250)) {
       const cost = dailyCost(c.era);
@@ -418,7 +476,7 @@ export class World {
       }
     }
     // 연구 지원 (호기심 많은 지도자)
-    if (c.treasury > wage * 30 && L.tr.O > 55) {
+    if (!pending && c.treasury > wage * 30 && L.tr.O > 55) {
       const grant = Math.min(c.treasury * 0.03, wage * 8);
       c.treasury -= grant;
       this.addTech(c, grant / wage * 1.2, 'grant');
@@ -742,6 +800,16 @@ export class World {
         else { a.stress = clamp(a.stress + 6); if (chance(0.3)) { remember(this, a, '돈이 없어 생활이 힘들다', 4, -0.5, [], 'money'); think(this, a, '이번 달은 어떻게 버티지…'); } }
       }
     }
+    // 월세: 회사나 나라가 지은 아파트에 살면 집세를 낸다
+    if (a.home && age >= 19) {
+      const hb = this.buildings.get(a.home);
+      if (hb?.dev && !(a.spouse && a.spouse < a.id && this.anns.get(a.spouse)?.home === a.home)) {
+        const rent = Math.min(a.money, wageBase(c.era) * 0.12);
+        a.money -= rent;
+        const dev = hb.dev !== 'gov' && this.companies.get(hb.dev);
+        if (dev && !dev.dead) { dev.money += rent; dev.rev += rent; } else c.treasury += rent;
+      }
+    }
     // 은퇴
     if (a.job && age >= 63 && !a.job.ceo && chance(0.01 + (age - 63) * 0.01 + (a.money > dailyCost(c.era) * 200 ? 0.03 : 0))) {
       leaveJob(this, a, '은퇴');
@@ -783,7 +851,15 @@ export class World {
       if (age < 19 && mom) this.moveHome(a, this.buildings.get(mom.home));
       else for (const bid of s.buildings) {
         const b = this.buildings.get(bid);
-        if (b && b.done && BUILDINGS[b.type].kind === 'home' && b.res.length === 0) {
+        if (!b || !b.done || BUILDINGS[b.type].kind !== 'home') continue;
+        if (b.dev && b.res.length < BUILDINGS[b.type].cap) {
+          this.moveHome(a, b);
+          if (a.spouse) { const sp = this.anns.get(a.spouse); if (sp?.alive && !sp.home) this.moveHome(sp, b); }
+          lifeEvent(this, a, `${b.name}에 세 들어 살게 되었다`, '🏢');
+          remember(this, a, `${b.name}에 입주했다`, 6, 0.6, [], 'home');
+          break;
+        }
+        if (!b.dev && b.res.length === 0) {
           this.moveHome(a, b);
           if (!b.owner || !this.anns.get(b.owner)?.alive) b.owner = a.id;
           remember(this, a, `빈 ${reul(BUILDINGS[b.type].name)} 얻어 들어가 살게 되었다`, 5, 0.5, [], 'home');
@@ -795,8 +871,9 @@ export class World {
     if (!a.wantsMigrate && age >= 22 && age < 55 && c.leader !== a.id) {
       const sCount = [...this.settlements.values()].filter(x => x.country === a.country).length;
       const crowd = s.pop / (25 * (1 + c.era * 0.7));
-      if (a.goals.some(g => g.k === 'adventure' && !g.done) && s.pop >= 8 && chance(0.004 * (1 + crowd))) a.wantsMigrate = '모험심';
-      else if (crowd > 1 && sCount < 1 + c.pop / 20 && chance(0.0015 * crowd * a.val.adventure / 50)) a.wantsMigrate = '이곳은 너무 붐빈다';
+      // 사람은 대개 모여 산다: 정착지는 인구 40~50명에 하나 정도만 새로 생긴다 (마을이 커져야 도시가 된다)
+      if (a.goals.some(g => g.k === 'adventure' && !g.done) && s.pop >= 20 && sCount < 1 + c.pop / 45 && chance(0.004 * (1 + crowd))) a.wantsMigrate = '모험심';
+      else if (crowd > 1 && sCount < 1 + c.pop / 40 && chance(0.0015 * crowd * a.val.adventure / 50)) a.wantsMigrate = '이곳은 너무 붐빈다';
     }
     // 목표 진척
     for (const g of a.goals) {
@@ -910,6 +987,29 @@ export class World {
     // 농경 시대: 곡물 창고가 필요해진다
     const c = this.countries[s.country];
     if (c.era >= 1 && !granary && pop >= 6 && ![...s.buildings].some(id => this.buildings.get(id)?.type === 'granary')) placeBuilding(this, s, 'granary', { era: c.era, budget: 0 });
+    // 시공사를 못 구한 공사는 건설회사가 생기면 맡긴다
+    for (const bid of s.buildings) {
+      const b = this.buildings.get(bid);
+      if (!b || b.done || b.contractor) continue;
+      if (!buildRule(b).self || (b.owner && (this.anns.get(b.owner)?.money || 0) > (BUILDINGS[b.type].cost || 0) * 3)) assignContractor(this, b);
+      if (!b.contractor && !buildRule(b).self) { s.need = s.need || {}; s.need.builder = (s.need.builder || 0) + 1; }
+    }
+    // 산업 시대 이후: 집이 모자라면 건설회사나 정부가 연립·아파트를 짓는다 (분양·임대)
+    if (c.era >= 4 && (s.needPrev?.homes || 0) >= 3 && chance(0.15) && !s.buildings.some(id => { const b = this.buildings.get(id); return b && !b.done && b.dev; })) {
+      const type = HOME_BY_ERA[Math.min(c.era, 7)];
+      const cost = BUILDINGS[type].cost || 0;
+      const dev = [...this.companies.values()].filter(co => !co.dead && co.ind === 'construction' && co.sid === s.id && co.money > cost * 0.4).sort((x, y) => y.money - x.money)[0];
+      const pubOk = !dev && c.treasury > cost * 0.6 && hasConstruction(this, s.id);
+      if (dev || pubOk) {
+        const b = placeBuilding(this, s, type, { era: c.era, budget: cost * 0.5, name: `${s.name} ${dev ? dev.name.replace(/(건설|건축|종합건설)$/, '') : '시민'} ${BUILDINGS[type].name}` });
+        if (b) {
+          b.dev = dev ? dev.id : 'gov';
+          if (dev) dev.money -= cost * 0.4; else c.treasury -= cost * 0.6;
+          assignContractor(this, b, dev?.id);
+          this.news('build', `🏢 ${dev ? dev.name : c.name + ' 정부'}이(가) ${s.name}에 ${reul(BUILDINGS[type].name)} 짓기 시작했다 (${BUILDINGS[type].cap}세대)`, { sid: s.id, country: s.country }, 1);
+        }
+      }
+    }
     // 아무도 살지 않는 낡은 집은 허물어진다 (도시의 세대교체)
     for (const bid of [...s.buildings]) {
       const b = this.buildings.get(bid);
@@ -996,7 +1096,10 @@ export class World {
     return [a.id, a.sid, Math.round(a.x * 10) / 10, Math.round(a.z * 10) / 10, a.alive ? (a.act ? a.act.type : 'idle') : 'dead', a.act?.target || 0, a.travel ? 1 : 0, a.act?.ph === 'move' ? 1 : 0];
   }
   buildingOut(b) {
-    return { id: b.id, sid: b.sid, type: b.type, name: b.name, x: b.x, z: b.z, w: b.w, d: b.d, h: b.h, done: b.done, p: Math.round(b.progress / b.work * 100) / 100, era: b.era, co: b.co, owner: b.owner, res: b.res.length };
+    let crew = 0;
+    if (!b.done && b.contractor) { const co = this.companies.get(b.contractor); if (co) for (const id of co.emp) if (this.anns.get(id)?.job?.site === b.id) crew++; }
+    return { id: b.id, sid: b.sid, type: b.type, name: b.name, x: b.x, z: b.z, w: b.w, d: b.d, h: b.h, done: b.done, p: Math.round(b.progress / b.work * 100) / 100, era: b.era, co: b.co, owner: b.owner, res: b.res.length,
+      ct: b.contractor || null, crew, work: b.work, started: b.started, built: b.built, stalled: !!b.stalled, dev: b.dev || null };
   }
   settlementOut(s) {
     const inst = [];
@@ -1015,7 +1118,9 @@ export class World {
     };
   }
   companyOut(co) {
-    return { id: co.id, name: co.name, ind: co.ind, pub: co.pub, indName: co.pub ? PUBLIC[co.ind].name : INDUSTRIES[co.ind].name, sid: co.sid, country: co.country, ceo: co.ceo, founder: co.founder, emp: co.emp.length, money: Math.round(co.money), founded: co.founded, dead: co.dead, b: co.b };
+    let cap = 0;
+    for (const bid of [co.b, ...(co.bx || [])]) { const b = this.buildings.get(bid); if (b) cap += BUILDINGS[b.type]?.jobs || 6; }
+    return { id: co.id, name: co.name, ind: co.ind, pub: co.pub, indName: co.pub ? PUBLIC[co.ind].name : INDUSTRIES[co.ind].name, sid: co.sid, country: co.country, ceo: co.ceo, founder: co.founder, emp: co.emp.length, slots: co.slots, cap, sites: (co.sites || []).length, money: Math.round(co.money), founded: co.founded, dead: co.dead, b: co.b };
   }
   playerOut(p) { return { id: p.id, name: p.name, country: p.country, color: p.color, anns: p.anns.length, alive: p.anns.filter(id => this.anns.get(id)?.alive).length, joined: p.joined }; }
 
@@ -1085,6 +1190,8 @@ export class World {
       techMade: Math.round(a.techMade || 0), discoveries: a.discoveries || [], wantsMigrate: a.wantsMigrate || null,
       school: a.school ? { name: a.school.name, key: a.school.key, grade: Math.round(a.school.grade), since: a.school.since } : null,
       eduLv: a.eduLv || 0, eduName: EDU_NAMES[a.eduLv || 0], born: a.born, pdeploy: !!a.pdeploy,
+      today: a.today || [], yesterday: a.yesterday || [], shift: a.job && JOBS[a.job.id]?.shift ? SHIFTS[JOBS[a.job.id].shift].label : null,
+      site: a.job?.site && this.buildings.get(a.job.site) ? { id: a.job.site, name: siteName(this, this.buildings.get(a.job.site)), p: Math.round(this.buildings.get(a.job.site).progress / this.buildings.get(a.job.site).work * 100) } : null,
     };
   }
 }

@@ -131,6 +131,7 @@ export class Hud {
         ${s.weather ? `<div class="now"><div class="what"><span class="em">${WEMO[s.weather.k] || '🌤️'}</span>${esc(s.weather.season)} · ${esc(s.weather.k)} · ${s.weather.temp}°C</div><div class="line">식량 ${s.food} · 마을 반경 ${s.radius}m</div></div>` : ''}
         <div class="sec">자연</div><div class="tags">${nature.map(x => `<span>${x}</span>`).join('')}</div>
         <div class="sec">있는 것</div>${pubs.length || coList.length ? `<div class="tags">${pubs.map(x => `<span>${esc(x)}</span>`).join('')}${coList.map(x => `<span>🏢 ${esc(x)}</span>`).join('')}</div>` : '<p class="sub">아직 아무것도 없다. 자연뿐.</p>'}
+        ${(() => { const cl = [...st.companies.values()].filter(co => co.sid === sid).sort((x, y) => y.emp - x.emp); return cl.length ? `<div class="sec">일터 (${cl.reduce((t, co) => t + co.emp, 0)}명 근무)</div>` + cl.map(co => `<div class="row" style="display:flex;justify-content:space-between;font-size:13px;padding:3px 2px"><span>${co.pub ? '🏛️' : '🏢'} ${esc(co.name)} <span class="sub small">${esc(co.indName)}</span></span><b>${co.emp}${co.cap ? '/' + co.cap : ''}명${co.sites ? ` · 현장 ${co.sites}` : ''}</b></div>`).join('') : ''; })()}
         <div class="sec">없어서 아쉬운 것</div>${needs.length ? needs.map(x => `<div class="mem neg">${esc(x)}</div>`).join('') : '<p class="sub">지금은 큰 불편이 없다.</p>'}
         <div class="sec">사는 사람들 (${people.length})</div>${people.map(a => this.annRow(a)).join('')}
       </div></div>`;
@@ -278,7 +279,7 @@ export class Hud {
         const s = st.settlements.get(co.sid);
         return `<div class="card"><h3>${co.pub ? '🏛️' : '🏢'} ${esc(co.name)} <span class="chip">${esc(co.indName)}</span></h3>
           <div class="row"><span>${co.pub ? '공공기관' : '대표'}</span><b>${ceo ? `<span class="linklike" data-ann="${ceo.id}">${esc(ceo.n)}</span>` : co.pub ? (st.countries.get(co.country)?.name || '') : '-'}</b></div>
-          <div class="row"><span>직원 · 자금</span><b>${co.emp}명 · ${co.pub ? '국고' : co.money.toLocaleString()}</b></div>
+          <div class="row"><span>직원 · 자금</span><b>${co.emp}명${co.cap ? ` (정원 ${co.cap})` : ''} · ${co.pub ? '국고' : co.money.toLocaleString()}</b></div>${co.sites ? `<div class="row"><span>공사 현장</span><b>${co.sites}곳</b></div>` : ''}
           <div class="row"><span>위치 · 설립</span><b>${s ? `<span class="linklike" data-town="${s.id}">${esc(s.name)}</span>` : ''} · ${fmtDate(co.founded)}</b></div></div>`;
       }).join('') || '<p class="empty">아직 회사가 없습니다. 농경 시대가 되면 야망 있는 앤들이 회사를 세웁니다.</p>';
     } else if (this.tab === 'news') {
@@ -360,7 +361,12 @@ export class Hud {
       const now2 = d.al ? '지금' : '마지막';
       const doing = d.al ? `${act?.emoji || '🙂'} ${esc(act?.label || '쉬는 중')}${act?.target ? ` — ${esc(act.target.name)}` : ''}` : '🕯️ 세상을 떠남';
       const role = d.school ? `🎒 ${esc(d.school.name)} ${d.age}살 학생 (성적 ${d.school.grade})` : d.job ? `💼 ${esc(d.job.title)}` : d.age < 4 ? '🍼 아기' : d.age < 19 ? '🏠 집에서 지냄' : d.retired ? '🌿 은퇴' : '일자리를 찾는 중';
-      body += `<div class="chron-now"><b>${now2}</b> ${doing}<br><span class="sub small">${role} · 학력: ${esc(d.eduName || '')}${d.home ? ` · 집: ${esc(d.home.name)}` : ' · 집 없음'}</span></div>`;
+      body += `<div class="chron-now"><b>${now2}</b> ${doing}<br><span class="sub small">${role} · 학력: ${esc(d.eduName || '')}${d.home ? ` · 집: ${esc(d.home.name)}` : ' · 집 없음'}${d.shift ? ` · 근무: ${esc(d.shift)}` : ''}</span>${d.site ? `<div class="sub small" style="margin-top:4px">🦺 ${esc(d.site.name)} 현장 — 공정 ${d.site.p}%</div>` : ''}</div>`;
+      const day = d.today?.length > 2 ? d.today : d.yesterday?.length ? d.yesterday : d.today;
+      if (day?.length) {
+        const hm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+        body += `<details class="today" open><summary>${day === d.today ? '오늘 하루' : '어제 하루'} (현지 시각)</summary>${day.map(t => `<div class="tl"><time>${hm(t.h)}</time><span>${t.e}</span>${esc(t.x)}</div>`).join('')}</details>`;
+      }
       const groups = new Map();
       for (const l of d.life) { const g = ageAt(l.t); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(l); }
       const ages = [...groups.keys()].sort((x, y) => y - x);
@@ -405,7 +411,7 @@ export class Hud {
     const owner = b.owner && this.state.anns.get(b.owner);
     const co = b.co && this.state.companies.get(b.co);
     tip.innerHTML = `<b>${esc(b.name)}</b> <span class="sub small">${esc(def?.name || b.type)}</span><br>
-      ${b.done ? '' : `🏗️ 공사 중 ${Math.round(b.p * 100)}%<br>`}${co ? `🏢 ${esc(co.name)}<br>` : ''}${owner ? `주인: ${esc(owner.n)}<br>` : ''}${b.res ? `사는 사람 ${b.res}명` : ''}`;
+      ${b.done ? '' : `🏗️ 공사 중 ${Math.round(b.p * 100)}%${b.stalled ? ' — 벽돌이 모자라 멈춤' : ''}<br>`}${!b.done && b.ct ? `🦺 시공: ${esc(this.state.companies.get(b.ct)?.name || '')} · 현장 인원 ${b.crew}명<br>` : !b.done ? '손수 짓는 중<br>' : ''}${co ? `🏢 ${esc(co.name)}<br>` : ''}${owner ? `주인: ${esc(owner.n)}<br>` : ''}${b.res ? `사는 사람 ${b.res}명` : ''}`;
     tip.style.left = x + 'px'; tip.style.top = y + 'px';
     tip.classList.remove('hidden');
     clearTimeout(this.tipT);

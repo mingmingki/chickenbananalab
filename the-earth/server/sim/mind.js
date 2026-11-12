@@ -1,10 +1,10 @@
 // 앤의 마음: 욕구 → 지각 → 고민(선택지마다 이유와 점수) → 행동 → 결과 → 기억/감정 → 밤마다 되돌아보기
-import { clamp, rand, pick, chance, gauss, ageOf, localHour, YEAR, DAY, ga, neun, reul, wa, ro, callName } from './util.js';
+import { clamp, rand, pick, chance, gauss, ageOf, localHour, YEAR, DAY, ga, neun, reul, wa, ro, callName, fixJosa } from './util.js';
 import { remember, think, feel, lifeEvent, ageStage } from './ann.js';
-import { JOBS, ERAS, BUILDINGS, HOME_BY_ERA, INDUSTRIES, GOALS } from './data.js';
+import { JOBS, ERAS, BUILDINGS, HOME_BY_ERA, INDUSTRIES, GOALS, SHIFTS } from './data.js';
 import { rel, converse, attraction, updateKind } from './social.js';
 import {
-  openings, apply, jobFit, produce, dailyCost, wageBase, bestIndustry, startupCost, foundCompany, jobTitle, leaveJob, hasConstruction,
+  openings, apply, jobFit, produce, dailyCost, wageBase, bestIndustry, startupCost, foundCompany, jobTitle, leaveJob, hasConstruction, assignContractor,
 } from './economy.js';
 import { plazaPoint, wildPoint, shorePoint, doorPoint, placeBuilding, addWork, siteFeatures, buildRule } from './settlement.js';
 import { compose } from './thoughts.js';
@@ -59,7 +59,7 @@ function needs(world, a, dt) {
   const t = a.act?.type;
   const sleeping = t === 'sleep' || (t === 'baby' && a.act.sub === 'sleep');
   a.nd.food = clamp(a.nd.food - (sleeping ? 0.035 : 0.068) * dt);
-  if (!sleeping) a.nd.energy = clamp(a.nd.energy - (HEAVY.has(t) ? 0.085 : 0.052) * dt);
+  if (!sleeping) a.nd.energy = clamp(a.nd.energy - (HEAVY.has(t) ? 0.062 : 0.045) * dt);
   if (t !== 'talk' && t !== 'date' && t !== 'family' && t !== 'play') a.nd.social = clamp(a.nd.social - 0.028 * (0.4 + a.tr.E / 80) * dt);
   if (t !== 'relax' && t !== 'play' && t !== 'art' && t !== 'wander') a.nd.fun = clamp(a.nd.fun - (t === 'work' ? 0.04 : 0.024) * dt);
   // 기분은 욕구 충족과 성격의 기저선 쪽으로 천천히 돌아간다
@@ -73,8 +73,44 @@ function needs(world, a, dt) {
 }
 
 // ── 행동 시작 ──
+// ── 오늘 하루 (현지 시각 기준 일과 기록) ──
+const LOG = {
+  sleep: ['😴', '잠자리에 들었다'], work: ['💼', '일'], study: ['🎒', '등교'], eat: ['🍚', '식사'], talk: ['💬', '대화'], date: ['💕', '데이트'],
+  family: ['🏠', '가족과 시간'], exercise: ['🏃', '운동'], relax: ['☕', '휴식'], wander: ['🌿', '산책'], shop: ['🛍️', '장보기'], research: ['🔬', '연구'],
+  art: ['🎨', '창작'], play: ['🧸', '놀이'], build: ['🔨', '집 짓기'], forage: ['🧺', '먹을거리 찾기'], seek_job: ['📋', '일자리 찾기'], reflect: ['💭', '사색'],
+  lead: ['👑', '나랏일'], rest_sick: ['🤒', '요양'],
+};
+export function logToday(world, a, emoji, text) {
+  const s = world.settlements.get(a.sid);
+  const lh = world.clock / 60 + (s?.lon || 0) / 15;
+  const key = Math.floor(lh / 24);
+  if (a.todayKey !== key) { a.yesterday = a.today; a.today = []; a.todayKey = key; }
+  text = fixJosa(text);
+  const last = a.today[a.today.length - 1];
+  if (last && last.x === text) return;
+  a.today.push({ h: Math.round(((lh % 24) + 24) % 24 * 60), e: emoji, x: text });
+  if (a.today.length > 26) a.today.splice(1, 1);
+}
+const mealName = h => (h < 5 ? '새벽 요기' : h < 10.5 ? '아침' : h < 15 ? '점심' : h < 17 ? '간식' : '저녁');
+
+/** 이 앤의 근무 시간표 (시대·직업·요일) */
+export function shiftOf(world, a) {
+  const j = JOBS[a.job.id];
+  const era = world.countries[a.country].era;
+  const sh = { ...(SHIFTS[j?.shift || 'office'] || SHIFTS.office) };
+  if (era < 3 && sh.days === 'week') sh.days = 'six';
+  if (a.job.ceo) { sh.end += 1.5; sh.days = sh.days === 'week' ? 'six' : sh.days; }
+  return sh;
+}
+function workday(sh, dayN) {
+  const dow = ((dayN % 7) + 7) % 7; // 0~4 평일, 5 토, 6 일
+  return sh.days === 'all' || (sh.days === 'six' && dow < 6) || (sh.days === 'week' && dow < 5);
+}
+
 function start(world, a, type, dur, place, extra = {}) {
   const s = world.settlements.get(a.sid);
+  const L = LOG[type];
+  if (L && type !== 'talk' && type !== 'work' && type !== 'eat' && type !== 'study') logToday(world, a, L[0], L[1]);
   let tx = a.x, tz = a.z;
   if (Array.isArray(place)) [tx, tz] = place;
   else if (place === 'home') {
@@ -93,6 +129,7 @@ function start(world, a, type, dur, place, extra = {}) {
 function workPlace(world, a) {
   const j = JOBS[a.job.id];
   const co = a.job.co && world.companies.get(a.job.co);
+  if (a.job.site) { const site = world.buildings.get(a.job.site); if (site && !site.done) return site.id; }
   if (co) return co.b;
   const s = world.settlements.get(a.sid);
   if (a.job.id === 'fisher') return shorePoint(s) || wildPoint(s);
@@ -127,6 +164,9 @@ export function decide(world, a) {
   const h = localHour(now, s.lon);
   const dayN = Math.floor(now / DAY);
 
+  // 하루 단위 기록은 이 마을의 자정(현지 시각)에 새로 시작
+  const lday = Math.floor((now / 60 + s.lon / 15) / 24);
+  if (a.day.key !== lday) { a.day.key = lday; a.day.work = 0; a.day.meals = 0; a.day.studied = false; a.day.led = false; a.day.lunch = null; }
   if (stage === 'baby') {
     const sub = h > 20 || h < 7 || a.nd.energy < 40 ? 'sleep' : 'awake';
     if (sub === 'sleep') a.nd.energy = clamp(a.nd.energy + 25);
@@ -142,16 +182,17 @@ export function decide(world, a) {
   const cost = dailyCost(era);
   const moneyStress = clamp(((cost * 6) - a.money) / (cost * 6) * 100);
   const goal = k => a.goals.some(g => g.k === k && !g.done);
-  const sleepStart = (stage === 'child' ? 20.5 : 22.5) + a.chrono, sleepEnd = (stage === 'child' ? 7 : 6.5) + a.chrono;
+  const wakeH = wakeHour(world, a, stage);
+  const sleepStart = wakeH + (stage === 'child' ? 13.5 : 16), sleepEnd = wakeH;
   const inSleep = h >= sleepStart || h < sleepEnd || (sleepStart >= 24 && h < sleepStart - 24);
   const meal = (h >= 6.5 && h < 9) || (h >= 11.5 && h < 13.5) || (h >= 17.5 && h < 20);
 
   // 잠
-  add('sleep', (100 - a.nd.energy) * 0.95 + (inSleep ? 48 : -30) + (a.nd.energy < 15 ? 40 : 0),
+  add('sleep', (100 - a.nd.energy) * 0.95 + (inSleep ? 48 : -45) + (a.nd.energy < 15 ? 40 : 0) - (now - (a.lastWake || -1e9) < 240 && a.nd.energy > 30 ? 90 : 0),
     [`피로 ${Math.round(100 - a.nd.energy)}%`, inSleep ? `잘 시간 (${Math.floor(h)}시)` : null]);
   // 식사
   const foodLeft = s.food >= 1;
-  add('eat', (100 - a.nd.food) * 1.15 - 14 + (meal ? 22 : 0) - (a.day.meals >= 3 ? 25 : 0),
+  add('eat', (100 - a.nd.food) * 1.15 - 14 + (meal ? 22 : 0) - (a.day.meals >= 3 ? 25 : 0) - (now - (a.lastMeal || -1e9) < 150 ? 40 : 0),
     [`배고픔 ${Math.round(100 - a.nd.food)}%`, meal ? '식사 시간' : null, foodLeft ? null : '먹을 것이 부족함']);
   // 먹을 것이 없으면 직접 구한다
   if (!foodLeft || s.food < s.pop * 1.5) {
@@ -172,21 +213,25 @@ export function decide(world, a) {
   // 일
   const adult = stage === 'adult' || stage === 'elder';
   if (a.job && adult) {
-    const weekend = era >= 3 && dayN % 7 === 6;
-    const startH = 8 + a.chrono * 0.5, endH = 18 + a.chrono * 0.5 + (a.job.ceo ? 2 : 0);
-    const left = (a.job.ceo ? 10 : 8) - a.day.work;
-    if (h >= startH && h < endH && left > 0.3 && !(weekend && !a.job.ceo && a.tr.C < 75)) {
-      add('work', 54 + a.tr.C * 0.25 + moneyStress * 0.22 + (a.job.ceo ? 12 : 0) + (goal('wealth') || goal('mastery') ? 7 : 0)
-        - (100 - a.nd.energy) * 0.3 + (a.job.sat - 50) * 0.12,
-        [`${jobTitle(world, a)} 근무 시간`, a.tr.C > 65 ? '책임감' : a.tr.C < 35 ? '하기 싫지만…' : null, moneyStress > 50 ? '돈이 필요함' : null],
-        { dur: Math.min(240, left * 60) });
+    // 근무 시간표대로: 출근 → (점심) → 퇴근. 성실하지 않으면 지각하기도 한다
+    const sh = shiftOf(world, a);
+    const winter = s.weather?.season === '겨울';
+    const sStart = sh.start + (JOBS[a.job.id]?.shift === 'farm' && winter ? 1.5 : 0) + Math.max(0, (45 - a.tr.C) / 100), sEnd = sh.end - (JOBS[a.job.id]?.shift === 'farm' && winter ? 2 : 0);
+    const lunch = sh.lunch && h >= 12 && h < 13 && a.day.lunch !== dayN;
+    const hoursNeed = sEnd - sStart - (sh.lunch ? 1 : 0);
+    if (workday(sh, lday) && h >= sStart - 0.25 && h < sEnd - 0.2 && a.day.work < hoursNeed - 0.2 && !lunch) {
+      const next = sh.lunch && h < 12 ? 12 : sEnd;
+      add('work', 92 + a.tr.C * 0.12 - (a.tr.C < 30 && chance(0.06) ? 60 : 0) - (a.sick > 30 ? 50 : 0) - (100 - a.nd.energy) * 0.15,
+        [a.day.work < 0.1 ? `출근 시간 (${String(Math.floor(sStart)).padStart(2, '0')}시)` : '근무 시간', jobTitle(world, a), a.tr.C > 65 ? '책임감' : a.tr.C < 35 ? '하기 싫지만…' : null],
+        { dur: Math.max(20, (next - h) * 60), sh });
     }
+    if (workday(sh, lday) && lunch && a.day.work > 0.5 && a.day.lunch !== dayN) add('eat', 96, ['점심시간'], { lunch: true });
   }
   if (!a.job && adult && !a.retired && now - (a.lastSeek || -1e9) > 360) {
     add('seek_job', 38 + moneyStress * 0.45 + a.amb * 0.12 + a.tr.C * 0.1 + (age < 30 ? 8 : 0),
       ['일이 없음', moneyStress > 40 ? `재산 ${Math.round(a.money)}` : null]);
   }
-  if (a.job && !a.job.ceo && adult && (a.job.sat < 45 || (!a.job.co && era >= 1)) && now - (a.lastSeek || -1e9) > DAY * 6 && chance(0.15)) {
+  if (a.job && !a.job.ceo && adult && (a.job.sat < 45 || (!a.job.co && era >= 1)) && now - (a.lastSeek || -1e9) > DAY * (a.job.co ? 6 : 3) && chance(a.job.co ? 0.15 : 0.3)) {
     add('seek_job', 20 + (60 - a.job.sat) * 0.5 + a.amb * 0.15 + (a.job.co ? 0 : 10), [a.job.co ? '지금 일이 맞지 않는다' : '더 안정적인 일을 찾고 싶다']);
   }
   if (stage === 'teen' && age >= 17 && !a.job && era >= 1 && chance(0.2) && now - (a.lastSeek || -1e9) > 1440 * 3) {
@@ -203,10 +248,10 @@ export function decide(world, a) {
     else if (!a.home || (livesWithParents && age > 22 + (100 - a.val.adventure) * 0.1) || (homeB && homeB.res.length > BUILDINGS[homeB.type].cap) || outdated) {
       let t = HOME_BY_ERA[Math.min(era, 7)];
       let why = null;
-      // 중세까지의 집은 손수 짓는다. 연립·아파트는 건설회사가 있어야 한다.
-      if (BUILDINGS[t].era >= 4 && !hasConstruction(world, s.id)) {
+      // 기와집까지는 손수 짓는다. 벽돌집·연립·아파트는 건설회사가 있어야 한다.
+      if (BUILDINGS[t].era >= 3 && !hasConstruction(world, s.id)) {
         s.need = s.need || {}; s.need.builder = (s.need.builder || 0) + 1; s.need.homes = (s.need.homes || 0) + 1;
-        t = 'brickhouse'; why = '건설회사가 없어 손수 벽돌집을';
+        t = 'house'; why = '건설회사가 없어 손수 기와집을';
         if (a.home && chance(0.85)) t = null;
         if (chance(0.06)) think(world, a, pick(['연립주택은 건설회사가 있어야 짓는다는데…', '집 지어 주는 회사가 이 마을엔 없다.', '아예 건설회사를 차려 볼까?']));
       }
@@ -230,7 +275,7 @@ export function decide(world, a) {
         const b = world.anns.get(+id);
         if (!b || !b.alive || b.sid !== a.sid) continue;
         const site = homeWork(world, b);
-        if (site && !site.stalled && (!best || r.a > best.r)) best = { site, b, r: r.a };
+        if (site && !site.stalled && BUILDINGS[site.type]?.kind === 'home' && !site.contractor && (!best || r.a > best.r)) best = { site, b, r: r.a };
       }
       if (best && best.site.owner !== a.id) add('build', 6 + a.tr.A * 0.2 + best.r * 0.12 + (era <= 2 ? 8 : 0) - (weatherBad ? 10 : 0), ['품앗이', `${best.b.name}네 ${best.site.name} 짓기 돕기`], { site: best.site.id });
     }
@@ -272,7 +317,9 @@ export function decide(world, a) {
   if (adult && era >= 1 && age >= 20 && age < 62 && !a.job?.ceo && now - (a.lastFound || -1e9) > DAY * 8) {
     const bi = bestIndustry(world, a);
     const nCo = world.companyCount(s.id);
-    if (bi && bi.df >= 1 && nCo < s.pop / 3.5) {
+    const adults = world.residents(s.id).filter(x => ageOf(x, now) >= 19).length;
+    // 가게·회사는 어른 다섯 명에 하나꼴. 나머지는 그런 곳에 취직한다
+    if (bi && bi.df >= 1.05 && nCo < Math.max(2, adults / 5) && a.amb > 50) {
       const c = startupCost(world, bi.ind, era);
       if (a.money >= c) {
         add('found_co', a.amb * 0.42 + (goal('company') ? 28 : goal('wealth') ? 12 : 0) + (bi.score - 50) * 0.3 + (a.job ? -8 : 6) - 6,
@@ -298,7 +345,7 @@ export function decide(world, a) {
   opts.sort((x, y) => y.final - x.final);
   const choice = opts[0];
   a.why = opts.slice(0, 4).map(o => ({ a: o.type, s: Math.round(o.score), r: o.reasons.filter(Boolean).slice(0, 3), k: o.kind }));
-  execute(world, a, choice, { h, era, s, stage, age });
+  execute(world, a, choice, { h, era, s, stage, age, inSleep });
 }
 
 function familyNearby(world, a) {
@@ -356,23 +403,43 @@ function pickSocialTarget(world, a, s) {
 function execute(world, a, o, ctx) {
   const { s, era } = ctx;
   switch (o.type) {
-    case 'sleep': start(world, a, 'sleep', 600, 'home'); thinkDecision(world, a, o); break;
-    case 'eat': start(world, a, 'eat', 35, a.home || era < 2 ? 'home' : (world.findWork(s, 'market')?.id ?? 'home')); break;
+    case 'sleep': start(world, a, 'sleep', 600, 'home', { nap: !ctx.inSleep && a.nd.energy > 15 }); thinkDecision(world, a, o); break;
+    case 'eat': {
+      // 점심은 일터 근처 식당에서, 저녁은 보통 집에서 (가끔 외식)
+      const rest = era >= 2 && a.money > wageBase(era) * 0.3 ? nearestOf(world, s, ['restaurant', 'cafe', 'bakery'], a) : null;
+      const out = rest && (o.lunch ? chance(0.75) : chance(0.12 + (a.tr.E - 50) / 300));
+      const where = out ? rest.id : o.lunch && a.job ? workPlace(world, a) : 'home';
+      if (o.lunch) a.day.lunch = Math.floor(world.clock / DAY);
+      a.lastMeal = world.clock;
+      const hh = localHour(world.clock, s.lon);
+      logToday(world, a, '🍚', `${mealName(hh)} — ${out ? rest.name : o.lunch && a.job ? '일터에서' : '집에서'}`);
+      start(world, a, 'eat', o.lunch ? 45 : 35, where, { rest: out ? rest.id : null });
+      break;
+    }
     case 'forage': {
       const shore = chance(0.5) ? shorePoint(s) : null;
       start(world, a, 'forage', 150, shore || wildPoint(s, 'forest'), { fishing: !!shore });
       thinkDecision(world, a, o); break;
     }
-    case 'work': start(world, a, 'work', o.dur, workPlace(world, a)); thinkDecision(world, a, o); break;
+    case 'work': {
+      const wp = workPlace(world, a);
+      const site = a.job.site && world.buildings.get(a.job.site);
+      if (a.day.work < 0.1) logToday(world, a, site ? '🦺' : '💼', `출근 — ${site ? site.name + ' 현장' : jobTitle(world, a)}`);
+      else logToday(world, a, '💼', '오후 근무');
+      start(world, a, 'work', o.dur, wp, { endH: o.sh?.end });
+      thinkDecision(world, a, o); break;
+    }
     case 'seek_job': a.lastSeek = world.clock; start(world, a, 'seek_job', 60, 'plaza'); thinkDecision(world, a, o); break;
-    case 'study': start(world, a, 'study', o.school ? 300 : 150, o.school ? o.school.id : 'home', { school: !!o.school }); break;
+    case 'study': logToday(world, a, '🎒', o.school ? `등교 — ${a.school?.name || '학교'}` : '집에서 공부'); start(world, a, 'study', o.school ? 390 : 150, o.school ? o.school.id : 'home', { school: !!o.school }); break;
     case 'play': start(world, a, 'play', 90, 'plaza'); break;
     case 'build': {
       let site = o.site ? world.buildings.get(o.site) : null;
       if (o.civic) site = placeBuilding(world, s, o.civic, { era, owner: null });
       if (!site && o.newHome) {
         const c = BUILDINGS[o.newHome].cost || 0;
-        site = placeBuilding(world, s, o.newHome, { era, owner: a.id, budget: c * 0.5 });
+        const hire = BUILDINGS[o.newHome].era >= 1 && hasConstruction(world, s.id) && a.money >= c * 1.5;
+        site = placeBuilding(world, s, o.newHome, { era, owner: a.id, budget: hire ? c : c * 0.5 });
+        if (site && hire && assignContractor(world, site)) { remember(world, a, `건설회사에 집 짓는 일을 맡겼다`, 4, 0.3, [], 'home'); }
         if (site) {
           a.money -= Math.min(a.money, c);
           remember(world, a, `내 ${reul(BUILDINGS[o.newHome].name)} 짓기 시작했다`, 5, 0.5, [], 'home');
@@ -556,6 +623,8 @@ function onArrive(world, a, act) {
     const result = converse(world, a, b, kind === 'family' ? 'family' : kind);
     const dur = isDate ? 100 + rand() * 60 : kind === 'family' ? 80 : 30 + rand() * 40;
     const type = isDate ? 'date' : kind === 'family' ? 'family' : 'talk';
+    logToday(world, a, isDate ? '💕' : '💬', `${b.name}${isDate ? '와(과) 데이트' : kind === 'family' ? '와(과) 오붓한 시간' : '와(과) ' + (result.topic || '이야기')}`);
+    logToday(world, b, isDate ? '💕' : '💬', `${a.name}${isDate ? '와(과) 데이트' : kind === 'family' ? '와(과) 오붓한 시간' : '와(과) ' + (result.topic || '이야기')}`);
     a.act = { type, ph: 'do', tx: a.x, tz: a.z, until: world.clock + dur, dur, target: b.id, topic: result.topic, line: result.line, started: Math.round(world.clock) };
     b.act = { type, ph: 'do', tx: b.x, tz: b.z, until: world.clock + dur, dur, target: a.id, topic: result.topic, line: result.line, started: Math.round(world.clock) };
     world.dirtyAct.add(a.id); world.dirtyAct.add(b.id);
@@ -581,7 +650,7 @@ function onArrive(world, a, act) {
       return;
     }
     // 적합도 + 임금 + 야망 (야망이 크면 돈을, 성실하면 적성을)
-    for (const op of ops) op.sc = op.fit * (0.7 + a.tr.C / 300) + op.wage / Math.max(1, wageBase(world.countries[a.country].era)) * (20 + a.val.wealth * 0.3) + (op.co ? 6 : 0) + gauss() * 6;
+    for (const op of ops) op.sc = op.fit * (0.7 + a.tr.C / 300) + op.wage / Math.max(1, wageBase(world.countries[a.country].era)) * (20 + a.val.wealth * 0.3) + (op.co ? 14 : 0) + gauss() * 6;
     ops.sort((x, y) => y.sc - x.sc);
     if (a.job) {
       const cur = ops.find(op => op.jobKey === a.job.id && (op.co?.id ?? null) === a.job.co);
@@ -642,8 +711,10 @@ function onTick(world, a, act, dt) {
     a.stress = clamp(a.stress - 0.012 * dt);
     const s = world.settlements.get(a.sid);
     const h = localHour(world.clock, s.lon);
-    const wake = 6.5 + a.chrono;
-    if (a.nd.energy >= 99 || (a.nd.energy > 82 && h >= wake && h < wake + 4) || a.nd.food < 8) act.done = true;
+    const wake = wakeHour(world, a, ageStage(ageOf(a, world.clock)));
+    // 낮잠은 기운이 돌아오면 끝, 밤잠은 아침까지
+    if (act.nap ? a.nd.energy >= 75 : (a.nd.energy > 70 && h >= wake && h < wake + 6) || (a.nd.energy >= 99 && h >= wake - 0.4 && h < wake + 10)) act.done = true;
+    if (a.nd.food < 8) act.done = true;
     return;
   }
   if (act.type === 'baby') {
@@ -654,7 +725,7 @@ function onTick(world, a, act, dt) {
   const hours = dt / 60;
   switch (act.type) {
     case 'work':
-      if (a.job) { produce(world, a, dt); a.day.work += hours; a.lastWork = world.clock; }
+      if (a.job) { produce(world, a, dt); a.day.work += hours; a.payHours = (a.payHours || 0) + hours; a.lastWork = world.clock; }
       else act.done = true;
       break;
     case 'forage': {
@@ -772,13 +843,25 @@ function finishAct(world, a, interrupted) {
   if (interrupted) return;
   switch (act.type) {
     case 'eat':
+      if (act.rest) {
+        const rb = world.buildings.get(act.rest);
+        const co = rb?.co && world.companies.get(rb.co);
+        const price = wageBase(era(world, a)) * 0.2;
+        if (co && !co.dead && a.money >= price) { a.money -= price; co.money += price; co.rev += price; act.fed = 1; }
+      }
       a.nd.food = clamp(a.nd.food + 58 * (act.fed ?? 1));
+      a.lastMeal = world.clock;
       a.day.meals++;
       if (act.fed < 1) { remember(world, a, '먹을 것이 없어 굶주렸다', 3, -0.5, [], 'hunger'); think(world, a, '배가 고프다… 다들 먹을 건 있을까?'); feel(a, -6, '배고픔'); }
       else if (era(world, a) >= 1 && a.money > 0) a.money = Math.max(0, a.money - dailyCost(era(world, a)) * 0.12);
       break;
     case 'work':
       if (a.job) {
+        const s2 = world.settlements.get(a.sid);
+        if (act.endH && localHour(world.clock, s2.lon) >= act.endH - 0.4) {
+          logToday(world, a, '🏡', `퇴근 (${Math.round(a.day.work)}시간 근무)`);
+          if (chance(0.15)) think(world, a, pick(['퇴근이다! 오늘도 수고했다, 나.', '집에 가서 뭐 먹지?', '오늘은 좀 힘들었다.', '내일도 이 시간에 또…']));
+        }
         const fit = jobFit(a, a.job.id);
         a.job.sat = clamp(a.job.sat + (fit - 55) * 0.04 + (a.mood > 0 ? 0.3 : -0.3));
         coworkerChat(world, a);
@@ -794,6 +877,8 @@ function finishAct(world, a, interrupted) {
       a.rep = clamp(a.rep + 0.3, -100, 100);
       break;
     case 'reflect': reflect(world, a); break;
+    case 'sleep': a.lastWake = world.clock; logToday(world, a, '⏰', '일어났다'); break;
+    case 'study': if (act.school) logToday(world, a, '🏡', '하교'); break;
     case 'relax': if (chance(0.3)) { const m = musing(world, a); if (m) think(world, a, m); } break;
     case 'research': if (chance(0.25)) think(world, a, pick(['오늘은 조금 알아낸 것 같다.', '실패도 배움이다.', '답이 거의 보인다. 거의…'])); break;
     case 'exercise': if (chance(0.2)) think(world, a, '땀 흘리고 나니 개운하다!'); break;
@@ -884,5 +969,29 @@ export function nightlyReview(world, a) {
     think(world, a, `${title}… 이건 내 길이 아니었다. 다른 일을 찾아보자.`);
     feel(a, -4, '홀가분함', title);
   }
-  a.day = { work: 0, meals: 0, talks: 0, best: null, worst: null, studied: false, led: false };
+  a.day.talks = 0; a.day.best = null; a.day.worst = null;
+}
+
+function nearestOf(world, s, types, a) {
+  let best = null, bd = Infinity;
+  for (const id of s.buildings) {
+    const b = world.buildings.get(id);
+    if (!b || !b.done || !types.includes(b.type) || !b.co) continue;
+    const co = world.companies.get(b.co);
+    if (!co || co.dead) continue;
+    const d = Math.hypot(b.x - a.x, b.z - a.z);
+    if (d < bd) { bd = d; best = b; }
+  }
+  return best;
+}
+
+/** 일어날 시각: 일이 일찍 시작하면 일찍 일어난다 (농부·어부·현장) */
+function wakeHour(world, a, stage) {
+  if (stage === 'child') return 7 + a.chrono * 0.5;
+  let w = 6.5 + a.chrono;
+  if (a.job && JOBS[a.job.id]) {
+    const sh = SHIFTS[JOBS[a.job.id].shift] || SHIFTS.office;
+    w = Math.min(w, sh.start - 0.9);
+  }
+  return Math.max(3, w);
 }

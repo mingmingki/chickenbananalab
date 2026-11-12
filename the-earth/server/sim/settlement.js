@@ -68,15 +68,27 @@ function fits(s, i, j, w, d) {
 }
 
 /** 빈 땅 찾기. minR/maxR 는 칸 단위 거리 */
-export function findLot(s, w, d, minR = 0, maxR = 200, jitter = 0) {
+export function findLot(s, w, d, minR = 0, maxR = 200, jitter = 0, pred = null) {
   let skipped = 0;
   for (const [i, j, dist] of SPIRAL) {
     if (dist < minR) continue;
     if (dist > maxR) break;
     if (jitter && rand() < jitter && skipped < 30) { skipped++; continue; }
-    if (fits(s, i, j, w, d)) return [i, j];
+    if (fits(s, i, j, w, d) && (!pred || pred(i, j))) return [i, j];
   }
   return null;
+}
+/** 물가 땅: 부지 가장자리 30m 안에 물(바다/강/호수)이 있다 */
+function nearWater(s, kind) {
+  const t = terrainOf(s);
+  return (i, j, w, d) => {
+    const x0 = i * CELL, z0 = j * CELL, x1 = (i + w) * CELL, z1 = (j + d) * CELL;
+    for (const [x, z] of [[x0 - 30, (z0 + z1) / 2], [x1 + 30, (z0 + z1) / 2], [(x0 + x1) / 2, z0 - 30], [(x0 + x1) / 2, z1 + 30]]) {
+      const p = t.sample(x, z);
+      if (p.water && (kind !== 'sea' || p.water === 'sea')) return true;
+    }
+    return false;
+  };
 }
 
 /** 가장 먼 비농지 건물까지의 거리(칸) */
@@ -99,6 +111,12 @@ export function placeBuilding(world, s, type, opts = {}) {
   if (def.kind === 'farm') {
     const r = townRadiusCells(world, s);
     lot = findLot(s, w, d, r + 2, r + 30, 0.3);
+  } else if (def.nearWater && s.site) {
+    const ok = nearWater(s, def.nearWater);
+    lot = findLot(s, w, d, 0, 140, 0, (i, j) => ok(i, j, w, d));
+  } else if (type === 'mine' && s.site) {
+    const t = terrainOf(s);
+    lot = findLot(s, w, d, 4, 140, 0.2, (i, j) => t.cellInfo(i, j).h > 25) || findLot(s, w, d, 4, 200, 0.2);
   } else if (def.kind === 'civic' || type === 'market') {
     lot = findLot(s, w, d, 0, 200, 0);
   } else {
@@ -145,7 +163,7 @@ export function removeBuilding(world, b) {
 export function buildRule(b) {
   const def = BUILDINGS[b.type] || {};
   const era = def.era ?? 0;
-  const self = era <= 1 || ['farm', 'campfire', 'granary'].includes(b.type) || (def.kind === 'home' && era <= 3);
+  const self = era <= 1 || ['farm', 'campfire', 'granary'].includes(b.type) || (def.kind === 'home' && era <= 2);
   return { self, bricks: era >= 2 && def.kind !== 'farm' };
 }
 export const MAT_PER_WORK = 0.6;
