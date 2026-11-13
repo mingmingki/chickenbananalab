@@ -1,6 +1,6 @@
 // The Earth — 화면 흐름: 인트로 → 서버 → 나라 → 앤 만들기 → 관찰
 import { state, fmtDate } from './state.js';
-import { api, auth, Live, loadSessions, saveSession, forgetSession } from './net.js';
+import { api, auth, Live, loadSessions, saveSession, forgetSession, SERVER, NATIVE } from './net.js';
 import { World3D } from './scene/scene.js';
 import { Creator } from './ui/creator.js';
 import { Hud } from './ui/hud.js';
@@ -48,7 +48,9 @@ function toast(text) {
 async function boot() {
   $('#loading').classList.remove('hidden');
   // 앱처럼: 서비스 워커(빠른 재방문, 휴대폰 알림)
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && !NATIVE) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  // 앱 안에서는 약관 같은 페이지 링크를 서버 주소로
+  if (SERVER) for (const a of document.querySelectorAll('a[href^="/"]')) a.href = SERVER + a.getAttribute('href');
   [meta, geo] = await Promise.all([api('/api/meta'), api('/api/geo')]);
   w3d = new World3D($('#scene'), meta, geo.countries);
   w3d.setState(state);
@@ -78,7 +80,9 @@ async function refreshAccount() {
   $('#intro-account').textContent = acc ? `👤 ${acc.username}` : '로그인';
 }
 const onAccount = () => { refreshAccount(); };
-const openSettings = () => settingsModal({ toast: msg => (hud ? hud.toast(msg) : toast(msg)), onAccount, google: meta.googleLogin, onTutorial: hud ? () => tutorial({ hasMine: !!ctx.session }) : null });
+/** 보여 줄 로그인 버튼: 웹은 구글(서버 설정 시), 앱은 휴대폰 자체 구글·애플 로그인 */
+const loginKinds = () => ({ google: NATIVE ? !!meta.nativeLogin?.google : !!meta.googleLogin, apple: NATIVE && !!meta.nativeLogin?.apple });
+const openSettings = () => settingsModal({ toast: msg => (hud ? hud.toast(msg) : toast(msg)), onAccount, google: loginKinds().google, onTutorial: hud ? () => tutorial({ hasMine: !!ctx.session }) : null });
 /** 이어할 수 있는 게임: 이 기기에 저장된 것 + 계정에 묶인 것 */
 function allSessions() {
   const list = loadSessions();
@@ -114,7 +118,7 @@ function intro() {
   w3d.playIntro(landed);
   $('#intro').onclick = e => {
     const act = e.target.closest('[data-act]')?.dataset.act;
-    if (act === 'account') { account() ? openSettings() : accountModal({ toast, onChange: onAccount, google: meta.googleLogin }); return; }
+    if (act === 'account') { account() ? openSettings() : accountModal({ toast, onChange: onAccount, ...loginKinds() }); return; }
     if (act === 'settings') { openSettings(); return; }
     if (e.target.closest('.intro-foot')) return;
     if (!done) { w3d.introSkip?.(); return; }

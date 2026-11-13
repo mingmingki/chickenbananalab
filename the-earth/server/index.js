@@ -16,6 +16,7 @@ import { badName } from './lib/names-filter.js';
 import { securityHeaders, inlineScriptHashes, limiter, clientIp } from './lib/security.js';
 import { initPush, pushPublicKey, queuePush, flushPush, sendPush } from './push.js';
 import * as google from './lib/google.js';
+import { verifyIdToken, nativeEnabled } from './lib/idtoken.js';
 import { recap, ACHIEVEMENTS } from './sim/achieve.js';
 import { ERA_MONEY, perUnit, INS_RATE, WON, eraF } from './sim/budget.js';
 import { listedSalary } from './sim/economy.js';
@@ -57,6 +58,16 @@ app.disable('x-powered-by');
 app.use(securityHeaders({ scriptHashes: inlineScriptHashes([join(PUBLIC_DIR, 'index.html'), join(PUBLIC_DIR, 'admin.html')]) }));
 app.use(compression());
 app.use(express.json({ limit: '64kb' }));
+// 휴대폰 앱(Capacitor)의 화면은 capacitor://localhost 같은 다른 출처에서 서버를 부른다
+const CORS = String(process.env.CORS_ORIGINS || 'capacitor://localhost,https://localhost,http://localhost,ionic://localhost').split(',').map(o => o.trim()).filter(Boolean);
+app.use('/api/', (req, res, next) => {
+  const o = req.get('origin');
+  if (o && CORS.includes(o)) {
+    res.set({ 'Access-Control-Allow-Origin': o, Vary: 'Origin', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Key', 'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS', 'Access-Control-Max-Age': '600' });
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+  }
+  next();
+});
 app.use('/api/', limiter(600, 60_000)); // IP당 분당 600회
 // 약관·개인정보 처리방침: 운영자 정보는 환경 변수로 채운다
 const OP = { name: process.env.OPERATOR_NAME, email: process.env.OPERATOR_EMAIL, date: process.env.LEGAL_DATE, host: process.env.HOST_NAME, region: process.env.HOST_REGION };
@@ -92,7 +103,7 @@ function needAdmin(req, res, next) {
   if (!(a?.admin && !a.banned) && !keyOk(req.get('x-admin-key'))) return res.status(403).json({ error: '관리자만 쓸 수 있습니다' });
   req.acc = a; next();
 }
-const accOut = a => a && { id: a.id, username: a.username, admin: !!a.admin, created: a.created, prefs: JSON.parse(a.prefs || '{}'), google: !!a.google_sub, hasPassword: !!a.pass };
+const accOut = a => a && { id: a.id, username: a.username, admin: !!a.admin, created: a.created, prefs: JSON.parse(a.prefs || '{}'), google: !!a.google_sub, apple: !!a.apple_sub, hasPassword: !!a.pass };
 const USERNAME = /^[가-힣a-zA-Z0-9_]{2,16}$/;
 /** 아이디 검사: 문제가 있으면 이유 */
 function usernameProblem(u) {
@@ -216,15 +227,35 @@ app.post('/api/auth/google/poll', googlePollLimit, (req, res) => {
   res.json({ status: 'done', ...loginOk(acc) });
 });
 /** 처음 구글로 온 사람: 아이디를 정하고 약관에 동의하면 가입 */
-app.post('/api/auth/google/signup', signupLimit, (req, res) => {
+app.post(['/api/auth/google/signup', '/api/auth/social/signup'], signupLimit, (req, res) => {
   const u = String(req.body?.username || '').trim();
-  const sub = google.takeTicket(req.body?.ticket, true);
-  if (!sub) return res.status(400).json({ error: '가입 시간이 지났습니다. 구글 로그인을 다시 해 주세요.' });
+  const t = google.takeTicket(req.body?.ticket, true);
+  if (!t) return res.status(400).json({ error: '가입 시간이 지났습니다. 로그인을 다시 해 주세요.' });
   const prob = usernameProblem(u); if (prob) return res.status(400).json({ error: prob });
   if (!req.body?.agree) return res.status(400).json({ error: '이용약관과 개인정보 처리방침에 동의해 주세요 (만 14세 이상)' });
-  if (db.accountByGoogle(sub)) return res.status(409).json({ error: '이미 가입된 구글 계정입니다. 다시 로그인해 주세요.' });
+  if (db.accountBySocial(t.kind, t.sub)) return res.status(409).json({ error: '이미 가입된 계정입니다. 다시 로그인해 주세요.' });
   google.takeTicket(req.body.ticket);
-  res.json(loginOk(db.createAccount(u, null, sub)));
+  res.json(loginOk(db.createAccount(u, null, t)));
+});
+/** 휴대폰 앱: 휴대폰 자체의 구글·애플 로그인으로 받은 ID 토큰. 로그인한 상태면 그 계정에 연결(link) */
+app.post('/api/auth/:kind(google|apple)/native', googleLimit, async (req, res) => {
+  const kind = req.params.kind;
+  if (!nativeEnabled(kind)) return res.status(503).json({ error: kind === 'apple' ? '애플 로그인이 아직 설정되지 않았습니다 (운영자: APPLE_CLIENT_IDS)' : '구글 로그인이 아직 설정되지 않았습니다' });
+  let payload;
+  try { payload = await verifyIdToken(kind, req.body?.idToken, req.body?.nonce ?? null); }
+  catch (e) { return res.status(401).json({ error: '로그인 확인 실패: ' + e.message }); }
+  const sub = String(payload.sub);
+  const owner = db.accountBySocial(kind, sub);
+  if (req.body?.link) {
+    const acc = authOf(req);
+    if (!acc) return res.status(401).json({ error: '로그인이 필요합니다' });
+    if (owner && owner.id !== acc.id) return res.status(409).json({ error: '이 계정은 이미 다른 계정에 연결되어 있습니다' });
+    db.setSocial(kind, acc.id, sub);
+    return res.json({ status: 'done', linked: true });
+  }
+  if (owner?.banned) return res.status(403).json({ error: '이용이 정지된 계정입니다' });
+  if (owner) return res.json({ status: 'done', ...loginOk(owner) });
+  res.json({ status: 'done', signup: google.signupTicket(sub, kind) });
 });
 /** 구글 연결 끊기 (비밀번호가 있어야 — 아니면 로그인할 방법이 사라진다) */
 app.post('/api/auth/google/unlink', needAuth, (req, res) => {
@@ -275,7 +306,7 @@ app.get('/api/meta', (req, res) => {
     money: ERA_MONEY.map((m, e) => ({ ...m, perUnit: perUnit(e), to2026: WON / eraF(e) / 1e4, ins: INS_RATE[e] })),
     payTable: ERA_MONEY.map((_, e) => Object.fromEntries(Object.keys(JOBS).map(k => [k, Math.round(listedSalary(k, e))]))),
     jobs: Object.fromEntries(Object.entries(JOBS).map(([k, j]) => [k, { name: j.name, era: j.era, maxEra: j.maxEra ?? null, pay: j.pay, cat: j.cat, edu: j.edu || 0, self: !!j.self, shift: j.shift }])),
-    traitNames: TRAIT_NAMES, abilityNames: ABILITY_NAMES, maxAnns: MAX_ANNS_PER_PLAYER, openServers: OPEN_SERVERS, achievements: ACHIEVEMENTS, googleLogin: google.googleEnabled(),
+    traitNames: TRAIT_NAMES, abilityNames: ABILITY_NAMES, maxAnns: MAX_ANNS_PER_PLAYER, openServers: OPEN_SERVERS, achievements: ACHIEVEMENTS, googleLogin: google.googleEnabled(), nativeLogin: { google: nativeEnabled('google'), apple: nativeEnabled('apple') },
   });
   res.type('json').send(metaCache);
 });

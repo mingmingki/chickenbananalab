@@ -1,0 +1,10 @@
+{
+  "appId": "com.example.theearth",
+  "appName": "The Earth",
+  "webDir": "www",
+  "server": { "androidScheme": "https" },
+  "ios": { "contentInset": "never" },
+  "plugins": {
+    "PushNotifications": { "presentationOptions": ["badge", "sound", "alert"] }
+  }
+}

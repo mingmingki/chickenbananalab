@@ -98,11 +98,13 @@ export function poll(id, code) {
 export const bindMatches = (p, cookieVal) => same(p.bind, cookieVal);
 
 // 처음 구글로 들어온 사람: 아이디를 정할 때까지 잠깐 보관
-const tickets = new Map(); // ticket → { sub, created }
-export function signupTicket(sub) { const t = rnd(); tickets.set(t, { sub, created: Date.now() }); return t; }
+// (구글 웹 로그인, 휴대폰 앱의 구글·애플 로그인 모두 같은 표를 쓴다)
+const tickets = new Map(); // ticket → { kind, sub, created }
+export function signupTicket(sub, kind = 'google') { const t = rnd(); tickets.set(t, { kind, sub, created: Date.now() }); return t; }
+/** { kind, sub } 또는 null */
 export function takeTicket(t, peek = false) {
   const v = tickets.get(String(t || ''));
   if (!v || Date.now() - v.created > TTL * 3) { tickets.delete(t); return null; }
   if (!peek) tickets.delete(t);
-  return v.sub;
+  return { kind: v.kind, sub: v.sub };
 }

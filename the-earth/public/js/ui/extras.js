@@ -1,5 +1,5 @@
 // 계정(로그인·가입), 설정(소리·알림·계정), 알림함과 업적, '그동안 있었던 일', 신고, 처음 하는 사람을 위한 안내.
-import { api, auth, loadSessions } from '../net.js';
+import { api, auth, loadSessions, serverUrl, NATIVE } from '../net.js';
 import { sound } from '../audio.js';
 import { fmtDate } from '../state.js';
 import { TOUCH } from '../device.js';
@@ -54,22 +54,30 @@ async function finishLogin(r, { toast, onChange, isNew = false } = {}) {
 
 const G_LOGO = '<svg class="g-logo" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.2C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.8c4.3-4 6.9-9.9 6.9-17.2z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.2C1 16.6 0 20.2 0 24s1 7.4 2.7 10.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.8c-2.1 1.4-4.8 2.3-8.5 2.3-6.2 0-11.5-4.1-13.4-9.9l-7.9 6.2C6.6 42.6 14.6 48 24 48z"/></svg>';
 
-export function accountModal({ toast, onChange, mode = 'login', google = false } = {}) {
+const APPLE_LOGO = '<svg class="g-logo" viewBox="0 0 384 512" aria-hidden="true"><path fill="currentColor" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>';
+
+export function accountModal({ toast, onChange, mode = 'login', google = false, apple = false } = {}) {
   const render = () => `<h3>${mode === 'login' ? '로그인' : '가입하기'}</h3>
-    ${google ? `<button class="btn google-btn" data-m="google">${G_LOGO}<span>Google로 계속하기</span></button><div class="or"><span>또는 아이디로</span></div>` : ''}
+    ${google ? `<button class="btn google-btn" data-m="google">${G_LOGO}<span>Google로 계속하기</span></button>` : ''}
+    ${apple ? `<button class="btn apple-btn" data-m="apple">${APPLE_LOGO}<span>Apple로 계속하기</span></button>` : ''}
+    ${google || apple ? '<div class="or"><span>또는 아이디로</span></div>' : ''}
     <div class="seg"><button class="${mode === 'login' ? 'on' : ''}" data-m="mode-login">로그인</button><button class="${mode === 'signup' ? 'on' : ''}" data-m="mode-signup">가입하기</button></div>
     <p class="sub small">로그인하면 <b>어느 기기에서든 이어할 수 있고</b>, 앱을 꺼도 <b>휴대폰 알림</b>을 받을 수 있어요. 로그인하지 않아도 플레이할 수 있습니다 (이 기기에만 저장).</p>
     <label class="field"><span>아이디</span><input id="acc-user" maxlength="16" autocomplete="username" autocapitalize="off" placeholder="한글·영문·숫자 2~16자"></label>
     <label class="field"><span>비밀번호</span><input id="acc-pass" type="password" maxlength="72" autocomplete="${mode === 'login' ? 'current-password' : 'new-password'}" placeholder="8자 이상"></label>
     ${mode === 'signup' ? `<label class="field"><span>비밀번호 확인</span><input id="acc-pass2" type="password" maxlength="72" autocomplete="new-password"></label>
-    <label class="check"><input id="acc-agree" type="checkbox"> 만 14세 이상이며 <a href="/terms" target="_blank">이용약관</a>과 <a href="/privacy" target="_blank">개인정보 처리방침</a>에 동의합니다</label>` : ''}
+    <label class="check"><input id="acc-agree" type="checkbox"> 만 14세 이상이며 <a href="${serverUrl('/terms')}" target="_blank">이용약관</a>과 <a href="${serverUrl('/privacy')}" target="_blank">개인정보 처리방침</a>에 동의합니다</label>` : ''}
     <p class="form-err hidden"></p>
     <div class="acts"><button class="btn ghost" data-m="cancel">닫기</button><button class="btn primary" data-m="go">${mode === 'login' ? '로그인' : '가입하기'}</button></div>`;
   return new Promise(resolve => {
     let busy = false;
     const ctx = sheet(render(), async (a, c) => {
       if (a.startsWith('mode-')) { mode = a.slice(5); c.box.innerHTML = render(); return; }
-      if (a === 'google') { c.close(); googleLogin({ toast, onChange }).catch(e => toast?.(e.message)); return; }
+      if (a === 'google' || a === 'apple') {
+        c.close();
+        (NATIVE ? nativeLogin(a, { toast, onChange }) : googleLogin({ toast, onChange })).catch(e => toast?.(e.message));
+        return;
+      }
       if (a !== 'go' || busy) return;
       const username = c.box.querySelector('#acc-user').value.trim(), password = c.box.querySelector('#acc-pass').value;
       if (mode === 'signup') {
@@ -117,7 +125,7 @@ const finished = r => r.status === 'done' || r.status === 'error' || r.status ==
 async function googleHandle(r, { toast, onChange }) {
   if (r.status === 'done') {
     gClear();
-    if (r.linked) { toast?.('구글 계정을 연결했습니다. 이제 구글로도 로그인할 수 있어요.'); onChange?.(account()); return 'done'; }
+    if (r.linked) { toast?.('계정을 연결했습니다. 이제 그 계정으로도 로그인할 수 있어요.'); onChange?.(account()); return 'done'; }
     if (r.signup) { googleSignupModal(r.signup, { toast, onChange }); return 'done'; }
     await finishLogin(r, { toast, onChange });
     return 'done';
@@ -172,6 +180,19 @@ function googleWait({ toast, onChange, needCode = false, wrong = false } = {}) {
     ctx.onClose = () => { done = true; clearInterval(timer); removeEventListener('storage', tick); document.removeEventListener('visibilitychange', vis); resolve(account()); };
   });
 }
+/**
+ * 휴대폰 앱 안에서: 휴대폰 자체의 구글·애플 로그인 창을 쓴다 (구글은 앱 속 웹 화면에서의 로그인을 막아 두었다).
+ * 앱 껍데기가 window.EarthNative.signIn(kind) → { idToken, nonce } 를 제공한다 (docs/APP.md 참고).
+ */
+export async function nativeLogin(kind, { toast, onChange, link = false } = {}) {
+  const bridge = window.EarthNative;
+  if (!bridge?.signIn) throw new Error('이 앱 버전은 아직 휴대폰 로그인을 지원하지 않습니다');
+  const { idToken, nonce } = await bridge.signIn(kind);
+  if (!idToken) return null; // 사용자가 취소
+  const r = await api(`/api/auth/${kind}/native`, { idToken, nonce, link });
+  return googleHandle(r, { toast, onChange });
+}
+
 /** 주소 끝 #glogin(=코드) 처리. main.js 가 시작할 때 부른다 */
 export async function googleReturn({ toast, onChange }) {
   const m = location.hash.match(/^#glogin(?:=(\d{6}))?$/);
@@ -187,15 +208,15 @@ export async function googleReturn({ toast, onChange }) {
 /** 처음 구글로 온 사람: 아이디 정하기 + 약관 동의 */
 function googleSignupModal(ticket, { toast, onChange }) {
   sheet(`<h3>${G_LOGO} 처음 오셨네요!</h3>
-    <p class="sub">게임에서 쓸 아이디를 정해 주세요. 구글에서는 계정 번호만 받고, 이메일·이름은 받지 않습니다.</p>
+    <p class="sub">게임에서 쓸 아이디를 정해 주세요. 구글·애플에서는 계정 번호만 받고, 이메일·이름은 받지 않습니다.</p>
     <label class="field"><span>아이디</span><input id="gs-user" maxlength="16" autocapitalize="off" placeholder="한글·영문·숫자 2~16자"></label>
-    <label class="check"><input id="gs-agree" type="checkbox"> 만 14세 이상이며 <a href="/terms" target="_blank">이용약관</a>과 <a href="/privacy" target="_blank">개인정보 처리방침</a>에 동의합니다</label>
+    <label class="check"><input id="gs-agree" type="checkbox"> 만 14세 이상이며 <a href="${serverUrl('/terms')}" target="_blank">이용약관</a>과 <a href="${serverUrl('/privacy')}" target="_blank">개인정보 처리방침</a>에 동의합니다</label>
     <p class="form-err hidden"></p>
     <div class="acts"><button class="btn ghost" data-m="cancel">취소</button><button class="btn primary" data-m="go">가입하기</button></div>`, async (a, c) => {
     if (a !== 'go') return;
     if (!c.box.querySelector('#gs-agree').checked) return c.err('약관과 개인정보 처리방침에 동의해 주세요');
     try {
-      const r = await api('/api/auth/google/signup', { ticket, username: c.box.querySelector('#gs-user').value.trim(), agree: true });
+      const r = await api('/api/auth/social/signup', { ticket, username: c.box.querySelector('#gs-user').value.trim(), agree: true });
       c.close();
       await finishLogin(r, { toast, onChange, isNew: true });
     } catch (e) { c.err(e.message); }
@@ -255,19 +276,19 @@ export async function settingsModal({ toast, onAccount, onTutorial, google = fal
     <section class="set-sec"><h4>👤 계정</h4>
       ${acc ? `<p class="sub small"><b>${esc(acc.username)}</b>으로 로그인됨${acc.admin ? ' · 관리자' : ''}</p>
         <p class="sub small">${acc.google ? `${G_LOGO} 구글 계정 연결됨` : '구글 계정 연결 안 됨'}${acc.hasPassword === false ? ' · 비밀번호 없음 (구글로만 로그인)' : ''}</p>
-        <div class="row-acts"><button class="btn small" data-m="logout">로그아웃</button><button class="btn small ghost" data-m="password">${acc.hasPassword === false ? '비밀번호 만들기' : '비밀번호 바꾸기'}</button>${google && !acc.google ? '<button class="btn small ghost" data-m="glink">구글 계정 연결</button>' : ''}${acc.google && acc.hasPassword !== false ? '<button class="btn small ghost" data-m="gunlink">구글 연결 끊기</button>' : ''}${acc.admin ? '<a class="btn small ghost" href="/admin" target="_blank">관리자 페이지</a>' : ''}<button class="btn small ghost danger" data-m="delete">회원 탈퇴</button></div>`
+        <div class="row-acts"><button class="btn small" data-m="logout">로그아웃</button><button class="btn small ghost" data-m="password">${acc.hasPassword === false ? '비밀번호 만들기' : '비밀번호 바꾸기'}</button>${google && !acc.google ? '<button class="btn small ghost" data-m="glink">구글 계정 연결</button>' : ''}${acc.google && acc.hasPassword !== false ? '<button class="btn small ghost" data-m="gunlink">구글 연결 끊기</button>' : ''}${acc.admin ? `<a class="btn small ghost" href="${serverUrl('/admin')}" target="_blank">관리자 페이지</a>` : ''}<button class="btn small ghost danger" data-m="delete">회원 탈퇴</button></div>`
       : '<p class="sub small">로그인하면 어느 기기에서든 이어할 수 있어요.</p><div class="row-acts"><button class="btn small primary" data-m="login">로그인 / 가입</button></div>'}
     </section>
     <section class="set-sec"><h4>❓ 도움말</h4>
-      <div class="row-acts">${onTutorial ? '<button class="btn small" data-m="tutorial">처음 안내 다시 보기</button>' : ''}<a class="btn small ghost" href="/terms" target="_blank">이용약관</a><a class="btn small ghost" href="/privacy" target="_blank">개인정보 처리방침</a></div>
+      <div class="row-acts">${onTutorial ? '<button class="btn small" data-m="tutorial">처음 안내 다시 보기</button>' : ''}<a class="btn small ghost" href="${serverUrl('/terms')}" target="_blank">이용약관</a><a class="btn small ghost" href="${serverUrl('/privacy')}" target="_blank">개인정보 처리방침</a></div>
     </section>
     <p class="form-err hidden"></p>
     <div class="acts"><button class="btn primary" data-m="close">닫기</button></div>`;
   const reopen = () => settingsModal({ toast, onAccount, onTutorial, google });
   const ctx = sheet(html, async (a, c) => {
     try {
-      if (a === 'login') { c.close(); await accountModal({ toast, onChange: onAccount, google }); reopen(); }
-      if (a === 'glink') { c.close(); await googleLogin({ toast, onChange: onAccount, link: true }); }
+      if (a === 'login') { c.close(); await accountModal({ toast, onChange: onAccount, google, apple: NATIVE && !!window.EarthNative?.apple }); reopen(); }
+      if (a === 'glink') { c.close(); await (NATIVE ? nativeLogin('google', { toast, onChange: onAccount, link: true }) : googleLogin({ toast, onChange: onAccount, link: true })); }
       if (a === 'gunlink') { await api('/api/auth/google/unlink', {}); toast?.('구글 연결을 끊었습니다'); onAccount?.(account()); c.close(); }
       if (a === 'logout') { await logout(); toast?.('로그아웃했습니다'); onAccount?.(null); c.close(); }
       if (a === 'push-on') { await enablePush(); toast?.('휴대폰 알림을 켰습니다'); c.close(); reopen(); }

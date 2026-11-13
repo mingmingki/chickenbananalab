@@ -26,8 +26,11 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS errors (id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, where_ TEXT, msg TEXT);
 `);
 // 구글 로그인: 계정에 구글 계정 고유번호(sub)를 붙인다 (예전 DB에는 칸이 없으니 추가)
-if (!db.prepare('PRAGMA table_info(accounts)').all().some(c => c.name === 'google_sub')) db.exec('ALTER TABLE accounts ADD COLUMN google_sub TEXT');
-db.exec('CREATE UNIQUE INDEX IF NOT EXISTS accounts_google ON accounts(google_sub) WHERE google_sub IS NOT NULL');
+// 애플 로그인(휴대폰 앱)도 같은 방식으로 apple_sub
+for (const col of ['google_sub', 'apple_sub']) {
+  if (!db.prepare('PRAGMA table_info(accounts)').all().some(c => c.name === col)) db.exec(`ALTER TABLE accounts ADD COLUMN ${col} TEXT`);
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS accounts_${col} ON accounts(${col}) WHERE ${col} IS NOT NULL`);
+}
 
 // ── 월드 ──
 const stmt = {
@@ -75,15 +78,17 @@ const checkPw = (pw, stored) => {
 const q = {
   byName: db.prepare('SELECT * FROM accounts WHERE username = ?'),
   byId: db.prepare('SELECT * FROM accounts WHERE id = ?'),
-  insert: db.prepare('INSERT INTO accounts (username, pass, created, last_seen, admin, google_sub) VALUES (?, ?, ?, ?, ?, ?)'),
+  insert: db.prepare('INSERT INTO accounts (username, pass, created, last_seen, admin, google_sub, apple_sub) VALUES (?, ?, ?, ?, ?, ?, ?)'),
   byGoogle: db.prepare('SELECT * FROM accounts WHERE google_sub = ?'),
   setGoogle: db.prepare('UPDATE accounts SET google_sub = ? WHERE id = ?'),
+  byApple: db.prepare('SELECT * FROM accounts WHERE apple_sub = ?'),
+  setApple: db.prepare('UPDATE accounts SET apple_sub = ? WHERE id = ?'),
   count: db.prepare('SELECT COUNT(*) AS n FROM accounts'),
   setAdmin: db.prepare('UPDATE accounts SET admin = ? WHERE id = ?'),
   setBan: db.prepare('UPDATE accounts SET banned = ? WHERE id = ?'),
   seen: db.prepare('UPDATE accounts SET last_seen = ? WHERE id = ?'),
   prefs: db.prepare('UPDATE accounts SET prefs = ? WHERE id = ?'),
-  list: db.prepare("SELECT id, username, created, last_seen, admin, banned, google_sub IS NOT NULL AS google, pass != '' AS haspw FROM accounts ORDER BY id DESC LIMIT 200"),
+  list: db.prepare("SELECT id, username, created, last_seen, admin, banned, google_sub IS NOT NULL AS google, apple_sub IS NOT NULL AS apple, pass != '' AS haspw FROM accounts ORDER BY id DESC LIMIT 200"),
   newSession: db.prepare('INSERT INTO sessions (token, account, created, last) VALUES (?, ?, ?, ?)'),
   session: db.prepare('SELECT s.token, s.last, a.* FROM sessions s JOIN accounts a ON a.id = s.account WHERE s.token = ?'),
   touch: db.prepare('UPDATE sessions SET last = ? WHERE token = ?'),
@@ -106,15 +111,17 @@ export const SESSION_DAYS = 60;
 const adminNames = () => String(process.env.ADMIN_USERS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 /** 관리자: ADMIN_USERS 환경 변수에 적힌 아이디. 비어 있으면 처음 가입한 계정 */
 export const isAdminName = name => adminNames().includes(String(name).toLowerCase());
-/** 계정 만들기. 구글로만 가입하면 비밀번호 칸은 비어 있다 (비밀번호로는 로그인할 수 없음) */
-export function createAccount(username, password, googleSub = null) {
+/** 계정 만들기. 구글·애플로만 가입하면 비밀번호 칸은 비어 있다 (비밀번호로는 로그인할 수 없음). social = { kind: 'google'|'apple', sub } */
+export function createAccount(username, password, social = null) {
   const first = q.count.get().n === 0;
   const admin = isAdminName(username) || (first && !adminNames().length) ? 1 : 0;
-  const r = q.insert.run(username, password ? hashPw(password) : '', Date.now(), Date.now(), admin, googleSub);
+  const r = q.insert.run(username, password ? hashPw(password) : '', Date.now(), Date.now(), admin, social?.kind === 'google' ? social.sub : null, social?.kind === 'apple' ? social.sub : null);
   return q.byId.get(r.lastInsertRowid);
 }
 export const accountByGoogle = sub => q.byGoogle.get(String(sub));
 export const setGoogle = (id, sub) => q.setGoogle.run(sub, id);
+export const accountBySocial = (kind, sub) => (kind === 'apple' ? q.byApple : q.byGoogle).get(String(sub));
+export const setSocial = (kind, id, sub) => (kind === 'apple' ? q.setApple : q.setGoogle).run(sub, id);
 export const accountByName = name => q.byName.get(name);
 export const accountById = id => q.byId.get(id);
 export const verifyPassword = (acc, pw) => checkPw(pw, acc.pass);

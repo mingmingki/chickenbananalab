@@ -1,5 +1,12 @@
 // 서버와의 통신: REST + 웹소켓 (자동 재연결), 로그인 토큰
 
+// 앱(Capacitor)으로 감싸면 화면 파일은 휴대폰 안에 있고 서버는 따로 있다.
+// <meta name="earth-server" content="https://..."> (scripts/build-app.mjs 가 넣어 줌) 로 서버 주소를 알려 준다. 웹에서는 비워 둔다.
+export const SERVER = (document.querySelector('meta[name=earth-server]')?.content || '').replace(/\/$/, '');
+export const serverUrl = path => SERVER + path;
+/** 휴대폰 앱 안에서 실행 중인가 (Capacitor) */
+export const NATIVE = !!window.Capacitor?.isNativePlatform?.();
+
 const AUTH = 'theEarth.auth.v1';
 export const auth = {
   get() { try { return JSON.parse(localStorage.getItem(AUTH) || 'null'); } catch { return null; } },
@@ -11,7 +18,7 @@ export async function api(path, body, method) {
   const a = auth.get();
   if (a?.token) headers.Authorization = 'Bearer ' + a.token;
   if (body) headers['Content-Type'] = 'application/json';
-  const res = await fetch(path, { method: method || (body ? 'POST' : 'GET'), headers, body: body ? JSON.stringify(body) : undefined });
+  const res = await fetch(SERVER + path, { method: method || (body ? 'POST' : 'GET'), headers, body: body ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && a?.token && !path.startsWith('/api/auth/login')) auth.set(null); // 만료된 로그인
   if (!res.ok) throw new Error(data.error || `요청 실패 (${res.status})`);
@@ -37,8 +44,8 @@ export class Live {
     document.addEventListener('visibilitychange', this.onVis);
   }
   connect() {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = this.ws = new WebSocket(`${proto}://${location.host}/ws?server=${encodeURIComponent(this.serverId)}`);
+    const base = SERVER ? SERVER.replace(/^http/, 'ws') : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
+    const ws = this.ws = new WebSocket(`${base}/ws?server=${encodeURIComponent(this.serverId)}`);
     ws.onopen = () => {
       this.retry = 0;
       if (this.playerToken) ws.send(JSON.stringify({ t: 'hello', token: this.playerToken }));

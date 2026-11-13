@@ -434,3 +434,4 @@ button, .btn, [data-act], [data-ann], [data-town], .roster-item, .country-result
 .g-logo { width: 18px; height: 18px; vertical-align: -3px; flex: none; }
 .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; margin: 12px 0 6px; }
 .or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.apple-btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; margin: 6px 0 4px; background: #000; color: #fff; border: 1px solid #333; font-weight: 500; }
