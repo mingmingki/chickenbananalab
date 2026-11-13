@@ -30,6 +30,7 @@ npm start            # http://localhost:3000
 ## 계정·알림·소리
 
 - **로그인은 선택**입니다. 로그인하지 않으면 게임은 그 기기(브라우저)에만 저장되고, 로그인하면 어느 기기에서든 이어할 수 있습니다. 로그인하는 순간 그 기기에서 하던 게임이 계정에 붙습니다.
+- **구글 로그인**: 'Google로 계속하기' 한 번이면 됩니다 (처음이면 게임 아이디만 정함). 구글에서는 계정 고유번호만 받고 이메일·이름은 받지 않습니다. 아이디·비밀번호 계정에 나중에 구글을 연결할 수도 있습니다. 아이폰 '홈 화면 앱'에서 누르면 Safari에서 로그인이 열리는데, 로그인 후 Safari에 나오는 **6자리 확인 코드**를 앱에 입력하면 됩니다 (홈 화면 앱과 Safari는 저장소가 따로라서). 같은 브라우저로 돌아오면 코드 없이 바로 이어집니다.
 - **처음 안내**: 처음 앤을 투입하면 화면 곳곳을 짚어 주는 안내가 나옵니다 (⚙️ 설정 → 처음 안내 다시 보기).
 - **그동안 있었던 일**: 이어하기로 돌아오면 자리를 비운 동안 내 앤들에게 있었던 일(탄생·결혼·죽음·취업·창업…)과 나라의 역사를 한 장으로 보여 줍니다.
 - **🔔 알림함·🏆 업적**: 내 앤의 큰 소식이 쌓이고, 첫 출근·결혼·다음 세대·대학 졸업·창업·나라의 지도자·우주 비행·시대 개막 같은 업적 30여 가지를 모읍니다.
@@ -159,11 +160,14 @@ npm start            # http://localhost:3000
 cd the-earth
 fly launch --no-deploy --copy-config      # fly.toml 의 app 이름을 바꾸라고 하면 바꾸기
 fly volumes create earth_data --size 1 --region nrt
-fly secrets set ADMIN_USERS=내아이디 OPERATOR_NAME="운영자 이름" OPERATOR_EMAIL=me@example.com VAPID_SUBJECT=mailto:me@example.com
+fly secrets set ADMIN_USERS=내아이디 OPERATOR_NAME="운영자 이름" OPERATOR_EMAIL=me@example.com VAPID_SUBJECT=mailto:me@example.com PUBLIC_URL=https://앱이름.fly.dev
+fly secrets set GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=...   # 구글 로그인을 쓸 때
 fly deploy
 ```
 
 **Render**: 대시보드 → New → Blueprint → 이 저장소. 저장소 맨 위의 `render.yaml` 이 `the-earth/Dockerfile` 로 빌드하고 1GB 디스크를 `/data` 에 붙입니다. 디스크는 유료 플랜(Starter 이상)에서만 됩니다. 처음 만들 때 `ADMIN_USERS`, `OPERATOR_NAME`, `OPERATOR_EMAIL`, `VAPID_SUBJECT` 값을 물어봅니다.
+
+**구글 로그인 켜기** (선택): [Google Cloud 콘솔](https://console.cloud.google.com/) → API 및 서비스 → OAuth 동의 화면(외부, 앱 이름·지원 이메일) → 사용자 인증 정보 → OAuth 클라이언트 ID 만들기 → 유형 '웹 애플리케이션' → 승인된 리디렉션 URI에 `https://내주소/api/auth/google/callback` → 나온 클라이언트 ID·보안 비밀을 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` 에, 사이트 주소를 `PUBLIC_URL` 에 넣습니다. 범위(scope)는 `openid` 하나만 씁니다. 동의 화면에 앱 이름·로고를 띄우려면 구글의 브랜드 확인을 받아야 합니다.
 
 **그 밖의 곳** (VPS, Railway 등): `the-earth/Dockerfile` 로 이미지를 만들고 `/data` 에 영구 디스크를 연결, 포트 8080. 도커 없이 하려면 노드 22.13 이상에서 `npm ci --omit=dev && npm start`.
 
@@ -179,6 +183,8 @@ fly deploy
 | `ADMIN_KEY` | 계정 없이 관리자 페이지에 들어가는 비상 키 |
 | `OPERATOR_NAME`, `OPERATOR_EMAIL`, `LEGAL_DATE`, `HOST_NAME`, `HOST_REGION` | 이용약관·개인정보 처리방침의 빈칸 (`/terms`, `/privacy`) |
 | `VAPID_SUBJECT` | 푸시 알림 발신자 (`mailto:메일주소`). 키(`VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`)는 비워 두면 처음에 만들어 DB에 저장 |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | 구글 로그인 (둘 다 있어야 버튼이 나타남) |
+| `PUBLIC_URL` | 사이트 주소 (예: `https://the-earth.fly.dev`) — 구글 로그인 돌아올 주소에 씀 |
 | `TRUST_PROXY` | 앞단 프록시 뒤라면 `1` (Fly·Render는 자동) — IP별 요청 제한에 씀 |
 | `TIME_SCALE` | 개발용 배속 (예: 600) |
 | `OPEN_SERVERS` | `1` 이면 누구나 새 서버를 열 수 있음 (개발용) |
@@ -190,7 +196,7 @@ fly deploy
 
 ### 보안
 
-비밀번호는 scrypt로 한 방향 암호화, 로그인 토큰은 무작위 256비트(60일). IP별 요청 제한(가입 시간당 5회, 로그인 10분 12회, 게임 시작 시간당 8회, 투입 10분 20회, API 분당 600회), 웹소켓 IP당 12개·메시지 크기 4KB·10초 60개 제한, 보안 헤더(CSP·X-Frame-Options 등), 느린 연결은 건너뛰어 메모리 보호. `/healthz` 로 상태 확인.
+비밀번호는 scrypt로 한 방향 암호화, 로그인 토큰은 무작위 256비트(60일). IP별 요청 제한(통신사 공유 IP를 생각해 넉넉하게: 가입 시간당 30회, 로그인 10분 60회, 게임 시작 시간당 40회, 투입 10분 60회, API 분당 600회), 비밀번호는 아이디별로 10번 틀리면 15분 잠금, 웹소켓 IP당 12개·메시지 크기 4KB·10초 60개 제한, 보안 헤더(CSP·X-Frame-Options 등), 느린 연결은 건너뛰어 메모리 보호. `/healthz` 로 상태 확인.
 
 ### 부하 시험
 

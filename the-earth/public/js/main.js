@@ -5,7 +5,7 @@ import { World3D } from './scene/scene.js';
 import { Creator } from './ui/creator.js';
 import { Hud } from './ui/hud.js';
 import { sound } from './audio.js';
-import { account, accountModal, settingsModal, inboxModal, recapModal, reportModal, tutorial, tutorialDone, sheet } from './ui/extras.js';
+import { account, accountModal, settingsModal, inboxModal, recapModal, reportModal, tutorial, tutorialDone, googleReturn } from './ui/extras.js';
 // 휴대폰 세로 화면: 아래쪽 시트에 가리지 않게 지구를 위로 올린다
 const phoneLift = v => (innerWidth <= 860 && innerHeight > innerWidth ? v : 0);
 
@@ -54,6 +54,8 @@ async function boot() {
   w3d.setState(state);
   $('#loading').classList.add('hidden');
   refreshAccount();
+  // 구글 로그인에서 돌아왔으면 마무리
+  googleReturn({ toast, onChange: onAccount });
   // 소리: 장면이 알려 주는 상태(고도·날씨·밤·시대)를 넘겨준다
   setInterval(() => {
     const se = w3d.sense;
@@ -76,7 +78,7 @@ async function refreshAccount() {
   $('#intro-account').textContent = acc ? `👤 ${acc.username}` : '로그인';
 }
 const onAccount = () => { refreshAccount(); };
-const openSettings = () => settingsModal({ toast: msg => (hud ? hud.toast(msg) : toast(msg)), onAccount, onTutorial: hud ? () => tutorial({ hasMine: !!ctx.session }) : null });
+const openSettings = () => settingsModal({ toast: msg => (hud ? hud.toast(msg) : toast(msg)), onAccount, google: meta.googleLogin, onTutorial: hud ? () => tutorial({ hasMine: !!ctx.session }) : null });
 /** 이어할 수 있는 게임: 이 기기에 저장된 것 + 계정에 묶인 것 */
 function allSessions() {
   const list = loadSessions();
@@ -112,7 +114,7 @@ function intro() {
   w3d.playIntro(landed);
   $('#intro').onclick = e => {
     const act = e.target.closest('[data-act]')?.dataset.act;
-    if (act === 'account') { account() ? openSettings() : accountModal({ toast, onChange: onAccount }); return; }
+    if (act === 'account') { account() ? openSettings() : accountModal({ toast, onChange: onAccount, google: meta.googleLogin }); return; }
     if (act === 'settings') { openSettings(); return; }
     if (e.target.closest('.intro-foot')) return;
     if (!done) { w3d.introSkip?.(); return; }

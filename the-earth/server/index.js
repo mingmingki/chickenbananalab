@@ -15,6 +15,7 @@ import * as db from './db.js';
 import { badName } from './lib/names-filter.js';
 import { securityHeaders, inlineScriptHashes, limiter, clientIp } from './lib/security.js';
 import { initPush, pushPublicKey, queuePush, flushPush, sendPush } from './push.js';
+import * as google from './lib/google.js';
 import { recap, ACHIEVEMENTS } from './sim/achieve.js';
 import { ERA_MONEY, perUnit, INS_RATE, WON, eraF } from './sim/budget.js';
 import { listedSalary } from './sim/economy.js';
@@ -91,40 +92,59 @@ function needAdmin(req, res, next) {
   if (!(a?.admin && !a.banned) && !keyOk(req.get('x-admin-key'))) return res.status(403).json({ error: '관리자만 쓸 수 있습니다' });
   req.acc = a; next();
 }
-const accOut = a => a && { id: a.id, username: a.username, admin: !!a.admin, created: a.created, prefs: JSON.parse(a.prefs || '{}') };
+const accOut = a => a && { id: a.id, username: a.username, admin: !!a.admin, created: a.created, prefs: JSON.parse(a.prefs || '{}'), google: !!a.google_sub, hasPassword: !!a.pass };
 const USERNAME = /^[가-힣a-zA-Z0-9_]{2,16}$/;
+/** 아이디 검사: 문제가 있으면 이유 */
+function usernameProblem(u) {
+  if (!USERNAME.test(u)) return '아이디는 한글·영문·숫자·_ 2~16자로 정해 주세요';
+  const bad = badName(u); if (bad) return `아이디: ${bad}`;
+  if (db.accountByName(u)) return '이미 있는 아이디입니다';
+  return null;
+}
+function loginOk(acc) {
+  if (!acc.admin && db.isAdminName(acc.username)) { db.setAdmin(acc.id, true); acc.admin = 1; }
+  return { token: db.newSession(acc.id), account: accOut(acc) };
+}
 
-const signupLimit = limiter(5, 3600_000), loginLimit = limiter(12, 600_000);
+// 휴대폰 통신사는 여러 사람이 IP 하나를 함께 쓰므로 IP 제한은 넉넉하게, 비밀번호 대입은 아이디별로 막는다
+const signupLimit = limiter(30, 3600_000), loginLimit = limiter(60, 600_000);
+const loginFails = new Map(); // 아이디 → { n, until }
+const failKey = u => String(u || '').trim().toLowerCase();
+function loginLocked(u) { const f = loginFails.get(failKey(u)); return f && f.n >= 10 && f.until > Date.now(); }
+function loginFailed(u) { const k = failKey(u), f = loginFails.get(k); const now = Date.now(); if (!f || f.until < now) loginFails.set(k, { n: 1, until: now + 15 * 60_000 }); else f.n++; }
+setInterval(() => { const now = Date.now(); for (const [k, f] of loginFails) if (f.until < now) loginFails.delete(k); }, 600_000).unref();
 app.post('/api/auth/signup', signupLimit, (req, res) => {
   const { username, password, agree } = req.body || {};
   const u = String(username || '').trim();
-  if (!USERNAME.test(u)) return res.status(400).json({ error: '아이디는 한글·영문·숫자·_ 2~16자로 정해 주세요' });
-  const bad = badName(u); if (bad) return res.status(400).json({ error: `아이디: ${bad}` });
+  const prob = usernameProblem(u); if (prob) return res.status(prob.startsWith('이미') ? 409 : 400).json({ error: prob });
   if (typeof password !== 'string' || password.length < 8 || password.length > 72) return res.status(400).json({ error: '비밀번호는 8~72자로 정해 주세요' });
   if (!agree) return res.status(400).json({ error: '이용약관과 개인정보 처리방침에 동의해 주세요 (만 14세 이상)' });
-  if (db.accountByName(u)) return res.status(409).json({ error: '이미 있는 아이디입니다' });
   const acc = db.createAccount(u, password);
   res.json({ token: db.newSession(acc.id), account: accOut(acc) });
 });
 app.post('/api/auth/login', loginLimit, (req, res) => {
   const { username, password } = req.body || {};
+  if (loginLocked(username)) return res.status(429).json({ error: '비밀번호를 여러 번 틀려 15분 동안 이 아이디로 로그인할 수 없습니다' });
   const acc = db.accountByName(String(username || '').trim());
-  if (!acc || typeof password !== 'string' || !db.verifyPassword(acc, password)) return res.status(401).json({ error: '아이디 또는 비밀번호가 맞지 않습니다' });
+  if (!acc || typeof password !== 'string' || !db.verifyPassword(acc, password)) { loginFailed(username); return res.status(401).json({ error: '아이디 또는 비밀번호가 맞지 않습니다' }); }
+  loginFails.delete(failKey(username));
   if (acc.banned) return res.status(403).json({ error: '이용이 정지된 계정입니다' });
-  if (!acc.admin && db.isAdminName(acc.username)) { db.setAdmin(acc.id, true); acc.admin = 1; }
-  res.json({ token: db.newSession(acc.id), account: accOut(acc) });
+  res.json(loginOk(acc));
 });
 app.post('/api/auth/logout', (req, res) => { const t = tokenOf(req); if (t) db.endSession(t); res.json({ ok: true }); });
 app.post('/api/auth/password', needAuth, loginLimit, (req, res) => {
   const { old, password } = req.body || {};
-  if (!db.verifyPassword(req.acc, String(old || ''))) return res.status(401).json({ error: '지금 비밀번호가 맞지 않습니다' });
+  // 구글로만 가입한 계정은 비밀번호를 처음 만드는 것이라 지금 비밀번호가 없다
+  if (req.acc.pass && !db.verifyPassword(req.acc, String(old || ''))) return res.status(401).json({ error: '지금 비밀번호가 맞지 않습니다' });
   if (typeof password !== 'string' || password.length < 8 || password.length > 72) return res.status(400).json({ error: '비밀번호는 8~72자로 정해 주세요' });
   db.changePassword(req.acc.id, password);
   res.json({ ok: true });
 });
 /** 회원 탈퇴: 계정·세션·푸시 구독을 지우고, 게임 속 플레이어 이름은 '탈퇴한 플레이어'로 바꾼다 (앤들은 계속 살아간다) */
 app.post('/api/auth/delete', needAuth, loginLimit, (req, res) => {
-  if (!db.verifyPassword(req.acc, String(req.body?.password || ''))) return res.status(401).json({ error: '비밀번호가 맞지 않습니다' });
+  if (req.acc.pass ? !db.verifyPassword(req.acc, String(req.body?.password || '')) : req.body?.confirm !== req.acc.username) {
+    return res.status(401).json({ error: req.acc.pass ? '비밀번호가 맞지 않습니다' : '확인용으로 아이디를 정확히 입력해 주세요' });
+  }
   for (const g of db.gamesOf(req.acc.id)) {
     const w = worlds.get(g.server), p = w?.players[g.player];
     if (p) { p.name = '탈퇴한 플레이어'; p.token = 'deleted-' + p.token; }
@@ -132,6 +152,87 @@ app.post('/api/auth/delete', needAuth, loginLimit, (req, res) => {
   db.deleteAccount(req.acc.id);
   res.json({ ok: true });
 });
+// ── 구글 로그인 (lib/google.js) ──
+const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+const redirectUri = req => `${PUBLIC_URL || `${req.protocol}://${req.get('host')}`}/api/auth/google/callback`;
+const cookieOf = (req, name) => { for (const c of String(req.headers.cookie || '').split(';')) { const i = c.indexOf('='); if (c.slice(0, i).trim() === name) return decodeURIComponent(c.slice(i + 1).trim()); } return null; };
+const googleLimit = limiter(60, 600_000), googlePollLimit = limiter(600, 600_000); // 기다리는 동안 2.5초마다 확인한다
+const userErr = m => Object.assign(new Error(m), { user: true }); // 사용자에게 그대로 보여 줘도 되는 오류
+/** 시작: 앱이 요청 번호를 받는다. 이 브라우저에 확인용 쿠키를 심는다 */
+app.post('/api/auth/google/begin', googleLimit, (req, res) => {
+  if (!google.googleEnabled()) return res.status(503).json({ error: '구글 로그인이 아직 설정되지 않았습니다 (운영자: GOOGLE_CLIENT_ID·GOOGLE_CLIENT_SECRET)' });
+  let link = null;
+  if (req.body?.link) {
+    const acc = authOf(req);
+    if (!acc) return res.status(401).json({ error: '로그인이 필요합니다' });
+    if (acc.google_sub) return res.status(400).json({ error: '이미 구글 계정이 연결되어 있습니다' });
+    link = acc.id;
+  }
+  try {
+    const b = google.begin({ link });
+    res.cookie('g_bind', b.bind, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 15 * 60_000, path: '/api/auth/google' });
+    res.json({ id: b.id, url: `/api/auth/google/start?s=${encodeURIComponent(b.state)}` });
+  } catch (e) { res.status(503).json({ error: e.message }); }
+});
+app.get('/api/auth/google/start', googleLimit, (req, res) => {
+  if (!google.googleEnabled() || !google.byStateLookup(req.query.s)) return res.redirect('/google-done.html?err=' + encodeURIComponent('로그인 요청이 만료되었습니다. 다시 시도해 주세요.'));
+  res.redirect(google.authUrl(String(req.query.s), redirectUri(req)));
+});
+app.get('/api/auth/google/callback', googleLimit, async (req, res) => {
+  const hit = google.byStateLookup(req.query.state);
+  if (!hit) return res.redirect('/google-done.html?err=' + encodeURIComponent('로그인 요청이 만료되었거나 잘못되었습니다. 다시 시도해 주세요.'));
+  if (req.query.error || !req.query.code) { google.fail(hit.id, '구글 로그인을 취소했습니다'); return res.redirect('/google-done.html?err=' + encodeURIComponent('구글 로그인을 취소했습니다.')); }
+  try {
+    const sub = await google.exchange(String(req.query.code), redirectUri(req));
+    let result;
+    if (hit.p.link) {
+      const other = db.accountByGoogle(sub);
+      if (other && other.id !== hit.p.link) throw userErr('이 구글 계정은 이미 다른 계정에 연결되어 있습니다');
+      db.setGoogle(hit.p.link, sub);
+      result = { linked: true };
+    } else {
+      const acc = db.accountByGoogle(sub);
+      if (acc?.banned) throw userErr('이용이 정지된 계정입니다');
+      result = acc ? { accountId: acc.id } : { signup: google.signupTicket(sub) };
+    }
+    const bound = google.bindMatches(hit.p, cookieOf(req, 'g_bind'));
+    const p = google.settle(hit.id, bound, result);
+    res.clearCookie('g_bind', { path: '/api/auth/google' });
+    res.redirect(bound ? '/google-done.html?ok=1' : `/google-done.html?code=${p.code}`);
+  } catch (e) {
+    google.fail(hit.id, e.message);
+    if (!e.user) db.logError('google', e);
+    res.redirect('/google-done.html?err=' + encodeURIComponent(e.user ? e.message : '구글 로그인에 실패했습니다. 다시 시도해 주세요.'));
+  }
+});
+/** 앱이 결과를 가져간다: 같은 브라우저면 바로, 아니면 확인 코드와 함께 */
+app.post('/api/auth/google/poll', googlePollLimit, (req, res) => {
+  const r = google.poll(req.body?.id, req.body?.code ? String(req.body.code).replace(/\D/g, '') : null);
+  if (r.status !== 'done') return res.json(r);
+  if (r.result.linked) return res.json({ status: 'done', linked: true });
+  if (r.result.signup) return res.json({ status: 'done', signup: r.result.signup });
+  const acc = db.accountById(r.result.accountId);
+  if (!acc || acc.banned) return res.json({ status: 'error', error: '계정을 쓸 수 없습니다' });
+  res.json({ status: 'done', ...loginOk(acc) });
+});
+/** 처음 구글로 온 사람: 아이디를 정하고 약관에 동의하면 가입 */
+app.post('/api/auth/google/signup', signupLimit, (req, res) => {
+  const u = String(req.body?.username || '').trim();
+  const sub = google.takeTicket(req.body?.ticket, true);
+  if (!sub) return res.status(400).json({ error: '가입 시간이 지났습니다. 구글 로그인을 다시 해 주세요.' });
+  const prob = usernameProblem(u); if (prob) return res.status(400).json({ error: prob });
+  if (!req.body?.agree) return res.status(400).json({ error: '이용약관과 개인정보 처리방침에 동의해 주세요 (만 14세 이상)' });
+  if (db.accountByGoogle(sub)) return res.status(409).json({ error: '이미 가입된 구글 계정입니다. 다시 로그인해 주세요.' });
+  google.takeTicket(req.body.ticket);
+  res.json(loginOk(db.createAccount(u, null, sub)));
+});
+/** 구글 연결 끊기 (비밀번호가 있어야 — 아니면 로그인할 방법이 사라진다) */
+app.post('/api/auth/google/unlink', needAuth, (req, res) => {
+  if (!req.acc.pass) return res.status(400).json({ error: '먼저 비밀번호를 만들어야 구글 연결을 끊을 수 있습니다' });
+  db.setGoogle(req.acc.id, null);
+  res.json({ ok: true });
+});
+
 function gameOut(g) {
   const w = worlds.get(g.server), p = w?.players[g.player];
   if (!p) return null;
@@ -174,7 +275,7 @@ app.get('/api/meta', (req, res) => {
     money: ERA_MONEY.map((m, e) => ({ ...m, perUnit: perUnit(e), to2026: WON / eraF(e) / 1e4, ins: INS_RATE[e] })),
     payTable: ERA_MONEY.map((_, e) => Object.fromEntries(Object.keys(JOBS).map(k => [k, Math.round(listedSalary(k, e))]))),
     jobs: Object.fromEntries(Object.entries(JOBS).map(([k, j]) => [k, { name: j.name, era: j.era, maxEra: j.maxEra ?? null, pay: j.pay, cat: j.cat, edu: j.edu || 0, self: !!j.self, shift: j.shift }])),
-    traitNames: TRAIT_NAMES, abilityNames: ABILITY_NAMES, maxAnns: MAX_ANNS_PER_PLAYER, openServers: OPEN_SERVERS, achievements: ACHIEVEMENTS,
+    traitNames: TRAIT_NAMES, abilityNames: ABILITY_NAMES, maxAnns: MAX_ANNS_PER_PLAYER, openServers: OPEN_SERVERS, achievements: ACHIEVEMENTS, googleLogin: google.googleEnabled(),
   });
   res.type('json').send(metaCache);
 });
@@ -205,7 +306,7 @@ app.post('/api/servers', (req, res, next) => (OPEN_SERVERS ? next() : needAdmin(
   res.json(createServer(name).summary());
 });
 
-const joinLimit = limiter(8, 3600_000);
+const joinLimit = limiter(40, 3600_000);
 app.post('/api/servers/:id/join', joinLimit, (req, res) => {
   const w = getWorld(req, res); if (!w) return;
   const acc = authOf(req);
@@ -262,7 +363,7 @@ app.get('/api/servers/:id/country/:code', (req, res) => {
   res.json({ families, mode: families ? 'baby' : 'pioneer', pop: c?.pop || 0, era: c?.era ?? 0, eraName: ERAS[c?.era ?? 0].name, settlements: [...w.settlements.values()].filter(s => s.country === code).length });
 });
 
-const deployLimit = limiter(20, 600_000);
+const deployLimit = limiter(60, 600_000);
 app.post('/api/servers/:id/deploy', deployLimit, (req, res) => {
   const w = getWorld(req, res); if (!w) return;
   if (authOf(req)?.banned) return res.status(403).json({ error: '이용이 정지된 계정입니다' });
@@ -291,7 +392,7 @@ app.get('/api/servers/:id/ann/:annId', (req, res) => {
 });
 
 // ── 신고 ──
-const reportLimit = limiter(10, 3600_000);
+const reportLimit = limiter(30, 3600_000);
 app.post('/api/report', reportLimit, (req, res) => {
   const { server, kind, id, reason } = req.body || {};
   const w = worlds.get(String(server));

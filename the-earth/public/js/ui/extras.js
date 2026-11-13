@@ -8,8 +8,10 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /** 모달 하나 띄우기: data-m 버튼을 누르면 onAct(a, ctx). 배경을 누르면 닫힌다 */
+let sheetSeq = 0;
 export function sheet(html, onAct = () => {}, { wide = false, sticky = false } = {}) {
   const m = $('#modal'), box = m.querySelector('.modal-box');
+  const mine = ++sheetSeq; // 창은 하나뿐 — 나중에 열린 창을 예전 창이 닫지 않게
   box.innerHTML = html;
   box.classList.toggle('wide', wide);
   m.classList.remove('hidden');
@@ -17,7 +19,12 @@ export function sheet(html, onAct = () => {}, { wide = false, sticky = false } =
   let closed = false;
   const ctx = {
     box,
-    close() { if (closed) return; closed = true; m.classList.add('hidden'); m.onclick = null; box.oninput = null; box.onchange = null; box.classList.remove('wide'); ctx.onClose?.(); },
+    close() {
+      if (closed) return;
+      closed = true;
+      if (sheetSeq === mine) { m.classList.add('hidden'); m.onclick = null; box.oninput = null; box.onchange = null; box.classList.remove('wide'); }
+      ctx.onClose?.();
+    },
     err(msg) { const e = box.querySelector('.form-err'); if (e) { e.textContent = msg || ''; e.classList.toggle('hidden', !msg); } },
   };
   m.onclick = e => {
@@ -34,8 +41,22 @@ export function sheet(html, onAct = () => {}, { wide = false, sticky = false } =
 // ── 계정 ──
 export const account = () => auth.get()?.account || null;
 
-export function accountModal({ toast, onChange, mode = 'login' } = {}) {
+/** 로그인 성공 뒤 공통: 토큰 저장, 이 기기의 게임을 계정에 붙이기, 소리 설정 가져오기 */
+async function finishLogin(r, { toast, onChange, isNew = false } = {}) {
+  auth.set({ token: r.token, account: r.account });
+  const local = loadSessions();
+  if (local.length) await api('/api/auth/claim', { games: local.map(s => ({ serverId: s.serverId, token: s.token })) }).catch(() => null);
+  if (r.account.prefs?.sound) sound.set(r.account.prefs.sound);
+  toast?.(isNew ? `가입을 환영합니다, ${r.account.username}님` : `${r.account.username}님, 다시 오셨네요`);
+  onChange?.(r.account);
+  return r.account;
+}
+
+const G_LOGO = '<svg class="g-logo" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.2C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.8c4.3-4 6.9-9.9 6.9-17.2z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.2C1 16.6 0 20.2 0 24s1 7.4 2.7 10.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.8c-2.1 1.4-4.8 2.3-8.5 2.3-6.2 0-11.5-4.1-13.4-9.9l-7.9 6.2C6.6 42.6 14.6 48 24 48z"/></svg>';
+
+export function accountModal({ toast, onChange, mode = 'login', google = false } = {}) {
   const render = () => `<h3>${mode === 'login' ? '로그인' : '가입하기'}</h3>
+    ${google ? `<button class="btn google-btn" data-m="google">${G_LOGO}<span>Google로 계속하기</span></button><div class="or"><span>또는 아이디로</span></div>` : ''}
     <div class="seg"><button class="${mode === 'login' ? 'on' : ''}" data-m="mode-login">로그인</button><button class="${mode === 'signup' ? 'on' : ''}" data-m="mode-signup">가입하기</button></div>
     <p class="sub small">로그인하면 <b>어느 기기에서든 이어할 수 있고</b>, 앱을 꺼도 <b>휴대폰 알림</b>을 받을 수 있어요. 로그인하지 않아도 플레이할 수 있습니다 (이 기기에만 저장).</p>
     <label class="field"><span>아이디</span><input id="acc-user" maxlength="16" autocomplete="username" autocapitalize="off" placeholder="한글·영문·숫자 2~16자"></label>
@@ -48,6 +69,7 @@ export function accountModal({ toast, onChange, mode = 'login' } = {}) {
     let busy = false;
     const ctx = sheet(render(), async (a, c) => {
       if (a.startsWith('mode-')) { mode = a.slice(5); c.box.innerHTML = render(); return; }
+      if (a === 'google') { c.close(); googleLogin({ toast, onChange }).catch(e => toast?.(e.message)); return; }
       if (a !== 'go' || busy) return;
       const username = c.box.querySelector('#acc-user').value.trim(), password = c.box.querySelector('#acc-pass').value;
       if (mode === 'signup') {
@@ -57,20 +79,128 @@ export function accountModal({ toast, onChange, mode = 'login' } = {}) {
       busy = true;
       try {
         const r = await api(`/api/auth/${mode}`, { username, password, agree: true });
-        auth.set({ token: r.token, account: r.account });
-        // 이 기기에서 로그인 없이 하던 게임을 계정에 붙인다
-        const local = loadSessions();
-        if (local.length) await api('/api/auth/claim', { games: local.map(s => ({ serverId: s.serverId, token: s.token })) }).catch(() => null);
-        if (r.account.prefs?.sound) sound.set(r.account.prefs.sound);
         c.close();
-        toast?.(mode === 'login' ? `${r.account.username}님, 다시 오셨네요` : `가입을 환영합니다, ${r.account.username}님`);
-        onChange?.(r.account);
-        resolve(r.account);
+        resolve(await finishLogin(r, { toast, onChange, isNew: mode === 'signup' }));
       } catch (e) { c.err(e.message); } finally { busy = false; }
     });
     ctx.onClose = () => resolve(account());
     setTimeout(() => ctx.box.querySelector('#acc-user')?.focus(), 50);
   });
+}
+
+// ── 구글 로그인 ──
+// 같은 브라우저로 돌아오면 자동, 아이폰 홈 화면 앱처럼 Safari로 빠지면 6자리 확인 코드를 입력받는다.
+const G_KEY = 'theEarth.glogin';
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const gPending = () => { try { const v = JSON.parse(localStorage.getItem(G_KEY) || 'null'); return v && Date.now() - v.at < 15 * 60_000 ? v : null; } catch { return null; } };
+const gClear = () => { try { localStorage.removeItem(G_KEY); } catch { /* */ } };
+
+export async function googleLogin({ toast, onChange, link = false } = {}) {
+  const r = await api('/api/auth/google/begin', { link });
+  const popup = isStandalone();
+  try { localStorage.setItem(G_KEY, JSON.stringify({ id: r.id, at: Date.now(), link, popup })); localStorage.removeItem(G_KEY + '.code'); } catch { /* */ }
+  if (popup) {
+    // 홈 화면 앱: 바깥 브라우저에서 로그인하고, 이 앱은 그대로 기다린다
+    window.open(r.url, '_blank');
+    return googleWait({ toast, onChange });
+  }
+  location.href = r.url;
+}
+
+/** 돌아왔을 때 (주소 끝이 #glogin) 또는 홈 화면 앱에서 기다릴 때: 결과를 가져온다 */
+async function googlePoll(code = null) {
+  const p = gPending();
+  if (!p) return { status: 'gone', error: '로그인 요청을 찾을 수 없습니다. 다시 시도해 주세요.' };
+  return api('/api/auth/google/poll', { id: p.id, code });
+}
+const finished = r => r.status === 'done' || r.status === 'error' || r.status === 'gone';
+async function googleHandle(r, { toast, onChange }) {
+  if (r.status === 'done') {
+    gClear();
+    if (r.linked) { toast?.('구글 계정을 연결했습니다. 이제 구글로도 로그인할 수 있어요.'); onChange?.(account()); return 'done'; }
+    if (r.signup) { googleSignupModal(r.signup, { toast, onChange }); return 'done'; }
+    await finishLogin(r, { toast, onChange });
+    return 'done';
+  }
+  if (r.status === 'error' || r.status === 'gone') { gClear(); toast?.(r.error || '로그인 시간이 지났습니다. 다시 시도해 주세요.'); return 'error'; }
+  return r.status; // wait | code
+}
+
+/** 기다리는 창: 자동으로 확인하고, 다른 브라우저에 확인 코드가 나왔으면 입력받는다 */
+function googleWait({ toast, onChange, needCode = false, wrong = false } = {}) {
+  return new Promise(resolve => {
+    let timer = null, done = false;
+    const ctx = sheet(`<h3>${G_LOGO} 구글 로그인</h3>
+      <p class="sub">${needCode ? '구글 로그인 창에 나온 <b>6자리 확인 코드</b>를 입력해 주세요.' : '열린 창에서 구글 로그인을 마치고 이 화면으로 돌아오세요. 자동으로 이어집니다.<br>확인 코드가 나왔다면 아래에 입력하세요.'}</p>
+      <label class="field"><span>확인 코드</span><input id="g-code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123 456"></label>
+      <p class="form-err ${wrong ? '' : 'hidden'}">${wrong ? '코드가 맞지 않습니다' : ''}</p>
+      <div class="acts"><button class="btn ghost" data-m="cancel">취소</button><button class="btn primary" data-m="go">확인</button></div>`, async (a, c) => {
+      if (a !== 'go') return;
+      const code = c.box.querySelector('#g-code').value.replace(/\D/g, '');
+      if (code.length !== 6) return c.err('6자리 숫자를 입력해 주세요');
+      if (inFlight || done) return;
+      inFlight = true;
+      try {
+        const r = await googlePoll(code);
+        if (done) return;
+        if (!finished(r)) return c.err(r.status === 'wait' ? '아직 구글 로그인이 끝나지 않았어요' : '코드가 맞지 않습니다');
+        done = true; c.close();
+        await googleHandle(r, { toast, onChange });
+      } catch (e) { c.err(e.message); } finally { inFlight = false; }
+    });
+    let inFlight = false;
+    const tick = async () => {
+      if (done || inFlight || document.hidden) return;
+      inFlight = true;
+      try { await tickOnce(); } finally { inFlight = false; }
+    };
+    const tickOnce = async () => {
+      // 로그인 창이 저장소를 함께 쓰면 확인 코드를 남겨 둔다 → 대신 입력
+      let handed = null;
+      try { handed = localStorage.getItem(G_KEY + '.code'); if (handed) localStorage.removeItem(G_KEY + '.code'); } catch { /* */ }
+      try {
+        const r = await googlePoll(handed);
+        if (done || !finished(r)) return;
+        done = true; ctx.close();
+        await googleHandle(r, { toast, onChange });
+      } catch { /* 잠깐 끊김 */ }
+    };
+    timer = setInterval(tick, 2500);
+    addEventListener('storage', tick);
+    const vis = () => { if (!document.hidden) tick(); };
+    document.addEventListener('visibilitychange', vis);
+    ctx.onClose = () => { done = true; clearInterval(timer); removeEventListener('storage', tick); document.removeEventListener('visibilitychange', vis); resolve(account()); };
+  });
+}
+/** 주소 끝 #glogin(=코드) 처리. main.js 가 시작할 때 부른다 */
+export async function googleReturn({ toast, onChange }) {
+  const m = location.hash.match(/^#glogin(?:=(\d{6}))?$/);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  try {
+    const r = await googlePoll(m[1] || null);
+    if (finished(r)) await googleHandle(r, { toast, onChange });
+    else googleWait({ toast, onChange, needCode: r.status === 'code' });
+  } catch (e) { toast?.(e.message); }
+}
+
+/** 처음 구글로 온 사람: 아이디 정하기 + 약관 동의 */
+function googleSignupModal(ticket, { toast, onChange }) {
+  sheet(`<h3>${G_LOGO} 처음 오셨네요!</h3>
+    <p class="sub">게임에서 쓸 아이디를 정해 주세요. 구글에서는 계정 번호만 받고, 이메일·이름은 받지 않습니다.</p>
+    <label class="field"><span>아이디</span><input id="gs-user" maxlength="16" autocapitalize="off" placeholder="한글·영문·숫자 2~16자"></label>
+    <label class="check"><input id="gs-agree" type="checkbox"> 만 14세 이상이며 <a href="/terms" target="_blank">이용약관</a>과 <a href="/privacy" target="_blank">개인정보 처리방침</a>에 동의합니다</label>
+    <p class="form-err hidden"></p>
+    <div class="acts"><button class="btn ghost" data-m="cancel">취소</button><button class="btn primary" data-m="go">가입하기</button></div>`, async (a, c) => {
+    if (a !== 'go') return;
+    if (!c.box.querySelector('#gs-agree').checked) return c.err('약관과 개인정보 처리방침에 동의해 주세요');
+    try {
+      const r = await api('/api/auth/google/signup', { ticket, username: c.box.querySelector('#gs-user').value.trim(), agree: true });
+      c.close();
+      await finishLogin(r, { toast, onChange, isNew: true });
+    } catch (e) { c.err(e.message); }
+  }, { sticky: true });
+  setTimeout(() => document.querySelector('#gs-user')?.focus(), 50);
 }
 
 export async function logout() {
@@ -107,7 +237,7 @@ export async function disablePush() {
 }
 
 // ── 설정 ──
-export async function settingsModal({ toast, onAccount, onTutorial } = {}) {
+export async function settingsModal({ toast, onAccount, onTutorial, google = false } = {}) {
   const ps = await pushState().catch(() => ({ ok: false, why: 'unsupported' }));
   const acc = account();
   const p = sound.prefs;
@@ -124,7 +254,8 @@ export async function settingsModal({ toast, onAccount, onTutorial } = {}) {
     <section class="set-sec"><h4>🔔 알림</h4>${pushRow}</section>
     <section class="set-sec"><h4>👤 계정</h4>
       ${acc ? `<p class="sub small"><b>${esc(acc.username)}</b>으로 로그인됨${acc.admin ? ' · 관리자' : ''}</p>
-        <div class="row-acts"><button class="btn small" data-m="logout">로그아웃</button><button class="btn small ghost" data-m="password">비밀번호 바꾸기</button>${acc.admin ? '<a class="btn small ghost" href="/admin" target="_blank">관리자 페이지</a>' : ''}<button class="btn small ghost danger" data-m="delete">회원 탈퇴</button></div>`
+        <p class="sub small">${acc.google ? `${G_LOGO} 구글 계정 연결됨` : '구글 계정 연결 안 됨'}${acc.hasPassword === false ? ' · 비밀번호 없음 (구글로만 로그인)' : ''}</p>
+        <div class="row-acts"><button class="btn small" data-m="logout">로그아웃</button><button class="btn small ghost" data-m="password">${acc.hasPassword === false ? '비밀번호 만들기' : '비밀번호 바꾸기'}</button>${google && !acc.google ? '<button class="btn small ghost" data-m="glink">구글 계정 연결</button>' : ''}${acc.google && acc.hasPassword !== false ? '<button class="btn small ghost" data-m="gunlink">구글 연결 끊기</button>' : ''}${acc.admin ? '<a class="btn small ghost" href="/admin" target="_blank">관리자 페이지</a>' : ''}<button class="btn small ghost danger" data-m="delete">회원 탈퇴</button></div>`
       : '<p class="sub small">로그인하면 어느 기기에서든 이어할 수 있어요.</p><div class="row-acts"><button class="btn small primary" data-m="login">로그인 / 가입</button></div>'}
     </section>
     <section class="set-sec"><h4>❓ 도움말</h4>
@@ -132,17 +263,19 @@ export async function settingsModal({ toast, onAccount, onTutorial } = {}) {
     </section>
     <p class="form-err hidden"></p>
     <div class="acts"><button class="btn primary" data-m="close">닫기</button></div>`;
-  const reopen = () => settingsModal({ toast, onAccount, onTutorial });
+  const reopen = () => settingsModal({ toast, onAccount, onTutorial, google });
   const ctx = sheet(html, async (a, c) => {
     try {
-      if (a === 'login') { c.close(); await accountModal({ toast, onChange: onAccount }); reopen(); }
+      if (a === 'login') { c.close(); await accountModal({ toast, onChange: onAccount, google }); reopen(); }
+      if (a === 'glink') { c.close(); await googleLogin({ toast, onChange: onAccount, link: true }); }
+      if (a === 'gunlink') { await api('/api/auth/google/unlink', {}); toast?.('구글 연결을 끊었습니다'); onAccount?.(account()); c.close(); }
       if (a === 'logout') { await logout(); toast?.('로그아웃했습니다'); onAccount?.(null); c.close(); }
       if (a === 'push-on') { await enablePush(); toast?.('휴대폰 알림을 켰습니다'); c.close(); reopen(); }
       if (a === 'push-off') { await disablePush(); toast?.('휴대폰 알림을 껐습니다'); c.close(); reopen(); }
       if (a === 'push-test') { const r = await api('/api/push/test', {}); toast?.(r.sent ? '시험 알림을 보냈습니다' : '보낼 기기가 없습니다'); }
       if (a === 'tutorial') { c.close(); onTutorial?.(); }
-      if (a === 'password') { c.close(); passwordModal({ toast }); }
-      if (a === 'delete') { c.close(); deleteModal({ toast, onAccount }); }
+      if (a === 'password') { c.close(); passwordModal({ toast, hasPassword: acc.hasPassword !== false, onAccount }); }
+      if (a === 'delete') { c.close(); deleteModal({ toast, onAccount, hasPassword: acc.hasPassword !== false, username: acc.username }); }
     } catch (e) { c.err(e.message); }
   });
   let saveT = null;
@@ -158,24 +291,29 @@ export async function settingsModal({ toast, onAccount, onTutorial } = {}) {
   ctx.box.onchange = ctx.box.oninput;
 }
 
-function passwordModal({ toast }) {
-  sheet(`<h3>비밀번호 바꾸기</h3>
-    <label class="field"><span>지금 비밀번호</span><input id="pw-old" type="password" autocomplete="current-password"></label>
+function passwordModal({ toast, hasPassword = true, onAccount }) {
+  sheet(`<h3>${hasPassword ? '비밀번호 바꾸기' : '비밀번호 만들기'}</h3>
+    ${hasPassword ? '<label class="field"><span>지금 비밀번호</span><input id="pw-old" type="password" autocomplete="current-password"></label>' : '<p class="sub small">비밀번호를 만들면 구글 없이 아이디로도 로그인할 수 있어요.</p>'}
     <label class="field"><span>새 비밀번호 (8자 이상)</span><input id="pw-new" type="password" autocomplete="new-password"></label>
     <p class="form-err hidden"></p>
     <div class="acts"><button class="btn ghost" data-m="cancel">취소</button><button class="btn primary" data-m="go">바꾸기</button></div>`, async (a, c) => {
     if (a !== 'go') return;
-    try { await api('/api/auth/password', { old: c.box.querySelector('#pw-old').value, password: c.box.querySelector('#pw-new').value }); toast?.('비밀번호를 바꿨습니다'); c.close(); } catch (e) { c.err(e.message); }
+    try {
+      await api('/api/auth/password', { old: c.box.querySelector('#pw-old')?.value || '', password: c.box.querySelector('#pw-new').value });
+      toast?.(hasPassword ? '비밀번호를 바꿨습니다' : '비밀번호를 만들었습니다');
+      onAccount?.(account());
+      c.close();
+    } catch (e) { c.err(e.message); }
   });
 }
-function deleteModal({ toast, onAccount }) {
+function deleteModal({ toast, onAccount, hasPassword = true, username = '' }) {
   sheet(`<h3>회원 탈퇴</h3>
     <p class="sub">계정과 로그인 기록, 알림 구독이 바로 지워집니다. 게임 속 앤들은 세상에 남아 계속 살아가고, 플레이어 이름은 '탈퇴한 플레이어'로 바뀝니다. <b>되돌릴 수 없습니다.</b></p>
-    <label class="field"><span>비밀번호 확인</span><input id="del-pw" type="password" autocomplete="current-password"></label>
+    ${hasPassword ? '<label class="field"><span>비밀번호 확인</span><input id="del-pw" type="password" autocomplete="current-password"></label>' : `<label class="field"><span>확인용으로 아이디 <b>${esc(username)}</b>를 입력하세요</span><input id="del-confirm" autocapitalize="off"></label>`}
     <p class="form-err hidden"></p>
     <div class="acts"><button class="btn ghost" data-m="cancel">취소</button><button class="btn danger" data-m="go">탈퇴하기</button></div>`, async (a, c) => {
     if (a !== 'go') return;
-    try { await api('/api/auth/delete', { password: c.box.querySelector('#del-pw').value }); auth.set(null); toast?.('탈퇴했습니다. 그동안 고마웠어요.'); onAccount?.(null); c.close(); } catch (e) { c.err(e.message); }
+    try { await api('/api/auth/delete', { password: c.box.querySelector('#del-pw')?.value || '', confirm: c.box.querySelector('#del-confirm')?.value.trim() || '' }); auth.set(null); toast?.('탈퇴했습니다. 그동안 고마웠어요.'); onAccount?.(null); c.close(); } catch (e) { c.err(e.message); }
   });
 }
 

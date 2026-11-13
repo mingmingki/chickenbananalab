@@ -427,3 +427,10 @@ button, .btn, [data-act], [data-ann], [data-town], .roster-item, .country-result
   .inbox, .ach-grid { max-height: none; }
   .ach-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* 구글 로그인 버튼 (구글 브랜드 가이드: 흰 바탕, 공식 G 로고) */
+.google-btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; margin: 6px 0 4px; background: #fff; color: #1f1f1f; border: 1px solid #dadce0; font-weight: 500; }
+.google-btn:hover { background: #f7f8f8; }
+.g-logo { width: 18px; height: 18px; vertical-align: -3px; flex: none; }
+.or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; margin: 12px 0 6px; }
+.or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
