@@ -48,7 +48,7 @@ export class GameState {
     this.world = m.world;
     this.clock = m.world.clock;
     this.clockAt = performance.now();
-    this.scale = m.world.timeScale || 24;
+    this.scale = m.world.paused ? 0 : m.world.timeScale || 24;
     this.countries.clear(); this.settlements.clear(); this.buildings.clear(); this.companies.clear(); this.players.clear(); this.anns.clear(); this.pos.clear();
     for (const c of m.countries) this.countries.set(c.code, c);
     for (const s of m.settlements) this.settlements.set(s.id, s);
@@ -95,7 +95,7 @@ export class GameState {
   applyTick(m) {
     this.clock = m.clock;
     this.clockAt = performance.now();
-    if (m.scale) this.scale = m.scale;
+    if (m.scale != null) this.scale = m.scale; // 0 = 운영자가 일시정지한 서버
     if (m.anns) { for (const a of m.anns) this.anns.set(a.id, a); this.dirty.anns = true; }
     this.applyPos(m.pos, false, !!m.full);
     if (m.buildings) for (const b of m.buildings) { this.buildings.set(b.id, b); this.dirty.buildings.add(b.sid); }

@@ -275,7 +275,7 @@ export class Hud {
     const now = st.now();
     document.getElementById('hud-server').textContent = st.world.name;
     document.getElementById('hud-date').textContent = fmtDateTime(now);
-    let sub = `세계시 · ×${st.scale}`;
+    let sub = st.scale ? `세계시 · ×${st.scale}` : "⏸ 점검 중 (시간이 멈춰 있어요)";
     const focus = this.selected && st.anns.get(this.selected);
     const s = focus ? st.settlements.get(focus.s) : (this.me && st.settlements.get(st.countries.get(this.me.country)?.capital));
     if (s) sub = `${s.name} 현지 ${String(Math.floor(localHour(now, s.lon))).padStart(2, '0')}:${String(Math.floor((localHour(now, s.lon) % 1) * 60)).padStart(2, '0')}${s.weather ? ` · ${s.weather.season} ${WEMO[s.weather.k] || ''} ${s.weather.k} ${s.weather.temp}°${s.snow > 0.15 ? ' · 눈 쌓임' : ''}` : ''} · ${sub}`;
