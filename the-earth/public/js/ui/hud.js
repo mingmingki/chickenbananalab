@@ -11,6 +11,12 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 const pct = v => Math.max(0, Math.min(100, v));
 const bar = (v, color = 'var(--accent)') => `<div class="bar"><i style="width:${pct(v)}%;background:${color}"></i></div>`;
 const relCls = k => ['partner', 'spouse', 'crush', 'ex'].includes(k) ? 'love' : ['parent', 'child', 'sibling'].includes(k) ? 'fam' : ['friend', 'best'].includes(k) ? 'friend' : ['rival', 'enemy'].includes(k) ? 'bad' : '';
+// 돈: 서버가 보내는 값은 원(가계부·현금) 또는 만원(연봉·회사 자금·국고)
+const fmtMan = man => { man = Math.round(man); const eok = Math.floor(Math.abs(man) / 10000), rest = Math.abs(man) % 10000, sign = man < 0 ? '-' : ''; return eok ? `${sign}${eok}억${rest ? ` ${rest.toLocaleString()}만` : ''}원` : `${sign}${rest.toLocaleString()}만원`; };
+const fmtWon = won => (Math.abs(won) >= 10000 ? fmtMan(won / 10000) : `${Math.round(won).toLocaleString()}원`);
+// 2026년 소득세+지방소득세 실효세율 (서버 budget.js 와 같은 표)
+const TAX_PTS = [[0, 0], [1500, 0], [2000, 0.006], [2600, 0.012], [3000, 0.017], [3600, 0.026], [4000, 0.032], [5000, 0.048], [6000, 0.062], [7000, 0.076], [8000, 0.09], [10000, 0.115], [15000, 0.17], [20000, 0.21], [30000, 0.26], [50000, 0.31], [1e9, 0.33]];
+const taxRate = a => { for (let i = 1; i < TAX_PTS.length; i++) { const [x1, y1] = TAX_PTS[i - 1], [x2, y2] = TAX_PTS[i]; if (a <= x2) return y1 + (y2 - y1) * (a - x1) / (x2 - x1); } return 0.33; };
 const ago = (now, t) => { const m = now - t; if (m < 60) return '방금'; if (m < 1440) return `${Math.floor(m / 60)}시간 전`; if (m < 1440 * 30) return `${Math.floor(m / 1440)}일 전`; return fmtDate(t); };
 
 export class Hud {
@@ -103,7 +109,10 @@ export class Hud {
       if (act === 'toggle-left') { document.getElementById('left').classList.toggle('closed'); this.layout(); }
       if (t.closest('.brand')) this.onExit?.();
     };
-    this.left.oninput = e => { if (e.target.id === 'ann-search') { this.filter = e.target.value.trim(); this.renderLeft(true, true); } };
+    this.left.oninput = e => {
+      if (e.target.id === 'ann-search') { this.filter = e.target.value.trim(); this.renderLeft(true, true); }
+      if (e.target.id === 'job-search') { this.jobFilter = e.target.value; this.renderLeft(true, true); }
+    };
   }
 
   /** 휴대폰: 열린 시트에 가려지지 않게 3D 화면을 위로 올린다 */
@@ -312,7 +321,7 @@ export class Hud {
           <div class="row"><span>기술 → 다음 시대</span><b>${Math.round(prog)}%</b></div>${bar(prog, 'linear-gradient(90deg,#58b4ff,#7ef0c8)')}
           <div class="row"><span>지도자</span><b>${c.leader ? `<span class="linklike" data-ann="${c.leader.id}">${esc(c.leader.title)} ${esc(c.leader.name)}</span>` : '없음'}</b></div>
           <div class="row"><span>인구</span><b>${c.pop}명</b></div>
-          <div class="row"><span>국고 · 세율</span><b>${c.treasury.toLocaleString()} · ${c.tax}%</b></div>
+          <div class="row"><span>국고 · 세율</span><b>${fmtMan(c.treasury)} · ${c.tax}%</b></div>
           <div class="row"><span>정착지</span><b>${towns.map(s => `<span class="linklike" data-town="${s.id}">${esc(s.name)}</span>(${esc(s.levelName)})`).join(', ')}</b></div>
           ${c.discoveries.length ? `<div class="tags">${c.discoveries.map(d => `<span>💡${esc(d)}</span>`).join('')}</div>` : ''}
           ${c.history.length ? `<div class="sec">나라의 연대기</div>${c.history.slice(-14).reverse().map(h => `<div class="life"><span>${h.icon || '•'}</span><div>${esc(h.text)}<time>${fmtDate(h.t)}</time></div></div>`).join('')}` : ''}
@@ -325,9 +334,11 @@ export class Hud {
         const s = st.settlements.get(co.sid);
         return `<div class="card"><h3>${co.pub ? '🏛️' : '🏢'} ${esc(co.name)} <span class="chip">${esc(co.indName)}</span></h3>
           <div class="row"><span>${co.pub ? '공공기관' : '대표'}</span><b>${ceo ? `<span class="linklike" data-ann="${ceo.id}">${esc(ceo.n)}</span>` : co.pub ? (st.countries.get(co.country)?.name || '') : '-'}</b></div>
-          <div class="row"><span>직원 · 자금</span><b>${co.emp}명${co.cap ? ` (정원 ${co.cap})` : ''} · ${co.pub ? '국고' : co.money.toLocaleString()}</b></div>${co.sites ? `<div class="row"><span>공사 현장</span><b>${co.sites}곳</b></div>` : ''}
+          <div class="row"><span>직원 · 자금</span><b>${co.emp}명${co.cap ? ` (정원 ${co.cap})` : ''} · ${co.pub ? '국고' : fmtMan(co.money)}</b></div>${co.pay ? `<div class="row"><span>평균 연봉</span><b>${fmtMan(co.pay)}</b></div>` : ''}${co.roles && Object.keys(co.roles).length > 1 ? `<div class="sub small" style="margin:2px 0 4px">${Object.entries(co.roles).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${esc(this.meta.jobs[k]?.name || k)} ${n}`).join(' · ')}</div>` : ''}${co.sites ? `<div class="row"><span>공사 현장</span><b>${co.sites}곳</b></div>` : ''}
           <div class="row"><span>위치 · 설립</span><b>${s ? `<span class="linklike" data-town="${s.id}">${esc(s.name)}</span>` : ''} · ${fmtDate(co.founded)}</b></div></div>`;
       }).join('') || '<p class="empty">아직 회사가 없습니다. 농경 시대가 되면 야망 있는 앤들이 회사를 세웁니다.</p>';
+    } else if (this.tab === 'jobs') {
+      html = this.jobsHTML();
     } else if (this.tab === 'news') {
       const nf = this.newsFilter;
       let items = [];
@@ -347,7 +358,87 @@ export class Hud {
     this.lastLeftHtml = html;
     L.innerHTML = html;
     L.scrollTop = sc;
-    if (keepFocus) { const s = L.querySelector('#ann-search'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
+    if (keepFocus) { const s = L.querySelector('#ann-search, #job-search'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
+  }
+
+  /** 이 화면에서 기준으로 삼을 시대: 내 나라, 없으면 가장 앞선 나라 */
+  viewEra() {
+    const st = this.state;
+    const mine = this.me && st.countries.get(this.me.country);
+    if (mine) return mine.era;
+    let e = 0; for (const c of st.countries.values()) e = Math.max(e, c.era);
+    return e;
+  }
+  eraF(era) { const E = this.meta.eras; return (E[era]?.wage || E[6].wage) / E[6].wage; }
+
+  /** 직업 사전: 지금 세상에 있는(있을) 직업, 연봉, 월 실수령, 학력, 일하는 곳 */
+  jobsHTML() {
+    const st = this.state, M = this.meta, era = this.viewEra(), F = this.eraF(era);
+    const where = {};
+    for (const [k, ind] of Object.entries(M.industries)) for (const j of ind.jobs) (where[j] ||= []).push(ind.name);
+    for (const [k, p] of Object.entries(M.publicOrgs)) for (const j of p.jobs) (where[j] ||= []).push(p.name);
+    const count = {};
+    for (const a of st.anns.values()) if (a.al && a.jk) count[a.jk] = (count[a.jk] || 0) + 1;
+    const f = (this.jobFilter || '').trim();
+    const cats = {};
+    for (const [k, j] of Object.entries(M.jobs)) {
+      if (f && !j.name.includes(f) && !(j.cat || '').includes(f)) continue;
+      (cats[j.cat || '기타'] ||= []).push([k, j]);
+    }
+    const order = ['의료·보건', '법률·금융·사무', 'IT·연구', '공공·안전', '교육·돌봄', '건설', '제조·생산', '운송', '판매·서비스', '방송·문화·예술', '스포츠', '농림어업', '종교', '기타'];
+    const EDU = ['', '기초 교육', '중졸', '고졸', '대졸'];
+    let total = 0;
+    const sections = order.filter(c => cats[c]).map(c => {
+      const rows = cats[c].sort((x, y) => y[1].pay - x[1].pay).map(([k, j]) => {
+        total++;
+        const future = j.era > era, gone = j.maxEra != null && era > j.maxEra;
+        const annual = j.pay * F, monthly = annual / 12;
+        const net = era >= 5 ? monthly * (1 - 0.0972 - taxRate(j.pay)) : monthly * 0.9;
+        return `<div class="job-row ${future || gone ? 'dim' : ''}"><div><b>${esc(j.name)}</b>${count[k] ? ` <span class="chip">${count[k]}명</span>` : ''}
+          <div class="sub small" style="margin:0">${j.self ? '자영업' : esc((where[k] || []).slice(0, 3).join(' · '))}${j.edu ? ` · ${EDU[j.edu]} 이상` : ''}${future ? ` · ${esc(M.eras[j.era].name)}부터` : gone ? ' · 지금은 사라짐' : ''}</div></div>
+          <div class="pay"><b>${fmtMan(annual)}</b><small>월 실수령 약 ${fmtMan(net)}</small></div></div>`;
+      }).join('');
+      return `<div class="sec">${esc(c)}</div>${rows}`;
+    }).join('');
+    return `<input id="job-search" class="search" placeholder="직업·분야로 찾기 (예: 의사, 건설)" value="${esc(f)}">
+      <p class="sub small" style="margin:6px 4px 8px">연봉은 세전·중간값 기준(2026년 한국 공개 자료 참고)이며, ${esc(M.eras[era].name)} 물가로 환산했습니다${era < 6 ? ' — 정보화 시대가 되면 오늘날 금액과 같아집니다' : ''}. ${era >= 5 ? '실수령은 4대보험(9.72%)과 소득세를 뺀 값입니다.' : '근대 전에는 4대보험이 없고 나라가 정한 세금만 빠집니다.'} 실제 앤의 월급은 숙련·직급·회사 형편에 따라 달라집니다.</p>
+      ${sections || '<p class="empty">찾는 직업이 없습니다.</p>'}`;
+  }
+
+  /** 앤의 돈: 연봉, 재산, 이번 달·지난달 가계부 */
+  moneyHTML(d) {
+    const fin = d.fin;
+    if (!fin) return '<p class="sub">돈 정보가 없습니다.</p>';
+    const F = this.eraF(fin.era);
+    let h = '';
+    if (d.job) {
+      const listed = (this.meta.jobs[d.job.id]?.pay || 0) * F;
+      const monthly = fin.salary / 12;
+      const net = fin.era >= 5 ? monthly * (1 - 0.0972 - taxRate(fin.salary / F)) : monthly * 0.9;
+      h += `<div class="sec">일과 연봉</div><div class="card">
+        <div class="row"><span>직업</span><b>${esc(d.job.title)}</b></div>
+        <div class="row"><span>지금 연봉 (세전)</span><b>${fmtMan(fin.salary)}</b></div>
+        <div class="row"><span>월급 (세전 → 실수령)</span><b>${fmtMan(monthly)} → 약 ${fmtMan(net)}</b></div>
+        ${listed ? `<div class="row"><span>이 직업의 보통 연봉</span><b>${fmtMan(listed)}</b></div>` : ''}
+        <p class="sub small" style="margin:4px 0 0">${fin.era >= 5 ? '4대보험(국민연금·건강·장기요양·고용 9.72%)과 소득세가 빠집니다.' : '나라가 정한 세금이 빠집니다.'} 숙련·직급이 오르면 월급도 오릅니다.</p></div>`;
+    }
+    h += `<div class="sec">재산</div><div class="card">
+      <div class="row"><span>현금·예금</span><b>${fmtWon(fin.cash)}</b></div>
+      <div class="row"><span>집</span><b>${esc(fin.housing)}${d.home ? ` · ${esc(d.home.name)}` : ''}</b></div>
+      ${fin.car ? '<div class="row"><span>자동차</span><b>🚗 있음</b></div>' : ''}</div>`;
+    const ledger = (l, title, open) => {
+      if (!l) return '';
+      const rows = (o, sign, cls) => Object.entries(o).map(([k, v]) => `<div class="ledger-row ${cls}"><span>${esc(k)}</span><b>${sign}${fmtWon(v)}</b></div>`).join('');
+      const tin = Object.values(l.inc).reduce((t, v) => t + v, 0), tded = Object.values(l.ded).reduce((t, v) => t + v, 0), texp = Object.values(l.exp).reduce((t, v) => t + v, 0);
+      return `<details class="ledger" ${open ? 'open' : ''}><summary>${title} — ${l.y}년 ${l.m}월 <b class="${l.net >= 0 ? 'pos' : 'neg'}">${l.net >= 0 ? '남은 돈 +' : '모자람 '}${fmtWon(l.net)}</b></summary>
+        <div class="ledger-group">수입 <b>${fmtWon(tin)}</b></div>${rows(l.inc, '+', 'pos') || '<div class="sub small">수입 없음</div>'}
+        ${tded ? `<div class="ledger-group">공제 <b>${fmtWon(tded)}</b></div>${rows(l.ded, '−', 'neg')}` : ''}
+        <div class="ledger-group">지출 <b>${fmtWon(texp)}</b></div>${rows(l.exp, '−', 'neg') || '<div class="sub small">지출 없음</div>'}</details>`;
+    };
+    const books = ledger(fin.led, '이번 달', true) + ledger(fin.prev, '지난달', !fin.led);
+    h += `<div class="sec">가계부</div>` + (books || '<p class="sub">아직 기록이 없습니다.</p>');
+    h += `<p class="sub small">생활비는 2026년 한국 물가 기준(식비 월 40만원, 통신비 5.5만원, 교통비 6.5만원·자가용 35만원, 공과금, 월세, 자녀 학원비 등)을 시대에 맞게 환산합니다.${d.age < 19 ? ' 아이의 식비·학원비는 부모가 냅니다.' : ''}</p>`;
+    return h;
   }
 
   renderAnn() {
@@ -379,7 +470,7 @@ export class Hud {
         <div class="stat"><span>교육</span>${bar(d.edu, '#74c0fc')}<b>${d.edu}</b></div>
         <div class="stat"><span>평판</span>${bar(50 + d.rep / 2, '#ffa8a8')}<b>${d.rep}</b></div>
         <div class="stat"><span>명성</span>${bar(d.fame, '#ffd43b')}<b>${d.fame}</b></div>
-        <div class="card" style="margin-top:10px"><div class="row"><span>재산</span><b>${d.money.toLocaleString()}</b></div>
+        <div class="card" style="margin-top:10px"><div class="row"><span>재산(현금)</span><b>${fmtWon(d.fin?.cash || 0)}</b></div>
         <div class="row"><span>집</span><b>${d.home ? esc(d.home.name) + (d.home.done ? '' : ' (짓는 중)') : '없음'}</b></div>
         ${d.job ? `<div class="row"><span>일</span><b>${esc(d.job.title)}</b></div><div class="row"><span>만족도</span><b>${d.job.sat}</b></div>` : ''}
         ${d.techMade ? `<div class="row"><span>기술 기여</span><b>${d.techMade.toLocaleString()}</b></div>` : ''}
@@ -418,6 +509,8 @@ export class Hud {
       const ages = [...groups.keys()].sort((x, y) => y - x);
       body += ages.map(g => `<div class="chron-age"><span>${g}살</span><i>${fmtDate(groups.get(g)[0].t).replace(/ \d+월 \d+일$/, '')}</i></div>` +
         groups.get(g).slice().reverse().map(l => `<div class="life"><span>${l.icon}</span><div>${esc(l.text)}<time>${fmtDate(l.t)}</time></div></div>`).join('')).join('');
+    } else if (tab === 'money') {
+      body += this.moneyHTML(d);
     } else if (tab === 'dream') {
       body += `<div class="sec">꿈</div>` + d.goals.map(g => `<div class="goal ${g.done ? 'done' : ''}"><span>${g.done ? (g.given ? '🍂' : '✅') : '✨'}</span><div>${esc(g.text)}${g.done ? `<div class="sub small" style="margin:0">${g.given ? '내려놓음' : `이룸 · ${g.at ? fmtDate(g.at) : ''}`}</div>` : ''}</div></div>`).join('');
       const vals = Object.entries(d.val).sort((a, b) => b[1] - a[1]);
@@ -442,7 +535,7 @@ export class Hud {
         <div class="acts">${d.al ? `<button class="btn small ${follow ? 'primary' : ''}" data-act="follow">${follow ? '📍 따라가는 중' : '📍 따라가기'}</button>` : ''}<button class="btn small ghost" data-act="close-ann">닫기 ✕</button></div>
       </div>
       <div class="ap-body">${nowBox}
-        <div class="inner-tabs">${[['chron', '📜 연대기'], ['mind', '💭 생각'], ['self', '🧬 성격·능력'], ['rels', '💞 관계'], ['mem', '📔 기억'], ['dream', '✨ 꿈']].map(([k, n]) => `<button data-itab="${k}" class="${tab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+        <div class="inner-tabs">${[['chron', '📜 연대기'], ['money', '💰 돈'], ['mind', '💭 생각'], ['self', '🧬 성격·능력'], ['rels', '💞 관계'], ['mem', '📔 기억'], ['dream', '✨ 꿈']].map(([k, n]) => `<button data-itab="${k}" class="${tab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
         ${body}
       </div></div>`;
     const nb = this.right.querySelector('.ap-body');

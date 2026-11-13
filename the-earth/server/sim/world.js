@@ -6,11 +6,12 @@ import { makeAnn, makeBaby, remember, think, feel, lifeEvent, ageStage, STAGE_NA
 import { makeSettlement, placeBuilding, removeBuilding, updateSettlementLevel, plazaPoint, CELL, siteFeatures, ensureSite, buildRule } from './settlement.js';
 import { updateAnn, nightlyReview, ACTS, isAvailable } from './mind.js';
 import { rel, decayRelations, breakUp, opinionText, updateKind } from './social.js';
-import { companyDaily, considerPromotion, jobTitle, leaveJob, foundPublic, dailyCost, wageBase, setJob, assignContractor, siteName, hasConstruction } from './economy.js';
+import { companyDaily, considerPromotion, jobTitle, leaveJob, foundPublic, dailyCost, wageBase, setJob, assignContractor, siteName, hasConstruction, fullDayPay, annualOf } from './economy.js';
 import { childName, givenOf, familyName } from './names.js';
 import { runEvents, rollWeather } from './events.js';
 import { syncRoads, hallDepts, planRoadWorks, roadProgress, ROAD_GRADES } from './infra.js';
 import { safetyDaily, safetyTick, fireOut } from './safety.js';
+import { livingDaily, pensionDaily, book, ledgerOut, monthNet, WON } from './budget.js';
 import { getCountry, randomLandPoint, seaNear } from '../geo.js';
 import { RELATION_NAMES, SKILLS } from './data.js';
 
@@ -482,7 +483,7 @@ export class World {
       for (const p of poor.slice(0, 30)) {
         const aid = wage * 2;
         if (c.treasury < aid) break;
-        c.treasury -= aid; p.money += aid;
+        c.treasury -= aid; p.money += aid; book(this, p, 'inc', '생활 지원금', aid);
         remember(this, p, `나라에서 생활 지원금을 받았다`, 3, 0.4, [L.id], 'money');
         const r = rel(p, L); r.a = clamp(r.a + 2, -100, 100);
       }
@@ -800,26 +801,13 @@ export class World {
     else a.health = clamp(a.health + 0.2 - Math.max(0, age - 50) * 0.01);
     // 출산
     if (a.preg && now >= a.preg.due) this.birth(a);
-    // 생활비
+    // 생활비: 식비·주거비·공과금·통신비·교통비·의류·보험·자녀 교육비 (가계부에 남는다)
     if (age >= 19) {
-      const cost = dailyCost(c.era) * (1 + a.kids.filter(id => { const k = this.anns.get(id); return k && k.alive && ageOf(k, now) < 19; }).length * 0.35);
-      if (a.money >= cost) a.money -= cost;
-      else {
-        const sp = a.spouse && this.anns.get(a.spouse);
-        const lack = cost - a.money;
-        a.money = 0;
-        if (sp && sp.money > lack) sp.money -= lack;
-        else { a.stress = clamp(a.stress + 6); if (chance(0.3)) { remember(this, a, '돈이 없어 생활이 힘들다', 4, -0.5, [], 'money'); think(this, a, '이번 달은 어떻게 버티지…'); } }
-      }
-    }
-    // 월세: 회사나 나라가 지은 아파트에 살면 집세를 낸다
-    if (a.home && age >= 19) {
-      const hb = this.buildings.get(a.home);
-      if (hb?.dev && !(a.spouse && a.spouse < a.id && this.anns.get(a.spouse)?.home === a.home)) {
-        const rent = Math.min(a.money, wageBase(c.era) * 0.12);
-        a.money -= rent;
-        const dev = hb.dev !== 'gov' && this.companies.get(hb.dev);
-        if (dev && !dev.dead) { dev.money += rent; dev.rev += rent; } else c.treasury += rent;
+      pensionDaily(this, a, c);
+      const short = livingDaily(this, a, c);
+      if (short > 0) {
+        a.stress = clamp(a.stress + 6);
+        if (chance(0.3)) { remember(this, a, '돈이 없어 생활이 힘들다', 4, -0.5, [], 'money'); think(this, a, '이번 달은 어떻게 버티지…'); }
       }
     }
     // 은퇴
@@ -958,7 +946,7 @@ export class World {
     a.act = null;
     lifeEvent(this, a, `${fmtDate(this.clock)} ${age}세로 세상을 떠남 (${cause})`, '🕯️');
     const heirs = [a.spouse, ...a.kids].map(id => this.anns.get(id)).filter(x => x && x.alive);
-    if (heirs.length && a.money > 0) { const share = a.money / heirs.length; for (const h of heirs) h.money += share; a.money = 0; }
+    if (heirs.length && a.money > 0) { const share = a.money / heirs.length; for (const h of heirs) { h.money += share; book(this, h, 'inc', '상속', share); } a.money = 0; }
     for (const id in a.rels) {
       const b = this.anns.get(+id);
       if (!b || !b.alive) continue;
@@ -1055,6 +1043,7 @@ export class World {
 
   daily() {
     this.dfCache.clear();
+    this.sinkCache = new Map();
     this.rebuildResidents();
     for (const s of this.settlements.values()) this.settlementDaily(s);
     for (const a of [...this.anns.values()]) if (a.alive) this.annDaily(a);
@@ -1145,14 +1134,18 @@ export class World {
     const L = c.leader && this.anns.get(c.leader);
     return {
       code: c.code, name: c.name, era: c.era, eraName: ERAS[c.era].name, tech: Math.round(c.tech), nextTech: ERAS[c.era + 1]?.tech ?? null, curTech: ERAS[c.era].tech,
-      leader: L ? { id: L.id, name: L.name, title: ERAS[c.era].leader } : null, pop: c.pop, treasury: Math.round(c.treasury), tax: Math.round(c.tax * 100),
+      leader: L ? { id: L.id, name: L.name, title: ERAS[c.era].leader } : null, pop: c.pop, treasury: Math.round(c.treasury * WON / 1e4), tax: Math.round(c.tax * 100),
       discoveries: c.discoveries, capital: c.capital, history: c.history.slice(-40), founded: c.founded, topEdu: c.topEdu || 0,
     };
   }
   companyOut(co) {
     let cap = 0;
     for (const bid of [co.b, ...(co.bx || [])]) { const b = this.buildings.get(bid); if (b) cap += BUILDINGS[b.type]?.jobs || 6; }
-    return { id: co.id, name: co.name, ind: co.ind, pub: co.pub, indName: co.pub ? PUBLIC[co.ind].name : INDUSTRIES[co.ind].name, sid: co.sid, country: co.country, ceo: co.ceo, founder: co.founder, emp: co.emp.length, slots: co.slots, cap, sites: (co.sites || []).length, money: Math.round(co.money), founded: co.founded, dead: co.dead, b: co.b, depts: co.depts || null };
+    // 직원 평균 연봉(만원)과 직무 구성
+    let paySum = 0, n = 0;
+    const roles = {};
+    for (const id of co.emp) { const e = this.anns.get(id); if (!e?.job) continue; paySum += annualOf(fullDayPay(this, e, e.job.id, co), e.job.id); n++; roles[e.job.id] = (roles[e.job.id] || 0) + 1; }
+    return { id: co.id, name: co.name, ind: co.ind, pub: co.pub, indName: co.pub ? PUBLIC[co.ind].name : INDUSTRIES[co.ind].name, sid: co.sid, country: co.country, ceo: co.ceo, founder: co.founder, emp: co.emp.length, slots: co.slots, cap, sites: (co.sites || []).length, money: Math.round(co.money * WON / 1e4), founded: co.founded, dead: co.dead, b: co.b, depts: co.depts || null, pay: n ? Math.round(paySum / n) : 0, roles };
   }
   playerOut(p) { return { id: p.id, name: p.name, country: p.country, color: p.color, anns: p.anns.length, alive: p.anns.filter(id => this.anns.get(id)?.alive).length, joined: p.joined }; }
 
@@ -1224,7 +1217,16 @@ export class World {
       eduLv: a.eduLv || 0, eduName: EDU_NAMES[a.eduLv || 0], born: a.born, pdeploy: !!a.pdeploy,
       today: a.today || [], yesterday: a.yesterday || [], shift: a.job && JOBS[a.job.id]?.shift ? SHIFTS[JOBS[a.job.id].shift].label : null,
       site: a.job?.site && this.buildings.get(a.job.site) ? { id: a.job.site, name: siteName(this, this.buildings.get(a.job.site)), p: Math.round(this.buildings.get(a.job.site).progress / this.buildings.get(a.job.site).work * 100) } : null,
+      fin: this.finOut(a, co, home),
     };
+  }
+  /** 돈: 연봉, 이번 달·지난달 가계부, 재산, 집, 차 (모두 원) */
+  finOut(a, co, home) {
+    const c = this.countries[a.country];
+    const salary = a.job ? annualOf(fullDayPay(this, a, a.job.id, co || null), a.job.id) : 0;
+    const spouseHome = a.spouse && this.anns.get(a.spouse)?.home === a.home;
+    const housing = !home ? '집 없음' : home.dev ? '월세' : home.owner === a.id || (spouseHome && home.owner === a.spouse) ? '자가' : home.owner != null ? '가족 집에 함께' : '공동 거처';
+    return { cash: Math.round(a.money * WON / 1000) * 1000, salary, era: c?.era ?? 0, led: ledgerOut(a.led), prev: ledgerOut(a.ledPrev), housing, car: !!a.car };
   }
 }
 

@@ -345,9 +345,20 @@ button, .btn, [data-act], [data-ann], [data-town], .roster-item, .country-result
   .panel-screen .sheet-head .sub { display: none; }
   .topbar #hud-me { display: none; }
 }
-}
 
 
+/* 직업 사전 · 가계부 */
+.job-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 6px; border-bottom: 1px dashed rgba(255,255,255,0.06); font-size: 13.5px; }
+.job-row.dim { opacity: .45; }
+.job-row .pay { text-align: right; flex: none; }
+.job-row .pay b { display: block; color: var(--warm); font-variant-numeric: tabular-nums; }
+.job-row .pay small { color: var(--muted); font-size: 11px; }
+.ledger { margin: 6px 0 10px; padding: 8px 10px; border-radius: 12px; background: rgba(255,255,255,0.04); border: 1px solid var(--line); font-size: 13px; }
+.ledger summary { cursor: pointer; font-weight: 700; color: var(--accent-2); display: flex; justify-content: space-between; gap: 8px; }
+.ledger summary b.pos { color: #7ef0c8; } .ledger summary b.neg { color: #ff8a8a; }
+.ledger-group { margin: 8px 0 2px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 2px; }
+.ledger-row { display: flex; justify-content: space-between; padding: 2px 2px; font-variant-numeric: tabular-nums; }
+.ledger-row.pos b { color: #7ef0c8; font-weight: 600; } .ledger-row.neg b { color: #ffb3b3; font-weight: 500; }
 .chron-now { padding: 10px 12px; border-radius: 12px; background: rgba(255,207,110,0.1); border: 1px solid rgba(255,207,110,0.28); margin: 6px 0 12px; font-size: 14px; line-height: 1.6; }
 .chron-age { display: flex; align-items: baseline; gap: 8px; margin: 14px 0 4px; }
 .chron-age span { font-weight: 900; font-size: 15px; color: var(--warm); min-width: 42px; }

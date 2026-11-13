@@ -1,15 +1,37 @@
 // 경제: 회사·공공기관·일자리·임금·생산·세금
-import { INDUSTRIES, PUBLIC, JOBS, ERAS, BUILDINGS, RANKS, DISCOVERIES, EDU_NAMES, maxEduForEra, deptName } from './data.js';
+import { INDUSTRIES, PUBLIC, JOBS, ERAS, BUILDINGS, RANKS, DISCOVERIES, EDU_NAMES, maxEduForEra, deptName, SHIFTS } from './data.js';
 import { clamp, rand, pick, chance, ageOf, YEAR, ga, neun, reul, wa, ro } from './util.js';
 import { remember, think, feel, lifeEvent } from './ann.js';
 import { placeBuilding, addWork, siteFeatures, buildRule } from './settlement.js';
 import { companyName } from './names.js';
 import { rel } from './social.js';
+import { WON, REF_PAY, WORKDAYS, eraF, unitsOf, deductions, book } from './budget.js';
 
 
 const eraOfAnn = (world, a) => world.countries[a.country]?.era ?? 0;
 export const wageBase = era => ERAS[clamp(era, 0, 7)].wage;
-export const dailyCost = era => wageBase(era) * 0.5;
+// 어른 한 명이 한 달 사는 데 드는 기본 생활비(2026년 약 120만원)의 하루치 — 판단의 기준으로 쓴다
+export const dailyCost = era => unitsOf(1200000, era) / 30;
+
+// ── 직업별 급여 ──
+/** 이 직업의 연봉 배율 (연봉표 / 기준 3,600만원) */
+export const payMul = jk => (JOBS[jk]?.pay || REF_PAY) / REF_PAY;
+/** 근대부터는 최저임금(2026년 시급 10,320원 × 8시간)보다 적게 줄 수 없다 */
+export const minDaily = era => (era >= 5 ? unitsOf(82560, era) : 0);
+const skillF = (a, j) => 0.85 + (a.sk[j.skill] || 0) / 333; // 숙련: 0.85 ~ 1.15배
+/** 이 직업이 1년에 일하는 날 (주5일 261일, 주6일 313일, 매일 340일) */
+export const workDays = jk => { const d = SHIFTS[JOBS[jk]?.shift]?.days; return d === 'six' ? 313 : d === 'all' ? 340 : 261; };
+/** 하루를 다 일했을 때의 급여(단위). co 가 없으면 자영업 기준 — 연봉을 그 직업의 근무일로 나눈 값 */
+export function fullDayPay(world, a, jk, co = null, rank = a.job?.rank || 0, ceo = !!a.job?.ceo) {
+  const j = JOBS[jk];
+  const era = world.countries[a.country].era;
+  const base = co ? co.wage : wageBase(era);
+  return Math.max(minDaily(era), base * payMul(jk) * (WORKDAYS / workDays(jk)) * skillF(a, j) * (1 + rank * 0.1) * (ceo ? 1.2 : 1)); // 직급: 한 단계에 10%
+}
+/** 연봉(만원, 그 시대 가치) */
+export const annualOf = (dayUnits, jk = null) => Math.round(dayUnits * (jk ? workDays(jk) : WORKDAYS) * WON / 1e4);
+/** 직업표의 연봉(만원, 그 시대 가치) */
+export const listedSalary = (jk, era) => Math.round((JOBS[jk]?.pay || REF_PAY) * eraF(era));
 
 export function abilityOrTrait(a, k) {
   return k in a.ab ? a.ab[k] : k in a.tr ? a.tr[k] : 50;
@@ -130,6 +152,39 @@ export function crewDaily(world, co) {
   co.crewNeed = co.sites.reduce((t, id) => { const b = world.buildings.get(id); return t + Math.ceil((b.work - b.progress) / 2200); }, 0);
 }
 
+// 자영업도 시장이 받아 주는 만큼만: 인구 몇 명당 한 명 (시대별). null = 제한 없음
+// (오늘날 한국은 농림어업 종사자가 취업자의 5% 남짓)
+const SELF_K = {
+  fisher: [null, null, 6, 8, 12, 25, 40, 60], peasant: [null, null, 2, 2.5, 5, 18, 30, 45], rancher: [null, null, 8, 10, 15, 30, 45, 60],
+  laborer: [null, null, 10, 10, 12, 15, 20, 25], author: 60, webtoonist: 80, creator: 50, rider: 30,
+};
+function selfCount(world, s, jk, era) {
+  const k = SELF_K[jk];
+  const per = Array.isArray(k) ? k[Math.min(era, 7)] : k;
+  if (per == null) return null;
+  let n = 0;
+  for (const x of world.residents(s.id)) if (x.job?.id === jk) n++;
+  return { n, cap: Math.ceil(Math.max(1, s.pop) / per) };
+}
+function selfFull(world, s, jk, era) { const r = selfCount(world, s, jk, era); return !!r && r.n >= r.cap; }
+/** 자영업 시장 포화: 할 사람이 너무 많으면 한 사람 몫이 줄어든다 (하루 한 번 계산) */
+export function selfShare(world, s, jk, era) {
+  const key = s.id + ':self:' + jk;
+  let v = world.dfCache.get(key);
+  if (v === undefined) { const r = selfCount(world, s, jk, era); v = r && r.n > r.cap ? r.cap / r.n : 1; world.dfCache.set(key, v); }
+  return v;
+}
+
+/** 회사 안 직무 구성: 의사 30%·간호사 40% 처럼 정해진 비율을 넘겨 뽑지 않는다 */
+export function mixRoom(world, co, def, jk, era) {
+  if (!def.mix || !def.mix[jk]) return true;
+  const active = def.jobs.filter(k => { const j = JOBS[k]; return j.era <= era && !(j.maxEra != null && era > j.maxEra); });
+  const tot = active.reduce((t, k) => t + (def.mix[k] || 0), 0) || 1;
+  const target = Math.max(co.slots, co.emp.length + 1);
+  const have = co.emp.reduce((n, id) => n + (world.anns.get(id)?.job?.id === jk ? 1 : 0), 0);
+  return have < Math.max(1, Math.ceil(target * def.mix[jk] / tot));
+}
+
 export function openings(world, a, withBlocked = false) {
   const s = world.settlements.get(a.sid);
   const era = eraOfAnn(world, a);
@@ -140,11 +195,12 @@ export function openings(world, a, withBlocked = false) {
     if (co.emp.length >= co.slots) continue;
     const hq = world.buildings.get(co.b);
     if (hq && !hq.done && co.ind !== 'construction') continue; // 건물이 다 지어져야 직원을 뽑는다
-    const jobs = co.pub ? PUBLIC[co.ind].jobs : INDUSTRIES[co.ind].jobs;
-    for (const jk of jobs) {
+    const def = co.pub ? PUBLIC[co.ind] : INDUSTRIES[co.ind];
+    for (const jk of def.jobs) {
       const j = JOBS[jk];
       if (j.era > era || (j.maxEra != null && era > j.maxEra)) continue;
-      const op = { co, jobKey: jk, wage: co.wage * (0.75 + a.sk[j.skill] / 120) * (1 + (j.edu || 0) * 0.12), fit: jobFit(a, jk) };
+      if (!mixRoom(world, co, def, jk, era)) continue; // 이 직무는 이미 정원만큼 있다
+      const op = { co, jobKey: jk, wage: fullDayPay(world, a, jk, co, 0, false), fit: jobFit(a, jk) };
       if (lv < eduReq(world, a, jk)) { blocked.push(op); continue; }
       out.push(op);
     }
@@ -153,7 +209,8 @@ export function openings(world, a, withBlocked = false) {
     const j = JOBS[jk];
     if (!j.self || j.era > era || (j.maxEra != null && era > j.maxEra)) continue;
     if (j.water && !water) continue; // 물가가 없으면 어부도 없다
-    out.push({ co: null, jobKey: jk, wage: wageBase(era) * 0.55 * (0.5 + a.sk[j.skill] / 100) * (j.rate / 2 + 0.5), fit: jobFit(a, jk) });
+    if (a.job?.id !== jk && selfFull(world, s, jk, era)) continue; // 이미 할 사람이 충분하다
+    out.push({ co: null, jobKey: jk, wage: fullDayPay(world, a, jk, null, 0, false) * (0.5 + a.sk[j.skill] / 150) * selfShare(world, s, jk, era), fit: jobFit(a, jk) });
   }
   return withBlocked ? { out, blocked } : out;
 }
@@ -421,8 +478,8 @@ export function produce(world, a, dt) {
     case 'art': country.culturePts = (country.culturePts || 0) + eff * hours; world.addTech(country, eff * hours * 0.15, 'art'); break;
     default: break;
   }
-  // 매출 (민간)
-  const value = (wageBase(era) / 8) * 1.45 * eff * hours;
+  // 매출 (민간): 연봉이 높은 일일수록 만들어 내는 가치도 크다
+  const value = (wageBase(era) / 8) * 1.45 * eff * hours * payMul(a.job.id);
   if (co && !co.pub) {
     let df = INDUSTRIES[co.ind] ? demandFactor(world, s, co.ind) : 1;
     // 건설회사는 일감(현장)이 있어야 번다
@@ -435,9 +492,12 @@ export function produce(world, a, dt) {
     co.money += v; co.rev += v;
   } else if (!co) {
     // 자영업: 스스로 벌고, 나라에 세금(조세)을 낸다
-    const earn = value * 0.5 * (j.out === 'food' ? 0.8 : 0.7);
-    const tax = era >= 2 ? earn * country.tax * 0.7 : 0;
-    a.money += earn - tax; country.treasury += tax; country.taxIn = (country.taxIn || 0) + tax;
+    const earn = value * 0.5 * (j.out === 'food' ? 0.8 : 0.7) * selfShare(world, s, a.job.id, era);
+    const d = era >= 5 ? deductions(country, earn, earn / Math.max(0.05, hours) * 8, era) : { ins: 0, tax: era >= 2 ? earn * country.tax * 0.7 : 0 };
+    a.money += earn - d.ins - d.tax; country.treasury += d.ins + d.tax; country.taxIn = (country.taxIn || 0) + d.ins + d.tax;
+    book(world, a, 'inc', '사업소득', earn);
+    if (d.ins) book(world, a, 'ded', '4대보험', d.ins);
+    if (d.tax) book(world, a, 'ded', era >= 5 ? '소득세' : '세금', d.tax);
   }
 }
 
@@ -449,7 +509,7 @@ export function companyDaily(world, co) {
   // 일손이 모자라면 임금을 올린다 (낼 형편이 될 때). 사람이 차면 서서히 시세로 돌아간다
   const vacant = co.slots > co.emp.length;
   const canPay = co.pub ? !country.pending && (country.pubAvg || 0) < (country.taxAvg || 0) * 0.65 : (co.pl || 0) >= 0 && co.money > wageBase(era) * 10;
-  co.prem = Math.max(0, Math.min(0.6, (co.prem || 0) + (vacant && canPay ? 0.01 : -0.004)));
+  co.prem = Math.max(0, Math.min(0.3, (co.prem || 0) + (vacant && canPay ? 0.008 : -0.004))); // 구인난 웃돈은 최대 30%
   co.wage = co.wage * 0.9 + wageBase(era) * (co.pub ? 1.05 : 1) * (1 + co.prem) * 0.1;
   const b = world.buildings.get(co.b);
   // 창업 초기(사옥·가마를 짓는 중)에는 대표가 월급 없이 일한다
@@ -457,23 +517,28 @@ export function companyDaily(world, co) {
   let payroll = 0;
   const members = co.emp.map(id => world.anns.get(id)).filter(e => e && e.alive);
   co.emp = members.map(e => e.id);
+  const dayPays = new Map();
   for (const e of members) {
-    const worked = Math.min(1.2, (e.payHours || 0) / 7);
+    const worked = Math.min(1.05, (e.payHours || 0) / 7.5);
     if (worked <= 0 || (startup && e.job.ceo)) continue;
-    const j = JOBS[e.job.id];
-    const pay = co.wage * (0.75 + e.sk[j.skill] / 120) * (1 + e.job.rank * 0.25) * worked * (e.job.ceo ? 1.2 : 1);
-    payroll += pay;
+    const full = fullDayPay(world, e, e.job.id, co);
+    dayPays.set(e.id, full);
+    payroll += full * worked;
   }
   const fund = co.pub ? country.treasury : co.money;
   const ratio = payroll > 0 ? Math.min(1, Math.max(0, fund) / payroll) : 1;
   for (const e of members) {
-    const worked = Math.min(1.2, (e.payHours || 0) / 7);
+    const worked = Math.min(1.05, (e.payHours || 0) / 7.5);
     if (worked <= 0 || (startup && e.job.ceo)) continue;
-    const j = JOBS[e.job.id];
-    let pay = co.wage * (0.75 + e.sk[j.skill] / 120) * (1 + e.job.rank * 0.25) * worked * (e.job.ceo ? 1.2 : 1) * ratio;
-    const tax = era >= 2 ? pay * country.tax : 0;
-    country.treasury += tax; country.taxIn = (country.taxIn || 0) + tax;
-    e.money += pay - tax;
+    const full = dayPays.get(e.id);
+    const pay = full * worked * ratio;
+    // 급여명세: 세전 월급 → 4대보험·소득세를 떼고 통장에
+    const d = era >= 2 ? deductions(country, pay, full * workDays(e.job.id) / WORKDAYS, era) : { ins: 0, tax: 0 };
+    country.treasury += d.ins + d.tax; country.taxIn = (country.taxIn || 0) + d.ins + d.tax;
+    e.money += pay - d.ins - d.tax;
+    book(world, e, 'inc', e.job.ceo ? '대표 급여' : '월급', pay);
+    if (d.ins) book(world, e, 'ded', '4대보험', d.ins);
+    if (d.tax) book(world, e, 'ded', era >= 5 ? '소득세' : '세금', d.tax);
     if (ratio < 0.7) { e.job.sat = clamp(e.job.sat - 6); feel(e, -4, '불만', '월급'); }
   }
   if (co.pub) { country.treasury -= payroll * ratio; country.pubOut = (country.pubOut || 0) + payroll * ratio; }
@@ -490,9 +555,10 @@ export function companyDaily(world, co) {
     const ceo = co.ceo && world.anns.get(co.ceo);
     const buffer = payroll * 12 + wageBase(era) * 4; // 회사에 남겨 두는 돈 (키우려면 쌓아야 한다)
     if (ceo && co.money > buffer) {
-      const div = (co.money - buffer) * 0.35;
+      const div = (co.money - buffer) * 0.08; // 남는 돈의 일부를 대표가 가져간다 (나머지는 회사를 키우는 데)
       const tax = era >= 2 ? div * country.tax * 1.5 : 0;
       co.money -= div; ceo.money += div - tax; country.treasury += tax; country.taxIn = (country.taxIn || 0) + tax;
+      book(world, ceo, 'inc', '배당', div); book(world, ceo, 'ded', '배당소득세', tax);
     }
     co.rep = clamp(co.rep + (profit > 0 ? 0.6 : -0.8));
     if (startup && co.money >= 0) co.lossDays = 0;
@@ -561,7 +627,7 @@ export function companyDaily(world, co) {
     }
     // 공채·임용: 자리가 비어 있으면 마을에서 알맞은 사람(무직·자영업)을 찾아 부른다
     if (co.emp.length < co.slots && (!b || b.done) && chance(co.emp.length ? 0.12 : 0.5)) {
-      const jk = def.jobs.find(k => { const j = JOBS[k]; return j.era <= era && !(j.maxEra != null && era > j.maxEra); });
+      const jk = def.jobs.find(k => { const j = JOBS[k]; return j.era <= era && !(j.maxEra != null && era > j.maxEra) && mixRoom(world, co, def, k, era); });
       const j = jk && JOBS[jk];
       const pool = j ? world.residents(co.sid).filter(x => {
         const g = ageOf(x, world.clock);
