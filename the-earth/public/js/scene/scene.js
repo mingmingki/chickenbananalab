@@ -287,9 +287,11 @@ export class World3D {
       this.space.light.intensity = 3.2 * (1 - wx.dim) + wx.flash * 6;
       this.space.ambient.intensity *= 1 - wx.dim * 0.5;
       this.space.ambient.intensity += wx.flash * 1.5;
+      this.sense = { alt, night: this.cities.night, s: this.cities.nearest?.t?.s || null, flash: wx.flash, mode: this.mode };
     } else {
       this.weather.update(dt, this.camera, null, alt, 0);
       this.space.light.intensity = 3.2;
+      this.sense = { alt, night: 0, s: null, flash: 0, mode: this.mode };
     }
     if (alt > 2e5) {
       const wp = new THREE.Vector3();

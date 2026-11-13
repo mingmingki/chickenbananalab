@@ -1,0 +1,29 @@
+# Render 배포 설정 (Blueprint). 대시보드에서 New → Blueprint → 이 저장소를 고르면 된다.
+# 영구 디스크는 유료 플랜(Starter 이상)에서만 쓸 수 있다. 무료 플랜은 잠들어서 시뮬레이션이 멈추므로 맞지 않는다.
+services:
+  - type: web
+    name: the-earth
+    runtime: docker
+    dockerContext: ./the-earth
+    dockerfilePath: ./the-earth/Dockerfile
+    plan: starter
+    region: singapore
+    healthCheckPath: /healthz
+    numInstances: 1
+    disk:
+      name: earth-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /data
+      - key: TRUST_PROXY
+        value: "1"
+      - key: ADMIN_USERS
+        sync: false
+      - key: OPERATOR_NAME
+        sync: false
+      - key: OPERATOR_EMAIL
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false

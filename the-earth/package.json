@@ -6,13 +6,14 @@
   "type": "module",
   "main": "server/index.js",
   "scripts": {
-    "start": "node server/index.js",
-    "dev": "TIME_SCALE=600 node server/index.js",
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "dev": "TIME_SCALE=600 OPEN_SERVERS=1 node --disable-warning=ExperimentalWarning server/index.js",
     "simulate": "node scripts/simulate.js",
-    "seed": "node scripts/seed.js"
+    "seed": "node scripts/seed.js",
+    "loadtest": "node scripts/loadtest.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "dependencies": {
     "compression": "^1.8.2",
@@ -21,6 +22,7 @@
     "i18n-iso-countries": "^7.14.0",
     "three": "^0.170.0",
     "topojson-client": "^3.1.0",
+    "web-push": "^3.6.7",
     "world-atlas": "^2.0.2",
     "ws": "^8.22.2"
   }

@@ -1,0 +1,9 @@
+node_modules
+data
+*.tmp
+*.log
+.git
+scripts
+README.md
+Dockerfile
+fly.toml

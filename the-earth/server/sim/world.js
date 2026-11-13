@@ -1,4 +1,5 @@
 // 세계: 시계(1년 1월 1일 0시에서 시작), 나라, 정착지, 건물, 회사, 앤, 플레이어
+import { onLifeEvent, dailyAchievements, award } from './achieve.js';
 import { randomUUID } from 'node:crypto';
 import { clamp, rand, pick, chance, gauss, ageOf, dateOf, fmtDate, localHour, YEAR, DAY, ga, neun, reul, wa, ida, fixJosa } from './util.js';
 import { ERAS, DISCOVERIES, BUILDINGS, PUBLIC, JOBS, GOALS, HOME_BY_ERA, SETTLEMENT_LEVELS, INDUSTRIES, SCHOOLS, EDU_NAMES, SHIFTS } from './data.js';
@@ -53,6 +54,7 @@ export class World {
     this.dirtyCountries = new Set();
     this.newEvents = [];
     this.newChat = [];
+    this.newNotes = [];
   }
 
   newId() { return this.nextIdV++; }
@@ -65,6 +67,13 @@ export class World {
     this.newEvents.push(e);
     return e;
   }
+  /** 플레이어 알림함 (다시 들어왔을 때 요약, 실시간 알림, 푸시) */
+  pushNote(p, n) {
+    (p.inbox = p.inbox || []).push(n);
+    if (p.inbox.length > 150) p.inbox.splice(0, p.inbox.length - 150);
+    this.newNotes.push({ pid: p.id, ...n });
+  }
+  onLifeEvent(a, text, icon) { onLifeEvent(this, a, text, icon); }
   chatter(a, b, line) {
     const c = { t: Math.round(this.clock), a: a.id, b: b.id, sid: a.sid, line: fixJosa(line) };
     this.chat.push(c);
@@ -502,7 +511,7 @@ export class World {
     const id = 'p' + this.newId();
     const used = new Set(Object.values(this.players).map(p => p.color));
     const color = PLAYER_COLORS.find(x => !used.has(x)) || pick(PLAYER_COLORS);
-    const p = { id, token: randomUUID(), name: String(name || '플레이어').slice(0, 20), country: c.code, color, joined: Math.round(this.clock), joinedReal: Date.now(), anns: [] };
+    const p = { id, token: randomUUID(), name: String(name || '플레이어').slice(0, 20), country: c.code, color, joined: Math.round(this.clock), joinedReal: Date.now(), anns: [], eraAtJoin: c.era, ach: {}, inbox: [] };
     this.players[id] = p;
     this.news('player', `🌍 새로운 플레이어 ${ga(p.name)} ${c.name}에서 문명을 시작한다`, { country: c.code }, 2);
     return p;
@@ -545,6 +554,7 @@ export class World {
         born.push({ baby, fam });
       }
       if (born.length) {
+        award(this, player, 'first_deploy');
         this.news('player', `👶 ${player.name}의 앤 ${born.length}명이 ${c.name}의 가정에서 태어났다`, { country: c.code, anns: born.map(b => b.baby.id) }, 2);
         this.rebuildResidents();
         return born.map(b => b.baby);
@@ -567,6 +577,7 @@ export class World {
     }
     // 같이 투입된 앤들은 서로 조금 안다
     for (const a of out) for (const b of out) if (a !== b) { const r = rel(a, b); r.f = Math.max(r.f, 5); r.k = 'acquaintance'; }
+    award(this, player, 'first_deploy');
     this.news('player', `👥 ${player.name}의 앤 ${out.length}명이 ${c.name} ${s.name}에 도착했다`, { country: c.code, sid: s.id, anns: out.map(a => a.id) }, 2);
     this.rebuildResidents();
     s.pop = this.residents(s.id).length; c.pop = [...this.anns.values()].filter(a => a.alive && a.country === c.code).length;
@@ -1051,6 +1062,7 @@ export class World {
     for (const c of Object.values(this.countries)) this.countryDaily(c);
     for (const s of this.settlements.values()) s.pop = this.residents(s.id).length;
     this.rebuildResidents();
+    dailyAchievements(this);
   }
 
   // ── 시계 ──
@@ -1063,6 +1075,7 @@ export class World {
     if (day !== this.lastDay) { this.lastDay = day; this.daily(); }
   }
   update(realDtSec) {
+    if (this.paused) return;
     let minutes = realDtSec * (this.runScale || this.timeScale) / 60;
     while (minutes > 1e-9) {
       const dt = Math.min(1, minutes);
@@ -1074,7 +1087,7 @@ export class World {
   // ── 저장 ──
   toJSON() {
     return {
-      v: 1, id: this.id, name: this.name, created: this.created, timeScale: this.timeScale, clock: this.clock, nextIdV: this.nextIdV,
+      v: 1, id: this.id, name: this.name, created: this.created, timeScale: this.timeScale, clock: this.clock, nextIdV: this.nextIdV, paused: !!this.paused,
       nextEventId: this.nextEventId, countries: this.countries, settlements: [...this.settlements.values()], buildings: [...this.buildings.values()],
       companies: [...this.companies.values()], anns: [...this.anns.values()], players: this.players, events: this.events.slice(-300), chat: this.chat.slice(-60),
     };
@@ -1091,6 +1104,8 @@ export class World {
     w.events = o.events || [];
     w.chat = o.chat || [];
     w.lastDay = Math.floor(w.clock / DAY);
+    w.paused = !!o.paused;
+    for (const p of Object.values(w.players)) { p.ach = p.ach || {}; p.inbox = p.inbox || []; if (p.eraAtJoin == null) p.eraAtJoin = 0; }
     return w;
   }
 
@@ -1101,7 +1116,7 @@ export class World {
     return {
       id: this.id, name: this.name, created: this.created, timeScale: this.timeScale, clock: this.clock,
       date: `${d.year}년 ${d.month}월 ${d.day}일`, players: Object.keys(this.players).length, population: alive,
-      countries: Object.keys(this.countries).length,
+      countries: Object.keys(this.countries).length, paused: !!this.paused,
     };
   }
   annMeta(a) {
@@ -1165,10 +1180,18 @@ export class World {
   }
 
   tickPayload() {
-    const p = {
-      clock: this.clock,
-      pos: [...this.anns.values()].filter(a => a.alive || this.dirtyAct.has(a.id)).map(a => this.annPos(a)),
-    };
+    // 위치는 바뀐 앤만 보낸다 (휴대폰 데이터 절약). 15초마다 한 번은 전부 보내서 놓친 것을 맞춘다
+    this.tickN = (this.tickN || 0) + 1;
+    const full = this.tickN % 15 === 0;
+    const last = this._lastPos || (this._lastPos = new Map());
+    const pos = [];
+    for (const a of this.anns.values()) {
+      if (!a.alive && !this.dirtyAct.has(a.id)) { last.delete(a.id); continue; }
+      const row = this.annPos(a), key = row.join(',');
+      if (full || last.get(a.id) !== key) { pos.push(row); last.set(a.id, key); }
+    }
+    const p = { clock: this.clock, pos };
+    if (full) p.full = 1;
     if (this.dirtyAnnMeta.size) p.anns = [...this.dirtyAnnMeta].map(id => this.anns.get(id)).filter(Boolean).map(a => this.annMeta(a));
     if (this.dirtyBuildings.size) p.buildings = [...this.dirtyBuildings].map(id => this.buildings.get(id)).filter(Boolean).map(b => this.buildingOut(b));
     if (this.removedBuildings.size) p.removed = [...this.removedBuildings];

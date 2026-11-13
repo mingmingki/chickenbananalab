@@ -1,0 +1,13 @@
+:root { color-scheme: dark; }
+body { margin: 0; background: #0b1018; color: #dde6f3; font: 15px/1.75 system-ui, -apple-system, 'Noto Sans KR', sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: calc(24px + env(safe-area-inset-top, 0px)) 18px 60px; }
+h1 { font-size: 26px; margin: 8px 0 4px; }
+h2 { font-size: 17px; margin: 28px 0 8px; color: #fff; }
+a { color: #58b4ff; }
+.meta { color: #8796ad; font-size: 13px; }
+[data-op] { background: rgba(255, 214, 102, 0.12); border-radius: 4px; padding: 0 3px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 8px 0; }
+th, td { border: 1px solid #243247; padding: 8px 10px; text-align: left; vertical-align: top; }
+th { background: #121a26; font-weight: 600; }
+ul, ol { padding-left: 1.3em; }
+li { margin: 4px 0; }

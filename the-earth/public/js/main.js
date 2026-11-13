@@ -1,9 +1,11 @@
 // The Earth — 화면 흐름: 인트로 → 서버 → 나라 → 앤 만들기 → 관찰
 import { state, fmtDate } from './state.js';
-import { api, Live, loadSessions, saveSession, forgetSession } from './net.js';
+import { api, auth, Live, loadSessions, saveSession, forgetSession } from './net.js';
 import { World3D } from './scene/scene.js';
 import { Creator } from './ui/creator.js';
 import { Hud } from './ui/hud.js';
+import { sound } from './audio.js';
+import { account, accountModal, settingsModal, inboxModal, recapModal, reportModal, tutorial, tutorialDone, sheet } from './ui/extras.js';
 // 휴대폰 세로 화면: 아래쪽 시트에 가리지 않게 지구를 위로 올린다
 const phoneLift = v => (innerWidth <= 860 && innerHeight > innerWidth ? v : 0);
 
@@ -45,12 +47,54 @@ function toast(text) {
 
 async function boot() {
   $('#loading').classList.remove('hidden');
+  // 앱처럼: 서비스 워커(빠른 재방문, 휴대폰 알림)
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
   [meta, geo] = await Promise.all([api('/api/meta'), api('/api/geo')]);
   w3d = new World3D($('#scene'), meta, geo.countries);
   w3d.setState(state);
   $('#loading').classList.add('hidden');
+  refreshAccount();
+  // 소리: 장면이 알려 주는 상태(고도·날씨·밤·시대)를 넘겨준다
+  setInterval(() => {
+    const se = w3d.sense;
+    if (!se) return;
+    se.era = se.s ? state.countries.get(se.s.country)?.era ?? 0 : 0;
+    sound.feed(se);
+  }, 200);
+  // 버튼 누르는 소리
+  addEventListener('click', e => { if (e.target.closest('.btn, .tabs button, .seg button')) sound.sfx('click'); }, true);
   intro();
 }
+
+// ── 계정 ──
+async function refreshAccount() {
+  if (auth.get()?.token) {
+    try { const r = await api('/api/auth/me'); auth.set({ ...auth.get(), account: r.account }); ctx.games = r.games; if (r.account.prefs?.sound) sound.set(r.account.prefs.sound); }
+    catch { ctx.games = []; }
+  } else ctx.games = [];
+  const acc = account();
+  $('#intro-account').textContent = acc ? `👤 ${acc.username}` : '로그인';
+}
+const onAccount = () => { refreshAccount(); };
+const openSettings = () => settingsModal({ toast: msg => (hud ? hud.toast(msg) : toast(msg)), onAccount, onTutorial: hud ? () => tutorial({ hasMine: !!ctx.session }) : null });
+/** 이어할 수 있는 게임: 이 기기에 저장된 것 + 계정에 묶인 것 */
+function allSessions() {
+  const list = loadSessions();
+  for (const g of ctx.games || []) if (!list.some(s => s.serverId === g.serverId && s.token === g.token)) list.push({ ...g, seenAcc: g.seen });
+  return list;
+}
+// '그동안 있었던 일'을 위해 마지막으로 본 게임 시각을 기억한다
+const seenKey = s => `theEarth.seen.${s.serverId}.${s.token}`;
+const getSeen = s => { let v = 0; try { v = +localStorage.getItem(seenKey(s)) || 0; } catch { /* */ } return Math.max(v, s.seenAcc || 0, (ctx.games || []).find(g => g.token === s.token)?.seen || 0); };
+function markSeen() {
+  const s = ctx.session;
+  if (!s || !state.world) return;
+  const clock = Math.floor(state.now());
+  try { localStorage.setItem(seenKey(s), String(clock)); } catch { /* */ }
+  if (account()) api(`/api/servers/${s.serverId}/seen`, { token: s.token, clock }).catch(() => null);
+}
+setInterval(() => { if (ctx.mode === 'observe') markSeen(); }, 60_000);
+document.addEventListener('visibilitychange', () => { if (document.hidden && ctx.mode === 'observe') markSeen(); });
 
 // ── 인트로 ──
 function intro() {
@@ -68,6 +112,9 @@ function intro() {
   w3d.playIntro(landed);
   $('#intro').onclick = e => {
     const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'account') { account() ? openSettings() : accountModal({ toast, onChange: onAccount }); return; }
+    if (act === 'settings') { openSettings(); return; }
+    if (e.target.closest('.intro-foot')) return;
     if (!done) { w3d.introSkip?.(); return; }
     if (act === 'start') showServers();
     if (act === 'continue') continueGame();
@@ -75,8 +122,9 @@ function intro() {
 }
 
 async function continueGame() {
-  const sessions = loadSessions();
-  if (!sessions.length) return toast('저장된 게임이 없습니다. 시작하기를 눌러 주세요.');
+  if (account()) await refreshAccount();
+  const sessions = allSessions();
+  if (!sessions.length) return toast(account() ? '아직 게임이 없습니다. 시작하기를 눌러 주세요.' : '저장된 게임이 없습니다. 시작하기를 누르거나, 다른 기기에서 하던 게임은 로그인해서 이어하세요.');
   let pick = sessions[0];
   if (sessions.length > 1) {
     const servers = await api('/api/servers').catch(() => []);
@@ -94,7 +142,7 @@ async function continueGame() {
     ctx.server = servers.find(s => s.id === pick.serverId);
     ctx.session = { ...pick, player: me.player, room: me.room };
     if (!me.anns.length) return openCreator();
-    observe();
+    observe(false, null, getSeen(pick));
   } catch (e) {
     forgetSession(pick.serverId, pick.token);
     toast('저장된 게임을 찾을 수 없습니다: ' + e.message);
@@ -107,7 +155,8 @@ async function showServers() {
   const list = $('#server-list');
   list.innerHTML = '<p class="empty">서버 목록을 불러오는 중…</p>';
   const servers = await api('/api/servers');
-  const sessions = loadSessions();
+  const sessions = allSessions();
+  $('#btn-new-server').classList.toggle('hidden', !(meta.openServers || account()?.admin));
   list.innerHTML = servers.map(s => {
     const mine = sessions.find(x => x.serverId === s.id);
     return `<div class="server-card">
@@ -118,7 +167,7 @@ async function showServers() {
         <button class="btn ${mine ? '' : 'primary'}" data-join="${s.id}">새로 시작</button>
         <button class="btn ghost small" data-watch="${s.id}">👁️ 관전</button>
       </div>
-      <p class="sub small" style="grid-column:1">${new Date(s.created).toLocaleDateString('ko-KR')} 개설 — 1년 1월 1일부터 시작된 세계</p>
+      <p class="sub small" style="grid-column:1">${new Date(s.created).toLocaleDateString('ko-KR')} 개설 — 1년 1월 1일부터 시작된 세계${s.paused ? ' · ⏸ 점검 중' : ''}</p>
     </div>`;
   }).join('') || '<p class="empty">서버가 없습니다.</p>';
   $('#servers').onclick = async e => {
@@ -134,22 +183,21 @@ async function showServers() {
         const me = await api(`/api/servers/${sess.serverId}/me?token=${encodeURIComponent(sess.token)}`);
         ctx.server = servers.find(s => s.id === sess.serverId);
         ctx.session = { ...sess, player: me.player, room: me.room };
-        me.anns.length ? observe() : openCreator();
+        me.anns.length ? observe(false, null, getSeen(sess)) : openCreator();
       } catch (err) { forgetSession(sess.serverId, sess.token); toast(err.message); showServers(); }
     }
   };
 }
 
 async function newServer() {
-  let name = '', key = '';
+  let name = '';
   const res = await modal(`<h3>새 서버 열기</h3>
     <p class="sub">새 서버는 지금 이 순간 <b>1년 1월 1일 0시</b>부터 시작합니다. 아무도 없는 지구에서 첫 문명이 시작됩니다.</p>
     <label class="field" style="margin-top:12px"><span>서버 이름</span><input id="srv-name" maxlength="30" placeholder="예: 제2서버 · 새벽"></label>
-    ${meta.adminRequired ? '<label class="field" style="margin-top:10px"><span>관리자 키</span><input id="srv-key" type="password"></label>' : ''}
     <div class="acts"><button class="btn ghost" data-m="cancel">취소</button><button class="btn primary" data-m="ok">서버 열기</button></div>`,
-  (a, m) => { if (a === 'ok') { name = m.querySelector('#srv-name').value; key = m.querySelector('#srv-key')?.value || ''; } });
+  (a, m) => { if (a === 'ok') name = m.querySelector('#srv-name').value; });
   if (res !== 'ok') return;
-  try { await api('/api/servers', { name, adminKey: key }); toast('새 서버가 열렸습니다 — 1년 1월 1일'); } catch (e) { toast(e.message); }
+  try { await api('/api/servers', { name }); toast('새 서버가 열렸습니다 — 1년 1월 1일'); } catch (e) { toast(e.message); }
   showServers();
 }
 
@@ -159,15 +207,16 @@ function connect(serverId) {
   live?.close();
   state.reset();
   live = new Live(serverId, {
+    notes: m => { hud?.onNotes(m.notes); const top = m.notes.slice().sort((a, b) => b.lvl - a.lvl)[0]; if (top) sound.forIcon(top.icon); },
     init: m => state.applyInit(m),
     tick: m => {
       state.applyTick(m);
       hud?.onTick();
       if (ctx.mode === 'country') refreshCountryInfo();
-      for (const e of m.events || []) if (e.kind === 'space' && e.sid) w3d.launchRocket(e.sid);
+      for (const e of m.events || []) if (e.kind === 'space' && e.sid) { w3d.launchRocket(e.sid); sound.sfx('rocket'); }
     },
     ann: m => hud?.onAnnDetail(m.ann),
-  });
+  }, ctx.session?.serverId === serverId ? ctx.session.token : null);
   return live;
 }
 
@@ -248,6 +297,7 @@ async function joinCountry() {
   try {
     const r = await api(`/api/servers/${ctx.server.id}/join`, { name, country: c.code });
     ctx.session = { serverId: ctx.server.id, token: r.token, playerName: name, country: c.code, countryName: c.name, player: r.player, room: meta.maxAnns };
+    live?.hello(r.token);
     saveSession({ serverId: ctx.server.id, token: r.token, playerName: name, country: c.code, countryName: c.name });
     $('#country-hover').classList.add('hidden');
     openCreator();
@@ -285,16 +335,18 @@ async function deploy() {
   try {
     const specs = creator.anns.map(a => ({ name: a.name, gender: a.gender, age: a.age, traits: a.traits, abilities: a.abilities, ambition: a.ambition }));
     const r = await api(`/api/servers/${ctx.session.serverId}/deploy`, { token: ctx.session.token, anns: specs });
+    sound.sfx('deploy');
     creator = null;
     observe(true, r.anns?.[0]?.id);
   } catch (e) { toast(e.message); }
 }
 
 // ── 관찰 ──
-function observe(justDeployed = false, firstAnn = null) {
+function observe(justDeployed = false, firstAnn = null, since = null) {
   ctx.mode = 'observe';
   show(null);
   connect(ctx.server.id);
+  if (ctx.session) live.hello(ctx.session.token);
   w3d.menuSpin(false);
   w3d.mode = 'observe';
   w3d.rig.enabled = true;
@@ -313,10 +365,19 @@ function observe(justDeployed = false, firstAnn = null) {
     onExit: async () => {
       const r = await modal(`<h3>처음 화면으로</h3><p class="sub">앤들은 당신이 없어도 계속 살아갑니다. 이어하기로 언제든 돌아올 수 있어요.</p><div class="acts"><button class="btn ghost" data-m="cancel">계속 보기</button><button class="btn primary" data-m="ok">처음으로</button></div>`);
       if (r !== 'ok') return;
-      hud.destroy(); hud = null; live?.close(); live = null; state.reset(); w3d.labels.clear();
+      markSeen();
+      hud.destroy(); hud = null; live?.close(); live = null; state.reset(); w3d.labels.clear(); ctx.session = null;
       w3d.mode = 'menu'; w3d.rig.flyTo({ alt: 16000, tilt: 90 }); w3d.menuSpin(true);
       show('intro'); $('.intro-title').classList.add('show');
     },
+  });
+  Object.assign(hud, {
+    onSettings: openSettings,
+    onInbox: async () => {
+      const r = await api(`/api/servers/${ctx.session.serverId}/inbox?token=${encodeURIComponent(ctx.session.token)}`).catch(e => { hud.toast(e.message); return null; });
+      if (r) inboxModal({ notes: r.notes, ach: r.ach, meta, onAnn: id => hud.select(id, true) });
+    },
+    onReport: d => reportModal({ server: ctx.server.id, ann: d, toast: msg => hud.toast(msg) }),
   });
   w3d.onAnnPick = id => hud.select(id, false);
   w3d.onBuildingPick = (bid, x, y) => hud.buildingTip(bid, x, y);
@@ -332,6 +393,20 @@ function observe(justDeployed = false, firstAnn = null) {
         const a = firstAnn && state.anns.get(firstAnn);
         hud.toast(a && a.gen > 1 ? '앤이 한 가정에서 태어났습니다. 연대기에서 그 삶을 지켜보세요.' : '앤들이 자연 속에 내려섰습니다. 이제 지켜보세요.');
         if (firstAnn) setTimeout(() => hud.select(firstAnn, true), 1200);
+        if (!tutorialDone()) setTimeout(() => { if (ctx.mode === 'observe') tutorial({ hasMine: true }); }, 2600);
+      } else if (since != null) {
+        // 다시 들어왔을 때: 그동안 있었던 일 (게임 속 하루 이상 지났을 때)
+        api(`/api/servers/${ctx.session.serverId}/recap?token=${encodeURIComponent(ctx.session.token)}&since=${since}`).then(r => {
+          if (ctx.mode !== 'observe') return;
+          if (r.days >= 1 && since > 0) recapModal(r, { scale: state.scale, onAnn: id => hud.select(id, true) });
+          else if (!tutorialDone()) setTimeout(() => tutorial({ hasMine: true }), 1500);
+        }).catch(() => null);
+      }
+      if (ctx.session) {
+        api(`/api/servers/${ctx.session.serverId}/inbox?token=${encodeURIComponent(ctx.session.token)}`).then(r => {
+          const seen = since ?? getSeen(ctx.session);
+          hud?.setUnread(r.notes.filter(n => n.t > seen).length);
+        }).catch(() => null);
       }
     } else {
       const s = [...state.settlements.values()].sort((a, b) => b.pop - a.pop)[0];

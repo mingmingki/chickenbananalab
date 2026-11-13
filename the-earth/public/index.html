@@ -39,6 +39,11 @@
       </div>
       <p class="intro-note">한 번 투입된 앤은 조종할 수 없습니다. 그저 지켜보세요.</p>
     </div>
+    <div class="intro-corner">
+      <button class="btn small ghost" data-act="account" id="intro-account">로그인</button>
+      <button class="btn small ghost" data-act="settings" title="설정">⚙️</button>
+    </div>
+    <footer class="intro-foot"><a href="/terms" target="_blank">이용약관</a> · <a href="/privacy" target="_blank">개인정보 처리방침</a></footer>
     <div class="skip-hint">누르면 건너뜁니다</div>
   </section>
 
@@ -52,7 +57,7 @@
       </header>
       <div id="server-list" class="server-list"></div>
       <div class="sheet-foot">
-        <button class="btn" data-act="new-server">＋ 새 서버 열기</button>
+        <button class="btn hidden" data-act="new-server" id="btn-new-server">＋ 새 서버 열기</button>
       </div>
     </div>
   </section>
@@ -111,6 +116,8 @@
         <button class="btn small" data-act="deploy-more" id="btn-deploy-more">＋ 앤 투입</button>
         <button class="btn small ghost" data-act="space">🌌 우주</button>
         <button class="btn small ghost" data-act="home">🏠</button>
+        <button class="btn small ghost icon-btn" data-act="inbox" id="btn-inbox" title="알림함">🔔<i id="inbox-badge" class="badge hidden">0</i></button>
+        <button class="btn small ghost" data-act="settings" title="설정">⚙️</button>
       </div>
     </header>
     <aside class="side left" id="left">

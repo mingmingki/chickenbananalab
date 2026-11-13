@@ -63,7 +63,7 @@ export class GameState {
     this.emit('init');
   }
 
-  applyPos(list, snap = false) {
+  applyPos(list, snap = false, full = false) {
     const t = performance.now();
     const seen = new Set();
     for (const [id, sid, x, z, act, target, travel, moving] of list) {
@@ -81,7 +81,9 @@ export class GameState {
       if (p.act !== act) { p.act = act; p.actAt = t; }
       p.target = target; p.travel = travel; p.moving = moving; p.sid = sid;
     }
-    if (!snap) for (const id of this.pos.keys()) if (!seen.has(id)) { const a = this.anns.get(id); if (!a || !a.al) this.pos.delete(id); }
+    // 바뀐 앤만 오므로, 빠진 앤 정리는 전체가 올 때만
+    if (full) for (const id of this.pos.keys()) if (!seen.has(id)) { const a = this.anns.get(id); if (!a || !a.al) this.pos.delete(id); }
+    for (const [id, , , , act] of list) if (act === 'dead' && !this.anns.get(id)?.al) setTimeout(() => { if (!this.anns.get(id)?.al) this.pos.delete(id); }, 1500);
   }
 
   /** 1초 간격 위치 사이를 보간 */
@@ -95,7 +97,7 @@ export class GameState {
     this.clockAt = performance.now();
     if (m.scale) this.scale = m.scale;
     if (m.anns) { for (const a of m.anns) this.anns.set(a.id, a); this.dirty.anns = true; }
-    this.applyPos(m.pos);
+    this.applyPos(m.pos, false, !!m.full);
     if (m.buildings) for (const b of m.buildings) { this.buildings.set(b.id, b); this.dirty.buildings.add(b.sid); }
     if (m.removed) for (const id of m.removed) { const b = this.buildings.get(id); if (b) { this.dirty.buildings.add(b.sid); this.buildings.delete(id); } }
     if (m.settlements) { for (const s of m.settlements) this.settlements.set(s.id, s); this.dirty.settlements = true; }

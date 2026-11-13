@@ -20,8 +20,9 @@ const taxRate = a => { for (let i = 1; i < TAX_PTS.length; i++) { const [x1, y1]
 const ago = (now, t) => { const m = now - t; if (m < 60) return '방금'; if (m < 1440) return `${Math.floor(m / 60)}시간 전`; if (m < 1440 * 30) return `${Math.floor(m / 1440)}일 전`; return fmtDate(t); };
 
 export class Hud {
-  constructor({ state, w3d, live, me, meta, onDeployMore, onExit }) {
-    Object.assign(this, { state, w3d, live, me, meta, onDeployMore, onExit });
+  constructor({ state, w3d, live, me, meta, onDeployMore, onExit, onInbox, onSettings, onReport }) {
+    Object.assign(this, { state, w3d, live, me, meta, onDeployMore, onExit, onInbox, onSettings, onReport });
+    this.unread = 0;
     this.el = document.getElementById('hud');
     this.left = document.getElementById('left-body');
     this.right = document.getElementById('right');
@@ -35,6 +36,8 @@ export class Hud {
     this.el.classList.remove('hidden');
     document.querySelectorAll('#left-tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === this.tab));
     document.getElementById('btn-deploy-more').classList.toggle('hidden', !me);
+    document.getElementById('btn-inbox').classList.toggle('hidden', !me);
+    this.setUnread(0);
     this.bind();
     // 휴대폰: 목록은 아래쪽 시트로, 처음엔 접어 두고 세상을 먼저 보여 준다
     document.getElementById('left').classList.toggle('closed', isMobile());
@@ -85,6 +88,7 @@ export class Hud {
       const act = t.closest('[data-act]')?.dataset.act;
       if (act === 'close-ann') return () => this.select(null);
       if (act === 'follow') return () => this.toggleFollow();
+      if (act === 'report') return () => this.detail && this.onReport?.(this.detail);
       return null;
     });
     this.el.onclick = e => {
@@ -106,6 +110,9 @@ export class Hud {
       if (act === 'close-ann') this.select(null);
       if (act === 'follow') this.toggleFollow();
       if (act === 'deploy-more') this.onDeployMore?.();
+      if (act === 'inbox') { this.setUnread(0); this.onInbox?.(); }
+      if (act === 'settings') this.onSettings?.();
+      if (act === 'report' && this.detail) this.onReport?.(this.detail);
       if (act === 'home') this.goHome();
       if (act === 'space') this.w3d.rig.flyTo({ alt: 1.4e8 });
       if (act === 'toggle-left') { document.getElementById('left').classList.toggle('closed'); this.layout(); }
@@ -238,11 +245,20 @@ export class Hud {
       const tk = document.getElementById('ticker');
       const top = evs.sort((a, b) => b.imp - a.imp)[0];
       tk.textContent = top.text;
-      if (this.me) {
-        const mine = evs.find(e => e.anns?.some(id => this.state.anns.get(id)?.o === this.me.id) && e.imp >= 1);
-        if (mine) this.toast(mine.text);
-      }
     }
+  }
+
+  /** 내 앤의 큰 소식 (서버가 나에게만 보내는 알림) */
+  onNotes(notes) {
+    const top = notes.slice().sort((a, b) => b.lvl - a.lvl)[0];
+    if (!top) return;
+    this.toast(`${top.icon} ${top.name ? top.name + ' — ' : ''}${top.text}`);
+    this.setUnread(this.unread + notes.length);
+  }
+  setUnread(n) {
+    this.unread = n;
+    const b = document.getElementById('inbox-badge');
+    if (b) { b.textContent = n > 99 ? '99+' : String(n); b.classList.toggle('hidden', !n); }
   }
 
   toast(text) {
@@ -558,7 +574,7 @@ export class Hud {
         <div><h2>${esc(d.n)} <small style="font-size:13px;color:var(--muted);font-weight:400">${d.g === 'M' ? '♂' : '♀'} ${d.age}세 · ${esc(d.stage)}</small>${d.ld ? `<span class="badge">${esc(d.ld)}</span>` : ''}</h2>
           <div class="meta">${d.school ? '🎒 ' + esc(d.school.name) : d.job ? esc(d.job.title) : d.retired ? '은퇴' : d.age < 4 ? '아기' : d.age < 19 ? '' : '무직'}${d.settlement ? ` · ${esc(d.country?.name)} <span class="linklike" data-town="${d.settlement.id}">${esc(d.settlement.name)}</span>` : ''}<br>
           ${d.owner ? `<span class="dot" style="background:${d.owner.color}"></span> ${esc(d.owner.name)}의 앤` : '야생의 앤'}${d.gen > 1 ? ` · ${d.gen}세대` : ''}</div></div>
-        <div class="acts">${d.al ? `<button class="btn small ${follow ? 'primary' : ''}" data-act="follow">${follow ? '📍 따라가는 중' : '📍 따라가기'}</button>` : ''}<button class="btn small ghost" data-act="close-ann">닫기 ✕</button></div>
+        <div class="acts">${d.al ? `<button class="btn small ${follow ? 'primary' : ''}" data-act="follow">${follow ? '📍 따라가는 중' : '📍 따라가기'}</button>` : ''}${this.me && d.owner?.id !== this.me.id ? '<button class="btn small ghost" data-act="report" title="신고">🚩</button>' : ''}<button class="btn small ghost" data-act="close-ann">닫기 ✕</button></div>
       </div>
       <div class="ap-body">${nowBox}
         <div class="inner-tabs">${[['chron', '📜 연대기'], ['money', '💰 돈'], ['mind', '💭 생각'], ['self', '🧬 성격·능력'], ['rels', '💞 관계'], ['mem', '📔 기억'], ['dream', '✨ 꿈']].map(([k, n]) => `<button data-itab="${k}" class="${tab === k ? 'on' : ''}">${n}</button>`).join('')}</div>

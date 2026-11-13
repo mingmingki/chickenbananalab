@@ -171,8 +171,10 @@ export function think(world, a, text) {
 }
 
 export function lifeEvent(world, a, text, icon = '•') {
-  a.life.push({ t: Math.round(world.clock), text: fixJosa(text), icon });
+  const t = fixJosa(text);
+  a.life.push({ t: Math.round(world.clock), text: t, icon });
   if (a.life.length > 80) a.life.splice(1, 1);
+  if (a.owner && world.onLifeEvent) world.onLifeEvent(a, t, icon);
 }
 
 const EMO = {

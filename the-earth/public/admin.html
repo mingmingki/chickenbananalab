@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex" />
+  <title>The Earth 관리자</title>
+  <link rel="stylesheet" href="/css/admin.css" />
+</head>
+<body>
+  <header>
+    <h1>🌍 The Earth 관리자</h1>
+    <span id="who"></span>
+  </header>
+  <section id="login" class="card hidden">
+    <h2>관리자 로그인</h2>
+    <p class="sub">관리자 계정으로 로그인하거나, 서버에 설정한 관리자 키(ADMIN_KEY)를 입력하세요.</p>
+    <div class="grid2">
+      <label>아이디 <input id="lg-user" autocomplete="username"></label>
+      <label>비밀번호 <input id="lg-pass" type="password" autocomplete="current-password"></label>
+    </div>
+    <button id="lg-go" class="primary">로그인</button>
+    <p class="sub">또는 관리자 키: <input id="lg-key" type="password" style="width:220px"> <button id="lg-key-go">키로 들어가기</button></p>
+    <p id="lg-err" class="err"></p>
+  </section>
+  <main id="main" class="hidden">
+    <nav id="tabs">
+      <button data-tab="overview" class="on">개요</button>
+      <button data-tab="servers">서버</button>
+      <button data-tab="players">플레이어</button>
+      <button data-tab="reports">신고 <i id="rep-n"></i></button>
+      <button data-tab="accounts">계정</button>
+      <button data-tab="backups">백업</button>
+      <button data-tab="errors">오류</button>
+    </nav>
+    <div id="body"></div>
+  </main>
+  <script type="module" src="/js/admin.js"></script>
+</body>
+</html>

@@ -1,15 +1,27 @@
-// 서버와의 통신: REST + 웹소켓 (자동 재연결)
+// 서버와의 통신: REST + 웹소켓 (자동 재연결), 로그인 토큰
 
-export async function api(path, body) {
-  const res = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
+const AUTH = 'theEarth.auth.v1';
+export const auth = {
+  get() { try { return JSON.parse(localStorage.getItem(AUTH) || 'null'); } catch { return null; } },
+  set(v) { try { v ? localStorage.setItem(AUTH, JSON.stringify(v)) : localStorage.removeItem(AUTH); } catch { /* */ } },
+};
+
+export async function api(path, body, method) {
+  const headers = {};
+  const a = auth.get();
+  if (a?.token) headers.Authorization = 'Bearer ' + a.token;
+  if (body) headers['Content-Type'] = 'application/json';
+  const res = await fetch(path, { method: method || (body ? 'POST' : 'GET'), headers, body: body ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && a?.token && !path.startsWith('/api/auth/login')) auth.set(null); // 만료된 로그인
   if (!res.ok) throw new Error(data.error || `요청 실패 (${res.status})`);
   return data;
 }
 
 export class Live {
-  constructor(serverId, handlers) {
+  constructor(serverId, handlers, playerToken = null) {
     this.serverId = serverId;
+    this.playerToken = playerToken;
     this.h = handlers;
     this.closed = false;
     this.watchId = null;
@@ -18,6 +30,7 @@ export class Live {
     this.connect();
     // 휴대폰이 잠들었다 깨면 연결이 죽어 있기 쉽다 → 바로 다시 잇는다
     this.onVis = () => {
+      if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ t: 'vis', v: !document.hidden }));
       if (document.hidden || this.closed) return;
       if (this.ws.readyState !== 1 || Date.now() - this.lastMsg > 4000) { this.retry = 0; try { this.ws.close(); } catch { /* */ } }
     };
@@ -26,7 +39,13 @@ export class Live {
   connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = this.ws = new WebSocket(`${proto}://${location.host}/ws?server=${encodeURIComponent(this.serverId)}`);
-    ws.onopen = () => { this.retry = 0; if (this.watchId) this.watch(this.watchId); this.h.open?.(); };
+    ws.onopen = () => {
+      this.retry = 0;
+      if (this.playerToken) ws.send(JSON.stringify({ t: 'hello', token: this.playerToken }));
+      ws.send(JSON.stringify({ t: 'vis', v: !document.hidden }));
+      if (this.watchId) this.watch(this.watchId);
+      this.h.open?.();
+    };
     ws.onmessage = ev => {
       this.lastMsg = Date.now();
       let m;
@@ -39,6 +58,7 @@ export class Live {
       setTimeout(() => this.connect(), Math.min(8000, 800 * 2 ** this.retry++));
     };
   }
+  hello(token) { this.playerToken = token; if (this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: 'hello', token })); }
   watch(id) {
     this.watchId = id;
     if (this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: 'watch', id }));
