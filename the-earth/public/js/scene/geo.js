@@ -54,7 +54,7 @@ export function latLonSphere(r, segW, segH) {
 }
 
 /** 등장방형 캔버스에 국가 다각형 그리기 (날짜변경선 처리) */
-export function traceRings(ctx, rings, W, H, offsetX = 0) {
+export function traceRings(ctx, rings, W, H, offsetX = 0, opts = {}) {
   for (const flat of rings) {
     let prevLon = null, shift = 0;
     for (let k = 0; k < flat.length; k += 2) {
@@ -68,7 +68,7 @@ export function traceRings(ctx, rings, W, H, offsetX = 0) {
       const x = (lon + 180) / 360 * W + offsetX, y = (90 - lat) / 180 * H;
       if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.closePath();
+    if (!opts.open) ctx.closePath();
   }
 }
 export function drawCountry(ctx, c, W, H) {

@@ -52,8 +52,10 @@ async function boot() {
   // 앱 안에서는 약관 같은 페이지 링크를 서버 주소로
   if (SERVER) for (const a of document.querySelectorAll('a[href^="/"]')) a.href = SERVER + a.getAttribute('href');
   [meta, geo] = await Promise.all([api('/api/meta'), api('/api/geo')]);
-  w3d = new World3D($('#scene'), meta, geo.countries);
+  w3d = new World3D($('#scene'), meta, geo.countries, geo.borders);
   w3d.setState(state);
+  // 지구 사진이 오면 (늦어도 6초) 첫 화면을 연다
+  await Promise.race([w3d.ready, new Promise(r => setTimeout(r, 6000))]);
   $('#loading').classList.add('hidden');
   refreshAccount();
   // 구글 로그인에서 돌아왔으면 마무리

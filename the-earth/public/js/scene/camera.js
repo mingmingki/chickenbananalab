@@ -18,6 +18,7 @@ export class CameraRig {
     this.onUserMove = null;
     this.vel = { lat: 0, lon: 0 };
     this.pointers = new Map();
+    this.pickLL = null;     // (화면 x, y) → {lat, lon} : 커서가 가리키는 땅 (줌을 그쪽으로)
     this._bind();
   }
 
@@ -63,7 +64,7 @@ export class CameraRig {
         // 두 손가락: 벌리고 오므리기 = 확대·축소, 비틀기 = 회전, 함께 위아래로 = 기울이기
         p.x = e.clientX; p.y = e.clientY;
         const g = this.twoFinger(), prev = this.g2 || g;
-        if (prev.d > 0 && g.d > 0) this.zoomBy(prev.d / g.d);
+        if (prev.d > 0 && g.d > 0) this.zoomBy(prev.d / g.d, this.pickLL?.(g.cx, g.cy));
         let da = g.ang - prev.ang;
         if (da > Math.PI) da -= Math.PI * 2; if (da < -Math.PI) da += Math.PI * 2;
         if (Math.abs(da) < 0.5) this.tgt.heading -= da;
@@ -99,17 +100,45 @@ export class CameraRig {
     el.addEventListener('wheel', e => {
       if (!this.enabled) return;
       e.preventDefault();
-      this.zoomBy(Math.exp(e.deltaY * 0.0012 * (e.deltaMode === 1 ? 30 : 1)));
+      // 트랙패드의 잘게 쪼개진 스크롤도, 마우스 휠의 큰 칸도 같은 느낌으로 (한 번에 최대 2배)
+      const dy = clamp(e.deltaY * (e.deltaMode === 1 ? 30 : e.deltaMode === 2 ? 600 : 1), -580, 580);
+      this.zoomBy(Math.exp(dy * 0.0012), this.pickLL?.(e.clientX, e.clientY));
     }, { passive: false });
+    // 키보드: 방향키 = 이동, +/- = 확대·축소, Q/E = 돌리기, PageUp/Down = 기울이기 (글을 쓰는 중이면 무시)
+    addEventListener('keydown', e => {
+      if (!this.enabled || e.target.closest?.('input, textarea, select, [contenteditable]')) return;
+      const k = e.key;
+      const step = 60;
+      if (k === 'ArrowLeft') this.pan(step, 0); else if (k === 'ArrowRight') this.pan(-step, 0);
+      else if (k === 'ArrowUp') this.pan(0, step); else if (k === 'ArrowDown') this.pan(0, -step);
+      else if (k === '+' || k === '=') this.zoomBy(0.6); else if (k === '-' || k === '_') this.zoomBy(1.65);
+      else if (k === 'q' || k === 'Q') this.tgt.heading += 0.2; else if (k === 'e' || k === 'E') this.tgt.heading -= 0.2;
+      else if (k === 'PageUp') { this.tgt.tilt = clamp(this.tgt.tilt - 8, this.minTilt(this.tgt.alt), 90); this.userTilt = true; }
+      else if (k === 'PageDown') { this.tgt.tilt = clamp(this.tgt.tilt + 8, this.minTilt(this.tgt.alt), 90); this.userTilt = true; }
+      else return;
+      this.vel.lat = this.vel.lon = 0;
+      e.preventDefault();
+    });
   }
 
   twoFinger() {
     const [a, b] = [...this.pointers.values()];
-    return { d: Math.hypot(a.x - b.x, a.y - b.y), ang: Math.atan2(b.y - a.y, b.x - a.x), cy: (a.y + b.y) / 2 };
+    return { d: Math.hypot(a.x - b.x, a.y - b.y), ang: Math.atan2(b.y - a.y, b.x - a.x), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
   }
 
-  zoomBy(f) {
+  /** 확대·축소. at(커서가 가리키는 땅)이 있으면 그 점이 화면에서 제자리에 있도록 중심을 옮긴다 (구글 어스처럼) */
+  zoomBy(f, at = null) {
+    const before = this.tgt.alt;
     this.tgt.alt = clamp(this.tgt.alt * f, MIN_ALT, MAX_ALT);
+    const ff = this.tgt.alt / before;
+    if (at && !this.follow && Math.abs(ff - 1) > 1e-4 && this.tgt.alt < 30000) {
+      // 중심' = 커서 + (중심 − 커서) × 배율 (한 번에 너무 멀리 튀지 않게 제한)
+      const dLat = at.lat - this.tgt.lat, dLon = wrapLon(at.lon - this.tgt.lon);
+      const k = clamp(1 - ff, -1, 0.9);
+      this.tgt.lat = clamp(this.tgt.lat + clamp(dLat * k, -25, 25), -85, 85);
+      this.tgt.lon += clamp(dLon * k, -40, 40);
+      this.vel.lat = this.vel.lon = 0;
+    }
     const mt = this.minTilt(this.tgt.alt);
     if (this.tgt.tilt < mt) this.tgt.tilt = mt;
   }
@@ -135,10 +164,12 @@ export class CameraRig {
       const f = this.follow();
       if (f) { this.tgt.lat = f.lat; let d = wrapLon(f.lon - this.cur.lon); this.tgt.lon = this.cur.lon + d; this.tgt.h = f.h || 0; }
     } else if (!this.pointers.size && (Math.abs(this.vel.lat) + Math.abs(this.vel.lon) > 1e-6)) {
-      // 관성
-      this.tgt.lat = clamp(this.tgt.lat + this.vel.lat * 0.9, -85, 85);
-      this.tgt.lon += this.vel.lon * 0.9;
-      this.vel.lat *= 0.88; this.vel.lon *= 0.88;
+      // 관성: 초당 장면 수(30·60fps)와 상관없이 같은 만큼 미끄러진다
+      const fr = Math.min(6, dt * 60);
+      this.tgt.lat = clamp(this.tgt.lat + this.vel.lat * 0.9 * fr, -85, 85);
+      this.tgt.lon += this.vel.lon * 0.9 * fr;
+      const decay = Math.pow(0.88, fr);
+      this.vel.lat *= decay; this.vel.lon *= decay;
     }
     if (!this.userTilt) {
       // 가까이 갈수록 자연스럽게 비스듬히

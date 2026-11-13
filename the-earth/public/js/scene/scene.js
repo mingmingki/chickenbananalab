@@ -1,7 +1,9 @@
 // 3D 세계: 렌더러, 우주, 지구, 도시, 카메라, 선택, 인트로 연출
 import * as THREE from 'three';
 import { R, D2R, vecToLL, llToVec } from './geo.js';
-import { buildEarthTextures, makeEarth, paintLights, countryIndexAt } from './earth.js';
+import { buildEarthTextures, makeEarth, paintLights, countryIndexAt, loadEarthImagery } from './earth.js';
+import { geoLabels } from './geolabels.js';
+import { dateOf } from '../state.js';
 import { makeSpace, glowTexture } from './space.js';
 import { CameraRig } from './camera.js';
 import { Cities } from './cities.js';
@@ -10,7 +12,7 @@ import { Weather } from './weather.js';
 import { PHONE, TOUCH } from '../device.js';
 
 export class World3D {
-  constructor(container, meta, countries) {
+  constructor(container, meta, countries, borders = null) {
     this.meta = meta;
     this.countries = countries;
     const renderer = this.renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
@@ -27,12 +29,18 @@ export class World3D {
     this.scene.add(this.space.sky, this.space.equatorial, this.space.ambient);
     this.earthRoot = new THREE.Group();
     this.scene.add(this.earthRoot);
-    this.tex = buildEarthTextures(countries, renderer.capabilities.maxTextureSize);
+    this.tex = buildEarthTextures(countries, renderer.capabilities.maxTextureSize, borders);
     this.earth = makeEarth(this.tex);
+    // 실제 지구 사진(NASA 블루 마블)을 받아 끼운다. 못 받으면 국경 다각형 지도로
+    const doy0 = Math.floor((Date.now() - Date.UTC(new Date().getUTCFullYear(), 0, 1)) / 864e5);
+    this.ready = loadEarthImagery(renderer.capabilities.maxTextureSize, 0.5 + 0.5 * Math.cos((doy0 - 15) / 365 * Math.PI * 2)).then(img => {
+      if (img) this.earth.setImagery(img); else this.earth.useFallback(this.tex.fallbackDay());
+    });
     this.earthRoot.add(this.earth.group);
     this.cities = new Cities(this.earthRoot, meta, this.earth.mesh);
     this.weather = new Weather(this.scene);
     this.rig = new CameraRig(this.camera, renderer.domElement);
+    this.rig.pickLL = (x, y) => this.earthHit({ clientX: x, clientY: y });
     this.labels = new Labels(document.getElementById('labels'), sid => this.onTownClick?.(sid));
     this.ray = new THREE.Raycaster();
     this.mode = 'idle';
@@ -248,6 +256,18 @@ export class World3D {
     this.earth.uniforms.lightsFade.value = THREE.MathUtils.clamp((alt - 40) / 400, 0, 1);
     this.earth.cloudU.time.value = this.time + minutes * 0.02;
     this.earth.cloudU.opacity.value = THREE.MathUtils.clamp((alt - 250) / 2500, 0, 0.85);
+    const U = this.earth.uniforms;
+    if (this.earth.imageryOn && U.imagery.value < 1) U.imagery.value = Math.min(1, U.imagery.value + dt * 1.2);
+    // 계절: 1월 = 북반구 한겨울(1), 7월 = 한여름(0). 게임 속 날짜(관찰 중) 또는 오늘 날짜(메뉴)
+    const doy = this.mode === 'observe' && st?.world ? dateOf(minutes).doy : Math.floor((Date.now() - Date.UTC(new Date().getUTCFullYear(), 0, 1)) / 864e5);
+    U.season.value = 0.5 + 0.5 * Math.cos((doy - 15) / 365 * Math.PI * 2);
+    if (this.earth.one && (this._seasonCheck = (this._seasonCheck || 0) + dt) > 3) { this._seasonCheck = 0; this.earth.followSeason(U.season.value); }
+    // 구름은 게임 속 20일에 지구를 한 바퀴 (그림자도 같이)
+    U.cloudShift.value = ((minutes / (1440 * 20)) + this.time * 0.0004) % 1;
+    U.cloudAmt.value = this.earth.cloudU.opacity.value;
+    // 국경선: 나라를 고를 때는 또렷하게, 마을 가까이 내려가면 사라진다
+    // (국경 그림은 4K라 1,500km 아래로 내려가면 계단처럼 보인다 → 그 전에 사라지게)
+    U.borderAlpha.value = this.mode === 'pick-country' ? THREE.MathUtils.clamp((alt - 900) / 1500, 0, 1) * 0.6 : THREE.MathUtils.clamp((alt - 1500) / 2500, 0, 1) * 0.3;
     // 행성 궤도는 멀리서만
     const far = alt > 3e5;
     for (const p of this.space.planets) p.orbit.visible = far;
@@ -301,6 +321,7 @@ export class World3D {
       labels.push({ key: 'earth', pos: new THREE.Vector3(0, R * 1.6, 0), cls: 'planet', html: '🌍 지구', pri: 0 });
     }
     this.updateRockets();
+    if (this.mode === 'observe' || this.mode === 'pick-country') labels.push(...geoLabels(alt));
     this.labels.update(labels, this.camera, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
     this.renderer.render(this.scene, this.camera);
   }

@@ -546,7 +546,7 @@ export class Cities {
         }
       }
       t.marker.visible = alt > 40 && facing;
-      if (facing && alt < 9000 && dist < 9000) labels.push({ key: 'town' + t.s.id, pos: t.center.clone().addScaledVector(t.up, alt < 30 ? 0.12 : 0), cls: 'town lv' + t.s.level, sid: t.s.id, html: `<b>${t.s.name}</b><small>${t.s.levelName} · ${t.s.pop}명</small>`, pri: 1 });
+      if (facing && alt < 9000 && dist < 9000) labels.push({ key: 'town' + t.s.id, pos: t.center.clone().addScaledVector(t.up, alt < 30 ? 0.12 : 0), cls: 'town lv' + t.s.level, sid: t.s.id, html: `<b>${t.s.name}</b><small>${t.s.levelName} · ${t.s.pop}명</small>`, pri: 1 + t.s.level * 0.01 + Math.min(0.009, t.s.pop / 1e5) });
       if (!t.g.visible) continue;
       // 앤들
       const list = [];

@@ -25,12 +25,18 @@ export class Labels {
     const used = new Set();
     reqs.sort((a, b) => (b.pri || 0) - (a.pri || 0) || (a.d || 0) - (b.d || 0));
     let nAnn = 0, nTown = 0;
+    const boxes = [];
     for (const r of reqs) {
       if (r.cls.startsWith('ann') && ++nAnn > MAX_ANN) continue;
       if (r.cls.startsWith('town') && ++nTown > MAX_TOWN) continue;
       if (this.occluded(cam, r.pos)) continue;
       const p = this.v.copy(r.pos).project(cam);
       if (p.z > 1 || p.x < -1.1 || p.x > 1.1 || p.y < -1.1 || p.y > 1.1) continue;
+      // 지명은 마을·앤 이름표와 겹치면 양보한다
+      const sx = (p.x + 1) / 2 * w, sy = (1 - p.y) / 2 * h;
+      // 마을 이름끼리 겹치면 큰 마을이 먼저 (멀리서 볼 때 글자가 뭉치지 않게)
+      if (r.cls.startsWith('geo') || r.cls.startsWith('town')) { if (boxes.some(([bx, by]) => Math.abs(bx - sx) < (r.cls.startsWith('town') ? 64 : 76) && Math.abs(by - sy) < 40)) continue; }
+      boxes.push([sx, sy]);
       let el = this.pool.get(r.key);
       if (!el) {
         el = document.createElement('div');

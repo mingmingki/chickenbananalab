@@ -1,7 +1,7 @@
 // 국가 지리 데이터: world-atlas(Natural Earth 1:50m) → 국가별 다각형, 한국어 이름, 문화권, 육지 샘플링
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { feature } from 'topojson-client';
+import { feature, mesh } from 'topojson-client';
 import { geoCentroid, geoContains, geoArea, geoBounds } from 'd3-geo';
 import countries from 'i18n-iso-countries';
 
@@ -102,7 +102,10 @@ export function loadGeo() {
   const publicList = list.map(c => ({
     code: c.code, name: c.name, nameEn: c.nameEn, culture: c.culture, centroid: c.centroid, rings: c.rings,
   }));
-  const publicJson = JSON.stringify({ countries: publicList });
+  // 나라와 나라가 맞닿은 육지 국경선만 (해안선은 위성 사진에 이미 보인다)
+  const inner = mesh(topo, topo.objects.countries, (a, b) => a !== b);
+  const borders = inner.coordinates.map(line => line.flatMap(([lon, lat]) => [round2(lon), round2(lat)]));
+  const publicJson = JSON.stringify({ countries: publicList, borders });
   cache = { list, byCode, publicJson };
   return cache;
 }
