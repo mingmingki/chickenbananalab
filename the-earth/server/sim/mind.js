@@ -9,7 +9,7 @@ import {
 import { plazaPoint, wildPoint, shorePoint, doorPoint, placeBuilding, addWork, siteFeatures, buildRule } from './settlement.js';
 import { compose } from './thoughts.js';
 import { segCenter } from './infra.js';
-import { book, unitsOf, monthNet } from './budget.js';
+import { book, monthNet, refMonth, mealPrice, MEAL_LABEL, LEISURE_LABEL } from './budget.js';
 
 export const ACTS = {
   sleep: { label: '잠', emoji: '💤' },
@@ -829,11 +829,12 @@ function onTick(world, a, act, dt) {
     case 'shop': {
       // 여가·쇼핑 예산: 지난달 실수입의 18% + 모아 둔 돈의 1% (적어도 월 15만원). 다 쓰면 구경만 한다
       const eraNow = world.countries[a.country].era;
-      const budget = Math.max(unitsOf(150000, eraNow), monthNet(a.ledPrev) * 0.18 + a.money * 0.01);
-      const spent = a.led?.exp?.['쇼핑·여가'] || 0;
+      const budget = Math.max(refMonth(eraNow) * 0.05, monthNet(a.ledPrev) * 0.18 + a.money * 0.01);
+      const leisure = LEISURE_LABEL[Math.min(7, eraNow)];
+      const spent = a.led?.exp?.[leisure] || 0;
       const spend = spent >= budget ? 0 : Math.min(a.money * 0.05, budget - spent, wageBase(eraNow) * (0.15 + 0.15 * Math.log10(1 + a.money / 1000))) * (dt / 60);
       a.money -= spend; a.nd.fun = clamp(a.nd.fun + 0.12 * dt);
-      book(world, a, 'exp', '쇼핑·여가', spend);
+      book(world, a, 'exp', LEISURE_LABEL[Math.min(7, world.countries[a.country].era)], spend);
       const mk = world.findWork(world.settlements.get(a.sid), 'market');
       const co = mk?.co && world.companies.get(mk.co);
       if (co && !co.dead) { co.money += spend; co.rev += spend; }
@@ -872,8 +873,8 @@ function finishAct(world, a, interrupted) {
       if (act.rest) {
         const rb = world.buildings.get(act.rest);
         const co = rb?.co && world.companies.get(rb.co);
-        const price = unitsOf(9500, era(world, a)); // 한 끼 외식 (2026년 약 9,500원)
-        if (co && !co.dead && a.money >= price) { a.money -= price; co.money += price; co.rev += price; act.fed = 1; book(world, a, 'exp', '외식', price); }
+        const ea = era(world, a), price = mealPrice(ea); // 한 끼 사 먹는 값 (시대마다: 1970년 짜장면 100원, 2026년 9,500원)
+        if (co && !co.dead && a.money >= price) { a.money -= price; co.money += price; co.rev += price; act.fed = 1; book(world, a, 'exp', MEAL_LABEL[Math.min(7, ea)], price); }
       }
       a.nd.food = clamp(a.nd.food + 58 * (act.fed ?? 1));
       a.lastMeal = world.clock;

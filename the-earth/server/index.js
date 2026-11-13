@@ -8,6 +8,8 @@ import { WebSocketServer } from 'ws';
 import { loadGeo, getCountry } from './geo.js';
 import { World, MAX_ANNS_PER_PLAYER } from './sim/world.js';
 import { loadWorlds, saveWorld } from './store.js';
+import { ERA_MONEY, perUnit, INS_RATE, WON, eraF } from './sim/budget.js';
+import { listedSalary } from './sim/economy.js';
 import { ACTS } from './sim/mind.js';
 import { ERAS, BUILDINGS, INDUSTRIES, PUBLIC, JOBS, SETTLEMENT_LEVELS, EDU_NAMES, DEPTS, ROAD_GRADES } from './sim/data.js';
 import { TRAIT_NAMES, ABILITY_NAMES } from './sim/ann.js';
@@ -53,6 +55,9 @@ app.get('/api/geo', (req, res) => {
 app.get('/api/meta', (req, res) => {
   res.json({
     acts: ACTS, eras: ERAS, buildings: BUILDINGS, industries: INDUSTRIES, publicOrgs: PUBLIC, levels: SETTLEMENT_LEVELS, eduNames: EDU_NAMES, depts: DEPTS, roadGrades: ROAD_GRADES,
+    // 시대의 돈: 단위 → 그 시대 돈(perUnit), 오늘날(2026) 가치 만원(to2026), 4대보험 요율, 직업별 연봉표(단위/년)
+    money: ERA_MONEY.map((m, e) => ({ ...m, perUnit: perUnit(e), to2026: WON / eraF(e) / 1e4, ins: INS_RATE[e] })),
+    payTable: ERA_MONEY.map((_, e) => Object.fromEntries(Object.keys(JOBS).map(k => [k, Math.round(listedSalary(k, e))]))),
     jobs: Object.fromEntries(Object.entries(JOBS).map(([k, j]) => [k, { name: j.name, era: j.era, maxEra: j.maxEra ?? null, pay: j.pay, cat: j.cat, edu: j.edu || 0, self: !!j.self, shift: j.shift }])),
     traitNames: TRAIT_NAMES, abilityNames: ABILITY_NAMES, maxAnns: MAX_ANNS_PER_PLAYER, adminRequired: !!ADMIN_KEY,
   });

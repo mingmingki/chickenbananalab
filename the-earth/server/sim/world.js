@@ -11,7 +11,7 @@ import { childName, givenOf, familyName } from './names.js';
 import { runEvents, rollWeather } from './events.js';
 import { syncRoads, hallDepts, planRoadWorks, roadProgress, ROAD_GRADES } from './infra.js';
 import { safetyDaily, safetyTick, fireOut } from './safety.js';
-import { livingDaily, pensionDaily, book, ledgerOut, monthNet, WON } from './budget.js';
+import { livingDaily, pensionDaily, book, ledgerOut, monthNet } from './budget.js';
 import { getCountry, randomLandPoint, seaNear } from '../geo.js';
 import { RELATION_NAMES, SKILLS } from './data.js';
 
@@ -1134,7 +1134,7 @@ export class World {
     const L = c.leader && this.anns.get(c.leader);
     return {
       code: c.code, name: c.name, era: c.era, eraName: ERAS[c.era].name, tech: Math.round(c.tech), nextTech: ERAS[c.era + 1]?.tech ?? null, curTech: ERAS[c.era].tech,
-      leader: L ? { id: L.id, name: L.name, title: ERAS[c.era].leader } : null, pop: c.pop, treasury: Math.round(c.treasury * WON / 1e4), tax: Math.round(c.tax * 100),
+      leader: L ? { id: L.id, name: L.name, title: ERAS[c.era].leader } : null, pop: c.pop, treasury: Math.round(c.treasury), tax: Math.round(c.tax * 100),
       discoveries: c.discoveries, capital: c.capital, history: c.history.slice(-40), founded: c.founded, topEdu: c.topEdu || 0,
     };
   }
@@ -1145,7 +1145,7 @@ export class World {
     let paySum = 0, n = 0;
     const roles = {};
     for (const id of co.emp) { const e = this.anns.get(id); if (!e?.job) continue; paySum += annualOf(fullDayPay(this, e, e.job.id, co), e.job.id); n++; roles[e.job.id] = (roles[e.job.id] || 0) + 1; }
-    return { id: co.id, name: co.name, ind: co.ind, pub: co.pub, indName: co.pub ? PUBLIC[co.ind].name : INDUSTRIES[co.ind].name, sid: co.sid, country: co.country, ceo: co.ceo, founder: co.founder, emp: co.emp.length, slots: co.slots, cap, sites: (co.sites || []).length, money: Math.round(co.money * WON / 1e4), founded: co.founded, dead: co.dead, b: co.b, depts: co.depts || null, pay: n ? Math.round(paySum / n) : 0, roles };
+    return { id: co.id, name: co.name, ind: co.ind, pub: co.pub, indName: co.pub ? PUBLIC[co.ind].name : INDUSTRIES[co.ind].name, sid: co.sid, country: co.country, ceo: co.ceo, founder: co.founder, emp: co.emp.length, slots: co.slots, cap, sites: (co.sites || []).length, money: Math.round(co.money), founded: co.founded, dead: co.dead, b: co.b, depts: co.depts || null, pay: n ? Math.round(paySum / n) : 0, roles };
   }
   playerOut(p) { return { id: p.id, name: p.name, country: p.country, color: p.color, anns: p.anns.length, alive: p.anns.filter(id => this.anns.get(id)?.alive).length, joined: p.joined }; }
 
@@ -1226,7 +1226,7 @@ export class World {
     const salary = a.job ? annualOf(fullDayPay(this, a, a.job.id, co || null), a.job.id) : 0;
     const spouseHome = a.spouse && this.anns.get(a.spouse)?.home === a.home;
     const housing = !home ? '집 없음' : home.dev ? '월세' : home.owner === a.id || (spouseHome && home.owner === a.spouse) ? '자가' : home.owner != null ? '가족 집에 함께' : '공동 거처';
-    return { cash: Math.round(a.money * WON / 1000) * 1000, salary, era: c?.era ?? 0, led: ledgerOut(a.led), prev: ledgerOut(a.ledPrev), housing, car: !!a.car };
+    return { cash: Math.round(a.money * 100) / 100, salary: Math.round(salary * 100) / 100, era: c?.era ?? 0, led: ledgerOut(a.led), prev: ledgerOut(a.ledPrev), housing, car: !!a.car };
   }
 }
 

@@ -5,19 +5,19 @@ import { remember, think, feel, lifeEvent } from './ann.js';
 import { placeBuilding, addWork, siteFeatures, buildRule } from './settlement.js';
 import { companyName } from './names.js';
 import { rel } from './social.js';
-import { WON, REF_PAY, WORKDAYS, eraF, unitsOf, deductions, book } from './budget.js';
+import { REF_PAY, WORKDAYS, deductions, book, eraPayMul, MIN_WAGE, refMonth } from './budget.js';
 
 
 const eraOfAnn = (world, a) => world.countries[a.country]?.era ?? 0;
 export const wageBase = era => ERAS[clamp(era, 0, 7)].wage;
-// 어른 한 명이 한 달 사는 데 드는 기본 생활비(2026년 약 120만원)의 하루치 — 판단의 기준으로 쓴다
-export const dailyCost = era => unitsOf(1200000, era) / 30;
+// 어른 한 명이 한 달 사는 데 드는 기본 생활비(보통 월급의 40% 남짓)의 하루치 — 판단의 기준으로 쓴다
+export const dailyCost = era => refMonth(clamp(era, 0, 7)) * 0.42 / 30;
 
 // ── 직업별 급여 ──
-/** 이 직업의 연봉 배율 (연봉표 / 기준 3,600만원) */
-export const payMul = jk => (JOBS[jk]?.pay || REF_PAY) / REF_PAY;
-/** 근대부터는 최저임금(2026년 시급 10,320원 × 8시간)보다 적게 줄 수 없다 */
-export const minDaily = era => (era >= 5 ? unitsOf(82560, era) : 0);
+/** 이 시대에 이 직업의 연봉 배율 (시대마다 월급 구조가 다르다) */
+export const payMul = (jk, era = 6) => eraPayMul(jk, JOBS[jk], era);
+/** 근대부터는 최저임금보다 적게 줄 수 없다 (2026년 시급 10,320원 × 8시간) */
+export const minDaily = era => MIN_WAGE[clamp(era, 0, 7)] * wageBase(era);
 const skillF = (a, j) => 0.85 + (a.sk[j.skill] || 0) / 333; // 숙련: 0.85 ~ 1.15배
 /** 이 직업이 1년에 일하는 날 (주5일 261일, 주6일 313일, 매일 340일) */
 export const workDays = jk => { const d = SHIFTS[JOBS[jk]?.shift]?.days; return d === 'six' ? 313 : d === 'all' ? 340 : 261; };
@@ -26,12 +26,12 @@ export function fullDayPay(world, a, jk, co = null, rank = a.job?.rank || 0, ceo
   const j = JOBS[jk];
   const era = world.countries[a.country].era;
   const base = co ? co.wage : wageBase(era);
-  return Math.max(minDaily(era), base * payMul(jk) * (WORKDAYS / workDays(jk)) * skillF(a, j) * (1 + rank * 0.1) * (ceo ? 1.2 : 1)); // 직급: 한 단계에 10%
+  return Math.max(minDaily(era), base * payMul(jk, era) * (WORKDAYS / workDays(jk)) * skillF(a, j) * (1 + rank * 0.1) * (ceo ? 1.2 : 1)); // 직급: 한 단계에 10%
 }
-/** 연봉(만원, 그 시대 가치) */
-export const annualOf = (dayUnits, jk = null) => Math.round(dayUnits * (jk ? workDays(jk) : WORKDAYS) * WON / 1e4);
-/** 직업표의 연봉(만원, 그 시대 가치) */
-export const listedSalary = (jk, era) => Math.round((JOBS[jk]?.pay || REF_PAY) * eraF(era));
+/** 연봉(단위) */
+export const annualOf = (dayUnits, jk = null) => dayUnits * (jk ? workDays(jk) : WORKDAYS);
+/** 직업표의 연봉(단위): 이 시대, 보통 숙련, 신입 */
+export const listedSalary = (jk, era) => wageBase(era) * payMul(jk, era) * WORKDAYS;
 
 export function abilityOrTrait(a, k) {
   return k in a.ab ? a.ab[k] : k in a.tr ? a.tr[k] : 50;
@@ -479,7 +479,7 @@ export function produce(world, a, dt) {
     default: break;
   }
   // 매출 (민간): 연봉이 높은 일일수록 만들어 내는 가치도 크다
-  const value = (wageBase(era) / 8) * 1.45 * eff * hours * payMul(a.job.id);
+  const value = (wageBase(era) / 8) * 1.45 * eff * hours * payMul(a.job.id, era);
   if (co && !co.pub) {
     let df = INDUSTRIES[co.ind] ? demandFactor(world, s, co.ind) : 1;
     // 건설회사는 일감(현장)이 있어야 번다
