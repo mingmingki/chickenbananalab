@@ -7,6 +7,7 @@ import {
   openings, apply, jobFit, produce, dailyCost, wageBase, bestIndustry, startupCost, foundCompany, jobTitle, leaveJob, hasConstruction, assignContractor,
 } from './economy.js';
 import { plazaPoint, wildPoint, shorePoint, doorPoint, placeBuilding, addWork, siteFeatures, buildRule } from './settlement.js';
+import { planTrip, tripStep } from './traffic.js';
 import { compose } from './thoughts.js';
 import { segCenter } from './infra.js';
 import { book, monthNet, refMonth, mealPrice, MEAL_LABEL, LEISURE_LABEL } from './budget.js';
@@ -99,7 +100,9 @@ const mealName = h => (h < 5 ? '새벽 요기' : h < 10.5 ? '아침' : h < 15 ? 
 export function shiftOf(world, a) {
   const j = JOBS[a.job.id];
   const era = world.countries[a.country].era;
-  const sh = { ...(SHIFTS[j?.shift || 'office'] || SHIFTS.office) };
+  // 버스 기사는 사람마다 오전조·오후조 (번갈아)
+  const key = j?.shift === 'bus' ? (a.id % 2 ? 'busLate' : 'busEarly') : j?.shift;
+  const sh = { ...(SHIFTS[key || 'office'] || SHIFTS.office) };
   if (era < 3 && sh.days === 'week') sh.days = 'six';
   if (a.job.ceo) { sh.end += 1.5; sh.days = sh.days === 'week' ? 'six' : sh.days; }
   return sh;
@@ -596,11 +599,19 @@ export function updateAnn(world, a, dt) {
       }
       act.tx = b.x + 1.3; act.tz = b.z + 0.6;
     }
+    // 멀면 차를 몰거나 버스를 탄다 (traffic.js). 아니면 걷는다
+    if (act.trip === undefined) act.trip = planTrip(world, a, act);
+    let arrived = false;
+    if (act.trip) {
+      if (!tripStep(world, a, act, dt)) return;
+      arrived = true;
+    }
     const dx = act.tx - a.x, dz = act.tz - a.z;
     const d = Math.hypot(dx, dz);
     const step = speedOf(world, a) * dt;
-    if (d <= step + 0.5) {
+    if (arrived || d <= step + 0.5) {
       a.x = act.tx; a.z = act.tz;
+      act.trip = undefined;
       act.ph = 'do';
       if (act.repath) act.repath = false; else act.until = world.clock + act.dur;
       world.dirtyAct.add(a.id);
@@ -767,7 +778,7 @@ function onTick(world, a, act, dt) {
         const pay = Math.min(b.budget, b.budget / Math.max(1, b.work - b.progress) * work);
         b.budget -= pay; a.money += pay * 0.8;
       }
-      if (addWork(world, b, work)) { world.onBuilt(b, a); act.done = true; }
+      if (addWork(world, b, work, hours)) { world.onBuilt(b, a); act.done = true; }
       break;
     }
     case 'study': {
@@ -1016,7 +1027,7 @@ function wakeHour(world, a, stage) {
   if (stage === 'child') return 7 + a.chrono * 0.5;
   let w = 6.5 + a.chrono;
   if (a.job && JOBS[a.job.id]) {
-    const sh = SHIFTS[JOBS[a.job.id].shift] || SHIFTS.office;
+    const sh = shiftOf(world, a);
     w = Math.min(w, sh.start - 0.9);
   }
   return Math.max(3, w);

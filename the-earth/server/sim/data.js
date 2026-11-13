@@ -42,6 +42,9 @@ export const SHIFTS = {
   care: { start: 8, end: 18, lunch: true, days: 'six', label: '병원 08~18시' },
   gov: { start: 9, end: 18, lunch: true, days: 'week', label: '관공서 09~18시' },
   free: { start: 10, end: 17, lunch: true, days: 'week', label: '자유롭게' },
+  // 버스 기사: 첫차부터 막차까지 두 조로 나눠 탄다 (점심은 배고플 때 차고지에서)
+  busEarly: { start: 5.5, end: 14, lunch: false, days: 'all', label: '버스 오전조 05:30~14:00' },
+  busLate: { start: 13.5, end: 23.5, lunch: false, days: 'all', label: '버스 오후조 13:30~23:30' },
 };
 
 // 직업. self = 고용주 없이 스스로 하는 일. out: food/tech/build/money/art/heal/teach/gov/bricks(건자재)/ore/steel
@@ -94,7 +97,7 @@ export const JOBS = {
   professor: J('교수', 4, 'science', 'tech', 2.6, { int: .7, O: .4, E: .1 }, { edu: 4, shift: 'office' }),
   scholar: J('학자', 2, 'science', 'tech', 2, { int: .7, O: .5 }, { edu: 2, shift: 'free' }),
   priest: J('사제', 2, 'leadership', 'heal', 1, { A: .4, cha: .3, C: .2 }, { edu: 1, maxEra: 4, shift: 'free' }),
-  official: J('공무원', 2, 'leadership', 'gov', 1, { C: .5, int: .3, cha: .2 }, { edu: 2, shift: 'gov' }),
+  official: J('공무원', 2, 'leadership', 'gov', 1, { C: .5, int: .3, cha: .2 }, { edu: 1, shift: 'gov' }), // 9급 공채는 학력 제한이 없다 — 읽고 쓸 줄만 알면
   soldier: J('병사', 2, 'athletics', 'gov', 1, { ath: .7, C: .2, A: -.2 }, { maxEra: 3, shift: 'gov' }),
   police: J('경찰관', 4, 'athletics', 'gov', 1, { ath: .4, C: .4, N: -.3 }, { edu: 3, shift: 'gov' }),
   firefighter: J('소방관', 4, 'athletics', 'gov', 1, { ath: .6, A: .3, N: -.3 }, { edu: 2, shift: 'gov' }),
@@ -168,7 +171,7 @@ export const JOBS = {
   forklift: J('지게차 운전원', 5, 'athletics', 'money', 1, { C: .4, ath: .2 }, { edu: 1, shift: 'factory' }),
   quality: J('품질관리원', 5, 'science', 'money', 1.2, { C: .6, int: .2 }, { edu: 3, shift: 'factory' }),
   // 운송
-  bus_driver: J('버스기사', 5, 'athletics', 'money', 1.1, { C: .4, N: -.3, A: .2 }, { edu: 1, shift: 'factory' }),
+  bus_driver: J('버스기사', 5, 'athletics', 'money', 1.1, { C: .4, N: -.3, A: .2 }, { edu: 0, shift: 'bus' }), // 학력보다 대형 면허
   taxi_driver: J('택시기사', 5, 'athletics', 'money', 1, { E: .3, C: .2 }, { edu: 1, shift: 'shop' }),
   courier: J('택배기사', 5, 'athletics', 'money', 1.2, { ath: .5, C: .3 }, { shift: 'factory' }),
   rider: J('배달 라이더', 6, 'athletics', 'money', 1.1, { ath: .5, N: -.2 }, { self: true, shift: 'food' }),
@@ -347,6 +350,8 @@ export const PUBLIC = {
   station: { name: '기차역', era: 4, building: 'station', jobs: ['stationmaster', 'train_driver'], mix: { stationmaster: 0.5, train_driver: 0.5 }, per: 250, pop: 70 },
   power: { name: '발전소', era: 5, building: 'powerplant', jobs: ['operator', 'engineer'], per: 200, pop: 80 },
   lab: { name: '국립 연구소', era: 5, building: 'lab', jobs: ['scientist', 'researcher'], mix: { scientist: 0.5, researcher: 0.5 }, per: 25 },
+  // 민간 버스 회사가 없는 작은 도시는 관청이 공영버스를 굴린다 (군내버스·마을버스)
+  transit: { name: '공영버스', era: 5, building: 'busdepot', jobs: ['bus_driver', 'mechanic'], mix: { bus_driver: 0.85, mechanic: 0.15 }, per: 300, pop: 80 },
 };
 
 // 건물. cells = 차지하는 칸(20m 격자), size = [가로, 세로, 높이] m
@@ -367,7 +372,7 @@ export const DEPTS = [
   { key: 'general', name: '총무과', era: 2, staff: 1, does: '행정·문서' },
   { key: 'urban', name: '도시환경과', era: 2, staff: 3, does: '도로 정비·가로수' },
   { key: 'welfare', name: '복지과', era: 4, staff: 5, does: '가난한 이웃 지원' },
-  { key: 'traffic', name: '교통과', era: 5, staff: 7, does: '대로·신호등·횡단보도' },
+  { key: 'traffic', name: '교통과', era: 5, staff: 5, does: '대로·신호등·횡단보도·버스 정류장' },
 ];
 
 export const deptName = key => DEPTS.find(d => d.key === key)?.name || '';
@@ -383,6 +388,8 @@ export const BUILDINGS = {
   apartment: B('아파트', 5, [2, 2], [30, 22, 42], 24000, 'home', '#dfe3e8', 'flat', { cap: 40, cost: 2500 }),
   skytower: B('초고층 주상복합', 6, [2, 2], [32, 32, 140], 120000, 'home', '#9fc3dc', 'flat', { glass: true, cap: 140, cost: 12000 }),
   roadwork: B('도로 공사', 0, [0, 0], [10, 10, 0], 0, 'infra', '#777777', 'none', { cost: 0 }),
+  signal: B('신호등 공사', 5, [0, 0], [6, 6, 0], 368, 'infra', '#777777', 'none', { cost: 0 }),
+  busstop: B('버스 정류장 공사', 4, [0, 0], [6, 6, 0], 32, 'infra', '#777777', 'none', { cost: 0 }),
   farm: B('농장', 1, [2, 2], [34, 34, 0.4], 120, 'farm', '#9bb547', 'field', { jobs: 12, cost: 15 }),
   granary: B('곡물 창고', 1, [1, 1], [10, 10, 6], 300, 'civic', '#b89a68', 'cone', { roofColor: '#8a6d3e', jobs: 4, cost: 0 }),
   lumberyard: B('목재소', 1, [2, 1], [30, 14, 6], 600, 'work', '#9b7653', 'gable', { roofColor: '#5d4430', jobs: 30, cost: 30 }),

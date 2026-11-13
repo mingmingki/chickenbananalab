@@ -5,12 +5,13 @@ import { clamp, rand, pick, chance, gauss, ageOf, dateOf, fmtDate, localHour, YE
 import { ERAS, DISCOVERIES, BUILDINGS, PUBLIC, JOBS, GOALS, HOME_BY_ERA, SETTLEMENT_LEVELS, INDUSTRIES, SCHOOLS, EDU_NAMES, SHIFTS } from './data.js';
 import { makeAnn, makeBaby, remember, think, feel, lifeEvent, ageStage, STAGE_NAMES, TRAIT_NAMES, ABILITY_NAMES, deriveValues, deriveGoals } from './ann.js';
 import { makeSettlement, placeBuilding, removeBuilding, updateSettlementLevel, plazaPoint, CELL, siteFeatures, ensureSite, buildRule } from './settlement.js';
-import { updateAnn, nightlyReview, ACTS, isAvailable } from './mind.js';
+import { updateAnn, nightlyReview, ACTS, isAvailable, shiftOf } from './mind.js';
 import { rel, decayRelations, breakUp, opinionText, updateKind } from './social.js';
 import { companyDaily, considerPromotion, jobTitle, leaveJob, foundPublic, dailyCost, wageBase, setJob, assignContractor, siteName, hasConstruction, fullDayPay, annualOf } from './economy.js';
 import { childName, givenOf, familyName } from './names.js';
 import { runEvents, rollWeather } from './events.js';
 import { syncRoads, hallDepts, planRoadWorks, roadProgress, ROAD_GRADES } from './infra.js';
+import { trafficDaily, busTick, projectDone, vehicleMode, isWaiting } from './traffic.js';
 import { safetyDaily, safetyTick, fireOut } from './safety.js';
 import { livingDaily, pensionDaily, book, ledgerOut, monthNet } from './budget.js';
 import { getCountry, randomLandPoint, seaNear } from '../geo.js';
@@ -121,8 +122,8 @@ export class World {
     let best = null, bs = -Infinity;
     for (const id of [...s.buildings, ...(s.works || [])]) {
       const b = this.buildings.get(id);
-      if (!b || b.done) continue;
-      const def = BUILDINGS[b.type];
+      if (!b || b.done || isWaiting(this, b)) continue;
+      const def = BUILDINGS[b.type] || { kind: 'civic' };
       let sc = (def.kind === 'civic' ? 30 : def.kind === 'work' ? 20 : 10) + (b.budget > 0 ? 15 : 0) + (this.clock - b.started) / DAY;
       if (a && b.owner === a.id) sc += 50;
       sc -= Math.hypot(b.x - (a?.x || 0), b.z - (a?.z || 0)) / 100;
@@ -163,7 +164,8 @@ export class World {
           const e = this.anns.get(id);
           if (!e || e.job?.site !== b.id) continue;
           e.job.site = null;
-          if (b.work >= 800) {
+          if (b.project) lifeEvent(this, e, `${b.name} 완료 — 실제 ${Math.round(b.mh || 0)}인시`, b.type === 'signal' ? '🚦' : '🚏');
+          else if (b.work >= 800) {
             lifeEvent(this, e, `'${siteName(this, b)}' 준공 — ${months}개월 만에`, '🏗️');
             remember(this, e, `우리가 지은 ${b.name}이(가) 드디어 완공되었다`, 6, 0.8, [], 'work');
             feel(e, 14, '뿌듯함', b.name);
@@ -175,6 +177,7 @@ export class World {
       }
     }
     const cty = this.countries[s.country];
+    if (b.project) { projectDone(this, b); return; }
     if (b.infra) {
       const months = Math.max(1, Math.round((this.clock - (b.started || this.clock)) / (DAY * 30)));
       this.news('build', `🛣️ ${s.name} '${b.name}' 공사가 ${months}개월 만에 끝났다 — 이제 ${ROAD_GRADES[b.grade].name}`, { sid: b.sid, country: s.country }, 1);
@@ -424,7 +427,7 @@ export class World {
       ['seodang', edu + 6], ['kinder', edu - 8], ['school', edu + 8], ['middle', edu + 2], ['high', edu], ['univ', edu - 4 + L.ab.int * 0.2],
       ['lab', 20 + L.tr.O * 0.4 + L.ab.int * 0.3],
       ['hospital', 22 + L.tr.A * 0.3], ['police', 16 + L.tr.C * 0.25], ['fire', 15 + L.tr.A * 0.2], ['post', 10 + L.tr.C * 0.1],
-      ['station', 12 + L.amb * 0.15], ['power', 14 + L.tr.O * 0.15],
+      ['station', 12 + L.amb * 0.15], ['power', 14 + L.tr.O * 0.15], ['transit', 12 + L.tr.A * 0.15 + L.tr.C * 0.1],
     ].sort((a, b) => b[1] - a[1]);
     // 관청과 학교가 먼저다: 그게 모자란 동안에는 다른 기관은 미루고 돈을 모은다
     let pending = false;
@@ -441,6 +444,7 @@ export class World {
           if (def.era > c.era || (def.maxEra != null && c.era > def.maxEra)) continue;
           if (key === 'hall' && sid !== c.capital && s.pop < 30) continue;
           if (key === 'univ' && (sid !== c.capital || c.pop < 35)) continue;
+          if (key === 'transit' && [...this.companies.values()].some(co => !co.pub && co.ind === 'bus' && co.sid === sid && !co.dead)) continue;
           const have = [...this.companies.values()].filter(co => co.pub && co.ind === key && co.sid === sid && !co.dead).length;
           let want;
           if (def.school) {
@@ -1005,10 +1009,14 @@ export class World {
       return true;
     });
     const hallCo = [...this.companies.values()].find(co => co.pub && co.ind === 'hall' && co.sid === s.id && !co.dead);
-    if (hallCo && this.buildings.get(hallCo.b)?.done) {
+    const hallOk = hallCo && this.buildings.get(hallCo.b)?.done;
+    if (hallOk) {
       hallDepts(this, s, hallCo);
       if (chance(0.12)) planRoadWorks(this, s, hallCo, wageBase(this.countries[s.country].era));
     }
+    // 교통: 교차로 통행량, 버스 노선·정류장, 신호등 계획
+    trafficDaily(this, s, hallOk ? hallCo : null);
+    this.dirtySettlements.add(s.id);
     // 눈: 춥고 눈이 오면 쌓이고, 따뜻하면 녹는다
     const wk = s.weather?.k, temp = s.weather?.temp ?? 10;
     s.snow = Math.max(0, Math.min(1, (s.snow || 0) + (wk === '폭설' ? 0.6 : wk === '눈' ? 0.3 : 0) * (temp <= 2 ? 1 : 0.3) - (temp > 2 ? 0.08 * (temp - 1) : 0.02) - (wk === '비' || wk === '소나기' || wk === '폭우' ? 0.3 : 0)));
@@ -1070,6 +1078,7 @@ export class World {
     this.clock += dt;
     this.rebuildResidents();
     for (const a of this.anns.values()) if (a.alive) updateAnn(this, a, dt);
+    for (const s of this.settlements.values()) if (s.bus?.open) busTick(this, s, dt);
     for (const s of this.settlements.values()) if (s.fireAt || s.fireOff) safetyTick(this, s);
     const day = Math.floor(this.clock / DAY);
     if (day !== this.lastDay) { this.lastDay = day; this.daily(); }
@@ -1124,18 +1133,24 @@ export class World {
     return {
       id: a.id, n: a.name, g: a.gender, o: a.owner, c: a.country, s: a.sid, b: a.born, al: a.alive, d: a.died, j: jobTitle(this, a),
       h: a.home, sp: a.spouse, p: a.partner, lk: a.look, ld: c?.leader === a.id ? ERAS[c.era].leader : null, gen: a.gen, tr: a.travel ? 1 : 0,
-      jk: a.job?.id || null, ceo: !!a.job?.ceo, sc: a.school?.name || null,
+      jk: a.job?.id || null, ceo: !!a.job?.ceo, sc: a.school?.name || null, cr: a.car ? 1 : 0,
     };
   }
   annPos(a) {
-    return [a.id, a.sid, Math.round(a.x * 10) / 10, Math.round(a.z * 10) / 10, a.alive ? (a.act ? a.act.type : 'idle') : 'dead', a.act?.target || 0, a.travel ? 1 : 0, a.act?.ph === 'move' ? 1 : 0];
+    const row = [a.id, a.sid, Math.round(a.x * 10) / 10, Math.round(a.z * 10) / 10, a.alive ? (a.act ? a.act.type : 'idle') : 'dead', a.act?.target || 0, a.travel ? 1 : 0, a.act?.ph === 'move' ? 1 : 0];
+    // 탈것: 1 자동차, 2 버스 승객, 3 버스 기사 + 이번 틱에 지난 모퉁이들
+    const m = a.alive ? vehicleMode(a) : 0;
+    if (m) row.push(m, a._via?.length ? a._via : 0);
+    return row;
   }
   buildingOut(b) {
     let crew = 0;
     if (!b.done && b.contractor) { const co = this.companies.get(b.contractor); if (co) for (const id of co.emp) if (this.anns.get(id)?.job?.site === b.id) crew++; }
     return { id: b.id, sid: b.sid, type: b.type, name: b.name, x: b.x, z: b.z, w: b.w, d: b.d, h: b.h, done: b.done, p: Math.round(b.progress / b.work * 100) / 100, era: b.era, co: b.co, owner: b.owner, res: b.res.length,
       ct: b.contractor || null, crew, work: b.work, started: b.started, built: b.built, stalled: !!b.stalled, dev: b.dev || null,
-      ...(b.infra ? { infra: true, segs: b.segs, segDone: b.segDone || 0, grade: b.grade, perSeg: b.perSeg } : {}), ...fireOut(this, b) };
+      ...(b.infra ? { infra: true, segs: b.segs, segDone: b.segDone || 0, grade: b.grade, perSeg: b.perSeg } : {}), ...fireOut(this, b),
+      mh: Math.round(b.mh || 0),
+      ...(b.project ? { project: true, node: b.node, stage: b.stage || 0, stages: b.stages.map(x => [x.name, x.mh, x.trade, x.cure || 0]), wait: b.waitUntil && b.waitUntil > this.clock ? Math.round(b.waitUntil) : 0, waitName: b.waitName || null, maxCrew: b.maxCrew } : {}) };
   }
   settlementOut(s) {
     const inst = [];
@@ -1143,6 +1158,9 @@ export class World {
     return {
       id: s.id, name: s.name, country: s.country, lon: s.lon, lat: s.lat, level: s.level, levelName: SETTLEMENT_LEVELS[s.level].name, pop: s.pop, food: Math.round(s.food), founded: s.founded, abandoned: !!s.abandoned, radius: Math.round(s.radius),
       site: s.site, feat: siteFeatures(s), weather: s.weather || null, need: s.needPrev || {}, inst, roads: s.roads || {}, snow: Math.round((s.snow || 0) * 100) / 100,
+      signals: s.signals || {},
+      bus: s.bus ? { open: !!s.bus.open, co: s.bus.co, len: Math.round(s.bus.len), buses: s.bus.buses.length, stops: s.bus.stops.map(st => ({ name: st.name, pos: st.pos, built: !!st.built })) } : null,
+      flowTop: Object.entries(s.flowAvg || {}).sort((a, b) => b[1] - a[1]).slice(0, 3),
     };
   }
   countryOut(c) {
@@ -1188,10 +1206,19 @@ export class World {
     for (const a of this.anns.values()) {
       if (!a.alive && !this.dirtyAct.has(a.id)) { last.delete(a.id); continue; }
       const row = this.annPos(a), key = row.join(',');
+      if (a._via) a._via = null;
       if (full || last.get(a.id) !== key) { pos.push(row); last.set(a.id, key); }
     }
     const p = { clock: this.clock, pos };
     if (full) p.full = 1;
+    // 버스: 달리는 버스는 매 틱
+    const buses = [];
+    for (const s of this.settlements.values()) for (const b of s.bus?.buses || []) {
+      if (!b.on && !full && !b._was) continue;
+      buses.push([b.id, s.id, Math.round((b.x || 0) * 10) / 10, Math.round((b.z || 0) * 10) / 10, Math.round((b.h || 0) * 100) / 100, b.riders.length, b.on ? 1 : 0, b._via?.length ? b._via : 0, b.no]);
+      b._was = b.on; b._via = null;
+    }
+    if (buses.length) p.buses = buses;
     if (this.dirtyAnnMeta.size) p.anns = [...this.dirtyAnnMeta].map(id => this.anns.get(id)).filter(Boolean).map(a => this.annMeta(a));
     if (this.dirtyBuildings.size) p.buildings = [...this.dirtyBuildings].map(id => this.buildings.get(id)).filter(Boolean).map(b => this.buildingOut(b));
     if (this.removedBuildings.size) p.removed = [...this.removedBuildings];
@@ -1230,7 +1257,9 @@ export class World {
       family: { spouse: nm(a.spouse), partner: nm(a.partner), parents: a.parents.map(nm).filter(Boolean), kids: a.kids.map(nm).filter(Boolean), siblings: [...siblings].map(nm).filter(Boolean) },
       preg: a.preg ? { due: a.preg.due } : null,
       rels,
-      act: act ? { type: act.type, label: ACTS[act.type]?.label, emoji: ACTS[act.type]?.emoji, ph: act.ph, target: nm(act.target), topic: act.topic, line: act.line, until: act.until } : null,
+      act: act ? { type: act.type, label: ACTS[act.type]?.label, emoji: ACTS[act.type]?.emoji, ph: act.ph, target: nm(act.target), topic: act.topic, line: act.line, until: act.until,
+        trip: act.ph === 'move' && act.trip ? (act.trip.mode === 'car' ? { k: 'car', stop: !!act.trip.stop } : { k: 'bus', leg: act.trip.leg, board: this.settlements.get(a.sid)?.bus?.stops[act.trip.board]?.name, alight: this.settlements.get(a.sid)?.bus?.stops[act.trip.alight]?.name }) : null,
+        drive: a.drive && act.type === 'work' ? true : false } : null,
       mem: a.mem.slice(-30).reverse(), th: a.th.slice(-25).reverse(), why: a.why, life: a.life,
       home: home ? { id: home.id, name: home.name, done: home.done } : null,
       settlement: s ? { id: s.id, name: s.name } : null, country: c ? { code: c.code, name: c.name } : null,
@@ -1238,7 +1267,7 @@ export class World {
       techMade: Math.round(a.techMade || 0), discoveries: a.discoveries || [], wantsMigrate: a.wantsMigrate || null,
       school: a.school ? { name: a.school.name, key: a.school.key, grade: Math.round(a.school.grade), since: a.school.since } : null,
       eduLv: a.eduLv || 0, eduName: EDU_NAMES[a.eduLv || 0], born: a.born, pdeploy: !!a.pdeploy,
-      today: a.today || [], yesterday: a.yesterday || [], shift: a.job && JOBS[a.job.id]?.shift ? SHIFTS[JOBS[a.job.id].shift].label : null,
+      today: a.today || [], yesterday: a.yesterday || [], shift: a.job && JOBS[a.job.id]?.shift ? shiftOf(this, a).label : null,
       site: a.job?.site && this.buildings.get(a.job.site) ? { id: a.job.site, name: siteName(this, this.buildings.get(a.job.site)), p: Math.round(this.buildings.get(a.job.site).progress / this.buildings.get(a.job.site).work * 100) } : null,
       fin: this.finOut(a, co, home),
     };

@@ -4,7 +4,8 @@ import { R, frameAt, llToVec, localToLL } from './geo.js';
 import { glowTexture } from './space.js';
 import { Terrain, TERRAIN_R } from '../shared/terrain.js';
 import { makeBuilding, BGEO } from './buildings.js';
-import { paintRoads, buildRoadProps, roadLampMats } from './roads.js';
+import { paintRoads, buildRoadProps, roadLampMats, signalPhase } from './roads.js';
+import { TownVehicles } from './vehicles.js';
 import { treeColor, seasonOfMonth } from './weather.js';
 import { dateOf } from '../state.js';
 import { PHONE } from '../device.js';
@@ -166,6 +167,9 @@ export class Cities {
       let t = this.towns.get(s.id);
       if (!t) { t = this.makeTown(s); this.towns.set(s.id, t); state.dirty.buildings.add(s.id); }
       t.s = s;
+      // 신호등이 켜지거나 정류장이 생기면 길 소품을 다시
+      const tk = Object.keys(s.signals || {}).join() + '|' + (s.bus?.stops || []).map(x => (x.built ? 1 : 0)).join('');
+      if (tk !== t.trafficKey) { t.trafficKey = tk; state.dirty.buildings.add(s.id); }
       t.marker.scale.setScalar(0.012 + s.level * 0.005 + Math.min(0.012, s.pop * 0.0004));
       t.marker.material.opacity = s.abandoned ? 0.25 : 1;
     }
@@ -384,11 +388,11 @@ export class Cities {
     this.refreshTrees(t, real);
     this.paintGround(t, real, era, works);
     // 도로 소품 (가로등·가로수·신호등·공사 고깔)
-    const roadKey = JSON.stringify(s.roads || {}) + works.map(w => w.id + ':' + Math.round((w.p || 0) * 20)).join(',');
+    const roadKey = JSON.stringify(s.roads || {}) + works.map(w => w.id + ':' + Math.round((w.p || 0) * 20) + ':' + (w.stage ?? '')).join(',') + '|' + (t.trafficKey || '');
     if (roadKey !== t.roadKey) {
       t.roadKey = roadKey;
       if (t.roadProps) { t.g.remove(t.roadProps.grp); t.roadProps.grp.traverse(o => o.dispose?.()); }
-      t.roadProps = buildRoadProps(this.roadsOf(s, real), works, t.hAt);
+      t.roadProps = buildRoadProps(this.roadsOf(s, real), works, t.hAt, { signals: s.signals, stops: s.bus?.stops });
       t.g.add(t.roadProps.grp);
       this.colorRoadTrees(t);
     }
@@ -447,7 +451,9 @@ export class Cities {
         g.fillRect(px(b.x - b.w / 2 - m), px(b.z - b.d / 2 - m), (b.w + 2 * m) * sc, (b.d + 2 * m) * sc);
       }
     }
-    paintRoads(g, px, sc, this.roadsOf(t.s, blds), works, snow);
+    // 횡단보도: 켜진 신호등, 그리고 도색 단계까지 온 신호등 공사
+    const cross = [...Object.keys(t.s.signals || {}), ...works.filter(w => w.type === 'signal' && w.stage >= 6).map(w => w.node)];
+    paintRoads(g, px, sc, this.roadsOf(t.s, blds), works, snow, cross);
     const fade = g.createRadialGradient(S / 2, S / 2, S * 0.3, S / 2, S / 2, S / 2);
     fade.addColorStop(0, 'rgba(0,0,0,1)'); fade.addColorStop(0.75, 'rgba(0,0,0,0.75)'); fade.addColorStop(1, 'rgba(0,0,0,0)');
     g.globalCompositeOperation = 'destination-in'; g.fillStyle = fade; g.fillRect(0, 0, S, S);
@@ -549,6 +555,7 @@ export class Cities {
       const showFig = dist < 5;
       const showDots = dist < 200 && dist > 0.6;
       let n = 0, nh = 0;
+      const driving = [], parked = [], parkSlot = new Map();
       const dpos = t.dots.geometry.attributes.position.array, dcol = t.dots.geometry.attributes.color.array;
       let dn = 0;
       t.ids.length = 0;
@@ -556,9 +563,19 @@ export class Cities {
         const a = state.anns.get(id);
         if (!a) continue;
         const ip = state.interp(ps);
-        const hidden = ps.act === 'sleep' || (ps.act === 'baby' && ps.moving === 0 && false);
+        // 차를 모는 앤은 차로, 버스 안의 앤(승객·기사)은 버스로 보인다
+        if (ps.mode === 1) driving.push({ id, x: ip.x, z: ip.z, h: ip.h ?? ps.heading ?? 0 });
+        else if (a.cr && a.h && dist < 6) {
+          const hb = state.buildings.get(a.h);
+          if (hb) {
+            const k = parkSlot.get(a.h) || 0; parkSlot.set(a.h, k + 1);
+            // 집 옆에 나란히 (아파트처럼 많으면 지하 주차장 — 몇 대만 밖에)
+            if (k < Math.max(1, Math.floor(hb.d / 5))) parked.push({ id, x: hb.x + hb.w / 2 + 2.4, z: hb.z - hb.d / 2 + 2.6 + k * 5, h: 0 });
+          }
+        }
+        const hidden = ps.act === 'sleep' || ps.mode >= 1;
         const selected = this.selected === id;
-        if (showDots && !hidden) {
+        if (showDots && (!hidden || ps.mode === 1)) {
           col.set(state.playerColor(a.o));
           if (selected) col.set('#ffffff');
           dpos[dn * 3] = ip.x; dpos[dn * 3 + 1] = t.hAt(ip.x, ip.z) + 3; dpos[dn * 3 + 2] = ip.z;
@@ -608,6 +625,19 @@ export class Cities {
         }
       }
       for (const m of Object.values(t.anns)) { m.count = m === t.anns.hat ? nh : n; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+      // 차와 버스
+      t.veh = t.veh || new TownVehicles(t.g);
+      const buses = [];
+      for (const [bid, b] of state.buses) if (b.sid === t.s.id && b.on) { const bp = state.interp(b); buses.push({ id: bid, x: bp.x, z: bp.z, h: bp.h ?? b.h, co: t.s.bus?.co }); if (dist < 1.2 && b.no) { const wp = new THREE.Vector3(bp.x, t.hAt(bp.x, bp.z) + 4.5, bp.z).applyMatrix4(t.g.matrix); labels.push({ key: 'bus' + bid, pos: wp, cls: 'ann mini', html: `🚌 ${b.no}호 · ${b.riders}명`, pri: 2, d: camPos.distanceTo(wp) }); } }
+      t.veh.update(driving, parked, buses, t.hAt, dist < 6);
+      // 신호등 불빛 (빨강 → 초록 → 노랑, 공사 마지막 시험 운영은 노란불 깜빡)
+      if (t.roadProps?.lamps?.length && dist < 6) {
+        const blinkOn = Math.floor(time * 2) % 2 === 0;
+        for (const L of t.roadProps.lamps) {
+          const ph = L.done ? signalPhase(L.off, L.axis, nowMin) : L.blink && blinkOn ? 'y' : null;
+          for (const c of ['r', 'y', 'g']) L.mats[c].emissiveIntensity = ph === c ? 2.4 : 0.04;
+        }
+      }
       t.dots.geometry.setDrawRange(0, dn);
       t.dots.geometry.attributes.position.needsUpdate = true;
       t.dots.geometry.attributes.color.needsUpdate = true;
@@ -617,6 +647,15 @@ export class Cities {
   }
 
   /** 앤의 지구 좌표 (카메라 추적용) */
+  /** 버스의 지구 좌표 (카메라로 따라가기) */
+  busLL(state, id) {
+    const b = state.buses.get(id);
+    const s = b && state.settlements.get(b.sid);
+    if (!s) return null;
+    const ip = state.interp(b), ll = localToLL(s, ip.x, ip.z), t = this.towns.get(b.sid);
+    return { lat: ll.lat, lon: ll.lon, h: (t ? t.base - R + t.hAt(ip.x, ip.z) / 1000 : 0) + 0.0015 };
+  }
+
   annLL(state, id) {
     const ps = state.pos.get(id);
     if (!ps) return null;

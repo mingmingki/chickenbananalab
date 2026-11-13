@@ -56,7 +56,10 @@ export function eraPayMul(key, job, era) {
 // ── 시대별 법·제도 ──
 export const MIN_WAGE = [0, 0, 0, 0, 0, 0.35, 0.6, 0.62];        // 최저임금(하루, 보통 일자리 일당 대비) — 1988년부터, 2026년 시급 10,320원
 export const INS_RATE = [0, 0, 0, 0, 0, 0.048, 0.0972, 0.12];    // 4대보험 근로자 부담 — 1990년대 약 4.8%, 2026년 9.72%
-export const PENSION = [0, 0, 0, 0, 0, 0.1, 0.23, 0.25];          // 국민연금(보통 월급 대비) — 2025년 평균 약 68만원
+export const PENSION = [0, 0, 0, 0, 0, 0.1, 0.23, 0.25];
+// 나라 수입: 부가가치세(물건값에 들어 있는 몫), 법인세(회사 이익의 몫) — 한국 부가세 10%(1977~), 법인세 9~24%
+export const VAT = [0, 0, 0.02, 0.03, 0.05, 10 / 110, 10 / 110, 10 / 110];
+export const CORP_TAX = [0, 0, 0.08, 0.1, 0.12, 0.18, 0.19, 0.2];          // 국민연금(보통 월급 대비) — 2025년 평균 약 68만원
 const MEAL = [0.08, 0.08, 0.09, 0.1, 0.11, 0.05, 0.069, 0.06];    // 한 끼 사 먹는 값(보통 일당 대비): 1970년 짜장면 100원, 2026년 9,500원
 export const MEAL_LABEL = ['나눠 먹기', '주막', '주막', '주막', '식당', '외식', '외식', '외식'];
 export const LEISURE_LABEL = ['물물교환', '장터 나들이', '장터 나들이', '장터·놀이', '시장·극장', '쇼핑·여가', '쇼핑·여가', '쇼핑·여가'];
@@ -132,7 +135,12 @@ function sinkTo(world, s, kind, amt) {
   }
   if (!list.length) return;
   const co = world.companies.get(pick(list));
-  if (co && !co.dead) { co.money += amt; co.rev += amt; }
+  if (co && !co.dead) {
+    // 물건값 안의 부가가치세는 나라로
+    const c = world.countries[s.country], vat = amt * VAT[clamp(c?.era ?? 0, 0, 7)];
+    if (c && vat > 0) { c.treasury += vat; c.taxIn = (c.taxIn || 0) + vat; }
+    co.money += amt - vat; co.rev += amt - vat;
+  }
 }
 
 /** 하루치 생활비. 반환: 모자란 금액 */

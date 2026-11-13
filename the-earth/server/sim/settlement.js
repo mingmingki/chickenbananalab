@@ -166,11 +166,21 @@ export function buildRule(b) {
   const self = era <= 1 || ['farm', 'campfire', 'granary'].includes(b.type) || (def.kind === 'home' && era <= 2);
   return { self, bricks: era >= 2 && def.kind !== 'farm' };
 }
+import { stagedWork } from './traffic.js';
 export const MAT_PER_WORK = 0.6;
 
 /** 건설 진척. 벽돌이 모자라면 그만큼만 나아간다. 완공되면 true */
-export function addWork(world, b, hours) {
+export function addWork(world, b, hours, raw = hours) {
   if (b.done) return false;
+  // 단계 공사(신호등·정류장): 단계별 인시, 양생 기다림
+  if (b.stages) {
+    const used = stagedWork(world, b, hours);
+    if (used > 0) b.mh = (b.mh || 0) + raw * (used / hours);
+    world.dirtyBuildings.add(b.id);
+    if (b.progress >= b.work - 1e-9) { b.done = true; b.built = Math.round(world.clock); return true; }
+    return false;
+  }
+  b.mh = (b.mh || 0) + raw; // 실제로 들어간 사람×시간
   if (buildRule(b).bricks) {
     const s = world.settlements.get(b.sid);
     const total = b.work * MAT_PER_WORK;

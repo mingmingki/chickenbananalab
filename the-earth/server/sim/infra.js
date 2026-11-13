@@ -122,7 +122,7 @@ function inWork(world, s, key) {
 /** 공사 진척에 따라 구간이 하나씩 새 길로 바뀐다. 일하는 곳(좌표)도 다음 구간으로 옮겨 간다 */
 export function roadProgress(world, b) {
   const s = world.settlements.get(b.sid);
-  if (!s) return;
+  if (!s || !b.segs) return;
   const n = Math.min(b.segs.length, Math.floor(b.progress / b.perSeg + 1e-6));
   if (n > (b.segDone || 0)) {
     for (let i = b.segDone || 0; i < n; i++) s.roads[b.segs[i]] = Math.max(s.roads[b.segs[i]] || 0, b.grade);

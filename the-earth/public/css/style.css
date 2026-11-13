@@ -435,3 +435,10 @@ button, .btn, [data-act], [data-ann], [data-town], .roster-item, .country-result
 .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; margin: 12px 0 6px; }
 .or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .apple-btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; margin: 6px 0 4px; background: #000; color: #fff; border: 1px solid #333; font-weight: 500; }
+
+/* 신호등·정류장 공사: 단계 표시 */
+.proj { padding: 6px 2px; border-top: 1px dashed var(--line); }
+.stages { display: flex; gap: 3px; margin-top: 4px; flex-wrap: wrap; }
+.stages span { min-width: 20px; height: 20px; border-radius: 6px; font-size: 11px; line-height: 20px; text-align: center; background: rgba(255,255,255,0.06); color: var(--muted); }
+.stages span.ok { background: rgba(46,230,107,0.18); color: #9ff0b9; }
+.stages span.now { background: rgba(255,193,7,0.25); color: #ffe08a; outline: 1px solid rgba(255,193,7,0.6); }

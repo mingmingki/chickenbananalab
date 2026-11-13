@@ -3,9 +3,10 @@ import { INDUSTRIES, PUBLIC, JOBS, ERAS, BUILDINGS, RANKS, DISCOVERIES, EDU_NAME
 import { clamp, rand, pick, chance, ageOf, YEAR, ga, neun, reul, wa, ro } from './util.js';
 import { remember, think, feel, lifeEvent } from './ann.js';
 import { placeBuilding, addWork, siteFeatures, buildRule } from './settlement.js';
+import { isWaiting } from './traffic.js';
 import { companyName } from './names.js';
 import { rel } from './social.js';
-import { REF_PAY, WORKDAYS, deductions, book, eraPayMul, MIN_WAGE, refMonth } from './budget.js';
+import { REF_PAY, WORKDAYS, deductions, book, eraPayMul, MIN_WAGE, refMonth, CORP_TAX } from './budget.js';
 
 
 const eraOfAnn = (world, a) => world.countries[a.country]?.era ?? 0;
@@ -20,7 +21,7 @@ export const payMul = (jk, era = 6) => eraPayMul(jk, JOBS[jk], era);
 export const minDaily = era => MIN_WAGE[clamp(era, 0, 7)] * wageBase(era);
 const skillF = (a, j) => 0.85 + (a.sk[j.skill] || 0) / 333; // 숙련: 0.85 ~ 1.15배
 /** 이 직업이 1년에 일하는 날 (주5일 261일, 주6일 313일, 매일 340일) */
-export const workDays = jk => { const d = SHIFTS[JOBS[jk]?.shift]?.days; return d === 'six' ? 313 : d === 'all' ? 340 : 261; };
+export const workDays = jk => { const k = JOBS[jk]?.shift; const d = SHIFTS[k === 'bus' ? 'busEarly' : k]?.days; return d === 'six' ? 313 : d === 'all' ? 340 : 261; };
 /** 하루를 다 일했을 때의 급여(단위). co 가 없으면 자영업 기준 — 연봉을 그 직업의 근무일로 나눈 값 */
 export function fullDayPay(world, a, jk, co = null, rank = a.job?.rank || 0, ceo = !!a.job?.ceo) {
   const j = JOBS[jk];
@@ -135,11 +136,42 @@ export function crewDaily(world, co) {
   co.sites = (co.sites || []).filter(id => { const b = world.buildings.get(id); return b && !b.done; });
   const crew = co.emp.map(id => world.anns.get(id)).filter(e => e && e.alive && e.job?.co === co.id);
   const count = new Map(co.sites.map(id => [id, 0]));
-  for (const e of crew) { if (e.job.site && count.has(e.job.site)) count.set(e.job.site, count.get(e.job.site) + 1); else e.job.site = null; }
+  // 양생 중인 현장은 할 일이 없으니 사람을 빼고, 단계 공사는 붙을 수 있는 인원이 정해져 있다
+  const idle = id => isWaiting(world, world.buildings.get(id));
+  for (const e of crew) { if (e.job.site && count.has(e.job.site) && !idle(e.job.site)) count.set(e.job.site, count.get(e.job.site) + 1); else e.job.site = null; }
+  // 신호등·정류장 같은 작은 공공 공사는 큰 현장에서 사람을 빌려서라도 먼저 두 명은 붙인다 (안 그러면 영영 밀린다)
+  for (const id of co.sites) {
+    const b = world.buildings.get(id);
+    if (!b?.project || idle(id)) continue;
+    const want = Math.min(b.maxCrew || 2, 2);
+    while (count.get(id) < want) {
+      // 공공 공사에 묶인 사람은 전체의 절반까지만 (건물 공사도 굴러가야 한다)
+      const onProj = crew.filter(e => world.buildings.get(e.job.site)?.project).length;
+      if (onProj >= Math.ceil(crew.length / 2)) break;
+      // 빌려 올 사람: 놀고 있는 사람 → 사람이 여럿인 현장 → 남은 일이 가장 많은(급하지 않은) 현장
+      let pickE = crew.find(e => !e.job.site), best = -Infinity;
+      if (!pickE) for (const e of crew) {
+        const cs = e.job.site && world.buildings.get(e.job.site);
+        if (!cs || cs.project) continue;
+        const sc = (count.get(e.job.site) || 0) * 1e6 + (cs.work - cs.progress);
+        if (sc > best) { best = sc; pickE = e; }
+      }
+      if (!pickE) break;
+      if (pickE.job.site) count.set(pickE.job.site, count.get(pickE.job.site) - 1);
+      pickE.job.site = id; count.set(id, count.get(id) + 1);
+      lifeEvent(world, pickE, `${b.name} 현장에 배치되었다`, '🦺');
+      world.dirtyAnnMeta.add(pickE.id);
+    }
+  }
   for (const e of crew) {
     if (e.job.site || !co.sites.length) continue;
     let best = null, bs = -1;
-    for (const id of co.sites) { const b = world.buildings.get(id); const r = (b.work - b.progress) / (count.get(id) + 1); if (r > bs) { bs = r; best = b; } }
+    for (const id of co.sites) {
+      const b = world.buildings.get(id);
+      if (idle(id) || (b.maxCrew && count.get(id) >= b.maxCrew)) continue;
+      const r = (b.work - b.progress) / (count.get(id) + 1); if (r > bs) { bs = r; best = b; }
+    }
+    if (!best) continue;
     e.job.site = best.id;
     count.set(best.id, count.get(best.id) + 1);
     if (best.work >= 800) {
@@ -149,7 +181,7 @@ export function crewDaily(world, co) {
     world.dirtyAnnMeta.add(e.id);
   }
   // 필요한 인원: 남은 일이 많을수록 사람을 더 뽑는다
-  co.crewNeed = co.sites.reduce((t, id) => { const b = world.buildings.get(id); return t + Math.ceil((b.work - b.progress) / 2200); }, 0);
+  co.crewNeed = co.sites.reduce((t, id) => { const b = world.buildings.get(id); const n = Math.ceil((b.work - b.progress) / 2200); return t + (b.maxCrew ? Math.min(b.maxCrew, n) : n); }, 0);
 }
 
 // 자영업도 시장이 받아 주는 만큼만: 인구 몇 명당 한 명 (시대별). null = 제한 없음
@@ -456,7 +488,9 @@ export function produce(world, a, dt) {
         const pay = site.budget > 0 ? Math.min(site.budget, (site.budget / Math.max(1, site.work - site.progress)) * work) : 0;
         site.budget -= pay;
         if (co) co.money += pay; else a.money += pay * 0.8;
-        if (addWork(world, site, work)) world.onBuilt(site);
+        // 신호등·정류장 같은 단계 공사의 인시는 실제 사람×시간 기준 — 솜씨에 따라 ±30%만
+        const done = site.stages ? hours * clamp(eff, 0.7, 1.3) : work;
+        if (addWork(world, site, done, hours)) world.onBuilt(site);
       }
       break;
     }
@@ -550,6 +584,8 @@ export function companyDaily(world, co) {
     if (co.revDays.length > 14) co.revDays.shift();
     const profit = co.rev - payroll;
     co.pl = (co.pl || 0) * 0.92 + profit * 0.08; // 최근 손익 흐름
+    // 법인세: 이익을 낸 날의 몫 (손해 본 날은 없다)
+    if (profit > 0 && CORP_TAX[era] > 0) { const t = profit * CORP_TAX[era]; co.money -= t; country.treasury += t; country.taxIn = (country.taxIn || 0) + t; co.corpTax = (co.corpTax || 0) + t; }
     co.rev = 0;
     // 대표 배당
     const ceo = co.ceo && world.anns.get(co.ceo);
@@ -607,7 +643,9 @@ export function companyDaily(world, co) {
     // 공공기관은 나라 살림이 감당할 만큼만 뽑는다
     const target = Math.max(1, Math.min(capacityOf(world, co), need));
     // 공무원 인건비는 세수의 65%까지 (나머지는 학교·관청을 지을 돈으로 모은다). 학교를 지을 돈을 모으는 동안은 채용 동결
-    const afford = !country.pending && ((country.pubAvg || 0) + co.wage < (country.taxAvg || 0) * 0.65 || country.treasury > payroll * 90 + wageBase(era) * 60);
+    const afford = !country.pending && ((country.pubAvg || 0) + co.wage < (country.taxAvg || 0) * 0.65 || country.treasury > payroll * 90 + wageBase(era) * 60)
+      // 관청의 핵심 인력(3명 + 주민 50명당 1명)은 살림이 빠듯해도 채운다 — 부서(도시환경과·교통과…)가 일하려면
+      || (co.ind === 'hall' && co.emp.length < 3 + Math.floor((s?.pop || 0) / 50) && country.treasury > payroll * 10);
     if (target < co.slots) co.slots = target;
     else if (target > co.slots && afford) co.slots++;
     if (country.treasury < payroll * 6 && co.slots > 1) co.slots = Math.max(1, Math.min(co.slots, co.emp.length) - (country.treasury < 0 ? 1 : 0));
@@ -625,21 +663,30 @@ export function companyDaily(world, co) {
         }
       }
     }
-    // 공채·임용: 자리가 비어 있으면 마을에서 알맞은 사람(무직·자영업)을 찾아 부른다
+    // 공채·임용: 자리가 비어 있으면 마을에서 알맞은 사람을 찾아 부른다.
+    // 무직·자영업이 먼저고, 회사원도 공무원 시험을 쳐서 옮겨 온다 (안정된 자리를 원하는 사람, 일이 안 맞는 사람)
     if (co.emp.length < co.slots && (!b || b.done) && chance(co.emp.length ? 0.12 : 0.5)) {
       const jk = def.jobs.find(k => { const j = JOBS[k]; return j.era <= era && !(j.maxEra != null && era > j.maxEra) && mixRoom(world, co, def, k, era); });
       const j = jk && JOBS[jk];
+      const fromPrivate = x => { const c2 = x.job?.co != null && world.companies.get(x.job.co); return c2 && !c2.pub && !x.job.ceo; };
       const pool = j ? world.residents(co.sid).filter(x => {
         const g = ageOf(x, world.clock);
-        return g >= 19 && g < 62 && !x.school && !x.travel && (!x.job || x.job.co == null) && (x.eduLv || 0) >= eduReq(world, x, jk);
+        if (!(g >= 19 && g < 55 && !x.school && !x.travel && (x.eduLv || 0) >= eduReq(world, x, jk))) return false;
+        if (!x.job || x.job.co == null) return true;
+        // 회사원: 일이 덜 맞거나, 성실하고 안정을 바라는 사람
+        return fromPrivate(x) && (x.job.sat < 55 || x.tr.C > 60 || x.tr.N > 60);
       }) : [];
-      pool.sort((x, y) => (jobFit(y, jk) + y.sk[j.skill]) - (jobFit(x, jk) + x.sk[j.skill]));
+      const score = x => jobFit(x, jk) + x.sk[j.skill] + (x.job?.co != null ? -15 : 0);
+      pool.sort((x, y) => score(y) - score(x));
       const cand = pool[0];
-      if (cand && (!cand.job || chance(0.6))) {
+      const exam = cand?.job?.co != null; // 회사를 다니며 시험 준비
+      if (cand && (!cand.job || chance(exam ? 0.35 : 0.6))) {
+        const before = exam ? jobTitle(world, cand) : null;
         setJob(world, cand, jk, co);
-        remember(world, cand, `${co.name}에 ${j.name}(으)로 임용되었다`, 6, 0.7, [], 'work');
-        lifeEvent(world, cand, `${co.name} ${j.name} 임용`, '🎖️');
+        remember(world, cand, exam ? `${before} 일을 그만두고 ${co.name} ${j.name} 시험에 붙었다` : `${co.name}에 ${j.name}(으)로 임용되었다`, 6, 0.7, [], 'work');
+        lifeEvent(world, cand, exam ? `공무원 시험 합격 — ${co.name} ${j.name}` : `${co.name} ${j.name} 임용`, '🎖️');
         feel(cand, 12, '뿌듯함', co.name);
+        if (exam && chance(0.5)) think(world, cand, pick(['밤마다 공부한 보람이 있다.', '이제 좀 안정적으로 살 수 있겠다.', '월급은 줄어도 마음은 편하겠지.']));
       }
     }
   }

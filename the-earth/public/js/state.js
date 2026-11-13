@@ -15,6 +15,29 @@ export const fmtTime = min => { const d = dateOf(min); return `${String(d.hour).
 export const fmtDateTime = min => `${fmtDate(min)} ${fmtTime(min)}`;
 export const localHour = (min, lon) => ((((min / 60) + lon / 15) % 24) + 24) % 24;
 
+/** 앞 위치 → 지나간 모퉁이들 → 지금 위치 (모퉁이가 없으면 null: 곧은 보간) */
+function pathOf(x0, z0, via, x1, z1) {
+  if (!via || !via.length) return null;
+  const pts = [[x0, z0]];
+  for (let i = 0; i + 1 < via.length; i += 2) pts.push([via[i], via[i + 1]]);
+  pts.push([x1, z1]);
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  return { pts, cum, len: cum[cum.length - 1] };
+}
+function alongPath(P, k) {
+  const target = P.len * k;
+  for (let i = 1; i < P.pts.length; i++) {
+    if (P.cum[i] >= target) {
+      const seg = P.cum[i] - P.cum[i - 1] || 1, f = (target - P.cum[i - 1]) / seg;
+      const a = P.pts[i - 1], b = P.pts[i];
+      return { x: a[0] + (b[0] - a[0]) * f, z: a[1] + (b[1] - a[1]) * f, h: Math.atan2(b[0] - a[0], b[1] - a[1]) };
+    }
+  }
+  const e = P.pts[P.pts.length - 1];
+  return { x: e[0], z: e[1] };
+}
+
 export class GameState {
   constructor() {
     this.reset();
@@ -30,7 +53,8 @@ export class GameState {
     this.companies = new Map();
     this.players = new Map();
     this.anns = new Map(); // 메타
-    this.pos = new Map();  // id -> {sid, x, z, px, pz, t0, act, target, moving}
+    this.pos = new Map();  // id -> {sid, x, z, px, pz, t0, act, target, moving, mode, path}
+    this.buses = new Map(); // id -> {sid, x, z, px, pz, t0, path, h, riders, on, no}
     this.events = [];
     this.chat = [];
     this.listeners = {};
@@ -49,7 +73,7 @@ export class GameState {
     this.clock = m.world.clock;
     this.clockAt = performance.now();
     this.scale = m.world.paused ? 0 : m.world.timeScale || 24;
-    this.countries.clear(); this.settlements.clear(); this.buildings.clear(); this.companies.clear(); this.players.clear(); this.anns.clear(); this.pos.clear();
+    this.countries.clear(); this.settlements.clear(); this.buildings.clear(); this.companies.clear(); this.players.clear(); this.anns.clear(); this.pos.clear(); this.buses.clear();
     for (const c of m.countries) this.countries.set(c.code, c);
     for (const s of m.settlements) this.settlements.set(s.id, s);
     for (const b of m.buildings) this.buildings.set(b.id, b);
@@ -66,7 +90,7 @@ export class GameState {
   applyPos(list, snap = false, full = false) {
     const t = performance.now();
     const seen = new Set();
-    for (const [id, sid, x, z, act, target, travel, moving] of list) {
+    for (const [id, sid, x, z, act, target, travel, moving, mode = 0, via = 0] of list) {
       seen.add(id);
       let p = this.pos.get(id);
       if (!p || snap || p.sid !== sid) {
@@ -77,7 +101,9 @@ export class GameState {
         p.px = cur.x; p.pz = cur.z;
         if (Math.hypot(x - p.x, z - p.z) > 0.05) p.heading = Math.atan2(x - cur.x, z - cur.z);
         p.x = x; p.z = z; p.t0 = t;
+        p.path = pathOf(cur.x, cur.z, via, x, z);
       }
+      p.mode = mode;
       if (p.act !== act) { p.act = act; p.actAt = t; }
       p.target = target; p.travel = travel; p.moving = moving; p.sid = sid;
     }
@@ -86,10 +112,23 @@ export class GameState {
     for (const [id, , , , act] of list) if (act === 'dead' && !this.anns.get(id)?.al) setTimeout(() => { if (!this.anns.get(id)?.al) this.pos.delete(id); }, 1500);
   }
 
-  /** 1초 간격 위치 사이를 보간 */
+  /** 1초 간격 위치 사이를 보간. 차·버스는 지나간 모퉁이를 따라 (길을 가로지르지 않게) */
   interp(p, t = performance.now()) {
     const k = Math.min(1, (t - p.t0) / 1000);
+    if (p.path) return alongPath(p.path, k);
     return { x: p.px + (p.x - p.px) * k, z: p.pz + (p.z - p.pz) * k };
+  }
+
+  applyBuses(list) {
+    const t = performance.now(), seen = new Set();
+    for (const [id, sid, x, z, h, riders, on, via, no] of list) {
+      seen.add(id);
+      let b = this.buses.get(id);
+      if (!b || b.sid !== sid) { b = { sid, x, z, px: x, pz: z, t0: t }; this.buses.set(id, b); }
+      else { const cur = this.interp(b, t); b.px = cur.x; b.pz = cur.z; b.x = x; b.z = z; b.t0 = t; b.path = pathOf(cur.x, cur.z, via, x, z); }
+      Object.assign(b, { h, riders, on, no });
+    }
+    for (const [id, b] of this.buses) if (!seen.has(id) && !b.on) this.buses.delete(id);
   }
 
   applyTick(m) {
@@ -98,6 +137,7 @@ export class GameState {
     if (m.scale != null) this.scale = m.scale; // 0 = 운영자가 일시정지한 서버
     if (m.anns) { for (const a of m.anns) this.anns.set(a.id, a); this.dirty.anns = true; }
     this.applyPos(m.pos, false, !!m.full);
+    if (m.buses) this.applyBuses(m.buses);
     if (m.buildings) for (const b of m.buildings) { this.buildings.set(b.id, b); this.dirty.buildings.add(b.sid); }
     if (m.removed) for (const id of m.removed) { const b = this.buildings.get(id); if (b) { this.dirty.buildings.add(b.sid); this.buildings.delete(id); } }
     if (m.settlements) { for (const s of m.settlements) this.settlements.set(s.id, s); this.dirty.settlements = true; }

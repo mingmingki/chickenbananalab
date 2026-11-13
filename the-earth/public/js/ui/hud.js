@@ -6,7 +6,7 @@ import { avatarHTML } from './avatar.js';
 const landscapePhone = () => innerWidth <= 960 && innerHeight <= 500 && innerWidth > innerHeight;
 const isMobile = () => innerWidth <= 860 && !landscapePhone();
 const WEMO = { 맑음: '☀️', 구름: '☁️', 비: '🌧️', 소나기: '🌦️', 폭우: '⛈️', 눈: '🌨️', 폭설: '❄️', 바람: '🌬️', 안개: '🌫️', 무더위: '🥵', 한파: '🥶', 태풍: '🌀' };
-const INST = { hall: '🏛️ 관청', academy: '📚 학당', temple: '⛩️ 신전', seodang: '📜 서당', kinder: '🧸 유치원', school: '🏫 초등학교', middle: '🏫 중학교', high: '🏫 고등학교', univ: '🎓 대학교', lab: '🔬 국립 연구소' };
+const INST = { transit: '🚌 공영버스', hall: '🏛️ 관청', academy: '📚 학당', temple: '⛩️ 신전', seodang: '📜 서당', kinder: '🧸 유치원', school: '🏫 초등학교', middle: '🏫 중학교', high: '🏫 고등학교', univ: '🎓 대학교', lab: '🔬 국립 연구소' };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const pct = v => Math.max(0, Math.min(100, v));
 const bar = (v, color = 'var(--accent)') => `<div class="bar"><i style="width:${pct(v)}%;background:${color}"></i></div>`;
@@ -17,6 +17,10 @@ const fmtWon = won => (Math.abs(won) >= 10000 ? fmtMan(won / 10000) : `${Math.ro
 // 2026년 소득세+지방소득세 실효세율 (서버 budget.js 와 같은 표)
 const TAX_PTS = [[0, 0], [1500, 0], [2000, 0.006], [2600, 0.012], [3000, 0.017], [3600, 0.026], [4000, 0.032], [5000, 0.048], [6000, 0.062], [7000, 0.076], [8000, 0.09], [10000, 0.115], [15000, 0.17], [20000, 0.21], [30000, 0.26], [50000, 0.31], [1e9, 0.33]];
 const taxRate = a => { for (let i = 1; i < TAX_PTS.length; i++) { const [x1, y1] = TAX_PTS[i - 1], [x2, y2] = TAX_PTS[i]; if (a <= x2) return y1 + (y2 - y1) * (a - x1) / (x2 - x1); } return 0.33; };
+// 교차로 이름 (서버 traffic.js 와 같은 규칙)
+const STEM = ['새', '큰', '솔', '달', '해', '별', '꽃', '샘'];
+const crossName = node => { const [i, j] = String(node).split(',').map(Number); return `${j === 0 ? '중앙로' : `${STEM[Math.abs(j) % 8]}${j > 0 ? '남' : '북'}로`}·${i === 0 ? '관청로' : `${STEM[(Math.abs(i) + 3) % 8]}${i > 0 ? '동' : '서'}길`} 사거리`; };
+const mhFmt = v => `${Math.round(v).toLocaleString()}인시`;
 const ago = (now, t) => { const m = now - t; if (m < 60) return '방금'; if (m < 1440) return `${Math.floor(m / 60)}시간 전`; if (m < 1440 * 30) return `${Math.floor(m / 1440)}일 전`; return fmtDate(t); };
 
 export class Hud {
@@ -179,7 +183,8 @@ export class Hud {
     const hall = [...st.companies.values()].find(co => co.sid === sid && co.pub && co.ind === 'hall');
     const deptNames = (hall?.depts || []).map(k => (this.meta.depts || []).find(d => d.key === k)).filter(Boolean);
     const roadHtml = `<div class="sec">도로</div><div class="tags">${Object.keys(roadCount).sort((a, b) => b - a).map(g => `<span>${['🟫', '⚪', '🪨', '⬛', '🛣️'][g] || ''} ${esc(RG[g]?.name || '길')} ${roadCount[g]}구간</span>`).join('') || '<span>아직 길이 없다</span>'}</div>`
-      + works.map(w => `<div class="row" style="display:flex;justify-content:space-between;font-size:13px;padding:3px 2px"><span>🚧 ${esc(w.name)} <span class="sub small">${w.segs?.length || 0}구간 → ${esc(RG[w.grade]?.name || '')}</span></span><b>${Math.round((w.p || 0) * 100)}%${w.ct ? ` · ${esc(st.companies.get(w.ct)?.name || '')} ${w.crew}명` : ' · 일용직·이웃'}</b></div>`).join('')
+      + works.filter(w => !w.project).map(w => `<div class="row" style="display:flex;justify-content:space-between;font-size:13px;padding:3px 2px"><span>🚧 ${esc(w.name)} <span class="sub small">${w.segs?.length || 0}구간 → ${esc(RG[w.grade]?.name || '')} · 투입 ${mhFmt(w.mh || 0)}</span></span><b>${Math.round((w.p || 0) * 100)}%${w.ct ? ` · ${esc(st.companies.get(w.ct)?.name || '')} ${w.crew}명` : ' · 일용직·이웃'}</b></div>`).join('')
+      + this.trafficHTML(s, works.filter(w => w.project))
       + (hall ? `<div class="sub small" style="margin:4px 2px">🏛️ ${esc(hall.name)}: ${deptNames.length ? deptNames.map(d => `${esc(d.name)}(${esc(d.does)})`).join(' · ') : '아직 부서가 없다'}${deptNames.some(d => d.key === 'urban') ? '' : ' — 도시환경과가 생겨야 길을 고친다'}</div>` : `<div class="sub small" style="margin:4px 2px">관청이 없어 길은 사람들이 밟아 다진 흙길뿐이다</div>`);
     const people = [...st.anns.values()].filter(a => a.al && a.s === sid).sort((a, b) => a.b - b.b);
     this.right.classList.remove('hidden');
@@ -267,6 +272,33 @@ export class Hud {
     t.classList.remove('hidden');
     clearTimeout(this.toastT);
     this.toastT = setTimeout(() => t.classList.add('hidden'), 4500);
+  }
+
+  tripText(t) {
+    if (!t) return '🚶 걸어가는 중';
+    if (t.k === 'car') return t.stop ? '🚦 빨간불에 서 있다' : '🚗 운전 중';
+    return { walk1: `🚶 ${t.board} 정류장으로`, wait: `🚏 ${t.board} 정류장에서 버스 기다리는 중`, ride: `🚌 버스 타고 ${t.alight}까지`, walk2: `🚶 ${t.alight}에서 내려 걸어가는 중` }[t.leg] || '이동 중';
+  }
+
+  /** 마을 교통: 신호등, 붐비는 교차로, 버스 노선, 진행 중인 신호등·정류장 공사(단계·인시) */
+  trafficHTML(s, projects) {
+    const st = this.state, now = st.now();
+    const sig = Object.keys(s.signals || {});
+    const busCo = s.bus && st.companies.get(s.bus.co);
+    const bus = !s.bus ? '<span>버스 없음 — 버스 회사나 공영버스가 생기면 노선을 깐다</span>'
+      : s.bus.open ? `<span>🚌 ${esc(busCo?.name || '버스')} · 버스 ${s.bus.buses}대 · 정류장 ${s.bus.stops.length}곳 · 노선 ${(s.bus.len / 1000).toFixed(1)}km</span>`
+        : `<span>🚏 버스 정류장 공사 ${s.bus.stops.filter(x => x.built).length}/${s.bus.stops.length} — 다 지어야 개통</span>`;
+    const flow = (s.flowTop || []).filter(([, v]) => v >= 1).map(([k, v]) => `<span>${s.signals?.[k] ? '🚦' : '✖️'} ${esc(crossName(k))} 하루 ${Math.round(v)}대</span>`).join('');
+    const proj = projects.map(w => {
+      const stages = w.stages || [], i = w.stage || 0, cur = stages[i] || [];
+      const doneMh = stages.slice(0, i).reduce((t, x) => t + x[1], 0);
+      const waitDays = w.wait ? Math.max(0, (w.wait - now) / 1440) : 0;
+      return `<div class="proj"><div class="row" style="display:flex;justify-content:space-between;font-size:13px"><span>${w.type === 'signal' ? '🚦' : '🚏'} ${esc(w.name)}</span><b>${Math.round((w.p || 0) * 100)}%</b></div>
+        <div class="sub small">${waitDays > 0 ? `⏳ ${esc(w.waitName || '기다리는 중')} — ${waitDays < 1 ? `${Math.ceil(waitDays * 24)}시간` : `${Math.ceil(waitDays)}일`} 남음 (사람이 많아도 줄일 수 없다)` : `${i + 1}/${stages.length}단계 · ${esc(cur[0] || '')} (${esc(cur[2] || '')}) · ${mhFmt(Math.max(0, (w.p || 0) * w.work - doneMh))}/${mhFmt(cur[1] || 0)}`}</div>
+        <div class="sub small">투입 실제 ${mhFmt(w.mh || 0)} · 표준 ${mhFmt(w.work)} · ${w.ct ? `${esc(st.companies.get(w.ct)?.name || '')} ${w.crew}명 (최대 ${w.maxCrew}명)` : '시공사를 찾는 중'}</div>
+        <div class="stages">${stages.map((x, k) => `<span class="${k < i || (w.p >= 1) ? 'ok' : k === i ? 'now' : ''}" title="${esc(x[0])} ${x[1]}인시${x[3] ? ` + ${x[3]}일 기다림` : ''}">${k < i ? '✓' : k + 1}</span>`).join('')}</div></div>`;
+    }).join('');
+    return `<div class="sec">교통</div><div class="tags"><span>🚦 신호등 ${sig.length}곳</span>${bus}${flow}</div>${proj}`;
   }
 
   renderTop() {
@@ -561,7 +593,7 @@ export class Hud {
       if (d.wantsMigrate) body += `<p class="sub">🧭 새로운 땅으로 떠날 생각을 하고 있다 — ${esc(d.wantsMigrate)}</p>`;
     }
     const nowBox = d.al ? `<div class="now">
-        <div class="what"><span class="em">${act?.emoji || '🙂'}</span>${esc(act?.label || '쉬는 중')}${act?.target ? ` <span class="sub" style="margin:0">— <span class="linklike" data-ann="${act.target.id}">${esc(act.target.name)}</span></span>` : ''}${act?.ph === 'move' ? ' <span class="chip">이동 중</span>' : ''}</div>
+        <div class="what"><span class="em">${act?.emoji || '🙂'}</span>${esc(act?.label || '쉬는 중')}${act?.target ? ` <span class="sub" style="margin:0">— <span class="linklike" data-ann="${act.target.id}">${esc(act.target.name)}</span></span>` : ''}${act?.ph === 'move' ? ` <span class="chip">${this.tripText(act.trip)}</span>` : ''}${act?.drive ? ' <span class="chip">🚌 버스 운전 중</span>' : ''}</div>
         ${act?.line ? `<div class="line">💬 ${esc(act.line)}</div>` : ''}
         <div class="emo">감정: <b>${esc(d.emo?.k || '평온')}</b>${d.emo?.why ? ` <span class="sub" style="margin:0">(${esc(d.emo.why)})</span>` : ''} · 기분 ${d.mood > 0 ? '+' : ''}${d.mood} · 스트레스 ${d.stress}${d.sick > 0 ? ' · 🤒 아픔' : ''}</div>
         <div class="gauges">
@@ -592,7 +624,7 @@ export class Hud {
     const owner = b.owner && this.state.anns.get(b.owner);
     const co = b.co && this.state.companies.get(b.co);
     tip.innerHTML = `<b>${esc(b.name)}</b> <span class="sub small">${esc(def?.name || b.type)}</span><br>
-      ${b.done ? '' : `🏗️ 공사 중 ${Math.round(b.p * 100)}%${b.stalled ? ' — 벽돌이 모자라 멈춤' : ''}<br>`}${!b.done && b.ct ? `🦺 시공: ${esc(this.state.companies.get(b.ct)?.name || '')} · 현장 인원 ${b.crew}명<br>` : !b.done ? '손수 짓는 중<br>' : ''}${co ? `🏢 ${esc(co.name)}<br>` : ''}${owner ? `주인: ${esc(owner.n)}<br>` : ''}${b.res ? `사는 사람 ${b.res}명` : ''}${b.fire ? '<br>🔥 <b>불이 났다!</b>' : ''}${b.burnt && !b.done ? '<br>🔥 화재로 타 버려 다시 짓는 중' : ''}`;
+      ${b.done ? (b.mh ? `🏗️ 지을 때 들어간 일 ${mhFmt(b.mh)}<br>` : '') : `🏗️ 공사 중 ${Math.round(b.p * 100)}% · 투입 ${mhFmt(b.mh || 0)} / 표준 ${mhFmt(b.work || 0)}${b.stalled ? ' — 벽돌이 모자라 멈춤' : ''}<br>`}${!b.done && b.ct ? `🦺 시공: ${esc(this.state.companies.get(b.ct)?.name || '')} · 현장 인원 ${b.crew}명<br>` : !b.done ? '손수 짓는 중<br>' : ''}${co ? `🏢 ${esc(co.name)}<br>` : ''}${owner ? `주인: ${esc(owner.n)}<br>` : ''}${b.res ? `사는 사람 ${b.res}명` : ''}${b.fire ? '<br>🔥 <b>불이 났다!</b>' : ''}${b.burnt && !b.done ? '<br>🔥 화재로 타 버려 다시 짓는 중' : ''}`;
     tip.classList.remove('hidden');
     // 화면 밖으로 나가지 않게
     const tw = tip.offsetWidth || 260, th = tip.offsetHeight || 120;
