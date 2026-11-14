@@ -13,6 +13,8 @@ import { segCenter } from './infra.js';
 import { book, monthNet, refMonth, mealPrice, MEAL_LABEL, LEISURE_LABEL } from './budget.js';
 import { consult } from './dilemma.js';
 import { onLeave } from './life.js';
+import { planMeal, eatDone, consume, condK, diet, addFood, MEAL_EMOJI } from './food.js';
+import { dishById } from './foods.js';
 
 export const ACTS = {
   sleep: { label: '잠', emoji: '💤' },
@@ -64,7 +66,8 @@ function needs(world, a, dt) {
   const t = a.act?.type;
   const sleeping = t === 'sleep' || (t === 'baby' && a.act.sub === 'sleep');
   a.nd.food = clamp(a.nd.food - (sleeping ? 0.035 : 0.068) * dt);
-  if (!sleeping) a.nd.energy = clamp(a.nd.energy - (HEAVY.has(t) ? 0.062 : 0.045) * dt);
+  // 커피·차를 마신 뒤 몇 시간은 덜 피곤하다
+  if (!sleeping) a.nd.energy = clamp(a.nd.energy - (HEAVY.has(t) ? 0.062 : 0.045) * (a.cond?.caf > world.clock ? 0.65 : 1) * dt);
   if (t !== 'talk' && t !== 'date' && t !== 'family' && t !== 'play') a.nd.social = clamp(a.nd.social - 0.028 * (0.4 + a.tr.E / 80) * dt);
   if (t !== 'relax' && t !== 'play' && t !== 'art' && t !== 'wander') a.nd.fun = clamp(a.nd.fun - (t === 'work' ? 0.04 : 0.024) * dt);
   // 기분은 욕구 충족과 성격의 기저선 쪽으로 천천히 돌아간다
@@ -73,6 +76,7 @@ function needs(world, a, dt) {
   a.mood += (base - a.mood) * Math.min(1, 0.0035 * dt);
   a.stress = clamp(a.stress + ((a.tr.N * 0.25) - a.stress) * 0.0008 * dt);
   if (a.nd.food < 4) { a.health = clamp(a.health - 0.004 * dt); a.stress = clamp(a.stress + 0.01 * dt); }
+  if (a.nd.food < 15 && a.fd) a.fd.hungryMin = (a.fd.hungryMin || 0) + dt;   // 굶은 시간 (체중이 빠진다)
   if (a.emo.i > 0) a.emo.i = Math.max(0, a.emo.i - 0.0025 * dt);
   if (a.emo.i < 0.08 && a.emo.k !== '평온') a.emo = { k: a.mood > 25 ? '즐거움' : a.mood < -25 ? '우울' : '평온', i: 0.1, why: '' };
 }
@@ -185,7 +189,7 @@ export function decide(world, a) {
 
   // 하루 단위 기록은 이 마을의 자정(현지 시각)에 새로 시작
   const lday = Math.floor((now / 60 + s.lon / 15) / 24);
-  if (a.day.key !== lday) { a.day.key = lday; a.day.work = 0; a.day.meals = 0; a.day.studied = false; a.day.led = false; a.day.lunch = null; }
+  if (a.day.key !== lday) { a.day.key = lday; a.day.work = 0; a.day.meals = 0; a.day.studied = false; a.day.led = false; a.day.lunch = null; a.day.mw = ''; }
   if (stage === 'baby') {
     const sub = h > 20 || h < 7 || a.nd.energy < 40 ? 'sleep' : 'awake';
     if (sub === 'sleep') a.nd.energy = clamp(a.nd.energy + 25);
@@ -205,14 +209,17 @@ export function decide(world, a) {
   const sleepStart = wakeH + (stage === 'child' ? 13.5 : 16), sleepEnd = wakeH;
   const inSleep = h >= sleepStart || h < sleepEnd || (sleepStart >= 24 && h < sleepStart - 24);
   const meal = (h >= 6.5 && h < 9) || (h >= 11.5 && h < 13.5) || (h >= 17.5 && h < 20);
+  // 끼니 습관: 아침·점심·저녁 때가 되면 배가 덜 고파도 밥을 먹는다 (성실할수록 규칙적으로)
+  const mealWin = h >= 5.5 && h < 10 ? 'b' : h >= 11 && h < 14.5 ? 'l' : h >= 17 && h < 21.5 ? 'd' : '';
+  const mealDue = mealWin && !(a.day.mw || '').includes(mealWin) && stage !== 'baby';
 
   // 잠
   add('sleep', (100 - a.nd.energy) * 0.95 + (inSleep ? 48 : -45) + (a.nd.energy < 15 ? 40 : 0) - (now - (a.lastWake || -1e9) < 240 && a.nd.energy > 30 ? 90 : 0),
     [`피로 ${Math.round(100 - a.nd.energy)}%`, inSleep ? `잘 시간 (${Math.floor(h)}시)` : null]);
   // 식사
   const foodLeft = s.food >= 1;
-  add('eat', (100 - a.nd.food) * 1.15 - 14 + (meal ? 22 : 0) - (a.day.meals >= 3 ? 25 : 0) - (now - (a.lastMeal || -1e9) < 150 ? 40 : 0),
-    [`배고픔 ${Math.round(100 - a.nd.food)}%`, meal ? '식사 시간' : null, foodLeft ? null : '먹을 것이 부족함']);
+  add('eat', (100 - a.nd.food) * 1.15 - 14 + (meal ? 22 : 0) + (mealDue ? 26 + a.tr.C * 0.12 : 0) - (a.day.meals >= 3 ? 25 : 0) - (now - (a.lastMeal || -1e9) < 150 ? 40 : 0),
+    [`배고픔 ${Math.round(100 - a.nd.food)}%`, mealDue ? { b: '아침 먹을 때', l: '점심 먹을 때', d: '저녁 먹을 때' }[mealWin] : meal ? '식사 시간' : null, foodLeft ? null : '먹을 것이 부족함']);
   // 먹을 것이 없으면 직접 구한다
   if (!foodLeft || s.food < s.pop * 1.5) {
     const shortage = clamp(100 - s.food / Math.max(1, s.pop) * 40);
@@ -326,8 +333,9 @@ export function decide(world, a) {
       [a.tr.O > 60 ? '호기심' : null, goal('knowledge') ? '꿈: 위대한 발견' : null, a.ab.int > 65 ? '생각하는 게 좋다' : null]);
     add('art', 1 + a.ab.cre * 0.18 + (goal('art') ? 16 : 0) + (100 - a.nd.fun) * 0.08,
       [a.ab.cre > 60 ? '영감이 떠오른다' : null, goal('art') ? '꿈: 걸작' : null]);
-    add('exercise', 3 + a.ab.ath * 0.22 + (goal('sport') ? 18 : 0) - (100 - a.nd.energy) * 0.35 + (a.health < 60 ? 6 : 0),
-      [a.ab.ath > 60 ? '몸을 움직이고 싶다' : null, goal('sport') ? '꿈: 최고의 선수' : null]);
+    const bmi = a.fd?.bmi ?? 22;
+    add('exercise', 3 + a.ab.ath * 0.22 + (goal('sport') ? 18 : 0) - (100 - a.nd.energy) * 0.35 + (a.health < 60 ? 6 : 0) + Math.max(0, bmi - 25) * 4,
+      [a.ab.ath > 60 ? '몸을 움직이고 싶다' : null, goal('sport') ? '꿈: 최고의 선수' : null, bmi > 26 ? '살 좀 빼야지' : null]);
   }
   add('relax', 18 + (100 - a.nd.fun) * 0.35 + a.stress * 0.18, [a.nd.fun < 40 ? '지루함' : '쉬고 싶다', a.stress > 50 ? '스트레스' : null]);
   add('wander', 8 + a.tr.O * 0.12 + (100 - a.nd.fun) * 0.18 + a.val.adventure * 0.06 + (100 - a.nd.social) * 0.1, ['바람 쐬기', a.nd.social < 40 ? '누군가 만날지도' : null]);
@@ -435,15 +443,21 @@ function execute(world, a, o, ctx) {
   switch (o.type) {
     case 'sleep': start(world, a, 'sleep', 600, 'home', { nap: !ctx.inSleep && a.nd.energy > 15 }); thinkDecision(world, a, o); break;
     case 'eat': {
-      // 점심은 일터 근처 식당에서, 저녁은 보통 집에서 (가끔 외식)
-      const rest = era >= 2 && a.money > wageBase(era) * 0.3 ? nearestOf(world, s, ['restaurant', 'cafe', 'bakery'], a) : null;
-      const out = rest && (o.lunch ? chance(0.75) : chance(0.12 + (a.tr.E - 50) / 300));
-      const where = out ? rest.id : o.lunch && a.job ? workPlace(world, a) : 'home';
+      // 무엇을 어디서 먹을까: 점심은 식당·구내식당·도시락, 저녁은 보통 식구와 집밥 (가끔 외식) — food.js
+      const m = planMeal(world, a, o, { s, era, mealPrice: mealPrice(era) });
+      const where = m.where === 'work' ? (a.job ? workPlace(world, a) : 'home') : m.where;
       if (o.lunch) a.day.lunch = Math.floor(world.clock / DAY);
       a.lastMeal = world.clock;
       const hh = localHour(world.clock, s.lon);
-      logToday(world, a, '🍚', `${mealName(hh)} — ${out ? rest.name : o.lunch && a.job ? '일터에서' : '집에서'}`);
-      start(world, a, 'eat', o.lunch ? 45 : 35, where, { rest: out ? rest.id : null });
+      const win = hh >= 5.5 && hh < 10 ? 'b' : hh >= 11 && hh < 14.5 ? 'l' : hh >= 17 && hh < 21.5 ? 'd' : '';
+      if (win) a.day.mw = (a.day.mw || '') + win;
+      const d = m.dish;
+      const who = m.cook && m.cook !== a.id ? world.anns.get(m.cook) : null;
+      const by = who ? (a.parents.includes(who.id) ? (who.gender === 'F' ? '엄마' : '아빠') : who.id === a.spouse ? (a.gender === 'M' ? '아내' : '남편') : who.name) : null;
+      const place = m.rest ? m.how : m.how === '집밥' ? (by ? `${by}가 차린 밥상` : '집에서') : m.how;
+      logToday(world, a, m.hoesik ? '🍻' : m.delivery ? '🛵' : d ? MEAL_EMOJI[d.cat] || '🍚' : '🍚', `${mealName(hh)} — ${d ? d.n : '대충 한 끼'} (${place})`);
+      // 배달은 집에서 먹지만 값은 식당에 (배달비 조금 더)
+      start(world, a, 'eat', m.hoesik ? 90 : o.lunch ? 45 : 35, where, { rest: m.rest || null, dish: d?.id ?? null, cook: m.cook || null, shared: !!m.shared || !!m.delivery, canteen: !!m.canteen, hoesik: m.hoesik || null, delivery: !!m.delivery });
       break;
     }
     case 'forage': {
@@ -675,7 +689,7 @@ function onArrive(world, a, act) {
     return;
   }
   if (act.type === 'eat') {
-    if (s.food >= 1) { s.food -= 1; act.fed = 1; } else act.fed = 0.25;
+    act.fed = act.rest || act.canteen ? 1 : consume(world, s, dishById(act.dish));
   }
   if (act.type === 'seek_job') {
     const { out: ops, blocked } = openings(world, a, true);
@@ -763,7 +777,8 @@ function maybeConceive(world, a, b) {
 
 function onTick(world, a, act, dt) {
   if (act.type === 'sleep') {
-    const comfort = a.home ? 1 : 0.8;
+    // 집이 없으면, 늦게 커피를 마셨으면 잠이 얕다
+    const comfort = (a.home ? 1 : 0.8) * (a.cond?.cafAt && world.clock - a.cond.cafAt < 360 ? 0.85 : 1);
     a.nd.energy = clamp(a.nd.energy + 0.2 * comfort * dt);
     a.stress = clamp(a.stress - 0.012 * dt);
     const s = world.settlements.get(a.sid);
@@ -794,14 +809,14 @@ function onTick(world, a, act, dt) {
       break;
     case 'forage': {
       const s = world.settlements.get(a.sid);
-      s.food += 1.6 * (0.5 + a.sk.farming / 100) * world.prod(a) * hours;
+      addFood(s, 1.6 * (0.5 + a.sk.farming / 100) * world.prod(a) * hours * condK(world, a), act.fishing ? 'fish' : { fruit: 0.35, veg: 0.45, meat: 0.2 });
       a.sk.farming = clamp(a.sk.farming + 0.04 * hours);
       break;
     }
     case 'build': {
       const b = world.buildings.get(act.site);
       if (!b || b.done) { act.done = true; break; }
-      let work = (0.5 + a.sk.construction / 100) * Math.sqrt(world.prod(a)) * hours * (0.7 + a.ab.ath / 200);
+      let work = (0.5 + a.sk.construction / 100) * Math.sqrt(world.prod(a)) * hours * (0.7 + a.ab.ath / 200) * condK(world, a);
       // 손수 지을 수 없는 건물(관청·가게·연립 등)은 건설회사 없이는 아주 더디다
       if (!buildRule(b).self && !hasConstruction(world, b.sid)) work *= 0.25;
       if (b.owner != null && b.owner !== a.id) { b.helpers = b.helpers || []; if (!b.helpers.includes(a.id)) b.helpers.push(a.id); }
@@ -815,7 +830,7 @@ function onTick(world, a, act, dt) {
     }
     case 'study': {
       const inSchool = !!(a.school && act.school);
-      const rate = (inSchool ? 1.7 : 0.7) * (0.5 + a.ab.int / 100);
+      const rate = (inSchool ? 1.7 : 0.7) * (0.5 + a.ab.int / 100) * condK(world, a);   // 배고프거나 졸리면 공부도 안 된다
       if (inSchool) {
         a.school.days += hours / 6;
         a.school.grade = clamp(a.school.grade + ((a.ab.int * 0.55 + a.tr.C * 0.35 + 10 - a.school.grade) * 0.002 + gauss() * 0.15) * hours);
@@ -828,7 +843,7 @@ function onTick(world, a, act, dt) {
     case 'research': {
       const c = world.countries[a.country];
       const lab = 1 + (act.tx ? 0.3 : 0);
-      const pts = (a.ab.int / 100 + a.sk.science / 100) * 0.22 * Math.sqrt(world.prod(a)) * hours * lab;
+      const pts = (a.ab.int / 100 + a.sk.science / 100) * 0.22 * Math.sqrt(world.prod(a)) * hours * lab * condK(world, a);
       world.addTech(c, pts, 'research');
       a.techMade = (a.techMade || 0) + pts;
       a.sk.science = clamp(a.sk.science + 0.06 * hours * (a.ab.int / 60));
@@ -843,6 +858,7 @@ function onTick(world, a, act, dt) {
       break;
     }
     case 'exercise':
+      if (a.fd) a.fd.exDay += hours;
       a.sk.athletics = clamp(a.sk.athletics + 0.08 * hours * (a.ab.ath / 60));
       a.health = clamp(a.health + 0.01 * dt);
       a.nd.fun = clamp(a.nd.fun + 0.05 * dt);
@@ -916,13 +932,20 @@ function finishAct(world, a, interrupted) {
       if (act.rest) {
         const rb = world.buildings.get(act.rest);
         const co = rb?.co && world.companies.get(rb.co);
-        const ea = era(world, a), price = mealPrice(ea); // 한 끼 사 먹는 값 (시대마다: 1970년 짜장면 100원, 2026년 9,500원)
-        if (co && !co.dead && a.money >= price) { a.money -= price; co.money += price; co.rev += price; act.fed = 1; book(world, a, 'exp', MEAL_LABEL[Math.min(7, ea)], price); }
+        // 한 끼 사 먹는 값 (시대마다: 1970년 짜장면 100원, 2026년 9,500원) × 그 음식의 값
+        const ea = era(world, a), price = mealPrice(ea) * (dishById(act.dish)?.t ?? 1) * (act.delivery ? 1.12 : 1);
+        const payer = act.hoesik && world.companies.get(act.hoesik);   // 회식비는 회사가
+        if (co && !co.dead && payer && !payer.dead && payer.money >= price) { payer.money -= price; co.money += price; co.rev += price; act.fed = 1; }
+        else if (co && !co.dead && a.money >= price) { a.money -= price; co.money += price; co.rev += price; act.fed = 1; book(world, a, 'exp', act.delivery ? '배달 음식' : MEAL_LABEL[Math.min(7, ea)], price); }
+        else act.fed = 0.6;
       }
-      a.nd.food = clamp(a.nd.food + 58 * (act.fed ?? 1));
+      // 같이 먹은 식구 수 (집밥)
+      if (act.shared || act.cook) { const hb = a.home && world.buildings.get(a.home); act.withN = hb?.meal?.who?.length || 1; }
+      eatDone(world, a, act);
+      if (act.extra) logToday(world, a, act.extraKind === 'alc' ? '🍶' : '☕', act.extra);
       a.lastMeal = world.clock;
       a.day.meals++;
-      if (act.fed < 1) { remember(world, a, '먹을 것이 없어 굶주렸다', 3, -0.5, [], 'hunger'); think(world, a, '배가 고프다… 다들 먹을 건 있을까?'); feel(a, -6, '배고픔'); }
+      if (act.fed < 1 && !act.rest) { remember(world, a, '먹을 것이 없어 굶주렸다', 3, -0.5, [], 'hunger'); think(world, a, '배가 고프다… 다들 먹을 건 있을까?'); feel(a, -6, '배고픔'); }
       break;
     case 'work':
       if (a.job) {
@@ -939,7 +962,7 @@ function finishAct(world, a, interrupted) {
     case 'forage':
       if (act.fishing) {
         const s = world.settlements.get(a.sid);
-        s.food += 1.5;
+        addFood(s, 1.5, 'fish');
         if (chance(0.35)) remember(world, a, `물가에서 ${pick(['붕어', '잉어', '송어', '조개', '고등어', '메기'])}을(를) 잡아 왔다`, 2, 0.4, [], 'work');
         world.first(world.countries[a.country], 'fish', `첫 고기잡이 — ${a.name}`, '🐟');
       } else if (chance(0.3)) remember(world, a, pick(['숲에서 열매와 버섯을 따 왔다', '들에서 먹을 풀뿌리를 캐 왔다', '덫에 걸린 토끼를 가져왔다']), 2, 0.3, [], 'work');

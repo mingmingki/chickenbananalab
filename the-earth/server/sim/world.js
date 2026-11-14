@@ -10,6 +10,7 @@ import { rel, decayRelations, breakUp, opinionText, updateKind, confessYes, conf
 import { consult, askTick, askDaily, loansDaily, asksOut } from './dilemma.js';
 import { engage, wedding, honeymoon, cohabit, romanceDaily } from './romance.js';
 import { setKidPlan, startLeave, leaveDaily, onLeave, retire, enlist, draftDaily, armyDaily, discharge } from './life.js';
+import { dietDaily, pantryDaily, kitchenDaily, foodOut, diet, healthTarget } from './food.js';
 import { seedVillage, villageDaily, migrateStart } from './village.js';
 import { companyDaily, considerPromotion, jobTitle, leaveJob, foundPublic, dailyCost, wageBase, setJob, assignContractor, siteName, hasConstruction, fullDayPay, annualOf } from './economy.js';
 import { childName, givenOf, familyName } from './names.js';
@@ -820,6 +821,7 @@ export class World {
   annDaily(a) {
     const now = this.clock;
     const age = ageOf(a, now);
+    if (age >= 1) dietDaily(this, a);   // 먹은 것이 몸에 쌓인다 (건강·체중) — food.js
     const c = this.countries[a.country];
     const s = this.settlements.get(a.sid);
     const today = dateOf(now), bday = dateOf(a.born);
@@ -858,7 +860,8 @@ export class World {
       a.sick = clamp(a.sick + worsen);
       if (a.sick <= 0) { remember(this, a, '병이 나았다', 4, 0.6, [], 'health'); think(this, a, '드디어 몸이 가볍다!'); }
     }
-    else a.health = clamp(a.health + 0.2 - Math.max(0, age - 50) * 0.01);
+    // 아프지 않으면 건강은 '목표치'(체질·나이·식단·체중·운동·술·스트레스·의료)로 조금씩 다가간다 — food.js
+    else if (age >= 1) a.health = clamp(a.health + (healthTarget(this, a, age) - a.health) * 0.03);
     // 출산
     if (a.preg && now >= a.preg.due) this.birth(a);
     // 군 복무 중: 부대에서의 하루만 보낸다
@@ -1067,6 +1070,7 @@ export class World {
     s.weather = rollWeather(this, s);
     s.pop = pop;
     s.food = Math.max(0, s.food * 0.985); // 썩는다
+    pantryDaily(s);                         // 곡물·채소·고기·생선… 구성도 오래된 것부터
     const granary = this.findCivic(s, 'granary');
     const cap = 40 + pop * 6 + (granary ? 300 : 0);
     if (s.food > cap) s.food = cap;
@@ -1139,7 +1143,7 @@ export class World {
     this.rebuildResidents();
     for (const s of this.settlements.values()) this.settlementDaily(s);
     for (const a of [...this.anns.values()]) if (a.alive) this.annDaily(a);
-    for (const co of this.companies.values()) companyDaily(this, co);
+    for (const co of this.companies.values()) { companyDaily(this, co); if (!co.dead) kitchenDaily(this, co); }
     for (const c of Object.values(this.countries)) this.countryDaily(c);
     for (const s of this.settlements.values()) s.pop = this.residents(s.id).length;
     this.rebuildResidents();
@@ -1351,6 +1355,7 @@ export class World {
       engaged: a.engaged ? { to: nm(a.engaged.to), date: a.engaged.date } : null,
       travel: a.travel ? { kind: a.travel.kind || 'move', where: a.travel.where || null, until: a.travel.until } : null,
       wedAt: a.wedAt ?? null, cohab: !!a.cohab,
+      food: a.alive ? (diet(this, a), foodOut(this, a)) : null,
     };
   }
   /** 돈: 연봉, 이번 달·지난달 가계부, 재산, 집, 차 (모두 원) */

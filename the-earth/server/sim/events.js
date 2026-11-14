@@ -8,6 +8,7 @@ import { siteFeatures, removeBuilding } from './settlement.js';
 import { seasonOf } from './thoughts.js';
 import { policeResponse, coverage } from './safety.js';
 import { fmtMoney } from './dilemma.js';
+import { addFood } from './food.js';
 
 const EV = [];
 /** 사건 정의: id, [최소 나이, 최대 나이), 하루 확률, 조건, 실행, 재발 간격(일) */
@@ -95,7 +96,7 @@ E('water_play', [5, 15], 0.02, c => c.waters.length && c.season === '여름', c 
   else { c.mem(`${b ? b.name + '와(과) ' : ''}${pl}에서 신나게 물놀이를 했다`, 3, 0.7, b ? [b.id] : []); c.fun(30); if (b) c.bond(b, 4, 4); }
 }, 10);
 E('kid_fishing', [6, 15], 0.015, c => c.waters.length, c => {
-  const f = pick(FISH); const pl = pick(PLACES_N[pick(c.waters)]); c.sk('farming', 1.5); c.s.food += 1;
+  const f = pick(FISH); const pl = pick(PLACES_N[pick(c.waters)]); c.sk('farming', 1.5); addFood(c.s, 1, 'fish');
   if (!c.a.flags?.firstFish) { c.a.flags = { ...(c.a.flags || {}), firstFish: 1 }; c.life(`${pl}에서 처음으로 ${reul(f)} 잡았다`, '🐟'); }
   else c.mem(`${pl}에서 ${reul(f)} 잡았다`, 3, 0.6);
 }, 25);
@@ -199,10 +200,10 @@ E('cooking_fail', [12, 90], 0.008, null, c => { const f = pick(FOODS); c.mem(`${
 E('hobby_start', [10, 80], 0.004, c => !c.a.hobby, c => { const h = pick(HOBBIES); c.a.hobby = h; c.life(`${reul(h)} 취미로 시작했다`, '🎐'); c.fun(20); }, ONCE);
 E('hobby_progress', [10, 95], 0.012, c => c.a.hobby, c => { c.mem(`${c.a.hobby} 실력이 조금 늘었다`, 2, 0.5); c.fun(20); c.stress(-8); if (['그림', '노래', '시 쓰기', '피리 불기', '춤'].includes(c.a.hobby)) c.sk('art', 1); }, 12);
 E('hike', [12, 75], 0.008, c => c.feat.mountain, c => { const b = c.friend(); c.mem(`${b ? b.name + '와(과) ' : ''}산 정상에 올라 마을을 내려다보았다`, 4, 0.7, b ? [b.id] : []); c.health(2); c.think(pick([`${c.s.name}이(가) 이렇게 작았구나.`, '여기서 보니 걱정이 다 작아 보인다.'])); if (b) c.bond(b, 5, 4); }, 60);
-E('sea_fish', [14, 85], 0.01, c => c.feat.sea, c => { const f = pick(FISH); c.mem(`바다낚시로 커다란 ${reul(f)} 낚았다`, 3, 0.7); c.s.food += 2; c.fun(20); }, 30);
+E('sea_fish', [14, 85], 0.01, c => c.feat.sea, c => { const f = pick(FISH); c.mem(`바다낚시로 커다란 ${reul(f)} 낚았다`, 3, 0.7); addFood(c.s, 2, 'fish'); c.fun(20); }, 30);
 E('river_swim', [10, 60], 0.015, c => (c.feat.river || c.feat.lake) && c.season === '여름', c => { c.mem('뜨거운 날, 강물에 뛰어들어 멱을 감았다', 2, 0.6); c.fun(25); c.a.nd.energy = clamp(c.a.nd.energy + 8); }, 20);
 E('work_injury', [17, 70], 0.004, c => c.a.job && ['builder', 'hunter', 'farmer', 'fisher', 'worker', 'blacksmith', 'laborer'].includes(c.a.job.id), c => { c.a.sick = Math.max(c.a.sick, 20 + rand() * 30); c.life(`${JOBS[c.a.job.id].name} 일을 하다 다쳤다`, '🩹'); c.feel(-10, '아픔'); }, 200);
-E('big_hunt', [16, 60], 0.01, c => c.a.job?.id === 'hunter', c => { const an = pick(ANIMALS); c.s.food += 12; c.a.rep = clamp(c.a.rep + 4, -100, 100); c.life(`큰 ${reul(an)} 잡아 마을에 잔치가 열렸다`, '🍖'); c.feel(20, '뿌듯함', an); }, 120);
+E('big_hunt', [16, 60], 0.01, c => c.a.job?.id === 'hunter', c => { const an = pick(ANIMALS); addFood(c.s, 12, 'meat'); c.a.rep = clamp(c.a.rep + 4, -100, 100); c.life(`큰 ${reul(an)} 잡아 마을에 잔치가 열렸다`, '🍖'); c.feel(20, '뿌듯함', an); }, 120);
 E('boar', [10, 75], 0.002, c => c.era <= 3, c => { c.life('숲에서 성난 멧돼지를 만나 죽을 힘을 다해 도망쳤다', '🐗'); c.feel(-15, '공포'); c.stress(15); }, ONCE);
 E('anniversary', [20, 95], 0.02, c => c.a.spouse && c.w.anns.get(c.a.spouse)?.alive && c.w.anns.get(c.a.spouse).sid === c.a.sid, c => { const p = c.w.anns.get(c.a.spouse); c.bond(p, 6, 3); const r = rel(c.a, p); r.r = clamp(r.r + 6); c.mem(`${wa(p.name)} 결혼기념일을 보냈다`, 4, 0.8, [p.id]); }, 330);
 E('couple_spat', [17, 95], 0.008, c => c.partner()?.sid === c.a.sid, c => {
@@ -250,7 +251,7 @@ E('grandkid', [45, 110], 0.02, c => c.grandkid(), c => { const g = c.grandkid();
 E('first_grandkid', [38, 110], 0.5, c => c.grandkid() && !c.a.flags?.grand, c => { c.a.flags = { ...(c.a.flags || {}), grand: 1 }; const g = c.grandkid(); c.life(`할${c.a.gender === 'F' ? '머니' : '아버지'}가 되었다 — 첫 손주 ${g.name}`, '👵'); c.feel(30, '감격', g.name); }, ONCE);
 E('memoir', [60, 110], 0.008, c => c.a.mem.some(m => m.imp >= 8), c => { const m = pick(c.a.mem.filter(m => m.imp >= 8)); const y = c.peer(70) || c.adult(); c.mem(`젊은이들에게 옛날 일을 이야기해 주었다: "${m.text}"`, 3, 0.5); if (y) c.bond(y, 3, 3); }, 30);
 E('knees', [58, 110], 0.012, null, c => { c.health(-1.5); c.mem(pick(['무릎이 예전 같지 않다', '허리가 쑤신다', '눈이 침침해졌다', '귀가 잘 안 들린다']), 2, -0.3); }, 60);
-E('garden', [55, 110], 0.015, c => c.a.home, c => { const p = pick(['고추', '상추', '호박', '감자', '꽃', '깻잎']); c.mem(`텃밭에 ${reul(p)} 심었다`, 2, 0.5); c.s.food += 0.5; c.stress(-5); }, 25);
+E('garden', [55, 110], 0.015, c => c.a.home, c => { const p = pick(['고추', '상추', '호박', '감자', '꽃', '깻잎']); c.mem(`텃밭에 ${reul(p)} 심었다`, 2, 0.5); addFood(c.s, 0.5, 'veg'); c.stress(-5); }, 25);
 E('advice', [55, 110], 0.008, c => c.peer(40), c => { const y = c.w.residents(c.s.id).filter(b => ageOf(b, c.w.clock) < c.age - 25 && ageOf(b, c.w.clock) > 15); const b = pick(y); if (!b) return; c.bond(b, 5, 3); c.a.rep = clamp(c.a.rep + 1, -100, 100); remember(c.w, b, `${c.a.name} 어르신께 좋은 조언을 들었다`, 3, 0.6, [c.a.id], 'event'); }, 30);
 E('will', [72, 120], 0.01, null, c => { c.life('남은 이들을 위해 유언을 적어 두었다', '📜'); c.think(pick(['후회 없는 삶이었다.', '조금 더 용기 낼 걸 그랬다.', '사랑한다고 더 자주 말할걸.'])); }, ONCE);
 E('retire_party', [60, 80], 0.2, c => c.a.retired && !c.a.flags?.retParty, c => { c.a.flags = { ...(c.a.flags || {}), retParty: 1 }; c.life('동료들이 은퇴 잔치를 열어 주었다', '🎉'); c.feel(15, '뭉클함'); }, ONCE);
@@ -472,7 +473,7 @@ function settlementEvents(world, s, w, f) {
   if (w.season === '가을' && d.day === 15 && d.month === (s.lat < 0 ? 4 : 10)) {
     const farms = s.buildings.filter(id => world.buildings.get(id)?.type === 'farm').length;
     if (farms && !(s.droughtUntil && world.clock - s.droughtUntil < DAY * 60)) {
-      s.food += farms * 40;
+      addFood(s, farms * 40, 'farmer');
       everyone(world, s, `풍년이다! ${s.name}에 추수 잔치가 열렸다`, 5, 0.8);
       for (let i = 0; i < Math.min(12, res.length); i++) { const a = pick(res), b = pick(res); if (a !== b) { const r = rel(a, b), rb = rel(b, a); r.f = clamp(r.f + 3); rb.f = clamp(rb.f + 3); r.a = clamp(r.a + 3, -100, 100); rb.a = clamp(rb.a + 3, -100, 100); } }
       world.news('town', `🌾 ${s.name} 추수 잔치 — 풍년`, { sid: s.id, country: s.country }, 1);

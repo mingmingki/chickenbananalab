@@ -522,3 +522,8 @@ svg.ic { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor
   .topbar .btn { background: rgba(38,42,54,0.92); border-color: rgba(255,255,255,0.1); }
   .topbar .btn.ghost { background: rgba(38,42,54,0.92); }
 }
+
+/* 식생활 */
+.food-row { display: grid; grid-template-columns: 92px 1fr; gap: 8px; align-items: start; margin: 6px 0; font-size: 13px; }
+.food-row .chip { margin: 0 2px 4px 0; }
+.chip.neg { background: rgba(255, 107, 107, 0.15); color: #ffa8a8; }

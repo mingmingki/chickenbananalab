@@ -7,6 +7,7 @@ import { isWaiting } from './traffic.js';
 import { companyName } from './names.js';
 import { rel } from './social.js';
 import { REF_PAY, WORKDAYS, deductions, book, eraPayMul, MIN_WAGE, refMonth, CORP_TAX } from './budget.js';
+import { addFood, condK } from './food.js';
 
 
 const eraOfAnn = (world, a) => world.countries[a.country]?.era ?? 0;
@@ -462,7 +463,8 @@ export function produce(world, a, dt) {
   const era = country.era;
   const hours = dt / 60;
   const skill = a.sk[j.skill];
-  const eff = (0.5 + skill / 100) * (0.85 + a.tr.C / 330) * (a.sick > 0 ? 0.5 : 1);
+  // 솜씨 × 성실함 × 컨디션(밥·잠·기분·카페인·숙취…: food.js) × 아픔
+  const eff = (0.5 + skill / 100) * (0.85 + a.tr.C / 330) * (a.sick > 0 ? 0.5 : 1) * condK(world, a);
   const prod = ERAS[era].prod;
   const co = a.job.co ? world.companies.get(a.job.co) : null;
   // 기술 숙련
@@ -470,7 +472,7 @@ export function produce(world, a, dt) {
   a.job.perf = (a.job.perf || 0) + eff * hours;
 
   switch (j.out) {
-    case 'food': s.food += j.rate * eff * prod * hours; break;
+    case 'food': addFood(s, j.rate * eff * prod * hours, a.job.id); break;
     case 'tech': {
       const pts = j.rate * eff * Math.sqrt(prod) * hours * 0.13 * (0.6 + a.ab.int / 125);
       world.addTech(country, pts, 'job:' + a.job.id);

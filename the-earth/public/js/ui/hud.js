@@ -525,6 +525,33 @@ export class Hud {
     return h;
   }
 
+  /** 식생활: 입맛·좋아하는 음식·그리운 맛·식단·체형·커피·술 */
+  foodHTML(d) {
+    const f = d.food;
+    if (!f || d.age < 2) return '';
+    const chips = (xs, cls = '') => xs.length ? xs.map(x => `<span class="chip ${cls}">${esc(x)}</span>`).join(' ') : '<span class="sub small" style="margin:0">아직 없음</span>';
+    let h = `<div class="sec">식생활</div>`;
+    h += `<div class="card" style="margin:6px 0"><div class="row"><span>입맛</span><b>${esc(f.cuisine)}${f.hateFl ? ` · ${esc(f.hateFl)}은 질색` : ''}</b></div><div class="row"><span>요리 솜씨</span><b>${f.cooking}</b></div></div>`;
+    h += `<div class="stat"><span>매운맛</span>${bar(f.spicy, '#ff6b6b')}<b>${f.spicy}</b></div>`;
+    h += `<div class="stat"><span>단맛</span>${bar(f.sweet, '#f783ac')}<b>${f.sweet}</b></div>`;
+    h += `<div class="stat"><span>새 음식</span>${bar(f.adv, '#ffd43b')}<b>${f.adv}</b></div>`;
+    h += `<div class="food-row"><span class="sub small" style="margin:0">좋아하는 음식</span><div>${chips(f.fav)}</div></div>`;
+    if (f.hate.length) h += `<div class="food-row"><span class="sub small" style="margin:0">싫어하는 음식</span><div>${chips(f.hate, 'neg')}</div></div>`;
+    if (f.comfort) h += `<div class="food-row"><span class="sub small" style="margin:0">그리운 맛</span><div>🏠 ${f.comfort.by ? esc(f.comfort.by) + '가 해 주던 ' : '어릴 때 먹던 '}<b>${esc(f.comfort.n)}</b></div></div>`;
+    if (f.recent.length) h += `<div class="food-row"><span class="sub small" style="margin:0">요즘 먹은 것</span><div class="sub small" style="margin:0">${esc(f.recent.join(' · '))}</div></div>`;
+    if (f.tried.length) h += `<div class="food-row"><span class="sub small" style="margin:0">먹어 본 나라 음식</span><div class="sub small" style="margin:0">${esc(f.tried.join(' · '))}</div></div>`;
+    h += `<div class="stat"><span>식단 균형</span>${bar(f.bal, '#69db7c')}<b>${f.bal}</b></div>`;
+    h += `<div class="stat"><span>군것질·가공</span>${bar(f.junk, '#ffa94d')}<b>${f.junk}</b></div>`;
+    if (d.age >= 16) {
+      h += `<div class="card" style="margin:8px 0"><div class="row"><span>체형</span><b>${esc(f.body)} <span class="sub small" style="margin:0">(BMI ${f.bmi})</span></b></div>`;
+      h += `<div class="row"><span>커피·차</span><b>${f.coffee >= 65 ? '없으면 못 산다' : f.coffee >= 35 ? '하루 한두 잔' : '거의 안 마신다'}${f.caf ? ' ☕' : ''}</b></div>`;
+      if (d.age >= 19) h += `<div class="row"><span>술</span><b>${f.drink >= 65 ? '애주가' : f.drink >= 35 ? '가끔 한잔' : '거의 안 마신다'}${f.hang ? ' · 🥴 숙취' : ''}</b></div>`;
+      h += `</div>`;
+    }
+    h += `<p class="sub small">든든히 먹으면 일이 잘 되고, 굶거나 졸리면 능률이 떨어진다. 골고루 먹으면 건강해지고, 군것질만 하면 몸이 축난다.</p>`;
+    return h;
+  }
+
   renderAnn() {
     const d = this.detail;
     if (!d) return;
@@ -549,6 +576,7 @@ export class Hud {
       body += `<div class="sec">능력</div>` + Object.entries(d.ab).map(([k, v]) => `<div class="stat"><span>${d.abilityNames[k]}</span>${bar(v, '#ff922b')}<b>${v}</b></div>`).join('');
       body += `<div class="stat"><span>야망</span>${bar(d.amb, '#ffd43b')}<b>${d.amb}</b></div>`;
       body += `<div class="sec">기술 (경험으로 자란다)</div>` + Object.entries(d.sk).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<div class="stat"><span>${d.skillNames[k]}</span>${bar(v, '#69db7c')}<b>${Math.round(v)}</b></div>`).join('');
+      body += this.foodHTML(d);
       body += `<div class="sec">상태</div>
         <div class="stat"><span>건강</span>${bar(d.health, '#69db7c')}<b>${d.health}</b></div>
         <div class="stat"><span>자신감</span>${bar(d.conf, '#58b4ff')}<b>${d.conf}</b></div>
@@ -616,6 +644,7 @@ export class Hud {
         <div class="what"><span class="em">${act?.emoji || '🙂'}</span>${esc(act?.label || '쉬는 중')}${act?.target ? ` <span class="sub" style="margin:0">— <span class="linklike" data-ann="${act.target.id}">${esc(act.target.name)}</span></span>` : ''}${act?.ph === 'move' ? ` <span class="chip">${this.tripText(act.trip)}</span>` : ''}${act?.drive ? ' <span class="chip">🚌 버스 운전 중</span>' : ''}</div>
         ${act?.line ? `<div class="line">💬 ${esc(act.line)}</div>` : ''}
         <div class="emo">감정: <b>${esc(d.emo?.k || '평온')}</b>${d.emo?.why ? ` <span class="sub" style="margin:0">(${esc(d.emo.why)})</span>` : ''} · 기분 ${d.mood > 0 ? '+' : ''}${d.mood} · 스트레스 ${d.stress}${d.sick > 0 ? ' · 🤒 아픔' : ''}</div>
+        ${d.food && d.age >= 6 ? `<div class="emo" title="일·공부가 얼마나 잘 되는지 — 밥·잠·기분·스트레스·건강·카페인·숙취·식단">컨디션 <b style="color:${d.food.cond.k >= 100 ? 'var(--good, #69db7c)' : d.food.cond.k >= 85 ? 'inherit' : '#ff8787'}">${d.food.cond.k}%</b>${d.food.cond.why.length ? ` <span class="sub" style="margin:0">(${esc(d.food.cond.why.join(' · '))})</span>` : ''}</div>` : ''}
         <div class="gauges">
           <div class="gauge">배부름${bar(nd.food, '#ffa94d')}</div><div class="gauge">기력${bar(nd.energy, '#74c0fc')}</div>
           <div class="gauge">교류${bar(nd.social, '#f783ac')}</div><div class="gauge">즐거움${bar(nd.fun, '#a9e34b')}</div>

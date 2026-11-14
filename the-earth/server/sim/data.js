@@ -2,7 +2,7 @@
 
 export const SKILLS = {
   farming: '농사·채집', construction: '건축', crafting: '제작', science: '과학', commerce: '상업',
-  leadership: '리더십', medicine: '의술', art: '예술', teaching: '교육', athletics: '운동',
+  leadership: '리더십', medicine: '의술', art: '예술', teaching: '교육', athletics: '운동', cooking: '요리',
 };
 
 // 시대: tech = 이 시대에 들어서기 위한 누적 기술력

@@ -3,6 +3,7 @@
 import { pick, chance, ageOf, localHour, dateOf, callName, ga, wa, reul, neun } from './util.js';
 import { JOBS, ERAS, BUILDINGS } from './data.js';
 import { siteFeatures } from './settlement.js';
+import { craving } from './food.js';
 
 export const SEASON = m => (m >= 3 && m <= 5 ? '봄' : m >= 6 && m <= 8 ? '여름' : m >= 9 && m <= 11 ? '가을' : '겨울');
 export function seasonOf(world, s) {
@@ -101,7 +102,9 @@ function topics(world, a) {
   const nat = Object.keys(W.nature).filter(k => f[k] || (k === 'forest'));
   if (nat.length) add(1.3, () => `${pick(W.nature[pick(nat)])}.`);
   if (chance(0.3)) add(0.6, () => pick([`아까 ${pick(W.animals)} 한 마리가 지나갔다.`, `${pick(W.animals)} 발자국을 봤다.`, `${reul(pick(W.animals))} 쫓아가 보고 싶다.`]));
-  if (a.nd.food < 55) add(2 + (55 - a.nd.food) / 15, () => pick([`${pick(eraFood(c.era))} 먹고 싶다.`, '배가 꼬르륵거린다.', `오늘 저녁은 ${pick(eraFood(c.era))}였으면.`]));
+  // 배고프면 좋아하는 음식·어릴 때 먹던 음식이 떠오른다 (food.js)
+  const want = () => craving(world, a) || pick(eraFood(c.era));
+  if (a.nd.food < 55) add(2 + (55 - a.nd.food) / 15, () => pick([`${want()} 먹고 싶다.`, '배가 꼬르륵거린다.', `오늘 저녁엔 ${want()} 먹었으면.`, `${want()} 생각이 자꾸 난다.`]));
   if (a.nd.energy < 30) add(2, () => pick(['눈꺼풀이 무겁다.', '조금만 누웠다 가고 싶다.', '몸이 천근만근이다.']));
   if (a.nd.social < 35) add(2, () => pick(['외롭다.', '누가 말 좀 걸어 줬으면.', '혼자 있는 게 오늘은 싫다.']));
   if (a.nd.fun < 35) add(1.5, () => pick([`${pick(W.hobbies)}라도 해야겠다.`, '너무 지루하다.', '뭐 재미있는 일 없나?']));
