@@ -1,4 +1,4 @@
-// 앤 만들기: 성격(Big Five), 능력(총 300점), 야망. 투입 후에는 조종할 수 없다.
+// 앤 만들기: 성격(Big Five), 능력(총 300점), 야망. 투입 후에는 조종할 수 없다 (갈림길에서 조언만 할 수 있다).
 import { api } from '../net.js';
 import { avatarURL } from './avatar.js';
 import { josa } from './josa.js';

@@ -11,6 +11,8 @@ import { planTrip, tripStep } from './traffic.js';
 import { compose } from './thoughts.js';
 import { segCenter } from './infra.js';
 import { book, monthNet, refMonth, mealPrice, MEAL_LABEL, LEISURE_LABEL } from './budget.js';
+import { consult } from './dilemma.js';
+import { onLeave } from './life.js';
 
 export const ACTS = {
   sleep: { label: '잠', emoji: '💤' },
@@ -236,7 +238,8 @@ export function decide(world, a) {
     const sStart = sh.start + (JOBS[a.job.id]?.shift === 'farm' && winter ? 1.5 : 0) + Math.max(0, (45 - a.tr.C) / 100), sEnd = sh.end - (JOBS[a.job.id]?.shift === 'farm' && winter ? 2 : 0);
     const lunch = sh.lunch && h >= 12 && h < 13 && a.day.lunch !== dayN;
     const hoursNeed = sEnd - sStart - (sh.lunch ? 1 : 0);
-    if (workday(sh, lday) && h >= sStart - 0.25 && h < sEnd - 0.2 && a.day.work < hoursNeed - 0.2 && !lunch) {
+    const off = onLeave(world, a) || a.restDay > now;
+    if (!off && workday(sh, lday) && h >= sStart - 0.25 && h < sEnd - 0.2 && a.day.work < hoursNeed - 0.2 && !lunch) {
       const next = sh.lunch && h < 12 ? 12 : sEnd;
       add('work', 92 + a.tr.C * 0.12 - (a.tr.C < 30 && chance(0.06) ? 60 : 0) - (a.sick > 30 ? 50 : 0) - (100 - a.nd.energy) * 0.15,
         [a.day.work < 0.1 ? `출근 시간 (${String(Math.floor(sStart)).padStart(2, '0')}시)` : '근무 시간', jobTitle(world, a), a.tr.C > 65 ? '책임감' : a.tr.C < 35 ? '하기 싫지만…' : null],
@@ -262,7 +265,7 @@ export function decide(world, a) {
     const livesWithParents = homeB && homeB.owner !== a.id && a.parents.includes(homeB.owner);
     const outdated = homeB && homeB.owner === a.id && BUILDINGS[homeB.type].era < era - 1 && a.money > (BUILDINGS[HOME_BY_ERA[era]].cost || 0) * 1.5;
     if (own) add('build', 34 + a.tr.C * 0.22 + (a.home ? 0 : 22), [`${own.name} 짓는 중 (${Math.round(own.progress / own.work * 100)}%)`], { site: own.id });
-    else if (!a.home || (livesWithParents && age > 22 + (100 - a.val.adventure) * 0.1) || (homeB && homeB.res.length > BUILDINGS[homeB.type].cap) || outdated) {
+    else if (!a.home || (livesWithParents && !(a.indepWait > now) && (age > 22 + (100 - a.val.adventure) * 0.1 || a.plan?.k === 'indep')) || (homeB && homeB.res.length > BUILDINGS[homeB.type].cap) || outdated) {
       let t = HOME_BY_ERA[Math.min(era, 7)];
       let why = null;
       // 기와집까지는 손수 짓는다. 벽돌집·연립·아파트는 건설회사가 있어야 한다.
@@ -336,11 +339,13 @@ export function decide(world, a) {
     const nCo = world.companyCount(s.id);
     const adults = world.residents(s.id).filter(x => ageOf(x, now) >= 19).length;
     // 가게·회사는 어른 다섯 명에 하나꼴. 나머지는 그런 곳에 취직한다
-    if (bi && bi.df >= 1.05 && nCo < Math.max(2, adults / 5) && a.amb > 50) {
-      const c = startupCost(world, bi.ind, era);
+    const planned = a.plan?.k === 'found' && a.plan.until > now;
+    if (bi && ((bi.df >= 1.05 && nCo < Math.max(2, adults / 5) && a.amb > 50) || planned)) {
+      const ind = planned && a.plan.ind ? a.plan.ind : bi.ind;
+      const c = startupCost(world, ind, era);
       if (a.money >= c) {
-        add('found_co', a.amb * 0.42 + (goal('company') ? 28 : goal('wealth') ? 12 : 0) + (bi.score - 50) * 0.3 + (a.job ? -8 : 6) - 6,
-          ['야망', goal('company') ? '꿈: 내 회사' : null, `${INDUSTRIES[bi.ind].name} 사업 기회`], { ind: bi.ind });
+        add('found_co', a.amb * 0.42 + (goal('company') ? 28 : goal('wealth') ? 12 : 0) + (bi.score - 50) * 0.3 + (a.job ? -8 : 6) - 6 + (planned ? 45 : 0),
+          [planned ? '창업하기로 마음먹었다' : '야망', goal('company') ? '꿈: 내 회사' : null, `${INDUSTRIES[ind].name} 사업 기회`], { ind });
       }
     }
   }
@@ -404,12 +409,19 @@ function pickSocialTarget(world, a, s) {
       why = '새로운 사람을 알고 싶다';
     }
     if (b.stress > 60 && r && r.a > 30 && a.tr.A > 55) { kind = 'comfort'; why = `${ga(b.name)} 힘들어 보인다`; sc += 10; }
-    // 고백 / 청혼
-    if (r && !a.partner && !a.spouse && !b.partner && !b.spouse && r.r >= 52 && r.f >= 20 && a.conf > 35 && (r.rej || 0) < 2 && world.clock - (r.lastConf || -1e9) > DAY * 120 && chance(0.15 + a.conf / 400)) {
-      kind = 'confess'; why = `${b.name}에게 마음을 전하고 싶다`; sc += 15;
+    // 고백 / 청혼 — 플레이어의 앤은 먼저 마음속 목소리에게 묻는다 (답을 들으면 a.plan에 남는다)
+    const plan = a.plan && a.plan.until > world.clock && a.plan.b === b.id ? a.plan.k : null;
+    if (plan === 'confess' && r && !a.partner && !a.spouse && !b.partner && !b.spouse) {
+      kind = 'confess'; why = `${b.name}에게 마음을 전하기로 했다`; sc += 35;
+    } else if (r && !a.partner && !a.spouse && !b.partner && !b.spouse && r.r >= 52 && r.f >= 20 && a.conf > 35 && (r.rej || 0) < 2 && world.clock - (r.lastConf || -1e9) > DAY * 120 && chance(0.15 + a.conf / 400)) {
+      if (a.owner && consult(world, a, 'confess', { b: b.id })) r.lastConf = Math.round(world.clock);
+      else { kind = 'confess'; why = `${b.name}에게 마음을 전하고 싶다`; sc += 15; }
     }
-    if (r && a.partner === b.id && !a.spouse && r.r >= 62 && r.a >= 45 && age >= 20 && world.clock - (r.since || 0) > DAY * 45 && chance(0.06 + a.val.family / 600)) {
-      kind = 'propose'; why = `${wa(b.name)} 평생을 함께하고 싶다`; sc += 20;
+    if (plan === 'propose' && r && a.partner === b.id && !a.spouse && !a.engaged) {
+      kind = 'propose'; why = `${b.name}에게 청혼하기로 했다`; sc += 40;
+    } else if (r && a.partner === b.id && !a.spouse && !a.engaged && !b.engaged && r.r >= 62 && r.a >= 45 && age >= 20 && world.clock - (r.since || 0) > DAY * 45 && !(r.propWait > world.clock) && chance(0.06 + a.val.family / 600)) {
+      if (a.owner && consult(world, a, 'propose', { b: b.id })) r.propWait = Math.round(world.clock + DAY * 20);
+      else { kind = 'propose'; why = `${wa(b.name)} 평생을 함께하고 싶다`; sc += 20; }
     }
     if (sc > bs) { bs = sc; best = { b, kind, why }; }
   }
@@ -683,6 +695,12 @@ function onArrive(world, a, act) {
       const better = ops.filter(op => op.sc > curSc + 8 && !(op.jobKey === a.job.id && (op.co?.id ?? null) === a.job.co) && (a.job.co || op.co));
       if (!better.length) { if (chance(0.4)) think(world, a, '둘러봤지만 지금 일만 한 게 없다.'); return; }
       ops.splice(0, ops.length, ...better);
+      // 플레이어의 앤: 옮길지 마음속 목소리에게 묻는다
+      if (a.owner) {
+        const op = better[0];
+        const curWage = cur ? cur.wage : op.wage;
+        if (consult(world, a, 'job_offer', { co: op.co?.id ?? null, job: op.jobKey, more: curWage > 0 ? op.wage / curWage - 1 : 0 })) return;
+      }
     }
     for (const op of ops.slice(0, 3)) {
       const ok = apply(world, a, op);
@@ -694,6 +712,14 @@ function onArrive(world, a, act) {
     if (!a.job) think(world, a, '또 떨어졌다. 다음엔 꼭…');
   }
   if (act.type === 'found_co') {
+    // 플레이어의 앤: 마음을 굳히기 전에 묻는다 (이미 '창업한다'고 정했으면 바로)
+    if (a.owner && !(a.plan?.k === 'found') && consult(world, a, 'found', { ind: act.ind, cost: startupCost(world, act.ind, world.countries[a.country].era) })) {
+      a.lastFound = world.clock;
+      think(world, a, '정말 해도 될까… 모아 둔 돈을 다 걸어야 한다.');
+      act.done = true;
+      return;
+    }
+    if (a.plan?.k === 'found') a.plan = null;
     const co = foundCompany(world, a, act.ind);
     a.lastFound = world.clock;
     if (!co) think(world, a, '아직은 때가 아닌가 보다.');
@@ -711,13 +737,18 @@ function maybeConceive(world, a, b) {
   if (mother.spouse !== father.id && !(mother.partner === father.id && chance(0.15))) return;
   const age = ageOf(mother, world.clock);
   if (age < 19 || age > 44) return;
+  // 부부가 정한 아이 계획 (마음속 목소리와 함께 정했을 수도 있다)
+  const plan = [mother.kidPlan, father.kidPlan].find(p => p && p.until > world.clock);
+  if (plan && plan.want !== 'yes') return;
+  const eager = plan?.want === 'yes';
   // 옛날엔 아이를 많이 낳았고, 근대 이후엔 적게 낳는다
   const era = world.countries[mother.country].era;
   const want = (x) => x.val.family / 22 + (x.tr.A - 50) / 50 + (era <= 3 ? 2 : era === 4 ? 1 : 0);
-  if (mother.kids.length >= Math.max(want(mother), want(father)) + 0.6) return;
-  if (mother.kids.length && world.clock - (mother.lastBirth || 0) < YEAR * 1.2) return;
-  const fert = clamp(1 - (age - 28) / 22, 0.15, 1) * 0.3;
+  if (!eager && mother.kids.length >= Math.max(want(mother), want(father)) + 0.6) return;
+  if (mother.kids.length && world.clock - (mother.lastBirth || 0) < YEAR * (eager ? 0.9 : 1.2)) return;
+  const fert = clamp(1 - (age - 28) / 22, 0.15, 1) * 0.3 * (eager ? 1.6 : 1);
   if (chance(fert)) {
+    if (eager) { mother.kidPlan = null; father.kidPlan = null; }
     mother.preg = { father: father.id, due: Math.round(world.clock + 270 * DAY) };
     remember(world, mother, '아기가 생겼다!', 9, 0.9, [father.id], 'family');
     remember(world, father, `${ga(mother.name)} 임신했다. 내가 아빠가 된다니!`, 9, 0.9, [mother.id], 'family');
@@ -1000,11 +1031,14 @@ export function nightlyReview(world, a) {
   else if (d.worst) think(world, a, a.tr.N > 60 ? `${d.worst.text.replace(/다$/, '다니')}… 자꾸 그 생각이 난다.` : `${d.worst.text.replace(/다$/, '지만')} 내일은 나아지겠지.`);
   else if (d.talks === 0 && a.tr.E > 55) think(world, a, '오늘은 아무와도 이야기하지 못했다. 외롭다.');
   // 직업 만족도 → 이직 고민
-  if (a.job && !a.job.ceo && a.job.sat < 30 && chance(0.12 + (100 - a.tr.C) / 500)) {
-    const title = jobTitle(world, a);
-    leaveJob(world, a, '적성에 맞지 않아서');
-    think(world, a, `${title}… 이건 내 길이 아니었다. 다른 일을 찾아보자.`);
-    feel(a, -4, '홀가분함', title);
+  if (a.job && !a.job.ceo && a.job.sat < 30 && !(a.job.hold > world.clock) && chance(0.12 + (100 - a.tr.C) / 500)) {
+    if (a.owner && consult(world, a, 'quit', {})) a.job.hold = Math.round(world.clock + 5 * DAY);
+    else {
+      const title = jobTitle(world, a);
+      leaveJob(world, a, '적성에 맞지 않아서');
+      think(world, a, `${title}… 이건 내 길이 아니었다. 다른 일을 찾아보자.`);
+      feel(a, -4, '홀가분함', title);
+    }
   }
   a.day.talks = 0; a.day.best = null; a.day.worst = null;
 }

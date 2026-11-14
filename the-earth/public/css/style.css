@@ -450,3 +450,46 @@ button, .btn, [data-act], [data-ann], [data-town], .roster-item, .country-result
 .lbl.geo.sea { color: rgba(160, 205, 255, 0.85); font-style: italic; font-size: 12px; }
 .lbl.geo.land { color: rgba(245, 225, 180, 0.88); font-size: 12px; }
 @media (max-width: 860px) { .lbl.geo.ocean { font-size: 12px; letter-spacing: .3em; } .lbl.geo.cont { font-size: 12px; } .lbl.geo.sea, .lbl.geo.land { font-size: 10.5px; } }
+
+/* ── 앤이 묻는다: 오른쪽 위 질문 카드 ── */
+.icon-btn.pulse { animation: askPulse 1.6s ease-in-out infinite; }
+@keyframes askPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(177,151,252,0); } 50% { box-shadow: 0 0 0 6px rgba(177,151,252,0.35); } }
+.ask-card { position: absolute; right: 12px; top: 64px; width: 360px; max-height: calc(100vh - 90px); max-height: calc(100dvh - 90px); overflow: auto; z-index: 12;
+  background: rgba(14,20,38,0.96); border: 1px solid rgba(177,151,252,0.45); border-radius: 16px; box-shadow: 0 14px 40px rgba(0,0,0,0.5); padding: 10px 12px 12px; backdrop-filter: blur(8px); }
+.ask-tabs { display: flex; gap: 4px; align-items: center; margin-bottom: 8px; }
+.ask-tabs button { background: none; border: 0; color: var(--muted); font: inherit; font-size: 12.5px; padding: 4px 8px; border-radius: 8px; cursor: pointer; }
+.ask-tabs button.on { color: #fff; background: rgba(177,151,252,0.18); }
+.ask-tabs .x { margin-left: auto; }
+.ask-head { display: flex; align-items: center; gap: 10px; }
+.ask-head .ic { font-size: 26px; line-height: 1; }
+.ask-head > div { flex: 1; min-width: 0; }
+.ask-head .remain { font-size: 12px; color: #ffd8a8; white-space: nowrap; text-align: right; }
+.ask-q.big { border-left: 3px solid #b197fc; padding-left: 9px; }
+.ask-text { margin: 10px 0 10px; font-size: 15.5px; line-height: 1.5; color: #f1f3ff; }
+.ask-opts { display: flex; flex-direction: column; gap: 6px; }
+.ask-opts .btn { text-align: left; justify-content: flex-start; white-space: normal; padding: 9px 12px; line-height: 1.35; }
+.ask-opts .btn:hover { border-color: #b197fc; }
+.ask-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+.ask-foot .nav { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ask-foot .nav button { background: rgba(255,255,255,0.06); border: 0; color: #fff; border-radius: 6px; width: 24px; height: 24px; cursor: pointer; }
+.ask-result .did { margin-top: 6px; font-weight: 700; color: #c3fae8; }
+.ask-result.refused .did { color: #ffc9c9; }
+.ask-result .out { margin-top: 4px; color: #dee2e6; font-size: 13.5px; }
+.ask-log { display: flex; flex-direction: column; gap: 8px; }
+.ask-li { display: flex; gap: 8px; padding: 8px; border-radius: 10px; background: rgba(255,255,255,0.04); }
+.ask-li .ic { font-size: 18px; }
+.ask-li .q { font-size: 13px; margin: 2px 0; color: #e9ecef; }
+.ask-mode { display: flex; gap: 10px; align-items: flex-start; padding: 9px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); margin-top: 6px; cursor: pointer; }
+.ask-mode.on { border-color: #b197fc; background: rgba(177,151,252,0.1); }
+.ask-mode input { margin: 3px 0 0; width: 16px; height: 16px; flex: 0 0 16px; accent-color: #b197fc; }
+.ask-mode > div { flex: 1; min-width: 0; text-align: left; }
+.chron-now .status-l { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: #ffe8cc; }
+.voice { padding: 8px 10px; border-radius: 10px; background: rgba(177,151,252,0.08); border: 1px solid rgba(177,151,252,0.25); margin-bottom: 6px; }
+.voice .row { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+@media (max-width: 860px) {
+  .ask-card { left: calc(8px + var(--sal, 0px)); right: calc(8px + var(--sar, 0px)) !important; width: auto; max-height: 52vh; max-height: 52dvh; z-index: 14; }
+  .ask-text { font-size: 15px; }
+}
+@media (max-width: 960px) and (max-height: 500px) and (orientation: landscape) {
+  .ask-card { width: min(360px, 48vw); left: auto; max-height: calc(100vh - 70px); }
+}

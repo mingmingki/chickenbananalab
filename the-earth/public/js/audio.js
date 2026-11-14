@@ -252,6 +252,7 @@ class Sound {
       case 'death': return this.tone([N(57), N(53)], { gap: 0.6, len: 2.2, vol: 0.09, type: 'sine', echo: true });
       case 'ach': return this.tone([N(72), N(76), N(79), N(84), N(88)], { gap: 0.08, len: 0.9, vol: 0.12, type: 'triangle', echo: true });
       case 'note': return this.tone([N(81), N(88)], { gap: 0.08, len: 0.5, vol: 0.08, echo: true });
+      case 'ask': return this.tone([N(76), N(81), N(79)], { gap: 0.16, len: 0.7, vol: 0.09, type: 'triangle', echo: true });
       case 'rocket': {
         if (!this.ctx || this.ctx.state !== 'running') return;
         const c = this.ctx, t = c.currentTime, src = c.createBufferSource(); src.buffer = this.noiseBuf.brown;

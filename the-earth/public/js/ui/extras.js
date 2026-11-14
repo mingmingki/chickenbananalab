@@ -399,11 +399,12 @@ const TUT_KEY = 'theEarth.tutorial.v1';
 export const tutorialDone = () => { try { return !!localStorage.getItem(TUT_KEY); } catch { return true; } };
 export function tutorial({ hasMine = true } = {}) {
   const steps = [
-    { text: '<b>환영합니다!</b><br>투입한 앤들은 이제 <b>스스로 생각하고 살아갑니다.</b> 당신은 조종할 수 없고, 지켜볼 수만 있어요.' },
+    { text: '<b>환영합니다!</b><br>투입한 앤들은 이제 <b>스스로 생각하고 살아갑니다.</b> 당신은 조종할 수 없고, 지켜볼 수 있어요.' },
     { sel: '#left-tabs', text: '여기서 <b>내 앤</b>, 모든 앤, 나라, 회사, 직업, 소식을 볼 수 있어요.' },
     { sel: '#left-body', text: hasMine ? '앤을 누르면 그 앤의 <b>연대기, 속마음, 관계, 돈</b>을 들여다볼 수 있어요.' : '앤을 누르면 그 앤의 삶을 들여다볼 수 있어요.' },
     { text: TOUCH ? '<b>한 손가락</b>으로 지구를 돌리고, <b>두 손가락</b>으로 확대·회전해요. 마을을 <b>두 번 톡</b> 하면 가까이 내려가요.' : '<b>드래그</b>로 지구를 돌리고, <b>휠</b>로 확대해요. 오른쪽 버튼 드래그로 기울이고, 마을을 <b>두 번 누르면</b> 가까이 내려가요.' },
     { sel: '#hud-date', text: '<b>현실 1시간 = 게임 하루.</b> 앱을 닫아도 세계는 계속 흘러가요. 다시 오면 그동안 있었던 일을 알려 드려요.' },
+    ...(hasMine ? [{ sel: '#hud [data-act=asks]', text: '<b>💭 앤이 묻는다</b> — 고백·결혼·이직·창업 같은 갈림길에서 앤이 여기로 물어 와요. 당신의 답은 <b>마음속 목소리의 조언</b>일 뿐, 앤은 성격대로 다르게 할 수도 있어요. 시간 안에 답이 없으면 스스로 정해요.' }] : []),
     { sel: '#hud [data-act=inbox]', text: '내 앤의 탄생·결혼·죽음 같은 큰 소식과 <b>🏆 업적</b>이 여기에 쌓여요.' },
     { sel: '#hud [data-act=settings]', text: '<b>소리</b>, <b>휴대폰 알림</b>, 계정은 ⚙️ 설정에서 바꿀 수 있어요. 즐거운 관찰 되세요!' },
   ];

@@ -1,4 +1,4 @@
-// 관찰 화면: 앤은 조종할 수 없다. 대신 그들의 속마음과 인생을 들여다볼 수 있다.
+// 관찰 화면: 앤은 조종할 수 없다. 대신 그들의 속마음과 인생을 들여다보고, 갈림길에서 물어 오면 조언할 수 있다.
 import { fmtDate, fmtTime, fmtDateTime, localHour, MIN_YEAR } from '../state.js';
 import { josa } from './josa.js';
 import { avatarHTML } from './avatar.js';
@@ -53,6 +53,7 @@ export class Hud {
 
   destroy() {
     clearInterval(this.timer);
+    this.asks?.destroy(); this.asks = null;
     this.el.classList.add('hidden');
     this.right.classList.add('hidden');
     this.el.onclick = null;
@@ -115,6 +116,7 @@ export class Hud {
       if (act === 'follow') this.toggleFollow();
       if (act === 'deploy-more') this.onDeployMore?.();
       if (act === 'inbox') { this.setUnread(0); this.onInbox?.(); }
+      if (act === 'asks') this.asks?.toggle();
       if (act === 'settings') this.onSettings?.();
       if (act === 'report' && this.detail) this.onReport?.(this.detail);
       if (act === 'home') this.goHome();
@@ -130,6 +132,7 @@ export class Hud {
 
   /** 휴대폰: 열린 시트에 가려지지 않게 3D 화면을 위로 올린다 */
   layout() {
+    if (this.asks?.open) this.asks.place();
     if (!isMobile()) return this.w3d.setLift(0);
     const right = !this.right.classList.contains('hidden'), left = !document.getElementById('left').classList.contains('closed');
     this.w3d.setLift(right ? 0.27 : left ? 0.22 : 0);
@@ -255,10 +258,12 @@ export class Hud {
 
   /** 내 앤의 큰 소식 (서버가 나에게만 보내는 알림) */
   onNotes(notes) {
-    const top = notes.slice().sort((a, b) => b.lvl - a.lvl)[0];
-    if (!top) return;
-    this.toast(`${top.icon} ${top.name ? top.name + ' — ' : ''}${top.text}`);
+    // 앤의 질문과 그 결과는 오른쪽 위 질문 카드가 보여 준다
+    if (this.asks) this.asks.onNotes(notes);
+    const rest = this.asks ? notes.filter(n => !this.asks.handles(n)) : notes;
     this.setUnread(this.unread + notes.length);
+    const top = rest.slice().sort((a, b) => b.lvl - a.lvl)[0];
+    if (top) this.toast(`${top.icon} ${top.name ? top.name + ' — ' : ''}${top.text}`);
   }
   setUnread(n) {
     this.unread = n;
@@ -269,6 +274,11 @@ export class Hud {
   toast(text) {
     const t = document.getElementById('toast');
     t.textContent = text;
+    // 위쪽 막대(휴대폰에선 두세 줄)와 열린 질문 카드를 가리지 않게
+    const tb = document.querySelector('#hud .topbar')?.getBoundingClientRect().bottom || 56;
+    const card = document.getElementById('ask-card');
+    const cardOn = card && !card.classList.contains('hidden');
+    t.style.top = ((isMobile() || landscapePhone()) && cardOn ? card.getBoundingClientRect().bottom + 8 : tb + 8) + 'px';
     t.classList.remove('hidden');
     clearTimeout(this.toastT);
     this.toastT = setTimeout(() => t.classList.add('hidden'), 4500);
@@ -529,6 +539,7 @@ export class Hud {
     const tab = this.innerTab;
     let body = '';
     if (tab === 'mind') {
+      if (d.voice) body += `<div class="voice"><div class="row"><span>🗣️ 마음속 목소리를 믿는 정도</span><b>${d.voice.heed}%</b></div>${bar(d.voice.heed, '#b197fc')}<div class="sub small" style="margin:4px 0 0">${d.voice.ask ? '💭 지금 당신에게 물어보고 있다 — 오른쪽 위 질문 카드를 보세요.' : d.voice.heed >= 70 ? '당신의 조언을 잘 따르는 편이다.' : d.voice.heed >= 45 ? '조언을 듣지만 결국 자기 마음대로 할 때도 있다.' : '고집이 세다. 조언보다 자기 마음을 믿는다.'}</div></div>`;
       body += `<div class="sec">속마음</div>` + (d.th.length ? d.th.slice(0, 12).map(t => `<div class="thought">${esc(t.text)}<time>${ago(now, t.t)}</time></div>`).join('') : '<p class="sub">아직 아무 생각도 들려오지 않는다.</p>');
       if (d.why?.length && d.al) {
         body += `<div class="sec">마지막 고민 — 왜 이 행동을 골랐을까</div>` + d.why.map((w, i) => `<div class="why ${i === 0 ? 'top' : ''}"><span>${this.meta.acts[w.a]?.emoji || '•'}</span><div><b>${esc(this.meta.acts[w.a]?.label || w.a)}${w.k && w.k !== 'chat' ? ` (${{ date: '데이트', confess: '고백', propose: '청혼', comfort: '위로', family: '가족' }[w.k] || w.k})` : ''}</b><div class="rs">${esc(w.r.join(' · ') || '그냥')}</div></div><span class="sc">${w.s}</span></div>`).join('') + `<p class="sub small">점수가 높을수록 끌렸던 선택. 성격에 따라 매번 조금씩 흔들린다 — 1위가 늘 이기지는 않는다.</p>`;
@@ -572,7 +583,16 @@ export class Hud {
       const now2 = d.al ? '지금' : '마지막';
       const doing = d.al ? `${act?.emoji || '🙂'} ${esc(act?.label || '쉬는 중')}${act?.target ? ` — ${esc(act.target.name)}` : ''}` : '🕯️ 세상을 떠남';
       const role = d.school ? `🎒 ${esc(d.school.name)} ${d.age}살 학생 (성적 ${d.school.grade})` : d.job ? `💼 ${esc(d.job.title)}` : d.age < 4 ? '🍼 아기' : d.age < 19 ? '🏠 집에서 지냄' : d.retired ? '🌿 은퇴' : '일자리를 찾는 중';
-      body += `<div class="chron-now"><b>${now2}</b> ${doing}<br><span class="sub small">${role} · 학력: ${esc(d.eduName || '')}${d.home ? ` · 집: ${esc(d.home.name)}` : ' · 집 없음'}${d.shift ? ` · 근무: ${esc(d.shift)}` : ''}</span>${d.site ? `<div class="sub small" style="margin-top:4px">🦺 ${esc(d.site.name)} 현장 — 공정 ${d.site.p}%</div>` : ''}</div>`;
+      const statusL = [
+        d.travel?.kind === 'army' && d.army ? `🎖️ ${esc(d.army.branch)} 복무 중 — 전역까지 ${Math.max(0, Math.ceil((d.army.until - now) / 1440))}일` : null,
+        d.travel?.kind === 'honeymoon' ? `✈️ ${esc(d.travel.where || '')} 신혼여행 중` : null,
+        d.travel && !d.travel.kind?.match(/army|honeymoon/) ? '🧭 먼 길을 떠나는 중' : null,
+        d.leave ? `🍼 ${esc(d.leave.why)} ${d.leave.from > now ? `예정 (${fmtDate(d.leave.from)}부터)` : `중 — ${fmtDate(d.leave.until)}까지`}` : null,
+        d.engaged ? `💍 ${esc(josa(d.engaged.to?.name || '', '와/과'))} 약혼 — 결혼식 ${fmtDate(d.engaged.date)}` : null,
+        d.cohab ? '🗝️ 연인과 함께 사는 중' : null,
+        d.wedAt != null && d.family?.spouse ? `💒 결혼 ${Math.floor((now - d.wedAt) / MIN_YEAR) + 1}년째` : null,
+      ].filter(Boolean);
+      body += `<div class="chron-now"><b>${now2}</b> ${doing}${statusL.length ? `<div class="status-l">${statusL.map(x => `<div>${x}</div>`).join('')}</div>` : ''}<br><span class="sub small">${role} · 학력: ${esc(d.eduName || '')}${d.home ? ` · 집: ${esc(d.home.name)}` : ' · 집 없음'}${d.shift ? ` · 근무: ${esc(d.shift)}` : ''}</span>${d.site ? `<div class="sub small" style="margin-top:4px">🦺 ${esc(d.site.name)} 현장 — 공정 ${d.site.p}%</div>` : ''}</div>`;
       const day = d.today?.length > 2 ? d.today : d.yesterday?.length ? d.yesterday : d.today;
       if (day?.length) {
         const hm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;

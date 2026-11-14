@@ -6,7 +6,10 @@ import { ERAS, DISCOVERIES, BUILDINGS, PUBLIC, JOBS, GOALS, HOME_BY_ERA, SETTLEM
 import { makeAnn, makeBaby, remember, think, feel, lifeEvent, ageStage, STAGE_NAMES, TRAIT_NAMES, ABILITY_NAMES, deriveValues, deriveGoals } from './ann.js';
 import { makeSettlement, placeBuilding, removeBuilding, updateSettlementLevel, plazaPoint, CELL, siteFeatures, ensureSite, buildRule } from './settlement.js';
 import { updateAnn, nightlyReview, ACTS, isAvailable, shiftOf } from './mind.js';
-import { rel, decayRelations, breakUp, opinionText, updateKind } from './social.js';
+import { rel, decayRelations, breakUp, opinionText, updateKind, confessYes, confessNo, proposeNo } from './social.js';
+import { consult, askTick, askDaily, loansDaily, asksOut } from './dilemma.js';
+import { engage, wedding, honeymoon, cohabit, romanceDaily } from './romance.js';
+import { setKidPlan, startLeave, leaveDaily, onLeave, retire, enlist, draftDaily, armyDaily, discharge } from './life.js';
 import { companyDaily, considerPromotion, jobTitle, leaveJob, foundPublic, dailyCost, wageBase, setJob, assignContractor, siteName, hasConstruction, fullDayPay, annualOf } from './economy.js';
 import { childName, givenOf, familyName } from './names.js';
 import { runEvents, rollWeather } from './events.js';
@@ -75,6 +78,21 @@ export class World {
     this.newNotes.push({ pid: p.id, ...n });
   }
   onLifeEvent(a, text, icon) { onLifeEvent(this, a, text, icon); }
+  // ── 갈림길 (dilemma.js) · 연애와 결혼 (romance.js) · 인생의 제도 (life.js) ──
+  consult(a, id, d) { return consult(this, a, id, d); }
+  asksOut(p) { return asksOut(this, p); }
+  acceptConfession(a, b) { confessYes(this, a, b); }
+  rejectConfession(a, b) { confessNo(this, a, b); }
+  engage(a, b) { engage(this, a, b); }
+  acceptProposal(a, b) { engage(this, a, b); }
+  rejectProposal(a, b) { proposeNo(this, a, b, true); }
+  breakUp(a, b, divorce) { breakUp(this, a, b, divorce); }
+  cohabit(a, b) { return cohabit(this, a, b); }
+  honeymoon(a, where, days) { honeymoon(this, a, where, days); }
+  setKidPlan(a, want, years) { setKidPlan(this, a, want, years); }
+  startLeave(a, why, days, delay) { startLeave(this, a, why, days, delay); }
+  retire(a) { retire(this, a); }
+  enlist(a) { enlist(this, a); }
   chatter(a, b, line) {
     const c = { t: Math.round(this.clock), a: a.id, b: b.id, sid: a.sid, line: fixJosa(line) };
     this.chat.push(c);
@@ -326,7 +344,9 @@ export class World {
   electLeader(c) {
     const people = [...this.anns.values()].filter(a => a.alive && a.country === c.code && ageOf(a, this.clock) >= 19);
     if (!people.length) return;
-    const cands = people.filter(a => a.amb > 50 && ageOf(a, this.clock) >= 25).sort((x, y) => this.influence(y) - this.influence(x)).slice(0, 4);
+    // 출마: 야망 있는 사람 중 영향력 순. 마음속 목소리와 출마를 정한 앤은 그 뜻대로
+    const ran = a => a.runFor && a.runFor.e === c.nextElection;
+    const cands = people.filter(a => ageOf(a, this.clock) >= 25 && (ran(a) ? a.runFor.yes : a.amb > 50)).sort((x, y) => (ran(y) && y.runFor.yes ? 1e6 : 0) + this.influence(y) - (ran(x) && x.runFor.yes ? 1e6 : 0) - this.influence(x)).slice(0, 4);
     if (cands.length < 2) {
       const top = people.sort((x, y) => this.influence(y) - this.influence(x))[0];
       if (top) this.setLeader(c, top, '추대');
@@ -335,6 +355,11 @@ export class World {
     const votes = new Map(cands.map(x => [x.id, 0]));
     for (const v of people) {
       let best = null, bs = -Infinity;
+      if (v.vote && v.vote.e === c.nextElection) {
+        if (v.vote.for == null) continue;
+        const cd = cands.find(x => x.id === v.vote.for);
+        if (cd) { votes.set(cd.id, votes.get(cd.id) + 1); continue; }
+      }
       for (const cd of cands) {
         const r = v.rels[cd.id];
         const sc = (cd.id === v.id ? 200 : 0) + (r ? r.a * 0.6 + r.t * 0.2 : 0) + cd.ab.cha * 0.3 + cd.rep * 0.3 + cd.fame * 0.3 + (cd.sid === v.sid ? 8 : 0) + gauss() * 12;
@@ -515,7 +540,7 @@ export class World {
     const id = 'p' + this.newId();
     const used = new Set(Object.values(this.players).map(p => p.color));
     const color = PLAYER_COLORS.find(x => !used.has(x)) || pick(PLAYER_COLORS);
-    const p = { id, token: randomUUID(), name: String(name || '플레이어').slice(0, 20), country: c.code, color, joined: Math.round(this.clock), joinedReal: Date.now(), anns: [], eraAtJoin: c.era, ach: {}, inbox: [] };
+    const p = { id, token: randomUUID(), name: String(name || '플레이어').slice(0, 20), country: c.code, color, joined: Math.round(this.clock), joinedReal: Date.now(), anns: [], eraAtJoin: c.era, ach: {}, inbox: [], asks: [], askLog: [], askMode: 'all' };
     this.players[id] = p;
     this.news('player', `🌍 새로운 플레이어 ${ga(p.name)} ${c.name}에서 문명을 시작한다`, { country: c.code }, 2);
     return p;
@@ -691,6 +716,8 @@ export class World {
       a.noSchool[stage.key] = 1;
       const want = a.ab.int * 0.35 + a.tr.O * 0.2 + a.amb * 0.25 + a.tr.C * 0.15 + (a.eduLv >= 3 ? 10 : -30) + gauss() * 10;
       const org = this.findSchool(s, stage);
+      if (org && a.owner && !(a.gapYear > this.clock) && consult(this, a, 'college', { org: org.id, want: Math.round(want) })) return;
+      if (a.gapYear > this.clock) { a.noSchool[stage.key] = 0; return; }
       if (org && want > 52) this.enroll(a, stage, org, s, c);
       else if (org) { lifeEvent(this, a, '대학 대신 일을 시작하기로 했다', '🧰'); think(this, a, '공부는 이만하면 됐다. 이제 돈을 벌어야지.'); }
       return;
@@ -762,11 +789,14 @@ export class World {
   }
 
   arrive(a) {
+    const kind = a.travel?.kind;
     a.travel = null;
     const s = this.settlements.get(a.sid);
     const [x, z] = plazaPoint(s, 20);
     a.x = x; a.z = z;
-    remember(this, a, `${s.name}에 도착했다`, 4, 0.3, [], 'life');
+    if (kind === 'army') discharge(this, a);
+    else if (kind === 'honeymoon') { remember(this, a, '신혼여행에서 돌아왔다', 4, 0.5, [], 'love'); think(this, a, pick(['이제 진짜 우리 둘의 생활이 시작이다.', '꿈같은 며칠이었다.'])); }
+    else remember(this, a, `${s.name}에 도착했다`, 4, 0.3, [], 'life');
     this.dirtyAnnMeta.add(a.id);
     this.rebuildResidents();
   }
@@ -816,6 +846,11 @@ export class World {
     else a.health = clamp(a.health + 0.2 - Math.max(0, age - 50) * 0.01);
     // 출산
     if (a.preg && now >= a.preg.due) this.birth(a);
+    // 군 복무 중: 부대에서의 하루만 보낸다
+    if (a.army) { armyDaily(this, a, c); return; }
+    if (a.travel) { decayRelations(this, a); return; }
+    leaveDaily(this, a, c);
+    loansDaily(this, a);
     // 생활비: 식비·주거비·공과금·통신비·교통비·의류·보험·자녀 교육비 (가계부에 남는다)
     if (age >= 19) {
       pensionDaily(this, a, c);
@@ -826,16 +861,9 @@ export class World {
       }
     }
     // 은퇴
-    if (a.job && age >= 63 && !a.job.ceo && chance(0.01 + (age - 63) * 0.01 + (a.money > dailyCost(c.era) * 200 ? 0.03 : 0))) {
-      leaveJob(this, a, '은퇴');
-      a.retired = true;
-      think(this, a, '평생 일했다. 이제는 쉬어도 되겠지.');
-    }
-    if (a.job?.ceo && age >= 68 && chance(0.02)) {
-      const co = this.companies.get(a.job.co);
-      leaveJob(this, a, '은퇴');
-      a.retired = true;
-      if (co) remember(this, a, `${co.name}을(를) 후배들에게 맡겼다`, 7, 0.3, [], 'work');
+    if (a.job && !(a.retireAfter > now) && ((age >= 63 && !a.job.ceo && chance(0.01 + (age - 63) * 0.01 + (a.money > dailyCost(c.era) * 200 ? 0.03 : 0))) || (a.job.ceo && age >= 68 && chance(0.02)))) {
+      if (a.owner && consult(this, a, 'retire', {})) a.retireAfter = Math.round(now + 20 * DAY);
+      else retire(this, a);
     }
     if (age >= 3.5 && age < 24) this.schoolDaily(a, age, s, c);
     if (!a.home && age >= 19) { s.need = s.need || {}; s.need.homes = (s.need.homes || 0) + 1; }
@@ -856,10 +884,24 @@ export class World {
       if (!p || !p.alive) a.partner = null;
       else if (a.id < p.id) {
         const r = rel(a, p), rp = rel(p, a);
-        if ((r.a < -10 || rp.a < -10) && chance(0.15)) breakUp(this, a, p, !!a.spouse && (r.a < -25 || rp.a < -25) && chance(0.4));
-        else if (!a.spouse && r.r < 15 && rp.r < 15 && chance(0.08)) breakUp(this, a, p, false);
+        const hold = a.relHold > now || p.relHold > now;
+        const asker = [a, p].find(x => x.owner && !x.ask);
+        const other = asker === a ? p : a;
+        if (!hold && (r.a < -10 || rp.a < -10) && chance(0.15)) {
+          const divorce = !!a.spouse && (r.a < -25 || rp.a < -25) && chance(0.4);
+          if (!(asker && (a.spouse ? divorce : true) && consult(this, asker, a.spouse ? 'divorce' : 'breakup', { b: other.id }))) {
+            if (!a.spouse || divorce) breakUp(this, a, p, divorce);
+          } else asker.relHold = Math.round(now + 3 * DAY);
+        } else if (!hold && !a.spouse && r.r < 15 && rp.r < 15 && chance(0.08)) {
+          if (asker && consult(this, asker, 'breakup', { b: other.id, cold: 1 })) asker.relHold = Math.round(now + 3 * DAY);
+          else breakUp(this, a, p, false);
+        }
       }
     }
+    romanceDaily(this, a);
+    draftDaily(this, a, age);
+    if (a.army) return;
+    askDaily(this, a, age);
     // 집 없는 앤: 빈 집을 찾는다 / 갓난아이는 엄마 집
     if (!a.home) {
       const mom = a.parents.map(id => this.anns.get(id)).find(p => p && p.alive && p.home && p.sid === a.sid);
@@ -887,8 +929,14 @@ export class World {
       const sCount = [...this.settlements.values()].filter(x => x.country === a.country).length;
       const crowd = s.pop / (25 * (1 + c.era * 0.7));
       // 사람은 대개 모여 산다: 정착지는 인구 40~50명에 하나 정도만 새로 생긴다 (마을이 커져야 도시가 된다)
-      if (a.goals.some(g => g.k === 'adventure' && !g.done) && s.pop >= 20 && sCount < 1 + c.pop / 45 && chance(0.004 * (1 + crowd))) a.wantsMigrate = '모험심';
-      else if (crowd > 1 && sCount < 1 + c.pop / 40 && chance(0.0015 * crowd * a.val.adventure / 50)) a.wantsMigrate = '이곳은 너무 붐빈다';
+      let why = null;
+      if (a.noMigrateUntil > now) why = null;
+      else if (a.goals.some(g => g.k === 'adventure' && !g.done) && s.pop >= 20 && sCount < 1 + c.pop / 45 && chance(0.004 * (1 + crowd))) why = '모험심';
+      else if (crowd > 1 && sCount < 1 + c.pop / 40 && chance(0.0015 * crowd * a.val.adventure / 50)) why = '이곳은 너무 붐빈다';
+      if (why) {
+        if (a.owner && consult(this, a, 'migrate', { why })) a.noMigrateUntil = Math.round(now + 3 * DAY);
+        else a.wantsMigrate = why;
+      }
     }
     // 목표 진척
     for (const g of a.goals) {
@@ -945,6 +993,15 @@ export class World {
       this.first(cc, 'baby', `첫 아기 ${name} — ${mother.name}의 아이`, '👶');
     }
     remember(this, baby, '세상에 태어났다', 10, 1, [mother.id], 'life');
+    // 육아휴직: 플레이어의 앤이면 누가 쓸지 묻고, 아니면 시대의 관행대로
+    if (this.countries[mother.country].era >= 5) {
+      const era = this.countries[mother.country].era;
+      const asker = [mother, father].find(p => p && p.alive && p.owner && p.job && !p.ask);
+      if (!(asker && consult(this, asker, 'parental_leave', { baby: baby.id }))) {
+        if (mother.job && chance(era >= 6 ? 0.6 : 0.3)) startLeave(this, mother, '육아휴직', era >= 6 ? 365 : 180);
+        if (father?.alive && father.job && chance(era >= 6 ? 0.22 : 0.04)) startLeave(this, father, '육아휴직', era >= 6 ? 180 : 60, mother.leave ? 180 : 0);
+      }
+    }
     const fam = mother.kids.length;
     if (mother.goals.some(g => g.k === 'family' && !g.done) && mother.spouse && fam >= 2) this.achieveGoal(mother, mother.goals.find(g => g.k === 'family'));
     this.news('family', `👶 ${father ? `${wa(mother.name)} ${father.name} 사이에서` : `${ga(mother.name)}`} ${gender === 'M' ? '아들' : '딸'} ${ga(name)} 태어났다`, { anns: [baby.id, mother.id, father?.id].filter(Boolean), country: mother.country }, 2);
@@ -1080,6 +1137,7 @@ export class World {
     for (const a of this.anns.values()) if (a.alive) updateAnn(this, a, dt);
     for (const s of this.settlements.values()) if (s.bus?.open) busTick(this, s, dt);
     for (const s of this.settlements.values()) if (s.fireAt || s.fireOff) safetyTick(this, s);
+    askTick(this);
     const day = Math.floor(this.clock / DAY);
     if (day !== this.lastDay) { this.lastDay = day; this.daily(); }
   }
@@ -1114,7 +1172,7 @@ export class World {
     w.chat = o.chat || [];
     w.lastDay = Math.floor(w.clock / DAY);
     w.paused = !!o.paused;
-    for (const p of Object.values(w.players)) { p.ach = p.ach || {}; p.inbox = p.inbox || []; if (p.eraAtJoin == null) p.eraAtJoin = 0; }
+    for (const p of Object.values(w.players)) { p.ach = p.ach || {}; p.inbox = p.inbox || []; p.asks = p.asks || []; p.askLog = p.askLog || []; if (p.eraAtJoin == null) p.eraAtJoin = 0; }
     return w;
   }
 
@@ -1270,6 +1328,12 @@ export class World {
       today: a.today || [], yesterday: a.yesterday || [], shift: a.job && JOBS[a.job.id]?.shift ? shiftOf(this, a).label : null,
       site: a.job?.site && this.buildings.get(a.job.site) ? { id: a.job.site, name: siteName(this, this.buildings.get(a.job.site)), p: Math.round(this.buildings.get(a.job.site).progress / this.buildings.get(a.job.site).work * 100) } : null,
       fin: this.finOut(a, co, home),
+      voice: a.owner ? { heed: Math.round(a.heed ?? 60), ask: !!a.ask } : null,
+      army: a.army ? { branch: a.army.branch, since: a.army.since, until: a.army.until } : null,
+      leave: a.leave && a.leave.until > this.clock ? { why: a.leave.why, from: a.leave.from, until: a.leave.until } : null,
+      engaged: a.engaged ? { to: nm(a.engaged.to), date: a.engaged.date } : null,
+      travel: a.travel ? { kind: a.travel.kind || 'move', where: a.travel.where || null, until: a.travel.until } : null,
+      wedAt: a.wedAt ?? null, cohab: !!a.cohab,
     };
   }
   /** 돈: 연봉, 이번 달·지난달 가계부, 재산, 집, 차 (모두 원) */

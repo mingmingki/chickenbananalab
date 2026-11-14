@@ -227,23 +227,47 @@ export function converse(world, a, b, kind = 'chat') {
 function confess(world, a, b) {
   const ra = rel(a, b), rb = rel(b, a);
   ra.lastConf = Math.round(world.clock);
-  const yes = !b.partner && !b.spouse && (rb.r > 32 || (rb.a > 55 && attraction(world, b, a) > 55 && chance(0.5)));
+  if (a.plan?.k === 'confess' && a.plan.b === b.id) a.plan = null;
+  const free = !b.partner && !b.spouse;
+  // 고백받은 앤이 플레이어의 앤이면, 받아 줄지 마음속 목소리에게 묻는다
+  if (free && b.owner && world.consult(b, 'confessed', { by: a.id })) {
+    remember(world, a, `${b.name}에게 마음을 고백했다. 대답을 기다리고 있다`, 7, 0.2, [b.id], 'love');
+    think(world, a, '대답이 언제 올까… 하루가 일 년 같다.');
+    feel(a, 6, '두근거림', b.name);
+    return { topic: '고백', line: `${neun(a.name)} ${b.name}에게 마음을 고백했고, ${neun(b.name)} 조금 생각할 시간을 달라고 했다`, quarrel: false };
+  }
+  const yes = free && (rb.r > 32 || (rb.a > 55 && attraction(world, b, a) > 55 && chance(0.5)));
   if (yes) {
-    a.partner = b.id; b.partner = a.id;
-    ra.r = clamp(ra.r + 15); rb.r = clamp(rb.r + 20);
-    ra.since = rb.since = Math.round(world.clock);
-    for (const [x, y] of [[a, b], [b, a]]) {
-      remember(world, x, `${wa(y.name)} 연인이 되었다`, 8, 0.9, [y.id], 'love');
-      lifeEvent(world, x, `${wa(y.name)} 연인이 되었다`, '💕');
-      feel(x, 25, '설렘', y.name);
-      updateKind(world, x, y);
-    }
-    think(world, a, `${ga(b.name)} 받아줬다! 꿈만 같아.`);
-    think(world, b, `사실 나도 ${ga(callName(a.name, b.culture))} 좋았어.`);
-    world.news('love', `💕 ${wa(a.name)} ${ga(b.name)} 연인이 되었다`, { anns: [a.id, b.id], country: a.country }, 1);
-    world.first(world.countries[a.country], 'couple', `첫 연인 — ${wa(a.name)} ${b.name}`, '💕');
+    confessYes(world, a, b);
     return { topic: '고백', line: `${neun(a.name)} ${b.name}에게 마음을 고백했고, ${neun(b.name)} 웃으며 받아들였다`, quarrel: false };
   }
+  confessNo(world, a, b);
+  return { topic: '고백', line: `${neun(a.name)} ${b.name}에게 고백했지만 정중히 거절당했다`, quarrel: false };
+}
+
+/** 고백이 받아들여졌다: a가 고백한 사람, b가 받아 준 사람 */
+export function confessYes(world, a, b) {
+  const ra = rel(a, b), rb = rel(b, a);
+  a.partner = b.id; b.partner = a.id;
+  ra.r = clamp(ra.r + 15); rb.r = clamp(rb.r + 20);
+  ra.since = rb.since = Math.round(world.clock);
+  delete ra.metP; delete rb.metP;
+  for (const [x, y] of [[a, b], [b, a]]) {
+    remember(world, x, `${wa(y.name)} 연인이 되었다`, 8, 0.9, [y.id], 'love');
+    lifeEvent(world, x, `${wa(y.name)} 연인이 되었다`, '💕');
+    feel(x, 25, '설렘', y.name);
+    updateKind(world, x, y);
+  }
+  think(world, a, `${ga(b.name)} 받아줬다! 꿈만 같아.`);
+  think(world, b, `사실 나도 ${ga(callName(a.name, b.culture))} 좋았어.`);
+  world.news('love', `💕 ${wa(a.name)} ${ga(b.name)} 연인이 되었다`, { anns: [a.id, b.id], country: a.country }, 1);
+  world.first(world.countries[a.country], 'couple', `첫 연인 — ${wa(a.name)} ${b.name}`, '💕');
+  world.dirtyAnnMeta.add(a.id); world.dirtyAnnMeta.add(b.id);
+}
+
+/** 고백이 거절되었다 */
+export function confessNo(world, a, b) {
+  const ra = rel(a, b);
   ra.rej = (ra.rej || 0) + 1; ra.lastConf = Math.round(world.clock);
   ra.r = clamp(ra.r - 18 - ra.rej * 10); ra.a = clamp(ra.a - 3, -100, 100);
   a.conf = clamp(a.conf - 8);
@@ -253,32 +277,54 @@ function confess(world, a, b) {
   think(world, a, pick(['괜히 말했나… 바보 같아.', `${neun(b.name)} 나를 그렇게 생각하지 않았구나.`, '시간이 지나면 괜찮아지겠지.']));
   think(world, b, `${callName(a.name, b.culture)}에게 미안하다. 하지만 마음은 어쩔 수 없잖아.`);
   updateKind(world, a, b);
-  return { topic: '고백', line: `${neun(a.name)} ${b.name}에게 고백했지만 정중히 거절당했다`, quarrel: false };
 }
 
 function propose(world, a, b) {
   const ra = rel(a, b), rb = rel(b, a);
-  const yes = b.partner === a.id && rb.r > 45 && rb.a > 35 && chance(0.55 + rb.r / 300 + b.val.family / 400);
+  const ring = a.plan?.k === 'propose' && a.plan.ring;
+  if (a.plan?.k === 'propose') a.plan = null;
+  if (b.partner === a.id && b.owner && world.consult(b, 'proposed', { by: a.id, ring: ring ? 1 : 0 })) {
+    remember(world, a, `${b.name}에게 청혼했다. 대답을 기다린다`, 8, 0.3, [b.id], 'love');
+    think(world, a, '제발… 제발 "응"이라고 해 줘.');
+    return { topic: '청혼', line: `${neun(a.name)} ${b.name}에게 청혼했고, ${neun(b.name)} 놀란 얼굴로 대답을 고민하고 있다`, quarrel: false };
+  }
+  const yes = b.partner === a.id && rb.r > 45 && rb.a > 35 && chance(0.55 + rb.r / 300 + b.val.family / 400 + (ring ? 0.1 : 0));
   if (yes) {
-    marry(world, a, b);
+    world.engage(a, b);
     return { topic: '청혼', line: `${neun(a.name)} ${b.name}에게 청혼했고, ${neun(b.name)} 눈물을 흘리며 승낙했다`, quarrel: false };
   }
-  ra.r = clamp(ra.r - 6);
+  proposeNo(world, a, b);
+  return { topic: '청혼', line: `${neun(a.name)} ${b.name}에게 청혼했지만 ${neun(b.name)} 조금 더 생각해 보겠다고 했다`, quarrel: false };
+}
+
+/** 청혼이 받아들여지지 않았다 (hard: 분명히 거절) */
+export function proposeNo(world, a, b, hard = false) {
+  const ra = rel(a, b);
+  ra.r = clamp(ra.r - (hard ? 15 : 6));
+  ra.propWait = Math.round(world.clock + (hard ? 120 : 45) * 1440);
+  if (hard) {
+    remember(world, a, `${b.name}에게 청혼했지만 거절당했다`, 8, -0.8, [b.id], 'love');
+    remember(world, b, `${ga(a.name)} 청혼했지만 받아들일 수 없었다`, 6, -0.3, [a.id], 'love');
+    feel(a, -25, '상심', b.name);
+    think(world, a, pick(['우리 관계는 뭐였을까.', '내가 너무 앞서갔나.']));
+    if (chance(0.4)) breakUp(world, a, b, false);
+    return;
+  }
   remember(world, a, `${b.name}에게 청혼했지만 아직은 이르다는 대답을 들었다`, 6, -0.5, [b.id], 'love');
   remember(world, b, `${ga(a.name)} 청혼했지만 아직 마음의 준비가 되지 않았다`, 5, 0, [a.id], 'love');
   feel(a, -12, '실망', b.name);
   think(world, a, '조금 더 기다려야 하나…');
-  return { topic: '청혼', line: `${neun(a.name)} ${b.name}에게 청혼했지만 ${neun(b.name)} 조금 더 생각해 보겠다고 했다`, quarrel: false };
 }
 
-export function marry(world, a, b) {
+export function marry(world, a, b, quiet = false) {
   a.spouse = b.id; b.spouse = a.id;
+  a.engaged = b.engaged = null;
   a.partner = b.id; b.partner = a.id;
   for (const [x, y] of [[a, b], [b, a]]) {
     const r = rel(x, y);
     r.r = clamp(r.r + 15); r.a = clamp(r.a + 10, -100, 100); r.t = clamp(r.t + 15);
     remember(world, x, `${wa(y.name)} 결혼했다`, 10, 1, [y.id], 'love');
-    lifeEvent(world, x, `${wa(y.name)} 결혼`, '💍');
+    if (!quiet) lifeEvent(world, x, `${wa(y.name)} 결혼`, '💍');
     feel(x, 35, '행복', y.name);
     updateKind(world, x, y);
   }
@@ -288,8 +334,10 @@ export function marry(world, a, b) {
   const ha = a.home && world.buildings.get(a.home), hb = b.home && world.buildings.get(b.home);
   const target = ha && hb ? (hb.h * hb.w > ha.h * ha.w ? hb : ha) : ha || hb;
   if (target) { world.moveHome(a, target); world.moveHome(b, target); }
-  world.news('love', `💍 ${wa(a.name)} ${ga(b.name)} 결혼했다`, { anns: [a.id, b.id], country: a.country }, 2);
-  world.first(world.countries[a.country], 'wedding', `첫 결혼식 — ${wa(a.name)} ${b.name}`, '💍');
+  if (!quiet) {
+    world.news('love', `💍 ${wa(a.name)} ${ga(b.name)} 결혼했다`, { anns: [a.id, b.id], country: a.country }, 2);
+    world.first(world.countries[a.country], 'wedding', `첫 결혼식 — ${wa(a.name)} ${b.name}`, '💍');
+  }
   world.dirtyAnnMeta.add(a.id); world.dirtyAnnMeta.add(b.id);
   // 친구들도 기뻐한다
   for (const x of [a, b]) for (const id in x.rels) {
@@ -302,8 +350,15 @@ export function marry(world, a, b) {
 }
 
 export function breakUp(world, a, b, divorce = false) {
+  const broke = a.engaged?.to === b.id;
+  const lived = !divorce && a.cohab && b.cohab;
   a.partner = null; b.partner = null;
+  a.engaged = b.engaged = null; a.cohab = b.cohab = false;
+  if (a.plan?.b === b.id) a.plan = null;
+  if (b.plan?.b === a.id) b.plan = null;
   if (divorce) { a.spouse = null; b.spouse = null; }
+  if (broke) for (const x of [a, b]) lifeEvent(world, x, '파혼', '💔');
+  if (lived) { const leaver = a.money >= b.money ? b : a; if (leaver.home) world.leaveHome(leaver); }
   for (const [x, y] of [[a, b], [b, a]]) {
     const r = rel(x, y);
     r.r = clamp(r.r * 0.3); r.ex = true; r.a = clamp(r.a - 15, -100, 100);

@@ -47,7 +47,11 @@ export function flushPush(isWatching) {
     q.last = now;
     if (isWatching(acc)) continue; // 지금 앱을 보고 있으면 화면 안 알림으로 충분
     const top = notes.slice().sort((a, b) => b.lvl - a.lvl)[0];
-    const title = notes.length > 1 ? `${top.icon} ${top.name ? top.name + ' — ' : ''}외 소식 ${notes.length - 1}건` : `${top.icon} ${top.name || 'The Earth'}`;
-    sendPush(acc, { title, body: notes.slice(0, 4).map(n => `${n.icon} ${n.name ? n.name + ': ' : ''}${n.text}`).join('\n'), tag: 'notes', urgent, url: '/' }).catch(() => {});
+    // 앤의 질문이 있으면 그것부터: "민지가 묻습니다"
+    const asks = notes.filter(n => n.ask);
+    const first = asks[0] || top;
+    const title = asks.length ? `❓ ${first.name}${asks.length > 1 ? ` 외 ${asks.length - 1}명` : ''}이(가) 묻고 있어요` : notes.length > 1 ? `${top.icon} ${top.name ? top.name + ' — ' : ''}외 소식 ${notes.length - 1}건` : `${top.icon} ${top.name || 'The Earth'}`;
+    const ordered = [...asks, ...notes.filter(n => !n.ask)];
+    sendPush(acc, { title, body: ordered.slice(0, 4).map(n => `${n.icon} ${n.name ? n.name + ': ' : ''}${n.text}`).join('\n'), tag: asks.length ? 'ask' : 'notes', urgent, url: asks.length ? '/?ask=1' : '/' }).catch(() => {});
   }
 }

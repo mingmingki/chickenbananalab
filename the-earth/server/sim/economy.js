@@ -555,7 +555,7 @@ export function companyDaily(world, co) {
   for (const e of members) {
     const worked = Math.min(1.05, (e.payHours || 0) / 7.5);
     if (worked <= 0 || (startup && e.job.ceo)) continue;
-    const full = fullDayPay(world, e, e.job.id, co);
+    const full = fullDayPay(world, e, e.job.id, co) * (e.job.raise || 1);
     dayPays.set(e.id, full);
     payroll += full * worked;
   }

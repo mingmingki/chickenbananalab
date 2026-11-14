@@ -18,6 +18,7 @@ import { initPush, pushPublicKey, queuePush, flushPush, sendPush } from './push.
 import * as google from './lib/google.js';
 import { verifyIdToken, nativeEnabled } from './lib/idtoken.js';
 import { recap, ACHIEVEMENTS } from './sim/achieve.js';
+import { resolveAsk, ASK_MODES, DILEMMA_COUNT } from './sim/dilemma.js';
 import { ERA_MONEY, perUnit, INS_RATE, WON, eraF } from './sim/budget.js';
 import { listedSalary } from './sim/economy.js';
 import { ACTS } from './sim/mind.js';
@@ -373,6 +374,37 @@ app.get('/api/servers/:id/inbox', (req, res) => {
   const p = playerOf(w, req);
   if (!p) return res.status(404).json({ error: '플레이어를 찾을 수 없습니다' });
   res.json({ notes: (p.inbox || []).slice(-80), ach: p.ach || {} });
+});
+// 앤이 묻는다: 지금 기다리는 질문과 지난 답들
+app.get('/api/servers/:id/asks', (req, res) => {
+  const w = getWorld(req, res); if (!w) return;
+  const p = playerOf(w, req);
+  if (!p) return res.status(404).json({ error: '플레이어를 찾을 수 없습니다' });
+  res.json(w.asksOut(p));
+});
+const askLimit = limiter(240, 600_000);
+app.post('/api/servers/:id/asks/:qid', askLimit, (req, res) => {
+  const w = getWorld(req, res); if (!w) return;
+  const p = playerOf(w, req);
+  if (!p) return res.status(404).json({ error: '플레이어를 찾을 수 없습니다' });
+  const q = (p.asks || []).find(x => x.id === String(req.params.qid));
+  if (!q) return res.status(404).json({ error: '이미 지난 질문입니다', ...w.asksOut(p) });
+  const k = String(req.body?.k || '');
+  if (!q.opts.some(o => o.k === k)) return res.status(400).json({ error: '없는 선택지입니다' });
+  const log = resolveAsk(w, p, q, k);
+  res.json({ result: log, ...w.asksOut(p) });
+});
+app.post('/api/servers/:id/asks-mode', askLimit, (req, res) => {
+  const w = getWorld(req, res); if (!w) return;
+  const p = playerOf(w, req);
+  if (!p) return res.status(404).json({ error: '플레이어를 찾을 수 없습니다' });
+  const mode = String(req.body?.mode || '');
+  if (!ASK_MODES.includes(mode)) return res.status(400).json({ error: '잘못된 설정입니다' });
+  p.askMode = mode;
+  // '묻지 않기'로 바꾸면 기다리던 질문은 앤이 스스로 정한다
+  if (mode === 'off') for (const q of [...(p.asks || [])]) resolveAsk(w, p, q, null);
+  if (mode === 'big') for (const q of [...(p.asks || [])]) if (!q.big) resolveAsk(w, p, q, null);
+  res.json(w.asksOut(p));
 });
 app.post('/api/servers/:id/seen', (req, res) => {
   const w = getWorld(req, res); if (!w) return;

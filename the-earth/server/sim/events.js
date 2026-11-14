@@ -7,6 +7,7 @@ import { ERAS, JOBS, BUILDINGS, DISCOVERIES } from './data.js';
 import { siteFeatures, removeBuilding } from './settlement.js';
 import { seasonOf } from './thoughts.js';
 import { policeResponse, coverage } from './safety.js';
+import { fmtMoney } from './dilemma.js';
 
 const EV = [];
 /** 사건 정의: id, [최소 나이, 최대 나이), 하루 확률, 조건, 실행, 재발 간격(일) */
@@ -37,6 +38,7 @@ function ctxOf(world, a, base) {
   return {
     w: world, a, s, c, age, era: c.era, feat, waters, season: seasonOf(world, s), wk: s.weather?.k || '맑음',
     wage: ERAS[c.era].wage,
+    fmt: u => fmtMoney(u, c.era),
     mem: (t, imp = 3, v = 0, who = []) => remember(world, a, t, imp, v, who, 'event'),
     life: (t, icon = '•') => lifeEvent(world, a, t, icon),
     think: t => think(world, a, t),
@@ -188,10 +190,10 @@ E('found_money', [8, 90], 0.002, c => c.era >= 2, c => {
 E('robbed', [16, 95], 0.0012, c => c.era >= 2 && c.a.money > c.wage * 5 && !chance(coverage(c.w, c.s) * 0.6), c => {
   const loss = c.a.money * (0.1 + rand() * 0.25); c.money(-loss);
   const caught = policeResponse(c.w, c.a, loss);
-  c.life(`도둑이 들어 재산 ${Math.round(loss)}을(를) 잃었다${caught ? ' — ' + caught : ''}`, '🦹'); c.feel(caught && caught.includes('되찾') ? -5 : -15, '분노', '도둑'); c.stress(caught ? 6 : 15);
+  c.life(`도둑이 들어 재산 ${c.fmt(loss)}을(를) 잃었다${caught ? ' — ' + caught : ''}`, '🦹'); c.feel(caught && caught.includes('되찾') ? -5 : -15, '분노', '도둑'); c.stress(caught ? 6 : 15);
 }, 300);
-E('scammed', [20, 90], 0.0015, c => c.era >= 3 && c.a.money > c.wage * 20 && c.a.tr.O + c.a.ab.int < 110, c => { const loss = c.a.money * (0.2 + rand() * 0.4); c.money(-loss); c.life(`그럴듯한 말에 속아 사기를 당했다 (${Math.round(loss)})`, '🎭'); c.feel(-25, '절망', '사기'); c.stress(25); c.think('사람을 믿은 내가 바보였다.'); }, 1000);
-E('windfall', [18, 95], 0.0008, null, c => { const m = c.wage * (30 + rand() * 120); c.money(m); const how = c.era >= 4 ? '복권에 당첨되었다' : c.feat.mountain ? '산에서 귀한 약초 군락을 발견해 큰돈을 벌었다' : '땅을 일구다 옛 보물을 발견했다'; c.life(`${how}! (${Math.round(m)})`, '🍀'); c.feel(35, '환희', '횡재'); }, ONCE);
+E('scammed', [20, 90], 0.0015, c => c.era >= 3 && c.a.money > c.wage * 20 && c.a.tr.O + c.a.ab.int < 110, c => { const loss = c.a.money * (0.2 + rand() * 0.4); c.money(-loss); c.life(`그럴듯한 말에 속아 사기를 당했다 (${c.fmt(loss)})`, '🎭'); c.feel(-25, '절망', '사기'); c.stress(25); c.think('사람을 믿은 내가 바보였다.'); }, 1000);
+E('windfall', [18, 95], 0.0008, null, c => { const m = c.wage * (30 + rand() * 120); c.money(m); const how = c.era >= 4 ? '복권에 당첨되었다' : c.feat.mountain ? '산에서 귀한 약초 군락을 발견해 큰돈을 벌었다' : '땅을 일구다 옛 보물을 발견했다'; c.life(`${how}! (${c.fmt(m)})`, '🍀'); c.feel(35, '환희', '횡재'); }, ONCE);
 E('housewarming', [19, 90], 0.03, c => c.a.home && c.w.buildings.get(c.a.home)?.owner === c.a.id && c.w.clock - (c.w.buildings.get(c.a.home)?.built || 0) < DAY * 10 && c.friend(), c => { const f = c.friend(); c.mem(`새집에 ${reul(f.name)} 초대해 집들이를 했다`, 4, 0.7, [f.id]); c.bond(f, 6, 4); c.other(f, `${c.a.name}의 집들이에 갔다`, 3, 0.5); }, 400);
 E('cooking_fail', [12, 90], 0.008, null, c => { const f = pick(FOODS); c.mem(`${reul(f)} 만들다가 다 태웠다`, 2, -0.2); c.think(pick(['요리는 내 길이 아닌가 보다.', '다음엔 불을 줄여야지.'])); }, 40);
 E('hobby_start', [10, 80], 0.004, c => !c.a.hobby, c => { const h = pick(HOBBIES); c.a.hobby = h; c.life(`${reul(h)} 취미로 시작했다`, '🎐'); c.fun(20); }, ONCE);
@@ -252,6 +254,128 @@ E('garden', [55, 110], 0.015, c => c.a.home, c => { const p = pick(['고추', '�
 E('advice', [55, 110], 0.008, c => c.peer(40), c => { const y = c.w.residents(c.s.id).filter(b => ageOf(b, c.w.clock) < c.age - 25 && ageOf(b, c.w.clock) > 15); const b = pick(y); if (!b) return; c.bond(b, 5, 3); c.a.rep = clamp(c.a.rep + 1, -100, 100); remember(c.w, b, `${c.a.name} 어르신께 좋은 조언을 들었다`, 3, 0.6, [c.a.id], 'event'); }, 30);
 E('will', [72, 120], 0.01, null, c => { c.life('남은 이들을 위해 유언을 적어 두었다', '📜'); c.think(pick(['후회 없는 삶이었다.', '조금 더 용기 낼 걸 그랬다.', '사랑한다고 더 자주 말할걸.'])); }, ONCE);
 E('retire_party', [60, 80], 0.2, c => c.a.retired && !c.a.flags?.retParty, c => { c.a.flags = { ...(c.a.flags || {}), retParty: 1 }; c.life('동료들이 은퇴 잔치를 열어 주었다', '🎉'); c.feel(15, '뭉클함'); }, ONCE);
+
+// ═══ 생애 단계별 사건 (아기 → 팔순) · 몸의 변화 · 가족과 이웃 · 명절 ═══
+const kidAge = (c, k) => ageOf(k, c.w.clock);
+const newborn = c => c.a.kids.map(id => c.w.anns.get(id)).find(k => k?.alive && ageOf(k, c.w.clock) < 0.25);
+const recentDead = c => { for (const id in c.a.rels) { const r = c.a.rels[id]; if (!['friend', 'best', 'sibling', 'acquaintance'].includes(r.k)) continue; const b = c.w.anns.get(+id); if (b && !b.alive && c.w.clock - b.died < DAY * 3 && b.country === c.a.country) return b; } return null; };
+const holiday = c => { const d = dateOf(c.w.clock); return d.month === 1 && d.day <= 2 ? '설날' : d.month === 9 && d.day >= 14 && d.day <= 16 ? '추석' : null; };
+
+// 아기
+E('roll_over', [0.25, 0.7], 0.04, null, c => { c.life('처음으로 뒤집기에 성공했다', '🐢'); const p = c.parent(); c.other(p, `${ga(c.a.name)} 뒤집기를 했다!`, 6, 0.9); }, ONCE);
+E('baby_food', [0.45, 1], 0.03, null, c => { const f = c.era >= 4 ? pick(['쌀미음', '단호박죽', '감자 퓌레', '소고기죽']) : pick(['곡식죽', '으깬 열매', '묽은 미음']); c.life(`처음으로 ${reul(f)} 먹었다`, '🥣'); const p = c.parent(); if (p) think(c.w, p, pick(['반은 먹고 반은 뱉었다. 그래도 귀엽다.', '오물오물 잘도 먹는다!'])); }, ONCE);
+E('first_bday', [1, 1.15], 0.4, c => c.era >= 1, c => {
+  const items = c.era >= 6 ? ['실', '연필', '돈', '마이크', '청진기', '마우스', '판사봉'] : c.era >= 4 ? ['실', '연필', '돈', '쌀', '청진기'] : ['실', '붓', '엽전', '쌀', '활'];
+  const it = pick(items); c.a.dol = it;
+  const mean = { 실: '오래 살 거래', 연필: '공부를 잘할 거래', 붓: '학자가 될 거래', 돈: '부자가 될 거래', 엽전: '부자가 될 거래', 쌀: '먹을 걱정 없이 살 거래', 마이크: '노래를 잘할 거래', 청진기: '의사가 될 거래', 마우스: '컴퓨터를 잘할 거래', 판사봉: '판사가 될 거래', 활: '용감한 사람이 될 거래' }[it];
+  c.life(`${c.era >= 4 ? '돌잔치' : '돌상'}에서 ${reul(it)} 잡았다 — ${mean}`, '🎂');
+  for (const p of c.a.parents.map(id => c.w.anns.get(id)).filter(p => p?.alive)) { remember(c.w, p, `${c.a.name}의 첫 생일 — 돌잡이로 ${reul(it)} 잡았다`, 7, 0.9, [c.a.id], 'family'); feel(p, 15, '행복', c.a.name); }
+}, ONCE);
+E('daycare_first', [1, 4], 0.02, c => c.era >= 5 && c.a.parents.some(id => c.w.anns.get(id)?.job), c => { c.life('어린이집에 처음 간 날 — 엄마 아빠 손을 놓지 않으려고 울었다', '🧸'); const p = c.parent(); if (p) think(c.w, p, '나도 같이 울 뻔했다. 잘 지내겠지?'); }, ONCE);
+E('baby_grandparent', [0, 4], 0.015, c => c.a.parents.some(pid => (c.w.anns.get(pid)?.parents || []).some(g => c.w.anns.get(g)?.alive && c.w.anns.get(g)?.sid === c.a.sid)), c => {
+  const g = c.a.parents.flatMap(pid => c.w.anns.get(pid)?.parents || []).map(id => c.w.anns.get(id)).find(x => x?.alive && x.sid === c.a.sid); if (!g) return;
+  c.bond(g, 6, 6); remember(c.w, g, `손주 ${reul(c.a.name)} 안아 주었다`, 3, 0.8, [c.a.id], 'family'); think(c.w, g, pick(['이 녀석, 제 아비 어릴 적이랑 똑같네.', '손주는 그냥 보고만 있어도 좋다.']));
+}, 15);
+
+// 유아·어린이
+E('tantrum', [2.5, 6], 0.012, c => c.era >= 3 && c.parent(), c => { const p = c.parent(); const where = c.era >= 5 ? '마트' : '장터'; c.mem(`${where}에서 장난감 사 달라고 드러누웠다`, 2, -0.2, [p.id]); think(c.w, p, pick(['쥐구멍에라도 숨고 싶었다.', '오늘은 절대 안 사 준다. …아마도.'])); }, 40);
+E('sibling_jealous', [2, 8], 0.03, c => c.a.parents.length && c.w.residents(c.a.sid).some(b => b.id !== c.a.id && b.parents.some(p => c.a.parents.includes(p)) && ageOf(b, c.w.clock) < 0.6), c => {
+  c.mem('엄마 아빠가 동생만 예뻐하는 것 같다', 3, -0.3); c.think(pick(['나도 아기 할래!', '동생은 왜 맨날 울기만 해?']));
+  const p = c.parent(); if (p && p.tr.A > 50) { c.bond(p, 5, 3); c.mem(`${p.name}이(가) 나를 꼭 안아 주며 "넌 첫째라 더 소중해"라고 했다`, 4, 0.7, [p.id]); }
+}, ONCE);
+E('first_errand', [5, 8.5], 0.02, c => c.era >= 2 && c.parent(), c => { const it = c.era >= 5 ? pick(['두부 한 모', '우유', '콩나물']) : pick(['소금', '두부', '막걸리 한 되']); const ok = chance(0.6 + c.a.tr.C / 300); c.life(ok ? `처음으로 혼자 심부름을 다녀왔다 — ${it}` : `첫 심부름 — ${reul(it)} 사러 갔다가 거스름돈을 잃어버렸다`, '🛒'); c.a.conf = clamp(c.a.conf + (ok ? 5 : 1)); }, ONCE);
+E('picnic', [5, 13], 0.01, c => c.a.school && c.era >= 4 && ['봄', '가을'].includes(c.season), c => { const b = c.peer(1); const f = c.era >= 5 ? '김밥' : '주먹밥'; c.mem(`소풍날 ${f} 도시락을 먹고 보물찾기를 했다${b ? ` — ${wa(b.name)} 같이` : ''}`, 4, 0.8, b ? [b.id] : []); c.fun(30); if (b) c.bond(b, 5, 5); if (chance(0.25)) c.life('소풍 보물찾기에서 보물 쪽지를 찾았다!', '🗺️'); }, 150);
+E('school_show', [6, 13], 0.006, c => c.a.school && c.era >= 4, c => { const role = c.a.tr.E > 60 ? pick(['주인공', '사회자']) : c.a.ab.cre > 60 ? '무대 그림 담당' : pick(['나무 3', '합창단', '지나가는 사람 2']); c.life(`학예회에서 ${role}을(를) 맡았다`, '🎭'); const p = c.parent(); if (p) remember(c.w, p, `${c.a.name}의 학예회를 보러 갔다 — ${role}`, 5, 0.9, [c.a.id], 'family'); }, 365);
+E('dictation', [7, 9.5], 0.012, c => c.a.school, c => { const g = c.a.school.grade + gauss() * 15; if (g > 70) { c.mem('받아쓰기 100점을 받았다!', 3, 0.8); c.feel(10, '뿌듯함'); const p = c.parent(); if (p) c.bond(p, 3, 2); } else if (g < 35) { c.mem('받아쓰기에서 빵점을 받았다… 몰래 숨겼다', 3, -0.5); } else c.mem(`받아쓰기 ${Math.round(clamp(g, 40, 95) / 10) * 10}점`, 1, 0.1); }, 20);
+E('bday_party', [5, 13], 0.006, c => c.era >= 4 && c.friend(), c => { const fs = Object.keys(c.a.rels).filter(id => ['friend', 'best'].includes(c.a.rels[id].k)).slice(0, 5).map(id => c.w.anns.get(+id)).filter(b => b?.alive); c.mem(`생일잔치에 친구 ${fs.length}명이 왔다`, 4, 0.9, fs.map(b => b.id)); for (const b of fs) c.bond(b, 4, 4); c.fun(35); }, 300);
+E('santa', [4, 9], 0.6, c => c.era >= 4 && dateOf(c.w.clock).month === 12 && dateOf(c.w.clock).day === 25, c => { const g = c.era >= 6 ? pick(['로봇 장난감', '인형', '보드게임', '자전거']) : pick(['양말 속 사탕', '인형', '팽이', '크레파스']); c.mem(`일어나 보니 머리맡에 ${ga(g)} 놓여 있었다`, 4, 0.9); c.think(pick(['산타 할아버지는 진짜 있어!', '밤새 안 자고 기다렸는데…'])); }, 300);
+E('lunch_box', [7, 18], 0.008, c => c.a.school && c.parent(), c => { const p = c.parent(); c.mem(`${p.name}이(가) 싸 준 도시락에 쪽지가 들어 있었다`, 3, 0.7, [p.id]); c.bond(p, 4, 2); }, 60);
+
+// 10대 — 몸과 마음의 변화
+E('puberty', [11, 15], 0.01, null, c => {
+  if (c.a.gender === 'F') { c.life('첫 월경을 했다 — 놀랐지만 가족이 축하해 주었다', '🌸'); const p = c.parent(); if (p) { c.bond(p, 6, 3); remember(c.w, p, `${ga(c.a.name)} 어른이 되어 간다`, 5, 0.6, [c.a.id], 'family'); } }
+  else { c.life('목소리가 갈라지기 시작했다 — 변성기', '🗣️'); c.think('내 목소리가 왜 이래…'); }
+}, ONCE);
+E('growth_spurt', [11, 16], 0.008, null, c => { const cm = 6 + Math.round(rand() * 8); c.mem(`일 년 사이에 키가 ${cm}cm나 컸다`, 3, 0.5); c.a.nd.food = clamp(c.a.nd.food - 10); c.think('옷이 다 작아졌다.'); }, ONCE);
+E('acne', [13, 19], 0.008, null, c => { c.mem('얼굴에 여드름이 났다. 거울 보기가 싫다', 2, -0.3); c.a.conf = clamp(c.a.conf - 2); }, 120);
+E('fan', [11, 19], 0.006, c => c.era >= 4, c => { const who = c.era >= 6 ? pick(['아이돌 그룹', '프로게이머', '웹툰 작가', '축구 선수']) : c.era >= 5 ? pick(['가수', '농구 선수', '만화가']) : pick(['라디오 드라마 성우', '영화배우']); c.mem(`좋아하는 ${who} 이야기만 나오면 눈이 반짝인다`, 2, 0.5); c.fun(20); const b = c.peer(1); if (b) c.bond(b, 4, 4); }, 200);
+E('class_trip', [13, 19], 0.006, c => c.a.school && c.era >= 4, c => { const where = c.era >= 6 ? pick(['제주도', '경주', '일본 오사카']) : pick(['경주', '설악산', '부여']); const b = c.friend(); c.life(`${where}로 수학여행을 갔다${b ? ` — ${b.name}와(과) 밤새 이야기했다` : ''}`, '🚌'); if (b) c.bond(b, 8, 8); c.fun(40); }, 1000);
+E('teen_drift', [12, 19], 0.006, c => c.friend(), c => { const b = c.friend(); c.bond(b, -10, 1); c.mem(`${wa(b.name)} 사소한 일로 사이가 틀어졌다`, 4, -0.5, [b.id]); c.think(pick([`${neun(b.name)} 요즘 다른 애들이랑만 다닌다.`, '친구 관계는 왜 이렇게 어려울까.'])); }, 120);
+E('secret_crush', [13, 19], 0.008, c => c.peer(1), c => { const b = c.peer(1); const r = rel(c.a, b); r.r = clamp(r.r + 8); c.mem(`${b.name}만 보면 얼굴이 빨개진다. 아무한테도 말 못 했다`, 4, 0.5, [b.id]); c.think(pick([`${b.name}… 나를 알기는 할까?`, '일기장에만 몰래 적어 둬야지.'])); }, 200);
+E('first_phone', [10, 15], 0.01, c => c.era >= 6, c => { c.life('처음으로 내 휴대폰이 생겼다', '📱'); c.fun(30); const p = c.parent(); if (p) think(c.w, p, '하루에 한 시간만 하기로 약속했는데… 지켜질까.'); }, ONCE);
+E('dye_hair', [15, 20], 0.004, c => c.era >= 5, c => { const col = pick(['노란색', '빨간색', '초록색', '은색']); c.mem(`머리를 ${col}으로 물들였다`, 3, 0.5); const p = c.parent(); if (p) { c.bond(p, -4, 1); think(c.w, p, '저게 무슨 머리야…'); } }, 400);
+E('diary', [10, 18], 0.006, c => c.a.tr.O > 50 || c.a.tr.N > 60, c => { c.mem('일기장에 아무에게도 못 한 이야기를 적었다', 2, 0.3); c.stress(-6); }, 40);
+
+// 청년
+E('license', [19, 35], 0.006, c => c.era >= 5 && !c.a.flags?.license, c => { c.a.flags = { ...(c.a.flags || {}), license: 1 }; if (chance(0.7)) c.life('운전면허 시험에 붙었다', '🚘'); else { c.a.flags.license = 0; c.mem('운전면허 도로 주행에서 떨어졌다', 3, -0.4); } }, 60);
+E('interview_fail', [19, 40], 0.01, c => !c.a.job && !c.a.retired && c.era >= 4, c => { c.mem('면접에서 또 떨어졌다', 4, -0.6); c.a.conf = clamp(c.a.conf - 3); c.think(pick(['나는 어디가 부족한 걸까.', '다음엔 붙을 거야. 반드시.'])); const p = c.parent(); if (p) c.other(p, `${ga(c.a.name)} 기운이 없어 보여 밥을 해 먹였다`, 3, 0.4); }, 25);
+E('trip_friends', [19, 40], 0.005, c => c.friend() && c.era >= 3, c => { const b = c.friend(); const where = c.era >= 6 ? pick(['강릉 바다', '부산', '제주도', '도쿄', '방콕']) : c.era >= 4 ? pick(['바닷가', '계곡', '온천']) : pick(['계곡', '이웃 마을']); c.mem(`${wa(b.name)} ${where}로 여행을 다녀왔다`, 5, 0.8, [b.id]); c.bond(b, 8, 8); c.fun(45); c.stress(-15); c.money(-c.wage * 3); }, 200);
+E('gym', [18, 60], 0.006, c => c.era >= 5, c => { if (c.a.tr.C > 55) { c.mem('헬스장에 다니기 시작했다. 벌써 석 달째다', 3, 0.6); c.health(2); c.sk('athletics', 2); } else { c.mem('헬스장 1년 회원권을 끊고 사흘 나갔다', 2, -0.2); c.money(-c.wage * 2); } }, 300);
+E('night_snack', [16, 70], 0.01, c => c.era >= 5, c => { const f = pick(['치킨', '라면', '떡볶이', '족발', '피자']); const m = c.partner() || c.friend(); c.mem(`밤 11시에 ${m ? wa(m.name) + ' ' : ''}${reul(f)} 시켜 먹었다`, 2, 0.5, m ? [m.id] : []); if (m) c.bond(m, 3, 3); c.fun(15); }, 20);
+E('blank_morning', [24, 60], 0.006, c => c.a.job && c.a.stress > 60, c => { c.mem('아침에 눈을 떴는데 아무것도 하기 싫었다. 번아웃이다', 5, -0.6); c.a.job.sat = clamp(c.a.job.sat - 8); c.think(pick(['나는 뭘 위해 이렇게 달리고 있지?', '잠깐 멈춰도 괜찮을까.'])); }, 120);
+E('class_reunion', [25, 80], 0.004, c => c.peer(3), c => { const b = c.peer(3); const y = Math.round(c.age - 18); c.mem(`${y}년 만의 동창회에서 ${reul(b.name)} 다시 만났다`, 4, 0.6, [b.id]); c.bond(b, 8, 6); c.think(pick(['다들 변했는데 웃는 건 그대로다.', '그 시절로 돌아간 것 같았다.'])); }, 365);
+
+// 임신·출산·육아 (몸의 일은 그 몸을 가진 사람에게, 돌봄은 누구에게나)
+E('morning_sick', [17, 47], 0.08, c => c.a.preg && c.a.preg.due - c.w.clock > DAY * 190, c => { c.mem('입덧이 심해 아무것도 못 먹었다', 4, -0.4); c.a.nd.food = clamp(c.a.nd.food - 15); const p = c.partner(); if (p) { c.bond(p, p.tr.A > 50 ? 6 : -3, 3); think(c.w, p, p.tr.A > 50 ? '먹고 싶은 게 있으면 새벽이라도 사 올게.' : '나도 피곤한데…'); } }, 20);
+E('baby_kick', [17, 47], 0.08, c => c.a.preg && c.a.preg.due - c.w.clock < DAY * 150, c => { c.mem('배 속의 아기가 처음으로 발로 찼다', 7, 0.9); const p = c.partner(); if (p) { remember(c.w, p, '배에 손을 대니 아기가 발로 찼다', 7, 0.9, [c.a.id], 'family'); c.bond(p, 6, 3); } }, ONCE);
+E('prenatal', [17, 47], 0.05, c => c.a.preg && c.era >= 5, c => { const p = c.partner(); c.mem(`${p ? wa(p.name) + ' ' : ''}산부인과에서 아기 초음파 사진을 받았다`, 6, 0.9, p ? [p.id] : []); if (p) remember(c.w, p, '초음파 속 아기의 심장 소리를 들었다', 6, 0.9, [c.a.id], 'family'); }, 60);
+E('nesting', [17, 60], 0.05, c => { const p = c.partner(); return (c.a.preg || p?.preg) && (c.a.preg || p.preg).due - c.w.clock < DAY * 40; }, c => { const it = c.era >= 5 ? pick(['배냇저고리', '아기 침대', '젖병', '카시트']) : pick(['포대기', '배냇저고리', '요람']); c.mem(`아기 맞을 준비 — ${reul(it)} 장만했다`, 4, 0.7); c.money(-c.wage * 2); }, 30);
+E('postpartum', [17, 47], 0.5, c => c.a.lastBirth && c.w.clock - c.a.lastBirth < DAY * 5, c => { const where = c.era >= 6 ? '산후조리원' : c.era >= 4 ? '친정에서 산후조리' : '집에서 몸조리'; c.mem(`${where} — 몸이 천근만근이다`, 5, 0.2); c.health(-2); const m = c.a.parents.map(id => c.w.anns.get(id)).find(p => p?.alive); if (m && c.era < 6) { c.bond(m, 8, 5); remember(c.w, m, `${c.a.name}의 산후조리를 도왔다`, 5, 0.6, [c.a.id], 'family'); } if (c.era >= 6) c.money(-c.wage * 15); }, 300);
+E('baby_blues', [17, 47], 0.03, c => c.a.lastBirth && c.w.clock - c.a.lastBirth < DAY * 60 && c.a.tr.N > 50, c => {
+  c.mem('이유 없이 눈물이 난다. 아기는 예쁜데 나는 자꾸 작아진다', 6, -0.6); c.stress(12);
+  const p = c.partner(); if (p && p.tr.A > 45) { c.bond(p, 8, 4); c.stress(-10); remember(c.w, p, `${ga(c.a.name)} 많이 힘들어 보여 밤중 수유를 대신했다`, 5, 0.4, [c.a.id], 'family'); c.mem(`${ga(p.name)} 밤새 아기를 봐 주었다. 조금 숨이 쉬어진다`, 5, 0.6, [p.id]); }
+  else c.think('누가 내 얘기 좀 들어줬으면…');
+}, 90);
+E('first_diaper', [17, 70], 0.2, c => newborn(c), c => { const k = newborn(c); c.mem(`${k.name}의 기저귀를 처음 갈았다 — ${c.a.tr.C > 55 ? '생각보다 잘했다' : '온 방이 난리가 났다'}`, 4, 0.6, [k.id]); c.bond(k, 4, 4); }, 300);
+E('night_feed', [17, 70], 0.06, c => newborn(c), c => { const k = newborn(c); const sp = c.partner(); c.a.nd.energy = clamp(c.a.nd.energy - 25); c.mem(`새벽 3시, ${k.name}에게 ${c.era >= 4 ? '분유를 타' : '젖을 물려'} 먹였다`, 2, 0.2, [k.id]); if (sp && chance(0.5)) c.bond(sp, sp.tr.A > 50 ? 3 : -3, 1); }, 4);
+E('kid_school_start', [25, 70], 0.3, c => c.a.kids.some(id => { const k = c.w.anns.get(id); return k?.alive && k.school?.key === 'elem' && c.w.clock - k.school.since < DAY * 3; }), c => { const k = c.a.kids.map(id => c.w.anns.get(id)).find(k => k?.alive && k.school?.key === 'elem' && c.w.clock - k.school.since < DAY * 3); c.mem(`${k.name}의 초등학교 입학식 — 가방이 몸보다 컸다`, 6, 0.9, [k.id]); c.think(pick(['언제 이렇게 컸지.', '잘 적응해야 할 텐데.'])); }, 300);
+E('parent_teacher', [28, 65], 0.004, c => c.a.kids.some(id => c.w.anns.get(id)?.school), c => { const k = c.a.kids.map(id => c.w.anns.get(id)).find(k => k?.school); const g = k.school.grade; c.mem(`${k.name}의 담임 선생님과 상담을 했다 — ${g > 70 ? '칭찬만 듣고 왔다' : g < 40 ? '걱정스러운 이야기를 들었다' : '친구들과 잘 지낸다고 한다'}`, 4, g > 70 ? 0.7 : g < 40 ? -0.4 : 0.3, [k.id]); }, 180);
+E('teen_talk', [33, 65], 0.008, c => c.a.kids.some(id => { const k = c.w.anns.get(id); return k?.alive && k.sid === c.a.sid && ageOf(k, c.w.clock) >= 13 && ageOf(k, c.w.clock) < 19; }), c => {
+  const k = c.a.kids.map(id => c.w.anns.get(id)).find(k => k?.alive && k.sid === c.a.sid && ageOf(k, c.w.clock) >= 13 && ageOf(k, c.w.clock) < 19);
+  if (chance(0.3 + c.a.tr.A / 250 + c.a.tr.O / 400)) { c.bond(k, 8, 4, 1); c.mem(`사춘기 ${k.name}이(가) 오랜만에 속마음을 털어놓았다`, 5, 0.8, [k.id]); }
+  else { c.bond(k, -6, 2); c.mem(`${k.name}에게 한마디 했다가 방문이 쾅 닫혔다`, 3, -0.4, [k.id]); c.think('나도 저 나이 땐 저랬나…'); }
+}, 40);
+E('kid_exam_parent', [38, 65], 0.01, c => c.era >= 5 && c.a.kids.some(id => { const k = c.w.anns.get(id); return k?.alive && ageOf(k, c.w.clock) >= 17.5 && ageOf(k, c.w.clock) < 19 && k.school; }), c => { const k = c.a.kids.map(id => c.w.anns.get(id)).find(k => k?.alive && ageOf(k, c.w.clock) >= 17.5 && k.school); c.mem(`수험생 ${k.name}을(를) 위해 새벽마다 도시락을 쌌다`, 4, 0.5, [k.id]); c.bond(k, 4, 3); c.stress(5); }, 60);
+
+// 중년의 몸
+E('menopause', [46, 56], 0.006, c => c.a.gender === 'F', c => {
+  c.life('갱년기가 찾아왔다 — 얼굴이 화끈거리고 잠을 설친다', '🌡️'); c.stress(10); c.feel(-8, '울적함');
+  const p = c.partner(); if (p) { if (p.tr.A > 50) { c.bond(p, 8, 3); c.mem(`${ga(p.name)} 말없이 창문을 열어 주고 손을 잡아 주었다`, 5, 0.7, [p.id]); } else c.bond(p, -4, 1); }
+  const k = c.kid(); if (k && ageOf(k, c.w.clock) > 15) remember(c.w, k, '엄마가 요즘 많이 힘들어 보인다', 3, -0.2, [c.a.id], 'family');
+}, ONCE);
+E('andropause', [50, 62], 0.004, c => c.a.gender === 'M', c => { c.mem('요즘 드라마만 봐도 눈물이 난다. 기운도 예전 같지 않다', 4, -0.3); c.stress(6); c.think(pick(['나도 나이를 먹는구나.', '괜히 서글프다.'])); const p = c.partner(); if (p) c.bond(p, 3, 2); }, ONCE);
+E('presbyopia', [42, 56], 0.008, null, c => { c.mem(`글씨가 흐릿해서 ${c.era >= 6 ? '휴대폰' : '신문'}을(를) 멀리 들고 봤다 — 노안이다`, 3, -0.3); c.think('돋보기를 써야 하나…'); }, ONCE);
+E('gray_hair', [36, 52], 0.01, null, c => { c.mem('거울 속에서 흰머리를 발견했다', 2, -0.2); c.think(pick(['하나 뽑으면 두 개 난다던데.', '세월이 머리 위에 앉았다.'])); }, ONCE);
+E('health_warn', [45, 80], 0.004, c => c.era >= 4, c => { const w = pick(['혈압이 높다', '혈당이 높다', '콜레스테롤 수치가 높다']); c.mem(`의사가 ${w}고 했다. 짠 음식을 줄여야 한다`, 4, -0.4); if (c.a.tr.C > 55) { c.health(3); c.mem('매일 저녁 걷기 시작했다', 3, 0.5); } else c.health(-2); }, 365);
+E('empty_nest', [44, 75], 0.02, c => c.a.kids.length && c.a.kids.every(id => { const k = c.w.anns.get(id); return !k || !k.alive || (ageOf(k, c.w.clock) >= 19 && k.home !== c.a.home); }) && !c.a.flags?.emptyNest, c => { c.a.flags = { ...(c.a.flags || {}), emptyNest: 1 }; c.life('마지막 아이까지 독립했다 — 집이 텅 빈 것 같다', '🪺'); c.feel(-10, '허전함'); const p = c.partner(); if (p) { c.bond(p, 6, 4); c.mem(`${wa(p.name)} 오랜만에 단둘이 저녁을 먹었다`, 4, 0.6, [p.id]); } }, ONCE);
+E('loan_done', [40, 70], 0.004, c => c.era >= 5 && c.a.home && c.w.buildings.get(c.a.home)?.owner === c.a.id, c => { c.life('집 대출을 다 갚았다', '🏡'); c.feel(18, '홀가분함'); }, ONCE);
+
+// 노년 — 잔치와 몸
+E('hwangap', [60, 60.5], 0.4, null, c => { const how = c.era >= 6 ? '가족끼리 조촐하게 식사를 했다' : c.era >= 4 ? '자식들이 잔칫상을 차려 주었다' : '온 마을이 모여 환갑잔치를 열었다'; c.life(`환갑 — ${how}`, '🎂'); for (const k of c.a.kids.map(id => c.w.anns.get(id)).filter(k => k?.alive)) { c.bond(k, 6, 3); remember(c.w, k, `${c.a.name}의 환갑을 축하해 드렸다`, 5, 0.8, [c.a.id], 'family'); } c.feel(15, '뭉클함'); }, ONCE);
+E('chilsun', [70, 70.5], 0.4, null, c => { c.life('칠순 — 자식과 손주들이 큰절을 올렸다', '🎂'); c.feel(15, '뭉클함'); for (const g of c.a.kids.flatMap(id => c.w.anns.get(id)?.kids || []).map(id => c.w.anns.get(id)).filter(g => g?.alive)) c.bond(g, 4, 3); }, ONCE);
+E('palsun', [80, 80.5], 0.4, null, c => { c.life('팔순 — 여든 해를 살았다', '🎂'); c.think(pick(['여든 해가 꿈만 같다.', '아직도 하고 싶은 게 있다.'])); }, ONCE);
+E('learn_phone', [62, 95], 0.006, c => c.era >= 6, c => { const g = c.grandkid(); c.mem(`${g ? '손주 ' + g.name + '에게 ' : ''}휴대폰으로 영상 통화하는 법을 배웠다`, 3, 0.6, g ? [g.id] : []); if (g) c.bond(g, 6, 4); c.sk('science', 1); }, 200);
+E('morning_walk', [60, 110], 0.01, null, c => { const b = c.peer(6); c.mem(`새벽 ${c.feat.river ? '강변' : c.feat.mountain ? '뒷산' : '공원'}을 ${b ? b.name + '와(과) ' : ''}걸었다`, 1, 0.4, b ? [b.id] : []); c.health(0.6); if (b) c.bond(b, 2, 3); }, 6);
+E('funeral', [15, 120], 0.6, c => recentDead(c), c => { const b = recentDead(c); c.mem(`${b.name}의 장례식에 다녀왔다`, 6, -0.7, [b.id]); c.feel(-12, '슬픔', b.name); c.think(pick([`${b.name}… 편히 쉬어.`, '있을 때 더 잘할걸.', '사람은 결국 떠나는구나.'])); }, 3);
+E('great_grandkid', [65, 120], 0.3, c => c.a.kids.some(k => (c.w.anns.get(k)?.kids || []).some(g => (c.w.anns.get(g)?.kids || []).length)) && !c.a.flags?.ggk, c => { c.a.flags = { ...(c.a.flags || {}), ggk: 1 }; c.life('증손주가 태어났다 — 4대가 함께다', '👶'); c.feel(25, '감격'); }, ONCE);
+E('cane', [78, 120], 0.006, null, c => { c.life('지팡이를 짚기 시작했다', '🦯'); c.think('다리가 말을 안 듣는다.'); }, ONCE);
+E('name_mixup', [80, 120], 0.008, c => c.grandkid(), c => { const g = c.grandkid(); c.mem(`손주 ${g.name}을(를) 자꾸 다른 이름으로 불렀다`, 2, -0.2, [g.id]); c.other(g, `${c.a.gender === 'F' ? '할머니' : '할아버지'}가 나를 엄마 이름으로 불렀다`, 2, 0.1); }, 120);
+E('old_album', [70, 120], 0.008, c => c.a.mem.some(m => m.imp >= 9), c => { const m = pick(c.a.mem.filter(m => m.imp >= 9)); c.mem(`빛바랜 사진을 보다가 그날이 떠올랐다: "${m.text}"`, 3, 0.4); }, 90);
+
+// 형제·이웃·직장·명절
+E('sibling_call', [22, 95], 0.008, c => c.sibling(), c => { const b = c.sibling(); c.bond(b, 4, 4); c.mem(`오랜만에 ${wa(b.name)} ${c.era >= 5 ? '통화하며' : '만나'} 옛날이야기를 했다`, 2, 0.5, [b.id]); }, 45);
+E('sibling_rivalry', [5, 18], 0.01, c => c.sibling(), c => { const b = c.sibling(); if (chance(0.5)) { c.bond(b, -6, 3); c.mem(`${wa(b.name)} ${pick(['리모컨', '마지막 과자', '방', '자전거'])} 때문에 싸웠다`, 2, -0.3, [b.id]); } else { c.bond(b, 5, 4); c.mem(`${b.name}이(가) 내 편을 들어 주었다`, 3, 0.6, [b.id]); } }, 20);
+E('neighbor_share', [20, 110], 0.008, c => c.a.home, c => { const b = c.adult(); if (!b) return; const f = c.era >= 5 ? pick(['김치', '전', '과일', '떡']) : pick(FOODS); c.bond(b, 5, 4); c.mem(`이웃 ${b.name}에게 ${reul(f)} 나눠 주었다`, 2, 0.5, [b.id]); c.other(b, `이웃 ${ga(c.a.name)} ${reul(f)} 갖다주었다`, 2, 0.5); }, 40);
+E('coworker_cover', [18, 70], 0.008, c => c.coworker(), c => { const b = c.coworker(); c.bond(b, 7, 4); c.mem(`일이 밀렸는데 ${ga(b.name)} 말없이 도와주었다`, 3, 0.6, [b.id]); }, 40);
+E('holiday', [0, 120], 0.9, c => c.era >= 1 && holiday(c) && (c.parent() || c.kid()), c => {
+  const h = holiday(c);
+  const fam = [...c.a.parents, ...c.a.kids, ...(c.a.spouse ? [c.a.spouse] : [])].map(id => c.w.anns.get(id)).filter(b => b?.alive && b.sid === c.a.sid);
+  for (const b of fam) c.bond(b, 3, 3);
+  if (c.age < 19 && c.era >= 3 && h === '설날') { const m = c.wage * (1 + rand() * 3); c.money(m); c.mem(`설날에 세배를 하고 세뱃돈 ${c.fmt(m)}을(를) 받았다`, 3, 0.8); }
+  else if (h === '설날') c.mem(`설날 — ${c.era >= 4 ? '떡국을 먹고' : '차례를 지내고'} 한 살 더 먹었다`, 3, 0.6);
+  else c.mem(`추석 — 온 가족이 모여 송편을 빚고 보름달을 봤다`, 3, 0.7);
+  if (c.age > 40 && c.era >= 4 && chance(0.15)) c.mem('명절 음식 준비로 허리가 끊어질 것 같았다 — 다음엔 다 같이 나눠서 하자고 했다', 3, -0.2);
+}, 300);
 
 /** 하루 한 번: 이 앤에게 일어날 수 있는 일 중 하나 */
 export function runEvents(world, a, base) {

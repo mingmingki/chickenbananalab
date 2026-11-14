@@ -4,6 +4,7 @@ import { api, auth, Live, loadSessions, saveSession, forgetSession, SERVER, NATI
 import { World3D } from './scene/scene.js';
 import { Creator } from './ui/creator.js';
 import { Hud } from './ui/hud.js';
+import { AskPanel } from './ui/asks.js';
 import { sound } from './audio.js';
 import { account, accountModal, settingsModal, inboxModal, recapModal, reportModal, tutorial, tutorialDone, googleReturn } from './ui/extras.js';
 // 휴대폰 세로 화면: 아래쪽 시트에 가리지 않게 지구를 위로 올린다
@@ -337,7 +338,7 @@ async function openCreator() {
 async function deploy() {
   if (!creator.anns.length) return toast('앤을 한 명 이상 만들어 주세요');
   const ok = await modal(`<h3>🌱 앤 ${creator.anns.length}명을 투입할까요?</h3>
-    <p class="sub">투입한 순간부터 앤들은 스스로 생각하고 선택합니다. <b>더 이상 조종할 수 없습니다.</b><br>누구를 만나고, 어떤 일을 하고, 누구와 사랑에 빠질지 — 지켜보기만 하세요.</p>
+    <p class="sub">투입한 순간부터 앤들은 스스로 생각하고 선택합니다. <b>더 이상 조종할 수 없습니다.</b><br>누구를 만나고, 어떤 일을 하고, 누구와 사랑에 빠질지 — 지켜보세요. 인생의 갈림길에선 앤이 <b>💭 마음속 목소리</b>인 당신에게 물어 오기도 합니다. 조언은 할 수 있지만, 결정은 앤의 몫이에요.</p>
     <div class="acts"><button class="btn ghost" data-m="cancel">조금 더 고민할래요</button><button class="btn primary" data-m="ok">투입하기</button></div>`);
   if (ok !== 'ok') return;
   try {
@@ -387,6 +388,18 @@ function observe(justDeployed = false, firstAnn = null, since = null) {
     },
     onReport: d => reportModal({ server: ctx.server.id, ann: d, toast: msg => hud.toast(msg) }),
   });
+  // 앤이 묻는다: 오른쪽 위 질문 카드 (내 앤이 있을 때만)
+  if (ctx.session) {
+    const base = `/api/servers/${ctx.session.serverId}`, tk = ctx.session.token;
+    hud.asks = new AskPanel({
+      state, sound, onAnn: id => hud.select(id, true),
+      api: {
+        list: () => api(`${base}/asks?token=${encodeURIComponent(tk)}`),
+        answer: (qid, k) => api(`${base}/asks/${encodeURIComponent(qid)}`, { token: tk, k }),
+        mode: mode => api(`${base}/asks-mode`, { token: tk, mode }),
+      },
+    });
+  }
   w3d.onAnnPick = id => hud.select(id, false);
   w3d.onBuildingPick = (bid, x, y) => hud.buildingTip(bid, x, y);
   w3d.onTownClick = sid => hud.flyTown(sid);

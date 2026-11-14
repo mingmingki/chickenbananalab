@@ -37,7 +37,7 @@
         <button class="btn big primary" data-act="start">시작하기</button>
         <button class="btn big" data-act="continue">이어하기</button>
       </div>
-      <p class="intro-note">한 번 투입된 앤은 조종할 수 없습니다. 그저 지켜보세요.</p>
+      <p class="intro-note">한 번 투입된 앤은 조종할 수 없습니다. 인생의 갈림길에서 당신에게 물어 올 뿐 — 대답은 마음속 목소리의 조언이에요.</p>
     </div>
     <div class="intro-corner">
       <button class="btn small ghost" data-act="account" id="intro-account">로그인</button>
@@ -116,6 +116,7 @@
         <button class="btn small" data-act="deploy-more" id="btn-deploy-more">＋ 앤 투입</button>
         <button class="btn small ghost" data-act="space">🌌 우주</button>
         <button class="btn small ghost" data-act="home">🏠</button>
+        <button class="btn small ghost icon-btn hidden" data-act="asks" id="btn-ask" title="앤의 질문">💭<i id="ask-badge" class="badge hidden">0</i></button>
         <button class="btn small ghost icon-btn" data-act="inbox" id="btn-inbox" title="알림함">🔔<i id="inbox-badge" class="badge hidden">0</i></button>
         <button class="btn small ghost" data-act="settings" title="설정">⚙️</button>
       </div>
@@ -136,6 +137,7 @@
       <div id="ann-panel"></div>
     </aside>
     <div id="ticker" class="ticker"></div>
+    <div id="ask-card" class="ask-card hidden" role="dialog" aria-label="앤의 질문"></div>
     <div id="toast" class="toast hidden"></div>
     <div id="bld-tip" class="hover-tip hidden"></div>
   </section>
