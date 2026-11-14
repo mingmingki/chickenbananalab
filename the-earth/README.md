@@ -213,6 +213,17 @@ npm start            # http://localhost:3000
 
 시뮬레이션이 서버 안에서 쉬지 않고 돌아가므로 **꺼지지 않는 서버 1대 + 영구 디스크**가 필요합니다 (서버리스·무료 슬립 플랜은 맞지 않음). 여러 대로 늘리면 세계가 갈라지므로 **반드시 1대**로 운영합니다.
 
+**구글 클라우드 VM (무료에 가깝게)** — `deploy/gcp-setup.sh` 한 줄 설치. 노드 22·cloudflared 설치, 게임을 systemd 서비스로 등록(재부팅해도 자동 시작), Cloudflare 무료 터널로 https 주소를 만든다 (방화벽 포트를 열 필요 없음). 같은 VM 에 다른 프로그램이 있으면 그쪽이 먼저 쓰도록 게임에 낮은 우선순위·CPU 60%·메모리 600MB 상한을 건다. 게임은 데모 세계(6년 진행) 기준 메모리 약 140MB, CPU 1% 안팎.
+```bash
+# 맥에서: VM 에 접속 (없으면 무료 등급 e2-micro 를 하나 만든다: us-west1·us-central1·us-east1, 표준 디스크 30GB)
+gcloud compute instances create the-earth --zone=us-central1-a --machine-type=e2-micro \
+  --image-family=debian-12 --image-project=debian-cloud --boot-disk-size=30GB --boot-disk-type=pd-standard
+gcloud compute ssh the-earth --zone=us-central1-a
+# VM 안에서 (관리자로 쓸 아이디를 넣는다)
+curl -fsSL https://raw.githubusercontent.com/mingmingki/chickenbananalab/claude/earth-game-dev-mefzml/the-earth/deploy/gcp-setup.sh | sudo bash -s -- 내아이디
+```
+끝나면 `https://….trycloudflare.com` 주소가 나온다. `earth-url` 로 다시 보고, `sudo earth-update` 로 새 버전을 받는다 (세계·계정·주소 그대로). VM 을 다시 켜면 주소가 바뀐다 — 고정 주소가 필요하면 내 도메인 + Cloudflare 이름 있는 터널로 바꾼다.
+
 **Fly.io** (도쿄 `nrt` 지역 — 한국에서 가까움)
 ```bash
 cd the-earth
