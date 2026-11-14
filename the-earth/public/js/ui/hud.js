@@ -2,6 +2,7 @@
 import { fmtDate, fmtTime, fmtDateTime, localHour, MIN_YEAR } from '../state.js';
 import { josa } from './josa.js';
 import { avatarHTML } from './avatar.js';
+import { icon } from './icons.js';
 
 const landscapePhone = () => innerWidth <= 960 && innerHeight <= 500 && innerWidth > innerHeight;
 const isMobile = () => innerWidth <= 860 && !landscapePhone();
@@ -195,7 +196,7 @@ export class Hud {
     this.townShown = true;
     this.right.innerHTML = `<div id="ann-panel"><div class="ap-head" style="grid-template-columns:1fr auto">
       <div><h2>${esc(s.name)} <span class="chip">${esc(s.levelName)}</span></h2><div class="meta">${esc(c?.name || '')} · ${esc(c?.eraName || '')} · 인구 ${s.pop}명 · ${fmtDate(s.founded)} 세워짐</div></div>
-      <div class="acts"><button class="btn small ghost" data-act="close-ann">닫기 ✕</button></div></div>
+      <div class="acts"><button class="btn small ghost" data-act="close-ann">${icon('close')}닫기</button></div></div>
       <div class="ap-body">
         ${s.weather ? `<div class="now"><div class="what"><span class="em">${WEMO[s.weather.k] || '🌤️'}</span>${esc(s.weather.season)} · ${esc(s.weather.k)} · ${s.weather.temp}°C</div><div class="line">식량 ${s.food} · 마을 반경 ${s.radius}m</div></div>` : ''}
         <div class="sec">자연</div><div class="tags">${nature.map(x => `<span>${x}</span>`).join('')}</div>
@@ -626,10 +627,10 @@ export class Hud {
         <div><h2>${esc(d.n)} <small style="font-size:13px;color:var(--muted);font-weight:400">${d.g === 'M' ? '♂' : '♀'} ${d.age}세 · ${esc(d.stage)}</small>${d.ld ? `<span class="badge">${esc(d.ld)}</span>` : ''}</h2>
           <div class="meta">${d.school ? '🎒 ' + esc(d.school.name) : d.job ? esc(d.job.title) : d.retired ? '은퇴' : d.age < 4 ? '아기' : d.age < 19 ? '' : '무직'}${d.settlement ? ` · ${esc(d.country?.name)} <span class="linklike" data-town="${d.settlement.id}">${esc(d.settlement.name)}</span>` : ''}<br>
           ${d.owner ? `<span class="dot" style="background:${d.owner.color}"></span> ${esc(d.owner.name)}의 앤` : '🏡 마을 사람 (관리자의 앤)'}${d.gen > 1 ? ` · ${d.gen}세대` : ''}</div></div>
-        <div class="acts">${d.al ? `<button class="btn small ${follow ? 'primary' : ''}" data-act="follow">${follow ? '📍 따라가는 중' : '📍 따라가기'}</button>` : ''}${this.me && d.owner?.id !== this.me.id ? '<button class="btn small ghost" data-act="report" title="신고">🚩</button>' : ''}<button class="btn small ghost" data-act="close-ann">닫기 ✕</button></div>
+        <div class="acts">${d.al ? `<button class="btn small ${follow ? 'primary' : ''}" data-act="follow">${icon('follow')}${follow ? '따라가는 중' : '따라가기'}</button>` : ''}${this.me && d.owner?.id !== this.me.id ? `<button class="btn small ghost icon-only" data-act="report" title="신고" aria-label="신고">${icon('report')}</button>` : ''}<button class="btn small ghost" data-act="close-ann">${icon('close')}닫기</button></div>
       </div>
       <div class="ap-body">${nowBox}
-        <div class="inner-tabs">${[['chron', '📜 연대기'], ['money', '💰 돈'], ['mind', '💭 생각'], ['self', '🧬 성격·능력'], ['rels', '💞 관계'], ['mem', '📔 기억'], ['dream', '✨ 꿈']].map(([k, n]) => `<button data-itab="${k}" class="${tab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+        <div class="inner-tabs">${[['chron', '연대기'], ['money', '돈'], ['mind', '생각'], ['self', '성격·능력'], ['rels', '관계'], ['mem', '기억'], ['dream', '꿈']].map(([k, n]) => `<button data-itab="${k}" class="${tab === k ? 'on' : ''}">${icon(k)}${n}</button>`).join('')}</div>
         ${body}
       </div></div>`;
     const nb = this.right.querySelector('.ap-body');

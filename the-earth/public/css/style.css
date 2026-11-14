@@ -6,14 +6,15 @@
   --line-2: rgba(140, 180, 255, 0.3);
   --text: #e8eefc;
   --muted: #8d9bb8;
-  --accent: #58b4ff;
+  --accent: #0a84ff;
   --accent-2: #7ef0c8;
   --warm: #ffcf6e;
   --love: #ff7aa8;
   --bad: #ff6b6b;
   --good: #69db7c;
   --radius: 14px;
-  --font: 'Noto Sans KR', system-ui, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  /* 맥처럼: 애플 기기는 시스템 글꼴(SF·애플 SD 산돌고딕 Neo), 다른 기기는 비슷한 Pretendard */
+  --font: -apple-system, BlinkMacSystemFont, 'Pretendard Variable', Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font); -webkit-font-smoothing: antialiased; }
@@ -25,12 +26,15 @@ button, input, select { font-family: inherit; }
 
 /* ── 공용 ── */
 .btn {
-  appearance: none; border: 1px solid var(--line-2); background: rgba(30, 48, 84, 0.55); color: var(--text);
-  padding: 9px 16px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 500; transition: .15s; backdrop-filter: blur(6px);
+  appearance: none; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.09); color: var(--text);
+  padding: 9px 16px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 500; letter-spacing: -0.01em; transition: background .15s, border-color .15s, transform .08s;
+  backdrop-filter: blur(20px) saturate(1.6); -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
 }
-.btn:hover { background: rgba(60, 100, 170, 0.6); border-color: var(--accent); }
+.btn:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.2); }
+.btn:active { transform: scale(0.97); }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
-.btn.primary { background: linear-gradient(135deg, #2b7cff, #18b8a0); border-color: transparent; font-weight: 700; }
+.btn.primary { background: #0a84ff; border-color: transparent; font-weight: 600; box-shadow: 0 1px 0 rgba(255,255,255,0.18) inset, 0 4px 14px rgba(10,132,255,0.35); }
 .btn.primary:hover { filter: brightness(1.15); }
 .btn.big { padding: 14px 30px; font-size: 17px; border-radius: 12px; }
 .btn.small { padding: 6px 11px; font-size: 13px; }
@@ -492,4 +496,28 @@ button, .btn, [data-act], [data-ann], [data-town], .roster-item, .country-result
 }
 @media (max-width: 960px) and (max-height: 500px) and (orientation: landscape) {
   .ask-card { width: min(360px, 48vw); left: auto; max-height: calc(100vh - 70px); }
+}
+
+/* ── 맥 스타일 아이콘 (선 아이콘, SF Symbols 느낌) ── */
+svg.ic { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
+.btn.big svg.ic { width: 19px; height: 19px; }
+.btn.icon-only { width: 34px; height: 34px; padding: 0; border-radius: 9px; }
+.btn.icon-only svg.ic { width: 19px; height: 19px; }
+.topbar .btn.ghost { color: #d7deec; }
+.topbar .btn.ghost:hover { color: #fff; background: rgba(255,255,255,0.1); }
+.inner-tabs button { display: inline-flex; align-items: center; gap: 5px; }
+.inner-tabs button svg.ic { width: 15px; height: 15px; opacity: .85; }
+.ask-tabs .x { display: inline-flex; align-items: center; }
+.ask-tabs .x svg.ic, .ask-foot .nav svg.ic { width: 15px; height: 15px; }
+.ask-foot .nav button { display: inline-flex; align-items: center; justify-content: center; }
+.btn.back { padding-left: 8px; }
+@media (max-width: 860px) {
+  .btn.icon-only { width: 38px; height: 38px; }
+  .btn.icon-only svg.ic { width: 21px; height: 21px; }
+}
+/* 휴대폰: 위쪽 막대 뒤로 지나가는 말풍선·이름표가 버튼에 비쳐 보이지 않게 */
+@media (max-width: 860px) {
+  .topbar { background: linear-gradient(180deg, rgba(4,6,12,0.96) 0%, rgba(4,6,12,0.9) 82%, rgba(4,6,12,0) 100%); }
+  .topbar .btn { background: rgba(38,42,54,0.92); border-color: rgba(255,255,255,0.1); }
+  .topbar .btn.ghost { background: rgba(38,42,54,0.92); }
 }

@@ -244,9 +244,9 @@ export function makeEarth(textures) {
         col *= 1.0 + (nz - 0.5) * mix(0.42, 0.12, water) * detail;
         vec4 idc = texture2D(idMap, vUv);
         float id = floor(idc.r * 255.0 + 0.5) + floor(idc.g * 255.0 + 0.5) * 256.0;
-        if (hoverId > 0.0 && abs(id - hoverId) < 0.5) col = mix(col, vec3(1.0, 0.82, 0.35), 0.3);
-        col = mix(col, vec3(1.0, 0.82, 0.35), ov.g * 0.42);
-        col = mix(col, vec3(0.35, 0.85, 1.0), ov.b * 0.16);
+        // 나라 강조는 살짝 밝히기만 (테두리는 선으로 또렷하게 그린다 — 색을 칠하면 땅 사진이 가려진다)
+        if (hoverId > 0.0 && abs(id - hoverId) < 0.5) col *= 1.08;
+        col *= 1.0 + ov.g * 0.1;
         // 국경선
         col = mix(col, vec3(1.0), texture2D(borderMap, vUv).r * borderAlpha);
         // 구름 그림자 (구름 층과 같은 만큼 흘러간 자리)

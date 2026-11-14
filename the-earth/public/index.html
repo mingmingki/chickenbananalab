@@ -17,7 +17,8 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='28' fill='%230d3b66'/><path d='M14 26c6-8 14-6 18-2s10 4 14-2c3 6 2 16-4 22-4-6-10-4-14 0s-10 4-14-4c-2-4-2-10 0-14z' fill='%234caf50'/></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/fonts/pretendard/pretendardvariable-dynamic-subset.css" />
   <link rel="stylesheet" href="/css/style.css" />
   <script type="importmap">
     { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
@@ -40,8 +41,8 @@
       <p class="intro-note">한 번 투입된 앤은 조종할 수 없습니다. 인생의 갈림길에서 당신에게 물어 올 뿐 — 대답은 마음속 목소리의 조언이에요.</p>
     </div>
     <div class="intro-corner">
-      <button class="btn small ghost" data-act="account" id="intro-account">로그인</button>
-      <button class="btn small ghost" data-act="settings" title="설정">⚙️</button>
+      <button class="btn small ghost" data-act="account" id="intro-account" data-icon="account">로그인</button>
+      <button class="btn small ghost icon-only" data-act="settings" data-icon="settings" title="설정" aria-label="설정"></button>
     </div>
     <footer class="intro-foot"><a href="/terms" target="_blank">이용약관</a> · <a href="/privacy" target="_blank">개인정보 처리방침</a></footer>
     <div class="skip-hint">누르면 건너뜁니다</div>
@@ -51,13 +52,13 @@
   <section id="servers" class="screen panel-screen hidden">
     <div class="sheet">
       <header class="sheet-head">
-        <button class="btn ghost back" data-act="back">← 처음으로</button>
+        <button class="btn ghost back" data-act="back" data-icon="back">처음으로</button>
         <h2>서버 선택</h2>
         <p class="sub">모든 서버는 <b>1년 1월 1일</b>에 시작합니다. <b>현실 1시간 = 게임 하루</b>입니다 (현실 하루 = 게임 24일, 현실 15일 = 게임 1년).</p>
       </header>
       <div id="server-list" class="server-list"></div>
       <div class="sheet-foot">
-        <button class="btn hidden" data-act="new-server" id="btn-new-server">＋ 새 서버 열기</button>
+        <button class="btn hidden" data-act="new-server" id="btn-new-server" data-icon="plus">새 서버 열기</button>
       </div>
     </div>
   </section>
@@ -65,7 +66,7 @@
   <!-- 나라 선택 -->
   <section id="country" class="screen hidden">
     <div class="country-side">
-      <button class="btn ghost back" data-act="back">← 서버 목록</button>
+      <button class="btn ghost back" data-act="back" data-icon="back">서버 목록</button>
       <h2>나라 선택</h2>
       <p class="sub">지구를 돌려 나라를 고르세요. 같은 나라를 고른 다른 플레이어의 앤들과 함께 살아가게 됩니다.</p>
       <label class="field">
@@ -84,21 +85,21 @@
   <section id="creator" class="screen panel-screen hidden">
     <div class="sheet wide">
       <header class="sheet-head">
-        <button class="btn ghost back" data-act="back">← 나라 선택</button>
+        <button class="btn ghost back" data-act="back" data-icon="back">나라 선택</button>
         <h2>앤 만들기 <small id="creator-country"></small></h2>
         <p class="sub">성격과 능력, 야망을 정해 주세요. 그 다음부터는 앤이 스스로 생각하고 선택합니다.</p>
       </header>
       <div class="creator-body">
         <aside class="ann-roster">
           <div id="roster"></div>
-          <button class="btn" data-act="add-ann">＋ 앤 추가</button>
+          <button class="btn" data-act="add-ann" data-icon="plus">앤 추가</button>
           <p id="roster-room" class="sub small"></p>
         </aside>
         <div class="ann-editor" id="editor"></div>
       </div>
       <div class="sheet-foot">
-        <button class="btn" data-act="random-all">🎲 모두 무작위</button>
-        <button class="btn primary big" data-act="deploy">🌱 투입하기</button>
+        <button class="btn" data-act="random-all" data-icon="dice">모두 무작위</button>
+        <button class="btn primary big" data-act="deploy" data-icon="deploy">투입하기</button>
       </div>
     </div>
   </section>
@@ -113,12 +114,12 @@
       </div>
       <div class="top-actions">
         <span id="hud-me" class="chip"></span>
-        <button class="btn small" data-act="deploy-more" id="btn-deploy-more">＋ 앤 투입</button>
-        <button class="btn small ghost" data-act="space">🌌 우주</button>
-        <button class="btn small ghost" data-act="home">🏠</button>
-        <button class="btn small ghost icon-btn hidden" data-act="asks" id="btn-ask" title="앤의 질문">💭<i id="ask-badge" class="badge hidden">0</i></button>
-        <button class="btn small ghost icon-btn" data-act="inbox" id="btn-inbox" title="알림함">🔔<i id="inbox-badge" class="badge hidden">0</i></button>
-        <button class="btn small ghost" data-act="settings" title="설정">⚙️</button>
+        <button class="btn small" data-act="deploy-more" id="btn-deploy-more" data-icon="plus">앤 투입</button>
+        <button class="btn small ghost" data-act="space" data-icon="space">우주</button>
+        <button class="btn small ghost icon-only" data-act="home" data-icon="home" title="내 나라로" aria-label="내 나라로"></button>
+        <button class="btn small ghost icon-btn icon-only hidden" data-act="asks" id="btn-ask" data-icon="ask" title="앤의 질문" aria-label="앤의 질문"><i id="ask-badge" class="badge hidden">0</i></button>
+        <button class="btn small ghost icon-btn icon-only" data-act="inbox" id="btn-inbox" data-icon="bell" title="알림함" aria-label="알림함"><i id="inbox-badge" class="badge hidden">0</i></button>
+        <button class="btn small ghost icon-only" data-act="settings" data-icon="settings" title="설정" aria-label="설정"></button>
       </div>
     </header>
     <aside class="side left" id="left">

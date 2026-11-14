@@ -2,6 +2,7 @@
 // 플레이어의 답은 '마음속 목소리'의 조언이다. 앤은 대개 따르지만 성격대로 할 때도 있고,
 // 시간 안에 답이 없으면 선택지 중 아무거나 고른다.
 import { MIN_YEAR } from '../state.js';
+import { icon } from './icons.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const CAT = { love: '사랑', family: '가족', work: '일', money: '돈', school: '학교', life: '인생', friend: '친구', health: '건강', home: '집', power: '정치' };
@@ -120,7 +121,7 @@ export class AskPanel {
     if (!this.open) { c.classList.add('hidden'); return; }
     c.classList.remove('hidden');
     this.place();
-    const tabs = `<div class="ask-tabs">${[['ask', `질문${this.asks.length ? ` ${this.asks.length}` : ''}`], ['log', '지난 답'], ['mode', '설정']].map(([k, n]) => `<button data-view="${k}" class="${this.view === k ? 'on' : ''}">${n}</button>`).join('')}<button class="x" data-ask-close title="닫기">✕</button></div>`;
+    const tabs = `<div class="ask-tabs">${[['ask', `질문${this.asks.length ? ` ${this.asks.length}` : ''}`], ['log', '지난 답'], ['mode', '설정']].map(([k, n]) => `<button data-view="${k}" class="${this.view === k ? 'on' : ''}">${n}</button>`).join('')}<button class="x" data-ask-close title="닫기" aria-label="닫기">${icon('close')}</button></div>`;
     let body = '';
     if (this.view === 'ask') {
       if (this.result) body = this.resultHTML(this.result);
@@ -145,7 +146,7 @@ export class AskPanel {
       <div class="ask-head"><span class="ic">${q.icon || '❓'}</span><div>${this.annLine(q)}<div class="sub small" style="margin:0">${CAT[q.cat] || '고민'}${q.big ? ' · 인생의 갈림길' : ''}</div></div><span class="remain" data-remain>${this.remain(q)}</span></div>
       <div class="ask-text">“${esc(q.q)}”</div>
       <div class="ask-opts">${q.opts.map(o => `<button class="btn" data-opt="${esc(o.k)}" ${this.busy ? 'disabled' : ''}>${esc(o.t)}</button>`).join('')}</div>
-      <div class="ask-foot"><span class="sub small" style="margin:0">마음속 목소리로 조언합니다 — 앤은 성격대로 할 수도 있어요</span>${n > 1 ? `<span class="nav"><button data-nav="-1">‹</button>${i + 1}/${n}<button data-nav="1">›</button></span>` : ''}</div>
+      <div class="ask-foot"><span class="sub small" style="margin:0">마음속 목소리로 조언합니다 — 앤은 성격대로 할 수도 있어요</span>${n > 1 ? `<span class="nav"><button data-nav="-1" aria-label="이전">${icon('back')}</button>${i + 1}/${n}<button data-nav="1" aria-label="다음">${icon('next')}</button></span>` : ''}</div>
     </div>`;
   }
   verdict(L) {

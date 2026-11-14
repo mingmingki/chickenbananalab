@@ -1,5 +1,6 @@
 // 3D 세계: 렌더러, 우주, 지구, 도시, 카메라, 선택, 인트로 연출
 import * as THREE from 'three';
+import { EarthVectors } from './vectors.js';
 import { R, D2R, vecToLL, llToVec } from './geo.js';
 import { buildEarthTextures, makeEarth, paintLights, countryIndexAt, loadEarthImagery } from './earth.js';
 import { geoLabels } from './geolabels.js';
@@ -37,6 +38,8 @@ export class World3D {
       if (img) this.earth.setImagery(img); else this.earth.useFallback(this.tex.fallbackDay());
     });
     this.earthRoot.add(this.earth.group);
+    // 국경선·나라 테두리는 선으로 (확대해도 또렷하게)
+    this.vec = new EarthVectors(this.earth.group, countries, borders, renderer);
     this.cities = new Cities(this.earthRoot, meta, this.earth.mesh);
     this.weather = new Weather(this.scene);
     this.rig = new CameraRig(this.camera, renderer.domElement);
@@ -55,6 +58,7 @@ export class World3D {
       this.camera.aspect = container.clientWidth / container.clientHeight;
       this.camera.updateProjectionMatrix();
       renderer.setSize(container.clientWidth, container.clientHeight);
+      this.vec.resize();
     });
     const el = renderer.domElement;
     el.addEventListener('pointermove', e => this.onMove(e));
@@ -114,12 +118,14 @@ export class World3D {
   setMyCountry(code) {
     this.myCountry = this.countries.findIndex(c => c.code === code);
     this.tex.paintOverlay(this.selectedCountry ?? -1, this.myCountry);
+    this.vec.setMine(this.myCountry);
   }
   setSelectedCountry(idx) {
     if (idx === this.selectedCountry) return;
     this.selectedCountry = idx;
     this.earth.uniforms.hoverId.value = -1;
     this.tex.paintOverlay(idx ?? -1, this.myCountry ?? -1);
+    this.vec.setSelected(idx ?? -1);
   }
 
   flyToCountry(c, alt = 3200) {
@@ -267,7 +273,9 @@ export class World3D {
     U.cloudAmt.value = this.earth.cloudU.opacity.value;
     // 국경선: 나라를 고를 때는 또렷하게, 마을 가까이 내려가면 사라진다
     // (국경 그림은 4K라 1,500km 아래로 내려가면 계단처럼 보인다 → 그 전에 사라지게)
-    U.borderAlpha.value = this.mode === 'pick-country' ? THREE.MathUtils.clamp((alt - 900) / 1500, 0, 1) * 0.6 : THREE.MathUtils.clamp((alt - 1500) / 2500, 0, 1) * 0.3;
+    // (예전엔 국경을 그림으로 그려 가까이서 계단처럼 깨졌다 → 이제 선으로 그린다: vectors.js)
+    U.borderAlpha.value = 0;
+    this.vec.update(alt, this.mode);
     // 행성 궤도는 멀리서만
     const far = alt > 3e5;
     for (const p of this.space.planets) p.orbit.visible = far;
