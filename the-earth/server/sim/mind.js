@@ -299,7 +299,8 @@ export function decide(world, a) {
       }
       if (best && best.site.owner !== a.id) add('build', 6 + a.tr.A * 0.2 + best.r * 0.12 + (era <= 2 ? 8 : 0) - (weatherBad ? 10 : 0), ['품앗이', `${best.b.name}네 ${best.site.name} 짓기 돕기`], { site: best.site.id });
     }
-    if (!world.campfireOf(s)) add('build', 70, ['모일 곳(모닥불)이 필요하다'], { civic: 'campfire' });
+    // 모닥불은 불을 다룰 줄 알게 된 뒤에야 (처음 마을은 며칠 뒤 누군가 불을 발견한다)
+    if (!world.campfireOf(s) && (!country.seeded || country.discoveries.includes('불의 사용'))) add('build', 70, ['모일 곳(모닥불)이 필요하다'], { civic: 'campfire' });
     const cs = world.communitySite(s);
     if (cs) add('build', 14 + a.tr.A * 0.18 + a.tr.C * 0.12 + (era <= 1 ? 10 : 0) + (cs.type === 'campfire' ? 40 : 0) + (cs.budget > 0 && moneyStress > 30 ? 10 : 0),
       ['마을 일 돕기', `${cs.name} 공사 (${Math.round(cs.progress / cs.work * 100)}%)`], { site: cs.id });

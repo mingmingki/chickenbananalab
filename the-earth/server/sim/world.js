@@ -10,6 +10,7 @@ import { rel, decayRelations, breakUp, opinionText, updateKind, confessYes, conf
 import { consult, askTick, askDaily, loansDaily, asksOut } from './dilemma.js';
 import { engage, wedding, honeymoon, cohabit, romanceDaily } from './romance.js';
 import { setKidPlan, startLeave, leaveDaily, onLeave, retire, enlist, draftDaily, armyDaily, discharge } from './life.js';
+import { seedVillage, villageDaily, migrateStart } from './village.js';
 import { companyDaily, considerPromotion, jobTitle, leaveJob, foundPublic, dailyCost, wageBase, setJob, assignContractor, siteName, hasConstruction, fullDayPay, annualOf } from './economy.js';
 import { childName, givenOf, familyName } from './names.js';
 import { runEvents, rollWeather } from './events.js';
@@ -259,16 +260,23 @@ export class World {
     this.dirtyCountries.add(c.code);
   }
   /** 발견 시도: 시대 안에서 기술이 쌓일수록 발견 확률이 올라간다 (발견이 시대 전체에 고르게 퍼지도록) */
-  tryDiscovery(a) {
+  tryDiscovery(a, forced = null) {
     const c = this.countries[a.country];
-    const list = DISCOVERIES[c.era] || [];
-    const left = list.filter(d => !c.discoveries.includes(d));
-    if (!left.length) return;
-    const cur = ERAS[c.era].tech, nxt = ERAS[c.era + 1]?.tech ?? cur * 2 + 1000;
-    const progress = (c.tech - cur) / (nxt - cur);
-    const made = list.length - left.length;
-    if (progress < made / list.length * 0.9 && !chance(0.15)) return;
-    const d = pick(left);
+    let d;
+    if (forced) {
+      if (c.discoveries.includes(forced)) return;
+      d = forced;
+    } else {
+      const list = DISCOVERIES[c.era] || [];
+      const left = list.filter(d => !c.discoveries.includes(d));
+      if (!left.length) return;
+      const cur = ERAS[c.era].tech, nxt = ERAS[c.era + 1]?.tech ?? cur * 2 + 1000;
+      const progress = (c.tech - cur) / (nxt - cur);
+      const made = list.length - left.length;
+      if (progress < made / list.length * 0.9 && !chance(0.15)) return;
+      // 원시 시대의 첫 발견은 언제나 불
+      d = left.includes('불의 사용') ? '불의 사용' : pick(left);
+    }
     c.discoveries.push(d);
     const next = ERAS[c.era + 1];
     const bonus = next ? (next.tech - ERAS[c.era].tech) * 0.015 : 800;
@@ -384,6 +392,7 @@ export class World {
   countryDaily(c) {
     const people = [...this.anns.values()].filter(a => a.alive && a.country === c.code);
     c.pop = people.length;
+    villageDaily(this, c);
     // 나라 살림: 하루 세수·공무원 인건비의 이동 평균
     c.taxAvg = (c.taxAvg ?? (c.taxIn || 0)) * 0.95 + (c.taxIn || 0) * 0.05;
     c.pubAvg = (c.pubAvg ?? (c.pubOut || 0)) * 0.95 + (c.pubOut || 0) * 0.05;
@@ -564,6 +573,8 @@ export class World {
     const s = makeSettlement(this, c, lon, lat, null);
     c.capital = s.id;
     this.news('city', `⛺ ${c.name}의 첫 정착지 ${s.name}이(가) 생겼다`, { country: code, sid: s.id }, 2);
+    // 첫 마을엔 관리자(마을)의 앤 수십 명이 초가집에 모여 산다
+    seedVillage(this, c, s);
     return s;
   }
 
@@ -572,12 +583,14 @@ export class World {
     const room = MAX_ANNS_PER_PLAYER - player.anns.filter(id => this.anns.get(id)?.pdeploy || this.anns.get(id)?.gen === 1 && !this.anns.get(id)?.parents.length).length;
     if (room <= 0) throw new Error(`한 플레이어는 앤을 최대 ${MAX_ANNS_PER_PLAYER}명까지 투입할 수 있습니다`);
     const c = this.ensureCountry(player.country);
-    // 이 나라에 가정이 있으면, 앤은 무작위 가정에 아기로 태어난다
-    if (this.pickFamily(c.code)) {
+    // 아직 아무도 살지 않는 나라면 첫 마을(관리자 앤들의 원시 마을)부터 생긴다
+    this.homeSettlement(c.code);
+    // 앤은 가정에 아기로 태어난다: 내 앤들이 꾸린 가정이 있으면 그 집에, 없으면 마을의 다른 가정에
+    if (this.pickFamily(c.code, [], player.id)) {
       const born = [];
       for (const raw of specs.slice(0, room)) {
         // 가정이 모자라면 이미 고른 가정에 형제·쌍둥이로
-        const fam = this.pickFamily(c.code, born.map(b => b.fam)) || this.pickFamily(c.code);
+        const fam = this.pickFamily(c.code, born.map(b => b.fam), player.id) || this.pickFamily(c.code, [], player.id);
         if (!fam) break;
         const baby = this.bornIntoFamily(player, sanitizeSpec(raw), fam);
         born.push({ baby, fam });
@@ -615,7 +628,7 @@ export class World {
   }
 
   /** 아기를 맞을 수 있는 가정 (부부·연인, 같은 마을) */
-  pickFamily(code, exclude = []) {
+  pickFamily(code, exclude = [], prefer = null) {
     const now = this.clock;
     const fams = [];
     for (const a of this.anns.values()) {
@@ -631,7 +644,9 @@ export class World {
       const father = a.gender === 'M' ? a : b.gender === 'M' ? b : null;
       const bio = !!(mother && father && ageOf(mother, now) <= 46 && !mother.preg);
       const recent = mother && now - (mother.lastBirth || -1e9) < YEAR * 0.8;
-      const w = (a.spouse ? 2 : 1) * (1 + (a.val.family + b.val.family) / 100) / (1 + a.kids.length * 0.5) * (recent ? 0.15 : 1);
+      // 내 앤이 꾸린 가정이면 훨씬 자주 고른다 (처음엔 마을 가정, 나중엔 내 앤들의 아이로)
+      const mine = prefer && (a.owner === prefer || b.owner === prefer) ? 25 : 1;
+      const w = mine * (a.spouse ? 2 : 1) * (1 + (a.val.family + b.val.family) / 100) / (1 + a.kids.length * 0.5) * (recent ? 0.15 : 1);
       fams.push({ a, b, mother, father, bio, w });
     }
     if (!fams.length) return null;
@@ -927,11 +942,12 @@ export class World {
     // 개척 욕구
     if (!a.wantsMigrate && age >= 22 && age < 55 && c.leader !== a.id) {
       const sCount = [...this.settlements.values()].filter(x => x.country === a.country).length;
-      const crowd = s.pop / (25 * (1 + c.era * 0.7));
+      // 원시 시대엔 다 같이 한 마을에 산다 (흩어지는 건 농경 시대부터)
+      const crowd = c.era < 1 ? 0 : s.pop / (40 * (1 + c.era * 0.7));
       // 사람은 대개 모여 산다: 정착지는 인구 40~50명에 하나 정도만 새로 생긴다 (마을이 커져야 도시가 된다)
       let why = null;
       if (a.noMigrateUntil > now) why = null;
-      else if (a.goals.some(g => g.k === 'adventure' && !g.done) && s.pop >= 20 && sCount < 1 + c.pop / 45 && chance(0.004 * (1 + crowd))) why = '모험심';
+      else if (c.era >= 1 && a.goals.some(g => g.k === 'adventure' && !g.done) && s.pop >= 20 && sCount < 1 + c.pop / 45 && chance(0.004 * (1 + crowd))) why = '모험심';
       else if (crowd > 1 && sCount < 1 + c.pop / 40 && chance(0.0015 * crowd * a.val.adventure / 50)) why = '이곳은 너무 붐빈다';
       if (why) {
         if (a.owner && consult(this, a, 'migrate', { why })) a.noMigrateUntil = Math.round(now + 3 * DAY);
@@ -1173,6 +1189,7 @@ export class World {
     w.lastDay = Math.floor(w.clock / DAY);
     w.paused = !!o.paused;
     for (const p of Object.values(w.players)) { p.ach = p.ach || {}; p.inbox = p.inbox || []; p.asks = p.asks || []; p.askLog = p.askLog || []; if (p.eraAtJoin == null) p.eraAtJoin = 0; }
+    migrateStart(w);
     return w;
   }
 

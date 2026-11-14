@@ -417,13 +417,17 @@ app.post('/api/servers/:id/seen', (req, res) => {
 app.get('/api/servers/:id/country/:code', (req, res) => {
   const w = getWorld(req, res); if (!w) return;
   const code = req.params.code;
-  let families = 0;
+  let families = 0, mine = 0;
+  const me = playerOf(w, req);
   for (const a of w.anns.values()) {
     const pid = a.spouse || a.partner;
-    if (a.alive && a.country === code && pid && a.id < pid && w.anns.get(pid)?.alive) families++;
+    const b = pid && w.anns.get(pid);
+    if (a.alive && a.country === code && b?.alive && a.id < pid) { families++; if (me && (a.owner === me.id || b.owner === me.id)) mine++; }
   }
   const c = w.countries[code];
-  res.json({ families, mode: families ? 'baby' : 'pioneer', pop: c?.pop || 0, era: c?.era ?? 0, eraName: ERAS[c?.era ?? 0].name, settlements: [...w.settlements.values()].filter(s => s.country === code).length });
+  const settled = [...w.settlements.values()].filter(s => s.country === code).length;
+  // 아직 아무도 살지 않는 나라: 첫 투입 때 관리자 앤들의 원시 마을이 생기고, 앤은 그 마을 가정의 아기로 태어난다
+  res.json({ families, mine, village: !settled, mode: families || !settled ? 'baby' : 'pioneer', pop: c?.pop || 0, era: c?.era ?? 0, eraName: ERAS[c?.era ?? 0].name, settlements: settled });
 });
 
 const deployLimit = limiter(60, 600_000);

@@ -29,7 +29,9 @@ export function roadName(key) {
 /** 개발된 블록 둘레의 도로 구간에 흙길을 낸다 (사람이 다니면 길이 된다) */
 export function syncRoads(world, s) {
   s.roads = s.roads || {};
-  const blocks = new Set(['0,0', '-1,-1', '-1,0', '0,-1']);
+  // 원시 시대엔 길이 없다. 농경 시대부터 집이 들어선 블록 둘레로 흙길이 난다
+  if ((world.countries[s.country]?.era ?? 0) < 1) return;
+  const blocks = new Set();
   for (const id of s.buildings) {
     const b = world.buildings.get(id);
     if (!b || b.type === 'farm' || b.infra) continue;

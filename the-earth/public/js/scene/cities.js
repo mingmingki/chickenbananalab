@@ -418,7 +418,7 @@ export class Cities {
 
   /** 도로 등급표 (서버가 아직 안 보냈으면 개발된 블록 둘레를 흙길로) */
   roadsOf(s, blds) {
-    if (s.roads && Object.keys(s.roads).length) return s.roads;
+    if (s.roads) return s.roads; // 서버가 보낸 도로 (원시 시대엔 비어 있다)
     const roads = {};
     const blocks = new Set(['0,0', '-1,-1', '-1,0', '0,-1']);
     for (const b of blds) if (b.type !== 'farm') blocks.add(Math.floor(Math.floor(b.x / CELL) / BLOCK) + ',' + Math.floor(Math.floor(b.z / CELL) / BLOCK));
@@ -432,9 +432,17 @@ export class Cities {
     g.clearRect(0, 0, S, S);
     const off = CELL / 2;
     const snow = t.s.snow || 0, sea = this.seasonOf(t);
-    // 광장
-    g.fillStyle = era >= 3 ? '#b9b2a4' : '#b09a74';
-    g.beginPath(); g.arc(px(off), px(off), 18 * sc, 0, 6.28); g.fill();
+    // 광장: 농경 시대부터. 원시 시대엔 모닥불 둘레만 밟혀 흙이 드러난다
+    if (era >= 1) {
+      g.fillStyle = era >= 3 ? '#b9b2a4' : '#b09a74';
+      g.beginPath(); g.arc(px(off), px(off), 18 * sc, 0, 6.28); g.fill();
+    } else {
+      for (const b of blds) if (b.type === 'campfire' && b.done) {
+        const gr = g.createRadialGradient(px(b.x), px(b.z), 0, px(b.x), px(b.z), 11 * sc);
+        gr.addColorStop(0, 'rgba(120,96,64,0.75)'); gr.addColorStop(1, 'rgba(120,96,64,0)');
+        g.fillStyle = gr; g.beginPath(); g.arc(px(b.x), px(b.z), 11 * sc, 0, 6.28); g.fill();
+      }
+    }
     // 건물 바닥과 밭 (밭은 계절 따라: 봄 갈아엎은 흙, 여름 초록, 가을 누런 벼, 겨울 빈 밭)
     const fieldCol = { 봄: ['#8a7350', '#7fa83a'], 여름: ['#5f9a35', '#79a83a'], 가을: ['#d2b24a', '#c9a23f'], 겨울: ['#8b7a5e', '#7d6c52'] }[sea.season] || ['#c9b24f', '#7fa83a'];
     for (const b of blds) {

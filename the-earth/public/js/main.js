@@ -295,7 +295,7 @@ function refreshCountryInfo() {
   const card = $('#country-card');
   card.classList.remove('hidden');
   card.innerHTML = `<h3>${flag(c.code)} ${esc(c.name)}</h3>
-    <p class="sub" style="margin:0">${st ? `${esc(st.eraName)} · 인구 ${st.pop}명 · 플레이어 ${players.length}명${st.leader ? `<br>${esc(st.leader.title)}: ${esc(st.leader.name)}` : ''}` : '아직 아무도 살지 않는 땅. 당신의 앤들이 첫 문명을 시작합니다.'}</p>`;
+    <p class="sub" style="margin:0">${st ? `${esc(st.eraName)} · 인구 ${st.pop}명 · 플레이어 ${players.length}명${st.leader ? `<br>${esc(st.leader.title)}: ${esc(st.leader.name)}` : ''}` : '아직 문명이 없는 땅. 관리자 앤 30여 명이 초가집에 모여 사는 원시 마을이 생기고, 당신의 앤은 그 마을 가정의 아기로 태어납니다.'}</p>`;
 }
 
 async function joinCountry() {
@@ -323,8 +323,8 @@ async function openCreator() {
   w3d.mode = 'pick-country';
   w3d.setSelectedCountry(geo.countries.indexOf(country));
   w3d.flyToCountry(country, 4500);
-  const info = await api(`/api/servers/${ctx.session.serverId}/country/${country.code}`).catch(() => ({ mode: 'pioneer', families: 0 }));
-  creator = new Creator($('#creator'), { culture: country.culture, countryName: country.name, room: ctx.session.room ?? meta.maxAnns, max: meta.maxAnns, mode: info.mode, families: info.families });
+  const info = await api(`/api/servers/${ctx.session.serverId}/country/${country.code}?token=${encodeURIComponent(ctx.session.token || "")}`).catch(() => ({ mode: 'pioneer', families: 0 }));
+  creator = new Creator($('#creator'), { culture: country.culture, countryName: country.name, room: ctx.session.room ?? meta.maxAnns, max: meta.maxAnns, mode: info.mode, families: info.families, village: info.village, mine: info.mine });
   await creator.open();
   $('#creator').onclick = async e => {
     const act = e.target.closest('[data-act]')?.dataset.act;
