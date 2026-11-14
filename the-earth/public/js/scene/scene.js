@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { EarthVectors } from './vectors.js';
 import { R, D2R, vecToLL, llToVec } from './geo.js';
-import { buildEarthTextures, makeEarth, paintLights, countryIndexAt, loadEarthImagery } from './earth.js';
+import { buildEarthTextures, makeEarth, paintLights, countryIndexAt, loadEarthData } from './earth.js';
 import { geoLabels } from './geolabels.js';
 import { dateOf } from '../state.js';
 import { makeSpace, glowTexture } from './space.js';
@@ -23,20 +23,20 @@ export class World3D {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x000000);
+    this.scene.background = new THREE.Color(0x03060d);
     this.camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.001, 3e10);
 
+    // 우주(별·행성·태양·달)는 보여 주지 않는다. 낮과 밤을 만드는 햇빛만 쓴다
     this.space = makeSpace();
-    this.scene.add(this.space.sky, this.space.equatorial, this.space.ambient);
+    this.scene.add(this.space.equatorial, this.space.ambient);
+    for (const o of [this.space.sunMesh, this.space.sunGlow, this.space.sunFar, this.space.moon, this.space.planets.earthOrbit]) if (o) o.visible = false;
+    for (const p of this.space.planets) { p.mesh.visible = false; if (p.orbit) p.orbit.visible = false; }
     this.earthRoot = new THREE.Group();
     this.scene.add(this.earthRoot);
-    this.tex = buildEarthTextures(countries, renderer.capabilities.maxTextureSize, borders);
+    this.tex = buildEarthTextures(countries);
     this.earth = makeEarth(this.tex);
-    // 실제 지구 사진(NASA 블루 마블)을 받아 끼운다. 못 받으면 국경 다각형 지도로
-    const doy0 = Math.floor((Date.now() - Date.UTC(new Date().getUTCFullYear(), 0, 1)) / 864e5);
-    this.ready = loadEarthImagery(renderer.capabilities.maxTextureSize, 0.5 + 0.5 * Math.cos((doy0 - 15) / 365 * Math.PI * 2)).then(img => {
-      if (img) this.earth.setImagery(img); else this.earth.useFallback(this.tex.fallbackDay());
-    });
+    // 땅과 바다는 셰이더가 직접 그린다. 어디가 숲·사막·얼음인지, 바다가 얼마나 깊은지 담은 자료만 받는다
+    this.ready = loadEarthData().then(d => { if (d) this.earth.setData(d); });
     this.earthRoot.add(this.earth.group);
     // 국경선·나라 테두리는 선으로 (확대해도 또렷하게)
     this.vec = new EarthVectors(this.earth.group, countries, borders, renderer);
@@ -75,8 +75,13 @@ export class World3D {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2((e.clientX - rect.left) / rect.width * 2 - 1, -(e.clientY - rect.top) / rect.height * 2 + 1);
     this.ray.setFromCamera(ndc, this.camera);
-    const hit = this.ray.intersectObject(this.earth.mesh, false)[0];
-    return hit ? vecToLL(hit.point.clone().sub(this.earthRoot.position)) : null;
+    // 지구는 공이므로 삼각형 13만 개를 뒤지지 않고 공과 직선의 만남을 바로 계산한다 (휴대폰에서 끌 때 가볍게)
+    const o = this.ray.ray.origin.clone().sub(this.earthRoot.position), d = this.ray.ray.direction;
+    const b = o.dot(d), c = o.lengthSq() - R * R, disc = b * b - c;
+    if (disc < 0) return null;
+    const t = -b - Math.sqrt(disc);
+    if (t < 0) return null;
+    return vecToLL(o.addScaledVector(d, t));
   }
 
   onMove(e) {
@@ -132,66 +137,26 @@ export class World3D {
     this.rig.flyTo({ lat: c.centroid[1], lon: c.centroid[0], alt, heading: 0 });
   }
 
-  // ── 인트로: 위에서 지구가 떨어진다 ──
+  // ── 인트로: 어둠 속에서 지구가 천천히 떠오른다 (우주 장면은 없다) ──
   playIntro(onLanded) {
     this.mode = 'intro';
     this.rig.enabled = false;
     this.clockOverride = 172 * 1440 + 395; // 북반구 여름 아침 무렵의 빛
-    this.rig.jump({ lat: 22, lon: 118, alt: R * 2.9, tilt: 90, heading: 0 });
-    this.rig.apply();
+    this.rig.jump({ lat: 22, lon: 118, alt: 30000, tilt: 90, heading: 0 });
+    this.rig.flyTo({ lat: 22, lon: 128, alt: 21000, tilt: 90, heading: 0 });
     this.lift = this.liftTarget = 0.13;
-    const startY = R * 9;
-    this.earthRoot.position.set(0, startY, 0);
-    this.earthRoot.rotation.y = -1.4;
-    const trail = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture('rgba(255,230,190,1)', 'rgba(255,140,60,0.35)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
-    this.scene.add(trail);
-    const ring = new THREE.Mesh(new THREE.RingGeometry(1, 1.15, 96), new THREE.MeshBasicMaterial({ color: 0x9fd0ff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
-    this.scene.add(ring);
-    const camBase = this.camera.position.clone();
-    const flash = document.getElementById('flash');
-    const T_FALL = 2.3, T_SETTLE = 1.6;
+    const el = this.renderer.domElement;
+    el.style.transition = 'none'; el.style.opacity = '0';
+    requestAnimationFrame(() => { el.style.transition = 'opacity 1.4s ease'; el.style.opacity = '1'; });
     const t0 = performance.now();
-    let landed = false;
     this.introSkip = () => { this.introT = 99; };
     this.introStep = () => {
       const t = this.introT ?? (performance.now() - t0) / 1000;
-      if (t < 0.35) { this.earthRoot.position.y = startY; return; }
-      const tf = t - 0.35;
-      if (tf < T_FALL) {
-        const k = tf / T_FALL;
-        this.earthRoot.position.y = startY * (1 - k * k * k);
-        this.earthRoot.rotation.y = -1.4 + k * 1.2;
-        trail.material.opacity = Math.min(1, k * 1.6) * 0.85;
-        trail.position.set(0, this.earthRoot.position.y + R * 1.6, 0);
-        trail.scale.set(R * 1.4, R * 4.2 * (0.5 + k), 1);
-      } else {
-        const ts = tf - T_FALL;
-        if (!landed) {
-          landed = true;
-          flash.style.transition = 'none'; flash.style.opacity = '1';
-          requestAnimationFrame(() => { flash.style.transition = 'opacity 1.6s ease'; flash.style.opacity = '0'; });
-        }
-        const k = Math.min(1, ts / T_SETTLE);
-        // 쿵 — 살짝 튀어 오르고 가라앉는다
-        this.earthRoot.position.y = -Math.sin(k * Math.PI * 2.2) * Math.exp(-k * 4.5) * R * 0.18;
-        this.earthRoot.rotation.y = -0.2 + k * 0.2;
-        trail.material.opacity = Math.max(0, 0.85 - ts * 3);
-        ring.position.set(0, 0, 0);
-        ring.lookAt(this.camera.position);
-        const rr = R * (1.02 + ts * 2.2);
-        ring.scale.set(rr, rr, 1);
-        ring.material.opacity = Math.max(0, 0.75 - ts * 0.55);
-        const shake = Math.exp(-ts * 5) * R * 0.04;
-        this.camera.position.copy(camBase).add(new THREE.Vector3((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, 0));
-        if (ts > 2.4) {
-          this.earthRoot.position.set(0, 0, 0); this.earthRoot.rotation.y = 0;
-          this.scene.remove(trail, ring);
-          this.introStep = null;
-          this.mode = 'menu';
-          this.rig.jump({ lat: 22, lon: 118, alt: R * 2.9, tilt: 90 });
-          onLanded?.();
-        }
-      }
+      if (t < 1.2) return;
+      el.style.opacity = '1';
+      this.introStep = null;
+      this.mode = 'menu';
+      onLanded?.();
     };
   }
 
@@ -241,8 +206,8 @@ export class World3D {
 
   loop(ts = 0) {
     requestAnimationFrame(this.loop);
-    // 휴대폰은 초당 30장이면 충분하다 (배터리·발열)
-    if (PHONE && ts - (this.lastTs || 0) < 30) return;
+    // 휴대폰: 만지거나 움직이는 동안은 초당 60장으로 부드럽게, 가만히 있을 땐 30장 (배터리·발열)
+    if (PHONE && !this.rig.busy() && ts - (this.lastTs || 0) < 30) return;
     this.lastTs = ts;
     const dt = Math.min(0.1, this.clock.getDelta());
     this.time += dt;
@@ -267,7 +232,7 @@ export class World3D {
     // 계절: 1월 = 북반구 한겨울(1), 7월 = 한여름(0). 게임 속 날짜(관찰 중) 또는 오늘 날짜(메뉴)
     const doy = this.mode === 'observe' && st?.world ? dateOf(minutes).doy : Math.floor((Date.now() - Date.UTC(new Date().getUTCFullYear(), 0, 1)) / 864e5);
     U.season.value = 0.5 + 0.5 * Math.cos((doy - 15) / 365 * Math.PI * 2);
-    if (this.earth.one && (this._seasonCheck = (this._seasonCheck || 0) + dt) > 3) { this._seasonCheck = 0; this.earth.followSeason(U.season.value); }
+    U.time.value = this.time;
     // 구름은 게임 속 20일에 지구를 한 바퀴 (그림자도 같이)
     U.cloudShift.value = ((minutes / (1440 * 20)) + this.time * 0.0004) % 1;
     U.cloudAmt.value = this.earth.cloudU.opacity.value;
@@ -276,10 +241,6 @@ export class World3D {
     // (예전엔 국경을 그림으로 그려 가까이서 계단처럼 깨졌다 → 이제 선으로 그린다: vectors.js)
     U.borderAlpha.value = 0;
     this.vec.update(alt, this.mode);
-    // 행성 궤도는 멀리서만
-    const far = alt > 3e5;
-    for (const p of this.space.planets) p.orbit.visible = far;
-    this.space.planets.earthOrbit.visible = far;
     let labels = [];
     if (st?.world && (this.mode === 'observe' || this.mode === 'pick-country')) {
       if (st.dirty.settlements || st.dirty.all) {
@@ -320,13 +281,6 @@ export class World3D {
       this.weather.update(dt, this.camera, null, alt, 0);
       this.space.light.intensity = 3.2;
       this.sense = { alt, night: 0, s: null, flash: 0, mode: this.mode };
-    }
-    if (alt > 2e5) {
-      const wp = new THREE.Vector3();
-      for (const p of this.space.planets) { p.mesh.getWorldPosition(wp); labels.push({ key: 'pl' + p.key, pos: wp.clone(), cls: 'planet', html: p.name, pri: 0 }); }
-      this.space.sunGroup.getWorldPosition(wp); labels.push({ key: 'sun', pos: wp.clone(), cls: 'planet', html: '태양', pri: 0 });
-      this.space.moon.getWorldPosition(wp); labels.push({ key: 'moon', pos: wp.clone(), cls: 'planet', html: '달', pri: 0 });
-      labels.push({ key: 'earth', pos: new THREE.Vector3(0, R * 1.6, 0), cls: 'planet', html: '🌍 지구', pri: 0 });
     }
     this.updateRockets();
     if (this.mode === 'observe' || this.mode === 'pick-country') labels.push(...geoLabels(alt));

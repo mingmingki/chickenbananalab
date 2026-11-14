@@ -121,7 +121,6 @@ export class Hud {
       if (act === 'settings') this.onSettings?.();
       if (act === 'report' && this.detail) this.onReport?.(this.detail);
       if (act === 'home') this.goHome();
-      if (act === 'space') this.w3d.rig.flyTo({ alt: 1.4e8 });
       if (act === 'toggle-left') { document.getElementById('left').classList.toggle('closed'); this.layout(); }
       if (t.closest('.brand')) this.onExit?.();
     };

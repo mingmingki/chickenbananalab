@@ -1,62 +1,19 @@
-// 지구: NASA 위성 사진(블루 마블, 퍼블릭 도메인)으로 그린 실제 지구 + 계절(겨울엔 북반구가 하얗게) + 지형 음영 + 실제 구름
-// + 나라 경계선 + 낮/밤 셰이더 + 앤들이 세운 마을의 불빛 + 대기.
-// 사진을 못 불러오면 예전처럼 국경 다각형으로 그린 지도로 대신한다.
+// 지구: 땅과 바다를 우리가 직접 그린다 (사진을 붙이지 않는다).
+//   · 해안선은 나라 다각형에 프랙탈 무늬를 더해, 확대할수록 더 세밀하고 날카롭다
+//   · 숲·초원·사막·툰드라·바위산·만년설·계절 눈은 지형 자료(scripts/make-terrain.py)에 따라 칠하고,
+//     가까이 갈수록 숲 덩어리·모래 물결·산 주름 같은 잔무늬가 끝없이 생긴다
+//   · 바다는 깊이에 따라 색이 다르고, 가까이 가면 해안의 얕은 물빛과 물거품, 잔물결 반짝임이 보인다
+//   · 낮/밤, 실제 구름, 앤들이 세운 마을의 불빛, 대기
 import * as THREE from 'three';
-import { R, latLonSphere, drawCountry, traceRings } from './geo.js';
+import { R, latLonSphere, drawCountry } from './geo.js';
 
 const LOGV = '#include <common>\n#include <logdepthbuf_pars_vertex>\n';
 const LOGF = '#include <logdepthbuf_pars_fragment>\n';
 
-// 사막·빙하·열대우림 (경도1, 경도2, 위도1, 위도2, 색, 세기)
-const REGIONS = [
-  [-17, 35, 14, 31, '#d9b77a', 0.95], [34, 60, 13, 32, '#d6b073', 0.9], [48, 63, 26, 37, '#c9a777', 0.6], [68, 76, 23, 29, '#ccaa72', 0.6],
-  [75, 92, 36, 42, '#d2b67f', 0.8], [92, 115, 38, 46, '#c8b088', 0.7], [116, 142, -32, -19, '#cf8f55', 0.85], [-118, -104, 29, 38, '#c99b68', 0.6],
-  [12, 27, -29, -19, '#c9a46a', 0.6], [-72, -68, -28, -18, '#c5a27a', 0.5], [55, 70, 38, 46, '#c7ae80', 0.55],
-  [-75, -48, -12, 4, '#2f6b2a', 0.55], [10, 30, -6, 5, '#2f6b2a', 0.5], [95, 150, -8, 8, '#2e6a33', 0.4],
-  [-56, -18, 59, 84, '#eef3f6', 1.0], [-180, 180, -91, -62, '#eef2f5', 1.0], [-95, -60, 72, 84, '#e6edf0', 0.6],
-  // 산맥과 고원
-  [80, 101, 29, 38, '#9a8566', 0.75], [74, 96, 26.5, 32.5, '#e9e7e3', 0.65], [-77, -66, -48, 6, '#8d7b62', 0.55], [-123, -104, 36, 60, '#7d7360', 0.45],
-  [5.5, 15.5, 44.8, 47.8, '#d9d9d6', 0.55], [39, 48.5, 41, 44, '#cfcfcb', 0.4], [35.5, 42, 6, 14, '#7e6b4f', 0.4], [56, 61, 50, 67, '#6e6a55', 0.3],
-  [5, 19, 59, 70, '#8a8c84', 0.35], [127.8, 129.8, 35.8, 39.5, '#5d6a48', 0.35], [136, 139.5, 35, 37.5, '#6f7562', 0.35], [-125, -117, 40, 50, '#6c7258', 0.3],
-];
-
-function latBiome(lat) {
-  const a = Math.abs(lat);
-  if (a > 72) return '#e4ebef';
-  if (a > 62) return '#8e9a7c';
-  if (a > 50) return '#3f6a45';
-  if (a > 36) return '#5c8a47';
-  if (a > 24) return '#8fa05a';
-  if (a > 12) return '#6f9446';
-  return '#3d7a3a';
-}
-
-function noiseCanvas(w, h, scale, seed = 1) {
-  // 값 노이즈 (경도 방향으로 이어지게)
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const g = c.getContext('2d');
-  const img = g.createImageData(w, h);
-  const gw = Math.ceil(w / scale) + 1, gh = Math.ceil(h / scale) + 1;
-  let s = seed * 9301 + 49297;
-  const grid = new Float32Array(gw * gh).map(() => { s = (s * 9301 + 49297) % 233280; return s / 233280; });
-  const gx = Math.ceil(w / scale);
-  const at = (i, j) => grid[(j % gh) * gw + (i % gx)];
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const fx = x / scale, fy = y / scale, i = Math.floor(fx), j = Math.floor(fy);
-    const tx = fx - i, ty = fy - j, sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
-    const v = (at(i, j) * (1 - sx) + at(i + 1, j) * sx) * (1 - sy) + (at(i, j + 1) * (1 - sx) + at(i + 1, j + 1) * sx) * sy;
-    const o = (y * w + x) * 4;
-    const b = v * 255;
-    img.data[o] = img.data[o + 1] = img.data[o + 2] = b; img.data[o + 3] = 255;
-  }
-  g.putImageData(img, 0, 0);
-  return c;
-}
-
 const PHONE_MEM = () => Math.min(screen.width, screen.height) <= 540;
 
-/** 나라 ID 지도(선택용), 나라 강조 오버레이, 국경선 */
-export function buildEarthTextures(countries, maxTex, borders = null) {
+/** 나라 ID 지도(선택용), 땅 모양(R)·고른 나라(G)·내 나라(B) 그림 */
+export function buildEarthTextures(countries) {
   const phone = PHONE_MEM();
   // 1) 국가 ID 지도 (선택/강조용)
   const IW = phone ? 2048 : 4096, IH = IW / 2;
@@ -92,90 +49,28 @@ export function buildEarthTextures(countries, maxTex, borders = null) {
   };
   paintOverlay();
 
-  // 3) 국경선: 나라와 나라 사이 육지 국경만 (해안선은 사진에 보인다). 서버가 안 주면 나라 외곽선
-  const bc = document.createElement('canvas'); bc.width = ov.width; bc.height = ov.height;
-  const bg = bc.getContext('2d');
-  bg.strokeStyle = '#fff'; bg.lineWidth = Math.max(1, ov.width / 4096 * 1.6); bg.lineJoin = 'round'; bg.lineCap = 'round';
-  if (borders?.length) {
-    bg.beginPath();
-    for (const off of [-bc.width, 0, bc.width]) traceRings(bg, borders, bc.width, bc.height, off, { open: true });
-    bg.stroke();
-  } else for (const c of countries) { bg.beginPath(); drawCountry(bg, c, bc.width, bc.height); bg.stroke(); }
-  const borderTex = new THREE.CanvasTexture(bc);
-  borderTex.anisotropy = 4;
-
   const idTex = new THREE.CanvasTexture(idc);
   idTex.magFilter = idTex.minFilter = THREE.NearestFilter;
   idTex.generateMipmaps = false;
-  // 사진을 못 불러왔을 때 쓸 예전 지도 (필요할 때만 만든다)
-  const fallbackDay = () => proceduralDay(countries, phone ? 2048 : 4096);
-  return { idTex, idData, IW, IH, ovTex, paintOverlay, borderTex, fallbackDay };
-}
-
-/** 예전 방식의 지도: 국경 다각형 + 위도별 색 + 사막·산맥 얼룩 */
-function proceduralDay(countries, W) {
-  const H = W / 2, sx = W / 4096;
-  const mask = document.createElement('canvas'); mask.width = W; mask.height = H;
-  const mg = mask.getContext('2d');
-  mg.fillStyle = '#fff';
-  for (const c of countries) { mg.beginPath(); drawCountry(mg, c, W, H); mg.fill('evenodd'); }
-  mg.fillRect(0, H * (1 - 12 / 180), W, H);
-  const bio = document.createElement('canvas'); bio.width = W; bio.height = H;
-  const bg = bio.getContext('2d');
-  const grad = bg.createLinearGradient(0, 0, 0, H);
-  for (let lat = 90; lat >= -90; lat -= 3) grad.addColorStop((90 - lat) / 180, latBiome(lat));
-  bg.fillStyle = grad; bg.fillRect(0, 0, W, H);
-  for (const [lo1, lo2, la1, la2, col, a] of REGIONS) {
-    const cx = ((lo1 + lo2) / 2 + 180) / 360 * W, cy = (90 - (la1 + la2) / 2) / 180 * H;
-    const rx = (lo2 - lo1) / 360 * W / 2, ry = (la2 - la1) / 180 * H / 2;
-    bg.save(); bg.translate(cx, cy); bg.scale(rx, ry);
-    const rg = bg.createRadialGradient(0, 0, 0, 0, 0, 1.25);
-    rg.addColorStop(0, col); rg.addColorStop(0.65, col); rg.addColorStop(1, col + '00');
-    bg.globalAlpha = a; bg.fillStyle = rg; bg.beginPath(); bg.arc(0, 0, 1.25, 0, Math.PI * 2); bg.fill();
-    bg.restore();
-  }
-  bg.globalAlpha = 1;
-  bg.globalCompositeOperation = 'soft-light';
-  bg.drawImage(noiseCanvas(512, 256, 9, 3), 0, 0, W, H);
-  bg.globalCompositeOperation = 'destination-in';
-  bg.drawImage(mask, 0, 0);
-  const day = document.createElement('canvas'); day.width = W; day.height = H;
-  const dg = day.getContext('2d');
-  const og = dg.createLinearGradient(0, 0, 0, H);
-  og.addColorStop(0, '#0a2540'); og.addColorStop(0.5, '#0e3d6e'); og.addColorStop(1, '#0a2540');
-  dg.fillStyle = og; dg.fillRect(0, 0, W, H);
-  const shelf = document.createElement('canvas'); shelf.width = W; shelf.height = H;
-  const sg = shelf.getContext('2d');
-  sg.filter = `blur(${Math.round(10 * sx)}px)`; sg.drawImage(mask, 0, 0); sg.filter = 'none';
-  sg.globalCompositeOperation = 'source-in'; sg.fillStyle = '#2a7fa8'; sg.fillRect(0, 0, W, H);
-  dg.globalAlpha = 0.55; dg.drawImage(shelf, 0, 0); dg.globalAlpha = 1;
-  dg.drawImage(bio, 0, 0);
-  bio.width = bio.height = 0; shelf.width = shelf.height = 0; mask.width = mask.height = 0;
-  const t = new THREE.CanvasTexture(day);
-  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
-  return t;
+  return { idTex, idData, IW, IH, ovTex, paintOverlay };
 }
 
 const TL = new THREE.TextureLoader();
-const loadTex = (f, srgb, base = '') => new Promise((res, rej) => TL.load(`${base}/textures/earth/${f}`, t => {
-  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+const loadTex = (f, base = '') => new Promise((res, rej) => TL.load(`${base}/textures/earth/${f}`, t => {
   t.wrapS = THREE.RepeatWrapping; t.anisotropy = 8;
   res(t);
 }, undefined, rej));
-/** 휴대폰은 메모리가 작아 지금 계절의 4K 사진 한 장만 (계절이 바뀌면 바꿔 끼운다) */
-export const singleSeason = maxTex => PHONE_MEM() || maxTex < 4096;
-/** NASA 위성 사진 불러오기: 컴퓨터는 겨울·여름 4K 두 장을 섞고, 휴대폰은 지금 계절 한 장. 실패하면 null */
-export function loadEarthImagery(maxTex, season = 0.5, base = '') {
-  const one = singleSeason(maxTex);
-  const days = one ? [loadTex(`day-${season > 0.5 ? 'winter' : 'summer'}-${maxTex >= 4096 ? 4 : 2}k.jpg`, true, base)]
-    : [loadTex('day-winter-4k.jpg', true, base), loadTex('day-summer-4k.jpg', true, base)];
-  return Promise.all([...days, loadTex('aux-2k.png', false, base), loadTex('clouds-2k.jpg', false, base)])
-    .then(r => one ? { winter: r[0], summer: r[0], aux: r[1], clouds: r[2], one: season > 0.5 ? 'winter' : 'summer', big: maxTex >= 4096 } : { winter: r[0], summer: r[1], aux: r[2], clouds: r[3] })
+/** 지형 자료 (높이·물·깊이 / 식생·건조함·얼음 / 계절 눈·붉은 정도) + 구름. 실패하면 null */
+export function loadEarthData(base = '') {
+  return Promise.all(['aux-2k.png', 'terrain-2k.png', 'climate-1k.png', 'clouds-2k.jpg'].map(f => loadTex(f, base)))
+    .then(([aux, terrain, climate, clouds]) => ({ aux, terrain, climate, clouds }))
     .catch(() => null);
 }
 
 const BLACK = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); BLACK.needsUpdate = true;
-const SEA = new THREE.DataTexture(new Uint8Array([12, 50, 95, 255]), 1, 1); SEA.needsUpdate = true;
+// 자료가 오기 전: 높이 0 · 물 0 · 얕은 바다 / 초원 정도
+const AUX0 = new THREE.DataTexture(new Uint8Array([0, 0, 40, 255]), 1, 1); AUX0.needsUpdate = true;
+const TERR0 = new THREE.DataTexture(new Uint8Array([110, 50, 0, 255]), 1, 1); TERR0.needsUpdate = true;
 const NOISE_GLSL = `
   float hash3(vec3 p){ p = fract(p*0.3183099+.1); p *= 17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
   float noise3(vec3 x){ vec3 i=floor(x); vec3 f=fract(x); f=f*f*(3.0-2.0*f);
@@ -189,15 +84,16 @@ export function makeEarth(textures) {
   lightsTex.colorSpace = THREE.SRGBColorSpace;
 
   const uniforms = {
-    winterMap: { value: SEA }, summerMap: { value: SEA }, auxMap: { value: BLACK }, cloudMap: { value: BLACK },
-    idMap: { value: textures.idTex }, lightsMap: { value: lightsTex }, ovMap: { value: textures.ovTex }, borderMap: { value: textures.borderTex },
+    auxMap: { value: AUX0 }, terrMap: { value: TERR0 }, climMap: { value: BLACK }, cloudMap: { value: BLACK },
+    idMap: { value: textures.idTex }, lightsMap: { value: lightsTex }, ovMap: { value: textures.ovTex },
     sunDir: { value: new THREE.Vector3(1, 0, 0) }, hoverId: { value: -1 }, myId: { value: -1 }, lightsFade: { value: 1 },
     season: { value: 0.5 },        // 0 = 북반구 한여름(7월), 1 = 북반구 한겨울(1월)
-    imagery: { value: 0 },         // 위성 사진이 들어왔나 (0 → 1 로 서서히)
+    imagery: { value: 0 },         // 지형 자료가 들어왔나 (0 → 1 로 서서히)
     relief: { value: 1 },          // 지형 음영 세기
-    borderAlpha: { value: 0.35 },  // 국경선
+    borderAlpha: { value: 0 },     // (국경선은 이제 선으로 그린다: vectors.js)
     cloudShift: { value: 0 },      // 구름이 흘러간 정도 (구름 그림자와 같이)
     cloudAmt: { value: 0.85 },
+    time: { value: 0 },
   };
   const mat = new THREE.ShaderMaterial({
     uniforms,
@@ -210,61 +106,182 @@ export function makeEarth(textures) {
         #include <logdepthbuf_vertex>
       }`,
     fragmentShader: LOGF + `
-      uniform sampler2D winterMap; uniform sampler2D summerMap; uniform sampler2D auxMap; uniform sampler2D cloudMap;
-      uniform sampler2D idMap; uniform sampler2D lightsMap; uniform sampler2D ovMap; uniform sampler2D borderMap;
+      uniform sampler2D auxMap; uniform sampler2D terrMap; uniform sampler2D climMap; uniform sampler2D cloudMap;
+      uniform sampler2D idMap; uniform sampler2D lightsMap; uniform sampler2D ovMap;
       uniform vec3 sunDir; uniform float hoverId; uniform float myId; uniform float lightsFade;
-      uniform float season; uniform float imagery; uniform float relief; uniform float borderAlpha; uniform float cloudShift; uniform float cloudAmt;
+      uniform float season; uniform float imagery; uniform float relief; uniform float cloudShift; uniform float cloudAmt; uniform float time;
       varying vec2 vUv; varying vec3 vN; varying vec3 vW;
       ${NOISE_GLSL}
+      // 프랙탈 잡음 세 가지. 단계마다 무늬를 돌려(M3) 격자 결이 안 보이게 하고,
+      // 화면 한 점(px km)보다 잘아지는 단계는 서서히 지워서 확대·축소할 때 이음매가 생기지 않게 한다.
+      const mat3 M3 = mat3(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64);
+      float lodW(float s, float px) { return clamp(s / px * 0.5 - 1.0, 0.0, 1.0); }   // 2px 에서 0, 4px 에서 1
+      // 해안선·높이 흔들기: s0 크기부터 잘게
+      float fbmTo(vec3 p, float s0, float px) {
+        vec3 q = p / s0; float s = s0, a = 0.5, v = 0.0;
+        for (int i = 0; i < 10; i++) {
+          float w = lodW(s, px);
+          if (w <= 0.0) break;
+          v += a * w * (noise3(q) - 0.5);
+          q = M3 * q * 2.0 + 1.7; s *= 0.5; a *= 0.62;
+        }
+        return v;
+      }
+      // 언덕 높이: 단계마다 크기와 높이를 함께 절반으로 — 어느 배율에서 봐도 비탈이 비슷하다
+      float hillFbm(vec3 p, float s0, float px) {
+        vec3 q = p / s0; float s = s0, a = 0.5, v = 0.0;
+        for (int i = 0; i < 10; i++) {
+          float w = lodW(s, px * 1.5);
+          if (w <= 0.0) break;
+          v += a * w * (noise3(q) - 0.5);
+          q = M3 * q * 2.0 + 3.1; s *= 0.5; a *= 0.5;
+        }
+        return v;
+      }
+      // 산줄기: 잡음이 0.5 를 지나는 곳마다 뾰족한 능선이 선다 (굵은 능선이 잔 능선을 이끈다)
+      float ridgeFbm(vec3 p, float s0, float px) {
+        vec3 q = p / s0; float s = s0, a = 0.5, v = 0.0, g = 1.0;
+        for (int i = 0; i < 10; i++) {
+          float w = lodW(s, px * 1.5);
+          if (w <= 0.0) break;
+          float nz = noise3(q);
+          if (i < 4) {
+            float d = nz * 2.0 - 1.0;
+            float r = 1.0 - sqrt(d * d + 0.02);     // 굵은 능선 (네 단계) — 꼭대기는 살짝 둥글게
+            v += a * w * (r - 0.62) * g * 1.3;
+            g = clamp(0.55 + r * 0.6, 0.0, 1.0);
+          } else {
+            v += a * w * (nz - 0.5) * 0.9;          // 잔주름은 둥글게 (곰보 자국이 생기지 않게)
+          }
+          q = M3 * q * 2.0 + 5.3; s *= 0.5; a *= 0.5;
+        }
+        return v;
+      }
+      // 화면 한 점보다 잘아지는 무늬는 평균값(0.5)으로 녹인다 — 멀리서 지글거리지 않게
+      float nl(vec3 p, float s, float px) { return mix(0.5, noise3(p / s), smoothstep(px * 1.5, px * 5.0, s)); }
       void main() {
         #include <logdepthbuf_fragment>
         vec3 n = normalize(vN);
         float ndl = dot(n, sunDir);
         float day = smoothstep(-0.15, 0.2, ndl);
-        // 계절: 겨울엔 북반구 눈 덮인 사진, 여름엔 눈 녹은 사진 (남반구는 반대 계절이 이미 들어 있다)
-        vec3 col = mix(texture2D(summerMap, vUv).rgb, texture2D(winterMap, vUv).rgb, season);
-        vec4 aux = texture2D(auxMap, vUv);
-        float water = aux.g * imagery;
-        vec3 ov = texture2D(ovMap, vUv).rgb;
-        float land = mix(ov.r, 1.0 - water, imagery);
-        // 지형 음영: 높이 지도의 기울기로 법선을 기울인다 (히말라야·안데스·로키가 햇빛에 도드라진다)
+        float camD = length(cameraPosition - vW);
+        float px = max(length(fwidth(vW)), 1e-4);          // 이 점 하나가 덮는 땅의 크기 (km)
+        vec4 aux = texture2D(auxMap, vUv);                  // 높이 · 물 · 깊이(호수=1)
+        vec3 ter = texture2D(terrMap, vUv).rgb;             // 식생 · 건조함 · 얼음
+        vec3 cli = texture2D(climMap, vUv).rgb;             // 계절 눈 · 붉은 정도
+        vec3 ov = texture2D(ovMap, vUv).rgb;                // 땅 모양 · 고른 나라 · 내 나라
+        float lat = (vUv.y - 0.5) * 180.0;
+
+        // ── 해안선: 나라 다각형의 부드러운 경계 + 프랙탈 ──
+        float lf = aux.b - 0.86 + fbmTo(vW + 17.0, 12.0, px) * 0.35;
+        float lake = smoothstep(-max(fwidth(lf), 1e-3), max(fwidth(lf), 1e-3), lf) * imagery;
+        float base = clamp(ov.r - lake, 0.0, 1.0);
+        float f = base - 0.5 + fbmTo(vW, 48.0, px) * 0.8;
+        float aa = max(fwidth(f), 1e-4);
+        float land = smoothstep(-aa, aa, f);
+
+        // ── 땅 ──
+        float h = aux.r;
+        float veg = ter.r, dry = ter.g, ice = ter.b, snow = cli.r, red = cli.g;
+        float m1 = noise3(vW / 220.0), m2 = noise3(vW / 55.0);
+        vec3 forest = vec3(0.085, 0.215, 0.085), grass = vec3(0.30, 0.47, 0.18), dryG = vec3(0.62, 0.57, 0.33);
+        vec3 sand = vec3(0.86, 0.76, 0.54), ochre = vec3(0.72, 0.43, 0.23), rock = vec3(0.47, 0.43, 0.39);
+        vec3 tundra = vec3(0.50, 0.52, 0.41), iceC = vec3(0.92, 0.95, 0.99);
+        vec3 desert = mix(sand, ochre, smoothstep(0.15, 0.85, red));
+        vec3 dryCol = mix(dryG, desert, smoothstep(0.3, 0.8, dry + (m2 - 0.5) * 0.2));
+        vec3 vegCol = mix(grass, forest, smoothstep(0.42, 0.85, veg + (m2 - 0.5) * 0.22));
+        vec3 col = mix(dryCol, vegCol, smoothstep(0.16, 0.5, veg + (m1 - 0.5) * 0.14));
+        col = mix(col, tundra, smoothstep(56.0, 70.0, abs(lat)) * (1.0 - smoothstep(0.55, 0.9, veg)) * 0.75);
+        float hd = h + fbmTo(vW, 30.0, px) * 0.16 * smoothstep(0.04, 0.25, h);
+        col = mix(col, rock, smoothstep(0.18, 0.45, hd) * 0.8);
+        col = mix(col, vec3(0.60, 0.53, 0.41), smoothstep(0.5, 0.62, h) * (1.0 - veg) * 0.6);   // 높은 고원은 누런 흙빛
+        // 만년설: 적도 쪽은 아주 높은 봉우리만, 극지방으로 갈수록 낮은 산까지
+        float snowLine = mix(0.9, 0.22, smoothstep(25.0, 60.0, abs(lat)));
+        col = mix(col, iceC, clamp(max(ice, smoothstep(snowLine, snowLine + 0.08, hd)), 0.0, 1.0));
+        // 계절 눈: 북반구는 1월, 남반구는 7월에 하얗다
+        float winter = lat > 0.0 ? season : 1.0 - season;
+        col = mix(col, vec3(0.88, 0.91, 0.95), snow * smoothstep(0.15, 0.85, winter) * 0.85);
+        // 가까이 갈수록 생기는 잔무늬: 숲과 들판이 또렷한 경계로 나뉘고, 사막엔 모래 물결
+        float near = smoothstep(320.0, 15.0, camD);
+        float d1 = nl(vW, 7.0, px);
+        col *= 1.0 + (m2 - 0.5) * 0.16 + (d1 - 0.5) * 0.14;
+        near *= 1.0 - smoothstep(0.12, 0.32, hd);      // 산비탈에는 들판 무늬를 깔지 않는다
+        if (near > 0.0) {
+          float pn = nl(vW, 3.2, px) * 0.65 + nl(vW, 0.9, px) * 0.35;
+          float pw = max(fwidth(pn) * 2.0, 0.07);
+          float woods = smoothstep(0.52 - pw, 0.52 + pw, pn + (veg - 0.55) * 0.5);       // 숲 덩어리
+          float field = smoothstep(0.6 - pw, 0.6 + pw, nl(vW + 3.1, 1.4, px) * 0.7 + nl(vW, 0.45, px) * 0.3 + (0.4 - abs(veg - 0.45)) * 0.4);  // 밝은 풀밭
+          vec3 cw = mix(col, forest * 0.95, woods * smoothstep(0.25, 0.6, veg) * 0.5);
+          cw = mix(cw, mix(col, vec3(0.42, 0.55, 0.26), 0.45), field * (1.0 - woods) * smoothstep(0.15, 0.4, veg) * (1.0 - smoothstep(0.8, 0.95, veg)) * 0.6);
+          float d3 = nl(vW, 0.35, px) * 0.6 + nl(vW, 0.12, px) * 0.4;
+          cw *= 1.0 + (d3 - 0.5) * 0.26 * smoothstep(0.3, 0.8, veg);
+          float dune = sin(dot(vW, vec3(0.83, 0.31, 0.47)) * 1.7 + d1 * 7.0) * 0.5 + 0.5;
+          cw *= 1.0 + (dune - 0.5) * 0.2 * smoothstep(0.45, 0.9, dry) * (1.0 - veg);
+          col = mix(col, cw, near);
+        }
+        // 바닷가 모래 (가까이서만)
+        float beach = (1.0 - smoothstep(0.0, max(aa * 3.0, 0.02), f)) * smoothstep(1.5, 0.15, px) * (1.0 - ice);
+        col = mix(col, vec3(0.86, 0.80, 0.63), beach * 0.75);
+
+        // ── 바다·호수 ──
+        float depth = clamp(aux.b / 0.6, 0.0, 1.0);
+        float coastW = smoothstep(-0.3, 0.0, f);
+        vec3 wcol = mix(vec3(0.035, 0.16, 0.32), vec3(0.012, 0.06, 0.16), smoothstep(0.3, 0.9, depth));
+        wcol = mix(wcol, vec3(0.06, 0.30, 0.45), smoothstep(0.35, 0.05, depth) * 0.85);
+        wcol = mix(wcol, vec3(0.16, 0.52, 0.58), coastW * 0.6);
+        wcol = mix(wcol, vec3(0.05, 0.24, 0.36), lake);
+        wcol *= 1.0 + (m2 - 0.5) * 0.12;
+        wcol = mix(wcol, iceC * 0.94, ice * (1.0 - lake) * 0.85);   // 극지방의 바다 얼음
+        float foam = smoothstep(-max(aa * 4.0, 0.03), 0.0, f) * smoothstep(1.2, 0.12, px);
+        wcol = mix(wcol, vec3(0.86, 0.93, 0.96), foam * 0.55);
+
+        vec3 c0 = mix(wcol, col, land);
+        // 나라 강조: 살짝 밝게
+        vec4 idc = texture2D(idMap, vUv);
+        float id = floor(idc.r * 255.0 + 0.5) + floor(idc.g * 255.0 + 0.5) * 256.0;
+        if (hoverId > 0.0 && abs(id - hoverId) < 0.5) c0 *= 1.08;
+        c0 *= 1.0 + ov.g * 0.1;
+        // 구름 그림자
+        float cl = texture2D(cloudMap, vUv + vec2(cloudShift, 0.0)).r;
+        c0 *= 1.0 - smoothstep(0.25, 0.85, cl) * 0.26 * cloudAmt * imagery;
+
+        // ── 빛: 높이 지도로 산맥이 도드라지고, 가까이선 산 주름이 햇빛에 그늘진다 ──
         vec3 east = cross(vec3(0.0, 1.0, 0.0), n);
         east = length(east) < 1e-4 ? vec3(1.0, 0.0, 0.0) : normalize(east);
         vec3 north = cross(n, east);
         vec2 tx = vec2(1.0 / 2048.0, 1.0 / 1024.0);
         float hx = texture2D(auxMap, vUv + vec2(tx.x, 0.0)).r - texture2D(auxMap, vUv - vec2(tx.x, 0.0)).r;
         float hy = texture2D(auxMap, vUv + vec2(0.0, tx.y)).r - texture2D(auxMap, vUv - vec2(0.0, tx.y)).r;
-        vec3 nb = normalize(n - (east * hx + north * hy) * relief * 7.0 * imagery * (1.0 - water));
+        vec3 nb = normalize(n - (east * hx + north * hy) * relief * 5.0 * imagery * land);
         float ndlb = dot(nb, sunDir);
-        // 가까이 내려가면 사진이 흐려 보이지 않게 잔무늬를 섞는다
-        float camD = length(cameraPosition - vW);
-        // (사진 한 칸이 약 10km라 1,000km 아래에서는 흐려진다 → 몇 km 크기의 들판·숲 얼룩과 물결을 섞는다)
-        float detail = smoothstep(1200.0, 80.0, camD) * imagery;
-        float nz = noise3(vW * 0.12) * 0.45 + noise3(vW * 0.5) * 0.35 + noise3(vW * 2.2) * 0.2;
-        col *= 1.0 + (nz - 0.5) * mix(0.42, 0.12, water) * detail;
-        vec4 idc = texture2D(idMap, vUv);
-        float id = floor(idc.r * 255.0 + 0.5) + floor(idc.g * 255.0 + 0.5) * 256.0;
-        // 나라 강조는 살짝 밝히기만 (테두리는 선으로 또렷하게 그린다 — 색을 칠하면 땅 사진이 가려진다)
-        if (hoverId > 0.0 && abs(id - hoverId) < 0.5) col *= 1.08;
-        col *= 1.0 + ov.g * 0.1;
-        // 국경선
-        col = mix(col, vec3(1.0), texture2D(borderMap, vUv).r * borderAlpha);
-        // 구름 그림자 (구름 층과 같은 만큼 흘러간 자리)
-        float cl = texture2D(cloudMap, vUv + vec2(cloudShift, 0.0)).r;
-        col *= 1.0 - smoothstep(0.25, 0.85, cl) * 0.28 * cloudAmt * imagery;
+        // 언덕·산 주름: 프랙탈 높이를 화면 기울기로 법선에 얹는다 (가볍고, 확대할수록 세밀하다)
+        // (해안에서 높이가 뚝 끊기면 검은 테두리가 생기므로 land 는 곱하지 않는다 — 물에서는 어차피 안 쓴다)
+        float mtnK = smoothstep(0.08, 0.4, h);
+        float hillAmp = (0.5 + mtnK * 1.0) * smoothstep(4000.0, 60.0, camD) * (1.0 - ice * 0.6) * step(0.001, land + smoothstep(-0.3, 0.0, f));
+        if (hillAmp > 0.0) {
+          float hill = mix(hillFbm(vW, 40.0, px), ridgeFbm(vW, 60.0, px), mtnK) * hillAmp * 9.6;
+          vec3 dp1 = dFdx(vW), dp2 = dFdy(vW);
+          float dh1 = dFdx(hill), dh2 = dFdy(hill);
+          vec3 r1 = cross(dp2, nb), r2 = cross(nb, dp1);
+          float det = dot(dp1, r1);
+          if (abs(det) > 1e-12) nb = normalize(abs(det) * nb - sign(det) * (dh1 * r1 + dh2 * r2));
+          ndlb = dot(nb, sunDir);
+        }
+        float lightK = max(mix(ndl, ndlb, land), 0.0);
         vec3 V = normalize(cameraPosition - vW);
-        vec3 lit = col * (0.035 + max(mix(ndl, ndlb, land), 0.0) * 1.05);
-        // 바다: 햇빛 반짝임 + 비스듬히 보면 하늘빛
-        vec3 H = normalize(sunDir + V);
-        float spec = pow(max(dot(n, H), 0.0), 80.0) * (1.0 - land) * day * 0.8;
+        vec3 lit = c0 * (0.04 + land * 0.07 + lightK * 1.0);   // 땅은 하늘빛이 그늘을 조금 밝힌다
+        // 바다: 햇빛 반짝임 (가까이선 잔물결이 반짝인다) + 비스듬히 보면 하늘빛
+        float rip = smoothstep(800.0, 30.0, camD);
+        vec3 wn = normalize(n + (east * (nl(vW + vec3(0.0, 0.0, time * 0.36), 0.9, px) - 0.5) + north * (nl(vW + vec3(5.0, time * 0.36, 0.0), 0.9, px) - 0.5)) * 0.18 * rip);
+        vec3 Hh = normalize(sunDir + V);
+        float spec = pow(max(dot(wn, Hh), 0.0), mix(110.0, 260.0, rip)) * (1.0 - land) * (1.0 - ice) * day * 0.4;
         float fres = pow(1.0 - max(dot(n, V), 0.0), 3.0) * (1.0 - land);
         lit += vec3(0.25, 0.45, 0.7) * fres * 0.25 * day;
         vec3 lights = texture2D(lightsMap, vUv).rgb;
-        vec3 night = col * vec3(0.02, 0.025, 0.04) + lights * 1.8 * land * lightsFade;
-        vec3 c = mix(night, lit, day) + spec * vec3(1.0, 0.92, 0.75);
+        vec3 night = c0 * vec3(0.02, 0.025, 0.04) + lights * 1.8 * land * lightsFade;
+        vec3 c = mix(night, lit, day) + spec * vec3(1.0, 0.93, 0.78);
         float rim = pow(1.0 - max(dot(n, V), 0.0), 4.0);
         c += vec3(0.25, 0.5, 1.0) * rim * 0.55 * smoothstep(-0.35, 0.35, ndl);
-        // 노을빛 경계
         c += vec3(0.55, 0.18, 0.05) * smoothstep(0.12, 0.0, abs(ndl)) * 0.05;
         gl_FragColor = vec4(c, 1.0);
         #include <colorspace_fragment>
@@ -331,27 +348,11 @@ export function makeEarth(textures) {
   group.add(mesh, clouds, atmo);
   return {
     group, mesh, clouds, atmo, uniforms, cloudU, lightsCanvas, lightsTex,
-    /** 위성 사진을 받으면 끼운다 */
-    setImagery(img) {
-      uniforms.winterMap.value = img.winter; uniforms.summerMap.value = img.summer;
-      uniforms.auxMap.value = img.aux; uniforms.cloudMap.value = img.clouds;
+    /** 지형 자료를 받으면 끼운다 */
+    setData(d) {
+      uniforms.auxMap.value = d.aux; uniforms.terrMap.value = d.terrain; uniforms.climMap.value = d.climate; uniforms.cloudMap.value = d.clouds;
       this.imageryOn = true;
-      this.one = img.one || null; this.oneBig = img.big;
     },
-    /** 휴대폰: 계절이 반대로 넘어가면 그 계절 사진으로 바꿔 끼운다 */
-    followSeason(season) {
-      if (!this.one || this.swapping) return;
-      const want = season > 0.55 ? 'winter' : season < 0.45 ? 'summer' : this.one;
-      if (want === this.one) return;
-      this.swapping = true;
-      loadTex(`day-${want}-${this.oneBig ? 4 : 2}k.jpg`, true).then(t => {
-        const old = uniforms.winterMap.value;
-        uniforms.winterMap.value = t; uniforms.summerMap.value = t;
-        if (old && old !== t && old.dispose) old.dispose();
-        this.one = want;
-      }).catch(() => {}).finally(() => { this.swapping = false; });
-    },
-    useFallback(dayTex) { uniforms.winterMap.value = dayTex; uniforms.summerMap.value = dayTex; uniforms.imagery.value = 0; },
   };
 }
 

@@ -1,10 +1,12 @@
-// 카메라: 지표의 한 점(초점)을 고도·방위·기울기로 바라본다. 우주에서 골목길까지 끊김 없이 확대된다.
+// 카메라: 지표의 한 점(초점)을 고도·방위·기울기로 바라본다. 지구 전체에서 골목길까지 끊김 없이 확대된다.
+// 손가락(마우스)으로 잡은 땅은 손가락을 그대로 따라온다 — 지구본을 손으로 돌리듯.
 import * as THREE from 'three';
 import { R, R2D, D2R, llToVec, frameAt } from './geo.js';
 
 const clamp = THREE.MathUtils.clamp;
 const wrapLon = l => ((l + 540) % 360) - 180;
-export const MIN_ALT = 0.012, MAX_ALT = 2.6e8;
+// 가장 높이 올라가면 휴대폰 세로 화면에도 지구 전체가 들어온다 (우주로는 나가지 않는다)
+export const MIN_ALT = 0.012, MAX_ALT = 32000;
 
 export class CameraRig {
   constructor(camera, dom) {
@@ -52,8 +54,17 @@ export class CameraRig {
       el.setPointerCapture(e.pointerId);
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, btn: e.button, shift: e.shiftKey || e.ctrlKey });
       this.vel.lat = this.vel.lon = 0;
-      if (this.pointers.size === 1) this.dragged = false;
+      if (this.pointers.size === 1) {
+        this.dragged = false;
+        // 손가락이 잡은 땅 (지구 밖을 잡으면 없음)
+        this.grab = !(e.button === 2 || e.shiftKey || e.ctrlKey) && this.pickLL ? this.pickLL(e.clientX, e.clientY) : null;
+      } else this.grab = null;
       this.g2 = this.pointers.size === 2 ? this.twoFinger() : null;
+      if (this.g2) {
+        // 두 손가락 사이의 땅을 잡는다. 처음 조금 움직여 보고 '벌리기·옮기기'인지 '함께 위아래(기울이기)'인지 정한다
+        this.grab = this.pickLL?.(this.g2.cx, this.g2.cy) || null;
+        this.g2mode = null; this.g2acc = { d: 0, x: 0, y: 0 };
+      }
     });
     el.addEventListener('pointermove', e => {
       const p = this.pointers.get(e.pointerId);
@@ -64,14 +75,30 @@ export class CameraRig {
         // 두 손가락: 벌리고 오므리기 = 확대·축소, 비틀기 = 회전, 함께 위아래로 = 기울이기
         p.x = e.clientX; p.y = e.clientY;
         const g = this.twoFinger(), prev = this.g2 || g;
-        if (prev.d > 0 && g.d > 0) this.zoomBy(prev.d / g.d, this.pickLL?.(g.cx, g.cy));
-        let da = g.ang - prev.ang;
-        if (da > Math.PI) da -= Math.PI * 2; if (da < -Math.PI) da += Math.PI * 2;
-        if (Math.abs(da) < 0.5) this.tgt.heading -= da;
         const dcy = g.cy - prev.cy;
-        if (Math.abs(dcy) > 0.5) { this.tgt.tilt = clamp(this.tgt.tilt + dcy * 0.22, this.minTilt(this.tgt.alt), 90); this.userTilt = true; }
+        if (!this.g2mode) {
+          const A = this.g2acc;
+          A.d += Math.abs(g.d - prev.d); A.x += g.cx - prev.cx; A.y += dcy;
+          if (A.d + Math.abs(A.x) + Math.abs(A.y) > 14) this.g2mode = Math.abs(A.y) > 2.5 * A.d && Math.abs(A.y) > 2 * Math.abs(A.x) ? 'tilt' : 'pinch';
+        }
+        if (this.g2mode === 'tilt') {
+          this.tgt.tilt = clamp(this.tgt.tilt + dcy * 0.25, this.minTilt(this.tgt.alt), 90); this.userTilt = true;
+        } else {
+          // 벌리고 오므리기: 손가락 사이의 땅이 손가락을 그대로 따라온다 (확대·이동·비틀기가 한 번에)
+          let da = g.ang - prev.ang;
+          if (da > Math.PI) da -= Math.PI * 2; if (da < -Math.PI) da += Math.PI * 2;
+          if (Math.abs(da) < 0.5 && this.g2mode) this.tgt.heading -= da;
+          if (prev.d > 0 && g.d > 0) {
+            if (this.grab && this.cur.alt >= 3) {
+              this.zoomBy(prev.d / g.d);
+              this.cur.alt = this.tgt.alt; this.cur.tilt = this.tgt.tilt; this.cur.heading = this.tgt.heading;
+              this.grabTo(g.cx, g.cy);
+            } else this.zoomBy(prev.d / g.d, this.pickLL?.(g.cx, g.cy));
+          }
+        }
         this.g2 = g;
         this.dragged = true;
+        this.onUserMove?.();
         return;
       }
       p.x = e.clientX; p.y = e.clientY;
@@ -79,7 +106,7 @@ export class CameraRig {
         this.tgt.heading -= dx * 0.3 * D2R;
         this.tgt.tilt = clamp(this.tgt.tilt + dy * 0.25, this.minTilt(this.tgt.alt), 90);
         this.userTilt = true;
-      } else {
+      } else if (!this.grabTo(e.clientX, e.clientY)) {
         this.pan(dx, dy);
       }
       if (this.dragged) this.onUserMove?.();
@@ -87,6 +114,15 @@ export class CameraRig {
     const up = e => {
       const p = this.pointers.get(e.pointerId);
       this.pointers.delete(e.pointerId);
+      this.grab = null;
+      // 두 손가락 중 하나만 떼면, 남은 손가락이 그 자리의 땅을 이어서 잡는다
+      if (this.pointers.size === 1 && p) {
+        const [q] = this.pointers.values();
+        this.grab = this.pickLL?.(q.x, q.y) || null;
+        this.lastMoveAt = performance.now();
+      }
+      // 손을 뗄 때 방금까지 움직이던 만큼 미끄러진다 (잠깐 멈췄다 떼면 그 자리에 선다)
+      if (p && performance.now() - (this.lastMoveAt || 0) > 90) this.vel.lat = this.vel.lon = 0;
       if (this.pointers.size < 2) this.g2 = null;
       // 손가락으로 두 번 톡톡 = 그곳으로 확대
       if (p && e.pointerType !== 'mouse' && !this.dragged && !this.pointers.size) {
@@ -143,7 +179,35 @@ export class CameraRig {
     if (this.tgt.tilt < mt) this.tgt.tilt = mt;
   }
 
+  /** 잡은 땅이 손가락(x, y) 아래로 오도록 지구를 돌린다. 땅을 못 잡았으면 false */
+  grabTo(x, y) {
+    if (!this.grab || !this.pickLL || this.cur.alt < 3) return false;
+    // 끄는 동안은 카메라가 바로 따라온다 (늦게 따라오면 손가락과 어긋난다)
+    // 위경도로 한 번 돌리면 조금 어긋나므로 두세 번 다듬어 손가락 바로 밑에 맞춘다
+    let dLat = 0, dLon = 0;
+    for (let it = 0; it < 3; it++) {
+      this.cur.lat = this.tgt.lat; this.cur.lon = this.tgt.lon;
+      this.apply(); this.cam.updateMatrixWorld();
+      const now = this.pickLL(x, y);
+      if (!now) { if (it === 0) return false; break; }
+      const eLat = clamp(this.grab.lat - now.lat, -20, 20), eLon = clamp(wrapLon(this.grab.lon - now.lon), -30, 30);
+      this.tgt.lat = clamp(this.tgt.lat + eLat, -85, 85);
+      this.tgt.lon += eLon;
+      dLat += eLat; dLon += eLon;
+      if (Math.abs(eLat) + Math.abs(eLon) < 1e-4 * Math.max(1, this.cur.alt / 100)) break;
+    }
+    this.cur.lat = this.tgt.lat; this.cur.lon = this.tgt.lon;
+    this.apply(); this.cam.updateMatrixWorld();
+    // 관성: 이번 움직임을 초당 60장 기준 한 장면 몫으로
+    const t = performance.now(), dt = Math.max(8, Math.min(60, t - (this.lastMoveAt || t - 16)));
+    this.lastMoveAt = t;
+    this.vel.lat = dLat * 16.7 / dt; this.vel.lon = dLon * 16.7 / dt;
+    if (this.follow) { this.follow = null; this.onUserMove?.('unfollow'); }
+    return true;
+  }
+
   pan(dx, dy) {
+    this.lastMoveAt = performance.now();
     const h = this.dom.clientHeight || 800;
     const dist = Math.min(this.cur.alt, R * 3);
     const kmPerPx = 2 * dist * Math.tan(this.cam.fov * D2R / 2) / h;
@@ -204,4 +268,11 @@ export class CameraRig {
   }
 
   get alt() { return this.cur.alt; }
+
+  /** 지금 움직이는 중인가 (손가락이 닿아 있거나, 미끄러지거나, 목표로 날아가는 중) */
+  busy() {
+    if (this.pointers.size || Math.abs(this.vel.lat) + Math.abs(this.vel.lon) > 1e-4) return true;
+    const c = this.cur, g = this.tgt;
+    return Math.abs(g.lat - c.lat) + Math.abs(wrapLon(g.lon - c.lon)) > 1e-3 || Math.abs(Math.log(g.alt / c.alt)) > 2e-3 || Math.abs(g.tilt - c.tilt) > 0.05 || Math.abs(g.heading - c.heading) > 1e-3;
+  }
 }
