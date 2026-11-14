@@ -13,6 +13,11 @@
 #   5. earth-url(주소 보기), earth-update(새 버전 받기) 명령을 만든다
 #
 # 다시 실행해도 안전하다 (이미 있으면 갱신만 한다).
+#
+# 다른 프로그램(예: 자동매매)이 도는 VM 에 같이 올릴 때
+#   · 남은 메모리가 700MB 보다 적으면 설치하지 않는다 (EARTH_FORCE=1 로 무시 가능)
+#   · 그 프로그램의 서비스·파일·포트는 건드리지 않는다. 게임은 낮은 우선순위로, CPU·메모리 상한 안에서만 돈다
+#   · 이미 깔린 cloudflared 와 그 설정(/etc/cloudflared)은 그대로 둔다 — 게임 터널에게만 안 보이게 가린다
 set -euo pipefail
 
 ADMIN="${1:-${EARTH_ADMIN:-}}"
@@ -33,6 +38,13 @@ die() { printf '\n\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit 1; }
 case "$ADMIN" in *[!A-Za-z0-9_.,-]*) die "관리자 아이디는 영문·숫자·_ . - 만 쓸 수 있어요 (여러 명이면 쉼표로)." ;; esac
 command -v apt-get >/dev/null || die "Debian/Ubuntu VM 에서만 됩니다."
 command -v systemctl >/dev/null || die "systemd 가 없는 환경입니다."
+
+# 남은 메모리 확인 — 같은 VM 의 다른 프로그램이 모자라지 않게
+avail_mb=$(( $(awk '/MemAvailable/ {print $2}' /proc/meminfo) / 1024 ))
+echo "남은 메모리: ${avail_mb}MB"
+if ! systemctl is-active --quiet the-earth && [ "$avail_mb" -lt 700 ] && [ "${EARTH_FORCE:-0}" != 1 ]; then
+  die "남은 메모리가 ${avail_mb}MB 라서 같이 올리기엔 빠듯해요 (700MB 이상 필요). 이 VM 에는 설치하지 않았어요."
+fi
 
 # 포트가 다른 프로그램에 쓰이고 있으면 멈춘다 (이미 깔린 the-earth 는 괜찮다)
 if ss -ltnH "( sport = :$PORT )" 2>/dev/null | grep -q . && ! systemctl is-active --quiet the-earth; then
@@ -138,6 +150,9 @@ Wants=network-online.target
 [Service]
 DynamicUser=yes
 Environment=HOME=/tmp
+# 이 VM 에 이미 Cloudflare 이름 있는 터널 설정이 있으면 무료 터널이 켜지지 않는다.
+# 그 설정은 건드리지 않고, 게임 터널에게만 안 보이게 가린다.
+InaccessiblePaths=-/etc/cloudflared -/usr/local/etc/cloudflared
 ExecStart=$CF_BIN tunnel --no-autoupdate --url http://127.0.0.1:$PORT
 Restart=always
 RestartSec=10
