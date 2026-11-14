@@ -1,6 +1,6 @@
 // 앤이 묻는다 — 오른쪽 위 질문 카드.
 // 플레이어의 답은 '마음속 목소리'의 조언이다. 앤은 대개 따르지만 성격대로 할 때도 있고,
-// 시간 안에 답이 없으면 스스로 정한다.
+// 시간 안에 답이 없으면 선택지 중 아무거나 고른다.
 import { MIN_YEAR } from '../state.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -129,7 +129,7 @@ export class AskPanel {
     } else if (this.view === 'log') {
       body = this.log.length ? `<div class="ask-log">${this.log.map(L => this.logHTML(L)).join('')}</div>` : '<p class="sub">아직 지난 답이 없어요.</p>';
     } else {
-      body = `<p class="sub small">당신의 답은 명령이 아니라 앤의 '마음속 목소리'입니다. 앤은 대개 따르지만, 마음과 크게 어긋나면 성격대로 하기도 합니다. 시간 안에 답이 없으면 앤이 스스로 정합니다.</p>` +
+      body = `<p class="sub small">당신의 답은 명령이 아니라 앤의 '마음속 목소리'입니다. 앤은 대개 따르지만, 마음과 크게 어긋나면 성격대로 하기도 합니다. 시간 안에 답이 없으면 앤은 선택지 중 <b>아무거나</b> 고릅니다.</p>` +
         MODES.map(([k, n, d]) => `<label class="ask-mode ${this.mode === k ? 'on' : ''}"><input type="radio" name="askmode" value="${k}" ${this.mode === k ? 'checked' : ''}><div><b>${n}</b><div class="sub small" style="margin:0">${d}</div></div></label>`).join('');
     }
     c.innerHTML = tabs + `<div class="ask-body">${body}</div>`;
@@ -150,7 +150,7 @@ export class AskPanel {
   }
   verdict(L) {
     if (!L.did) return ['🌫️', '없던 일이 되었다'];
-    if (L.ans == null) return ['⏳', '답을 기다리다 스스로 정했다'];
+    if (L.ans == null) return L.rnd ? ['🎲', '답이 없어 아무거나 골랐다'] : ['🌿', '스스로 정했다'];
     if (L.heed) return ['🤝', '조언을 따랐다'];
     return ['🙅', '자기 뜻대로 했다'];
   }

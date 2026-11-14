@@ -402,8 +402,8 @@ app.post('/api/servers/:id/asks-mode', askLimit, (req, res) => {
   if (!ASK_MODES.includes(mode)) return res.status(400).json({ error: '잘못된 설정입니다' });
   p.askMode = mode;
   // '묻지 않기'로 바꾸면 기다리던 질문은 앤이 스스로 정한다
-  if (mode === 'off') for (const q of [...(p.asks || [])]) resolveAsk(w, p, q, null);
-  if (mode === 'big') for (const q of [...(p.asks || [])]) if (!q.big) resolveAsk(w, p, q, null);
+  if (mode === 'off') for (const q of [...(p.asks || [])]) resolveAsk(w, p, q, null, 'own');
+  if (mode === 'big') for (const q of [...(p.asks || [])]) if (!q.big) resolveAsk(w, p, q, null, 'own');
   res.json(w.asksOut(p));
 });
 app.post('/api/servers/:id/seen', (req, res) => {

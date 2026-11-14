@@ -2,7 +2,8 @@
 //
 // · 플레이어의 답은 명령이 아니라 조언이다. 앤은 대개 따르지만, 조언이 자기 마음과 크게 어긋나면
 //   성격(친화성·야망)과 '마음의 소리를 믿는 정도'(heed)에 따라 자기 뜻대로 하기도 한다.
-// · 정해진 시간 안에 답이 없으면 앤은 혼자 정한다. 앤은 언제나 스스로 사는 존재다.
+// · 정해진 시간 안에 답이 없으면 앤은 선택지 중 아무거나 고른다 (될 대로 되라).
+//   '묻지 않기'로 바꿔 거둬들인 질문은 앤이 제 마음대로 정한다.
 // · 갈림길은 나이(어린이~노년)·성별·시대·가족·직업·관계·돈·건강에 따라 열리고,
 //   사람 이름·직업·회사·금액·장소가 들어가 같은 갈림길도 앤마다 다른 질문이 된다.
 //
@@ -861,8 +862,8 @@ function initHeed(a) {
   return clamp(62 + (a.tr.A - 50) * 0.3 + (a.tr.N - 50) * 0.15 - (a.amb - 50) * 0.15 - (a.tr.O - 50) * 0.1, 30, 88);
 }
 
-/** 플레이어가 답했다 (또는 시간이 다 됐다: ans = null) */
-export function resolveAsk(world, p, q, ans = null) {
+/** 플레이어가 답했다. ans = null 이면 답이 없었던 것: how 'random' 은 아무거나 (시간 초과), 'own' 은 앤의 마음대로 */
+export function resolveAsk(world, p, q, ans = null, how = 'random') {
   const i = (p.asks || []).indexOf(q);
   if (i >= 0) p.asks.splice(i, 1);
   const a = world.anns.get(q.ann);
@@ -891,7 +892,8 @@ export function resolveAsk(world, p, q, ans = null) {
           if (s > ownS) { ownS = s; own = o; }
         }
         const advised = ans != null ? opts.find(o => o.k === ans) : null;
-        let chosen = own, heed = null;
+        const rnd = ans == null && how === 'random';
+        let chosen = rnd ? pick(opts) : own, heed = null;
         if (advised) {
           if (advised === own) { heed = true; chosen = advised; }
           else {
@@ -908,21 +910,22 @@ export function resolveAsk(world, p, q, ans = null) {
         if (heed === true && advised !== own) think(world, a, pick(['내 마음은 달랐지만, 마음속 목소리를 믿어 보기로 했다.', '처음엔 망설였지만 그 말이 맞는 것 같다.']));
         else if (heed === false) think(world, a, pick(['미안하지만 이번만큼은 내 뜻대로 하겠다.', '마음속 목소리는 다르게 말했지만… 나는 나를 믿는다.', '아무리 생각해도 이게 맞다.']));
         else if (heed === true) think(world, a, pick(['역시 그렇지. 마음이 정해졌다.', '마음속 목소리도 같은 생각이다.']));
+        else if (rnd) think(world, a, pick(['아무리 기다려도 대답이 없다. 에라, 이걸로 하자.', '고민만 하다 시간이 다 갔다. 될 대로 되라.', '동전이라도 던져서 정하자.']));
         remember(world, a, `"${q.q.replace(/\.$/, '')}" — ${fixJosa(chosen.t)}`, def.big ? 6 : 3, res.v > 0 ? 0.4 : res.v < 0 ? -0.3 : 0.1, [], 'choice');
-        out = { did: chosen.k, didT: fixJosa(chosen.t), own: own.k, heed, text: fixJosa(res.t || ''), v: res.v || 0 };
+        out = { did: chosen.k, didT: fixJosa(chosen.t), own: own.k, heed, rnd, text: fixJosa(res.t || ''), v: res.v || 0 };
       }
     }
   }
   const log = { ...pubQ(q), ans, at: Math.round(world.clock), ...out };
   (p.askLog = p.askLog || []).push(log);
   if (p.askLog.length > LOG_CAP) p.askLog.splice(0, p.askLog.length - LOG_CAP);
-  const head = !out.did ? '' : ans == null ? '답을 기다리다 스스로 정했다' : out.heed ? '당신의 조언을 따랐다' : '고민 끝에 자기 뜻대로 했다';
-  world.pushNote(p, { t: log.at, ann: q.ann, name: q.name, text: `${head ? head + ' — ' : ''}${out.didT || ''}${out.text ? `${out.didT ? ' · ' : ''}${out.text}` : ''}`, icon: out.heed === false ? '🙅' : '💭', lvl: 1, askDone: { id: q.id, did: out.did, heed: out.heed } });
+  const head = !out.did ? '' : ans == null ? (out.rnd ? '답이 없어 아무거나 골랐다' : '스스로 정했다') : out.heed ? '당신의 조언을 따랐다' : '고민 끝에 자기 뜻대로 했다';
+  world.pushNote(p, { t: log.at, ann: q.ann, name: q.name, text: `${head ? head + ' — ' : ''}${out.didT || ''}${out.text ? `${out.didT ? ' · ' : ''}${out.text}` : ''}`, icon: out.heed === false ? '🙅' : out.rnd ? '🎲' : '💭', lvl: 1, askDone: { id: q.id, did: out.did, heed: out.heed } });
   if (a) world.dirtyDetail.add(a.id);
   return log;
 }
 
-/** 매 분: 시간이 다 된 질문은 앤이 혼자 정한다 */
+/** 매 분: 시간이 다 된 질문은 앤이 아무거나 고른다 */
 export function askTick(world) {
   for (const p of Object.values(world.players)) {
     if (!p.asks || !p.asks.length) continue;
