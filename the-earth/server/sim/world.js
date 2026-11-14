@@ -11,6 +11,7 @@ import { consult, askTick, askDaily, loansDaily, asksOut } from './dilemma.js';
 import { engage, wedding, honeymoon, cohabit, romanceDaily } from './romance.js';
 import { setKidPlan, startLeave, leaveDaily, onLeave, retire, enlist, draftDaily, armyDaily, discharge } from './life.js';
 import { dietDaily, pantryDaily, kitchenDaily, foodOut, diet, healthTarget } from './food.js';
+import { catchDaily, chronicDaily, spreadDaily, illName, illOut, recovered } from './illness.js';
 import { seedVillage, villageDaily, migrateStart } from './village.js';
 import { companyDaily, considerPromotion, jobTitle, leaveJob, foundPublic, dailyCost, wageBase, setJob, assignContractor, siteName, hasConstruction, fullDayPay, annualOf } from './economy.js';
 import { childName, givenOf, familyName } from './names.js';
@@ -846,19 +847,24 @@ export class World {
     if (age < 1) mu += 0.025 * ERAS[c.era].mort;
     if (a.sick > 60) mu += 0.6;
     if (a.nd.food < 3) mu += 0.8;
-    if (chance(mu / 365)) { this.die(a, a.sick > 60 ? '병' : a.nd.food < 3 ? '굶주림' : age > 60 ? '노환' : '사고'); return; }
-    // 질병
-    if (a.sick <= 0 && chance(0.0012 * (1 + age / 40) * (1.6 - a.health / 100) * ERAS[c.era].mort)) {
-      a.sick = 25 + rand() * 60;
-      remember(this, a, '몸이 아프기 시작했다', 5, -0.6, [], 'health');
-      think(this, a, '몸이 무겁다… 쉬어야겠다.');
-      feel(a, -8, '불안', '병');
-    }
+    const sickName = () => (a.chronic || []).some(k => k.k === 'cancer') && a.sick >= 50 ? '암' : illName(a) || '병';
+    if (chance(mu / 365)) { this.die(a, a.sick > 60 ? sickName() : a.nd.food < 3 ? '굶주림' : age > 60 ? '노환' : '사고'); return; }
+    // 병 (illness.js): 계절·나이·생활 습관에 따라 감기·독감·장염… 오래 가는 병, 갑자기 쓰러지는 병
+    catchDaily(this, a, age);
+    chronicDaily(this, a, age);
+    if (a.pendingDeath) { const why = a.pendingDeath; a.pendingDeath = null; this.die(a, why); return; }
     if (a.sick > 0) {
+      spreadDaily(this, a);
       a.health = clamp(a.health - a.sick * 0.015);
       const worsen = chance(0.25 * ERAS[c.era].mort / 1.5) ? 5 : -(2 + a.health / 40 + (s.heal > 0.5 ? 3 : 0));
+      const n = illName(a);
       a.sick = clamp(a.sick + worsen);
-      if (a.sick <= 0) { remember(this, a, '병이 나았다', 4, 0.6, [], 'health'); think(this, a, '드디어 몸이 가볍다!'); }
+      if (a.sick <= 0) {
+        if (n !== '감기' || chance(0.3)) remember(this, a, `${n}이(가) 나았다`, n === '감기' ? 2 : 4, 0.6, [], 'health');
+        think(this, a, '드디어 몸이 가볍다!');
+        recovered(this, a);
+        a.ill = null;
+      }
     }
     // 아프지 않으면 건강은 '목표치'(체질·나이·식단·체중·운동·술·스트레스·의료)로 조금씩 다가간다 — food.js
     else if (age >= 1) a.health = clamp(a.health + (healthTarget(this, a, age) - a.health) * 0.03);
@@ -1356,6 +1362,7 @@ export class World {
       travel: a.travel ? { kind: a.travel.kind || 'move', where: a.travel.where || null, until: a.travel.until } : null,
       wedAt: a.wedAt ?? null, cohab: !!a.cohab,
       food: a.alive ? (diet(this, a), foodOut(this, a)) : null,
+      ill: a.alive ? illOut(this, a) : null,
     };
   }
   /** 돈: 연봉, 이번 달·지난달 가계부, 재산, 집, 차 (모두 원) */

@@ -14,6 +14,7 @@
 import { clamp, rand, pick, chance, gauss, ageOf, DAY, YEAR, ga, neun, reul, wa, ro, callName, fixJosa } from './util.js';
 import { remember, think, feel, lifeEvent, ageStage } from './ann.js';
 import { rel, updateKind, attraction, converse } from './social.js';
+import { seeDoctor } from './illness.js';
 import { JOBS, ERAS, INDUSTRIES, SCHOOLS, BUILDINGS } from './data.js';
 import { openings, apply, leaveJob, jobTitle } from './economy.js';
 import { book, refMonth, perUnit, ERA_MONEY } from './budget.js';
@@ -590,7 +591,7 @@ D('health_check', {
   when: x => true,
   q: (x) => `${x.E(['약초꾼의 진맥', '약초꾼의 진맥', '의원의 진맥', '의원의 진맥', '병원 검진', '종합 건강검진', '종합 건강검진', '정밀 유전자 검진'])}을(를) 받아 볼까? (${x.fmt(x.M * 0.15)})`,
   opts: (x) => [
-    O('go', '받는다', x => x.a.tr.C * 0.4 + x.a.tr.N * 0.3 + (x.age - 40) * 0.6, (x) => { x.spend(x.M * 0.15, '의료'); if (chance(0.15 + x.age / 400)) { x.a.sick = Math.max(0, x.a.sick - 20); x.health(4); x.life('건강검진에서 병을 일찍 찾아 치료했다', '🩺'); return { t: '병을 일찍 찾아내 치료를 시작했다', v: 1 }; } x.health(1.5); return { t: '다행히 큰 이상은 없었다', v: 0.5 }; }),
+    O('go', '받는다', x => x.a.tr.C * 0.4 + x.a.tr.N * 0.3 + (x.age - 40) * 0.6, (x) => { x.spend(x.M * 0.15, '의료'); seeDoctor(x.w, x.a); if (chance(0.15 + x.age / 400)) { x.a.sick = Math.max(0, x.a.sick - 20); x.health(4); x.life('건강검진에서 병을 일찍 찾아 치료했다', '🩺'); return { t: '병을 일찍 찾아내 치료를 시작했다', v: 1 }; } x.health(1.5); return { t: '다행히 큰 이상은 없었다', v: 0.5 }; }),
     O('skip', '바쁘니까 다음에', x => (100 - x.a.tr.C) * 0.3 + (100 - x.a.tr.N) * 0.2, (x) => { if (chance(0.06)) x.a.sick = Math.max(x.a.sick, 25); return '다음으로 미뤘다'; }),
   ],
 });

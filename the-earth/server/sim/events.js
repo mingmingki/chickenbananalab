@@ -9,6 +9,7 @@ import { seasonOf } from './thoughts.js';
 import { policeResponse, coverage } from './safety.js';
 import { fmtMoney } from './dilemma.js';
 import { addFood } from './food.js';
+import { fallIll, seeDoctor } from './illness.js';
 
 const EV = [];
 /** 사건 정의: id, [최소 나이, 최대 나이), 하루 확률, 조건, 실행, 재발 간격(일) */
@@ -77,7 +78,7 @@ E('first_teeth', [0.4, 1.2], 0.02, null, c => { c.life('첫 이가 났다', '�
 E('first_word', [0.8, 2], 0.025, null, c => { const w = pick(FIRST_WORDS); c.life(`첫 말을 했다: "${w}"`, '🗣️'); const p = c.parent(); c.other(p, `${c.a.name}이(가) 처음으로 "${w}"라고 말했다`, 7, 1); if (p) think(c.w, p, w === '엄마' || w === '아빠' ? '방금… 날 불렀어!' : `"${w}"라니, 귀여워.`); }, ONCE);
 E('first_steps', [0.8, 1.7], 0.025, null, c => { c.life('첫걸음마를 뗐다', '👣'); const p = c.parent(); c.other(p, `${c.a.name}이(가) 첫걸음을 뗐다`, 7, 1); }, ONCE);
 E('night_cry', [0, 1.5], 0.02, null, c => { const p = c.parent(); if (p) { p.nd.energy = clamp(p.nd.energy - 20); think(c.w, p, `${callName(c.a.name, p.culture)}이(가) 밤새 울어서 한숨도 못 잤다.`); } }, 6);
-E('baby_fever', [0, 4], 0.0015, null, c => { c.a.sick = Math.max(c.a.sick, 20 + rand() * 25); c.life('열이 펄펄 끓어 온 가족이 걱정했다', '🤒'); const p = c.parent(); if (p) { think(c.w, p, '제발 아무 일 없어야 할 텐데…'); p.stress = clamp(p.stress + 15); } }, 365);
+E('baby_fever', [0, 4], 0.0015, null, c => { fallIll(c.w, c.a, 'fever', Math.max(c.a.sick, 20 + rand() * 25)); c.life('열이 펄펄 끓어 온 가족이 걱정했다', '🤒'); const p = c.parent(); if (p) { think(c.w, p, '제발 아무 일 없어야 할 텐데…'); p.stress = clamp(p.stress + 15); } }, 365);
 E('toddler_mess', [1.5, 4.5], 0.012, null, c => { const it = pick(['물동이', '밥그릇', '꿀단지', '먹물', '곡식 자루']); c.mem(`${reul(it)} 엎어서 혼났다`, 2, -0.2); const p = c.parent(); if (p) think(c.w, p, pick(['한시도 눈을 뗄 수가 없다.', '그래도 저 웃는 얼굴을 보면…'])); }, 20);
 E('lullaby', [0, 3], 0.012, c => c.parent(), c => { const p = c.parent(); c.bond(p, 3, 3); c.other(p, `${c.a.name}에게 자장가를 불러 주었다`, 2, 0.5); }, 15);
 
@@ -202,7 +203,7 @@ E('hobby_progress', [10, 95], 0.012, c => c.a.hobby, c => { c.mem(`${c.a.hobby} 
 E('hike', [12, 75], 0.008, c => c.feat.mountain, c => { const b = c.friend(); c.mem(`${b ? b.name + '와(과) ' : ''}산 정상에 올라 마을을 내려다보았다`, 4, 0.7, b ? [b.id] : []); c.health(2); c.think(pick([`${c.s.name}이(가) 이렇게 작았구나.`, '여기서 보니 걱정이 다 작아 보인다.'])); if (b) c.bond(b, 5, 4); }, 60);
 E('sea_fish', [14, 85], 0.01, c => c.feat.sea, c => { const f = pick(FISH); c.mem(`바다낚시로 커다란 ${reul(f)} 낚았다`, 3, 0.7); addFood(c.s, 2, 'fish'); c.fun(20); }, 30);
 E('river_swim', [10, 60], 0.015, c => (c.feat.river || c.feat.lake) && c.season === '여름', c => { c.mem('뜨거운 날, 강물에 뛰어들어 멱을 감았다', 2, 0.6); c.fun(25); c.a.nd.energy = clamp(c.a.nd.energy + 8); }, 20);
-E('work_injury', [17, 70], 0.004, c => c.a.job && ['builder', 'hunter', 'farmer', 'fisher', 'worker', 'blacksmith', 'laborer'].includes(c.a.job.id), c => { c.a.sick = Math.max(c.a.sick, 20 + rand() * 30); c.life(`${JOBS[c.a.job.id].name} 일을 하다 다쳤다`, '🩹'); c.feel(-10, '아픔'); }, 200);
+E('work_injury', [17, 70], 0.004, c => c.a.job && ['builder', 'hunter', 'farmer', 'fisher', 'worker', 'blacksmith', 'laborer'].includes(c.a.job.id), c => { fallIll(c.w, c.a, 'injury', Math.max(c.a.sick, 20 + rand() * 30)); c.life(`${JOBS[c.a.job.id].name} 일을 하다 다쳤다`, '🩹'); c.feel(-10, '아픔'); }, 200);
 E('big_hunt', [16, 60], 0.01, c => c.a.job?.id === 'hunter', c => { const an = pick(ANIMALS); addFood(c.s, 12, 'meat'); c.a.rep = clamp(c.a.rep + 4, -100, 100); c.life(`큰 ${reul(an)} 잡아 마을에 잔치가 열렸다`, '🍖'); c.feel(20, '뿌듯함', an); }, 120);
 E('boar', [10, 75], 0.002, c => c.era <= 3, c => { c.life('숲에서 성난 멧돼지를 만나 죽을 힘을 다해 도망쳤다', '🐗'); c.feel(-15, '공포'); c.stress(15); }, ONCE);
 E('anniversary', [20, 95], 0.02, c => c.a.spouse && c.w.anns.get(c.a.spouse)?.alive && c.w.anns.get(c.a.spouse).sid === c.a.sid, c => { const p = c.w.anns.get(c.a.spouse); c.bond(p, 6, 3); const r = rel(c.a, p); r.r = clamp(r.r + 6); c.mem(`${wa(p.name)} 결혼기념일을 보냈다`, 4, 0.8, [p.id]); }, 330);
@@ -239,7 +240,7 @@ E('new_tech', [8, 95], 0.01, c => c.c.discoveries.length && !(c.a.techSeen || []
 E('tax_grumble', [19, 90], 0.004, c => c.era >= 2 && c.c.tax > 0.12 && c.a.tr.A < 50, c => { c.mem('세금이 너무 많다고 투덜거렸다', 2, -0.3); const L = c.w.anns.get(c.c.leader); if (L) { const r = rel(c.a, L); r.a = clamp(r.a - 3, -100, 100); } }, 60);
 E('meet_leader', [8, 90], 0.0015, c => c.c.leader && c.c.leader !== c.a.id && c.w.anns.get(c.c.leader)?.sid === c.a.sid, c => { const L = c.w.anns.get(c.c.leader); c.bond(L, 6, 5); c.life(`${ERAS[c.era].leader} ${wa(L.name)} 직접 이야기를 나눴다`, '🤝'); }, 400);
 E('job_offer', [22, 60], 0.002, c => c.a.job && c.a.sk[JOBS[c.a.job.id]?.skill] > 60, c => { c.mem('다른 곳에서 함께 일하자는 제안을 받았다', 4, 0.6); c.a.job.sat = clamp(c.a.job.sat + (c.a.amb > 60 ? -8 : 4)); c.think(c.a.amb > 60 ? '더 큰 곳으로 갈 때가 됐나.' : '그래도 여기가 좋다.'); }, 200);
-E('burnout', [22, 65], 0.003, c => c.a.job && c.a.stress > 60, c => { c.a.sick = Math.max(c.a.sick, 15); c.mem('일에 지쳐 결국 몸져누웠다', 5, -0.7); c.think('쉬어야겠다. 정말로.'); }, 180);
+E('burnout', [22, 65], 0.003, c => c.a.job && c.a.stress > 60, c => { fallIll(c.w, c.a, 'exhaustion', Math.max(c.a.sick, 15)); c.mem('일에 지쳐 결국 몸져누웠다', 5, -0.7); c.think('쉬어야겠다. 정말로.'); }, 180);
 E('wedding_guest', [8, 95], 0.03, c => c.w.events.slice(-30).some(e => e.kind === 'love' && e.text.includes('결혼') && e.anns.some(id => c.a.rels[id]?.f > 15)), c => {
   const e = c.w.events.slice(-30).reverse().find(e => e.kind === 'love' && e.text.includes('결혼') && e.anns.some(id => c.a.rels[id]?.f > 15)); const b = c.w.anns.get(e.anns.find(id => c.a.rels[id]?.f > 15));
   if (!b) return; c.mem(`${b.name}의 결혼식에 가서 축하해 주었다`, 3, 0.7, [b.id]); c.bond(b, 4, 2); if (!c.a.spouse && c.age > 24) c.think('나는 언제쯤…');
@@ -347,7 +348,7 @@ E('menopause', [46, 56], 0.006, c => c.a.gender === 'F', c => {
 E('andropause', [50, 62], 0.004, c => c.a.gender === 'M', c => { c.mem('요즘 드라마만 봐도 눈물이 난다. 기운도 예전 같지 않다', 4, -0.3); c.stress(6); c.think(pick(['나도 나이를 먹는구나.', '괜히 서글프다.'])); const p = c.partner(); if (p) c.bond(p, 3, 2); }, ONCE);
 E('presbyopia', [42, 56], 0.008, null, c => { c.mem(`글씨가 흐릿해서 ${c.era >= 6 ? '휴대폰' : '신문'}을(를) 멀리 들고 봤다 — 노안이다`, 3, -0.3); c.think('돋보기를 써야 하나…'); }, ONCE);
 E('gray_hair', [36, 52], 0.01, null, c => { c.mem('거울 속에서 흰머리를 발견했다', 2, -0.2); c.think(pick(['하나 뽑으면 두 개 난다던데.', '세월이 머리 위에 앉았다.'])); }, ONCE);
-E('health_warn', [45, 80], 0.004, c => c.era >= 4, c => { const w = pick(['혈압이 높다', '혈당이 높다', '콜레스테롤 수치가 높다']); c.mem(`의사가 ${w}고 했다. 짠 음식을 줄여야 한다`, 4, -0.4); if (c.a.tr.C > 55) { c.health(3); c.mem('매일 저녁 걷기 시작했다', 3, 0.5); } else c.health(-2); }, 365);
+E('health_warn', [45, 80], 0.004, c => c.era >= 4, c => { seeDoctor(c.w, c.a); const w = pick(['혈압이 높다', '혈당이 높다', '콜레스테롤 수치가 높다']); c.mem(`의사가 ${w}고 했다`, 4, -0.4); c.think('짠 음식과 단 음식을 줄여야겠다.'); if (c.a.tr.C > 55) { c.health(3); c.mem('매일 저녁 걷기 시작했다', 3, 0.5); } else c.health(-2); }, 365);
 E('empty_nest', [44, 75], 0.02, c => c.a.kids.length && c.a.kids.every(id => { const k = c.w.anns.get(id); return !k || !k.alive || (ageOf(k, c.w.clock) >= 19 && k.home !== c.a.home); }) && !c.a.flags?.emptyNest, c => { c.a.flags = { ...(c.a.flags || {}), emptyNest: 1 }; c.life('마지막 아이까지 독립했다 — 집이 텅 빈 것 같다', '🪺'); c.feel(-10, '허전함'); const p = c.partner(); if (p) { c.bond(p, 6, 4); c.mem(`${wa(p.name)} 오랜만에 단둘이 저녁을 먹었다`, 4, 0.6, [p.id]); } }, ONCE);
 E('loan_done', [40, 70], 0.004, c => c.era >= 5 && c.a.home && c.w.buildings.get(c.a.home)?.owner === c.a.id, c => { c.life('집 대출을 다 갚았다', '🏡'); c.feel(18, '홀가분함'); }, ONCE);
 
@@ -483,14 +484,14 @@ function settlementEvents(world, s, w, f) {
   if (f.mountain && chance(0.00025)) {
     let lost = 0;
     for (const id of [...s.buildings]) { const b = world.buildings.get(id); if (b && b.done && BUILDINGS[b.type].era <= 1 && chance(0.12)) { removeBuilding(world, b); lost++; } }
-    for (const a of res) if (chance(0.06)) a.sick = Math.max(a.sick, 30 + rand() * 30);
+    for (const a of res) if (chance(0.06)) fallIll(world, a, 'injury', Math.max(a.sick, 30 + rand() * 30));
     everyone(world, s, `땅이 흔들렸다 — ${s.name}에 지진이 났다`, 8, -0.8);
     world.news('disaster', `🌋 지진: ${s.name}${lost ? ` (건물 ${lost}채 무너짐)` : ''}`, { sid: s.id, country: s.country }, 3);
   }
   // 돌림병
   if (res.length >= 10 && chance(0.0006 * ERAS[c.era].mort * (world.findCivic(s, 'clinic') ? 0.4 : 1))) {
     const name = pick(['열병', '고뿔', '역병', '마마', '독감']);
-    for (const a of res) if (chance(0.3)) a.sick = Math.max(a.sick, 25 + rand() * 45);
+    for (const a of res) if (chance(0.3)) { fallIll(world, a, name === '독감' ? 'flu' : 'epidemic', Math.max(a.sick, 25 + rand() * 45)); if (a.ill?.k === 'epidemic') a.ill.n = name; }
     everyone(world, s, `${s.name}에 ${name}이(가) 돌았다`, 7, -0.7);
     world.news('disaster', `🦠 ${s.name}에 ${name}이(가) 퍼지고 있다`, { sid: s.id, country: s.country }, 2);
   }

@@ -37,6 +37,7 @@ function festive(world, a, h) {
   return null;
 }
 import { JOBS } from './data.js';
+import { chronicHit } from './illness.js';
 
 // ── 문화권마다 매운맛을 즐기는 정도 (기본값) ──
 const SPICE_BASE = { ko: 66, in: 72, vi: 60, zh: 58, af: 52, es: 55, ar: 42, pt: 40, ja: 34, it: 30, en: 30, fr: 24, de: 24, ru: 26 };
@@ -349,13 +350,14 @@ export function eatDone(world, a, act) {
   f.recent.unshift(d.id); if (f.recent.length > 8) f.recent.length = 8;
   // 처음 먹어 보는 나라 음식
   if (d.cu !== f.cu && d.cu !== 'prim' && d.cu !== 'world' && !f.cus[d.cu]) {
-    remember(world, a, `처음으로 ${CUISINES[d.cu]}을(를) 먹어 봤다 — ${d.n}. ${t > 1 ? '생각보다 입에 맞았다' : t < -1 ? '내 입맛엔 좀 낯설었다' : '새로운 맛이었다'}`, 3, t > 0 ? 0.5 : 0, [], 'life');
+    remember(world, a, `처음으로 ${CUISINES[d.cu]}을(를) 먹어 봤다 (${d.n})`, 3, t > 0 ? 0.5 : 0, [], 'life');
+    think(world, a, t > 1 ? `${d.n}… 생각보다 입에 맞는다!` : t < -1 ? `${d.n}은(는) 내 입맛엔 좀 낯설다.` : `${d.n}, 새로운 맛이다.`);
   }
   f.cus[d.cu] = (f.cus[d.cu] || 0) + 1;
   // 좋아하게 되거나 싫어지게 되거나
   if (t >= 2.4 && !f.fav.includes(d.id) && chance(0.22)) {
     f.fav.unshift(d.id); if (f.fav.length > 6) f.fav.length = 6;
-    remember(world, a, `${d.n}이(가) 입에 딱 맞는다. 이제 제일 좋아하는 음식 중 하나다`, 2, 0.6, [], 'life');
+    remember(world, a, `${d.n}이(가) 입에 딱 맞았다`, 2, 0.6, [], 'life');
   } else if (t <= -2.4 && !f.hate.includes(d.id) && chance(0.2)) {
     f.hate.unshift(d.id); if (f.hate.length > 5) f.hate.length = 5;
     if (chance(0.5)) think(world, a, `${d.n}은(는) 정말 안 맞는다. 다음엔 다른 걸 먹어야지.`);
@@ -456,6 +458,8 @@ export function condition(world, a) {
   if (a.stress > 75) { k *= 0.88; why.push('스트레스'); }
   if (a.mood > 40) { k *= 1.04; why.push('기분 좋음'); } else if (a.mood < -40) { k *= 0.9; why.push('울적함'); }
   if (a.health < 45) { k *= 0.85; why.push('몸이 안 좋음'); }
+  if ((a.chronic || []).some(c => c.k === 'depression' && !c.ctl)) { k *= 0.85; why.push('우울'); }
+  if ((a.chronic || []).some(c => c.k === 'dementia')) { k *= 0.85; why.push('깜빡깜빡함'); }
   if (f && f.bal > 72) { k *= 1.03; why.push('잘 챙겨 먹음'); } else if (f && f.bal < 32) { k *= 0.95; why.push('끼니가 부실함'); }
   return { k: clamp(k, 0.45, 1.25), why };
 }
@@ -477,6 +481,7 @@ export function healthTarget(world, a, age) {
   }
   t -= Math.max(0, a.stress - 60) * 0.15;
   t += era >= 5 ? 4 : era >= 4 ? 2 : 0;
+  t -= chronicHit(a);   // 고혈압·당뇨·치매·우울증·암 (약을 먹으면 덜)
   return clamp(t, 5, 100);
 }
 

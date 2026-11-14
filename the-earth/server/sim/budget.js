@@ -7,6 +7,7 @@
 import { ERAS, BUILDINGS } from './data.js';
 import { clamp, ageOf, dateOf, chance, pick } from './util.js';
 import { lifeEvent } from './ann.js';
+import { medsCount } from './illness.js';
 
 export const WON = 1530;          // 정보화 시대 1단위 ≈ 1,530원 (2026년)
 export const REF_PAY = 3600;      // 연봉표 기준값(만원): 이 연봉의 직업이 배율 1
@@ -171,6 +172,9 @@ export function livingDaily(world, a, c) {
   if (L.cloth) pay(L.cloth[0], 'cloth', perDay(L.cloth[1]));
   if (L.ins) pay(L.ins[0], 'ins', perDay(L.ins[1]));
   if (a.sick > 0 && L.med) pay(L.med[0], 'med', perDay(L.med[1]) * Math.min(1, a.sick / 30));
+  // 오래 가는 병의 약값 (고혈압·당뇨·우울증 약 — 근대 이후)
+  const meds = medsCount(a);
+  if (meds && L.med) pay('약값', 'med', perDay(L.med[1]) * 0.12 * meds);
   // 이동: 차가 있는 시대엔 넉넉하면 차를 산다
   if (L.car) {
     const rich = a.money > M * 10 || monthNet(a.ledPrev) > M * 1.25;

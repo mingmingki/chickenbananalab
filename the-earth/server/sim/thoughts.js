@@ -4,6 +4,7 @@ import { pick, chance, ageOf, localHour, dateOf, callName, ga, wa, reul, neun } 
 import { JOBS, ERAS, BUILDINGS } from './data.js';
 import { siteFeatures } from './settlement.js';
 import { craving } from './food.js';
+import { symptom } from './illness.js';
 
 export const SEASON = m => (m >= 3 && m <= 5 ? '봄' : m >= 6 && m <= 8 ? '여름' : m >= 9 && m <= 11 ? '가을' : '겨울');
 export function seasonOf(world, s) {
@@ -166,7 +167,10 @@ function topics(world, a) {
   const big = a.mem.filter(m => m.imp >= 6 && now - m.t > 1440 * 3);
   if (big.length) add(1.3, () => { const m = pick(big); return m.v >= 0 ? pick([`가끔 '${m.text}' 그날이 떠오른다.`, `'${m.text}'… 좋은 기억이다.`]) : pick([`아직도 '${m.text}' 그 일이 마음에 걸린다.`, `'${m.text}'… 잊고 싶다.`]); });
   // 몸과 나이
-  if (a.sick > 0) add(2.5, () => pick(['몸이 좀 나아져야 할 텐데.', '기침이 멎질 않는다.', '아프니까 서럽다.']));
+  if (a.sick > 0) add(2.5, () => symptom(a));
+  if ((a.chronic || []).some(c => c.k === 'dementia')) add(1.5, () => pick(['내가 여기 왜 왔더라?', '자꾸 이름이 생각나지 않는다.', '아까 밥을 먹었던가…']));
+  if ((a.chronic || []).some(c => c.k === 'htn' && c.dx)) add(0.6, () => pick(['혈압약 먹을 시간이다.', '짜게 먹지 말아야지.']));
+  if ((a.chronic || []).some(c => c.k === 'dm' && c.dx)) add(0.6, () => pick(['단 건 줄여야 하는데…', '오늘 혈당은 괜찮을까.']));
   if (age > 60) add(1.2, () => pick([`벌써 ${Math.floor(age)}살이라니.`, '젊을 땐 몰랐다, 시간이 이렇게 빠른 줄.', '손주들 얼굴이 보고 싶다.', '무릎이 쑤시는 걸 보니 비가 오려나.']));
   if (!a.home && age >= 16) add(2, () => pick(['비바람 막을 집이 있었으면.', '오늘 밤은 어디서 자지.']));
   // 나이대마다 마음에 걸리는 것 (남녀노소)

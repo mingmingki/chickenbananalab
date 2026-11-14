@@ -15,6 +15,7 @@ import { consult } from './dilemma.js';
 import { onLeave } from './life.js';
 import { planMeal, eatDone, consume, condK, diet, addFood, MEAL_EMOJI } from './food.js';
 import { dishById } from './foods.js';
+import { seeDoctor, symptom } from './illness.js';
 
 export const ACTS = {
   sleep: { label: '잠', emoji: '💤' },
@@ -520,7 +521,18 @@ function execute(world, a, o, ctx) {
     case 'found_co': start(world, a, 'found_co', 120, 'plaza', { ind: o.ind }); thinkDecision(world, a, o); break;
     case 'lead': start(world, a, 'lead', 180, world.findCivic(s, 'hall')?.id ?? 'plaza'); break;
     case 'migrate': start(world, a, 'migrate', 60, 'wild'); break;
-    case 'rest_sick': start(world, a, 'rest_sick', 240, world.findWork(s, 'clinic')?.id ?? 'home'); break;
+    case 'rest_sick': {
+      // 의원·병원이 있으면 진찰받고 그곳에서 쉰다 (병 이름을 알고, 근대 이후엔 약을 받는다) — illness.js
+      // 한 번 진찰받고 나면 집에서 쉰다 (심하면 병원에 입원)
+      const med = world.findCivic(s, 'hospital') || world.findCivic(s, 'clinic');
+      const open = med && (med.type === 'hospital' || (s.heal || 0) > 0.05);
+      const visit = open && a.ill && !a.ill.visited && a.sick > 12;
+      const admit = open && med.type === 'hospital' && a.sick > 50;
+      start(world, a, 'rest_sick', 240, visit || admit ? med.id : 'home');
+      if (visit) { a.ill.visited = true; seeDoctor(world, a); logToday(world, a, '🩺', `진료 — ${med.name}`); }
+      else if (admit && !a.ill?.admitted) { if (a.ill) a.ill.admitted = true; logToday(world, a, '🏥', `입원 — ${med.name}`); }
+      break;
+    }
     default: start(world, a, 'relax', 60, 'home');
   }
 }
@@ -561,7 +573,7 @@ export function musing(world, a) {
   if (a.preg) push(4, pick(['아기는 누구를 닮았을까.', '배 속에서 꼼지락거린다. 신기해.']));
   for (const kid of a.kids.slice(-2)) { const k = world.anns.get(kid); if (k && k.alive && ageOf(k, now) < 15) push(1.5, `${callName(k.name, a.culture)} 많이 컸네. 건강하게만 자라다오.`); }
   if (!a.home) push(3, '비바람을 피할 집이 있었으면…');
-  if (a.sick > 0) push(3, '몸이 좀 나아져야 할 텐데.');
+  if (a.sick > 0) push(3, symptom(a));
   // 세상
   if (c.leader === a.id) push(3, pick(['모두가 나를 보고 있다. 실수하면 안 된다.', `${c.name}을(를) 더 좋은 나라로 만들고 싶다.`]));
   else if (c.leader) { const L = world.anns.get(c.leader); const r = L && a.rels[L.id]; if (r) push(1, r.a > 30 ? `${L.name} ${ERAS[c.era].leader}라면 믿을 수 있다.` : r.a < -20 ? `${ga(L.name)} 정말 나라를 잘 이끌 수 있을까?` : null); }

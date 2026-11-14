@@ -579,6 +579,7 @@ export class Hud {
       body += this.foodHTML(d);
       body += `<div class="sec">상태</div>
         <div class="stat"><span>건강</span>${bar(d.health, '#69db7c')}<b>${d.health}</b></div>
+        ${d.ill?.chronic?.length ? `<div class="food-row"><span class="sub small" style="margin:0">앓는 병</span><div>${d.ill.chronic.map(c => `<span class="chip ${c.ctl ? '' : 'neg'}">${c.icon} ${esc(c.n)}${c.ctl ? ' · 약 먹는 중' : ''}</span>`).join(' ')}</div></div>` : ''}
         <div class="stat"><span>자신감</span>${bar(d.conf, '#58b4ff')}<b>${d.conf}</b></div>
         <div class="stat"><span>교육</span>${bar(d.edu, '#74c0fc')}<b>${d.edu}</b></div>
         <div class="stat"><span>평판</span>${bar(50 + d.rep / 2, '#ffa8a8')}<b>${d.rep}</b></div>
@@ -643,7 +644,7 @@ export class Hud {
     const nowBox = d.al ? `<div class="now">
         <div class="what"><span class="em">${act?.emoji || '🙂'}</span>${esc(act?.label || '쉬는 중')}${act?.target ? ` <span class="sub" style="margin:0">— <span class="linklike" data-ann="${act.target.id}">${esc(act.target.name)}</span></span>` : ''}${act?.ph === 'move' ? ` <span class="chip">${this.tripText(act.trip)}</span>` : ''}${act?.drive ? ' <span class="chip">🚌 버스 운전 중</span>' : ''}</div>
         ${act?.line ? `<div class="line">💬 ${esc(act.line)}</div>` : ''}
-        <div class="emo">감정: <b>${esc(d.emo?.k || '평온')}</b>${d.emo?.why ? ` <span class="sub" style="margin:0">(${esc(d.emo.why)})</span>` : ''} · 기분 ${d.mood > 0 ? '+' : ''}${d.mood} · 스트레스 ${d.stress}${d.sick > 0 ? ' · 🤒 아픔' : ''}</div>
+        <div class="emo">감정: <b>${esc(d.emo?.k || '평온')}</b>${d.emo?.why ? ` <span class="sub" style="margin:0">(${esc(d.emo.why)})</span>` : ''} · 기분 ${d.mood > 0 ? '+' : ''}${d.mood} · 스트레스 ${d.stress}${d.ill?.now ? ` · ${d.ill.now.icon} ${esc(d.ill.now.n)}${d.ill.now.days ? ` (${d.ill.now.days}일째)` : ''}` : d.sick > 0 ? ' · 🤒 아픔' : ''}</div>
         ${d.food && d.age >= 6 ? `<div class="emo" title="일·공부가 얼마나 잘 되는지 — 밥·잠·기분·스트레스·건강·카페인·숙취·식단">컨디션 <b style="color:${d.food.cond.k >= 100 ? 'var(--good, #69db7c)' : d.food.cond.k >= 85 ? 'inherit' : '#ff8787'}">${d.food.cond.k}%</b>${d.food.cond.why.length ? ` <span class="sub" style="margin:0">(${esc(d.food.cond.why.join(' · '))})</span>` : ''}</div>` : ''}
         <div class="gauges">
           <div class="gauge">배부름${bar(nd.food, '#ffa94d')}</div><div class="gauge">기력${bar(nd.energy, '#74c0fc')}</div>
