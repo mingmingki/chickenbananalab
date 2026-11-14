@@ -1,6 +1,6 @@
 // 3D 세계: 렌더러, 우주, 지구, 도시, 카메라, 선택, 인트로 연출
 import * as THREE from 'three';
-import { EarthVectors } from './vectors.js';
+import { EarthVectors, decodeLine } from './vectors.js';
 import { R, D2R, vecToLL, llToVec } from './geo.js';
 import { buildEarthTextures, makeEarth, paintLights, countryIndexAt, loadEarthData } from './earth.js';
 import { geoLabels } from './geolabels.js';
@@ -40,6 +40,14 @@ export class World3D {
     this.earthRoot.add(this.earth.group);
     // 국경선·나라 테두리는 선으로 (확대해도 또렷하게)
     this.vec = new EarthVectors(this.earth.group, countries, borders, renderer);
+    // 강과 호수 (Natural Earth): 강은 선으로, 호수는 땅 모양 그림에 칠한다
+    fetch('/geo/hydro.json').then(r => r.ok ? r.json() : null).then(h => {
+      if (!h) return;
+      this.tex.setLakes(h.lakes.map(l => ({ name: l[1], rings: l.slice(2).map(ring => decodeLine(ring, 0, h.q)) })));
+      this.tex.paintOverlay(this.selectedCountry ?? -1, this.myCountry ?? -1);
+      this.vec.setRivers(h, this.earth.uniforms.sunDir);
+      this.tex.setRiverBanks(h.rivers.map(r => ({ rank: r[0], pts: decodeLine(r, 1, h.q) })));
+    }).catch(() => {});
     this.cities = new Cities(this.earthRoot, meta, this.earth.mesh);
     this.weather = new Weather(this.scene);
     this.rig = new CameraRig(this.camera, renderer.domElement);
@@ -233,6 +241,8 @@ export class World3D {
     const doy = this.mode === 'observe' && st?.world ? dateOf(minutes).doy : Math.floor((Date.now() - Date.UTC(new Date().getUTCFullYear(), 0, 1)) / 864e5);
     U.season.value = 0.5 + 0.5 * Math.cos((doy - 15) / 365 * Math.PI * 2);
     U.time.value = this.time;
+    U.camAlt.value = alt;
+    U.camUp.value.copy(this.camera.position).sub(this.earthRoot.position).normalize();
     // 구름은 게임 속 20일에 지구를 한 바퀴 (그림자도 같이)
     U.cloudShift.value = ((minutes / (1440 * 20)) + this.time * 0.0004) % 1;
     U.cloudAmt.value = this.earth.cloudU.opacity.value;
@@ -240,7 +250,8 @@ export class World3D {
     // (국경 그림은 4K라 1,500km 아래로 내려가면 계단처럼 보인다 → 그 전에 사라지게)
     // (예전엔 국경을 그림으로 그려 가까이서 계단처럼 깨졌다 → 이제 선으로 그린다: vectors.js)
     U.borderAlpha.value = 0;
-    this.vec.update(alt, this.mode);
+    const kmPerPx = 2 * alt * Math.tan(this.camera.fov * D2R / 2) / Math.max(1, this.renderer.domElement.clientHeight);
+    this.vec.update(alt, this.mode, kmPerPx);
     let labels = [];
     if (st?.world && (this.mode === 'observe' || this.mode === 'pick-country')) {
       if (st.dirty.settlements || st.dirty.all) {

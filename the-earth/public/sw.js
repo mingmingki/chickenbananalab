@@ -1,5 +1,5 @@
 // 서비스 워커: 휴대폰 알림(웹 푸시)을 받고, 다시 열 때 빨리 뜨도록 화면 파일을 보관한다.
-const CACHE = 'earth-v2';
+const CACHE = 'earth-v3';   // 지형 그림(textures)을 바꾸면 숫자를 올린다 — 휴대폰에 남은 옛 그림을 버리게
 const SHELL = ['/', '/css/style.css', '/js/main.js', '/manifest.webmanifest', '/icons/icon-192.png'];
 
 self.addEventListener('install', e => {
@@ -18,7 +18,7 @@ self.addEventListener('fetch', e => {
   if (url.pathname.startsWith('/api/') && url.pathname !== '/api/geo' && url.pathname !== '/api/meta') return;
   if (url.pathname.startsWith('/ws') || url.pathname.startsWith('/admin')) return;
   // three.js 같은 라이브러리는 바뀌지 않으니 보관본부터
-  if (url.pathname.startsWith('/vendor/') || url.pathname.startsWith('/textures/')) {
+  if (url.pathname.startsWith('/vendor/') || url.pathname.startsWith('/textures/') || url.pathname.startsWith('/geo/')) {
     e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(res => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); } return res; })));
     return;
   }

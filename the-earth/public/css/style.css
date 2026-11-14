@@ -453,7 +453,8 @@ button, .btn, [data-act], [data-ann], [data-town], .roster-item, .country-result
 .lbl.geo.cont { color: rgba(255, 255, 255, 0.9); font-size: 14px; font-weight: 700; letter-spacing: .35em; }
 .lbl.geo.sea { color: rgba(160, 205, 255, 0.85); font-style: italic; font-size: 12px; }
 .lbl.geo.land { color: rgba(245, 225, 180, 0.88); font-size: 12px; }
-@media (max-width: 860px) { .lbl.geo.ocean { font-size: 12px; letter-spacing: .3em; } .lbl.geo.cont { font-size: 12px; } .lbl.geo.sea, .lbl.geo.land { font-size: 10.5px; } }
+.lbl.geo.river { color: rgba(150, 215, 255, 0.92); font-style: italic; font-size: 11px; letter-spacing: .06em; }
+@media (max-width: 860px) { .lbl.geo.ocean { font-size: 12px; letter-spacing: .3em; } .lbl.geo.cont { font-size: 12px; } .lbl.geo.sea, .lbl.geo.land { font-size: 10.5px; } .lbl.geo.river { font-size: 10px; } }
 
 /* ── 앤이 묻는다: 오른쪽 위 질문 카드 ── */
 .icon-btn.pulse { animation: askPulse 1.6s ease-in-out infinite; }

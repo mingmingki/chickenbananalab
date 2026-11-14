@@ -321,20 +321,26 @@ async function openCreator() {
   ctx.mode = 'creator';
   show('creator');
   hud?.destroy(); hud = null;
+  // 화면이 뜨자마자 버튼이 눌려도 놓치지 않게: 나라 정보와 첫 앤들이 준비될 때까지 기다렸다가 처리한다
+  let markReady;
+  const ready = new Promise(r => { markReady = r; });
+  $('#creator').onclick = async e => {
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (!act) return;
+    await ready;
+    if (!creator) return;
+    if (act === 'back') { creator = null; hud ? null : pickCountry(); }
+    if (act === 'add-ann' && creator.anns.length < creator.opts.room) { creator.anns.push(await creator.randomAnn()); creator.cur = creator.anns.length - 1; creator.render(); }
+    if (act === 'random-all') { for (let i = 0; i < creator.anns.length; i++) creator.anns[i] = await creator.randomAnn(creator.anns[i].gender); creator.render(); }
+    if (act === 'deploy') deploy();
+  };
   const country = geo.countries.find(c => c.code === ctx.session.country);
   w3d.mode = 'pick-country';
   w3d.setSelectedCountry(geo.countries.indexOf(country));
   w3d.flyToCountry(country, 4500);
   const info = await api(`/api/servers/${ctx.session.serverId}/country/${country.code}?token=${encodeURIComponent(ctx.session.token || "")}`).catch(() => ({ mode: 'pioneer', families: 0 }));
   creator = new Creator($('#creator'), { culture: country.culture, countryName: country.name, room: ctx.session.room ?? meta.maxAnns, max: meta.maxAnns, mode: info.mode, families: info.families, village: info.village, mine: info.mine });
-  await creator.open();
-  $('#creator').onclick = async e => {
-    const act = e.target.closest('[data-act]')?.dataset.act;
-    if (act === 'back') { creator = null; hud ? null : pickCountry(); }
-    if (act === 'add-ann' && creator.anns.length < creator.opts.room) { creator.anns.push(await creator.randomAnn()); creator.cur = creator.anns.length - 1; creator.render(); }
-    if (act === 'random-all') { for (let i = 0; i < creator.anns.length; i++) creator.anns[i] = await creator.randomAnn(creator.anns[i].gender); creator.render(); }
-    if (act === 'deploy') deploy();
-  };
+  try { await creator.open(); } finally { markReady(); }
 }
 
 async function deploy() {
