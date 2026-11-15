@@ -551,7 +551,8 @@ export function companyDaily(world, co) {
   // 창업 초기(사옥·가마를 짓는 중)에는 대표가 월급 없이 일한다
   const startup = !co.pub && b && !b.done;
   let payroll = 0;
-  const members = co.emp.map(id => world.anns.get(id)).filter(e => e && e.alive);
+  // 명부 정리: 세상을 떠났거나 이미 다른 데로 간 사람은 뺀다
+  const members = co.emp.map(id => world.anns.get(id)).filter(e => e && e.alive && e.job?.co === co.id);
   co.emp = members.map(e => e.id);
   const dayPays = new Map();
   for (const e of members) {
@@ -628,8 +629,10 @@ export function companyDaily(world, co) {
       if (co.slots > co.emp.length) co.slots = Math.max(1, co.emp.length);
       else co.slots--;
       if (co.emp.length > co.slots) {
-        const victim = members.filter(e => !e.job.ceo).sort((x, y) => x.job.since - y.job.since).pop();
-        if (victim) {
+        // 가장 최근에 들어온 사람부터 — 다만 회사를 먹여 살리는 이름난 연예인은 맨 나중에
+        const keep = e => (e.star && !e.star.left ? e.fame : 0);
+        const victim = members.filter(e => !e.job.ceo).sort((x, y) => keep(y) - keep(x) || x.job.since - y.job.since).pop();
+        if (victim && keep(victim) <= 20) {
           leaveJob(world, victim, '해고');
           feel(victim, -15, '좌절', co.name);
           think(world, victim, `${co.name}에서 잘렸다… 내가 부족했던 걸까.`);
@@ -675,6 +678,7 @@ export function companyDaily(world, co) {
         const g = ageOf(x, world.clock);
         if (!(g >= 19 && g < 55 && !x.school && !x.travel && (x.eduLv || 0) >= eduReq(world, x, jk))) return false;
         if (!x.job || x.job.co == null) return true;
+        if (x.star && !x.star.left && x.fame > 10) return false; // 이름난 연예인은 공무원 시험을 보러 가지 않는다
         // 회사원: 일이 덜 맞거나, 성실하고 안정을 바라는 사람
         return fromPrivate(x) && (x.job.sat < 55 || x.tr.C > 60 || x.tr.N > 60);
       }) : [];

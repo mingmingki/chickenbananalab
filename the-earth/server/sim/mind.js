@@ -16,7 +16,7 @@ import { onLeave } from './life.js';
 import { planMeal, eatDone, consume, condK, diet, addFood, MEAL_EMOJI } from './food.js';
 import { dishById } from './foods.js';
 import { seeDoctor, symptom } from './illness.js';
-import { pickShow, watched } from './media.js';
+import { pickShow, watched, isStar } from './media.js';
 
 export const ACTS = {
   sleep: { label: '잠', emoji: '💤' },
@@ -192,7 +192,7 @@ export function decide(world, a) {
 
   // 하루 단위 기록은 이 마을의 자정(현지 시각)에 새로 시작
   const lday = Math.floor((now / 60 + s.lon / 15) / 24);
-  if (a.day.key !== lday) { a.day.key = lday; a.day.work = 0; a.day.meals = 0; a.day.studied = false; a.day.led = false; a.day.lunch = null; a.day.mw = ''; }
+  if (a.day.key !== lday) { a.day.key = lday; a.day.work = 0; a.day.meals = 0; a.day.studied = false; a.day.led = false; a.day.lunch = null; a.day.mw = ''; a.day.tv = ''; }
   if (stage === 'baby') {
     const sub = h > 20 || h < 7 || a.nd.energy < 40 ? 'sleep' : 'awake';
     if (sub === 'sleep') a.nd.energy = clamp(a.nd.energy + 25);
@@ -733,7 +733,8 @@ function onArrive(world, a, act) {
     ops.sort((x, y) => y.sc - x.sc);
     if (a.job) {
       const cur = ops.find(op => op.jobKey === a.job.id && (op.co?.id ?? null) === a.job.co);
-      const curSc = cur ? cur.sc : jobFit(a, a.job.id) + 25;
+      // 연예인은 이름이 알려질수록 무대를 쉽게 떠나지 않는다 (꿈이었던 일)
+      const curSc = (cur ? cur.sc : jobFit(a, a.job.id) + 25) + (isStar(a) ? 18 + (a.fame || 0) * 0.6 : 0);
       const better = ops.filter(op => op.sc > curSc + 8 && !(op.jobKey === a.job.id && (op.co?.id ?? null) === a.job.co) && (a.job.co || op.co));
       if (!better.length) { if (chance(0.4)) think(world, a, '둘러봤지만 지금 일만 한 게 없다.'); return; }
       ops.splice(0, ops.length, ...better);

@@ -10,6 +10,7 @@
 // 모든 기록은 나라(c.media)에 담긴다 — 세계와 함께 저장된다.
 import { clamp, rand, pick, chance, gauss, ageOf, dateOf, localHour, DAY, ga, reul } from './util.js';
 import { remember, think, feel, lifeEvent } from './ann.js';
+import { ERAS } from './data.js';
 
 export const STAR_JOBS = { singer: '가수', actor: '배우', comedian: '코미디언', dj: '라디오 DJ', announcer: '아나운서', creator: '유튜버' };
 export const isStar = a => a.alive && a.job && STAR_JOBS[a.job.id];
@@ -44,6 +45,17 @@ function uniqueTitle(M, gen) {
   return used.has(t) ? `${t} 2` : t;
 }
 function media(c) { return (c.media = c.media || { progs: [], songs: [], films: [], hist: [], nid: 1 }); }
+/** 명성: 이미 이름난 사람일수록 조금씩만 오른다 (100에 붙어 버리지 않게) */
+const up = (a, d) => { a.fame = clamp(a.fame + (d > 0 ? d * Math.max(0.05, 1 - a.fame / 115) : d), 0, 100); };
+/** 그해의 성적표 — 연말 시상식이 본다 (프로그램·노래·영화마다 그해 최고 기록) */
+function note(M, year, key, k, co, t, who, score) {
+  if (!M.yr || M.yr.y !== year) M.yr = { y: year, list: [] };
+  const L = M.yr.list;
+  let e = L.find(e => e.key === key);
+  if (!e) { e = { key, k, co, t, who: [...who], score: 0 }; L.push(e); if (L.length > 160) L.shift(); }
+  e.who = [...who];
+  e.score = Math.max(e.score, score);
+}
 const anyAnns = (world, c) => [...world.anns.values()].filter(a => a.alive && a.country === c.code);
 
 /** 연예인이 되었다 */
@@ -52,10 +64,11 @@ function debut(world, c, a) {
   a.star = { since: Math.round(world.clock), kind, works: [], awards: [], fans: 0 };
   a.fame = Math.max(a.fame || 0, 5);
   const msg = { singer: '🎤 가수로 데뷔했다', actor: '🎬 배우로 데뷔했다', comedian: '🎙️ 코미디언으로 데뷔했다', dj: '📻 라디오 DJ가 되었다', announcer: '📺 아나운서가 되었다', creator: '📱 유튜브 채널을 열었다' }[kind];
-  lifeEvent(world, a, msg.slice(3), msg.slice(0, 2));
-  remember(world, a, msg.slice(3), 8, 0.9, [], 'work');
+  const sp = msg.indexOf(' '), emo = msg.slice(0, sp), text = msg.slice(sp + 1);
+  lifeEvent(world, a, text, emo);
+  remember(world, a, text, 8, 0.9, [], 'work');
   think(world, a, pick(['드디어 꿈꾸던 무대다. 떨린다.', '이제 시작이다. 사람들이 날 알아봐 줄까?', '이 순간을 오래 기다렸다.']));
-  if (kind !== 'announcer') world.news('culture', `${msg.slice(0, 2)} ${ga(a.name)} ${STAR_JOBS[kind]}(으)로 데뷔했다`, { anns: [a.id], country: c.code }, 1);
+  if (kind !== 'announcer') world.news('culture', `${emo} ${ga(a.name)} ${STAR_JOBS[kind]}(으)로 데뷔했다`, { anns: [a.id], country: c.code }, 1);
 }
 
 /** 방송국마다 프로그램을 채운다 */
@@ -111,6 +124,21 @@ export function mediaDaily(world, c) {
   // 데뷔, 연습생의 데뷔
   for (const a of all) {
     if (isStar(a) && !a.star) debut(world, c, a);
+    else if (a.star && !isStar(a) && !a.star.left) {
+      // 연예 일을 그만두었다 (이름은 한동안 남는다)
+      a.star.left = Math.round(world.clock);
+      lifeEvent(world, a, `${STAR_JOBS[a.star.kind] || '연예인'} 활동을 그만두었다`, '🚪');
+      if (a.fame > 25) world.news('culture', `🚪 ${STAR_JOBS[a.star.kind] || '연예인'} ${ga(a.name)} 연예 활동을 멈췄다`, { anns: [a.id], country: c.code }, 1);
+    } else if (isStar(a) && a.star.left) {
+      a.star.left = null;
+      a.star.kind = a.job.id;
+      lifeEvent(world, a, `${STAR_JOBS[a.job.id]}(으)로 돌아왔다`, '🌟');
+      if (a.fame > 15) world.news('culture', `🎤 ${ga(a.name)} ${STAR_JOBS[a.job.id]}(으)로 복귀`, { anns: [a.id], country: c.code }, 1);
+    } else if (isStar(a) && a.star.kind !== a.job.id) {
+      const from = STAR_JOBS[a.star.kind], to = STAR_JOBS[a.job.id];
+      a.star.kind = a.job.id;
+      if (from) { lifeEvent(world, a, `${from}에서 ${to}(으)로 활동을 넓혔다`, '🎭'); world.news('culture', `🎭 ${from} ${ga(a.name)} ${to}(으)로 변신`, { anns: [a.id], country: c.code }, 1); }
+    }
     if (a.job?.id === 'trainee') {
       a.trainDays = (a.trainDays || 0) + 1;
       if (a.trainDays === 1) { lifeEvent(world, a, '연예기획사 연습생이 되었다', '💃'); think(world, a, '매일 노래하고 춤추고… 언젠가 무대에 설 거야.'); }
@@ -131,16 +159,29 @@ export function mediaDaily(world, c) {
   // 시청률: 어제 실제로 본 사람의 비율 (볼 수 있는 사람 = 열 살 이상)
   const audience = Math.max(1, all.filter(a => ageOf(a, world.clock) >= 10).length);
   for (const p of M.progs) {
-    const r = clamp(p.views / audience * 100 * 1.6, 0, 70);
+    const r = clamp(p.views / audience * 100 * 1.3, 0, 65);
     p.rating = Math.round((p.rating * 0.6 + r * 0.4) * 10) / 10;
     p.peak = Math.max(p.peak, p.rating);
     p.views = 0;
-    for (const id of p.cast) { const a = world.anns.get(id); if (a?.alive) a.fame = clamp(a.fame + p.rating * 0.004, 0, 100); }
+    if (p.kind === 'drama' || p.kind === 'variety') note(M, today.year, 'p' + p.id, p.kind, p.co, p.title, p.cast, p.rating);
+    for (const id of p.cast) { const a = world.anns.get(id); if (a?.alive) up(a, p.rating * 0.004); }
+  }
+  // 광고·출연료: 시청률이 높은 방송국엔 광고가 붙고, 이름난 연예인이 많은 기획사는 출연료·음원으로 번다
+  const wage = ERAS[clamp(c.era, 0, 7)].wage, reach = Math.sqrt(audience / 100);
+  for (const co of stations) {
+    const v = wage * 0.04 * reach * M.progs.reduce((t, p) => t + (p.co === co.id ? p.rating : 0), 0);
+    co.money += v; co.rev += v;
+  }
+  for (const co of world.companies.values()) {
+    if (co.dead || co.country !== c.code || co.ind !== 'ent') continue;
+    const fame = co.emp.reduce((t, id) => { const a = world.anns.get(id); return t + (a && isStar(a) ? a.fame : 0); }, 0);
+    const v = wage * 0.02 * reach * fame;
+    co.money += v; co.rev += v;
   }
   // 끝나는 드라마
   for (const p of M.progs.filter(p => p.end && world.clock >= p.end)) {
     world.news('culture', `🎬 〈${p.title}〉 종영 — 최고 시청률 ${p.peak}%`, { anns: p.cast, country: c.code }, p.peak > 20 ? 2 : 1);
-    for (const id of p.cast) { const a = world.anns.get(id); if (a?.alive) { a.fame = clamp(a.fame + p.peak * 0.4, 0, 100); if (p.peak > 15) remember(world, a, `〈${p.title}〉이(가) 시청률 ${p.peak}%로 끝났다`, 7, 0.8, [], 'work'); } }
+    for (const id of p.cast) { const a = world.anns.get(id); if (a?.alive) { up(a, p.peak * 0.3); if (p.peak > 15) remember(world, a, `〈${p.title}〉이(가) 시청률 ${p.peak}%로 끝났다`, 7, 0.8, [], 'work'); } }
     M.hist.unshift({ y: today.year, k: 'end', t: p.title, peak: p.peak, co: p.coName, kind: p.kind });
   }
   M.progs = M.progs.filter(p => !(p.end && world.clock >= p.end) && world.companies.get(p.co) && !world.companies.get(p.co).dead);
@@ -163,33 +204,51 @@ export function mediaDaily(world, c) {
     M.top = top.id;
     const a = world.anns.get(top.by);
     world.news('culture', `🥇 ${top.byName}의 '${top.t}' 음원 차트 1위`, { anns: [top.by], country: c.code }, 2);
-    if (a?.alive) { a.fame = clamp(a.fame + 6, 0, 100); remember(world, a, `'${top.t}'이(가) 차트 1위에 올랐다`, 8, 0.9, [], 'work'); feel(a, 25, '벅참'); }
+    if (a?.alive) { up(a, 6); remember(world, a, `'${top.t}'이(가) 차트 1위에 올랐다`, 8, 0.9, [], 'work'); feel(a, 25, '벅참'); }
   }
+  for (const s of M.songs.slice(0, 10)) if (dateOf(s.at).year === today.year) note(M, today.year, 's' + s.id, 'song', null, s.t, [s.by], s.score);
   for (const s of M.songs) s.plays = Math.round(s.plays * 0.5);
   // 영화: 극장이 있으면 한두 달에 한 편, 배우가 주연
   const cinemas = [...world.companies.values()].filter(co => !co.dead && co.country === c.code && co.ind === 'cinema');
   if (cinemas.length && chance(1 / 40)) {
-    const actors = all.filter(a => a.job?.id === 'actor' && a.star).sort((x, y) => (y.fame + rand() * 30) - (x.fame + rand() * 30)).slice(0, 2);
-    if (actors.length) {
-      const f = { id: M.nid++, t: filmTitle(), cast: actors.map(a => a.id), castNames: actors.map(a => a.name), at: Math.round(world.clock), q: clamp(actors[0].sk.art * 0.5 + gauss() * 15 + 40, 5, 100), audience: 0 };
+    // 최근(다섯 달 안)에 영화를 찍은 배우는 빠진다 — 주연이 돌아가며. 가수도 가끔 영화에 나온다.
+    const free = all.filter(a => a.star && !(a.star.hiatus > world.clock)
+      && world.clock - (a.star.lastFilm ?? -1e12) > 150 * DAY && (a.job?.id === 'actor' || (a.job?.id === 'singer' && a.sk.art > 40 && chance(0.25))));
+    const leads = free.sort((x, y) => (y.fame + y.sk.art * 0.2 + rand() * 30) - (x.fame + x.sk.art * 0.2 + rand() * 30)).slice(0, 2);
+    if (leads.length) {
+      const f = { id: M.nid++, t: filmTitle(), cast: leads.map(a => a.id), castNames: leads.map(a => a.name), at: Math.round(world.clock), q: clamp(leads[0].sk.art * 0.5 + gauss() * 15 + 40, 5, 100), audience: 0 };
       M.films.push(f);
-      for (const a of actors) { a.star.works.unshift({ t: f.t, k: 'film', at: f.at }); a.star.works.length = Math.min(a.star.works.length, 12); }
+      for (const a of leads) { a.star.lastFilm = f.at; a.star.works.unshift({ t: f.t, k: 'film', at: f.at }); a.star.works.length = Math.min(a.star.works.length, 12); }
       world.news('culture', `🎞️ 영화 〈${f.t}〉 개봉 — 주연 ${f.castNames.join(', ')}`, { anns: f.cast, country: c.code }, 1);
+    } else if (chance(0.6)) {
+      // 우리 배우가 없으면 외국 영화를 들여온다
+      M.films.push({ id: M.nid++, t: filmTitle(), foreign: true, cast: [], castNames: [], at: Math.round(world.clock), q: clamp(55 + gauss() * 15, 5, 100), audience: 0 });
     }
   }
   M.films = M.films.filter(f => {
     const open = (world.clock - f.at) / DAY < 45;
     if (!open && !f.done) {
       f.done = true;
-      for (const id of f.cast) { const a = world.anns.get(id); if (a?.alive) a.fame = clamp(a.fame + Math.min(15, f.audience * 0.3), 0, 100); }
-      M.hist.unshift({ y: today.year, k: 'film', t: f.t, aud: f.audience, cast: f.castNames });
+      for (const id of f.cast) { const a = world.anns.get(id); if (a?.alive) up(a, Math.min(12, f.audience * 0.05)); }
+      if (!f.foreign) M.hist.unshift({ y: today.year, k: 'film', t: f.t, aud: f.audience, cast: f.castNames });
     }
     return (world.clock - f.at) / DAY < 120;
   });
+  for (const f of M.films) if (!f.foreign && !f.done) note(M, today.year, 'f' + f.id, 'film', null, f.t, f.cast, f.audience);
   // 연말 시상식 (12월 30일)
   if (today.month === 12 && today.day === 30 && M.awardYear !== today.year) { M.awardYear = today.year; awards(world, c, M, stations, all, today.year); }
   // 명성은 쉬면 천천히 식는다, 팬 수 세기 (일주일에 한 번)
-  for (const a of all) if (a.star) a.fame = clamp(a.fame * 0.9985, 0, 100);
+  for (const a of all) {
+    if (a.star) a.fame = clamp(a.fame * 0.997, 0, 100);
+    // 팬심도 식는다: 오래 소식이 없거나, 그 사람이 떠났거나
+    if (a.fan) {
+      const s = world.anns.get(a.fan);
+      if (chance(0.003 + (!s?.alive ? 0.01 : 0) + (s && s.fame < 15 ? 0.004 : 0))) {
+        if (s && chance(0.15)) think(world, a, s.alive ? `요즘은 ${s.name}한테 예전만큼 마음이 안 간다.` : `${s.name}… 지금도 가끔 생각난다.`);
+        a.fan = null;
+      }
+    }
+  }
   if (today.day % 7 === 0) {
     const fans = {};
     for (const a of all) if (a.fan) fans[a.fan] = (fans[a.fan] || 0) + 1;
@@ -201,32 +260,35 @@ export function mediaDaily(world, c) {
 }
 
 function awards(world, c, M, stations, all, year) {
+  const L = M.yr?.y === year ? M.yr.list : [];
+  const live = id => { const a = world.anns.get(id); return a?.alive && a.star ? a : null; };
+  const bestOf = (k, co) => L.filter(e => e.k === k && e.score > 0 && (!co || e.co === co)).sort((x, y) => y.score - x.score)[0];
   const give = (a, name, why) => {
     if (!a) return;
-    a.fame = clamp(a.fame + 15, 0, 100);
-    a.star?.awards.unshift({ y: year, n: name });
+    up(a, 10);
+    a.star.awards.unshift({ y: year, n: name, w: why || '' });
     lifeEvent(world, a, `${name} 수상${why ? ` (${why})` : ''}`, '🏆');
     remember(world, a, `${name}을(를) 받았다`, 9, 1, [], 'work');
     think(world, a, pick(['꿈만 같다. 함께해 준 모두에게 고맙다.', '이 상은 나를 믿어 준 사람들의 것이다.', '울지 않으려고 했는데…']));
     feel(a, 35, '감격');
-    M.hist.unshift({ y: year, k: 'award', n: name, who: a.name });
+    M.hist.unshift({ y: year, k: 'award', n: name, who: a.name, why: why || '' });
     world.news('culture', `🏆 ${name} — ${a.name}${why ? ` (${why})` : ''}`, { anns: [a.id], country: c.code }, 2);
     for (const f of all) if (f.fan === a.id && chance(0.5)) { feel(f, 10, '기쁨'); if (chance(0.3)) think(world, f, `${a.name}이(가) 상을 받았다! 내가 다 기쁘다.`); }
   };
+  // 방송국마다: 그해 가장 사랑받은 드라마의 주연 → 연기대상, 예능의 간판 → 연예대상
   for (const co of stations.filter(s => s.ind === 'tv')) {
-    const works = [...M.progs, ...M.hist.filter(h => h.y === year && h.k === 'end').map(h => ({ title: h.t, peak: h.peak, co: null, kind: h.kind }))];
-    // 연기대상: 그해 드라마 배우 중 (시청률 × 연기)
-    const actors = all.filter(a => a.job?.id === 'actor' && a.star && a.star.works.some(w => w.k === 'drama' && dateOf(w.at).year === year));
-    const best = actors.sort((x, y) => (y.fame + y.sk.art * 0.5) - (x.fame + x.sk.art * 0.5))[0];
-    if (best) give(best, `${co.name} 연기대상`, best.star.works.find(w => w.k === 'drama')?.t ? `〈${best.star.works.find(w => w.k === 'drama').t}〉` : '');
-    const funny = all.filter(a => (a.job?.id === 'comedian' || a.job?.id === 'singer') && a.star && a.star.works.some(w => w.k === 'variety' && dateOf(w.at).year === year));
-    const bestF = funny.sort((x, y) => (y.fame + y.ab.cha * 0.3) - (x.fame + x.ab.cha * 0.3))[0];
-    if (bestF) give(bestF, `${co.name} 연예대상`);
-    void works;
+    const d = bestOf('drama', co.id);
+    if (d) give(d.who.map(live).filter(Boolean).sort((x, y) => (y.sk.art + y.fame * 0.3) - (x.sk.art + x.fame * 0.3))[0], `${co.name} 연기대상`, `〈${d.t}〉 최고 ${d.score}%`);
+    const v = bestOf('variety', co.id);
+    if (v) give(v.who.map(live).filter(Boolean).sort((x, y) => (y.ab.cha + y.fame * 0.3) - (x.ab.cha + x.fame * 0.3))[0], `${co.name} 연예대상`, `〈${v.t}〉`);
   }
-  // 가요대상: 그해 가장 사랑받은 노래
-  const yearSongs = M.songs.filter(s => dateOf(s.at).year === year).sort((x, y) => y.score - x.score);
-  if (yearSongs[0]) give(world.anns.get(yearSongs[0].by), `${c.name} 가요대상`, `'${yearSongs[0].t}'`);
+  // 나라: 가요대상(그해 노래), 영화상(그해 관객이 가장 많은 영화의 주연), 신인상(그해 데뷔한 사람 중)
+  const s = bestOf('song');
+  if (s) give(live(s.who[0]), `${c.name} 가요대상`, `'${s.t}'`);
+  const f = bestOf('film');
+  if (f && f.score >= 20) give(live(f.who[0]), `${c.name} 영화상 주연상`, `〈${f.t}〉 관객 ${f.score}명`);
+  const rookie = all.filter(a => a.star && isStar(a) && dateOf(a.star.since).year === year).sort((x, y) => y.fame - x.fame)[0];
+  if (rookie && rookie.fame > 8) give(rookie, `${c.name} 신인상`, STAR_JOBS[rookie.star.kind]);
 }
 
 function scandal(world, c, a) {
@@ -262,12 +324,14 @@ export function pickShow(world, a, s) {
   if (wk && h >= 13 && h < 22 && age >= 12 && M.films.length && chance(0.3)) {
     const cin = s.buildings.map(id => world.buildings.get(id)).find(b => b?.done && b.type === 'cinema' && b.co && !world.companies.get(b.co)?.dead);
     const f = M.films.filter(f => (world.clock - f.at) / DAY < 45).sort((x, y) => appealFilm(a, y) - appealFilm(a, x))[0];
-    if (cin && f) return { kind: 'film', id: f.id, title: f.t, where: cin.id, label: `🎬 영화 〈${f.t}〉 (${cin.name})`, cast: f.cast };
+    if (cin && f) return { kind: 'film', id: f.id, title: f.t, where: cin.id, label: `🎬 ${f.foreign ? '외국 ' : ''}영화 〈${f.t}〉 (${cin.name})`, cast: f.cast };
   }
   // 정보화 시대: 젊을수록 유튜브
   if (c.era >= 6 && chance(clamp(0.7 - age / 100, 0.1, 0.65))) {
     const creators = [...world.anns.values()].filter(b => b.alive && b.country === a.country && b.job?.id === 'creator');
-    const cr = creators.length ? creators.sort((x, y) => (y.fame + rand() * 30 + (a.fan === y.id ? 40 : 0)) - (x.fame + rand() * 30 + (a.fan === x.id ? 40 : 0)))[0] : null;
+    // 보는 영상의 절반쯤만 우리나라 유튜버 것 — 나머지는 세계의 이것저것
+    const cr = creators.length && chance(a.fan && creators.some(b => b.id === a.fan) ? 0.7 : 0.45)
+      ? creators.sort((x, y) => (y.fame * 0.6 + rand() * 50 + (a.fan === y.id ? 40 : 0)) - (x.fame * 0.6 + rand() * 50 + (a.fan === x.id ? 40 : 0)))[0] : null;
     return { kind: 'tube', id: cr?.id || null, title: cr ? `${cr.name} 채널` : '여러 동영상', where: 'home', label: `📱 유튜브 — ${cr ? cr.name + ' 채널' : '이것저것'}`, cast: cr ? [cr.id] : [] };
   }
   const tvOk = c.era >= 5;
@@ -281,7 +345,7 @@ function appealProg(world, a, p) {
   const age = ageOf(a, world.clock);
   // 입소문(시청률)은 조금만, 취향과 그날 기분이 크게 — 한 프로그램이 모두를 독차지하지 않게
   let s = p.q * 0.3 + Math.min(20, p.rating) * 0.4 + rand() * 40;
-  for (const id of p.cast) { const b = world.anns.get(id); if (b) s += b.fame * 0.1 + (a.fan === id ? 30 : 0); }
+  for (const id of p.cast) { const b = world.anns.get(id); if (b) s += b.fame * 0.06 + (a.fan === id ? 25 : 0); }
   if (p.kind === 'drama') s += a.tr.O * 0.1 + (a.gender === 'F' ? 4 : 0);
   if (p.kind === 'variety') s += a.tr.E * 0.15 + (age < 30 ? 6 : 0);
   if (p.kind === 'music') s += age < 25 ? 12 : -4;
@@ -298,14 +362,21 @@ export function watched(world, a, act) {
   const M = c && media(c);
   if (!M || !act.show) return;
   const sh = act.show;
-  if (sh.kind === 'prog') { const p = M.progs.find(p => p.id === sh.id); if (p) p.views++; if (p?.kind === 'music') for (const s of M.songs.slice(0, 5)) if (p.cast.includes(s.by)) s.plays++; }
-  if (sh.kind === 'film') { const f = M.films.find(f => f.id === sh.id); if (f) f.audience++; }
-  if (sh.kind === 'tube' && sh.id) { const cr = world.anns.get(sh.id); if (cr?.alive) cr.fame = clamp(cr.fame + 0.004, 0, 100); }
+  // 같은 날 같은 프로그램은 한 번만 센다 (시청률 = 본 사람 수)
+  const key = `${sh.kind[0]}${sh.id}|`;
+  if (!a.day) a.day = {};
+  const again = (a.day.tv || '').includes(key);
+  if (!again) a.day.tv = (a.day.tv || '').slice(-60) + key;
+  if (again) { /* 다시 본 것 — 기록하지 않음 */ }
+  else if (sh.kind === 'prog') { const p = M.progs.find(p => p.id === sh.id); if (p) p.views++; if (p?.kind === 'music') for (const s of M.songs.slice(0, 5)) if (p.cast.includes(s.by)) s.plays++; }
+  if (!again && sh.kind === 'film') { const f = M.films.find(f => f.id === sh.id); if (f) f.audience++; }
+  if (!again && sh.kind === 'tube' && sh.id) { const cr = world.anns.get(sh.id); if (cr?.alive) up(cr, 0.003); }
   // 라디오에서 들은 노래
-  if (sh.kind === 'prog' && /라디오/.test(act.label || '')) { const s = pick(M.songs.slice(0, 8)); if (s) s.plays++; }
+  if (!again && sh.kind === 'prog' && /라디오/.test(act.label || '')) { const s = pick(M.songs.slice(0, 8)); if (s) s.plays++; }
   // 출연자에게 반하기
   const star = sh.cast?.length ? world.anns.get(pick(sh.cast)) : null;
-  if (star?.alive && star.id !== a.id && !a.fan && chance(0.004 + star.fame / 12000 + (ageOf(a, world.clock) < 25 ? 0.005 : 0))) {
+  const ag = ageOf(a, world.clock);
+  if (star?.alive && star.id !== a.id && !a.fan && chance((0.0006 + star.fame / 60000 + (ag < 25 ? 0.002 : 0)) * (ag > 50 ? 0.5 : 1))) {
     a.fan = star.id;
     remember(world, a, `${star.name}의 팬이 되었다`, 4, 0.7, [star.id], 'life');
     think(world, a, pick([`${star.name}, 왜 이제 알았지?`, `${star.name} 너무 좋다!`, `내일도 ${star.name} 나오는 거 봐야지.`]));
@@ -324,23 +395,24 @@ export function watched(world, a, act) {
 }
 
 // ── 화면용 ──
+const starKind = a => (a.star.left ? '전 ' : '') + (STAR_JOBS[a.star.kind] || '연예인');
 export function mediaOut(world, c) {
   const M = c.media;
   if (!M || c.era < 4) return null;
   const nm = id => world.anns.get(id)?.name;
   const stars = [...world.anns.values()].filter(a => a.alive && a.country === c.code && a.star).sort((x, y) => y.fame - x.fame).slice(0, 6)
-    .map(a => ({ id: a.id, n: a.name, k: STAR_JOBS[a.star.kind] || STAR_JOBS[a.job?.id] || '연예인', fame: Math.round(a.fame), fans: a.star.fans || 0 }));
+    .map(a => ({ id: a.id, n: a.name, k: starKind(a), fame: Math.round(a.fame), fans: a.star.fans || 0 }));
   return {
     progs: [...M.progs].sort((x, y) => y.rating - x.rating).slice(0, 6).map(p => ({ t: p.title, k: KIND[p.kind], co: p.coName, r: p.rating, cast: p.cast.map(nm).filter(Boolean).slice(0, 3) })),
     chart: M.songs.slice(0, 5).map(s => ({ t: s.t, by: s.byName })),
-    films: M.films.filter(f => (world.clock - f.at) / DAY < 45).map(f => ({ t: f.t, cast: f.castNames, aud: f.audience })),
+    films: M.films.filter(f => (world.clock - f.at) / DAY < 45).map(f => ({ t: f.t, cast: f.castNames, aud: f.audience, fo: f.foreign ? 1 : 0 })),
     stars,
     hist: M.hist.slice(0, 8),
   };
 }
 export function starOut(world, a) {
   const out = {};
-  if (a.star) out.star = { k: STAR_JOBS[a.star.kind] || '연예인', fans: a.star.fans || 0, works: a.star.works.slice(0, 6), awards: a.star.awards.slice(0, 5), since: a.star.since };
+  if (a.star) out.star = { k: starKind(a), fans: a.star.fans || 0, works: a.star.works.slice(0, 6), awards: a.star.awards.slice(0, 5), since: a.star.since };
   if (a.fan) { const s = world.anns.get(a.fan); if (s) out.fan = { id: s.id, n: s.name, alive: s.alive }; }
   return out;
 }

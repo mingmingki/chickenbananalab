@@ -534,9 +534,9 @@ export class Hud {
     if (m.progs.length) h += m.progs.map(p => `<div class="row"><span>〈${esc(p.t)}〉 <small class="sub" style="margin:0">${esc(p.k)} · ${esc(p.co)}${p.cast.length ? ' · ' + esc(p.cast.join(', ')) : ''}</small></span><b>${p.r}%</b></div>`).join('');
     else h += `<p class="sub small">아직 방송국이 없다. 도시가 커지면 ${c.era >= 5 ? 'TV' : '라디오'} 방송국이 생긴다.</p>`;
     if (m.chart.length) h += `<div class="sub small" style="margin:8px 0 2px">🎵 음원 차트</div>` + m.chart.map((x, i) => `<div class="row"><span>${i + 1}. '${esc(x.t)}'</span><b>${esc(x.by)}</b></div>`).join('');
-    if (m.films.length) h += `<div class="sub small" style="margin:8px 0 2px">🎞️ 상영 중</div>` + m.films.map(f => `<div class="row"><span>〈${esc(f.t)}〉 <small class="sub" style="margin:0">${esc(f.cast.join(', '))}</small></span><b>관객 ${f.aud}</b></div>`).join('');
+    if (m.films.length) h += `<div class="sub small" style="margin:8px 0 2px">🎞️ 상영 중</div>` + m.films.map(f => `<div class="row"><span>〈${esc(f.t)}〉 <small class="sub" style="margin:0">${f.fo ? '외국 영화' : esc(f.cast.join(', '))}</small></span><b>관객 ${f.aud}</b></div>`).join('');
     if (m.stars.length) h += `<div class="sub small" style="margin:8px 0 2px">⭐ 스타</div><div class="tags">${m.stars.map(x => `<span class="linklike" data-ann="${x.id}">${esc(x.n)} · ${esc(x.k)} · 팬 ${x.fans}</span>`).join('')}</div>`;
-    if (m.hist.length) h += m.hist.slice(0, 5).map(x => `<div class="life"><span>${x.k === 'award' ? '🏆' : x.k === 'film' ? '🎞️' : '🎬'}</span><div>${x.k === 'award' ? `${esc(x.n)} — ${esc(x.who)}` : x.k === 'film' ? `〈${esc(x.t)}〉 관객 ${x.aud}명` : `〈${esc(x.t)}〉 종영 · 최고 ${x.peak}%`}<time>${x.y}년</time></div></div>`).join('');
+    if (m.hist.length) h += m.hist.slice(0, 5).map(x => `<div class="life"><span>${x.k === 'award' ? '🏆' : x.k === 'film' ? '🎞️' : '🎬'}</span><div>${x.k === 'award' ? `${esc(x.n)} — ${esc(x.who)}${x.why ? ` <small class="sub" style="margin:0">${esc(x.why)}</small>` : ''}` : x.k === 'film' ? `〈${esc(x.t)}〉 관객 ${x.aud}명` : `〈${esc(x.t)}〉 종영 · 최고 ${x.peak}%`}<time>${x.y}년</time></div></div>`).join('');
     return h;
   }
 
@@ -593,7 +593,7 @@ export class Hud {
       body += `<div class="sec">기술 (경험으로 자란다)</div>` + Object.entries(d.sk).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<div class="stat"><span>${d.skillNames[k]}</span>${bar(v, '#69db7c')}<b>${Math.round(v)}</b></div>`).join('');
       if (d.star) body += `<div class="sec">연예 활동</div><div class="card" style="margin:6px 0"><div class="row"><span>⭐ ${esc(d.star.k)}</span><b>팬 ${d.star.fans}명 · 명성 ${d.fame}</b></div>
         ${d.star.works.map(w => `<div class="row"><span>${{ drama: '🎬', variety: '😂', music: '🎤', radio: '📻', news: '📺', docu: '🌍', song: '🎵', film: '🎞️' }[w.k] || '•'} ${w.k === 'song' ? `'${esc(w.t)}'` : `〈${esc(w.t)}〉`}</span><b class="sub small" style="margin:0">${fmtDate(w.at).replace(/ \d+월 \d+일$/, '')}</b></div>`).join('')}
-        ${d.star.awards.map(x => `<div class="row"><span>🏆 ${esc(x.n)}</span><b>${x.y}년</b></div>`).join('')}</div>`;
+        ${d.star.awards.map(x => `<div class="row"><span>🏆 ${esc(x.n)}${x.w ? ` <small class="sub" style="margin:0">${esc(x.w)}</small>` : ''}</span><b>${x.y}년</b></div>`).join('')}</div>`;
       if (d.fan) body += `<div class="row" style="margin:6px 0"><span>좋아하는 스타</span><b><span class="linklike" data-ann="${d.fan.id}">${esc(d.fan.n)}</span>${d.fan.alive ? '' : ' (故)'}</b></div>`;
       body += this.foodHTML(d);
       body += `<div class="sec">상태</div>
