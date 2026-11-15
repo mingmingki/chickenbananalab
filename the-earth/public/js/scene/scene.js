@@ -284,7 +284,8 @@ export class World3D {
       }
       // 날씨: 가장 가까운 마을의 하늘
       const wx = this.weather.update(dt, this.camera, this.cities.nearest?.t || null, alt, this.cities.night);
-      this.space.light.intensity = 4.1 * (1 - wx.dim) + wx.flash * 6;
+      // 해가 지평선 아래로 지면 햇빛도 꺼진다 (안 그러면 아래를 향한 면 — 나무 아랫면·벽 — 이 밤에도 밝다)
+      this.space.light.intensity = 4.1 * (1 - wx.dim) * (1 - this.cities.night) + wx.flash * 6;
       // 흐린 날엔 채움빛이 대신 밝아진다 (그림자도 옅어진다)
       this.space.ambient.intensity *= 1 + wx.dim * 0.45;
       this.cities.sunDir = this.space.sunDir; this.cities.sunK = 1 - wx.dim * 0.85;
