@@ -211,6 +211,10 @@ export const JOBS = {
   author: J('작가', 3, 'art', 'art', 1.2, { cre: .6, O: .4, E: -.2 }, { self: true, edu: 2, shift: 'free' }),
   webtoonist: J('웹툰 작가', 6, 'art', 'art', 1.6, { cre: .7, C: .2 }, { self: true, edu: 1, shift: 'free' }),
   creator: J('유튜버', 6, 'art', 'art', 1.5, { cha: .5, cre: .4, E: .3 }, { self: true, shift: 'free' }),
+  comedian: J('코미디언', 5, 'art', 'art', 1.4, { E: .6, cre: .4, cha: .2 }, { shift: 'free' }),
+  trainee: J('연습생', 5, 'art', 'art', 0.5, { cha: .4, cre: .3, ath: .3 }, { shift: 'free' }),
+  dj: J('라디오 DJ', 4, 'art', 'money', 1.4, { cha: .4, E: .4, cre: .2 }, { edu: 2, shift: 'office' }),
+  projectionist: J('영사기사', 4, 'crafting', 'money', 0.9, { C: .5, int: .2 }, { shift: 'food' }),
   copywriter: J('카피라이터', 5, 'art', 'money', 1.3, { cre: .6, int: .2 }, { edu: 4, shift: 'office' }),
   coach: J('코치', 5, 'leadership', 'money', 1.3, { ath: .4, cha: .3 }, { edu: 2, shift: 'free' }),
   // 농림어업
@@ -263,6 +267,7 @@ export const PAY = {
   pd: [6000, '방송·문화·예술'], announcer: [6500, '방송·문화·예술'], tv_writer: [3500, '방송·문화·예술'], camera: [4500, '방송·문화·예술'], singer: [3000, '방송·문화·예술'],
   actor: [3000, '방송·문화·예술'], ent_mgr: [3200, '방송·문화·예술'], editor: [3800, '방송·문화·예술'], author: [2000, '방송·문화·예술'], webtoonist: [4500, '방송·문화·예술'],
   creator: [3000, '방송·문화·예술'], copywriter: [4500, '방송·문화·예술'], coach: [5500, '스포츠'],
+  comedian: [3000, '방송·문화·예술'], trainee: [600, '방송·문화·예술'], dj: [5000, '방송·문화·예술'], projectionist: [2800, '방송·문화·예술'],
 };
 for (const k in JOBS) { const p = PAY[k]; JOBS[k].pay = p ? p[0] : 3600; JOBS[k].cat = p ? p[1] : '기타'; }
 
@@ -326,7 +331,11 @@ export const INDUSTRIES = {
   mall: { name: '백화점', era: 5, building: 'mall', jobs: ['sales_clerk', 'cashier', 'store_mgr', 'marketer'], mix: { sales_clerk: 0.55, cashier: 0.2, store_mgr: 0.1, marketer: 0.15 }, k: 45, suffix: ['백화점', '아울렛', '몰'] },
   fitness: { name: '헬스장', era: 5, building: 'shop', jobs: ['trainer'], k: 60, suffix: ['피트니스', '짐', '헬스'] },
   facility: { name: '시설관리', era: 5, building: 'bizbuilding', jobs: ['janitor', 'guard'], mix: { janitor: 0.55, guard: 0.45 }, k: 30, suffix: ['시설관리', '에프엠', '용역'] },
-  ent: { name: '엔터테인먼트', era: 6, building: 'office', jobs: ['ent_mgr', 'singer', 'actor', 'designer'], mix: { ent_mgr: 0.3, singer: 0.3, actor: 0.3, designer: 0.1 }, k: 120, suffix: ['엔터테인먼트', '뮤직', '스타'] },
+  ent: { name: '연예기획사', era: 5, building: 'office', jobs: ['ent_mgr', 'trainee', 'singer', 'actor', 'comedian'], mix: { ent_mgr: 0.25, trainee: 0.25, singer: 0.2, actor: 0.2, comedian: 0.1 }, k: 30, suffix: ['엔터테인먼트', '뮤직', '스타', '기획'] },
+  radio: { name: '라디오 방송국', era: 4, building: 'broadcast', jobs: ['dj', 'announcer', 'pd', 'tv_writer'], mix: { dj: 0.3, announcer: 0.25, pd: 0.25, tv_writer: 0.2 }, k: 25, suffix: ['라디오', '방송', 'FM'] },
+  tv: { name: 'TV 방송국', era: 5, building: 'broadcast', jobs: ['pd', 'announcer', 'tv_writer', 'camera', 'journalist', 'actor', 'comedian'], mix: { pd: 0.2, announcer: 0.1, tv_writer: 0.15, camera: 0.2, journalist: 0.15, actor: 0.12, comedian: 0.08 }, k: 35, suffix: ['방송', 'TV', '미디어'] },
+  cinema: { name: '극장', era: 4, building: 'cinema', jobs: ['projectionist', 'cashier'], mix: { projectionist: 0.4, cashier: 0.6 }, k: 25, suffix: ['극장', '시네마', '영화관'] },
+  concert: { name: '공연장', era: 5, building: 'concert', jobs: ['ent_mgr', 'cashier'], mix: { ent_mgr: 0.4, cashier: 0.6 }, k: 50, suffix: ['아트홀', '콘서트홀', '아레나'] },
   publisher: { name: '출판사', era: 4, building: 'bizbuilding', jobs: ['editor', 'designer'], mix: { editor: 0.7, designer: 0.3 }, k: 90, suffix: ['출판', '북스', '문고'] },
   ad: { name: '광고대행사', era: 5, building: 'office', jobs: ['marketer', 'copywriter', 'designer', 'pd'], mix: { marketer: 0.35, copywriter: 0.25, designer: 0.25, pd: 0.15 }, k: 80, suffix: ['애드', '기획', '커뮤니케이션즈'] },
   florist: { name: '꽃집', era: 5, building: 'shop', jobs: ['florist'], k: 80, suffix: ['꽃집', '플라워', '화원'] },
@@ -427,6 +436,9 @@ export const BUILDINGS = {
   station: B('기차역', 4, [2, 1], [34, 14, 10], 7000, 'civic', '#d6c3a0', 'gable', { roofColor: '#3c5a74', jobs: 40, cost: 0 }),
   kinder: B('유치원', 5, [1, 1], [16, 13, 8], 3000, 'civic', '#ffe0a8', 'flat', { accent: '#ff8fab', jobs: 15, cost: 0 }),
   office: B('오피스 빌딩', 5, [1, 1], [18, 18, 55], 25000, 'work', '#7fa6c4', 'flat', { glass: true, jobs: 300, cost: 3000 }),
+  broadcast: B('방송국', 4, [2, 1], [32, 16, 16], 12000, 'work', '#e4e9ef', 'flat', { accent: '#1565c0', jobs: 150, cost: 2500 }),
+  cinema: B('극장', 4, [1, 1], [18, 16, 11], 4000, 'work', '#8e3b46', 'flat', { accent: '#f5c518', jobs: 20, cost: 600 }),
+  concert: B('공연장', 5, [2, 2], [36, 36, 18], 25000, 'work', '#dfe3ea', 'dome', { roofColor: '#b0bcc8', jobs: 60, cost: 4000 }),
   carplant: B('자동차 공장', 5, [3, 3], [58, 52, 18], 60000, 'work', '#c9ced3', 'flat', { jobs: 600, cost: 9000 }),
   chemplant: B('화학 공장', 5, [2, 2], [36, 34, 22], 35000, 'work', '#b9c0b5', 'dome', { roofColor: '#9aa39a', chimney: true, jobs: 300, cost: 6000 }),
   supermarket: B('슈퍼마켓', 5, [2, 1], [34, 18, 7], 8000, 'work', '#f0f0f0', 'flat', { accent: '#e63946', jobs: 40, cost: 1500 }),

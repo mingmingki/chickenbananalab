@@ -119,6 +119,64 @@ function wallBox(w, h, d, tw, th) {
   return g;
 }
 
+/** 둥근 벽: 텍스처 한 장 = 4×4칸이 둘레를 따라 감긴다 */
+function wallCyl(r, h, tw, th) {
+  const g = new THREE.CylinderGeometry(r, r, h, 28, 1, true).translate(0, h / 2, 0);
+  const uv = g.attributes.uv;
+  const circ = 2 * Math.PI * r;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * circ / (tw * 4), uv.getY(i) * h / (th * 4));
+  return g;
+}
+
+/**
+ * 마당 울타리 모양: 집 둘레를 감싸는 들쭉날쭉한 다각형 (건물 좌표 기준, 앞쪽(+z)에 대문 자리).
+ * 땅에 칠하는 마당(cities.js)과 3D 담장이 같은 모양을 쓴다.
+ */
+export function yardPoly(b) {
+  const n = 7 + Math.floor(hash(b.id * 3) * 3);
+  const maxR = Math.max(b.w, b.d) / 2 + 6;
+  const lim = 9.3;   // 한 칸(20m) 안에 머물게
+  const pts = [];
+  for (let k = 0; k < n; k++) {
+    const a = (k / n) * Math.PI * 2 + (hash(b.id * 11 + k) - 0.5) * 0.5;
+    const r = Math.min(lim, maxR * (0.86 + hash(b.id * 7 + k) * 0.16));
+    // 직사각형 집을 감싸도록: 방향마다 필요한 최소 반지름
+    const need = Math.min(Math.abs((b.w / 2 + 2) / (Math.cos(a) || 1e-6)), Math.abs((b.d / 2 + 2) / (Math.sin(a) || 1e-6)));
+    const rr = Math.min(lim, Math.max(r, need));
+    pts.push([Math.cos(a) * rr, Math.sin(a) * rr]);
+  }
+  return pts;
+}
+/** 건물이 틀어 앉은 각도: 움집·초가·기와·벽돌집은 ±10° 안에서 제멋대로, 나머지는 반듯하게 */
+const TRAD = new Set(['hut', 'cottage', 'house', 'brickhouse', 'granary', 'seodang', 'forge', 'workshop']);
+export const bRot = b => b.rot ?? (TRAD.has(b.type) ? (hash(b.id * 19) - 0.5) * 0.36 : 0);
+/** 시대·종류별 마당이 있나: 'wall' 돌담 · 'fence' 싸리 울타리 · 'hedge' 생울타리 · null */
+export function yardKind(b) {
+  if (b.type === 'cottage') return 'fence';
+  if (b.type === 'house') return 'wall';
+  if (b.type === 'brickhouse') return hash(b.id * 5) < 0.5 ? 'hedge' : 'wall';
+  return null;
+}
+
+/** 건물 몸체 모양 (같은 종류라도 집마다 조금씩): box · L(ㄱ자) · U(ㄷ자) · court(ㅁ자) · T · stepped(계단식 탑) · twin(쌍둥이 동) · round(원통) */
+export function shapeOf(b, def) {
+  const t = b.type, v = hash(b.id * 13);
+  if (t === 'cottage') return v < 0.3 ? 'L' : 'box';
+  if (t === 'house') return v < 0.4 ? 'L' : v < 0.65 ? 'U' : 'box';            // 기와집: ㄱ자·ㄷ자 한옥
+  if (t === 'brickhouse') return v < 0.35 ? 'L' : 'box';
+  if (t === 'hall' || t === 'academy') return 'court';                          // 관청·향교: ㅁ자
+  if (t === 'school' || t === 'middle' || t === 'high') return v < 0.5 ? 'L' : 'U';
+  if (t === 'university') return 'court';
+  if (t === 'hospital') return 'T';
+  if (t === 'hotel') return v < 0.5 ? 'T' : 'L';
+  if (t === 'skytower') return v < 0.5 ? 'stepped' : 'round';
+  if (t === 'office') return v < 0.4 ? 'stepped' : v < 0.6 ? 'round' : 'box';
+  if (t === 'apartment') return 'twin';
+  if (t === 'townhouse' || t === 'bizbuilding' || t === 'shop') return v < 0.3 ? 'L' : 'box';
+  if (t === 'concert' || t === 'granary') return 'round';
+  return 'box';
+}
+
 export function styleOf(type, def) {
   if (def.glass) return 'glass';
   if (type === 'hut') return 'mud';
@@ -136,6 +194,7 @@ export function makeBuilding(cx, b, def, opts) {
   const { era = 0, snow = 0, hAt, cold = false } = opts;
   const grp = new THREE.Group();
   grp.position.set(b.x, hAt(b.x, b.z) + 0.3, b.z);
+  grp.rotation.y = bRot(b);   // 옛 마을 집은 반듯하지 않게 조금씩 틀어 앉는다
   grp.userData.bid = b.id;
   const v = hash(b.id);
   const col = new THREE.Color(def.color).offsetHSL((v - 0.5) * 0.04, 0, (v - 0.5) * 0.1);
@@ -304,9 +363,11 @@ function crane(cx, b, grp, M, W, D, H, active) {
 }
 
 // ── 지붕 ──
-function roof(cx, b, def, add, h, hex, snowy, grow = 1) {
+function roof(cx, b, def, add, h, hex, snowy, grow = 1, ox = 0, oz = 0, rw = b.w, rd = b.d) {
   const M = (c, o) => cx.mat(c, o);
-  const r = def.roof, W = b.w, D = b.d;
+  const r = def.roof, W = rw, D = rd;
+  const add0 = add;
+  add = (geo, m, sx, sy, sz, x = 0, y = 0, z = 0, ry = 0) => add0(geo, m, sx, sy, sz, x + ox, y, z + oz, ry);
   const rcBase = def.roofColor || '#' + new THREE.Color(hex).multiplyScalar(0.7).getHexString();
   const rc = M(snowy(rcBase));
   const long = W >= D;
@@ -350,24 +411,101 @@ function finished(cx, b, def, grp, add, { era, hex, snowy, v, cold }) {
   }
   const st = styleOf(b.type, def);
   const tex = wallTexture(st, b.burnt ? '#3b3532' : hex);
-  const body = new THREE.Mesh(wallBox(W, H, D, tex.tw, tex.th), cx.wallMat(st, hex, tex));
-  body.userData.bid = b.id; body.userData.ownGeo = true; grp.add(body);
+  const wmat = cx.wallMat(st, hex, tex);
+  const shape = shapeOf(b, def);
+  // 몸체 한 덩어리 (x, z: 가운데, y0: 바닥 높이) — 지붕은 덩어리마다
+  const mass = (x, z, w, d, h, y0 = 0, withRoof = true) => {
+    const m = new THREE.Mesh(wallBox(w, h, d, tex.tw, tex.th), wmat);
+    m.position.set(x, y0, z); m.userData.bid = b.id; m.userData.ownGeo = true; grp.add(m);
+    if (withRoof) roof(cx, b, def, (g, mm, sx, sy, sz, px, py, pz, ry) => add(g, mm, sx, sy, sz, px, py + y0, pz, ry), h, hex, snowy, 1, x, z, w, d);
+  };
+  // 앞쪽(대문·현관·간판이 붙는 면): x 가운데, z 앞면, 너비
+  let front = { x: (v - 0.5) * W * 0.3, z: D / 2, w: W };
+  let boxRoof = true, plainTop = true;
+  if (shape === 'L') {          // ㄱ자: 뒤채(가로) + 옆채(앞으로 꺾임) — 앞마당이 생긴다
+    mass(0, -D * 0.25, W, D * 0.5, H);
+    mass(-W * 0.3, D * 0.25, W * 0.4, D * 0.5, H * 0.92);
+    front = { x: -W * 0.3, z: D / 2, w: W * 0.4 }; boxRoof = false; plainTop = false;
+  } else if (shape === 'U') {   // ㄷ자: 안채 + 양쪽 날개, 가운데 마당
+    mass(0, -D * 0.28, W, D * 0.44, H);
+    mass(-W * 0.36, D * 0.22, W * 0.28, D * 0.56, H * 0.9);
+    mass(W * 0.36, D * 0.22, W * 0.28, D * 0.56, H * 0.9);
+    front = { x: W * 0.36, z: D / 2, w: W * 0.28 }; boxRoof = false; plainTop = false;
+  } else if (shape === 'court') { // ㅁ자: 네 채가 안마당을 둘러싸고, 앞채 가운데가 대문
+    mass(0, -D * 0.38, W, D * 0.24, H);
+    mass(-W * 0.39, 0, W * 0.22, D * 0.52, H * 0.9);
+    mass(W * 0.39, 0, W * 0.22, D * 0.52, H * 0.9);
+    mass(-W * 0.3, D * 0.38, W * 0.4, D * 0.24, H * 0.85);
+    mass(W * 0.3, D * 0.38, W * 0.4, D * 0.24, H * 0.85);
+    add(GEO.box, M(def.roofColor || '#5a4a3a'), W * 0.22, H * 0.7, D * 0.24, 0, 0, D * 0.38);   // 솟을대문
+    front = { x: 0, z: D / 2, w: W * 0.2 }; boxRoof = false; plainTop = false;
+  } else if (shape === 'T') {   // T자: 앞 건물 + 뒤로 뻗은 병동·객실동
+    mass(0, D * 0.25, W, D * 0.5, H);
+    mass(0, -D * 0.25, W * 0.4, D * 0.5, H * 1.25);
+    front = { x: 0, z: D / 2, w: W }; boxRoof = false; plainTop = false;
+  } else if (shape === 'stepped') { // 계단식 탑: 아래는 넓고 위로 갈수록 좁아진다
+    const h1 = H * 0.18, h2 = H * 0.5, h3 = H - h1 - h2;
+    mass(0, 0, W, D, h1, 0, false);
+    mass(0, 0, W * 0.78, D * 0.78, h2, h1, false);
+    mass(0, 0, W * 0.56, D * 0.56, h3, h1 + h2, true);
+    add(GEO.box, M('#5c6168'), W + 0.4, 0.4, D + 0.4, 0, h1, 0);
+    add(GEO.box, M('#5c6168'), W * 0.78 + 0.4, 0.4, D * 0.78 + 0.4, 0, h1 + h2, 0);
+    boxRoof = false; plainTop = false;
+    add(GEO.box, M('#e8e8e8'), 0.25, 9, 0.25, 0, H + 0.5, 0); cx.lamp(add(GEO.box, M('#ff4040', { emissive: '#ff2020' }), 0.6, 0.6, 0.6, 0, H + 9.5, 0));
+  } else if (shape === 'round') { // 원통형 (둥근 탑·공연장·곡물 창고)
+    const r = Math.min(W, D) / 2;
+    const m = new THREE.Mesh(wallCyl(r, H, tex.tw, tex.th), wmat);
+    m.userData.bid = b.id; m.userData.ownGeo = true; grp.add(m);
+    add(GEO.cyl, M(snowy('#5c6168', 0.95)), r * 2 + 0.6, 0.6, r * 2 + 0.6, 0, H);
+    if (def.roof === 'cone' || def.roof === 'dome' || b.type === 'concert') roof(cx, b, def, add, H, hex, snowy, 1, 0, 0, r * 2, r * 2);
+    front = { x: 0, z: r, w: r }; boxRoof = false; plainTop = false;
+  } else if (shape === 'twin') { // 쌍둥이 동: 두 동이 나란히, 높이가 조금 다르다
+    const h2 = H * (0.82 + hash(b.id * 3) * 0.16);
+    mass(-W * 0.26, 0, W * 0.42, D * 0.8, H);
+    mass(W * 0.26, 0, W * 0.42, D * 0.8, h2);
+    const balc = M('#d7dadf'), glassM = M('#9fb3c4', { opacity: 0.55 });
+    for (const [x, hh] of [[-W * 0.26, H], [W * 0.26, h2]]) for (let f = 1; f < Math.floor(hh / 3.2); f++) {
+      add(GEO.box, balc, W * 0.4, 0.25, 1.2, x, f * 3.2, D * 0.4 + 0.6);
+      add(GEO.box, glassM, W * 0.4, 1, 0.08, x, f * 3.2 + 0.25, D * 0.4 + 1.18);
+    }
+    front = { x: -W * 0.26, z: D * 0.4, w: W * 0.42 }; boxRoof = false; plainTop = false;
+  } else {
+    const body = new THREE.Mesh(wallBox(W, H, D, tex.tw, tex.th), wmat);
+    body.userData.bid = b.id; body.userData.ownGeo = true; grp.add(body);
+  }
   // 문
   const civic = def.kind === 'civic';
   const doorW = civic || W > 20 ? 3.2 : 1.3, doorH = civic || W > 20 ? 3 : 2.2;
   const doorCol = st === 'hanok' || st === 'timber' ? '#4a3322' : st === 'brick' ? '#5b3a2e' : '#2e3b48';
-  add(GEO.box, M(doorCol), doorW, doorH, 0.25, (v - 0.5) * W * 0.3, 0, D / 2 + 0.05);
-  if (st === 'concrete' || st === 'civic' || st === 'glass') add(GEO.box, M('#6b7681'), doorW + 1.6, 0.3, 1.6, (v - 0.5) * W * 0.3, doorH + 0.2, D / 2 + 0.8); // 현관 캐노피
+  add(GEO.box, M(doorCol), doorW, doorH, 0.25, front.x, 0, front.z + 0.05);
+  if (st === 'concrete' || st === 'civic' || st === 'glass') add(GEO.box, M('#6b7681'), doorW + 1.6, 0.3, 1.6, front.x, doorH + 0.2, front.z + 0.8); // 현관 캐노피
   // 가게: 차양과 간판
   if (SHOPS.has(b.type)) {
     const ac = def.accent || ['#c0392b', '#2a9d8f', '#e9c46a', '#264653', '#8e44ad'][Math.floor(v * 5)];
-    const awn = add(GEO.box, M(ac), Math.min(W * 0.8, 10), 0.18, 1.8, 0, Math.min(3.1, H * 0.6), D / 2 + 0.9);
+    const fw = front.w;
+    const awn = add(GEO.box, M(ac), Math.min(fw * 0.8, 10), 0.18, 1.8, front.x, Math.min(3.1, H * 0.6), front.z + 0.9);
     awn.rotation.x = 0.28;
-    add(GEO.box, M('#f6f1e7'), Math.min(W * 0.6, 7), 1.1, 0.2, 0, Math.min(H - 0.6, 4.2), D / 2 + 0.12);
-    add(GEO.box, M(ac), Math.min(W * 0.6, 7) - 0.6, 0.6, 0.22, 0, Math.min(H - 0.6, 4.2) + 0.25, D / 2 + 0.14);
-  } else if (def.accent) add(GEO.box, M(def.accent), Math.min(5, W * 0.4), 1.4, 0.3, 0, H * 0.75, D / 2 + 0.2);
+    add(GEO.box, M('#f6f1e7'), Math.min(fw * 0.6, 7), 1.1, 0.2, front.x, Math.min(H - 0.6, 4.2), front.z + 0.12);
+    add(GEO.box, M(ac), Math.min(fw * 0.6, 7) - 0.6, 0.6, 0.22, front.x, Math.min(H - 0.6, 4.2) + 0.25, front.z + 0.14);
+  } else if (def.accent) add(GEO.box, M(def.accent), Math.min(5, front.w * 0.4), 1.4, 0.3, front.x, H * 0.75, front.z + 0.2);
+  // 마당 담장 (옛 집): 돌담·싸리 울타리·생울타리 — 앞쪽은 대문 자리로 비운다
+  const yk = yardKind(b);
+  if (yk) {
+    const pts = yardPoly(b);
+    const wallM = yk === 'wall' ? M(snowy('#8f877c', 0.6)) : yk === 'hedge' ? M(snowy('#3f6b35', 0.5)) : M('#9a7b52');
+    const capM = yk === 'wall' ? M(snowy('#4a5560')) : null;
+    const hh = yk === 'wall' ? 1.3 : yk === 'hedge' ? 1.1 : 1.0, th = yk === 'fence' ? 0.12 : yk === 'hedge' ? 0.9 : 0.55;
+    for (let k = 0; k < pts.length; k++) {
+      const [x1, z1] = pts[k], [x2, z2] = pts[(k + 1) % pts.length];
+      const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
+      if (mz > 0 && Math.abs(mx) < Math.max(4, W * 0.35)) continue;   // 대문 자리
+      const len = Math.hypot(x2 - x1, z2 - z1), ang = Math.atan2(z2 - z1, x2 - x1);
+      add(GEO.box, wallM, len, hh, th, mx, 0, mz, -ang);
+      if (capM) add(GEO.box, capM, len, 0.25, th + 0.35, mx, hh, mz, -ang);
+    }
+  }
   // 아파트·연립: 층마다 발코니
-  if (def.kind === 'home' && era >= 4 && H >= 10 && st !== 'glass') {
+  if (def.kind === 'home' && era >= 4 && H >= 10 && st !== 'glass' && shape === 'box') {
     const floors = Math.floor(H / 3.2);
     const balc = M('#d7dadf');
     for (let f = 1; f < floors; f++) {
@@ -387,9 +525,9 @@ function finished(cx, b, def, grp, add, { era, hex, snowy, v, cold }) {
     add(GEO.box, M('#6f5a4a'), 0.9, H * 0.5 + 2, 0.9, W * 0.3, H * 0.8, -D * 0.2); // 작은 굴뚝 (아궁이)
     if (cold) cx.smokeAt(grp, W * 0.3, H * 1.3 + 2.4, -D * 0.2, 0.5);
   }
-  roof(cx, b, def, add, H, hex, snowy, 1);
+  if (boxRoof) roof(cx, b, def, add, H, hex, snowy, 1);
   // 옥상 설비 (산업 시대 이후 평지붕)
-  if ((r === 'flat') && era >= 4 && H >= 8) {
+  if ((r === 'flat') && era >= 4 && H >= 8 && plainTop) {
     add(GEO.box, M('#9aa1a8'), 2.4, 1.4, 1.6, W * 0.25, H + 0.5, -D * 0.2);
     add(GEO.cyl, M('#b8bec4'), 2.2, 2.2, 2.2, -W * 0.25, H + 0.5, D * 0.15);
     add(GEO.box, M('#5c6168'), W + 0.6, 0.9, 0.3, 0, H, D / 2 + 0.15); // 난간
@@ -402,6 +540,26 @@ function finished(cx, b, def, grp, add, { era, hex, snowy, v, cold }) {
   if (b.type === 'hospital') { add(GEO.box, M('#e53935'), 1.2, 4, 0.3, 0, H * 0.82, D / 2 + 0.2); add(GEO.box, M('#e53935'), 4, 1.2, 0.3, 0, H * 0.82 + 1.4, D / 2 + 0.2); }
   if (b.type === 'school' || b.type === 'middle' || b.type === 'high') { add(GEO.box, M('#b5925a'), W * 1.2, 0.05, D * 1.4, 0, -0.2, D * 1.3); add(GEO.box, M('#e8e8e8'), 0.2, 6, 0.2, W * 0.45, 0, D * 0.9); } // 운동장과 국기 게양대
   if (b.type === 'temple') add(GEO.box, M('#b23a2a'), 1, H * 0.5, 1, W * 0.55, 0, D * 0.55);
+  // 방송국: 옥상의 격자 송신탑(빨간 항공등) + 위성 접시 + 큰 로고판
+  if (b.type === 'broadcast') {
+    const tx = W * 0.32, tz = -D * 0.15, th = H + 34;
+    const tower = new THREE.LineSegments(scaffoldGeo(2.4, th - H, 2.4, 2.2), cx.lineMat(0xd94b3b));
+    tower.position.set(tx, H, tz); tower.userData.bid = b.id; tower.userData.ownGeo = true; grp.add(tower);
+    for (const y of [H + (th - H) * 0.5, th]) cx.lamp(add(GEO.box, M('#ff3030', { emissive: '#ff2020' }), 0.7, 0.7, 0.7, tx, y, tz));
+    if (era >= 5) for (let k = 0; k < 3; k++) {
+      const dish = add(GEO.dome, M('#f2f4f6'), 3.2, 3.2, 3.2, -W * 0.3 + k * 4.2, H + 1.6, D * 0.18);
+      dish.rotation.x = -1.0; dish.rotation.z = (k - 1) * 0.3;
+      add(GEO.box, M('#9aa1a8'), 0.3, 1.6, 0.3, -W * 0.3 + k * 4.2, H, D * 0.18);
+    }
+    add(GEO.box, M(def.accent || '#1565c0'), Math.min(10, W * 0.35), 2.4, 0.3, -W * 0.15, H * 0.72, D / 2 + 0.2);
+    add(GEO.box, M('#ffffff', { emissive: '#d6e4ff' }), Math.min(10, W * 0.35) * 0.7, 0.8, 0.32, -W * 0.15, H * 0.72 + 0.8, D / 2 + 0.22);
+  }
+  // 극장: 불 켜진 큰 간판(마키)과 포스터
+  if (b.type === 'cinema') {
+    cx.lamp(add(GEO.box, M(def.accent || '#f5c518', { emissive: '#ffd84a' }), W * 0.7, 2.6, 1.2, 0, H * 0.62, D / 2 + 0.6));
+    add(GEO.box, M('#1b1b1b'), W * 0.6, 1.4, 0.15, 0, H * 0.62 + 0.6, D / 2 + 1.25);
+    for (let k = 0; k < 3; k++) add(GEO.box, M(['#c0392b', '#2c3e50', '#8e44ad'][k], { emissive: ['#401010', '#101820', '#2a1030'][k] }), 1.8, 2.6, 0.12, -W * 0.3 + k * W * 0.3, 1.2, D / 2 + 0.12);
+  }
 }
 
 function fireFx(cx, b, grp) {

@@ -12,6 +12,7 @@ import { engage, wedding, honeymoon, cohabit, romanceDaily } from './romance.js'
 import { setKidPlan, startLeave, leaveDaily, onLeave, retire, enlist, draftDaily, armyDaily, discharge } from './life.js';
 import { dietDaily, pantryDaily, kitchenDaily, foodOut, diet, healthTarget } from './food.js';
 import { catchDaily, chronicDaily, spreadDaily, illName, illOut, recovered } from './illness.js';
+import { mediaDaily, mediaOut, starOut } from './media.js';
 import { seedVillage, villageDaily, migrateStart } from './village.js';
 import { companyDaily, considerPromotion, jobTitle, leaveJob, foundPublic, dailyCost, wageBase, setJob, assignContractor, siteName, hasConstruction, fullDayPay, annualOf } from './economy.js';
 import { childName, givenOf, familyName } from './names.js';
@@ -395,6 +396,9 @@ export class World {
     const people = [...this.anns.values()].filter(a => a.alive && a.country === c.code);
     c.pop = people.length;
     villageDaily(this, c);
+    // 방송과 연예 (산업 시대부터): 편성·시청률·데뷔·음원 차트·영화·시상식·스캔들 — media.js
+    mediaDaily(this, c);
+    if (c.era >= 4) this.dirtyCountries.add(c.code);
     // 나라 살림: 하루 세수·공무원 인건비의 이동 평균
     c.taxAvg = (c.taxAvg ?? (c.taxIn || 0)) * 0.95 + (c.taxIn || 0) * 0.05;
     c.pubAvg = (c.pubAvg ?? (c.pubOut || 0)) * 0.95 + (c.pubOut || 0) * 0.05;
@@ -1254,6 +1258,7 @@ export class World {
       code: c.code, name: c.name, era: c.era, eraName: ERAS[c.era].name, tech: Math.round(c.tech), nextTech: ERAS[c.era + 1]?.tech ?? null, curTech: ERAS[c.era].tech,
       leader: L ? { id: L.id, name: L.name, title: ERAS[c.era].leader } : null, pop: c.pop, treasury: Math.round(c.treasury), tax: Math.round(c.tax * 100),
       discoveries: c.discoveries, capital: c.capital, history: c.history.slice(-40), founded: c.founded, topEdu: c.topEdu || 0,
+      media: mediaOut(this, c),
     };
   }
   companyOut(co) {
@@ -1363,6 +1368,7 @@ export class World {
       wedAt: a.wedAt ?? null, cohab: !!a.cohab,
       food: a.alive ? (diet(this, a), foodOut(this, a)) : null,
       ill: a.alive ? illOut(this, a) : null,
+      ...starOut(this, a),
     };
   }
   /** 돈: 연봉, 이번 달·지난달 가계부, 재산, 집, 차 (모두 원) */

@@ -384,6 +384,7 @@ export class Hud {
           <div class="row"><span>국고 · 세율</span><b>${this.fmtMoney(c.treasury, c.era)} · ${c.tax}%</b></div>
           <div class="row"><span>정착지</span><b>${towns.map(s => `<span class="linklike" data-town="${s.id}">${esc(s.name)}</span>(${esc(s.levelName)})`).join(', ')}</b></div>
           ${c.discoveries.length ? `<div class="tags">${c.discoveries.map(d => `<span>💡${esc(d)}</span>`).join('')}</div>` : ''}
+          ${this.mediaHTML(c)}
           ${c.history.length ? `<div class="sec">나라의 연대기</div>${c.history.slice(-14).reverse().map(h => `<div class="life"><span>${h.icon || '•'}</span><div>${esc(h.text)}<time>${fmtDate(h.t)}</time></div></div>`).join('')}` : ''}
         </div>`;
       }).join('') || '<p class="empty">아직 문명이 시작된 나라가 없습니다.</p>';
@@ -525,6 +526,20 @@ export class Hud {
     return h;
   }
 
+  /** 나라의 방송·연예: 인기 프로그램과 시청률, 음원 차트, 상영 중인 영화, 스타, 시상식·종영 기록 */
+  mediaHTML(c) {
+    const m = c.media;
+    if (!m) return '';
+    let h = `<div class="sec">방송·연예</div>`;
+    if (m.progs.length) h += m.progs.map(p => `<div class="row"><span>〈${esc(p.t)}〉 <small class="sub" style="margin:0">${esc(p.k)} · ${esc(p.co)}${p.cast.length ? ' · ' + esc(p.cast.join(', ')) : ''}</small></span><b>${p.r}%</b></div>`).join('');
+    else h += `<p class="sub small">아직 방송국이 없다. 도시가 커지면 ${c.era >= 5 ? 'TV' : '라디오'} 방송국이 생긴다.</p>`;
+    if (m.chart.length) h += `<div class="sub small" style="margin:8px 0 2px">🎵 음원 차트</div>` + m.chart.map((x, i) => `<div class="row"><span>${i + 1}. '${esc(x.t)}'</span><b>${esc(x.by)}</b></div>`).join('');
+    if (m.films.length) h += `<div class="sub small" style="margin:8px 0 2px">🎞️ 상영 중</div>` + m.films.map(f => `<div class="row"><span>〈${esc(f.t)}〉 <small class="sub" style="margin:0">${esc(f.cast.join(', '))}</small></span><b>관객 ${f.aud}</b></div>`).join('');
+    if (m.stars.length) h += `<div class="sub small" style="margin:8px 0 2px">⭐ 스타</div><div class="tags">${m.stars.map(x => `<span class="linklike" data-ann="${x.id}">${esc(x.n)} · ${esc(x.k)} · 팬 ${x.fans}</span>`).join('')}</div>`;
+    if (m.hist.length) h += m.hist.slice(0, 5).map(x => `<div class="life"><span>${x.k === 'award' ? '🏆' : x.k === 'film' ? '🎞️' : '🎬'}</span><div>${x.k === 'award' ? `${esc(x.n)} — ${esc(x.who)}` : x.k === 'film' ? `〈${esc(x.t)}〉 관객 ${x.aud}명` : `〈${esc(x.t)}〉 종영 · 최고 ${x.peak}%`}<time>${x.y}년</time></div></div>`).join('');
+    return h;
+  }
+
   /** 식생활: 입맛·좋아하는 음식·그리운 맛·식단·체형·커피·술 */
   foodHTML(d) {
     const f = d.food;
@@ -576,6 +591,10 @@ export class Hud {
       body += `<div class="sec">능력</div>` + Object.entries(d.ab).map(([k, v]) => `<div class="stat"><span>${d.abilityNames[k]}</span>${bar(v, '#ff922b')}<b>${v}</b></div>`).join('');
       body += `<div class="stat"><span>야망</span>${bar(d.amb, '#ffd43b')}<b>${d.amb}</b></div>`;
       body += `<div class="sec">기술 (경험으로 자란다)</div>` + Object.entries(d.sk).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<div class="stat"><span>${d.skillNames[k]}</span>${bar(v, '#69db7c')}<b>${Math.round(v)}</b></div>`).join('');
+      if (d.star) body += `<div class="sec">연예 활동</div><div class="card" style="margin:6px 0"><div class="row"><span>⭐ ${esc(d.star.k)}</span><b>팬 ${d.star.fans}명 · 명성 ${d.fame}</b></div>
+        ${d.star.works.map(w => `<div class="row"><span>${{ drama: '🎬', variety: '😂', music: '🎤', radio: '📻', news: '📺', docu: '🌍', song: '🎵', film: '🎞️' }[w.k] || '•'} ${w.k === 'song' ? `'${esc(w.t)}'` : `〈${esc(w.t)}〉`}</span><b class="sub small" style="margin:0">${fmtDate(w.at).replace(/ \d+월 \d+일$/, '')}</b></div>`).join('')}
+        ${d.star.awards.map(x => `<div class="row"><span>🏆 ${esc(x.n)}</span><b>${x.y}년</b></div>`).join('')}</div>`;
+      if (d.fan) body += `<div class="row" style="margin:6px 0"><span>좋아하는 스타</span><b><span class="linklike" data-ann="${d.fan.id}">${esc(d.fan.n)}</span>${d.fan.alive ? '' : ' (故)'}</b></div>`;
       body += this.foodHTML(d);
       body += `<div class="sec">상태</div>
         <div class="stat"><span>건강</span>${bar(d.health, '#69db7c')}<b>${d.health}</b></div>

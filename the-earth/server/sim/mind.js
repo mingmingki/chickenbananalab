@@ -16,6 +16,7 @@ import { onLeave } from './life.js';
 import { planMeal, eatDone, consume, condK, diet, addFood, MEAL_EMOJI } from './food.js';
 import { dishById } from './foods.js';
 import { seeDoctor, symptom } from './illness.js';
+import { pickShow, watched } from './media.js';
 
 export const ACTS = {
   sleep: { label: '잠', emoji: '💤' },
@@ -42,9 +43,10 @@ export const ACTS = {
   shop: { label: '장보기', emoji: '🛍️' },
   migrate: { label: '개척 여행', emoji: '🧭' },
   rest_sick: { label: '요양', emoji: '🤒' },
+  watch: { label: 'TV·라디오', emoji: '📺' },
 };
 
-const AVAILABLE = new Set(['relax', 'wander', 'reflect', 'shop', 'exercise', 'art', 'play', 'eat', 'research', 'social']);
+const AVAILABLE = new Set(['relax', 'wander', 'reflect', 'shop', 'exercise', 'art', 'play', 'eat', 'research', 'social', 'watch']);
 const HEAVY = new Set(['work', 'build', 'exercise', 'forage', 'migrate']);
 
 export function isAvailable(world, b) {
@@ -70,7 +72,7 @@ function needs(world, a, dt) {
   // 커피·차를 마신 뒤 몇 시간은 덜 피곤하다
   if (!sleeping) a.nd.energy = clamp(a.nd.energy - (HEAVY.has(t) ? 0.062 : 0.045) * (a.cond?.caf > world.clock ? 0.65 : 1) * dt);
   if (t !== 'talk' && t !== 'date' && t !== 'family' && t !== 'play') a.nd.social = clamp(a.nd.social - 0.028 * (0.4 + a.tr.E / 80) * dt);
-  if (t !== 'relax' && t !== 'play' && t !== 'art' && t !== 'wander') a.nd.fun = clamp(a.nd.fun - (t === 'work' ? 0.04 : 0.024) * dt);
+  if (t !== 'relax' && t !== 'play' && t !== 'art' && t !== 'wander' && t !== 'watch') a.nd.fun = clamp(a.nd.fun - (t === 'work' ? 0.04 : 0.024) * dt);
   // 기분은 욕구 충족과 성격의 기저선 쪽으로 천천히 돌아간다
   const nAvg = (a.nd.food + a.nd.energy + a.nd.social + a.nd.fun) / 4;
   const base = 8 + (50 - a.tr.N) * 0.35 + (nAvg - 55) * 0.5 - a.stress * 0.25 + (a.home ? 4 : -8) + (a.health - 70) * 0.15;
@@ -339,6 +341,12 @@ export function decide(world, a) {
       [a.ab.ath > 60 ? '몸을 움직이고 싶다' : null, goal('sport') ? '꿈: 최고의 선수' : null, bmi > 26 ? '살 좀 빼야지' : null]);
   }
   add('relax', 18 + (100 - a.nd.fun) * 0.35 + a.stress * 0.18, [a.nd.fun < 40 ? '지루함' : '쉬고 싶다', a.stress > 50 ? '스트레스' : null]);
+  // 라디오(산업 시대)·TV(근대)·유튜브(정보화): 저녁과 주말에, 집에서 (주말엔 극장도) — media.js
+  if (era >= 4 && a.home && !inSleep) {
+    const evening = h >= 18 || h < 1, weekend = lday % 7 >= 5;
+    add('watch', 10 + (100 - a.nd.fun) * 0.3 + (evening ? 16 : weekend ? 10 : -10) + (a.fan ? 6 : 0) + (stage === 'child' || stage === 'teen' ? 6 : 0) - a.tr.O * 0.05 + (100 - a.nd.energy) * 0.08,
+      [era >= 6 ? '뭐 재밌는 거 없나' : era >= 5 ? 'TV 볼 시간' : '라디오 들을 시간', a.fan ? `${world.anns.get(a.fan)?.name || ''} 나오나?` : null]);
+  }
   add('wander', 8 + a.tr.O * 0.12 + (100 - a.nd.fun) * 0.18 + a.val.adventure * 0.06 + (100 - a.nd.social) * 0.1, ['바람 쐬기', a.nd.social < 40 ? '누군가 만날지도' : null]);
   add('reflect', 4 + a.stress * 0.28 + a.tr.N * 0.08 + a.tr.O * 0.05 + (a.day.worst ? 8 : 0), [a.stress > 50 ? '마음이 복잡하다' : '생각을 정리하고 싶다']);
   if (era >= 2 && adult && a.money > cost * 4) add('shop', 4 + (100 - a.nd.fun) * 0.2 + (100 - a.tr.C) * 0.08 + a.val.wealth * 0.04 + Math.min(18, Math.log10(1 + a.money / cost) * 7), [a.money > cost * 60 ? '여유가 있다' : '사고 싶은 게 있다']);
@@ -515,6 +523,13 @@ function execute(world, a, o, ctx) {
     case 'art': start(world, a, 'art', 120, a.home && chance(0.5) ? 'home' : 'wild'); thinkDecision(world, a, o); break;
     case 'exercise': start(world, a, 'exercise', 90, world.findWork(s, 'stadium')?.id ?? 'wild'); break;
     case 'relax': start(world, a, 'relax', 60 + rand() * 40, chance(0.6) ? 'home' : 'plaza'); break;
+    case 'watch': {
+      const show = pickShow(world, a, s);
+      if (!show) { start(world, a, 'relax', 60, 'home'); break; }
+      logToday(world, a, show.label.slice(0, 2), show.label.slice(3));
+      start(world, a, 'watch', show.kind === 'film' ? 120 : 50 + rand() * 50, show.where, { show, label: show.label });
+      break;
+    }
     case 'wander': start(world, a, 'wander', 70, chance(0.5) ? 'plaza' : 'wild'); break;
     case 'reflect': start(world, a, 'reflect', 45, 'home'); break;
     case 'shop': start(world, a, 'shop', 60, world.findWork(s, 'market')?.id ?? 'plaza'); break;
@@ -879,6 +894,9 @@ function onTick(world, a, act, dt) {
     case 'relax':
       a.nd.fun = clamp(a.nd.fun + 0.15 * dt); a.stress = clamp(a.stress - 0.04 * dt); a.nd.energy = clamp(a.nd.energy + 0.03 * dt);
       break;
+    case 'watch':
+      a.nd.fun = clamp(a.nd.fun + 0.17 * dt); a.stress = clamp(a.stress - 0.03 * dt); a.nd.energy = clamp(a.nd.energy + 0.02 * dt);
+      break;
     case 'wander':
       a.nd.fun = clamp(a.nd.fun + 0.1 * dt); a.stress = clamp(a.stress - 0.03 * dt);
       // 산책 중 우연한 만남
@@ -984,6 +1002,16 @@ function finishAct(world, a, interrupted) {
     case 'sleep': a.lastWake = world.clock; logToday(world, a, '⏰', '일어났다'); break;
     case 'study': if (act.school) logToday(world, a, '🏡', '하교'); break;
     case 'relax': if (chance(0.3)) { const m = musing(world, a); if (m) think(world, a, m); } break;
+    case 'watch': {
+      // 극장 표값은 극장 회사로
+      if (act.show?.kind === 'film') {
+        const b = world.buildings.get(act.show.where), co = b?.co && world.companies.get(b.co);
+        const price = mealPrice(era(world, a)) * 1.3;
+        if (co && !co.dead && a.money >= price) { a.money -= price; co.money += price; co.rev += price; book(world, a, 'exp', '영화 관람', price); }
+      }
+      watched(world, a, act);
+      break;
+    }
     case 'research': if (chance(0.25)) think(world, a, pick(['오늘은 조금 알아낸 것 같다.', '실패도 배움이다.', '답이 거의 보인다. 거의…'])); break;
     case 'exercise': if (chance(0.2)) think(world, a, '땀 흘리고 나니 개운하다!'); break;
     case 'wander': if (chance(0.35)) { const m = chance(0.6) ? musing(world, a) : pick(['하늘이 참 넓다.', `${world.settlements.get(a.sid).name}도 많이 변했네.`, '이 길 끝엔 뭐가 있을까.']); if (m) think(world, a, m); } break;

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { R, frameAt, llToVec, localToLL } from './geo.js';
 import { glowTexture } from './space.js';
 import { Terrain, TERRAIN_R } from '../shared/terrain.js';
-import { makeBuilding, BGEO } from './buildings.js';
+import { makeBuilding, BGEO, yardPoly, yardKind, bRot } from './buildings.js';
 import { paintRoads, buildRoadProps, roadLampMats, signalPhase } from './roads.js';
 import { TownVehicles } from './vehicles.js';
 import { treeColor, seasonOfMonth } from './weather.js';
@@ -445,18 +445,62 @@ export class Cities {
     }
     // 건물 바닥과 밭 (밭은 계절 따라: 봄 갈아엎은 흙, 여름 초록, 가을 누런 벼, 겨울 빈 밭)
     const fieldCol = { 봄: ['#8a7350', '#7fa83a'], 여름: ['#5f9a35', '#79a83a'], 가을: ['#d2b24a', '#c9a23f'], 겨울: ['#8b7a5e', '#7d6c52'] }[sea.season] || ['#c9b24f', '#7fa83a'];
+    // 논: 벼농사 고장 (동아시아·동남아·남아시아) — 봄엔 물을 대고, 여름엔 푸르고, 가을엔 누렇다
+    const rice = t.s.lon > 60 && t.s.lon < 150 && Math.abs(t.s.lat) < 42;
+    const paddyCol = { 봄: '#7f9eaa', 여름: '#4f9a3c', 가을: '#d6b445', 겨울: '#8d7d60' }[sea.season] || '#4f9a3c';
+    // 건물 좌표 기준 점 (x, z) → 화면, 건물이 틀어 앉은 만큼 돌려서
+    const toPx = (b, rot) => ([x, z]) => { const c = Math.cos(rot), sn = Math.sin(rot); return [px(b.x + x * c + z * sn), px(b.z - x * sn + z * c)]; };
+    const path = pts => { g.beginPath(); pts.forEach(([x, z], k) => (k ? g.lineTo(x, z) : g.moveTo(x, z))); g.closePath(); };
     for (const b of blds) {
       if (b.type === 'farm') {
-        const x = px(b.x - b.w / 2), z = px(b.z - b.d / 2), w = b.w * sc, d = b.d * sc;
-        g.fillStyle = b.done ? fieldCol[hash(b.id) < 0.5 ? 0 : 1] : '#8a7350';
-        g.fillRect(x, z, w, d);
-        g.strokeStyle = 'rgba(70,50,20,0.35)'; g.lineWidth = Math.max(1, 0.8 * sc);
-        for (let k = 1.5; k < b.d; k += 2.5) { g.beginPath(); g.moveTo(x, z + k * sc); g.lineTo(x + w, z + k * sc); g.stroke(); }
-        if (snow > 0.05) { g.fillStyle = `rgba(244,247,250,${Math.min(0.85, snow)})`; g.fillRect(x, z, w, d); }
+        // 밭 모양: 네모 칸 안에서 모서리와 변이 들쭉날쭉한 다각형 (땅 생긴 대로)
+        const hw = b.w / 2, hd = b.d / 2, P = [];
+        const jit = (k, a) => (hash(b.id * 31 + k) - 0.5) * a;
+        const corners = [[-hw, -hd], [0, -hd], [hw, -hd], [hw, 0], [hw, hd], [0, hd], [-hw, hd], [-hw, 0]];
+        // 모서리는 조금 깎이고(0.86~0.97), 변 가운데는 살짝 부풀어(0.98~1.04) 둥그스름한 볼록 다각형
+        corners.forEach(([x, z], k) => { const mid = k % 2 === 1; const f = mid ? 0.98 + hash(b.id * 7 + k) * 0.06 : 0.86 + hash(b.id * 7 + k) * 0.11; P.push([x * f + jit(k, 1.5), z * f + jit(k + 9, 1.5)]); });
+        const pts = P.map(toPx(b, (hash(b.id * 3) - 0.5) * 0.25));
+        g.save(); path(pts); g.clip();
+        const x0 = px(b.x - hw - 4), z0 = px(b.z - hd - 4), ww = (b.w + 8) * sc, dd = (b.d + 8) * sc;
+        if (rice && b.done) {
+          // 논배미: 세 칸 남짓으로 나뉘고 논두렁이 둘러싼다
+          g.fillStyle = paddyCol; g.fillRect(x0, z0, ww, dd);
+          if (sea.season === '봄') { g.fillStyle = 'rgba(160,200,120,0.55)'; for (let k = 0; k < 140; k++) g.fillRect(x0 + hash(b.id + k * 13) * ww, z0 + hash(b.id * 3 + k * 7) * dd, 1.2, 1.2); }
+          g.strokeStyle = '#6f6a45'; g.lineWidth = Math.max(1.2, 1.1 * sc);
+          const n = 2 + Math.floor(hash(b.id * 9) * 3);
+          for (let k = 1; k < n; k++) { const zz = z0 + dd * (k / n) + jit(k + 20, 6) * sc; g.beginPath(); g.moveTo(x0, zz); g.bezierCurveTo(x0 + ww * 0.33, zz + jit(k + 30, 8) * sc, x0 + ww * 0.66, zz + jit(k + 40, 8) * sc, x0 + ww, zz); g.stroke(); }
+        } else {
+          g.fillStyle = b.done ? fieldCol[hash(b.id) < 0.5 ? 0 : 1] : '#8a7350';
+          g.fillRect(x0, z0, ww, dd);
+          // 이랑: 밭마다 방향이 다르다
+          g.strokeStyle = 'rgba(70,50,20,0.35)'; g.lineWidth = Math.max(1, 0.8 * sc);
+          const ang = (hash(b.id * 17) - 0.5) * 1.2, cx0 = px(b.x), cz0 = px(b.z), L = Math.max(ww, dd);
+          for (let k = -L; k < L; k += 2.5 * sc) { g.beginPath(); g.moveTo(cx0 + Math.cos(ang) * -L - Math.sin(ang) * k, cz0 + Math.sin(ang) * -L + Math.cos(ang) * k); g.lineTo(cx0 + Math.cos(ang) * L - Math.sin(ang) * k, cz0 + Math.sin(ang) * L + Math.cos(ang) * k); g.stroke(); }
+        }
+        if (snow > 0.05) { g.fillStyle = `rgba(244,247,250,${Math.min(0.85, snow)})`; g.fillRect(x0, z0, ww, dd); }
+        g.restore();
+        g.strokeStyle = rice && b.done ? '#6f6a45' : 'rgba(90,70,40,0.6)'; g.lineWidth = Math.max(1.2, 1.2 * sc); path(pts); g.stroke();
+      } else if (yardKind(b)) {
+        // 옛 집 마당: 들쭉날쭉한 마당 + 한쪽에 텃밭 (담장은 3D로 세운다)
+        const rot = bRot(b);
+        const pts = yardPoly(b).map(toPx(b, rot));
+        g.fillStyle = snow > 0.3 ? '#e9edf0' : era >= 4 ? '#b9b0a0' : '#b8a27c'; path(pts); g.fill();
+        if (hash(b.id * 23) < 0.6 && snow < 0.3) {
+          const side = hash(b.id * 29) < 0.5 ? -1 : 1;
+          const gx = side * (b.w / 2 + 2.6), patch = [[gx - 1.8, -3], [gx + 1.8, -3], [gx + 1.8, 3], [gx - 1.8, 3]].map(toPx(b, rot));
+          g.fillStyle = sea.season === '겨울' ? '#7d6c52' : '#5b8a34'; path(patch); g.fill();
+          g.strokeStyle = 'rgba(60,40,20,0.4)'; g.lineWidth = 1; path(patch); g.stroke();
+        }
       } else {
-        g.fillStyle = era >= 4 ? 'rgba(150,150,150,0.8)' : 'rgba(120,100,70,0.55)';
-        const m = 3;
-        g.fillRect(px(b.x - b.w / 2 - m), px(b.z - b.d / 2 - m), (b.w + 2 * m) * sc, (b.d + 2 * m) * sc);
+        // 근대 이후: 모서리가 둥근 바닥 + 집·공공건물은 둘레에 풀밭(조경)
+        const m = 3, x = px(b.x - b.w / 2 - m), z = px(b.z - b.d / 2 - m), w = (b.w + 2 * m) * sc, d = (b.d + 2 * m) * sc, r = Math.min(w, d) * 0.18;
+        const big = (b.w + b.d) > 40;
+        const kind = this.meta.buildings[b.type]?.kind;
+        if ((kind === 'home' || kind === 'civic') && era >= 4 && snow < 0.3) {
+          g.fillStyle = '#6f9a4a'; g.beginPath(); g.roundRect(x - 2.5 * sc, z - 2.5 * sc, w + 5 * sc, d + 5 * sc, r + 2.5 * sc); g.fill();
+        }
+        g.fillStyle = era >= 4 ? 'rgba(150,150,150,0.85)' : 'rgba(120,100,70,0.55)';
+        g.beginPath(); g.roundRect(x, z, w, d, big ? r * 0.4 : r); g.fill();
       }
     }
     // 횡단보도: 켜진 신호등, 그리고 도색 단계까지 온 신호등 공사
