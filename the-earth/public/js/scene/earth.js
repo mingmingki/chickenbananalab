@@ -199,6 +199,15 @@ export function makeEarth(textures) {
       }
       // 화면 한 점보다 잘아지는 무늬는 평균값(0.5)으로 녹인다 — 멀리서 지글거리지 않게
       float nl(vec3 p, float s, float px) { return mix(0.5, noise3(p / s), smoothstep(px * 1.5, px * 5.0, s)); }
+      // 논밭 조각: 회전한 3차원 칸이 구면을 자른 다각형 — 칸마다 작물 색이 다르고 경계엔 둑·농로
+      vec4 fields(vec3 p, float s, float px, vec3 warp) {
+        vec3 q = p / s + warp;
+        vec3 c = floor(q), f = fract(q);
+        vec3 e3 = min(f, 1.0 - f);
+        float e = min(min(e3.x, e3.y), e3.z);
+        float aw = max(px / s * 1.2, 0.02);
+        return vec4(hash3(c), hash3(c + 3.7), 1.0 - smoothstep(aw * 0.5, aw * 1.6, e), smoothstep(px * 2.0, px * 6.0, s));
+      }
       void main() {
         #include <logdepthbuf_fragment>
         vec3 n = normalize(vN);
@@ -247,8 +256,31 @@ export function makeEarth(textures) {
           float rb = smoothstep(-rvAA, rvAA, re);
           col = mix(col, vec3(0.27, 0.42, 0.16), rb * smoothstep(0.2, 0.7, dry) * (1.0 - veg * 0.6) * 0.85);
         }
+        // 들녘: 평지·적당히 푸른 땅·온대~열대에 논밭이 모여 있다 (중간 배율부터 보인다)
+        float winter0 = lat > 0.0 ? season : 1.0 - season;
+        float flat0 = 1.0 - smoothstep(0.06, 0.2, h);
+        float farm = land * flat0 * smoothstep(0.16, 0.38, veg) * (1.0 - smoothstep(0.82, 0.96, veg)) * (1.0 - smoothstep(0.5, 0.78, dry)) * (1.0 - ice) * (1.0 - smoothstep(54.0, 63.0, abs(lat)));
+        farm *= smoothstep(0.4, 0.62, noise3(vW / 70.0) * 0.7 + noise3(vW / 23.0) * 0.3 + (veg - 0.45) * 0.25);
+        if (farm > 0.001) {
+          // 경계를 구불구불하게 (반듯한 삼각형 조각이 안 보이게)
+          vec3 wq = vW / 2.2;
+          vec3 warp = (vec3(noise3(wq), noise3(wq + 5.2), noise3(wq + 9.1)) - 0.5) * 1.1;
+          vec4 fa = fields(M3 * vW, 0.75, px, warp), fb = fields(M3 * (M3 * vW) + 11.0, 0.26, px, warp * 2.4);
+          float cc = mix(fa.x, fb.x, fb.w * 0.65);
+          vec3 green = vec3(0.33, 0.50, 0.19), light = vec3(0.52, 0.60, 0.27), soil = vec3(0.47, 0.39, 0.26), gold = vec3(0.72, 0.63, 0.31);
+          // 계절: 봄·여름은 초록, 가을은 누렇게, 겨울은 갈아엎은 흙빛
+          float autumn = smoothstep(0.35, 0.55, abs(winter0 - 0.25)) * (1.0 - smoothstep(0.65, 0.85, winter0));
+          vec3 fc = cc < 0.38 ? green : cc < 0.62 ? light : cc < 0.82 ? soil : gold;
+          fc = mix(fc, mix(gold, soil, step(0.55, fa.y)), autumn * 0.6);
+          fc = mix(fc, soil * 0.95, smoothstep(0.6, 0.9, winter0) * 0.7);
+          float fw = fa.w * farm;
+          col = mix(col, fc, fw * 0.6);
+          col *= 1.0 - max(fa.z * fa.w, fb.z * fb.w * 0.6) * farm * 0.13;   // 둑·농로
+        }
         float hd = h > 0.04 ? h + fbmTo(vW, 30.0, px) * 0.16 * smoothstep(0.04, 0.25, h) : h;
-        col = mix(col, rock, smoothstep(0.18, 0.45, hd) * 0.8);
+        // 산: 숲이 짙은 고장은 꽤 높이까지 숲으로 덮이고, 메마른 곳은 일찍 바위가 드러난다
+        col = mix(col, mix(col, forest * 1.1, smoothstep(0.45, 0.8, veg)), smoothstep(0.06, 0.2, hd) * (1.0 - dry) * 0.7);
+        col = mix(col, rock, smoothstep(0.18, 0.45, hd) * 0.8 * (1.0 - smoothstep(0.5, 0.85, veg) * 0.55));
         col = mix(col, vec3(0.60, 0.53, 0.41), smoothstep(0.5, 0.62, h) * (1.0 - veg) * 0.6);   // 높은 고원은 누런 흙빛
         // 만년설: 적도 쪽은 아주 높은 봉우리만, 극지방으로 갈수록 낮은 산까지
         float snowLine = mix(0.9, 0.22, smoothstep(25.0, 60.0, abs(lat)));
@@ -313,7 +345,8 @@ export function makeEarth(textures) {
         // 언덕·산 주름: 프랙탈 높이를 화면 기울기로 법선에 얹는다 (가볍고, 확대할수록 세밀하다)
         // (해안에서 높이가 뚝 끊기면 검은 테두리가 생기므로 land 는 곱하지 않는다 — 물에서는 어차피 안 쓴다)
         float mtnK = smoothstep(0.08, 0.4, h);
-        float hillAmp = (0.5 + mtnK * 1.0) * smoothstep(4000.0, 60.0, camD) * smoothstep(0.003, 0.01, px) * smoothstep(2.0, 6.0, camAlt) * (1.0 - ice * 0.6) * step(0.001, land + smoothstep(-0.3, 0.0, f));
+        float rug = smoothstep(0.012, 0.1, h);
+        float hillAmp = (0.75 + rug * 1.4 + mtnK * 1.0) * smoothstep(4000.0, 60.0, camD) * smoothstep(0.003, 0.01, px) * smoothstep(2.0, 6.0, camAlt) * (1.0 - ice * 0.6) * step(0.001, land + smoothstep(-0.3, 0.0, f));
         if (hillAmp > 0.0) {
           // 낮은 땅은 둥근 언덕만, 높은 산은 능선만, 그 사이만 둘 다 계산한다
           float hill = (mtnK < 0.01 ? hillFbm(vW, 40.0, px) : mtnK > 0.99 ? ridgeFbm(vW, 60.0, px) : mix(hillFbm(vW, 40.0, px), ridgeFbm(vW, 60.0, px), mtnK)) * hillAmp * 9.6;

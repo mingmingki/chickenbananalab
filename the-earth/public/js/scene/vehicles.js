@@ -79,7 +79,7 @@ export class TownVehicles {
       q.setFromAxisAngle(up, v.h || 0);
       // 우측통행: 달리는 차는 길 가운데에서 오른쪽 차선으로
       const lane = list === driving ? 2.2 : 0;
-      p.set(v.x - Math.cos(v.h || 0) * lane, hAt(v.x, v.z) + 0.02, v.z + Math.sin(v.h || 0) * lane);
+      p.set(v.x - Math.cos(v.h || 0) * lane, hAt(v.x, v.z) + 0.53, v.z + Math.sin(v.h || 0) * lane);
       m.compose(p, q, s);
       this.cars.setMatrixAt(i, m);
       this.cars.setColorAt(i, col.set(CAR_COLS[Math.floor(hash(v.id) * CAR_COLS.length)]));
@@ -89,7 +89,7 @@ export class TownVehicles {
     let j = 0;
     if (show) for (const b of buses) {
       q.setFromAxisAngle(up, b.h || 0);
-      p.set(b.x - Math.cos(b.h || 0) * 2.4, hAt(b.x, b.z) + 0.02, b.z + Math.sin(b.h || 0) * 2.4);
+      p.set(b.x - Math.cos(b.h || 0) * 2.4, hAt(b.x, b.z) + 0.53, b.z + Math.sin(b.h || 0) * 2.4);
       m.compose(p, q, s);
       this.buses.setMatrixAt(j, m);
       this.buses.setColorAt(j, col.set(BUS_COLS[Math.floor(hash(b.co || 1) * BUS_COLS.length)]));

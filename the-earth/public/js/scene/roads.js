@@ -1,6 +1,7 @@
 // 도로: 구간마다 등급이 다르다 (흙길·자갈길·돌길·포장도로·대로).
 // 지면 캔버스에 노면·인도·차선·횡단보도를 그리고, 가로등·가로수·신호등·공사 고깔은 3D로 세운다.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const CELL = 20, BLOCK = 5, BW = BLOCK * CELL, OFF = CELL / 2;
 export const ROAD_STYLE = [
@@ -37,7 +38,7 @@ export function signalPhase(off, axis, clockMin) {
 }
 export const nodeXY = k => { const [i, j] = k.split(',').map(Number); return [i * BW + OFF, j * BW + OFF]; };
 /** 교차로에 닿는 길들 → { h: 동서 길 폭, v: 남북 길 폭, dirs: [[dx,dz,폭]...] } */
-function nodeRoads(roads, node) {
+export function nodeRoads(roads, node) {
   const [i, j] = node.split(',').map(Number);
   const out = { h: 0, v: 0, dirs: [] };
   const try_ = (k, dx, dz, axis) => { const g = roads[k]; if (g == null) return; const w = ROAD_STYLE[g].w; out[axis] = Math.max(out[axis], w); out.dirs.push([dx, dz, w]); };
@@ -154,21 +155,43 @@ export function paintRoads(g, px, sc, roads, works, snow, crossNodes = []) {
 const PG = {
   pole: new THREE.CylinderGeometry(0.12, 0.16, 1, 6).translate(0, 0.5, 0),
   head: new THREE.BoxGeometry(1.4, 0.3, 0.5),
-  crown: new THREE.SphereGeometry(1, 8, 6),
+  // 나무 수관: 둥근 덩어리 몇 개가 뭉친 모양 (위는 밝게, 아래 그늘은 어둡게)
+  crown: (() => {
+    const blobs = [[0, 0, 0, 0.82], [0.42, -0.12, 0.2, 0.6], [-0.38, -0.08, 0.25, 0.58], [0.05, 0.18, -0.4, 0.6], [-0.1, 0.4, 0.05, 0.52], [0.3, 0.05, -0.3, 0.5]];
+    const g = mergeGeometries(blobs.map(([x, y, z, r]) => new THREE.IcosahedronGeometry(r, 1).translate(x, y, z)));
+    const p = g.attributes.position, c = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) { const k = 0.72 + 0.32 * Math.min(1, Math.max(0, (p.getY(i) + 0.7) / 1.4)); c[i * 3] = c[i * 3 + 1] = c[i * 3 + 2] = k; }
+    g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+    return g;
+  })(),
   trunk: new THREE.CylinderGeometry(0.15, 0.22, 1, 5).translate(0, 0.5, 0),
   signal: new THREE.BoxGeometry(0.5, 1.4, 0.5),
   cone: new THREE.ConeGeometry(0.3, 0.8, 8).translate(0, 0.4, 0),
   lantern: new THREE.BoxGeometry(0.6, 0.7, 0.6),
+  grate: new THREE.BoxGeometry(1.2, 0.04, 1.2).translate(0, 0.02, 0),
+  bench: (() => { const a = new THREE.BoxGeometry(1.8, 0.07, 0.45).translate(0, 0.45, 0), b = new THREE.BoxGeometry(1.8, 0.4, 0.06).translate(0, 0.72, -0.2), l1 = new THREE.BoxGeometry(0.08, 0.45, 0.4).translate(-0.8, 0.22, 0), l2 = l1.clone().translate(1.6, 0, 0); return mergeGeometries([a, b, l1, l2]); })(),
+  bin: new THREE.CylinderGeometry(0.24, 0.22, 0.9, 10).translate(0, 0.45, 0),
+  hydrant: (() => mergeGeometries([new THREE.CylinderGeometry(0.11, 0.13, 0.55, 8).translate(0, 0.27, 0), new THREE.SphereGeometry(0.115, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 0.55, 0), new THREE.CylinderGeometry(0.05, 0.05, 0.32, 6).rotateZ(Math.PI / 2).translate(0, 0.36, 0)]))(),
+  bollard: new THREE.CylinderGeometry(0.08, 0.09, 0.8, 8).translate(0, 0.4, 0),
+  upole: new THREE.CylinderGeometry(0.13, 0.17, 1, 7).translate(0, 0.5, 0),
+  uarm: new THREE.BoxGeometry(1.7, 0.1, 0.1),
 };
 const PM = {
   pole: new THREE.MeshStandardMaterial({ color: 0x5b636b, roughness: 0.6, metalness: 0.4 }),
   wood: new THREE.MeshStandardMaterial({ color: 0x4a3626, roughness: 1 }),
   head: new THREE.MeshStandardMaterial({ color: 0xfff3cf, emissive: 0xffe2a0, emissiveIntensity: 0 }),
   lantern: new THREE.MeshStandardMaterial({ color: 0xffd9a0, emissive: 0xffb860, emissiveIntensity: 0 }),
-  crown: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }),
+  crown: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, vertexColors: true, flatShading: true }),
   trunk: new THREE.MeshStandardMaterial({ color: 0x5b4330, roughness: 1 }),
   signal: new THREE.MeshStandardMaterial({ color: 0x2b2f33, emissive: 0x33ff66, emissiveIntensity: 0.6 }),
   cone: new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.6 }),
+  grate: new THREE.MeshStandardMaterial({ color: 0x3a3c3e, roughness: 0.6, metalness: 0.4 }),
+  bench: new THREE.MeshStandardMaterial({ color: 0x8a6a48, roughness: 0.85 }),
+  bin: new THREE.MeshStandardMaterial({ color: 0x3f5f4a, roughness: 0.6, metalness: 0.2 }),
+  hydrant: new THREE.MeshStandardMaterial({ color: 0xc8322b, roughness: 0.5 }),
+  bollard: new THREE.MeshStandardMaterial({ color: 0x4d5257, roughness: 0.5, metalness: 0.3 }),
+  upole: new THREE.MeshStandardMaterial({ color: 0x9a968e, roughness: 0.9 }),
+  wire: new THREE.LineBasicMaterial({ color: 0x1d1f22, transparent: true, opacity: 0.75 }),
 };
 export const roadLampMats = [PM.head, PM.lantern];
 
@@ -249,9 +272,10 @@ function stopProps(grp, x, z, hAt, stage, name) {
   }
 }
 
-export function buildRoadProps(roads, works, hAt, extra = {}) {
+export function buildRoadProps(roads, works, hAt0, extra = {}) {
   const grp = new THREE.Group();
-  const lights = [], lanterns = [], trees = [], signals = [], cones = [];
+  const hAt = (x, z) => hAt0(x, z) + 0.62; // 보도 위 (입체 노면·보도 높이)
+  const lights = [], lanterns = [], trees = [], signals = [], cones = [], hydrants = [], benches = [], bins = [], bollards = [], upoles = [], wires = [];
   const along = (e, step, fn) => { const L = BW; for (let t = step / 2; t < L; t += step) { const x = e.h ? e.x0 + t : e.x0, z = e.h ? e.z0 : e.z0 + t; fn(x, z); } };
   const inters = new Map();
   for (const [k, gr] of Object.entries(roads || {})) {
@@ -260,6 +284,28 @@ export function buildRoadProps(roads, works, hAt, extra = {}) {
     if (gr >= 3) along(e, gr >= 4 ? 25 : 33, (x, z) => { for (const s of gr >= 4 ? [-1, 1] : [1]) lights.push(e.h ? [x, z + s * off, s, 0] : [x + s * off, z, 0, s]); });
     if (gr === 2) along(e, 40, (x, z) => lanterns.push(e.h ? [x, z + off] : [x + off, z]));
     if (gr >= 4) along(e, 13, (x, z) => { for (const s of [-1, 1]) trees.push(e.h ? [x + 6, z + s * (off + 0.8)] : [x + s * (off + 0.8), z + 6]); });
+    // 보통 포장도로: 가로수가 양쪽에 엇갈려
+    if (gr === 3) { let alt = 1; along(e, 17, (x, z) => { alt = -alt; trees.push(e.h ? [x + 4, z + alt * (off + 0.35)] : [x + alt * (off + 0.35), z + 4]); }); }
+    if (gr >= 3) {
+      const so = st.w / 2 + st.side * 0.35, r = rnd(keyHash(k) + 5);
+      // 소화전 · 벤치(대로) · 휴지통
+      along(e, 70, (x, z) => { const s = r() < 0.5 ? -1 : 1, dx = (r() - 0.5) * 30; hydrants.push(e.h ? [x + dx, z + s * so] : [x + s * so, z + dx]); });
+      if (gr >= 4) along(e, 50, (x, z) => { const s = r() < 0.5 ? -1 : 1; benches.push(e.h ? [x + 9, z + s * (st.w / 2 + st.side * 0.72), s > 0 ? Math.PI : 0] : [x + s * (st.w / 2 + st.side * 0.72), z + 9, s > 0 ? -Math.PI / 2 : Math.PI / 2]); });
+      along(e, 100, (x, z) => { const s = r() < 0.5 ? -1 : 1; bins.push(e.h ? [x - 40, z + s * so] : [x + s * so, z - 40]); });
+    }
+    // 전봇대와 전깃줄 (산업·근대: 한쪽 길가를 따라)
+    if ((extra.era === 4 || extra.era === 5) && gr >= 2) {
+      const po = st.w / 2 + (st.side ? st.side * 0.15 : 0.8), ps = [];
+      for (let t = 0; t <= BW; t += 33.3) ps.push(e.h ? [e.x0 + t, e.z0 - po] : [e.x0 - po, e.z0 + t]);
+      for (const p of ps) upoles.push(p);
+      for (let i = 1; i < ps.length; i++) wires.push([ps[i - 1], ps[i], e.h]);
+    }
+  }
+  // 교차로 모퉁이: 볼라드 (대로)
+  for (const [k, gr] of Object.entries(roads || {})) {
+    if (gr < 4 || k[0] !== 'h') continue;
+    const e = segEnds(k), st = ROAD_STYLE[gr];
+    for (const [x, sx] of [[e.x0, 1], [e.x1, -1]]) for (const sz of [-1, 1]) for (let b = 0; b < 3; b++) bollards.push([x + sx * (st.w / 2 + 0.6 + b * 1.1), e.z0 + sz * (st.w / 2 + 0.35)]);
   }
   // (신호등은 저절로 생기지 않는다 — 관청 교통과가 세운 것만 아래에서 그린다)
   for (const w of works) {
@@ -283,6 +329,32 @@ export function buildRoadProps(roads, works, hAt, extra = {}) {
   inst(PG.lantern, PM.lantern, lanterns, ([x, z], p, s) => { p.set(x, hAt(x, z) + 3.4, z); s.set(1, 1, 1); });
   inst(PG.trunk, PM.trunk, trees, ([x, z], p, s) => { p.set(x, hAt(x, z), z); s.set(1, 2.4, 1); });
   const crowns = inst(PG.crown, PM.crown, trees, ([x, z], p, s) => { p.set(x, hAt(x, z) + 3.6, z); s.set(1.9, 2.2, 1.9); });
+  inst(PG.grate, PM.grate, trees, ([x, z], p, s) => { p.set(x, hAt(x, z) - 0.01, z); s.set(1, 1, 1); });
+  inst(PG.hydrant, PM.hydrant, hydrants, ([x, z], p, s) => { p.set(x, hAt(x, z), z); s.set(1, 1, 1); });
+  inst(PG.bin, PM.bin, bins, ([x, z], p, s) => { p.set(x, hAt(x, z), z); s.set(1, 1, 1); });
+  inst(PG.bollard, PM.bollard, bollards, ([x, z], p, s) => { p.set(x, hAt(x, z), z); s.set(1, 1, 1); });
+  if (benches.length) {
+    const im = new THREE.InstancedMesh(PG.bench, PM.bench, benches.length), qq = new THREE.Quaternion(), yAx = new THREE.Vector3(0, 1, 0);
+    benches.forEach(([x, z, ry], i) => { qq.setFromAxisAngle(yAx, ry); m4.compose(v.set(x, hAt(x, z), z), qq, sc.set(1, 1, 1)); im.setMatrixAt(i, m4); });
+    im.frustumCulled = false; grp.add(im);
+  }
+  if (upoles.length) {
+    inst(PG.upole, PM.upole, upoles, ([x, z], p, s) => { p.set(x, hAt(x, z) - 0.6, z); s.set(1, 9.6, 1); });
+    const arms = new THREE.InstancedMesh(PG.uarm, PM.upole, upoles.length), qq = new THREE.Quaternion(), yAx = new THREE.Vector3(0, 1, 0);
+    // 가로대는 길과 직각으로
+    const dirOf = new Map(); for (const [a, b, h] of wires) { dirOf.set(a.join(), h); dirOf.set(b.join(), h); }
+    upoles.forEach(([x, z], i) => { qq.setFromAxisAngle(yAx, dirOf.get(x + ',' + z) ? Math.PI / 2 : 0); m4.compose(v.set(x, hAt(x, z) + 8.2, z), qq, sc.set(1, 1, 1)); arms.setMatrixAt(i, m4); });
+    arms.frustumCulled = false; grp.add(arms);
+    // 전깃줄: 가로대 양 끝과 가운데에서 다음 전봇대로, 가운데가 살짝 처진다
+    const wp = [];
+    for (const [a, b, h] of wires) for (const o of [-0.75, 0, 0.75]) {
+      const ox = h ? 0 : o, oz = h ? o : 0, ya = hAt(a[0], a[1]) + 8.25, yb = hAt(b[0], b[1]) + 8.25;
+      let px = a[0] + ox, pz = a[1] + oz, py = ya;
+      for (let k2 = 1; k2 <= 6; k2++) { const f = k2 / 6, nx = a[0] + (b[0] - a[0]) * f + ox, nz = a[1] + (b[1] - a[1]) * f + oz, ny = ya + (yb - ya) * f - Math.sin(f * Math.PI) * 0.7; wp.push(px, py, pz, nx, ny, nz); px = nx; py = ny; pz = nz; }
+    }
+    const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3));
+    const wl = new THREE.LineSegments(wg, PM.wire); wl.frustumCulled = false; grp.add(wl);
+  }
   const lamps = [];
   // 다 지은 신호등: 네 모서리 기둥 + 길 위로 뻗은 가로대 + 가로형 3구 신호등 (빨강·노랑·초록)
   for (const [node, sg] of Object.entries(extra.signals || {})) signalProps(grp, roads, node, hAt, { off: sg.off, lamps, stage: 99 });

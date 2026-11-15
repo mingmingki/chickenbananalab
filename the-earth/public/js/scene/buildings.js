@@ -2,6 +2,7 @@
 // 공사 중: 펜스·터파기 → 기초 → 골조(철근콘크리트 기둥·슬래브 또는 나무 기둥) + 비계·안전망 + 타워크레인 → 외벽 → 지붕 → 완공.
 // 완공: 시대·용도별 외벽(흙벽, 초가, 한옥, 벽돌, 콘크리트, 유리, 공장 철판), 문, 창(밤에는 불빛), 간판·차양, 발코니, 옥상 설비, 굴뚝.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const hash = n => { let h = (n * 2654435761) >>> 0; h ^= h >>> 15; return (h % 1000) / 1000; };
 
@@ -81,9 +82,17 @@ function wallTexture(style, color) {
     } else if (style === 'concrete' || style === 'civic') {
       noise(1, 60); noise(0, 60);
       const wx = x + C * 0.12, wy = y + C * 0.22, ww = C * 0.76, wh = C * 0.48;
-      g.fillStyle = '#3e5266'; g.fillRect(wx, wy, ww, wh);
-      g.fillStyle = 'rgba(190,220,255,0.28)'; g.fillRect(wx + 4, wy + 4, ww * 0.35, wh - 8);
-      g.fillStyle = css(base, 0.92); g.fillRect(wx + ww / 3 - 2, wy, 4, wh); g.fillRect(wx + ww * 2 / 3 - 2, wy, 4, wh);
+      g.fillStyle = '#d9dcdf'; g.fillRect(wx - 3, wy - 3, ww + 6, wh + 6);            // 창틀
+      const sky = g.createLinearGradient(wx, wy, wx + ww * 0.6, wy + wh);
+      sky.addColorStop(0, '#7f9fbd'); sky.addColorStop(0.55, '#3f5670'); sky.addColorStop(1, '#2c3d4f');
+      g.fillStyle = sky; g.fillRect(wx, wy, ww, wh);
+      // 커튼·블라인드 (창마다 다르게)
+      const cur = Math.random();
+      if (cur < 0.3) { g.fillStyle = ['#e9dfcb', '#f2efe8', '#d8c7a8', '#c9d6e3'][Math.floor(Math.random() * 4)]; g.fillRect(wx, wy, ww * (0.2 + Math.random() * 0.25), wh); g.fillRect(wx + ww * (0.75 + Math.random() * 0.1), wy, ww * 0.2, wh); }
+      else if (cur < 0.5) { g.fillStyle = 'rgba(235,235,230,0.85)'; const bh = wh * (0.3 + Math.random() * 0.5); g.fillRect(wx, wy, ww, bh); g.strokeStyle = 'rgba(170,170,165,0.6)'; g.lineWidth = 1; for (let k = 3; k < bh; k += 4) { g.beginPath(); g.moveTo(wx, wy + k); g.lineTo(wx + ww, wy + k); g.stroke(); } }
+      g.fillStyle = 'rgba(220,235,255,0.22)'; g.beginPath(); g.moveTo(wx + ww * 0.08, wy + wh); g.lineTo(wx + ww * 0.32, wy); g.lineTo(wx + ww * 0.46, wy); g.lineTo(wx + ww * 0.22, wy + wh); g.fill(); // 비친 빛
+      g.fillStyle = '#cfd3d6'; g.fillRect(wx + ww / 2 - 2, wy, 4, wh);                // 가운데 문살
+      g.fillStyle = css(base, 0.62); g.fillRect(wx - 4, wy + wh + 3, ww + 8, 5);       // 창턱 그늘
       g.fillStyle = css(base, 0.78); g.fillRect(x, y + C - 6, C, 6); // 층 띠
       lit(wx, wy, ww, wh, style === 'civic' ? 0.45 : 0.65);
     } else if (style === 'glass') {
@@ -189,6 +198,13 @@ export function styleOf(type, def) {
 }
 const SHOPS = new Set(['restaurant', 'market', 'tailorshop', 'bakery', 'salon', 'cafe', 'supermarket', 'bank', 'clinic', 'studio', 'forge', 'postoffice', 'hotel']);
 
+// 분수·우물 물 (모든 건물이 함께 쓴다)
+const FMAT = {
+  water: new THREE.MeshStandardMaterial({ color: 0x5f9cc4, roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.86 }),
+  spray: new THREE.MeshBasicMaterial({ color: 0xe6f4ff, transparent: true, opacity: 0.55, depthWrite: false }),
+  well: new THREE.MeshStandardMaterial({ color: 0x1d2b33, roughness: 0.2 }),
+};
+
 /** 건물 하나 → THREE.Group */
 export function makeBuilding(cx, b, def, opts) {
   const { era = 0, snow = 0, hAt, cold = false } = opts;
@@ -218,6 +234,28 @@ export function makeBuilding(cx, b, def, opts) {
       add(GEO.box, M('#8b4a32'), 6, 3.2, 5, bx, 0, bz);
       add(GEO.prism, M(snowy('#5a3324')), 6.6, 2, 5.4, bx, 3.2, bz, Math.PI / 2);
     }
+    return grp;
+  }
+  if (def.roof === 'fire' && era >= 4) {
+    // 광장 분수: 둥근 수반, 물, 가운데 기둥과 물줄기
+    add(GEO.cyl, M('#c9c4ba'), 7.2, 0.55, 7.2);
+    add(GEO.cyl, FMAT.water, 6.4, 0.58, 6.4, 0, 0.02, 0);
+    add(GEO.cyl, M('#b9b3a8'), 0.7, 1.6, 0.7, 0, 0.5, 0);
+    add(GEO.cyl, M('#c9c4ba'), 2.4, 0.18, 2.4, 0, 1.6, 0);
+    const spray = FMAT.spray;
+    add(GEO.cone, spray, 0.5, 1.4, 0.5, 0, 1.78, 0);
+    for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2; add(GEO.cone, spray, 0.18, 0.7, 0.18, Math.cos(a) * 2.6, 0.55, Math.sin(a) * 2.6); }
+    for (let k = 0; k < 4; k++) { const a = k / 4 * Math.PI * 2 + 0.4; add(GEO.box, M('#8a6a48'), 2.2, 0.08, 0.5, Math.cos(a) * 5.4, 0.45, Math.sin(a) * 5.4, -a + Math.PI / 2); add(GEO.box, M('#555'), 2.0, 0.42, 0.4, Math.cos(a) * 5.4, 0, Math.sin(a) * 5.4, -a + Math.PI / 2); }
+    return grp;
+  }
+  if (def.roof === 'fire' && era >= 2) {
+    // 마을 우물: 돌로 쌓은 둘레, 두레박 틀과 작은 지붕
+    add(GEO.cyl, M('#8d857a'), 2.2, 0.85, 2.2);
+    add(GEO.cyl, FMAT.well, 1.7, 0.86, 1.7, 0, 0.01, 0);
+    for (const sx of [-1, 1]) add(GEO.box, M('#5a3d22'), 0.16, 2.3, 0.16, sx * 1.15, 0, 0);
+    add(GEO.box, M('#5a3d22'), 2.6, 0.14, 0.14, 0, 2.2, 0);
+    add(GEO.prism, M(snowy('#4a3a2c')), 2.8, 0.7, 1.4, 0, 2.3, 0);
+    add(GEO.cyl, M('#6b4a2c'), 0.3, 0.3, 0.3, 0.5, 1.4, 0);
     return grp;
   }
   if (def.roof === 'fire') {
@@ -382,7 +420,11 @@ function roof(cx, b, def, add, h, hex, snowy, grow = 1, ox = 0, oz = 0, rw = b.w
   } else if (r === 'pyramid') add(GEO.pyr, rc, W, b.h * 0.6 * g, D, 0, h);
   else if (r === 'dome') add(GEO.dome, def.roofColor ? rc : M(snowy('#cfd8e0')), Math.min(W, D) * 0.8, Math.min(W, D) * 0.8 * g, Math.min(W, D) * 0.8, 0, h);
   else if (r === 'saw') { for (let k = 0; k < 3; k++) add(GEO.prism, M(snowy('#6f757b')), W / 3, 3.5 * g, D, -W / 3 + k * W / 3, h, 0); }
-  else if (r === 'flat' || r === 'none') add(GEO.box, M(snowy('#5c6168', 0.95)), W + 0.4, 0.5, D + 0.4, 0, h);
+  else if (r === 'flat' || r === 'none') {
+    const era = def.era ?? 0, k = hash(b.id * 41);
+    const top = era >= 4 && era <= 6 && !def.glass && (def.kind === 'home' || k < 0.4) && k < 0.7 ? (k < 0.35 ? '#5d8a6c' : '#6f9a7a') : k < 0.5 ? '#6a6f75' : '#8d9298';
+    add(GEO.box, M(snowy(top, 0.95)), W + 0.4, 0.5, D + 0.4, 0, h);
+  }
 }
 
 // ── 완공 ──
@@ -414,7 +456,9 @@ function finished(cx, b, def, grp, add, { era, hex, snowy, v, cold }) {
   const wmat = cx.wallMat(st, hex, tex);
   const shape = shapeOf(b, def);
   // 몸체 한 덩어리 (x, z: 가운데, y0: 바닥 높이) — 지붕은 덩어리마다
+  const masses = [];
   const mass = (x, z, w, d, h, y0 = 0, withRoof = true) => {
+    masses.push({ x, z, w, d, h, y0 });
     const m = new THREE.Mesh(wallBox(w, h, d, tex.tw, tex.th), wmat);
     m.position.set(x, y0, z); m.userData.bid = b.id; m.userData.ownGeo = true; grp.add(m);
     if (withRoof) roof(cx, b, def, (g, mm, sx, sy, sz, px, py, pz, ry) => add(g, mm, sx, sy, sz, px, py + y0, pz, ry), h, hex, snowy, 1, x, z, w, d);
@@ -470,8 +514,7 @@ function finished(cx, b, def, grp, add, { era, hex, snowy, v, cold }) {
     }
     front = { x: -W * 0.26, z: D * 0.4, w: W * 0.42 }; boxRoof = false; plainTop = false;
   } else {
-    const body = new THREE.Mesh(wallBox(W, H, D, tex.tw, tex.th), wmat);
-    body.userData.bid = b.id; body.userData.ownGeo = true; grp.add(body);
+    mass(0, 0, W, D, H, 0, false);
   }
   // 문
   const civic = def.kind === 'civic';
@@ -526,14 +569,9 @@ function finished(cx, b, def, grp, add, { era, hex, snowy, v, cold }) {
     if (cold) cx.smokeAt(grp, W * 0.3, H * 1.3 + 2.4, -D * 0.2, 0.5);
   }
   if (boxRoof) roof(cx, b, def, add, H, hex, snowy, 1);
-  // 옥상 설비 (산업 시대 이후 평지붕)
-  if ((r === 'flat') && era >= 4 && H >= 8 && plainTop) {
-    add(GEO.box, M('#9aa1a8'), 2.4, 1.4, 1.6, W * 0.25, H + 0.5, -D * 0.2);
-    add(GEO.cyl, M('#b8bec4'), 2.2, 2.2, 2.2, -W * 0.25, H + 0.5, D * 0.15);
-    add(GEO.box, M('#5c6168'), W + 0.6, 0.9, 0.3, 0, H, D / 2 + 0.15); // 난간
-    add(GEO.box, M('#5c6168'), W + 0.6, 0.9, 0.3, 0, H, -D / 2 - 0.15);
-    if (H > 30) { add(GEO.box, M('#e8e8e8'), 0.25, 8, 0.25, 0, H + 0.5, 0); cx.lamp(add(GEO.box, M('#ff4040', { emissive: '#ff2020' }), 0.6, 0.6, 0.6, 0, H + 8.5, 0)); }
-  }
+  // 입면·옥상의 입체 장식 (한 덩어리로 합쳐 그린다)
+  facade(cx, b, def, grp, { era, st, hex, v, masses, front, shape, r, plainTop });
+  if ((r === 'flat') && era >= 4 && H > 30 && plainTop) { add(GEO.box, M('#e8e8e8'), 0.25, 8, 0.25, 0, H + 0.5, 0); cx.lamp(add(GEO.box, M('#ff4040', { emissive: '#ff2020' }), 0.6, 0.6, 0.6, 0, H + 8.5, 0)); }
   // 소방서·경찰서: 차고 문과 차
   if (b.type === 'firestation') { for (let k = 0; k < 2; k++) { add(GEO.box, M('#c62828'), 3.8, 3.4, 0.3, -W * 0.25 + k * W * 0.5, 0, D / 2 + 0.06); add(GEO.box, M('#d32f2f'), 2.4, 2.2, 6, -W * 0.25 + k * W * 0.5, 0, D / 2 + 4); } }
   if (b.type === 'police') { add(GEO.box, M('#f5f5f5'), 2, 1.5, 4.4, W * 0.3, 0, D / 2 + 3.5); add(GEO.box, M('#1d4ed8'), 2.05, 0.4, 4.45, W * 0.3, 0.8, D / 2 + 3.5); add(GEO.box, M('#e53935', { emissive: '#e53935' }), 0.8, 0.3, 0.4, W * 0.3, 1.5, D / 2 + 3.5); }
@@ -560,6 +598,111 @@ function finished(cx, b, def, grp, add, { era, hex, snowy, v, cold }) {
     add(GEO.box, M('#1b1b1b'), W * 0.6, 1.4, 0.15, 0, H * 0.62 + 0.6, D / 2 + 1.25);
     for (let k = 0; k < 3; k++) add(GEO.box, M(['#c0392b', '#2c3e50', '#8e44ad'][k], { emissive: ['#401010', '#101820', '#2a1030'][k] }), 1.8, 2.6, 0.12, -W * 0.3 + k * W * 0.3, 1.2, D / 2 + 0.12);
   }
+}
+
+// ── 입면 디테일: 층 띠·창턱, 모서리 기둥, 기단, 처마 돌림띠와 난간, 유리 커튼월 멀리언, 1층 상가 유리와 간판 띠,
+//    실외기, 현관 계단, 옥상(계단실·물탱크·실외기·안테나·태양광·옥상 정원). 모두 상자 몇 개 → 한 메시 ──
+const paintG = (g, c) => {
+  const n = g.attributes.position.count, a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+  return g;
+};
+const COMMERCIAL = new Set(['bizbuilding', 'shop', 'office', 'townhouse', 'bank', 'hotel', 'supermarket', 'cafe', 'restaurant', 'clinic', 'salon', 'bakery', 'market', 'tailorshop', 'studio', 'postoffice']);
+function facade(cx, b, def, grp, { era, st, hex, v, masses, front, shape, r, plainTop }) {
+  if (era < 3 || !masses.length) return;
+  if (!['brick', 'concrete', 'civic', 'glass'].includes(st)) return;
+  const parts = [], C = c => new THREE.Color(c);
+  const base = C(hex);
+  const ledgeC = st === 'brick' ? C('#d8d0c0') : st === 'glass' ? C('#c9d0d6') : base.clone().lerp(C('#ffffff'), 0.28);
+  const darkC = st === 'brick' ? base.clone().multiplyScalar(0.62) : C('#6b6f73');
+  const box = (w, h, d, x, y, z, col, ry = 0) => { const g = new THREE.BoxGeometry(w, h, d); if (ry) g.rotateY(ry); g.translate(x, y + h / 2, z); parts.push(paintG(g, col)); };
+  const cyl = (rad, h, x, y, z, col, seg = 10) => { const g = new THREE.CylinderGeometry(rad, rad, h, seg); g.translate(x, y + h / 2, z); parts.push(paintG(g, col)); };
+  const tex = STYLE[st], fh = tex.th, cw = tex.tw;
+  const home = def.kind === 'home', rnd = (k) => hash(b.id * 31 + k * 7);
+  const lite = cx.lite;
+  let kAC = 0;
+  for (const m of masses) {
+    const { x, z, w, d, h, y0 } = m;
+    const floors = Math.max(1, Math.round(h / fh));
+    const faces = [[0, 1, w], [0, -1, w], [1, 0, d], [-1, 0, d]]; // [nx, nz, 길이]
+    // 기단 (바닥 둘레 어두운 띠)
+    if (y0 === 0) box(w + 0.3, 0.6, d + 0.3, x, 0, z, darkC);
+    // 처마 돌림띠 (꼭대기)
+    box(w + 0.5, 0.45, d + 0.5, x, y0 + h - 0.45, z, ledgeC);
+    if (st === 'glass') {
+      // 커튼월: 세로 멀리언(칸마다), 층마다 가로 띠
+      for (const [nx, nz, len] of faces) {
+        const n = Math.max(1, Math.floor(len / cw));
+        for (let i = 0; i <= n; i++) {
+          const t = -len / 2 + len * i / n;
+          const px = nx ? x + nx * (w / 2 + 0.12) : x + t, pz = nz ? z + nz * (d / 2 + 0.12) : z + t;
+          box(nx ? 0.24 : 0.14, h - 0.4, nx ? 0.14 : 0.24, px, y0 + 0.2, pz, ledgeC);
+        }
+        if (!lite || floors < 12) for (let f = 1; f < floors; f++) box(nx ? 0.12 : len + 0.1, 0.22, nx ? len + 0.1 : 0.12, x + nx * (w / 2 + 0.06), y0 + f * fh - 0.11, z + nz * (d / 2 + 0.06), ledgeC);
+      }
+    } else {
+      // 층마다 창턱 띠 (창 아랫선) — 휴대폰에선 높은 건물은 몇 층 걸러
+      const step = lite && floors > 8 ? 2 : 1;
+      for (let f = 0; f < floors; f += step) {
+        const y = y0 + f * fh + fh * 0.28 - 0.06;
+        if (y0 === 0 && f === 0 && COMMERCIAL.has(b.type)) continue;
+        for (const [nx, nz, len] of faces) box(nx ? 0.18 : len + 0.04, 0.12, nx ? len + 0.04 : 0.18, x + nx * (w / 2 + 0.09), y, z + nz * (d / 2 + 0.09), ledgeC);
+      }
+      // 모서리 기둥 (벽돌·관공서)
+      if (st === 'brick' || st === 'civic') for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(0.55, h, 0.55, x + sx * (w / 2 - 0.1), y0, z + sz * (d / 2 - 0.1), ledgeC);
+      // 실외기 (근대 이후 살림집): 창 아래 몇 군데
+      if (home && era >= 5 && st === 'concrete') for (const [nx, nz, len] of faces) {
+        if (nz < 0 && nx === 0 && rnd(1) < 0.5) continue;
+        const n = Math.max(1, Math.floor(len / cw));
+        for (let f = 0; f < floors; f++) for (let i = 0; i < n; i++) {
+          if (hash(b.id * 97 + f * 13 + i * 7 + nx * 3 + nz * 5) > 0.22 || kAC > 60) continue;
+          kAC++;
+          const t = -len / 2 + (i + 0.5) * len / n + cw * 0.28;
+          const px = nx ? x + nx * (w / 2 + 0.22) : x + t, pz = nz ? z + nz * (d / 2 + 0.22) : z + t;
+          box(nx ? 0.42 : 0.82, 0.58, nx ? 0.82 : 0.42, px, y0 + f * fh + 0.25, pz, C('#e7e8e6'));
+          box(nx ? 0.05 : 0.5, 0.42, nx ? 0.5 : 0.05, px + nx * 0.22, y0 + f * fh + 0.33, pz + nz * 0.22, C('#5b6066'));
+        }
+      }
+    }
+    // 옥상 (평지붕 맨 위 덩어리)
+    if (r === 'flat' && era >= 3 && (plainTop || m === masses[masses.length - 1] || shape === 'twin')) {
+      const top = y0 + h;
+      // 난간 (네 면)
+      box(w + 0.5, 0.95, 0.22, x, top, z + d / 2 + 0.14, ledgeC); box(w + 0.5, 0.95, 0.22, x, top, z - d / 2 - 0.14, ledgeC);
+      box(0.22, 0.95, d + 0.5, x + w / 2 + 0.14, top, z, ledgeC); box(0.22, 0.95, d + 0.5, x - w / 2 - 0.14, top, z, ledgeC);
+      if (era >= 4 && w > 8 && d > 8) {
+        // 계단실
+        const sx = x + (rnd(2) - 0.5) * w * 0.4, sz = z + (rnd(3) - 0.5) * d * 0.4;
+        box(3.2, 2.8, 3.6, sx, top, sz, base.clone().lerp(C('#ffffff'), 0.1)); box(3.5, 0.25, 3.9, sx, top + 2.8, sz, ledgeC); box(1.0, 2.0, 0.08, sx, top, sz + 1.82, C('#4a5560'));
+        // 물탱크 (산업·근대)
+        if (era <= 5 && rnd(4) < 0.75) { const tx = x - w * 0.25, tz = z + d * 0.22; for (const [lx, lz] of [[-0.7, -0.7], [0.7, -0.7], [-0.7, 0.7], [0.7, 0.7]]) box(0.14, 1.2, 0.14, tx + lx, top, tz + lz, C('#6b7075')); cyl(1.15, 2.0, tx, top + 1.2, tz, era === 4 ? C('#5e88b5') : C('#d8dcdf'), 14); }
+        // 실외기
+        if (era >= 5) for (let k = 0; k < (w > 20 ? 3 : 1); k++) { const ax = x + w * 0.28 - k * 2.4, az = z - d * 0.25; box(1.8, 1.1, 1.3, ax, top, az, C('#cfd3d6')); cyl(0.42, 0.06, ax, top + 1.1, az, C('#3a3f44'), 12); }
+        // 안테나
+        if (rnd(5) < 0.6) { box(0.08, 3.2, 0.08, x + w * 0.35, top, z + d * 0.3, C('#9aa1a8')); box(1.4, 0.06, 0.06, x + w * 0.35, top + 2.6, z + d * 0.3, C('#9aa1a8')); }
+        // 정보화 시대: 태양광 패널 · 옥상 정원
+        if (era >= 6 && rnd(6) < 0.45) for (let i = 0; i < 3; i++) { const g = new THREE.BoxGeometry(w * 0.35, 0.08, 1.6); g.rotateX(-0.45); g.translate(x - w * 0.12, top + 0.75, z - d * 0.3 + i * 2.2); parts.push(paintG(g, C('#22324f'))); }
+        else if (era >= 6 && rnd(7) < 0.35) { box(w * 0.55, 0.35, d * 0.45, x - w * 0.15, top, z + d * 0.15, C('#5f8f4a')); for (let i = 0; i < 4; i++) cyl(0.5, 1.2, x - w * 0.35 + i * w * 0.13, top + 0.35, z + d * 0.15 + (i % 2 - 0.5) * d * 0.2, C('#3f7a3a'), 8); }
+      }
+    }
+  }
+  // 1층: 상가 유리창과 간판 띠 (근대 이후 상업 건물)
+  if (COMMERCIAL.has(b.type) && era >= 4 && st !== 'glass') {
+    const fw = Math.min(front.w * 0.92, 24), gz = front.z + 0.08;
+    box(fw, 2.7, 0.14, front.x, 0.45, gz, C('#2f3d48'));
+    for (let t = -fw / 2; t <= fw / 2 + 0.01; t += 2.2) box(0.1, 2.7, 0.2, front.x + t, 0.45, gz + 0.02, C('#c9ccd0'));
+    box(fw + 0.2, 0.9, 0.3, front.x, 3.2, gz + 0.06, C(def.accent || ['#c0392b', '#1f6f8b', '#e9b949', '#2a9d8f', '#6c5b7b', '#264653'][Math.floor(v * 6)]));
+    box(fw * 0.5, 0.42, 0.06, front.x, 3.44, gz + 0.24, C('#f7f3ea'));
+  }
+  // 현관 계단
+  if (masses[0]) box(Math.min(front.w * 0.5, def.kind === 'civic' ? 6 : 3), 0.18, 1.0, front.x, 0, front.z + 0.6, C('#b9b4ab'));
+  if (!parts.length) return;
+  const geo = mergeGeometries(parts);
+  for (const g of parts) g.dispose();
+  const mesh = new THREE.Mesh(geo, cx.detailMat());
+  mesh.userData.bid = b.id; mesh.userData.ownGeo = true;
+  grp.add(mesh);
 }
 
 function fireFx(cx, b, grp) {
