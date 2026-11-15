@@ -221,7 +221,7 @@ export class World3D {
     this.time += dt;
     const st = this.state;
     if (this.clockOverride != null && this.mode !== 'observe') this.clockOverride += dt * (this.spin ? 3 : 0.5);
-    const minutes = this.mode === 'observe' && st?.world ? st.now() : (this.clockOverride ?? 0);
+    const minutes = (this.mode === 'observe' && st?.world ? st.now() : (this.clockOverride ?? 0)) + (this.sunShift || 0);
     this.applyLift(dt);
     if (this.introStep) this.introStep();
     else {
@@ -270,7 +270,7 @@ export class World3D {
       this.space.ambient.position.copy(fp).normalize(); // 채움빛의 '하늘' = 보고 있는 곳의 위쪽
       this.cities.night = THREE.MathUtils.clamp((0.05 - nd) / 0.25, 0, 1);
       // 밤에는 달빛 정도의 푸른 빛
-      this.space.ambient.intensity = THREE.MathUtils.lerp(1.05, 0.35, this.cities.night);
+      this.space.ambient.intensity = THREE.MathUtils.lerp(0.58, 0.35, this.cities.night);
       this.space.ambient.color.setHex(this.cities.night > 0.5 ? 0x7f98d8 : 0xcfe0ff);
       labels = this.cities.update(st, this.camera, this.rig, this.time);
       // 마을 가까이에서는 카메라 초점을 실제 땅 높이에 맞춘다 (지구 구면은 마을 땅보다 높을 수 있다)
@@ -284,7 +284,10 @@ export class World3D {
       }
       // 날씨: 가장 가까운 마을의 하늘
       const wx = this.weather.update(dt, this.camera, this.cities.nearest?.t || null, alt, this.cities.night);
-      this.space.light.intensity = 3.2 * (1 - wx.dim) + wx.flash * 6;
+      this.space.light.intensity = 4.1 * (1 - wx.dim) + wx.flash * 6;
+      // 흐린 날엔 채움빛이 대신 밝아진다 (그림자도 옅어진다)
+      this.space.ambient.intensity *= 1 + wx.dim * 0.45;
+      this.cities.sunDir = this.space.sunDir; this.cities.sunK = 1 - wx.dim * 0.85;
       this.space.ambient.intensity *= 1 - wx.dim * 0.5;
       this.space.ambient.intensity += wx.flash * 1.5;
       this.sense = { alt, night: this.cities.night, s: this.cities.nearest?.t?.s || null, flash: wx.flash, mode: this.mode };

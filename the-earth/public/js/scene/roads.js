@@ -373,5 +373,5 @@ export function buildRoadProps(roads, works, hAt0, extra = {}) {
   }
   for (const st of extra.stops || []) if (st.built) stopProps(grp, st.pos[0], st.pos[1], hAt, 99, st.name);
   inst(PG.cone, PM.cone, cones, ([x, z], p, s) => { p.set(x, hAt(x, z), z); s.set(1, 1, 1); });
-  return { grp, crowns, nTrees: trees.length, lamps };
+  return { grp, crowns, nTrees: trees.length, lamps, treePos: trees };
 }

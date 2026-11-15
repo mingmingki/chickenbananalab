@@ -3,8 +3,8 @@ import * as THREE from 'three';
 import { R, frameAt, llToVec, localToLL } from './geo.js';
 import { glowTexture } from './space.js';
 import { Terrain, TERRAIN_R } from '../shared/terrain.js';
-import { makeBuilding, BGEO, yardPoly, yardKind, bRot } from './buildings.js';
-import { paintRoads, buildRoadProps, roadLampMats, signalPhase } from './roads.js';
+import { makeBuilding, BGEO, yardPoly, yardKind, bRot, shapeOf } from './buildings.js';
+import { paintRoads, buildRoadProps, roadLampMats, signalPhase, ROAD_STYLE } from './roads.js';
 import { TownVehicles } from './vehicles.js';
 import { buildRoadMeshes } from './roadmesh.js';
 import { People, dress } from './people.js';
@@ -159,6 +159,11 @@ export class Cities {
     let m = this.wallMats.get(key);
     if (!m) {
       m = new THREE.MeshStandardMaterial({ map: tex.map, emissiveMap: tex.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughness: st === 'glass' ? 0.25 : 0.88, metalness: st === 'glass' ? 0.35 : 0 });
+      m.onBeforeCompile = sh => {
+        sh.vertexShader = 'varying float vWallY;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vWallY = position.y;');
+        sh.fragmentShader = 'varying float vWallY;\n' + sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\n  diffuseColor.rgb *= mix(0.5, 1.0, smoothstep(0.0, 4.0, vWallY)) * mix(1.0, 1.07, smoothstep(8.0, 45.0, vWallY));');
+      };
+      m.customProgramCacheKey = () => 'wall-ao';
       this.wallMats.set(key, m); this.winMats.push(m);
     }
     return m;
@@ -221,7 +226,7 @@ export class Cities {
     const marker = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.markerTex, transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, sizeAttenuation: false }));
     marker.position.copy(up).multiplyScalar(R + 2);
     this.root.add(marker);
-    const t = { s, g, marker, base, center: up.clone().multiplyScalar(base), up, buildings: new THREE.Group(), bmap: new Map(), ground: null, anns: null, dots: null, ids: [], groundKey: '' };
+    const t = { s, g, marker, base, center: up.clone().multiplyScalar(base), up, east, south, bver: 0, buildings: new THREE.Group(), bmap: new Map(), ground: null, anns: null, dots: null, ids: [], groundKey: '' };
     t.terrain = new Terrain(s.site);
     const hc = new Map();
     t.hAt = (x, z) => {
@@ -464,6 +469,158 @@ export class Cities {
     }
     t.snowB = snowB; t.cold = cold;
     for (const [id, m] of t.bmap) if (!keep.has(id)) { t.buildings.remove(m); disposeGroup(m); t.bmap.delete(id); }
+    this.plantShrubs(t, real, era);
+    t.bver++;
+  }
+
+  /** 집 앞 관목과 꽃 (산업 시대부터: 화단·생울타리), 옛 마을은 마당가 덤불 */
+  plantShrubs(t, blds, era) {
+    if (t.shrubs) { t.g.remove(t.shrubs); t.shrubs.dispose(); t.shrubs = null; }
+    const roads = this.roadsOf(t.s, blds), list = [];
+    const onRoad = (x, z) => {
+      const lx = Math.round((x - 10) / 100), lz = Math.round((z - 10) / 100);
+      const gv = roads[`v,${lx},${Math.floor((z - 10) / 100)}`], gh = roads[`h,${Math.floor((x - 10) / 100)},${lz}`];
+      if (gv != null && Math.abs(x - (lx * 100 + 10)) < ROAD_STYLE[gv].w / 2 + (ROAD_STYLE[gv].side || 0) + 0.7) return true;
+      if (gh != null && Math.abs(z - (lz * 100 + 10)) < ROAD_STYLE[gh].w / 2 + (ROAD_STYLE[gh].side || 0) + 0.7) return true;
+      return false;
+    };
+    const sea = this.seasonOf(t);
+    const bloom = sea.season === '봄' || sea.season === '여름';
+    const FLOW = ['#e0457b', '#f2c94c', '#ff7f50', '#c77dff', '#ffffff', '#ff4d4d'];
+    for (const b of blds) {
+      if (!b.done || b.type === 'farm' || b.type === 'campfire' || b.type === 'hut' || b.infra) continue;
+      const def = this.meta.buildings[b.type] || {};
+      if ((def.era ?? 0) < 3 && era < 3) continue;
+      if (def.roof === 'saw' || ['carplant', 'chemplant', 'powerplant', 'mine', 'dock'].includes(b.type)) continue;
+      const shp = shapeOf(b, def), rot = bRot(b), c = Math.cos(rot), sn = Math.sin(rot);
+      const hb = n => { let h = ((b.id * 2654435761) ^ (n * 40503)) >>> 0; h ^= h >>> 15; h = Math.imul(h, 2246822519) >>> 0; return ((h ^ (h >>> 13)) >>> 0) % 1000 / 1000; };
+      const put = (lx, lz, k) => {
+        const x = b.x + lx * c + lz * sn, z = b.z - lx * sn + lz * c;
+        if (onRoad(x, z)) return;
+        const flower = bloom && hb(k + 50) < 0.32;
+        list.push([x, z, flower ? 0.45 + hb(k) * 0.2 : 0.7 + hb(k) * 0.5, flower ? FLOW[Math.floor(hb(k + 9) * FLOW.length)] : null, hb(k + 3)]);
+      };
+      const W = b.w, D = b.d;
+      // 앞쪽 화단 (현관 자리는 비운다)
+      if (shp === 'box' || shp === 'twin' || shp === 'round') {
+        const doorX = (hb(1) - 0.5) * W * 0.3;
+        let k = 0;
+        for (let x = -W / 2 + 0.9; x <= W / 2 - 0.9; x += 1.5) { if (Math.abs(x - doorX) < 2.3) continue; put(x, D / 2 + 1.0, k++); }
+      }
+      // 옆·뒤 생울타리 (집마다 다르게)
+      if (hb(2) < 0.55) for (let z = -D / 2 + 1; z <= D / 2 - 1; z += 1.8) put((hb(4) < 0.5 ? -1 : 1) * (W / 2 + 1.0), z, 100 + Math.round(z * 10));
+      if (hb(5) < 0.35) for (let x = -W / 2 + 1; x <= W / 2 - 1; x += 1.8) put(x, -D / 2 - 1.0, 300 + Math.round(x * 10));
+      if (list.length > (PHONE ? 1800 : 4000)) break;
+    }
+    if (!list.length) return;
+    if (!this.shrubGeo) {
+      const g = new THREE.IcosahedronGeometry(0.62, 1);
+      const p = g.attributes.position, col = new Float32Array(p.count * 3);
+      for (let i = 0; i < p.count; i++) { const v = 0.7 + 0.35 * Math.min(1, Math.max(0, (p.getY(i) + 0.6) / 1.2)); col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = v; }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      g.translate(0, 0.45, 0);
+      this.shrubGeo = g;
+      this.shrubMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true });
+    }
+    const im = new THREE.InstancedMesh(this.shrubGeo, this.shrubMat, list.length);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3(), col = new THREE.Color(), yA = new THREE.Vector3(0, 1, 0);
+    const autumn = sea.season === '가을', winter = sea.season === '겨울';
+    list.forEach(([x, z, s, flower, r], i) => {
+      q.setFromAxisAngle(yA, r * 6.28);
+      sc.set(s * (0.9 + r * 0.4), s * (flower ? 0.6 : 0.75 + r * 0.3), s * (0.9 + (1 - r) * 0.4));
+      m.compose(p.set(x, t.hAt(x, z) + 0.45, z), q, sc);
+      im.setMatrixAt(i, m);
+      if (flower) col.set(flower);
+      else { col.setHSL(0.25 + r * 0.08, 0.45, 0.22 + r * 0.1); if (autumn && r > 0.6) col.setHSL(0.08 + r * 0.04, 0.6, 0.35); if (winter) col.lerp(new THREE.Color('#5a6a50'), 0.4); }
+      if (sea.snow > 0.2) col.lerp(new THREE.Color('#f4f7fa'), Math.min(0.7, sea.snow * 0.6));
+      im.setColorAt(i, col);
+    });
+    im.frustumCulled = false;
+    t.g.add(im);
+    t.shrubs = im;
+  }
+
+  /** 해가 드리우는 그림자: 건물·가로수·숲 나무를 해 반대쪽으로 늘여 땅 위 한 장에 칠한다 */
+  ensureShadow(t) {
+    if (t.shadow && t.shadow.rg === t.groundR) return t.shadow;
+    if (t.shadow) { t.g.remove(t.shadow.mesh); t.shadow.mesh.geometry.dispose(); t.shadow.mesh.material.dispose(); t.shadow.tex.dispose(); }
+    const rg = t.groundR, S = PHONE ? 1024 : 2048;
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = S;
+    const tex = new THREE.CanvasTexture(canvas); tex.anisotropy = 4;
+    const M = 96, geo = new THREE.PlaneGeometry(2 * rg, 2 * rg, M, M).rotateX(-Math.PI / 2);
+    const pa = geo.attributes.position;
+    for (let i = 0; i < pa.count; i++) pa.setY(i, t.hAt(pa.getX(i), pa.getZ(i)) + 0.68);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x141c2a, alphaMap: tex, transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+    mesh.renderOrder = 5;
+    t.g.add(mesh);
+    t.shadow = { canvas, tex, mesh, rg, key: '', at: 0 };
+    return t.shadow;
+  }
+  paintShadows(t, sx, sy, sz) {
+    const sh = this.ensureShadow(t), c = sh.canvas, g = c.getContext('2d'), S = c.width, rg = sh.rg;
+    const px = v => (v + rg) / (2 * rg) * S;
+    g.fillStyle = '#000'; g.fillRect(0, 0, S, S);
+    sh.tex.needsUpdate = true;
+    const noSun = sy < 0.03;
+    // 해가 낮을수록 길게 (아침·저녁), 너무 길어지지 않게
+    const k = noSun ? 0 : 1 / Math.max(sy, 0.13);
+    let ox = -sx * k, oz = -sz * k;
+    const L = Math.hypot(ox, oz); if (L > 6) { ox *= 6 / L; oz *= 6 / L; }
+    g.globalCompositeOperation = 'lighten';
+    const poly = pts => {
+      // 볼록 껍질 (모노톤 체인)
+      pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+      const lo = [], up = [];
+      for (const p of pts) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+      for (let i = pts.length - 1; i >= 0; i--) { const p = pts[i]; while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); }
+      const h = lo.slice(0, -1).concat(up.slice(0, -1));
+      g.beginPath(); h.forEach(([x, z], i) => (i ? g.lineTo(px(x), px(z)) : g.moveTo(px(x), px(z)))); g.closePath(); g.fill();
+    };
+    // 건물 둘레 접지 그늘 (부드럽게 번지도록 크기를 달리해 몇 겹)
+    for (const [grow, col] of [[2.6, '#2a2a2a'], [1.6, '#474747'], [0.8, '#6a6a6a']]) {
+      g.fillStyle = col;
+      for (const b of t.lastBlds || []) {
+        if (b.type === 'farm' || b.type === 'campfire' || b.infra || !b.done) continue;
+        const rot = bRot(b), cs = Math.cos(rot), sn = Math.sin(rot);
+        g.beginPath();
+        [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([lx, lz], i) => { const ax = lx * (b.w / 2 + grow), az = lz * (b.d / 2 + grow); const x = b.x + ax * cs + az * sn, z = b.z - ax * sn + az * cs; i ? g.lineTo(px(x), px(z)) : g.moveTo(px(x), px(z)); });
+        g.closePath(); g.fill();
+      }
+    }
+    g.fillStyle = '#fff';
+    for (const b of t.lastBlds || []) {
+      if (b.type === 'farm' || b.type === 'campfire' || b.infra) continue;
+      const def = this.meta.buildings[b.type] || {};
+      let hE = b.done ? b.h : b.h * Math.max(0.08, b.p || 0);
+      if (b.done) { const r = def.roof; hE += r === 'gable' || r === 'pyramid' || r === 'cone' ? Math.min(b.w, b.d) * 0.3 : r === 'dome' ? Math.min(b.w, b.d) * 0.25 : r === 'flat' ? 0.9 : 0; }
+      if (hE < 0.5) continue;
+      const rot = bRot(b), cs = Math.cos(rot), sn = Math.sin(rot);
+      const shp = b.done ? shapeOf(b, def) : 'box';
+      const foot = [];
+      if (shp === 'round') { const r = Math.min(b.w, b.d) / 2; for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2; foot.push([Math.cos(a) * r, Math.sin(a) * r]); } }
+      else for (const [lx, lz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) foot.push([lx * b.w / 2, lz * b.d / 2]);
+      const pts = [];
+      for (const [lx, lz] of foot) { const x = b.x + lx * cs + lz * sn, z = b.z - lx * sn + lz * cs; pts.push([x, z], [x + ox * hE, z + oz * hE]); }
+      poly(pts);
+    }
+    // 가로수: 줄기 + 둥근 수관
+    const blob = (x, z, r) => { g.beginPath(); g.arc(px(x), px(z), r * S / (2 * rg), 0, Math.PI * 2); g.fill(); };
+    for (const [x, z] of t.roadProps?.treePos || []) {
+      g.beginPath(); g.moveTo(px(x - 0.15), px(z)); g.lineTo(px(x + ox * 2.6 - 0.15), px(z + oz * 2.6)); g.lineTo(px(x + ox * 2.6 + 0.15), px(z + oz * 2.6)); g.lineTo(px(x + 0.15), px(z)); g.fill();
+      blob(x + ox * 3.7, z + oz * 3.7, 1.9);
+    }
+    // 마을 둘레 숲 나무 (지면 그림 범위 안만)
+    if (t.treeCrown && t.treeCrown.count) {
+      const mm = new THREE.Matrix4(), pp = new THREE.Vector3(), qq = new THREE.Quaternion(), ss = new THREE.Vector3();
+      for (let i = 0; i < t.treeCrown.count; i++) {
+        t.treeCrown.getMatrixAt(i, mm); mm.decompose(pp, qq, ss);
+        if (Math.abs(pp.x) > rg || Math.abs(pp.z) > rg) continue;
+        blob(pp.x + ox * 6 * ss.y, pp.z + oz * 6 * ss.y, 2.6 * ss.x);
+      }
+    }
+    g.globalCompositeOperation = 'source-over';
+    sh.tex.needsUpdate = true;
   }
 
   /** 도로 등급표 (서버가 아직 안 보냈으면 개발된 블록 둘레를 흙길로) */
@@ -616,6 +773,7 @@ export class Cities {
     const tmpM = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3(), col = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
     this.selMarker.visible = false;
     this.builtThisFrame = false;
+    this.shadowedThisFrame = false;
     // 최근 대화 (말풍선)
     const nowMin = state.now();
     const talkLine = new Map();
@@ -651,6 +809,16 @@ export class Cities {
           const snowB = Math.round(Math.min(1, sea.snow) * 4) / 4, cold = sea.season === '겨울' || sea.temp < 6;
           if (t.snowB !== undefined && (snowB !== t.snowB || cold !== t.cold)) state.dirty.buildings.add(t.s.id);
         }
+      }
+      if (t.g.visible && dist < 30 && t.groundR) {
+        const sd = this.sunDir;
+        const sx = sd ? sd.dot(t.east) : 0, sy = sd ? sd.dot(t.up) : 1, sz = sd ? sd.dot(t.south) : 0;
+        const key = `${Math.round(sx * 300)},${Math.round(sy * 300)},${Math.round(sz * 300)},${t.bver},${t.groundR}`;
+        const sh = t.shadow;
+        if ((!sh || sh.key !== key) && performance.now() - (sh?.at || 0) > 400 && !this.shadowedThisFrame) {
+          this.paintShadows(t, sx, sy, sz); t.shadow.key = key; t.shadow.at = performance.now(); this.shadowedThisFrame = true;
+        }
+        if (t.shadow) t.shadow.mesh.material.opacity = 0.66 * Math.min(1, Math.max(0.35, (sy - 0.03) / 0.15)) * (0.45 + 0.55 * (this.sunK ?? 1)) * Math.min(1, Math.max(0, (24 - dist) / 10));
       }
       t.marker.visible = alt > 40 && facing;
       if (facing && alt < 9000 && dist < 9000) labels.push({ key: 'town' + t.s.id, pos: t.center.clone().addScaledVector(t.up, alt < 30 ? 0.12 : 0), cls: 'town lv' + t.s.level, sid: t.s.id, html: `<b>${t.s.name}</b><small>${t.s.levelName} · ${t.s.pop}명</small>`, pri: 1 + t.s.level * 0.01 + Math.min(0.009, t.s.pop / 1e5) });

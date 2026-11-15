@@ -347,6 +347,7 @@ export function makeEarth(textures) {
         float mtnK = smoothstep(0.08, 0.4, h);
         float rug = smoothstep(0.012, 0.1, h);
         float hillAmp = (0.75 + rug * 1.4 + mtnK * 1.0) * smoothstep(4000.0, 60.0, camD) * smoothstep(0.003, 0.01, px) * smoothstep(2.0, 6.0, camAlt) * (1.0 - ice * 0.6) * step(0.001, land + smoothstep(-0.3, 0.0, f));
+        float hillN = 0.0;
         if (hillAmp > 0.0) {
           // 낮은 땅은 둥근 언덕만, 높은 산은 능선만, 그 사이만 둘 다 계산한다
           float hill = (mtnK < 0.01 ? hillFbm(vW, 40.0, px) : mtnK > 0.99 ? ridgeFbm(vW, 60.0, px) : mix(hillFbm(vW, 40.0, px), ridgeFbm(vW, 60.0, px), mtnK)) * hillAmp * 9.6;
@@ -356,10 +357,14 @@ export function makeEarth(textures) {
           float det = dot(dp1, r1);
           if (abs(det) > 1e-12) nb = normalize(abs(det) * nb - sign(det) * (dh1 * r1 + dh2 * r2));
           ndlb = dot(nb, sunDir);
+          hillN = clamp(hill / (hillAmp * 9.6 * 0.3 + 1e-4), -1.0, 1.0);
         }
         float lightK = max(mix(ndl, ndlb, land), 0.0);
         vec3 V = normalize(cameraPosition - vW);
         vec3 lit = c0 * (0.04 + land * 0.07 + lightK * 1.0);   // 땅은 하늘빛이 그늘을 조금 밝힌다
+        // 비탈일수록 하늘빛을 덜 받고(어둡게), 능선은 밝고 골짜기는 어둡게 — 해가 머리 위에 있어도 산줄기가 드러난다
+        float slopeK = smoothstep(0.55, 0.995, dot(nb, n));
+        lit *= mix(1.0, mix(0.72, 1.0, slopeK) * (1.0 + hillN * 0.1), land);
         // 바다: 햇빛 반짝임 (가까이선 잔물결이 반짝인다) + 비스듬히 보면 하늘빛
         float rip = smoothstep(900.0, 30.0, camD);
         // 물결: 큰 너울(900m)·중간(250m)·잔물결(70m)이 서로 다른 빠르기로 움직인다 (화면 점보다 잘면 녹인다)

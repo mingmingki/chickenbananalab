@@ -14,6 +14,7 @@ const paint = (g, c = [1, 1, 1]) => {
 };
 const merge = gs => mergeGeometries(gs.map(g => (g.attributes.color ? g : paint(g))));
 const DARK = [0.22, 0.22, 0.22], EYE = [0.08, 0.07, 0.07];
+const WHITE = new THREE.Color(1, 1, 1);
 
 let GEO = null;
 function geos() {
@@ -169,6 +170,8 @@ export class People {
     for (const p of PARTS) mk(p, G[p], p === 'head' || p === 'hand' ? skinM : p.startsWith('skirt') ? skirtM : p === 'umbrella' ? umbM : cloth, PAIRS.has(p) ? 2 : 1);
     for (const [k, g] of Object.entries(G.hair)) mk('hair_' + k, g, hairM);
     for (const [k, g] of Object.entries(G.hat)) mk('hat_' + k, g, hatM);
+    // 발밑 그림자 (땅에 붙어 보이게)
+    mk('blob', new THREE.CircleGeometry(0.34, 14).rotateX(-Math.PI / 2).translate(0, 0.03, 0), new THREE.MeshBasicMaterial({ color: 0x0c1018, transparent: true, opacity: 0.32, depthWrite: false }));
     // 누르기 쉬운 보이지 않는 몸통 (고르기 전용)
     mk('pick', new THREE.CapsuleGeometry(0.3, 1.1, 2, 6).translate(0, 0.9, 0), new THREE.MeshBasicMaterial({ visible: false }));
     this.cap = cap;
@@ -193,6 +196,7 @@ export class People {
   add(base, s, pose) {
     const { up, tmp, r, out, head } = this.M;
     this.put('pick', base, s.skin);
+    this.put('blob', base, WHITE);
     const ph = pose.t * (pose.run ? 13 : pose.age > 65 ? 6.5 : pose.age < 12 ? 10 : 8.5) + pose.id * 1.7;
     const amp = pose.walk ? (pose.run ? 0.85 : pose.age > 65 ? 0.28 : 0.48) : 0;
     const swing = Math.sin(ph) * amp;
