@@ -17,8 +17,8 @@ self.addEventListener('fetch', e => {
   // 실시간 데이터는 손대지 않는다 (지구 지도와 게임 설명만 보관)
   if (url.pathname.startsWith('/api/') && url.pathname !== '/api/geo' && url.pathname !== '/api/meta') return;
   if (url.pathname.startsWith('/ws') || url.pathname.startsWith('/admin')) return;
-  // three.js 같은 라이브러리는 바뀌지 않으니 보관본부터
-  if (url.pathname.startsWith('/vendor/') || url.pathname.startsWith('/textures/') || url.pathname.startsWith('/geo/')) {
+  // three.js 같은 라이브러리와 글꼴은 바뀌지 않으니 보관본부터
+  if (url.pathname.startsWith('/vendor/') || url.pathname.startsWith('/textures/') || url.pathname.startsWith('/geo/') || url.pathname.startsWith('/fonts/')) {
     e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(res => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); } return res; })));
     return;
   }
