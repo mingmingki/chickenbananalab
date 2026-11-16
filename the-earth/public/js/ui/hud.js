@@ -238,6 +238,7 @@ export class Hud {
   }
 
   onAnnDetail(d) {
+    if (d && this.mainId && d.id === this.mainId) { this.mainDetail = d; this.mainAt = performance.now(); if (this.tab === 'mine') this.renderLeft(false); }
     if (!d || d.id !== this.selected) return;
     this.detail = d;
     this.renderAnn();
@@ -329,6 +330,74 @@ export class Hud {
       const c = st.countries.get(this.me.country);
       meEl.innerHTML = `<span class="dot" style="background:${p?.color || '#888'}"></span>${esc(this.me.name)} · ${esc(c?.name || '')}`;
     } else meEl.innerHTML = '👁️ 관전 중';
+    // 한 계정에 앤은 한 명: 내 앤이 살아 있는 동안엔 '다시 시작' 버튼을 숨긴다
+    let hasMain = false;
+    if (this.me) for (const a of st.anns.values()) if (a.o === this.me.id && a.al) { hasMain = true; break; }
+    document.getElementById('btn-deploy-more').classList.toggle('hidden', !this.me || hasMain);
+  }
+
+  /** 내 앤의 상세 (다른 앤을 보고 있을 때는 몇 초마다 따로 받아 온다) */
+  pollMain(id) {
+    if (this.selected === id) return;
+    const now = performance.now();
+    if (this.mainBusy || now - (this.mainAt || 0) < 3000) return;
+    this.mainBusy = true;
+    fetch(`/api/servers/${encodeURIComponent(this.live?.serverId || '')}/ann/${id}`).then(r => (r.ok ? r.json() : null)).then(d => {
+      if (d && d.id === this.mainId) { this.mainDetail = d; if (this.tab === 'mine') this.renderLeft(true); }
+    }).catch(() => {}).finally(() => { this.mainBusy = false; this.mainAt = performance.now(); });
+  }
+
+  /** '내 앤' 탭: 지금 무엇을, 왜, 어디서 / 감정·컨디션·몸 / 욕구 / 오늘 / 속마음 / 가족 / 살림 */
+  mineHTML(a, d) {
+    const st = this.state, age = st.ageOf(a), color = st.playerColor(a.o);
+    const s = st.settlements.get(a.s), c = st.countries.get(a.c);
+    const ps = st.pos.get(a.id);
+    const act = d?.act, nd = d?.nd || {};
+    const em = act?.emoji || this.meta.acts[ps?.act]?.emoji || '🙂';
+    const label = act?.label || this.meta.acts[ps?.act]?.label || '쉬는 중';
+    const role = d?.school ? `🎒 ${esc(d.school.name)}` : d?.job ? `💼 ${esc(d.job.title)}` : age < 4 ? '🍼 아기' : age < 19 ? '🏠 집에서 지냄' : d?.retired ? '🌿 은퇴' : '일자리를 찾는 중';
+    const g = (k, v, col) => `<div class="mg"><span>${k}</span>${bar(v ?? 0, col)}<b>${Math.round(v ?? 0)}</b></div>`;
+    let h = `<div class="my-ann">
+      <div class="ma-head" data-ann="${a.id}">${avatarHTML({ ...a, age }, color)}
+        <div><div class="nm">${esc(a.n)} <small>${a.g === 'M' ? '♂' : '♀'} ${age}세${d?.stage ? ' · ' + esc(d.stage) : ''}</small></div>
+        <div class="sub small" style="margin:0">${role}${s ? ` · ${esc(c?.name || '')} ${esc(s.name)}` : ''}${d?.rel?.k ? ` · ${d.rel.icon} ${esc(d.rel.name)}` : ''}</div></div>
+        <span class="go">자세히 ›</span></div>
+      <div class="ma-now"><span class="em">${em}</span><div><b>${esc(label)}</b>${act?.target ? ` <span class="sub" style="margin:0">— <span class="linklike" data-ann="${act.target.id}">${esc(act.target.name)}</span></span>` : ''}${act?.ph === 'move' ? ` <span class="chip">${this.tripText(act.trip)}</span>` : ''}
+        ${d?.why?.[0]?.r?.length ? `<div class="sub small" style="margin:2px 0 0">왜: ${esc(d.why[0].r.slice(0, 3).join(' · '))}</div>` : ''}
+        ${act?.line ? `<div class="line">💬 ${esc(act.line)}</div>` : ''}</div></div>`;
+    if (!d) return h + '<p class="sub small">앤의 마음을 읽는 중…</p></div>';
+    h += `<div class="ma-chips">
+        <span class="chip">감정 <b>${esc(d.emo?.k || '평온')}</b></span>
+        <span class="chip">기분 ${d.mood > 0 ? '+' : ''}${d.mood}</span>
+        <span class="chip ${d.stress > 60 ? 'neg' : ''}">스트레스 ${d.stress}</span>
+        ${d.food && d.age >= 6 ? `<span class="chip ${d.food.cond.k < 85 ? 'neg' : ''}">컨디션 ${d.food.cond.k}%</span>` : ''}
+        ${d.ill?.now ? `<span class="chip neg">${d.ill.now.icon} ${esc(d.ill.now.n)}</span>` : ''}
+        ${d.preg ? '<span class="chip">🤰 아기를 기다림</span>' : ''}
+      </div>
+      ${d.emo?.why ? `<p class="sub small" style="margin:2px 2px 6px">${esc(d.emo.k || '')} — ${esc(d.emo.why)}</p>` : ''}
+      <div class="ma-gauges">${g('배부름', nd.food, '#ffa94d')}${g('기력', nd.energy, '#74c0fc')}${g('교류', nd.social, '#f783ac')}${g('즐거움', nd.fun, '#a9e34b')}${g('건강', d.health, '#69db7c')}</div>`;
+    const day = d.today?.length ? d.today : d.yesterday || [];
+    if (day.length) {
+      const hm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+      h += `<div class="sec">${day === d.today ? '오늘' : '어제'}</div>` + day.slice(-6).reverse().map(t => `<div class="tl"><time>${hm(t.h)}</time><span>${t.e}</span>${esc(t.x)}</div>`).join('');
+    }
+    if (d.th?.length) h += `<div class="sec">속마음</div>` + d.th.slice(0, 3).map(t => `<div class="thought">${esc(t.text)}<time>${ago(st.now(), t.t)}</time></div>`).join('');
+    const fam = d.family || {}, fl = [];
+    if (fam.spouse) fl.push(['배우자', fam.spouse]); else if (fam.partner) fl.push(['연인', fam.partner]);
+    for (const p of fam.parents || []) fl.push(['부모', p]);
+    for (const k of fam.kids || []) fl.push(['자녀', k]);
+    for (const x of fam.siblings || []) fl.push(['형제자매', x]);
+    if (fl.length) h += `<div class="sec">가족</div><div class="tags">${fl.map(([k, x]) => `<span class="linklike" data-ann="${x.id}">${k} ${esc(x.name)}${x.alive ? '' : ' 🕯️'}</span>`).join('')}</div>`;
+    const best = (d.rels || []).filter(r => r.alive && r.k !== 'family').slice(0, 3);
+    if (best.length) h += `<div class="sec">가까운 사람</div><div class="tags">${best.map(r => `<span class="linklike" data-ann="${r.id}">${esc(r.kind)} ${esc(r.name)}</span>`).join('')}</div>`;
+    h += `<div class="sec">살림</div><div class="card" style="margin:4px 0">
+        <div class="row"><span>가진 돈</span><b>${this.fmtMoney(d.fin?.cash || 0, d.fin?.era)}</b></div>
+        <div class="row"><span>집</span><b>${d.home ? esc(d.home.name) + (d.home.done ? '' : ' (짓는 중)') : '없음'}</b></div>
+        ${d.job ? `<div class="row"><span>일 만족도</span><b>${d.job.sat}</b></div>` : ''}
+        ${d.rel ? `<div class="row"><span>믿음</span><b>${d.rel.icon} ${esc(d.rel.name)}${d.rel.dev != null ? ` · 신앙심 ${d.rel.dev}` : ''}</b></div>` : ''}
+      </div>
+      <div class="ma-acts"><button class="btn primary" data-ann="${a.id}">자세히 보기 · 따라가기</button></div></div>`;
+    return h;
   }
 
   annRow(a) {
@@ -354,12 +423,21 @@ export class Hud {
     const sc = L.scrollTop;
     let html = '';
     if (this.tab === 'mine') {
-      if (!this.me) html = '<p class="empty">관전 중입니다.<br>모든 앤 탭에서 다른 플레이어의 앤들을 지켜보세요.</p>';
+      if (!this.me) html = '<p class="empty">로그인하거나 새로 시작하면 내 앤이 생겨요.</p>';
       else {
-        const mine = [...st.anns.values()].filter(a => a.o === this.me.id).sort((a, b) => (b.al - a.al) || (a.b - b.b));
-        html = mine.length ? mine.map(a => this.annRow(a)).join('') : '<p class="empty">아직 투입한 앤이 없습니다.</p>';
-        const born = mine.filter(a => a.gen > 1).length;
-        if (mine.length) html = `<p class="sub small" style="margin:0 4px 8px">살아 있는 앤 ${mine.filter(a => a.al).length}명 · 태어난 후손 ${born}명</p>` + html;
+        // 한 계정에 앤은 한 명 — 그 앤의 지금 모습을 자세히
+        const mine = [...st.anns.values()].filter(a => a.o === this.me.id).sort((a, b) => (b.al - a.al) || (b.b - a.b));
+        const main = mine.find(a => a.al);
+        if (main) {
+          this.mainId = main.id;
+          this.pollMain(main.id);
+          html = this.mineHTML(main, this.mainDetail?.id === main.id ? this.mainDetail : null);
+        } else {
+          this.mainId = null;
+          html = mine.length
+            ? `<div class="my-gone"><div class="em">🕯️</div><b>내 앤이 세상을 떠났어요</b><p class="sub">아이나 손주가 있으면 대를 이을 수 있고, 새로 태어날 수도 있어요.</p><button class="btn primary" data-act="deploy-more">이야기 이어 가기</button></div><div class="sec">지난 앤</div>${mine.map(a => this.annRow(a)).join('')}`
+            : '<p class="empty">아직 투입한 앤이 없습니다.</p>';
+        }
       }
     } else if (this.tab === 'all') {
       const f = this.filter.toLowerCase();
@@ -384,6 +462,7 @@ export class Hud {
           <div class="row"><span>국고 · 세율</span><b>${this.fmtMoney(c.treasury, c.era)} · ${c.tax}%</b></div>
           <div class="row"><span>정착지</span><b>${towns.map(s => `<span class="linklike" data-town="${s.id}">${esc(s.name)}</span>(${esc(s.levelName)})`).join(', ')}</b></div>
           ${c.discoveries.length ? `<div class="tags">${c.discoveries.map(d => `<span>💡${esc(d)}</span>`).join('')}</div>` : ''}
+          ${this.faithHTML(c)}
           ${this.mediaHTML(c)}
           ${c.history.length ? `<div class="sec">나라의 연대기</div>${c.history.slice(-14).reverse().map(h => `<div class="life"><span>${h.icon || '•'}</span><div>${esc(h.text)}<time>${fmtDate(h.t)}</time></div></div>`).join('')}` : ''}
         </div>`;
@@ -527,6 +606,15 @@ export class Hud {
   }
 
   /** 나라의 방송·연예: 인기 프로그램과 시청률, 음원 차트, 상영 중인 영화, 스타, 시상식·종영 기록 */
+  /** 나라의 종교 분포 (띠 그래프 + 이름) */
+  faithHTML(c) {
+    const f = c.faiths;
+    if (!f?.length) return '';
+    const COL = ['#7ab8ff', '#ffc078', '#b197fc', '#8ce99a', '#ff8fab', '#a0aec0'];
+    return `<div class="sec">종교</div><div class="faith-bar">${f.map((x, i) => `<i style="width:${x.pct}%;background:${x.n === '무교' ? '#5c6672' : COL[i % COL.length]}" title="${esc(x.n)} ${x.pct}%"></i>`).join('')}</div>
+      <div class="tags" style="margin-top:6px">${f.map(x => `<span>${x.icon} ${esc(x.n)} ${x.pct}%</span>`).join('')}</div>`;
+  }
+
   mediaHTML(c) {
     const m = c.media;
     if (!m) return '';
@@ -605,6 +693,7 @@ export class Hud {
         <div class="stat"><span>명성</span>${bar(d.fame, '#ffd43b')}<b>${d.fame}</b></div>
         <div class="card" style="margin-top:10px"><div class="row"><span>재산(현금)</span><b>${this.fmtMoney(d.fin?.cash || 0, d.fin?.era)}</b></div>
         <div class="row"><span>집</span><b>${d.home ? esc(d.home.name) + (d.home.done ? '' : ' (짓는 중)') : '없음'}</b></div>
+        ${d.rel ? `<div class="row"><span>믿음</span><b>${d.rel.icon} ${esc(d.rel.name)}${d.rel.dev != null ? ` · 신앙심 ${d.rel.dev}` : ''}</b></div>` : ''}
         ${d.job ? `<div class="row"><span>일</span><b>${esc(d.job.title)}</b></div><div class="row"><span>만족도</span><b>${d.job.sat}</b></div>` : ''}
         ${d.techMade ? `<div class="row"><span>기술 기여</span><b>${d.techMade.toLocaleString()}</b></div>` : ''}
         ${d.discoveries.length ? `<div class="tags">${d.discoveries.map(x => `<span>💡${esc(x)}</span>`).join('')}</div>` : ''}</div>

@@ -96,7 +96,7 @@ export const JOBS = {
   teacher: J('교사', 2, 'teaching', 'teach', 1, { A: .4, E: .3, int: .3 }, { edu: 3, shift: 'school' }),
   professor: J('교수', 4, 'science', 'tech', 2.6, { int: .7, O: .4, E: .1 }, { edu: 4, shift: 'office' }),
   scholar: J('학자', 2, 'science', 'tech', 2, { int: .7, O: .5 }, { edu: 2, shift: 'free' }),
-  priest: J('사제', 2, 'leadership', 'heal', 1, { A: .4, cha: .3, C: .2 }, { edu: 1, maxEra: 4, shift: 'free' }),
+  priest: J('성직자', 2, 'leadership', 'heal', 1, { A: .4, cha: .3, C: .2 }, { edu: 1, shift: 'free' }),
   official: J('공무원', 2, 'leadership', 'gov', 1, { C: .5, int: .3, cha: .2 }, { edu: 1, shift: 'gov' }), // 9급 공채는 학력 제한이 없다 — 읽고 쓸 줄만 알면
   soldier: J('병사', 2, 'athletics', 'gov', 1, { ath: .7, C: .2, A: -.2 }, { maxEra: 3, shift: 'gov' }),
   police: J('경찰관', 4, 'athletics', 'gov', 1, { ath: .4, C: .4, N: -.3 }, { edu: 3, shift: 'gov' }),

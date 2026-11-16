@@ -17,6 +17,7 @@ import { planMeal, eatDone, consume, condK, diet, addFood, MEAL_EMOJI } from './
 import { dishById } from './foods.js';
 import { seeDoctor, symptom } from './illness.js';
 import { pickShow, watched, isStar } from './media.js';
+import { worshipWindow, homePrayer, worshipped, FAITHS } from './religion.js';
 
 export const ACTS = {
   sleep: { label: '잠', emoji: '💤' },
@@ -44,9 +45,10 @@ export const ACTS = {
   migrate: { label: '개척 여행', emoji: '🧭' },
   rest_sick: { label: '요양', emoji: '🤒' },
   watch: { label: 'TV·라디오', emoji: '📺' },
+  worship: { label: '예배·기도', emoji: '🙏' },
 };
 
-const AVAILABLE = new Set(['relax', 'wander', 'reflect', 'shop', 'exercise', 'art', 'play', 'eat', 'research', 'social', 'watch']);
+const AVAILABLE = new Set(['relax', 'wander', 'reflect', 'shop', 'exercise', 'art', 'play', 'eat', 'research', 'social', 'watch', 'worship']);
 const HEAVY = new Set(['work', 'build', 'exercise', 'forage', 'migrate']);
 
 export function isAvailable(world, b) {
@@ -192,7 +194,7 @@ export function decide(world, a) {
 
   // 하루 단위 기록은 이 마을의 자정(현지 시각)에 새로 시작
   const lday = Math.floor((now / 60 + s.lon / 15) / 24);
-  if (a.day.key !== lday) { a.day.key = lday; a.day.work = 0; a.day.meals = 0; a.day.studied = false; a.day.led = false; a.day.lunch = null; a.day.mw = ''; a.day.tv = ''; }
+  if (a.day.key !== lday) { a.day.key = lday; a.day.work = 0; a.day.meals = 0; a.day.studied = false; a.day.led = false; a.day.lunch = null; a.day.mw = ''; a.day.tv = ''; a.day.prayed = false; }
   if (stage === 'baby') {
     const sub = h > 20 || h < 7 || a.nd.energy < 40 ? 'sleep' : 'awake';
     if (sub === 'sleep') a.nd.energy = clamp(a.nd.energy + 25);
@@ -346,6 +348,12 @@ export function decide(world, a) {
     const evening = h >= 18 || h < 1, weekend = lday % 7 >= 5;
     add('watch', 10 + (100 - a.nd.fun) * 0.3 + (evening ? 16 : weekend ? 10 : -10) + (a.fan ? 6 : 0) + (stage === 'child' || stage === 'teen' ? 6 : 0) - a.tr.O * 0.05 + (100 - a.nd.energy) * 0.08,
       [era >= 6 ? '뭐 재밌는 거 없나' : era >= 5 ? 'TV 볼 시간' : '라디오 들을 시간', a.fan ? `${world.anns.get(a.fan)?.name || ''} 나오나?` : null]);
+  }
+  // 믿음: 예배·법회·금요 예배·차례… 날과 시간이 되면, 아니면 힘들 때 집에서 기도 — religion.js
+  if (a.faith?.k && !inSleep && stage !== 'baby') {
+    const ww = worshipWindow(world, a, h, lday);
+    if (ww) add('worship', (ww.temple ? 24 : 10) + a.faith.dev * 0.45, [ww.label, a.faith.dev > 60 ? '믿음' : null], { ww });
+    else if (!a.day.prayed && (a.stress > 55 || (a.sick || 0) > 25)) add('worship', -6 + a.faith.dev * 0.15 + a.stress * 0.18, ['기도하고 싶다'], { ww: homePrayer(a) });
   }
   add('wander', 8 + a.tr.O * 0.12 + (100 - a.nd.fun) * 0.18 + a.val.adventure * 0.06 + (100 - a.nd.social) * 0.1, ['바람 쐬기', a.nd.social < 40 ? '누군가 만날지도' : null]);
   add('reflect', 4 + a.stress * 0.28 + a.tr.N * 0.08 + a.tr.O * 0.05 + (a.day.worst ? 8 : 0), [a.stress > 50 ? '마음이 복잡하다' : '생각을 정리하고 싶다']);
@@ -528,6 +536,19 @@ function execute(world, a, o, ctx) {
       if (!show) { start(world, a, 'relax', 60, 'home'); break; }
       logToday(world, a, show.label.slice(0, 2), show.label.slice(3));
       start(world, a, 'watch', show.kind === 'film' ? 120 : 50 + rand() * 50, show.where, { show, label: show.label });
+      break;
+    }
+    case 'worship': {
+      const ww = o.ww || homePrayer(a);
+      a.day.prayed = true;
+      let place = 'home', temple = null;
+      if (ww.temple) {
+        const tb = s.buildings.map(id => world.buildings.get(id)).find(b => b?.done && b.type === 'temple');
+        if (tb) { place = tb.id; temple = tb.id; } else if (a.faith.k === 'folk' || a.faith.k === 'shinto') place = 'wild';
+      }
+      const F = FAITHS[a.faith.k];
+      logToday(world, a, ww.emoji, `${ww.label} (${temple ? F.place : place === 'wild' ? '서낭당' : '집'})`);
+      start(world, a, 'worship', ww.dur, place, { temple, label: ww.label });
       break;
     }
     case 'wander': start(world, a, 'wander', 70, chance(0.5) ? 'plaza' : 'wild'); break;
@@ -898,6 +919,10 @@ function onTick(world, a, act, dt) {
     case 'watch':
       a.nd.fun = clamp(a.nd.fun + 0.17 * dt); a.stress = clamp(a.stress - 0.03 * dt); a.nd.energy = clamp(a.nd.energy + 0.02 * dt);
       break;
+    case 'worship':
+      a.stress = clamp(a.stress - 0.05 * dt);
+      if (act.temple) a.nd.social = clamp(a.nd.social + 0.06 * dt);
+      break;
     case 'wander':
       a.nd.fun = clamp(a.nd.fun + 0.1 * dt); a.stress = clamp(a.stress - 0.03 * dt);
       // 산책 중 우연한 만남
@@ -1013,6 +1038,7 @@ function finishAct(world, a, interrupted) {
       watched(world, a, act);
       break;
     }
+    case 'worship': worshipped(world, a, act); break;
     case 'research': if (chance(0.25)) think(world, a, pick(['오늘은 조금 알아낸 것 같다.', '실패도 배움이다.', '답이 거의 보인다. 거의…'])); break;
     case 'exercise': if (chance(0.2)) think(world, a, '땀 흘리고 나니 개운하다!'); break;
     case 'wander': if (chance(0.35)) { const m = chance(0.6) ? musing(world, a) : pick(['하늘이 참 넓다.', `${world.settlements.get(a.sid).name}도 많이 변했네.`, '이 길 끝엔 뭐가 있을까.']); if (m) think(world, a, m); } break;

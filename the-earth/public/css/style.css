@@ -235,7 +235,25 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 .lbl.ann.mini { padding: 0 3px; background: rgba(0,0,0,0.3); }
 .lbl.ann.mini .e { margin: 0; font-size: 12px; }
 .lbl.ann.sel { background: rgba(88,180,255,0.7); font-weight: 700; }
-.lbl.bubble { background: #fff; color: #222; text-shadow: none; padding: 4px 8px; border-radius: 10px; font-size: 11.5px; max-width: 220px; white-space: normal; transform: translate(-50%, -150%); box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+/* 말풍선: 둥근 구름 같은 풍선 + 꼬리, 톡 튀어나오고, 누르면 구름처럼 흩어진다 */
+.lbl.bubble { pointer-events: auto; cursor: pointer; translate: 0 -16px; max-width: 200px; white-space: normal; text-shadow: none;
+  padding: 7px 12px 8px; border-radius: 18px; font-size: 12px; line-height: 1.45; letter-spacing: -0.01em; color: #1f2a37;
+  background: linear-gradient(180deg, rgba(255,255,255,0.97), rgba(240,246,255,0.94)); border: 1px solid rgba(255,255,255,0.9);
+  box-shadow: 0 6px 18px rgba(10,20,40,0.28), 0 1px 0 rgba(255,255,255,0.8) inset; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.lbl.bubble::after { content: ''; position: absolute; left: 50%; bottom: -7px; width: 14px; height: 14px; margin-left: -7px; transform: rotate(45deg); border-radius: 0 0 4px 0;
+  background: rgba(240,246,255,0.95); border-right: 1px solid rgba(255,255,255,0.9); border-bottom: 1px solid rgba(255,255,255,0.9); box-shadow: 3px 3px 6px rgba(10,20,40,0.12); }
+.lbl.bubble::before { content: ''; position: absolute; left: calc(50% + 12px); bottom: -15px; width: 6px; height: 6px; border-radius: 50%; background: rgba(240,246,255,0.92); box-shadow: 0 2px 4px rgba(10,20,40,0.2); }
+.lbl.bubble .bt { position: relative; z-index: 1; display: block; }
+.lbl.bubble.pop { animation: bubIn .42s cubic-bezier(.2, 1.5, .4, 1) both; }
+@keyframes bubIn { from { scale: 0.6; opacity: 0; } to { scale: 1; opacity: 1; } }
+.lbl.bubble.puff { animation: puffAway .7s cubic-bezier(.2, .7, .3, 1) forwards; pointer-events: none; }
+.lbl.bubble.puff .bt { animation: puffText .7s ease-out forwards; }
+@keyframes puffAway { 0% { scale: 1; opacity: 1; filter: blur(0); } 30% { scale: 1.12; opacity: 0.95; filter: blur(1px); border-radius: 40px; } 100% { scale: 1.5; opacity: 0; filter: blur(12px); translate: 0 -34px; border-radius: 60px; } }
+@keyframes puffText { to { opacity: 0; letter-spacing: 0.2em; } }
+.lbl.bubble .puffdot { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle at 40% 40%, #fff, rgba(235,243,255,0.85) 55%, rgba(235,243,255,0) 72%); animation: puffDot .7s ease-out forwards; }
+@keyframes puffDot { from { transform: translate(0, 0) scale(0.4); opacity: 0.95; } to { transform: translate(var(--dx), var(--dy)) scale(var(--s)); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .lbl.bubble.pop, .lbl.bubble.puff, .lbl.bubble .puffdot { animation-duration: .01s; } }
 .lbl.planet { color: #9fb2d6; font-size: 11px; letter-spacing: .05em; }
 
 .modal { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -527,3 +545,30 @@ svg.ic { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor
 .food-row { display: grid; grid-template-columns: 92px 1fr; gap: 8px; align-items: start; margin: 6px 0; font-size: 13px; }
 .food-row .chip { margin: 0 2px 4px 0; }
 .chip.neg { background: rgba(255, 107, 107, 0.15); color: #ffa8a8; }
+
+/* ── 내 앤 (한 계정 = 앤 한 명): 지금 상태 ── */
+.my-ann { display: flex; flex-direction: column; gap: 8px; }
+.my-ann .ma-head { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 16px; background: rgba(255,255,255,0.05); cursor: pointer; }
+.my-ann .ma-head .avatar, .my-ann .ma-head img { width: 54px; height: 54px; }
+.my-ann .ma-head .nm { font-size: 18px; font-weight: 700; }
+.my-ann .ma-head .nm small { font-size: 13px; font-weight: 400; color: var(--muted); }
+.my-ann .ma-head .go { margin-left: auto; font-size: 12.5px; color: var(--accent); white-space: nowrap; }
+.my-ann .ma-now { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 16px; background: linear-gradient(135deg, rgba(88,180,255,0.16), rgba(126,240,200,0.08)); border: 1px solid rgba(88,180,255,0.25); }
+.my-ann .ma-now .em { font-size: 26px; line-height: 1; }
+.my-ann .ma-now b { font-size: 15.5px; }
+.my-ann .ma-now .line { margin-top: 6px; font-size: 13px; line-height: 1.5; }
+.my-ann .ma-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.my-ann .ma-gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+.my-ann .mg { display: grid; grid-template-columns: 44px 1fr 26px; align-items: center; gap: 6px; font-size: 12.5px; }
+.my-ann .mg b { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.my-ann .tl { display: grid; grid-template-columns: 44px 22px 1fr; gap: 4px; font-size: 12.5px; padding: 3px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); }
+.my-ann .tl time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.my-ann .ma-acts { display: flex; gap: 8px; margin-top: 4px; }
+.my-ann .ma-acts .btn { flex: 1; }
+.my-gone { text-align: center; padding: 22px 12px; border-radius: 16px; background: rgba(255,255,255,0.04); }
+.my-gone .em { font-size: 34px; }
+.my-gone .btn { margin-top: 8px; }
+.heir-list { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.heir-list .btn { justify-content: flex-start; }
+.faith-bar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: rgba(255,255,255,0.06); }
+.faith-bar i { display: block; height: 100%; }

@@ -130,7 +130,8 @@ export function makeBaby(world, mother, father, name, gender) {
     height: (gender === 'M' ? 172 : 160) + ((mother.look.height - 160) + (father.look.height - 172)) / 2 + gauss() * 4,
     style: Math.floor(rand() * 4),
   };
-  const owner = mother.owner ?? father.owner;
+  // 내 앤의 아이는 '내 앤'이 아니라 그 앤의 가족이다 (한 계정 = 앤 한 명). 내 앤이 떠나면 대를 이을 수 있다
+  const owner = null;
   return makeAnn(world, {
     name, gender, age: 0, born: world.clock, culture: mother.culture, owner, country: mother.country, sid: mother.sid,
     traits: tr, abilities: ab, ambition: inherit(mother.amb, father.amb, 14), look,

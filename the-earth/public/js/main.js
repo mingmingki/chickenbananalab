@@ -246,8 +246,6 @@ function pickCountry() {
   w3d.setSelectedCountry(-1);
   $('#country-card').classList.add('hidden');
   $('#country-confirm').disabled = true;
-  const nameIn = $('#player-name');
-  nameIn.value = nameIn.value || localStorage.getItem('theEarth.name') || '';
   const search = $('#country-search');
   search.value = '';
   const renderList = () => {
@@ -302,12 +300,11 @@ function refreshCountryInfo() {
 }
 
 async function joinCountry() {
-  const name = $('#player-name').value.trim();
-  if (!name) { $('#player-name').focus(); toast('플레이어 이름을 입력해 주세요'); return; }
+  // 이름은 묻지 않는다: 로그인했으면 계정 아이디, 아니면 서버가 '손님 ####'으로 정한다
   const c = geo.countries[selectedIdx];
-  try { localStorage.setItem('theEarth.name', name); } catch { /* */ }
   try {
-    const r = await api(`/api/servers/${ctx.server.id}/join`, { name, country: c.code });
+    const r = await api(`/api/servers/${ctx.server.id}/join`, { country: c.code });
+    const name = r.player?.name || '손님';
     ctx.session = { serverId: ctx.server.id, token: r.token, playerName: name, country: c.code, countryName: c.name, player: r.player, room: meta.maxAnns };
     live?.hello(r.token);
     saveSession({ serverId: ctx.server.id, token: r.token, playerName: name, country: c.code, countryName: c.name });
@@ -345,13 +342,13 @@ async function openCreator() {
 }
 
 async function deploy() {
-  if (!creator.anns.length) return toast('앤을 한 명 이상 만들어 주세요');
-  const ok = await modal(`<h3>🌱 앤 ${creator.anns.length}명을 투입할까요?</h3>
-    <p class="sub">투입한 순간부터 앤들은 스스로 생각하고 선택합니다. <b>더 이상 조종할 수 없습니다.</b><br>누구를 만나고, 어떤 일을 하고, 누구와 사랑에 빠질지 — 지켜보세요. 인생의 갈림길에선 앤이 <b>💭 마음속 목소리</b>인 당신에게 물어 오기도 합니다. 조언은 할 수 있지만, 결정은 앤의 몫이에요.</p>
+  if (!creator.anns.length) return toast('앤을 만들어 주세요');
+  const ok = await modal(`<h3>🌱 ${esc(creator.anns[0].name)}을(를) 투입할까요?</h3>
+    <p class="sub">한 계정에 앤은 한 명이에요. 투입한 순간부터 앤은 스스로 생각하고 선택합니다. <b>더 이상 조종할 수 없습니다.</b><br>누구를 만나고, 어떤 일을 하고, 누구와 사랑에 빠질지 — 지켜보세요. 인생의 갈림길에선 앤이 <b>💭 마음속 목소리</b>인 당신에게 물어 오기도 합니다. 조언은 할 수 있지만, 결정은 앤의 몫이에요.</p>
     <div class="acts"><button class="btn ghost" data-m="cancel">조금 더 고민할래요</button><button class="btn primary" data-m="ok">투입하기</button></div>`);
   if (ok !== 'ok') return;
   try {
-    const specs = creator.anns.map(a => ({ name: a.name, gender: a.gender, age: a.age, traits: a.traits, abilities: a.abilities, ambition: a.ambition }));
+    const specs = creator.anns.slice(0, 1).map(a => ({ name: a.name, gender: a.gender, age: a.age, traits: a.traits, abilities: a.abilities, ambition: a.ambition }));
     const r = await api(`/api/servers/${ctx.session.serverId}/deploy`, { token: ctx.session.token, anns: specs });
     sound.sfx('deploy');
     creator = null;
@@ -374,10 +371,22 @@ function observe(justDeployed = false, firstAnn = null, since = null) {
   w3d.setMyCountry(me?.country);
   hud = new Hud({
     state, w3d, live, me, meta,
+    // 내 앤이 세상을 떠났을 때: 아이·손주로 대를 잇거나, 새로 태어나기
     onDeployMore: async () => {
       const r = await api(`/api/servers/${ctx.session.serverId}/me?token=${encodeURIComponent(ctx.session.token)}`).catch(() => null);
-      if (!r || r.room <= 0) return hud.toast(`더 투입할 수 없습니다 (최대 ${meta.maxAnns}명)`);
-      ctx.session.room = r.room;
+      if (!r) return;
+      if (r.main) return hud.toast('한 계정에 앤은 한 명이에요. 내 앤이 살아 있어요');
+      const heirs = r.heirs || [];
+      const res = await modal(`<h3>🕯️ 이야기를 이어 갈까요?</h3>
+        <p class="sub">내 앤은 세상을 떠났어요. ${heirs.length ? '남은 아이·손주 중 한 명으로 <b>대를 이을</b> 수도 있고, ' : ''}새 앤으로 <b>다시 태어날</b> 수도 있어요.</p>
+        ${heirs.length ? `<div class="heir-list">${heirs.map(h => `<button class="btn" data-m="heir:${h.id}">${esc(h.n)} <small class="sub" style="margin:0">${h.g === 'M' ? '남' : '여'}${h.j ? ' · ' + esc(h.j) : ''}</small></button>`).join('')}</div>` : ''}
+        <div class="acts"><button class="btn ghost" data-m="cancel">나중에</button><button class="btn primary" data-m="ok">새로 태어나기</button></div>`);
+      if (res.startsWith('heir:')) {
+        try { const h = await api(`/api/servers/${ctx.session.serverId}/heir`, { token: ctx.session.token, ann: +res.slice(5) }); hud.toast(`${h.ann.n}의 이야기가 이어집니다`); hud.select(h.ann.id, true); } catch (e) { hud.toast(e.message); }
+        return;
+      }
+      if (res !== 'ok') return;
+      ctx.session.room = 1;
       openCreator();
     },
     onExit: async () => {

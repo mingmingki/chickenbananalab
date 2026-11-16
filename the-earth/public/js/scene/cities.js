@@ -889,7 +889,7 @@ export class Cities {
           const named = selected || dist < 0.45;
           labels.push({ key: 'ann' + id, pos: wp, cls: 'ann' + (selected ? ' sel' : '') + (named ? '' : ' mini'), html: named ? `<span class="e">${emoji}</span>${a.n}` : `<span class="e">${emoji}</span>`, pri: selected ? 3 : 2, annId: id, d: camPos.distanceTo(wp) });
           const line = (ps.act === 'talk' || ps.act === 'date' || ps.act === 'family' || ps.act === 'play') && talkLine.get(Math.min(id, ps.target || id));
-          if (line && dist < 0.9 && bubbles < 6 && id < (ps.target || Infinity)) {
+          if (line && dist < 0.9 && bubbles < (PHONE ? 4 : 6) && id < (ps.target || Infinity)) {
             bubbles++;
             const bp = p.clone().setY(4.6).applyMatrix4(t.g.matrix);
             const short = line.length > 70 ? line.slice(0, 68) + '…' : line;

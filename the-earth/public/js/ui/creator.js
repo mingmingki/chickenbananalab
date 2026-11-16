@@ -33,6 +33,11 @@ export class Creator {
     const w = keys.map(() => 0.5 + Math.random());
     const ws = w.reduce((s, v) => s + v, 0);
     keys.forEach((k, i) => { ab[k] = Math.max(10, Math.min(95, Math.round(w[i] / ws * rest))); });
+    // 반올림으로 300점을 넘거나 모자라지 않게 맞춘다
+    for (let guard = 0, diff = BUDGET - keys.reduce((s, k) => s + ab[k], 0); diff !== 0 && guard < 200; guard++) {
+      const k = keys[guard % keys.length], step = Math.sign(diff);
+      if (ab[k] + step >= 10 && ab[k] + step <= 95) { ab[k] += step; diff -= step; }
+    }
     return {
       name, gender: g, age: 18 + Math.floor(Math.random() * 10),
       traits: Object.fromEntries(TRAITS.map(t => [t[0], r50()])), abilities: ab, ambition: r50(22),
@@ -42,7 +47,7 @@ export class Creator {
 
   async open() {
     if (!this.anns.length) {
-      const n = Math.min(4, this.opts.room);
+      const n = Math.min(1, this.opts.room);
       for (let i = 0; i < n; i++) this.anns.push(await this.randomAnn(i % 2 ? 'F' : 'M'));
     }
     this.render();
@@ -76,7 +81,7 @@ export class Creator {
     const baby = this.opts.mode === 'baby';
     const banner = baby
       ? this.opts.village
-        ? `<div class="creator-mode">🏡 <b>${esc(this.opts.countryName)}에는 아직 문명이 없어요.</b> 관리자 앤 30여 명이 초가집에 모여 사는 <b>원시 마을</b>이 생기고, 당신의 앤들은 그 마을 가정에서 <b>아기로 태어납니다</b>. 처음엔 길도 없고 불도 모릅니다 — 며칠 뒤 누군가 불을 발견하고, 열흘쯤 뒤 농사를 알게 되면 논밭을 일구기 시작해요. 내 앤이 자라 가정을 꾸리면, 다음에 투입하는 앤은 그 집 아이로 태어납니다.</div>`
+        ? `<div class="creator-mode">🏡 <b>${esc(this.opts.countryName)}에는 아직 문명이 없어요.</b> 관리자 앤 30여 명이 초가집에 모여 사는 <b>원시 마을</b>이 생기고, 당신의 앤은 그 마을 가정에서 <b>아기로 태어납니다</b>. 처음엔 길도 없고 불도 모릅니다 — 며칠 뒤 누군가 불을 발견하고, 열흘쯤 뒤 농사를 알게 되면 논밭을 일구기 시작해요. 내 앤이 세상을 떠나면 그 아이나 손주로 대를 이을 수 있어요.</div>`
         : `<div class="creator-mode">👶 <b>${esc(this.opts.countryName)}에는 지금 가정이 ${this.opts.families}개 있어요.</b>${this.opts.mine ? ` 그중 <b>${this.opts.mine}곳은 내 앤이 꾸린 가정</b>이라, 앤은 대개 그 집 아이로 태어나요.` : ''} 앤들은 무작위로 고른 가정에서 <b>아기로 태어납니다</b> — 다른 플레이어가 먼저 투입한 앤들의 아이가 될 수도 있어요. 성은 태어난 집안을 따르고, 여기서 정한 성격·능력·야망은 타고난 기질이 됩니다. 학교가 있어야 학교에 다니고, 자라서 스스로 일과 사랑을 찾습니다.</div>`
       : `<div class="creator-mode">🌱 <b>${esc(this.opts.countryName)}에는 아직 가정이 없어요.</b> 앤들은 <b>개척자(어른)</b>로 도착합니다. 산과 강과 바다, 숲뿐인 땅에서 먹을 것과 쉴 곳을 찾는 것부터 시작해요. 처음엔 손수 움집과 흙벽돌 초가집을 짓고(이웃끼리 품앗이), 벽돌 가마가 생겨야 기와집·벽돌집을, 건설회사가 생겨야 큰 건물과 아파트를, 학교가 생겨야 아이들이 공부를 할 수 있습니다.</div>`;
     ed.innerHTML = `${banner}

@@ -205,6 +205,14 @@ const FMAT = {
   well: new THREE.MeshStandardMaterial({ color: 0x1d2b33, roughness: 0.2 }),
 };
 
+// 옛 살림집은 집마다 벽·지붕 빛깔이 다르다 (흙벽·회벽·황토, 새 짚·묵은 짚, 검은 기와·푸른 기와, 붉은 벽돌·검붉은 벽돌…)
+const HOME_PAL = {
+  hut: { wall: ['#8d6b48', '#7a5c3a', '#9a7a52', '#86684a'], roof: ['#8d6b48', '#a07c52', '#6e5236', '#94785a'] },
+  cottage: { wall: ['#cdb38a', '#d9c4a0', '#c49a6c', '#e3d6bd', '#b98d62', '#d6b48c', '#c8a57a', '#e9dfc9'], roof: ['#b9974f', '#c9a54e', '#a8874a', '#97804f', '#d4b25c', '#9c8456', '#b59a5e'] },
+  house: { wall: ['#e8e0cf', '#efe8d8', '#ddd2bd', '#e9dcc4', '#f2ece0'], roof: ['#4a5560', '#3b4148', '#55606b', '#5a4a3a', '#3f4a52', '#46505a'] },
+  brickhouse: { wall: ['#9c5a45', '#a8664c', '#8a4f3c', '#b87355', '#7d4a3a', '#a0705a', '#93603f'], roof: ['#5b3a2e', '#4a5058', '#6b3b2a', '#3f4a3f', '#7a4a32', '#545454'] },
+};
+
 /** 건물 하나 → THREE.Group */
 export function makeBuilding(cx, b, def, opts) {
   const { era = 0, snow = 0, hAt, cold = false } = opts;
@@ -213,6 +221,14 @@ export function makeBuilding(cx, b, def, opts) {
   grp.rotation.y = bRot(b);   // 옛 마을 집은 반듯하지 않게 조금씩 틀어 앉는다
   grp.userData.bid = b.id;
   const v = hash(b.id);
+  const pal = HOME_PAL[b.type];
+  if (pal) {
+    // 지붕 모양도 집마다: 초가는 둥근 지붕·우진각·맞배, 벽돌집은 맞배·우진각
+    const roofForm = b.type === 'cottage' ? (hash(b.id * 7) < 0.45 ? 'round' : hash(b.id * 7) < 0.7 ? 'hip' : 'gable') : b.type === 'brickhouse' ? (hash(b.id * 7) < 0.4 ? 'hip' : 'gable') : null;
+    def = { ...def, color: pal.wall[Math.floor(hash(b.id * 3) * pal.wall.length)], roofColor: pal.roof[Math.floor(hash(b.id * 11) * pal.roof.length)], form: roofForm };
+    // 키와 덩치도 조금씩 다르게 (마당 안에서)
+    if (b.done) { const k = 0.9 + hash(b.id * 17) * 0.12; grp.scale.set(k, 0.88 + hash(b.id * 23) * 0.28, k); }
+  }
   const col = new THREE.Color(def.color).offsetHSL((v - 0.5) * 0.04, 0, (v - 0.5) * 0.1);
   const hex = '#' + col.getHexString();
   const add = (geo, material, sx, sy, sz, x = 0, y = 0, z = 0, ry = 0) => {
@@ -411,7 +427,14 @@ function roof(cx, b, def, add, h, hex, snowy, grow = 1, ox = 0, oz = 0, rw = b.w
   const long = W >= D;
   const g = Math.max(0.05, grow);
   if (r === 'cone') add(GEO.cone, rc, W * 1.08, Math.max(W, D) * 0.55 * g, D * 1.08, 0, h);
-  else if (r === 'gable') {
+  else if (r === 'gable' && def.form === 'round') {
+    // 둥근 초가지붕: 처마가 낮게 둥글게 덮이고, 용마름이 얹힌다
+    const rh = Math.min(W, D) * 0.48 * g;
+    add(GEO.dome, rc, W * 1.24, rh * 1.15, D * 1.26, 0, h - 0.3);
+    if (g >= 1) add(GEO.box, M(snowy('#8a6f3e')), long ? W * 0.5 : 0.45, 0.3, long ? 0.45 : D * 0.5, 0, h - 0.3 + rh * 0.55, 0);
+  } else if (r === 'gable' && def.form === 'hip') {
+    add(GEO.pyr, rc, W * 1.16, Math.min(W, D) * 0.42 * g, D * 1.16, 0, h - 0.1);
+  } else if (r === 'gable') {
     const era = def.era ?? 0;
     const geo = era === 2 ? GEO.hanokRoof : GEO.prism;
     const ry = long ? Math.PI / 2 : 0;
@@ -535,16 +558,29 @@ function finished(cx, b, def, grp, add, { era, hex, snowy, v, cold }) {
   const yk = yardKind(b);
   if (yk) {
     const pts = yardPoly(b);
-    const wallM = yk === 'wall' ? M(snowy('#8f877c', 0.6)) : yk === 'hedge' ? M(snowy('#3f6b35', 0.5)) : M('#9a7b52');
-    const capM = yk === 'wall' ? M(snowy('#4a5560')) : null;
-    const hh = yk === 'wall' ? 1.3 : yk === 'hedge' ? 1.1 : 1.0, th = yk === 'fence' ? 0.12 : yk === 'hedge' ? 0.9 : 0.55;
+    const parts = [], C = c => new THREE.Color(snowy(c, 0.6));
+    const bx = (w, hgt, d, x, y, z, ry, c) => { const g = new THREE.BoxGeometry(w, hgt, d); g.rotateY(ry); g.translate(x, y + hgt / 2, z); parts.push(paintG(g, c)); };
+    const wallC = yk === 'wall' ? C('#8f877c') : yk === 'hedge' ? C('#3f6b35') : C('#9a7b52'), capC = C('#4a5560'), postC = C('#7a5c3a');
+    const hh = yk === 'wall' ? 1.3 : yk === 'hedge' ? 1.1 : 1.0, th = yk === 'hedge' ? 0.9 : 0.55;
     for (let k = 0; k < pts.length; k++) {
       const [x1, z1] = pts[k], [x2, z2] = pts[(k + 1) % pts.length];
       const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
       if (mz > 0 && Math.abs(mx) < Math.max(4, W * 0.35)) continue;   // 대문 자리
-      const len = Math.hypot(x2 - x1, z2 - z1), ang = Math.atan2(z2 - z1, x2 - x1);
-      add(GEO.box, wallM, len, hh, th, mx, 0, mz, -ang);
-      if (capM) add(GEO.box, capM, len, 0.25, th + 0.35, mx, hh, mz, -ang);
+      const len = Math.hypot(x2 - x1, z2 - z1), ang = -Math.atan2(z2 - z1, x2 - x1);
+      if (yk === 'fence') {
+        // 싸리 울타리: 1.2m마다 말뚝, 가로대 두 줄, 사이사이 싸릿대
+        const n = Math.max(1, Math.round(len / 1.2));
+        for (let i = 0; i <= n; i++) { const t = i / n; bx(0.11, 1.15, 0.11, x1 + (x2 - x1) * t, 0, z1 + (z2 - z1) * t, ang, postC); }
+        for (const y of [0.32, 0.78]) bx(len, 0.06, 0.06, mx, y, mz, ang, wallC);
+        for (let i = 0; i < n * 3; i++) { const t = (i + 0.5) / (n * 3); bx(0.035, 0.85 + ((i * 37) % 7) * 0.03, 0.035, x1 + (x2 - x1) * t, 0.05, z1 + (z2 - z1) * t, ang, wallC); }
+      } else {
+        bx(len, hh, th, mx, 0, mz, ang, wallC);
+        if (yk === 'wall') bx(len, 0.25, th + 0.35, mx, hh, mz, ang, capC);
+      }
+    }
+    if (parts.length) {
+      const g = mergeGeometries(parts); for (const p of parts) p.dispose();
+      const m = new THREE.Mesh(g, cx.detailMat()); m.userData.bid = b.id; m.userData.ownGeo = true; grp.add(m);
     }
   }
   // 아파트·연립: 층마다 발코니

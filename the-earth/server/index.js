@@ -344,9 +344,9 @@ app.post('/api/servers/:id/join', joinLimit, (req, res) => {
   const acc = authOf(req);
   if (acc?.banned) return res.status(403).json({ error: '이용이 정지된 계정입니다' });
   const { country } = req.body || {};
-  const name = String(req.body?.name || '').trim().slice(0, 20);
-  if (!name) return res.status(400).json({ error: '플레이어 이름을 입력해 주세요' });
-  const bad = badName(name); if (bad) return res.status(400).json({ error: `플레이어 이름: ${bad}` });
+  // 플레이어 이름은 따로 묻지 않는다: 로그인했으면 계정 아이디, 아니면 '손님 1234'
+  const name = (acc?.username || String(req.body?.name || '').trim() || `손님 ${Math.floor(1000 + Math.random() * 9000)}`).slice(0, 20);
+  const bad = badName(name, { reserved: !acc }); if (bad) return res.status(400).json({ error: `플레이어 이름: ${bad}` });
   if (!getCountry(country)) return res.status(400).json({ error: '나라를 선택하세요' });
   if (acc && db.gameOn(acc.id, w.id).length >= 3) return res.status(409).json({ error: '한 계정은 한 서버에서 게임을 3개까지 만들 수 있습니다. 이어하기를 눌러 주세요.' });
   const p = w.joinPlayer(name, country);
@@ -360,7 +360,8 @@ app.get('/api/servers/:id/me', (req, res) => {
   const w = getWorld(req, res); if (!w) return;
   const p = playerOf(w, req);
   if (!p) return res.status(404).json({ error: '플레이어를 찾을 수 없습니다' });
-  res.json({ player: w.playerOut(p), ach: p.ach || {}, anns: p.anns.map(id => w.anns.get(id)).filter(Boolean).map(a => w.annMeta(a)), room: MAX_ANNS_PER_PLAYER - p.anns.filter(id => { const a = w.anns.get(id); return a && (a.pdeploy || (a.gen === 1 && !a.parents.length)); }).length });
+  const main = w.mainAnn(p);
+  res.json({ player: w.playerOut(p), ach: p.ach || {}, anns: p.anns.map(id => w.anns.get(id)).filter(Boolean).map(a => w.annMeta(a)), main: main?.id ?? null, room: main ? 0 : 1, heirs: main ? [] : w.heirsOf(p).map(a => w.annMeta(a)) });
 });
 // 다시 들어왔을 때: 그동안 있었던 일
 app.get('/api/servers/:id/recap', (req, res) => {
@@ -436,7 +437,7 @@ app.post('/api/servers/:id/deploy', deployLimit, (req, res) => {
   if (authOf(req)?.banned) return res.status(403).json({ error: '이용이 정지된 계정입니다' });
   const p = playerOf(w, req);
   if (!p) return res.status(404).json({ error: '플레이어를 찾을 수 없습니다' });
-  const specs = Array.isArray(req.body?.anns) ? req.body.anns.slice(0, MAX_ANNS_PER_PLAYER) : [];
+  const specs = Array.isArray(req.body?.anns) ? req.body.anns.slice(0, 1) : [];
   if (!specs.length) return res.status(400).json({ error: '앤을 한 명 이상 만들어 주세요' });
   for (const s of specs) {
     const bad = badName(String(s?.name || '').slice(0, 20));
@@ -449,6 +450,15 @@ app.post('/api/servers/:id/deploy', deployLimit, (req, res) => {
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
+});
+
+// 대를 잇기: 내 앤이 세상을 떠났을 때 그 아이·손주 한 명을 이어받는다
+app.post('/api/servers/:id/heir', deployLimit, (req, res) => {
+  const w = getWorld(req, res); if (!w) return;
+  const p = playerOf(w, req);
+  if (!p) return res.status(404).json({ error: '플레이어를 찾을 수 없습니다' });
+  try { const a = w.takeHeir(p, +req.body?.ann); saveWorld(w); res.json({ ann: w.annMeta(a) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 app.get('/api/servers/:id/ann/:annId', (req, res) => {

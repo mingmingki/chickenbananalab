@@ -13,6 +13,7 @@ import { setKidPlan, startLeave, leaveDaily, onLeave, retire, enlist, draftDaily
 import { dietDaily, pantryDaily, kitchenDaily, foodOut, diet, healthTarget } from './food.js';
 import { catchDaily, chronicDaily, spreadDaily, illName, illOut, recovered } from './illness.js';
 import { mediaDaily, mediaOut, starOut } from './media.js';
+import { faithDaily, religionDaily, faithOut, religionOut } from './religion.js';
 import { seedVillage, villageDaily, migrateStart } from './village.js';
 import { companyDaily, considerPromotion, jobTitle, leaveJob, foundPublic, dailyCost, wageBase, setJob, assignContractor, siteName, hasConstruction, fullDayPay, annualOf } from './economy.js';
 import { childName, givenOf, familyName } from './names.js';
@@ -25,7 +26,8 @@ import { getCountry, randomLandPoint, seaNear } from '../geo.js';
 import { RELATION_NAMES, SKILLS } from './data.js';
 
 const PLAYER_COLORS = ['#ff6b6b', '#4dabf7', '#ffd43b', '#69db7c', '#da77f2', '#ff922b', '#3bc9db', '#f783ac', '#a9e34b', '#9775fa', '#ffa8a8', '#74c0fc'];
-export const MAX_ANNS_PER_PLAYER = 12;
+// 한 계정(플레이어)에 앤은 한 명. 그 앤이 세상을 떠나면 아이·손주 중 한 명으로 대를 잇거나 새로 태어난다
+export const MAX_ANNS_PER_PLAYER = 1;
 
 export class World {
   constructor(meta = {}) {
@@ -398,6 +400,7 @@ export class World {
     villageDaily(this, c);
     // 방송과 연예 (산업 시대부터): 편성·시청률·데뷔·음원 차트·영화·시상식·스캔들 — media.js
     mediaDaily(this, c);
+    religionDaily(this, c);
     if (c.era >= 4) this.dirtyCountries.add(c.code);
     // 나라 살림: 하루 세수·공무원 인건비의 이동 평균
     c.taxAvg = (c.taxAvg ?? (c.taxIn || 0)) * 0.95 + (c.taxIn || 0) * 0.05;
@@ -584,10 +587,42 @@ export class World {
     return s;
   }
 
+  /** 지금 이 플레이어의 앤 (살아 있는 한 명) */
+  mainAnn(player) {
+    const a = player.main != null ? this.anns.get(player.main) : null;
+    if (a?.alive && a.owner === player.id) return a;
+    for (const id of player.anns) { const b = this.anns.get(id); if (b?.alive && b.owner === player.id) { player.main = b.id; return b; } }
+    return null;
+  }
+  /** 앤이 떠난 뒤 대를 이을 수 있는 사람: 내 앤들의 살아 있는 아이·손주 (다른 플레이어의 앤이 아닌) */
+  heirsOf(player) {
+    const mine = new Set(player.anns);
+    const out = [];
+    for (const a of this.anns.values()) {
+      if (!a.alive || a.owner) continue;
+      const kid = a.parents.some(id => mine.has(id));
+      const grand = !kid && a.parents.some(id => this.anns.get(id)?.parents?.some(g => mine.has(g)));
+      if (kid || grand) out.push(a);
+    }
+    return out.sort((x, y) => x.born - y.born).slice(0, 12);
+  }
+  /** 대를 잇기: 떠난 앤의 아이·손주 한 명이 이제 내 앤이 된다 */
+  takeHeir(player, annId) {
+    if (this.mainAnn(player)) throw new Error('내 앤이 아직 살아 있어요');
+    const a = this.heirsOf(player).find(x => x.id === annId);
+    if (!a) throw new Error('대를 이을 수 있는 앤이 아닙니다');
+    a.owner = player.id; player.main = a.id;
+    if (!player.anns.includes(a.id)) player.anns.push(a.id);
+    lifeEvent(this, a, '집안의 대를 이었다', '🕯️');
+    this.news('player', `🕯️ ${player.name}의 이야기가 ${a.name}에게 이어진다`, { country: a.country, anns: [a.id] }, 1);
+    this.dirtyAnnMeta.add(a.id);
+    return a;
+  }
+
   deployAnns(player, specs) {
-    // 투입 한도는 직접 투입한 1세대만 센다 (태어난 후손은 제외)
-    const room = MAX_ANNS_PER_PLAYER - player.anns.filter(id => this.anns.get(id)?.pdeploy || this.anns.get(id)?.gen === 1 && !this.anns.get(id)?.parents.length).length;
-    if (room <= 0) throw new Error(`한 플레이어는 앤을 최대 ${MAX_ANNS_PER_PLAYER}명까지 투입할 수 있습니다`);
+    // 한 계정에 앤은 한 명: 살아 있는 내 앤이 있으면 더 투입할 수 없다
+    if (this.mainAnn(player)) throw new Error('한 계정에 앤은 한 명이에요. 내 앤이 살아 있는 동안은 더 투입할 수 없습니다');
+    const room = 1;
     const c = this.ensureCountry(player.country);
     // 아직 아무도 살지 않는 나라면 첫 마을(관리자 앤들의 원시 마을)부터 생긴다
     this.homeSettlement(c.code);
@@ -599,6 +634,7 @@ export class World {
         const fam = this.pickFamily(c.code, born.map(b => b.fam), player.id) || this.pickFamily(c.code, [], player.id);
         if (!fam) break;
         const baby = this.bornIntoFamily(player, sanitizeSpec(raw), fam);
+        player.main = baby.id;
         born.push({ baby, fam });
       }
       if (born.length) {
@@ -616,6 +652,7 @@ export class World {
       const a = makeAnn(this, { ...spec, culture: c.culture, owner: player.id, country: c.code, sid: s.id, x, z, money: wageBase(c.era) * 5 });
       this.anns.set(a.id, a);
       player.anns.push(a.id);
+      player.main = a.id;
       a.pdeploy = true;
       remember(this, a, `${s.name}에 첫발을 내디뎠다`, 9, 0.6, [], 'life');
       lifeEvent(this, a, `개척자로 ${c.name} ${s.name}에 도착했다 — 아직 아무것도 없는 자연`, '🌱');
@@ -827,6 +864,7 @@ export class World {
     const now = this.clock;
     const age = ageOf(a, now);
     if (age >= 1) dietDaily(this, a);   // 먹은 것이 몸에 쌓인다 (건강·체중) — food.js
+    faithDaily(this, a);                // 믿음: 물려받고, 깊어지고, 옅어지고, 옮겨 간다 — religion.js
     const c = this.countries[a.country];
     const s = this.settlements.get(a.sid);
     const today = dateOf(now), bday = dateOf(a.born);
@@ -1004,7 +1042,6 @@ export class World {
       remember(this, p, `${gender === 'M' ? '아들' : '딸'} ${ga(name)} 태어났다`, 10, 1, [baby.id], 'family');
       lifeEvent(this, p, `${gender === 'M' ? '아들' : '딸'} ${name} 탄생`, '👶');
       feel(p, 35, '감격', name);
-      if (p.owner) { const pl = this.players[p.owner]; if (pl && baby.owner === p.owner && !pl.anns.includes(baby.id)) pl.anns.push(baby.id); }
     }
     // 형제
     for (const sibId of mother.kids) {
@@ -1203,6 +1240,15 @@ export class World {
     w.lastDay = Math.floor(w.clock / DAY);
     w.paused = !!o.paused;
     for (const p of Object.values(w.players)) { p.ach = p.ach || {}; p.inbox = p.inbox || []; p.asks = p.asks || []; p.askLog = p.askLog || []; if (p.eraAtJoin == null) p.eraAtJoin = 0; }
+    // 한 계정 = 앤 한 명: 예전에 여러 명을 투입했거나 아이가 '내 앤'으로 따라붙은 경우, 처음 투입한 한 명만 남긴다
+    for (const p of Object.values(w.players)) {
+      const alive = p.anns.map(id => w.anns.get(id)).filter(a => a?.alive && a.owner === p.id);
+      const keep = alive.find(a => a.id === p.main) || alive.find(a => a.pdeploy) || alive[0] || null;
+      p.main = keep ? keep.id : (p.main ?? null);
+      for (const a of w.anns.values()) if (a.alive && a.owner === p.id && a !== keep) { a.owner = null; a.ask = null; }
+      p.anns = p.anns.filter(id => { const a = w.anns.get(id); return !a || !a.alive || a === keep; });
+      p.asks = (p.asks || []).filter(q => !keep || q.ann == null || q.ann === keep.id);
+    }
     migrateStart(w);
     return w;
   }
@@ -1259,6 +1305,7 @@ export class World {
       leader: L ? { id: L.id, name: L.name, title: ERAS[c.era].leader } : null, pop: c.pop, treasury: Math.round(c.treasury), tax: Math.round(c.tax * 100),
       discoveries: c.discoveries, capital: c.capital, history: c.history.slice(-40), founded: c.founded, topEdu: c.topEdu || 0,
       media: mediaOut(this, c),
+      faiths: religionOut(c),
     };
   }
   companyOut(co) {
@@ -1368,6 +1415,7 @@ export class World {
       wedAt: a.wedAt ?? null, cohab: !!a.cohab,
       food: a.alive ? (diet(this, a), foodOut(this, a)) : null,
       ill: a.alive ? illOut(this, a) : null,
+      rel: faithOut(a),
       ...starOut(this, a),
     };
   }

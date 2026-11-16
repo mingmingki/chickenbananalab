@@ -69,10 +69,6 @@
       <button class="btn ghost back" data-act="back" data-icon="back">서버 목록</button>
       <h2>나라 선택</h2>
       <p class="sub">지구를 돌려 나라를 고르세요. 같은 나라를 고른 다른 플레이어의 앤들과 함께 살아가게 됩니다.</p>
-      <label class="field">
-        <span>플레이어 이름</span>
-        <input id="player-name" maxlength="20" placeholder="이름을 입력하세요" />
-      </label>
       <input id="country-search" class="search" placeholder="나라 이름으로 찾기…" />
       <div id="country-results" class="country-results"></div>
       <div id="country-card" class="country-card hidden"></div>
@@ -86,19 +82,19 @@
     <div class="sheet wide">
       <header class="sheet-head">
         <button class="btn ghost back" data-act="back" data-icon="back">나라 선택</button>
-        <h2>앤 만들기 <small id="creator-country"></small></h2>
-        <p class="sub">성격과 능력, 야망을 정해 주세요. 그 다음부터는 앤이 스스로 생각하고 선택합니다.</p>
+        <h2>내 앤 만들기 <small id="creator-country"></small></h2>
+        <p class="sub">한 계정에 앤은 한 명이에요. 성격과 능력, 야망을 정해 주세요. 그 다음부터는 앤이 스스로 생각하고 선택합니다.</p>
       </header>
       <div class="creator-body">
-        <aside class="ann-roster">
+        <aside class="ann-roster hidden">
           <div id="roster"></div>
-          <button class="btn" data-act="add-ann" data-icon="plus">앤 추가</button>
+          <button class="btn hidden" data-act="add-ann" data-icon="plus">앤 추가</button>
           <p id="roster-room" class="sub small"></p>
         </aside>
         <div class="ann-editor" id="editor"></div>
       </div>
       <div class="sheet-foot">
-        <button class="btn" data-act="random-all" data-icon="dice">모두 무작위</button>
+        <button class="btn" data-act="random-all" data-icon="dice">무작위</button>
         <button class="btn primary big" data-act="deploy" data-icon="deploy">투입하기</button>
       </div>
     </div>
@@ -114,7 +110,7 @@
       </div>
       <div class="top-actions">
         <span id="hud-me" class="chip"></span>
-        <button class="btn small" data-act="deploy-more" id="btn-deploy-more" data-icon="plus">앤 투입</button>
+        <button class="btn small hidden" data-act="deploy-more" id="btn-deploy-more" data-icon="plus">다시 시작</button>
         <button class="btn small ghost icon-only" data-act="home" data-icon="home" title="내 나라로" aria-label="내 나라로"></button>
         <button class="btn small ghost icon-btn icon-only hidden" data-act="asks" id="btn-ask" data-icon="ask" title="앤의 질문" aria-label="앤의 질문"><i id="ask-badge" class="badge hidden">0</i></button>
         <button class="btn small ghost icon-btn icon-only" data-act="inbox" id="btn-inbox" data-icon="bell" title="알림함" aria-label="알림함"><i id="inbox-badge" class="badge hidden">0</i></button>
