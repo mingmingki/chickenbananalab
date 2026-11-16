@@ -102,6 +102,8 @@ const BLACK = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); BLACK
 // 자료가 오기 전: 높이 0 · 물 0 · 얕은 바다 / 초원 정도
 const AUX0 = new THREE.DataTexture(new Uint8Array([0, 0, 40, 255]), 1, 1); AUX0.needsUpdate = true;
 const TERR0 = new THREE.DataTexture(new Uint8Array([110, 50, 0, 255]), 1, 1); TERR0.needsUpdate = true;
+// 실제 지형 그림이 아직 없을 때 (A = 0: 자료 없음)
+const NODET = new THREE.DataTexture(new Uint8Array([128, 0, 0, 0]), 1, 1); NODET.needsUpdate = true;
 const NOISE_GLSL = `
   // 격자 번호를 1024 로 감아서 해시한다 — 땅을 아주 가까이서 볼 때(좌표가 수십만 칸) 숫자 정밀도가 무너져 줄무늬가 생기지 않게
   float hash3(vec3 p){ p = mod(p, 1024.0); p = fract(p*0.3183099+.1); p *= 17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
@@ -128,6 +130,9 @@ export function makeEarth(textures) {
     time: { value: 0 },
     camAlt: { value: 20000 },                   // 카메라 높이 (km)
     camUp: { value: new THREE.Vector3(0, 1, 0) }, // 카메라 바로 위 방향
+    // 실제 지형 (terrain.js): 촘촘한 겹(F)과 성긴 겹(C), 각각 메르카토르 상자 (x0, y0, 너비, 높이)
+    detF: { value: NODET }, detC: { value: NODET }, boxF: { value: new THREE.Vector4() }, boxC: { value: new THREE.Vector4() },
+    sizeF: { value: 1 }, sizeC: { value: 1 }, detAmt: { value: 0 },
   };
   const mat = new THREE.ShaderMaterial({
     // 휴대폰은 프랙탈을 7단계까지만 (발열·배터리) — 컴퓨터는 10단계
@@ -147,43 +152,51 @@ export function makeEarth(textures) {
       uniform vec3 sunDir; uniform float hoverId; uniform float myId; uniform float lightsFade;
       uniform float season; uniform float imagery; uniform float relief; uniform float cloudShift; uniform float cloudAmt; uniform float time;
       uniform float camAlt; uniform vec3 camUp;
+      uniform sampler2D detF; uniform sampler2D detC; uniform vec4 boxF; uniform vec4 boxC; uniform float sizeF; uniform float sizeC; uniform float detAmt;
       varying vec2 vUv; varying vec3 vN; varying vec3 vW;
       ${NOISE_GLSL}
       // 프랙탈 잡음 세 가지. 단계마다 무늬를 돌려(M3) 격자 결이 안 보이게 하고,
       // 화면 한 점(px km)보다 잘아지는 단계는 서서히 지워서 확대·축소할 때 이음매가 생기지 않게 한다.
       const mat3 M3 = mat3(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64);
       float lodW(float s, float px) { return clamp(s / px * 0.5 - 1.0, 0.0, 1.0); }   // 2px 에서 0, 4px 에서 1
+      float cutK(float s, float cut, float cs) { return 1.0 - cut * smoothstep(cs, cs * 2.0, s); }
       // 해안선·높이 흔들기: s0 크기부터 잘게
-      float fbmTo(vec3 p, float s0, float px) {
+      float fbmCut(vec3 p, float s0, float px, float cut, float cs) {
         px = max(px, 0.02);                       // 40m 보다 잘게는 쌓지 않는다 (그 아래는 마을 땅이 맡는다)
         vec3 q = p / s0; float s = s0, a = 0.5, v = 0.0;
         for (int i = 0; i < MAXOCT; i++) {
           float w = lodW(s, px);
           if (w <= 0.0) break;
+          w *= cutK(s, cut, cs);
           v += a * w * (noise3(q) - 0.5);
           q = M3 * q * 2.0 + 1.7; s *= 0.5; a *= 0.62;
         }
         return v;
       }
+      float fbmTo(vec3 p, float s0, float px) { return fbmCut(p, s0, px, 0.0, 1.0); }
       // 언덕 높이: 단계마다 크기와 높이를 함께 절반으로 — 어느 배율에서 봐도 비탈이 비슷하다
-      float hillFbm(vec3 p, float s0, float px) {
+      // cut·cs: 실제 지형이 있는 곳(cut → 1)에선 cs 보다 큰 무늬를 빼고 그보다 잔 것만 얹는다.
+      // (무늬 크기 자체를 바꾸면 경계에서 무늬가 점마다 뒤틀려 지글거리므로, 크기는 그대로 두고 세기만 줄인다)
+      float hillFbm(vec3 p, float s0, float px, float cut, float cs) {
         px = max(px, 0.02);
         vec3 q = p / s0; float s = s0, a = 0.5, v = 0.0;
         for (int i = 0; i < MAXOCT; i++) {
           float w = lodW(s, px * 1.5);
           if (w <= 0.0) break;
+          w *= cutK(s, cut, cs);
           v += a * w * (noise3(q) - 0.5);
           q = M3 * q * 2.0 + 3.1; s *= 0.5; a *= 0.5;
         }
         return v;
       }
       // 산줄기: 잡음이 0.5 를 지나는 곳마다 뾰족한 능선이 선다 (굵은 능선이 잔 능선을 이끈다)
-      float ridgeFbm(vec3 p, float s0, float px) {
+      float ridgeFbm(vec3 p, float s0, float px, float cut, float cs) {
         px = max(px, 0.02);
         vec3 q = p / s0; float s = s0, a = 0.5, v = 0.0, g = 1.0;
         for (int i = 0; i < MAXOCT; i++) {
           float w = lodW(s, px * 1.5);
           if (w <= 0.0) break;
+          w *= cutK(s, cut, cs);
           float nz = noise3(q);
           if (i < 4) {
             float d = nz * 2.0 - 1.0;
@@ -208,6 +221,30 @@ export function makeEarth(textures) {
         float aw = max(px / s * 1.2, 0.02);
         return vec4(hash3(c), hash3(c + 3.7), 1.0 - smoothstep(aw * 0.5, aw * 1.6, e), smoothstep(px * 2.0, px * 6.0, s));
       }
+      // 실제 지형 그림: R×256 + G − 32768 = 높이(m). 일차식이라 이웃 칸을 섞어도 맞는 값이다
+      float decH(vec4 t) { return t.r * 65280.0 + t.g * 255.0 - 32768.0; }
+      // 한 겹 읽기 → x = 높이(m), y = 땅(0~1), z = 이 겹을 쓸 비율, w = 한 칸 크기(km)
+      //   g = 기울기 (동쪽, 북쪽 · m/m), lp = 오목함 (+ 골짜기, − 능선)
+      vec4 detAt(sampler2D T, vec4 box, float W, vec2 mm, float cl, float px, out vec2 g, out float lp) {
+        g = vec2(0.0); lp = 0.0;
+        float tk = box.z * 40075.0 * cl / W;
+        if (box.z <= 0.0) return vec4(0.0, 0.0, 0.0, tk);
+        vec2 uv = vec2(fract(mm.x - box.x) / box.z, (mm.y - box.y) / box.w);
+        float edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+        // 상자 가장자리는 서서히, 그리고 한 칸이 화면 점보다 많이 잘면(멀리 비스듬히) 쓰지 않는다 — 지글거림 방지
+        // (px 는 화면 한 점이 덮는 땅을 넉넉하게 잰 값이라 실제 한 점의 1.5~2배)
+        float w = smoothstep(0.0, 0.06, edge) * smoothstep(0.12, 0.35, tk / px);
+        if (w <= 0.0) return vec4(0.0, 0.0, 0.0, tk);
+        float d = 1.0 / W;
+        vec4 c = texture2D(T, uv);
+        float hc = decH(c);
+        float he = decH(texture2D(T, uv + vec2(d, 0.0))), hw = decH(texture2D(T, uv - vec2(d, 0.0)));
+        float hs = decH(texture2D(T, uv + vec2(0.0, d))), hn = decH(texture2D(T, uv - vec2(0.0, d)));
+        float m = tk * 1000.0;
+        g = vec2(he - hw, hn - hs) / (2.0 * m);
+        lp = (he + hw + hn + hs - 4.0 * hc) / m;
+        return vec4(hc, c.b, w * c.a, tk);
+      }
       void main() {
         #include <logdepthbuf_fragment>
         vec3 n = normalize(vN);
@@ -222,6 +259,22 @@ export function makeEarth(textures) {
         vec3 ov = texture2D(ovMap, vUv).rgb;                // 땅 모양 · 고른 나라 · 내 나라
         float lat = (vUv.y - 0.5) * 180.0;
 
+        // ── 실제 지형 (가까이 볼 때): terrain.js 가 받아 둔 둘레의 실제 고도 ──
+        float detW = 0.0, hmD = 0.0, mskD = 0.0, lpD = 0.0, tkD = 50.0; vec2 grD = vec2(0.0);
+        if (detAmt > 0.0 && abs(lat) < 85.0) {
+          float latR = lat * 0.01745329;
+          vec2 mm = vec2(vUv.x, 0.5 - log(tan(0.7853982 + latR * 0.5)) / 6.2831853);
+          float cl = cos(latR);
+          vec2 g1, g2; float l1, l2;
+          vec4 dc = detAt(detC, boxC, sizeC, mm, cl, px, g1, l1);
+          vec4 df = detAt(detF, boxF, sizeF, mm, cl, px, g2, l2);
+          if (df.z > 0.0 || dc.z > 0.0) {
+            float wf = dc.z > 0.0 ? df.z : 1.0;
+            hmD = mix(dc.x, df.x, wf); mskD = mix(dc.y, df.y, wf); grD = mix(g1, g2, wf); lpD = mix(l1, l2, wf); tkD = mix(dc.w, df.w, wf);
+            detW = max(dc.z, df.z) * detAmt;
+          }
+        }
+
         // ── 해안선: 나라 다각형의 부드러운 경계 + 프랙탈 ──
         // 호수: 실제 호수 모양(ov.b)에 잔 프랙탈을 얹어 물가가 자연스럽게
         // (fwidth 는 if 안에서 쓰면 이웃 점이 안 들어온 경우 값이 엉터리가 될 수 있어 밖에서 미리 잰다)
@@ -233,11 +286,21 @@ export function makeEarth(textures) {
         }
         float base = clamp(ov.r - lake, 0.0, 1.0);
         float f = base - 0.5 + fbmTo(vW, 48.0, px) * 0.8;
+        if (detW > 0.0) {
+          // 실제 해안: 0m 보다 높으면 땅 (나라 지도에 없는 작은 섬까지). 나라 지도(1:50m)는 해안이 뭉툭하므로
+          // 해안 근처에선 실제 높이를 따르고, 안쪽 땅은 바다보다 낮아도(간척지·저지대) 땅으로 둔다
+          float inland = smoothstep(0.9, 0.99, ov.r) * smoothstep(-260.0, -180.0, hmD);
+          float landD = clamp(max(mskD, inland) - lake, 0.0, 1.0);
+          // (잔 무늬는 실제 지형을 다 쓸 때만 — 경계에서 두 해안선이 섞이며 점점이 지글거리지 않게)
+          float fD = landD - 0.5 + fbmCut(vW + 23.0, 48.0, px, 1.0, tkD * 2.5) * 0.7 * detW * detW;
+          f = mix(f, fD, detW);
+        }
         float aa = max(fwidth(f), 1e-4);
         float land = smoothstep(-aa, aa, f);
 
         // ── 땅 ──
-        float h = aux.r;
+        float h = mix(aux.r, max(hmD, 0.0) / 6400.0, detW);   // 높이: 0~1 = 0~6,400m
+        float slD = length(grD);                                // 실제 비탈 (m/m)
         float veg = ter.r, dry = ter.g, ice = ter.b, snow = cli.r, red = cli.g;
         float m1 = noise3(vW / 220.0), m2 = noise3(vW / 55.0);
         vec3 forest = vec3(0.085, 0.215, 0.085), grass = vec3(0.30, 0.47, 0.18), dryG = vec3(0.62, 0.57, 0.33);
@@ -258,7 +321,7 @@ export function makeEarth(textures) {
         }
         // 들녘: 평지·적당히 푸른 땅·온대~열대에 논밭이 모여 있다 (중간 배율부터 보인다)
         float winter0 = lat > 0.0 ? season : 1.0 - season;
-        float flat0 = 1.0 - smoothstep(0.06, 0.2, h);
+        float flat0 = (1.0 - smoothstep(0.06, 0.2, h)) * (1.0 - smoothstep(0.035, 0.11, slD) * detW);
         float farm = land * flat0 * smoothstep(0.16, 0.38, veg) * (1.0 - smoothstep(0.82, 0.96, veg)) * (1.0 - smoothstep(0.5, 0.78, dry)) * (1.0 - ice) * (1.0 - smoothstep(54.0, 63.0, abs(lat)));
         farm *= smoothstep(0.4, 0.62, noise3(vW / 70.0) * 0.7 + noise3(vW / 23.0) * 0.3 + (veg - 0.45) * 0.25);
         if (farm > 0.001) {
@@ -277,11 +340,23 @@ export function makeEarth(textures) {
           col = mix(col, fc, fw * 0.6);
           col *= 1.0 - max(fa.z * fa.w, fb.z * fb.w * 0.6) * farm * 0.13;   // 둑·농로
         }
-        float hd = h > 0.04 ? h + fbmTo(vW, 30.0, px) * 0.16 * smoothstep(0.04, 0.25, h) : h;
+        float hd = h > 0.04 ? h + fbmTo(vW, 30.0, px) * 0.16 * smoothstep(0.04, 0.25, h) * (1.0 - detW * 0.8) : h;
         // 산: 숲이 짙은 고장은 꽤 높이까지 숲으로 덮이고, 메마른 곳은 일찍 바위가 드러난다
         col = mix(col, mix(col, forest * 1.1, smoothstep(0.45, 0.8, veg)), smoothstep(0.06, 0.2, hd) * (1.0 - dry) * 0.7);
         col = mix(col, rock, smoothstep(0.18, 0.45, hd) * 0.8 * (1.0 - smoothstep(0.5, 0.85, veg) * 0.55));
         col = mix(col, vec3(0.60, 0.53, 0.41), smoothstep(0.5, 0.62, h) * (1.0 - veg) * 0.6);   // 높은 고원은 누런 흙빛
+        if (detW > 0.0) {
+          // 실제 지형의 결: 비탈엔 숲이 짙고, 벼랑엔 바위가 드러나고, 골짜기 바닥은 푸르고 능선은 밝다
+          float cv = clamp(lpD * 4.0, -1.0, 1.0);
+          col = mix(col, forest * 1.08, smoothstep(0.06, 0.22, slD) * smoothstep(0.3, 0.7, veg) * (1.0 - smoothstep(0.2, 0.45, hd)) * 0.45 * detW);
+          col = mix(col, rock * 0.95, smoothstep(0.45, 0.95, slD) * (1.0 - ice) * 0.55 * detW);
+          col *= 1.0 - cv * 0.10 * detW;
+          col = mix(col, col * vec3(0.92, 1.03, 0.9), max(cv, 0.0) * smoothstep(0.2, 0.6, veg) * 0.5 * detW);
+          // 메마른 땅: 울퉁불퉁한 바위 고원·산은 짙은 갈색, 평평한 모래벌은 밝게 (실제 지형을 따라 무늬가 생긴다)
+          float rough = smoothstep(0.006, 0.07, slD);
+          float dryK = smoothstep(0.35, 0.8, dry) * (1.0 - veg) * detW;
+          col = mix(col, mix(col * vec3(1.05, 1.03, 0.99), mix(rock, ochre, 0.35) * 0.85, rough), dryK * 0.65);
+        }
         // 만년설: 적도 쪽은 아주 높은 봉우리만, 극지방으로 갈수록 낮은 산까지
         float snowLine = mix(0.9, 0.22, smoothstep(25.0, 60.0, abs(lat)));
         col = mix(col, iceC, clamp(max(ice, smoothstep(snowLine, snowLine + 0.08, hd)), 0.0, 1.0));
@@ -307,11 +382,12 @@ export function makeEarth(textures) {
           col = mix(col, cw, near);
         }
         // 바닷가 모래 (가까이서만)
-        float beach = (1.0 - smoothstep(0.0, max(aa * 3.0, 0.02), f)) * smoothstep(1.5, 0.15, px) * (1.0 - ice);
+        float beach = (1.0 - smoothstep(0.0, max(aa * 3.0, 0.02), f)) * smoothstep(1.5, 0.15, px) * (1.0 - ice) * (1.0 - smoothstep(0.05, 0.2, slD) * detW * 0.8);
         col = mix(col, vec3(0.86, 0.80, 0.63), beach * 0.75);
 
         // ── 바다·호수 ──
         float depth = clamp(aux.b / 0.6, 0.0, 1.0);
+        depth = mix(depth, pow(smoothstep(0.0, 4200.0, -hmD), 0.6), detW);   // 실제 바다 깊이: 대륙붕·해구·해산이 보인다
         float coastW = smoothstep(-0.3, 0.0, f);
         vec3 wcol = mix(vec3(0.035, 0.16, 0.32), vec3(0.012, 0.06, 0.16), smoothstep(0.3, 0.9, depth));
         wcol = mix(wcol, vec3(0.06, 0.30, 0.45), smoothstep(0.35, 0.05, depth) * 0.85);
@@ -321,7 +397,7 @@ export function makeEarth(textures) {
         wcol *= 1.0 + (m2 - 0.5) * 0.12;
         wcol = mix(wcol, iceC * 0.94, ice * (1.0 - lake) * 0.85);   // 극지방의 바다 얼음
         float foam = smoothstep(-max(aa * 4.0, 0.03), 0.0, f) * smoothstep(1.2, 0.12, px);
-        wcol = mix(wcol, vec3(0.86, 0.93, 0.96), foam * 0.55);
+        wcol = mix(wcol, vec3(0.86, 0.93, 0.96), foam * mix(0.55, 0.3, detW));
 
         vec3 c0 = mix(wcol, col, land);
         // 나라 강조: 살짝 밝게
@@ -341,16 +417,24 @@ export function makeEarth(textures) {
         float hx = texture2D(auxMap, vUv + vec2(tx.x, 0.0)).r - texture2D(auxMap, vUv - vec2(tx.x, 0.0)).r;
         float hy = texture2D(auxMap, vUv + vec2(0.0, tx.y)).r - texture2D(auxMap, vUv - vec2(0.0, tx.y)).r;
         vec3 nb = normalize(n - (east * hx + north * hy) * relief * 5.0 * imagery * land);
+        if (detW > 0.0) {
+          // 실제 고도의 기울기로 빛을 받는다. 넓게 볼수록 높이를 과장해 산줄기가 또렷하게
+          float ex = mix(2.0, 8.0, smoothstep(0.1, 8.0, tkD));
+          vec3 nd = normalize(n - (east * grD.x + north * grD.y) * ex);
+          nb = normalize(mix(nb, nd, detW * land));
+        }
         float ndlb = dot(nb, sunDir);
         // 언덕·산 주름: 프랙탈 높이를 화면 기울기로 법선에 얹는다 (가볍고, 확대할수록 세밀하다)
         // (해안에서 높이가 뚝 끊기면 검은 테두리가 생기므로 land 는 곱하지 않는다 — 물에서는 어차피 안 쓴다)
         float mtnK = smoothstep(0.08, 0.4, h);
         float rug = smoothstep(0.012, 0.1, h);
-        float hillAmp = (0.75 + rug * 1.4 + mtnK * 1.0) * smoothstep(4000.0, 60.0, camD) * smoothstep(0.003, 0.01, px) * smoothstep(2.0, 6.0, camAlt) * (1.0 - ice * 0.6) * step(0.001, land + smoothstep(-0.3, 0.0, f));
+        // 실제 지형이 있으면, 잔 언덕은 그 그림 한 칸보다 작은 크기부터만 얹는다 (기울기는 같게)
+        float hillAmp = (1.0 - detW * 0.4) * (0.75 + rug * 1.4 + mtnK * 1.0) * smoothstep(4000.0, 60.0, camD) * smoothstep(0.003, 0.01, px) * smoothstep(2.0, 6.0, camAlt) * (1.0 - ice * 0.6) * step(0.001, land + smoothstep(-0.3, 0.0, f));
         float hillN = 0.0;
         if (hillAmp > 0.0) {
           // 낮은 땅은 둥근 언덕만, 높은 산은 능선만, 그 사이만 둘 다 계산한다
-          float hill = (mtnK < 0.01 ? hillFbm(vW, 40.0, px) : mtnK > 0.99 ? ridgeFbm(vW, 60.0, px) : mix(hillFbm(vW, 40.0, px), ridgeFbm(vW, 60.0, px), mtnK)) * hillAmp * 9.6;
+          float cs = tkD * 1.5;
+          float hill = (mtnK < 0.01 ? hillFbm(vW, 40.0, px, detW, cs) : mtnK > 0.99 ? ridgeFbm(vW, 60.0, px, detW, cs) : mix(hillFbm(vW, 40.0, px, detW, cs), ridgeFbm(vW, 60.0, px, detW, cs), mtnK)) * hillAmp * 9.6;
           vec3 dp1 = dFdx(vW), dp2 = dFdy(vW);
           float dh1 = dFdx(hill), dh2 = dFdy(hill);
           vec3 r1 = cross(dp2, nb), r2 = cross(nb, dp1);

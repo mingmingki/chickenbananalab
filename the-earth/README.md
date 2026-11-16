@@ -44,6 +44,13 @@ npm start            # http://localhost:3000
 
 강·호수 자료 만들기: `python3 scripts/make-hydro.py <폴더>` — [Natural Earth](https://www.naturalearthdata.com/) (퍼블릭 도메인)의 `ne_10m_rivers_lake_centerlines`·`ne_50m_lakes` 를 줄여 `public/geo/hydro.json` (압축 전송 약 250KB)에 담는다.
 
+실제 지형 (가까이 볼 때): 보고 있는 곳 둘레의 **실제 고도 타일**을 받아 진짜 산줄기·골짜기·섬 많은 해안(남해안 다도해 같은)·바다 밑 지형을 그린다.
+- 서버가 [AWS 공개 자료 Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (terrarium 형식, SRTM·GMTED2010·ETOPO1 등을 모은 것)를 받아 `DATA_DIR/tiles/` 에 보관하고 `/tiles/terrain/{z}/{x}/{y}.png` 로 나눠 준다 (`server/tiles.js`). 휴대폰은 우리 서버하고만 이야기한다. 1m 아래 소수점 칸은 지워서 다시 담아 바다가 많은 타일은 1/3 크기로 줄인다.
+- 화면(`public/js/scene/terrain.js`)은 두 겹으로 받는다: 가운데 촘촘한 그림(컴퓨터 5×5, 휴대폰 4×4 타일)과 그 네 배 넓이의 성긴 그림. 지구 셰이더가 이 높이로 빛·그늘, 비탈의 숲과 벼랑의 바위, 골짜기와 능선, 만년설, 해안선, 바다 깊이를 칠한다. 그 밖은 지구 전체 그림(2K)을 쓴다.
+- 환경 변수: `TERRAIN_TILES=off` (끄기), `TERRAIN_TILES_URL` (다른 곳에서 받기), `TILE_CACHE_MB` (보관 한도, 기본 800MB — 넘으면 오래된 것부터 지운다).
+- 지구 전체 그림의 높이·바다 깊이도 같은 자료로 만든다: `python3 scripts/make-relief.py` (z4 타일 256장) — 멀리서 본 지구와 가까이서 본 지형이 이어지게.
+- 출처 표기(필수)는 게임 설정 › 도움말 › '지도·지형 자료 출처'에 있다: ArcticDEM (DigitalGlobe, NSF 1043681·1559691·1542736), Geoscience Australia, 오스트리아 DGM, Open Government Licence – Canada, Copernicus EU-DEM, NOAA ETOPO1, INEGI, LINZ, Kartverket, Environment Agency, USGS 3DEP·GMTED2010·SRTM.
+
 지형 자료 만들기: `python3 scripts/make-terrain.py` — NASA Visible Earth 블루 마블 사진(퍼블릭 도메인, 7월·1월, `scripts/earth-src/`)의 색에서 식생·건조함·얼음·눈·바다 깊이 값만 뽑는다. 사진 자체는 게임에서 쓰지 않는다.
 
 ## 화면

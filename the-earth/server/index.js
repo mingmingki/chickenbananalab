@@ -12,6 +12,7 @@ import { loadGeo, getCountry } from './geo.js';
 import { World, MAX_ANNS_PER_PLAYER } from './sim/world.js';
 import { loadWorlds, saveWorld, deleteWorld } from './store.js';
 import * as db from './db.js';
+import { terrainTiles } from './tiles.js';
 import { badName } from './lib/names-filter.js';
 import { securityHeaders, inlineScriptHashes, limiter, clientIp } from './lib/security.js';
 import { initPush, pushPublicKey, queuePush, flushPush, sendPush } from './push.js';
@@ -81,6 +82,8 @@ for (const page of ['privacy', 'terms']) {
 }
 app.use(express.static(PUBLIC_DIR, { extensions: ['html'], setHeaders: (res, p) => { if (p.endsWith('sw.js')) res.set('Cache-Control', 'no-cache'); } }));
 app.use('/vendor/three', express.static(join(ROOT, 'node_modules', 'three'), { maxAge: '7d' }));
+// 실제 지형 높이 타일 (받아서 보관해 두고 나눠 준다)
+terrainTiles(app, db.DATA_DIR);
 
 function escHtml(v) { return String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 const getWorld = (req, res) => {

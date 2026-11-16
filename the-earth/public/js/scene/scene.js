@@ -10,6 +10,7 @@ import { CameraRig } from './camera.js';
 import { Cities } from './cities.js';
 import { Labels } from './labels.js';
 import { Weather } from './weather.js';
+import { TerrainDetail } from './terrain.js';
 import { PHONE, TOUCH } from '../device.js';
 
 export class World3D {
@@ -38,6 +39,8 @@ export class World3D {
     // 땅과 바다는 셰이더가 직접 그린다. 어디가 숲·사막·얼음인지, 바다가 얼마나 깊은지 담은 자료만 받는다
     this.ready = loadEarthData().then(d => { if (d) this.earth.setData(d); });
     this.earthRoot.add(this.earth.group);
+    // 실제 지형: 보고 있는 곳 둘레의 실제 고도 타일을 받아 산줄기·골짜기·섬·바다 밑까지 그린다
+    this.detail = new TerrainDetail(this.earth.uniforms);
     // 국경선·나라 테두리는 선으로 (확대해도 또렷하게)
     this.vec = new EarthVectors(this.earth.group, countries, borders, renderer);
     // 강과 호수 (Natural Earth): 강은 선으로, 호수는 땅 모양 그림에 칠한다
@@ -229,6 +232,7 @@ export class World3D {
       this.rig.update(dt);
     }
     this.space.update(minutes, this.camera, this.time);
+    this.detail.update(this.rig.cur, dt);
     this.earth.uniforms.sunDir.value.copy(this.space.sunDir);
     const alt = this.rig.alt;
     // 도시 불빛 텍스처는 우주에서 볼 때만 (가까이서는 실제 건물 창문 불빛)

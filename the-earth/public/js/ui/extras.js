@@ -258,6 +258,25 @@ export async function disablePush() {
 }
 
 // ── 설정 ──
+// 지도·지형 자료 출처 (실제 고도 타일은 출처 표기가 필요하다: tilezen/joerd docs/attribution.md)
+const CREDITS = `<ul>
+  <li>지구 표면 색(숲·사막·얼음·눈): NASA 지구 관측 위성 사진 Blue Marble 에서 뽑은 값</li>
+  <li>나라 경계·강·호수: Natural Earth (퍼블릭 도메인)</li>
+  <li>실제 고도·바다 깊이: Terrain Tiles (AWS 공개 자료, Mapzen) —
+    ArcticDEM terrain data DEM(s) were created from DigitalGlobe, Inc., imagery and funded under National Science Foundation awards 1043681, 1559691, and 1542736;
+    Australia terrain data © Commonwealth of Australia (Geoscience Australia) 2017;
+    Austria terrain data © offene Daten Österreichs – Digitales Geländemodell (DGM) Österreich;
+    Canada terrain data contains information licensed under the Open Government Licence – Canada;
+    Europe terrain data produced using Copernicus data and information funded by the European Union - EU-DEM layers;
+    Global ETOPO1 terrain data U.S. National Oceanic and Atmospheric Administration;
+    Mexico terrain data source: INEGI, Continental relief, 2016;
+    New Zealand terrain data Copyright 2011 Crown copyright (c) Land Information New Zealand and the New Zealand Government (All rights reserved);
+    Norway terrain data © Kartverket;
+    United Kingdom terrain data © Environment Agency copyright and/or database right 2015. All rights reserved;
+    United States 3DEP (formerly NED) and global GMTED2010 and SRTM terrain data courtesy of the U.S. Geological Survey.</li>
+  <li>글꼴: 주아체(배달의민족)·Pretendard (SIL OFL) · 아이콘: Lucide (ISC)</li>
+</ul>`;
+
 export async function settingsModal({ toast, onAccount, onTutorial, google = false } = {}) {
   const ps = await pushState().catch(() => ({ ok: false, why: 'unsupported' }));
   const acc = account();
@@ -281,6 +300,7 @@ export async function settingsModal({ toast, onAccount, onTutorial, google = fal
     </section>
     <section class="set-sec"><h4>❓ 도움말</h4>
       <div class="row-acts">${onTutorial ? '<button class="btn small" data-m="tutorial">처음 안내 다시 보기</button>' : ''}<a class="btn small ghost" href="${serverUrl('/terms')}" target="_blank">이용약관</a><a class="btn small ghost" href="${serverUrl('/privacy')}" target="_blank">개인정보 처리방침</a></div>
+      <details class="credits"><summary>지도·지형 자료 출처</summary>${CREDITS}</details>
     </section>
     <p class="form-err hidden"></p>
     <div class="acts"><button class="btn primary" data-m="close">닫기</button></div>`;
