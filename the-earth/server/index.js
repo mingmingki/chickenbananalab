@@ -36,6 +36,24 @@ const ADMIN_KEY = process.env.ADMIN_KEY || '';
 const OPEN_SERVERS = process.env.OPEN_SERVERS === '1'; // 개발용: 누구나 서버를 열 수 있게
 const SAVE_EVERY_MS = 60_000;
 const STARTED = Date.now();
+const VERSION = readVersion();
+
+// 지금 돌고 있는 게임 버전 — 자동 업데이트(deploy/gcp-setup.sh 의 earth-update)가 version.json 을 남긴다.
+// 개발할 때는 git 의 HEAD 를 읽는다. 버전이 바뀌면 열려 있던 화면이 새로고침을 권한다.
+function readVersion() {
+  try { const v = JSON.parse(readFileSync(join(ROOT, 'version.json'), 'utf8')); if (v.commit) return v; } catch { /* */ }
+  for (const g of [join(ROOT, '.git'), join(dirname(ROOT), '.git')]) {
+    try {
+      const head = readFileSync(join(g, 'HEAD'), 'utf8').trim();
+      if (!head.startsWith('ref: ')) return { commit: head.slice(0, 7) };
+      const ref = head.slice(5);
+      let hash = '';
+      try { hash = readFileSync(join(g, ref), 'utf8').trim(); } catch { hash = readFileSync(join(g, 'packed-refs'), 'utf8').split('\n').find(l => l.endsWith(' ' + ref))?.split(' ')[0] || ''; }
+      if (hash) return { commit: hash.slice(0, 7) };
+    } catch { /* */ }
+  }
+  return { commit: 'dev' };
+}
 
 const geo = loadGeo();
 const worlds = loadWorlds();
@@ -506,13 +524,13 @@ app.post('/api/push/test', needAuth, limiter(5, 600_000), async (req, res) => {
 const stats = { tickMs: 0, tickMax: 0, ticks: 0, slowTicks: 0, wsPeak: 0 };
 app.get('/healthz', (req, res) => {
   const lag = Date.now() - lastTickAt;
-  res.status(lag < 10_000 ? 200 : 503).json({ ok: lag < 10_000, uptime: Math.round((Date.now() - STARTED) / 1000), worlds: worlds.size, clients: clients.size, tickMs: Math.round(stats.tickMs) });
+  res.status(lag < 10_000 ? 200 : 503).json({ ok: lag < 10_000, version: VERSION.commit, uptime: Math.round((Date.now() - STARTED) / 1000), worlds: worlds.size, clients: clients.size, tickMs: Math.round(stats.tickMs) });
 });
 
 app.get('/api/admin/overview', needAdmin, (req, res) => {
   const mem = process.memoryUsage();
   res.json({
-    uptime: Math.round((Date.now() - STARTED) / 1000), node: process.version, mem: { rss: mem.rss, heap: mem.heapUsed },
+    uptime: Math.round((Date.now() - STARTED) / 1000), version: VERSION, node: process.version, mem: { rss: mem.rss, heap: mem.heapUsed },
     tick: { avgMs: Math.round(stats.tickMs * 10) / 10, maxMs: Math.round(stats.tickMax), slow: stats.slowTicks, count: stats.ticks },
     clients: clients.size, wsPeak: stats.wsPeak, accounts: db.accountCount(), openReports: db.openReports(), dbPath: db.dbPath,
     worlds: [...worlds.values()].map(w => ({ ...w.summary(), timeScale: w.runScale || w.timeScale, anns: w.anns.size, buildings: w.buildings.size, companies: [...w.companies.values()].filter(c => !c.dead).length, settlements: w.settlements.size, saveMs: Math.round(w._saveMs || 0), saveKB: Math.round((w._saveBytes || 0) / 1024), watchers: [...clients].filter(c => c.world === w).length })),
@@ -647,7 +665,7 @@ wss.on('connection', (ws, req) => {
   const client = { ws, world: w, watch: null, lastDetail: 0, pid: null, visible: true, seenAt: Date.now(), msgs: 0, msgReset: Date.now() + 10_000 };
   clients.add(client);
   stats.wsPeak = Math.max(stats.wsPeak, clients.size);
-  ws.send(JSON.stringify({ t: 'init', ...w.initPayload() }));
+  ws.send(JSON.stringify({ t: 'init', v: VERSION.commit, ...w.initPayload() }));
   ws.on('message', raw => {
     if (Date.now() > client.msgReset) { client.msgs = 0; client.msgReset = Date.now() + 10_000; }
     if (++client.msgs > 60) return; // 10초에 60개 넘게 보내면 무시

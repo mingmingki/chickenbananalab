@@ -47,6 +47,24 @@ function toast(text) {
   toast.t = setTimeout(() => { t.classList.add('hidden'); if (!hud) $('#hud').classList.add('hidden'); }, 3000);
 }
 
+// 서버가 새 버전으로 바뀌었는지 (자동 업데이트 뒤 다시 이어질 때 알 수 있다)
+// 앱(휴대폰 안에 화면 파일이 있는 경우)은 화면 파일이 따로 바뀌지 않으므로 묻지 않는다.
+let seenVersion = null;
+function checkVersion(v) {
+  if (!v || NATIVE) return;
+  if (!seenVersion) { seenVersion = v; return; }
+  if (v === seenVersion || $('#update-bar')) return;
+  // 화면을 안 보고 있으면 바로, 보고 있으면 눌러서 (보던 것을 끊지 않게). 다른 앱으로 넘어가면 그때 새로고침.
+  if (document.hidden) return location.reload();
+  const bar = document.createElement('button');
+  bar.id = 'update-bar';
+  bar.className = 'update-bar';
+  bar.textContent = '새 버전이 나왔어요 · 새로고침';
+  bar.onclick = () => location.reload();
+  document.body.append(bar);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) location.reload(); });
+}
+
 async function boot() {
   hydrateIcons(document);
   $('#loading').classList.remove('hidden');
@@ -220,7 +238,7 @@ function connect(serverId) {
   state.reset();
   live = new Live(serverId, {
     notes: m => { hud?.onNotes(m.notes); const top = m.notes.slice().sort((a, b) => b.lvl - a.lvl)[0]; if (top) sound.forIcon(top.icon); },
-    init: m => state.applyInit(m),
+    init: m => { checkVersion(m.v); state.applyInit(m); },
     tick: m => {
       state.applyTick(m);
       hud?.onTick();

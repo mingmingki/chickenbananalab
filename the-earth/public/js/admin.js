@@ -78,7 +78,7 @@ const overview = o => `<div class="card"><h2>서버 상태</h2><div class="stats
   <div class="stat"><b>${o.clients}</b><small>지금 접속 (최고 ${o.wsPeak})</small></div>
   <div class="stat"><b>${o.accounts}</b><small>가입 계정</small></div>
   <div class="stat"><b>${o.openReports}</b><small>처리 안 된 신고</small></div>
-  </div><p class="sub">Node ${esc(o.node)} · DB ${esc(o.dbPath)}</p></div>
+  </div><p class="sub">버전 ${esc(o.version?.commit || '?')}${o.version?.time ? ' (' + esc(new Date(o.version.time).toLocaleString('ko-KR')) + ')' : ''}${o.version?.subject ? ' · ' + esc(o.version.subject) : ''}</p><p class="sub">Node ${esc(o.node)} · DB ${esc(o.dbPath)}</p></div>
   <div class="card"><h2>월드</h2>${worldTable(o.worlds, false)}</div>`;
 
 const worldTable = (ws, acts) => `<div class="tablewrap"><table><tr><th>서버</th><th>날짜</th><th>인구</th><th>플레이어</th><th>건물·회사</th><th>관전</th><th>저장</th>${acts ? '<th></th>' : ''}</tr>

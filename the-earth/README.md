@@ -294,7 +294,14 @@ gcloud compute ssh the-earth --zone=us-central1-a
 # VM 안에서 (관리자로 쓸 아이디를 넣는다)
 curl -fsSL https://raw.githubusercontent.com/mingmingki/chickenbananalab/claude/earth-game-dev-mefzml/the-earth/deploy/gcp-setup.sh | sudo bash -s -- 내아이디
 ```
-끝나면 `https://….trycloudflare.com` 주소가 나온다. `earth-url` 로 다시 보고, `sudo earth-update` 로 새 버전을 받는다 (세계·계정·주소 그대로). VM 을 다시 켜면 주소가 바뀐다 — 고정 주소가 필요하면 내 도메인 + Cloudflare 이름 있는 터널로 바꾼다.
+끝나면 `https://….trycloudflare.com` 주소가 나온다. `earth-url` 로 다시 본다. VM 을 다시 켜면 주소가 바뀐다 — 고정 주소가 필요하면 내 도메인 + Cloudflare 이름 있는 터널로 바꾼다.
+
+**자동 업데이트** — 이 브랜치에 새 커밋이 올라오면 VM 이 2분 안에 스스로 받아 다시 켠다 (세계·계정·주소 그대로, 게임은 몇 초 끊겼다 다시 이어진다). 따로 접속할 필요가 없다.
+- 2분마다 `git ls-remote` 한 번으로 새 버전이 있는지만 본다. 부품 목록(`package-lock.json`)이 바뀐 때만 `npm ci` 를 다시 한다. 받는 동안에도 낮은 우선순위·CPU 50% 상한.
+- 새 버전이 켜지지 않으면(`/healthz` 가 90초 안에 대답하지 않으면) 바로 전 버전으로 되돌리고, 그 버전은 건너뛴 채 다음 커밋을 기다린다.
+- 지금 돌고 있는 버전은 `/healthz` 의 `version`, 관리자 화면 첫 장에 나온다. 열려 있던 화면은 서버가 새 버전으로 바뀌면 위에 「새 버전이 나왔어요 · 새로고침」을 띄운다 (다른 앱으로 넘어가 있으면 바로 새로고침).
+- 기록 `sudo journalctl -u the-earth-autoupdate -n 30` · 지금 바로 받기 `sudo earth-update` · 끄기 `sudo systemctl disable --now the-earth-autoupdate.timer`
+- 예전에 깔아 자동 업데이트가 없는 VM 은 설치 줄을 한 번 더 실행한다 (아이디 없이 `| sudo bash` — 관리자 아이디·포트·상한은 깔려 있던 그대로 쓴다).
 
 **Fly.io** (도쿄 `nrt` 지역 — 한국에서 가까움)
 ```bash
