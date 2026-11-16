@@ -167,7 +167,10 @@ async function showServers() {
   list.innerHTML = '<p class="empty">서버 목록을 불러오는 중…</p>';
   const servers = await api('/api/servers');
   const sessions = allSessions();
-  $('#btn-new-server').classList.toggle('hidden', !(meta.openServers || account()?.admin));
+  // 새 서버는 관리자만 연다 (서버도 관리자가 아니면 거절한다)
+  const canOpen = !!(meta.openServers || account()?.admin);
+  $('#btn-new-server').classList.toggle('hidden', !canOpen);
+  if (canOpen && account()?.admin) $('#btn-new-server').lastChild.textContent = '새 서버 열기 · 관리자';
   list.innerHTML = servers.map(s => {
     const mine = sessions.find(x => x.serverId === s.id);
     return `<div class="server-card">
@@ -176,7 +179,6 @@ async function showServers() {
       <div class="acts">
         ${mine ? `<button class="btn primary" data-continue="${s.id}">이어하기</button>` : ''}
         <button class="btn ${mine ? '' : 'primary'}" data-join="${s.id}">새로 시작</button>
-        <button class="btn ghost small" data-watch="${s.id}">👁️ 관전</button>
       </div>
       <p class="sub small" style="grid-column:1">${new Date(s.created).toLocaleDateString('ko-KR')} 개설 — 1년 1월 1일부터 시작된 세계${s.paused ? ' · ⏸ 점검 중' : ''}</p>
     </div>`;
@@ -185,9 +187,8 @@ async function showServers() {
     const t = e.target;
     if (t.closest('[data-act=back]')) { show('intro'); return; }
     if (t.closest('[data-act=new-server]')) return newServer();
-    const j = t.closest('[data-join]'), w = t.closest('[data-watch]'), c = t.closest('[data-continue]');
+    const j = t.closest('[data-join]'), c = t.closest('[data-continue]');
     if (j) { ctx.server = servers.find(s => s.id === j.dataset.join); pickCountry(); }
-    if (w) { ctx.server = servers.find(s => s.id === w.dataset.watch); ctx.session = null; observe(); }
     if (c) {
       const sess = sessions.find(x => x.serverId === c.dataset.continue);
       try {
