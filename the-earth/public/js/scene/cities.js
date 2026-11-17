@@ -8,6 +8,7 @@ import { paintRoads, buildRoadProps, roadLampMats, signalPhase, ROAD_STYLE } fro
 import { TownVehicles } from './vehicles.js';
 import { buildRoadMeshes } from './roadmesh.js';
 import { People, dress } from './people.js';
+import { makeWarp } from './warp.js';
 import { treeColor, seasonOfMonth, WX } from './weather.js';
 import { dateOf } from '../state.js';
 import { PHONE } from '../device.js';
@@ -229,6 +230,7 @@ export class Cities {
     this.root.add(marker);
     const t = { s, g, marker, base, center: up.clone().multiplyScalar(base), up, east, south, bver: 0, buildings: new THREE.Group(), bmap: new Map(), ground: null, anns: null, dots: null, ids: [], groundKey: '' };
     t.terrain = new Terrain(s.site);
+    t.W = makeWarp(s.id);     // 마을 전체를 함께 휘는 물결 (warp.js)
     const hc = new Map();
     t.hAt = (x, z) => {
       const k = Math.round(x / 2) * 100003 + Math.round(z / 2);
@@ -288,6 +290,7 @@ export class Cities {
     geo.setAttribute('alpha', new THREE.BufferAttribute(alpha, 1));
     geo.setIndex(idx);
     geo.computeVertexNormals();
+    t.W.geo(geo);
     const landMat = withDetail(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, transparent: true }), 1 / 3, 0.3);
     const ob = landMat.onBeforeCompile;
     landMat.onBeforeCompile = sh => {
@@ -329,7 +332,7 @@ export class Cities {
         prevOk = ok;
       }
       const rg = new THREE.BufferGeometry();
-      rg.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3)); rg.setIndex(ri); rg.computeVertexNormals();
+      rg.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3)); rg.setIndex(ri); rg.computeVertexNormals(); t.W.geo(rg);
       const river = new THREE.Mesh(rg, new THREE.MeshStandardMaterial({ color: 0x2f74a6, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.92, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, depthWrite: false }));
       river.renderOrder = 2;
       t.g.add(river);
@@ -371,6 +374,7 @@ export class Cities {
     const core = devR > 0 ? devR + 40 : 45;
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3(), col = new THREE.Color();
     let n = 0;
+    t.treeShade = [];
     for (const [x, h, z, s, kind] of t.treeList) {
       if (x * x + z * z < core * core) continue;
       let hit = false;
@@ -378,7 +382,9 @@ export class Cities {
       if (hit) continue;
       const r = ((s * 7919.37) % 1 + 1) % 1;
       const bare = sea.season === '겨울' && kind === 0 && r < 0.6 && t.s.site?.biome !== 'tropical';
-      sc.set(s * (bare ? 0.7 : 1), s * (kind ? 1.25 : 1), s * (bare ? 0.7 : 1)); p.set(x, h - 0.3, z);
+      sc.set(s * (bare ? 0.7 : 1), s * (kind ? 1.25 : 1), s * (bare ? 0.7 : 1));
+      const [wx, wz] = t.W.P(x, z); p.set(wx, h - 0.3, wz);
+      t.treeShade.push([x, z, sc.x, sc.y]);
       m.compose(p, q, sc);
       t.treeCrown.setMatrixAt(n, m); t.treeTrunk.setMatrixAt(n, m);
       t.treeCrown.setColorAt(n, treeColor(col, sea.season, sea.month, sea.snow, kind, r, t.s.site?.biome));
@@ -428,6 +434,7 @@ export class Cities {
       const pa = geo.attributes.position;
       for (let i = 0; i < pa.count; i++) pa.setY(i, t.hAt(pa.getX(i), pa.getZ(i)) + 0.45);
       geo.computeVertexNormals();
+      t.W.geo(geo);   // 칠한 길·마당·밭이 함께 휜다
       const ground = new THREE.Mesh(geo, withDetail(new THREE.MeshStandardMaterial({ map: tex, roughness: 1, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 })));
       ground.renderOrder = 1;
       t.g.add(ground);
@@ -444,11 +451,13 @@ export class Cities {
       t.roadKey = roadKey;
       if (t.roadProps) { t.g.remove(t.roadProps.grp); t.roadProps.grp.traverse(o => o.dispose?.()); }
       t.roadProps = buildRoadProps(this.roadsOf(s, real), works, t.hAt, { signals: s.signals, stops: s.bus?.stops, era });
+      t.W.tree(t.roadProps.grp);
       t.g.add(t.roadProps.grp);
       // 입체 노면·보도 (가까이서도 또렷하게)
       if (t.roadMesh) { t.g.remove(t.roadMesh.grp); t.roadMesh.grp.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } }); }
       t.roadMesh = buildRoadMeshes(this.roadsOf(s, real), works, t.hAt, { signals: s.signals });
       t.roadMesh.snow.value = s.snow || 0;
+      t.W.tree(t.roadMesh.grp);
       t.g.add(t.roadMesh.grp);
       this.colorRoadTrees(t);
     }
@@ -465,6 +474,7 @@ export class Cities {
       const def = this.meta.buildings[b.type] || { roof: 'flat', color: '#999', kind: 'work' };
       const m = makeBuilding(this.bctx, b, def, { era, snow: snowB, hAt: t.hAt, cold });
       m.userData.key = key;
+      t.W.obj(m);   // 휜 길을 따라 돌아앉는다
       t.buildings.add(m);
       t.bmap.set(b.id, m);
     }
@@ -537,6 +547,7 @@ export class Cities {
       im.setColorAt(i, col);
     });
     im.frustumCulled = false;
+    t.W.inst(im);
     t.g.add(im);
     t.shrubs = im;
   }
@@ -551,6 +562,7 @@ export class Cities {
     const M = 96, geo = new THREE.PlaneGeometry(2 * rg, 2 * rg, M, M).rotateX(-Math.PI / 2);
     const pa = geo.attributes.position;
     for (let i = 0; i < pa.count; i++) pa.setY(i, t.hAt(pa.getX(i), pa.getZ(i)) + 0.68);
+    t.W.geo(geo);
     const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x141c2a, alphaMap: tex, transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
     mesh.renderOrder = 5;
     t.g.add(mesh);
@@ -612,13 +624,9 @@ export class Cities {
       blob(x + ox * 3.7, z + oz * 3.7, 1.9);
     }
     // 마을 둘레 숲 나무 (지면 그림 범위 안만)
-    if (t.treeCrown && t.treeCrown.count) {
-      const mm = new THREE.Matrix4(), pp = new THREE.Vector3(), qq = new THREE.Quaternion(), ss = new THREE.Vector3();
-      for (let i = 0; i < t.treeCrown.count; i++) {
-        t.treeCrown.getMatrixAt(i, mm); mm.decompose(pp, qq, ss);
-        if (Math.abs(pp.x) > rg || Math.abs(pp.z) > rg) continue;
-        blob(pp.x + ox * 6 * ss.y, pp.z + oz * 6 * ss.y, 2.6 * ss.x);
-      }
+    for (const [x, z, sx, sy] of t.treeShade || []) {
+      if (Math.abs(x) > rg || Math.abs(z) > rg) continue;
+      blob(x + ox * 6 * sy, z + oz * 6 * sy, 2.6 * sx);
     }
     g.globalCompositeOperation = 'source-over';
     sh.tex.needsUpdate = true;
@@ -841,6 +849,7 @@ export class Cities {
         const a = state.anns.get(id);
         if (!a) continue;
         const ip = state.interp(ps);
+        const [wx, wz] = t.W.P(ip.x, ip.z);
         // 차를 모는 앤은 차로, 버스 안의 앤(승객·기사)은 버스로 보인다
         if (ps.mode === 1) driving.push({ id, x: ip.x, z: ip.z, h: ip.h ?? ps.heading ?? 0 });
         else if (a.cr && a.h && dist < 6) {
@@ -856,14 +865,14 @@ export class Cities {
         if (showDots && (!hidden || ps.mode === 1)) {
           col.set(state.playerColor(a.o));
           if (selected) col.set('#ffffff');
-          dpos[dn * 3] = ip.x; dpos[dn * 3 + 1] = t.hAt(ip.x, ip.z) + 3.5; dpos[dn * 3 + 2] = ip.z;
+          dpos[dn * 3] = wx; dpos[dn * 3 + 1] = t.hAt(ip.x, ip.z) + 3.5; dpos[dn * 3 + 2] = wz;
           dcol[dn * 3] = col.r; dcol[dn * 3 + 1] = col.g; dcol[dn * 3 + 2] = col.b;
           dn++;
         }
         if (selected) {
           this.selMarker.visible = true;
           if (this.selMarker.parent !== t.g) t.g.add(this.selMarker);
-          this.selMarker.position.set(ip.x, t.hAt(ip.x, ip.z) + 0.7, ip.z);
+          this.selMarker.position.set(wx, t.hAt(ip.x, ip.z) + 0.7, wz);
           const s = Math.max(1, Math.min(40, dist * 30));
           this.selMarker.children[0].scale.setScalar(Math.max(1, s * 0.15));
         }
@@ -876,9 +885,9 @@ export class Cities {
         const spec = t.anns.spec(id, `${townEra}|${townSea}|${duty ? 1 : 0}${school ? 1 : 0}${townRain ? 1 : 0}|${Math.floor(age / 4)}|${a.jk || ''}`, () => dress(id, a, age, townEra, townSea, duty, school, townRain));
         const play = ps.act === 'play' && !walking && age < 13;
         const lift = walking ? Math.abs(Math.sin(time * 8.5 + id * 1.7)) * 0.025 : play ? Math.abs(Math.sin(time * 6 + id)) * 0.22 : 0;
-        q.setFromAxisAngle(up, ps.heading || 0);
+        q.setFromAxisAngle(up, (ps.heading || 0) + t.W.rot(ip.x, ip.z));
         sc.set(hs, hs, hs);
-        p.set(ip.x, t.hAt(ip.x, ip.z) + 0.55 + lift, ip.z);
+        p.set(wx, t.hAt(ip.x, ip.z) + 0.55 + lift, wz);
         tmpM.compose(p, q, sc);
         t.anns.add(tmpM, spec, { walk: walking, run: walking && ps.act === 'exercise', t: time, id, age, talk: !walking && (ps.act === 'talk' || ps.act === 'date' || ps.act === 'family'), work: !walking && ps.act === 'build' });
         t.ids[n] = id;
@@ -902,8 +911,8 @@ export class Cities {
       // 차와 버스
       t.veh = t.veh || new TownVehicles(t.g);
       const buses = [];
-      for (const [bid, b] of state.buses) if (b.sid === t.s.id && b.on) { const bp = state.interp(b); buses.push({ id: bid, x: bp.x, z: bp.z, h: bp.h ?? b.h, co: t.s.bus?.co }); if (dist < 1.2 && b.no) { const wp = new THREE.Vector3(bp.x, t.hAt(bp.x, bp.z) + 4.5, bp.z).applyMatrix4(t.g.matrix); labels.push({ key: 'bus' + bid, pos: wp, cls: 'ann mini', html: `🚌 ${b.no}호 · ${b.riders}명`, pri: 2, d: camPos.distanceTo(wp) }); } }
-      t.veh.update(driving, parked, buses, t.hAt, dist < 6);
+      for (const [bid, b] of state.buses) if (b.sid === t.s.id && b.on) { const bp = state.interp(b); buses.push({ id: bid, x: bp.x, z: bp.z, h: bp.h ?? b.h, co: t.s.bus?.co }); if (dist < 1.2 && b.no) { const [bx2, bz2] = t.W.P(bp.x, bp.z); const wp = new THREE.Vector3(bx2, t.hAt(bp.x, bp.z) + 4.5, bz2).applyMatrix4(t.g.matrix); labels.push({ key: 'bus' + bid, pos: wp, cls: 'ann mini', html: `🚌 ${b.no}호 · ${b.riders}명`, pri: 2, d: camPos.distanceTo(wp) }); } }
+      t.veh.update(driving, parked, buses, t.hAt, dist < 6, t.W);
       // 신호등 불빛 (빨강 → 초록 → 노랑, 공사 마지막 시험 운영은 노란불 깜빡)
       if (t.roadProps?.lamps?.length && dist < 6) {
         const blinkOn = Math.floor(time * 2) % 2 === 0;
@@ -926,7 +935,7 @@ export class Cities {
     const b = state.buses.get(id);
     const s = b && state.settlements.get(b.sid);
     if (!s) return null;
-    const ip = state.interp(b), ll = localToLL(s, ip.x, ip.z), t = this.towns.get(b.sid);
+    const ip = state.interp(b), t = this.towns.get(b.sid), wp = t ? t.W.P(ip.x, ip.z) : [ip.x, ip.z], ll = localToLL(s, wp[0], wp[1]);
     return { lat: ll.lat, lon: ll.lon, h: (t ? t.base - R + t.hAt(ip.x, ip.z) / 1000 : 0) + 0.0015 };
   }
 
@@ -936,8 +945,9 @@ export class Cities {
     const s = state.settlements.get(ps.sid);
     if (!s) return null;
     const ip = state.interp(ps);
-    const ll = localToLL(s, ip.x, ip.z);
     const t = this.towns.get(ps.sid);
+    const wp = t ? t.W.P(ip.x, ip.z) : [ip.x, ip.z];
+    const ll = localToLL(s, wp[0], wp[1]);
     return { lat: ll.lat, lon: ll.lon, h: (t ? t.base - R + t.hAt(ip.x, ip.z) / 1000 : 0) + 0.0012 };
   }
 
@@ -975,7 +985,8 @@ export class Cities {
       for (const [id, ps] of state.pos) {
         if (ps.sid !== t.s.id || ps.travel || ps.act === 'sleep') continue;
         const ip = state.interp(ps);
-        v.set(ip.x, t.hAt(ip.x, ip.z) + 1, ip.z).applyMatrix4(t.g.matrix).project(camera);
+        const [wx, wz] = t.W.P(ip.x, ip.z);
+        v.set(wx, t.hAt(ip.x, ip.z) + 1, wz).applyMatrix4(t.g.matrix).project(camera);
         if (v.z > 1) continue;
         const sx = (v.x + 1) / 2 * w, sy = (1 - v.y) / 2 * h;
         const d = Math.hypot(sx - x, sy - y);

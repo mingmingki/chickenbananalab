@@ -876,3 +876,6 @@ input[type=range]::-moz-range-thumb { background: var(--c); border: var(--bw) so
   }
 }
 input::placeholder { color: var(--ink-2); opacity: .8; }
+
+/* 노란 머리띠 위 글자: 어두운 화면에서도 진하게 */
+.ap-head .linklike, .my-ann .ma-head .linklike, .sheet-head .linklike { color: #0b5f8a; }

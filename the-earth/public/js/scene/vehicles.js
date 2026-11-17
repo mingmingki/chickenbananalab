@@ -70,16 +70,17 @@ export class TownVehicles {
    * driving: [{id, x, z, h}], parked: [{id, x, z, h}], buses: [{id, x, z, h, co}]
    * hAt: 땅 높이, show: 가까울 때만
    */
-  update(driving, parked, buses, hAt, show) {
+  update(driving, parked, buses, hAt, show, W = null) {
+    // W: 마을을 휘는 물결 (warp.js) — 휘기 전 자리에서 높이를 재고, 휜 자리에 놓고, 휜 만큼 돌린다
+    const place = (x, z, h) => { const y = hAt(x, z) + 0.53; if (!W) { p.set(x, y, z); q.setFromAxisAngle(up, h); return; } const [wx, wz] = W.P(x, z); p.set(wx, y, wz); q.setFromAxisAngle(up, h + W.rot(x, z)); };
     const nC = show ? driving.length + parked.length : 0, nB = show ? buses.length : 0;
     this.ensure(nC, nB);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0), col = new THREE.Color();
     let i = 0;
     if (show) for (const list of [driving, parked]) for (const v of list) {
-      q.setFromAxisAngle(up, v.h || 0);
       // 우측통행: 달리는 차는 길 가운데에서 오른쪽 차선으로
       const lane = list === driving ? 2.2 : 0;
-      p.set(v.x - Math.cos(v.h || 0) * lane, hAt(v.x, v.z) + 0.53, v.z + Math.sin(v.h || 0) * lane);
+      place(v.x - Math.cos(v.h || 0) * lane, v.z + Math.sin(v.h || 0) * lane, v.h || 0);
       m.compose(p, q, s);
       this.cars.setMatrixAt(i, m);
       this.cars.setColorAt(i, col.set(CAR_COLS[Math.floor(hash(v.id) * CAR_COLS.length)]));
@@ -88,8 +89,7 @@ export class TownVehicles {
     if (this.cars) { this.cars.count = i; this.cars.instanceMatrix.needsUpdate = true; if (this.cars.instanceColor) this.cars.instanceColor.needsUpdate = true; }
     let j = 0;
     if (show) for (const b of buses) {
-      q.setFromAxisAngle(up, b.h || 0);
-      p.set(b.x - Math.cos(b.h || 0) * 2.4, hAt(b.x, b.z) + 0.53, b.z + Math.sin(b.h || 0) * 2.4);
+      place(b.x - Math.cos(b.h || 0) * 2.4, b.z + Math.sin(b.h || 0) * 2.4, b.h || 0);
       m.compose(p, q, s);
       this.buses.setMatrixAt(j, m);
       this.buses.setColorAt(j, col.set(BUS_COLS[Math.floor(hash(b.co || 1) * BUS_COLS.length)]));
