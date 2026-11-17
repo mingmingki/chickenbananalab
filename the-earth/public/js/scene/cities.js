@@ -9,6 +9,8 @@ import { TownVehicles } from './vehicles.js';
 import { buildRoadMeshes } from './roadmesh.js';
 import { People, dress } from './people.js';
 import { makeWarp, straightField } from './warp.js';
+import { TreeSet, pickSpecies } from './flora.js';
+import { Fauna } from './fauna.js';
 import { treeColor, seasonOfMonth, WX } from './weather.js';
 import { dateOf } from '../state.js';
 import { PHONE } from '../device.js';
@@ -350,15 +352,12 @@ export class Cities {
       if (p.water || p.h < 1.2) continue;
       const f = T.forest(px, pz, p.h);
       if (r1 > f * 0.95 + 0.03) continue;
-      trees.push([px, p.h, pz, 0.7 + r2 * 0.7, f > 0.5 && p.h > 120 ? 1 : 0]);
+      const kind = f > 0.5 && p.h > 120 ? 1 : 0, r3 = Math.abs((hh * 13.37 + r2 * 3.1) % 1);
+      trees.push([px, p.h, pz, 0.7 + r2 * 0.7, kind, pickSpecies(t.s.site?.biome, kind, r3, t.s.lat)]);
       if (trees.length > (PHONE ? 6000 : 14000)) break;
     }
     t.treeList = trees;
-    const crown = new THREE.ConeGeometry(3.2, 9, 7).translate(0, 8, 0), trunk = new THREE.CylinderGeometry(0.45, 0.6, 4, 5).translate(0, 2, 0);
-    t.treeCrown = new THREE.InstancedMesh(crown, new THREE.MeshStandardMaterial({ color: 0x2f6b34, roughness: 0.9 }), trees.length);
-    t.treeTrunk = new THREE.InstancedMesh(trunk, new THREE.MeshStandardMaterial({ color: 0x5b4330, roughness: 1 }), trees.length);
-    t.treeCrown.frustumCulled = t.treeTrunk.frustumCulled = false;
-    t.g.add(t.treeCrown, t.treeTrunk);
+    t.trees = new TreeSet(t.g, trees.length);   // 나무 종류별 (flora.js)
     t.nature = { land, water };
     this.refreshTrees(t);
   }
@@ -373,27 +372,15 @@ export class Cities {
     let devR = 0;
     for (const b of blds) if (b.type !== 'farm') devR = Math.max(devR, Math.hypot(b.x, b.z));
     const core = devR > 0 ? devR + 40 : 45;
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3(), col = new THREE.Color();
-    let n = 0;
-    t.treeShade = [];
-    for (const [x, h, z, s, kind] of t.treeList) {
+    const keep = [];
+    for (const tr of t.treeList) {
+      const [x, , z] = tr;
       if (x * x + z * z < core * core) continue;
       let hit = false;
       for (const [cx, cz, r] of cleared) if ((x - cx) ** 2 + (z - cz) ** 2 < r * r) { hit = true; break; }
-      if (hit) continue;
-      const r = ((s * 7919.37) % 1 + 1) % 1;
-      const bare = sea.season === '겨울' && kind === 0 && r < 0.6 && t.s.site?.biome !== 'tropical';
-      sc.set(s * (bare ? 0.7 : 1), s * (kind ? 1.25 : 1), s * (bare ? 0.7 : 1));
-      const [wx, wz] = t.W.P(x, z); p.set(wx, h - 0.3, wz);
-      t.treeShade.push([x, z, sc.x, sc.y]);
-      m.compose(p, q, sc);
-      t.treeCrown.setMatrixAt(n, m); t.treeTrunk.setMatrixAt(n, m);
-      t.treeCrown.setColorAt(n, treeColor(col, sea.season, sea.month, sea.snow, kind, r, t.s.site?.biome));
-      n++;
+      if (!hit) keep.push(tr);
     }
-    t.treeCrown.count = t.treeTrunk.count = n;
-    t.treeCrown.instanceMatrix.needsUpdate = t.treeTrunk.instanceMatrix.needsUpdate = true;
-    if (t.treeCrown.instanceColor) t.treeCrown.instanceColor.needsUpdate = true;
+    t.treeShade = t.trees.fill(keep, t.W.P, sea, t.s.site?.biome);
   }
 
   /** 이 정착지의 지금 계절·달·쌓인 눈 */
@@ -494,7 +481,8 @@ export class Cities {
     const drop = o => { if (!o) return; t.g.remove(o); if (o.geometry && !SHARED.has(o.geometry)) o.geometry.dispose(); };
     if (t.nature) { drop(t.nature.land); drop(t.nature.water); t.nature = null; }
     drop(t.riverMesh); t.riverMesh = null;
-    drop(t.treeCrown); drop(t.treeTrunk); t.treeCrown = t.treeTrunk = null; t.treeList = null;
+    t.trees?.dispose(); t.trees = null; t.treeList = null;
+    t.fauna?.dispose(); t.fauna = null;
     if (t.ground) { drop(t.ground); t.ground.material.map?.dispose(); t.ground = null; t.groundR = 0; }
     if (t.shadow) { drop(t.shadow.mesh); t.shadow.tex.dispose(); t.shadow = null; }
     if (t.roadProps) { t.g.remove(t.roadProps.grp); t.roadProps.grp.traverse(o => o.dispose?.()); t.roadProps = null; }
@@ -825,7 +813,7 @@ export class Cities {
         L.material.opacity = fade; L.visible = fade > 0.01;
         Wt.material.opacity = 0.86 * fade; Wt.visible = fade > 0.01;
         if (t.riverMesh) { t.riverMesh.material.opacity = 0.92 * fade; t.riverMesh.visible = fade > 0.01; }
-        if (t.treeCrown) t.treeCrown.visible = t.treeTrunk.visible = fade > 0.25;
+        if (t.trees) t.trees.visible = fade > 0.25;
       }
       if (t.g.visible && !t.nature && dist < 600 && !this.builtThisFrame) { this.buildNature(t); this.builtThisFrame = true; }
       if (t.g.visible && (!this.nearest || dist < this.nearest.dist)) this.nearest = { t, dist };
@@ -935,6 +923,14 @@ export class Cities {
       const buses = [];
       for (const [bid, b] of state.buses) if (b.sid === t.s.id && b.on) { const bp = state.interp(b); buses.push({ id: bid, x: bp.x, z: bp.z, h: bp.h ?? b.h, co: t.s.bus?.co }); if (dist < 1.2 && b.no) { const [bx2, bz2] = t.W.P(bp.x, bp.z); const wp = new THREE.Vector3(bx2, t.hAt(bp.x, bp.z) + 4.5, bz2).applyMatrix4(t.g.matrix); labels.push({ key: 'bus' + bid, pos: wp, cls: 'ann mini', html: `🚌 ${b.no}호 · ${b.riders}명`, pri: 2, d: camPos.distanceTo(wp) }); } }
       t.veh.update(driving, parked, buses, t.hAt, dist < 6, t.W);
+      // 동물·새·곤충 (fauna.js): 가까울 때만
+      if (t.nature && dist < 6) {
+        t.fauna = t.fauna || new Fauna(t.g, t);
+        let devR = 0;
+        for (const b of t.lastBlds || []) if (b.type !== 'farm') devR = Math.max(devR, Math.hypot(b.x, b.z));
+        t.fauna.spawn({ blds: t.lastBlds || [], era: townEra, biome: t.s.site?.biome, lat: t.s.lat, lon: t.s.lon, T: t.terrain, devR, season: townSea, coast: !!t.s.site?.coast, kind: ty => this.meta.buildings[ty]?.kind });
+        t.fauna.update(time, { night: this.night || 0, rain: WX[t.s.weather?.k]?.rain || 0, P: t.W.P, rot: t.W.rot, hAt: t.hAt, near: dist < 4, close: dist < 0.7 });
+      } else if (t.fauna) t.fauna.update(time, { near: false });
       // 신호등 불빛 (빨강 → 초록 → 노랑, 공사 마지막 시험 운영은 노란불 깜빡)
       if (t.roadProps?.lamps?.length && dist < 6) {
         const blinkOn = Math.floor(time * 2) % 2 === 0;
