@@ -1360,6 +1360,12 @@ def main(manifest_path, out_path):
             members, role_report, member_roles = structural_members(
                 doc, xrefs, [row["frame_bbox"] for row in structural], manifest.get("knowledge"), manifest.get("corrections"))
             layer_roles[name] = role_report
+            try:  # a frame drawing two towers (or a roof and its penthouse) under their own captions
+                rows = split_frames(rows, evidence[name], members)
+                structural = [row for row in rows if row.get("frame_bbox") and is_plan_title(row.get("drawing_title"))
+                              and floor_of(row["drawing_title"])["discipline"] == "struct"]
+            except Exception as exc:  # never cost the plans their pictures
+                warnings.append({"file": name, "split_failed": str(exc)[:200]})
         left_out = {}
 
         def left_out_for(row, members=members, name=name):
@@ -1382,6 +1388,112 @@ def main(manifest_path, out_path):
         os.remove(out_path + ".partial")
     except OSError:
         pass
+
+
+# ── frames that draw several plans, each under its own caption ──
+CAPTION_REFERENCE = re.compile(r"참\s*조|참\s*고|REFER|SEE\s", re.I)
+SPLIT_GAP_MM = 3000.0   # member lines this far apart belong to different drawings
+SPLIT_MARGIN_MM = 500.0
+
+
+def frame_captions(row, evidence):
+    """Plan captions drawn inside a frame ("102동 3~25층 구조평면도", "옥탑지붕 구조평면도"): plan titles
+    naming a building or a floor, in type at least 40 % of the title block's, notes that refer to
+    another plan left out. [{"text", "x", "y", "key": (building, floor)}]."""
+    from . import quantity_sheet_identity as identity
+    own = set(row.get("text_handles") or [])
+    title_h = max((t.get("h") or 0 for t in evidence.get("texts", []) if t.get("handle") in own), default=0)
+    out = []
+    for text in identity.frame_texts(row, evidence):
+        value = re.sub(r"\s+", " ", _nfc(text.get("text"))).strip()
+        if not is_plan_title(value) or CAPTION_REFERENCE.search(value) or (text.get("h") or 0) < 0.4 * title_h:
+            continue
+        floor = floor_of(value)
+        if floor["group"] in ("other", "unit"):
+            continue
+        out.append({"text": value, "x": float(text["x"]) + len(value) * 0.4 * float(text.get("h") or 0),
+                    "y": float(text["y"]), "key": (floor["building"], floor["floor"])})
+    return out
+
+
+def _line_groups(segments, gap):
+    """Bounding boxes of the groups of segments lying within about ``gap`` of each other: the
+    ``gap``-sized cells they cover, joined where cells touch (side or corner)."""
+    cells = defaultdict(list)
+    for i, (x0, y0, x1, y1) in enumerate(segments):
+        for gx in range(int(math.floor(x0 / gap)), int(math.floor(x1 / gap)) + 1):
+            for gy in range(int(math.floor(y0 / gap)), int(math.floor(y1 / gap)) + 1):
+                cells[(gx, gy)].append(i)
+    seen, boxes = set(), []
+    for start in cells:
+        if start in seen:
+            continue
+        seen.add(start)
+        stack, box = [start], None
+        while stack:
+            cx, cy = stack.pop()
+            for i in cells[(cx, cy)]:
+                x0, y0, x1, y1 = segments[i]
+                box = [x0, y0, x1, y1] if box is None else [min(box[0], x0), min(box[1], y0), max(box[2], x1), max(box[3], y1)]
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    near = (cx + dx, cy + dy)
+                    if near in cells and near not in seen:
+                        seen.add(near)
+                        stack.append(near)
+        boxes.append(box)
+    return boxes
+
+
+def _box_distance(box, x, y):
+    dx = max(box[0] - x, 0.0, x - box[2])
+    dy = max(box[1] - y, 0.0, y - box[3])
+    return math.hypot(dx, dy)
+
+
+def split_frame(row, captions, members):
+    """Sub-frames of a frame drawing several plans under their own captions (two towers side by
+    side, a roof and its penthouse roof): the frame's member lines grouped by gaps over 3 m, each
+    group going to its nearest caption. Returns [row] unchanged unless two or more captions
+    naming different plans each get lines."""
+    keys = {c["key"] for c in captions}
+    if len(keys) < 2:
+        return [row]
+    x0, y0, x1, y1 = row["frame_bbox"]
+    segments = [(min(ax, bx), min(ay, by), max(ax, bx), max(ay, by)) for _c, ax, ay, bx, by, _p in members
+                if not (bx < x0 or ax > x1 or by < y0 or ay > y1)]
+    if not segments:
+        return [row]
+    by_caption = defaultdict(list)
+    for box in _line_groups(segments, SPLIT_GAP_MM):
+        nearest = min(captions, key=lambda c: _box_distance(box, c["x"], c["y"]))
+        by_caption[nearest["key"]].append((box, nearest))
+    if len(by_caption) < 2:
+        return [row]
+    out = []
+    for key, items in by_caption.items():
+        caption = max((c for _b, c in items), key=lambda c: len(c["text"]))
+        box = [max(min(b[0] for b, _c in items) - SPLIT_MARGIN_MM, x0), max(min(b[1] for b, _c in items) - SPLIT_MARGIN_MM, y0),
+               min(max(b[2] for b, _c in items) + SPLIT_MARGIN_MM, x1), min(max(b[3] for b, _c in items) + SPLIT_MARGIN_MM, y1)]
+        title = caption["text"]
+        if not floor_of(title)["building"] or floor_of(title)["building"] == "기타":
+            title = (floor_of(row["drawing_title"])["building"] + " " + title)  # "옥탑지붕 구조평면도" under 101동's title
+        out.append(dict(row, frame_bbox=[round(v, 3) for v in box], drawing_title=title,
+                        split_from=row.get("drawing_title"), frame_estimated=True))
+    out.sort(key=lambda r: (r["frame_bbox"][0], -r["frame_bbox"][1]))
+    return out
+
+
+def split_frames(rows, evidence, members):
+    """Every structural plan frame split by its captions (see split_frame); other rows unchanged."""
+    out = []
+    for row in rows:
+        if row.get("frame_bbox") and is_plan_title(row.get("drawing_title")) and \
+                floor_of(row["drawing_title"])["discipline"] == "struct" and row["frame_bbox"][2] - row["frame_bbox"][0] < 1e11:
+            out.extend(split_frame(row, frame_captions(row, evidence), members))
+        else:
+            out.append(row)
+    return out
 
 
 def _is_structural_file(name):
