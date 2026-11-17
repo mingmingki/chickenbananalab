@@ -30,6 +30,8 @@ KIND_LABELS = {"foundation": "기초", "wall": "벽", "opening": "개구부·단
                "stair": "계단"}
 STAIR_KG_PER_M2 = 35.0  # stair flights and landings per m² of stair plan (an assumption, said in the notes)
 FOUNDATION_BARS = "D16@300"  # top and bottom, each way, when the foundation plan gives none
+FOOTING_BARS = "D16@300"     # bottom bars of a footing (isolated or wall) when its schedule row gives none
+WALL_FOOTING_DIST = "D13@300"  # distribution bars along a wall footing when its row gives none
 COVER_M = 0.04
 HOOK_M = 0.2               # two 135° hooks of a stirrup or hoop, roughly
 DOUBLE_LAYER_MIN_M = 0.18  # walls this thick get bars at both faces
@@ -515,27 +517,106 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, 
         "net_kg": round(net, 1), "loss_factor": qc.REBAR_WASTE_FACTOR, "with_loss_kg": round(net * qc.REBAR_WASTE_FACTOR, 1),
         "grade_colors": GRADE_COLORS,
         "extras": {key: {"label": label, "on": extras[key]} for key, label in EXTRAS.items()},
-        "not_included": ["줄기초", "매트 보강근(기초 일람표)", "옥탑 지붕"] + [label for key, label in EXTRAS.items() if not extras[key]],
+        "not_included": ["옥탑 지붕"] + [label for key, label in EXTRAS.items() if not extras[key]],
     }
 
 
+def _all_spaced(text):
+    """Every spaced bar in one cell: "HD19@300 + HD22@600" → [(19, 0.3), (22, 0.6)]."""
+    return [(int(d), int(sp.replace(",", "")) / 1000.0) for d, sp in re.findall(r"[A-Z]{0,3}D(\d{2})@(\d[\d,]*)", _key(text))
+            if int(sp.replace(",", "")) >= 50]
+
+
+def _counted(text):
+    """Bars given by number: "5-HD13" → [(5, 13)]."""
+    return sch.parse_bars(text or "")
+
+
+def _ways(key, text, keys):
+    """How many times one cell's bars cover the area: once for a direction column (_x/_y) or for a
+    numbered rebar column when its pair is there (RE-BAR 1 / 2), else both ways; twice more when
+    the cell says top and bottom."""
+    if key.endswith(("_x", "_y")) or (key in ("rebar_1", "rebar_2") and {"rebar_1", "rebar_2"} <= set(keys)):
+        ways = 1
+    else:
+        ways = 2
+    if not key.startswith(("top_bar", "bottom_bar")) and re.search(r"T/?B|상하부|상·하부|TOP.*BOT", _key(text)):
+        ways *= 2
+    return ways
+
+
+def _mat_bars(tally, area, bars):
+    """Lay a mat's schedule bars over ``area``; returns the texts used (empty when none read)."""
+    side = math.sqrt(max(area, 0.0))
+    laps = max(0, math.ceil(side / qc.STOCK_BAR_LENGTH_M) - 1)
+    used = []
+    for key, text in bars.items():
+        for diameter, spacing in _all_spaced(text):
+            run = area / spacing * (1 + laps * tally.lap(diameter, "기초") / max(side, 1.0))
+            tally.add("foundation", text, diameter, _ways(key, text, bars) * run)
+            used.append(text)
+    return used
+
+
+def _wall_footing_bars(tally, strip):
+    """A wall footing's bars: spaced bars across its width (bottom, top) at their spacing along the run,
+    distribution bars along the run (spaced across the width, or by number), laps every stock length."""
+    run, width, depth = strip["length"], strip["width"], strip["depth"]
+    if run <= 0 or not width:
+        return
+    across, along, counted = [], [], []
+    for key, text in (strip.get("bars") or {}).items():
+        lengthwise = key.startswith("dist_bar") or key in ("rebar_2", "rebar_y")
+        for bar in _all_spaced(text):
+            (along if lengthwise else across).append((text, bar))
+        for number, diameter in _counted(text):
+            counted.append((text, number, diameter))
+    if not across:
+        across = [(FOOTING_BARS, _spaced(FOOTING_BARS))]
+        tally.note(f"줄기초 {strip['mark']} 하부근을 못 읽어 {FOOTING_BARS}로 봤어요")
+    if not along and not counted:
+        along = [(WALL_FOOTING_DIST, _spaced(WALL_FOOTING_DIST))]
+        tally.note(f"줄기초 {strip['mark']} 길이방향 배력근을 못 읽어 {WALL_FOOTING_DIST}로 봤어요")
+    bar_length = max(width - 2 * COVER_M, 0.1) + HOOK_M
+    for text, (diameter, spacing) in across:
+        tally.add("foundation", text, diameter, (run / spacing + 1) * bar_length)
+    laps = max(0, math.ceil(run / qc.STOCK_BAR_LENGTH_M) - 1)
+    for text, (diameter, spacing) in along:
+        bars = qc._spacing_bar_count(max(width - 2 * COVER_M, 0.1), spacing)
+        tally.add("foundation", text, diameter, bars * (run + laps * tally.lap(diameter, "기초")))
+    for text, number, diameter in counted:
+        tally.add("foundation", text, diameter, number * (run + laps * tally.lap(diameter, "기초")))
+
+
 def _foundation_rebar(row, links, name, general_spec, overall, chairs_on=True):
-    """Mat bars (layers × both ways at the spacing over the area, laps every stock length) and the
-    isolated footings' bars, for the foundation storey."""
+    """Mat bars (the foundation schedule's rows when its mats are linked, else the foundation plan
+    text, else the default; layers × ways at the spacing over the area, laps every stock length),
+    wall footings and isolated footings' bars, for the foundation storey."""
     from . import quantity_floor_takeoff as ft
     info = row["foundation"]
     tally = _Tally(general_spec)
-    _thickness, text = ft.foundation_specs(links, name)
-    bar = _spaced(text) if text else None
-    if not bar:
-        text, bar = FOUNDATION_BARS + "(T/B, EW)", _spaced(FOUNDATION_BARS)
-        tally.note(f"기초 배근 표기를 못 찾아 {FOUNDATION_BARS} 상·하부 양방향으로 봤어요")
-    key = _key(text)
-    layers = (2 if re.search(r"T/?B|TOP.*BOT", key) else 1) * 2  # each way unless told otherwise
-    area, side = info["area"], math.sqrt(max(info["area"], 0.0))
-    laps = max(0, math.ceil(side / qc.STOCK_BAR_LENGTH_M) - 1)
-    run = area / bar[1] * (1 + laps * tally.lap(bar[0], "기초") / max(side, 1.0))
-    tally.add("foundation", text, bar[0], layers * run)
+    area = info["area"]
+    left = area
+    for mat in info.get("mats") or []:
+        part = area * mat["share"]
+        used = _mat_bars(tally, part, mat.get("bars") or {})
+        if used:
+            left -= part
+            tally.note(f"매트 {mat['mark']} 배근은 기초 일람표 값({' / '.join(dict.fromkeys(used))})을 썼어요")
+            if any(k.startswith("extra_bar") for k in mat.get("bars") or {}):
+                tally.note("일람표의 보강근도 매트 전체에 깔았어요 (보강 구역이 따로 그려져 있으면 확인해 주세요)")
+    if left > 0.5:
+        _thickness, text = ft.foundation_specs(links, name)
+        bar = _spaced(text) if text else None
+        if not bar:
+            text, bar = FOUNDATION_BARS + "(T/B, EW)", _spaced(FOUNDATION_BARS)
+            tally.note(f"기초 배근 표기를 못 찾아 {FOUNDATION_BARS} 상·하부 양방향으로 봤어요")
+        key = _key(text)
+        layers = (2 if re.search(r"T/?B|TOP.*BOT", key) else 1) * 2  # each way unless told otherwise
+        side = math.sqrt(max(area, 0.0))
+        laps = max(0, math.ceil(side / qc.STOCK_BAR_LENGTH_M) - 1)
+        run = left / bar[1] * (1 + laps * tally.lap(bar[0], "기초") / max(side, 1.0))
+        tally.add("foundation", text, bar[0], layers * run)
     # chair bars holding the top mat: one per 1.5 m square, legs the mat depth less the covers,
     # plus half as many fixing bars (the SK manual's rule, D16)
     if chairs_on:
@@ -543,12 +624,21 @@ def _foundation_rebar(row, links, name, general_spec, overall, chairs_on=True):
         chairs = math.ceil(area / (1.5 * 1.5))
         tally.add("foundation", "D16", 16, chairs * (2 * height + 0.8) + math.ceil(chairs * 0.5) * 2 * height)
         tally.note(f"고임철근(우마) D16 {chairs}개를 1.5m 간격으로 넣었어요")
+    for strip in info.get("wall_footings") or []:
+        _wall_footing_bars(tally, strip)
+    guessed = []
     for foot in info.get("footings") or []:
-        spaced = _spaced(str(foot.get("bars") or "")) or (16, 0.3)
-        per = 2 * (qc._spacing_bar_count(foot["x"], spaced[1]) * foot["y"] + qc._spacing_bar_count(foot["y"], spaced[1]) * foot["x"]) / 2
-        tally.add("foundation", f"D{spaced[0]}", spaced[0], foot["count"] * per)
-    if info.get("footings"):
-        tally.note("독립기초는 하부 양방향 D16@300으로 봤어요 (기초 일람표 배근을 읽으면 그 값을 써요)")
+        bars = foot.get("bars") or {}
+        x_text = next((bars[k] for k in ("bottom_bar_x", "rebar_1", "rebar_x", "bottom_bar", "rebar") if k in bars and _all_spaced(bars[k])), None)
+        y_text = next((bars[k] for k in ("bottom_bar_y", "rebar_2", "rebar_y") if k in bars and _all_spaced(bars[k])), None) or x_text
+        if not x_text:
+            x_text = y_text = FOOTING_BARS
+            guessed.append(foot["mark"])
+        for text, across, along in ((x_text, foot["y"], foot["x"]), (y_text, foot["x"], foot["y"])):
+            diameter, spacing = _all_spaced(text)[0]  # bars running along one side, spaced across the other
+            tally.add("foundation", text, diameter, foot["count"] * qc._spacing_bar_count(across, spacing) * along)
+    if guessed:
+        tally.note(f"독립기초 {', '.join(guessed)}는 일람표 배근을 못 읽어 하부 양방향 {FOOTING_BARS}로 봤어요")
     if row.get("approximate"):
         tally.note("기초 두께가 가정값이라 철근도 근사예요")
     kg = {k: round(max(v, 0.0), 1) for k, v in tally.kg.items()}

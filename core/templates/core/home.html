@@ -9762,7 +9762,7 @@ body.cbl-modal-open {
       ask.className = "qd-foundation";
       ask.setAttribute("data-qd-keep", "");
       ask.innerHTML = '<b>기초 두께</b>' + feet.map(function (f) {
-        var label = { person: "입력값", drawing: "도면 표기", learned: "다른 현장 입력값 — 확인해 주세요", assumed: "가정 — 확인해 주세요" }[f.info.source] || "";
+        var label = { person: "입력값", drawing: "도면 표기", schedule: "기초 일람표", learned: "다른 현장 입력값 — 확인해 주세요", assumed: "가정 — 확인해 주세요" }[f.info.source] || "";
         return '<label' + (f.info.source === "assumed" || f.info.source === "learned" ? ' class="is-assumed"' : '') + '>' + esc(f.name) + ' <input type="number" step="0.05" min="0.1" max="5" data-ft="' +
           esc(f.name) + '" value="' + esc(String(f.info.thickness)) + '"> m <small>' + esc(label) + ' · ' + esc(String(Math.round(f.info.area))) + '㎡</small></label>';
       }).join("") + '<button type="button" class="qd-btn" data-ft-apply>두께 반영해 다시 계산</button><span class="qd-ft-status"></span>';
