@@ -8,8 +8,34 @@ import { TERRAIN_R } from '../shared/terrain.js';
 const frac = v => v - Math.floor(v);
 const rnd = (seed, k) => frac(Math.sin(seed * 12.9898 + k * 78.233) * 43758.5453);
 
-/** 정착지마다 다른 물결 */
-export function makeWarp(seed) {
+/**
+ * 반듯하게 펴진 곳: 관청이 계획해서 닦은 길(자갈길 이상) 양옆 블록. 사람이 다녀 저절로 난 흙길 동네는 구불구불한 그대로.
+ * roads: { 'h,i,j' | 'v,i,j': 등급 } (서버 infra.js 와 같은 100m 블록 격자, 길은 블록 경계 x = i·100 + 10)
+ * 반환: { key, S(x, z) → 0(구불구불) ~ 1(반듯) }
+ */
+export function straightField(roads = {}) {
+  const BW = 100, OFF = 10;
+  const blocks = new Set();
+  for (const [e, g] of Object.entries(roads)) {
+    if (!(g >= 1)) continue;
+    const [k, a, b] = e.split(','), i = +a, j = +b;
+    if (k === 'h') { blocks.add(i + ',' + (j - 1)); blocks.add(i + ',' + j); }
+    else { blocks.add((i - 1) + ',' + j); blocks.add(i + ',' + j); }
+  }
+  const key = [...blocks].sort().join(';');
+  if (!blocks.size) return { key, S: null };
+  const V = (bi, bj) => (blocks.has(bi + ',' + bj) ? 1 : 0);
+  // 블록 가운데 값을 겹선형으로 잇는다 (블록 가운데: i·100 + 60)
+  const S = (x, z) => {
+    const fx = (x - OFF - BW / 2) / BW, fz = (z - OFF - BW / 2) / BW;
+    const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
+    return (V(i, j) * (1 - u) + V(i + 1, j) * u) * (1 - v) + (V(i, j + 1) * (1 - u) + V(i + 1, j + 1) * u) * v;
+  };
+  return { key, S };
+}
+
+/** 정착지마다 다른 물결. S: straightField 의 펴진 정도 (없으면 마을 전체가 구불구불) */
+export function makeWarp(seed, S = null) {
   // 큰 굽이 두 개 (파장 240~320m, 진폭 13~17m) + 작은 굽이 둘 (110~150m, 4~6m). 기울기 합이 1보다 한참 작아 접히지 않는다
   const waves = [];
   const add = (k, lam0, lam1, a0, a1) => {
@@ -23,7 +49,8 @@ export function makeWarp(seed) {
   const off = (x, z) => {
     let dx = 0, dz = 0;
     for (const w of waves) { const s = Math.sin(w.kx * x + w.kz * z + w.ph); dx += w.ax * s; dz += w.az * s; }
-    const f = fade(x, z);
+    let f = fade(x, z);
+    if (S && f > 0) { const t = Math.min(1, Math.max(0, (S(x, z) - 0.3) / 0.6)); f *= 1 - t * t * (3 - 2 * t); }   // 닦은 길 동네는 반듯하게
     return [dx * f, dz * f];
   };
   const on = !(typeof window !== 'undefined' && window.__noWarp);   // 비교용으로 끌 수 있다

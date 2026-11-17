@@ -8,7 +8,7 @@ import { paintRoads, buildRoadProps, roadLampMats, signalPhase, ROAD_STYLE } fro
 import { TownVehicles } from './vehicles.js';
 import { buildRoadMeshes } from './roadmesh.js';
 import { People, dress } from './people.js';
-import { makeWarp } from './warp.js';
+import { makeWarp, straightField } from './warp.js';
 import { treeColor, seasonOfMonth, WX } from './weather.js';
 import { dateOf } from '../state.js';
 import { PHONE } from '../device.js';
@@ -230,7 +230,8 @@ export class Cities {
     this.root.add(marker);
     const t = { s, g, marker, base, center: up.clone().multiplyScalar(base), up, east, south, bver: 0, buildings: new THREE.Group(), bmap: new Map(), ground: null, anns: null, dots: null, ids: [], groundKey: '' };
     t.terrain = new Terrain(s.site);
-    t.W = makeWarp(s.id);     // 마을 전체를 함께 휘는 물결 (warp.js)
+    // 마을 전체를 함께 휘는 물결 (warp.js): 움막 시절 흙길 동네는 구불구불, 길을 닦은 동네는 반듯하게
+    { const sf = straightField(s.roads); t.W = makeWarp(s.id, sf.S); t.warpKey = sf.key; }
     const hc = new Map();
     t.hAt = (x, z) => {
       const k = Math.round(x / 2) * 100003 + Math.round(z / 2);
@@ -419,6 +420,9 @@ export class Cities {
     const t = this.towns.get(sid);
     if (!t) return;
     const s = t.s;
+    // 길을 새로 닦아 반듯해진 동네가 생기면 마을을 새로 휜다 (땅·숲·길·집 모두)
+    const sf = straightField(s.roads);
+    if (sf.key !== t.warpKey) this.rewarp(t, sf);
     const era = state.countries.get(s.country)?.era ?? 0;
     const blds = [...state.buildings.values()].filter(b => b.sid === sid);
     // 지면
@@ -482,6 +486,24 @@ export class Cities {
     for (const [id, m] of t.bmap) if (!keep.has(id)) { t.buildings.remove(m); disposeGroup(m); t.bmap.delete(id); }
     this.plantShrubs(t, real, era);
     t.bver++;
+  }
+
+  /** 휘는 모양이 바뀌었다: 휜 채로 만들어 둔 것을 모두 걷어 내고 새 물결로 다시 짓는다 */
+  rewarp(t, sf) {
+    t.W = makeWarp(t.s.id, sf.S); t.warpKey = sf.key;
+    const drop = o => { if (!o) return; t.g.remove(o); if (o.geometry && !SHARED.has(o.geometry)) o.geometry.dispose(); };
+    if (t.nature) { drop(t.nature.land); drop(t.nature.water); t.nature = null; }
+    drop(t.riverMesh); t.riverMesh = null;
+    drop(t.treeCrown); drop(t.treeTrunk); t.treeCrown = t.treeTrunk = null; t.treeList = null;
+    if (t.ground) { drop(t.ground); t.ground.material.map?.dispose(); t.ground = null; t.groundR = 0; }
+    if (t.shadow) { drop(t.shadow.mesh); t.shadow.tex.dispose(); t.shadow = null; }
+    if (t.roadProps) { t.g.remove(t.roadProps.grp); t.roadProps.grp.traverse(o => o.dispose?.()); t.roadProps = null; }
+    if (t.roadMesh) { t.g.remove(t.roadMesh.grp); t.roadMesh.grp.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } }); t.roadMesh = null; }
+    t.roadKey = '';
+    if (t.shrubs) { drop(t.shrubs); t.shrubs = null; }
+    for (const m of t.bmap.values()) { t.buildings.remove(m); disposeGroup(m); }
+    t.bmap.clear();
+    t.seasonKey = null;
   }
 
   /** 집 앞 관목과 꽃 (산업 시대부터: 화단·생울타리), 옛 마을은 마당가 덤불 */
