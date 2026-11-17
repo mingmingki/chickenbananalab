@@ -66,3 +66,26 @@ class PenthouseTakeoffTests(SimpleTestCase):
         self.assertNotIn("옥탑 지붕", rebar["not_included"])
         top = rebar["buildings"][0]["rows"][-1]
         self.assertGreater(top["kg"]["wall"], 0)
+
+
+class SparseWallTests(SimpleTestCase):
+    def model(self, typical_walls):
+        plans = [plan(500, 30), plan(500, 30), plan(480, typical_walls), plan(60, 8)]
+        levels = [level("1", 0, sheet="S-1"), level("2", 1, sheet="S-2"), level("3", 2, sheet="S-3"), level("4", 2, sheet="S-3"),
+                  level("R", 3, 3.0, "S-4")]
+        return {"buildings": [{"name": "101동", "levels": levels, "plans": plans}]}
+
+    def rows(self, typical_walls):
+        return {r["key"]: r for r in ft.build_takeoff(self.model(typical_walls))["buildings"][0]["rows"]}
+
+    def test_a_typical_plan_with_almost_no_walls_is_pointed_out_but_kept(self):
+        rows = self.rows(typical_walls=4)                 # 0.8 % of the slab
+        for key in ("3", "4"):
+            self.assertTrue(rows[key].get("sparse_walls"))
+            self.assertTrue(any("단위세대" in n and "2D 고치기" in n for n in rows[key]["notes"]))
+            self.assertFalse(rows[key]["approximate"])     # still in the totals: a person decides
+        self.assertFalse(rows["2"].get("sparse_walls"))
+
+    def test_ordinary_plans_are_not_flagged(self):
+        rows = self.rows(typical_walls=28)
+        self.assertFalse(any(r.get("sparse_walls") for r in rows.values()))

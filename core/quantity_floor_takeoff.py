@@ -1002,6 +1002,38 @@ def _foundation_row(building, plans, levels, host_name, host, match, links, give
                            "mats": mats, "wall_footings": strips}}
 
 
+SPARSE_WALL_SHARE = 0.02   # a tower floor whose wall section is under 2 % of its slab draws almost no walls
+SPARSE_WALL_OF_USUAL = 0.3  # ... or under 30 % of what the building's other plans draw
+
+
+def _flag_sparse_walls(name, levels, rows):
+    """Mark the above-ground storeys of a tower whose plan draws almost no walls: some offices draw
+    the walls of the typical floors only on the unit plans (단위세대). The rows keep their values;
+    the note asks for the walls to be traced in the 2D fixing."""
+    if not re.fullmatch(r"\d{2,4}동", name or ""):
+        return
+    by_key = {r["key"]: r for r in rows}
+    shares = {}
+    for level in levels:
+        row = by_key.get(level.get("key"))
+        if not row or _storey_kind(level.get("key") or "") != "ground" or not level.get("key", "").isdigit():
+            continue
+        measures = row.get("measures") or {}
+        slab = float(measures.get("slab_area") or 0)
+        if slab >= 100:
+            shares.setdefault(level.get("plan"), (float(measures.get("vertical_area") or 0) / slab, []))[1].append(row)
+    if not shares:
+        return
+    ratios = sorted(share for share, _rows in shares.values())
+    usual = ratios[len(ratios) // 2] if len(ratios) >= 3 else None
+    for share, plan_rows in shares.values():
+        if share < SPARSE_WALL_SHARE or (usual and share < SPARSE_WALL_OF_USUAL * usual):
+            for row in plan_rows:
+                row["sparse_walls"] = True
+                row["notes"].append(f"이 층 평면에는 벽 단면이 슬래브의 {share:.1%}뿐이에요 — 벽이 단위세대 도면에만 그려진 "
+                                    "현장일 수 있어요. 빠진 벽은 2D 고치기로 따라 그려 주세요")
+
+
 def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, foundations=None, learned=None):
     """Rows per building and storey: walls/columns of the storey + slab/beams on top of it.
     ``edits``: people's fixes (quantity_edits.clean), added to the storeys using their plans."""
@@ -1236,6 +1268,7 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                              "outside_faces": round(outside, 1), "slab_area": round(slab_area, 1)},
                 "approximate": approximate, "notes": notes, "fixed": fixed,
             })
+        _flag_sparse_walls(name, levels, rows)
         totals = {"concrete": dict.fromkeys(CONCRETE_KEYS + ("total",), 0.0), "formwork": dict.fromkeys(FORM_KEYS + ("total",), 0.0)}
         approx = {"concrete": dict.fromkeys(CONCRETE_KEYS + ("total",), 0.0), "formwork": dict.fromkeys(FORM_KEYS + ("total",), 0.0)}
         for row in rows:
