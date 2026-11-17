@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+data/
+core_e_data/

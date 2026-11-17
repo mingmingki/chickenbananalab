@@ -1,0 +1,21 @@
+# Core E 모의 매매 systemd 예시 - 주문을 내지 않는다. 경로와 User는 서버에 맞게 바꿔서 쓴다.
+#   sudo cp core-e-paper.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now core-e-paper
+#   journalctl -u core-e-paper -f
+[Unit]
+Description=Core E paper trading (ZEC scalping, no orders)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 이 폴더(autotrader-core-e-20261117)를 서버에 둔 위치
+WorkingDirectory=/opt/core-e
+ExecStart=/usr/bin/python3 -m core_e.run_paper --out /var/lib/autotrader/core_e
+Restart=always
+RestartSec=10
+User=autotrader
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
