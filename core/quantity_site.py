@@ -320,7 +320,7 @@ def _level_rank(key):
         return -int(key[1:])
     if key.isdigit():
         return int(key)
-    return {"R": 500, "PH": 501}.get(key, 900)
+    return {"R": 500, "PH": 501, "PHR": 502}.get(key, 900)
 
 
 def align_floors(building):

@@ -1049,7 +1049,7 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                 elif default and kind == "ground":
                     t, thickness_note = default / 1000.0, f"슬래브 두께 {default}mm (슬래브 배근도 주기)"
             height = float(level.get("height") or 0)
-            wall_h = max(height - t, 0.0)
+            wall_h = height if key == "PHR" and above is None else max(height - t, 0.0)  # parapets: no slab above
             notes, approximate = ([thickness_note] if thickness_note else []), kind == "basement"
             vertical_area = float(measure.get("area") or 0) + float(measure.get("col_area") or 0)
             faces = float(measure.get("faces") or 0) + float(measure.get("col_perimeter") or 0)
@@ -1153,7 +1153,12 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
             elif hplan is not None:
                 own = _net_slab(vplan)
                 upper = _net_slab(hplan)
-                if upper is None and own is not None:
+                if kind == "roof":
+                    # the penthouse on the roof: its own floor or roof plan, never the size of the roof
+                    slab_area = upper if upper is not None else float(hplan.get("slab_area") or 0)
+                    notes.append("이 층 위 슬래브는 " + (above.get("label") or above.get("key")) + " 평면 크기로 봤어요"
+                                 + ("" if upper is not None else " (외곽이 열려 있어 바깥 둘레로 근사)"))
+                elif upper is None and own is not None:
                     # a roof sheet draws the walls below as hidden lines, so its outline is open:
                     # the roof slab covers the storey under it
                     slab_area = own
@@ -1198,6 +1203,8 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                         form["plywood" if kind == "basement" else "al_vertical"] += area
                     if guessed:
                         notes.append(f"보 {guessed:.0f}m는 춤이 도면에 없어 {BEAM_DEPTH_DEFAULT * 1000:.0f}mm로 봤어요")
+            elif slab_area <= 0 and key == "PHR":
+                notes.append(f"옥탑 지붕 위 벽은 난간벽으로 보고 높이 {height:.1f}m로 봤어요")
             elif slab_area <= 0:
                 notes.append("위층 평면이 없어 이 층 위 슬래브·보는 빠졌어요")
             if not links:

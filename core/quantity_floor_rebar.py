@@ -365,7 +365,7 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, 
             tally = _Tally(general_spec)
             concrete = row.get("concrete") or {}
             slab_area = float((row.get("measures") or {}).get("slab_area") or 0)
-            t = (float(concrete.get("slab") or 0) / slab_area) if slab_area else ft.SLAB_THICKNESS
+            t = (float(concrete.get("slab") or 0) / slab_area) if slab_area else (0.0 if key == "PHR" and above is None else ft.SLAB_THICKNESS)
             height = max(float(row.get("height") or 0) - t, 0.0)
             top_storey = above is None or ft._storey_kind(above.get("key") or "") == "roof" and index + 2 >= len(levels)
             draw = {}
@@ -517,7 +517,7 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, 
         "net_kg": round(net, 1), "loss_factor": qc.REBAR_WASTE_FACTOR, "with_loss_kg": round(net * qc.REBAR_WASTE_FACTOR, 1),
         "grade_colors": GRADE_COLORS,
         "extras": {key: {"label": label, "on": extras[key]} for key, label in EXTRAS.items()},
-        "not_included": ["옥탑 지붕"] + [label for key, label in EXTRAS.items() if not extras[key]],
+        "not_included": [label for key, label in EXTRAS.items() if not extras[key]],
     }
 
 

@@ -118,6 +118,9 @@ def floor_of(title):
         floors = [(span.group(1) or "", span.group(2)), (span.group(3) or "", span.group(4))]
     if "기초" in text:
         return {"building": building or "기타", "floor": "기초", "group": "basement", "order": -99, "discipline": discipline}
+    if "옥탑" in text:
+        # a penthouse sheet: "옥탑1층" is the penthouse, never the first floor
+        return dict(_roof_floor(text), building=building or "기타", discipline=discipline)
     if building and building.endswith("동") and re.search(r"(지하)?주차장지붕", text) and not re.search(r"\d+층", text):
         # a tower's "parking deck roof" plan is its ground-floor slab: the tower's 1st floor
         return {"building": building, "floor": "1층", "group": "ground", "order": 1, "discipline": discipline}
@@ -132,14 +135,26 @@ def floor_of(title):
             label = f"{first}층"
         return {"building": building or "기타", "floor": label, "group": "ground", "order": first,
                 "discipline": discipline}
-    if "지붕" in text or "옥탑" in text:
-        return {"building": building or "기타", "floor": "지붕·옥탑", "group": "roof", "order": 900,
-                "discipline": discipline}
+    if "지붕" in text:
+        return dict(_roof_floor(text), building=building or "기타", discipline=discipline)
     if "기준층" in text:
         return {"building": building or "기타", "floor": "기준층", "group": "ground", "order": 50,
                 "discipline": discipline}
     return {"building": building or "기타", "floor": raw.replace("평면도", "").strip() or "평면",
             "group": "other", "order": 950, "discipline": discipline}
+
+
+ROOF_FLOORS = {"R": ("지붕·옥탑", 900), "PH": ("옥탑층", 901), "PHR": ("옥탑지붕", 902)}
+
+
+def _roof_floor(text):
+    """The roof (R), the penthouse (PH) or the penthouse roof (PHR) of a roof-group title; a sheet
+    naming more than one of them ("지붕, 옥탑, 옥탑지붕") is one sheet at the lowest it names."""
+    rest = text.replace("옥탑지붕", "")
+    parts = [key for key, named in (("R", "지붕" in rest), ("PH", "옥탑" in rest), ("PHR", "옥탑지붕" in text)) if named]
+    key = parts[0] if parts else "R"
+    floor, order = ROOF_FLOORS[key]
+    return {"floor": floor, "group": "roof", "order": order}
 
 
 def is_plan_file(name):
@@ -734,6 +749,7 @@ _MODEL_RULES = (
     ("above", re.compile(r"str_conc_above$", re.I)),
 )
 DEFAULT_STOREY_M = {"basement": 3.5, "1": 3.25, "ground": 2.85, "roof": 3.0}
+PARAPET_M = 1.2  # walls standing on the penthouse roof: its parapets (assumed height)
 LEVEL_FILE = re.compile(r"단면도|입면도")
 LEVEL_FILE_EXCLUDE = re.compile(r"단위세대|코아|코어|상세|계단|경사로|창호|부대|경비")
 
@@ -1074,7 +1090,7 @@ def _storey_keys(floor):
         match = re.search(r"지하(\d+)층", label)
         return ["B" + match.group(1)] if match else ["FT"]
     if floor["group"] == "roof":
-        return ["R"]
+        return [next((key for key, (label, _order) in ROOF_FLOORS.items() if label == floor["floor"]), "R")]
     match = re.match(r"(\d+)~(\d+)층", label)
     if match:
         return [str(n) for n in range(int(match.group(1)), int(match.group(2)) + 1)]
@@ -1154,17 +1170,19 @@ def build_model(plans, table, site=True):
         if not keys:
             continue
         top = keys[-1]
-        upper = {"R": "PH"}.get(top) or (str(int(top) + 1) if top.isdigit() else ("1" if top == "B1" else None))
+        upper = {"R": "PH", "PH": "PHR"}.get(top) or (str(int(top) + 1) if top.isdigit() else ("1" if top == "B1" else None))
         elevations = _elevations(keys + ([upper] if upper else []), table, name)
         levels = []
         for position, key in enumerate(keys):
             nxt = keys[position + 1] if position + 1 < len(keys) else upper
             base = elevations.get(key, 0.0)
             height = round((elevations.get(nxt) - base) if nxt in elevations else DEFAULT_STOREY_M["ground"], 3)
-            if not 1.5 <= height <= 12:
+            if key == "PHR" and nxt is None:
+                height = PARAPET_M  # nothing stands on the penthouse roof but its parapets
+            elif not 1.5 <= height <= 12:
                 height = DEFAULT_STOREY_M["basement" if key.startswith("B") else "ground"]
             levels.append({"key": key, "label": ("지하" + key[1:] + "층") if key.startswith("B") else
-                           ("지붕·옥탑" if key == "R" else key + "층"), "elev": base, "height": height,
+                           ROOF_FLOORS[key][0] if key in ROOF_FLOORS else key + "층", "elev": base, "height": height,
                            "plan": storeys[key], "sheet": rows[storeys[key]].get("sheet")})
         buildings.append({"name": name, "levels": levels, "foundation": foundation,
                           "plans": [plan["model"] for plan in rows]})
