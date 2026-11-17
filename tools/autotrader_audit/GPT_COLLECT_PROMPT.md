@@ -33,10 +33,13 @@
    gcloud compute scp 'autotrader-vm:~/cbl_audit_*.tar.gz' . --zone=us-central1-a --project=autotrader-okx-gemini-0037
    ```
 5. 비공개 레포 `mingmingki/chickenbanana-autotrader`의 새 브랜치에 올린다. 95MB가 넘으면 `split -b 90m`으로 나눠 올린다.
+   번들 안의 운영 소스(비밀값 제거됨)도 `live-src/`에 풀어서 같이 올린다. Claude가 이 소스 위에서 수정한다.
    ```sh
    git clone --depth 1 https://github.com/mingmingki/chickenbanana-autotrader cbl-audit-push && cd cbl-audit-push
    git checkout -b audit/v341-$(TZ=Asia/Seoul date +%Y%m%d-%H%M)
-   mkdir -p audit-bundles && cp ../cbl_audit_*.tar.gz audit-bundles/
+   B=$(ls ../cbl_audit_*.tar.gz | tail -1)
+   mkdir -p audit-bundles && cp "$B" audit-bundles/
+   tar -xzf "$B" --wildcards '*/code/*' && mv cbl_audit_*/code live-src && rm -rf cbl_audit_*/
    ```
 6. 같은 폴더에 `audit-bundles/GPT_CHANGES.md`를 만들어, **최근 7일 동안 네가 서버에서 바꾼 것**을 시간순으로 적는다.
    - 배포한 릴리스 이름
@@ -47,7 +50,7 @@
    모르면 모른다고 적는다.
 7. 커밋하고 푸시한다.
    ```sh
-   git add audit-bundles && git commit -m "Audit evidence bundle" && git push -u origin HEAD
+   git add audit-bundles live-src && git commit -m "Audit evidence bundle and live source" && git push -u origin HEAD
    ```
 
 ## 보고
