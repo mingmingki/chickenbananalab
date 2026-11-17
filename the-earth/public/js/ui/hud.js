@@ -356,7 +356,7 @@ export class Hud {
     const em = act?.emoji || this.meta.acts[ps?.act]?.emoji || '🙂';
     const label = act?.label || this.meta.acts[ps?.act]?.label || '쉬는 중';
     const role = d?.school ? `🎒 ${esc(d.school.name)}` : d?.job ? `💼 ${esc(d.job.title)}` : age < 4 ? '🍼 아기' : age < 19 ? '🏠 집에서 지냄' : d?.retired ? '🌿 은퇴' : '일자리를 찾는 중';
-    const g = (k, v, col) => `<div class="mg"><span>${k}</span>${bar(v ?? 0, col)}<b>${Math.round(v ?? 0)}</b></div>`;
+    const g = (k, v, col, e) => `<div class="mg"><span><i class="ge">${e}</i>${k}</span>${bar(v ?? 0, col)}<b>${Math.round(v ?? 0)}</b></div>`;
     let h = `<div class="my-ann">
       <div class="ma-head" data-ann="${a.id}">${avatarHTML({ ...a, age }, color)}
         <div><div class="nm">${esc(a.n)} <small>${a.g === 'M' ? '♂' : '♀'} ${age}세${d?.stage ? ' · ' + esc(d.stage) : ''}</small></div>
@@ -375,7 +375,7 @@ export class Hud {
         ${d.preg ? '<span class="chip">🤰 아기를 기다림</span>' : ''}
       </div>
       ${d.emo?.why ? `<p class="sub small" style="margin:2px 2px 6px">${esc(d.emo.k || '')} — ${esc(d.emo.why)}</p>` : ''}
-      <div class="ma-gauges">${g('배부름', nd.food, '#ffa94d')}${g('기력', nd.energy, '#74c0fc')}${g('교류', nd.social, '#f783ac')}${g('즐거움', nd.fun, '#a9e34b')}${g('건강', d.health, '#69db7c')}</div>`;
+      <div class="ma-gauges">${g('배부름', nd.food, '#ff9f43', '🍙')}${g('기력', nd.energy, '#4cc9f0', '⚡')}${g('교류', nd.social, '#ff6b9a', '💬')}${g('즐거움', nd.fun, '#3ddc97', '🎈')}${g('건강', d.health, '#ff6b5b', '❤️')}</div>`;
     const day = d.today?.length ? d.today : d.yesterday || [];
     if (day.length) {
       const hm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -755,8 +755,8 @@ export class Hud {
         <div class="emo">감정: <b>${esc(d.emo?.k || '평온')}</b>${d.emo?.why ? ` <span class="sub" style="margin:0">(${esc(d.emo.why)})</span>` : ''} · 기분 ${d.mood > 0 ? '+' : ''}${d.mood} · 스트레스 ${d.stress}${d.ill?.now ? ` · ${d.ill.now.icon} ${esc(d.ill.now.n)}${d.ill.now.days ? ` (${d.ill.now.days}일째)` : ''}` : d.sick > 0 ? ' · 🤒 아픔' : ''}</div>
         ${d.food && d.age >= 6 ? `<div class="emo" title="일·공부가 얼마나 잘 되는지 — 밥·잠·기분·스트레스·건강·카페인·숙취·식단">컨디션 <b style="color:${d.food.cond.k >= 100 ? 'var(--good, #69db7c)' : d.food.cond.k >= 85 ? 'inherit' : '#ff8787'}">${d.food.cond.k}%</b>${d.food.cond.why.length ? ` <span class="sub" style="margin:0">(${esc(d.food.cond.why.join(' · '))})</span>` : ''}</div>` : ''}
         <div class="gauges">
-          <div class="gauge">배부름${bar(nd.food, '#ffa94d')}</div><div class="gauge">기력${bar(nd.energy, '#74c0fc')}</div>
-          <div class="gauge">교류${bar(nd.social, '#f783ac')}</div><div class="gauge">즐거움${bar(nd.fun, '#a9e34b')}</div>
+          <div class="gauge"><i class="ge">🍙</i>배부름${bar(nd.food, '#ff9f43')}</div><div class="gauge"><i class="ge">⚡</i>기력${bar(nd.energy, '#4cc9f0')}</div>
+          <div class="gauge"><i class="ge">💬</i>교류${bar(nd.social, '#ff6b9a')}</div><div class="gauge"><i class="ge">🎈</i>즐거움${bar(nd.fun, '#3ddc97')}</div>
         </div></div>` : `<div class="now"><div class="what"><span class="em">🕯️</span>${fmtDate(d.d)}, ${d.age}세로 세상을 떠났다 (${esc(d.cause || '')})</div></div>`;
     this.right.innerHTML = `<div id="ann-panel">
       <div class="ap-head">

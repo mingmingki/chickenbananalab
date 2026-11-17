@@ -55,8 +55,8 @@ npm start            # http://localhost:3000
 
 ## 화면
 
-- 분위기: 아늑한 생활 게임처럼 **크림색 종이 판**, 나무색 테두리, 잎 초록·테라코타 강조색. 버튼은 아래 그림자가 있는 **도톰한 버튼**이라 누르면 쑥 들어간다.
-- 글꼴: 제목·버튼·이름표는 둥글고 귀여운 **주아체**(배달의민족, SIL OFL, `public/fonts/jua/`), 본문은 애플 기기는 시스템 글꼴(SF·애플 SD 산돌고딕 Neo), 다른 기기는 **Pretendard**(SIL OFL, `public/fonts/pretendard/`).
+- 분위기: **스티커**처럼 — 크림색 판에 굵은 검은 테두리와 딱딱한 그림자, 노랑·민트·다홍·하늘·보라 같은 또렷한 색. 버튼은 툭 튀어나와 있어 누르면 그림자 쪽으로 쏙 들어간다. 날짜는 노란 스티커, 앤의 질문은 만화 말풍선에 가·나·다 색깔 선택지.
+- 글꼴: 제목·버튼·이름표는 굵은 **검은고딕**(Black Han Sans, SIL OFL, `public/fonts/blackhansans/`), 본문은 애플 기기는 시스템 글꼴(SF·애플 SD 산돌고딕 Neo), 다른 기기는 **Pretendard**(SIL OFL, `public/fonts/pretendard/`).
 - 아이콘: 이모지 대신 가는 **선 아이콘** (Lucide, ISC 라이선스, `public/js/ui/icons.js`).
 
 ## 계정·알림·소리

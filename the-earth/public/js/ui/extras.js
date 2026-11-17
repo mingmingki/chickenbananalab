@@ -274,7 +274,7 @@ const CREDITS = `<ul>
     Norway terrain data © Kartverket;
     United Kingdom terrain data © Environment Agency copyright and/or database right 2015. All rights reserved;
     United States 3DEP (formerly NED) and global GMTED2010 and SRTM terrain data courtesy of the U.S. Geological Survey.</li>
-  <li>글꼴: 주아체(배달의민족)·Pretendard (SIL OFL) · 아이콘: Lucide (ISC)</li>
+  <li>글꼴: 검은고딕(Black Han Sans)·Pretendard (SIL OFL) · 아이콘: Lucide (ISC)</li>
 </ul>`;
 
 export async function settingsModal({ toast, onAccount, onTutorial, google = false } = {}) {
