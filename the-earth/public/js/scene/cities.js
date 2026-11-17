@@ -133,6 +133,7 @@ export class Cities {
       smokeAt: (grp, x, y, z, k, fire) => self.smokeAt(grp, x, y, z, k, fire),
       lamp: m => m, glowTex: this.markerTex,
       detailMat: () => (self._detailMat ||= new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82 })),
+      roofMat: () => (self._roofMat ||= new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide, flatShading: true })),
       lite: PHONE,
     };
     this.selected = null;
@@ -457,7 +458,7 @@ export class Cities {
     const keep = new Set();
     for (const b of real) {
       keep.add(b.id);
-      const key = `${b.type}|${b.done}|${Math.round((b.p || 0) * 40)}|${b.h}|${b.fire ? 1 : 0}${b.burnt ? 1 : 0}${b.stalled ? 1 : 0}${(b.crew || 0) > 0 ? 1 : 0}|${snowB}|${cold ? 1 : 0}|${era}`;
+      const key = `${b.type}|${b.done}|${Math.round((b.p || 0) * 40)}|${b.h}|${b.fire ? 1 : 0}${b.burnt ? 1 : 0}${b.stalled ? 1 : 0}${(b.crew || 0) > 0 ? 1 : 0}|${snowB}|${cold ? 1 : 0}|${era}|${b.demo != null ? Math.round(b.demo * 20) : ''}`;
       const old = t.bmap.get(b.id);
       if (old && old.userData.key === key) continue;
       if (old) { t.buildings.remove(old); disposeGroup(old); }

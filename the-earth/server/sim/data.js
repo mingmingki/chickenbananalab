@@ -164,6 +164,11 @@ export const JOBS = {
   excavator: J('굴착기 기사', 5, 'construction', 'build', 1.2, { C: .4, ath: .2 }, { edu: 1, shift: 'site' }),
   site_mgr: J('현장소장', 4, 'leadership', 'build', 1.2, { C: .4, cha: .3, E: .2 }, { edu: 3, shift: 'site' }),
   civil_eng: J('토목기사', 4, 'science', 'build', 1.1, { int: .4, C: .4 }, { edu: 4, shift: 'site' }),
+  // 철거: 낡은 건물을 허물어야 새로 짓는다
+  demolisher: J('철거원', 2, 'construction', 'build', 1, { ath: .5, C: .2 }, { shift: 'site' }),
+  scrap_sorter: J('폐자재 선별원', 3, 'athletics', 'build', 0.9, { C: .4, A: .1 }, { shift: 'site' }),
+  dump_driver: J('덤프트럭 기사', 4, 'athletics', 'build', 1.1, { C: .4, N: -.2 }, { edu: 1, shift: 'site' }),
+  demo_eng: J('해체 감리원', 5, 'science', 'build', 1.1, { int: .3, C: .5 }, { edu: 3, shift: 'site' }),
   architect: J('건축가', 4, 'art', 'money', 1.6, { cre: .5, int: .4 }, { edu: 4, shift: 'office' }),
   interior: J('인테리어 디자이너', 5, 'art', 'money', 1.3, { cre: .6, O: .2 }, { edu: 3, shift: 'office' }),
   mechanic: J('자동차 정비사', 5, 'crafting', 'money', 1.2, { C: .4, int: .2, ath: .2 }, { edu: 2, shift: 'shop' }),
@@ -252,6 +257,7 @@ export const PAY = {
   call_agent: [2800, '판매·서비스'], game_dev: [5800, 'IT·연구'], game_designer: [4800, 'IT·연구'], semi_eng: [9500, 'IT·연구'], fab_op: [5500, '제조·생산'],
   researcher: [7000, 'IT·연구'], pharma_res: [6500, 'IT·연구'],
   // 건설·기술직
+  demolisher: [4600, '건설'], scrap_sorter: [3700, '건설'], dump_driver: [5200, '건설'], demo_eng: [6200, '건설'],
   rebar: [5000, '건설'], plasterer: [4800, '건설'], electrician: [5200, '건설'], plumber: [4800, '건설'], crane_op: [8000, '건설'], excavator: [5800, '건설'],
   site_mgr: [8500, '건설'], civil_eng: [6000, '건설'], architect: [5500, '건설'], interior: [4200, '건설'], mechanic: [4200, '제조·생산'], painter: [4600, '제조·생산'],
   forklift: [3800, '제조·생산'], quality: [4500, '제조·생산'],
@@ -278,6 +284,7 @@ export const INDUSTRIES = {
   lumber: { name: '목재소', era: 1, building: 'lumberyard', jobs: ['lumberjack'], k: 30, needs: 'forest', suffix: ['목재', '제재소', '임업'] },
   brickworks: { name: '벽돌·기와', era: 1, building: 'kiln', jobs: ['brickmaker'], k: 24, suffix: ['벽돌', '기와', '요업', '건자재'] },
   construction: { name: '건설', era: 1, building: 'workshop', jobs: ['builder', 'rebar', 'plasterer', 'electrician', 'plumber', 'crane_op', 'excavator', 'site_mgr', 'civil_eng'], mix: { builder: 0.3, rebar: 0.15, plasterer: 0.12, electrician: 0.1, plumber: 0.08, crane_op: 0.05, excavator: 0.06, site_mgr: 0.06, civil_eng: 0.08 }, k: 7, suffix: ['건설', '건축', '종합건설'] },
+  demolition: { name: '철거', era: 2, building: 'workshop', jobs: ['demolisher', 'scrap_sorter', 'dump_driver', 'excavator', 'demo_eng'], mix: { demolisher: 0.5, scrap_sorter: 0.15, dump_driver: 0.12, excavator: 0.15, demo_eng: 0.08 }, k: 80, suffix: ['철거', '해체', '철거산업', '환경개발'] },
   workshop: { name: '공방', era: 1, building: 'workshop', jobs: ['craftsman'], k: 10, suffix: ['공방', '공예', '도자기'] },
   restaurant: { name: '식당', era: 2, building: 'restaurant', jobs: ['cook', 'server'], k: 14, suffix: ['식당', '밥집', '국밥', '반점'] },
   trade: { name: '상회', era: 2, building: 'market', jobs: ['merchant'], k: 12, suffix: ['상회', '상점', '무역'] },
@@ -390,6 +397,7 @@ const B = (name, era, cells, size, work, kind, color, roof, extra = {}) => ({ na
 export const BUILDINGS = {
   campfire: B('모닥불', 0, [1, 1], [4, 4, 1.2], 4, 'civic', '#c96a2b', 'fire'),
   hut: B('움집', 0, [1, 1], [7, 7, 3.2], 40, 'home', '#8d6b48', 'cone', { cap: 5, cost: 0 }),
+  demolish: B('철거 현장', 0, [0, 0], [8, 6, 0], 0, 'infra', '#c9a227', 'none', { cost: 0 }),
   cottage: B('초가집', 1, [1, 1], [9, 8, 3.6], 240, 'home', '#cdb38a', 'gable', { roofColor: '#b9974f', cap: 6, cost: 20 }),
   house: B('기와집', 2, [1, 1], [11, 9, 4.2], 1100, 'home', '#e8e0cf', 'gable', { roofColor: '#4a5560', cap: 6, cost: 80 }),
   brickhouse: B('벽돌집', 3, [1, 1], [11, 10, 8], 2200, 'home', '#9c5a45', 'gable', { roofColor: '#5b3a2e', cap: 7, cost: 180 }),

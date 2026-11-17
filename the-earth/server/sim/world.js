@@ -19,6 +19,7 @@ import { companyDaily, considerPromotion, jobTitle, leaveJob, foundPublic, daily
 import { childName, givenOf, familyName } from './names.js';
 import { runEvents, rollWeather } from './events.js';
 import { syncRoads, hallDepts, planRoadWorks, roadProgress, ROAD_GRADES } from './infra.js';
+import { startDemolition, finishDemolition } from './demolition.js';
 import { trafficDaily, busTick, projectDone, vehicleMode, isWaiting } from './traffic.js';
 import { safetyDaily, safetyTick, fireOut } from './safety.js';
 import { livingDaily, pensionDaily, book, ledgerOut, monthNet } from './budget.js';
@@ -176,6 +177,7 @@ export class World {
     const def = BUILDINGS[b.type];
     const s = this.settlements.get(b.sid);
     this.dirtyBuildings.add(b.id);
+    if (b.type === 'demolish') { finishDemolition(this, b); return; }
     if (b.burnt) { b.burnt = false; b.fire = null; }
     if (b.infra) roadProgress(this, b);
     // 현장 사람들: 준공을 함께 맞는다
@@ -974,7 +976,7 @@ export class World {
       if (age < 19 && mom) this.moveHome(a, this.buildings.get(mom.home));
       else for (const bid of s.buildings) {
         const b = this.buildings.get(bid);
-        if (!b || !b.done || BUILDINGS[b.type].kind !== 'home') continue;
+        if (!b || !b.done || b.demo || BUILDINGS[b.type].kind !== 'home') continue;   // 허무는 중인 집에는 들어가지 않는다
         if (b.dev && b.res.length < BUILDINGS[b.type].cap) {
           this.moveHome(a, b);
           if (a.spouse) { const sp = this.anns.get(a.spouse); if (sp?.alive && !sp.home) this.moveHome(sp, b); }
@@ -1129,6 +1131,7 @@ export class World {
       const b = this.buildings.get(id);
       if (!b) return false;
       if (b.done) { removeBuilding(this, b); return false; }
+      if (b.type === 'demolish' && !this.buildings.get(b.target)) { removeBuilding(this, b); return false; }
       if (!b.contractor) assignContractor(this, b);
       return true;
     });
@@ -1171,11 +1174,17 @@ export class World {
         }
       }
     }
-    // 아무도 살지 않는 낡은 집은 허물어진다 (도시의 세대교체)
+    // 아무도 살지 않는 낡은 집은 허문다 (도시의 세대교체) — 철거 현장이 열리고 철거업체가 해체한다
+    // 원시·농경 시대의 움집은 이웃이 그냥 걷어 낸다
     for (const bid of [...s.buildings]) {
       const b = this.buildings.get(bid);
-      if (!b || !b.done || BUILDINGS[b.type].kind !== 'home' || b.res.length) continue;
-      if (BUILDINGS[b.type].era < c.era - 1 && chance(0.03)) { removeBuilding(this, b); }
+      if (!b || !b.done || b.demo || BUILDINGS[b.type].kind !== 'home' || b.res.length) continue;
+      if (BUILDINGS[b.type].era < c.era - 1 && chance(0.03)) { if (c.era <= 1) removeBuilding(this, b); else startDemolition(this, s, b); }
+    }
+    // 불타 무너진 건물도 허물어야 다시 짓는다 (불탄 지 오래고 아무도 다시 짓지 않으면)
+    for (const bid of [...s.buildings]) {
+      const b = this.buildings.get(bid);
+      if (b && b.burnt && b.done && !b.demo && !b.res.length && c.era >= 2 && chance(0.02)) startDemolition(this, s, b, '불탄 건물');
     }
     // 사람이 모두 떠난 정착지
     if (pop === 0 && this.clock - s.founded > DAY * 10 && ![...this.anns.values()].some(a => a.alive && a.travel?.to === s.id)) {
@@ -1284,7 +1293,7 @@ export class World {
     return { id: b.id, sid: b.sid, type: b.type, name: b.name, x: b.x, z: b.z, w: b.w, d: b.d, h: b.h, done: b.done, p: Math.round(b.progress / b.work * 100) / 100, era: b.era, co: b.co, owner: b.owner, res: b.res.length,
       ct: b.contractor || null, crew, work: b.work, started: b.started, built: b.built, stalled: !!b.stalled, dev: b.dev || null,
       ...(b.infra ? { infra: true, segs: b.segs, segDone: b.segDone || 0, grade: b.grade, perSeg: b.perSeg } : {}), ...fireOut(this, b),
-      mh: Math.round(b.mh || 0),
+      mh: Math.round(b.mh || 0), ...(b.demo ? { demo: b.demoP || 0 } : {}), ...(b.target ? { target: b.target } : {}),
       ...(b.project ? { project: true, node: b.node, stage: b.stage || 0, stages: b.stages.map(x => [x.name, x.mh, x.trade, x.cure || 0]), wait: b.waitUntil && b.waitUntil > this.clock ? Math.round(b.waitUntil) : 0, waitName: b.waitName || null, maxCrew: b.maxCrew } : {}) };
   }
   settlementOut(s) {

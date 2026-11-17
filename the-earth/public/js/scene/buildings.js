@@ -3,8 +3,9 @@
 // 완공: 시대·용도별 외벽(흙벽, 초가, 한옥, 벽돌, 콘크리트, 유리, 공장 철판), 문, 창(밤에는 불빛), 간판·차양, 발코니, 옥상 설비, 굴뚝.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { buildHome, HOME_TYPES } from './homes.js';
 
-const hash = n => { let h = (n * 2654435761) >>> 0; h ^= h >>> 15; return (h % 1000) / 1000; };
+const hash = n => { let h = (n * 2654435761) >>> 0; h = (h ^ (h >>> 15)) >>> 0; return (h % 1000) / 1000; };
 
 const GEO = {
   box: new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0),
@@ -33,7 +34,7 @@ const STYLE = {
   concrete: { tw: 4, th: 3.2 }, glass: { tw: 3, th: 3.6 }, industrial: { tw: 6, th: 5 }, civic: { tw: 4.5, th: 3.8 },
 };
 const texCache = new Map();
-function wallTexture(style, color) {
+export function wallTexture(style, color) {
   const key = style + color;
   if (texCache.has(key)) return texCache.get(key);
   const S = 512, C = S / 4;
@@ -116,7 +117,7 @@ function wallTexture(style, color) {
 }
 
 /** 벽 크기에 맞춘 UV: 텍스처 한 장 = 4×4칸 */
-function wallBox(w, h, d, tw, th) {
+export function wallBox(w, h, d, tw, th) {
   const g = new THREE.BoxGeometry(w, h, d).translate(0, h / 2, 0);
   const uv = g.attributes.uv;
   const spans = [[d, h], [d, h], null, null, [w, h], [w, h]];
@@ -129,7 +130,7 @@ function wallBox(w, h, d, tw, th) {
 }
 
 /** 둥근 벽: 텍스처 한 장 = 4×4칸이 둘레를 따라 감긴다 */
-function wallCyl(r, h, tw, th) {
+export function wallCyl(r, h, tw, th) {
   const g = new THREE.CylinderGeometry(r, r, h, 28, 1, true).translate(0, h / 2, 0);
   const uv = g.attributes.uv;
   const circ = 2 * Math.PI * r;
@@ -224,7 +225,7 @@ export function makeBuilding(cx, b, def, opts) {
   const pal = HOME_PAL[b.type];
   if (pal) {
     // 지붕 모양도 집마다: 초가는 둥근 지붕·우진각·맞배, 벽돌집은 맞배·우진각
-    const roofForm = b.type === 'cottage' ? (hash(b.id * 7) < 0.45 ? 'round' : hash(b.id * 7) < 0.7 ? 'hip' : 'gable') : b.type === 'brickhouse' ? (hash(b.id * 7) < 0.4 ? 'hip' : 'gable') : null;
+    const roofForm = (b.type === 'cottage' || b.type === 'brickhouse') && hash(b.id * 7) < 0.45 ? 'hip' : null;
     def = { ...def, color: pal.wall[Math.floor(hash(b.id * 3) * pal.wall.length)], roofColor: pal.roof[Math.floor(hash(b.id * 11) * pal.roof.length)], form: roofForm };
     // 키와 덩치도 조금씩 다르게 (마당 안에서)
     if (b.done) { const k = 0.9 + hash(b.id * 17) * 0.12; grp.scale.set(k, 0.88 + hash(b.id * 23) * 0.28, k); }
@@ -285,10 +286,29 @@ export function makeBuilding(cx, b, def, opts) {
     return grp;
   }
 
-  if (!b.done) construction(cx, b, def, grp, add, { era, hex, snowy });
+  if (b.type === 'demolish') { demolitionSite(cx, b, add, snowy); return grp; }
+  // 허무는 중: 지을 때를 거꾸로 — 지붕·벽이 걷히고 비계와 뼈대만 남았다가 바닥까지
+  if (b.done && b.demo != null) construction(cx, { ...b, done: false, p: Math.max(0.03, 0.9 * (1 - b.demo)), stalled: false }, def, grp, add, { era, hex, snowy });
+  else if (!b.done) construction(cx, b, def, grp, add, { era, hex, snowy });
   else finished(cx, b, def, grp, add, { era, hex, snowy, v, cold });
   if (b.fire) fireFx(cx, b, grp);
   return grp;
+}
+
+// ── 철거 현장: 폐자재 더미(허문 만큼 쌓인다), 덤프트럭, 굴착기, 가림막 ──
+function demolitionSite(cx, b, add, snowy) {
+  const M = (c, o) => cx.mat(c, o);
+  const p = Math.max(0.08, Math.min(1, b.p || 0));
+  add(GEO.cone, M(snowy('#8a8178', 0.5)), 4.2 * p + 1.2, 2.4 * p + 0.5, 3.6 * p + 1.2, -2.2, 0, 0);      // 폐자재 더미
+  add(GEO.box, M('#6b5a48'), 1.6 * p + 0.4, 0.5, 1.2 * p + 0.3, -1.2, 0, 1.0, 0.4);                      // 부서진 나무
+  // 덤프트럭: 적재함·운전석·바퀴
+  add(GEO.box, M('#e0a020'), 2.2, 1.2, 3.6, 2.4, 0.9, -0.4);
+  add(GEO.box, M('#c98a12'), 2.2, 1.5, 1.4, 2.4, 0.9, 2.1);
+  add(GEO.box, M('#9fb3c4', { opacity: 0.7 }), 2.0, 0.6, 0.06, 2.4, 1.8, 2.82);
+  for (const [x, z] of [[1.3, -1.4], [3.5, -1.4], [1.3, 1.9], [3.5, 1.9]]) add(GEO.cyl, M('#222'), 0.8, 0.5, 0.8, x, 0, z);
+  if ((b.era ?? 0) >= 4) excavator(add, M, -0.5, -2.4);
+  // 가림막
+  for (let k = 0; k < 4; k++) add(GEO.box, M(k % 2 ? '#f2f2ef' : '#c9a227'), 1.9, 1.6, 0.08, -3.4 + k * 2, 0, 3.4);
 }
 
 // ── 공사 중 ──
@@ -432,7 +452,7 @@ function roof(cx, b, def, add, h, hex, snowy, grow = 1, ox = 0, oz = 0, rw = b.w
     const rh = Math.min(W, D) * 0.48 * g;
     add(GEO.dome, rc, W * 1.24, rh * 1.15, D * 1.26, 0, h - 0.3);
     if (g >= 1) add(GEO.box, M(snowy('#8a6f3e')), long ? W * 0.5 : 0.45, 0.3, long ? 0.45 : D * 0.5, 0, h - 0.3 + rh * 0.55, 0);
-  } else if (r === 'gable' && def.form === 'hip') {
+  } else if (r === 'gable' && def.form === 'hip' && W > 0) {
     add(GEO.pyr, rc, W * 1.16, Math.min(W, D) * 0.42 * g, D * 1.16, 0, h - 0.1);
   } else if (r === 'gable') {
     const era = def.era ?? 0;
@@ -468,10 +488,9 @@ function finished(cx, b, def, grp, add, { era, hex, snowy, v, cold }) {
     add(GEO.box, M('#9aa3ad'), 2.4, 52, 2.4, W * 0.3 + 5, 0, -D * 0.3);
     return;
   }
-  if (r === 'cone' && b.type === 'hut') { // 움집: 원뿔 지붕이 곧 집
-    add(GEO.cyl, M('#6e5236'), W * 0.9, 0.9, D * 0.9);
-    add(GEO.cone, M(snowy('#8d6b48')), W * 1.2, H * 1.25, D * 1.2, 0, 0.6);
-    add(GEO.box, M('#2a1e14'), 1.2, 1.5, 0.3, 0, 0.3, D * 0.48);
+  if (HOME_TYPES.has(b.type) && !b.burnt) {   // 살림집: 집마다 다른 설계도 (homes.js)
+    buildHome(cx, b, def, grp, { snowy, cold, hex });
+    yardWalls(cx, b, grp, snowy, W);
     return;
   }
   const st = styleOf(b.type, def);
@@ -554,35 +573,7 @@ function finished(cx, b, def, grp, add, { era, hex, snowy, v, cold }) {
     add(GEO.box, M('#f6f1e7'), Math.min(fw * 0.6, 7), 1.1, 0.2, front.x, Math.min(H - 0.6, 4.2), front.z + 0.12);
     add(GEO.box, M(ac), Math.min(fw * 0.6, 7) - 0.6, 0.6, 0.22, front.x, Math.min(H - 0.6, 4.2) + 0.25, front.z + 0.14);
   } else if (def.accent) add(GEO.box, M(def.accent), Math.min(5, front.w * 0.4), 1.4, 0.3, front.x, H * 0.75, front.z + 0.2);
-  // 마당 담장 (옛 집): 돌담·싸리 울타리·생울타리 — 앞쪽은 대문 자리로 비운다
-  const yk = yardKind(b);
-  if (yk) {
-    const pts = yardPoly(b);
-    const parts = [], C = c => new THREE.Color(snowy(c, 0.6));
-    const bx = (w, hgt, d, x, y, z, ry, c) => { const g = new THREE.BoxGeometry(w, hgt, d); g.rotateY(ry); g.translate(x, y + hgt / 2, z); parts.push(paintG(g, c)); };
-    const wallC = yk === 'wall' ? C('#8f877c') : yk === 'hedge' ? C('#3f6b35') : C('#9a7b52'), capC = C('#4a5560'), postC = C('#7a5c3a');
-    const hh = yk === 'wall' ? 1.3 : yk === 'hedge' ? 1.1 : 1.0, th = yk === 'hedge' ? 0.9 : 0.55;
-    for (let k = 0; k < pts.length; k++) {
-      const [x1, z1] = pts[k], [x2, z2] = pts[(k + 1) % pts.length];
-      const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
-      if (mz > 0 && Math.abs(mx) < Math.max(4, W * 0.35)) continue;   // 대문 자리
-      const len = Math.hypot(x2 - x1, z2 - z1), ang = -Math.atan2(z2 - z1, x2 - x1);
-      if (yk === 'fence') {
-        // 싸리 울타리: 1.2m마다 말뚝, 가로대 두 줄, 사이사이 싸릿대
-        const n = Math.max(1, Math.round(len / 1.2));
-        for (let i = 0; i <= n; i++) { const t = i / n; bx(0.11, 1.15, 0.11, x1 + (x2 - x1) * t, 0, z1 + (z2 - z1) * t, ang, postC); }
-        for (const y of [0.32, 0.78]) bx(len, 0.06, 0.06, mx, y, mz, ang, wallC);
-        for (let i = 0; i < n * 3; i++) { const t = (i + 0.5) / (n * 3); bx(0.035, 0.85 + ((i * 37) % 7) * 0.03, 0.035, x1 + (x2 - x1) * t, 0.05, z1 + (z2 - z1) * t, ang, wallC); }
-      } else {
-        bx(len, hh, th, mx, 0, mz, ang, wallC);
-        if (yk === 'wall') bx(len, 0.25, th + 0.35, mx, hh, mz, ang, capC);
-      }
-    }
-    if (parts.length) {
-      const g = mergeGeometries(parts); for (const p of parts) p.dispose();
-      const m = new THREE.Mesh(g, cx.detailMat()); m.userData.bid = b.id; m.userData.ownGeo = true; grp.add(m);
-    }
-  }
+  yardWalls(cx, b, grp, snowy, W);
   // 아파트·연립: 층마다 발코니
   if (def.kind === 'home' && era >= 4 && H >= 10 && st !== 'glass' && shape === 'box') {
     const floors = Math.floor(H / 3.2);
@@ -633,6 +624,38 @@ function finished(cx, b, def, grp, add, { era, hex, snowy, v, cold }) {
     cx.lamp(add(GEO.box, M(def.accent || '#f5c518', { emissive: '#ffd84a' }), W * 0.7, 2.6, 1.2, 0, H * 0.62, D / 2 + 0.6));
     add(GEO.box, M('#1b1b1b'), W * 0.6, 1.4, 0.15, 0, H * 0.62 + 0.6, D / 2 + 1.25);
     for (let k = 0; k < 3; k++) add(GEO.box, M(['#c0392b', '#2c3e50', '#8e44ad'][k], { emissive: ['#401010', '#101820', '#2a1030'][k] }), 1.8, 2.6, 0.12, -W * 0.3 + k * W * 0.3, 1.2, D / 2 + 0.12);
+  }
+}
+
+// 마당 담장 (옛 집): 돌담·싸리 울타리·생울타리 — 앞쪽은 대문 자리로 비운다
+function yardWalls(cx, b, grp, snowy, W) {
+  const yk = yardKind(b);
+  if (yk) {
+    const pts = yardPoly(b);
+    const parts = [], C = c => new THREE.Color(snowy(c, 0.6));
+    const bx = (w, hgt, d, x, y, z, ry, c) => { const g = new THREE.BoxGeometry(w, hgt, d); g.rotateY(ry); g.translate(x, y + hgt / 2, z); parts.push(paintG(g, c)); };
+    const wallC = yk === 'wall' ? C('#8f877c') : yk === 'hedge' ? C('#3f6b35') : C('#9a7b52'), capC = C('#4a5560'), postC = C('#7a5c3a');
+    const hh = yk === 'wall' ? 1.3 : yk === 'hedge' ? 1.1 : 1.0, th = yk === 'hedge' ? 0.9 : 0.55;
+    for (let k = 0; k < pts.length; k++) {
+      const [x1, z1] = pts[k], [x2, z2] = pts[(k + 1) % pts.length];
+      const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
+      if (mz > 0 && Math.abs(mx) < Math.max(4, W * 0.35)) continue;   // 대문 자리
+      const len = Math.hypot(x2 - x1, z2 - z1), ang = -Math.atan2(z2 - z1, x2 - x1);
+      if (yk === 'fence') {
+        // 싸리 울타리: 1.2m마다 말뚝, 가로대 두 줄, 사이사이 싸릿대
+        const n = Math.max(1, Math.round(len / 1.2));
+        for (let i = 0; i <= n; i++) { const t = i / n; bx(0.11, 1.15, 0.11, x1 + (x2 - x1) * t, 0, z1 + (z2 - z1) * t, ang, postC); }
+        for (const y of [0.32, 0.78]) bx(len, 0.06, 0.06, mx, y, mz, ang, wallC);
+        for (let i = 0; i < n * 3; i++) { const t = (i + 0.5) / (n * 3); bx(0.035, 0.85 + ((i * 37) % 7) * 0.03, 0.035, x1 + (x2 - x1) * t, 0.05, z1 + (z2 - z1) * t, ang, wallC); }
+      } else {
+        bx(len, hh, th, mx, 0, mz, ang, wallC);
+        if (yk === 'wall') bx(len, 0.25, th + 0.35, mx, hh, mz, ang, capC);
+      }
+    }
+    if (parts.length) {
+      const g = mergeGeometries(parts); for (const p of parts) p.dispose();
+      const m = new THREE.Mesh(g, cx.detailMat()); m.userData.bid = b.id; m.userData.ownGeo = true; grp.add(m);
+    }
   }
 }
 

@@ -277,6 +277,16 @@ const CREDITS = `<ul>
   <li>글꼴: 검은고딕(Black Han Sans)·Pretendard (SIL OFL) · 아이콘: Lucide (ISC)</li>
 </ul>`;
 
+// 화면 밝기: 어둡게(기본) · 밝게 · 기기 따라
+const THEME_KEY = 'theEarth.theme.v1';
+export const theme = {
+  get() { try { return localStorage.getItem(THEME_KEY) || 'dark'; } catch { return 'dark'; } },
+  set(k) {
+    try { k === 'dark' ? localStorage.removeItem(THEME_KEY) : localStorage.setItem(THEME_KEY, k); } catch { /* */ }
+    if (k === 'dark') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = k;
+  },
+};
+
 export async function settingsModal({ toast, onAccount, onTutorial, google = false } = {}) {
   const ps = await pushState().catch(() => ({ ok: false, why: 'unsupported' }));
   const acc = account();
@@ -290,6 +300,9 @@ export async function settingsModal({ toast, onAccount, onTutorial, google = fal
     <section class="set-sec"><h4>🔊 소리</h4>
       <label class="check"><input type="checkbox" data-snd="on" ${p.on ? 'checked' : ''}> 소리 켜기</label>
       ${slider('master', '전체')}${slider('music', '음악')}${slider('amb', '환경음 (바람·비·새·도시)')}${slider('sfx', '효과음')}
+    </section>
+    <section class="set-sec"><h4>🌗 화면</h4>
+      <div class="seg">${[['dark', '어둡게'], ['light', '밝게'], ['auto', '기기 따라']].map(([k, n]) => `<button data-m="theme-${k}" class="${theme.get() === k ? 'on' : ''}">${n}</button>`).join('')}</div>
     </section>
     <section class="set-sec"><h4>🔔 알림</h4>${pushRow}</section>
     <section class="set-sec"><h4>👤 계정</h4>
@@ -315,6 +328,7 @@ export async function settingsModal({ toast, onAccount, onTutorial, google = fal
       if (a === 'push-off') { await disablePush(); toast?.('휴대폰 알림을 껐습니다'); c.close(); reopen(); }
       if (a === 'push-test') { const r = await api('/api/push/test', {}); toast?.(r.sent ? '시험 알림을 보냈습니다' : '보낼 기기가 없습니다'); }
       if (a === 'tutorial') { c.close(); onTutorial?.(); }
+      if (a.startsWith('theme-')) { theme.set(a.slice(6)); for (const b of document.querySelectorAll('[data-m^="theme-"]')) b.classList.toggle('on', b.dataset.m === a); }
       if (a === 'password') { c.close(); passwordModal({ toast, hasPassword: acc.hasPassword !== false, onAccount }); }
       if (a === 'delete') { c.close(); deleteModal({ toast, onAccount, hasPassword: acc.hasPassword !== false, username: acc.username }); }
     } catch (e) { c.err(e.message); }

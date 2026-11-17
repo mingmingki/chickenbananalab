@@ -122,7 +122,12 @@ export function siteName(world, b) {
 /** 시공사 정하기: 그 마을 건설회사 중 일이 가장 덜 밀린 곳 */
 export function assignContractor(world, b, prefer = null) {
   if (b.contractor || b.done) return !!b.contractor;
-  const cos = [...world.companies.values()].filter(c => !c.dead && c.ind === 'construction' && c.sid === b.sid);
+  // 철거 현장은 철거업체가 먼저, 없으면 건설회사가 맡는다
+  let cos = [];
+  for (const ind of b.type === 'demolish' ? ['demolition', 'construction'] : ['construction']) {
+    cos = [...world.companies.values()].filter(c => !c.dead && c.ind === ind && c.sid === b.sid);
+    if (cos.length) break;
+  }
   if (!cos.length) return false;
   const load = c => (c.sites || []).reduce((t, id) => { const x = world.buildings.get(id); return t + (x && !x.done ? x.work - x.progress : 0); }, 0) / Math.max(1, c.emp.length);
   const co = (prefer && cos.find(c => c.id === prefer)) || cos.sort((x, y) => load(x) - load(y) || y.rep - x.rep)[0];
@@ -368,6 +373,17 @@ export function bestIndustry(world, a) {
     if (!featureOk(s, ind.needs)) continue;                       // 바다가 없으면 조선소도 없다
     if (ind.requires && !countryHas(world, a.country, ind.requires)) continue; // 제철소가 있어야 조선·자동차
     if (k === 'construction' && s.pop < 15) continue; // 작은 마을은 품앗이로 짓는다
+    // 철거업: 허물 건물이 기다리고 있고, 아직 철거업체가 없을 때 (건설회사가 떠맡느라 바쁘면 더 큰 기회)
+    let demoWait = 0;
+    if (k === 'demolition') {
+      if (s.pop < 25 || companiesIn(world, s.id).some(c => c.ind === 'demolition')) continue;
+      for (const id of s.works || []) { const x = world.buildings.get(id); if (x && x.type === 'demolish' && !x.done) demoWait++; }
+      // 허물 일이 기다리거나, 최근에 허문 적이 있거나, 시대에 뒤처진 낡은 건물이 많은 마을
+      let old = 0;
+      for (const id of s.buildings) { const x = world.buildings.get(id); if (x && x.done && (BUILDINGS[x.type]?.era ?? 0) <= era - 2 && BUILDINGS[x.type]?.kind === 'home') old++; }
+      demoWait += (s.demoCount || 0) * 0.5 + (old >= 4 ? old * 0.08 : 0);
+      if (demoWait < 0.5) continue;
+    }
     if (k === 'construction' && builder) {
       // 건설회사는 현장이 넘쳐 기존 회사들이 감당을 못할 때만 새로 생긴다 (작은 마을에 1인 건설사가 난립하지 않게)
       const cons = companiesIn(world, s.id).filter(c => c.ind === 'construction');
@@ -383,6 +399,7 @@ export function bestIndustry(world, a) {
     // 벽돌이 없어 공사가 멈춘 곳이 있다 → 벽돌 가마를 차릴 기회
     if (k === 'brickworks') { const kilns = companiesIn(world, s.id).filter(c => c.ind === 'brickworks').length; df = kilns ? df : Math.max(df, 1 + Math.min(0.9, ((s.need?.bricks || 0) + (s.needPrev?.bricks || 0)) * 0.08 + (era >= 2 ? 0.25 : 0)) * Math.min(1, s.pop / 25)); }
     if (k === 'farm' && s.food < s.pop * 2) df += 0.3;
+    if (k === 'demolition') df = Math.max(df, 1 + Math.min(0.8, demoWait * 0.2));
     const score = jobFit(a, jk) * 0.6 + a.sk[JOBS[jk].skill] * 0.3 + (df - 1) * 45 + rand() * 12;
     if (score > bs) { bs = score; best = k; best_df = df; }
   }
@@ -606,10 +623,10 @@ export function companyDaily(world, co) {
     // 고용 조정: 장사가 잘되면 건물 정원까지 늘리고, 꽉 차면 건물을 하나 더 짓는다
     let df = INDUSTRIES[co.ind] ? demandFactor(world, world.settlements.get(co.sid), co.ind) : 1;
     const cap = capacityOf(world, co);
-    if (co.ind === 'construction') {
+    if (co.ind === 'construction' || co.ind === 'demolition') {
       crewDaily(world, co);
       // 현장이 없어도 기본 인력(반장·기능공 몇 명)은 유지한다
-      const base = Math.min(cap, 3);
+      const base = Math.min(cap, co.ind === 'demolition' ? 2 : 3);
       const want = Math.max(base, Math.min(cap, 1 + co.crewNeed));
       if (want > co.slots && co.money > payroll * 2) co.slots = Math.min(want, co.slots + Math.max(1, Math.floor(co.slots * 0.2)));
       df = co.sites.length || co.slots <= base ? 1 : 0.45;

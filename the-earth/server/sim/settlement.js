@@ -108,7 +108,8 @@ export function placeBuilding(world, s, type, opts = {}) {
   let [w, d] = def.cells;
   if (rand() < 0.5 && w !== d) [w, d] = [d, w];
   let lot;
-  if (def.kind === 'farm') {
+  if (opts.lot && fits(s, opts.lot[0], opts.lot[1], w, d)) lot = opts.lot;
+  else if (def.kind === 'farm') {
     const r = townRadiusCells(world, s);
     lot = findLot(s, w, d, r + 2, r + 30, 0.3);
   } else if (def.nearWater && s.site) {
@@ -167,6 +168,7 @@ export function buildRule(b) {
   return { self, bricks: era >= 2 && def.kind !== 'farm' };
 }
 import { stagedWork } from './traffic.js';
+import { demolitionProgress } from './demolition.js';
 export const MAT_PER_WORK = 0.6;
 
 /** 건설 진척. 벽돌이 모자라면 그만큼만 나아간다. 완공되면 true */
@@ -210,6 +212,7 @@ export function addWork(world, b, hours, raw = hours) {
   b.progress = Math.min(b.work, b.progress + hours);
   world.dirtyBuildings.add(b.id);
   if (b.infra) world.onRoadProgress?.(b);
+  if (b.type === 'demolish') demolitionProgress(world, b);
   if (b.progress >= b.work) {
     b.done = true;
     b.built = Math.round(world.clock);
