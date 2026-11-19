@@ -15,7 +15,7 @@ import { ERAS } from './data.js';
 export const VILLAGE = { couples: 14, singles: 5, elders: 3 };
 
 /** 마을을 채운다 (이미 채웠으면 아무것도 하지 않는다) */
-export function seedVillage(world, c, s, plan = VILLAGE) {
+export function seedVillage(world, c, s, plan = VILLAGE, quiet = false) {
   if (s.seeded) return [];
   const mud = c.era >= 2 || knows(world, s, '흙벽 쌓기');   // 흙벽 쌓는 법을 아는 부족은 초가집, 아니면 움집
   const now = Math.round(world.clock);
@@ -100,7 +100,7 @@ export function seedVillage(world, c, s, plan = VILLAGE) {
   c.pop = [...world.anns.values()].filter(a => a.alive && a.country === c.code).length;
   s.pop = made.length;
   world.dirtySettlements.add(s.id); world.dirtyCountries.add(c.code);
-  world.news('city', `🏡 ${s.name} — ${mud ? '초가집' : '움집'} ${s.buildings.length}채에 ${made.length}명이 모여 사는 ${s.name} 부족`, { country: c.code, sid: s.id }, 1);
+  if (!quiet) world.news('city', `🏡 ${s.name} — ${mud ? '초가집' : '움집'} ${s.buildings.length}채에 ${made.length}명이 모여 사는 ${s.name} 부족`, { country: c.code, sid: s.id }, 1);
   world.rebuildResidents();
   return made;
 }

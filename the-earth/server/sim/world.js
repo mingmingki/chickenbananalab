@@ -15,7 +15,7 @@ import { catchDaily, chronicDaily, spreadDaily, illName, illOut, recovered } fro
 import { mediaDaily, mediaOut, starOut } from './media.js';
 import { faithDaily, religionDaily, faithOut, religionOut } from './religion.js';
 import { seedVillage, villageDaily, migrateStart } from './village.js';
-import { seedLand, tribesDaily, nationsDaily, migrateTribes, migrateEarlyEconomy, tribesOut, tribeOfA, tribeOfS, tribeLabel, leaderTitle, titleOf, learn, knows, EARLY_TECH, landName, liveTribes } from './tribes.js';
+import { seedLand, seedWorld, tribesDaily, nationsDaily, migrateTribes, migrateEarlyEconomy, tribesOut, tribeOfA, tribeOfS, tribeLabel, leaderTitle, titleOf, learn, knows, EARLY_TECH, landName, liveTribes } from './tribes.js';
 import { companyDaily, considerPromotion, jobTitle, leaveJob, foundPublic, dailyCost, wageBase, setJob, assignContractor, siteName, hasConstruction, fullDayPay, annualOf } from './economy.js';
 import { childName, givenOf, familyName } from './names.js';
 import { runEvents, rollWeather } from './events.js';
@@ -39,6 +39,7 @@ export class World {
     this.timeScale = meta.timeScale || 24;
     this.clock = meta.clock || 0;
     this.nextIdV = meta.nextIdV || 1;
+    this.worldSeeded = meta.worldSeeded || 0;
     this.countries = {};
     this.settlements = new Map();
     this.buildings = new Map();
@@ -265,7 +266,8 @@ export class World {
   addTech(c, pts, src = 'etc') {
     c.tech += pts;
     if (this.techSrc) this.techSrc[src] = (this.techSrc[src] || 0) + pts;
-    this.dirtyCountries.add(c.code);
+    // 기술 수치는 거의 매 순간 조금씩 오른다: 화면에는 15초마다 한 번만 (나라가 많으면 매 틱 보내기엔 크다)
+    (this._techDirty || (this._techDirty = new Set())).add(c.code);
   }
   /** 발견 시도: 시대 안에서 기술이 쌓일수록 발견 확률이 올라간다 (발견이 시대 전체에 고르게 퍼지도록) */
   tryDiscovery(a, forced = null, opts = {}) {
@@ -626,6 +628,9 @@ export class World {
     seedVillage(this, c, s);
     return s;
   }
+
+  /** 지구 곳곳의 땅에 부족들을 흩어 놓는다 (세계가 처음 열릴 때 한 번) */
+  seedWorld() { const n = seedWorld(this, seedVillage); if (n) this.rebuildResidents(); return n; }
 
   /** 지금 이 플레이어의 앤 (살아 있는 한 명) */
   mainAnn(player) {
@@ -1273,9 +1278,9 @@ export class World {
   // ── 저장 ──
   toJSON() {
     return {
-      v: 1, id: this.id, name: this.name, created: this.created, timeScale: this.timeScale, clock: this.clock, nextIdV: this.nextIdV, paused: !!this.paused,
+      v: 1, id: this.id, name: this.name, created: this.created, timeScale: this.timeScale, clock: this.clock, nextIdV: this.nextIdV, paused: !!this.paused, worldSeeded: this.worldSeeded,
       nextEventId: this.nextEventId, countries: this.countries, settlements: [...this.settlements.values()], buildings: [...this.buildings.values()],
-      companies: [...this.companies.values()], anns: [...this.anns.values()], players: this.players, events: this.events.slice(-300), chat: this.chat.slice(-60),
+      companies: [...this.companies.values()], anns: [...this.anns.values()].map(annSave), players: this.players, events: this.events.slice(-300), chat: this.chat.slice(-60),
     };
   }
   static fromJSON(o) {
@@ -1305,6 +1310,7 @@ export class World {
     w.rebuildResidents();
     migrateTribes(w, seedVillage);
     migrateEarlyEconomy(w);
+    w.seedWorld();
     return w;
   }
 
@@ -1419,6 +1425,7 @@ export class World {
     if (this.dirtyBuildings.size) p.buildings = [...this.dirtyBuildings].map(id => this.buildings.get(id)).filter(Boolean).map(b => this.buildingOut(b));
     if (this.removedBuildings.size) p.removed = [...this.removedBuildings];
     if (this.dirtySettlements.size) p.settlements = [...this.dirtySettlements].map(id => this.settlements.get(id)).filter(Boolean).map(s => this.settlementOut(s));
+    if (full && this._techDirty?.size) { for (const k of this._techDirty) this.dirtyCountries.add(k); this._techDirty.clear(); }
     if (this.dirtyCountries.size) p.countries = [...this.dirtyCountries].map(c => this.countries[c]).filter(Boolean).map(c => this.countryOut(c));
     if (this.dirtyCompanies.size) p.companies = [...this.dirtyCompanies].map(id => this.companies.get(id)).filter(Boolean).map(c => this.companyOut(c));
     if (this.newEvents.length) p.events = this.newEvents;
@@ -1486,6 +1493,25 @@ export class World {
     const housing = !home ? '집 없음' : home.dev ? '월세' : home.owner === a.id || (spouseHome && home.owner === a.spouse) ? '자가' : home.owner != null ? '가족 집에 함께' : '공동 거처';
     return { cash: Math.round(a.money * 100) / 100, salary: Math.round(salary * 100) / 100, era: c?.era ?? 0, led: ledgerOut(a.led), prev: ledgerOut(a.ledPrev), housing, car: !!a.car };
   }
+}
+
+// 저장용 앤: 사람이 수천 명이면 저장본이 커지므로, 소수점을 줄이고 잠깐 쓰는 값은 빼고 저장한다 (살아 있는 값은 그대로)
+const r2 = v => Math.round(v * 100) / 100;
+function roundNums(o) { if (!o || typeof o !== 'object') return o; const c = {}; for (const k in o) { const v = o[k]; c[k] = typeof v === 'number' ? r2(v) : v; } return c; }
+function annSave(a) {
+  const o = {};
+  for (const k in a) if (k[0] !== '_') o[k] = a[k];
+  const rels = {};
+  for (const id in a.rels) {
+    const r = a.rels[id], c = {};
+    for (const k in r) { const v = r[k]; if (k === 'fl' && (!v || !Object.keys(v).length)) continue; c[k] = typeof v === 'number' ? (k === 'last' || k === 'since' ? Math.round(v) : r2(v)) : v; }
+    rels[id] = c;
+  }
+  o.rels = rels;
+  for (const k of ['tr', 'ab', 'sk', 'nd', 'val']) if (a[k]) o[k] = roundNums(a[k]);
+  if (typeof a.x === 'number') { o.x = Math.round(a.x * 10) / 10; o.z = Math.round(a.z * 10) / 10; }
+  if (!a.owner && a.th?.length > 15) o.th = a.th.slice(-15);
+  return o;
 }
 
 function sanitizeSpec(raw = {}) {

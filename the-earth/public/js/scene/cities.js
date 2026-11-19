@@ -802,8 +802,10 @@ export class Cities {
       if (!talkLine.has(c.a) && !talkLine.has(c.b)) talkLine.set(Math.min(c.a, c.b), c.line);
     }
     let bubbles = 0;
+    const near = [];
     for (const t of this.towns.values()) {
       const dist = camPos.distanceTo(t.center);
+      if (dist < 40) near.push([dist, t.s.id]);
       const facing = t.up.dot(p.copy(camPos).sub(t.center)) > -50;
       t.g.visible = dist < 900 && facing;
       // 멀어지면 마을 둘레 지형 조각은 지구 표면 속으로 녹아든다 (둥근 경계가 보이지 않게)
@@ -944,6 +946,7 @@ export class Cities {
       t.dots.geometry.attributes.color.needsUpdate = true;
       t.dots.visible = showDots;
     }
+    this.viewSids = near.sort((a, b) => a[0] - b[0]).slice(0, 10).map(x => x[1]);
     return labels;
   }
 

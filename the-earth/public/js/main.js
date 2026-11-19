@@ -483,3 +483,10 @@ function observe(justDeployed = false, firstAnn = null, since = null) {
 
 boot().catch(e => { console.error(e); $('#loading').innerHTML = `<p>불러오기 실패: ${esc(e.message)}</p>`; });
 window.__earth = { state, get w3d() { return w3d; }, ctx };
+// 화면이 들여다보는 마을이 바뀌면 서버에 알린다 (그 마을 사람들의 위치만 받는다)
+setInterval(() => {
+  const v = w3d?.cities?.viewSids;
+  if (!v || !live) return;
+  const k = v.join(',');
+  if (live._viewKey !== k) { live._viewKey = k; live.view(v); }
+}, 1000);

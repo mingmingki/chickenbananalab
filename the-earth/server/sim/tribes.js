@@ -129,8 +129,31 @@ export function makeTribe(world, c, s) {
   return t;
 }
 
+/** 부족 하나의 처음 사람들: 부부 여덟아홉 쌍과 아이들, 혼자 사는 젊은이, 어르신 — 마흔 명 안팎 */
+export const tribePlan = (big = false) => ({ couples: 8 + Math.floor(rand() * 3) + (big ? 1 : 0), singles: 2 + Math.floor(rand() * 3), elders: 2 + Math.floor(rand() * 2) });
+/** 플레이어가 아직 없는 먼 땅의 부족: 조금 작게 (서른 명 안팎) — 서버 메모리를 아끼려고 */
+export const farPlan = () => ({ couples: 6 + Math.floor(rand() * 3), singles: 1 + Math.floor(rand() * 3), elders: 1 + Math.floor(rand() * 2) });
+
+// 지구 곳곳: 세계가 처음 열릴 때 부족들이 사는 땅 (대륙마다, 그리고 한반도 둘레)
+export const WORLD_LANDS = ['KP', 'JP', 'CN', 'MN', 'VN', 'IN', 'IR', 'TR', 'EG', 'NG', 'ZA', 'IT', 'GB', 'RU', 'US', 'MX', 'PE', 'BR', 'AU'];
+/** 세계가 처음 열릴 때 (예전 저장본은 불러올 때 한 번): 지구 곳곳의 땅에 부족 두세 개씩 */
+export function seedWorld(world, seedVillage) {
+  if (world.worldSeeded) return 0;
+  world.worldSeeded = Math.round(world.clock) || 1;
+  const made = [];
+  for (const code of WORLD_LANDS) {
+    if (!getCountry(code)) continue;
+    if ([...world.settlements.values()].some(s => s.country === code)) continue;
+    const c = world.ensureCountry(code);
+    seedLand(world, c, seedVillage, { tribes: chance(0.7) ? 2 : 3, quiet: true, plan: farPlan });
+    made.push(c.name);
+  }
+  if (made.length) world.news('city', `🌍 지구 곳곳 ${made.length}개 땅에 부족들이 흩어져 산다 — ${made.slice(0, 6).join(', ')} …`, {}, 3);
+  return made.length;
+}
+
 /** 땅에 처음 사람이 들어설 때: 부족 서너 개를 흩어 놓는다. 첫 부족의 정착지를 돌려준다 */
-export function seedLand(world, c, seedVillage) {
+export function seedLand(world, c, seedVillage, opts = {}) {
   const g = getCountry(c.code);
   // 사람들은 물가에 모여 산다
   const spot = (near, lo, hi) => {
@@ -144,7 +167,7 @@ export function seedLand(world, c, seedVillage) {
     return best.p;
   };
   const spots = [spot(g.centroid, 0, 1.4)];
-  const n = chance(0.5) ? 3 : 4;
+  const n = opts.tribes || (chance(0.5) ? 3 : 4);
   for (let i = 1; i < n; i++) {
     let best = null;
     for (let k = 0; k < 16; k++) {
@@ -162,12 +185,12 @@ export function seedLand(world, c, seedVillage) {
     const [lon, lat] = spots[i];
     const s = makeSettlement(world, c, lon, lat, null);
     makeTribe(world, c, s);
-    seedVillage(world, c, s, { couples: 5 + Math.floor(rand() * 3) + (i === 0 ? 1 : 0), singles: 1 + Math.floor(rand() * 3), elders: 1 + Math.floor(rand() * 2) });
+    seedVillage(world, c, s, opts.plan ? opts.plan() : tribePlan(i === 0), opts.quiet);
     made.push(s);
   }
   c.capital = made[0].id;
   c.tribesAtStart = made.length;
-  world.news('city', `🏕️ ${c.name}에 부족 ${made.length}개가 흩어져 산다 — ${made.map(s => s.name).join(', ')}`, { country: c.code, sid: made[0].id }, 2);
+  if (!opts.quiet) world.news('city', `🏕️ ${c.name}에 부족 ${made.length}개가 흩어져 산다 — ${made.map(s => s.name).join(', ')}`, { country: c.code, sid: made[0].id }, 2);
   world.rebuildResidents();
   for (const t of liveTribes(c)) chiefDaily(world, c, t, true);
   return made[0];
@@ -664,7 +687,7 @@ export function migrateTribes(world, seedVillage) {
       const t = makeTribe(world, c, s);
       // 이웃 부족은 원시 시대 기술 몇 가지만 안다 (농사는 아직)
       t.known = ['불의 사용', '석기 도구', ...(chance(0.6) ? ['나무 다루기'] : []), ...(chance(0.4) ? ['사냥 기술'] : [])];
-      seedVillage(world, c, s, { couples: 5 + Math.floor(rand() * 3), singles: 1 + Math.floor(rand() * 3), elders: 1 + Math.floor(rand() * 2) });
+      seedVillage(world, c, s, tribePlan());
       world.news('city', `🏕️ ${base.name} 너머에 ${tribeLabel(t)}이(가) 살고 있었다`, { country: c.code, sid: s.id }, 2);
     }
     c.tribesAtStart = Object.keys(c.tribes).length;

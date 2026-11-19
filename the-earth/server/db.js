@@ -44,8 +44,8 @@ const stmt = {
 };
 export function saveWorldJson(id, json) { stmt.saveWorld.run(id, json, Date.now()); }
 export function deleteWorld(id) { stmt.delWorld.run(id); }
-/** 한 시간에 한 번쯤: 최근 24개만 남기는 백업 */
-export function backupWorld(id, json) { const t = Date.now(); stmt.backup.run(id, t, json); stmt.trimBackups.run(id, id, 24); }
+/** 한 시간에 한 번쯤: 최근 12개만 남기는 백업 (사람이 많아지면 한 개가 수십 MB) */
+export function backupWorld(id, json) { const t = Date.now(); stmt.backup.run(id, t, json); stmt.trimBackups.run(id, id, 12); }
 export const listBackups = () => stmt.listBackups.all();
 export const getBackup = (id, saved) => stmt.getBackup.get(id, saved)?.json || null;
 /** 저장된 월드들 (JSON 문자열). 처음이면 예전 JSON 파일을 가져온다 */

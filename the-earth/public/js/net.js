@@ -51,6 +51,7 @@ export class Live {
       if (this.playerToken) ws.send(JSON.stringify({ t: 'hello', token: this.playerToken }));
       ws.send(JSON.stringify({ t: 'vis', v: !document.hidden }));
       if (this.watchId) this.watch(this.watchId);
+      if (this.viewSids) this.view(this.viewSids);
       this.h.open?.();
     };
     ws.onmessage = ev => {
@@ -69,6 +70,11 @@ export class Live {
   watch(id) {
     this.watchId = id;
     if (this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: 'watch', id }));
+  }
+  /** 화면이 들여다보는 마을들 — 서버는 그 마을 사람들의 위치만 보낸다 */
+  view(sids) {
+    this.viewSids = sids;
+    if (this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: 'view', sids }));
   }
   close() { this.closed = true; document.removeEventListener('visibilitychange', this.onVis); this.ws.close(); }
 }

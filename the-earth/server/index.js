@@ -59,6 +59,7 @@ const geo = loadGeo();
 const worlds = loadWorlds();
 if (!worlds.size) {
   const w = new World({ id: 's1', name: '제1서버 · 여명', timeScale: DEFAULT_SCALE, clock: 0 });
+  w.seedWorld();
   worlds.set(w.id, w);
   saveWorld(w);
   console.log('새 월드를 만들었습니다:', w.name);
@@ -347,6 +348,7 @@ function createServer(name) {
   let id = 's' + n;
   while (worlds.has(id)) id = 's' + (+id.slice(1) + 1);
   const w = new World({ id, name: String(name || '').trim().slice(0, 30) || `제${n}서버`, timeScale: DEFAULT_SCALE, clock: 0 });
+  w.seedWorld();
   if (RUN_SCALE) w.runScale = RUN_SCALE;
   worlds.set(id, w);
   saveWorld(w, { backup: true });
@@ -662,7 +664,7 @@ wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://x');
   const w = worlds.get(url.searchParams.get('server'));
   if (!w) { ws.close(4004, 'no server'); wsPerIp.set(ip, wsPerIp.get(ip) - 1); return; }
-  const client = { ws, world: w, watch: null, lastDetail: 0, pid: null, visible: true, seenAt: Date.now(), msgs: 0, msgReset: Date.now() + 10_000 };
+  const client = { ws, world: w, watch: null, view: null, fresh: null, lastDetail: 0, pid: null, visible: true, seenAt: Date.now(), msgs: 0, msgReset: Date.now() + 10_000 };
   clients.add(client);
   stats.wsPeak = Math.max(stats.wsPeak, clients.size);
   ws.send(JSON.stringify({ t: 'init', v: VERSION.commit, ...w.initPayload() }));
@@ -677,6 +679,12 @@ wss.on('connection', (ws, req) => {
     } else if (m.t === 'hello') {
       const p = w.playerByToken(String(m.token || ''));
       client.pid = p?.id || null;
+    } else if (m.t === 'view') {
+      // 화면이 들여다보는 마을들: 새로 본 마을은 다음 틱에 사람 위치를 모두 보낸다
+      const sids = (Array.isArray(m.sids) ? m.sids : []).slice(0, 16).map(Number).filter(Number.isFinite);
+      const prev = client.view || new Set();
+      client.fresh = new Set([...(client.fresh || []), ...sids.filter(x => !prev.has(x))]);
+      client.view = new Set(sids);
     } else if (m.t === 'vis') {
       client.visible = !!m.v; client.seenAt = Date.now();
     }
@@ -707,13 +715,31 @@ setInterval(() => {
       const k = w.id + String(e.message);
       if (!errSeen.has(k) || Date.now() - errSeen.get(k) > 60_000) { errSeen.set(k, Date.now()); console.error('시뮬레이션 오류', w.id, e); db.logError('sim ' + w.id, e); }
     }
-    const payload = JSON.stringify({ t: 'tick', ...w.tickPayload(), scale: w.paused ? 0 : (w.runScale || w.timeScale) });
+    const { pos: allPos, ...rest } = w.tickPayload();
+    const scale = w.paused ? 0 : (w.runScale || w.timeScale);
+    let payload = null;   // 위치를 모두 담은 것 (화면이 어느 마을을 보는지 아직 모르는 접속)
+    const base = JSON.stringify({ t: 'tick', ...rest, scale });
+    // 위치는 그 화면이 들여다보는 마을 것만 (사람이 수천 명이어도 휴대폰 데이터가 적게)
+    const bySid = new Map(), byId = new Map();
+    for (const r of allPos) { let l = bySid.get(r[1]); if (!l) bySid.set(r[1], (l = [])); l.push(r); byId.set(r[0], r); }
+    const posFor = c => {
+      const rows = [], seen = new Set();
+      for (const sid of c.view) {
+        if (c.fresh?.has(sid)) { for (const a of w.residents(sid)) { rows.push(w.annPos(a)); seen.add(a.id); } }
+        else for (const r of bySid.get(sid) || []) { rows.push(r); seen.add(r[0]); }
+      }
+      const mine = c.pid && w.players[c.pid] ? w.players[c.pid].anns : [];
+      for (const id of [c.watch, ...mine]) { const r = id != null && !seen.has(id) && byId.get(id); if (r) { rows.push(r); seen.add(id); } }
+      c.fresh = null;
+      return rows;
+    };
     const notesBy = new Map();
     for (const n of w.newNotes) { if (!notesBy.has(n.pid)) notesBy.set(n.pid, []); notesBy.get(n.pid).push(n); }
     for (const c of clients) {
       if (c.world !== w || c.ws.readyState !== 1) continue;
       if (c.ws.bufferedAmount > 4e6) continue; // 느린 연결은 건너뛴다 (메모리 보호)
-      c.ws.send(payload);
+      if (c.view) c.ws.send(base.slice(0, -1) + ',"pos":' + JSON.stringify(posFor(c)) + '}');
+      else c.ws.send(payload || (payload = base.slice(0, -1) + ',"pos":' + JSON.stringify(allPos) + '}'));
       if (c.pid && notesBy.has(c.pid)) c.ws.send(JSON.stringify({ t: 'notes', notes: notesBy.get(c.pid) }));
       if (c.watch && (w.dirtyDetail.has(c.watch) || w.dirtyAct.has(c.watch) || now - c.lastDetail > 2500)) {
         c.lastDetail = now;
@@ -735,8 +761,15 @@ setInterval(() => {
 }, 1000);
 setInterval(() => flushPush(isWatching), 30_000);
 
+// 저장본이 크면(사람이 수천 명) 저장하는 동안 잠깐 멈추므로 덜 자주: 8MB 넘으면 3분, 20MB 넘으면 5분마다
 setInterval(() => {
-  for (const w of worlds.values()) { try { saveWorld(w); } catch (e) { console.error('저장 실패', w.id, e); db.logError('save ' + w.id, e); } }
+  const now = Date.now();
+  for (const w of worlds.values()) {
+    const every = (w._saveBytes || 0) > 20e6 ? 300_000 : (w._saveBytes || 0) > 8e6 ? 180_000 : SAVE_EVERY_MS;
+    if (now - (w._savedAt || 0) < every - 1000) continue;
+    w._savedAt = now;
+    try { saveWorld(w); } catch (e) { console.error('저장 실패', w.id, e); db.logError('save ' + w.id, e); }
+  }
 }, SAVE_EVERY_MS);
 setInterval(() => db.cleanupSessions(), 6 * 3600_000).unref();
 
