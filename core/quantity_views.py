@@ -8260,6 +8260,30 @@ def _write_review_notes_sheet(ws, navy_fill, header_font, body_font, left, thin)
         ws.column_dimensions[letter].width = width
 
 
+def _write_assumed_sheet(ws, takeoff, rebar, navy_fill, header_font, body_font, left, thin):
+    """임의로 정한 것: 도면에 없어 이 작업이 가정한 값 — 어디에 썼고, 얼마가 걸렸고, 어떻게 바꾸는지."""
+    headers = ["구분", "항목", "정한 값", "쓴 곳", "걸린 양", "근사·확인 전이라 합계에서 빠진 몫", "바꾸는 법"]
+    for col, text in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=text)
+        cell.font, cell.fill, cell.border = header_font, navy_fill, thin
+    row = 2
+    for group, result in (("콘크리트", takeoff), ("철근", rebar)):
+        for item in (result or {}).get("assumed") or []:
+            unit = item.get("unit") or ""
+            amount = lambda value: (f"{value / 1000:,.2f} t" if unit == "kg" else f"{value:,.1f} {unit}") if value else ""
+            values = [group, item.get("label"), item.get("value"), " · ".join(item.get("where") or []),
+                      amount(item.get("amount") or 0), amount(item.get("left_out") or 0), item.get("change")]
+            for col, value in enumerate(values, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.font, cell.border, cell.alignment = body_font, thin, left
+            row += 1
+    if row == 2:
+        ws.cell(row=2, column=1, value="이 작업은 도면에 없는 값을 임의로 정하지 않았어요.").font = body_font
+    for letter, width in zip("ABCDEFG", (10, 24, 30, 40, 14, 22, 50)):
+        ws.column_dimensions[letter].width = width
+    ws.freeze_panes = "A2"
+
+
 def _write_floor_rebar_sheet(ws, rebar, navy_fill, yellow_fill, header_font, body_font, center, left, thin):
     """층별 철근: 동마다 층 행(부재별 kg)과 직경·강종별 합계(t). 근사 행은 회색, 합계에서 뺀다."""
     from .quantity_floor_rebar import KINDS, KIND_LABELS
@@ -8623,7 +8647,7 @@ def _build_excel_response(request):
     has_floor_takeoff = isinstance(floor_takeoff, dict) and bool(floor_takeoff.get("buildings"))
     # "AI 없이 CAD로만 진행": no AI reading, so the floor sheets lead and the AI-only sheets are left out
     cad_only = has_floor_takeoff and not any(results.get(k) for k in ("structural", "architectural"))
-    CAD_ONLY_SHEETS = ("층별 집계(N층 기준)", "층별 철근(N층 기준)", "검토 사항")
+    CAD_ONLY_SHEETS = ("층별 집계(N층 기준)", "층별 철근(N층 기준)", "임의로 정한 것", "검토 사항")
 
     # 구조 시트
     if "structural" in results and results["structural"].get("items"):
@@ -8652,6 +8676,8 @@ def _build_excel_response(request):
         _write_floor_rebar_sheet(wb.create_sheet("층별 철근(N층 기준)"), floor_rebar,
                                  navy_fill, yellow_fill, header_font, body_font, center, left, thin)
     if has_floor_takeoff:
+        _write_assumed_sheet(wb.create_sheet("임의로 정한 것"), floor_takeoff,
+                             floor_rebar if isinstance(floor_rebar, dict) else None, navy_fill, header_font, body_font, left, thin)
         _write_review_notes_sheet(wb.create_sheet("검토 사항"), navy_fill, header_font, body_font, left, thin)
 
     # 건축 시트

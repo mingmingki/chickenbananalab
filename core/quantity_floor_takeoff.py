@@ -22,6 +22,8 @@ import re
 
 import numpy as np
 
+from .quantity_assumed import CONCRETE, Assumed
+
 TAKEOFF_VERSION = 1
 
 # ── plan measures ──────────────────────────────────────────────────────────
@@ -905,7 +907,7 @@ def _outer_walls(plan, area):
     return float(measure.get("outline") or 0) or 4 * math.sqrt(max(area, 0.0)), True
 
 
-def _foundation_row(building, plans, levels, host_name, host, match, links, given, learned=None):
+def _foundation_row(building, plans, levels, host_name, host, match, links, given, learned=None, assumed=None):
     """The foundation storey: the lowest floor's outline × the mat thickness (the drawing's, a
     person's, else an assumption kept out of the totals)."""
     if not levels:
@@ -986,6 +988,19 @@ def _foundation_row(building, plans, levels, host_name, host, match, links, give
                      + ". 기초판과 겹치는 부분은 뺐고 옆 거푸집은 넣지 않았어요")
         if wall_note:
             notes.append(wall_note)
+    if assumed is not None:
+        if source in ("assumed", "learned"):
+            assumed.add("foundation_thickness", "기초 두께", f"{thickness:.2f}m" + (" (가정)" if source == "assumed" else " (다른 현장 입력값 중앙값)"),
+                        name, "기초", area * thickness, CONCRETE, "산출 화면의 기초 두께 칸에 넣으면 합계에 들어가요", counted=False)
+        if mats and not mats_placed:
+            assumed.add("mat_pick", "평면에 부호 없는 매트", "일람표 " + ", ".join(m["mark"] for m in mats), name, "기초",
+                        change="기초 평면에 매트 부호가 있으면 그 부호를 써요")
+        for strip in strips:
+            if not strip["placed"]:
+                piece = max(strip["length"] * (strip["width"] * strip["depth"] - min(strip["width"], (strip["width"] + wall_t) / 2) * thickness), 0.0)
+                assumed.add("wall_footing_place", "줄기초 위치", f"{strip['mark']} {strip['width']:.2f}×{strip['depth']:.2f}m를 외벽 아래 "
+                            f"{strip['length']:.0f}m" + (" (외벽을 못 읽어 바깥 둘레)" if rough else ""), name, "기초", piece, CONCRETE,
+                            "평면에 줄기초 부호가 있으면 그 동에 넣어요. 위치가 다르면 2D 고치기로 바로잡아 주세요")
     notes.insert(0, f"기초 {area:.0f}㎡ × 두께 {thickness:.2f}m" + {"person": " (입력값)", "drawing": " (기초 평면 표기)",
                                                                   "schedule": " (기초 일람표)",
                                                                   "learned": " (다른 현장 입력값의 중앙값 — 확인해 주세요)",
@@ -1042,6 +1057,7 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
     buildings = []
     all_buildings = (model or {}).get("buildings") or []
     host_name, match = tower_regions(all_buildings)
+    assumed = Assumed()
     host = next((b for b in all_buildings if b.get("name") == host_name), None)
     host_levels = {l.get("key"): l for l in (host or {}).get("levels") or []}
     matched = sorted(match.items(), key=lambda item: item[1])
@@ -1056,7 +1072,7 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
             given = None
         if given is not None and not 0.1 <= given <= 5.0:
             given = None
-        ft_row = _foundation_row(building, plans, levels, host_name, host, match, links, given, learned)
+        ft_row = _foundation_row(building, plans, levels, host_name, host, match, links, given, learned, assumed)
         if ft_row:
             rows.append(ft_row)
         for index, level in enumerate(levels):
@@ -1083,6 +1099,7 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
             height = float(level.get("height") or 0)
             wall_h = height if key == "PHR" and above is None else max(height - t, 0.0)  # parapets: no slab above
             notes, approximate = ([thickness_note] if thickness_note else []), kind == "basement"
+            used = []  # (key, label, value, m³, how to change) assumed on this storey
             vertical_area = float(measure.get("area") or 0) + float(measure.get("col_area") or 0)
             faces = float(measure.get("faces") or 0) + float(measure.get("col_perimeter") or 0)
             outside = min(float(measure.get("outside_faces") or 0), faces)
@@ -1124,11 +1141,13 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                 form["gang"] += gaps * left
                 form["euro" if kind == "roof" else "al_vertical"] += gaps * left
                 notes.append(f"창·발코니 개구부 {gaps:.0f}m 위·아래 벽 포함 (개구부 높이 {WINDOW_HEIGHT}m 가정)")
+                used.append(("window_height", "외벽 개구부 높이", f"{WINDOW_HEIGHT}m (위·아래는 벽)", gap_area * left, ""))
             stair_area = sum(measure.get("stairs") or [])
             if stair_area and kind != "basement":
                 concrete["stair"] = stair_area * STAIR_CONCRETE_PER_M2
                 form["stair"] = stair_area * STAIR_FORM_PER_M2
                 notes.append(f"계단은 평면의 계단 {stair_area:.0f}㎡로 추정")
+                used.append(("stair_rate", "계단 콘크리트", f"계단 평면 1㎡당 {STAIR_CONCRETE_PER_M2}㎥", concrete["stair"], ""))
             if kind == "basement":
                 form["euro"] += faces * wall_h
             elif kind == "roof":
@@ -1223,18 +1242,21 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                     if links:
                         notes.append("보는 일람표와 연결된 평면을 찾지 못해 빠졌어요")
                 else:
-                    guessed = 0.0
+                    guessed = guessed_concrete = 0.0
                     for beam in above_members["beams"]:
                         depth = beam["h"]
                         if depth is None:
                             depth = BEAM_DEPTH_DEFAULT
                             guessed += beam["length"]
+                            guessed_concrete += beam["b"] * max(depth - t, 0.0) * beam["length"]
                         drop = max(depth - t, 0.0)
                         concrete["beam"] += beam["b"] * drop * beam["length"]
                         area = (2 * drop + beam["b"]) * beam["length"]
                         form["plywood" if kind == "basement" else "al_vertical"] += area
                     if guessed:
                         notes.append(f"보 {guessed:.0f}m는 춤이 도면에 없어 {BEAM_DEPTH_DEFAULT * 1000:.0f}mm로 봤어요")
+                        used.append(("beam_depth", "일람표에 춤이 없는 보", f"춤 {BEAM_DEPTH_DEFAULT * 1000:.0f}mm", guessed_concrete,
+                                     "보 일람표에 단면이 있으면 그 값을 써요"))
             elif slab_area <= 0 and key == "PHR":
                 notes.append(f"옥탑 지붕 위 벽은 난간벽으로 보고 높이 {height:.1f}m로 봤어요")
             elif slab_area <= 0:
@@ -1260,6 +1282,13 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                 fixed = {"count": len(fixes), "concrete": round(added_concrete, 2), "formwork": round(added_form, 2)}
             concrete["total"] = sum(concrete[k] for k in CONCRETE_KEYS)
             form["total"] = sum(form[k] for k in FORM_KEYS)
+            if slab_area > 0 and thickness_note is None:
+                used.append(("slab_thickness", "슬래브 두께", f"{t * 1000:.0f}mm", concrete["slab"],
+                             "슬래브 배근도·일람표가 연결되면 그 두께를 써요"))
+            if key == "PHR" and above is None and concrete["wall"] > 0:
+                used.append(("parapet", "옥탑 지붕 위 난간벽 높이", f"{height:.1f}m", concrete["wall"], ""))
+            for item_key, label, value, amount, change in used:
+                assumed.add(item_key, label, value, name, level.get("label") or key, amount, CONCRETE, change, counted=not approximate)
             rows.append({
                 "key": key, "label": level.get("label") or key, "height": round(height, 3),
                 "sheets": {"vertical": level.get("sheet"), "horizontal": above.get("sheet") if above else None},
@@ -1283,6 +1312,6 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
         "version": TAKEOFF_VERSION, "rule": "N층 = N층 벽·기둥 + N+1층 바닥 슬래브·보",
         "assumptions": {"slab_thickness": slab_thickness, "beam_depth_default": BEAM_DEPTH_DEFAULT,
                         "window_height": WINDOW_HEIGHT},
-        "uses_schedules": bool(links), "buildings": buildings,
+        "uses_schedules": bool(links), "buildings": buildings, "assumed": assumed.items(),
         "not_included": ["기초 피트·단차", "발코니 쪽 개구부 위·아래 벽 일부"],
     }

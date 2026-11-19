@@ -143,7 +143,7 @@ class CadOnlyApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         workbook = openpyxl.load_workbook(io.BytesIO(response.content))
         # the floor sheets lead; no "구조도면 데이터 없음" page and no empty AI evidence sheets
-        self.assertEqual(workbook.sheetnames, ["층별 집계(N층 기준)", "층별 철근(N층 기준)", "검토 사항"])
+        self.assertEqual(workbook.sheetnames, ["층별 집계(N층 기준)", "층별 철근(N층 기준)", "임의로 정한 것", "검토 사항"])
         texts = [c.value for row in workbook["층별 집계(N층 기준)"].iter_rows() for c in row if isinstance(c.value, str)]
         self.assertIn("[101동]", texts)
 

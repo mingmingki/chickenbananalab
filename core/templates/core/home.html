@@ -9788,14 +9788,20 @@ body.cbl-modal-open {
           var fresh = await again.json();
           if (!again.ok || !fresh.takeoff) throw new Error((fresh && fresh.error) || ("HTTP " + again.status));
           takeoff.buildings = fresh.takeoff.buildings;
+          takeoff.assumed = fresh.takeoff.assumed;
           buildings = takeoff.buildings || [];
           render();
+          var nextAssumed = assumedBox(takeoff.assumed, "콘크리트를");
+          if (takeoffAssumed) { if (nextAssumed) takeoffAssumed.replaceWith(nextAssumed); else takeoffAssumed.remove(); }
+          takeoffAssumed = nextAssumed;
           status.textContent = "반영했어요.";
         } catch (e) {
           status.textContent = "다시 계산하지 못했어요: " + (e && e.message ? e.message : e);
         }
       });
     }
+    var takeoffAssumed = assumedBox(takeoff.assumed, "콘크리트를");
+    if (takeoffAssumed) { if (deck) deck.append(takeoffAssumed); else flowEl.appendChild(takeoffAssumed); }
     var takeoffNotes = reviewNotesBox(takeoff.review_notes);
     if (takeoffNotes) { if (deck) deck.append(takeoffNotes); else flowEl.appendChild(takeoffNotes); }
     var assumptions = takeoff.assumptions || {};
@@ -9825,6 +9831,27 @@ body.cbl-modal-open {
       notes.map(function (n) {
         return '<li><b>' + esc(n.topic) + '</b><i class="is-' + esc(n.status) + '">' + esc(n.status_label) + '</i>' +
           '<span>' + esc(n.seen) + '</span><span class="qd-review-how">→ ' + esc(n.handling) + '</span></li>';
+      }).join("") + '</ul>';
+    return box;
+  }
+
+  // what this job decided on its own where the drawings say nothing (임의로 정한 것): the value,
+  // where it was used, how much rides on it and how to change it, so nothing assumed stays hidden
+  function assumedBox(items, what) {
+    if (!items || !items.length) return null;
+    var box = document.createElement("details");
+    box.className = "qd-review qd-assumed";
+    box.open = true;
+    box.setAttribute("data-qd-keep", "");
+    function amount(a, value) {
+      return a.unit === "kg" ? rebarTon(value) + "t" : Number(value).toLocaleString("ko-KR", { maximumFractionDigits: 1 }) + a.unit;
+    }
+    box.innerHTML = '<summary>임의로 정한 것 ' + items.length + '개 — 도면에 없어 ' + esc(what) + ' 이 값으로 계산했어요</summary><ul>' +
+      items.map(function (a) {
+        var stake = a.amount ? ' · 걸린 양 ' + amount(a, a.amount) + (a.left_out ? ' (근사·확인 전이라 합계에서 빠진 몫 ' + amount(a, a.left_out) + ')' : '') : '';
+        return '<li><b>' + esc(a.label) + '</b><i class="is-assumed">' + esc(a.value) + '</i>' +
+          '<span>' + esc((a.where || []).join(" · ")) + esc(stake) + '</span>' +
+          (a.change ? '<span class="qd-review-how">→ ' + esc(a.change) + '</span>' : '') + '</li>';
       }).join("") + '</ul>';
     return box;
   }
@@ -9964,13 +9991,17 @@ body.cbl-modal-open {
         render();
         sum.innerHTML = rebarBarTable(rebar);
         drawExtras();
+        var nextAssumed = assumedBox(rebar.assumed, "철근을");
+        if (rebarAssumed) { if (nextAssumed) rebarAssumed.replaceWith(nextAssumed); else rebarAssumed.remove(); }
+        rebarAssumed = nextAssumed;
         extras.querySelector(".qd-ft-status").textContent = "반영했어요.";
       } catch (e) {
         status.textContent = "다시 계산하지 못했어요: " + (e && e.message ? e.message : e);
       }
     });
+    var rebarAssumed = assumedBox(rebar.assumed, "철근을");
     var rebarNotes = reviewNotesBox(rebar.review_notes);
-    [bar, table, sum, extras].concat(rebarNotes ? [rebarNotes] : []).forEach(function (el) { if (deck) deck.append(el); else flowEl.appendChild(el); });
+    [bar, table, sum, extras].concat(rebarAssumed ? [rebarAssumed] : [], rebarNotes ? [rebarNotes] : []).forEach(function (el) { if (deck) deck.append(el); else flowEl.appendChild(el); });
     appendLeft('<p class="qd-sub" style="margin:0">전체 ' + esc(rebarTon(rebar.net_kg)) + 't (할증 ' + esc(String(Math.round(((rebar.loss_factor || 1) - 1) * 100))) +
       '% 포함 ' + esc(rebarTon(rebar.with_loss_kg)) + 't). 이음·정착은 구조일반사항 표를 읽었으면 그 값, 아니면 KDS 공식 추정이에요. ' +
       '아직 빠진 항목: ' + esc((rebar.not_included || []).join(", ")) + '. 행에 마우스를 올리면 근거가 보여요. 엑셀에는 "층별 철근(N층 기준)" 시트로 담겨요.</p>');
