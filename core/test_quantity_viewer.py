@@ -59,7 +59,7 @@ class ViewerToolTests(SimpleTestCase):
             self.assertIn(selector, css)
         html = HOME.read_text()
         self.assertIn("quantity_mass3d.js' %}?v=20261112-tools2", html)
-        self.assertIn("quantity_deck.css' %}?v=20261120-back", html)
+        self.assertIn("quantity_deck.css' %}?v=20261120-openings", html)
 
 
 class SiteLayoutTests(SimpleTestCase):

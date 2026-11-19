@@ -695,10 +695,11 @@ def _plan_views(name, doc, rows, xrefs, roles=None, left_out_for=None):
     if arch_rows:
         try:
             from . import quantity_arch
+            tags = []  # the type tags (AW1, SD-2 ...) written beside the windows and doors
             inserts = quantity_arch.opening_inserts(doc, xrefs, _frames_limit(arch_rows), _is_opening_insert,
-                                                    lambda path: _key(re.split(r"[\\/]", path)[-1]))
+                                                    lambda path: _key(re.split(r"[\\/]", path)[-1]), tags=tags)
         except Exception:
-            inserts = []
+            inserts, tags = [], []
     views = []
     for row in plans:
         structural = floor_of(row["drawing_title"])["discipline"] == "struct"
@@ -715,7 +716,7 @@ def _plan_views(name, doc, rows, xrefs, roles=None, left_out_for=None):
         if not structural:
             try:
                 from . import quantity_arch
-                view["arch"] = quantity_arch.measure(paths, row["frame_bbox"], inserts)
+                view["arch"] = quantity_arch.measure(paths, row["frame_bbox"], inserts, tags)
             except Exception as exc:  # the pictures never depend on the measures
                 view["arch"] = {"error": str(exc)[:200]}
         views.append(view)
@@ -1521,6 +1522,12 @@ def split_frames(rows, evidence, members):
         else:
             out.append(row)
     return out
+
+
+def is_opening_schedule_file(name):
+    """An architectural window and door schedule (창호일람표, 창호도) by its file name."""
+    text = re.sub(r"\s+", "", _nfc(os.path.basename(name)))
+    return "창호" in text and not _is_structural_file(name) and "평면도" not in text
 
 
 def _is_structural_file(name):

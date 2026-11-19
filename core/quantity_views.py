@@ -1697,7 +1697,8 @@ def _floor_view_inputs(uploaded_files):
         if not name.lower().endswith((".dwg", ".dxf")) or not data:
             return
         if not (quantity_floor_views.is_plan_file(name) or quantity_floor_views.is_reference_file(name)
-                or quantity_floor_views.is_level_file(name) or quantity_floor_views._is_structural_file(name)):
+                or quantity_floor_views.is_level_file(name) or quantity_floor_views._is_structural_file(name)
+                or quantity_floor_views.is_opening_schedule_file(name)):
             return
         base, ext, n = name[:-4], name[-4:], 2
         while name in names:
@@ -1861,6 +1862,45 @@ def _cad_member_links(job_id, files, manifest):
         return None
 
 
+def _cad_opening_schedule(job_id, files, manifest):
+    """The window and door schedule (창호일람표) read from the architectural CAD (no AI): each type's
+    size and count, for the architectural takeoff. Bounded in time like the structural schedules."""
+    from . import quantity_arch_schedule
+    from . import quantity_floor_views as fv
+    opened = {entry["name"]: entry["dxf"] for entry in manifest}
+    sheets = [f for f in files if fv.is_opening_schedule_file(f["name"])]
+    if not sheets:
+        return None
+    deadline = time.monotonic() + CAD_LINKS_TIME_BUDGET_SECONDS
+    read = []
+    for index, item in enumerate(sheets):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        _progress_set(job_id, "schedules", index, len(sheets) + 1, f"창호일람표 읽는 중 ({index + 1}/{len(sheets)})")
+        try:
+            if item["name"] in opened:
+                doc = ezdxf.readfile(opened[item["name"]])
+            elif item["path"].lower().endswith(".dxf"):
+                doc = ezdxf.readfile(item["path"])
+            else:
+                text, _metadata = _cbl_free_dwg_to_dxf_text_v1(item["path"], timeout=remaining, wait=remaining, background=True)
+                doc = ezdxf.read(io.StringIO(text))
+            sheet = os.path.splitext(item["name"])[0]
+            read.append(quantity_arch_schedule.read_opening_schedule(quantity_arch_schedule.drawing_texts(doc, decode=_cad_text), sheet))
+        except Exception as exc:
+            logger.warning("quantity_opening_schedule_file_failed job=%s file=%s error=%s", job_id[:16], item["name"][:60], str(exc)[:160])
+        finally:
+            doc = None
+    merged = quantity_arch_schedule.merge(read)
+    return merged if merged["types"] else None
+
+
+def _floor_openings(floor_job):
+    """The window and door schedule read with a floor job (None without one)."""
+    return _quantity_state().get("floor_openings", floor_job) or None
+
+
 def _floor_links(floor_job):
     """The CAD schedule links read with a floor job (None when there were no structural files)."""
     return (_quantity_state().get("floor_links", floor_job) or {}).get("links")
@@ -1985,6 +2025,12 @@ def _run_floor_views_job(job_id, inputs):
                     _quantity_state().put("floor_links", job_id, {"links": links}, ttl=_RESULT_TTL_SEC)
             except Exception as exc:  # the pictures and the 3D do not depend on the schedules
                 logger.warning("quantity_cad_links_failed job=%s error=%s", job_id[:16], str(exc)[:200])
+            try:
+                openings = _cad_opening_schedule(job_id, files, manifest)
+                if openings:
+                    _quantity_state().put("floor_openings", job_id, openings, ttl=_RESULT_TTL_SEC)
+            except Exception as exc:  # the architectural takeoff goes on with the block widths
+                logger.warning("quantity_opening_schedule_failed job=%s error=%s", job_id[:16], str(exc)[:200])
             _render_floor_views(job_id, work, {"files": manifest, "plans": plan_names, "levels": level_names})
     except subprocess.TimeoutExpired:
         _result_set(job_id, {"ok": False, "error": "평면도를 칠하는 데 시간이 너무 오래 걸려 멈췄어요."})
@@ -2468,7 +2514,8 @@ def api_quantity_floor_arch(request):
         return JsonResponse({"error": "층별 확인 결과가 아직 없어요."}, status=409)
     try:
         arch = quantity_arch_takeoff.build(floor_views.get("views") or [], floor_views.get("model") or {},
-                                           overrides=_floor_overrides(floor_job, body), learned=_learned_values(floor_job))
+                                           overrides=_floor_overrides(floor_job, body), learned=_learned_values(floor_job),
+                                           schedule=_floor_openings(floor_job))
     except Exception:
         logger.exception("quantity_floor_arch_failed job=%s", floor_job[:16])
         return JsonResponse({"error": "건축 수량을 계산하지 못했어요."}, status=500)
@@ -8399,13 +8446,14 @@ def _write_summary_sheet(ws, takeoff, rebar, navy_fill, header_font, body_font, 
         row += 5
         ws.cell(row=row, column=1, value="건축 (CAD 건축 평면 기준 추정)").font = Font(name="맑은 고딕", bold=True)
         row += 1
-        for col, text in enumerate(["동"] + [f"{labels[k]}(㎡)" for k in ("masonry", "alc", "dry")] + ["문(개)", "창(개)"], 1):
+        for col, text in enumerate(["동"] + [f"{labels[k]}(㎡)" for k in ("masonry", "alc", "dry")] + ["문(개)", "창(개)", "창호 면적(㎡)"], 1):
             cell = ws.cell(row=row, column=col, value=text)
             cell.font, cell.fill, cell.border, cell.alignment = header_font, navy_fill, thin, center
         for building in arch_buildings:
             row += 1
             totals = building.get("totals") or {}
-            values = [building.get("name")] + [totals.get(k) or 0 for k in ("masonry", "alc", "dry", "doors", "windows")]
+            values = [building.get("name")] + [totals.get(k) or 0 for k in ("masonry", "alc", "dry", "doors", "windows")] + \
+                     [round((totals.get("door_area") or 0) + (totals.get("window_area") or 0), 2)]
             for col, value in enumerate(values, 1):
                 cell = ws.cell(row=row, column=col, value=value)
                 cell.font, cell.border, cell.alignment = body_font, thin, left if col == 1 else center
@@ -8450,7 +8498,7 @@ def _write_floor_arch_sheets(wb, arch, navy_fill, header_font, body_font, center
     ws = wb.create_sheet("건축 집계(층별)")
     ws.cell(row=1, column=1, value="건축 층별 집계 — CAD 건축 평면 기준 추정 (벽 면적 = 길이 × (층고 − 슬래브) + 문·창 위아래 벽)").font = Font(name="맑은 고딕", bold=True, size=13)
     headers = ["층", "층고(m)", "벽 높이(m)"] + [f"{labels[k]}(㎡)" for k in ("masonry", "alc", "dry")] + \
-              [f"{labels[k]} 두께(mm)" for k in ("masonry", "alc", "dry")] + ["문(개)", "창(개)", "도면"]
+              [f"{labels[k]} 두께(mm)" for k in ("masonry", "alc", "dry")] + ["문(개)", "창(개)", "문 면적(㎡)", "창 면적(㎡)", "도면"]
     row = 3
     for building in arch.get("buildings") or []:
         ws.cell(row=row, column=1, value=f"[{building.get('name')}]").font = Font(name="맑은 고딕", bold=True)
@@ -8464,34 +8512,53 @@ def _write_floor_arch_sheets(wb, arch, navy_fill, header_font, body_font, center
             values = [item.get("label"), item.get("height"), item.get("clear")] + \
                      [(walls.get(k) or {}).get("area") or 0 for k in ("masonry", "alc", "dry")] + \
                      [round(((walls.get(k) or {}).get("thickness") or 0) * 1000) or None for k in ("masonry", "alc", "dry")] + \
-                     [item.get("doors") or 0, item.get("windows") or 0, item.get("sheet")]
+                     [item.get("doors") or 0, item.get("windows") or 0, item.get("door_area") or 0, item.get("window_area") or 0, item.get("sheet")]
             for col, value in enumerate(values, 1):
                 cell = ws.cell(row=row, column=col, value=value)
                 cell.font, cell.border, cell.alignment = body_font, thin, left if col in (1, len(values)) else center
             row += 1
         totals = building.get("totals") or {}
         values = ["합계", None, None] + [totals.get(k) or 0 for k in ("masonry", "alc", "dry")] + [None, None, None] + \
-                 [totals.get("doors") or 0, totals.get("windows") or 0, None]
+                 [totals.get("doors") or 0, totals.get("windows") or 0, totals.get("door_area") or 0, totals.get("window_area") or 0, None]
         for col, value in enumerate(values, 1):
             cell = ws.cell(row=row, column=col, value=value)
             cell.font, cell.border, cell.alignment = Font(name="맑은 고딕", bold=True), thin, left if col == 1 else center
         row += 2
-    for letter, width in zip("ABCDEFGHIJKL", (12, 9, 10, 11, 11, 11, 13, 13, 13, 8, 8, 12)):
+    for letter, width in zip("ABCDEFGHIJKLMN", (12, 9, 10, 11, 11, 11, 13, 13, 13, 8, 8, 11, 11, 12)):
         ws.column_dimensions[letter].width = width
     wo = wb.create_sheet("창호 집계")
-    for col, text in enumerate(["동", "구분", "종류(블록)", "개수", "폭(m)", "있는 층"], 1):
+    source = {"schedule": "창호일람표", "block": "블록 크기", "assumed": "가정값"}
+    headers = ["동", "구분", "종류", "개수", "폭(m)", "높이(m)", "면적(㎡)", "폭 출처", "높이 출처", "블록", "있는 층"]
+    for col, text in enumerate(headers, 1):
         cell = wo.cell(row=1, column=col, value=text)
         cell.font, cell.fill, cell.border, cell.alignment = header_font, navy_fill, thin, center
     row = 2
     for building in arch.get("buildings") or []:
         for item in building.get("openings") or []:
             values = [building.get("name"), "문" if item.get("kind") == "door" else "창", item.get("name"), item.get("count"),
-                      item.get("width"), ", ".join(item.get("floors") or [])]
+                      item.get("width"), item.get("height"), item.get("area"), source.get(item.get("width_from"), ""),
+                      source.get(item.get("height_from"), ""), ", ".join(item.get("blocks") or []), ", ".join(item.get("floors") or [])]
             for col, value in enumerate(values, 1):
                 cell = wo.cell(row=row, column=col, value=value)
                 cell.font, cell.border, cell.alignment = body_font, thin, left
             row += 1
-    for letter, width in zip("ABCDEF", (12, 8, 18, 8, 8, 40)):
+    check = arch.get("schedule") or {}
+    row += 1
+    wo.cell(row=row, column=1, value="창호일람표 대조 (평면 개수는 전체 동 합계)" if check.get("read") else
+            "창호일람표를 찾지 못했어요: 폭은 블록 크기, 높이는 가정값이에요.").font = Font(name="맑은 고딕", bold=True)
+    if check.get("read"):
+        row += 1
+        for col, text in enumerate(["종류", "폭(m)", "높이(m)", "평면 개수", "일람표 수량", "비고"], 1):
+            cell = wo.cell(row=row, column=col, value=text)
+            cell.font, cell.fill, cell.border, cell.alignment = header_font, navy_fill, thin, center
+        for item in check.get("types") or []:
+            row += 1
+            note = "일람표에 없음" if not item.get("listed") else ("평면에서 못 찾음" if not item.get("plans") else
+                                                              ("개수 다름" if item.get("code") in (check.get("differ") or []) else ""))
+            for col, value in enumerate([item.get("code"), item.get("width"), item.get("height"), item.get("plans"), item.get("schedule"), note], 1):
+                cell = wo.cell(row=row, column=col, value=value)
+                cell.font, cell.border, cell.alignment = body_font, thin, left
+    for letter, width in zip("ABCDEFGHIJK", (12, 8, 12, 8, 8, 8, 10, 11, 11, 18, 40)):
         wo.column_dimensions[letter].width = width
 
 

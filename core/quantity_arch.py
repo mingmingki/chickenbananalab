@@ -7,10 +7,14 @@ Runs inside the floor-views subprocess on each architectural plan frame (pure mo
   section give the length (faces / 2, the short end line of each drawn piece left out) and the
   mean thickness (2 × section / faces). A doorway or a window breaks the wall lines, so the length
   is the wall without its openings.
-* windows and doors: block inserts on window/door layers (or named like one), each with its block
-  name (the type), its width (the longer side of the placed block) and whether it is a door (a
-  swing arc, or a door-like name). Each is matched to the wall it sits in (the nearest wall line
-  within 0.6 m), so the takeoff can add the wall left above a door and above/below a window.
+* windows and doors: block inserts on window/door layers (or named like one), each with its width
+  (the longer side of the placed block) and whether it is a door (a swing arc, or a door-like
+  name). Its type is the tag written beside it (AW1, SD-2: a text, or an attribute of a tag block
+  or of the window block itself), the nearest within 1.5 m; untagged ones of a block whose tagged
+  copies all carry one tag take that tag, the rest keep their block name. The tags are the codes
+  of the window and door schedule (quantity_arch_schedule), which gives their sizes. Each is
+  matched to the wall it sits in (the nearest wall line within 0.6 m), so the takeoff can add the
+  wall left above a door and above/below a window.
 
 Lengths in metres, frame-local (x right, y up), as quantity_floor_views._plan_model gives them.
 """
@@ -21,6 +25,8 @@ import re
 
 WALL_KINDS = ("masonry", "alc", "dry")
 OPENING_REACH_M = 0.6
+TAG_REACH_M = 1.5
+MAX_TAGS = 20000
 DOOR_NAME = re.compile(r"DOOR|DR|문|^(?:A|W|S|F|P|SS|H)?D\d|WD|AD|SD|FD|PD", re.I)
 WINDOW_NAME = re.compile(r"WIN|WD?W|창|^(?:A|P|S|B|W)?W\d", re.I)
 MAX_INSERTS = 20000
@@ -46,17 +52,42 @@ def _block_info(doc, name, cache):
     return info
 
 
-def opening_inserts(doc, xrefs, limit=None, is_opening=None, key_of=None):
-    """[(name, kind "door"/"window", x, y, width)] of the window and door inserts of a drawing, in
-    drawing coordinates. ``is_opening(layer, block name)`` says whether an insert is one; other
-    blocks and xrefs are walked into (a unit plan block holds its doors). ``key_of(path)`` finds an
-    xref's document in ``xrefs``."""
+def _text(entity):
+    try:
+        return entity.plain_text() if entity.dxftype() == "MTEXT" else entity.dxf.get("text", "")
+    except Exception:
+        return ""
+
+
+def opening_inserts(doc, xrefs, limit=None, is_opening=None, key_of=None, tags=None):
+    """[(name, kind "door"/"window", x, y, width, tag)] of the window and door inserts of a drawing,
+    in drawing coordinates (tag: a type code carried by the insert's own attributes, else None).
+    ``is_opening(layer, block name)`` says whether an insert is one; other blocks and xrefs are
+    walked into (a unit plan block holds its doors). ``key_of(path)`` finds an xref's document in
+    ``xrefs``. ``tags``, a list, gets the type tags written on the drawing: [(code, x, y)]."""
     from ezdxf.math import Matrix44, Vec3
+    from .quantity_arch_schedule import code_key
     out, cache = [], {}
+
+    def inside(point):
+        return limit is None or (limit[0] <= point.x <= limit[2] and limit[1] <= point.y <= limit[3])
+
+    def tag_at(key, entity, matrix):
+        if key and tags is not None and len(tags) < MAX_TAGS:
+            point = matrix.transform(Vec3(entity.dxf.insert))
+            if inside(point):
+                tags.append((key, float(point.x), float(point.y)))
 
     def walk(document, entities, matrix, inherit, depth):
         for entity in entities:
-            if len(out) >= MAX_INSERTS or entity.dxftype() != "INSERT":
+            kind_of_entity = entity.dxftype()
+            if kind_of_entity in ("TEXT", "MTEXT"):
+                if tags is not None:
+                    text = _text(entity)
+                    if len(text) <= 24:
+                        tag_at(code_key(text), entity, matrix)
+                continue
+            if len(out) >= MAX_INSERTS or kind_of_entity != "INSERT":
                 continue
             layer = entity.dxf.get("layer", "0")
             if layer == "0" and inherit:
@@ -75,17 +106,21 @@ def opening_inserts(doc, xrefs, limit=None, is_opening=None, key_of=None):
                 if target is not None:
                     walk(target, target.modelspace(), placed, None, depth + 1)
                 continue
+            attrib_keys = [(code_key(_text(a)), a) for a in entity.attribs]
             if is_opening(layer, name):
                 origin = placed.transform(Vec3(0, 0, 0))
-                if limit is not None and not (limit[0] <= origin.x <= limit[2] and limit[1] <= origin.y <= limit[3]):
+                if not inside(origin):
                     continue
                 w, h, has_arc = _block_info(document, name, cache)
                 ux = placed.transform_direction(Vec3(1, 0, 0)).magnitude
                 uy = placed.transform_direction(Vec3(0, 1, 0)).magnitude
                 width = max(w * ux, h * uy)
                 kind = "door" if has_arc or (DOOR_NAME.search(name) and not WINDOW_NAME.search(name)) else "window"
-                out.append((name, kind, float(origin.x), float(origin.y), float(width)))
+                own = next((key for key, _a in attrib_keys if key), None)
+                out.append((name, kind, float(origin.x), float(origin.y), float(width), own, bool(has_arc)))
                 continue
+            for key, attrib in attrib_keys:  # a tag block: its attribute is the code
+                tag_at(key, attrib, matrix)
             walk(document, block, placed, layer, depth + 1)
 
     walk(doc, doc.modelspace(), Matrix44(), None, 0)
@@ -100,11 +135,31 @@ def _distance(px, py, seg):
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
-def measure(paths, box, inserts=()):
+def _type_tags(placed, tags):
+    """The type of each opening: its own attribute, else the nearest tag within 1.5 m (a window tag
+    never goes to a swing door), else the tag its block's other copies all carry."""
+    from .quantity_arch_schedule import kind_of, nearest_tags
+    names = [own for (_n, _k, _x, _y, _w, own, _arc) in placed]
+    loose = [i for i, own in enumerate(names) if not own]
+    found = nearest_tags([(placed[i][2], placed[i][3]) for i in loose], tags, TAG_REACH_M,
+                         allowed=lambda oi, key: not (placed[loose[oi]][6] and kind_of(key) == "window"))
+    for oi, key in found.items():
+        names[loose[oi]] = key
+    by_block = {}
+    for i, key in enumerate(names):
+        if key:
+            by_block.setdefault(placed[i][0], set()).add(key)
+    for i, key in enumerate(names):
+        if not key and len(by_block.get(placed[i][0], ())) == 1:
+            names[i] = next(iter(by_block[placed[i][0]]))
+    return names
+
+
+def measure(paths, box, inserts=(), tags=()):
     """Walls by material and the openings of one architectural frame.
 
     paths: quantity_floor_views paths [((category, layer) or category, x0, y0, x1, y1, points)];
-    box: the frame in drawing units (mm); inserts: opening_inserts(...) of the drawing."""
+    box: the frame in drawing units (mm); inserts / tags: opening_inserts(...) of the drawing."""
     from . import quantity_floor_takeoff as takeoff
     x0, y0, x1, y1 = box
     segments = {kind: [] for kind in WALL_KINDS + ("frame",)}
@@ -133,11 +188,20 @@ def measure(paths, box, inserts=()):
             for gx in range(int(math.floor(min(seg[0], seg[2]))), int(math.floor(max(seg[0], seg[2]))) + 1):
                 for gy in range(int(math.floor(min(seg[1], seg[3]))), int(math.floor(max(seg[1], seg[3]))) + 1):
                     grid.setdefault((gx, gy), []).append((kind, seg))
+    from .quantity_arch_schedule import kind_of
+    placed = []
+    for item in inserts:
+        name, kind, px, py, width = item[:5]
+        own, arc = (item[5], item[6]) if len(item) > 6 else (None, kind == "door")
+        if (x0 <= px <= x1 and y0 <= py <= y1) and width > 0:
+            placed.append((name, kind, (px - x0) / 1000.0, (py - y0) / 1000.0, width, own, arc))
+    local_tags = [(key, (tx - x0) / 1000.0, (ty - y0) / 1000.0) for key, tx, ty in tags or () if x0 <= tx <= x1 and y0 <= ty <= y1]
+    types = _type_tags(placed, local_tags)
     openings = {}
-    for name, kind, px, py, width in inserts:
-        if not (x0 <= px <= x1 and y0 <= py <= y1) or width <= 0:
-            continue
-        lx, ly = (px - x0) / 1000.0, (py - y0) / 1000.0
+    for (block, kind, lx, ly, width, _own, _arc), tag in zip(placed, types):
+        name = tag or block
+        if tag:
+            kind = kind_of(tag)
         best = None
         for gx in (int(math.floor(lx)) - 1, int(math.floor(lx)), int(math.floor(lx)) + 1):
             for gy in (int(math.floor(ly)) - 1, int(math.floor(ly)), int(math.floor(ly)) + 1):
@@ -145,7 +209,9 @@ def measure(paths, box, inserts=()):
                     d = _distance(lx, ly, seg)
                     if d <= OPENING_REACH_M and (best is None or d < best[0]):
                         best = (d, wall_kind)
-        item = openings.setdefault(name, {"name": name, "kind": kind, "count": 0, "width": 0.0, "on": {}})
+        item = openings.setdefault(name, {"name": name, "kind": kind, "count": 0, "width": 0.0, "on": {}, "tagged": bool(tag), "blocks": []})
+        if block not in item["blocks"]:
+            item["blocks"].append(block)
         item["count"] += 1
         item["width"] += width / 1000.0
         wall = best[1] if best else "none"

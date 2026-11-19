@@ -6216,7 +6216,7 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261120-back">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261120-openings">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261120-back"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261120-back"></script>
 <script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261112-tools2"></script>
@@ -10211,7 +10211,7 @@ body.cbl-modal-open {
           '<small>순중량 ' + summaryNumber((rebar.net_kg || 0) / 1000, 1) + 't · 할증 ' + summaryNumber(((rebar.loss_factor || 1) - 1) * 100) + '%</small></div>' : '') +
         (archTotals ? '<div class="qd-summary-tile"><span>건축 벽</span><b>' + summaryNumber(archWallArea(arch)) + '<em>㎡</em></b>' +
           '<small>' + ARCH_WALLS.filter(function (k) { return archTotals[k[0]]; }).map(function (k) { return k[1] + ' ' + summaryNumber(archTotals[k[0]]); }).join(' · ') +
-          ' · 문 ' + summaryNumber(archTotals.doors) + ' · 창 ' + summaryNumber(archTotals.windows) + '개</small></div>' : '') +
+          ' · 문 ' + summaryNumber(archTotals.doors) + ' · 창 ' + summaryNumber(archTotals.windows) + '개 (창호 ' + summaryNumber(archTotals.door_area + archTotals.window_area) + '㎡)</small></div>' : '') +
         '<button type="button" class="qd-summary-tile' + (waiting ? ' is-attention' : '') + '" data-show-assumed><span>임의로 정한 것</span><b>' + assumed.length + '<em>개</em></b>' +
           '<small>' + (waiting ? '확인하면 합계에 들어가는 것 ' + waiting + '개' : '모두 합계에 들어 있어요') + ' · 눌러서 보기·고치기</small></button>' +
       '</div>' +
@@ -10521,7 +10521,7 @@ body.cbl-modal-open {
   function flowSteps() { return state.cadOnly && archPlans().length ? 7 : 6; }
 
   function archTotal(arch) {
-    var out = { masonry: 0, alc: 0, dry: 0, doors: 0, windows: 0 };
+    var out = { masonry: 0, alc: 0, dry: 0, doors: 0, windows: 0, door_area: 0, window_area: 0 };
     (arch.buildings || []).forEach(function (b) {
       Object.keys(out).forEach(function (k) { out[k] += Number((b.totals || {})[k]) || 0; });
     });
@@ -10542,7 +10542,7 @@ body.cbl-modal-open {
     var used = ARCH_WALLS.filter(function (k) { return (building.totals || {})[k[0]]; });
     if (!used.length) used = ARCH_WALLS.slice(0, 1);
     var head = '<tr><th>' + esc(building.name) + '</th><th>층고</th>' + used.map(function (k) { return '<th>' + k[1] + ' ㎡</th>'; }).join("") +
-      '<th>문</th><th>창</th></tr>';
+      '<th>문</th><th>창</th><th>창호 ㎡</th></tr>';
     var body = (building.rows || []).map(function (row) {
       var walls = row.walls || {};
       var title = [row.sheet ? "도면 " + row.sheet : "", "벽 높이 " + row.clear + "m"].concat(row.notes || [])
@@ -10552,11 +10552,12 @@ body.cbl-modal-open {
         })).filter(Boolean).join(" / ");
       return '<tr title="' + esc(title) + '"><td>' + esc(row.label) + '</td><td>' + esc(String(row.height)) + 'm</td>' +
         used.map(function (k) { return '<td>' + archArea((walls[k[0]] || {}).area) + '</td>'; }).join("") +
-        '<td>' + (row.doors || "-") + '</td><td>' + (row.windows || "-") + '</td></tr>';
+        '<td>' + (row.doors || "-") + '</td><td>' + (row.windows || "-") + '</td><td>' + archArea((row.door_area || 0) + (row.window_area || 0)) + '</td></tr>';
     }).join("");
     var totals = building.totals || {};
     body += '<tr class="is-sum"><td>합계</td><td></td>' + used.map(function (k) { return '<td class="qd-strong">' + archArea(totals[k[0]]) + '</td>'; }).join("") +
-      '<td class="qd-strong">' + (totals.doors || 0) + '</td><td class="qd-strong">' + (totals.windows || 0) + '</td></tr>';
+      '<td class="qd-strong">' + (totals.doors || 0) + '</td><td class="qd-strong">' + (totals.windows || 0) + '</td>' +
+      '<td class="qd-strong">' + archArea((totals.door_area || 0) + (totals.window_area || 0)) + '</td></tr>';
     return '<table><thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
   }
 
@@ -10564,12 +10565,48 @@ body.cbl-modal-open {
     var types = building.openings || [];
     if (!types.length) return '<p class="qd-sub" style="margin:0">이 동 평면에서 창·문 블록을 찾지 못했어요.</p>';
     function floors(list) { return list.length > 3 ? list[0] + "~" + list[list.length - 1] + " (" + list.length + "개 층)" : list.join(", "); }
-    return '<table><thead><tr><th>구분</th><th>종류(블록)</th><th>개수</th><th>폭</th><th>있는 층</th></tr></thead><tbody>' +
+    function metres(v) { return (Number(v) || 0).toLocaleString("ko-KR", { minimumFractionDigits: 1, maximumFractionDigits: 2 }); }
+    return '<table><thead><tr><th>구분</th><th>종류</th><th>개수</th><th>크기 (W×H m)</th><th>면적 ㎡</th><th>있는 층</th></tr></thead><tbody>' +
       types.map(function (t) {
-        return '<tr><td><i class="qd-arch-kind is-' + (t.kind === "door" ? 'door">문' : 'window">창') + '</i></td><td>' + esc(t.name) + '</td><td class="qd-strong">' +
-          t.count + '</td><td>' + (Number(t.width) || 0).toLocaleString("ko-KR", { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + 'm</td><td>' +
-          esc(floors(t.floors || [])) + '</td></tr>';
+        var listed = t.width_from === "schedule" && t.height_from === "schedule";
+        var how = listed ? "창호일람표 크기" : (t.width_from === "schedule" ? "폭은 창호일람표" : "폭은 블록 크기") +
+          (t.height_from === "schedule" ? " · 높이는 창호일람표" : " · 높이는 가정값");
+        var blocks = (t.blocks || []).filter(function (b) { return b !== t.name; });
+        return '<tr' + (listed ? '' : ' class="is-guess"') + ' title="' + esc(how + (blocks.length ? " · 블록 " + blocks.join(", ") : "")) + '">' +
+          '<td><i class="qd-arch-kind is-' + (t.kind === "door" ? 'door">문' : 'window">창') + '</i></td><td>' + esc(t.name) + '</td><td class="qd-strong">' +
+          t.count + '</td><td>' + metres(t.width) + ' × ' + metres(t.height) + (listed ? ' <i class="qd-arch-src">일람표</i>' : ' <i class="qd-arch-src is-guess">추정</i>') +
+          '</td><td>' + archArea(t.area) + '</td><td>' + esc(floors(t.floors || [])) + '</td></tr>';
       }).join("") + '</tbody></table>';
+  }
+
+  // the plans against the window and door schedule: what it gave, and the counts that differ
+  function archScheduleBox(arch) {
+    var check = arch.schedule || {};
+    var box = document.createElement("details");
+    box.className = "qd-review qd-arch-schedule";
+    box.setAttribute("data-qd-keep", "");
+    if (!check.read) {
+      box.innerHTML = '<summary>창호일람표를 찾지 못했어요 — 창·문 폭은 블록 크기, 높이는 가정값이에요</summary>' +
+        '<p class="qd-sub">파일 이름에 "창호"가 들어간 창호일람표 CAD(예: A-601 창호일람표.dwg)를 건축 CAD 칸에 함께 올리면, 평면의 창호 기호(AW1, SD1 …)로 ' +
+        '종류별 폭·높이를 찾아 면적과 문 위·창 위아래 벽을 계산하고, 개수도 일람표와 대조해요.</p>';
+      return box;
+    }
+    var differ = check.differ || [], loose = check.not_listed || [], unused = check.not_in_plans || [];
+    box.open = differ.length > 0 || loose.length > 0 || unused.length > 0;
+    function m(v) { return v == null ? "-" : Number(v).toLocaleString("ko-KR", { minimumFractionDigits: 1, maximumFractionDigits: 2 }); }
+    box.innerHTML = '<summary>창호일람표 대조 — ' + (check.types || []).filter(function (t) { return t.listed; }).length + '종 읽음 · 평면과 맞은 종류 ' +
+        (check.matched || 0) + (differ.length ? ' · 개수 다른 종류 ' + differ.length : '') + (loose.length ? ' · 일람표에 없는 종류 ' + loose.length : '') +
+        (unused.length ? ' · 평면에서 못 찾은 종류 ' + unused.length : '') + '</summary>' +
+      '<div class="qd-mass-table qd-arch-check"><table><thead><tr><th>종류</th><th>크기 (W×H m)</th><th>평면 (전체 동)</th><th>일람표 수량</th></tr></thead><tbody>' +
+      (check.types || []).map(function (t) {
+        var bad = differ.indexOf(t.code) >= 0 || !t.listed || (t.listed && !t.plans);
+        var note = !t.listed ? "일람표에 없음" : (!t.plans ? "평면에서 못 찾음" : (differ.indexOf(t.code) >= 0 ? "개수 다름" : ""));
+        return '<tr' + (bad ? ' class="is-guess"' : '') + '><td>' + esc(t.code) + (note ? ' <i class="qd-arch-src is-guess">' + note + '</i>' : '') + '</td><td>' +
+          (t.width || t.height ? m(t.width) + ' × ' + m(t.height) : '-') + '</td><td>' + (t.plans || 0) + '</td><td>' + (t.schedule == null ? '-' : t.schedule) + '</td></tr>';
+      }).join("") + '</tbody></table></div>' +
+      (unused.length || differ.length ? '<p class="qd-sub">개수가 다르거나 평면에서 못 찾았으면, 평면에 창호 기호가 빠졌거나 그 동·층 평면을 올리지 않았을 수 있어요. ' +
+        '일람표 수량은 보통 현장 전체 기준이에요.</p>' : '');
+    return box;
   }
 
   // the architectural takeoff, or null when it could not be worked out
@@ -10616,18 +10653,23 @@ body.cbl-modal-open {
     });
     render();
     var archAssumed = assumedBox(arch.assumed, "건축 벽을");
+    var checkBox = archScheduleBox(arch);
     state.quantityCards.arch = { data: arch, refresh: function (fresh) {
       Object.keys(fresh || {}).forEach(function (k) { arch[k] = fresh[k]; });
       buildings = arch.buildings || [];
       render();
+      var nextCheck = archScheduleBox(arch);
+      nextCheck.open = checkBox.open;
+      checkBox.replaceWith(nextCheck);
+      checkBox = nextCheck;
       var nextAssumed = assumedBox(arch.assumed, "건축 벽을");
       if (archAssumed) { if (nextAssumed) archAssumed.replaceWith(nextAssumed); else archAssumed.remove(); }
-      else if (nextAssumed) types.parentNode.insertBefore(nextAssumed, types.nextSibling);
+      else if (nextAssumed) checkBox.parentNode.insertBefore(nextAssumed, checkBox.nextSibling);
       archAssumed = nextAssumed;
     } };
-    [bar, table, types].concat(archAssumed ? [archAssumed] : []).forEach(function (el) { if (deck) deck.append(el); else flowEl.appendChild(el); });
+    [bar, table, types, checkBox].concat(archAssumed ? [archAssumed] : []).forEach(function (el) { if (deck) deck.append(el); else flowEl.appendChild(el); });
     appendLeft('<p class="qd-sub" style="margin:0">' + ((arch.not_included || []).length ? '아직 빠진 항목: ' + esc(arch.not_included.join(", ")) + '. ' : '') +
-      '행에 마우스를 올리면 도면·벽 길이·두께가 보여요. 엑셀에는 "건축 집계(층별)"·"창호 집계" 시트로 담겨요.</p>');
+      '행에 마우스를 올리면 도면·벽 길이·두께가, 창호 종류에 올리면 크기를 어디서 가져왔는지 보여요. 엑셀에는 "건축 집계(층별)"·"창호 집계" 시트로 담겨요.</p>');
     return arch;
   }
 

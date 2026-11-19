@@ -33,9 +33,9 @@ def state_db(test):
 class FloorInputsTests(SimpleTestCase):
     def test_structural_sheets_ride_along_with_the_plans(self):
         names = ["S-111 1층 구조평면도.dwg", "S-311~324 벽체일람표.dwg", "S-211 단위세대 슬래브배근도.dwg",
-                 "A-501 창호도.dwg", "readme.txt"]
+                 "A-501 창호도.dwg", "A-701 실내재료마감표.dwg", "readme.txt"]
         kept = [name for name, _data in views._floor_view_inputs([SimpleUploadedFile(n, b"x") for n in names])]
-        self.assertEqual(kept, names[:3])
+        self.assertEqual(kept, names[:4])  # the window and door schedule too (the architectural takeoff reads it)
 
 
 class CadLinksTests(TestCase):
