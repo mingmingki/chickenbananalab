@@ -5,6 +5,7 @@ import { JOBS, ERAS, BUILDINGS } from './data.js';
 import { siteFeatures } from './settlement.js';
 import { craving } from './food.js';
 import { symptom } from './illness.js';
+import { tribeOfA, leaderTitle } from './tribes.js';
 
 export const SEASON = m => (m >= 3 && m <= 5 ? '봄' : m >= 6 && m <= 8 ? '여름' : m >= 9 && m <= 11 ? '가을' : '겨울');
 export function seasonOf(world, s) {
@@ -161,8 +162,16 @@ function topics(world, a) {
   const fresh = s.buildings.map(id => world.buildings.get(id)).filter(b => b?.done && now - (b.built || 0) < 1440 * 15 && b.type !== 'hut');
   if (fresh.length) add(1.2, () => { const b = pick(fresh); return pick([`새로 생긴 ${BUILDINGS[b.type].name}에 가 보고 싶다.`, `${s.name}에 ${BUILDINGS[b.type].name}이(가) 생겼다니!`]); });
   if (now - (c.eraAt || 0) < 1440 * 40 && c.era > 0) add(1.5, () => pick([`${ERAS[c.era].name}… 세상이 정말 빨리 변한다.`, '옛날 방식은 이제 안 통하는 걸까.']));
-  if (c.leader && c.leader !== a.id) { const L = nm(c.leader); const r = L && a.rels[L.id]; if (L) add(0.6, () => r && r.a < -20 ? `${ga(L.name)} 정말 나라를 잘 이끌 수 있을까?` : (r && r.a > 30 ? `${L.name} ${ERAS[c.era].leader}라면 믿을 수 있다.` : `${L.name} ${neun(ERAS[c.era].leader)} 요즘 무슨 생각을 할까.`)); }
-  if (c.leader === a.id) add(2, () => pick(['모두가 나를 보고 있다.', `${c.name}을(를) 더 좋은 나라로 만들고 싶다.`, '결정 하나하나가 무겁다.']));
+  const tribe = !c.nation && c.tribes ? tribeOfA(world, a) : null;
+  const lid = tribe ? tribe.chief : c.leader, ltitle = tribe ? '족장' : leaderTitle(c), us = tribe ? '우리 부족' : '나라';
+  if (lid != null && lid !== a.id) { const L = nm(lid); const r = L && a.rels[L.id]; if (L) add(0.6, () => r && r.a < -20 ? `${ga(L.name)} 정말 ${us}를 잘 이끌 수 있을까?` : (r && r.a > 30 ? `${L.name} ${ltitle}라면 믿을 수 있다.` : `${L.name} ${neun(ltitle)} 요즘 무슨 생각을 할까.`)); }
+  if (lid === a.id) add(2, () => pick(['모두가 나를 보고 있다.', tribe ? '우리 부족이 굶지 않게 해야 한다.' : `${c.name}을(를) 더 좋은 나라로 만들고 싶다.`, '결정 하나하나가 무겁다.']));
+  if (tribe) {
+    const foes = Object.entries(tribe.rel || {}).filter(([k, v]) => v < -40 && c.tribes[k] && !c.tribes[k].gone).map(([k]) => c.tribes[k]);
+    if (foes.length) add(1.2, () => { const f = pick(foes); return pick([`${f.name} 부족 놈들이 또 쳐들어오면 어쩌지.`, `${f.name} 부족과는 언젠가 결판을 내야 한다.`, `${f.name} 부족 쪽 숲에는 가지 말아야지.`]); });
+    const friends = Object.entries(tribe.rel || {}).filter(([k, v]) => v > 40 && c.tribes[k] && !c.tribes[k].gone).map(([k]) => c.tribes[k]);
+    if (friends.length) add(0.6, () => `${pick(friends).name} 부족 사람들은 좋은 이웃이다.`);
+  }
   // 기억
   const big = a.mem.filter(m => m.imp >= 6 && now - m.t > 1440 * 3);
   if (big.length) add(1.3, () => { const m = pick(big); return m.v >= 0 ? pick([`가끔 '${m.text}' 그날이 떠오른다.`, `'${m.text}'… 좋은 기억이다.`]) : pick([`아직도 '${m.text}' 그 일이 마음에 걸린다.`, `'${m.text}'… 잊고 싶다.`]); });

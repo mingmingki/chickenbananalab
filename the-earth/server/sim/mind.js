@@ -11,6 +11,7 @@ import { planTrip, tripStep } from './traffic.js';
 import { compose } from './thoughts.js';
 import { segCenter } from './infra.js';
 import { book, monthNet, refMonth, mealPrice, MEAL_LABEL, LEISURE_LABEL } from './budget.js';
+import { knows, titleOf, leaderTitle } from './tribes.js';
 import { consult } from './dilemma.js';
 import { onLeave } from './life.js';
 import { planMeal, eatDone, consume, condK, diet, addFood, MEAL_EMOJI } from './food.js';
@@ -163,6 +164,11 @@ function workPlace(world, a) {
   if (a.job.id === 'fisher') return shorePoint(s) || wildPoint(s);
   if (a.job.id === 'hunter') return wildPoint(s, 'forest');
   if (a.job.id === 'gatherer') return wildPoint(s, chance(0.6) ? 'forest' : null);
+  // 농사꾼은 마을 논밭으로
+  if (a.job.id === 'peasant') {
+    const fields = s.buildings.map(id => world.buildings.get(id)).filter(b => b && b.type === 'farm' && b.done && !b.co);
+    if (fields.length) return pick(fields).id;
+  }
   if (j.out === 'food') return 'wild';
   if (j.out === 'build') {
     const site = world.constructionSite(world.settlements.get(a.sid), a);
@@ -179,6 +185,13 @@ function homeWork(world, a) {
     if (b && !b.done && (b.owner === a.id || (a.spouse && b.owner === a.spouse))) return b;
   }
   return null;
+}
+
+/** 지금 지을 수 있는 가장 좋은 집: 시대와, 부족이 아는 기술에 따라 (흙벽 쌓는 법을 알아야 초가집) */
+export function homeFor(world, s, era) {
+  const t = HOME_BY_ERA[Math.min(era, 7)];
+  if (era <= 1) return knows(world, s, '흙벽 쌓기') ? 'cottage' : 'hut';
+  return t;
 }
 
 // ── 고민: 모든 선택지를 점수 매기고 이유를 붙인다 ──
@@ -275,10 +288,12 @@ export function decide(world, a) {
     const own = homeWork(world, a);
     const homeB = a.home && world.buildings.get(a.home);
     const livesWithParents = homeB && homeB.owner !== a.id && a.parents.includes(homeB.owner);
-    const outdated = homeB && homeB.owner === a.id && BUILDINGS[homeB.type].era < era - 1 && a.money > (BUILDINGS[HOME_BY_ERA[era]].cost || 0) * 1.5;
+    const best = homeFor(world, s, era);
+    const outdated = homeB && homeB.owner === a.id && ((BUILDINGS[homeB.type].era < era - 1 && a.money > (BUILDINGS[best].cost || 0) * 1.5)
+      || (era <= 1 && homeB.type === 'hut' && best === 'cottage' && chance(0.3)));
     if (own) add('build', 34 + a.tr.C * 0.22 + (a.home ? 0 : 22), [`${own.name} 짓는 중 (${Math.round(own.progress / own.work * 100)}%)`], { site: own.id });
     else if (!a.home || (livesWithParents && !(a.indepWait > now) && (age > 22 + (100 - a.val.adventure) * 0.1 || a.plan?.k === 'indep')) || (homeB && homeB.res.length > BUILDINGS[homeB.type].cap) || outdated) {
-      let t = HOME_BY_ERA[Math.min(era, 7)];
+      let t = best;
       let why = null;
       // 기와집까지는 손수 짓는다. 벽돌집·연립·아파트는 건설회사가 있어야 한다.
       if (BUILDINGS[t].era >= 3 && !hasConstruction(world, s.id)) {
@@ -312,7 +327,7 @@ export function decide(world, a) {
       if (best && best.site.owner !== a.id) add('build', 6 + a.tr.A * 0.2 + best.r * 0.12 + (era <= 2 ? 8 : 0) - (weatherBad ? 10 : 0), ['품앗이', `${best.b.name}네 ${best.site.name} 짓기 돕기`], { site: best.site.id });
     }
     // 모닥불은 불을 다룰 줄 알게 된 뒤에야 (처음 마을은 며칠 뒤 누군가 불을 발견한다)
-    if (!world.campfireOf(s) && (!country.seeded || country.discoveries.includes('불의 사용'))) add('build', 70, ['모일 곳(모닥불)이 필요하다'], { civic: 'campfire' });
+    if (!world.campfireOf(s) && (!country.seeded || knows(world, s, '불의 사용'))) add('build', 70, ['모일 곳(모닥불)이 필요하다'], { civic: 'campfire' });
     const cs = world.communitySite(s);
     if (cs) add('build', 14 + a.tr.A * 0.18 + a.tr.C * 0.12 + (era <= 1 ? 10 : 0) + (cs.type === 'campfire' ? 40 : 0) + (cs.budget > 0 && moneyStress > 30 ? 10 : 0),
       ['마을 일 돕기', `${cs.name} 공사 (${Math.round(cs.progress / cs.work * 100)}%)`], { site: cs.id });
@@ -376,7 +391,8 @@ export function decide(world, a) {
     }
   }
   // 지도자
-  if (country.leader === a.id && !a.day.led && h >= 9 && h < 17) add('lead', 60 + a.tr.C * 0.2, [`${ERAS[era].leader}로서의 책임`]);
+  const myTitle = titleOf(world, a);
+  if (myTitle && !a.day.led && h >= 9 && h < 17) add('lead', 60 + a.tr.C * 0.2, [`${myTitle}로서의 책임`]);
   // 개척
   if (a.wantsMigrate && adult) add('migrate', 55 + a.val.adventure * 0.3, ['새로운 땅에 대한 꿈', a.wantsMigrate]);
   // 아픔
@@ -612,7 +628,7 @@ export function musing(world, a) {
   if (a.sick > 0) push(3, symptom(a));
   // 세상
   if (c.leader === a.id) push(3, pick(['모두가 나를 보고 있다. 실수하면 안 된다.', `${c.name}을(를) 더 좋은 나라로 만들고 싶다.`]));
-  else if (c.leader) { const L = world.anns.get(c.leader); const r = L && a.rels[L.id]; if (r) push(1, r.a > 30 ? `${L.name} ${ERAS[c.era].leader}라면 믿을 수 있다.` : r.a < -20 ? `${ga(L.name)} 정말 나라를 잘 이끌 수 있을까?` : null); }
+  else if (c.leader) { const L = world.anns.get(c.leader); const r = L && a.rels[L.id]; if (r) push(1, r.a > 30 ? `${L.name} ${leaderTitle(c)}라면 믿을 수 있다.` : r.a < -20 ? `${ga(L.name)} 정말 나라를 잘 이끌 수 있을까?` : null); }
   if (now - (c.eraAt || 0) < DAY * 30 && c.era > 0) push(2, `${ERAS[c.era].name}… 세상이 정말 많이 변했다.`);
   // 시간과 풍경
   if (h >= 5 && h < 8) push(1, pick(['상쾌한 아침이다.', '해가 뜬다. 오늘은 좋은 일이 있을 것 같아.']));

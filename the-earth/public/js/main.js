@@ -273,7 +273,7 @@ function pickCountry() {
     items.sort((a, b) => (active.has(b.c.code) - active.has(a.c.code)) || a.c.name.localeCompare(b.c.name, 'ko'));
     $('#country-results').innerHTML = items.slice(0, 120).map(({ c, i }) => {
       const st = state.countries.get(c.code);
-      return `<button data-ci="${i}" class="${i === selectedIdx ? 'on' : ''}"><span>${flag(c.code)} ${esc(c.name)}</span><small>${st ? `${esc(st.eraName)} · ${st.pop}명` : ''}</small></button>`;
+      return `<button data-ci="${i}" class="${i === selectedIdx ? 'on' : ''}"><span>${flag(c.code)} ${esc(c.name)}</span><small>${st ? `${st.nation ? `🏯 ${esc(st.nation.name)}` : `부족 ${(st.tribes || []).filter(t => !t.gone).length}개`} · ${esc(st.eraName)} · ${st.pop}명` : ''}</small></button>`;
     }).join('');
   };
   renderList();
@@ -286,7 +286,7 @@ function pickCountry() {
     if (idx < 0) { tip.classList.add('hidden'); return; }
     const c = geo.countries[idx];
     const st = state.countries.get(c.code);
-    tip.innerHTML = `${flag(c.code)} <b>${esc(c.name)}</b>${st ? ` · ${esc(st.eraName)} · ${st.pop}명` : ''}`;
+    tip.innerHTML = `${flag(c.code)} <b>${esc(st?.nation?.name || st?.land || c.name)}</b>${st ? ` · ${st.nation ? '' : `부족 ${(st.tribes || []).filter(t => !t.gone).length}개 · `}${esc(st.eraName)} · ${st.pop}명` : ''}`;
     tip.style.left = x + 'px'; tip.style.top = y + 'px';
     tip.classList.remove('hidden');
   };
@@ -313,8 +313,15 @@ function refreshCountryInfo() {
   const players = [...state.players.values()].filter(p => p.country === c.code);
   const card = $('#country-card');
   card.classList.remove('hidden');
-  card.innerHTML = `<h3>${flag(c.code)} ${esc(c.name)}</h3>
-    <p class="sub" style="margin:0">${st ? `${esc(st.eraName)} · 인구 ${st.pop}명 · 플레이어 ${players.length}명${st.leader ? `<br>${esc(st.leader.title)}: ${esc(st.leader.name)}` : ''}` : '아직 문명이 없는 땅. 관리자 앤 30여 명이 초가집에 모여 사는 원시 마을이 생기고, 당신의 앤은 그 마을 가정의 아기로 태어납니다.'}</p>`;
+  const tribes = (st?.tribes || []).filter(t => !t.gone);
+  card.innerHTML = `<h3>${flag(c.code)} ${esc(st?.nation ? st.nation.name : st?.land || c.name)}</h3>
+    <p class="sub" style="margin:0 0 4px">지금의 ${esc(c.name)} 자리${st?.nation ? ` · ${esc(st.land || '')}` : ''}</p>
+    <p class="sub" style="margin:0">${st
+      ? st.nation
+        ? `🏯 ${esc(st.nation.founderName || '')}이(가) 세운 나라 · ${esc(st.eraName)} · 인구 ${st.pop}명 · 플레이어 ${players.length}명${st.leader ? `<br>${esc(st.leader.title)}: ${esc(st.leader.name)}` : ''}`
+        : `아직 나라가 없는 부족 시대 · ${esc(st.eraName)} · 인구 ${st.pop}명 · 플레이어 ${players.length}명`
+      : '아직 사람이 없는 땅. 부족 서너 개가 움집을 짓고 흩어져 살게 되고, 당신의 앤은 그중 한 부족 가정의 아기로 태어납니다. 족장이 똑똑할수록 불·돌도끼·농사를 빨리 알아내요. 부족들이 하나로 뭉치면 나라가 생기고, 나라 이름은 그때 족장이 짓습니다.'}</p>
+    ${!st?.nation && tribes.length ? `<div class="tribe-mini">${tribes.map(t => `<span><i class="tdot" style="background:${t.color}"></i>${esc(t.name)} 부족 · ${t.pop}명${t.chief ? ` · 족장 ${esc(t.chief.name)}` : ''}</span>`).join('')}</div>` : ''}`;
 }
 
 async function joinCountry() {
@@ -437,6 +444,7 @@ function observe(justDeployed = false, firstAnn = null, since = null) {
     });
   }
   w3d.onAnnPick = id => hud.select(id, false);
+  w3d.onAnnTag = id => hud.select(id, true);
   w3d.onBuildingPick = (bid, x, y) => hud.buildingTip(bid, x, y);
   w3d.onTownClick = sid => hud.flyTown(sid);
   w3d.onEmptyClick = () => {};

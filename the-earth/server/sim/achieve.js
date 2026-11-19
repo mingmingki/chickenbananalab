@@ -24,7 +24,7 @@ export const ACHIEVEMENTS = {
   founder: { icon: '🏢', name: '창업가', desc: '내 앤이 회사를 세웠다' },
   ceo: { icon: '🧑‍💼', name: '대표님', desc: '내 앤이 회사 대표가 되었다' },
   rich: { icon: '💰', name: '부자', desc: '내 앤이 그 시대 월급 3년치가 넘는 돈을 모았다' },
-  leader: { icon: '👑', name: '나라의 얼굴', desc: '내 앤이 나라의 지도자가 되었다' },
+  leader: { icon: '👑', name: '나라의 얼굴', desc: '내 앤이 족장이나 나라의 지도자가 되었다' },
   discovery: { icon: '💡', name: '발견', desc: '내 앤이 새로운 것을 발견했다' },
   masterpiece: { icon: '🎨', name: '걸작', desc: '내 앤이 걸작을 남겼다' },
   pioneer: { icon: '🧭', name: '개척자', desc: '내 앤이 새 마을을 개척했다' },

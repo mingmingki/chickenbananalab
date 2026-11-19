@@ -194,7 +194,7 @@ export class Hud {
     if (isMobile() && !this.townShown) { document.getElementById('left').classList.add('closed'); this.layout(); }
     this.townShown = true;
     this.right.innerHTML = `<div id="ann-panel"><div class="ap-head" style="grid-template-columns:1fr auto">
-      <div><h2>${esc(s.name)} <span class="chip">${esc(s.levelName)}</span></h2><div class="meta">${esc(c?.name || '')} · ${esc(c?.eraName || '')} · 인구 ${s.pop}명 · ${fmtDate(s.founded)} 세워짐</div></div>
+      <div><h2>${esc(s.name)} <span class="chip">${esc(s.levelName)}</span></h2><div class="meta">${esc(this.polityName(c, s.id))} · ${esc(c?.eraName || '')} · 인구 ${s.pop}명 · ${fmtDate(s.founded)} 세워짐</div></div>
       <div class="acts"><button class="btn small ghost" data-act="close-ann">${icon('close')}닫기</button></div></div>
       <div class="ap-body">
         ${s.weather ? `<div class="now"><div class="what"><span class="em">${WEMO[s.weather.k] || '🌤️'}</span>${esc(s.weather.season)} · ${esc(s.weather.k)} · ${s.weather.temp}°C</div><div class="line">식량 ${s.food} · 마을 반경 ${s.radius}m</div></div>` : ''}
@@ -328,7 +328,8 @@ export class Hud {
     if (this.me) {
       const p = st.players.get(this.me.id);
       const c = st.countries.get(this.me.country);
-      meEl.innerHTML = `<span class="dot" style="background:${p?.color || '#888'}"></span>${esc(this.me.name)} · ${esc(c?.name || '')}`;
+      let mine = null; for (const a of st.anns.values()) if (a.o === this.me.id && a.al) { mine = a; break; }
+      meEl.innerHTML = `<span class="dot" style="background:${p?.color || '#888'}"></span>${esc(this.me.name)} · ${esc(this.polityName(c, mine?.s))}`;
     } else meEl.innerHTML = '👁️ 관전 중';
     // 한 계정에 앤은 한 명: 내 앤이 살아 있는 동안엔 '다시 시작' 버튼을 숨긴다
     let hasMain = false;
@@ -446,27 +447,12 @@ export class Hud {
       const listHtml = list.map(a => this.annRow(a)).join('') || '<p class="empty">아무도 없습니다.</p>';
       const box = L.querySelector('#ann-list');
       if (box && (keepFocus || document.activeElement?.id === 'ann-search')) { box.innerHTML = listHtml; return; }
-      const players = [...st.players.values()].map(p => `<span class="chip"><span class="dot" style="background:${p.color}"></span>${esc(p.name)} · ${esc(st.countries.get(p.country)?.name || '')} · ${p.alive ?? p.anns}명</span>`).join(' ');
+      const players = [...st.players.values()].map(p => `<span class="chip"><span class="dot" style="background:${p.color}"></span>${esc(p.name)} · ${esc(st.countries.get(p.country)?.nation?.name || st.countries.get(p.country)?.land || st.countries.get(p.country)?.name || '')} · ${p.alive ?? p.anns}명</span>`).join(' ');
       html = `<input id="ann-search" class="search" placeholder="이름 · 직업 · 플레이어로 찾기" value="${esc(this.filter)}">
         <div class="tags" style="margin:0 0 10px">${players}</div><div id="ann-list">${listHtml}</div>`;
     } else if (this.tab === 'nations') {
       const cs = [...st.countries.values()].sort((a, b) => b.pop - a.pop);
-      html = cs.map(c => {
-        const prog = c.nextTech ? (c.tech - c.curTech) / (c.nextTech - c.curTech) * 100 : 100;
-        const towns = [...st.settlements.values()].filter(s => s.country === c.code).sort((a, b) => b.pop - a.pop);
-        return `<div class="card">
-          <h3>${esc(c.name)} <span class="chip">${esc(c.eraName)}</span></h3>
-          <div class="row"><span>기술 → 다음 시대</span><b>${Math.round(prog)}%</b></div>${bar(prog, 'linear-gradient(90deg,#58b4ff,#7ef0c8)')}
-          <div class="row"><span>지도자</span><b>${c.leader ? `<span class="linklike" data-ann="${c.leader.id}">${esc(c.leader.title)} ${esc(c.leader.name)}</span>` : '없음'}</b></div>
-          <div class="row"><span>인구</span><b>${c.pop}명</b></div>
-          <div class="row"><span>국고 · 세율</span><b>${this.fmtMoney(c.treasury, c.era)} · ${c.tax}%</b></div>
-          <div class="row"><span>정착지</span><b>${towns.map(s => `<span class="linklike" data-town="${s.id}">${esc(s.name)}</span>(${esc(s.levelName)})`).join(', ')}</b></div>
-          ${c.discoveries.length ? `<div class="tags">${c.discoveries.map(d => `<span>💡${esc(d)}</span>`).join('')}</div>` : ''}
-          ${this.faithHTML(c)}
-          ${this.mediaHTML(c)}
-          ${c.history.length ? `<div class="sec">나라의 연대기</div>${c.history.slice(-14).reverse().map(h => `<div class="life"><span>${h.icon || '•'}</span><div>${esc(h.text)}<time>${fmtDate(h.t)}</time></div></div>`).join('')}` : ''}
-        </div>`;
-      }).join('') || '<p class="empty">아직 문명이 시작된 나라가 없습니다.</p>';
+      html = cs.map(c => this.landHTML(c)).join('') || '<p class="empty">아직 사람이 사는 땅이 없습니다.</p>';
     } else if (this.tab === 'biz') {
       const cos = [...st.companies.values()].sort((a, b) => b.emp - a.emp);
       html = cos.map(co => {
@@ -476,7 +462,7 @@ export class Hud {
           <div class="row"><span>${co.pub ? '공공기관' : '대표'}</span><b>${ceo ? `<span class="linklike" data-ann="${ceo.id}">${esc(ceo.n)}</span>` : co.pub ? (st.countries.get(co.country)?.name || '') : '-'}</b></div>
           <div class="row"><span>직원 · 자금</span><b>${co.emp}명${co.cap ? ` (정원 ${co.cap})` : ''} · ${co.pub ? '국고' : this.fmtMoney(co.money, st.countries.get(co.country)?.era)}</b></div>${co.pay ? `<div class="row"><span>평균 연봉</span><b>${this.fmtMoney(co.pay, st.countries.get(co.country)?.era)}</b></div>` : ''}${co.roles && Object.keys(co.roles).length > 1 ? `<div class="sub small" style="margin:2px 0 4px">${Object.entries(co.roles).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${esc(this.meta.jobs[k]?.name || k)} ${n}`).join(' · ')}</div>` : ''}${co.sites ? `<div class="row"><span>공사 현장</span><b>${co.sites}곳</b></div>` : ''}
           <div class="row"><span>위치 · 설립</span><b>${s ? `<span class="linklike" data-town="${s.id}">${esc(s.name)}</span>` : ''} · ${fmtDate(co.founded)}</b></div></div>`;
-      }).join('') || '<p class="empty">아직 회사가 없습니다. 농경 시대가 되면 야망 있는 앤들이 회사를 세웁니다.</p>';
+      }).join('') || '<p class="empty">아직 회사가 없습니다. 원시·농경 시대엔 마을 사람들이 함께 농사짓고 집을 지어요. 나라가 서고 고대 문명이 열리면 야망 있는 앤들이 회사를 세웁니다.</p>';
     } else if (this.tab === 'jobs') {
       html = this.jobsHTML();
     } else if (this.tab === 'news') {
@@ -515,6 +501,52 @@ export class Hud {
   }
   /** 오늘날(2026년) 가치로 환산 — 옛 시대 돈이 얼마쯤인지 감 잡기 */
   todayWorth(units, era) { const M = this.meta.money?.[era]; return M && era < 6 ? ` <span class="sub small" style="margin:0">(오늘 돈 약 ${fmtMan(units * M.to2026)})</span>` : ''; }
+
+  /** 그 정착지가 속한 나라 이름 — 나라가 서기 전엔 부족 이름, 부족도 없으면 땅 이름 */
+  polityName(c, sid) {
+    if (!c) return '';
+    if (c.nation) return c.nation.name;
+    const s = sid != null && this.state.settlements.get(sid);
+    const t = s && (c.tribes || []).find(t => t.id === s.tribe);
+    return t ? `${t.name} 부족` : (c.land || c.name);
+  }
+  /** 나라 탭: 땅 하나 — 부족 시대면 부족들과 그 사이, 나라가 섰으면 나라 */
+  landHTML(c) {
+    const st = this.state;
+    const prog = c.nextTech ? (c.tech - c.curTech) / (c.nextTech - c.curTech) * 100 : 100;
+    const towns = [...st.settlements.values()].filter(s => s.country === c.code).sort((a, b) => b.pop - a.pop);
+    const live = (c.tribes || []).filter(t => !t.gone), gone = (c.tribes || []).filter(t => t.gone);
+    const byId = Object.fromEntries((c.tribes || []).map(t => [t.id, t]));
+    const relName = v => v >= 50 ? ['🤝', '형제 같은 사이'] : v >= 20 ? ['🙂', '사이좋음'] : v > -20 ? ['😐', '그저 그럼'] : v > -50 ? ['😠', '사이 나쁨'] : ['⚔️', '원수'];
+    const tribeRow = t => {
+      const rels = Object.entries(t.rel || {}).map(([k, v]) => { const o = byId[k]; if (!o) return ''; const [e, n] = relName(v); return `<span title="${esc(n)} (${v})">${e} ${esc(o.name)}</span>`; }).join('');
+      return `<div class="tribe-row"><div class="tr-head"><i class="tdot" style="background:${t.color}"></i><b>${esc(t.name)} 부족</b><span class="sub small">${t.pop}명 · 마을 ${t.sids.length}곳${t.wins || t.losses ? ` · 싸움 ${t.wins}승 ${t.losses}패` : ''}</span></div>
+        <div class="row"><span>족장</span><b>${t.chief ? `<span class="linklike" data-ann="${t.chief.id}">${esc(t.chief.name)}</span> <span class="sub small">슬기 ${t.chief.wits}</span>` : '없음'}</b></div>
+        ${t.known.length ? `<div class="sub small" style="margin:2px 0">아는 것 ${t.known.length}가지: ${t.known.map(esc).join(' · ')}</div>` : '<div class="sub small" style="margin:2px 0">아직 불도 돌도끼도 모른다</div>'}
+        ${rels ? `<div class="tags">${rels}</div>` : ''}</div>`;
+    };
+    const head = c.nation
+      ? `<h3>🏯 ${esc(c.nation.name)} <span class="chip">${esc(c.eraName)}</span></h3><div class="sub small" style="margin:-4px 0 6px">${esc(c.land || '')} · 지금의 ${esc(c.modern || '')} 자리 · ${esc(c.nation.founderName || '')}이(가) ${fmtDate(c.nation.founded)}에 세움</div>`
+      : `<h3>🏕️ ${esc(c.land || c.name)} <span class="chip">${esc(c.eraName)}</span></h3><div class="sub small" style="margin:-4px 0 6px">지금의 ${esc(c.modern || '')} 자리 · 아직 나라가 없다 — 부족 ${live.length}개가 흩어져 산다</div>`;
+    const wars = (c.wars || []).map(w => `<div class="mem neg">⚔️ ${esc(w.name)} — ${w.battles}번 싸움, ${w.score > 0 ? '우세' : w.score < 0 ? '열세' : '팽팽'}</div>`).join('');
+    const neighbors = Object.entries(c.drel || {}).map(([k, v]) => { const o = st.countries.get(k); if (!o?.nation) return ''; const [e, n] = relName(v); return `<span title="${esc(n)}">${e} ${esc(o.nation.name)}</span>`; }).join('');
+    return `<div class="card">${head}
+      ${c.nation ? '' : `<div class="sub small" style="margin:0 0 6px">부족들이 하나로 뭉치면 그 족장이 나라를 세우고 이름을 짓는다.${c.waitNation ? ' <b>앎은 고대 문명의 문턱에 이르렀다 — 나라가 서야 넘어갈 수 있다.</b>' : ''}</div>`}
+      <div class="row"><span>기술 → 다음 시대</span><b>${Math.round(prog)}%</b></div>${bar(prog, 'linear-gradient(90deg,#58b4ff,#7ef0c8)')}
+      ${c.nation ? `<div class="row"><span>지도자</span><b>${c.leader ? `<span class="linklike" data-ann="${c.leader.id}">${esc(c.leader.title)} ${esc(c.leader.name)}</span>` : '없음'}</b></div>` : ''}
+      <div class="row"><span>인구</span><b>${c.pop}명</b></div>
+      ${c.nation && c.era >= 2 ? `<div class="row"><span>국고 · 세율</span><b>${this.fmtMoney(c.treasury, c.era)} · ${c.tax}%</b></div>` : ''}
+      <div class="row"><span>정착지</span><b>${towns.map(s => `<span class="linklike" data-town="${s.id}">${esc(s.name)}</span>(${esc(s.levelName)})`).join(', ')}</b></div>
+      ${wars ? `<div class="sec">전쟁</div>${wars}` : ''}
+      ${neighbors ? `<div class="sec">이웃 나라</div><div class="tags">${neighbors}</div>` : ''}
+      ${!c.nation && live.length ? `<div class="sec">부족들</div>${live.map(tribeRow).join('')}` : ''}
+      ${gone.length ? `<div class="sub small" style="margin:6px 2px">${gone.map(t => `${esc(t.name)} 부족 — ${t.goneHow === '굴복' ? `${esc(byId[t.goneTo]?.name || '')} 부족에 굴복` : t.goneHow === '연합' ? `${esc(byId[t.goneTo]?.name || '')} 부족과 합침` : '흩어짐'}`).join(' · ')}</div>` : ''}
+      ${c.discoveries.length ? `<div class="tags">${c.discoveries.map(d => `<span>💡${esc(d)}</span>`).join('')}</div>` : ''}
+      ${this.faithHTML(c)}
+      ${this.mediaHTML(c)}
+      ${c.history.length ? `<div class="sec">${c.nation ? '나라의 연대기' : '땅의 연대기'}</div>${c.history.slice(-14).reverse().map(h => `<div class="life"><span>${h.icon || '•'}</span><div>${esc(h.text)}<time>${fmtDate(h.t)}</time></div></div>`).join('')}` : ''}
+    </div>`;
+  }
 
   /** 이 화면에서 기준으로 삼을 시대: 내 나라, 없으면 가장 앞선 나라 */
   viewEra() {

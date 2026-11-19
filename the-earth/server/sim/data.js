@@ -18,8 +18,8 @@ export const ERAS = [
 ];
 
 export const DISCOVERIES = [
-  ['불의 사용', '석기 도구', '언어', '사냥 기술', '동굴 벽화', '매듭과 밧줄'],
-  ['농업', '목축', '토기', '바퀴', '직조', '관개 수로'],
+  ['불의 사용', '석기 도구', '언어', '나무 다루기', '사냥 기술', '동굴 벽화', '매듭과 밧줄'],
+  ['농업', '목축', '토기', '흙벽 쌓기', '직조', '관개 수로', '바퀴'],
   ['문자', '화폐', '청동기', '수학', '건축술', '달력'],
   ['철기', '천문학', '인쇄술', '의학', '항해술', '시계'],
   ['증기기관', '전기', '철도', '화학', '백신', '전신'],
@@ -58,18 +58,18 @@ export const JOBS = {
   toolmaker: J('도구 장인', 0, 'crafting', 'tech', 0.9, { int: .3, cre: .4, C: .2 }, { self: true, maxEra: 1, shift: 'self' }),
   storyteller: J('이야기꾼', 0, 'art', 'art', 1, { cre: .5, E: .4, cha: .3 }, { self: true, maxEra: 2, shift: 'free' }),
   shaman: J('주술사', 0, 'medicine', 'heal', 1, { int: .3, O: .4, cha: .2 }, { self: true, maxEra: 2, shift: 'free' }),
-  peasant: J('자영농', 2, 'farming', 'food', 2.6, { C: .3, ath: .2 }, { self: true, shift: 'farm' }),
+  peasant: J('자영농', 1, 'farming', 'food', 2.6, { C: .3, ath: .2 }, { self: true, shift: 'farm', eraName: { 1: '농사꾼' } }),
   laborer: J('일용직', 2, 'construction', 'build', 0.8, { ath: .3 }, { self: true, shift: 'site' }),
   // 농업·자원
-  farmer: J('농부', 1, 'farming', 'food', 4, { C: .4, ath: .3, A: .1 }, { shift: 'farm' }),
-  lumberjack: J('벌목꾼', 1, 'athletics', 'bricks', 2.2, { ath: .6, C: .2 }, { shift: 'site' }),
-  brickmaker: J('벽돌공', 1, 'crafting', 'bricks', 3, { ath: .3, C: .4 }, { shift: 'factory' }),
+  farmer: J('농부', 2, 'farming', 'food', 4, { C: .4, ath: .3, A: .1 }, { shift: 'farm' }),
+  lumberjack: J('벌목꾼', 2, 'athletics', 'bricks', 2.2, { ath: .6, C: .2 }, { shift: 'site' }),
+  brickmaker: J('벽돌공', 2, 'crafting', 'bricks', 3, { ath: .3, C: .4 }, { shift: 'factory' }),
   miner: J('광부', 2, 'athletics', 'ore', 2.5, { ath: .6, N: -.3 }, { shift: 'site' }),
   sailor: J('선원', 2, 'athletics', 'food', 3.2, { ath: .5, N: -.2, O: .1 }, { shift: 'fish' }),
   // 건설
-  builder: J('목수', 1, 'construction', 'build', 1, { ath: .4, C: .4 }, { shift: 'site' }),
+  builder: J('목수', 2, 'construction', 'build', 1, { ath: .4, C: .4 }, { shift: 'site' }),
   // 제작·상업
-  craftsman: J('장인', 1, 'crafting', 'money', 1, { cre: .4, C: .4 }, { shift: 'shop' }),
+  craftsman: J('장인', 2, 'crafting', 'money', 1, { cre: .4, C: .4 }, { shift: 'shop' }),
   merchant: J('상인', 2, 'commerce', 'money', 1.2, { E: .5, cha: .5, int: .2 }, { edu: 1, shift: 'shop' }),
   blacksmith: J('대장장이', 2, 'crafting', 'money', 1.1, { ath: .5, C: .3 }, { shift: 'shop' }),
   cook: J('요리사', 2, 'crafting', 'money', 1.2, { cre: .4, C: .3, ath: .1 }, { shift: 'food' }),
@@ -280,12 +280,12 @@ for (const k in JOBS) { const p = PAY[k]; JOBS[k].pay = p ? p[0] : 3600; JOBS[k]
 
 // 민간 산업(회사). k = 종사자 1명이 감당하는 인구(수요). needs = 지형 조건, requires = 나라에 먼저 있어야 하는 산업
 export const INDUSTRIES = {
-  farm: { name: '농장', era: 1, building: 'farm', jobs: ['farmer'], k: 5, suffix: ['농장', '농원', '영농'] },
-  lumber: { name: '목재소', era: 1, building: 'lumberyard', jobs: ['lumberjack'], k: 30, needs: 'forest', suffix: ['목재', '제재소', '임업'] },
-  brickworks: { name: '벽돌·기와', era: 1, building: 'kiln', jobs: ['brickmaker'], k: 24, suffix: ['벽돌', '기와', '요업', '건자재'] },
-  construction: { name: '건설', era: 1, building: 'workshop', jobs: ['builder', 'rebar', 'plasterer', 'electrician', 'plumber', 'crane_op', 'excavator', 'site_mgr', 'civil_eng'], mix: { builder: 0.3, rebar: 0.15, plasterer: 0.12, electrician: 0.1, plumber: 0.08, crane_op: 0.05, excavator: 0.06, site_mgr: 0.06, civil_eng: 0.08 }, k: 7, suffix: ['건설', '건축', '종합건설'] },
+  farm: { name: '농장', era: 2, building: 'farm', jobs: ['farmer'], k: 5, suffix: ['농장', '농원', '영농'] },
+  lumber: { name: '목재소', era: 2, building: 'lumberyard', jobs: ['lumberjack'], k: 30, needs: 'forest', suffix: ['목재', '제재소', '임업'] },
+  brickworks: { name: '벽돌·기와', era: 2, building: 'kiln', jobs: ['brickmaker'], k: 24, suffix: ['벽돌', '기와', '요업', '건자재'] },
+  construction: { name: '건설', era: 2, building: 'workshop', jobs: ['builder', 'rebar', 'plasterer', 'electrician', 'plumber', 'crane_op', 'excavator', 'site_mgr', 'civil_eng'], mix: { builder: 0.3, rebar: 0.15, plasterer: 0.12, electrician: 0.1, plumber: 0.08, crane_op: 0.05, excavator: 0.06, site_mgr: 0.06, civil_eng: 0.08 }, k: 7, suffix: ['건설', '건축', '종합건설'] },
   demolition: { name: '철거', era: 2, building: 'workshop', jobs: ['demolisher', 'scrap_sorter', 'dump_driver', 'excavator', 'demo_eng'], mix: { demolisher: 0.5, scrap_sorter: 0.15, dump_driver: 0.12, excavator: 0.15, demo_eng: 0.08 }, k: 80, suffix: ['철거', '해체', '철거산업', '환경개발'] },
-  workshop: { name: '공방', era: 1, building: 'workshop', jobs: ['craftsman'], k: 10, suffix: ['공방', '공예', '도자기'] },
+  workshop: { name: '공방', era: 2, building: 'workshop', jobs: ['craftsman'], k: 10, suffix: ['공방', '공예', '도자기'] },
   restaurant: { name: '식당', era: 2, building: 'restaurant', jobs: ['cook', 'server'], k: 14, suffix: ['식당', '밥집', '국밥', '반점'] },
   trade: { name: '상회', era: 2, building: 'market', jobs: ['merchant'], k: 12, suffix: ['상회', '상점', '무역'] },
   tailor: { name: '옷가게', era: 2, building: 'tailorshop', jobs: ['tailor'], k: 28, suffix: ['양복점', '옷가게', '의류'] },

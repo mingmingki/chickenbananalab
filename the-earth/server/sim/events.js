@@ -10,6 +10,7 @@ import { policeResponse, coverage } from './safety.js';
 import { fmtMoney } from './dilemma.js';
 import { addFood } from './food.js';
 import { fallIll, seeDoctor } from './illness.js';
+import { leaderTitle } from './tribes.js';
 
 const EV = [];
 /** 사건 정의: id, [최소 나이, 최대 나이), 하루 확률, 조건, 실행, 재발 간격(일) */
@@ -118,7 +119,7 @@ E('pet_play', [4, 90], 0.02, c => c.a.pet && !c.a.pet.gone, c => { const p = c.a
 E('pet_gone', [4, 95], 0.0015, c => c.a.pet && !c.a.pet.gone && c.w.clock - c.a.pet.since > YEAR * 6, c => { const p = c.a.pet; p.gone = true; c.life(`오랜 친구 ${p.name}을(를) 떠나보냈다`, '🌈'); c.feel(-25, '슬픔', p.name); c.think(`${p.name}, 고마웠어. 거기선 아프지 마.`); }, ONCE);
 E('dream_job', [7, 13], 0.01, null, c => {
   const a = c.a;
-  const cand = [['과학자', a.ab.int + a.tr.O], ['화가', a.ab.cre * 2], ['운동선수', a.ab.ath * 2], ['선생님', a.tr.A + a.ab.int], ['의사', a.ab.int + a.tr.A], ['사장님', a.amb * 2], ['요리사', a.ab.cre + a.tr.C], ['탐험가', a.tr.O + a.ab.ath], [ERAS[c.era].leader, a.amb + a.ab.cha]].sort((x, y) => y[1] - x[1]);
+  const cand = [['과학자', a.ab.int + a.tr.O], ['화가', a.ab.cre * 2], ['운동선수', a.ab.ath * 2], ['선생님', a.tr.A + a.ab.int], ['의사', a.ab.int + a.tr.A], ['사장님', a.amb * 2], ['요리사', a.ab.cre + a.tr.C], ['탐험가', a.tr.O + a.ab.ath], [leaderTitle(c.c), a.amb + a.ab.cha]].sort((x, y) => y[1] - x[1]);
   const job = pick(cand.slice(0, 2))[0]; a.childDream = job;
   c.life(`"커서 ${job}이(가) 될 거야!" — 처음 꿈을 말했다`, '🌠');
 }, ONCE);
@@ -238,7 +239,7 @@ E('new_tech', [8, 95], 0.01, c => c.c.discoveries.length && !(c.a.techSeen || []
   c.mem(`새로 나온 '${d}' 이야기로 온 마을이 떠들썩하다`, 3, 0.4); if (chance(0.5)) c.think(c.a.tr.O > 55 ? `'${d}'… 직접 보고 싶다!` : `'${d}'라니, 세상이 너무 빨리 변한다.`);
 }, 10);
 E('tax_grumble', [19, 90], 0.004, c => c.era >= 2 && c.c.tax > 0.12 && c.a.tr.A < 50, c => { c.mem('세금이 너무 많다고 투덜거렸다', 2, -0.3); const L = c.w.anns.get(c.c.leader); if (L) { const r = rel(c.a, L); r.a = clamp(r.a - 3, -100, 100); } }, 60);
-E('meet_leader', [8, 90], 0.0015, c => c.c.leader && c.c.leader !== c.a.id && c.w.anns.get(c.c.leader)?.sid === c.a.sid, c => { const L = c.w.anns.get(c.c.leader); c.bond(L, 6, 5); c.life(`${ERAS[c.era].leader} ${wa(L.name)} 직접 이야기를 나눴다`, '🤝'); }, 400);
+E('meet_leader', [8, 90], 0.0015, c => c.c.leader && c.c.leader !== c.a.id && c.w.anns.get(c.c.leader)?.sid === c.a.sid, c => { const L = c.w.anns.get(c.c.leader); c.bond(L, 6, 5); c.life(`${leaderTitle(c.c)} ${wa(L.name)} 직접 이야기를 나눴다`, '🤝'); }, 400);
 E('job_offer', [22, 60], 0.002, c => c.a.job && c.a.sk[JOBS[c.a.job.id]?.skill] > 60, c => { c.mem('다른 곳에서 함께 일하자는 제안을 받았다', 4, 0.6); c.a.job.sat = clamp(c.a.job.sat + (c.a.amb > 60 ? -8 : 4)); c.think(c.a.amb > 60 ? '더 큰 곳으로 갈 때가 됐나.' : '그래도 여기가 좋다.'); }, 200);
 E('burnout', [22, 65], 0.003, c => c.a.job && c.a.stress > 60, c => { fallIll(c.w, c.a, 'exhaustion', Math.max(c.a.sick, 15)); c.mem('일에 지쳐 결국 몸져누웠다', 5, -0.7); c.think('쉬어야겠다. 정말로.'); }, 180);
 E('wedding_guest', [8, 95], 0.03, c => c.w.events.slice(-30).some(e => e.kind === 'love' && e.text.includes('결혼') && e.anns.some(id => c.a.rels[id]?.f > 15)), c => {

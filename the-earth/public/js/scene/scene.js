@@ -96,6 +96,10 @@ export class World3D {
   }
 
   onMove(e) {
+    if (this.mode === 'observe' && e.pointerType === 'mouse' && !e.buttons) {
+      const c = this.labels.hitAnn(e.clientX, e.clientY, 2) ? 'pointer' : '';
+      if (this.renderer.domElement.style.cursor !== c) this.renderer.domElement.style.cursor = c;
+    }
     if (this.mode !== 'pick-country') return;
     const ll = this.earthHit(e);
     const idx = ll ? countryIndexAt(this.tex, ll.lat, ll.lon) : -1;
@@ -112,6 +116,9 @@ export class World3D {
       return;
     }
     if (this.mode !== 'observe') return;
+    // 이름표를 누르면 멀리서도 그 앤에게 날아가 따라간다
+    const tag = this.labels.hitAnn(e.clientX, e.clientY, e.pointerType === 'mouse' ? 2 : 8);
+    if (tag) return (this.onAnnTag || this.onAnnPick)?.(tag);
     const rect = this.renderer.domElement.getBoundingClientRect();
     const x = e.clientX - rect.left, y = e.clientY - rect.top;
     const ndc = new THREE.Vector2(x / rect.width * 2 - 1, -y / rect.height * 2 + 1);

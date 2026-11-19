@@ -1,5 +1,6 @@
 // 경제: 회사·공공기관·일자리·임금·생산·세금
 import { INDUSTRIES, PUBLIC, JOBS, ERAS, BUILDINGS, RANKS, DISCOVERIES, EDU_NAMES, maxEduForEra, deptName, SHIFTS } from './data.js';
+import { knows } from './tribes.js';
 import { clamp, rand, pick, chance, ageOf, YEAR, ga, neun, reul, wa, ro } from './util.js';
 import { remember, think, feel, lifeEvent } from './ann.js';
 import { placeBuilding, addWork, siteFeatures, buildRule } from './settlement.js';
@@ -57,7 +58,8 @@ export function jobTitle(world, a) {
   const j = JOBS[a.job.id];
   const rank = a.job.rank > 0 ? ` (${RANKS[a.job.rank]})` : '';
   const site = a.job.site && world.buildings.get(a.job.site);
-  return (co ? `${co.name} ` : '') + (a.job.dept ? deptName(a.job.dept) + ' ' : '') + (j?.name || '일') + rank + (site && !site.done ? ` · ${site.name} 현장` : '');
+  const era = world.countries[a.country]?.era ?? 0;
+  return (co ? `${co.name} ` : '') + (a.job.dept ? deptName(a.job.dept) + ' ' : '') + ((j?.eraName && j.eraName[era]) || j?.name || '일') + rank + (site && !site.done ? ` · ${site.name} 현장` : '');
 }
 
 export function companiesIn(world, sid) {
@@ -193,8 +195,10 @@ export function crewDaily(world, co) {
 // 자영업도 시장이 받아 주는 만큼만: 인구 몇 명당 한 명 (시대별). null = 제한 없음
 // (오늘날 한국은 농림어업 종사자가 취업자의 5% 남짓)
 const SELF_K = {
-  fisher: [null, null, 6, 8, 12, 25, 40, 60], peasant: [null, null, 2, 2.5, 5, 18, 30, 45], rancher: [null, null, 8, 10, 15, 30, 45, 60],
+  fisher: [5, 5, 6, 8, 12, 25, 40, 60], hunter: [4, 7], gatherer: [4, 8], peasant: [null, 1.5, 2, 2.5, 5, 18, 30, 45], rancher: [null, null, 8, 10, 15, 30, 45, 60],
   laborer: [null, null, 10, 10, 12, 15, 20, 25], author: 60, webtoonist: 80, creator: 50, rider: 30,
+  // 원시·농경: 주술사·이야기꾼·도구 장인은 마을에 몇 명이면 된다
+  shaman: 14, storyteller: 12, toolmaker: 9,
 };
 function selfCount(world, s, jk, era) {
   const k = SELF_K[jk];
@@ -223,6 +227,19 @@ export function mixRoom(world, co, def, jk, era) {
   return have < Math.max(1, Math.ceil(target * def.mix[jk] / tot));
 }
 
+// 이 일을 하려면 먼저 알아야 하는 것 (원시·농경 시대)
+const SELF_KNOW = { peasant: '농업', toolmaker: '석기 도구' };
+/** 원시·농경 시대: 부족이 아는 기술만큼 먹을거리가 늘어난다 */
+function earlyFood(world, s, jk) {
+  let k = 1;
+  if (knows(world, s, '석기 도구')) k += 0.12;
+  if (jk === 'hunter' && knows(world, s, '사냥 기술')) k += 0.25;
+  if (jk === 'fisher' && knows(world, s, '매듭과 밧줄')) k += 0.2;
+  if (jk === 'peasant' && knows(world, s, '관개 수로')) k += 0.3;
+  if (jk === 'peasant' && knows(world, s, '목축')) k += 0.1;
+  return k;
+}
+
 export function openings(world, a, withBlocked = false) {
   const s = world.settlements.get(a.sid);
   const era = eraOfAnn(world, a);
@@ -247,6 +264,7 @@ export function openings(world, a, withBlocked = false) {
     const j = JOBS[jk];
     if (!j.self || j.era > era || (j.maxEra != null && era > j.maxEra)) continue;
     if (j.water && !water) continue; // 물가가 없으면 어부도 없다
+    if (SELF_KNOW[jk] && !knows(world, s, SELF_KNOW[jk])) continue; // 농사를 알아야 농사꾼, 돌을 다룰 줄 알아야 도구 장인
     if (a.job?.id !== jk && selfFull(world, s, jk, era)) continue; // 이미 할 사람이 충분하다
     out.push({ co: null, jobKey: jk, wage: fullDayPay(world, a, jk, null, 0, false) * (0.5 + a.sk[j.skill] / 150) * selfShare(world, s, jk, era), fit: jobFit(a, jk) });
   }
@@ -489,7 +507,7 @@ export function produce(world, a, dt) {
   a.job.perf = (a.job.perf || 0) + eff * hours;
 
   switch (j.out) {
-    case 'food': addFood(s, j.rate * eff * prod * hours, a.job.id); break;
+    case 'food': addFood(s, j.rate * eff * prod * hours * (era <= 1 ? earlyFood(world, s, a.job.id) : 1), a.job.id); break;
     case 'tech': {
       const pts = j.rate * eff * Math.sqrt(prod) * hours * 0.13 * (0.6 + a.ab.int / 125);
       world.addTech(country, pts, 'job:' + a.job.id);

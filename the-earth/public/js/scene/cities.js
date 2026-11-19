@@ -999,7 +999,7 @@ export class Cities {
     let best = null, bd = maxPx;
     const v = new THREE.Vector3();
     for (const t of this.towns.values()) {
-      if (!t.g.visible || !t.dots?.visible && !(t.anns?.body.count)) continue;
+      if (!t.g.visible || !t.dots?.visible && !(t.anns?.m?.pick?.count)) continue;
       for (const [id, ps] of state.pos) {
         if (ps.sid !== t.s.id || ps.travel || ps.act === 'sleep') continue;
         const ip = state.interp(ps);

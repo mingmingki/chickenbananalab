@@ -72,6 +72,7 @@ export class Labels {
         this.root.appendChild(el);
         this.pool.set(r.key, el);
       }
+      el._annId = r.annId ?? null;
       if (el._html !== r.html) { el.innerHTML = bubble ? `<span class="bt">${r.html}</span>` : r.html; el._html = r.html; el._key = r.key; if (bubble) { el.classList.remove('pop'); void el.offsetWidth; } }
       const cls = 'lbl ' + r.cls + (bubble ? ' pop' : '');
       if (el.className !== cls) el.className = cls;
@@ -82,6 +83,18 @@ export class Labels {
     for (const [k, el] of this.pool) if (!used.has(k) && !el._puffing) {
       if (this.pool.size > 300) { el.remove(); this.pool.delete(k); } else el.style.display = 'none';
     }
+  }
+  /** 화면의 이 점에 앤 이름표가 있으면 그 앤 (이름표는 화면을 끄는 손짓을 막지 않도록 터치를 받지 않으므로 직접 잰다) */
+  hitAnn(x, y, pad = 8) {
+    let best = null, bd = Infinity;
+    for (const el of this.pool.values()) {
+      if (el._annId == null || el.style.display === 'none' || el._puffing) continue;
+      const r = el.getBoundingClientRect();
+      if (x < r.left - pad || x > r.right + pad || y < r.top - pad || y > r.bottom + pad) continue;
+      const d = Math.hypot(x - (r.left + r.right) / 2, y - (r.top + r.bottom) / 2);
+      if (d < bd) { bd = d; best = el._annId; }
+    }
+    return best;
   }
   clear() { for (const el of this.pool.values()) el.remove(); this.pool.clear(); }
 }

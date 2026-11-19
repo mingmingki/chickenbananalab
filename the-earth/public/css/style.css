@@ -879,3 +879,10 @@ input::placeholder { color: var(--ink-2); opacity: .8; }
 
 /* 노란 머리띠 위 글자: 어두운 화면에서도 진하게 */
 .ap-head .linklike, .my-ann .ma-head .linklike, .sheet-head .linklike { color: #0b5f8a; }
+
+/* 나라 탭: 부족 */
+.tribe-row { border-top: 1.5px dashed color-mix(in srgb, var(--ink) 25%, transparent); padding: 8px 0 6px; }
+.tribe-row .tr-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 2px; }
+.tdot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--k); display: inline-block; flex: none; }
+.country-card .tribe-mini { display: grid; gap: 4px; margin-top: 8px; font-size: 13px; }
+.country-card .tribe-mini span { display: flex; align-items: center; gap: 6px; }

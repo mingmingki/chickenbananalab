@@ -15,6 +15,7 @@ import { catchDaily, chronicDaily, spreadDaily, illName, illOut, recovered } fro
 import { mediaDaily, mediaOut, starOut } from './media.js';
 import { faithDaily, religionDaily, faithOut, religionOut } from './religion.js';
 import { seedVillage, villageDaily, migrateStart } from './village.js';
+import { seedLand, tribesDaily, nationsDaily, migrateTribes, migrateEarlyEconomy, tribesOut, tribeOfA, tribeOfS, tribeLabel, leaderTitle, titleOf, learn, knows, EARLY_TECH, landName, liveTribes } from './tribes.js';
 import { companyDaily, considerPromotion, jobTitle, leaveJob, foundPublic, dailyCost, wageBase, setJob, assignContractor, siteName, hasConstruction, fullDayPay, annualOf } from './economy.js';
 import { childName, givenOf, familyName } from './names.js';
 import { runEvents, rollWeather } from './events.js';
@@ -267,12 +268,19 @@ export class World {
     this.dirtyCountries.add(c.code);
   }
   /** 발견 시도: 시대 안에서 기술이 쌓일수록 발견 확률이 올라간다 (발견이 시대 전체에 고르게 퍼지도록) */
-  tryDiscovery(a, forced = null) {
+  tryDiscovery(a, forced = null, opts = {}) {
     const c = this.countries[a.country];
+    const tribe = c.nation ? null : (opts.tribe || tribeOfA(this, a));
     let d;
     if (forced) {
-      if (c.discoveries.includes(forced)) return;
+      if (tribe ? (tribe.known || []).includes(forced) : c.discoveries.includes(forced)) return;
       d = forced;
+    } else if (c.era <= 1 && c.tribes) {
+      // 원시·농경: 아는 것을 바탕으로만 (나무를 다룰 줄 알아야 흙벽을 쌓는다)
+      const known = tribe ? tribe.known || [] : c.discoveries;
+      const left = Object.keys(EARLY_TECH).filter(x => !known.includes(x) && EARLY_TECH[x].req.every(r => known.includes(r)));
+      if (!left.length) return;
+      d = pick(left);
     } else {
       const list = DISCOVERIES[c.era] || [];
       const left = list.filter(d => !c.discoveries.includes(d));
@@ -284,10 +292,14 @@ export class World {
       // 원시 시대의 첫 발견은 언제나 불
       d = left.includes('불의 사용') ? '불의 사용' : pick(left);
     }
-    c.discoveries.push(d);
+    const firstInLand = !c.discoveries.includes(d);
+    if (c.tribes) learn(this, c, tribe, d); else c.discoveries.push(d);
     const next = ERAS[c.era + 1];
     const bonus = next ? (next.tech - ERAS[c.era].tech) * 0.015 : 800;
-    this.addTech(c, bonus, 'discovery');
+    this.addTech(c, firstInLand ? bonus : bonus * 0.3, 'discovery');
+    const early = EARLY_TECH[d];
+    const who = tribe ? `${tribeLabel(tribe)}의 ` : `${c.name}의 `;
+    const credit = opts.chief ? ` (족장 ${opts.chief.name}이(가) 북돋운 덕분)` : '';
     a.fame = clamp(a.fame + 25, 0, 100);
     a.rep = clamp(a.rep + 10, -100, 100);
     a.discoveries = [...(a.discoveries || []), d];
@@ -297,14 +309,22 @@ export class World {
     think(this, a, pick([`유레카! ${d}… 이걸로 세상이 달라질 거야.`, `됐다! 드디어 ${reul(d)} 알아냈어!`]));
     const g = a.goals.find(g => g.k === 'knowledge' && !g.done);
     if (g) this.achieveGoal(a, g);
-    this.news('tech', `💡 ${c.name}의 ${ga(a.name)} '${d}'을(를) 발견했다`, { anns: [a.id], country: c.code }, 3);
-    c.history.push({ t: Math.round(this.clock), text: `'${d}' 발견 — ${a.name}`, icon: '💡' });
+    const [howMain, howTail] = (early?.how || '').split(' — ');
+    if (early) this.news('tech', `${early.icon} ${who}${ga(a.name)} ${howMain}을(를) 알아냈다${howTail ? ' — ' + howTail : ''}${credit}`, { anns: [a.id], country: c.code, sid: a.sid }, firstInLand ? 3 : 2);
+    else this.news('tech', `💡 ${who}${ga(a.name)} '${d}'을(를) 발견했다`, { anns: [a.id], country: c.code }, 3);
+    c.history.push({ t: Math.round(this.clock), text: `'${d}' ${firstInLand ? '발견' : '터득'} — ${tribe ? tribeLabel(tribe) + ' ' : ''}${a.name}`, icon: early?.icon || '💡' });
+    if (opts.chief) { remember(this, opts.chief, `우리 부족의 ${ga(a.name)} '${d}'을(를) 알아냈다. 족장으로서 뿌듯하다`, 6, 0.7, [a.id], 'discovery'); opts.chief.rep = clamp(opts.chief.rep + 4, -100, 100); }
     for (const other of this.residents(a.sid)) if (other.id !== a.id && chance(0.5)) remember(this, other, `${ga(a.name)} '${d}'을(를) 발견했다고 한다`, 4, 0.3, [a.id], 'news');
+    // 농사를 알게 되면 농경 시대가 열린다
+    if (d === '농업' && c.era === 0) { c.tech = Math.max(c.tech, ERAS[1].tech); this.checkEra(c); }
   }
 
   checkEra(c) {
     const next = ERAS[c.era + 1];
     if (!next || c.tech < next.tech) return;
+    // 농경 시대는 농사를 알아야, 고대 문명은 나라가 서야 열린다
+    if (next.id === 1 && c.tribes && !c.discoveries.includes('농업')) return;
+    if (next.id === 2 && c.tribes && !c.nation) { c.waitNation = true; return; }
     c.era++;
     c.eraAt = Math.round(this.clock);
     c.history.push({ t: Math.round(this.clock), text: `${next.name} 개막`, icon: '🌅' });
@@ -323,7 +343,7 @@ export class World {
     const g = getCountry(code);
     if (!g) throw new Error('unknown country');
     const c = this.countries[code] = {
-      code, name: g.name, culture: g.culture, era: 0, eraAt: Math.round(this.clock), tech: 0, discoveries: [], leader: null, leaderSince: null,
+      code, name: landName(code), land: landName(code), modern: g.name, tribes: {}, nation: null, culture: g.culture, era: 0, eraAt: Math.round(this.clock), tech: 0, discoveries: [], leader: null, leaderSince: null,
       treasury: 0, tax: 0.0, founded: Math.round(this.clock), capital: null, culturePts: 0, nextElection: null, history: [], pop: 0,
     };
     this.dirtyCountries.add(code);
@@ -339,7 +359,7 @@ export class World {
   setLeader(c, a, how) {
     const prev = c.leader && this.anns.get(c.leader);
     c.leader = a.id; c.leaderSince = Math.round(this.clock);
-    const title = ERAS[c.era].leader;
+    const title = leaderTitle(c);
     remember(this, a, `${c.name}의 ${title}${ga_(title)} 되었다`, 10, 1, [], 'power');
     lifeEvent(this, a, `${c.name}의 ${title} (${how})`, '👑');
     feel(a, 30, '감격', title);
@@ -400,6 +420,7 @@ export class World {
     const people = [...this.anns.values()].filter(a => a.alive && a.country === c.code);
     c.pop = people.length;
     villageDaily(this, c);
+    tribesDaily(this, c);
     // 방송과 연예 (산업 시대부터): 편성·시청률·데뷔·음원 차트·영화·시상식·스캔들 — media.js
     mediaDaily(this, c);
     religionDaily(this, c);
@@ -411,6 +432,14 @@ export class World {
     if (!people.length) return;
     c.topEdu = people.reduce((m, a) => ageOf(a, this.clock) >= 19 ? Math.max(m, a.eduLv || 0) : m, 0);
     const leader = c.leader && this.anns.get(c.leader);
+    // 나라가 서기 전엔 부족마다 족장이 있다 (tribes.js)
+    if (c.tribes && !c.nation) {
+      this.addTech(c, people.length * 0.12 * Math.sqrt(ERAS[c.era].prod) * this.wits(c), 'passive');
+      // 나라가 없으면 앎이 쌓여도 고대 문명의 문턱에서 멈춘다
+      c.tech = Math.min(c.tech, ERAS[2].tech * 1.05);
+      this.checkEra(c);
+      return;
+    }
     // 지도자 공백 → 선출/계승/추대
     if (!leader || !leader.alive || leader.country !== c.code) {
       if (c.leader && leader && !leader.alive) c.history.push({ t: Math.round(this.clock), text: `${leader.name} 서거` });
@@ -429,7 +458,7 @@ export class World {
       if (c.era < 2 && this.clock - c.leaderSince > DAY * 60 && chance(0.05)) {
         const top = people.filter(a => ageOf(a, this.clock) >= 19).sort((x, y) => this.influence(y) - this.influence(x))[0];
         if (top && top.id !== leader.id && this.influence(top) > this.influence(leader) + 12) {
-          remember(this, leader, `${ga(top.name)} 새 ${ERAS[c.era].leader}${ga_(ERAS[c.era].leader)} 되었다`, 7, -0.6, [top.id], 'power');
+          remember(this, leader, `${ga(top.name)} 새 ${leaderTitle(c)}${ga_(leaderTitle(c))} 되었다`, 7, -0.6, [top.id], 'power');
           this.setLeader(c, top, '세력 교체');
         }
       }
@@ -455,9 +484,16 @@ export class World {
         this.news('space', `🚀 ${c.name} ${pad ? this.settlements.get(pad.sid).name : ''}에서 ${ship} 발사${astro ? ` — 우주비행사 ${astro.name}` : ''}`, { country: c.code, sid: pad.sid, anns: astro ? [astro.id] : [] }, 3);
       }
     }
-    // 생활 속 기술 축적
-    this.addTech(c, people.length * 0.12 * Math.sqrt(ERAS[c.era].prod), 'passive');
+    // 생활 속 기술 축적: 지도자가 똑똑하고 호기심이 많을수록 빨리
+    this.addTech(c, people.length * 0.12 * Math.sqrt(ERAS[c.era].prod) * this.wits(c), 'passive');
     this.checkEra(c);
+  }
+  /** 지도자(나라가 서기 전엔 족장들)의 슬기: 기술이 쌓이는 빠르기 0.7~1.4 */
+  wits(c) {
+    const ls = c.nation || !c.tribes ? [c.leader] : liveTribes(c).map(t => t.chief);
+    const v = ls.map(id => id != null && this.anns.get(id)).filter(L => L && L.alive).map(L => L.ab.int * 0.6 + L.tr.O * 0.4);
+    const m = v.length ? v.reduce((s, x) => s + x, 0) / v.length : 40;
+    return 0.7 + m / 140;
   }
 
   /** 지도자의 국정: 성격에 따라 무엇을 먼저 짓는지가 달라진다 */
@@ -572,6 +608,8 @@ export class World {
     if (list.length) return list.sort((a, b) => b.pop - a.pop)[0];
     const g = getCountry(code);
     const c = this.ensureCountry(code);
+    // 땅에 부족 서너 개가 흩어져 산다 (나라는 아직 없다)
+    if (c.tribes) return seedLand(this, c, seedVillage);
     // 사람들은 물가에 모여 산다: 해안이나 강을 고른다
     let pick_ = null;
     for (let i = 0; i < 6; i++) {
@@ -820,13 +858,15 @@ export class World {
     const c = this.countries[a.country];
     const [lon, lat] = randomLandPoint(c.code, [from.lon, from.lat], 0.35, 2.2);
     const s = makeSettlement(this, c, lon, lat, a);
+    const tribe = tribeOfS(this, from);
+    if (tribe) { s.tribe = tribe.id; tribe.sids.push(s.id); this.dirtyCountries.add(c.code); }
     const travelers = [a];
     if (a.spouse) { const sp = this.anns.get(a.spouse); if (sp && sp.alive && sp.sid === a.sid) travelers.push(sp); }
     for (const id of a.kids) { const k = this.anns.get(id); if (k && k.alive && k.sid === a.sid && ageOf(k, this.clock) < 19) travelers.push(k); }
     for (const id in a.rels) {
       const r = a.rels[id];
       const f = this.anns.get(+id);
-      if (f && f.alive && f.sid === a.sid && !travelers.includes(f) && (r.k === 'best' || r.k === 'friend') && f.val.adventure > 50 && chance(0.4) && ageOf(f, this.clock) >= 19 && this.countries[f.country].leader !== f.id) travelers.push(f);
+      if (f && f.alive && f.sid === a.sid && !travelers.includes(f) && (r.k === 'best' || r.k === 'friend') && f.val.adventure > 50 && chance(0.4) && ageOf(f, this.clock) >= 19 && !titleOf(this, f)) travelers.push(f);
     }
     const km = Math.hypot((lon - from.lon) * 111 * Math.cos(lat * Math.PI / 180), (lat - from.lat) * 111);
     const until = this.clock + Math.min(DAY * 3, (km / 25) * 60 + 120);
@@ -855,6 +895,7 @@ export class World {
     const [x, z] = plazaPoint(s, 20);
     a.x = x; a.z = z;
     if (kind === 'army') discharge(this, a);
+    else if (kind === 'raid' || kind === 'war') { if (chance(0.4)) think(this, a, pick(['살아 돌아왔다…', '다시는 싸우고 싶지 않다.', '집이 이렇게 좋은 곳이었구나.'])); }
     else if (kind === 'honeymoon') { remember(this, a, '신혼여행에서 돌아왔다', 4, 0.5, [], 'love'); think(this, a, pick(['이제 진짜 우리 둘의 생활이 시작이다.', '꿈같은 며칠이었다.'])); }
     else remember(this, a, `${s.name}에 도착했다`, 4, 0.3, [], 'life');
     this.dirtyAnnMeta.add(a.id);
@@ -1106,8 +1147,8 @@ export class World {
       }
     }
     const c = this.countries[a.country];
-    const isLeader = c.leader === a.id;
-    this.news('death', `🕯️ ${isLeader ? ERAS[c.era].leader + ' ' : ''}${ga(a.name)} ${age}세로 세상을 떠났다 (${cause})`, { anns: [a.id], country: a.country }, isLeader ? 3 : a.owner ? 2 : 1);
+    const title = titleOf(this, a);
+    this.news('death', `🕯️ ${title ? title + ' ' : ''}${ga(a.name)} ${age}세로 세상을 떠났다 (${cause})`, { anns: [a.id], country: a.country }, title ? 3 : a.owner ? 2 : 1);
     this.dirtyAnnMeta.add(a.id);
     this.dirtyAct.add(a.id);
   }
@@ -1150,7 +1191,7 @@ export class World {
     safetyDaily(this, s);
     // 농경 시대: 곡물 창고가 필요해진다
     const c = this.countries[s.country];
-    if (c.era >= 1 && !granary && pop >= 6 && ![...s.buildings].some(id => this.buildings.get(id)?.type === 'granary')) placeBuilding(this, s, 'granary', { era: c.era, budget: 0 });
+    if (c.era >= 1 && !granary && pop >= 6 && (c.era >= 2 || knows(this, s, '토기')) && ![...s.buildings].some(id => this.buildings.get(id)?.type === 'granary')) placeBuilding(this, s, 'granary', { era: c.era, budget: 0 });
     // 시공사를 못 구한 공사는 건설회사가 생기면 맡긴다
     for (const bid of s.buildings) {
       const b = this.buildings.get(bid);
@@ -1180,6 +1221,7 @@ export class World {
       const b = this.buildings.get(bid);
       if (!b || !b.done || b.demo || BUILDINGS[b.type].kind !== 'home' || b.res.length) continue;
       if (BUILDINGS[b.type].era < c.era - 1 && chance(0.03)) { if (c.era <= 1) removeBuilding(this, b); else startDemolition(this, s, b); }
+      else if (c.era <= 1 && b.type === 'hut' && knows(this, s, '흙벽 쌓기') && chance(0.04)) removeBuilding(this, b); // 빈 움집은 이웃이 걷어 낸다
     }
     // 불타 무너진 건물도 허물어야 다시 짓는다 (불탄 지 오래고 아무도 다시 짓지 않으면)
     for (const bid of [...s.buildings]) {
@@ -1201,6 +1243,7 @@ export class World {
     for (const a of [...this.anns.values()]) if (a.alive) this.annDaily(a);
     for (const co of this.companies.values()) { companyDaily(this, co); if (!co.dead) kitchenDaily(this, co); }
     for (const c of Object.values(this.countries)) this.countryDaily(c);
+    nationsDaily(this);
     for (const s of this.settlements.values()) s.pop = this.residents(s.id).length;
     this.rebuildResidents();
     dailyAchievements(this);
@@ -1259,6 +1302,9 @@ export class World {
       p.asks = (p.asks || []).filter(q => !keep || q.ann == null || q.ann === keep.id);
     }
     migrateStart(w);
+    w.rebuildResidents();
+    migrateTribes(w, seedVillage);
+    migrateEarlyEconomy(w);
     return w;
   }
 
@@ -1276,7 +1322,7 @@ export class World {
     const c = this.countries[a.country];
     return {
       id: a.id, n: a.name, g: a.gender, o: a.owner, c: a.country, s: a.sid, b: a.born, al: a.alive, d: a.died, j: jobTitle(this, a),
-      h: a.home, sp: a.spouse, p: a.partner, lk: a.look, ld: c?.leader === a.id ? ERAS[c.era].leader : null, gen: a.gen, tr: a.travel ? 1 : 0,
+      h: a.home, sp: a.spouse, p: a.partner, lk: a.look, ld: titleOf(this, a), gen: a.gen, tr: a.travel ? 1 : 0,
       jk: a.job?.id || null, ceo: !!a.job?.ceo, sc: a.school?.name || null, cr: a.car ? 1 : 0,
     };
   }
@@ -1300,7 +1346,7 @@ export class World {
     const inst = [];
     for (const co of this.companies.values()) if (co.sid === s.id && !co.dead) inst.push(co.pub ? co.ind : 'co:' + co.ind);
     return {
-      id: s.id, name: s.name, country: s.country, lon: s.lon, lat: s.lat, level: s.level, levelName: SETTLEMENT_LEVELS[s.level].name, pop: s.pop, food: Math.round(s.food), founded: s.founded, abandoned: !!s.abandoned, radius: Math.round(s.radius),
+      id: s.id, name: s.name, country: s.country, tribe: s.tribe || null, lon: s.lon, lat: s.lat, level: s.level, levelName: SETTLEMENT_LEVELS[s.level].name, pop: s.pop, food: Math.round(s.food), founded: s.founded, abandoned: !!s.abandoned, radius: Math.round(s.radius),
       site: s.site, feat: siteFeatures(s), weather: s.weather || null, need: s.needPrev || {}, inst, roads: s.roads || {}, snow: Math.round((s.snow || 0) * 100) / 100,
       signals: s.signals || {},
       bus: s.bus ? { open: !!s.bus.open, co: s.bus.co, len: Math.round(s.bus.len), buses: s.bus.buses.length, stops: s.bus.stops.map(st => ({ name: st.name, pos: st.pos, built: !!st.built })) } : null,
@@ -1310,8 +1356,12 @@ export class World {
   countryOut(c) {
     const L = c.leader && this.anns.get(c.leader);
     return {
-      code: c.code, name: c.name, era: c.era, eraName: ERAS[c.era].name, tech: Math.round(c.tech), nextTech: ERAS[c.era + 1]?.tech ?? null, curTech: ERAS[c.era].tech,
-      leader: L ? { id: L.id, name: L.name, title: ERAS[c.era].leader } : null, pop: c.pop, treasury: Math.round(c.treasury), tax: Math.round(c.tax * 100),
+      code: c.code, name: c.name, land: c.land || c.name, modern: c.modern || getCountry(c.code)?.name || c.name, era: c.era, eraName: ERAS[c.era].name, tech: Math.round(c.tech), nextTech: ERAS[c.era + 1]?.tech ?? null, curTech: ERAS[c.era].tech,
+      nation: c.nation ? { name: c.nation.name, founded: c.nation.founded, founder: c.nation.founder, founderName: c.nation.founderName, tribe: c.nation.tribe } : null,
+      tribes: tribesOut(this, c), waitNation: !!c.waitNation && !c.nation,
+      wars: Object.entries(c.wars || {}).map(([k, w]) => ({ with: k, name: w.name, since: w.since, score: w.att === c.code ? w.score : -w.score, battles: w.battles })),
+      drel: Object.fromEntries(Object.entries(c.drel || {}).map(([k, v]) => [k, Math.round(v)])),
+      leader: L ? { id: L.id, name: L.name, title: leaderTitle(c) } : null, pop: c.pop, treasury: Math.round(c.treasury), tax: Math.round(c.tax * 100),
       discoveries: c.discoveries, capital: c.capital, history: c.history.slice(-40), founded: c.founded, topEdu: c.topEdu || 0,
       media: mediaOut(this, c),
       faiths: religionOut(c),

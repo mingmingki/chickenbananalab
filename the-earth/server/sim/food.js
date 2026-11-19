@@ -9,6 +9,7 @@
 //   · 몸 — 든든히 먹으면 일이 잘 되고, 굶으면 힘이 빠진다. 고르게 먹으면 건강해지고, 군것질·가공식품만 먹으면
 //     몸이 축난다. 많이 먹고 덜 움직이면 살이 찐다. 커피는 잠을 쫓고, 술은 스트레스를 풀지만 다음 날 숙취가 온다.
 //   · 컨디션 — 배부름·기력·기분·스트레스·건강·카페인·숙취·식단을 모아 '일의 능률'이 된다 (일·공부·연구·집짓기·채집).
+import { knows } from './tribes.js';
 import { clamp, rand, pick, chance, gauss, ageOf, localHour, dateOf, DAY } from './util.js';
 import { remember, think, feel, lifeEvent } from './ann.js';
 import { DISHES, dishesOf, dishById, cuisineOf, CUISINES, CAT_NAMES, FLAVOR_NAMES, SP, SW, SO, RI } from './foods.js';
@@ -132,7 +133,7 @@ export function pantryDaily(s) {
 /** 이 시대·이 요리에서 먹을 수 있는 음식 */
 function menuPool(world, a, era, cu) {
   const c = world.countries[a.country];
-  const fire = !c || era > 0 || c.discoveries?.includes('불의 사용');
+  const fire = !c || era > 0 || knows(world, a, '불의 사용');
   const out = [];
   const take = list => { for (const d of list) if (d.era <= era && (fire || !d.fire)) out.push(d); };
   if (era <= 1) take(dishesOf('prim'));

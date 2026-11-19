@@ -1,21 +1,23 @@
-// 처음 마을: 나라의 첫 정착지에는 관리자(마을)의 앤 수십 명이 초가집에 모여 산다.
-//   · 원시 시대에서 시작한다. 도로도 광장도 없다.
-//   · 며칠 뒤 누군가 불을 발견하면 모닥불을 피우고 모여 앉는다.
-//   · 열흘쯤 뒤 누군가 농사를 알아내면 농경 시대가 열리고 논밭을 일군다.
+// 처음 마을: 땅의 부족마다 관리자(마을)의 앤 스무 명 남짓이 움집에 모여 산다 (부족은 tribes.js).
+//   · 원시 시대에서 시작한다. 도로도 광장도 없고, 불도 농사도 아직 모른다.
+//   · 족장이 똑똑할수록 불·돌도끼·나무 다루기·농사·흙벽 쌓기를 빨리 알아낸다 (tribes.js).
+//   · 농사를 알면 마을 사람들이 함께 논밭을 일구고, 흙벽 쌓는 법을 알면 초가집을 짓는다.
 //   · 플레이어의 앤은 이 마을 가정의 아기로 태어나고, 자라서 꾸린 가정에 다음 앤들이 태어난다.
 import { clamp, rand, pick, chance, gauss, ageOf, DAY, YEAR } from './util.js';
 import { makeAnn, lifeEvent, remember } from './ann.js';
 import { rel, updateKind } from './social.js';
 import { placeBuilding, plazaPoint } from './settlement.js';
 import { randomName, childName } from './names.js';
-import { wageBase, startupCost, foundCompany } from './economy.js';
+import { wageBase, setJob } from './economy.js';
+import { knows } from './tribes.js';
 import { ERAS } from './data.js';
 
 export const VILLAGE = { couples: 14, singles: 5, elders: 3 };
 
 /** 마을을 채운다 (이미 채웠으면 아무것도 하지 않는다) */
 export function seedVillage(world, c, s, plan = VILLAGE) {
-  if (c.seeded) return [];
+  if (s.seeded) return [];
+  const mud = c.era >= 2 || knows(world, s, '흙벽 쌓기');   // 흙벽 쌓는 법을 아는 부족은 초가집, 아니면 움집
   const now = Math.round(world.clock);
   const made = [];
   const add = spec => {
@@ -26,7 +28,7 @@ export function seedVillage(world, c, s, plan = VILLAGE) {
     return a;
   };
   const house = (owner, people) => {
-    const b = placeBuilding(world, s, 'cottage', { era: 1, owner: owner?.id ?? null, done: true });
+    const b = placeBuilding(world, s, mud ? 'cottage' : 'hut', { era: c.era, owner: owner?.id ?? null, done: true });
     if (!b) return null;
     for (const p of people) world.moveHome(p, b);
     return b;
@@ -87,62 +89,47 @@ export function seedVillage(world, c, s, plan = VILLAGE) {
   }
   for (const a of made) {
     const adult = ageOf(a, now) >= 18;
-    lifeEvent(world, a, adult ? `${s.name}에서 나고 자랐다` : `${s.name}의 초가집에서 태어났다`, '🏡');
+    lifeEvent(world, a, adult ? `${s.name}에서 나고 자랐다` : `${s.name}의 ${mud ? '초가집' : '움집'}에서 태어났다`, '🏡');
     remember(world, a, `${s.name}은(는) 우리 마을이다`, 8, 0.6, [], 'life');
     world.dirtyAnnMeta.add(a.id);
   }
   s.food = Math.max(s.food, made.length * 8);
-  c.seeded = { at: now, n: made.length, fireAt: Math.round(now + (2 + rand()) * DAY), farmAt: Math.round(now + (10 + rand() * 3) * DAY) };
+  s.seeded = true;
+  c.seeded = c.seeded || { at: now, n: 0 };
+  c.seeded.n += made.length;
   c.pop = [...world.anns.values()].filter(a => a.alive && a.country === c.code).length;
   s.pop = made.length;
   world.dirtySettlements.add(s.id); world.dirtyCountries.add(c.code);
-  world.news('city', `🏡 ${c.name} ${s.name} — 초가집 ${s.buildings.length}채에 ${made.length}명이 모여 사는 원시 마을`, { country: c.code, sid: s.id }, 2);
+  world.news('city', `🏡 ${s.name} — ${mud ? '초가집' : '움집'} ${s.buildings.length}채에 ${made.length}명이 모여 사는 ${s.name} 부족`, { country: c.code, sid: s.id }, 1);
   world.rebuildResidents();
   return made;
 }
 
-/** 하루에 한 번: 처음 마을의 큰 걸음 (불 → 농사) */
+/** 하루에 한 번: 농사를 아는 마을은 함께 논밭을 일군다 (농경 시대엔 농장 회사가 아니라 마을 공동 논밭) */
 export function villageDaily(world, c) {
-  const v = c.seeded;
-  if (!v || v.done) return;
-  const now = world.clock;
-  const pickFinder = () => {
-    const s = world.settlements.get(c.capital);
-    const people = (s ? world.residents(s.id) : []).filter(a => ageOf(a, now) >= 16);
-    return people.sort((x, y) => (y.ab.int + y.tr.O + rand() * 30) - (x.ab.int + x.tr.O + rand() * 30))[0] || null;
-  };
-  if (!c.discoveries.includes('불의 사용') && now >= v.fireAt) {
-    const a = pickFinder();
-    if (a) world.tryDiscovery(a, '불의 사용');
-  }
-  if (c.era === 0 && !c.discoveries.includes('농업') && now >= v.farmAt) {
-    const a = pickFinder();
-    if (a) {
-      world.tryDiscovery(a, '농업');
-      // 농사를 알게 되면 농경 시대가 열린다
-      c.tech = Math.max(c.tech, ERAS[1].tech);
-      world.checkEra(c);
-      v.paddyAt = Math.round(now + (1 + rand()) * DAY);
-    }
-  }
-  // 농사를 안 지 하루이틀 뒤: 마을 사람들이 곡식을 모아 첫 논밭을 일군다
-  if (c.era >= 1 && v.paddyAt && !v.paddy && now >= v.paddyAt) {
-    v.paddy = true;
-    const s = world.settlements.get(c.capital);
-    const hasFarm = s && s.buildings.some(id => world.buildings.get(id)?.type === 'farm');
-    const a = !hasFarm && pickFinder();
-    if (a) {
-      const cost = startupCost(world, 'farm', c.era);
-      if (a.money < cost) {
-        const give = cost - a.money;
-        a.money += give;
-        remember(world, a, '마을 사람들이 곡식과 씨앗을 모아 논밭을 일굴 밑천을 대 주었다', 7, 0.8, [], 'work');
+  if (c.era >= 2) return;
+  for (const s of world.settlements.values()) {
+    if (s.country !== c.code || s.abandoned || !knows(world, s, '농업')) continue;
+    // 농사를 알면 채집꾼·사냥꾼 가운데 몇이 하나둘 논밭으로 옮겨 간다
+    if (c.era >= 1) {
+      const people = world.residents(s.id);
+      for (const jk of ['gatherer', 'hunter']) {
+        const doing = people.filter(a => a.job?.id === jk && !a.owner);
+        const cap = Math.ceil(Math.max(1, s.pop) / (jk === 'gatherer' ? 8 : 7));
+        for (const a of doing.slice(cap)) if (chance(0.08)) {
+          setJob(world, a, 'peasant');
+          remember(world, a, jk === 'gatherer' ? '열매 따러 다니는 대신 논밭을 갈기 시작했다' : '사냥 대신 논밭을 갈기 시작했다', 5, 0.3, [], 'work');
+          lifeEvent(world, a, '농사꾼이 되었다', '🌾');
+        }
       }
-      const co = foundCompany(world, a, 'farm');
-      if (co) world.news('town', `🌾 ${s.name}에 첫 논밭이 생겼다 — ${a.name}와(과) 마을 사람들이 땅을 갈기 시작했다`, { anns: [a.id], country: c.code, sid: s.id }, 2);
     }
+    const fields = s.buildings.map(id => world.buildings.get(id)).filter(b => b && b.type === 'farm');
+    const farmers = world.residents(s.id).filter(a => a.job?.id === 'peasant').length;
+    const want = Math.max(1, Math.ceil(Math.max(farmers, s.pop * 0.25) / 10));
+    if (fields.length >= want || fields.some(b => !b.done)) continue;
+    const b = placeBuilding(world, s, 'farm', { era: c.era, owner: null, name: `${s.name} ${fields.length ? fields.length + 1 + '번째 ' : ''}공동 논밭`, budget: 0 });
+    if (b && !fields.length) world.news('town', `🌾 ${s.name} 사람들이 함께 첫 논밭을 일구기 시작했다`, { country: c.code, sid: s.id }, 2);
   }
-  if (c.era >= 1 && c.discoveries.includes('불의 사용') && v.paddy) v.done = true;
 }
 
 /** 저장된 세계를 불러올 때: 아직 원시 시대인 작은 첫 마을에도 마을 사람들을 채우고, 원시 시대 도로는 걷어 낸다 */
@@ -150,10 +137,7 @@ export function migrateStart(world) {
   for (const c of Object.values(world.countries)) {
     if (c.era !== 0) continue;
     for (const s of world.settlements.values()) if (s.country === c.code && s.roads && Object.keys(s.roads).length) { s.roads = {}; world.dirtySettlements.add(s.id); }
-    if (c.seeded) continue;
-    const s = world.settlements.get(c.capital);
-    if (!s) continue;
-    const pop = [...world.anns.values()].filter(a => a.alive && a.sid === s.id).length;
-    if (pop < 15) seedVillage(world, c, s);
   }
+  // 예전 저장본: 처음 마을은 이미 채워졌다
+  for (const c of Object.values(world.countries)) if (c.seeded) { const s = world.settlements.get(c.capital); if (s) s.seeded = true; }
 }
