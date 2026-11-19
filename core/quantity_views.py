@@ -2441,6 +2441,40 @@ def api_quantity_floor_takeoff(request):
     return JsonResponse({"ok": True, "takeoff": takeoff})
 
 
+@require_POST
+@_admin_only_json
+def api_quantity_floor_arch(request):
+    """건축 층별 수량(조적·ALC·건식벽 면적, 창·문 개수)을 CAD 건축 평면으로 계산한다. AI는 쓰지 않는다.
+
+    Body (JSON): {"floor_job_id": 층별 확인 작업, "overrides": 사람이 정한 값(선택)}. 층별 확인 작업은 요청한
+    사람의 것만 쓴다. 건축 평면이 없으면 buildings가 빈 결과를 돌려준다."""
+    from . import quantity_arch_takeoff
+    if len(request.body or b"") > FLOOR_TAKEOFF_MAX_BODY:
+        return JsonResponse({"error": "요청이 너무 커요."}, status=413)
+    try:
+        body = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "잘못된 요청입니다."}, status=400)
+    if not isinstance(body, dict):
+        return JsonResponse({"error": "잘못된 요청입니다."}, status=400)
+    floor_job = body.get("floor_job_id")
+    floor_job = floor_job.strip()[:200] if isinstance(floor_job, str) else ""
+    job = _quantity_state().get("job", floor_job) if floor_job else None
+    if not job or job.get("owner") != str(request.user.pk) or job.get("operation") != "api_quantity_floor_views":
+        return JsonResponse({"error": "층별 확인 작업을 찾을 수 없어요."}, status=404)
+    result = _result_get(floor_job) or {}
+    floor_views = (result.get("results") or {}).get("floor_views") or {}
+    if not result.get("ok"):
+        return JsonResponse({"error": "층별 확인 결과가 아직 없어요."}, status=409)
+    try:
+        arch = quantity_arch_takeoff.build(floor_views.get("views") or [], floor_views.get("model") or {},
+                                           overrides=_floor_overrides(floor_job, body), learned=_learned_values(floor_job))
+    except Exception:
+        logger.exception("quantity_floor_arch_failed job=%s", floor_job[:16])
+        return JsonResponse({"error": "건축 수량을 계산하지 못했어요."}, status=500)
+    return JsonResponse({"ok": True, "arch": arch})
+
+
 # ─────────────────────────────────────────────
 #  DWG: 치킨바나나캐드와 같은 무료 변환기(ACadSharp)로 DXF로 바꿔 읽는다.
 #  ODA File Converter는 라이선스 때문에 쓰지 않는다.
@@ -8333,8 +8367,8 @@ def _write_review_notes_sheet(ws, navy_fill, header_font, body_font, left, thin)
         ws.column_dimensions[letter].width = width
 
 
-def _write_summary_sheet(ws, takeoff, rebar, navy_fill, header_font, body_font, center, left, thin):
-    """요약: 동별 콘크리트·거푸집·철근 합계와 전체 합계, 임의로 정한 값의 수 (근사 행은 합계에서 뺐다)."""
+def _write_summary_sheet(ws, takeoff, rebar, navy_fill, header_font, body_font, center, left, thin, arch=None):
+    """요약: 동별 콘크리트·거푸집·철근 합계와 전체 합계, 건축 벽·창호 합계, 임의로 정한 값의 수 (근사 행은 합계에서 뺐다)."""
     from openpyxl.styles import Font
     ws.cell(row=1, column=1, value="수량산출 요약 (CAD 평면·일람표 기준 추정)").font = Font(name="맑은 고딕", bold=True, size=13)
     headers = ["동", "콘크리트(㎥)", "거푸집(㎡)", "철근 순중량(t)", "근사라 합계에서 뺀 콘크리트(㎥)"]
@@ -8359,23 +8393,40 @@ def _write_summary_sheet(ws, takeoff, rebar, navy_fill, header_font, body_font, 
     if rebar:
         ws.cell(row=row + 2, column=1, value=f"철근 할증 {((rebar.get('loss_factor') or 1) - 1) * 100:.0f}% 포함 "
                                               f"{(rebar.get('with_loss_kg') or 0) / 1000:,.2f} t").font = body_font
-    assumed = (takeoff.get("assumed") or []) + ((rebar or {}).get("assumed") or [])
+    arch_buildings = (arch or {}).get("buildings") or []
+    if arch_buildings:
+        labels = arch.get("wall_labels") or {"masonry": "조적", "alc": "ALC", "dry": "건식벽"}
+        row += 5
+        ws.cell(row=row, column=1, value="건축 (CAD 건축 평면 기준 추정)").font = Font(name="맑은 고딕", bold=True)
+        row += 1
+        for col, text in enumerate(["동"] + [f"{labels[k]}(㎡)" for k in ("masonry", "alc", "dry")] + ["문(개)", "창(개)"], 1):
+            cell = ws.cell(row=row, column=col, value=text)
+            cell.font, cell.fill, cell.border, cell.alignment = header_font, navy_fill, thin, center
+        for building in arch_buildings:
+            row += 1
+            totals = building.get("totals") or {}
+            values = [building.get("name")] + [totals.get(k) or 0 for k in ("masonry", "alc", "dry", "doors", "windows")]
+            for col, value in enumerate(values, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.font, cell.border, cell.alignment = body_font, thin, left if col == 1 else center
+        row -= 1  # the note below goes two rows under the last building
+    assumed = (takeoff.get("assumed") or []) + ((rebar or {}).get("assumed") or []) + ((arch or {}).get("assumed") or [])
     waiting = sum(1 for item in assumed if item.get("left_out"))
     ws.cell(row=row + 3, column=1, value=f"도면에 없어 임의로 정한 값 {len(assumed)}개"
                                          + (f" (확인하면 합계에 들어가는 것 {waiting}개)" if waiting else "")
                                          + " — '임의로 정한 것' 시트를 확인해 주세요.").font = body_font
-    for letter, width in zip("ABCDE", (16, 16, 16, 18, 30)):
+    for letter, width in zip("ABCDEF", (16, 16, 16, 18, 30, 10)):
         ws.column_dimensions[letter].width = width
 
 
-def _write_assumed_sheet(ws, takeoff, rebar, navy_fill, header_font, body_font, left, thin):
+def _write_assumed_sheet(ws, takeoff, rebar, navy_fill, header_font, body_font, left, thin, arch=None):
     """임의로 정한 것: 도면에 없어 이 작업이 가정한 값 — 어디에 썼고, 얼마가 걸렸고, 어떻게 바꾸는지."""
     headers = ["구분", "항목", "정한 값", "쓴 곳", "걸린 양", "근사·확인 전이라 합계에서 빠진 몫", "바꾸는 법"]
     for col, text in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=text)
         cell.font, cell.fill, cell.border = header_font, navy_fill, thin
     row = 2
-    for group, result in (("콘크리트", takeoff), ("철근", rebar)):
+    for group, result in (("콘크리트", takeoff), ("철근", rebar), ("건축", arch)):
         for item in (result or {}).get("assumed") or []:
             unit = item.get("unit") or ""
             amount = lambda value: (f"{value / 1000:,.2f} t" if unit == "kg" else f"{value:,.1f} {unit}") if value else ""
@@ -8390,6 +8441,58 @@ def _write_assumed_sheet(ws, takeoff, rebar, navy_fill, header_font, body_font, 
     for letter, width in zip("ABCDEFG", (10, 24, 30, 40, 14, 22, 50)):
         ws.column_dimensions[letter].width = width
     ws.freeze_panes = "A2"
+
+
+def _write_floor_arch_sheets(wb, arch, navy_fill, header_font, body_font, center, left, thin):
+    """건축 집계(층별): 동마다 층 행(조적·ALC·건식벽 면적, 문·창 개수)과 합계. 창호 집계: 동별 창·문 종류(블록)별 개수."""
+    from openpyxl.styles import Font
+    labels = arch.get("wall_labels") or {"masonry": "조적", "alc": "ALC", "dry": "건식벽"}
+    ws = wb.create_sheet("건축 집계(층별)")
+    ws.cell(row=1, column=1, value="건축 층별 집계 — CAD 건축 평면 기준 추정 (벽 면적 = 길이 × (층고 − 슬래브) + 문·창 위아래 벽)").font = Font(name="맑은 고딕", bold=True, size=13)
+    headers = ["층", "층고(m)", "벽 높이(m)"] + [f"{labels[k]}(㎡)" for k in ("masonry", "alc", "dry")] + \
+              [f"{labels[k]} 두께(mm)" for k in ("masonry", "alc", "dry")] + ["문(개)", "창(개)", "도면"]
+    row = 3
+    for building in arch.get("buildings") or []:
+        ws.cell(row=row, column=1, value=f"[{building.get('name')}]").font = Font(name="맑은 고딕", bold=True)
+        row += 1
+        for col, text in enumerate(headers, 1):
+            cell = ws.cell(row=row, column=col, value=text)
+            cell.font, cell.fill, cell.border, cell.alignment = header_font, navy_fill, thin, center
+        row += 1
+        for item in building.get("rows") or []:
+            walls = item.get("walls") or {}
+            values = [item.get("label"), item.get("height"), item.get("clear")] + \
+                     [(walls.get(k) or {}).get("area") or 0 for k in ("masonry", "alc", "dry")] + \
+                     [round(((walls.get(k) or {}).get("thickness") or 0) * 1000) or None for k in ("masonry", "alc", "dry")] + \
+                     [item.get("doors") or 0, item.get("windows") or 0, item.get("sheet")]
+            for col, value in enumerate(values, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.font, cell.border, cell.alignment = body_font, thin, left if col in (1, len(values)) else center
+            row += 1
+        totals = building.get("totals") or {}
+        values = ["합계", None, None] + [totals.get(k) or 0 for k in ("masonry", "alc", "dry")] + [None, None, None] + \
+                 [totals.get("doors") or 0, totals.get("windows") or 0, None]
+        for col, value in enumerate(values, 1):
+            cell = ws.cell(row=row, column=col, value=value)
+            cell.font, cell.border, cell.alignment = Font(name="맑은 고딕", bold=True), thin, left if col == 1 else center
+        row += 2
+    for letter, width in zip("ABCDEFGHIJKL", (12, 9, 10, 11, 11, 11, 13, 13, 13, 8, 8, 12)):
+        ws.column_dimensions[letter].width = width
+    wo = wb.create_sheet("창호 집계")
+    for col, text in enumerate(["동", "구분", "종류(블록)", "개수", "폭(m)", "있는 층"], 1):
+        cell = wo.cell(row=1, column=col, value=text)
+        cell.font, cell.fill, cell.border, cell.alignment = header_font, navy_fill, thin, center
+    row = 2
+    for building in arch.get("buildings") or []:
+        for item in building.get("openings") or []:
+            values = [building.get("name"), "문" if item.get("kind") == "door" else "창", item.get("name"), item.get("count"),
+                      item.get("width"), ", ".join(item.get("floors") or [])]
+            for col, value in enumerate(values, 1):
+                cell = wo.cell(row=row, column=col, value=value)
+                cell.font, cell.border, cell.alignment = body_font, thin, left
+            row += 1
+    for letter, width in zip("ABCDEF", (12, 8, 18, 8, 8, 40)):
+        wo.column_dimensions[letter].width = width
 
 
 def _write_floor_rebar_sheet(ws, rebar, navy_fill, yellow_fill, header_font, body_font, center, left, thin):
@@ -8756,7 +8859,8 @@ def _build_excel_response(request):
     has_floor_takeoff = isinstance(floor_takeoff, dict) and bool(floor_takeoff.get("buildings"))
     # "AI 없이 CAD로만 진행": no AI reading, so the floor sheets lead and the AI-only sheets are left out
     cad_only = has_floor_takeoff and not any(results.get(k) for k in ("structural", "architectural"))
-    CAD_ONLY_SHEETS = ("요약", "층별 집계(N층 기준)", "층별 철근(N층 기준)", "임의로 정한 것", "검토 사항")
+    CAD_ONLY_SHEETS = ("요약", "층별 집계(N층 기준)", "층별 철근(N층 기준)", "건축 집계(층별)", "창호 집계", "임의로 정한 것", "검토 사항")
+    floor_arch = results.get("floor_arch")
 
     # 구조 시트
     if "structural" in results and results["structural"].get("items"):
@@ -8778,16 +8882,20 @@ def _build_excel_response(request):
             ws_summary = wb.active
             ws_summary.title = "요약"
             _write_summary_sheet(ws_summary, floor_takeoff, floor_rebar if isinstance(floor_rebar, dict) else None,
-                                 navy_fill, header_font, body_font, center, left, thin)
+                                 navy_fill, header_font, body_font, center, left, thin,
+                                 floor_arch if isinstance(floor_arch, dict) else None)
         ws_floor_takeoff = wb.create_sheet(CAD_ONLY_SHEETS[1])
         _write_floor_takeoff_sheet(ws_floor_takeoff, floor_takeoff,
                                    navy_fill, yellow_fill, light_fill, header_font, body_font, center, left, thin)
     if isinstance(floor_rebar, dict) and floor_rebar.get("buildings"):
         _write_floor_rebar_sheet(wb.create_sheet("층별 철근(N층 기준)"), floor_rebar,
                                  navy_fill, yellow_fill, header_font, body_font, center, left, thin)
+    if isinstance(floor_arch, dict) and floor_arch.get("buildings"):
+        _write_floor_arch_sheets(wb, floor_arch, navy_fill, header_font, body_font, center, left, thin)
     if has_floor_takeoff:
         _write_assumed_sheet(wb.create_sheet("임의로 정한 것"), floor_takeoff,
-                             floor_rebar if isinstance(floor_rebar, dict) else None, navy_fill, header_font, body_font, left, thin)
+                             floor_rebar if isinstance(floor_rebar, dict) else None, navy_fill, header_font, body_font, left, thin,
+                             floor_arch if isinstance(floor_arch, dict) else None)
         _write_review_notes_sheet(wb.create_sheet("검토 사항"), navy_fill, header_font, body_font, left, thin)
 
     # 건축 시트

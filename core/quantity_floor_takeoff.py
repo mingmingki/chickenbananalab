@@ -356,6 +356,36 @@ def _region_grid(regions, minx, miny, cell, shape):
     return grid
 
 
+END_LINE_MAX = 0.35       # a wall's end line: no longer than this, between two longer lines it meets square
+
+
+def end_lines(segments):
+    """Indices of the wall end lines: short lines whose two ends each meet a longer line at
+    about a right angle (the closing line of a drawn wall rectangle, a door jamb's return)."""
+    grid, out = {}, set()
+    for i, (ax, ay, bx, by) in enumerate(segments):
+        for cell in _bucket(i, min(ax, bx) - JOIN_TOL, min(ay, by) - JOIN_TOL, max(ax, bx) + JOIN_TOL, max(ay, by) + JOIN_TOL):
+            grid.setdefault(cell, []).append(i)
+    for i, (ax, ay, bx, by) in enumerate(segments):
+        length = math.hypot(bx - ax, by - ay)
+        if not 0.03 <= length <= END_LINE_MAX:
+            continue
+        ux, uy = (bx - ax) / length, (by - ay) / length
+        met = 0
+        for px, py in ((ax, ay), (bx, by)):
+            for j in grid.get((int(math.floor(px)), int(math.floor(py))), ()):
+                cx, cy, dx, dy = segments[j]
+                other = math.hypot(dx - cx, dy - cy)
+                if j == i or other <= length + 1e-6 or _point_segment_distance(px, py, segments[j]) > JOIN_TOL:
+                    continue
+                if abs(ux * (dx - cx) / other + uy * (dy - cy) / other) < 0.2:
+                    met += 1
+                    break
+        if met == 2:
+            out.add(i)
+    return out
+
+
 def measure_walls(segments, is_outside=None, probe=0.5, regions=None):
     """Plan area of the cut concrete walls and the length of their faces (all / outside).
 
@@ -401,10 +431,11 @@ def measure_walls(segments, is_outside=None, probe=0.5, regions=None):
         part["area"] = (int(np.logical_and(band, inside).sum()) + 0.5 * int(np.logical_and(centre, inside).sum())) * cell * cell
 
     # faces: sample each line, look a little to both sides
-    faces = outside_faces = 0.0
+    faces = outside_faces = end_faces = 0.0
+    ends = end_lines(segments) | set(range(len(segments), len(lines)))
     outer = []
     reach = (GROW + 2) * cell
-    for ax, ay, bx, by in lines:
+    for index_line, (ax, ay, bx, by) in enumerate(lines):
         length = math.hypot(bx - ax, by - ay)
         if length < 0.03:
             continue
@@ -423,6 +454,8 @@ def measure_walls(segments, is_outside=None, probe=0.5, regions=None):
         if not hits:
             continue
         faces += length * hits / n
+        if index_line in ends:
+            end_faces += length * hits / n
         if labels is not None:
             gx = np.clip(((px - minx) / cell).astype(int), 0, shape[1] - 1)
             gy = np.clip(((py - miny) / cell).astype(int), 0, shape[0] - 1)
@@ -446,7 +479,7 @@ def measure_walls(segments, is_outside=None, probe=0.5, regions=None):
                 outer.append((ax, ay, bx, by, wall_side))
     gaps = _window_gaps(outer, band, minx, miny, cell, is_outside, probe) if is_outside else []
     return {"area": round(area, 3), "faces": round(faces, 2), "outside_faces": round(outside_faces, 2),
-            "caps": len(caps), "cell": round(cell, 3),
+            "end_faces": round(end_faces, 2), "caps": len(caps), "cell": round(cell, 3),
             "window_gaps": round(sum(g[0] for g in gaps), 2), "window_gap_count": len(gaps),
             "window_gap_area": round(sum(g[0] * g[1] for g in gaps), 3),
             **({"regions": [{k: round(v, 3) for k, v in part.items()} for part in by_region]} if regions else {})}

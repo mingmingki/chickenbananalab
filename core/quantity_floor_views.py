@@ -647,6 +647,14 @@ def _svg(paths, box, other=True, left_out=None):
 VIEW_OF_ROLE = {"wall": "frame", "column": "frame", "beam": "beam"}
 
 
+OPENING_BLOCK_NAME = re.compile(r"DOOR|WINDOW|WIN[-_ ]|창호|^창|^문", re.I)
+
+
+def _is_opening_insert(layer, name):
+    """A window or door insert: on a window/door layer, or named like one."""
+    return layer_category(layer) == "opening" or bool(OPENING_BLOCK_NAME.search(_nfc(name)))
+
+
 def _plan_views(name, doc, rows, xrefs, roles=None, left_out_for=None):
     """Views of one drawing's plan frames; `xrefs` maps reference keys to loaded documents.
     ``roles`` (layer → member role, read from the drawing) colours the structural members of an
@@ -681,6 +689,16 @@ def _plan_views(name, doc, rows, xrefs, roles=None, left_out_for=None):
         for row in whole:
             row["frame_bbox"] = [round(v, 3) for v in box]
             row["frame_estimated"] = True  # the drawn extent, not a drawn frame: lines may run past it
+    # architectural frames also get their measures: walls by material, windows and doors
+    arch_rows = [row for row in plans if floor_of(row["drawing_title"])["discipline"] != "struct"]
+    inserts = []
+    if arch_rows:
+        try:
+            from . import quantity_arch
+            inserts = quantity_arch.opening_inserts(doc, xrefs, _frames_limit(arch_rows), _is_opening_insert,
+                                                    lambda path: _key(re.split(r"[\\/]", path)[-1]))
+        except Exception:
+            inserts = []
     views = []
     for row in plans:
         structural = floor_of(row["drawing_title"])["discipline"] == "struct"
@@ -692,8 +710,15 @@ def _plan_views(name, doc, rows, xrefs, roles=None, left_out_for=None):
         variant = "구조평면" if floor["discipline"] == "struct" else "건축평면"
         if "보완" in _nfc(name):
             variant += " (보완)"
-        views.append(dict(floor, file=name, sheet=row.get("drawing_number"), title=row.get("drawing_title"),
-                          variant=variant, counts=counts, svg=svg, plan_id=plan_key(name, row)))
+        view = dict(floor, file=name, sheet=row.get("drawing_number"), title=row.get("drawing_title"),
+                    variant=variant, counts=counts, svg=svg, plan_id=plan_key(name, row))
+        if not structural:
+            try:
+                from . import quantity_arch
+                view["arch"] = quantity_arch.measure(paths, row["frame_bbox"], inserts)
+            except Exception as exc:  # the pictures never depend on the measures
+                view["arch"] = {"error": str(exc)[:200]}
+        views.append(view)
     return views
 
 

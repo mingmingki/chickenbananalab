@@ -615,6 +615,15 @@
 /* rebar: grade swatches and the bar summary */
 .qd-mass-table .qd-grade { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: -1px; }
 .qd-rebar-sum { max-width: 560px; }
+/* architecture card: walls by material per storey, then the window and door types */
+.qd-arch td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.qd-arch-types { max-width: 640px; max-height: 260px; }
+.qd-arch-types .qd-arch-head { display: block; padding: 10px 12px 4px; color: #fff; font-size: 13px; }
+.qd-arch-types th, .qd-arch-types td { text-align: left; }
+.qd-arch-types th:nth-child(3), .qd-arch-types th:nth-child(4), .qd-arch-types td:nth-child(3), .qd-arch-types td:nth-child(4) { text-align: right; font-variant-numeric: tabular-nums; }
+.qd-arch-kind { display: inline-block; min-width: 26px; padding: 1px 6px; border-radius: 6px; font-style: normal; font-size: 11.5px; font-weight: 800; text-align: center; }
+.qd-arch-kind.is-door { background: rgba(217, 89, 38, .22); color: #ffb08f; }
+.qd-arch-kind.is-window { background: rgba(57, 135, 229, .24); color: #9cc6ff; }
 .qpe-learn { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; background: rgba(250, 204, 21, .14); color: #fde68a; font-size: 12px; font-weight: 700; }
 .qpe-learn[hidden] { display: none; }
 .qpe-learn button { padding: 4px 10px; border: 0; border-radius: 7px; background: #facc15; color: #422006; font: inherit; font-weight: 800; cursor: pointer; }

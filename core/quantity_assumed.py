@@ -27,10 +27,13 @@ EDITABLE = {
     "grade": {"kind": "choice", "choices": ["SD400", "SD500", "SD600"], "label": "강종 표기 없는 철근"},
     "foundation_bars": {"kind": "bar", "hint": "예: D16@300 (상·하부 양방향)", "label": "기초 매트 배근"},
     "mat_extra_bars": {"kind": "toggle", "on": "매트 전체에 깔기", "label": "매트 보강근 범위"},
+    "door_height": {"kind": "number", "unit": "m", "min": 1.5, "max": 3.5, "step": 0.1, "label": "문 높이"},
+    "window_opening_height": {"kind": "number", "unit": "m", "min": 0.3, "max": 3.0, "step": 0.1, "label": "칸막이벽 창 높이"},
 }
 TAKEOFF_KEYS = ("slab_thickness", "beam_depth", "window_height", "parapet", "wall_footing_place")
 REBAR_KEYS = ("plain_wall_bars", "slab_bars", "stair_bars", "grade", "foundation_bars", "mat_extra_bars")
-LEARNED = ("slab_thickness", "beam_depth", "window_height", "parapet", "stair_bars")  # numbers other jobs start from
+ARCH_KEYS = ("slab_thickness", "door_height", "window_opening_height")
+LEARNED = ("slab_thickness", "beam_depth", "window_height", "parapet", "stair_bars", "door_height", "window_opening_height")  # numbers other jobs start from
 BAR_TEXT = re.compile(r"^[A-Z]{0,3}D(10|13|16|19|22|25|29|32|35)@(\d{2,4})$")
 
 
