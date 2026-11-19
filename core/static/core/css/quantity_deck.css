@@ -353,7 +353,9 @@
 .qd-floor-legend button.is-off { opacity: .4; text-decoration: line-through; }
 .fv-key-frame i { background: #facc15 !important; } .fv-key-masonry i { background: #4ade80 !important; }
 .fv-key-alc i { background: #bef264 !important; } .fv-key-dry i { background: #7dd3fc !important; }
-.fv-key-opening i { background: #c4b5fd !important; } .fv-key-beam i { background: #fb923c !important; }
+.fv-key-opening i { background: #c4b5fd !important; }
+/* beams are drawn dashed (hidden below the slab, as on the drawings): the key shows them so */
+.fv-key-beam i { background: repeating-linear-gradient(90deg, #fb923c 0 6px, transparent 6px 9px) !important; }
 .fv-key-other i { background: #94a3b8 !important; }
 .qd-floor-stage {
   position: relative; height: min(46dvh, 470px); border: 1px solid var(--qd-line); border-radius: 14px;
@@ -686,8 +688,58 @@
 .qpe-ask-list small { color: #f9a8d4; }
 
 /* stray lines the reading found: suggested only, still counted until erased */
-.fv-key-suspect i { background: repeating-linear-gradient(90deg, #fb923c 0 5px, transparent 5px 8px) !important; }
-.qd-floor-canvas .fv-suspect { stroke: #fb923c; stroke-width: 2.6; stroke-dasharray: 3 5; stroke-opacity: .95; }
+/* stray-line candidates: pink dots, apart from the orange dashed beams */
+.fv-key-suspect i { background: radial-gradient(circle, #f472b6 0 2px, transparent 2.5px) 0 50% / 6px 6px repeat-x !important; }
+.qd-floor-canvas .fv-suspect { stroke: #f472b6; stroke-width: 3; stroke-dasharray: 0.5 5; stroke-linecap: round; stroke-opacity: .95; }
 .qd-floor-stage.hide-suspect .fv-suspect { display: none; }
-.qpe-suspects { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: rgba(251, 146, 60, .14); color: #fed7aa; font-size: 12px; font-weight: 700; }
+.qpe-suspects { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: rgba(244, 114, 182, .14); color: #fbcfe8; font-size: 12px; font-weight: 700; }
 .qpe-suspects[hidden] { display: none; }
+
+/* drawing check: the note box of a missing drawing opens on demand */
+.qd-item .qd-input { margin-top: 8px; }
+.qd-item .qd-input[hidden], .qd-item-note[hidden] { display: none; }
+.qd-item-note { padding: 0; font-size: 12px; font-weight: 700; color: rgba(255, 255, 255, .72); white-space: nowrap; }
+.qd-item-note:hover { color: #fff; }
+
+/* result summary: totals as tiles, each building's members as one bar (drawn on a dark panel the
+   member colours were checked against: #111a3a) */
+.qd-summary { display: grid; gap: 14px; }
+.qd-summary-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.qd-summary-tile { display: grid; gap: 4px; padding: 14px 16px; border-radius: 14px; background: #111a3a; border: 1px solid rgba(255, 255, 255, .1); }
+.qd-summary-tile span { font-size: 12.5px; font-weight: 700; color: rgba(255, 255, 255, .72); }
+.qd-summary-tile b { font-size: 26px; font-weight: 800; color: #fff; letter-spacing: -.01em; }
+.qd-summary-tile b em { margin-left: 4px; font-style: normal; font-size: 13px; font-weight: 700; color: rgba(255, 255, 255, .72); }
+.qd-summary-tile small { font-size: 11.5px; color: #94a3b8; }
+.qd-summary-tile.is-attention { border-color: rgba(250, 178, 25, .55); }
+.qd-summary-tile.is-attention small::before { content: "!"; display: inline-grid; place-items: center; width: 14px; height: 14px; margin-right: 5px;
+  border-radius: 50%; background: #fab219; color: #0b0b0b; font-size: 10px; font-weight: 900; vertical-align: 1px; }
+.qd-summary-chart { display: grid; gap: 10px; padding: 16px; border-radius: 14px; background: #111a3a; border: 1px solid rgba(255, 255, 255, .1); }
+.qd-summary-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.qd-summary-head b { font-size: 14px; color: #fff; }
+.qd-summary-toggle { display: inline-flex; padding: 3px; border-radius: 10px; background: rgba(255, 255, 255, .08); }
+.qd-summary-toggle button { border: 0; padding: 6px 12px; border-radius: 8px; background: transparent; color: rgba(255, 255, 255, .72);
+  font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.qd-summary-toggle button[aria-pressed="true"] { background: #fff; color: #0f172a; }
+.qd-summary-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: rgba(255, 255, 255, .8); }
+.qd-summary-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.qd-summary-legend i { width: 10px; height: 10px; border-radius: 2px; }
+.qd-summary-plot { position: relative; }
+.qd-summary-plot svg { display: block; width: 100%; height: auto; overflow: visible; }
+.qd-summary-base { stroke: #3a4466; stroke-width: 1; }
+.qd-summary-name { fill: rgba(255, 255, 255, .8); font-size: 13px; font-weight: 700; }
+.qd-summary-total { fill: #fff; font-size: 13px; font-weight: 800; }
+.qd-summary-seg { transition: filter .15s; outline: none; }
+.qd-summary-seg.is-hot, .qd-summary-seg:focus { filter: brightness(1.25); }
+.qd-summary-seg:focus-visible { stroke: #fff; stroke-width: 1.5; }
+.qd-summary-hit { cursor: default; }
+.qd-summary-tip { position: absolute; z-index: 2; display: grid; gap: 3px; min-width: 120px; padding: 8px 10px; border-radius: 10px;
+  background: #0b1024; border: 1px solid rgba(255, 255, 255, .14); box-shadow: 0 8px 24px rgba(0, 0, 0, .35); pointer-events: none; }
+.qd-summary-tip[hidden] { display: none; }
+.qd-summary-tip strong { font-size: 14px; color: #fff; }
+.qd-summary-tip span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: rgba(255, 255, 255, .72); }
+.qd-summary-tip i { width: 12px; height: 2px; border-radius: 1px; }
+.qd-summary-table summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: rgba(255, 255, 255, .72); }
+.qd-summary-table table { width: 100%; margin-top: 8px; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.qd-summary-table th, .qd-summary-table td { padding: 6px 8px; border-bottom: 1px solid rgba(255, 255, 255, .08); text-align: right; color: rgba(255, 255, 255, .85); }
+.qd-summary-table th:first-child, .qd-summary-table td:first-child { text-align: left; }
+.qd-summary-foot { margin: 0; font-size: 11.5px; color: #94a3b8; }

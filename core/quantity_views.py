@@ -1395,6 +1395,37 @@ def _parse_precheck_candidates(candidate_records, background=False):
     return parsed_by_digest, attempted, capped
 
 
+# A sheet-set file ("S-101~130 동 구조평면도.dwg") holds many drawings, so a drawing inside one is
+# found by its title (the text drawn in its frame) even when no file is named for it. A few such
+# files that no item's file name picked are opened too.
+PRECHECK_SHEET_SET = re.compile(r"\d+\s*[~∼]\s*\d+|\d+\s*,\s*\d+")
+PRECHECK_EXTRA_SHEET_SETS = 12
+PRECHECK_TITLE_WORDS = re.compile(r"평면도|일람표|배근도|일반사항|설계개요|입면도|단면도|PLAN|SCHEDULE", re.I)
+PRECHECK_TITLE_EXCLUDE = re.compile(r"참\s*조|참\s*고|REFER|SEE\s", re.I)
+
+
+PRECHECK_AREA_WORDS = {"아파트", "주동", "단위세대", "동", "주차장"}
+
+
+def _precheck_title_hit(item, parsed, records_by_digest):
+    """(record, title) of a drawing title inside an opened file that names this item, else None.
+    A title naming no area ("기둥 일람표") is the common one of the towers and the parking deck."""
+    area_groups = [g for g in item.get("filename_all_groups", []) if set(g) <= PRECHECK_AREA_WORDS]
+    loose = dict(item, filename_all_groups=[g for g in item.get("filename_all_groups", []) if g not in area_groups])
+    for digest, info in parsed.items():
+        record = records_by_digest.get(digest)
+        if not record or not info or "error" in info or record["source_folder"] == "XRef":
+            continue
+        for row in info.get("source_texts") or []:
+            title = re.sub(r"\s+", " ", str(row.get("text") or "")).strip()
+            if len(title) > 60 or not PRECHECK_TITLE_WORDS.search(title) or PRECHECK_TITLE_EXCLUDE.search(title):
+                continue
+            names_area = any(word in title for word in PRECHECK_AREA_WORDS)
+            if _cad_item_matches({"filename": title}, item if names_area else loose):
+                return record, title
+    return None
+
+
 def _build_cad_precheck(uploaded_files):
     inventory = _collect_cad_precheck_inventory(uploaded_files)
     all_items = CAD_PRECHECK_STRUCTURAL_ITEMS + CAD_PRECHECK_ARCHITECTURAL_ITEMS
@@ -1410,7 +1441,13 @@ def _build_cad_precheck(uploaded_files):
             if digest not in seen_digests:
                 prioritized.append(record)
                 seen_digests.add(digest)
+    sheet_sets = [record for record in inventory["records"] if record["content_sha256"] not in seen_digests
+                  and record["source_folder"] != "XRef" and PRECHECK_SHEET_SET.search(record["filename"])]
+    for record in sheet_sets[:PRECHECK_EXTRA_SHEET_SETS]:
+        prioritized.append(record)
+        seen_digests.add(record["content_sha256"])
     parsed, attempted, parse_capped = _parse_precheck_candidates(prioritized)
+    records_by_digest = {record["content_sha256"]: record for record in prioritized}
 
     def classify(item):
         candidates = candidates_by_key[item["key"]]
@@ -1421,7 +1458,15 @@ def _build_cad_precheck(uploaded_files):
             "upload_name": record["upload_name"], "source_folder": record["source_folder"],
             "duplicate_locations": record.get("duplicate_locations") or [],
         } for record in candidates]
-        if not candidates:
+        hit = None if candidates else _precheck_title_hit(item, parsed, records_by_digest)
+        if hit:
+            record, title = hit
+            files = [{"filename": record["filename"], "path": record["path"], "raw_path": record.get("raw_path", record["path"]),
+                      "decode_method": record.get("decode_method", "unchanged"), "upload_name": record["upload_name"],
+                      "source_folder": record["source_folder"], "duplicate_locations": record.get("duplicate_locations") or [],
+                      "title": title}]
+            status, reason = "confirmed", f"'{record['filename']}' 파일 안에 '{title}' 도면이 있습니다."
+        elif not candidates:
             status = "missing" if inventory["scan_complete"] else "scan_incomplete"
             reason = (
                 "모든 업로드와 하위 폴더에서 파일명 후보를 찾지 못했습니다."
@@ -8260,6 +8305,41 @@ def _write_review_notes_sheet(ws, navy_fill, header_font, body_font, left, thin)
         ws.column_dimensions[letter].width = width
 
 
+def _write_summary_sheet(ws, takeoff, rebar, navy_fill, header_font, body_font, center, left, thin):
+    """요약: 동별 콘크리트·거푸집·철근 합계와 전체 합계, 임의로 정한 값의 수 (근사 행은 합계에서 뺐다)."""
+    from openpyxl.styles import Font
+    ws.cell(row=1, column=1, value="수량산출 요약 (CAD 평면·일람표 기준 추정)").font = Font(name="맑은 고딕", bold=True, size=13)
+    headers = ["동", "콘크리트(㎥)", "거푸집(㎡)", "철근 순중량(t)", "근사라 합계에서 뺀 콘크리트(㎥)"]
+    for col, text in enumerate(headers, 1):
+        cell = ws.cell(row=3, column=col, value=text)
+        cell.font, cell.fill, cell.border, cell.alignment = header_font, navy_fill, thin, center
+    rebar_by = {b.get("name"): (b.get("totals") or {}).get("total") or 0 for b in (rebar or {}).get("buildings") or []}
+    sums = [0.0, 0.0, 0.0, 0.0]
+    row = 4
+    for building in takeoff.get("buildings") or []:
+        totals, approx = building.get("totals") or {}, building.get("approximate_totals") or {}
+        values = [(totals.get("concrete") or {}).get("total") or 0, (totals.get("formwork") or {}).get("total") or 0,
+                  (rebar_by.get(building.get("name")) or 0) / 1000.0, (approx.get("concrete") or {}).get("total") or 0]
+        for col, value in enumerate([building.get("name")] + [round(v, 2) for v in values], 1):
+            cell = ws.cell(row=row, column=col, value=value)
+            cell.font, cell.border, cell.alignment = body_font, thin, left if col == 1 else center
+        sums = [a + b for a, b in zip(sums, values)]
+        row += 1
+    for col, value in enumerate(["합계"] + [round(v, 2) for v in sums], 1):
+        cell = ws.cell(row=row, column=col, value=value)
+        cell.font, cell.border, cell.alignment = Font(name="맑은 고딕", bold=True), thin, left if col == 1 else center
+    if rebar:
+        ws.cell(row=row + 2, column=1, value=f"철근 할증 {((rebar.get('loss_factor') or 1) - 1) * 100:.0f}% 포함 "
+                                              f"{(rebar.get('with_loss_kg') or 0) / 1000:,.2f} t").font = body_font
+    assumed = (takeoff.get("assumed") or []) + ((rebar or {}).get("assumed") or [])
+    waiting = sum(1 for item in assumed if item.get("left_out"))
+    ws.cell(row=row + 3, column=1, value=f"도면에 없어 임의로 정한 값 {len(assumed)}개"
+                                         + (f" (확인하면 합계에 들어가는 것 {waiting}개)" if waiting else "")
+                                         + " — '임의로 정한 것' 시트를 확인해 주세요.").font = body_font
+    for letter, width in zip("ABCDE", (16, 16, 16, 18, 30)):
+        ws.column_dimensions[letter].width = width
+
+
 def _write_assumed_sheet(ws, takeoff, rebar, navy_fill, header_font, body_font, left, thin):
     """임의로 정한 것: 도면에 없어 이 작업이 가정한 값 — 어디에 썼고, 얼마가 걸렸고, 어떻게 바꾸는지."""
     headers = ["구분", "항목", "정한 값", "쓴 곳", "걸린 양", "근사·확인 전이라 합계에서 빠진 몫", "바꾸는 법"]
@@ -8294,8 +8374,10 @@ def _write_floor_rebar_sheet(ws, rebar, navy_fill, yellow_fill, header_font, bod
     ws.cell(row=1, column=1).font = Font(name="맑은 고딕", bold=True, color="FFFFFF", size=13)
     ws.cell(row=1, column=1).fill = navy_fill
     ws.cell(row=1, column=1).alignment = center
+    missing = rebar.get("not_included") or []
     note = (f"순중량 {rebar.get('net_kg', 0) / 1000:.1f}t, 할증 {((rebar.get('loss_factor') or 1) - 1) * 100:.0f}% 포함 "
-            f"{rebar.get('with_loss_kg', 0) / 1000:.1f}t. 빠진 항목: {', '.join(rebar.get('not_included') or [])}. 회색 행(근사)은 합계에서 뺐습니다.")
+            f"{rebar.get('with_loss_kg', 0) / 1000:.1f}t. " + (f"빠진 항목: {', '.join(missing)}. " if missing else "")
+            + "회색 행(근사)은 합계에서 뺐습니다. 도면에 없어 임의로 정한 값은 '임의로 정한 것' 시트에 있습니다.")
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last)
     ws.cell(row=2, column=1, value=note).alignment = left
     ws.row_dimensions[2].height = 30
@@ -8358,10 +8440,9 @@ def _write_floor_takeoff_sheet(ws, takeoff, navy_fill, yellow_fill, light_fill, 
     ws.cell(row=1, column=1).font = Font(name="맑은 고딕", bold=True, color="FFFFFF", size=13)
     ws.cell(row=1, column=1).fill = navy_fill
     ws.cell(row=1, column=1).alignment = center
-    assumptions = takeoff.get("assumptions") or {}
-    note = (f"가정: 슬래브 두께는 슬래브 배근도·일람표에서 읽고 못 읽은 곳만 {assumptions.get('slab_thickness', '')}m, 춤이 없는 보 {assumptions.get('beam_depth_default', '')}m, "
-            f"외벽 개구부 높이 {assumptions.get('window_height', '')}m. "
-            f"빠진 항목: {', '.join(takeoff.get('not_included') or [])}. 회색 행(근사)은 합계에서 뺐습니다.")
+    missing = takeoff.get("not_included") or []
+    note = ((f"빠진 항목: {', '.join(missing)}. " if missing else "")
+            + "회색 행(근사)은 합계에서 뺐습니다. 도면에 없어 임의로 정한 값(슬래브 두께, 보 춤 등)은 '임의로 정한 것' 시트에 있습니다.")
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last)
     ws.cell(row=2, column=1, value=note).alignment = left
     ws.row_dimensions[2].height = 30
@@ -8647,7 +8728,7 @@ def _build_excel_response(request):
     has_floor_takeoff = isinstance(floor_takeoff, dict) and bool(floor_takeoff.get("buildings"))
     # "AI 없이 CAD로만 진행": no AI reading, so the floor sheets lead and the AI-only sheets are left out
     cad_only = has_floor_takeoff and not any(results.get(k) for k in ("structural", "architectural"))
-    CAD_ONLY_SHEETS = ("층별 집계(N층 기준)", "층별 철근(N층 기준)", "임의로 정한 것", "검토 사항")
+    CAD_ONLY_SHEETS = ("요약", "층별 집계(N층 기준)", "층별 철근(N층 기준)", "임의로 정한 것", "검토 사항")
 
     # 구조 시트
     if "structural" in results and results["structural"].get("items"):
@@ -8666,10 +8747,11 @@ def _build_excel_response(request):
     # 층별 집계(N층 기준): CAD 평면·일람표로 낸 층별 콘크리트·거푸집 (화면의 2D 수량산출 표와 같다)
     if has_floor_takeoff:
         if cad_only:
-            ws_floor_takeoff = wb.active
-            ws_floor_takeoff.title = CAD_ONLY_SHEETS[0]
-        else:
-            ws_floor_takeoff = wb.create_sheet(CAD_ONLY_SHEETS[0])
+            ws_summary = wb.active
+            ws_summary.title = "요약"
+            _write_summary_sheet(ws_summary, floor_takeoff, floor_rebar if isinstance(floor_rebar, dict) else None,
+                                 navy_fill, header_font, body_font, center, left, thin)
+        ws_floor_takeoff = wb.create_sheet(CAD_ONLY_SHEETS[1])
         _write_floor_takeoff_sheet(ws_floor_takeoff, floor_takeoff,
                                    navy_fill, yellow_fill, light_fill, header_font, body_font, center, left, thin)
     if isinstance(floor_rebar, dict) and floor_rebar.get("buildings"):

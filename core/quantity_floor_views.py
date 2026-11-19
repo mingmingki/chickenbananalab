@@ -1181,8 +1181,10 @@ def build_model(plans, table, site=True):
                 height = PARAPET_M  # nothing stands on the penthouse roof but its parapets
             elif not 1.5 <= height <= 12:
                 height = DEFAULT_STOREY_M["basement" if key.startswith("B") else "ground"]
-            levels.append({"key": key, "label": ("지하" + key[1:] + "층") if key.startswith("B") else
-                           ROOF_FLOORS[key][0] if key in ROOF_FLOORS else key + "층", "elev": base, "height": height,
+            label = ("지하" + key[1:] + "층") if key.startswith("B") else ROOF_FLOORS[key][0] if key in ROOF_FLOORS else key + "층"
+            if key == "R" and ("PH" in keys or "PHR" in keys):
+                label = "지붕층"  # the penthouse has storeys of its own
+            levels.append({"key": key, "label": label, "elev": base, "height": height,
                            "plan": storeys[key], "sheet": rows[storeys[key]].get("sheet")})
         buildings.append({"name": name, "levels": levels, "foundation": foundation,
                           "plans": [plan["model"] for plan in rows]})

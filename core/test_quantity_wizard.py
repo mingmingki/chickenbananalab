@@ -27,8 +27,8 @@ class WizardTemplateTests(SimpleTestCase):
             "프로젝트 확인이 끝났습니다.<br>다음, 도면 업로드로 넘어갈게요.",
             "건축·구조 캐드 파일을 올려주세요.",
             "이번엔 건축·구조 PDF를 올려주세요.",
-            "빠진 도면이 있는지 확인했어요.",
-            "다른 파일에 함께 있다면 적어주세요",
+            '"구조 기본도면 " + structural.length + "개 중 " + foundStruct + "개를 찾았어요."',
+            "어느 파일에 있나요? (예: S-311 파일 안에 있음)",
             "층별로 칠해 봤어요. 맞는지 확인해 주세요.",
             "어떻게 읽어 갈까요?",  # free CAD-only or paid AI reading
         ]

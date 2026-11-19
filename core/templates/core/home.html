@@ -6216,11 +6216,11 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261112-tools2">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261119-polish">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261112-tools2"></script>
-<script src="{% static 'core/js/quantity_plan_edit.js' %}?v=20261112-tools2"></script>
+<script src="{% static 'core/js/quantity_plan_edit.js' %}?v=20261119-polish"></script>
 
 <script>
 (function () {
@@ -7039,13 +7039,17 @@ body.cbl-modal-open {
 
   async function renderCadPrecheckResult(data) {
     var scan = data.scan || {};
-    var all = (data.structural_checklist || []).concat(data.architectural_checklist || []);
+    // without architectural CAD its list is only noise: the CAD-only takeoff reads the structural plans
+    var archCad = (state.elevCadFiles || []).length > 0;
+    var structural = data.structural_checklist || [];
+    var all = structural.concat(archCad ? (data.architectural_checklist || []) : []);
     var open = all.filter(function (item) { return item.status !== "confirmed"; });
+    var foundStruct = structural.filter(function (item) { return item.status === "confirmed"; }).length;
     var title = !scan.cad_count ? "캐드 파일에서 도면을 찾지 못했어요."
-      : (open.length ? "빠진 도면이 있는지 확인했어요. " + open.length + "개는 직접 확인이 필요해요."
+      : (open.length ? "구조 기본도면 " + structural.length + "개 중 " + foundStruct + "개를 찾았어요."
                      : "기본도면이 모두 확인됐어요.");
-    await qCard(CHECK_META, title);
-    if (open.length) narrate("다른 파일에 함께 들어 있는 도면이면, 의견칸에 적어주세요.");
+    await qCard(CHECK_META, title, open.length ? "못 찾은 " + open.length + "개는 없어도 진행돼요. 다른 파일에 함께 들어 있으면 알려 주세요." : "");
+    if (open.length) narrate("다른 파일에 함께 들어 있는 도면이면 알려 주세요.");
     if (scan.complete === false) {
       appendLeft('<p class="qd-note warn">일부 파일은 시간 안에 다 열지 못했어요. 그 도면은 AI 판독 때 다시 확인해요.</p>');
     }
@@ -7057,10 +7061,10 @@ body.cbl-modal-open {
       '<div class="qd-stats">' +
         '<div class="qd-stat"><span>열어 본 캐드 도면</span><b>' + esc(scan.cad_count || 0) + '<em> 개</em></b></div>' +
         '<div class="qd-stat"><span>구조 기본도면</span><b>' + count(data.structural_checklist) + '</b></div>' +
-        '<div class="qd-stat"><span>건축 기본도면</span><b>' + count(data.architectural_checklist) + '</b></div>' +
+        '<div class="qd-stat"><span>건축 기본도면</span><b>' + (archCad ? count(data.architectural_checklist) : '<em>올리지 않음</em>') + '</b></div>' +
       '</div>'
     );
-    showDrawingNotes(data);
+    showDrawingNotes(archCad ? data : Object.assign({}, data, { architectural_checklist: [] }), archCad);
   }
 
   // Everything the user told us on the upload step, as one note for the AI.
@@ -7076,7 +7080,7 @@ body.cbl-modal-open {
     return lines.length;
   }
 
-  function showDrawingNotes(data) {
+  function showDrawingNotes(data, archCad) {
     var STATUS = {
       confirmed: ["ok", "확인됨"], candidate_unverified: ["maybe", "후보만 찾음"],
       missing: ["miss", "못 찾음"], scan_incomplete: ["maybe", "다 못 열어봄"]
@@ -7089,15 +7093,18 @@ body.cbl-modal-open {
         var st = STATUS[item.status] || ["maybe", item.status];
         var key = title + "|" + item.name;
         var files = (item.files || []).slice(0, 2).map(function (f) { return esc(f.filename); }).join(", ");
+        var noted = state.drawingCheckNotes[key] || "";
+        // the note box opens on demand: most missing drawings are simply not needed
         return '<div class="qd-item">' +
-          '<div class="qd-item-head"><b>' + esc(item.name) + '</b><span class="qd-status ' + st[0] + '">' + st[1] + '</span></div>' +
+          '<div class="qd-item-head"><b>' + esc(item.name) + '</b><span class="qd-status ' + st[0] + '">' + st[1] + '</span>' +
+            '<button type="button" class="qd-btn link qd-item-note"' + (noted ? ' hidden' : '') + '>다른 파일에 있어요</button></div>' +
           (files ? '<div class="qd-item-files">' + files + '</div>' : '') +
-          '<input class="qd-input" data-note="' + esc(key) + '" value="' + esc(state.drawingCheckNotes[key] || "") +
-            '" placeholder="다른 파일에 함께 있다면 적어주세요 (예: S-311 파일 안에 있음)">' +
+          '<input class="qd-input" data-note="' + esc(key) + '" value="' + esc(noted) + '"' + (noted ? '' : ' hidden') +
+            ' placeholder="어느 파일에 있나요? (예: S-311 파일 안에 있음)">' +
         '</div>';
       }).join("");
       var chips = ok.map(function (item) {
-        var files = (item.files || []).map(function (f) { return f.filename; }).join(", ");
+        var files = (item.files || []).map(function (f) { return f.filename + (f.title ? " · " + f.title : ""); }).join(", ");
         return '<span class="qd-okchip" title="' + esc(files) + '">' + esc(item.name) + '</span>';
       }).join("");
       return '<div class="qd-check-col"><h3>' + esc(title) + ' 기본도면</h3>' + rows +
@@ -7107,7 +7114,21 @@ body.cbl-modal-open {
     }
     if (data) {
       var html = column("구조", data.structural_checklist) + column("건축", data.architectural_checklist);
-      if (html) appendLeft('<div class="qd-check-grid" data-qd-keep>' + html + '</div>');
+      if (data.architectural_checklist && !data.architectural_checklist.length && archCad === false) {
+        html += '<div class="qd-check-col"><h3>건축 기본도면</h3><p class="qd-note">건축 CAD는 올리지 않았어요. CAD로만 산출하면 없어도 되고, ' +
+          'AI 판독 때는 건축 PDF로 확인해요.</p></div>';
+      }
+      if (html) {
+        var grid = appendLeft('<div class="qd-check-grid" data-qd-keep>' + html + '</div>');
+        grid.addEventListener("click", function (e) {
+          var open = e.target.closest(".qd-item-note");
+          if (!open) return;
+          var input = open.closest(".qd-item").querySelector("input[data-note]");
+          open.hidden = true;
+          input.hidden = false;
+          input.focus();
+        });
+      }
     }
     var general = appendLeft(
       '<div data-qd-keep><label class="qd-sub" for="qty-drawing-note" style="display:block;margin:0 0 8px">그 밖에 AI가 알아야 할 내용 (선택)</label>' +
@@ -7598,14 +7619,20 @@ body.cbl-modal-open {
     if (state.drawingNotes) {
       appendLeft('<p class="qd-note">남겨주신 의견 ' + state.drawingNotes.split("\n").length + '건도 함께 AI에게 전달해요.</p>');
     }
+    // with no PDF the AI has little to read: the free CAD path is the one to take
+    var cadFirst = !uploadCount("pdf") && uploadCount("cad") > 0;
     appendLeft('<p class="qd-note">CAD 도면만으로 칠하기 → 3D → 레미콘 → 철근까지 AI 비용 없이 진행할 수 있어요. ' +
-      'AI 판독(유료)은 PDF를 읽거나 CAD로 못 읽은 부분을 보완할 때 써요.</p>');
+      'AI 판독(유료)은 PDF를 읽거나 CAD로 못 읽은 부분을 보완할 때 써요.' +
+      (cadFirst ? ' 올린 PDF가 없어서 CAD로만 진행하는 걸 권해요.' : '') + '</p>');
     var row = appendLeft(
       '<div class="qd-actions">' +
         '<button type="button" class="qd-btn" id="qty-ai-back">파일 다시 보기</button>' +
         '<span class="qd-spacer"></span>' +
-        '<button type="button" class="qd-btn" id="qty-cad-go">AI 없이 CAD로만 진행 (무료)</button>' +
-        '<button type="button" class="qd-btn primary glow" id="qty-ai-go">AI 판독 시작 (유료)</button>' +
+        (cadFirst
+          ? '<button type="button" class="qd-btn" id="qty-ai-go">AI 판독 시작 (유료)</button>' +
+            '<button type="button" class="qd-btn primary glow" id="qty-cad-go">AI 없이 CAD로만 진행 (무료)</button>'
+          : '<button type="button" class="qd-btn" id="qty-cad-go">AI 없이 CAD로만 진행 (무료)</button>' +
+            '<button type="button" class="qd-btn primary glow" id="qty-ai-go">AI 판독 시작 (유료)</button>') +
       '</div>'
     );
     row.querySelector("#qty-cad-go").addEventListener("click", function () {
@@ -7659,7 +7686,16 @@ body.cbl-modal-open {
       if (rebar) data.results.floor_rebar = rebar;
     }
     lastAnalysisResults = data.results;
-    await addBot("CAD로 층별 수량과 철근을 정리했어요. AI 비용은 들지 않았어요.", 150);
+    var summary = takeoff ? resultSummary(takeoff, rebar || null) : null;
+    if (summary && deck) {
+      deck.close();  // the rebar card is done: the summary opens a card of its own
+      await qCard({ eyebrow: "06", label: "Summary", art: false, wide: true, total: 6, index: 6 }, "결과를 한눈에 정리했어요.",
+        "CAD로 층별 수량과 철근을 냈어요. AI 비용은 들지 않았어요. 임의로 정한 값은 앞 카드와 엑셀 '임의로 정한 것' 시트에 있어요.");
+      deck.append(summary);
+    } else {
+      await addBot("CAD로 층별 수량과 철근을 정리했어요. AI 비용은 들지 않았어요.", 150);
+      if (summary) flowEl.appendChild(summary);
+    }
     var dl = appendLeft('<div class="qty-btn-row wide"><button type="button" class="qty-action primary full" id="qty-download-excel-cad">엑셀로 다운로드</button></div>');
     dl.querySelector("#qty-download-excel-cad").addEventListener("click", downloadExcel);
   }
@@ -9547,7 +9583,8 @@ body.cbl-modal-open {
     if (deck) await deck.transition(4, "3D 검토", state.cadOnly ? "CAD 도면을 다 읽었습니다.<br>이제 3D 매스로 확인할게요." : "AI 판독이 끝났습니다.<br>이제 3D 매스로 확인할게요.");
     var ok = await threeReady();
     if (!ok) {
-      await addBot("3D 뷰어를 불러오지 못해 3D 검토는 건너뛸게요.", 150);
+      // said inside the takeoff card, which comes next (a bot line here would become its title)
+      state.skippedThree = true;
       return;
     }
     var host = document.createElement("div");
@@ -9557,7 +9594,7 @@ body.cbl-modal-open {
     var pick = { building: null, level: null };
 
     // card 1: the whole mass
-    await massCard({ eyebrow: "01", label: "Mass", art: false, wide: true, total: 5, index: 1 },
+    await massCard({ eyebrow: "01", label: "Mass", art: false, wide: true, total: 6, index: 1 },
       "전체 매스를 세웠어요. 돌려 보며 확인해 주세요.",
       "구조평면도의 벽·기둥·보·슬래브를 층고만큼 쌓았어요. 드래그로 돌리고 휠로 확대해요 (오른쪽 버튼·Shift 드래그는 이동). " +
       "위쪽 단추로 평면·정면·측면을 보고, 단면·단면 상자로 잘라 보고, 단면도와 거리 측정도 할 수 있어요.");
@@ -9594,7 +9631,7 @@ body.cbl-modal-open {
     viewer.setMode("rebar");
     viewer.setBuilding(pick.building);
     viewer.setLevel(pick.level);
-    await massCard({ eyebrow: "02", label: "Rebar", art: false, wide: true, total: 5, index: 2 },
+    await massCard({ eyebrow: "02", label: "Rebar", art: false, wide: true, total: 6, index: 2 },
       "철근을 입혔어요.",
       "벽은 수직·수평근, 슬래브는 상·하부근, 보는 주근을 300mm 간격으로 그렸어요. 실제 지름·간격·개수는 일람표 기준으로 2D 산출에서 계산해요.");
     if (deck) deck.append(host); else flowEl.appendChild(host);
@@ -9623,7 +9660,7 @@ body.cbl-modal-open {
     viewer.setMode("form");
     viewer.setLevel(null);
     pick.level = null;
-    await massCard({ eyebrow: "03", label: "Formwork", art: false, wide: true, total: 5, index: 3 },
+    await massCard({ eyebrow: "03", label: "Formwork", art: false, wide: true, total: 6, index: 3 },
       "거푸집을 입혔어요.",
       "벽 면과 슬래브 밑면, 보 옆·밑면에 거푸집을 붙였어요. 아래 표는 CAD 선 길이와 층고로 낸 추정 면적이에요 (개구부·접합부 공제 전).");
     if (deck) deck.append(host); else flowEl.appendChild(host);
@@ -9709,9 +9746,13 @@ body.cbl-modal-open {
     var job = state.floorJob;
     if (!job || !job.id || !massModel()) return null;
     var links = (data.results && data.results.structural && data.results.structural.member_links) || null;
-    await qCard({ eyebrow: "04", label: "Takeoff", art: false, wide: true, total: 5, index: 4 },
+    await qCard({ eyebrow: "04", label: "Takeoff", art: false, wide: true, total: 6, index: 4 },
       "층별 수량을 냈어요.",
       "N층 = N층 벽·기둥 + N+1층 바닥 슬래브·보. CAD 평면에서 잰 길이·면적과 일람표 크기로 계산했어요.");
+    if (state.skippedThree) {
+      state.skippedThree = false;
+      appendLeft('<p class="qd-note warn">3D 뷰어를 불러오지 못해 3D 검토는 건너뛰었어요 (회사 네트워크가 막고 있을 수 있어요). 수량·철근·엑셀은 그대로 돼요.</p>');
+    }
     var body = null;
     await floorEditsSave(true);
     try {
@@ -9804,12 +9845,10 @@ body.cbl-modal-open {
     if (takeoffAssumed) { if (deck) deck.append(takeoffAssumed); else flowEl.appendChild(takeoffAssumed); }
     var takeoffNotes = reviewNotesBox(takeoff.review_notes);
     if (takeoffNotes) { if (deck) deck.append(takeoffNotes); else flowEl.appendChild(takeoffNotes); }
-    var assumptions = takeoff.assumptions || {};
-    appendLeft('<p class="qd-sub" style="margin:0">가정: 슬래브 두께는 슬래브 배근도·일람표에서 읽고, 못 읽은 곳만 ' +
-      esc(String(assumptions.slab_thickness || "")) + 'm · 일람표에 춤이 없는 보 ' + esc(String(assumptions.beam_depth_default || "")) + 'm · 외벽 개구부 높이 ' +
-      esc(String(assumptions.window_height || "")) + 'm (그 위·아래는 벽으로 계산). 아직 빠진 항목: ' +
-      esc((takeoff.not_included || []).join(", ")) + '. "근사"로 표시된 행은 합계에서 뺐고, 행에 마우스를 올리면 근거가 보여요. ' +
-      '엑셀에는 "층별 집계(N층 기준)" 시트로 담겨요.</p>');
+    // what was assumed is listed in its own box above; this line says what is left out and how to read the table
+    var missingTakeoff = takeoff.not_included || [];
+    appendLeft('<p class="qd-sub" style="margin:0">' + (missingTakeoff.length ? '아직 빠진 항목: ' + esc(missingTakeoff.join(", ")) + '. ' : '') +
+      '"근사"로 표시된 행은 합계에서 뺐고, 행에 마우스를 올리면 근거가 보여요. 엑셀에는 "층별 집계(N층 기준)" 시트로 담겨요.</p>');
     return takeoff;
   }
 
@@ -9853,6 +9892,178 @@ body.cbl-modal-open {
           '<span>' + esc((a.where || []).join(" · ")) + esc(stake) + '</span>' +
           (a.change ? '<span class="qd-review-how">→ ' + esc(a.change) + '</span>' : '') + '</li>';
       }).join("") + '</ul>';
+    return box;
+  }
+
+  // ─────────────────────────────────────────────
+  //  결과 요약: 합계 칸 4개와 동별 부재 막대(콘크리트 ㎥ / 철근 t). 부재 색은 고정이고
+  //  (어두운 판 위에서 색각이상으로도 이웃끼리 구별되는지 확인한 7색), 값은 막대 끝·툴팁·표로 본다.
+  // ─────────────────────────────────────────────
+  var SUMMARY_KINDS = [["foundation", "기초", "#3987e5"], ["wall", "벽", "#d95926"], ["column", "기둥", "#199e70"],
+    ["beam", "보", "#c98500"], ["slab", "슬래브", "#d55181"], ["stair", "계단", "#0ca30c"], ["opening", "개구부·단부 보강", "#9085e9"]];
+
+  function summaryNumber(value, digits) {
+    return (Number(value) || 0).toLocaleString("ko-KR", { minimumFractionDigits: digits || 0, maximumFractionDigits: digits || 0 });
+  }
+
+  function resultSummary(takeoff, rebar) {
+    var buildings = (takeoff && takeoff.buildings) || [];
+    if (!buildings.length) return null;
+    var rebarBy = {};
+    ((rebar && rebar.buildings) || []).forEach(function (b) { rebarBy[b.name] = b.totals || {}; });
+    function total(list, pick) { return list.reduce(function (s, x) { return s + (Number(pick(x)) || 0); }, 0); }
+    var concrete = total(buildings, function (b) { return ((b.totals || {}).concrete || {}).total; });
+    var approx = total(buildings, function (b) { return ((b.approximate_totals || {}).concrete || {}).total; });
+    var form = total(buildings, function (b) { return ((b.totals || {}).formwork || {}).total; });
+    var assumed = ((takeoff && takeoff.assumed) || []).concat((rebar && rebar.assumed) || []);
+    var waiting = assumed.filter(function (a) { return a.left_out > 0; }).length;
+    var box = document.createElement("section");
+    box.className = "qd-summary";
+    box.setAttribute("data-qd-keep", "");
+    box.innerHTML =
+      '<div class="qd-summary-tiles">' +
+        '<div class="qd-summary-tile"><span>콘크리트</span><b>' + summaryNumber(concrete) + '<em>㎥</em></b>' +
+          '<small>' + (approx ? '근사 행 ' + summaryNumber(approx) + '㎥는 따로' : '근사 행 없음') + '</small></div>' +
+        '<div class="qd-summary-tile"><span>거푸집</span><b>' + summaryNumber(form) + '<em>㎡</em></b><small>근사 행 제외</small></div>' +
+        (rebar ? '<div class="qd-summary-tile"><span>철근 (할증 포함)</span><b>' + summaryNumber((rebar.with_loss_kg || 0) / 1000, 1) + '<em>t</em></b>' +
+          '<small>순중량 ' + summaryNumber((rebar.net_kg || 0) / 1000, 1) + 't · 할증 ' + summaryNumber(((rebar.loss_factor || 1) - 1) * 100) + '%</small></div>' : '') +
+        '<div class="qd-summary-tile' + (waiting ? ' is-attention' : '') + '"><span>임의로 정한 것</span><b>' + assumed.length + '<em>개</em></b>' +
+          '<small>' + (waiting ? '확인하면 합계에 들어가는 것 ' + waiting + '개' : '모두 합계에 들어 있어요') + '</small></div>' +
+      '</div>' +
+      '<div class="qd-summary-chart">' +
+        '<div class="qd-summary-head"><b>동별 부재 구성</b>' +
+          '<div class="qd-summary-toggle" role="group" aria-label="보는 양">' +
+            '<button type="button" data-measure="concrete" aria-pressed="true">콘크리트 ㎥</button>' +
+            (rebar ? '<button type="button" data-measure="rebar" aria-pressed="false">철근 t</button>' : '') +
+          '</div></div>' +
+        '<div class="qd-summary-legend"></div>' +
+        '<div class="qd-summary-plot"><svg role="img"></svg><div class="qd-summary-tip" hidden></div></div>' +
+        '<details class="qd-summary-table"><summary>표로 보기</summary><div></div></details>' +
+        '<p class="qd-summary-foot">근사 행(지하층 겹침, 확인 전 기초 두께 등)은 막대에서 뺐어요. 막대에 마우스를 올리면 부재별 값이 보여요.</p>' +
+      '</div>';
+    var svg = box.querySelector("svg"), tip = box.querySelector(".qd-summary-tip"), plotEl = box.querySelector(".qd-summary-plot");
+    var measure = "concrete", drawnWidth = 0;
+    var SVGNS = "http://www.w3.org/2000/svg";
+
+    function rows() {
+      return buildings.map(function (b) {
+        var src = measure === "rebar" ? (rebarBy[b.name] || {}) : (((b.totals || {}).concrete) || {});
+        var parts = SUMMARY_KINDS.map(function (k) {
+          return { key: k[0], label: k[1], color: k[2], value: (Number(src[k[0]]) || 0) / (measure === "rebar" ? 1000 : 1) };
+        }).filter(function (p) { return p.value > 0.0005; });
+        return { name: b.name, parts: parts, total: parts.reduce(function (s, p) { return s + p.value; }, 0) };
+      });
+    }
+    function fmt(v) { return measure === "rebar" ? summaryNumber(v, 1) + " t" : summaryNumber(v) + " ㎥"; }
+    function node(tag, attrs, text) {
+      var el = document.createElementNS(SVGNS, tag);
+      Object.keys(attrs).forEach(function (k) { el.setAttribute(k, attrs[k]); });
+      if (text != null) el.textContent = text;
+      return el;
+    }
+    function showTip(row, part, evt) {
+      tip.textContent = "";
+      var value = document.createElement("strong");
+      value.textContent = fmt(part.value) + "  (" + summaryNumber(row.total ? part.value / row.total * 100 : 0) + "%)";
+      var name = document.createElement("span");
+      var key = document.createElement("i");
+      key.style.background = part.color;
+      name.appendChild(key);
+      name.appendChild(document.createTextNode(part.label + " · " + row.name));
+      tip.appendChild(value);
+      tip.appendChild(name);
+      tip.hidden = false;
+      var area = plotEl.getBoundingClientRect();
+      var at = evt && evt.clientX != null ? { x: evt.clientX - area.left, y: evt.clientY - area.top }
+                                         : (function () { var r = evt.target.getBoundingClientRect(); return { x: r.left - area.left + r.width / 2, y: r.top - area.top }; })();
+      tip.style.left = Math.min(Math.max(at.x + 12, 0), area.width - tip.offsetWidth - 4) + "px";
+      tip.style.top = Math.max(at.y - tip.offsetHeight - 10, 0) + "px";
+    }
+    function hideTip() { tip.hidden = true; svg.querySelectorAll(".is-hot").forEach(function (el) { el.classList.remove("is-hot"); }); }
+
+    function draw() {
+      var list = rows();
+      var used = SUMMARY_KINDS.filter(function (k) { return list.some(function (r) { return r.parts.some(function (p) { return p.key === k[0]; }); }); });
+      var legend = box.querySelector(".qd-summary-legend");
+      legend.textContent = "";
+      used.forEach(function (k) {
+        var item = document.createElement("span");
+        var sw = document.createElement("i");
+        sw.style.background = k[2];
+        item.appendChild(sw);
+        item.appendChild(document.createTextNode(k[1]));
+        legend.appendChild(item);
+      });
+      // drawn at the plot's own width, so the text keeps its size on a phone
+      var W = Math.max(280, Math.round(plotEl.clientWidth || 640)), narrow = W < 480;
+      var LABEL = narrow ? 78 : 104, END = narrow ? 66 : 84, BAR = 20, ROW = 40, TOP = 6;
+      drawnWidth = plotEl.clientWidth;
+      var plot = W - LABEL - END;
+      var max = Math.max.apply(null, list.map(function (r) { return r.total; }).concat([0.001]));
+      svg.textContent = "";
+      svg.setAttribute("viewBox", "0 0 " + W + " " + (TOP * 2 + list.length * ROW));
+      svg.setAttribute("aria-label", "동별 " + (measure === "rebar" ? "철근" : "콘크리트") + " 부재 구성");
+      svg.appendChild(node("line", { x1: LABEL, x2: LABEL, y1: TOP, y2: TOP + list.length * ROW, class: "qd-summary-base" }));
+      list.forEach(function (row, i) {
+        var y = TOP + i * ROW + (ROW - BAR) / 2;
+        svg.appendChild(node("text", { x: LABEL - 12, y: y + BAR / 2, class: "qd-summary-name", "text-anchor": "end", "dominant-baseline": "central" }, row.name));
+        var x = LABEL, segs = [];
+        row.parts.forEach(function (part, j) {
+          var w = part.value / max * plot, last = j === row.parts.length - 1;
+          var dw = Math.max(w - (last ? 0 : 2), 0.75);  // 2px surface gap between the parts
+          var el = last && dw >= 6
+            ? node("path", { d: "M" + x + "," + y + "H" + (x + dw - 4) + "Q" + (x + dw) + "," + y + " " + (x + dw) + "," + (y + 4) +
+                                "V" + (y + BAR - 4) + "Q" + (x + dw) + "," + (y + BAR) + " " + (x + dw - 4) + "," + (y + BAR) + "H" + x + "Z" })
+            : node("rect", { x: x, y: y, width: dw, height: BAR });
+          el.setAttribute("fill", part.color);
+          el.setAttribute("tabindex", "0");
+          el.setAttribute("aria-label", row.name + " " + part.label + " " + fmt(part.value));
+          el.classList.add("qd-summary-seg");
+          el.addEventListener("focus", function (evt) { hideTip(); el.classList.add("is-hot"); showTip(row, part, evt); });
+          el.addEventListener("blur", hideTip);
+          svg.appendChild(el);
+          segs.push({ from: x, to: x + w, part: part, el: el });
+          x += w;
+        });
+        svg.appendChild(node("text", { x: x + 8, y: y + BAR / 2, class: "qd-summary-total", "dominant-baseline": "central" }, fmt(row.total)));
+        // the whole row is the hit target: the pointer finds the part under it, however thin
+        var hit = node("rect", { x: LABEL, y: TOP + i * ROW, width: plot + 4, height: ROW, fill: "transparent", class: "qd-summary-hit" });
+        hit.addEventListener("pointermove", function (evt) {
+          var box2 = svg.getBoundingClientRect(), px = (evt.clientX - box2.left) * (W / box2.width);
+          var seg = segs.filter(function (s) { return px >= s.from && px < s.to; })[0] || (px >= x ? segs[segs.length - 1] : segs[0]);
+          if (!seg) return;
+          svg.querySelectorAll(".is-hot").forEach(function (el2) { if (el2 !== seg.el) el2.classList.remove("is-hot"); });
+          seg.el.classList.add("is-hot");
+          showTip(row, seg.part, evt);
+        });
+        hit.addEventListener("pointerleave", hideTip);
+        svg.appendChild(hit);
+      });
+      // the same numbers as a table, for reading without hovering
+      var table = '<table><tr><th>동</th>' + used.map(function (k) { return '<th>' + esc(k[1]) + '</th>'; }).join("") + '<th>계</th></tr>' +
+        list.map(function (row) {
+          return '<tr><td>' + esc(row.name) + '</td>' + used.map(function (k) {
+            var part = row.parts.filter(function (p) { return p.key === k[0]; })[0];
+            return '<td>' + (part ? esc(fmt(part.value)) : '-') + '</td>';
+          }).join("") + '<td><b>' + esc(fmt(row.total)) + '</b></td></tr>';
+        }).join("") + '</table>';
+      box.querySelector(".qd-summary-table div").innerHTML = table;
+    }
+    box.querySelector(".qd-summary-toggle").addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-measure]");
+      if (!btn || btn.getAttribute("data-measure") === measure) return;
+      measure = btn.getAttribute("data-measure");
+      box.querySelectorAll("[data-measure]").forEach(function (b) { b.setAttribute("aria-pressed", String(b === btn)); });
+      hideTip();
+      draw();
+    });
+    draw();
+    // drawn again once it is on the page and whenever its width changes (phone turned, panel resized)
+    if (window.ResizeObserver) {
+      new ResizeObserver(function () {
+        if (plotEl.clientWidth && Math.abs(plotEl.clientWidth - drawnWidth) > 4) { hideTip(); draw(); }
+      }).observe(plotEl);
+    }
     return box;
   }
 
@@ -9900,7 +10111,7 @@ body.cbl-modal-open {
     gate.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
     if (!go) { addUser("철근은 건너뛰기"); return null; }
     addUser("레미콘 확정 → 철근 배근");
-    await qCard({ eyebrow: "05", label: "Rebar", art: false, wide: true, total: 5, index: 5 },
+    await qCard({ eyebrow: "05", label: "Rebar", art: false, wide: true, total: 6, index: 5 },
       "철근을 배근했어요.",
       "일람표 배근(벽 수직·수평근, 기둥 주근·띠철근, 보 상·하부근·늑근, 슬래브)을 층별 수량과 같은 길이·면적에 깔았어요. 3D는 고른 층만 가는 선으로, 강종별 색으로 그려요.");
     var links = (data.results && data.results.structural && data.results.structural.member_links) || null;
@@ -10004,7 +10215,8 @@ body.cbl-modal-open {
     [bar, table, sum, extras].concat(rebarAssumed ? [rebarAssumed] : [], rebarNotes ? [rebarNotes] : []).forEach(function (el) { if (deck) deck.append(el); else flowEl.appendChild(el); });
     appendLeft('<p class="qd-sub" style="margin:0">전체 ' + esc(rebarTon(rebar.net_kg)) + 't (할증 ' + esc(String(Math.round(((rebar.loss_factor || 1) - 1) * 100))) +
       '% 포함 ' + esc(rebarTon(rebar.with_loss_kg)) + 't). 이음·정착은 구조일반사항 표를 읽었으면 그 값, 아니면 KDS 공식 추정이에요. ' +
-      '아직 빠진 항목: ' + esc((rebar.not_included || []).join(", ")) + '. 행에 마우스를 올리면 근거가 보여요. 엑셀에는 "층별 철근(N층 기준)" 시트로 담겨요.</p>');
+      ((rebar.not_included || []).length ? '아직 빠진 항목: ' + esc(rebar.not_included.join(", ")) + '. ' : '') +
+      '행에 마우스를 올리면 근거가 보여요. 엑셀에는 "층별 철근(N층 기준)" 시트로 담겨요.</p>');
     return rebar;
   }
 
@@ -10035,7 +10247,7 @@ body.cbl-modal-open {
         var floorRebar = await showFloorRebar(data);
         if (floorRebar && data.results) data.results.floor_rebar = floorRebar;
       }
-      else if (deck) deck.next({ eyebrow: "04", label: "Takeoff", art: "sheet", total: 5, index: 4 });
+      else if (deck) deck.next({ eyebrow: "04", label: "Takeoff", art: "sheet", total: 6, index: 4 });
     }
 
     lastAnalysisResults = data.results || {};
@@ -10117,28 +10329,34 @@ body.cbl-modal-open {
     document.body.appendChild(a);
     a.click();
     a.remove();
-    URL.revokeObjectURL(url);
+    // let the browser start the download (and name it) before the blob goes away
+    setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
   }
 
   // ── 간단 3D 매싱 뷰어 (BIM 아님 — 층고+대표 바닥면적으로 쌓은 개략 박스) ──
   var _threeJsLoaders = null;
 
+  // three.js ships with the site (offices often block CDNs); the CDN is only a second try.
+  // The callbacks always run: without window.THREE the callers go on without the 3D.
+  var THREE_SOURCES = ["{% static 'core/vendor/three-r128.min.js' %}", "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"];
+
   function loadThreeJs(cb) {
     if (window.THREE) { cb(); return; }
     if (_threeJsLoaders) { _threeJsLoaders.push(cb); return; }
     _threeJsLoaders = [cb];
-    var s = document.createElement("script");
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
-    s.onload = function () {
+    function done() {
       var cbs = _threeJsLoaders || [];
       _threeJsLoaders = null;
       cbs.forEach(function (fn) { fn(); });
-    };
-    s.onerror = function () {
-      _threeJsLoaders = null;
-      addBot("3D 뷰어 라이브러리를 불러오지 못했어요. 네트워크 상태를 확인해 주세요.", 100);
-    };
-    document.head.appendChild(s);
+    }
+    (function attempt(i) {
+      if (window.THREE || i >= THREE_SOURCES.length) { done(); return; }
+      var s = document.createElement("script");
+      s.src = THREE_SOURCES[i];
+      s.onload = done;
+      s.onerror = function () { s.remove(); attempt(i + 1); };
+      document.head.appendChild(s);
+    })(0);
   }
 
   function buildMassingScene(canvas, massing) {
@@ -10720,6 +10938,7 @@ body.cbl-modal-open {
 
     loadThreeJs(function () {
       if (closed) return;
+      if (!window.THREE) { loadingLabel.textContent = "3D 뷰어를 불러오지 못했어요. 수량은 표로 확인해 주세요."; return; }
       loadingLabel.remove();
       sceneHandle = buildMassingScene(canvas, lastMassingData);
     });

@@ -57,6 +57,18 @@ def _key(text):
     return re.sub(r"\s+", "", str(text or "")).upper()
 
 
+def _default_keys():
+    """Bar texts the tool puts in on its own (each listed as its own assumption): their grade is
+    part of that default, not a grade missing from the drawings."""
+    texts = [FOUNDATION_BARS, FOUNDATION_BARS + "(T/B, EW)", FOOTING_BARS, WALL_FOOTING_DIST, OPENING_BAR, "D16", "D13"]
+    for value in DEFAULTS.values():
+        texts.extend(value.values() if isinstance(value, dict) else value)
+    return {_key(text) for text in texts}
+
+
+DEFAULT_KEYS = _default_keys()
+
+
 def grade_of(text, diameter, general_spec):
     """(grade, from the drawing?) of one bar text such as 'HD13@200' or '4-SHD19'."""
     key = _key(text)
@@ -96,8 +108,8 @@ class _Tally:
             self.note(f"{size}는 단위중량을 몰라 뺐어요")
             return
         grade, known = grade_of(text, diameter, self.spec)
-        self.guessed_grade = self.guessed_grade or not known
-        if not known:
+        if not known and _key(text) not in DEFAULT_KEYS:  # a drawn bar written without its grade
+            self.guessed_grade = True
             self.guessed_kg += weight
         self.kg[kind] += weight
         self.bars[f"{size}|{grade}"] += weight

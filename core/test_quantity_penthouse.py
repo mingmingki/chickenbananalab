@@ -30,7 +30,7 @@ class PenthouseTitleTests(SimpleTestCase):
         table = {"sections": {"101동": {"elevations": {"2": 3.0, "R": 8.7, "PH": 11.7, "PHR": 14.5}}}}
         levels = fv.build_model(plans, table, site=False)["buildings"][0]["levels"]
         self.assertEqual([(l["key"], l["label"], l["plan"]) for l in levels],
-                         [("2", "2층", 0), ("3", "3층", 0), ("R", "지붕·옥탑", 1), ("PH", "옥탑층", 2), ("PHR", "옥탑지붕", 3)])
+                         [("2", "2층", 0), ("3", "3층", 0), ("R", "지붕층", 1), ("PH", "옥탑층", 2), ("PHR", "옥탑지붕", 3)])
         self.assertEqual([l["height"] for l in levels[2:]], [3.0, 2.8, fv.PARAPET_M])
 
 

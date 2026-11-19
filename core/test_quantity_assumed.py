@@ -49,10 +49,10 @@ class RebarAssumedTests(SimpleTestCase):
     def test_the_rebar_lists_default_bars_and_the_extras_it_added(self):
         rebar = fr.build_rebar(base.FloorRuleTests().model())
         found = {a["key"]: a for a in rebar["assumed"]}
-        for key in ("plain_wall_bars", "slab_bars", "grade", "laps", "foundation_bars", "chair_bars", "stair_bars"):
+        for key in ("plain_wall_bars", "slab_bars", "laps", "foundation_bars", "chair_bars", "stair_bars"):
             self.assertIn(key, found)
         self.assertEqual(found["slab_bars"]["unit"], "kg")
-        self.assertEqual(found["grade"]["value"], "SD400")
+        self.assertNotIn("grade", found)  # only its own defaults: their grade is part of each default
         off = {a["key"] for a in fr.build_rebar(base.FloorRuleTests().model(), extras={"stair": False, "chair": False})["assumed"]}
         self.assertFalse({"stair_bars", "chair_bars"} & off)
 
@@ -76,3 +76,17 @@ class AssumedExcelAndPageTests(SimpleTestCase):
         self.assertIn('var takeoffAssumed = assumedBox(takeoff.assumed, "콘크리트를");', html)
         self.assertIn('var rebarAssumed = assumedBox(rebar.assumed, "철근을");', html)
         self.assertIn("takeoff.assumed = fresh.takeoff.assumed;", html)
+
+
+class GradeAssumedTests(SimpleTestCase):
+    def test_only_drawn_bars_without_a_grade_count(self):
+        tally = fr._Tally(None)
+        tally.add("wall", "D10@300", 10, 100.0)        # the plain wall default
+        self.assertEqual((tally.guessed_kg, tally.guessed_grade), (0.0, False))
+        tally.add("wall", "HD13@200", 13, 100.0)       # drawn, with its grade
+        self.assertEqual(tally.guessed_kg, 0.0)
+        tally.add("wall", "D13@200", 13, 100.0)        # drawn without one
+        self.assertGreater(tally.guessed_kg, 0)
+        used = []
+        tally.assumed_common(used)
+        self.assertEqual([u[0] for u in used], ["grade"])
