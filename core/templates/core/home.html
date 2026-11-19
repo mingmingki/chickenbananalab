@@ -6216,7 +6216,7 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261119-arch">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261119-upload">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261112-tools2"></script>
@@ -6734,14 +6734,27 @@ body.cbl-modal-open {
     pdf: '<svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h6M9 15h6M9 18h4"/></svg>'
   };
 
-  function buildDropCard(kind, onChange) {
+  // the four upload slots, structure first: the free CAD path starts from the structural plans
+  var UPLOAD_SLOTS = [["cad", "struct"], ["cad", "arch"], ["pdf", "struct"], ["pdf", "arch"]];
+  var UPLOAD_HINT = {
+    "cad|struct": "DWG·DXF·ZIP · 콘크리트·철근 무료 산출",
+    "cad|arch": "DWG·DXF·ZIP · 조적·ALC·건식벽·창호",
+    "pdf|struct": "낱장·합본 모두 · AI 판독용 (선택)",
+    "pdf|arch": "낱장·합본 모두 · AI 판독용 (선택)"
+  };
+
+  function slotName(kind, disc) { return UPLOAD_DISC[disc] + " " + (kind === "cad" ? "CAD" : "PDF"); }
+
+  function buildDropCard(onChange) {
     var wrap = document.createElement("div");
     wrap.setAttribute("data-qd-keep", "");
-    wrap.innerHTML = '<div class="qd-drops">' + ["arch", "struct"].map(function (disc) {
-      return '<div class="qd-drop" data-disc="' + disc + '">' +
-        '<div class="qd-drop-head"><b>' + UPLOAD_DISC[disc] + ' ' + (kind === "cad" ? "CAD" : "PDF") + '</b><span class="qd-drop-count"></span></div>' +
+    wrap.innerHTML = '<div class="qd-drops is-four">' + UPLOAD_SLOTS.map(function (slot) {
+      var kind = slot[0], disc = slot[1];
+      return '<div class="qd-drop" data-kind="' + kind + '" data-disc="' + disc + '">' +
+        '<div class="qd-drop-head"><b>' + slotName(kind, disc) + '</b><span class="qd-drop-count"></span></div>' +
+        '<small class="qd-drop-hint">' + UPLOAD_HINT[kind + "|" + disc] + '</small>' +
         '<div class="qd-zone">' + ZONE_ICON[kind] +
-          '<p>여기에 끌어다 놓으세요<br>파일 여러 개, 폴더째 모두 돼요</p>' +
+          '<p>끌어다 놓거나 골라 주세요</p>' +
           '<div class="qd-zone-buttons">' +
             '<button type="button" class="qd-btn" data-pick="files">파일 선택</button>' +
             '<button type="button" class="qd-btn" data-pick="folder">폴더 선택</button>' +
@@ -6755,27 +6768,22 @@ body.cbl-modal-open {
 
     var note = wrap.querySelector(".qd-note");
 
+    // what this drop added, slot by slot (a project folder dropped anywhere is sorted into all four)
     function report(result) {
-      var other = kind === "cad" ? "pdf" : "cad";
-      var otherCount = result.added[other].arch + result.added[other].struct;
-      var found = result.added[kind].arch + result.added[kind].struct;
-      var label = kind === "cad" ? "CAD" : "PDF";
+      var parts = UPLOAD_SLOTS.filter(function (slot) { return result.added[slot[0]][slot[1]]; }).map(function (slot) {
+        return slotName(slot[0], slot[1]) + " " + result.added[slot[0]][slot[1]] + "개";
+      });
+      var off = ["cad", "pdf"].reduce(function (n, k) { return n + state.uploads[k].arch.length + state.uploads[k].struct.length - uploadCount(k); }, 0);
       var msg = [];
-      if (found) {
-        var on = uploadCount(kind);
-        var all = state.uploads[kind].arch.length + state.uploads[kind].struct.length;
-        msg.push(label + " " + found + "개를 건축 " + result.added[kind].arch + " · 구조 " + result.added[kind].struct + "개로 나눠 담았어요." +
-          (on < all ? " 보관·사본 폴더 " + (all - on) + "개 파일은 꺼 두었어요." : ""));
-      }
-      if (otherCount) msg.push((other === "pdf" ? "PDF " : "CAD ") + otherCount + "개도 찾아서 " + (other === "pdf" ? "다음 단계에" : "앞 단계에") + " 미리 담아 두었어요.");
+      if (parts.length) msg.push(parts.join(" · ") + "를 담았어요." + (off ? " 보관·사본 폴더 " + off + "개 파일은 꺼 두었어요." : ""));
       if (result.skipped) msg.push("그 외 파일 " + result.skipped + "개(백업·로그 등)는 건너뛰었어요.");
       note.hidden = !msg.length;
       note.textContent = msg.join(" ");
     }
 
     function render() {
-      ["arch", "struct"].forEach(function (disc) {
-        var box = wrap.querySelector('.qd-drop[data-disc="' + disc + '"]');
+      wrap.querySelectorAll(".qd-drop").forEach(function (box) {
+        var kind = box.getAttribute("data-kind"), disc = box.getAttribute("data-disc");
         var list = state.uploads[kind][disc];
         var groups = {};
         list.forEach(function (e) { (groups[e.group] = groups[e.group] || []).push(e); });
@@ -6811,10 +6819,10 @@ body.cbl-modal-open {
         return;
       }
       if (t.matches("input[data-input]")) {
-        var disc = t.closest(".qd-drop").getAttribute("data-disc");
+        var slot = t.closest(".qd-drop");
         var entries = Array.from(t.files || []).map(function (f) { return { file: f, rel: f.webkitRelativePath || f.name }; });
         t.value = "";
-        report(takeFiles(entries, kind, disc));
+        report(takeFiles(entries, slot.getAttribute("data-kind"), slot.getAttribute("data-disc")));
         render();
       }
     });
@@ -6834,7 +6842,7 @@ body.cbl-modal-open {
       }
     });
     wrap.querySelectorAll(".qd-zone").forEach(function (zone) {
-      var disc = zone.closest(".qd-drop").getAttribute("data-disc");
+      var kind = zone.closest(".qd-drop").getAttribute("data-kind"), disc = zone.closest(".qd-drop").getAttribute("data-disc");
       zone.addEventListener("dragover", function (e) { e.preventDefault(); zone.classList.add("is-over"); });
       zone.addEventListener("dragleave", function () { zone.classList.remove("is-over"); });
       zone.addEventListener("drop", function (e) {
@@ -6864,7 +6872,7 @@ body.cbl-modal-open {
     } else {
       stageStep(2);
     }
-    showCadUploadCard();
+    showUploadCard();
   }
 
   // The check and the floor coloring start as soon as the CAD card is done, so the server
@@ -6935,73 +6943,57 @@ body.cbl-modal-open {
     setTimeout(tick, 2500);
   }
 
-  async function showCadUploadCard() {
-    await qCard({ eyebrow: "01", label: "CAD files", art: "cad", total: 5, index: 1 },
-      "건축·구조 캐드 파일을 올려주세요.",
-      "DWG·DXF 낱장이나 ZIP 묶음 모두 괜찮아요. 프로젝트 폴더를 통째로 놓으면 건축·구조를 알아서 나눠 담아요.");
+  // what the files on the card will give: said under the slots as they fill
+  function uploadPlanText() {
+    var structCad = state.cadFiles.length, archCad = state.elevCadFiles.length, pdf = uploadCount("pdf");
+    if (!structCad && !archCad && !pdf) return "구조 CAD만 있어도 시작할 수 있어요.";
+    var out = [];
+    if (structCad) out.push(archCad ? "구조 CAD로 콘크리트·철근을, 건축 CAD로 조적·창호를 무료로 산출해요."
+                                    : "구조 CAD로 콘크리트·철근을 무료로 산출해요.");
+    else if (archCad) out.push("무료 산출(콘크리트·철근)에는 구조 CAD가 있어야 해요.");
+    if (pdf) out.push("PDF는 AI 판독(유료)을 고를 때 써요.");
+    return out.join(" ");
+  }
+
+  function uploadSummaryText() {
+    return UPLOAD_SLOTS.map(function (slot) {
+      var n = slot[0] === "cad" ? (slot[1] === "struct" ? state.cadFiles : state.elevCadFiles).length
+                                : (slot[1] === "struct" ? state.pdfFiles : state.elevPdfFiles).length;
+      return n ? slotName(slot[0], slot[1]) + " " + n + "개" : "";
+    }).filter(Boolean).join(" · ");
+  }
+
+  async function showUploadCard() {
+    await qCard({ eyebrow: "01", label: "Drawings", art: false, wide: true, total: 4, index: 1 },
+      "도면을 올려주세요.",
+      "구조·건축 CAD와 PDF를 칸에 맞춰 올려 주세요. 낱장, ZIP 묶음, 폴더째 모두 돼요. 프로젝트 폴더를 아무 칸에 통째로 놓으면 알아서 나눠 담아요.");
     narrate("폴더째 끌어다 놓으셔도 돼요.");
-    var next;
-    var drops = buildDropCard("cad", function () { if (next) next.disabled = !uploadCount("cad"); });
+    var next, plan;
+    var drops = buildDropCard(function () {
+      if (next) next.disabled = !(uploadCount("cad") + uploadCount("pdf"));
+      if (plan) plan.textContent = uploadPlanText();
+    });
     if (deck) deck.append(drops); else flowEl.appendChild(drops);
     var row = appendLeft(
       '<div class="qd-actions">' +
-        '<button type="button" class="qd-btn link" id="qty-cad-skip">캐드 없이 PDF만 올릴게요</button>' +
+        '<span class="qd-sub qd-upload-plan" role="status" style="margin:0"></span>' +
         '<span class="qd-spacer"></span>' +
-        '<button type="button" class="qd-btn primary" id="qty-cad-next">다음 →</button>' +
+        '<button type="button" class="qd-btn primary" id="qty-upload-next">다음 →</button>' +
       '</div>'
     );
-    next = row.querySelector("#qty-cad-next");
-    next.disabled = !uploadCount("cad");
+    next = row.querySelector("#qty-upload-next");
+    plan = row.querySelector(".qd-upload-plan");
+    next.disabled = !(uploadCount("cad") + uploadCount("pdf"));
+    plan.textContent = uploadPlanText();
     onceClick(next, function () {
-      addUser("캐드 " + uploadCount("cad") + "개");
+      addUser(uploadSummaryText());
       refreshQuantityFingerprint();
       if (state.checkRun && state.checkRun.key !== cadSelectionKey()) state.stageCache.basicDrawings = null;
-      kickCheck();
-      showPdfUploadCard();
-    });
-    onceClick(row.querySelector("#qty-cad-skip"), function () {
-      addUser("PDF만으로 진행");
-      showPdfUploadCard();
+      runCheckZip();  // starts the drawing check and the floor colouring from the CAD files, or goes on with the PDFs
     });
   }
 
-  async function showPdfUploadCard() {
-    await qCard({ eyebrow: "02", label: "PDF files", art: "pdf", total: 5, index: 2 },
-      "이번엔 건축·구조 PDF를 올려주세요.");
-    appendLeft('<div class="qd-chips"><span class="qd-chip">낱장 PDF</span><span class="qd-chip">합본 PDF</span><span class="qd-chip">폴더째</span><span class="qd-chip">순서 상관없음</span></div>');
-    narrate("낱장이든 합본이든 상관없어요.");
-    if (deck) deck.line("도면을 한 장씩 뽑은 PDF든, 한 권으로 묶은 PDF든 상관없어요. 둘이 섞여 있어도 돼요." +
-      (state.checkRun ? " 그사이 캐드 도면은 미리 열어 보고 있어요." : ""));
-    var next;
-    var drops = buildDropCard("pdf", function () { if (next) next.disabled = !uploadCount("pdf"); });
-    if (deck) deck.append(drops); else flowEl.appendChild(drops);
-    var row = appendLeft(
-      '<div class="qd-actions">' +
-        '<button type="button" class="qd-btn link" id="qty-pdf-back">← 캐드 파일 다시 보기</button>' +
-        '<span class="qd-spacer"></span>' +
-        // the free CAD-only path needs no PDFs
-        (uploadCount("cad") ? '<button type="button" class="qd-btn" id="qty-pdf-skip">PDF 없이 진행 (CAD만)</button>' : '') +
-        '<button type="button" class="qd-btn primary" id="qty-pdf-next">다음 →</button>' +
-      '</div>'
-    );
-    next = row.querySelector("#qty-pdf-next");
-    next.disabled = !uploadCount("pdf");
-    onceClick(next, function () {
-      addUser("PDF " + uploadCount("pdf") + "개");
-      runCheckZip();
-    });
-    var skip = row.querySelector("#qty-pdf-skip");
-    if (skip) onceClick(skip, function () {
-      addUser("PDF 없이 진행");
-      runCheckZip();
-    });
-    onceClick(row.querySelector("#qty-pdf-back"), function () {
-      addUser("캐드 파일 다시 볼게요");
-      showCadUploadCard();
-    });
-  }
-
-  var CHECK_META = { eyebrow: "03", label: "Drawing check", art: "check", total: 5, index: 3 };
+  var CHECK_META = { eyebrow: "02", label: "Drawing check", art: "check", total: 4, index: 2 };
 
   async function runCheckZip() {
     refreshQuantityFingerprint();
@@ -7154,7 +7146,7 @@ body.cbl-modal-open {
       collect();
       addUser("도면을 더 올릴게요");
       state.stageCache.basicDrawings = null;
-      showCadUploadCard();
+      showUploadCard();
     });
     onceClick(row.querySelector("#qty-missing-go"), function () {
       var n = collect();
@@ -7241,7 +7233,7 @@ body.cbl-modal-open {
   }
 
   async function showFloorCheckCard() {
-    await qCard({ eyebrow: "04", label: "Floor check", art: false, wide: true, total: 5, index: 4 },
+    await qCard({ eyebrow: "03", label: "Floor check", art: false, wide: true, total: 4, index: 3 },
       "층별로 칠해 봤어요. 맞는지 확인해 주세요.");
     var root = document.createElement("div");
     root.className = "qd-floor-host";
@@ -7603,7 +7595,7 @@ body.cbl-modal-open {
   }
 
   async function showAiStartCard() {
-    await qCard({ eyebrow: "05", label: "Ready", art: "ai", total: 5, index: 5 }, "어떻게 읽어 갈까요?",
+    await qCard({ eyebrow: "04", label: "Ready", art: "ai", total: 4, index: 4 }, "어떻게 읽어 갈까요?",
       "CAD로만(무료) 바로 3D·수량·철근까지 가거나, AI 판독(유료)으로 개요·구조일반사항·동·층·부재를 차례로 읽어 갈 수 있어요.");
     buildDrawingNotes();
     function bytes(list) { return fileSizeText(list.reduce(function (s, f) { return s + f.size; }, 0)); }
@@ -7612,8 +7604,8 @@ body.cbl-modal-open {
     }
     appendLeft(
       '<div class="qd-stats">' +
-        stat("건축 CAD", state.elevCadFiles) + stat("구조 CAD", state.cadFiles) +
-        stat("건축 PDF", state.elevPdfFiles) + stat("구조 PDF", state.pdfFiles) +
+        stat("구조 CAD", state.cadFiles) + stat("건축 CAD", state.elevCadFiles) +
+        stat("구조 PDF", state.pdfFiles) + stat("건축 PDF", state.elevPdfFiles) +
       '</div>'
     );
     if (state.drawingNotes) {
@@ -7643,7 +7635,7 @@ body.cbl-modal-open {
     });
     onceClick(row.querySelector("#qty-ai-back"), function () {
       addUser("파일 다시 볼게요");
-      showCadUploadCard();
+      showUploadCard();
     });
     row.querySelector("#qty-ai-go").addEventListener("click", async function () {
       this.disabled = true;

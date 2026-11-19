@@ -174,11 +174,13 @@ class CadOnlyPageTests(SimpleTestCase):
         self.assertEqual(order, sorted(order))
         self.assertIn('state.cadOnly ? "CAD 도면을 다 읽었습니다.', html)
 
-    def test_the_pdf_step_can_be_skipped_when_cad_is_there(self):
+    def test_one_upload_card_goes_on_with_cad_alone_or_pdf_alone(self):
         html = HOME.read_text()
-        card = html[html.index("async function showPdfUploadCard() {"):][:2500]
-        self.assertIn('(uploadCount("cad") ? \'<button type="button" class="qd-btn" id="qty-pdf-skip">PDF 없이 진행 (CAD만)</button>\' : \'\')', card)
-        self.assertIn('addUser("PDF 없이 진행");', card)
+        card = html[html.index("async function showUploadCard() {"):][:2600]
+        self.assertIn('next.disabled = !(uploadCount("cad") + uploadCount("pdf"));', card)
+        self.assertIn("runCheckZip();", card)
+        self.assertIn('"구조 CAD로 콘크리트·철근을, 건축 CAD로 조적·창호를 무료로 산출해요."', html)
+        self.assertIn('"무료 산출(콘크리트·철근)에는 구조 CAD가 있어야 해요."', html)
         self.assertIn('"어떻게 읽어 갈까요?"', html)
 
 

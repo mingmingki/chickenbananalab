@@ -257,6 +257,13 @@
 .qd-drop-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .qd-drop-head b { font-size: 16px; font-weight: 800; }
 .qd-drop-head span { color: var(--qd-soft); font-size: 12.5px; font-weight: 700; }
+.qd-drop-hint { margin-top: -6px; color: var(--qd-faint); font-size: 12px; font-weight: 600; }
+/* the upload card: structure / architecture × CAD / PDF in one grid */
+.qd-drops.is-four { row-gap: 20px; }
+.qd-drops.is-four .qd-zone { min-height: 112px; padding: 14px; gap: 8px; }
+.qd-drops.is-four .qd-zone svg { width: 28px; height: 28px; }
+.qd-drops.is-four .qd-zone.has-files { min-height: 0; padding: 8px 12px; }
+.qd-upload-plan { max-width: 560px; color: var(--qd-soft); font-size: 13px; }
 .qd-zone {
   position: relative;
   display: flex;
@@ -581,6 +588,10 @@
   .qd-title.is-long { font-size: 19px; }
   .qd-card.is-transition .qd-title { font-size: 28px; }
   .qd-drops, .qd-check-grid { grid-template-columns: minmax(0, 1fr); }
+  /* phones pick files rather than drop them: the four slots keep only their buttons */
+  .qd-drops.is-four { row-gap: 14px; }
+  .qd-drops.is-four .qd-zone { flex-direction: row; min-height: 0; padding: 8px 12px; }
+  .qd-drops.is-four .qd-zone > svg, .qd-drops.is-four .qd-zone > p { display: none; }
   .qd-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .qd-tile { min-height: 96px; padding: 14px; }
 }

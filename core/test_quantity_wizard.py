@@ -22,11 +22,10 @@ class WizardTemplateTests(SimpleTestCase):
         self.assertLess(self.html.index("core/css/quantity_deck.css"), workflow)
         self.assertIn("window.cblQuantityDeck.create(flowEl", self.html)
 
-    def test_upload_step_runs_cad_then_pdf_then_check_then_floors_then_ai_question(self):
+    def test_upload_step_runs_one_upload_card_then_check_then_floors_then_ai_question(self):
         order = [
             "프로젝트 확인이 끝났습니다.<br>다음, 도면 업로드로 넘어갈게요.",
-            "건축·구조 캐드 파일을 올려주세요.",
-            "이번엔 건축·구조 PDF를 올려주세요.",
+            "도면을 올려주세요.",
             '"구조 기본도면 " + structural.length + "개 중 " + foundStruct + "개를 찾았어요."',
             "어느 파일에 있나요? (예: S-311 파일 안에 있음)",
             "층별로 칠해 봤어요. 맞는지 확인해 주세요.",
@@ -35,12 +34,14 @@ class WizardTemplateTests(SimpleTestCase):
         position = self.html.index("async function startUploadStep()")
         for text in order:
             position = self.html.index(text, position)  # each one after the previous one
-        for chip in ("낱장 PDF", "합본 PDF", "폴더째"):
-            self.assertIn(chip, self.html)
+        # one card takes all four: structure and architecture, CAD and PDF, structure first
+        self.assertIn('var UPLOAD_SLOTS = [["cad", "struct"], ["cad", "arch"], ["pdf", "struct"], ["pdf", "arch"]];', self.html)
+        self.assertIn('"pdf|struct": "낱장·합본 모두 · AI 판독용 (선택)"', self.html)
+        self.assertNotIn("async function showPdfUploadCard()", self.html)
 
     def test_moving_on_buttons_act_once(self):
         self.assertIn('row.setAttribute("data-used", "1");', self.html)
-        for button in ("qty-summary-go", "qty-pdf-back", "qty-missing-go", "qty-floor-go", "qty-ai-back"):
+        for button in ("qty-summary-go", "qty-missing-go", "qty-floor-go", "qty-ai-back"):
             self.assertIn(f'onceClick(row.querySelector("#{button}")', self.html)
 
     def test_the_3d_review_comes_after_the_ai_reading_and_before_the_takeoff(self):
@@ -61,8 +62,10 @@ class WizardTemplateTests(SimpleTestCase):
 
     def test_check_starts_the_floor_job_from_the_same_upload(self):
         self.assertIn('fd.append("floor_views_job_id", floorJobId)', self.html)
-        cad_next = self.html.index('onceClick(next, function () {\n      addUser("캐드 "')
-        self.assertIn("kickCheck();", self.html[cad_next:cad_next + 400])
+        upload_next = self.html.index('onceClick(next, function () {\n      addUser(uploadSummaryText());')
+        self.assertIn("runCheckZip();", self.html[upload_next:upload_next + 400])
+        check = self.html.index("async function runCheckZip() {")
+        self.assertIn("var run = kickCheck();", self.html[check:check + 500])
 
 
 class DrawingNotesTests(SimpleTestCase):
