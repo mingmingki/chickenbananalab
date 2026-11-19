@@ -6216,7 +6216,7 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261119-polish">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261119-edit">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261110-floor1"></script>
 <script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261112-tools2"></script>
@@ -7686,7 +7686,20 @@ body.cbl-modal-open {
       if (rebar) data.results.floor_rebar = rebar;
     }
     lastAnalysisResults = data.results;
+    if (takeoff && deck) {
+      // the person looks the rebar (or takeoff) card over first: opening the next card retires this one
+      var gate = appendLeft('<div class="qd-actions"><span class="qd-spacer"></span>' +
+        '<button type="button" class="qd-btn primary" data-summary-go>결과 요약 보기 →</button></div>');
+      await new Promise(function (resolve) { gate.querySelector("[data-summary-go]").addEventListener("click", resolve, { once: true }); });
+      gate.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
+    }
     var summary = takeoff ? resultSummary(takeoff, rebar || null) : null;
+    if (summary) {
+      state.quantityCards.summary = { refresh: function () {
+        var next = resultSummary(takeoff, rebar || null, !!summary.querySelector(".qd-summary-assumed details[open]"));
+        if (next && summary.parentNode) { summary.replaceWith(next); summary = next; }
+      } };
+    }
     if (summary && deck) {
       deck.close();  // the rebar card is done: the summary opens a card of its own
       await qCard({ eyebrow: "06", label: "Summary", art: false, wide: true, total: 6, index: 6 }, "결과를 한눈에 정리했어요.",
@@ -9773,6 +9786,7 @@ body.cbl-modal-open {
     var takeoff = body.takeoff;
     var buildings = takeoff.buildings || [];
     if (!buildings.length) return null;
+    state.floorOverrides = Object.assign({}, takeoff.overrides || {});  // what this job kept, so a change adds to it
     var pick = { name: buildings[0].name };
     var bar = document.createElement("div");
     bar.className = "qd-mass-bar";
@@ -9808,41 +9822,28 @@ body.cbl-modal-open {
           esc(f.name) + '" value="' + esc(String(f.info.thickness)) + '"> m <small>' + esc(label) + ' · ' + esc(String(Math.round(f.info.area))) + '㎡</small></label>';
       }).join("") + '<button type="button" class="qd-btn" data-ft-apply>두께 반영해 다시 계산</button><span class="qd-ft-status"></span>';
       if (deck) deck.append(ask); else flowEl.appendChild(ask);
-      ask.querySelector("[data-ft-apply]").addEventListener("click", async function () {
+      ask.querySelector("[data-ft-apply]").addEventListener("click", function () {
         var given = {};
         ask.querySelectorAll("[data-ft]").forEach(function (input) {
           var v = Number(input.value);
           if (v >= 0.1 && v <= 5) given[input.getAttribute("data-ft")] = v;
         });
         state.floorFoundations = given;
-        var status = ask.querySelector(".qd-ft-status");
-        status.textContent = "다시 계산하는 중…";
-        try {
-          await fetch("/api/quantity/floor-edits/", {
-            method: "POST", headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
-            body: JSON.stringify({ floor_job_id: job.id, foundations: given })
-          });
-          var again = await fetch("/api/quantity/floor-takeoff/", {
-            method: "POST", headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
-            body: JSON.stringify({ floor_job_id: job.id, member_links: links, foundations: given })
-          });
-          var fresh = await again.json();
-          if (!again.ok || !fresh.takeoff) throw new Error((fresh && fresh.error) || ("HTTP " + again.status));
-          takeoff.buildings = fresh.takeoff.buildings;
-          takeoff.assumed = fresh.takeoff.assumed;
-          buildings = takeoff.buildings || [];
-          render();
-          var nextAssumed = assumedBox(takeoff.assumed, "콘크리트를");
-          if (takeoffAssumed) { if (nextAssumed) takeoffAssumed.replaceWith(nextAssumed); else takeoffAssumed.remove(); }
-          takeoffAssumed = nextAssumed;
-          status.textContent = "반영했어요.";
-        } catch (e) {
-          status.textContent = "다시 계산하지 못했어요: " + (e && e.message ? e.message : e);
-        }
+        recalcQuantities(ask.querySelector(".qd-ft-status"), { foundations: given });
       });
     }
     var takeoffAssumed = assumedBox(takeoff.assumed, "콘크리트를");
     if (takeoffAssumed) { if (deck) deck.append(takeoffAssumed); else flowEl.appendChild(takeoffAssumed); }
+    // a recalculation (foundation thickness, an assumed value changed here or on a later card) redraws this card
+    state.quantityCards = { links: links, takeoff: { data: takeoff, refresh: function (fresh) {
+      Object.keys(fresh || {}).forEach(function (k) { takeoff[k] = fresh[k]; });
+      buildings = takeoff.buildings || [];
+      render();
+      var nextAssumed = assumedBox(takeoff.assumed, "콘크리트를");
+      if (takeoffAssumed) { if (nextAssumed) takeoffAssumed.replaceWith(nextAssumed); else takeoffAssumed.remove(); }
+      else if (nextAssumed) table.parentNode.insertBefore(nextAssumed, table.nextSibling);
+      takeoffAssumed = nextAssumed;
+    } } };
     var takeoffNotes = reviewNotesBox(takeoff.review_notes);
     if (takeoffNotes) { if (deck) deck.append(takeoffNotes); else flowEl.appendChild(takeoffNotes); }
     // what was assumed is listed in its own box above; this line says what is left out and how to read the table
@@ -9876,23 +9877,156 @@ body.cbl-modal-open {
 
   // what this job decided on its own where the drawings say nothing (임의로 정한 것): the value,
   // where it was used, how much rides on it and how to change it, so nothing assumed stays hidden
-  function assumedBox(items, what) {
+  function assumedBox(items, what, closed) {
     if (!items || !items.length) return null;
     var box = document.createElement("details");
     box.className = "qd-review qd-assumed";
-    box.open = true;
+    box.open = !closed;
     box.setAttribute("data-qd-keep", "");
     function amount(a, value) {
       return a.unit === "kg" ? rebarTon(value) + "t" : Number(value).toLocaleString("ko-KR", { maximumFractionDigits: 1 }) + a.unit;
     }
-    box.innerHTML = '<summary>임의로 정한 것 ' + items.length + '개 — 도면에 없어 ' + esc(what) + ' 이 값으로 계산했어요</summary><ul>' +
+    // the box a person changes the value in, starting from the value used
+    function control(a) {
+      var e = a.edit;
+      if (!e) return "";
+      var attrs = ' data-override="' + esc(a.key) + '" data-raw="' + esc(JSON.stringify(e.value)) + '" aria-label="' + esc(a.label) + '"';
+      var input;
+      if (e.kind === "number") {
+        input = '<input type="number"' + attrs + ' value="' + esc(String(e.value)) + '" min="' + e.min + '" max="' + e.max + '" step="' + (e.step || "any") + '">' +
+          '<em>' + esc(e.unit || "") + '</em>';
+      } else if (e.kind === "bar") {
+        input = '<input type="text"' + attrs + ' value="' + esc(String(e.value)) + '" spellcheck="false" autocomplete="off" placeholder="' + esc(e.hint || "") + '">';
+      } else if (e.kind === "choice") {
+        input = '<select' + attrs + '>' + (e.choices || []).map(function (c) {
+          return '<option' + (c === e.value ? ' selected' : '') + '>' + esc(c) + '</option>';
+        }).join("") + '</select>';
+      } else {
+        input = '<label><input type="checkbox"' + attrs + (e.value ? ' checked' : '') + '> ' + esc(e.on || "넣기") + '</label>';
+      }
+      return '<div class="qd-assumed-edit">' + input +
+        (a.set ? '<button type="button" class="qd-btn link" data-reset="' + esc(a.key) + '">기본값으로</button>' : '') + '</div>';
+    }
+    var editable = items.some(function (a) { return a.edit; });
+    box.innerHTML = '<summary>임의로 정한 것 ' + items.length + '개 — 도면에 없어 ' + esc(what) + ' 이 값으로 계산했어요' +
+        (editable ? ' · 칸에서 바로 바꿀 수 있어요' : '') + '</summary><ul>' +
       items.map(function (a) {
         var stake = a.amount ? ' · 걸린 양 ' + amount(a, a.amount) + (a.left_out ? ' (근사·확인 전이라 합계에서 빠진 몫 ' + amount(a, a.left_out) + ')' : '') : '';
-        return '<li><b>' + esc(a.label) + '</b><i class="is-assumed">' + esc(a.value) + '</i>' +
-          '<span>' + esc((a.where || []).join(" · ")) + esc(stake) + '</span>' +
-          (a.change ? '<span class="qd-review-how">→ ' + esc(a.change) + '</span>' : '') + '</li>';
-      }).join("") + '</ul>';
+        return '<li' + (a.set ? ' class="is-set"' : '') + '><b>' + esc(a.label) + '</b><i class="' + (a.set ? 'is-set' : 'is-assumed') + '">' +
+          esc(a.value) + '</i>' +
+          '<span>' + esc((a.where || []).join(" · ")) + esc(stake) + '</span>' + control(a) +
+          (a.change && !a.set ? '<span class="qd-review-how">→ ' + esc(a.change) + '</span>' : '') + '</li>';
+      }).join("") + '</ul>' +
+      (editable ? '<div class="qd-assumed-apply" hidden><button type="button" class="qd-btn primary" data-apply>바꾼 값으로 다시 계산</button>' +
+        '<span class="qd-ft-status" role="status"></span></div>' : '');
+    if (!editable) return box;
+    var applyRow = box.querySelector(".qd-assumed-apply"), resets = {};
+    function valueOf(input) {
+      if (input.type === "checkbox") return input.checked;
+      if (input.type === "number") return input.value === "" ? null : Number(input.value);
+      return input.value.replace(/\s+/g, "").toUpperCase();
+    }
+    function changes() {
+      var out = {};
+      box.querySelectorAll("[data-override]").forEach(function (input) {
+        var key = input.getAttribute("data-override"), raw = JSON.parse(input.getAttribute("data-raw")), value = valueOf(input);
+        if (value !== null && value !== raw) out[key] = value;
+      });
+      Object.keys(resets).forEach(function (key) { out[key] = null; });  // back to the drawings' (or the default) value
+      return out;
+    }
+    function refreshApply() { applyRow.hidden = !Object.keys(changes()).length; }
+    box.addEventListener("input", refreshApply);
+    box.addEventListener("change", refreshApply);
+    box.addEventListener("click", function (e) {
+      var reset = e.target.closest("[data-reset]");
+      if (reset) {
+        resets[reset.getAttribute("data-reset")] = true;
+        reset.textContent = "기본값으로 돌아가요";
+        reset.disabled = true;
+        refreshApply();
+        return;
+      }
+      if (e.target.closest("[data-apply]")) {
+        var bad = Array.from(box.querySelectorAll("input[data-override]")).filter(function (input) { return !input.checkValidity(); });
+        var status = applyRow.querySelector(".qd-ft-status");
+        if (bad.length) { status.textContent = "범위를 벗어난 값이 있어요: " + bad.map(function (i) { return i.getAttribute("aria-label"); }).join(", "); return; }
+        applyOverrides(changes(), status);
+      }
+    });
     return box;
+  }
+
+  // ─────────────────────────────────────────────
+  //  고친 값으로 다시 계산: 수량·철근·요약 카드는 다시 그리는 방법을 state.quantityCards에
+  //  남겨 두고, 기초 두께나 임의로 정한 값이 바뀌면 모두 한 번에 다시 계산해 다시 그린다.
+  // ─────────────────────────────────────────────
+  state.quantityCards = {};
+  state.floorOverrides = state.floorOverrides || {};
+
+  function quantityPost(url, body) {
+    return fetch(url, {
+      method: "POST", headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" }, body: JSON.stringify(body)
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (data) {
+        if (!res.ok) throw new Error((data && data.error) || ("HTTP " + res.status));
+        return data;
+      });
+    });
+  }
+
+  function quantityTotals() {
+    var cards = state.quantityCards, takeoff = cards.takeoff && cards.takeoff.data, rebar = cards.rebar && cards.rebar.data;
+    var concrete = ((takeoff && takeoff.buildings) || []).reduce(function (s, b) { return s + (Number(((b.totals || {}).concrete || {}).total) || 0); }, 0);
+    return { concrete: concrete, rebar: rebar ? (Number(rebar.with_loss_kg) || 0) / 1000 : null };
+  }
+
+  // what a recalculation changed, said on the card the person is looking at
+  function quantityFlash(before, after) {
+    var card = document.querySelector("#cblQuantityMessengerModal .qd-card.is-current") || document;
+    card.querySelectorAll(".qd-flash").forEach(function (el) { el.remove(); });
+    var anchor = card.querySelector(".qd-assumed[open]") || card.querySelector(".qd-summary, .qd-assumed");
+    if (!anchor) return;
+    var text = "반영했어요 · 콘크리트 " + summaryNumber(before.concrete) + " → " + summaryNumber(after.concrete) + "㎥" +
+      (after.rebar != null && before.rebar != null ? " · 철근 " + summaryNumber(before.rebar, 1) + " → " + summaryNumber(after.rebar, 1) + "t" : "");
+    var flash = document.createElement("p");
+    flash.className = "qd-flash";
+    flash.setAttribute("role", "status");
+    flash.textContent = text;
+    anchor.parentNode.insertBefore(flash, anchor);
+  }
+
+  async function recalcQuantities(status, saved) {
+    var job = state.floorJob, cards = state.quantityCards;
+    if (!job || !job.id || !cards.takeoff) return;
+    if (status) status.textContent = "다시 계산하는 중…";
+    var before = quantityTotals();
+    try {
+      if (saved) await quantityPost("/api/quantity/floor-edits/", Object.assign({ floor_job_id: job.id }, saved));
+      var common = { floor_job_id: job.id, member_links: cards.links || null, foundations: state.floorFoundations || undefined,
+                     overrides: state.floorOverrides || {} };
+      var fresh = await quantityPost("/api/quantity/floor-takeoff/", common);
+      cards.takeoff.refresh(fresh.takeoff);
+      if (cards.rebar) {
+        var again = await quantityPost("/api/quantity/floor-rebar/", Object.assign({ general_spec: cards.spec || null,
+                                                                                     extras: state.rebarExtras || undefined }, common));
+        cards.rebar.refresh(again.rebar);
+      }
+      if (cards.summary) cards.summary.refresh();
+      if (status) status.textContent = "반영했어요.";
+      quantityFlash(before, quantityTotals());
+    } catch (e) {
+      if (status) status.textContent = "다시 계산하지 못했어요: " + (e && e.message ? e.message : e);
+    }
+  }
+
+  function applyOverrides(changes, status) {
+    var next = Object.assign({}, state.floorOverrides || {});
+    Object.keys(changes).forEach(function (key) {
+      if (changes[key] === null) delete next[key]; else next[key] = changes[key];
+    });
+    state.floorOverrides = next;
+    return recalcQuantities(status, { overrides: next });
   }
 
   // ─────────────────────────────────────────────
@@ -9906,7 +10040,7 @@ body.cbl-modal-open {
     return (Number(value) || 0).toLocaleString("ko-KR", { minimumFractionDigits: digits || 0, maximumFractionDigits: digits || 0 });
   }
 
-  function resultSummary(takeoff, rebar) {
+  function resultSummary(takeoff, rebar, assumedOpen) {
     var buildings = (takeoff && takeoff.buildings) || [];
     if (!buildings.length) return null;
     var rebarBy = {};
@@ -9927,8 +10061,8 @@ body.cbl-modal-open {
         '<div class="qd-summary-tile"><span>거푸집</span><b>' + summaryNumber(form) + '<em>㎡</em></b><small>근사 행 제외</small></div>' +
         (rebar ? '<div class="qd-summary-tile"><span>철근 (할증 포함)</span><b>' + summaryNumber((rebar.with_loss_kg || 0) / 1000, 1) + '<em>t</em></b>' +
           '<small>순중량 ' + summaryNumber((rebar.net_kg || 0) / 1000, 1) + 't · 할증 ' + summaryNumber(((rebar.loss_factor || 1) - 1) * 100) + '%</small></div>' : '') +
-        '<div class="qd-summary-tile' + (waiting ? ' is-attention' : '') + '"><span>임의로 정한 것</span><b>' + assumed.length + '<em>개</em></b>' +
-          '<small>' + (waiting ? '확인하면 합계에 들어가는 것 ' + waiting + '개' : '모두 합계에 들어 있어요') + '</small></div>' +
+        '<button type="button" class="qd-summary-tile' + (waiting ? ' is-attention' : '') + '" data-show-assumed><span>임의로 정한 것</span><b>' + assumed.length + '<em>개</em></b>' +
+          '<small>' + (waiting ? '확인하면 합계에 들어가는 것 ' + waiting + '개' : '모두 합계에 들어 있어요') + ' · 눌러서 보기·고치기</small></button>' +
       '</div>' +
       '<div class="qd-summary-chart">' +
         '<div class="qd-summary-head"><b>동별 부재 구성</b>' +
@@ -10049,6 +10183,17 @@ body.cbl-modal-open {
         }).join("") + '</table>';
       box.querySelector(".qd-summary-table div").innerHTML = table;
     }
+    // the assumed values of both steps, to change here (the takeoff and rebar cards are behind)
+    var boxes = document.createElement("div");
+    boxes.className = "qd-summary-assumed";
+    [assumedBox((takeoff && takeoff.assumed) || [], "콘크리트를", !assumedOpen), rebar ? assumedBox(rebar.assumed || [], "철근을", !assumedOpen) : null]
+      .forEach(function (b) { if (b) boxes.appendChild(b); });
+    if (boxes.children.length) box.appendChild(boxes);
+    box.querySelector("[data-show-assumed]").addEventListener("click", function () {
+      var first = null;
+      boxes.querySelectorAll("details").forEach(function (d) { d.open = true; first = first || d; });
+      if (first) first.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
     box.querySelector(".qd-summary-toggle").addEventListener("click", function (e) {
       var btn = e.target.closest("[data-measure]");
       if (!btn || btn.getAttribute("data-measure") === measure) return;
@@ -10185,32 +10330,27 @@ body.cbl-modal-open {
       }).join("") + '<span class="qd-ft-status"></span>';
     }
     drawExtras();
-    extras.addEventListener("change", async function () {
+    extras.addEventListener("change", function () {
       var chosen = {};
       extras.querySelectorAll("[data-extra]").forEach(function (box) { chosen[box.getAttribute("data-extra")] = box.checked; });
-      var status = extras.querySelector(".qd-ft-status");
-      status.textContent = "다시 계산하는 중…";
-      try {
-        var again = await fetch("/api/quantity/floor-rebar/", {
-          method: "POST", headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
-          body: JSON.stringify({ floor_job_id: job.id, member_links: links, general_spec: spec, foundations: state.floorFoundations || undefined, extras: chosen })
-        });
-        var fresh = await again.json();
-        if (!again.ok || !fresh.rebar) throw new Error((fresh && fresh.error) || ("HTTP " + again.status));
-        Object.keys(fresh.rebar).forEach(function (k) { rebar[k] = fresh.rebar[k]; });
-        buildings = rebar.buildings || [];
-        render();
-        sum.innerHTML = rebarBarTable(rebar);
-        drawExtras();
-        var nextAssumed = assumedBox(rebar.assumed, "철근을");
-        if (rebarAssumed) { if (nextAssumed) rebarAssumed.replaceWith(nextAssumed); else rebarAssumed.remove(); }
-        rebarAssumed = nextAssumed;
-        extras.querySelector(".qd-ft-status").textContent = "반영했어요.";
-      } catch (e) {
-        status.textContent = "다시 계산하지 못했어요: " + (e && e.message ? e.message : e);
-      }
+      state.rebarExtras = chosen;
+      recalcQuantities(extras.querySelector(".qd-ft-status"));
     });
     var rebarAssumed = assumedBox(rebar.assumed, "철근을");
+    state.quantityCards.spec = spec;
+    state.quantityCards.rebar = { data: rebar, refresh: function (fresh) {
+      Object.keys(fresh || {}).forEach(function (k) { rebar[k] = fresh[k]; });
+      buildings = rebar.buildings || [];
+      render();
+      sum.innerHTML = rebarBarTable(rebar);
+      var status = extras.querySelector(".qd-ft-status").textContent;
+      drawExtras();
+      extras.querySelector(".qd-ft-status").textContent = status;
+      var nextAssumed = assumedBox(rebar.assumed, "철근을");
+      if (rebarAssumed) { if (nextAssumed) rebarAssumed.replaceWith(nextAssumed); else rebarAssumed.remove(); }
+      else if (nextAssumed) extras.parentNode.insertBefore(nextAssumed, extras.nextSibling);
+      rebarAssumed = nextAssumed;
+    } };
     var rebarNotes = reviewNotesBox(rebar.review_notes);
     [bar, table, sum, extras].concat(rebarAssumed ? [rebarAssumed] : [], rebarNotes ? [rebarNotes] : []).forEach(function (el) { if (deck) deck.append(el); else flowEl.appendChild(el); });
     appendLeft('<p class="qd-sub" style="margin:0">전체 ' + esc(rebarTon(rebar.net_kg)) + 't (할증 ' + esc(String(Math.round(((rebar.loss_factor || 1) - 1) * 100))) +

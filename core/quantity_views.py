@@ -2103,10 +2103,12 @@ def api_quantity_floor_rebar(request):
     edits = _floor_edits(floor_job)
     foundations = _floor_foundations(floor_job, body)
     try:
+        learned, overrides = _learned_values(floor_job), _floor_overrides(floor_job, body)
         takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations,
-                                                       learned=_learned_values(floor_job))
+                                                       learned=learned, overrides=overrides)
         extras = body.get("extras") if isinstance(body.get("extras"), dict) else None
-        rebar = quantity_floor_rebar.build_rebar(model, links, takeoff, general_spec=spec, edits=edits, extras=extras)
+        rebar = quantity_floor_rebar.build_rebar(model, links, takeoff, general_spec=spec, edits=edits, extras=extras,
+                                                 overrides=overrides, learned=learned)
         rebar["review_notes"] = quantity_brain.review_notes("rebar")
     except Exception:
         logger.exception("quantity_floor_rebar_failed job=%s", floor_job[:16])
@@ -2130,6 +2132,28 @@ def _learn_foundations(floor_job, foundations, owner):
                 brain.learn_value(f"foundation:{kinds[name]}", thickness, owner=owner, job=floor_job)
     except Exception:
         logger.exception("quantity_brain_value_failed job=%s", floor_job[:16])
+
+
+def _floor_overrides(floor_job, body=None):
+    """Values a person set in place of an assumption (quantity_assumed.EDITABLE): the request's,
+    else the ones kept with the floor job."""
+    from .quantity_assumed import clean_overrides
+    given = (body or {}).get("overrides")
+    if not isinstance(given, dict):
+        given = (_quantity_state().get("floor_edits", floor_job) or {}).get("overrides") or {}
+    return clean_overrides(given)
+
+
+def _learn_overrides(floor_job, overrides, owner):
+    """Numbers people set (slab thickness, beam depth, ...): other jobs start from their median."""
+    from .quantity_assumed import LEARNED
+    try:
+        brain = _brain()
+        for key in LEARNED:
+            if key in overrides:
+                brain.learn_value("override:" + key, overrides[key], owner=owner, job=floor_job)
+    except Exception:
+        logger.exception("quantity_brain_override_failed job=%s", floor_job[:16])
 
 
 def _learned_values(floor_job):
@@ -2360,17 +2384,21 @@ def api_quantity_floor_edits(request):
     if not job or job.get("owner") != str(request.user.pk) or job.get("operation") != "api_quantity_floor_views":
         return JsonResponse({"error": "층별 확인 작업을 찾을 수 없어요."}, status=404)
     kept = _quantity_state().get("floor_edits", floor_job) or {}
-    if "edits" not in body and "foundations" not in body:
-        return JsonResponse({"ok": True, "edits": kept.get("edits") or [], "foundations": kept.get("foundations") or {}})
+    if "edits" not in body and "foundations" not in body and "overrides" not in body:
+        return JsonResponse({"ok": True, "edits": kept.get("edits") or [], "foundations": kept.get("foundations") or {},
+                             "overrides": kept.get("overrides") or {}})
     if "edits" in body and not isinstance(body.get("edits"), list):
         return JsonResponse({"error": "고친 내용이 없어요."}, status=400)
     edits = quantity_edits.clean(body["edits"]) if "edits" in body else (kept.get("edits") or [])
     foundations = _floor_foundations(floor_job, body) if "foundations" in body else (kept.get("foundations") or {})
     if "foundations" in body and foundations:
         _learn_foundations(floor_job, foundations, request.user.pk)
-    _quantity_state().put("floor_edits", floor_job, {"edits": edits, "foundations": foundations, "owner": str(request.user.pk)},
-                          ttl=_RESULT_TTL_SEC)
-    return JsonResponse({"ok": True, "edits": edits, "foundations": foundations})
+    overrides = _floor_overrides(floor_job, body) if "overrides" in body else _floor_overrides(floor_job)
+    if "overrides" in body and overrides:
+        _learn_overrides(floor_job, overrides, request.user.pk)
+    _quantity_state().put("floor_edits", floor_job, {"edits": edits, "foundations": foundations, "overrides": overrides,
+                                                     "owner": str(request.user.pk)}, ttl=_RESULT_TTL_SEC)
+    return JsonResponse({"ok": True, "edits": edits, "foundations": foundations, "overrides": overrides})
 
 
 @require_POST
@@ -2404,7 +2432,7 @@ def api_quantity_floor_takeoff(request):
     foundations = _floor_foundations(floor_job, body)
     try:
         takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations,
-                                                       learned=_learned_values(floor_job))
+                                                       learned=_learned_values(floor_job), overrides=_floor_overrides(floor_job, body))
         from . import quantity_brain
         takeoff["review_notes"] = quantity_brain.review_notes("takeoff")
     except Exception:

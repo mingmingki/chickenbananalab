@@ -71,7 +71,7 @@ class FlowPageTests(SimpleTestCase):
         self.assertIn('class="qd-btn link qd-item-note"', self.html)
 
     def test_the_summary_opens_its_own_card(self):
-        self.assertIn("function resultSummary(takeoff, rebar)", self.html)
+        self.assertIn("function resultSummary(takeoff, rebar, assumedOpen)", self.html)
         self.assertIn('deck.close();  // the rebar card is done', self.html)
         self.assertIn('label: "Summary"', self.html)
 

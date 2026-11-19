@@ -23,7 +23,7 @@ from collections import Counter, defaultdict
 
 from . import quantity_calc as qc
 from . import quantity_schedules as sch
-from .quantity_assumed import REBAR, Assumed
+from .quantity_assumed import REBAR, Assumed, clean_overrides, pick, said
 
 REBAR_VERSION = 1
 KINDS = ("foundation", "wall", "opening", "column", "beam", "slab", "stair")
@@ -84,7 +84,7 @@ def grade_of(text, diameter, general_spec):
     spec = general_spec or {}
     if spec.get("rebar_grade_table") or spec.get("rebar_grade"):
         return "SD%d" % int(qc._rebar_fy_mpa(spec, f"D{diameter}")), True
-    return "SD400", False
+    return spec.get("_default_grade") or "SD400", False  # a person may set the grade of unmarked bars
 
 
 class _Tally:
@@ -123,10 +123,12 @@ class _Tally:
 
     def assumed_common(self, used):
         """The grade and lap assumptions every storey can share, onto ``used``."""
-        if self.guessed_kg:
-            used.append(("grade", "강종 표기 없는 철근", "SD400", self.guessed_kg, "구조일반사항의 강종 표를 읽으면 그 값을 써요"))
+        grade = (self.spec or {}).get("_default_grade")
+        if self.guessed_kg or grade:
+            used.append(("grade", "강종 표기 없는 철근", said(grade or "SD400", "person" if grade else "assumed"), self.guessed_kg,
+                         "구조일반사항의 강종 표를 읽으면 그 값을 써요", grade or "SD400", bool(grade)))
         if self.estimated_laps:
-            used.append(("laps", "이음·정착길이", "KDS 공식 추정", 0.0, "구조일반사항의 이음·정착 표를 읽으면 그 값을 써요"))
+            used.append(("laps", "이음·정착길이", "KDS 공식 추정", 0.0, "구조일반사항의 이음·정착 표를 읽으면 그 값을 써요", None, False))
 
     def lap(self, diameter, category, top=False):
         length, source = qc.get_splice_length(f"D{diameter}", self.spec, top_bar=top, category=category)
@@ -361,16 +363,30 @@ def _most_used(counter, fallback):
 EXTRAS = {"opening": "개구부·벽 끝 보강근 (표준 상세)", "chair": "기초 고임철근(우마)", "stair": "계단 철근 (면적당)"}
 
 
-def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, extras=None):
+def _assumed_items(assumed, overrides):
+    from .quantity_assumed import REBAR_KEYS
+    assumed.keep_unused(overrides, REBAR_KEYS)
+    return assumed.items()
+
+
+def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, extras=None, overrides=None, learned=None):
     """Rebar rows per building and storey, in step with ``takeoff`` (quantity_floor_takeoff).
     ``extras``: {"opening", "chair", "stair": bool} — items the drawings do not show, added from
-    standard details unless switched off."""
+    standard details unless switched off. ``overrides``: values a person set in place of an
+    assumption (quantity_assumed.EDITABLE); ``learned``: other jobs' values."""
     extras = {key: (extras or {}).get(key, True) is not False for key in EXTRAS}
+    overrides = clean_overrides(overrides)
+    wall_bar, wall_from = pick("plain_wall_bars", overrides, learned, DEFAULTS["wall"]["vertical_bar"])
+    slab_bar, slab_from = pick("slab_bars", overrides, learned, DEFAULTS["slab"][0])
+    stair_kg, stair_from = pick("stair_bars", overrides, learned, STAIR_KG_PER_M2)
+    if "grade" in overrides:  # the grade of every bar written without one
+        general_spec = dict(general_spec or {}, _default_grade=overrides["grade"])
     assumed = Assumed()
     from . import quantity_edits
     from . import quantity_floor_takeoff as ft
     fixes_by_plan = quantity_edits.by_plan(edits)
-    takeoff = takeoff or ft.build_takeoff(model, links, edits=edits)
+    takeoff = takeoff or ft.build_takeoff(model, links, edits=edits, overrides=overrides, learned=learned)
+    beam_depth = float((takeoff.get("assumptions") or {}).get("beam_depth_default") or ft.BEAM_DEPTH_DEFAULT)
     rows_by = {(b.get("name"), r.get("key")): r for b in takeoff.get("buildings") or [] for r in b.get("rows") or []}
     project_walls = _project_wall_rows(links)
     noted_mark, noted_rows = _noted_wall_rows(links)
@@ -380,7 +396,7 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, 
         rows = []
         ft_row = rows_by.get((name, "FT"))
         if ft_row and ft_row.get("foundation"):
-            rows.append(_foundation_rebar(ft_row, links, name, general_spec, overall, extras["chair"], assumed))
+            rows.append(_foundation_rebar(ft_row, links, name, general_spec, overall, extras["chair"], assumed, overrides))
         for index, level in enumerate(levels):
             key = level.get("key") or ""
             row = rows_by.get((name, key))
@@ -390,7 +406,7 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, 
             vplan = plans[level["plan"]] if isinstance(level.get("plan"), int) and level["plan"] < len(plans) else {}
             hplan = plans[above["plan"]] if above and isinstance(above.get("plan"), int) and above["plan"] < len(plans) else None
             tally = _Tally(general_spec)
-            guesses = []  # (key, label, value, kg, how to change) assumed on this storey
+            guesses = []  # (key, label, value, kg, how to change, edit box value, set by a person) assumed on this storey
             concrete = row.get("concrete") or {}
             slab_area = float((row.get("measures") or {}).get("slab_area") or 0)
             t = (float(concrete.get("slab") or 0) / slab_area) if slab_area else (0.0 if key == "PHR" and above is None else ft.SLAB_THICKNESS)
@@ -416,16 +432,17 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, 
             # walls drawn without a mark are the plain wall type: the drawing's noted default, else
             # D10@300 each way (the marked rows belong to the special walls that carry the mark)
             project = noted_spec
-            fallback = project or (DEFAULTS["wall"]["vertical_bar"], DEFAULTS["wall"]["horizontal_bar"], 0.2)
+            fallback = project or (wall_bar, wall_bar, 0.2)
             vertical, horizontal, thickness = fallback
             if rest_area > 0.05:
                 rest_length = rest_area / max(thickness, 0.1)
                 before = tally.total()
                 _wall(tally, {"vertical_bar": vertical, "horizontal_bar": horizontal}, rest_length, thickness, height, top_storey)
                 if not noted_spec:
-                    guesses.append(("plain_wall_bars", "부호 없는 벽 배근", f"{vertical}·{horizontal}", tally.total() - before,
-                                 "도면 주기에 미표기 벽 배근이 있으면 그 값을 써요"))
-                source = (f"도면 주기의 미표기 벽 {noted_mark} 배근" if noted_spec else "미표기 벽 기본 배근")
+                    guesses.append(("plain_wall_bars", "부호 없는 벽 배근", said(f"{wall_bar} 양방향", wall_from), tally.total() - before,
+                                 "도면 주기에 미표기 벽 배근이 있으면 그 값을 써요", wall_bar, wall_from == "person"))
+                source = (f"도면 주기의 미표기 벽 {noted_mark} 배근" if noted_spec
+                          else "입력한 미표기 벽 배근" if wall_from == "person" else "미표기 벽 기본 배근")
                 tally.note(f"부호 없는 벽 {rest_length:.0f}m는 {source}({vertical}·{horizontal})으로 봤어요")
             pieces = opened = 0
             if extras["opening"]:
@@ -435,7 +452,7 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, 
                     opened = _openings(tally, vplan.get("measure"), height, horizontal, thickness) if ft._storey_kind(key) != "basement" else 0
             if pieces or opened:
                 guesses.append(("opening_bars", "개구부·벽 끝 보강근", "표준 상세 (양면 2-D16, U·C형 바)", tally.kg["opening"],
-                             "추가 항목에서 끌 수 있어요"))
+                             "추가 항목에서 끌 수 있어요", None, False))
                 tally.note(f"벽 {pieces}토막 끝에 U·C형 바와 수직보강근 {END_VERTICAL_BARS}가닥, 개구부 {opened}곳에 보강근(양면 2-D16 둘레)을 넣었어요")
             # the 3D draws the bars of the walls that run longest on the storey
             rest_run = rest_area / max(thickness, 0.1) if rest_area > 0.05 else 0.0
@@ -459,7 +476,7 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, 
                 beam_used = Counter()
                 for beam in (above_members or {}).get("beams") or []:
                     rows_ = _rows_of(links, "beams", beam["mark"]) if beam.get("mark") else []
-                    depth = beam["h"] or ft.BEAM_DEPTH_DEFAULT
+                    depth = beam["h"] or beam_depth
                     if rows_:
                         _beam(tally, rows_, beam["length"], beam["b"], depth)
                         beam_used[(rows_[0].get("values") or {}).get("stirrup")] += beam["length"]
@@ -467,7 +484,7 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, 
                         before = tally.total()
                         _beam(tally, [{"values": DEFAULTS["beam"]}], beam["length"], beam["b"], depth)
                         guesses.append(("beam_bars", "부호 없는 보 배근", "3-D19 상·하부, D10@200 늑근", tally.total() - before,
-                                     "보 부호와 일람표가 연결되면 그 배근을 써요"))
+                                     "보 부호와 일람표가 연결되면 그 배근을 써요", None, False))
                         tally.note("부호 없는 보는 기본 배근(3-D19 상·하부, D10@200 늑근)으로 봤어요")
                 if beam_used:
                     draw["beam"] = {"stirrup": _most_used(beam_used, DEFAULTS["beam"]["stirrup"])}
@@ -475,25 +492,25 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, 
                     layers = _slab_layers(links, name, above)
                     guessed_slab = not layers
                     if guessed_slab:
-                        layers = DEFAULTS["slab"]
-                        tally.note("슬래브 배근 일람표를 못 찾아 D10@200 상·하부 양방향으로 봤어요")
+                        layers = [slab_bar] * 4  # top and bottom, both ways
+                        tally.note(f"슬래브 배근 일람표를 못 찾아 {slab_bar} 상·하부 양방향으로 봤어요")
                     before = tally.total()
                     for text in layers:
                         bar = _spaced(text)
                         if bar:
                             tally.add("slab", text, bar[0], slab_area / bar[1] * 1.0)
                     if guessed_slab:
-                        guesses.append(("slab_bars", "슬래브 배근", "D10@200 상·하부 양방향", tally.total() - before,
-                                     "슬래브 일람표가 연결되면 그 배근을 써요"))
+                        guesses.append(("slab_bars", "슬래브 배근", said(f"{slab_bar} 상·하부 양방향", slab_from), tally.total() - before,
+                                     "슬래브 일람표가 연결되면 그 배근을 써요", slab_bar, slab_from == "person"))
                     draw["slab"] = {"bars": layers}
 
             stair_area = float(concrete.get("stair") or 0) / ft.STAIR_CONCRETE_PER_M2 if concrete.get("stair") else 0.0
             if stair_area and extras["stair"]:
-                tally.kg["stair"] += stair_area * STAIR_KG_PER_M2
-                tally.bars["D13|" + grade_of("D13", 13, general_spec)[0]] += stair_area * STAIR_KG_PER_M2
-                tally.note(f"계단 {stair_area:.0f}㎡는 {STAIR_KG_PER_M2:.0f}kg/㎡(D13)로 봤어요")
-                guesses.append(("stair_bars", "계단 철근", f"{STAIR_KG_PER_M2:.0f}kg/㎡ (D13)", stair_area * STAIR_KG_PER_M2,
-                             "추가 항목에서 끌 수 있어요"))
+                tally.kg["stair"] += stair_area * stair_kg
+                tally.bars["D13|" + grade_of("D13", 13, general_spec)[0]] += stair_area * stair_kg
+                tally.note(f"계단 {stair_area:.0f}㎡는 {stair_kg:g}kg/㎡(D13)로 봤어요")
+                guesses.append(("stair_bars", "계단 철근", said(f"{stair_kg:g}kg/㎡ (D13)", stair_from), stair_area * stair_kg,
+                             "추가 항목에서 끌 수 있어요", stair_kg, stair_from == "person"))
 
             # people's fixes: added members take the storey's usual bars, taken-out ones give them back
             fixes = [e for e in fixes_by_plan.get(vplan.get("id"), []) if e["kind"] != "beam"]
@@ -535,9 +552,9 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, 
             if row.get("approximate"):
                 tally.note("콘크리트가 근사인 층이라 철근도 근사예요")
             tally.assumed_common(guesses)
-            for item_key, label, value, amount, change in guesses:
+            for item_key, label, value, amount, change, raw, person in guesses:
                 assumed.add(item_key, label, value, name, row.get("label") or key, amount, REBAR, change,
-                            counted=not row.get("approximate"))
+                            counted=not row.get("approximate"), raw=raw, person=person)
             kg = {k: round(max(v, 0.0), 1) for k, v in tally.kg.items()}
             kg["total"] = round(sum(kg[k] for k in KINDS), 1)
             bars = {b: round(max(v, 0.0), 1) for b, v in sorted(tally.bars.items(), key=_bar_order) if v > 0.05}
@@ -566,7 +583,7 @@ def build_rebar(model, links=None, takeoff=None, general_spec=None, edits=None, 
         "grade_colors": GRADE_COLORS,
         "extras": {key: {"label": label, "on": extras[key]} for key, label in EXTRAS.items()},
         "not_included": [label for key, label in EXTRAS.items() if not extras[key]],
-        "assumed": assumed.items(),
+        "assumed": _assumed_items(assumed, overrides),
     }
 
 
@@ -594,13 +611,15 @@ def _ways(key, text, keys):
     return ways
 
 
-def _mat_bars(tally, area, bars):
+def _mat_bars(tally, area, bars, extra_on=True):
     """Lay a mat's schedule bars over ``area``; returns (the texts used — empty when none read —,
     kg of the reinforcing bars laid over the whole mat)."""
     side = math.sqrt(max(area, 0.0))
     laps = max(0, math.ceil(side / qc.STOCK_BAR_LENGTH_M) - 1)
     used, extra = [], 0.0
     for key, text in bars.items():
+        if key.startswith("extra_bar") and not extra_on:
+            continue  # a person said the reinforcing bars are not over the whole mat
         for diameter, spacing in _all_spaced(text):
             run = area / spacing * (1 + laps * tally.lap(diameter, "기초") / max(side, 1.0))
             before = tally.total()
@@ -645,36 +664,42 @@ def _wall_footing_bars(tally, strip, used=None):
         tally.add("foundation", text, diameter, number * (run + laps * tally.lap(diameter, "기초")))
     if guessed and used is not None:
         used.append(("wall_footing_bars", "줄기초 배근", ", ".join(guessed), tally.total() - before,
-                     "기초 일람표의 줄기초 행에 배근이 있으면 그 값을 써요"))
+                     "기초 일람표의 줄기초 행에 배근이 있으면 그 값을 써요", None, False))
 
 
-def _foundation_rebar(row, links, name, general_spec, overall, chairs_on=True, assumed=None):
+def _foundation_rebar(row, links, name, general_spec, overall, chairs_on=True, assumed=None, overrides=None):
     """Mat bars (the foundation schedule's rows when its mats are linked, else the foundation plan
     text, else the default; layers × ways at the spacing over the area, laps every stock length),
     wall footings and isolated footings' bars, for the foundation storey."""
     from . import quantity_floor_takeoff as ft
     info = row["foundation"]
     tally = _Tally(general_spec)
-    used = []  # (key, label, value, kg, how to change) assumed on the foundation storey
+    used = []  # (key, label, value, kg, how to change, edit box value, set by a person) assumed on the foundation storey
+    overrides = overrides or {}
+    extra_on = overrides.get("mat_extra_bars") is not False
+    mat_bar, mat_from = pick("foundation_bars", overrides, None, FOUNDATION_BARS)
     area = info["area"]
     left = area
     for mat in info.get("mats") or []:
         part = area * mat["share"]
-        texts, extra = _mat_bars(tally, part, mat.get("bars") or {})
+        texts, extra = _mat_bars(tally, part, mat.get("bars") or {}, extra_on)
         if texts:
             left -= part
             tally.note(f"매트 {mat['mark']} 배근은 기초 일람표 값({' / '.join(dict.fromkeys(texts))})을 썼어요")
             if extra:
                 tally.note("일람표의 보강근도 매트 전체에 깔았어요 (보강 구역이 따로 그려져 있으면 확인해 주세요)")
                 used.append(("mat_extra_bars", "매트 보강근 범위", "매트 전체", extra,
-                             "보강 구역이 따로 그려져 있으면 그 범위만 남기도록 알려 주세요"))
+                             "보강 구역이 따로 그려져 있으면 빼고, 그 구역은 따로 더해 주세요", True, False))
+            elif not extra_on and any(k.startswith("extra_bar") for k in mat.get("bars") or {}):
+                tally.note("일람표의 보강근은 입력에 따라 뺐어요")
+                used.append(("mat_extra_bars", "매트 보강근 범위", "뺌 (입력값)", 0.0, "", False, True))
     if left > 0.5:
         _thickness, text = ft.foundation_specs(links, name)
         bar = _spaced(text) if text else None
         guessed_mat = not bar
         if guessed_mat:
-            text, bar = FOUNDATION_BARS + "(T/B, EW)", _spaced(FOUNDATION_BARS)
-            tally.note(f"기초 배근 표기를 못 찾아 {FOUNDATION_BARS} 상·하부 양방향으로 봤어요")
+            text, bar = mat_bar + "(T/B, EW)", _spaced(mat_bar)
+            tally.note(f"기초 배근 표기를 못 찾아 {mat_bar} 상·하부 양방향으로 봤어요")
         key = _key(text)
         layers = (2 if re.search(r"T/?B|TOP.*BOT", key) else 1) * 2  # each way unless told otherwise
         side = math.sqrt(max(area, 0.0))
@@ -683,8 +708,8 @@ def _foundation_rebar(row, links, name, general_spec, overall, chairs_on=True, a
         before = tally.total()
         tally.add("foundation", text, bar[0], layers * run)
         if guessed_mat:
-            used.append(("foundation_bars", "기초 매트 배근", f"{FOUNDATION_BARS} 상·하부 양방향", tally.total() - before,
-                         "기초 일람표나 기초 평면에 배근이 있으면 그 값을 써요"))
+            used.append(("foundation_bars", "기초 매트 배근", said(f"{mat_bar} 상·하부 양방향", mat_from), tally.total() - before,
+                         "기초 일람표나 기초 평면에 배근이 있으면 그 값을 써요", mat_bar, mat_from == "person"))
     # chair bars holding the top mat: one per 1.5 m square, legs the mat depth less the covers,
     # plus half as many fixing bars (the SK manual's rule, D16)
     if chairs_on:
@@ -692,7 +717,7 @@ def _foundation_rebar(row, links, name, general_spec, overall, chairs_on=True, a
         chairs = math.ceil(area / (1.5 * 1.5))
         before = tally.total()
         tally.add("foundation", "D16", 16, chairs * (2 * height + 0.8) + math.ceil(chairs * 0.5) * 2 * height)
-        used.append(("chair_bars", "고임철근(우마)", "D16, 1.5m 간격", tally.total() - before, "추가 항목에서 끌 수 있어요"))
+        used.append(("chair_bars", "고임철근(우마)", "D16, 1.5m 간격", tally.total() - before, "추가 항목에서 끌 수 있어요", None, False))
         tally.note(f"고임철근(우마) D16 {chairs}개를 1.5m 간격으로 넣었어요")
     for strip in info.get("wall_footings") or []:
         _wall_footing_bars(tally, strip, used)
@@ -710,15 +735,16 @@ def _foundation_rebar(row, links, name, general_spec, overall, chairs_on=True, a
             tally.add("foundation", text, diameter, foot["count"] * qc._spacing_bar_count(across, spacing) * along)
         if guessed and guessed[-1] == foot["mark"]:
             used.append(("footing_bars", "독립기초 배근", f"하부 양방향 {FOOTING_BARS}", tally.total() - before,
-                         "기초 일람표의 독립기초 행에 배근이 있으면 그 값을 써요"))
+                         "기초 일람표의 독립기초 행에 배근이 있으면 그 값을 써요", None, False))
     if guessed:
         tally.note(f"독립기초 {', '.join(guessed)}는 일람표 배근을 못 읽어 하부 양방향 {FOOTING_BARS}로 봤어요")
     if row.get("approximate"):
         tally.note("기초 두께가 가정값이라 철근도 근사예요")
     tally.assumed_common(used)
     if assumed is not None:
-        for item_key, label, value, amount, change in used:
-            assumed.add(item_key, label, value, name, "기초", amount, REBAR, change, counted=not row.get("approximate"))
+        for item_key, label, value, amount, change, raw, person in used:
+            assumed.add(item_key, label, value, name, "기초", amount, REBAR, change, counted=not row.get("approximate"),
+                        raw=raw, person=person)
     kg = {k: round(max(v, 0.0), 1) for k, v in tally.kg.items()}
     kg["total"] = round(sum(kg[k] for k in KINDS), 1)
     bars = {b: round(v, 1) for b, v in sorted(tally.bars.items(), key=_bar_order) if v > 0.05}

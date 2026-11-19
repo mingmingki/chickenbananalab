@@ -743,3 +743,25 @@
 .qd-summary-table th, .qd-summary-table td { padding: 6px 8px; border-bottom: 1px solid rgba(255, 255, 255, .08); text-align: right; color: rgba(255, 255, 255, .85); }
 .qd-summary-table th:first-child, .qd-summary-table td:first-child { text-align: left; }
 .qd-summary-foot { margin: 0; font-size: 11.5px; color: #94a3b8; }
+
+/* assumed values a person can change in place */
+.qd-review li i.is-set { background: rgba(74, 222, 128, .16); color: #86efac; }
+.qd-review li.is-set { box-shadow: inset 3px 0 0 #4ade80; }
+.qd-assumed-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.qd-assumed-edit input[type="number"], .qd-assumed-edit input[type="text"], .qd-assumed-edit select {
+  min-height: 34px; padding: 5px 10px; border: 1px solid rgba(255, 255, 255, .26); border-radius: 9px;
+  background: rgba(10, 14, 48, .35); color: #fff; font: inherit; font-size: 13px; outline: none; }
+.qd-assumed-edit input[type="number"] { width: 96px; }
+.qd-assumed-edit input[type="text"] { width: 150px; text-transform: uppercase; }
+.qd-assumed-edit input:focus, .qd-assumed-edit select:focus { border-color: rgba(165, 243, 252, .9); }
+.qd-assumed-edit input:invalid { border-color: #f87171; }
+.qd-assumed-edit em { font-style: normal; color: rgba(255, 255, 255, .72); font-size: 12.5px; }
+.qd-assumed-edit label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #e2e8f0; }
+.qd-assumed-edit .qd-btn.link { padding: 0; font-size: 12px; }
+.qd-assumed-apply { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px;
+  padding: 10px 12px; border-radius: 10px; background: rgba(10, 14, 48, .85); }
+.qd-assumed-apply[hidden] { display: none; }
+.qd-summary-tile[data-show-assumed] { text-align: left; font: inherit; cursor: pointer; }
+.qd-summary-tile[data-show-assumed]:hover { border-color: rgba(255, 255, 255, .35); }
+.qd-summary-assumed { display: grid; gap: 10px; }
+.qd-flash { margin: 0; padding: 10px 12px; border-radius: 10px; background: rgba(74, 222, 128, .14); color: #bbf7d0; font-size: 13px; font-weight: 700; }
