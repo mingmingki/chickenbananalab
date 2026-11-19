@@ -62,6 +62,8 @@
 .qd-card.is-entering { opacity: 0; transform: translateX(56px) scale(.985); }
 .qd-card.is-current { opacity: 1; transform: none; }
 .qd-card.is-leaving { opacity: 0; transform: translateX(-56px) scale(.985); pointer-events: none; }
+.qd-card.is-entering.is-back { transform: translateX(-56px) scale(.985); }
+.qd-card.is-leaving.is-back { transform: translateX(56px) scale(.985); }
 .qd-card.is-wide, .qd-card:not(:has(.qd-art)) { grid-template-columns: minmax(0, 1fr); }
 .qd-card-main {
   min-width: 0;
@@ -173,6 +175,9 @@
 .qd-btn.glow { min-height: 56px; padding: 0 30px; font-size: 17px; animation: qd-glow 2.4s ease-in-out infinite; }
 @keyframes qd-glow { 0%, 100% { box-shadow: 0 10px 30px rgba(165, 243, 252, .35); } 50% { box-shadow: 0 10px 46px rgba(165, 243, 252, .75); } }
 .qd-btn:disabled { opacity: .42; cursor: not-allowed; }
+/* ← 이전: on every card, quieter than the way forward */
+.qd-btn.qd-back { margin-right: auto; border-color: rgba(255, 255, 255, .22); background: transparent; color: var(--qd-soft); }
+.qd-btn.qd-back:hover:not(:disabled) { color: #fff; background: rgba(255, 255, 255, .1); }
 .qd-btn.link { min-height: 0; padding: 4px 2px; border: 0; background: none; color: var(--qd-soft); font-size: 13.5px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
 .qd-btn:focus-visible, .qd-tile:focus-visible { outline: 3px solid rgba(255, 255, 255, .7); outline-offset: 2px; }
 .qd-next {
@@ -588,6 +593,9 @@
   .qd-title.is-long { font-size: 19px; }
   .qd-card.is-transition .qd-title { font-size: 28px; }
   .qd-drops, .qd-check-grid { grid-template-columns: minmax(0, 1fr); }
+  /* a row's note reads first on its own line; ← 이전 stays at the left under it */
+  .qd-actions > .qd-sub { order: -1; flex-basis: 100%; }
+  .qd-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   /* phones pick files rather than drop them: the four slots keep only their buttons */
   .qd-drops.is-four { row-gap: 14px; }
   .qd-drops.is-four .qd-zone { flex-direction: row; min-height: 0; padding: 8px 12px; }

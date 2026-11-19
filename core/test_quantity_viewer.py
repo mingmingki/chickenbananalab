@@ -40,7 +40,7 @@ class ViewerToolTests(SimpleTestCase):
     def test_a_horizontal_cut_shows_that_storeys_plan(self):
         self.assertIn("options.planSvg(at.building, at.level)", self.js)
         html = HOME.read_text()
-        self.assertIn("viewer = window.cblQuantityMass3D.mount(host, model, {\n      planSvg: planSvgFor, edits: floorEdits().slice(),", html)
+        self.assertIn("viewer = run.viewer = window.cblQuantityMass3D.mount(host, model, {\n          planSvg: planSvgFor, edits: floorEdits().slice(),", html)
         body = html[html.index("function planSvgFor(building, level) {"):][:1200]
         self.assertIn("v.sheet === level.sheet", body)    # the sheet the storey was built from first
         self.assertIn("(\\d+)~(\\d+)층", body)            # else a typical-floor plan covering it
@@ -59,7 +59,7 @@ class ViewerToolTests(SimpleTestCase):
             self.assertIn(selector, css)
         html = HOME.read_text()
         self.assertIn("quantity_mass3d.js' %}?v=20261112-tools2", html)
-        self.assertIn("quantity_deck.css' %}?v=20261119-upload", html)
+        self.assertIn("quantity_deck.css' %}?v=20261120-back", html)
 
 
 class SiteLayoutTests(SimpleTestCase):

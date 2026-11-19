@@ -72,7 +72,7 @@ class FlowPageTests(SimpleTestCase):
 
     def test_the_summary_opens_its_own_card(self):
         self.assertIn("function resultSummary(takeoff, rebar, assumedOpen, arch)", self.html)
-        self.assertIn('deck.close();  // the rebar card is done', self.html)
+        self.assertIn('deck.close();  // the card before is done', self.html)
         self.assertIn('label: "Summary"', self.html)
 
     def test_an_empty_list_of_missing_items_says_nothing(self):

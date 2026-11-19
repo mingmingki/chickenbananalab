@@ -181,11 +181,10 @@ class ArchPageTests(SimpleTestCase):
         from pathlib import Path
         html = (Path(__file__).resolve().parent / "templates" / "core" / "home.html").read_text(encoding="utf-8")
         self.assertIn("async function showFloorArch() {", html)
-        self.assertIn('data-go>건축 벽체·창호 보기 →</button>', html)
-        self.assertIn('data-skip>건축은 건너뛰기</button>', html)
+        self.assertIn('[["skip", "건축은 건너뛰기"], ["go", "건축 벽체·창호 보기 →", true]]', html)
         self.assertIn('state.quantityCards.arch = { data: arch, refresh: function (fresh) {', html)
         self.assertIn('quantityPost("/api/quantity/floor-arch/", { floor_job_id: job.id, overrides: state.floorOverrides || {} });', html)
-        self.assertIn('if (arch) data.results.floor_arch = arch;', html)
+        self.assertIn('if (arch) results.floor_arch = arch; else delete results.floor_arch;', html)
         self.assertIn('assumedBox(arch.assumed || [], "건축 벽을", !assumedOpen)', html)
         # the card only comes when the architectural plans measured something
-        self.assertIn('var arch = takeoff && archPlans().length ? await showFloorArch() : null;', html)
+        self.assertIn("if (flow.ai || !flow.takeoff || flow.skipArch || !archPlans().length) {", html)

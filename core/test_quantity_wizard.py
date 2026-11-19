@@ -49,8 +49,8 @@ class WizardTemplateTests(SimpleTestCase):
                         self.html.index('var modal = document.getElementById("cblQuantityMessengerModal");'))
         finish = self.html.index("async function finishQuantityAnalysisFlow(data, cancelRequestedFlag) {")
         body = self.html[finish:finish + 4000]
-        self.assertLess(body.index("await showMassStage();"), body.index("lastAnalysisResults = data.results || {};"))
-        stage = self.html.index("async function showMassStage()")
+        self.assertLess(body.index("massSteps(false)"), body.index("lastAnalysisResults = data.results || {};"))
+        stage = self.html.index("function massSteps(leave) {")
         order = ["전체 매스를 세웠어요.", "철근을 입혔어요.", "거푸집을 입혔어요.", "맞아요 → 2D 수량산출"]
         position = stage
         for text in order:
@@ -134,3 +134,42 @@ class OverviewCheckNotesTests(TestCase):
     def test_without_notes_the_context_is_unchanged(self):
         self.post()
         self.assertIsNone(_NoThread.started[-1][4])
+
+
+class BackNavigationTests(SimpleTestCase):
+    """← 이전 beside the forward buttons on every card: nobody starts over to fix a card or two back."""
+
+    def setUp(self):
+        self.html = HOME.read_text()
+
+    def test_every_card_of_the_first_two_steps_goes_back(self):
+        self.assertIn("var BACK_BUTTON = '<button type=\"button\" class=\"qd-btn qd-back\" data-back>← 이전</button>';", self.html)
+        # the project questions, the confirm card, the upload, the check, the floors and the ready card
+        self.assertIn("function (val) { state.answers.structureType = val; askExcavationType(); }, askProjectType);", self.html)
+        self.assertIn("function (val) { state.answers.excavationType = val; showSummary(); }, askStructureType);", self.html)
+        self.assertIn('onceClick(row.querySelector("#qty-summary-back"), function () { askExcavationType(); });', self.html)
+        self.assertIn('onceClick(row.querySelector("#qty-upload-back"), function () { showSummary(); });', self.html)
+        self.assertIn("BACK_BUTTON.replace(\"data-back\", 'data-back id=\"qty-missing-add\"", self.html)
+        self.assertIn('onceClick(row.querySelector("#qty-floor-back"), function () {', self.html)
+        self.assertIn('if (state.floorJob && state.floorJob.status !== "none") showFloorCheckCard(); else runCheckZip();', self.html)
+        # the AI path's first cards go back without reading again
+        self.assertIn("}, function () { showAiStartCard(); });", self.html)
+        self.assertIn("}, function () { runOverviewCheck(); });  // the overview read before (not read again)", self.html)
+
+    def test_the_cad_cards_are_steps_that_go_both_ways(self):
+        runner = self.html[self.html.index("async function runSteps(steps) {"):][:500]
+        self.assertIn('if (result === "back") way = -1;', runner)
+        self.assertIn('else if (result !== "skip") way = 1;', runner)
+        self.assertIn('return review(massReviewRow("rebar", "맞아요 → 거푸집 입히기", true), "철근");', self.html)
+        self.assertIn("var run = state.massRun && state.massRun.model === model ? state.massRun", self.html)  # one viewer
+        gate = self.html[self.html.index("function gateRow(note, buttons, noBack) {"):][:400]
+        self.assertIn("(noBack ? '' : BACK_BUTTON)", gate)
+        summary = self.html[self.html.index("async function summaryStep(flow) {"):][:3000]
+        self.assertIn('onceClick(row.querySelector("[data-back]"), function () { resolve("back"); });', summary)
+
+    def test_a_card_gone_back_to_comes_from_the_left_and_the_steps_follow(self):
+        deck = HOME.parents[2].joinpath("static", "core", "js", "quantity_deck.js").read_text()
+        self.assertIn("back: function () { goingBack = true; if (current) current.answered = true; },", deck)
+        self.assertIn('el.className = "qd-card is-entering" + (back ? " is-back" : "")', deck)
+        stage = HOME.parents[2].joinpath("static", "core", "js", "quantity_stage.js").read_text()
+        self.assertIn("currentStep = n;", stage)

@@ -209,5 +209,5 @@ class OverridePageTests(SimpleTestCase):
         self.assertIn("async function recalcQuantities(status, saved)", html)
         self.assertIn("state.quantityCards.rebar = { data: rebar, refresh: function (fresh) {", html)
         self.assertIn("state.quantityCards.summary = { refresh: function () {", html)
-        self.assertIn('data-summary-go>결과 요약 보기 →', html)  # the rebar card stays until the person moves on
+        self.assertIn('[["go", "결과 요약 보기 →", true]]', html)  # the card stays until the person moves on
         self.assertIn("function quantityFlash(before, after)", html)

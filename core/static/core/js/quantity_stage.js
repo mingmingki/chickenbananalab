@@ -144,7 +144,7 @@
   }
 
   function step(n) {
-    currentStep = Math.max(currentStep, n);
+    currentStep = n;  // ← 이전 can go back a step
     head.querySelectorAll(".qty-stage-steps li").forEach(function (li) {
       var k = Number(li.getAttribute("data-step"));
       li.classList.toggle("is-done", k < currentStep);

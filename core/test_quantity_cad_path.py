@@ -168,10 +168,13 @@ class CadOnlyPageTests(SimpleTestCase):
     def test_the_free_path_goes_3d_then_takeoff_then_rebar_then_excel(self):
         html = HOME.read_text()
         flow = html[html.index("async function runCadOnlyFlow() {"):][:4500]
-        order = [flow.index(step) for step in ("job.status !== \"running\"", "await showMassStage();",
-                                               "await showFloorTakeoff(data);", "await showFloorRebar(data);",
-                                               "await showFloorArch()", "lastAnalysisResults = data.results;", "downloadExcel")]
+        order = [flow.index(step) for step in ("job.status !== \"running\"", "massSteps(true)", "takeoffStep(flow)",
+                                               "rebarStep(flow)", "archStep(flow)", "summaryStep(flow)",
+                                               'if (way === "back") showAiStartCard();')]
         self.assertEqual(order, sorted(order))
+        summary = html[html.index("async function summaryStep(flow) {"):][:3000]
+        self.assertIn("lastAnalysisResults = flow.data.results;", summary)
+        self.assertIn('addEventListener("click", downloadExcel);', summary)
         self.assertIn('state.cadOnly ? "CAD 도면을 다 읽었습니다.', html)
 
     def test_one_upload_card_goes_on_with_cad_alone_or_pdf_alone(self):
