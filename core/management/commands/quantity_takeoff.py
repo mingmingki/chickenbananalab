@@ -187,7 +187,12 @@ class Command(BaseCommand):
                 handle.write(excel_bytes(result))
             if options.get("json_out"):
                 with open(options["json_out"], "w", encoding="utf-8") as handle:
-                    json.dump({k: v for k, v in result.items() if k != "floor_views"}, handle, ensure_ascii=False, default=str)
+                    views = result["floor_views"]
+                    kept = {k: v for k, v in result.items() if k != "floor_views"}
+                    # the 3D model (storeys, heights, plans and their measures) and the section levels; not the pictures
+                    kept.update(model=views.get("model"), levels=views.get("levels"), unreadable=views.get("unreadable"),
+                                warnings=views.get("warnings"))
+                    json.dump(kept, handle, ensure_ascii=False, default=str)
         finally:
             if not options.get("keep"):
                 shutil.rmtree(workdir, ignore_errors=True)

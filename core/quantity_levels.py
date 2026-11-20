@@ -16,9 +16,12 @@ import re
 import unicodedata
 from collections import Counter, defaultdict
 
-EL_VALUE = re.compile(r"EL\.?\s*(?P<sign>[+＋\-−])?\s*(?P<value>\d+(?:,\d{3})*(?:\.\d+)?)", re.I)
+EL_VALUE = re.compile(r"(?:EL|(?<![A-Z])S\.?L|(?<![A-Z\d])F\.?L)\.?\s*[=:]?\s*(?P<sign>[+＋\-−±])?\s*"
+                      r"(?P<value>\d+(?:,\d{3})*(?:\.\d+)?)", re.I)
 SECTION_MARK = re.compile(r"\bS\.?L\b|^\s*G\.?\s*L\.?\s*$|\bF\.?L\b", re.I)
 TOLERANCE_M = 0.02
+MAX_FLOOR = 99
+TYPICAL_STOREY_M = (2.4, 4.5)  # unmarked floors between two marked ones share the gap only in this range
 
 
 def _norm(text):
@@ -36,7 +39,7 @@ def level_key(text):
     if "지붕" in compact:
         return "R"
     match = re.search(r"(지하)?(\d{1,3})층", compact)
-    if match:
+    if match and int(match.group(2)) <= MAX_FLOOR:  # "101층 도로" is a 101동 road mistyped
         return ("B" if match.group(1) else "") + str(int(match.group(2)))
     match = re.search(r"\b(B)?(\d{1,2})\s*F(?:L)?\b", text.upper())
     if match:
@@ -58,9 +61,13 @@ def rank(level):
 
 
 def parse_elevation(text):
-    match = EL_VALUE.search(_norm(text))
-    if not match:
+    """Metres of a level mark: "EL+22.30", "SL +4.70", "FL-3.60", "G.L +11.00". A legend line naming
+    several values ("GL = EL+9.70 / 1FL+10.30") is no level of its own."""
+    text = _norm(text)
+    found = list(EL_VALUE.finditer(text))
+    if len(found) != 1 or len(re.findall(r"\d+\.\d+", text)) > 1:
         return None
+    match = found[0]
     value = float(match.group("value").replace(",", ""))
     if value > 500:  # written in millimetres
         value /= 1000.0
@@ -142,6 +149,16 @@ def _storeys(elevations, uncertain=()):
         height = round(elevations[high] - elevations[low], 3)
         if 0 < height <= 12:
             out[low] = height
+        else:
+            rejected.append({"level": low, "values": [elevations[low], elevations[high]], "reason": "storey_height_out_of_range"})
+    # typical floors a section leaves unmarked ("지상2층" and "지상15층" only): the gap shared evenly
+    for low, high in zip(ordered, ordered[1:]):
+        if not (low.isdigit() and high.isdigit()) or int(high) - int(low) < 2 or low in uncertain or high in uncertain:
+            continue
+        each = round((elevations[high] - elevations[low]) / (int(high) - int(low)), 3)
+        if TYPICAL_STOREY_M[0] <= each <= TYPICAL_STOREY_M[1]:
+            for floor in range(int(low), int(high)):
+                out.setdefault(str(floor), each)
         else:
             rejected.append({"level": low, "values": [elevations[low], elevations[high]], "reason": "storey_height_out_of_range"})
     return out, rejected

@@ -207,3 +207,35 @@ class AnonymousBlockTests(SimpleTestCase):
         group.add_arc((0, 0), 900, 0, 90, dxfattribs={"layer": "A-DOOR"})
         doc.modelspace().add_blockref("A$C2CEE7391", (0, 0), dxfattribs={"layer": "0"})
         self.assertEqual(qa.opening_inserts(doc, {}, None, fv._is_opening_insert, None, tags=[], layer_kind=fv.layer_category), [])
+
+
+class SectionLevelTests(SimpleTestCase):
+    def test_slab_levels_written_sl_and_legends_and_typos(self):
+        from core import quantity_levels as ql
+        self.assertEqual(ql.parse_elevation("SL +4.70"), 4.7)
+        self.assertEqual(ql.parse_elevation("FL : +1.30"), 1.3)
+        self.assertEqual(ql.parse_elevation("GL±0=EL+16.20"), 16.2)
+        self.assertIsNone(ql.parse_elevation("GL =  EL+ 9.70 / 1FL+10.30"))  # a legend naming several values
+        self.assertIsNone(ql.level_key("101층 도로"))                         # 101동 mistyped
+        texts = [text("SL +15.70", 10550, 27523, 450), text("지상2층", 9000, 27523, 450),
+                 text("SL +52.10", 10550, 63923, 450), text("지상15층", 9000, 63923, 450),
+                 text("SL +55.10", 10550, 66923, 450), text("지붕", 9000, 66923, 450)]
+        self.assertEqual(ql.read_sheet_levels(texts)["elevations"], {"2": 15.7, "15": 52.1, "R": 55.1})
+
+    def test_unmarked_typical_floors_share_the_gap(self):
+        from core import quantity_levels as ql
+        heights, _rejected = ql._storeys({"1": 11.6, "2": 15.7, "15": 52.1, "R": 55.1})
+        self.assertEqual(heights["1"], 4.1)
+        self.assertEqual(heights["15"], 3.0)
+        self.assertTrue(all(heights[str(f)] == 2.8 for f in range(2, 15)))
+        table = {"sections": {"101동": {"elevations": {"1": 11.6, "2": 15.7, "15": 52.1}}}}
+        elevations = fv._elevations(["1"] + [str(f) for f in range(2, 16)] + ["R"], table, "101동")
+        self.assertEqual(elevations["3"], 18.5)
+        self.assertEqual(round(elevations["14"] - elevations["13"], 2), 2.8)
+
+    def test_a_deck_under_sloping_ground_keeps_a_basement_height(self):
+        table = {"sections": {"공통": {"elevations": {"B2": 1.1, "B1": 4.7, "1": 10.9}}}}
+        elevations = fv._elevations(["B2", "B1", "R"], table, "지하주차장")
+        self.assertEqual(round(elevations["R"] - elevations["B1"], 2), fv.DEFAULT_STOREY_M["basement"])
+        flat = {"sections": {"공통": {"elevations": {"B2": 1.1, "B1": 4.7, "1": 8.4}}}}
+        self.assertEqual(fv._elevations(["B2", "B1", "R"], flat, "지하주차장")["R"], 8.4)

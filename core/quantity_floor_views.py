@@ -1147,6 +1147,9 @@ def _level_order(key):
     return {"R": 500, "PH": 501, "PHR": 502}.get(key, 999)
 
 
+TYPICAL_STOREY_RANGE_M = (2.4, 4.5)
+
+
 def _elevations(keys, table, section):
     """Floor elevation (m) of each level key; read from the level table, gaps filled with defaults."""
     sections = (table or {}).get("sections") or {}
@@ -1158,8 +1161,23 @@ def _elevations(keys, table, section):
     if "1" not in known and "GL" in known:
         known["1"] = known["GL"]
     if "1" in known and "1" not in keys and "R" in keys and not any(k.isdigit() for k in keys):
-        known.setdefault("R", known["1"])  # a parking deck: its roof is the ground floor of the towers
+        # a parking deck: its roof is the ground floor of the towers, unless that makes its top
+        # basement taller than a basement storey (a deck under sloping ground and roads)
+        below = [known[k] for k in keys if k.startswith("B") and k in known]
+        if not below or known["1"] - max(below) <= TYPICAL_STOREY_RANGE_M[1]:
+            known.setdefault("R", known["1"])
     ordered = sorted(set(keys), key=_level_order)
+    # typical floors a section leaves unmarked between two marked ones ("2층" and "15층" only)
+    # share the gap evenly instead of stepping by the default height
+    marked = [i for i, key in enumerate(ordered) if key in known]
+    for i, j in zip(marked, marked[1:]):
+        between = ordered[i + 1:j]
+        if not between or not all(k.isdigit() for k in [ordered[i]] + between):
+            continue
+        each = (known[ordered[j]] - known[ordered[i]]) / (j - i)
+        if TYPICAL_STOREY_RANGE_M[0] <= each <= TYPICAL_STOREY_RANGE_M[1]:
+            for n, key in enumerate(between, 1):
+                known[key] = round(known[ordered[i]] + n * each, 3)
     first = next((i for i, key in enumerate(ordered) if key in known), None)
     result = {}
     if first is not None:
