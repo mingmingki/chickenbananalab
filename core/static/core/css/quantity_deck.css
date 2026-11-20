@@ -446,8 +446,8 @@
 .q3d-ui { position: absolute; inset: 0; pointer-events: none; font-size: 12px; }
 .q3d-ui > * { pointer-events: auto; box-sizing: border-box; }
 .q3d-bar { position: absolute; top: 8px; display: flex; flex-wrap: wrap; gap: 3px; padding: 3px; border-radius: 10px; background: rgba(6, 10, 32, .72); backdrop-filter: blur(6px); }
-.q3d-views { left: 8px; }
-.q3d-tools { right: 8px; justify-content: flex-end; }
+.q3d-views { left: 8px; max-width: calc(50% - 12px); }
+.q3d-tools { right: 8px; max-width: calc(50% - 12px); justify-content: flex-end; }
 .q3d-bar button, .q3d-panel button { padding: 5px 9px; border: 0; border-radius: 7px; background: none; color: var(--qd-soft); font: inherit; font-weight: 800; cursor: pointer; }
 .q3d-bar button:hover, .q3d-panel button:hover { background: rgba(255, 255, 255, .1); color: #fff; }
 .q3d-bar button.is-on { background: #fff; color: #0f3d55; }
@@ -466,7 +466,7 @@
 .q3d-sheet-body > svg { width: 100%; height: 100%; }
 .q3d-empty { margin: 16px; color: var(--qd-soft); }
 @media (max-width: 760px) {
-  .q3d-bar { position: static; margin: 6px 6px 0; }
+  .q3d-bar { position: static; margin: 6px 6px 0; max-width: none; }
   .q3d-bar button { padding: 5px 7px; }
   .q3d-ui { display: flex; flex-direction: column; align-items: stretch; }
   .q3d-panel { top: auto; bottom: 30px; }

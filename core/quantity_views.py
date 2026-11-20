@@ -2140,7 +2140,7 @@ def api_quantity_floor_rebar(request):
     if not job or job.get("owner") != str(request.user.pk) or job.get("operation") != "api_quantity_floor_views":
         return JsonResponse({"error": "층별 확인 작업을 찾을 수 없어요."}, status=404)
     result = _result_get(floor_job) or {}
-    model = ((result.get("results") or {}).get("floor_views") or {}).get("model") or {}
+    model = _floor_model(floor_job, result)
     if not result.get("ok") or not model.get("buildings"):
         return JsonResponse({"error": "층별 확인 결과에 구조 평면이 없어요."}, status=409)
     links = body.get("member_links")
@@ -2164,6 +2164,19 @@ def api_quantity_floor_rebar(request):
 
 def _floor_edits(floor_job):
     return (_quantity_state().get("floor_edits", floor_job) or {}).get("edits") or []
+
+
+def _floor_storey_heights(floor_job):
+    from .quantity_review import clean_storey_heights
+    return clean_storey_heights((_quantity_state().get("floor_edits", floor_job) or {}).get("storey_heights") or {})
+
+
+def _floor_model(floor_job, result=None):
+    """The floor job's 3D model with the storey heights people set on the review page."""
+    from .quantity_review import apply_storey_heights
+    result = result if result is not None else (_result_get(floor_job) or {})
+    model = ((result.get("results") or {}).get("floor_views") or {}).get("model") or {}
+    return apply_storey_heights(model, _floor_storey_heights(floor_job)) if model else model
 
 
 def _learn_foundations(floor_job, foundations, owner):
@@ -2430,9 +2443,9 @@ def api_quantity_floor_edits(request):
     if not job or job.get("owner") != str(request.user.pk) or job.get("operation") != "api_quantity_floor_views":
         return JsonResponse({"error": "층별 확인 작업을 찾을 수 없어요."}, status=404)
     kept = _quantity_state().get("floor_edits", floor_job) or {}
-    if "edits" not in body and "foundations" not in body and "overrides" not in body:
+    if "edits" not in body and "foundations" not in body and "overrides" not in body and "storey_heights" not in body:
         return JsonResponse({"ok": True, "edits": kept.get("edits") or [], "foundations": kept.get("foundations") or {},
-                             "overrides": kept.get("overrides") or {}})
+                             "overrides": kept.get("overrides") or {}, "storey_heights": kept.get("storey_heights") or {}})
     if "edits" in body and not isinstance(body.get("edits"), list):
         return JsonResponse({"error": "고친 내용이 없어요."}, status=400)
     edits = quantity_edits.clean(body["edits"]) if "edits" in body else (kept.get("edits") or [])
@@ -2442,9 +2455,54 @@ def api_quantity_floor_edits(request):
     overrides = _floor_overrides(floor_job, body) if "overrides" in body else _floor_overrides(floor_job)
     if "overrides" in body and overrides:
         _learn_overrides(floor_job, overrides, request.user.pk)
+    from .quantity_review import clean_storey_heights
+    storey_heights = (clean_storey_heights(body.get("storey_heights")) if "storey_heights" in body
+                      else clean_storey_heights(kept.get("storey_heights") or {}))
     _quantity_state().put("floor_edits", floor_job, {"edits": edits, "foundations": foundations, "overrides": overrides,
-                                                     "owner": str(request.user.pk)}, ttl=_RESULT_TTL_SEC)
-    return JsonResponse({"ok": True, "edits": edits, "foundations": foundations, "overrides": overrides})
+                                                     "storey_heights": storey_heights, "owner": str(request.user.pk)},
+                          ttl=_RESULT_TTL_SEC)
+    return JsonResponse({"ok": True, "edits": edits, "foundations": foundations, "overrides": overrides,
+                         "storey_heights": storey_heights})
+
+
+def quantity_floor_review(request, floor_job):
+    """2D·3D 도면 검토 페이지: 층별 확인 작업의 3D, 층마다 평면·단면(층고)·수량. 여기서 고친 층고·정한 값·
+    기초·부재는 floor-edits로 저장되고 다시 열면 그 값으로 다시 계산된다. 작업을 시작한 사람만 볼 수 있다."""
+    from django.middleware.csrf import get_token
+    from . import quantity_arch_takeoff, quantity_floor_rebar, quantity_floor_takeoff, quantity_review
+    if not admin_required(request.user):
+        return HttpResponse("관리자만 사용할 수 있는 기능입니다.", status=403)
+    floor_job = (floor_job or "").strip()[:200]
+    job = _quantity_state().get("job", floor_job) if floor_job else None
+    if not job or job.get("owner") != str(request.user.pk) or job.get("operation") != "api_quantity_floor_views":
+        return HttpResponse("층별 확인 작업을 찾을 수 없어요.", status=404)
+    result = _result_get(floor_job) or {}
+    floor_views = (result.get("results") or {}).get("floor_views") or {}
+    model = _floor_model(floor_job, result)
+    if not result.get("ok") or not model.get("buildings"):
+        return HttpResponse("층별 확인 결과에 구조 평면이 없어요.", status=409)
+    kept = _quantity_state().get("floor_edits", floor_job) or {}
+    links, edits = _floor_links(floor_job), _floor_edits(floor_job)
+    foundations, overrides, learned = _floor_foundations(floor_job), _floor_overrides(floor_job), _learned_values(floor_job)
+    try:
+        takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations,
+                                                       learned=learned, overrides=overrides)
+        rebar = quantity_floor_rebar.build_rebar(model, links, takeoff, general_spec=None, edits=edits, extras=None,
+                                                 overrides=overrides, learned=learned)
+        arch = quantity_arch_takeoff.build(floor_views.get("views") or [], model, overrides=overrides, learned=learned,
+                                           schedule=_floor_openings(floor_job))
+    except Exception:
+        logger.exception("quantity_floor_review_failed job=%s", floor_job[:16])
+        return HttpResponse("수량을 계산하지 못했어요.", status=500)
+    feedback = {"storey_heights": kept.get("storey_heights") or {}, "overrides": kept.get("overrides") or {},
+                "foundations": kept.get("foundations") or {}, "edits": edits}
+    data = quantity_review.review_data(model, takeoff, rebar, arch, floor_views.get("views") or [],
+                                       title=str(job.get("title") or "층별 확인"), feedback=feedback)
+    html = quantity_review.render_html(data, {"save_url": "/api/quantity/floor-edits/", "floor_job_id": floor_job,
+                                              "csrf": get_token(request)})
+    response = HttpResponse(html, content_type="text/html; charset=utf-8")
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 @require_POST
@@ -2469,7 +2527,7 @@ def api_quantity_floor_takeoff(request):
     if not job or job.get("owner") != str(request.user.pk) or job.get("operation") != "api_quantity_floor_views":
         return JsonResponse({"error": "층별 확인 작업을 찾을 수 없어요."}, status=404)
     result = _result_get(floor_job) or {}
-    model = ((result.get("results") or {}).get("floor_views") or {}).get("model") or {}
+    model = _floor_model(floor_job, result)
     if not result.get("ok") or not model.get("buildings"):
         return JsonResponse({"error": "층별 확인 결과에 구조 평면이 없어요."}, status=409)
     links = body.get("member_links")
@@ -2513,7 +2571,7 @@ def api_quantity_floor_arch(request):
     if not result.get("ok"):
         return JsonResponse({"error": "층별 확인 결과가 아직 없어요."}, status=409)
     try:
-        arch = quantity_arch_takeoff.build(floor_views.get("views") or [], floor_views.get("model") or {},
+        arch = quantity_arch_takeoff.build(floor_views.get("views") or [], _floor_model(floor_job, result),
                                            overrides=_floor_overrides(floor_job, body), learned=_learned_values(floor_job),
                                            schedule=_floor_openings(floor_job))
     except Exception:
@@ -8684,6 +8742,65 @@ def _write_floor_takeoff_sheet(ws, takeoff, navy_fill, yellow_fill, light_fill, 
     ws.freeze_panes = "B3"
 
 
+def _write_storeys_sheet(ws, takeoff, rebar, arch, navy_fill, yellow_fill, header_font, body_font, center, left, thin):
+    """3D 층 구성: 동마다 위층부터, 3D 모델의 층(바닥 EL·층고·쓴 평면)과 그 층의 콘크리트·거푸집·철근·건축 수량.
+    층고를 사람이 고친 층은 노란색으로 표시한다."""
+    headers = ["층", "바닥 EL(m)", "층고(m)", "층고 출처", "벽·기둥 평면", "슬래브·보 평면", "슬래브 면적(㎡)",
+               "콘크리트(㎥)", "거푸집(㎡)", "철근(t)", "조적(㎡)", "ALC(㎡)", "건식벽(㎡)", "창(개)", "문(개)", "비고"]
+    last = len(headers)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last)
+    ws.cell(row=1, column=1, value="3D 층 구성 — 층마다 레벨·층고와 수량 (위층부터, 2D·3D 검토 페이지와 같은 값)")
+    ws.cell(row=1, column=1).font = Font(name="맑은 고딕", bold=True, color="FFFFFF", size=13)
+    ws.cell(row=1, column=1).fill, ws.cell(row=1, column=1).alignment = navy_fill, center
+    rebar_rows = {b.get("name"): {r.get("key"): r for r in b.get("rows") or []} for b in (rebar or {}).get("buildings") or []}
+    arch_rows = {b.get("name"): {r.get("key"): r for r in b.get("rows") or []} for b in (arch or {}).get("buildings") or []}
+    grey, person_fill = PatternFill("solid", fgColor="EEEEEE"), PatternFill("solid", fgColor="FFF2B3")
+    row = 2
+    for building in takeoff.get("buildings") or []:
+        name = building.get("name") or ""
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=last)
+        ws.cell(row=row, column=1, value=f"[{name}]").font = Font(name="맑은 고딕", bold=True, color="073A5B", size=11)
+        ws.cell(row=row, column=1).fill = yellow_fill
+        row += 1
+        for col, text in enumerate(headers, 1):
+            cell = ws.cell(row=row, column=col, value=text)
+            cell.font, cell.fill, cell.alignment, cell.border = header_font, navy_fill, center, thin
+        row += 1
+        for item in reversed(building.get("rows") or []):
+            bars = (rebar_rows.get(name) or {}).get(item.get("key")) or {}
+            kg = bars.get("kg")
+            kg = kg.get("total") if isinstance(kg, dict) else kg
+            walls = (arch_rows.get(name) or {}).get(item.get("key")) or {}
+            areas = walls.get("walls") or {}
+
+            def area(kind):
+                value = areas.get(kind)
+                return round(float(value.get("area") or 0), 1) if isinstance(value, dict) else (value or None)
+            sheets = item.get("sheets") or {}
+            person = item.get("height_from") == "person"
+            values = [item.get("label"), item.get("elevation") if item.get("key") != "FT" else None, item.get("height"),
+                      "사람이 고침" if person else ("기초 두께" if item.get("key") == "FT" else "도면"),
+                      sheets.get("vertical") or "", sheets.get("horizontal") or "",
+                      (item.get("measures") or {}).get("slab_area"),
+                      (item.get("concrete") or {}).get("total", 0), (item.get("formwork") or {}).get("total", 0),
+                      round((kg or 0) / 1000.0, 3) if kg is not None else None,
+                      area("masonry"), area("alc"), area("dry"), walls.get("windows"), walls.get("doors"),
+                      "근사 — 합계에서 뺌" if item.get("approximate") else ""]
+            for col, value in enumerate(values, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.font, cell.border = body_font, thin
+                cell.alignment = left if col in (1, 5, 6, last) else center
+                if item.get("approximate"):
+                    cell.fill = grey
+                if person and col in (3, 4):
+                    cell.fill = person_fill
+            row += 1
+        row += 1
+    for col, width in enumerate([10, 11, 9, 11, 14, 14, 13, 12, 12, 9, 10, 10, 10, 8, 8, 22], 1):
+        ws.column_dimensions[get_column_letter(col)].width = width
+    ws.freeze_panes = "B2"
+
+
 def _build_excel_response(request):
     """
     수량산출 결과 JSON을 받아 엑셀 파일로 반환
@@ -8926,7 +9043,8 @@ def _build_excel_response(request):
     has_floor_takeoff = isinstance(floor_takeoff, dict) and bool(floor_takeoff.get("buildings"))
     # "AI 없이 CAD로만 진행": no AI reading, so the floor sheets lead and the AI-only sheets are left out
     cad_only = has_floor_takeoff and not any(results.get(k) for k in ("structural", "architectural"))
-    CAD_ONLY_SHEETS = ("요약", "층별 집계(N층 기준)", "층별 철근(N층 기준)", "건축 집계(층별)", "창호 집계", "임의로 정한 것", "검토 사항")
+    CAD_ONLY_SHEETS = ("요약", "층별 집계(N층 기준)", "층별 철근(N층 기준)", "건축 집계(층별)", "창호 집계", "임의로 정한 것", "검토 사항",
+                       "3D 층 구성")
     floor_arch = results.get("floor_arch")
 
     # 구조 시트
@@ -8964,6 +9082,9 @@ def _build_excel_response(request):
                              floor_rebar if isinstance(floor_rebar, dict) else None, navy_fill, header_font, body_font, left, thin,
                              floor_arch if isinstance(floor_arch, dict) else None)
         _write_review_notes_sheet(wb.create_sheet("검토 사항"), navy_fill, header_font, body_font, left, thin)
+        _write_storeys_sheet(wb.create_sheet("3D 층 구성"), floor_takeoff, floor_rebar if isinstance(floor_rebar, dict) else None,
+                             floor_arch if isinstance(floor_arch, dict) else None, navy_fill, yellow_fill, header_font, body_font,
+                             center, left, thin)
 
     # 건축 시트
     if "architectural" in results and results["architectural"].get("items"):

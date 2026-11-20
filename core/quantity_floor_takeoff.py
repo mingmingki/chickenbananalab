@@ -1404,6 +1404,8 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                             raw=raw, person=person)
             rows.append({
                 "key": key, "label": level.get("label") or key, "height": round(height, 3),
+                "elevation": round(float(level["elev"]), 3) if level.get("elev") is not None else None,
+                "height_from": level.get("height_from") or "drawing",
                 "sheets": {"vertical": level.get("sheet"), "horizontal": above.get("sheet") if above else None},
                 "concrete": _round(concrete, 2), "formwork": _round(form, 2),
                 "measures": {"vertical_area": round(vertical_area, 2), "faces": round(faces, 1),

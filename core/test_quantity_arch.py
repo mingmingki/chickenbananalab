@@ -168,7 +168,7 @@ class ArchApiTests(TestCase):
         takeoff = self.post("/api/quantity/floor-takeoff/", {"floor_job_id": "fv-1"}).json()["takeoff"]
         response = self.post("/api/quantity/download-excel/", {"results": {"floor_takeoff": takeoff, "floor_arch": arch}})
         workbook = openpyxl.load_workbook(io.BytesIO(response.content))
-        self.assertEqual(workbook.sheetnames, ["요약", "층별 집계(N층 기준)", "건축 집계(층별)", "창호 집계", "임의로 정한 것", "검토 사항"])
+        self.assertEqual(workbook.sheetnames, ["요약", "층별 집계(N층 기준)", "건축 집계(층별)", "창호 집계", "임의로 정한 것", "검토 사항", "3D 층 구성"])
         texts = lambda name: [c.value for row in workbook[name].iter_rows() for c in row if c.value is not None]
         self.assertIn("[101동]", texts("건축 집계(층별)"))
         self.assertIn("AW1", texts("창호 집계"))
