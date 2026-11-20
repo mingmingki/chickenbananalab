@@ -29,9 +29,12 @@ _LAYER_RULES = (
                         r"hat|해치|print|점형|_name$|name$|grid|axis|leader", re.I)),
     ("beam", re.compile(r"str_(beam|girder)", re.I)),
     ("frame", re.compile(r"conc|콘크리트|str_(col|wall|conc|fdn|found|slab_edge)|옹벽", re.I)),
-    ("masonry", re.compile(r"brick|벽돌|조적|블록|블럭|block", re.I)),
+    # finishes and ceilings name a material but draw no wall: a board lining (마감 석고보드),
+    # a ceiling grid (경량철골천장틀)
+    ("skip", re.compile(r"마감|천장|천정|ceil|fin(ish)?($|[-_ ])", re.I)),
+    ("masonry", re.compile(r"brick|벽돌|조적|블록|블럭|block|masonry", re.I)),
     ("alc", re.compile(r"alc", re.I)),
-    ("dry", re.compile(r"석고|gboard|gypsum|건식|경량|drywall|stud", re.I)),
+    ("dry", re.compile(r"석고|gboard|gyp|건식|경량|drywall|(^|[-_ ])dry($|[-_ ])|stud", re.I)),
     ("opening", re.compile(r"win|door|창호|문틀", re.I)),
 )
 _PLAN_EXCLUDE = re.compile(r"배근|일람|상세|단면|입면|창호|방화|동선|장애인|배치|구적|위치|결정|단열|방수|결로|코아|코어|"
@@ -192,6 +195,15 @@ def is_form_key(key):
     return bool(_FORM_KEY.search(key or ""))
 
 
+_KEY_MAP = re.compile(r"key\s*[-_ ]?\s*(map|plan)|키\s*[-_ ]?\s*(플랜|맵)", re.I)
+
+
+def is_key_map(name):
+    """A key map (the small site plan in a sheet's corner: "XR-KEY MAP", "XR-keyplan"): its building
+    outlines are drawn on layer 0 in pairs and would be read as walls, so it is never walked."""
+    return bool(_KEY_MAP.search(_nfc(name).split("$0$")[-1]))
+
+
 # ── drawing walk ──────────────────────────────
 
 def _quick_corners(entity, kind):
@@ -236,7 +248,7 @@ def _walk(doc, entities, matrix, inherit, xrefs, out, depth=0, classify=None, de
             layer = inherit
         if kind == "INSERT":
             block = doc.blocks.get(entity.dxf.name)
-            if block is None or depth > 8:
+            if block is None or depth > 8 or is_key_map(entity.dxf.name):
                 continue
             try:
                 placed = Matrix44.chain(entity.matrix44(), matrix)
@@ -697,7 +709,8 @@ def _plan_views(name, doc, rows, xrefs, roles=None, left_out_for=None):
             from . import quantity_arch
             tags = []  # the type tags (AW1, SD-2 ...) written beside the windows and doors
             inserts = quantity_arch.opening_inserts(doc, xrefs, _frames_limit(arch_rows), _is_opening_insert,
-                                                    lambda path: _key(re.split(r"[\\/]", path)[-1]), tags=tags)
+                                                    lambda path: _key(re.split(r"[\\/]", path)[-1]), tags=tags,
+                                                    layer_kind=layer_category)
         except Exception:
             inserts, tags = [], []
     views = []

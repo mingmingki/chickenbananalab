@@ -578,6 +578,9 @@ def measure_plan(walls, cols, opens, stairs, is_outside=None, above=(), slab_rec
 
 SLAB_THICKNESS = 0.21      # assumed; slab schedules are rarely readable from the plans
 BEAM_DEPTH_DEFAULT = 0.6   # beams whose schedule gives no depth ("180 X 건축치수", unlabelled runs)
+# a beam-framed plan labels nearly all its beam runs (unmarked ≤ about 20 % on the check projects);
+# past half unmarked, the "beam" lines are a wall-type floor's dashed walls below and slab edges
+UNLABELLED_BEAM_SHARE_MAX = 0.5
 WINDOW_HEIGHT = 1.8        # assumed opening height; the wall above and below an outer opening is concrete
 # stairs per m² of stair hall in plan: 150 mm waist slab and landings plus 178 x 260 mm steps
 STAIR_CONCRETE_PER_M2 = 0.2
@@ -628,7 +631,18 @@ def _link_members(links, building, sheet):
     if not wanted:
         return None
     sizes = _schedule_sizes(links)
+    # a plan whose "beam" lines are mostly unmarked is a wall-type floor: its dashed walls below and
+    # slab edges are no beams, and a marked run there without a schedule depth (a lintel or link
+    # beam label, "LB0") is measured along those same lines (a beam-framed floor marks nearly
+    # every run)
+    wall_type = set()
+    for index in wanted:
+        family = (plans[index].get("geometry") or {}).get("beams") or {}
+        measured = float(family.get("measured_mm") or 0)
+        if measured and float((family.get("unlabelled") or {}).get("length_mm") or 0) > UNLABELLED_BEAM_SHARE_MAX * measured:
+            wall_type.add(index)
     beams, columns = [], []
+    left_out = 0.0
     for item in links.get("marks") or []:
         category, mark = item.get("category"), item.get("mark")
         for occurrence in item.get("occurrences") or []:
@@ -638,16 +652,22 @@ def _link_members(links, building, sheet):
                 measured = occurrence.get("measured") or {}
                 b, h = sizes.get((category, mark), (None, None))
                 for width, length in (measured.get("widths") or {}).items():
+                    if h is None and occurrence.get("plan") in wall_type:
+                        left_out += length / 1000.0
+                        continue
                     beams.append({"mark": mark, "length": length / 1000.0, "b": b or int(width) / 1000.0, "h": h})
             elif category == "columns":
                 b, h = sizes.get((category, mark), (None, None))
                 if b and h:
                     columns.append({"mark": mark, "count": occurrence.get("count") or 0, "b": b, "h": h})
     for index in wanted:
-        unlabelled = (((plans[index].get("geometry") or {}).get("beams") or {}).get("unlabelled") or {})
+        unlabelled = ((plans[index].get("geometry") or {}).get("beams") or {}).get("unlabelled") or {}
+        if index in wall_type:
+            left_out += float(unlabelled.get("length_mm") or 0) / 1000.0
+            continue
         for width, length in (unlabelled.get("widths") or {}).items():
             beams.append({"mark": None, "length": length / 1000.0, "b": int(width) / 1000.0, "h": None})
-    return {"beams": beams, "columns": columns}
+    return {"beams": beams, "columns": columns, "left_out_unlabelled_m": round(left_out, 1)}
 
 
 def _net_slab(plan):
@@ -1292,6 +1312,9 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                     form["gang"] += edge
             if above is not None and (hplan is not None or slab_area > 0):
                 above_members = _link_members(links, beam_source[0], beam_source[1]) if links else None
+                if above_members and above_members.get("left_out_unlabelled_m"):
+                    notes.append(f"보 선 {above_members['left_out_unlabelled_m']:.0f}m는 벽식 평면의 부호 없는 선(아래층 벽 점선 등)이거나 "
+                                 "일람표에 춤이 없는 부호라 뺐어요")
                 if above_members and beam_share < 1.0:
                     above_members = {"beams": [dict(b, length=b["length"] * beam_share) for b in above_members["beams"]],
                                      "columns": above_members["columns"]}

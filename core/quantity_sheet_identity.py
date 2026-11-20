@@ -733,11 +733,17 @@ def build_sheet_registry(sheets_by_file, evidence_by_file=None, index_entries=No
     else:
         entries = parse_drawing_index(sheets_by_file, evidence_by_file) if evidence_by_file else []
     sequence = {}
+    index_numbers = {s["drawing_number"] for s in sheets if s["drawing_number"] and INDEX_TITLE.search(_compact(s.get("drawing_title")))}
     prefixes = {number_prefix(s["drawing_number"]) for s in sheets if s["drawing_number"]}
     prefixes |= {number_prefix(e["drawing_number"]) for e in entries}
     for prefix in sorted(prefixes):
         frames = [s for s in sheets if s["drawing_number"] and number_prefix(s["drawing_number"]) == prefix]
         listed = [e for e in entries if number_prefix(e["drawing_number"]) == prefix]
+        if listed and all(e["drawing_number"] in index_numbers for e in listed) and len(frames) > len(listed):
+            # an index read as nothing but its own number (the list itself is drawn as blocks or a
+            # picture) cannot define the set: every other frame would be left out
+            issues.append({"reason": "drawing_index_unread", "prefix": prefix, "listed": len(listed), "frames": len(frames)})
+            listed = []
         sequence[prefix] = _sequence_from_index(listed, frames, issues) if listed else _sequence_numeric(frames)
     return {"sheets": sheets, "sequence": sequence, "index_entries": entries, "issues": issues}
 

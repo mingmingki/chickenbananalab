@@ -24,7 +24,16 @@ import math
 import re
 
 WALL_KINDS = ("masonry", "alc", "dry")
+# thinner than this the lines are a lining, not a wall: a dry wall is at least 50 mm of studs and
+# boards, a block or brick wall at least a 0.5B brick (90 mm)
+MIN_WALL_M = {"masonry": 0.06, "alc": 0.05, "dry": 0.05}
 OPENING_REACH_M = 0.6
+# a window or door block known by what it draws: most of its own lines on window/door layers, and
+# no bigger than an opening (a unit-plan block also holds many window lines, but among far more)
+OPENING_SHARE = 0.6
+OPENING_BLOCK_MM = (300.0, 6000.0)
+DUPLICATE_M = 0.1  # two openings of one kind this close are one opening drawn twice
+ANONYMOUS_BLOCK = re.compile(r"^(?:\*|[A-Z]\$C[0-9A-F]{6,}$)")
 TAG_REACH_M = 1.5
 MAX_TAGS = 20000
 DOOR_NAME = re.compile(r"DOOR|DR|문|^(?:A|W|S|F|P|SS|H)?D\d|WD|AD|SD|FD|PD", re.I)
@@ -52,6 +61,41 @@ def _block_info(doc, name, cache):
     return info
 
 
+LINE_KINDS = ("LINE", "LWPOLYLINE", "POLYLINE", "ARC")
+_DOOR_LAYER = re.compile(r"DOOR|DR($|[-_ ])|문", re.I)
+
+
+def opening_by_content(doc, name, layer, layer_kind, cache):
+    """"door" / "window" for a block drawn like an opening whatever its name ("PW-1500(D)",
+    "SD-700", "단위세대_WD-1000" on layer 0): most of its own lines on window/door layers and the
+    size of an opening; else None. Lines on layer 0 take the insert's layer."""
+    key = (id(doc), name, layer, "content")
+    if key in cache:
+        return cache[key]
+    found = None
+    block = doc.blocks.get(name)
+    # pasted groups ("A$C2CEE7391", "*U12") hold a door with its frame and wall bits: not one opening
+    anonymous = bool(ANONYMOUS_BLOCK.match(name.split("$0$")[-1]))
+    if block is not None and layer_kind is not None and not block.block_record.is_xref and not anonymous:
+        lines = on_opening = on_door = 0
+        for entity in block:
+            if entity.dxftype() not in LINE_KINDS:
+                continue
+            own = entity.dxf.get("layer", "0")
+            own = layer if own == "0" else own
+            lines += 1
+            if layer_kind(own) == "opening":
+                on_opening += 1
+                if _DOOR_LAYER.search(own.split("$0$")[-1].split("|")[-1]):
+                    on_door += 1
+        if lines >= 3 and on_opening >= OPENING_SHARE * lines:
+            w, h, has_arc = _block_info(doc, name, cache)
+            if OPENING_BLOCK_MM[0] <= max(w, h) <= OPENING_BLOCK_MM[1]:
+                found = "door" if has_arc or on_door >= 0.5 * on_opening else "window"
+    cache[key] = found
+    return found
+
+
 def _text(entity):
     try:
         return entity.plain_text() if entity.dxftype() == "MTEXT" else entity.dxf.get("text", "")
@@ -59,12 +103,14 @@ def _text(entity):
         return ""
 
 
-def opening_inserts(doc, xrefs, limit=None, is_opening=None, key_of=None, tags=None):
+def opening_inserts(doc, xrefs, limit=None, is_opening=None, key_of=None, tags=None, layer_kind=None):
     """[(name, kind "door"/"window", x, y, width, tag)] of the window and door inserts of a drawing,
     in drawing coordinates (tag: a type code carried by the insert's own attributes, else None).
-    ``is_opening(layer, block name)`` says whether an insert is one; other blocks and xrefs are
-    walked into (a unit plan block holds its doors). ``key_of(path)`` finds an xref's document in
-    ``xrefs``. ``tags``, a list, gets the type tags written on the drawing: [(code, x, y)]."""
+    ``is_opening(layer, block name)`` says whether an insert is one; ``layer_kind(layer)`` (the
+    layer's material category) also finds the ones only their lines show (opening_by_content);
+    other blocks and xrefs are walked into (a unit plan block holds its doors). ``key_of(path)``
+    finds an xref's document in ``xrefs``. ``tags``, a list, gets the type tags written on the
+    drawing: [(code, x, y)]."""
     from ezdxf.math import Matrix44, Vec3
     from .quantity_arch_schedule import code_key
     out, cache = [], {}
@@ -107,7 +153,8 @@ def opening_inserts(doc, xrefs, limit=None, is_opening=None, key_of=None, tags=N
                     walk(target, target.modelspace(), placed, None, depth + 1)
                 continue
             attrib_keys = [(code_key(_text(a)), a) for a in entity.attribs]
-            if is_opening(layer, name):
+            by_content = None if is_opening(layer, name) else opening_by_content(document, name, layer, layer_kind, cache)
+            if by_content or is_opening(layer, name):
                 origin = placed.transform(Vec3(0, 0, 0))
                 if not inside(origin):
                     continue
@@ -115,7 +162,10 @@ def opening_inserts(doc, xrefs, limit=None, is_opening=None, key_of=None, tags=N
                 ux = placed.transform_direction(Vec3(1, 0, 0)).magnitude
                 uy = placed.transform_direction(Vec3(0, 1, 0)).magnitude
                 width = max(w * ux, h * uy)
-                kind = "door" if has_arc or (DOOR_NAME.search(name) and not WINDOW_NAME.search(name)) else "window"
+                if by_content:
+                    kind = by_content
+                else:
+                    kind = "door" if has_arc or (DOOR_NAME.search(name) and not WINDOW_NAME.search(name)) else "window"
                 own = next((key for key, _a in attrib_keys if key), None)
                 out.append((name, kind, float(origin.x), float(origin.y), float(width), own, bool(has_arc)))
                 continue
@@ -155,6 +205,22 @@ def _type_tags(placed, tags):
     return names
 
 
+def _without_copies(placed):
+    """One opening per spot: a block inserted twice in the same place, or a door drawn as two
+    blocks (leaf and frame) on one point, counts once (the widest kept)."""
+    kept, grid = [], {}
+    for item in sorted(placed, key=lambda i: -i[4]):
+        _name, kind, lx, ly = item[:4]
+        cell = (round(lx / DUPLICATE_M), round(ly / DUPLICATE_M))
+        near = [k for gx in (cell[0] - 1, cell[0], cell[0] + 1) for gy in (cell[1] - 1, cell[1], cell[1] + 1)
+                for k in grid.get((gx, gy), ())]
+        if any(k[1] == kind and math.hypot(k[2] - lx, k[3] - ly) <= DUPLICATE_M for k in near):
+            continue
+        kept.append(item)
+        grid.setdefault(cell, []).append(item)
+    return kept
+
+
 def measure(paths, box, inserts=(), tags=()):
     """Walls by material and the openings of one architectural frame.
 
@@ -181,7 +247,11 @@ def measure(paths, box, inserts=(), tags=()):
         section = float(measured.get("area") or 0)
         if faces <= 0 or section <= 0:
             continue
-        walls[kind] = {"length": round(faces / 2.0, 2), "thickness": round(2 * section / faces, 3), "section": round(section, 3)}
+        thickness = 2 * section / faces
+        if thickness < MIN_WALL_M[kind]:
+            # board linings drawn on a wall layer (석고보드 on the concrete walls): 2-4 cm apart, no partition
+            continue
+        walls[kind] = {"length": round(faces / 2.0, 2), "thickness": round(thickness, 3), "section": round(section, 3)}
     grid = {}
     for kind, segs in segments.items():
         for seg in segs:
@@ -195,6 +265,7 @@ def measure(paths, box, inserts=(), tags=()):
         own, arc = (item[5], item[6]) if len(item) > 6 else (None, kind == "door")
         if (x0 <= px <= x1 and y0 <= py <= y1) and width > 0:
             placed.append((name, kind, (px - x0) / 1000.0, (py - y0) / 1000.0, width, own, arc))
+    placed = _without_copies(placed)
     local_tags = [(key, (tx - x0) / 1000.0, (ty - y0) / 1000.0) for key, tx, ty in tags or () if x0 <= tx <= x1 and y0 <= ty <= y1]
     types = _type_tags(placed, local_tags)
     openings = {}

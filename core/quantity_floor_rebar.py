@@ -36,6 +36,7 @@ WALL_FOOTING_DIST = "D13@300"  # distribution bars along a wall footing when its
 COVER_M = 0.04
 HOOK_M = 0.2               # two 135° hooks of a stirrup or hoop, roughly
 DOUBLE_LAYER_MIN_M = 0.18  # walls this thick get bars at both faces
+COUNTED_WALL_PIECE_M = 1.5  # a wall listed by bar count ("12 - D13") is a pier about this long
 DEFAULTS = {
     "wall": {"vertical_bar": "D10@300", "horizontal_bar": "D10@300"},  # the usual unmarked wall (W0)
     "slab": ["D10@200", "D10@200", "D10@200", "D10@200"],  # top and bottom, both ways
@@ -192,7 +193,11 @@ def _wall_runs(links, building, sheet):
     for item in (links or {}).get("marks") or []:
         if item.get("category") != "walls":
             continue
-        for place in item.get("typical_plans") or []:
+        typical = item.get("typical_plans") or []
+        seen = {place.get("plan") for place in typical}
+        # marks placed on a floor plan itself (not through a unit plan) count the same way
+        places = typical + [p for p in item.get("occurrences") or [] if p.get("plan") not in seen]
+        for place in places:
             if place.get("plan") not in wanted:
                 continue
             for width, length in ((place.get("measured") or {}).get("widths") or {}).items():
@@ -213,6 +218,13 @@ def _wall(tally, values, length, thickness, height, top_storey):
         dia, spacing = v
         each = height + (tally.anchor(dia, "전단벽") if top_storey else tally.lap(dia, "전단벽"))
         tally.add("wall", vertical, dia, qc._spacing_bar_count(length, spacing) * layers * each)
+    elif _bars(vertical):
+        # a short or boundary wall listed by bar count ("12 - D13"): that many bars per piece,
+        # one piece for every wall-pier length of run
+        pieces = max(1, round(length / COUNTED_WALL_PIECE_M))
+        for count, dia in _bars(vertical):
+            each = height + (tally.anchor(dia, "전단벽") if top_storey else tally.lap(dia, "전단벽"))
+            tally.add("wall", vertical, dia, count * pieces * each)
     if h:
         dia, spacing = h
         laps = max(0, math.ceil(length / qc.STOCK_BAR_LENGTH_M) - 1)
