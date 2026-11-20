@@ -34,7 +34,7 @@
     opening: "개구부: 벽 선 위에서 시작점과 끝점을 누르세요. 두께는 맞은편 벽 선에서 재요. " + TYPED,
     remove: "부재 빼기: 잘못 잡힌 벽·보를 누르면 수량에서 바로 빠져요 (고친 표시를 누르면 그 표시가 지워져요).",
     erase: "선 지우기: 쓸데없는 선을 누르거나, 끌어서 상자 안의 선을 한꺼번에 고르세요. '다시 읽기'를 누르면 그 선을 빼고 다시 재요.",
-    keep: "되살리기: 빨간 점선(지운 선)을 누르면 다시 넣어요. 주황 점선(후보)을 누르면 후보에서 빼요.",
+    keep: "되살리기: 빨간 점선(지운 선)을 누르면 다시 넣어요. 분홍 점선(후보)을 누르면 후보에서 빼요.",
     measure: "거리 재기: 두 점을 누르세요.",
     mark: "표시·AI: 이상한 곳을 끌어서 동그라미로 감싸고 무엇이 이상한지 적으면, AI가 고칠 안을 내요 (보내기 전에 비용을 보여줘요)."
   };
@@ -322,7 +322,7 @@
       var suspects = lines.segs.filter(function (q) { return q.cls === "suspect" && findSeg(planLines().erase, sheetSeg(q)) < 0 && findSeg(planLines().keep, sheetSeg(q)) < 0; });
       var hint = bar.querySelector(".qpe-suspects");
       hint.hidden = !suspects.length;
-      if (suspects.length) hint.querySelector("span").textContent = "주황 점선은 읽으면서 찾은 쓸데없는 선 후보 " + suspects.length + "조각이에요 (틀 밖으로 나간 외톨이 선, 동떨어진 외톨이 선). 아직 수량에 들어 있어요.";
+      if (suspects.length) hint.querySelector("span").textContent = "분홍 점선은 읽으면서 찾은 쓸데없는 선 후보 " + suspects.length + "조각이에요 (틀 밖으로 나간 외톨이 선, 동떨어진 외톨이 선). 아직 수량에 들어 있어요.";
       var reread = bar.querySelector(".qpe-reread");
       var pending = options.linesPending ? options.linesPending() : false;
       reread.hidden = !pending;

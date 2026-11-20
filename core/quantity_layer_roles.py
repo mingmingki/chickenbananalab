@@ -52,6 +52,8 @@ _DASHED = re.compile(r"HID|DASH|DOT|PHANTOM|숨은|파선|^D\d|^DASHED", re.I)
 _CENTER = re.compile(r"CEN|CENTER|중심|DASHDOT|CHAIN", re.I)
 
 MIN_LAYER_M = 5.0
+STRAY_WALL_SHARE = 0.25  # a shape-only wall layer this small beside named walls is background
+_STRUCTURE_WORD = re.compile(r"구조|(^|[^A-Z])STR", re.I)
 MAX_SEGMENTS = 30000
 
 
@@ -218,7 +220,7 @@ def assign_roles(features, segments_by_layer=None, known=None, learned=None, hin
             role, reason, by = "stair", "이름이 계단", "name"
         elif _MASONRY.search(name):
             role, reason, by = None, "이름이 조적·건식벽", "name"
-        elif _OPEN.search(name) and not wall_like:
+        elif _OPEN.search(name) and not (wall_like and _WALL.search(name)):
             role, reason, by = "opening", "이름이 개구부", "name"
         elif _EXCLUDE.search(name) and not (_WALL.search(name) or _BEAM.search(name) or _COLUMN.search(name)):
             role, reason, by = None, "이름이 표기·치수·기타", "name"
@@ -241,6 +243,9 @@ def assign_roles(features, segments_by_layer=None, known=None, learned=None, hin
                     role, reason = "beam", f"점선 짝선 {width}mm, 벽과 겹치지 않음"
                 else:
                     role, reason = None, "점선 짝선이지만 폭이 보·벽 범위 밖"
+        elif (_BELOW.search(name) or hint == "wall_below") and not _ABOVE.search(name) and paired >= 0.3:
+            # the floor below drawn in solid lines on its own layer ("하부골조", "CON-HID")
+            role, reason, by = "wall_below", "이름이 아래층·숨은선 (실선으로 그림)", "name"
         else:
             # mostly closed outlines are columns (a rectangle's sides also pair up like a wall)
             named_column = bool(_COLUMN.search(name)) or hint == "column"
@@ -274,6 +279,22 @@ def judge(items, known=None, learned=None, hints=None):
     coincidence = {layer: _coincidence(_segments(by_layer[layer]), wall_segments)
                    for layer, f in features.items() if f["linetype"] == "dashed" and f["pair"] >= 0.4}
     roles = assign_roles(features, {"_coincidence": coincidence}, known=known, learned=learned, hints=hints)
+    _drop_stray_wall_layers(roles, features)
     for layer, info in roles.items():
         info.update(features[layer])
     return roles
+
+
+def _drop_stray_wall_layers(roles, features):
+    """Beside a layer whose name says wall or concrete, a small layer taken for walls by its
+    shape alone is background linework (an architectural plan line, an opening outline): left out.
+    A layer naming the structure (구조, STR) stays."""
+    named = sum(features[layer]["m"] for layer, info in roles.items()
+                if info["role"] in ("wall", "column") and info["by"] in ("name", "both", "person", "learned"))
+    if not named:
+        return
+    for layer, info in roles.items():
+        if info["role"] != "wall" or info["by"] != "geometry" or _STRUCTURE_WORD.search(base_name(layer)):
+            continue
+        if features[layer]["m"] < STRAY_WALL_SHARE * named:
+            info.update(role=None, reason=f"이름이 벽인 레이어가 따로 있고 모양만 벽이라 뺐어요 ({info['reason']})", by="geometry")

@@ -39,6 +39,7 @@
     var nextMeta = null;
     var stepNo = 1;
     var perStep = {};
+    var goingBack = false;  // the next card is one the person went back to: it comes from the left
 
     root.classList.add("qd-deck");
     root.setAttribute("aria-live", "polite");
@@ -67,8 +68,9 @@
                art: arts[stepNo] || "ai", eyebrow: String(count).padStart(2, "0") };
     }
 
-    function retire(card) {
+    function retire(card, back) {
       if (!card || !card.el.parentNode) return;
+      card.el.classList.toggle("is-back", !!back);
       card.el.classList.remove("is-current");
       card.el.classList.add("is-leaving");
       card.el.setAttribute("aria-hidden", "true");
@@ -78,9 +80,11 @@
     function openCard(meta) {
       meta = meta || nextMeta || defaultMeta();
       nextMeta = null;
+      var back = goingBack;
+      goingBack = false;
       perStep[stepNo] = (perStep[stepNo] || 0) + 1;
       var el = document.createElement("section");
-      el.className = "qd-card is-entering" + (meta.wide ? " is-wide" : "") + (meta.kind ? " is-" + meta.kind : "");
+      el.className = "qd-card is-entering" + (back ? " is-back" : "") + (meta.wide ? " is-wide" : "") + (meta.kind ? " is-" + meta.kind : "");
       el.innerHTML =
         '<div class="qd-card-main">' +
           '<div class="qd-eyebrow"><span class="qd-orb" aria-hidden="true"></span>' +
@@ -95,7 +99,7 @@
       var previous = current;
       current = card;
       root.appendChild(el);
-      retire(previous);
+      retire(previous, back);
       renderDots(meta);
       // let the entering state paint first so the slide runs; the timer covers a page whose
       // frames are paused (background tab), so a card is never left invisible
@@ -103,7 +107,7 @@
       function show() {
         if (shown) return;
         shown = true;
-        el.classList.remove("is-entering");
+        el.classList.remove("is-entering", "is-back");
         el.classList.add("is-current");
       }
       window.requestAnimationFrame(function () { window.requestAnimationFrame(show); });
@@ -189,6 +193,8 @@
         current.answered = true;
       },
       close: function () { if (current) current.answered = true; },
+      // ← 이전: the card that opens next slides in from the left and this one leaves to the right
+      back: function () { goingBack = true; if (current) current.answered = true; },
       scrollLatest: function (node) { scrollLatest(node || (current && current.body.lastElementChild)); },
       // "프로젝트 확인이 끝났습니다. 다음 …" between two steps: a full card with the step number,
       // spoken; resolves when the voice is done (or after a short pause without voice).

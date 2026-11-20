@@ -29,7 +29,7 @@ DITTO = {"↑", "〃", "″", "\""}
 
 ROW_LABELS = (
     ("mark", r"부호|MARK|SYMBOL"),
-    ("size", r"SIZE|단면크기|크기|B[X×]D|B[X×]H"),
+    ("size", r"SIZE|단면크기|크기|B(?:\(MM\))?[X×]D(?:\(MM\))?|B(?:\(MM\))?[X×]H(?:\(MM\))?"),
     ("main_bar", r"MAINBAR|MAINREBAR|주근"),
     ("hoop_end", r"(?:HOOPBAR|HOOP|띠철근|후프)\((?:END|단부)\)"),
     ("hoop_mid", r"(?:HOOPBAR|HOOP|띠철근|후프)\((?:MID|CENTER|중앙부?)\)"),
@@ -46,10 +46,11 @@ HEADER_LABELS = (
     ("levels", r"층별|층|구분층|LEVEL|FLOOR|STORY"),
     ("fck", r"FCK(?:\(MPA\))?|강도(?:\(MPA\))?"),
     ("thickness", r"두께(?:\(MM\))?|벽두께|THK\.?|THICK(?:NESS)?|WALLTHK\.?"),
-    ("vertical_bar", r"수직근|VERT\.?|VERTICAL(?:BAR)?|V-?BAR"),
-    ("horizontal_bar", r"수평근|HORI\.?|HORIZ\.?|HORIZONTAL(?:BAR)?|H-?BAR"),
+    ("vertical_bar", r"수직(?:철)?근|VERT\.?|VERTICAL(?:BAR)?|V-?BAR"),
+    ("horizontal_bar", r"수평(?:철)?근|HORI\.?|HORIZ\.?|HORIZONTAL(?:BAR)?|H-?BAR"),
+    ("closed_hoop", r"CLOSEDHOOP|폐쇄형?띠철근"),
     ("remark", r"비고|REMARKS?|NOTES?"),
-    ("mark", r"NO\.?|부호|MARK|SYMBOL"),
+    ("mark", r"NO\.?|부호|MARK|SYMBOL|WALL|벽체|벽체부호"),
     ("type", r"TYPE|형식"),
     ("depth", r"D(?:\(MM\))?"),
     ("length_x", r"LX(?:\(MM\))?"),
@@ -60,11 +61,30 @@ HEADER_LABELS = (
 )
 PARENT_LABELS = (("footing_size", r"FOOTINGSIZE|기초크기"), ("column_size", r"COLUMNSIZE|기둥크기"),
                  ("rebar", r"RE-?BAR(?:SCHEDULE)?|배근|철근"))
+# Foundation schedules (기초 일람표) also give a mat's or a wall footing's bars by column (상부근 X방향,
+# 하부근, 보강근, 배력근) and a wall footing's width. Read only on sheets titled as foundations, so
+# every other schedule reads exactly as before.
+FOUNDATION_HEADER_LABELS = (
+    ("top_bar", r"상부근|상부|상단근|TOP(?:BAR)?"),
+    ("bottom_bar", r"하부근|하부|하단근|BOT(?:TOM)?\.?(?:BAR)?"),
+    ("extra_bar", r"보강근|추가근|추가보강근|ADD(?:ITIONAL)?\.?(?:BAR)?"),
+    ("dist_bar", r"배력근|길이방향근?|LONG(?:ITUDINAL)?\.?(?:BAR)?|DIST(?:RIBUTION)?\.?(?:BAR)?"),
+    ("width", r"B(?:\(MM\))?|폭|기초폭|WIDTH"),
+)
+FOUNDATION_ROW_LABELS = (
+    ("thickness", r"두께(?:\(MM\))?|기초두께|THK\.?|THICK(?:NESS)?"),
+    ("extra_bar", r"보강근|추가근|추가보강근|ADD(?:ITIONAL)?\.?(?:BAR)?"),
+    ("dist_bar", r"배력근|길이방향근?|LONG(?:ITUDINAL)?\.?(?:BAR)?|DIST(?:RIBUTION)?\.?(?:BAR)?"),
+    ("width", r"폭|기초폭|WIDTH"),
+)
+BAR_KEYS = ("top_bar", "bottom_bar", "extra_bar", "dist_bar", "rebar")
+DIRECTIONS = (("_x", r"X|X방향|X-?DIR\.?|단변|단변방향|가로|가로방향"), ("_y", r"Y|Y방향|Y-?DIR\.?|장변|장변방향|세로|세로방향"))
+STIRRUP_WORD = re.compile(r"늑근|스터럽|STIRRUPS?|STR\.?")
 GENERIC_LEAF = re.compile(r"^(?:\d|\(MM\))$")
 LEVEL_PREFIX = re.compile(r"^(-\d{1,2}|B\d{1,2}|R|PH|P|\d{1,2})(?=[A-Z])(.+)$")
 SPEC_PATTERNS = (("rebar", re.compile(r"(?:[A-Z]{0,3}D)\d{2}\s*@\s*\d{2,4}", re.I)),
                  ("size", re.compile(r"\d{3,5}\s*[X×x]\s*\d{3,5}(?:\s*[X×x]\s*\d{3,5})?")),
-                 ("thickness", re.compile(r"(?:THK|T)\s*[.=:]?\s*\d{3,4}", re.I)))
+                 ("thickness", re.compile(r"(?:THK|T)\s*[.=:]?\s*\d{3,4}|MAT[_\-\s]?\d\.\d{1,2}(?![\d.])", re.I)))
 SPEC_LABEL = re.compile(r"^[가-힣][가-힣A-Za-z0-9()]{1,7}$")
 
 
@@ -83,6 +103,20 @@ def _center(text):
 def _label(patterns, text):
     key = _key(text)
     return next((name for name, pattern in patterns if re.fullmatch(pattern, key)), None)
+
+
+def _header_label(text, foundation=False):
+    return _label(HEADER_LABELS, text) or (_label(FOUNDATION_HEADER_LABELS, text) if foundation else None)
+
+
+def _direction(text):
+    """"_x" / "_y" for a direction sub-header (X방향, 단변, Y, 장변 ...)."""
+    return _label(DIRECTIONS, text)
+
+
+def is_foundation_title(title):
+    """A sheet whose title names foundations (기초 일람표, FOOTING SCHEDULE, MAT 기초 ...)."""
+    return bool(re.search(r"기초|FOUNDATION|FOOTING|FTG|MAT", _key(title)))
 
 
 def schedule_mark(text):
@@ -154,13 +188,13 @@ def _spacing(xs, fallback):
 
 # ── header-row tables (walls, footings) ─────────────────────────────────────
 
-def _header_tables(texts, claimed):
+def _header_tables(texts, claimed, foundation=False):
     tables = []
     rows = _rows_by_y([t for t in texts if id(t) not in claimed])
-    headerish = lambda t: (_label(HEADER_LABELS, t["text"]) or _label(PARENT_LABELS, t["text"])
-                           or GENERIC_LEAF.match(_key(t["text"])))
+    headerish = lambda t: (_header_label(t["text"], foundation) or _label(PARENT_LABELS, t["text"])
+                           or GENERIC_LEAF.match(_key(t["text"])) or (foundation and _direction(t["text"])))
     for index, (y, h, items) in enumerate(rows):
-        keys = [_label(HEADER_LABELS, t["text"]) for t in items]
+        keys = [_header_label(t["text"], foundation) for t in items]
         recognized = [k for k in keys if k]
         if len(recognized) < 3 or not ({"levels", "mark"} & set(recognized)) or any(id(t) in claimed for t in items):
             continue
@@ -181,14 +215,58 @@ def _header_tables(texts, claimed):
         for number, start in enumerate(starts):
             left = start["x"] - 2 * start["h"]
             right = starts[number + 1]["x"] - 2 * start["h"] if number + 1 < len(starts) else float("inf")
-            table = _read_header_table(rows, band, left, right, start_key, claimed)
+            table = _read_header_table(rows, band, left, right, start_key, claimed, foundation)
             if table:
                 tables.extend(table)
+            if table and start_key == "mark" and number + 1 == len(starts):
+                tables.extend(_copied_header_tables(rows, band, start, claimed, foundation))
     return tables
 
 
-def _leaf_columns(band, left, right):
-    """Lowest header cells of a header band; a stacked label takes its upper label as parent."""
+def _copied_header_tables(rows, band, start, claimed, foundation=False):
+    """A schedule drawn as side-by-side copies under one header (a wall list in three column
+    groups, the header written over the first): each column of marks right of the header reads
+    with the header's columns moved over to it."""
+    columns = _recognized_columns(_leaf_columns(band, start["x"] - 2 * start["h"], float("inf"), foundation))
+    mark_column = next((c for c in columns if c["key"] == "mark"), None)
+    if mark_column is None or len(columns) < 3:
+        return []
+    h = start["h"]
+    width = max(c["x"] for c in columns) - min(c["x"] for c in columns) + 4 * h
+    band_bottom = band[-1][0]
+    marks = sorted((t for _y, _h, items in rows for t in items
+                    if id(t) not in claimed and _center(t) > mark_column["x"] + width - 2 * h and schedule_mark(t["text"])
+                    and abs(band_bottom - t["y"]) <= 400 * h), key=_center)
+    groups = []
+    for mark in marks:
+        if groups and abs(_center(mark) - groups[-1][0]) <= 3 * h:
+            groups[-1][1].append(mark)
+        else:
+            groups.append([_center(mark), [mark]])
+    tables = []
+    for x, members in groups:
+        if len(members) < 2:
+            continue
+        shift = x - mark_column["x"]
+        left = start["x"] - 2 * h + shift
+        tables += _read_header_table(rows, band, left, left + width, "mark", claimed, foundation,
+                                     fixed_columns=[dict(c, x=c["x"] + shift) for c in columns])
+    return tables
+
+
+def _recognized_columns(columns):
+    """The header's own columns: labels it names, and unnamed ones no farther right than its last
+    named column (texts of a copy drawn beside the header are not its columns)."""
+    named = [c["x"] for c in columns if not c["key"].startswith("col_")]
+    if not named:
+        return columns
+    spacing = _spacing(sorted(named), 0.0) or 0.0
+    return [c for c in columns if not c["key"].startswith("col_") or c["x"] <= max(named) + spacing]
+
+
+def _leaf_columns(band, left, right, foundation=False):
+    """Lowest header cells of a header band; a stacked label takes its upper label as parent.
+    On a foundation schedule a direction under a bar label (상부근 / X방향) keys "top_bar_x"."""
     band_rows = [[t for t in items if left <= _center(t) < right] for _y, _h, items in band]
     parent_of, has_child = {}, set()
     for level, items in enumerate(band_rows):
@@ -200,7 +278,7 @@ def _leaf_columns(band, left, right):
                     parent_of[id(text)] = parent
                     has_child.add(id(parent))
                     break
-            if id(text) not in parent_of and GENERIC_LEAF.match(_key(text["text"])):
+            if id(text) not in parent_of and (GENERIC_LEAF.match(_key(text["text"])) or (foundation and _direction(text["text"]))):
                 # "1", "2", "(mm)" mean nothing alone; a centred parent label may be drawn wider or narrower.
                 near = [u for upper in band_rows[:level] for u in upper
                         if abs(_center(u) - _center(text)) <= _width(u["text"], u["h"]) / 2 + 8 * u["h"]]
@@ -214,13 +292,19 @@ def _leaf_columns(band, left, right):
             if id(text) in has_child:
                 continue
             parent = parent_of.get(id(text))
-            own = _label(HEADER_LABELS, text["text"])
-            parent_key = parent and (_label(PARENT_LABELS, parent["text"]) or _label(HEADER_LABELS, parent["text"]))
+            own = _header_label(text["text"], foundation)
+            parent_key = parent and (_label(PARENT_LABELS, parent["text"]) or _header_label(parent["text"], foundation))
             leaf = _key(text["text"])
+            direction = _direction(text["text"]) if foundation else None
+            parent_direction = _direction(parent["text"]) if foundation and parent is not None else None
             if parent_key == "rebar" and leaf.isdigit():
                 key = "rebar_" + leaf
             elif GENERIC_LEAF.match(leaf) and parent_key:
                 key = parent_key
+            elif direction and parent_key in BAR_KEYS:
+                key = parent_key + direction
+            elif parent_direction and own in BAR_KEYS:
+                key = own + parent_direction
             else:
                 key = own or "col_" + leaf.lower()
             label = (parent["text"] + " " + text["text"]) if parent is not None else text["text"]
@@ -233,25 +317,30 @@ def _leaf_columns(band, left, right):
     return columns
 
 
-def _read_header_table(rows, band, left, right, start_key, claimed):
-    columns = _leaf_columns(band, left, right)
+def _read_header_table(rows, band, left, right, start_key, claimed, foundation=False, fixed_columns=None):
+    columns = fixed_columns if fixed_columns is not None else _recognized_columns(_leaf_columns(band, left, right, foundation))
     keys = {c["key"] for c in columns}
     if len(columns) < 3:
         return []
-    band_ids = {id(t) for _y, _h, items in band for t in items if left <= _center(t) < right}
     band_top, band_bottom = band[0][0], band[-1][0]
     height = statistics.median(t["h"] for _y, _h, items in band for t in items)
     limit = 0.75 * _spacing([c["x"] for c in columns], 10 * height)
+    reach = min(right, max(c["x"] for c in columns) + 2 * limit)  # texts beside the header are not its cells
+    band_ids = {id(t) for _y, _h, items in band for t in items if left <= _center(t) < reach}
     mark_column = next((c for c in columns if c["key"] == "mark"), None)
     level_column = next((c for c in columns if c["key"] == "levels"), None)
-    data, last_y = [], band_bottom
+    copy = fixed_columns is not None  # a copy beside the header may start above the header's own rows
+    data, last_y, pending = [], (None if copy else band_bottom), {}
     for y, h, items in rows:
-        if y >= band_bottom - 0.6 * h:
+        if not copy and y >= band_bottom - 0.6 * h:
             continue
         inside = [t for t in items if left <= _center(t) < right and id(t) not in claimed]
         if not inside:
             continue
-        gap = last_y - y
+        if copy and not data and not schedule_mark(" ".join(t["text"] for t in inside if _nearest(columns, _center(t), limit) is mark_column)) \
+                and not any(parse_level_text(t["text"]) for t in inside):
+            continue  # above the copy's first row
+        gap = (last_y - y) if last_y is not None else 0.0
         if gap > (8 if not data else 4) * max(height, h):
             break
         if any(_label(HEADER_LABELS, t["text"]) for t in inside) and sum(1 for t in inside if _label(HEADER_LABELS, t["text"])) >= 3:
@@ -262,7 +351,24 @@ def _read_header_table(rows, band, left, right, start_key, claimed):
             if column is not None:
                 cells.setdefault(column["key"], []).append(text)
         values = {key: " ".join(t["text"] for t in sorted(found, key=lambda t: t["x"])) for key, found in cells.items()}
-        if start_key == "mark":
+        if start_key == "mark" and level_column is not None:
+            # a mark column beside floor rows: a mark spans several floor ranges and is written
+            # on one of them (often the middle one); a row needs a mark or a floor range. A value
+            # drawn between two floor rows (a merged cell) fills the row above, then the next.
+            level_text = values.get("levels")
+            if not schedule_mark(values.get("mark")) and not (level_text and (level_text in DITTO or parse_level_text(level_text))):
+                if not data or set(values) & {"mark", "levels"}:
+                    break
+                for key, value in values.items():
+                    data[-1][0].setdefault(key, value)
+                    pending.setdefault(key, value)
+                data[-1][1].extend(t for found in cells.values() for t in found)
+                last_y = y
+                continue
+            for key, value in pending.items():
+                values.setdefault(key, value)
+            pending = {}
+        elif start_key == "mark":
             if not mark_column or not schedule_mark(values.get("mark")):
                 break
         else:
@@ -280,6 +386,27 @@ def _read_header_table(rows, band, left, right, start_key, claimed):
     labels = {c["key"]: c["label"] for c in columns}
     category = ("walls" if {"vertical_bar", "horizontal_bar"} & keys
                 else "foundations" if {"length_x", "length_y", "depth"} & keys else None)
+    if foundation and category is None:
+        # a mat or wall footing table; a grade beam table (지중보) names its stirrups
+        stirrups = any(STIRRUP_WORD.fullmatch(_key(c["text"]["text"])) for c in columns)
+        category = "beams" if stirrups else "foundations"
+    if start_key == "mark" and level_column is not None:
+        ys = [min(t["y"] for t in used) if used else 0.0 for _values, used in data]
+        marked = [(i, schedule_mark(values.get("mark"))) for i, (values, _d) in enumerate(resolved) if schedule_mark(values.get("mark"))]
+        if not marked:
+            return []
+        groups = {}
+        for i, (values, dittos) in enumerate(resolved):
+            owner = min(marked, key=lambda item: (abs(ys[item[0]] - ys[i]), item[0]))[1]  # the nearest mark row
+            values = dict(values)
+            values.pop("mark", None)
+            level_text = values.pop("levels", None)
+            if level_text is None and not values:
+                continue
+            groups.setdefault(owner, []).append({"position": None, "levels_text": level_text,
+                                                 "levels": parse_level_text(level_text), "values": values, "ditto": dittos})
+        return [{"mark": mark, "category": category, "layout": "header_row", "labels": labels, "rows": rows}
+                for mark, rows in groups.items()]
     if start_key == "mark":
         tables = []
         for values, dittos in resolved:
@@ -320,9 +447,10 @@ def _resolve_dittos(rows):
 
 # ── label-column tables (columns, beams) ────────────────────────────────────
 
-def _label_column_tables(texts, claimed):
+def _label_column_tables(texts, claimed, foundation=False):
+    row_labels = ROW_LABELS + FOUNDATION_ROW_LABELS if foundation else ROW_LABELS
     free = [t for t in texts if id(t) not in claimed]
-    anchors = [t for t in free if _label(ROW_LABELS, t["text"]) == "mark"]
+    anchors = [t for t in free if _label(row_labels, t["text"]) == "mark"]
     tables = []
     for anchor in anchors:
         h = anchor["h"]
@@ -337,7 +465,7 @@ def _label_column_tables(texts, claimed):
         bottom = max((a["y"] for a in lower), default=float("-inf"))
         labels = sorted((t for t in free if bottom + 0.6 * h < t["y"] < anchor["y"] - 0.6 * h
                          and _center(t) < label_limit and abs(t["x"] - anchor["x"]) <= 8 * h
-                         and _label(ROW_LABELS, t["text"]) not in (None, "mark")), key=lambda t: -t["y"])
+                         and _label(row_labels, t["text"]) not in (None, "mark")), key=lambda t: -t["y"])
         if not labels:
             continue
         right_texts = [t for t in free if bottom + 0.6 * h < t["y"] < anchor["y"] - 0.6 * h and _center(t) >= label_limit]
@@ -356,7 +484,7 @@ def _label_column_tables(texts, claimed):
         limit = 0.6 * _spacing([c["x"] for c in columns], 30 * h)
         cells = {}
         for label in labels:
-            key = _label(ROW_LABELS, label["text"])
+            key = _label(row_labels, label["text"])
             row_texts = [t for t in right_texts if abs(t["y"] - label["y"]) <= 0.6 * max(label["h"], t["h"])]
             for text in row_texts:
                 column = _nearest(columns, _center(text), limit)
@@ -369,7 +497,10 @@ def _label_column_tables(texts, claimed):
         found_keys = {key for _column, key in cells}
         category = ("beams" if {"top_bar", "bottom_bar", "stirrup"} & found_keys
                     else "columns" if {"main_bar", "hoop", "hoop_mid", "hoop_end"} & found_keys else None)
-        names = {_label(ROW_LABELS, t["text"]): t["text"] for t in labels}
+        if foundation and "stirrup" not in found_keys and not {"main_bar", "hoop", "hoop_mid", "hoop_end"} & found_keys \
+                and {"top_bar", "bottom_bar", "thickness", "extra_bar", "dist_bar", "width", "size"} & found_keys:
+            category = "foundations"  # a mat or footing table: bars and thickness, no stirrups
+        names = {_label(row_labels, t["text"]): t["text"] for t in labels}
         by_mark = {}
         for column in columns:
             values = {key: " ".join(t["text"] for t in sorted(cells[(id(column), key)], key=lambda t: t["x"]))
@@ -383,9 +514,140 @@ def _label_column_tables(texts, claimed):
     return tables
 
 
-def read_tables(texts):
+# ── one box per mark (beam schedules drawn as cards) ─────────────────────────
+
+BOX_EMPTY = {"-", "—", "–", "", "N/A"}
+BOX_BAR_KEYS = {"top_bar", "bottom_bar", "stirrup", "main_bar", "hoop", "hoop_mid", "hoop_end"}
+
+
+def _box_tables(texts, claimed):
+    """Boxes of one mark each: the mark above a column of row labels (B(mm) X D(mm), 상부근, 하부근,
+    스터럽 ...), each label's values to its right (END / CENTER / END, "-" where a zone repeats the
+    first) and a size that may sit under its label. The first value of each row is kept."""
+    free = [t for t in texts if id(t) not in claimed]
+    labels = [(t, _label(ROW_LABELS, t["text"])) for t in free]
+    labels = [(t, key) for t, key in labels if key not in (None, "mark")]
+    if not labels:
+        return []
+    marks = [t for t in free if schedule_mark(t["text"]) and _label(ROW_LABELS, t["text"]) is None]
+    tables = []
+    for mark in marks:
+        if id(mark) in claimed:
+            continue
+        h = mark["h"]
+        lower = [m["y"] for m in marks if m is not mark and abs(m["x"] - mark["x"]) <= 3 * h and m["y"] < mark["y"] - h]
+        floor = max(lower, default=mark["y"] - 40 * h)
+        column = sorted(((t, key) for t, key in labels if id(t) not in claimed and abs(t["x"] - mark["x"]) <= 3 * h
+                         and floor < t["y"] < mark["y"] - 0.5 * h), key=lambda item: -item[0]["y"])
+        if len({key for _t, key in column} & BOX_BAR_KEYS) < 2:
+            continue
+        values, names, used = {}, {}, [mark]
+        for label, key in column:
+            lh = label["h"]
+            others = [t["x"] for t, _k in labels if t is not label and abs(t["y"] - label["y"]) <= 0.6 * lh and t["x"] > label["x"] + 2 * lh]
+            right = min(others, default=float("inf"))
+            row = sorted((t for t in free if t is not label and id(t) not in claimed
+                          and abs(t["y"] - label["y"]) <= 0.6 * max(lh, t["h"])
+                          and label["x"] + _width(label["text"], lh) <= t["x"] < right), key=lambda t: t["x"])
+            used += row
+            value = next((t["text"] for t in row if _key(t["text"]) not in BOX_EMPTY), None)
+            if value is None and key == "size":  # "(900X1400)" written under its label
+                under = [t for t in free if id(t) not in claimed and 0 < label["y"] - t["y"] <= 6 * max(lh, t["h"])
+                         and abs(_center(t) - _center(label)) <= 4 * lh and parse_size(t["text"])]
+                if under:
+                    value = max(under, key=lambda t: t["y"])["text"]
+                    used.append(max(under, key=lambda t: t["y"]))
+            if value is not None and key not in values:
+                values[key] = value
+                names[key] = label["text"]
+            used.append(label)
+        found = set(values)
+        category = ("beams" if {"top_bar", "bottom_bar", "stirrup"} & found
+                    else "columns" if {"main_bar", "hoop", "hoop_mid", "hoop_end"} & found else None)
+        if not category:
+            continue
+        claimed.update(id(t) for t in used)
+        tables.append({"mark": schedule_mark(mark["text"]), "category": category, "layout": "box", "labels": names,
+                       "rows": [{"position": None, "levels_text": None, "levels": None, "values": values, "ditto": []}]})
+    return tables
+
+
+# ── beam tables whose row labels are not text (drawn as lines or a picture) ───
+
+def _value_shape(text):
+    """"size" / "bars" / "spaced" for a beam schedule cell, by what it says ("500 X 1,300", "5-D19",
+    "D10 @ 300"; "180 X 건축치수" is a size whose depth follows the architecture)."""
+    key = _key(text)
+    if parse_spaced(text):
+        return "spaced"
+    if parse_bars(text):
+        return "bars"
+    if re.search(r"\d{2,4}[X×*](?:\d|건축)", key.replace(",", "")):
+        return "size"
+    return None
+
+
+def _unlabelled_beam_tables(texts, claimed):
+    """A beam schedule whose row labels are drawn, not written: a row of marks, the position row
+    under it (ALL / 양단부 / 중앙부) and per position a column of cells read by their shape in the
+    usual order: the section (B X D), the top bars, the bottom bars, the stirrups."""
+    free = [t for t in texts if id(t) not in claimed]
+    rows = _rows_by_y(free)
+    tables = []
+    for index, (y, h, items) in enumerate(rows):
+        positions = [t for t in items if _key(t["text"]) in POSITION_WORDS]
+        if len(positions) < 2 or len(positions) < 0.8 * len(items):
+            continue
+        above = [t for yy, hh, row in rows if 0 < yy - y <= 6 * h for t in row if schedule_mark(t["text"]) and id(t) not in claimed]
+        if not above:
+            continue
+        marks = sorted(above, key=_center)
+        mark_xs = [_center(m) for m in marks]
+        bounds = [(a + b) / 2 for a, b in zip(mark_xs, mark_xs[1:])]
+        spacing = _spacing(sorted(_center(p) for p in positions), 20 * h)
+        lower_marks = [yy for yy, _hh, row in rows if yy < y and any(schedule_mark(t["text"]) for t in row)]
+        floor = max(lower_marks, default=y - 60 * h)
+        cells = [t for yy, _hh, row in rows if floor < yy < y - 0.5 * h for t in row if id(t) not in claimed]
+        by_mark = {}
+        used = list(positions) + marks
+        for position in sorted(positions, key=_center):
+            x = _center(position)
+            owner = marks[sum(1 for bound in bounds if x > bound)]
+            column = sorted((t for t in cells if abs(_center(t) - x) <= 0.45 * spacing and _value_shape(t["text"])),
+                            key=lambda t: -t["y"])
+            values, bars_seen = {}, 0
+            for cell in column:
+                shape = _value_shape(cell["text"])
+                if shape == "size" and "size" not in values:
+                    values["size"] = cell["text"]
+                elif shape == "bars" and bars_seen < 2:
+                    values["top_bar" if bars_seen == 0 else "bottom_bar"] = cell["text"]
+                    bars_seen += 1
+                elif shape == "spaced" and bars_seen == 2 and "stirrup" not in values:
+                    values["stirrup"] = cell["text"].lstrip(": ")
+                else:
+                    continue
+                used.append(cell)
+            if values.get("top_bar") or values.get("stirrup"):
+                by_mark.setdefault(owner["text"], []).append({"position": position["text"], "levels_text": None, "levels": None,
+                                                              "values": values, "ditto": []})
+        for mark_text, mark_rows in by_mark.items():
+            tables.append({"mark": schedule_mark(mark_text), "category": "beams", "layout": "unlabelled",
+                           "labels": {"size": "(B X D)", "top_bar": "(상부근)", "bottom_bar": "(하부근)", "stirrup": "(늑근)"},
+                           "rows": mark_rows})
+        if by_mark:
+            claimed.update(id(t) for t in used)
+    return tables
+
+
+def read_tables(texts, foundation=False):
+    """Schedule tables of one frame. ``foundation``: the sheet is titled as foundations, so bar,
+    direction and width columns of mat and wall footing tables are read too."""
     claimed = set()
-    tables = _header_tables(texts, claimed) + _label_column_tables(texts, claimed)
+    tables = _header_tables(texts, claimed, foundation) + _label_column_tables(texts, claimed, foundation)
+    tables += _box_tables(texts, claimed)
+    if not foundation:
+        tables += _unlabelled_beam_tables(texts, claimed)
     return [t for t in tables if t["mark"]][:MAX_TABLE_MARKS]
 
 
@@ -492,7 +754,7 @@ def is_foundation_plan(title):
 
 
 def read_sheet_content(texts, title):
-    content = {"tables": read_tables(texts), "notes": read_notes(texts),
+    content = {"tables": read_tables(texts, foundation=is_foundation_title(title)), "notes": read_notes(texts),
                "specs": read_specs(texts) if is_foundation_plan(title) else []}
     if "슬래브" in _key(title) or "SLAB" in _key(title):
         thickness = read_slab_thickness(texts)
@@ -681,7 +943,7 @@ def compare_member(category, item, rows):
                       if row["values"].get("length_x") and row["values"].get("length_y")]
         add("plan_size", "평면 크기", _ai_size(get("length_m"), get("width_m")), plan_sizes,
             _compare_section(get("length_m"), get("width_m"), plan_sizes))
-        bars = _values(rows, ["rebar_1", "rebar_2", "rebar"])
+        bars = _values(rows, ["rebar_1", "rebar_2", "rebar", "bottom_bar", "bottom_bar_x", "bottom_bar_y"])
         add("rebar", "배근", _ai_spaced(get("rebar_size"), get("rebar_spacing_m")), bars,
             _compare_spaced(get("rebar_size"), get("rebar_spacing_m"), bars))
     return fields

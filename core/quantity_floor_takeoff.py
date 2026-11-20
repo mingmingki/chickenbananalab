@@ -19,8 +19,11 @@ from __future__ import annotations
 
 import math
 import re
+from collections import Counter
 
 import numpy as np
+
+from .quantity_assumed import CONCRETE, Assumed, clean_overrides, pick, said
 
 TAKEOFF_VERSION = 1
 
@@ -354,6 +357,36 @@ def _region_grid(regions, minx, miny, cell, shape):
     return grid
 
 
+END_LINE_MAX = 0.35       # a wall's end line: no longer than this, between two longer lines it meets square
+
+
+def end_lines(segments):
+    """Indices of the wall end lines: short lines whose two ends each meet a longer line at
+    about a right angle (the closing line of a drawn wall rectangle, a door jamb's return)."""
+    grid, out = {}, set()
+    for i, (ax, ay, bx, by) in enumerate(segments):
+        for cell in _bucket(i, min(ax, bx) - JOIN_TOL, min(ay, by) - JOIN_TOL, max(ax, bx) + JOIN_TOL, max(ay, by) + JOIN_TOL):
+            grid.setdefault(cell, []).append(i)
+    for i, (ax, ay, bx, by) in enumerate(segments):
+        length = math.hypot(bx - ax, by - ay)
+        if not 0.03 <= length <= END_LINE_MAX:
+            continue
+        ux, uy = (bx - ax) / length, (by - ay) / length
+        met = 0
+        for px, py in ((ax, ay), (bx, by)):
+            for j in grid.get((int(math.floor(px)), int(math.floor(py))), ()):
+                cx, cy, dx, dy = segments[j]
+                other = math.hypot(dx - cx, dy - cy)
+                if j == i or other <= length + 1e-6 or _point_segment_distance(px, py, segments[j]) > JOIN_TOL:
+                    continue
+                if abs(ux * (dx - cx) / other + uy * (dy - cy) / other) < 0.2:
+                    met += 1
+                    break
+        if met == 2:
+            out.add(i)
+    return out
+
+
 def measure_walls(segments, is_outside=None, probe=0.5, regions=None):
     """Plan area of the cut concrete walls and the length of their faces (all / outside).
 
@@ -399,10 +432,11 @@ def measure_walls(segments, is_outside=None, probe=0.5, regions=None):
         part["area"] = (int(np.logical_and(band, inside).sum()) + 0.5 * int(np.logical_and(centre, inside).sum())) * cell * cell
 
     # faces: sample each line, look a little to both sides
-    faces = outside_faces = 0.0
+    faces = outside_faces = end_faces = 0.0
+    ends = end_lines(segments) | set(range(len(segments), len(lines)))
     outer = []
     reach = (GROW + 2) * cell
-    for ax, ay, bx, by in lines:
+    for index_line, (ax, ay, bx, by) in enumerate(lines):
         length = math.hypot(bx - ax, by - ay)
         if length < 0.03:
             continue
@@ -421,6 +455,8 @@ def measure_walls(segments, is_outside=None, probe=0.5, regions=None):
         if not hits:
             continue
         faces += length * hits / n
+        if index_line in ends:
+            end_faces += length * hits / n
         if labels is not None:
             gx = np.clip(((px - minx) / cell).astype(int), 0, shape[1] - 1)
             gy = np.clip(((py - miny) / cell).astype(int), 0, shape[0] - 1)
@@ -444,7 +480,7 @@ def measure_walls(segments, is_outside=None, probe=0.5, regions=None):
                 outer.append((ax, ay, bx, by, wall_side))
     gaps = _window_gaps(outer, band, minx, miny, cell, is_outside, probe) if is_outside else []
     return {"area": round(area, 3), "faces": round(faces, 2), "outside_faces": round(outside_faces, 2),
-            "caps": len(caps), "cell": round(cell, 3),
+            "end_faces": round(end_faces, 2), "caps": len(caps), "cell": round(cell, 3),
             "window_gaps": round(sum(g[0] for g in gaps), 2), "window_gap_count": len(gaps),
             "window_gap_area": round(sum(g[0] * g[1] for g in gaps), 3),
             **({"regions": [{k: round(v, 3) for k, v in part.items()} for part in by_region]} if regions else {})}
@@ -543,6 +579,9 @@ def measure_plan(walls, cols, opens, stairs, is_outside=None, above=(), slab_rec
 
 SLAB_THICKNESS = 0.21      # assumed; slab schedules are rarely readable from the plans
 BEAM_DEPTH_DEFAULT = 0.6   # beams whose schedule gives no depth ("180 X 건축치수", unlabelled runs)
+# a beam-framed plan labels nearly all its beam runs (unmarked ≤ about 20 % on the check projects);
+# past half unmarked, the "beam" lines are a wall-type floor's dashed walls below and slab edges
+UNLABELLED_BEAM_SHARE_MAX = 0.5
 WINDOW_HEIGHT = 1.8        # assumed opening height; the wall above and below an outer opening is concrete
 # stairs per m² of stair hall in plan: 150 mm waist slab and landings plus 178 x 260 mm steps
 STAIR_CONCRETE_PER_M2 = 0.2
@@ -593,7 +632,18 @@ def _link_members(links, building, sheet):
     if not wanted:
         return None
     sizes = _schedule_sizes(links)
+    # a plan whose "beam" lines are mostly unmarked is a wall-type floor: its dashed walls below and
+    # slab edges are no beams, and a marked run there without a schedule depth (a lintel or link
+    # beam label, "LB0") is measured along those same lines (a beam-framed floor marks nearly
+    # every run)
+    wall_type = set()
+    for index in wanted:
+        family = (plans[index].get("geometry") or {}).get("beams") or {}
+        measured = float(family.get("measured_mm") or 0)
+        if measured and float((family.get("unlabelled") or {}).get("length_mm") or 0) > UNLABELLED_BEAM_SHARE_MAX * measured:
+            wall_type.add(index)
     beams, columns = [], []
+    left_out = 0.0
     for item in links.get("marks") or []:
         category, mark = item.get("category"), item.get("mark")
         for occurrence in item.get("occurrences") or []:
@@ -603,16 +653,22 @@ def _link_members(links, building, sheet):
                 measured = occurrence.get("measured") or {}
                 b, h = sizes.get((category, mark), (None, None))
                 for width, length in (measured.get("widths") or {}).items():
+                    if h is None and occurrence.get("plan") in wall_type:
+                        left_out += length / 1000.0
+                        continue
                     beams.append({"mark": mark, "length": length / 1000.0, "b": b or int(width) / 1000.0, "h": h})
             elif category == "columns":
                 b, h = sizes.get((category, mark), (None, None))
                 if b and h:
                     columns.append({"mark": mark, "count": occurrence.get("count") or 0, "b": b, "h": h})
     for index in wanted:
-        unlabelled = (((plans[index].get("geometry") or {}).get("beams") or {}).get("unlabelled") or {})
+        unlabelled = ((plans[index].get("geometry") or {}).get("beams") or {}).get("unlabelled") or {}
+        if index in wall_type:
+            left_out += float(unlabelled.get("length_mm") or 0) / 1000.0
+            continue
         for width, length in (unlabelled.get("widths") or {}).items():
             beams.append({"mark": None, "length": length / 1000.0, "b": int(width) / 1000.0, "h": None})
-    return {"beams": beams, "columns": columns}
+    return {"beams": beams, "columns": columns, "left_out_unlabelled_m": round(left_out, 1)}
 
 
 def _net_slab(plan):
@@ -735,42 +791,206 @@ def foundation_specs(links, building):
                 found = re.search(r"THK\.?\s*(\d{3,4})|T\s*=\s*(\d{3,4})", text, re.I)
                 if found:
                     thickness = int(found.group(1) or found.group(2)) / 1000.0
+                else:  # a mat mark carrying its thickness: "101MAT_1.0"
+                    found = re.search(r"MAT[_\-\s]?(\d\.\d{1,2})(?![\d.])", text, re.I)
+                    if found and 0.3 <= float(found.group(1)) <= 5.0:
+                        thickness = float(found.group(1))
             if spec.get("kind") == "rebar" and rebar is None and re.search(r"T\s*/\s*B|EW", text, re.I):
                 rebar = text
+    if rebar is None:
+        rebar = _top_and_bottom(links, building)
     return thickness, rebar
+
+
+_SPACED_BAR = re.compile(r"[A-Z]{0,3}D\d{2}\s*@\s*\d{2,4}", re.I)
+
+
+def _top_and_bottom(links, building):
+    """A mat's bars noted apart on its plan ("UHD22@300(상부근)", "UHD22@300(하부근)"): the most
+    noted of each, as one text "UHD22@300(상부근) + UHD22@300(하부근)"; local strengthening
+    (보강근) is not the mat's run."""
+    tops, bottoms = Counter(), Counter()
+    for plan in (links or {}).get("plans") or []:
+        if "FDN" not in (plan.get("levels") or []) or not ((plan.get("section") or "") in (building or "") or
+                                                            (building or "") in (plan.get("section") or "")):
+            continue
+        for spec in plan.get("specs") or []:
+            text = str(spec.get("text") or "")
+            found = _SPACED_BAR.search(text)
+            if spec.get("kind") != "rebar" or not found or re.search(r"보강|추가|ADD", text, re.I):
+                continue
+            bar = re.sub(r"\s+", "", found.group(0)).upper()
+            if re.search(r"상부|상단|TOP", text, re.I):
+                tops[bar] += int(spec.get("count") or 1)
+            elif re.search(r"하부|하단|BOT", text, re.I):
+                bottoms[bar] += int(spec.get("count") or 1)
+    if not tops or not bottoms:
+        return None
+    return f"{tops.most_common(1)[0][0]}(상부근) + {bottoms.most_common(1)[0][0]}(하부근)"
+
+
+# ── foundation schedule rows: isolated footings, mats, wall footings ──
+
+BAR_KEYS = ("top_bar", "bottom_bar", "extra_bar", "dist_bar", "rebar")
+WALL_T_DEFAULT = 0.3  # m, the wall standing on a wall footing when the plan gives no thickness
+
+
+def _value_m(values, *keys):
+    """The first millimetre value among ``keys`` of a schedule row ("2,000", "B=1200"), in metres."""
+    for key in keys:
+        found = re.search(r"\d+(?:\.\d+)?", str((values or {}).get(key) or "").replace(",", ""))
+        if found and 50 <= float(found.group()) <= 10000:
+            return float(found.group()) / 1000.0
+    return None
+
+
+def bar_texts(values):
+    """{column key: text} of the bar columns of a foundation schedule row that name a bar."""
+    return {k: str(v) for k, v in (values or {}).items()
+            if isinstance(k, str) and k.startswith(BAR_KEYS) and re.search(r"D\d{2}", str(v or ""), re.I)}
+
+
+def footing_kind(mark, values):
+    """"isolated" (Lx × Ly), "wall" (a WF mark with a width and a depth), "mat" (MAT / MF / FS:
+    a mat or a foundation slab) or None."""
+    if _value_m(values, "length_x") and _value_m(values, "length_y"):
+        return "isolated"
+    key = str(mark or "").upper()
+    if key.startswith("WF"):
+        b, h = _size((values or {}).get("size"))
+        width = _value_m(values, "width", "length_x") or b
+        depth = _value_m(values, "depth", "thickness") or h
+        return "wall" if width and depth else None
+    if "MAT" in key or key.startswith(("MF", "FS")):
+        return "mat"
+    return None
+
+
+def _foundation_marks(links):
+    """[(mark item, first schedule row values, schedule area)] of the foundation marks with a schedule row."""
+    pool = (links or {}).get("schedule_rows") or []
+    plans = (links or {}).get("plans") or []
+    out, seen = [], set()
+    for item in (links or {}).get("marks") or []:
+        if item.get("category") != "foundations" or item.get("mark") in seen:
+            continue
+        for spec in item.get("specs") or []:
+            index = spec.get("rows")
+            rows = pool[index] if isinstance(index, int) and 0 <= index < len(pool) else []
+            if rows:
+                where = spec.get("plan")
+                area = plans[where].get("area") if isinstance(where, int) and 0 <= where < len(plans) else None
+                out.append((item, rows[0].get("values") or {}, area))
+                seen.add(item.get("mark"))
+                break
+    return out
+
+
+def _foundation_plans(links, building):
+    plans = (links or {}).get("plans") or []
+    return {i for i, p in enumerate(plans) if "FDN" in (p.get("levels") or []) and
+            ((p.get("section") or "") in (building or "") or (building or "") in (p.get("section") or ""))}
+
+
+def _placed(item, wanted):
+    return sum(o.get("count") or 0 for o in item.get("occurrences") or [] if o.get("plan") in wanted)
+
+
+def _natural(mark):
+    return re.sub(r"\d+", lambda m: m.group().zfill(6), str(mark or ""))
 
 
 def footings(links, building):
     """[(mark, count, length x m, length y m, depth m, values)] of the isolated footings marked on the
     building's foundation plans, sized by their schedule rows."""
-    plans = (links or {}).get("plans") or []
-    wanted = {i for i, p in enumerate(plans) if "FDN" in (p.get("levels") or []) and
-              ((p.get("section") or "") in (building or "") or (building or "") in (p.get("section") or ""))}
-    rows_pool = (links or {}).get("schedule_rows") or []
+    wanted = _foundation_plans(links, building)
     out = []
-    for item in (links or {}).get("marks") or []:
-        if item.get("category") != "foundations":
-            continue
-        count = sum(o.get("count") or 0 for o in item.get("occurrences") or [] if o.get("plan") in wanted)
-        if not count:
-            continue
-        values = {}
-        for spec in item.get("specs") or []:
-            index = spec.get("rows")
-            rows = rows_pool[index] if isinstance(index, int) and 0 <= index < len(rows_pool) else []
-            if rows:
-                values = rows[0].get("values") or {}
-                break
-        def mm(key):
-            text = re.sub(r"[^0-9.]", "", str(values.get(key) or ""))
-            return float(text) / 1000.0 if text else None
-        lx, ly, depth = mm("length_x"), mm("length_y"), mm("depth") or mm("thickness")
-        if lx and ly and depth:
+    for item, values, _area in _foundation_marks(links):
+        count = _placed(item, wanted)
+        lx, ly, depth = _value_m(values, "length_x"), _value_m(values, "length_y"), _value_m(values, "depth", "thickness")
+        if count and lx and ly and depth:
             out.append((item.get("mark"), count, lx, ly, depth, values))
     return out
 
 
-def _foundation_row(building, plans, levels, host_name, host, match, links, given, learned=None):
+def mat_parts(links, building, kind):
+    """(mats, placed, note) of a building's foundation from the foundation schedule: the mat marks
+    labelled on its foundation plans (shared by label count), else those naming its number
+    ("101MF1"), else the only mat of its kind (tower or parking) in the schedules. Each mat:
+    {"mark", "share", "thickness" m or None, "bars" {column: text}}."""
+    marks = [(item, values, area) for item, values, area in _foundation_marks(links)
+             if footing_kind(item.get("mark"), values) == "mat"]
+    if not marks:
+        return [], False, None
+    wanted = _foundation_plans(links, building)
+    chosen = [(item, values, _placed(item, wanted)) for item, values, _area in marks]
+    chosen = [c for c in chosen if c[2]]
+    placed, note = bool(chosen), None
+    if not chosen:
+        number = re.search(r"\d{2,4}", building or "")
+        chosen = [(item, values, 1) for item, values, _area in marks if number and number.group() in str(item.get("mark"))]
+    if not chosen:
+        home = "parking" if kind == "parking" else "building"
+        pool = [(item, values, 1) for item, values, area in marks
+                if (area or ("parking" if str(item.get("mark")).upper().startswith("FS") else "building")) == home]
+        if len(pool) == 1:
+            chosen = pool
+        elif pool:
+            note = ("기초 일람표의 매트 부호(" + ", ".join(sorted((i.get("mark") for i, _v, _w in pool), key=_natural))
+                    + ")가 이 동 기초 평면에 표기되지 않아 어느 것인지 몰라 쓰지 않았어요")
+    total = sum(w for _i, _v, w in chosen) or 1
+    mats = [{"mark": item.get("mark"), "share": round(w / total, 4), "thickness": _value_m(values, "thickness", "depth"),
+             "bars": bar_texts(values)} for item, values, w in sorted(chosen, key=lambda c: _natural(c[0].get("mark")))]
+    return mats, placed, note
+
+
+def wall_footing_parts(links, building, kind):
+    """(wall footings, note) under a building's outer walls: the WF marks labelled on its foundation
+    plans (shared by label count), else, for a parking deck when no plan labels any WF, the first
+    WF of the schedules (WF marks are often left off the plan). Each: {"mark", "share", "width",
+    "depth", "bars", "placed"}."""
+    marks = [(item, values, area) for item, values, area in _foundation_marks(links)
+             if footing_kind(item.get("mark"), values) == "wall"]
+    if not marks:
+        return [], None
+    wanted = _foundation_plans(links, building)
+    chosen = [(item, values, _placed(item, wanted)) for item, values, _area in marks]
+    chosen = [c for c in chosen if c[2]]
+    note = None
+    if not chosen:
+        labelled_anywhere = any(o.get("count") for item, _v, _a in marks for o in item.get("occurrences") or [])
+        if kind != "parking" or labelled_anywhere:
+            return [], None
+        pool = sorted([(item, values) for item, values, area in marks if area != "building"], key=lambda c: _natural(c[0].get("mark")))
+        if not pool:
+            return [], None
+        chosen = [(pool[0][0], pool[0][1], 0)]
+        if len(pool) > 1:
+            note = (f"줄기초 위치가 평면에 없어 {pool[0][0].get('mark')}로 봤어요 (일람표의 "
+                    + ", ".join(i.get("mark") for i, _v in pool[1:]) + "도 있어요)")
+    total = sum(c[2] for c in chosen) or 1
+    parts = []
+    for item, values, count in chosen:
+        b, h = _size(values.get("size"))
+        parts.append({"mark": item.get("mark"), "share": round((count / total) if count else 1.0, 4),
+                      "width": _value_m(values, "width", "length_x") or b, "depth": _value_m(values, "depth", "thickness") or h,
+                      "bars": bar_texts(values), "placed": count})
+    return parts, note
+
+
+def _outer_walls(plan, area):
+    """(length m of the outer wall faces of a plan, approximated?) — the outline when the faces are unread."""
+    measure = (plan or {}).get("measure") or {}
+    outside = float(measure.get("outside_faces") or 0)
+    if outside > 0:
+        return outside, False
+    polygon = (plan or {}).get("slab_polygon") or []
+    if len(polygon) >= 3:
+        return sum(math.hypot(polygon[i][0] - polygon[i - 1][0], polygon[i][1] - polygon[i - 1][1]) for i in range(len(polygon))), True
+    return float(measure.get("outline") or 0) or 4 * math.sqrt(max(area, 0.0)), True
+
+
+def _foundation_row(building, plans, levels, host_name, host, match, links, given, learned=None, assumed=None, overrides=None):
     """The foundation storey: the lowest floor's outline × the mat thickness (the drawing's, a
     person's, else an assumption kept out of the totals)."""
     if not levels:
@@ -802,8 +1022,15 @@ def _foundation_row(building, plans, levels, host_name, host, match, links, give
     drawn, _rebar = foundation_specs(links, name)
     kind = "parking" if name == "지하주차장" or not any((l.get("key") or "").isdigit() for l in levels) else "tower"
     usual = (learned or {}).get(f"foundation:{kind}")  # the median of what people entered on other jobs
-    thickness, source = (given, "person") if given else ((drawn, "drawing") if drawn else
-                                                          (usual, "learned") if usual else (FOUNDATION_DEFAULT_M[kind], "assumed"))
+    mats, mats_placed, mat_note = mat_parts(links, name, kind) if links else ([], False, None)
+    weighed = [(m["share"], m["thickness"]) for m in mats if m["thickness"] and 0.1 <= m["thickness"] <= 5.0]
+    listed = (sum(w * t for w, t in weighed) / sum(w for w, _t in weighed)) if weighed else None
+    # a mat labelled on this building's plan beats the plan's own text; a schedule mat found
+    # otherwise (by its number, or the only one) comes after it
+    candidates = [(given, "person"), (listed if mats_placed else None, "schedule"), (drawn, "drawing"),
+                  (None if mats_placed else listed, "schedule"), (usual, "learned"), (FOUNDATION_DEFAULT_M[kind], "assumed")]
+    thickness, source = next((value, why) for value, why in candidates if value)
+    thickness = round(thickness, 3)
     perimeter = float((plan.get("measure") or {}).get("outline") or 0) or 4 * math.sqrt(area)
     concrete = dict.fromkeys(CONCRETE_KEYS, 0.0)
     concrete["foundation"] = area * thickness
@@ -813,12 +1040,60 @@ def _foundation_row(building, plans, levels, host_name, host, match, links, give
         form["plywood"] = perimeter * thickness  # the mat edge; mats inside a parking deck run on into it
     else:
         notes.append("주차장 기초와 이어진 매트라 옆 거푸집은 넣지 않았어요")
+    if mats:
+        notes.append("기초 일람표 " + ", ".join(m["mark"] + (f" {m['thickness'] * 1000:,.0f}mm" if m["thickness"] else "")
+                                           + (f" ({m['share']:.0%})" if len(mats) > 1 else "") for m in mats)
+                     + (" — 기초 평면 표기 수로 나눴어요" if len(mats) > 1 and mats_placed else "")
+                     + ("" if mats_placed else " (평면에 부호가 없어 일람표에서 골랐어요)"))
+    elif mat_note:
+        notes.append(mat_note)
     feet = footings(links, name)
     for mark, count, lx, ly, depth, _values in feet:
         concrete["foundation"] += count * lx * ly * depth  # footings are cast against the ground
     if feet:
         notes.append("독립기초 " + ", ".join(f"{m} {c}개({lx:.1f}×{ly:.1f}×{d:.2f}m)" for m, c, lx, ly, d, _v in feet) + " 포함")
+    walls, wall_note = wall_footing_parts(links, name, kind) if links else ([], None)
+    strips = []
+    unlabelled = [part for part in walls if not part["placed"]]
+    left_out_strips = unlabelled if (overrides or {}).get("wall_footing_place") is False else []
+    if left_out_strips:  # a person said the unlabelled wall footing is not there
+        walls = [part for part in walls if part["placed"]]
+        wall_note = None
+    if walls:
+        length, rough = _outer_walls(plan, area)
+        measure = plan.get("measure") or {}
+        faces = float(measure.get("faces") or 0)
+        wall_t = min(max(2 * float(measure.get("area") or 0) / faces, 0.15), 0.6) if faces else WALL_T_DEFAULT
+        for part in walls:
+            run = length * part["share"]
+            inside = min(part["width"], (part["width"] + wall_t) / 2)  # under the mat outline, already counted
+            concrete["foundation"] += max(run * (part["width"] * part["depth"] - inside * thickness), 0.0)
+            strips.append(dict(part, length=round(run, 1)))
+        notes.append("줄기초 " + ", ".join(f"{s['mark']} {s['width']:.2f}×{s['depth']:.2f}m × {s['length']:.0f}m" for s in strips)
+                     + (" — 외벽 면 길이" if not rough else " — 외벽을 못 읽어 바깥 둘레로 근사")
+                     + (", 평면 표기 수로 나눔" if len(strips) > 1 else "")
+                     + ("" if any(s["placed"] for s in strips) else " (평면에 부호가 없어 외벽 아래로 봤어요 — 확인해 주세요)")
+                     + ". 기초판과 겹치는 부분은 뺐고 옆 거푸집은 넣지 않았어요")
+        if wall_note:
+            notes.append(wall_note)
+    if assumed is not None:
+        if source in ("assumed", "learned"):
+            assumed.add("foundation_thickness", "기초 두께", f"{thickness:.2f}m" + (" (가정)" if source == "assumed" else " (다른 현장 입력값 중앙값)"),
+                        name, "기초", area * thickness, CONCRETE, "산출 화면의 기초 두께 칸에 넣으면 합계에 들어가요", counted=False)
+        if mats and not mats_placed:
+            assumed.add("mat_pick", "평면에 부호 없는 매트", "일람표 " + ", ".join(m["mark"] for m in mats), name, "기초",
+                        change="기초 평면에 매트 부호가 있으면 그 부호를 써요")
+        for strip in strips:
+            if not strip["placed"]:
+                piece = max(strip["length"] * (strip["width"] * strip["depth"] - min(strip["width"], (strip["width"] + wall_t) / 2) * thickness), 0.0)
+                assumed.add("wall_footing_place", "줄기초 위치", f"{strip['mark']} {strip['width']:.2f}×{strip['depth']:.2f}m를 외벽 아래 "
+                            f"{strip['length']:.0f}m" + (" (외벽을 못 읽어 바깥 둘레)" if rough else ""), name, "기초", piece, CONCRETE,
+                            "평면에 줄기초 부호가 있으면 그 동에 넣어요. 위치가 다르면 2D 고치기로 바로잡아 주세요", raw=True)
+        for part in left_out_strips:
+            assumed.add("wall_footing_place", "줄기초 위치", f"{part['mark']} 뺌 (입력값)", name, "기초",
+                        change="평면에 줄기초 부호가 있으면 그 동에는 그대로 넣어요", raw=False, person=True)
     notes.insert(0, f"기초 {area:.0f}㎡ × 두께 {thickness:.2f}m" + {"person": " (입력값)", "drawing": " (기초 평면 표기)",
+                                                                  "schedule": " (기초 일람표)",
                                                                   "learned": " (다른 현장 입력값의 중앙값 — 확인해 주세요)",
                                                                   "assumed": " (가정값 — 두께를 확인해 주세요)"}[source])
     concrete["total"] = sum(concrete[k] for k in CONCRETE_KEYS)
@@ -828,17 +1103,66 @@ def _foundation_row(building, plans, levels, host_name, host, match, links, give
             "measures": {"vertical_area": 0.0, "faces": 0.0, "outside_faces": 0.0, "slab_area": round(area, 1)},
             "approximate": source in ("assumed", "learned"), "notes": notes, "fixed": None,
             "foundation": {"area": round(area, 1), "thickness": thickness, "source": source, "perimeter": round(perimeter, 1),
-                           "footings": [{"mark": m, "count": c, "x": lx, "y": ly, "depth": d} for m, c, lx, ly, d, _v in feet]}}
+                           "footings": [{"mark": m, "count": c, "x": lx, "y": ly, "depth": d, "bars": bar_texts(v)}
+                                        for m, c, lx, ly, d, v in feet],
+                           "mats": mats, "wall_footings": strips}}
 
 
-def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, foundations=None, learned=None):
+SPARSE_WALL_SHARE = 0.02   # a tower floor whose wall section is under 2 % of its slab draws almost no walls
+SPARSE_WALL_OF_USUAL = 0.3  # ... or under 30 % of what the building's other plans draw
+
+
+def _flag_sparse_walls(name, levels, rows):
+    """Mark the above-ground storeys of a tower whose plan draws almost no walls: some offices draw
+    the walls of the typical floors only on the unit plans (단위세대). The rows keep their values;
+    the note asks for the walls to be traced in the 2D fixing."""
+    if not re.fullmatch(r"\d{2,4}동", name or ""):
+        return
+    by_key = {r["key"]: r for r in rows}
+    shares = {}
+    for level in levels:
+        row = by_key.get(level.get("key"))
+        if not row or _storey_kind(level.get("key") or "") != "ground" or not level.get("key", "").isdigit():
+            continue
+        measures = row.get("measures") or {}
+        slab = float(measures.get("slab_area") or 0)
+        if slab >= 100:
+            shares.setdefault(level.get("plan"), (float(measures.get("vertical_area") or 0) / slab, []))[1].append(row)
+    if not shares:
+        return
+    ratios = sorted(share for share, _rows in shares.values())
+    usual = ratios[len(ratios) // 2] if len(ratios) >= 3 else None
+    for share, plan_rows in shares.values():
+        if share < SPARSE_WALL_SHARE or (usual and share < SPARSE_WALL_OF_USUAL * usual):
+            for row in plan_rows:
+                row["sparse_walls"] = True
+                row["notes"].append(f"이 층 평면에는 벽 단면이 슬래브의 {share:.1%}뿐이에요 — 벽이 단위세대 도면에만 그려진 "
+                                    "현장일 수 있어요. 빠진 벽은 2D 고치기로 따라 그려 주세요")
+
+
+def _assumed_items(assumed, overrides):
+    from .quantity_assumed import TAKEOFF_KEYS
+    assumed.keep_unused(overrides, TAKEOFF_KEYS)
+    return assumed.items()
+
+
+def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, foundations=None, learned=None, overrides=None):
     """Rows per building and storey: walls/columns of the storey + slab/beams on top of it.
-    ``edits``: people's fixes (quantity_edits.clean), added to the storeys using their plans."""
+    ``edits``: people's fixes (quantity_edits.clean), added to the storeys using their plans.
+    ``overrides``: values a person set in place of an assumption (quantity_assumed.EDITABLE);
+    ``learned``: other jobs' values ({"override:slab_thickness": mm, "foundation:tower": m, ...})."""
+    overrides = clean_overrides(overrides)
+    slab_mm, slab_from = pick("slab_thickness", overrides, learned, slab_thickness * 1000)
+    beam_mm, beam_from = pick("beam_depth", overrides, learned, BEAM_DEPTH_DEFAULT * 1000)
+    window_m, window_from = pick("window_height", overrides, learned, WINDOW_HEIGHT)
+    parapet_m, parapet_from = pick("parapet", overrides, learned, None)
+    beam_depth = beam_mm / 1000.0
     from . import quantity_edits
     fixes_by_plan = quantity_edits.by_plan(edits)
     buildings = []
     all_buildings = (model or {}).get("buildings") or []
     host_name, match = tower_regions(all_buildings)
+    assumed = Assumed()
     host = next((b for b in all_buildings if b.get("name") == host_name), None)
     host_levels = {l.get("key"): l for l in (host or {}).get("levels") or []}
     matched = sorted(match.items(), key=lambda item: item[1])
@@ -853,7 +1177,7 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
             given = None
         if given is not None and not 0.1 <= given <= 5.0:
             given = None
-        ft_row = _foundation_row(building, plans, levels, host_name, host, match, links, given, learned)
+        ft_row = _foundation_row(building, plans, levels, host_name, host, match, links, given, learned, assumed, overrides)
         if ft_row:
             rows.append(ft_row)
         for index, level in enumerate(levels):
@@ -864,7 +1188,7 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
             hplan_id = (hplan or {}).get("id")
             measure = vplan.get("measure") or {}
             hmeasure = (hplan or {}).get("measure") or {}
-            t = slab_thickness
+            t = slab_mm / 1000.0
             thickness_note = None
             if above is not None and links:
                 source = (name, above.get("sheet"))
@@ -878,8 +1202,11 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                 elif default and kind == "ground":
                     t, thickness_note = default / 1000.0, f"슬래브 두께 {default}mm (슬래브 배근도 주기)"
             height = float(level.get("height") or 0)
-            wall_h = max(height - t, 0.0)
+            if key == "PHR" and above is None and parapet_m:
+                height = float(parapet_m)  # the penthouse roof's parapets, as a person (or other jobs) set them
+            wall_h = height if key == "PHR" and above is None else max(height - t, 0.0)  # parapets: no slab above
             notes, approximate = ([thickness_note] if thickness_note else []), kind == "basement"
+            used = []  # (key, label, value, m³, how to change, edit box value, set by a person) assumed on this storey
             vertical_area = float(measure.get("area") or 0) + float(measure.get("col_area") or 0)
             faces = float(measure.get("faces") or 0) + float(measure.get("col_perimeter") or 0)
             outside = min(float(measure.get("outside_faces") or 0), faces)
@@ -916,16 +1243,19 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
             form = dict.fromkeys(FORM_KEYS, 0.0)
             if gaps and kind != "basement":
                 # the wall left above and below the openings in the outer walls
-                left = max(wall_h - WINDOW_HEIGHT, 0.0)
+                left = max(wall_h - window_m, 0.0)
                 concrete["wall"] += gap_area * left
                 form["gang"] += gaps * left
                 form["euro" if kind == "roof" else "al_vertical"] += gaps * left
-                notes.append(f"창·발코니 개구부 {gaps:.0f}m 위·아래 벽 포함 (개구부 높이 {WINDOW_HEIGHT}m 가정)")
+                notes.append(f"창·발코니 개구부 {gaps:.0f}m 위·아래 벽 포함 (개구부 높이 {window_m:g}m" + ("" if window_from == "person" else " 가정") + ")")
+                used.append(("window_height", "외벽 개구부 높이", said(f"{window_m:g}m", window_from) + " — 위·아래는 벽", gap_area * left, "",
+                             window_m, window_from == "person"))
             stair_area = sum(measure.get("stairs") or [])
             if stair_area and kind != "basement":
                 concrete["stair"] = stair_area * STAIR_CONCRETE_PER_M2
                 form["stair"] = stair_area * STAIR_FORM_PER_M2
                 notes.append(f"계단은 평면의 계단 {stair_area:.0f}㎡로 추정")
+                used.append(("stair_rate", "계단 콘크리트", f"계단 평면 1㎡당 {STAIR_CONCRETE_PER_M2}㎥", concrete["stair"], "", None, False))
             if kind == "basement":
                 form["euro"] += faces * wall_h
             elif kind == "roof":
@@ -982,7 +1312,12 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
             elif hplan is not None:
                 own = _net_slab(vplan)
                 upper = _net_slab(hplan)
-                if upper is None and own is not None:
+                if kind == "roof":
+                    # the penthouse on the roof: its own floor or roof plan, never the size of the roof
+                    slab_area = upper if upper is not None else float(hplan.get("slab_area") or 0)
+                    notes.append("이 층 위 슬래브는 " + (above.get("label") or above.get("key")) + " 평면 크기로 봤어요"
+                                 + ("" if upper is not None else " (외곽이 열려 있어 바깥 둘레로 근사)"))
+                elif upper is None and own is not None:
                     # a roof sheet draws the walls below as hidden lines, so its outline is open:
                     # the roof slab covers the storey under it
                     slab_area = own
@@ -1007,6 +1342,9 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                     form["gang"] += edge
             if above is not None and (hplan is not None or slab_area > 0):
                 above_members = _link_members(links, beam_source[0], beam_source[1]) if links else None
+                if above_members and above_members.get("left_out_unlabelled_m"):
+                    notes.append(f"보 선 {above_members['left_out_unlabelled_m']:.0f}m는 벽식 평면의 부호 없는 선(아래층 벽 점선 등)이거나 "
+                                 "일람표에 춤이 없는 부호라 뺐어요")
                 if above_members and beam_share < 1.0:
                     above_members = {"beams": [dict(b, length=b["length"] * beam_share) for b in above_members["beams"]],
                                      "columns": above_members["columns"]}
@@ -1015,18 +1353,23 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                     if links:
                         notes.append("보는 일람표와 연결된 평면을 찾지 못해 빠졌어요")
                 else:
-                    guessed = 0.0
+                    guessed = guessed_concrete = 0.0
                     for beam in above_members["beams"]:
                         depth = beam["h"]
                         if depth is None:
-                            depth = BEAM_DEPTH_DEFAULT
+                            depth = beam_depth
                             guessed += beam["length"]
+                            guessed_concrete += beam["b"] * max(depth - t, 0.0) * beam["length"]
                         drop = max(depth - t, 0.0)
                         concrete["beam"] += beam["b"] * drop * beam["length"]
                         area = (2 * drop + beam["b"]) * beam["length"]
                         form["plywood" if kind == "basement" else "al_vertical"] += area
                     if guessed:
-                        notes.append(f"보 {guessed:.0f}m는 춤이 도면에 없어 {BEAM_DEPTH_DEFAULT * 1000:.0f}mm로 봤어요")
+                        notes.append(f"보 {guessed:.0f}m는 춤이 도면에 없어 {beam_mm:.0f}mm로 봤어요")
+                        used.append(("beam_depth", "일람표에 춤이 없는 보", said(f"춤 {beam_mm:.0f}mm", beam_from), guessed_concrete,
+                                     "보 일람표에 단면이 있으면 그 값을 써요", beam_mm, beam_from == "person"))
+            elif slab_area <= 0 and key == "PHR":
+                notes.append(f"옥탑 지붕 위 벽은 난간벽으로 보고 높이 {height:.1f}m로 봤어요")
             elif slab_area <= 0:
                 notes.append("위층 평면이 없어 이 층 위 슬래브·보는 빠졌어요")
             if not links:
@@ -1050,14 +1393,26 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                 fixed = {"count": len(fixes), "concrete": round(added_concrete, 2), "formwork": round(added_form, 2)}
             concrete["total"] = sum(concrete[k] for k in CONCRETE_KEYS)
             form["total"] = sum(form[k] for k in FORM_KEYS)
+            if slab_area > 0 and thickness_note is None:
+                used.append(("slab_thickness", "슬래브 두께", said(f"{t * 1000:.0f}mm", slab_from), concrete["slab"],
+                             "슬래브 배근도·일람표가 연결되면 그 두께를 써요", round(t * 1000), slab_from == "person"))
+            if key == "PHR" and above is None and concrete["wall"] > 0:
+                used.append(("parapet", "옥탑 지붕 위 난간벽 높이", said(f"{height:.1f}m", parapet_from if parapet_m else "assumed"),
+                             concrete["wall"], "", round(height, 2), parapet_from == "person"))
+            for item_key, label, value, amount, change, raw, person in used:
+                assumed.add(item_key, label, value, name, level.get("label") or key, amount, CONCRETE, change, counted=not approximate,
+                            raw=raw, person=person)
             rows.append({
                 "key": key, "label": level.get("label") or key, "height": round(height, 3),
+                "elevation": round(float(level["elev"]), 3) if level.get("elev") is not None else None,
+                "height_from": level.get("height_from") or "drawing",
                 "sheets": {"vertical": level.get("sheet"), "horizontal": above.get("sheet") if above else None},
                 "concrete": _round(concrete, 2), "formwork": _round(form, 2),
                 "measures": {"vertical_area": round(vertical_area, 2), "faces": round(faces, 1),
                              "outside_faces": round(outside, 1), "slab_area": round(slab_area, 1)},
                 "approximate": approximate, "notes": notes, "fixed": fixed,
             })
+        _flag_sparse_walls(name, levels, rows)
         totals = {"concrete": dict.fromkeys(CONCRETE_KEYS + ("total",), 0.0), "formwork": dict.fromkeys(FORM_KEYS + ("total",), 0.0)}
         approx = {"concrete": dict.fromkeys(CONCRETE_KEYS + ("total",), 0.0), "formwork": dict.fromkeys(FORM_KEYS + ("total",), 0.0)}
         for row in rows:
@@ -1070,8 +1425,9 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                           "approximate_totals": {g: _round(v, 1) for g, v in approx.items()}})
     return {
         "version": TAKEOFF_VERSION, "rule": "N층 = N층 벽·기둥 + N+1층 바닥 슬래브·보",
-        "assumptions": {"slab_thickness": slab_thickness, "beam_depth_default": BEAM_DEPTH_DEFAULT,
-                        "window_height": WINDOW_HEIGHT},
-        "uses_schedules": bool(links), "buildings": buildings,
+        "assumptions": {"slab_thickness": slab_mm / 1000.0, "beam_depth_default": beam_depth,
+                        "window_height": window_m},
+        "overrides": overrides,
+        "uses_schedules": bool(links), "buildings": buildings, "assumed": _assumed_items(assumed, overrides),
         "not_included": ["기초 피트·단차", "발코니 쪽 개구부 위·아래 벽 일부"],
     }

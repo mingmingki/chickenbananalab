@@ -9,6 +9,15 @@
     parkingWall: 0x94a3b8, parkingCol: 0x64748b, facilityWall: 0x2dd4bf, facilityCol: 0x14b8a6, user: 0x22d3ee, opening: 0xc084fc,
     alWall: 0x38bdf8, gang: 0xa78bfa, euro: 0x2dd4bf, alSlab: 0x7dd3fc, beamForm: 0xfbbf24
   };
+  // colour by storey: each floor told apart at a glance (basement, ground, typical floors in two
+  // alternating blues, roof); slabs keep their own colour
+  var STOREY = { basement: 0x9a7b54, ground: 0x10b981, typicalA: 0x60a5fa, typicalB: 0x2563eb, roof: 0x9ca3af, focus: 0xf43f5e };
+  function storeyColor(key, index) {
+    if (key.charAt(0) === "B") return STOREY.basement;
+    if (key === "1") return STOREY.ground;
+    if (key === "R" || key === "PH" || key === "PHR") return STOREY.roof;
+    return index % 2 ? STOREY.typicalB : STOREY.typicalA;
+  }
   var SPACING = 0.3;     // rebar drawing spacing (m), a sketch of the bars, not their count
   var BEAM_DEPTH = 0.45; // beams hang this far below the slab in the sketch
 
@@ -31,6 +40,7 @@
     });
     var m = new THREE.Mesh(geometry, material);
     m.userData.baseOpacity = opacity;
+    m.userData.baseColor = color;
     return m;
   }
   function lines(THREE, positions, color, opacity) {
@@ -399,7 +409,8 @@
     }
 
     // ── view state ──
-    var state = { mode: "mass", building: null, level: null, kinds: {}, rebarSpec: null }; // level: index in the chosen building, null = all
+    var state = { mode: "mass", building: null, level: null, kinds: {}, rebarSpec: null, // level: index in the chosen building, null = all
+                  colorBy: options.colorBy || "member", only: false, explode: 0 };
     function visibleEntries() {
       return buildings.filter(function (b) { return !state.building || b.name === state.building; });
     }
@@ -410,10 +421,15 @@
         b.levels.forEach(function (lv, i) {
           var focus = state.level == null || (shown && state.building === b.name && i === state.level);
           var above = state.building === b.name && state.level != null && i > state.level;
-          lv.group.visible = !above;
+          var other = state.only && state.level != null && state.building === b.name && i !== state.level;
+          lv.group.visible = !above && !other;
+          lv.group.position.y = state.explode * i;  // floors pulled apart to see each one
           var faint = state.mode !== "mass" || (state.level != null && !focus);
           lv.mass.forEach(function (m) {
             m.visible = state.kinds[m.userData.kind] !== false;
+            if (m.userData.baseColor != null && m.material.color && m.userData.kind !== "slab") {
+              m.material.color.setHex(state.colorBy === "storey" ? storeyColor(lv.data.key || "", i) : m.userData.baseColor);
+            }
             m.material.opacity = faint ? Math.min(0.14, m.userData.baseOpacity) : m.userData.baseOpacity;
             m.material.transparent = true;
             m.material.depthWrite = !faint && m.userData.baseOpacity >= 0.6;
@@ -882,6 +898,9 @@
           '<button type="button" data-view="front">정면</button><button type="button" data-view="back">배면</button>' +
           '<button type="button" data-view="left">좌측</button><button type="button" data-view="right">우측</button>' +
           '<button type="button" data-proj>원근</button>' +
+          '<button type="button" data-color title="부재별 색 / 층별 색">색: 부재</button>' +
+          '<button type="button" data-explode title="층 사이를 띄워 각 층을 따로 보기">층 띄우기</button>' +
+          '<button type="button" data-only title="고른 층만 보기">이 층만</button>' +
         '</div>' +
         '<div class="q3d-bar q3d-tools">' +
           '<button type="button" data-tool="section">단면</button><button type="button" data-tool="box">단면 상자</button>' +
@@ -921,6 +940,9 @@
         if (!t) return;
         if (t.hasAttribute("data-view")) { setView(t.getAttribute("data-view")); return; }
         if (t.hasAttribute("data-proj")) { setProjection(camera !== orthographic); return; }
+        if (t.hasAttribute("data-color")) { setColorBy(state.colorBy === "storey" ? "member" : "storey"); return; }
+        if (t.hasAttribute("data-explode")) { setExplode(state.explode ? 0 : 1.6); return; }
+        if (t.hasAttribute("data-only")) { setOnly(!state.only); return; }
         if (t.hasAttribute("data-close")) { sheetEl.hidden = true; return; }
         if (t.hasAttribute("data-flip")) {
           var a = t.getAttribute("data-flip");
@@ -1332,7 +1354,29 @@
     apply();
     fit();
 
+    function setColorBy(mode) {
+      state.colorBy = mode === "storey" ? "storey" : "member";
+      var b = ui && ui.querySelector("[data-color]");
+      if (b) { b.textContent = state.colorBy === "storey" ? "색: 층" : "색: 부재"; b.classList.toggle("is-on", state.colorBy === "storey"); }
+      apply();
+    }
+    function setExplode(gap) {
+      state.explode = Math.max(0, Number(gap) || 0);
+      var b = ui && ui.querySelector("[data-explode]");
+      if (b) b.classList.toggle("is-on", state.explode > 0);
+      apply();
+      fit();
+    }
+    function setOnly(on) {
+      state.only = !!on;
+      var b = ui && ui.querySelector("[data-only]");
+      if (b) b.classList.toggle("is-on", state.only);
+      apply();
+    }
     return {
+      setColorBy: setColorBy,
+      setExplode: setExplode,
+      setOnly: setOnly,
       buildings: function () { return buildings.map(function (b) { return b.name; }); },
       levels: function (name) {
         var b = buildings.filter(function (x) { return x.name === name; })[0];
@@ -1399,6 +1443,7 @@
       },
       getState: function () {
         return { mode: state.mode, building: state.building, level: state.level, kinds: Object.assign({}, state.kinds), rebarSpec: state.rebarSpec,
+                 colorBy: state.colorBy, only: state.only, explode: state.explode,
                  orbit: { theta: orbit.theta, phi: orbit.phi, radius: orbit.radius, target: orbit.target.toArray() },
                  ortho: camera === orthographic,
                  fix: { on: fix.on, mode: fix.mode, sizes: Object.assign({}, fix.sizes), said: statusEl ? statusEl.textContent : "" } };
@@ -1408,6 +1453,13 @@
         state.mode = keep.mode; state.building = keep.building; state.level = keep.level;
         state.kinds = keep.kinds || {};
         state.rebarSpec = keep.rebarSpec || null;
+        state.colorBy = keep.colorBy || state.colorBy; state.only = !!keep.only; state.explode = keep.explode || 0;
+        if (ui) {
+          var cb = ui.querySelector("[data-color]");
+          if (cb) { cb.textContent = state.colorBy === "storey" ? "색: 층" : "색: 부재"; cb.classList.toggle("is-on", state.colorBy === "storey"); }
+          var eb = ui.querySelector("[data-explode]"); if (eb) eb.classList.toggle("is-on", state.explode > 0);
+          var ob = ui.querySelector("[data-only]"); if (ob) ob.classList.toggle("is-on", state.only);
+        }
         orbit.theta = keep.orbit.theta; orbit.phi = keep.orbit.phi; orbit.radius = keep.orbit.radius;
         orbit.target.fromArray(keep.orbit.target);
         camera = keep.ortho ? orthographic : perspective;

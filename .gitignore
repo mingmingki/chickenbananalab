@@ -58,6 +58,8 @@ tools/cbl_acadsharp_poc/runtime/CblAcadSharpPoc.bin
 # Quantity state and local test logs
 /var/quantity/
 /quantity-*.log
+# Django log files (config/settings.py writes logs/quantity_overview.log, also during tests)
+/logs/
 
 # Worktree Python environment symlink
 /.venv
