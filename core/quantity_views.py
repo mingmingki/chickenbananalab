@@ -1820,7 +1820,7 @@ def _cad_member_links(job_id, files, manifest):
     same reading the AI run attaches, here for the CAD-only path. Plans already opened for the
     pictures are not converted again; the time is bounded and a file that fails is left out."""
     from . import quantity_floor_views as fv
-    opened = {entry["name"]: entry["dxf"] for entry in manifest}
+    opened = {entry["name"]: entry for entry in manifest}
     structural = [f for f in files if fv._is_structural_file(f["name"])]
     if not structural:
         return None
@@ -1840,7 +1840,7 @@ def _cad_member_links(job_id, files, manifest):
                 continue
             seen.add(identity["source_member_sha"])
             if item["name"] in opened:
-                doc = ezdxf.readfile(opened[item["name"]])
+                doc = fv._read(opened[item["name"]])  # the converted text is UTF-8 whatever code page its header names
             elif item["path"].lower().endswith(".dxf"):
                 doc = ezdxf.readfile(item["path"])
             else:
@@ -1867,7 +1867,7 @@ def _cad_opening_schedule(job_id, files, manifest):
     size and count, for the architectural takeoff. Bounded in time like the structural schedules."""
     from . import quantity_arch_schedule
     from . import quantity_floor_views as fv
-    opened = {entry["name"]: entry["dxf"] for entry in manifest}
+    opened = {entry["name"]: entry for entry in manifest}
     sheets = [f for f in files if fv.is_opening_schedule_file(f["name"])]
     if not sheets:
         return None
@@ -1880,7 +1880,7 @@ def _cad_opening_schedule(job_id, files, manifest):
         _progress_set(job_id, "schedules", index, len(sheets) + 1, f"창호일람표 읽는 중 ({index + 1}/{len(sheets)})")
         try:
             if item["name"] in opened:
-                doc = ezdxf.readfile(opened[item["name"]])
+                doc = fv._read(opened[item["name"]])  # the converted text is UTF-8 whatever code page its header names
             elif item["path"].lower().endswith(".dxf"):
                 doc = ezdxf.readfile(item["path"])
             else:

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections import Counter
 
 import numpy as np
 
@@ -796,7 +797,36 @@ def foundation_specs(links, building):
                         thickness = float(found.group(1))
             if spec.get("kind") == "rebar" and rebar is None and re.search(r"T\s*/\s*B|EW", text, re.I):
                 rebar = text
+    if rebar is None:
+        rebar = _top_and_bottom(links, building)
     return thickness, rebar
+
+
+_SPACED_BAR = re.compile(r"[A-Z]{0,3}D\d{2}\s*@\s*\d{2,4}", re.I)
+
+
+def _top_and_bottom(links, building):
+    """A mat's bars noted apart on its plan ("UHD22@300(상부근)", "UHD22@300(하부근)"): the most
+    noted of each, as one text "UHD22@300(상부근) + UHD22@300(하부근)"; local strengthening
+    (보강근) is not the mat's run."""
+    tops, bottoms = Counter(), Counter()
+    for plan in (links or {}).get("plans") or []:
+        if "FDN" not in (plan.get("levels") or []) or not ((plan.get("section") or "") in (building or "") or
+                                                            (building or "") in (plan.get("section") or "")):
+            continue
+        for spec in plan.get("specs") or []:
+            text = str(spec.get("text") or "")
+            found = _SPACED_BAR.search(text)
+            if spec.get("kind") != "rebar" or not found or re.search(r"보강|추가|ADD", text, re.I):
+                continue
+            bar = re.sub(r"\s+", "", found.group(0)).upper()
+            if re.search(r"상부|상단|TOP", text, re.I):
+                tops[bar] += int(spec.get("count") or 1)
+            elif re.search(r"하부|하단|BOT", text, re.I):
+                bottoms[bar] += int(spec.get("count") or 1)
+    if not tops or not bottoms:
+        return None
+    return f"{tops.most_common(1)[0][0]}(상부근) + {bottoms.most_common(1)[0][0]}(하부근)"
 
 
 # ── foundation schedule rows: isolated footings, mats, wall footings ──

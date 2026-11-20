@@ -572,12 +572,82 @@ def _box_tables(texts, claimed):
     return tables
 
 
+# ── beam tables whose row labels are not text (drawn as lines or a picture) ───
+
+def _value_shape(text):
+    """"size" / "bars" / "spaced" for a beam schedule cell, by what it says ("500 X 1,300", "5-D19",
+    "D10 @ 300"; "180 X 건축치수" is a size whose depth follows the architecture)."""
+    key = _key(text)
+    if parse_spaced(text):
+        return "spaced"
+    if parse_bars(text):
+        return "bars"
+    if re.search(r"\d{2,4}[X×*](?:\d|건축)", key.replace(",", "")):
+        return "size"
+    return None
+
+
+def _unlabelled_beam_tables(texts, claimed):
+    """A beam schedule whose row labels are drawn, not written: a row of marks, the position row
+    under it (ALL / 양단부 / 중앙부) and per position a column of cells read by their shape in the
+    usual order: the section (B X D), the top bars, the bottom bars, the stirrups."""
+    free = [t for t in texts if id(t) not in claimed]
+    rows = _rows_by_y(free)
+    tables = []
+    for index, (y, h, items) in enumerate(rows):
+        positions = [t for t in items if _key(t["text"]) in POSITION_WORDS]
+        if len(positions) < 2 or len(positions) < 0.8 * len(items):
+            continue
+        above = [t for yy, hh, row in rows if 0 < yy - y <= 6 * h for t in row if schedule_mark(t["text"]) and id(t) not in claimed]
+        if not above:
+            continue
+        marks = sorted(above, key=_center)
+        mark_xs = [_center(m) for m in marks]
+        bounds = [(a + b) / 2 for a, b in zip(mark_xs, mark_xs[1:])]
+        spacing = _spacing(sorted(_center(p) for p in positions), 20 * h)
+        lower_marks = [yy for yy, _hh, row in rows if yy < y and any(schedule_mark(t["text"]) for t in row)]
+        floor = max(lower_marks, default=y - 60 * h)
+        cells = [t for yy, _hh, row in rows if floor < yy < y - 0.5 * h for t in row if id(t) not in claimed]
+        by_mark = {}
+        used = list(positions) + marks
+        for position in sorted(positions, key=_center):
+            x = _center(position)
+            owner = marks[sum(1 for bound in bounds if x > bound)]
+            column = sorted((t for t in cells if abs(_center(t) - x) <= 0.45 * spacing and _value_shape(t["text"])),
+                            key=lambda t: -t["y"])
+            values, bars_seen = {}, 0
+            for cell in column:
+                shape = _value_shape(cell["text"])
+                if shape == "size" and "size" not in values:
+                    values["size"] = cell["text"]
+                elif shape == "bars" and bars_seen < 2:
+                    values["top_bar" if bars_seen == 0 else "bottom_bar"] = cell["text"]
+                    bars_seen += 1
+                elif shape == "spaced" and bars_seen == 2 and "stirrup" not in values:
+                    values["stirrup"] = cell["text"].lstrip(": ")
+                else:
+                    continue
+                used.append(cell)
+            if values.get("top_bar") or values.get("stirrup"):
+                by_mark.setdefault(owner["text"], []).append({"position": position["text"], "levels_text": None, "levels": None,
+                                                              "values": values, "ditto": []})
+        for mark_text, mark_rows in by_mark.items():
+            tables.append({"mark": schedule_mark(mark_text), "category": "beams", "layout": "unlabelled",
+                           "labels": {"size": "(B X D)", "top_bar": "(상부근)", "bottom_bar": "(하부근)", "stirrup": "(늑근)"},
+                           "rows": mark_rows})
+        if by_mark:
+            claimed.update(id(t) for t in used)
+    return tables
+
+
 def read_tables(texts, foundation=False):
     """Schedule tables of one frame. ``foundation``: the sheet is titled as foundations, so bar,
     direction and width columns of mat and wall footing tables are read too."""
     claimed = set()
     tables = _header_tables(texts, claimed, foundation) + _label_column_tables(texts, claimed, foundation)
     tables += _box_tables(texts, claimed)
+    if not foundation:
+        tables += _unlabelled_beam_tables(texts, claimed)
     return [t for t in tables if t["mark"]][:MAX_TABLE_MARKS]
 
 

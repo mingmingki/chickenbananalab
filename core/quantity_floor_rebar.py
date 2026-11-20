@@ -713,7 +713,7 @@ def _foundation_rebar(row, links, name, general_spec, overall, chairs_on=True, a
             text, bar = mat_bar + "(T/B, EW)", _spaced(mat_bar)
             tally.note(f"기초 배근 표기를 못 찾아 {mat_bar} 상·하부 양방향으로 봤어요")
         key = _key(text)
-        layers = (2 if re.search(r"T/?B|TOP.*BOT", key) else 1) * 2  # each way unless told otherwise
+        layers = (2 if re.search(r"T/?B|TOP.*BOT|상부.*하부", key) else 1) * 2  # each way unless told otherwise
         side = math.sqrt(max(area, 0.0))
         laps = max(0, math.ceil(side / qc.STOCK_BAR_LENGTH_M) - 1)
         run = left / bar[1] * (1 + laps * tally.lap(bar[0], "기초") / max(side, 1.0))
