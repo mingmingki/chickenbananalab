@@ -894,14 +894,14 @@ export class Cities {
         const hs = (a.lk?.height || 168) / 170 * ageS;
         const walking = ps.moving;
         const duty = ps.act === 'work' || ps.act === 'build', school = !!a.sc && age >= 7 && age < 19 && (ps.act === 'study' || walking);
-        const spec = t.anns.spec(id, `${townEra}|${townSea}|${duty ? 1 : 0}${school ? 1 : 0}${townRain ? 1 : 0}|${Math.floor(age / 4)}|${a.jk || ''}`, () => dress(id, a, age, townEra, townSea, duty, school, townRain));
+        const spec = t.anns.spec(id, `${townEra}|${townSea}|${duty ? 1 : 0}${school ? 1 : 0}${townRain ? 1 : 0}|${age < 17 ? Math.floor(age) : 'a' + Math.floor(age / 4)}|${a.jk || ''}`, () => dress(id, a, age, townEra, townSea, duty, school, townRain));
         const play = ps.act === 'play' && !walking && age < 13;
         const lift = walking ? Math.abs(Math.sin(time * 8.5 + id * 1.7)) * 0.025 : play ? Math.abs(Math.sin(time * 6 + id)) * 0.22 : 0;
         q.setFromAxisAngle(up, (ps.heading || 0) + t.W.rot(ip.x, ip.z));
         sc.set(hs, hs, hs);
         p.set(wx, t.hAt(ip.x, ip.z) + 0.55 + lift, wz);
         tmpM.compose(p, q, sc);
-        t.anns.add(tmpM, spec, { walk: walking, run: walking && ps.act === 'exercise', t: time, id, age, talk: !walking && (ps.act === 'talk' || ps.act === 'date' || ps.act === 'family'), work: !walking && ps.act === 'build' });
+        t.anns.add(tmpM, spec, { walk: walking, run: walking && ps.act === 'exercise', t: time, id, age, talk: !walking && (ps.act === 'talk' || ps.act === 'date' || ps.act === 'family'), work: !walking && ps.act === 'build', play });
         t.ids[n] = id;
         n++;
         // 이름표

@@ -1,4 +1,5 @@
 // 관계와 상호작용: 대화, 뒷담화(믿음의 전파), 다툼, 위로, 고백, 청혼, 결혼
+import { shareCreation } from './culture.js';
 import { clamp, rand, pick, chance, gauss, pairHash, ageOf, ga, neun, reul, wa, iya, callName } from './util.js';
 import { remember, think, feel, lifeEvent } from './ann.js';
 import { GOALS, JOBS } from './data.js';
@@ -114,7 +115,7 @@ export function converse(world, a, b, kind = 'chat') {
   // 대화의 질: 성격 궁합, 친화성, 기분, 매력, 신경성, 운
   const q = ra.c * 22 + (a.tr.A + b.tr.A - 100) * 0.18 + (a.mood + b.mood) * 0.08 + (a.ab.cha + b.ab.cha - 100) * 0.1
     - (a.tr.N + b.tr.N - 100) * 0.1 + (ra.a + rb.a) * 0.08 + gauss() * 16 + (kind === 'date' ? 8 : 0) + (kind === 'family' ? 10 : 0);
-  let topic, line;
+  let topic, line, shared;
   const story = recentStory(a, now);
   const other = mutualAcquaintance(world, a, b);
   const r = rand();
@@ -143,6 +144,9 @@ export function converse(world, a, b, kind = 'chat') {
     line = `${neun(a.name)} ${b.name}에게 ${other.name}에 대한 ${reul(tone)} 늘어놓았다`;
     remember(world, b, `${ga(a.name)} ${other.name}에 대해 ${opA > 20 ? '좋게' : opA < -20 ? '나쁘게' : '이런저런'} 말했다`, 3, 0, [a.id, other.id], 'gossip');
     if (Math.abs(shift) > 2) think(world, b, opA > 0 ? `${neun(other.name)} 그런 사람이었구나. 다시 봐야겠어.` : `${other.name}… 조심해야겠다.`);
+  } else if (a.cre?.length && chance(kind === 'family' || kind === 'play' ? 0.45 : 0.16) && (shared = shareCreation(world, a, b, kind))) {
+    // 노래·이야기·놀이·속담을 알려 준다 (culture.js)
+    topic = shared.topic; line = shared.line;
   } else if (story && r < 0.5) {
     topic = '근황';
     line = `${neun(a.name)} ${b.name}에게 최근 일을 이야기했다: "${story.text}"`;

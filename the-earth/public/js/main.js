@@ -396,6 +396,7 @@ function observe(justDeployed = false, firstAnn = null, since = null) {
   w3d.setMyCountry(me?.country);
   hud = new Hud({
     state, w3d, live, me, meta,
+    fetchBuilding: bid => api(`/api/servers/${ctx.server.id}/building/${bid}`),
     // 내 앤이 세상을 떠났을 때: 아이·손주로 대를 잇거나, 새로 태어나기
     onDeployMore: async () => {
       const r = await api(`/api/servers/${ctx.session.serverId}/me?token=${encodeURIComponent(ctx.session.token)}`).catch(() => null);
@@ -445,7 +446,11 @@ function observe(justDeployed = false, firstAnn = null, since = null) {
   }
   w3d.onAnnPick = id => hud.select(id, false);
   w3d.onAnnTag = id => hud.select(id, true);
-  w3d.onBuildingPick = (bid, x, y) => hud.buildingTip(bid, x, y);
+  // 집·일터를 누르면 오른쪽에 자세한 창, 그 밖의 건물은 짧은 말풍선
+  w3d.onBuildingPick = (bid, x, y) => {
+    const b = state.buildings.get(bid), k = meta.buildings[b?.type]?.kind;
+    if (b && (k === 'home' || b.co || k === 'work' || k === 'farm')) hud.showBuilding(bid); else hud.buildingTip(bid, x, y);
+  };
   w3d.onTownClick = sid => hud.flyTown(sid);
   w3d.onEmptyClick = () => {};
   w3d.rig.onUserMove = () => { if (hud?.detail) hud.renderAnn(); };

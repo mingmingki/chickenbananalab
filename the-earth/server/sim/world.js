@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { clamp, rand, pick, chance, gauss, ageOf, dateOf, fmtDate, localHour, YEAR, DAY, ga, neun, reul, wa, ida, fixJosa } from './util.js';
 import { ERAS, DISCOVERIES, BUILDINGS, PUBLIC, JOBS, GOALS, HOME_BY_ERA, SETTLEMENT_LEVELS, INDUSTRIES, SCHOOLS, EDU_NAMES, SHIFTS } from './data.js';
 import { makeAnn, makeBaby, remember, think, feel, lifeEvent, ageStage, STAGE_NAMES, TRAIT_NAMES, ABILITY_NAMES, deriveValues, deriveGoals } from './ann.js';
-import { makeSettlement, placeBuilding, removeBuilding, updateSettlementLevel, plazaPoint, CELL, siteFeatures, ensureSite, buildRule } from './settlement.js';
+import { makeSettlement, placeBuilding, removeBuilding, updateSettlementLevel, plazaPoint, CELL, siteFeatures, ensureSite, buildRule, doorPoint } from './settlement.js';
 import { updateAnn, nightlyReview, ACTS, isAvailable, shiftOf } from './mind.js';
 import { rel, decayRelations, breakUp, opinionText, updateKind, confessYes, confessNo, proposeNo } from './social.js';
 import { consult, askTick, askDaily, loansDaily, asksOut } from './dilemma.js';
@@ -26,6 +26,8 @@ import { safetyDaily, safetyTick, fireOut } from './safety.js';
 import { livingDaily, pensionDaily, book, ledgerOut, monthNet } from './budget.js';
 import { getCountry, randomLandPoint, seaNear } from '../geo.js';
 import { RELATION_NAMES, SKILLS } from './data.js';
+import { popTarget } from './capacity.js';
+import { createDaily, cultureMood, pruneCreations, creationsOf, townCulture } from './culture.js';
 
 const PLAYER_COLORS = ['#ff6b6b', '#4dabf7', '#ffd43b', '#69db7c', '#da77f2', '#ff922b', '#3bc9db', '#f783ac', '#a9e34b', '#9775fa', '#ffa8a8', '#74c0fc'];
 // 한 계정(플레이어)에 앤은 한 명. 그 앤이 세상을 떠나면 아이·손주 중 한 명으로 대를 잇거나 새로 태어난다
@@ -40,6 +42,9 @@ export class World {
     this.clock = meta.clock || 0;
     this.nextIdV = meta.nextIdV || 1;
     this.worldSeeded = meta.worldSeeded || 0;
+    this.seededFor = meta.seededFor || 0;
+    this.popTarget = popTarget();   // 이 서버의 메모리로 감당할 세계 인구 (capacity.js)
+    this.alivePop = 0;
     this.countries = {};
     this.settlements = new Map();
     this.buildings = new Map();
@@ -48,6 +53,7 @@ export class World {
     this.players = {};
     this.events = [];
     this.chat = [];
+    this.creations = new Map();   // 앤들이 지은 노래·이야기·놀이… (culture.js)
     this.nextEventId = 1;
     this.lastDay = Math.floor(this.clock / DAY);
     this.resetDirty();
@@ -912,6 +918,8 @@ export class World {
     const now = this.clock;
     const age = ageOf(a, now);
     if (age >= 1) dietDaily(this, a);   // 먹은 것이 몸에 쌓인다 (건강·체중) — food.js
+    createDaily(this, a);               // 노래·이야기·놀이·음식·도구·속담·춤을 지어낸다 — culture.js
+    cultureMood(this, a);
     faithDaily(this, a);                // 믿음: 물려받고, 깊어지고, 옅어지고, 옮겨 간다 — religion.js
     const c = this.countries[a.country];
     const s = this.settlements.get(a.sid);
@@ -1251,7 +1259,10 @@ export class World {
     nationsDaily(this);
     for (const s of this.settlements.values()) s.pop = this.residents(s.id).length;
     this.rebuildResidents();
+    let n = 0; for (const a of this.anns.values()) if (a.alive) n++;
+    this.alivePop = n;
     dailyAchievements(this);
+    if (Math.floor(this.clock / DAY) % 7 === 0) pruneCreations(this);
   }
 
   // ── 시계 ──
@@ -1278,9 +1289,9 @@ export class World {
   // ── 저장 ──
   toJSON() {
     return {
-      v: 1, id: this.id, name: this.name, created: this.created, timeScale: this.timeScale, clock: this.clock, nextIdV: this.nextIdV, paused: !!this.paused, worldSeeded: this.worldSeeded,
+      v: 1, id: this.id, name: this.name, created: this.created, timeScale: this.timeScale, clock: this.clock, nextIdV: this.nextIdV, paused: !!this.paused, worldSeeded: this.worldSeeded, seededFor: this.seededFor,
       nextEventId: this.nextEventId, countries: this.countries, settlements: [...this.settlements.values()], buildings: [...this.buildings.values()],
-      companies: [...this.companies.values()], anns: [...this.anns.values()].map(annSave), players: this.players, events: this.events.slice(-300), chat: this.chat.slice(-60),
+      companies: [...this.companies.values()], anns: [...this.anns.values()].map(annSave), creations: [...(this.creations || new Map()).values()], players: this.players, events: this.events.slice(-300), chat: this.chat.slice(-60),
     };
   }
   static fromJSON(o) {
@@ -1292,6 +1303,7 @@ export class World {
     for (const c of o.companies || []) w.companies.set(c.id, c);
     for (const a of o.anns || []) w.anns.set(a.id, a);
     w.players = o.players || {};
+    w.creations = new Map((o.creations || []).map(c => [c.id, c]));
     w.events = o.events || [];
     w.chat = o.chat || [];
     w.lastDay = Math.floor(w.clock / DAY);
@@ -1354,7 +1366,7 @@ export class World {
     return {
       id: s.id, name: s.name, country: s.country, tribe: s.tribe || null, lon: s.lon, lat: s.lat, level: s.level, levelName: SETTLEMENT_LEVELS[s.level].name, pop: s.pop, food: Math.round(s.food), founded: s.founded, abandoned: !!s.abandoned, radius: Math.round(s.radius),
       site: s.site, feat: siteFeatures(s), weather: s.weather || null, need: s.needPrev || {}, inst, roads: s.roads || {}, snow: Math.round((s.snow || 0) * 100) / 100,
-      signals: s.signals || {},
+      signals: s.signals || {}, culture: townCulture(this, s.id),
       bus: s.bus ? { open: !!s.bus.open, co: s.bus.co, len: Math.round(s.bus.len), buses: s.bus.buses.length, stops: s.bus.stops.map(st => ({ name: st.name, pos: st.pos, built: !!st.built })) } : null,
       flowTop: Object.entries(s.flowAvg || {}).sort((a, b) => b[1] - a[1]).slice(0, 3),
     };
@@ -1433,6 +1445,63 @@ export class World {
     return p;
   }
 
+  /** 집(건물)을 눌렀을 때: 누가 살고 지금 무엇을 하는지, 어떻게 지어진 집인지, 오늘 이 집에서 있었던 일 */
+  buildingDetail(bid) {
+    const b = this.buildings.get(bid);
+    if (!b) return null;
+    const def = BUILDINGS[b.type] || {};
+    const s = this.settlements.get(b.sid);
+    const owner = b.owner != null ? this.anns.get(b.owner) : null;
+    const [dx, dz] = doorPoint(b);
+    const nm = id => this.anns.get(id)?.name || null;
+    const roleOf = a => {
+      if (!owner) return '사는 사람';
+      if (a.id === owner.id) return '집주인';
+      if (owner.spouse === a.id) return a.gender === 'F' ? '아내' : '남편';
+      if (owner.kids.includes(a.id)) return a.gender === 'F' ? '딸' : '아들';
+      if (owner.parents.includes(a.id)) return a.gender === 'F' ? '어머니' : '아버지';
+      if (a.parents.some(p => owner.kids.includes(p))) return a.gender === 'F' ? '손녀' : '손자';
+      if (a.parents.some(p => owner.parents.includes(p))) return '형제자매';
+      if (owner.spouse && (this.anns.get(owner.spouse)?.parents || []).includes(a.id)) return a.gender === 'F' ? '장모·시어머니' : '장인·시아버지';
+      return '함께 사는 사람';
+    };
+    const row = (a, role) => {
+      const act = a.act, A = ACTS[act?.type] || null;
+      const here = !a.travel && a.sid === b.sid && Math.hypot(a.x - dx, a.z - dz) < 18;
+      const tgt = act?.target != null ? this.anns.get(act.target) : null;
+      const th = a.th?.[a.th.length - 1];
+      return {
+        id: a.id, n: a.name, g: a.gender, age: Math.floor(ageOf(a, this.clock)), role, alive: a.alive, owner: a.owner || null,
+        job: jobTitle(this, a), school: a.school?.name || null, title: titleOf(this, a),
+        act: a.travel ? 'travel' : act?.type || 'idle', label: a.travel ? (a.travel.where ? `${a.travel.where}에 감` : '먼 길을 떠남') : A?.label || '쉬는 중', emoji: a.travel ? '🧭' : A?.emoji || '🙂',
+        moving: act?.ph === 'move', with: tgt ? tgt.name : null, topic: act?.topic || null, here,
+        mood: Math.round(a.mood), emo: a.emo?.k || null, stress: Math.round(a.stress || 0), sick: (a.sick || 0) > 0.2,
+        thought: th && this.clock - th.t < DAY * 2 ? th.text : null, money: Math.round(a.money),
+      };
+    };
+    const residents = b.res.map(id => this.anns.get(id)).filter(a => a && a.alive)
+      .sort((x, y) => (x.id === owner?.id ? -1 : y.id === owner?.id ? 1 : 0) || x.born - y.born).map(a => row(a, roleOf(a)));
+    // 일터: 그곳에서 일하는 사람들
+    const co = b.co != null ? this.companies.get(b.co) : null;
+    const workers = co && !co.dead ? co.emp.map(id => this.anns.get(id)).filter(a => a && a.alive).slice(0, 40).map(a => row(a, a.job?.ceo ? '대표' : jobTitle(this, a))) : [];
+    // 오늘 이 집 사람들의 하루 (최근 것부터)
+    const today = [];
+    for (const r of residents) { const a = this.anns.get(r.id); for (const e of (a.today || []).slice(-5)) today.push({ h: e.h, e: e.e, x: e.x, who: a.name }); }
+    today.sort((p, q) => q.h - p.h);
+    const helpers = (b.helpers || []).map(nm).filter(Boolean);
+    const builder = b.contractor ? this.companies.get(b.contractor)?.name || null : null;
+    const memories = owner ? (owner.mem || []).filter(m => m.k === 'home').slice(-4).map(m => ({ t: m.t, text: m.text })) : [];
+    return {
+      id: b.id, type: b.type, typeName: def.name || b.type, kind: def.kind || null, name: b.name, sid: b.sid, town: s?.name || '', era: b.era,
+      done: b.done, p: Math.round(b.progress / b.work * 100), started: b.started, built: b.built || null, mh: Math.round(b.mh || 0),
+      owner: owner ? { id: owner.id, n: owner.name, alive: owner.alive } : null, cap: def.cap || null,
+      helpers, builder, burnt: !!b.burnt, fire: !!b.fire, demo: b.demo != null,
+      residents, workers, company: co ? { id: co.id, name: co.name, ind: co.pub ? (PUBLIC[co.ind]?.name || co.ind) : (INDUSTRIES[co.ind]?.name || co.ind), emp: co.emp.length, founded: co.founded } : null,
+      today: today.slice(0, 10), memories,
+      money: residents.reduce((t, r) => t + (r.money || 0), 0),
+    };
+  }
+
   annDetail(id) {
     const a = this.anns.get(id);
     if (!a) return null;
@@ -1451,7 +1520,7 @@ export class World {
     const siblings = new Set();
     for (const pid of a.parents) { const p = this.anns.get(pid); if (p) for (const k of p.kids) if (k !== a.id) siblings.add(k); }
     return {
-      ...this.annMeta(a), age: Math.floor(age), ageExact: age, stage: STAGE_NAMES[ageStage(age)], culture: a.culture, orient: a.orient,
+      ...this.annMeta(a), age: Math.floor(age), ageExact: age, stage: STAGE_NAMES[ageStage(age)], culture: a.culture, orient: a.orient, art: creationsOf(this, a),
       tr: a.tr, ab: a.ab, amb: a.amb, val: a.val, goals: a.goals, sk: a.sk, skillNames: SKILLS, traitNames: TRAIT_NAMES, abilityNames: ABILITY_NAMES,
       nd: a.nd, mood: Math.round(a.mood), stress: Math.round(a.stress), health: Math.round(a.health), conf: Math.round(a.conf), emo: a.emo,
       money: Math.round(a.money), edu: Math.round(a.edu), rep: Math.round(a.rep), fame: Math.round(a.fame), sick: Math.round(a.sick), cause: a.cause,

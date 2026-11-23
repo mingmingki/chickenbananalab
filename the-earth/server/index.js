@@ -437,6 +437,14 @@ app.post('/api/servers/:id/seen', (req, res) => {
   res.json({ ok: !!p });
 });
 
+// 집(건물)을 눌렀을 때의 자세한 정보: 사는 사람·일하는 사람과 지금 하는 일
+app.get('/api/servers/:id/building/:bid', (req, res) => {
+  const w = getWorld(req, res); if (!w) return;
+  const d = w.buildingDetail(+req.params.bid);
+  if (!d) return res.status(404).json({ error: '없는 건물입니다' });
+  res.json(d);
+});
+
 // 이 나라에 투입하면 어떻게 되는가: 가정에 아기로 태어나는지, 개척자로 도착하는지
 app.get('/api/servers/:id/country/:code', (req, res) => {
   const w = getWorld(req, res); if (!w) return;

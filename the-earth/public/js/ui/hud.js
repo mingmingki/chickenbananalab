@@ -3,6 +3,7 @@ import { fmtDate, fmtTime, fmtDateTime, localHour, MIN_YEAR } from '../state.js'
 import { josa } from './josa.js';
 import { avatarHTML } from './avatar.js';
 import { icon } from './icons.js';
+import { homeDesign } from '../scene/homes.js';
 
 const landscapePhone = () => innerWidth <= 960 && innerHeight <= 500 && innerWidth > innerHeight;
 const isMobile = () => innerWidth <= 860 && !landscapePhone();
@@ -25,8 +26,8 @@ const mhFmt = v => `${Math.round(v).toLocaleString()}인시`;
 const ago = (now, t) => { const m = now - t; if (m < 60) return '방금'; if (m < 1440) return `${Math.floor(m / 60)}시간 전`; if (m < 1440 * 30) return `${Math.floor(m / 1440)}일 전`; return fmtDate(t); };
 
 export class Hud {
-  constructor({ state, w3d, live, me, meta, onDeployMore, onExit, onInbox, onSettings, onReport }) {
-    Object.assign(this, { state, w3d, live, me, meta, onDeployMore, onExit, onInbox, onSettings, onReport });
+  constructor({ state, w3d, live, me, meta, onDeployMore, onExit, onInbox, onSettings, onReport, fetchBuilding }) {
+    Object.assign(this, { state, w3d, live, me, meta, onDeployMore, onExit, onInbox, onSettings, onReport, fetchBuilding });
     this.unread = 0;
     this.el = document.getElementById('hud');
     this.left = document.getElementById('left-body');
@@ -156,7 +157,7 @@ export class Hud {
   showTown(sid) {
     const st = this.state, s = st.settlements.get(sid);
     if (!s) return;
-    this.selected = null; this.detail = null; this.townId = sid;
+    this.selected = null; this.detail = null; this.townId = sid; this.bldId = null;
     this.w3d.cities.selected = null; this.live?.watch(null);
     const c = st.countries.get(s.country);
     const f = s.feat || {};
@@ -203,6 +204,7 @@ export class Hud {
         ${(() => { const cl = [...st.companies.values()].filter(co => co.sid === sid).sort((x, y) => y.emp - x.emp); return cl.length ? `<div class="sec">일터 (${cl.reduce((t, co) => t + co.emp, 0)}명 근무)</div>` + cl.map(co => `<div class="row" style="display:flex;justify-content:space-between;font-size:13px;padding:3px 2px"><span>${co.pub ? '🏛️' : '🏢'} ${esc(co.name)} <span class="sub small">${esc(co.indName)}</span></span><b>${co.emp}${co.cap ? '/' + co.cap : ''}명${co.sites ? ` · 현장 ${co.sites}` : ''}</b></div>`).join('') : ''; })()}
         ${roadHtml}
         <div class="sec">없어서 아쉬운 것</div>${needs.length ? needs.map(x => `<div class="mem neg">${esc(x)}</div>`).join('') : '<p class="sub">지금은 큰 불편이 없다.</p>'}
+        ${(s.culture || []).length ? `<div class="sec">이 마을 사람들이 즐겨 하는 것</div>${s.culture.map(c => `<div class="mem">${c.icon} ${esc(c.kindName)} <b>'${esc(c.name)}'</b> <span class="sub small">— ${esc(c.by)} 지음 · 이 마을 ${c.here}명이 안다</span></div>`).join('')}` : ''}
         <div class="sec">사는 사람들 (${people.length})</div>${people.map(a => this.annRow(a)).join('')}
       </div></div>`;
   }
@@ -211,7 +213,7 @@ export class Hud {
     this.selected = id;
     this.w3d.cities.selected = id;
     this.live?.watch(id);
-    this.townId = null;
+    this.townId = null; this.bldId = null;
     if (!id) { this.right.classList.add('hidden'); this.w3d.rig.follow = null; this.detail = null; this.layout(); this.renderLeft(true); return; }
     this.detail = null;
     this.right.classList.remove('hidden');
@@ -246,6 +248,7 @@ export class Hud {
 
   onTick() {
     this.renderLeft(false);
+    if (this.bldId && !this.selected && performance.now() - (this.lastBld || 0) > 3000) { this.lastBld = performance.now(); this.showBuilding(this.bldId, true); }
     if (this.townId && !this.selected && performance.now() - (this.lastTown || 0) > 3000) { this.lastTown = performance.now(); const sc = this.right.querySelector('.ap-body')?.scrollTop; this.showTown(this.townId); const b = this.right.querySelector('.ap-body'); if (b && sc) b.scrollTop = sc; }
     // 새 소식: 내 앤 관련은 토스트
     const evs = this.state.events.filter(e => e.id > this.lastEventId);
@@ -780,6 +783,10 @@ export class Hud {
       const VN = { family: '가족', wealth: '부', knowledge: '지식', power: '권력', art: '예술', adventure: '모험', sport: '운동', community: '공동체', mastery: '장인정신' };
       body += `<div class="sec">가치관</div>` + vals.map(([k, v]) => `<div class="stat"><span>${VN[k] || k}</span>${bar(v, '#7ef0c8')}<b>${Math.round(v)}</b></div>`).join('');
       if (d.wantsMigrate) body += `<p class="sub">🧭 새로운 땅으로 떠날 생각을 하고 있다 — ${esc(d.wantsMigrate)}</p>`;
+      const art = d.art || { made: [], knows: [] };
+      const cr = c => `<div class="mem"><span>${c.icon}</span> ${esc(c.kindName)} <b>'${esc(c.name)}'</b>${c.byId !== d.id ? ` <span class="sub small">— ${esc(c.by)} 지음</span>` : ''} <span class="sub small">· ${c.n}명이 안다</span></div>`;
+      body += `<div class="sec">지은 것</div>` + (art.made.length ? art.made.map(cr).join('') : '<p class="sub">아직 지어낸 노래나 이야기가 없다.</p>');
+      if (art.knows.length) body += `<div class="sec">아는 노래 · 이야기 · 놀이</div>` + art.knows.slice().reverse().map(cr).join('');
     }
     const nowBox = d.al ? `<div class="now">
         <div class="what"><span class="em">${act?.emoji || '🙂'}</span>${esc(act?.label || '쉬는 중')}${act?.target ? ` <span class="sub" style="margin:0">— <span class="linklike" data-ann="${act.target.id}">${esc(act.target.name)}</span></span>` : ''}${act?.ph === 'move' ? ` <span class="chip">${this.tripText(act.trip)}</span>` : ''}${act?.drive ? ' <span class="chip">🚌 버스 운전 중</span>' : ''}</div>
@@ -799,11 +806,85 @@ export class Hud {
         <div class="acts">${d.al ? `<button class="btn small ${follow ? 'primary' : ''}" data-act="follow">${icon('follow')}${follow ? '따라가는 중' : '따라가기'}</button>` : ''}${this.me && d.owner?.id !== this.me.id ? `<button class="btn small ghost icon-only" data-act="report" title="신고" aria-label="신고">${icon('report')}</button>` : ''}<button class="btn small ghost" data-act="close-ann">${icon('close')}닫기</button></div>
       </div>
       <div class="ap-body">${nowBox}
-        <div class="inner-tabs">${[['chron', '연대기'], ['money', '돈'], ['mind', '생각'], ['self', '성격·능력'], ['rels', '관계'], ['mem', '기억'], ['dream', '꿈']].map(([k, n]) => `<button data-itab="${k}" class="${tab === k ? 'on' : ''}">${icon(k)}${n}</button>`).join('')}</div>
+        <div class="inner-tabs">${[['chron', '연대기'], ['money', '돈'], ['mind', '생각'], ['self', '성격·능력'], ['rels', '관계'], ['mem', '기억'], ['dream', '꿈·작품']].map(([k, n]) => `<button data-itab="${k}" class="${tab === k ? 'on' : ''}">${icon(k)}${n}</button>`).join('')}</div>
         ${body}
       </div></div>`;
     const nb = this.right.querySelector('.ap-body');
     if (nb) nb.scrollTop = scroll;
+  }
+
+  /** 집을 누르면: 누가 살고 지금 무엇을 하는지, 어떤 집인지, 오늘 이 집에서 있었던 일 */
+  async showBuilding(bid, refresh = false) {
+    if (!this.fetchBuilding) return;
+    if (!refresh) {
+      this.selected = null; this.detail = null; this.townId = null; this.bldId = bid; this.lastBld = performance.now();
+      this.w3d.cities.selected = null; this.live?.watch(null);
+      this.right.classList.remove('hidden');
+      if (isMobile() || landscapePhone()) document.getElementById('left').classList.add('closed');
+      this.layout();
+      if (!this.right.querySelector('.bld-panel')) this.right.innerHTML = '<div id="ann-panel" class="bld-panel"><p class="empty">집 안을 들여다보는 중…</p></div>';
+    }
+    let d;
+    try { d = await this.fetchBuilding(bid); } catch { d = null; }
+    if (this.bldId !== bid || this.selected) return;
+    if (!d) { this.right.innerHTML = '<div id="ann-panel" class="bld-panel"><p class="empty">이 건물은 이제 없어요.</p></div>'; return; }
+    const sc = this.right.querySelector('.ap-body')?.scrollTop;
+    this.right.innerHTML = this.buildingHTML(d);
+    const body = this.right.querySelector('.ap-body');
+    if (body && sc) body.scrollTop = sc;
+  }
+  /** 집의 생김새를 말로 (homes.js 의 설계도) */
+  houseLooks(d) {
+    if (!['hut', 'cottage', 'house', 'brickhouse', 'townhouse'].includes(d.type)) return '';
+    const ds = homeDesign({ id: d.id, type: d.type });
+    const PLAN = { I: '일자집', L: 'ㄱ자집', U: 'ㄷ자집', T: 'T자집', annex: '곁채가 딸린 집', two: '안채·바깥채 두 채', offset: '어긋나게 붙은 두 동', step: '계단식 건물' };
+    const ROOF = { thatchHip: '초가 우진각지붕', thatchGable: '초가 맞배지붕', thatchHalf: '초가 팔작지붕', hanokGable: '기와 맞배지붕', hanokHip: '기와 우진각지붕', hanokHalf: '기와 팔작지붕',
+      gable: '맞배지붕', hip: '우진각지붕', cross: '십자 지붕', gambrel: '꺾인 지붕', saltbox: '한쪽이 긴 지붕', halfhip: '반우진각지붕', pyramid: '모임지붕', shedPair: '외쪽 지붕 두 짝', flat: '평지붕', mansard: '망사르드 지붕' };
+    const out = [];
+    if (ds.kind === 'hut') out.push(ds.round ? '둥근 움집' : '네모난 움막', '이엉을 덮은 지붕', '흙바닥');
+    else {
+      if (ds.storeys) out.push(ds.storeys === 1.5 ? '다락이 있는 1층' : `${ds.storeys}층`);
+      if (ds.plan) out.push(PLAN[ds.plan] || ds.plan);
+      if (ds.roof) out.push(ROOF[ds.roof] || ds.roof);
+      out.push({ mud: '흙벽', timber: '나무 기둥에 흙벽', hanok: '한지 바른 창호와 회벽', brick: '붉은 벽돌', concrete: '회벽' }[ds.style] || '');
+      if (ds.maru) out.push('마루'); if (ds.jars) out.push('장독대'); if (ds.wood) out.push('장작더미');
+      if (ds.porch && ds.porch !== 'none') out.push('현관 포치'); if (ds.bay) out.push('내닫이 창'); if (ds.dormers) out.push('지붕창');
+      if (ds.balcony && ds.balcony !== 'none') out.push('발코니'); if (ds.fence) out.push('울타리');
+    }
+    return out.filter(Boolean).join(' · ');
+  }
+  buildingHTML(d) {
+    const home = d.kind === 'home';
+    const title = home ? (d.owner ? `${esc(d.owner.n)}네 ${esc(d.typeName)}` : esc(d.name || d.typeName)) : esc(d.name || d.typeName);
+    const icon_ = { hut: '🛖', cottage: '🏡', house: '🏯', brickhouse: '🏠', townhouse: '🏢', apartment: '🏢', skytower: '🏙️' }[d.type] || (d.kind === 'farm' ? '🌾' : d.kind === 'civic' ? '🏛️' : '🏭');
+    const fmtH = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const moodBar = v => `<span class="mood-dot" style="background:${v > 30 ? '#2ecc71' : v > 0 ? '#a3d977' : v > -30 ? '#f1c40f' : '#e74c3c'}" title="기분 ${v}"></span>`;
+    const person = r => `<div class="bp-row">
+        <div class="bp-who"><span class="linklike" data-ann="${r.id}">${esc(r.n)}</span> <span class="chip small">${esc(r.role)}</span> <span class="sub small">${r.age}세${r.title ? ` · 👑 ${esc(r.title)}` : ''}${r.job ? ` · ${esc(r.job)}` : r.school ? ` · ${esc(r.school)}` : ''}${r.owner ? ' · 🎮 플레이어의 앤' : ''}</span></div>
+        <div class="bp-now">${moodBar(r.mood)}<span class="em">${r.emoji}</span>${esc(r.label)}${r.with ? ` <span class="sub small">— ${esc(josa(r.with, '와/과'))} 함께${r.topic ? ` · ${esc(r.topic)}` : ''}</span>` : ''}${r.moving ? ' <span class="sub small">(가는 중)</span>' : ''} <span class="chip small ${r.here ? 'on' : ''}">${r.here ? '집에 있음' : '밖에'}</span>${r.sick ? ' 🤒' : ''}${r.emo ? ` <span class="sub small">${esc(r.emo)}</span>` : ''}</div>
+        ${r.thought ? `<div class="bp-th">“${esc(r.thought)}”</div>` : ''}
+      </div>`;
+    const looks = this.houseLooks(d);
+    const story = [];
+    if (d.done && d.built) story.push(`${fmtDate(d.built)}에 다 지었다${d.started ? ` (짓기 시작한 지 ${Math.max(1, Math.round((d.built - d.started) / 1440))}일)` : ''}`);
+    else if (!d.done) story.push(`짓는 중 — ${d.p}%`);
+    if (d.builder) story.push(`시공: ${esc(d.builder)}`);
+    else if (home && d.done) story.push(d.helpers.length ? `이웃 ${d.helpers.length}명이 품앗이로 거들었다 — ${d.helpers.slice(0, 6).map(esc).join(', ')}` : '주인이 손수 지었다');
+    if (d.mh) story.push(`들어간 일 ${mhFmt(d.mh)}`);
+    if (d.burnt) story.push('🔥 불에 탄 적이 있다');
+    if (d.demo) story.push('🚧 허무는 중');
+    return `<div id="ann-panel" class="bld-panel"><div class="ap-head" style="grid-template-columns:1fr auto">
+      <div><h2>${icon_} ${title} <span class="chip">${esc(d.typeName)}</span></h2><div class="meta">${esc(d.town)}${home ? ` · 사는 사람 ${d.residents.length}명${d.cap ? ` / ${d.cap}명` : ''}` : d.company ? ` · ${esc(d.company.ind)}` : ''}</div></div>
+      <div class="acts"><button class="btn small ghost" data-act="close-ann">${icon('close')}닫기</button></div></div>
+      <div class="ap-body">
+        ${looks ? `<div class="now"><div class="what"><span class="em">${icon_}</span>${esc(looks)}</div></div>` : ''}
+        ${home ? `<div class="sec">지금 이 집 사람들</div>${d.residents.map(person).join('') || '<p class="sub">지금은 아무도 살지 않는다.</p>'}` : ''}
+        ${d.company ? `<div class="sec">${esc(d.company.name)} — 일하는 사람 ${d.company.emp}명</div>${d.workers.map(person).join('') || '<p class="sub">아직 일하는 사람이 없다.</p>'}` : ''}
+        ${home && d.residents.length ? `<div class="row"><span>살림 (모두 가진 돈)</span><b>${this.fmtMoney(d.money, this.viewEra())}</b></div>` : ''}
+        <div class="sec">${home ? '이 집 이야기' : '이 건물'}</div>${story.map(t => `<div class="mem">${t}</div>`).join('')}
+        ${d.memories.length ? d.memories.map(m => `<div class="mem">🏠 ${esc(m.text)} <span class="sub small">${fmtDate(m.t)}</span></div>`).join('') : ''}
+        ${d.today.length ? `<div class="sec">오늘 이 집 사람들</div>${d.today.map(e => `<div class="life"><span>${e.e || '•'}</span><div><b>${esc(e.who)}</b> ${esc(e.x)}<time>${fmtH(e.h)}</time></div></div>`).join('')}` : ''}
+      </div></div>`;
   }
 
   buildingTip(bid, x, y) {

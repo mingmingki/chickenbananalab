@@ -12,6 +12,7 @@ import { compose } from './thoughts.js';
 import { segCenter } from './infra.js';
 import { book, monthNet, refMonth, mealPrice, MEAL_LABEL, LEISURE_LABEL } from './budget.js';
 import { knows, titleOf, leaderTitle } from './tribes.js';
+import { birthDamp } from './capacity.js';
 import { consult } from './dilemma.js';
 import { onLeave } from './life.js';
 import { planMeal, eatDone, consume, condK, diet, addFood, MEAL_EMOJI } from './food.js';
@@ -826,7 +827,8 @@ function maybeConceive(world, a, b) {
   const want = (x) => x.val.family / 22 + (x.tr.A - 50) / 50 + (era <= 3 ? 2 : era === 4 ? 1 : 0);
   if (!eager && mother.kids.length >= Math.max(want(mother), want(father)) + 0.6) return;
   if (mother.kids.length && world.clock - (mother.lastBirth || 0) < YEAR * (eager ? 0.9 : 1.2)) return;
-  const fert = clamp(1 - (age - 28) / 22, 0.15, 1) * 0.3 * (eager ? 1.6 : 1);
+  // 세계 인구가 서버가 감당할 몫을 한참 넘으면 아이가 덜 생긴다 (capacity.js)
+  const fert = clamp(1 - (age - 28) / 22, 0.15, 1) * 0.3 * (eager ? 1.6 : 1) * birthDamp(world.alivePop, world.popTarget);
   if (chance(fert)) {
     if (eager) { mother.kidPlan = null; father.kidPlan = null; }
     mother.preg = { father: father.id, due: Math.round(world.clock + 270 * DAY) };

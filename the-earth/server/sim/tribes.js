@@ -134,22 +134,66 @@ export const tribePlan = (big = false) => ({ couples: 8 + Math.floor(rand() * 3)
 /** 플레이어가 아직 없는 먼 땅의 부족: 조금 작게 (서른 명 안팎) — 서버 메모리를 아끼려고 */
 export const farPlan = () => ({ couples: 6 + Math.floor(rand() * 3), singles: 1 + Math.floor(rand() * 3), elders: 1 + Math.floor(rand() * 2) });
 
-// 지구 곳곳: 세계가 처음 열릴 때 부족들이 사는 땅 (대륙마다, 그리고 한반도 둘레)
+// 지구 곳곳: 세계가 처음 열릴 때 부족들이 사는 땅 — 먼저 한반도 둘레와 대륙마다 한두 곳, 인구 목표가 크면 더 많은 땅에
 export const WORLD_LANDS = ['KP', 'JP', 'CN', 'MN', 'VN', 'IN', 'IR', 'TR', 'EG', 'NG', 'ZA', 'IT', 'GB', 'RU', 'US', 'MX', 'PE', 'BR', 'AU'];
-/** 세계가 처음 열릴 때 (예전 저장본은 불러올 때 한 번): 지구 곳곳의 땅에 부족 두세 개씩 */
+export const MORE_LANDS = ['TH', 'ID', 'PH', 'IQ', 'SA', 'PK', 'BD', 'MM', 'KZ', 'UZ', 'ET', 'KE', 'MA', 'DZ', 'SD', 'CD', 'AO', 'TZ', 'GH', 'MG',
+  'ES', 'FR', 'DE', 'PL', 'UA', 'SE', 'GR', 'TW', 'NP', 'AF', 'CA', 'CO', 'AR', 'CL', 'VE', 'BO', 'CU', 'NZ', 'PG', 'NO', 'FI', 'RO', 'HU', 'IE'];
+/**
+ * 세계를 채운다: 처음 열릴 때, 그리고 서버 메모리가 늘어 인구 목표가 커졌을 때 (예전 저장본은 불러올 때).
+ * 아직 사람이 없는 땅부터 부족 서너 개씩, 그래도 모자라면 플레이어가 없는 땅에 부족을 하나씩 더한다.
+ */
 export function seedWorld(world, seedVillage) {
-  if (world.worldSeeded) return 0;
-  world.worldSeeded = Math.round(world.clock) || 1;
+  const target = world.popTarget || 1200;
+  if ((world.seededFor || 0) >= target) return 0;
+  const alive = () => { let n = 0; for (const a of world.anns.values()) if (a.alive) n++; return n; };
+  world.worldSeeded = world.worldSeeded || Math.round(world.clock) || 1;
   const made = [];
-  for (const code of WORLD_LANDS) {
+  const players = new Set(Object.values(world.players).map(p => p.country));
+  for (const code of [...WORLD_LANDS, ...MORE_LANDS]) {
+    if (alive() >= target) break;
     if (!getCountry(code)) continue;
     if ([...world.settlements.values()].some(s => s.country === code)) continue;
     const c = world.ensureCountry(code);
-    seedLand(world, c, seedVillage, { tribes: chance(0.7) ? 2 : 3, quiet: true, plan: farPlan });
+    if (c.nation) continue;
+    seedLand(world, c, seedVillage, { tribes: chance(0.5) ? 3 : 4, quiet: true, plan: farPlan });
     made.push(c.name);
   }
+  // 땅마다 부족을 하나씩 더 (부족 다섯 개까지, 나라가 서지 않은 땅만)
+  for (let round = 0; round < 3 && alive() < target; round++) {
+    for (const c of Object.values(world.countries)) {
+      if (alive() >= target) break;
+      if (c.nation || !c.tribes || players.has(c.code) || liveTribes(c).length >= 5 || !liveTribes(c).length) continue;
+      addTribe(world, c, seedVillage);
+    }
+  }
+  world.seededFor = target;
+  world.rebuildResidents();
   if (made.length) world.news('city', `🌍 지구 곳곳 ${made.length}개 땅에 부족들이 흩어져 산다 — ${made.slice(0, 6).join(', ')} …`, {}, 3);
   return made.length;
+}
+/** 이미 부족이 사는 땅에 이웃 부족 하나를 더 */
+export function addTribe(world, c, seedVillage, plan = farPlan) {
+  const sets = [...world.settlements.values()].filter(s => s.country === c.code && !s.abandoned);
+  const base = world.settlements.get(c.capital) || sets[0];
+  if (!base) return null;
+  let best = null;
+  for (let k = 0; k < 16; k++) {
+    const p = randomLandPoint(c.code, [base.lon, base.lat], 0.22, 1.3);
+    const dmin = Math.min(...sets.map(s => kmBetween(p, [s.lon, s.lat])));
+    if (dmin < 14) continue;
+    const sc = (seaNear(p[0], p[1]) ? 1.2 : 0) + Math.min(dmin, 50) / 25 - Math.max(0, dmin - 100) / 40 + rand();
+    if (!best || sc > best.sc) best = { p, sc };
+  }
+  if (!best) return null;
+  const s = makeSettlement(world, c, best.p[0], best.p[1], null);
+  const t = makeTribe(world, c, s);
+  // 이웃 부족들이 아는 것 가운데 쉬운 것 몇 가지
+  const known = new Set(liveTribes(c).flatMap(x => x.known || []));
+  t.known = Object.keys(EARLY_TECH).filter(d => known.has(d) && EARLY_TECH[d].req.length <= 1 && chance(0.6));
+  seedVillage(world, c, s, plan(), true);
+  world.rebuildResidents();
+  chiefDaily(world, c, t, true);
+  return t;
 }
 
 /** 땅에 처음 사람이 들어설 때: 부족 서너 개를 흩어 놓는다. 첫 부족의 정착지를 돌려준다 */
@@ -167,7 +211,7 @@ export function seedLand(world, c, seedVillage, opts = {}) {
     return best.p;
   };
   const spots = [spot(g.centroid, 0, 1.4)];
-  const n = opts.tribes || (chance(0.5) ? 3 : 4);
+  const n = opts.tribes || (chance(0.5) ? 4 : 5);
   for (let i = 1; i < n; i++) {
     let best = null;
     for (let k = 0; k < 16; k++) {

@@ -1,5 +1,7 @@
-// 사람 모형: 다리·팔·손·몸통·목·머리(눈·코)·머리 모양·모자·가방·우산.
-// 걸으면 팔다리를 흔들고, 뛰면 크게, 노인은 등이 굽고 천천히, 아이는 머리가 크다.
+// 사람 모형: 다리·팔·손·몸통·목·머리(눈·코)·머리 모양·수염·모자·가방·우산·지팡이.
+// 걸으면 팔다리를 흔들고, 뛰면 크게. 나이에 따라 몸의 비율이 다르다:
+//   아기는 앉아 있거나 기어 다니고, 아이는 머리가 크고 다리가 짧고 깡충깡충 걷고,
+//   어른은 체격이 저마다 다르고(마른 사람·통통한 사람·어깨 넓은 사람), 어르신은 머리가 세고 등이 굽고 지팡이를 짚는다.
 // 옷은 시대(원시 가죽옷 → 한복 → 양복·교복 → 오늘날 옷 → 우주 시대)·계절(여름 반팔·반바지, 겨울 외투·털모자)·
 // 성별·나이·직업(경찰·소방관·군인·의사 가운·요리사 모자·현장 안전모·회사원 정장)에 따라 입는다. 비 오면 우산.
 import * as THREE from 'three';
@@ -55,6 +57,14 @@ function geos() {
       toque: new THREE.CylinderGeometry(0.115, 0.1, 0.21, 12).translate(0, HEAD_Y + 0.18, 0),
     },
     pack: new THREE.BoxGeometry(0.27, 0.33, 0.12).translate(0, 1.13, -0.15),
+    // 수염: 짧은 턱수염 · 콧수염 · 길게 늘어뜨린 수염 (머리카락 색)
+    beard: {
+      short: sph(0.078, 10, 8, Math.PI * 0.45, Math.PI * 0.55).scale(1.05, 0.95, 0.9).translate(0, HEAD_Y - 0.01, 0.012),
+      mous: new THREE.BoxGeometry(0.07, 0.014, 0.02).translate(0, HEAD_Y - 0.035, 0.1),
+      long: merge([new THREE.ConeGeometry(0.05, 0.2, 8).rotateX(Math.PI).translate(0, HEAD_Y - 0.15, 0.075), new THREE.BoxGeometry(0.07, 0.014, 0.02).translate(0, HEAD_Y - 0.035, 0.1)]),
+    },
+    // 지팡이: 손에서 땅까지
+    cane: merge([new THREE.CylinderGeometry(0.014, 0.012, 0.86, 5).translate(0, 0.43, 0), new THREE.CylinderGeometry(0.014, 0.014, 0.12, 5).rotateZ(Math.PI / 2).translate(-0.05, 0.86, 0)]),
     // 우산: 손(0.88m)에서 머리 위 갓(2.08m)까지
     umbrella: merge([new THREE.ConeGeometry(0.6, 0.22, 10, 1, true).translate(0, 2.08, 0), paint(new THREE.CylinderGeometry(0.011, 0.011, 1.2, 4).translate(0, 1.48, 0), DARK)]),
   };
@@ -81,6 +91,11 @@ const P = {
   suit: ['#1f2533', '#2b2f36', '#3b4250', '#45403a'],
   pack: ['#2e3a59', '#c0392b', '#1d1d1f', '#e6b800', '#16a085', '#d35d6e'],
   umbrella: ['#1d1d1f', '#2b4c7e', '#c0392b', '#f1c40f', '#7f8c8d', '#e8e8e8', '#16a085', '#d35d6e'],
+  // 아이 옷은 밝고, 어르신 옷은 차분하다
+  kid: ['#ff6b6b', '#ffd43b', '#69db7c', '#4dabf7', '#f783ac', '#ff922b', '#9775fa', '#3bc9db', '#a9e34b'],
+  kidHan: ['#e84a5f', '#f9c74f', '#90be6d', '#43aa8b', '#f8961e', '#577590', '#f15bb5'],
+  elder: ['#6b6256', '#8a7f72', '#4f5a5e', '#7a6a5a', '#5c5045', '#8e8a80', '#3e4a52'],
+  cane: ['#6e5236', '#5b4330', '#8a6a48', '#3b3b3f'],
 };
 const pk = (arr, id, k) => arr[Math.floor(hash(id, k) * arr.length) % arr.length];
 const OFFICE = /clerk|office|banker|lawyer|paralegal|cpa|tax_acct|marketer|salesrep|hr|broker|analyst|insurer|realtor|appraiser|planner|programmer|data_sci|ai_eng|designer|architect|official|journalist|pd|editor|copywriter|announcer|store_mgr|ent_mgr|tv_writer/;
@@ -97,7 +112,12 @@ export function dress(id, a, age, era, season, duty, school, rain) {
   const skin = col(a.lk?.skin || '#e0b896');
   const hc = col(a.lk?.hair || '#222');
   if (age > 50) hc.lerp(new THREE.Color('#c9c9c9'), Math.min(0.9, (age - 50) / 28));
-  const s = { skin, hairCol: hc, hairStyle: 'short', top: null, bottom: null, torso: 'torso', bot: 'pants', legBare: false, armBare: false, hat: null, hatCol: null, pack: false, packCol: null, umbrella: null, wide: F ? 0.9 : 1, build: 0.94 + hash(id, 9) * 0.14 };
+  // 몸의 비율: 아이는 다리·팔이 짧고, 어른은 체격이 저마다 (마른·보통·통통·어깨 넓은), 어르신은 조금 작아진다
+  const legK = age < 1.5 ? 0.55 : age < 4 ? 0.58 + age * 0.02 : age < 13 ? 0.64 + (age - 4) * 0.027 : age < 17 ? 0.88 + (age - 13) * 0.03 : 1;
+  const bodyR = hash(id, 9);
+  const build = age < 8 ? 1.04 + bodyR * 0.1 : age < 13 ? 0.96 + bodyR * 0.1 : age < 18 ? 0.86 + bodyR * 0.12 : bodyR < 0.2 ? 0.86 + bodyR * 0.2 : bodyR < 0.72 ? 0.95 + (bodyR - 0.2) * 0.2 : 1.08 + (bodyR - 0.72) * (age > 32 ? 1.1 : 0.55);
+  const wide = (F ? 0.9 : 1) * (!F && age >= 18 && hash(id, 26) < 0.3 ? 1.08 : 1);
+  const s = { skin, hairCol: hc, hairStyle: 'short', top: null, bottom: null, torso: 'torso', bot: 'pants', legBare: false, armBare: false, hat: null, hatCol: null, pack: false, packCol: null, umbrella: null, wide, build, legK, armK: 0.78 + legK * 0.22, beard: null, cane: null };
   const summer = season === '여름', winter = season === '겨울';
   // 머리 모양
   if (F) s.hairStyle = age < 13 ? (hash(id, 2) < 0.5 ? 'pony' : 'bob') : age > 55 ? 'bob' : pk(['long', 'long', 'bob', 'pony', 'short'], id, 2);
@@ -144,6 +164,20 @@ export function dress(id, a, age, era, season, duty, school, rain) {
       else if (j === 'chef' || j === 'barista' || j === 'server') { s.top = col(j === 'barista' ? '#3b2e26' : '#f7f7f5'); }
     }
   }
+  // 아이: 밝은 옷 (원시 시대 아이는 여름엔 거의 벗고 다닌다), 어르신: 차분한 옷
+  if (age < 13 && !school) {
+    if (era <= 0) { if (summer || age < 6) { s.top = skin.clone(); s.armBare = true; } s.legBare = true; }
+    else if (era <= 3) { if (!duty) s.top = col(pk(P.kidHan, id, 27)); }
+    else if (!s.umbrella && s.torso !== 'coat') s.top = col(pk(P.kid, id, 27));
+  }
+  if (age >= 62 && era >= 1 && !duty && s.torso !== 'coat') s.top = col(pk(P.elder, id, 28)).lerp(s.top, 0.35);
+  // 수염: 옛날일수록, 나이 들수록 많이 기른다
+  if (!F && age >= 20) {
+    const r = hash(id, 29), p = era <= 0 ? 0.6 : era <= 3 ? (age >= 30 ? 0.65 : 0.25) : era === 4 ? 0.3 : 0.12;
+    if (r < p) s.beard = era >= 1 && era <= 3 && age >= 50 ? 'long' : r < p * 0.35 ? 'mous' : 'short';
+  }
+  // 지팡이: 일흔이 넘은 어르신 중 다수
+  if (age >= 70 && hash(id, 31) < 0.65) s.cane = col(pk(P.cane, id, 32));
   if (rain && era >= 4) s.umbrella = col(pk(P.umbrella, id, 24));
   else if (rain && era >= 2 && hash(id, 25) < 0.5) { s.hat = s.hat || 'straw'; s.hatCol = s.hatCol || col('#c9b07a'); }
   if (!s.top) s.top = col('#cccccc');
@@ -152,7 +186,7 @@ export function dress(id, a, age, era, season, duty, school, rain) {
 }
 
 // ── 그리기 ──
-const PARTS = ['leg', 'thigh', 'torso', 'coat', 'robe', 'skirtS', 'skirtL', 'arm', 'sleeve', 'hand', 'head', 'pack', 'umbrella'];
+const PARTS = ['leg', 'thigh', 'torso', 'coat', 'robe', 'skirtS', 'skirtL', 'arm', 'sleeve', 'hand', 'head', 'pack', 'umbrella', 'cane'];
 const PAIRS = new Set(['leg', 'thigh', 'arm', 'sleeve', 'hand']);
 export class People {
   constructor(parent) {
@@ -170,6 +204,7 @@ export class People {
     for (const p of PARTS) mk(p, G[p], p === 'head' || p === 'hand' ? skinM : p.startsWith('skirt') ? skirtM : p === 'umbrella' ? umbM : cloth, PAIRS.has(p) ? 2 : 1);
     for (const [k, g] of Object.entries(G.hair)) mk('hair_' + k, g, hairM);
     for (const [k, g] of Object.entries(G.hat)) mk('hat_' + k, g, hatM);
+    for (const [k, g] of Object.entries(G.beard)) mk('beard_' + k, g, hairM);
     // 발밑 그림자 (땅에 붙어 보이게)
     mk('blob', new THREE.CircleGeometry(0.34, 14).rotateX(-Math.PI / 2).translate(0, 0.03, 0), new THREE.MeshBasicMaterial({ color: 0x0c1018, transparent: true, opacity: 0.32, depthWrite: false }));
     // 누르기 쉬운 보이지 않는 몸통 (고르기 전용)
@@ -197,43 +232,78 @@ export class People {
     const { up, tmp, r, out, head } = this.M;
     this.put('pick', base, s.skin);
     this.put('blob', base, WHITE);
-    const ph = pose.t * (pose.run ? 13 : pose.age > 65 ? 6.5 : pose.age < 12 ? 10 : 8.5) + pose.id * 1.7;
-    const amp = pose.walk ? (pose.run ? 0.85 : pose.age > 65 ? 0.28 : 0.48) : 0;
+    const age = pose.age;
+    // 아기: 멈춰 있으면 앉고, 움직이면 긴다
+    if (age < 1.3) return this.baby(base, s, pose);
+    const legK = s.legK || 1, armK = s.armK || 1, hipY = HIP * legK;
+    const kid = age < 12, old = age > 65;
+    const ph = pose.t * (pose.run ? 13 : old ? 6 : kid ? 11 : 8.5) + pose.id * 1.7;
+    const amp = pose.walk ? (pose.run ? 0.85 : old ? 0.26 : kid ? 0.62 : 0.48) : 0;
     const swing = Math.sin(ph) * amp;
-    // 위로 몸 (굽은 등 · 걷는 리듬)
-    const stoop = pose.age > 68 ? 0.16 : pose.age > 58 ? 0.07 : 0;
-    up.makeTranslation(0, HIP, 0).multiply(r.makeRotationX(stoop + (pose.run ? 0.12 : 0))).multiply(tmp.makeTranslation(0, -HIP, 0));
-    // 다리
+    // 위로 몸 (굽은 등 · 걷는 리듬 · 아이는 통통 튄다)
+    const stoop = age > 74 ? 0.22 : age > 66 ? 0.12 : age > 58 ? 0.05 : 0;
+    const bob = pose.walk && kid ? Math.abs(Math.sin(ph)) * 0.035 : 0;
+    up.makeTranslation(0, hipY + bob, 0).multiply(r.makeRotationX(stoop + (pose.run ? 0.12 : 0))).multiply(tmp.makeTranslation(0, -HIP, 0));
+    // 다리 (아이는 짧다)
     for (const sx of [-1, 1]) {
       const a = sx * swing;
-      out.copy(base).multiply(tmp.makeTranslation(sx * 0.088, HIP, 0)).multiply(r.makeRotationX(a));
+      out.copy(base).multiply(tmp.makeTranslation(sx * 0.088 * s.build, hipY + bob, 0)).multiply(r.makeRotationX(a)).multiply(tmp.makeScale(s.build, legK, s.build));
       this.put('leg', out, s.legBare ? s.skin : s.bottom);
       if (s.bot === 'shorts') this.put('thigh', out, s.bottom);
     }
     // 몸통
     out.copy(base).multiply(up).multiply(tmp.makeScale(s.wide * s.build, 1, s.build));
     this.put(s.torso, out, s.top);
-    if (s.bot === 'skirtS' || s.bot === 'skirtL') { out.copy(base).multiply(tmp.makeScale(s.build, 1, s.build)); this.put(s.bot, out, s.bottom); }
+    if (s.bot === 'skirtS' || s.bot === 'skirtL') { out.copy(base).multiply(tmp.makeTranslation(0, hipY - HIP, 0)).multiply(tmp.makeScale(s.build, 1, s.build)); this.put(s.bot, out, s.bottom); }
     if (s.pack) { out.copy(base).multiply(up); this.put('pack', out, s.packCol); }
-    // 팔: 걸을 땐 다리와 엇갈려, 말할 땐 손짓, 일할 땐 망치질, 우산을 든 손은 위로
+    // 팔: 걸을 땐 다리와 엇갈려, 말할 땐 손짓, 일할 땐 망치질, 우산을 든 손은 위로, 지팡이 짚은 손은 앞으로
     for (const sx of [-1, 1]) {
       let a = -sx * swing * 0.8;
       if (pose.run) a -= 0.35;
       if (pose.talk && sx > 0) a = -0.45 + Math.sin(pose.t * 3.2 + pose.id) * 0.3;
       if (pose.work && sx > 0) a = -1.1 + Math.sin(pose.t * 7 + pose.id) * 0.55;
       if (s.umbrella && sx < 0) a = -0.65;
-      out.copy(base).multiply(up).multiply(tmp.makeTranslation(sx * 0.205 * s.wide * s.build, SHOULDER - 0.02, 0)).multiply(r.makeRotationZ(sx * 0.07)).multiply(tmp.makeRotationX(a));
+      if (s.cane && sx > 0) a = -0.35 + (pose.walk ? Math.sin(ph) * 0.12 : 0);
+      if (kid && pose.play && sx > 0) a = -2.6 + Math.sin(pose.t * 9 + pose.id) * 0.4;   // 노는 아이는 손을 번쩍
+      out.copy(base).multiply(up).multiply(tmp.makeTranslation(sx * 0.205 * s.wide * s.build, SHOULDER - 0.02, 0)).multiply(r.makeRotationZ(sx * 0.07)).multiply(tmp.makeRotationX(a)).multiply(r.makeScale(1, armK, 1));
       this.put('arm', out, s.armBare ? s.skin : s.top);
       if (s.armBare) this.put('sleeve', out, s.top);
       this.put('hand', out, s.skin);
     }
+    if (s.cane) { out.copy(base).multiply(tmp.makeTranslation(0.25 * s.wide * s.build, 0, 0.3 + (pose.walk ? Math.sin(ph) * 0.06 : 0))).multiply(r.makeRotationX(-0.12)).multiply(tmp.makeScale(1, legK * 0.98, 1)); this.put('cane', out, s.cane); }
     // 머리 (아이는 머리가 크다)
-    const hk = pose.age < 3 ? 1.45 : pose.age < 13 ? 1.32 - pose.age * 0.022 : 1;
+    const hk = age < 3 ? 1.75 : age < 13 ? 1.72 - age * 0.048 : age < 16 ? 1.14 - (age - 13) * 0.03 : 1;
     head.copy(base).multiply(up).multiply(tmp.makeTranslation(0, HEAD_Y - 0.09, 0)).multiply(r.makeScale(hk, hk, hk)).multiply(tmp.makeTranslation(0, -(HEAD_Y - 0.09), 0));
+    this.drawHead(head, s);
+    if (s.umbrella) { out.copy(base).multiply(tmp.makeTranslation(-0.2 * s.wide * s.build, 0, 0.38)); this.put('umbrella', out, s.umbrella); }
+  }
+  drawHead(head, s) {
     this.put('head', head, s.skin);
     if (s.hairStyle && !(s.hat === 'hard' || s.hat === 'beanie' || s.hat === 'toque') || s.hairStyle === 'long') this.put('hair_' + (s.hairStyle || 'short'), head, s.hairCol);
+    if (s.beard) this.put('beard_' + s.beard, head, s.hairCol);
     if (s.hat) this.put('hat_' + s.hat, head, s.hatCol);
-    if (s.umbrella) { out.copy(base).multiply(tmp.makeTranslation(-0.2 * s.wide * s.build, 0, 0.38)); this.put('umbrella', out, s.umbrella); }
+  }
+  /** 아기: 엉덩이를 땅에 붙이고 앉아 있거나, 손발로 긴다 */
+  baby(base, s, pose) {
+    const { up, tmp, r, out, head } = this.M;
+    const crawl = pose.walk;
+    const ph = pose.t * 7 + pose.id;
+    const hipY = crawl ? 0.36 : 0.12;
+    // 몸: 앉으면 곧게, 기면 앞으로 엎드려
+    up.makeTranslation(0, hipY, 0).multiply(r.makeRotationX(crawl ? 1.25 : 0.05)).multiply(tmp.makeTranslation(0, -HIP, 0));
+    out.copy(base).multiply(up).multiply(tmp.makeScale(s.build * 1.05, 0.92, s.build * 1.05));
+    this.put('torso', out, s.top);
+    for (const sx of [-1, 1]) {
+      // 다리: 앉으면 앞으로 뻗고, 기면 무릎을 꿇은 듯 뒤로
+      out.copy(base).multiply(tmp.makeTranslation(sx * 0.09, hipY, crawl ? -0.04 : 0.02)).multiply(r.makeRotationX(crawl ? 1.35 + Math.sin(ph + (sx > 0 ? Math.PI : 0)) * 0.25 : -1.45)).multiply(tmp.makeScale(1.1, 0.5, 1.1));
+      this.put('leg', out, s.legBare ? s.skin : s.bottom);
+      // 팔: 앉으면 앞으로 살짝, 기면 땅을 짚는다
+      out.copy(base).multiply(up).multiply(tmp.makeTranslation(sx * 0.2, SHOULDER - 0.02, 0)).multiply(r.makeRotationX(crawl ? -1.2 + Math.sin(ph + (sx > 0 ? 0 : Math.PI)) * 0.3 : -0.55 + Math.sin(pose.t * 2 + pose.id + sx) * 0.15)).multiply(tmp.makeScale(1.1, 0.62, 1.1));
+      this.put('arm', out, s.armBare ? s.skin : s.top);
+      this.put('hand', out, s.skin);
+    }
+    head.copy(base).multiply(up).multiply(tmp.makeTranslation(0, HEAD_Y - 0.09, 0)).multiply(r.makeScale(1.55, 1.55, 1.55)).multiply(tmp.makeTranslation(0, -(HEAD_Y - 0.09), 0));
+    this.drawHead(head, s);
   }
   end() {
     for (const m of Object.values(this.m)) { m.visible = m.count > 0; if (m.count) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; } }
