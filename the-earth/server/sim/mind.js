@@ -20,6 +20,7 @@ import { dishById } from './foods.js';
 import { seeDoctor, symptom } from './illness.js';
 import { pickShow, watched, isStar } from './media.js';
 import { worshipWindow, homePrayer, worshipped, FAITHS } from './religion.js';
+import { whisperBias, whisperChosen, whisperEnd } from './whisper.js';
 
 export const ACTS = {
   sleep: { label: '잠', emoji: '💤' },
@@ -399,6 +400,8 @@ export function decide(world, a) {
   // 아픔
   if (a.sick > 0) add('rest_sick', 40 + a.sick * 0.5, ['몸이 아프다']);
 
+  // 속삭임: 마음에 둔 말이 있으면 그 일이 더 하고 싶다 (잘 시간·일할 시간·학교 갈 시간엔 그다음에)
+  if (a.wh && a.wh.ph !== 'done' && !(inSleep && a.wh.k !== 'rest') && (a.wh.k === 'work' || !opts.some(o => (o.type === 'work' || o.type === 'study') && o.score > 50))) whisperBias(world, a, opts, add, { inSleep, isAvailable });
   // 날씨: 궂은 날엔 밖에 나가기 싫다
   if (weatherBad) for (const o of opts) {
     if (['wander', 'exercise', 'forage', 'play'].includes(o.type)) { o.score -= 14; o.reasons.push(`${wk}`); }
@@ -410,6 +413,7 @@ export function decide(world, a) {
   opts.sort((x, y) => y.final - x.final);
   const choice = opts[0];
   a.why = opts.slice(0, 4).map(o => ({ a: o.type, s: Math.round(o.score), r: o.reasons.filter(Boolean).slice(0, 3), k: o.kind }));
+  if (choice.wh) whisperChosen(world, a, choice);
   execute(world, a, choice, { h, era, s, stage, age, inSleep });
 }
 
@@ -1000,6 +1004,7 @@ function finishAct(world, a, interrupted) {
   if (!act) return;
   a.act = null;
   world.dirtyAct.add(a.id);
+  if (a.wh?.ph === 'doing') whisperEnd(world, a, act, interrupted);
   if (interrupted) return;
   switch (act.type) {
     case 'eat':

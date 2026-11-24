@@ -15,9 +15,11 @@ export function glyph(name, tint = '') {
   return b ? `<svg class="gl${tint ? ' t-' + tint : ''}" viewBox="0 0 24 24" aria-hidden="true">${b}</svg>` : '';
 }
 /** 이모지 → [아이콘, 빛깔] */
+// glyphs.js 표에 없는 것 (속삭임·도전·명예의 전당에서 쓰는 이모지)
+const MORE = { '🫶': ['hand-heart', 'pink'], '🤞': ['hand-heart', 'pink'], '📣': ['volume-2', 'violet'], '🫐': ['sprout', 'green'], '💎': ['gem', 'violet'], '🤔': ['circle-help', 'violet'], '😶': ['meh', 'slate'], '😤': ['angry', 'red'], '🌄': ['sunrise', 'amber'] };
 export function glyphOf(e) {
   const base = String(e || '').replace(/️/g, '');
-  return EMOJI[base] || EMOJI[[...base][0]] || null;
+  return EMOJI[base] || MORE[base] || EMOJI[[...base][0]] || MORE[[...base][0]] || null;
 }
 /** 그림(캔버스)에 그릴 아이콘 — 독립된 SVG 문서 */
 export function glyphSVG(name, color = '#1b1a17', size = 120, width = 2) {

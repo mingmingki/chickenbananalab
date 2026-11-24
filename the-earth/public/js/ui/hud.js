@@ -5,6 +5,7 @@ import { avatarHTML } from './avatar.js';
 import { icon } from './icons.js';
 import { homeDesign } from '../scene/homes.js';
 import { shareCard, annLink } from './share.js';
+import { playCardsHTML } from './play.js';
 // 공유할 만한 순간 (연대기의 아이콘)
 const NOTABLE = new Set(['👑', '🏯', '⚔️', '💍', '💒', '👶', '🎵', '📜', '🪀', '💡', '🌟', '🏆', '🕯️', '🌱', '🎨', '🛠️', '💃', '🍲', '🏳️', '🤝', '🧭', '🎓', '🏢', '💞', '🔥', '🌾', '🛖', '🏠']);
 
@@ -131,6 +132,9 @@ export class Hud {
       if (act === 'deploy-more') this.onDeployMore?.();
       if (act === 'inbox') { this.setUnread(0); this.onInbox?.(); }
       if (act === 'asks') this.asks?.toggle();
+      if (act === 'whisper') this.onWhisper?.();
+      if (act === 'ch-reroll') this.onReroll?.(+t.closest('[data-act]').dataset.i);
+      if (act === 'fame') this.onFame?.();
       if (act === 'settings') this.onSettings?.();
       if (act === 'report' && this.detail) this.onReport?.(this.detail);
       if (act === 'home') this.goHome();
@@ -365,6 +369,20 @@ export class Hud {
     }).catch(() => {}).finally(() => { this.mainBusy = false; this.mainAt = performance.now(); });
   }
 
+  /** 속삭임·도전 상태는 몇 초마다 따로 받아 온다 */
+  pollPlay(force = false) {
+    if (!this.playApi) return;
+    const now = performance.now();
+    if (this.playBusy || (!force && now - (this.playAt || 0) < 6000)) return;
+    this.playBusy = true;
+    this.playApi.get().then(r => this.setPlay(r)).catch(() => {}).finally(() => { this.playBusy = false; this.playAt = performance.now(); });
+  }
+  setPlay(r) {
+    if (!r?.wh) return;
+    this.play = { wh: r.wh, ch: r.ch };
+    if (this.tab === 'mine') this.renderLeft(true);
+  }
+
   /** '내 앤' 탭: 지금 무엇을, 왜, 어디서 / 감정·컨디션·몸 / 욕구 / 오늘 / 속마음 / 가족 / 살림 */
   mineHTML(a, d) {
     const st = this.state, age = st.ageOf(a), color = st.playerColor(a.o);
@@ -383,6 +401,9 @@ export class Hud {
       <div class="ma-now"><span class="em">${em}</span><div><b>${esc(label)}</b>${act?.target ? ` <span class="sub" style="margin:0">— <span class="linklike" data-ann="${act.target.id}">${esc(act.target.name)}</span></span>` : ''}${act?.ph === 'move' ? ` <span class="chip">${this.tripText(act.trip)}</span>` : ''}
         ${d?.why?.[0]?.r?.length ? `<div class="sub small" style="margin:2px 0 0">왜: ${esc(d.why[0].r.slice(0, 3).join(' · '))}</div>` : ''}
         ${act?.line ? `<div class="line">💬 ${esc(act.line)}</div>` : ''}</div></div>`;
+    // 속삭임과 도전: 내가 먼저 건네는 한마디, 이번 생의 목표
+    this.pollPlay();
+    h += playCardsHTML(this.play, { now: st.now(), scale: st.scale });
     if (!d) return h + '<p class="sub small">앤의 마음을 읽는 중…</p></div>';
     h += `<div class="ma-chips">
         <span class="chip">감정 <b>${esc(d.emo?.k || '평온')}</b></span>

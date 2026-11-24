@@ -115,6 +115,7 @@ function learnIt(a, id) {
   a.cre = a.cre || [];
   if (a.cre.includes(id)) return false;
   a.cre.push(id);
+  a.lrn = (a.lrn || 0) + 1;
   if (a.cre.length > 24) a.cre.shift();
   return true;
 }
@@ -125,10 +126,23 @@ export function createDaily(world, a) {
   if (age < 5 || a.travel || a.mood < -40) return;
   const p = 0.0028 * (a.ab.cre / 60) ** 2 * (0.6 + a.tr.O / 120) * (1 + (a.job?.id === 'storyteller' || a.job?.id === 'shaman' ? 1 : 0)) * (a.nd.fun < 30 ? 1.3 : 1);
   if (!chance(p)) return;
-  const kind = kindFor(a, age);
-  const name = fixJosa(nameFor(world, a, kind)).replace(/\s+/g, ' ').trim();
+  makeCreation(world, a);
+}
+
+/** 지금 하나 지어낸다 (하루 확률을 건너뛰고: 속삭임 '하나 지어 봐'). 지은 것 { name, kindName, icon } 또는 null */
+export function makeCreation(world, a, want = null) {
+  const age = ageOf(a, world.clock);
+  if (age < 4) return null;
+  const kind = want && KINDS[want] ? want : kindFor(a, age);
+  let name = '';
   world.creations = world.creations || new Map();
-  for (const c of world.creations.values()) if (c.name === name && c.sid === a.sid && c.kind === kind) return; // 같은 마을에 같은 것이 이미 있다
+  for (let i = 0; i < 4 && !name; i++) {
+    const n = fixJosa(nameFor(world, a, kind)).replace(/\s+/g, ' ').trim();
+    let dup = false;
+    for (const c of world.creations.values()) if (c.name === n && c.sid === a.sid && c.kind === kind) { dup = true; break; } // 같은 마을에 같은 것이 이미 있다
+    if (!dup) name = n;
+  }
+  if (!name) return null;
   const s = world.settlements.get(a.sid);
   const cr = { id: world.newId(), kind, name, by: a.id, byName: a.name, sid: a.sid, country: a.country, t: Math.round(world.clock), n: 1, era: world.countries[a.country]?.era ?? 0 };
   world.creations.set(cr.id, cr);
@@ -155,6 +169,7 @@ export function createDaily(world, a) {
     if (names.length >= 2) consult(world, a, 'name_creation', { cid: cr.id, names });
   }
   world.dirtyDetail.add(a.id);
+  return { id: cr.id, name, kind, kindName: K.name, icon: K.icon };
 }
 
 /**

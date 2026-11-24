@@ -287,7 +287,7 @@ function chiefDaily(world, c, t, quiet = false) {
 }
 
 // ── 발견: 족장이 똑똑하고 호기심 많을수록, 부족에 생각 깊은 사람이 많을수록 빨리 ──
-function nextTech(known, era) {
+export function nextTech(known, era) {
   const left = Object.keys(EARLY_TECH).filter(d => !known.includes(d) && EARLY_TECH[d].req.every(r => known.includes(r)));
   if (!left.length) return null;
   // 농경 시대 전엔 원시 시대 기술이 먼저 (농업은 원시 시대 기술을 거의 다 알고 난 뒤에)

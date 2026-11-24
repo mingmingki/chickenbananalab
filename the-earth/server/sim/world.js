@@ -1,5 +1,6 @@
 // 세계: 시계(1년 1월 1일 0시에서 시작), 나라, 정착지, 건물, 회사, 앤, 플레이어
 import { onLifeEvent, dailyAchievements, award } from './achieve.js';
+import { challengeHourly } from './challenge.js';
 import { randomUUID } from 'node:crypto';
 import { clamp, rand, pick, chance, gauss, ageOf, dateOf, fmtDate, localHour, YEAR, DAY, ga, neun, reul, wa, ida, fixJosa } from './util.js';
 import { ERAS, DISCOVERIES, BUILDINGS, PUBLIC, JOBS, GOALS, HOME_BY_ERA, SETTLEMENT_LEVELS, INDUSTRIES, SCHOOLS, EDU_NAMES, SHIFTS } from './data.js';
@@ -1344,6 +1345,8 @@ export class World {
     for (const s of this.settlements.values()) if (s.bus?.open) busTick(this, s, dt);
     for (const s of this.settlements.values()) if (s.fireAt || s.fireOff) safetyTick(this, s);
     askTick(this);
+    const hr = Math.floor(this.clock / 60);
+    if (hr !== this.lastHour) { this.lastHour = hr; challengeHourly(this); }
     const day = Math.floor(this.clock / DAY);
     if (day !== this.lastDay) { this.lastDay = day; this.daily(); }
   }

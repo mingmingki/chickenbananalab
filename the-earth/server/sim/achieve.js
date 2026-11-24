@@ -30,6 +30,9 @@ export const ACHIEVEMENTS = {
   pioneer: { icon: '🧭', name: '개척자', desc: '내 앤이 새 마을을 개척했다' },
   centenarian: { icon: '🎂', name: '백수', desc: '내 앤이 100세를 넘겼다' },
   astronaut: { icon: '🚀', name: '우주로', desc: '내 앤이 우주를 비행했다' },
+  whisper10: { icon: '💬', name: '마음의 목소리', desc: '내 앤이 속삭임을 열 번 따랐다' },
+  ch5: { icon: '🎯', name: '도전자', desc: '도전을 다섯 번 이뤘다' },
+  ch20: { icon: '🏅', name: '인생 고수', desc: '도전을 스무 번 이뤘다' },
   ...Object.fromEntries(ERAS.slice(1).map((e, i) => [`era${i + 1}`, { icon: '🌅', name: e.name, desc: `내 나라가 ${e.name} 시대를 열었다` }])),
 };
 
@@ -38,7 +41,7 @@ export function award(world, p, key) {
   const def = ACHIEVEMENTS[key];
   if (!def || !p) return false;
   p.ach = p.ach || {};
-  if (p.ach[key]) return false;
+  if (p.ach[key] != null) return false;
   p.ach[key] = Math.round(world.clock);
   world.pushNote(p, { t: Math.round(world.clock), ann: null, name: null, text: `업적 달성 — ${def.name}: ${def.desc}`, icon: '🏆', lvl: 3, ach: key });
   return true;

@@ -19,6 +19,8 @@ import { initPush, pushPublicKey, queuePush, flushPush, sendPush } from './push.
 import * as google from './lib/google.js';
 import { verifyIdToken, nativeEnabled } from './lib/idtoken.js';
 import { recap, ACHIEVEMENTS } from './sim/achieve.js';
+import { whisper, whisperOut } from './sim/whisper.js';
+import { challengesOut, rerollChallenge, fameBoard } from './sim/challenge.js';
 import { resolveAsk, ASK_MODES, DILEMMA_COUNT } from './sim/dilemma.js';
 import { ERA_MONEY, perUnit, INS_RATE, WON, eraF } from './sim/budget.js';
 import { listedSalary } from './sim/economy.js';
@@ -429,6 +431,38 @@ app.post('/api/servers/:id/asks-mode', askLimit, (req, res) => {
   if (mode === 'off') for (const q of [...(p.asks || [])]) resolveAsk(w, p, q, null, 'own');
   if (mode === 'big') for (const q of [...(p.asks || [])]) if (!q.big) resolveAsk(w, p, q, null, 'own');
   res.json(w.asksOut(p));
+});
+// 속삭임과 도전: 질문을 기다리지 않고 내가 먼저 건네는 한마디, 이번 생의 목표
+const playOut = (w, p) => ({ wh: whisperOut(w, p), ch: challengesOut(w, p) });
+app.get('/api/servers/:id/play', (req, res) => {
+  const w = getWorld(req, res); if (!w) return;
+  const p = playerOf(w, req);
+  if (!p) return res.status(404).json({ error: '플레이어를 찾을 수 없습니다' });
+  res.json(playOut(w, p));
+});
+const whisperLimit = limiter(120, 600_000);
+app.post('/api/servers/:id/whisper', whisperLimit, (req, res) => {
+  const w = getWorld(req, res); if (!w) return;
+  const p = playerOf(w, req);
+  if (!p) return res.status(404).json({ error: '플레이어를 찾을 수 없습니다' });
+  const a = w.mainAnn(p);
+  const b = req.body?.b == null || req.body.b === '' ? null : +req.body.b;
+  const r = whisper(w, p, a, String(req.body?.k || ''), Number.isFinite(b) ? b : null);
+  if (!r.ok) return res.status(400).json({ error: r.error, ...playOut(w, p) });
+  res.json({ result: r, ...playOut(w, p) });
+});
+app.post('/api/servers/:id/challenge/reroll', whisperLimit, (req, res) => {
+  const w = getWorld(req, res); if (!w) return;
+  const p = playerOf(w, req);
+  if (!p) return res.status(404).json({ error: '플레이어를 찾을 수 없습니다' });
+  const r = rerollChallenge(w, p, +req.body?.i || 0);
+  if (r.error) return res.status(400).json({ error: r.error, ...playOut(w, p) });
+  res.json(playOut(w, p));
+});
+// 명예의 전당 (구경꾼도 볼 수 있다)
+app.get('/api/servers/:id/fame', limiter(60, 60_000), (req, res) => {
+  const w = getWorld(req, res); if (!w) return;
+  res.json(fameBoard(w, playerOf(w, req)));
 });
 app.post('/api/servers/:id/seen', (req, res) => {
   const w = getWorld(req, res); if (!w) return;

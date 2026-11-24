@@ -8,7 +8,8 @@ import { Creator } from './ui/creator.js';
 import { Hud } from './ui/hud.js';
 import { AskPanel } from './ui/asks.js';
 import { sound } from './audio.js';
-import { account, accountModal, settingsModal, inboxModal, recapModal, reportModal, tutorial, tutorialDone, googleReturn } from './ui/extras.js';
+import { account, accountModal, settingsModal, inboxModal, recapModal, reportModal, tutorial, tutorialDone, googleReturn, sheet } from './ui/extras.js';
+import { whisperSheet, whisperReply, fameSheet } from './ui/play.js';
 // 휴대폰 세로 화면: 아래쪽 시트에 가리지 않게 지구를 위로 올린다
 const phoneLift = v => (innerWidth <= 860 && innerHeight > innerWidth ? v : 0);
 
@@ -471,6 +472,41 @@ function observe(justDeployed = false, firstAnn = null, since = null) {
       },
     });
   }
+  // 속삭임·도전 (내 앤이 있을 때), 명예의 전당 (구경꾼도)
+  if (ctx.session) {
+    const base = `/api/servers/${ctx.session.serverId}`, tk = ctx.session.token;
+    hud.playApi = {
+      get: () => api(`${base}/play?token=${encodeURIComponent(tk)}`),
+      whisper: (k, b) => api(`${base}/whisper`, { token: tk, k, b }),
+      reroll: i => api(`${base}/challenge/reroll`, { token: tk, i }),
+    };
+    hud.onWhisper = async () => {
+      const play = await hud.playApi.get().catch(e => { hud.toast(e.message); return null; });
+      if (!play) return;
+      hud.setPlay(play);
+      const wh = play.wh;
+      if (wh.why) return hud.toast(wh.why);
+      if (wh.active) return hud.toast('앤이 아직 지난 속삭임을 마음에 두고 있어요');
+      if (wh.n + wh.bonus <= 0) return hud.toast('속삭임을 다 썼어요. 조금 기다리면 다시 생겨요');
+      sound.sfx('open');
+      const pickd = await whisperSheet(sheet, play);
+      if (!pickd) return;
+      try {
+        const r = await hud.playApi.whisper(pickd.k, pickd.b);
+        hud.setPlay(r);
+        sound.sfx(r.result.follow ? 'note' : 'click');
+        whisperReply(sheet, r.result, wh.ann?.name);
+      } catch (e) { hud.toast(e.message); hud.pollPlay(true); }
+    };
+    hud.onReroll = async i => {
+      try { hud.setPlay(await hud.playApi.reroll(i)); hud.toast('다른 도전으로 바꿨어요'); } catch (e) { hud.toast(e.message); }
+    };
+    hud.pollPlay(true);
+  }
+  hud.onFame = async () => {
+    const d = await api(`/api/servers/${ctx.server.id}/fame${ctx.session ? `?token=${encodeURIComponent(ctx.session.token)}` : ''}`).catch(e => { hud.toast(e.message); return null; });
+    if (d) { sound.sfx('open'); fameSheet(sheet, d, { onAnn: id => hud.select(id, true) }); }
+  };
   w3d.onAnnPick = id => hud.select(id, false);
   w3d.onAnnTag = id => hud.select(id, true);
   // 집·일터를 누르면 오른쪽에 자세한 창, 그 밖의 건물은 짧은 말풍선

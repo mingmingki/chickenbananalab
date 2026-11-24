@@ -921,3 +921,49 @@ svg.gl.t-blue { color: #2f80ed; } svg.gl.t-violet { color: #8e4ec6; } svg.gl.t-m
 /* 연대기·소식의 앞 아이콘 칸 */
 .life > span svg.gl, .feed-item svg.gl { width: 16px; height: 16px; }
 .now .what .em svg.gl { width: 22px; height: 22px; vertical-align: -4px; }
+
+/* 속삭임 · 도전 (ui/play.js) */
+.wh-card, .ch-card { padding: 11px 12px 12px; border-radius: 16px; background: var(--surface); border: var(--bw) solid var(--k); box-shadow: var(--hard-xs); }
+.wh-card { background: linear-gradient(135deg, var(--l-l), var(--surface) 70%); }
+.wh-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.wh-top b { font-family: var(--display); font-weight: 400; font-size: 16px; }
+.whdots { display: inline-flex; gap: 4px; }
+.whd { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--k); background: transparent; display: inline-block; }
+.whd.on { background: var(--l); }
+.whd.on.bonus { background: var(--y); }
+.wh-next { margin: 0 0 0 auto !important; }
+.wh-active { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; padding: 8px 10px; border-radius: 12px; background: var(--l-l); border: 1.5px dashed var(--l); margin-bottom: 8px; }
+.wh-last { font-size: 13.5px; padding: 8px 10px; border-radius: 12px; background: var(--paper-2); margin-bottom: 8px; line-height: 1.45; }
+.wh-last.vp { background: var(--m-l); } .wh-last.vn { background: var(--c-l); }
+.wh-btn { width: 100%; }
+.ch-card { background: linear-gradient(135deg, var(--y-l), var(--surface) 70%); }
+.ch-card .chip.star { margin-left: auto; background: var(--y); color: var(--k); border: 2px solid var(--k); font-weight: 700; }
+.ch-row { display: flex; gap: 10px; align-items: center; padding: 7px 0; border-top: 1.5px dashed color-mix(in srgb, var(--ink) 16%, transparent); }
+.ch-row:first-of-type { border-top: 0; }
+.ch-ic { font-size: 20px; width: 26px; text-align: center; flex: none; }
+.ch-body { flex: 1; min-width: 0; }
+.ch-l { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+.ch-body .bar { height: 8px; border: 1.5px solid var(--k); background: var(--surface); }
+.ch-body .bar > i { background: var(--y); }
+.ch-rr { flex: none; font-size: 16px; padding: 2px 8px; }
+.wh-list { display: grid; gap: 7px; }
+.wh-opt { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 9px 11px; border-radius: 14px; border: var(--bw) solid var(--k); background: var(--surface); color: var(--ink); cursor: pointer; box-shadow: var(--hard-xs); font: inherit; }
+.wh-opt:active { transform: translate(2px, 2px); box-shadow: none; }
+.wh-opt .ic { font-size: 20px; width: 26px; text-align: center; flex: none; }
+.wh-opt .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.wh-opt .tx b { font-size: 14.5px; }
+.wh-opt .tx small { font-size: 12px; color: var(--muted); }
+.wh-opt .feel { flex: none; font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 99px; border: 1.5px solid var(--k); white-space: nowrap; }
+.wh-opt .feel.yes { background: var(--m-l); } .wh-opt .feel.meh { background: var(--y-l); } .wh-opt .feel.no { background: var(--c-l); }
+.wh-opt.f-no { opacity: .82; }
+.wh-reply { text-align: center; padding: 6px 4px 0; }
+.wh-reply .big { font-size: 44px; line-height: 1.1; }
+.wh-reply .big svg.gl { width: 48px; height: 48px; }
+.fame-list { display: grid; gap: 2px; }
+.fame-row { display: flex; align-items: center; gap: 8px; padding: 7px 6px; border-radius: 10px; font-size: 14px; }
+.fame-row.me { background: var(--y-l); border: 1.5px solid var(--k); }
+.fame-row .rk { width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800; flex: none; background: var(--paper-2); border: 1.5px solid var(--line-2); }
+.fame-row .rk.top { background: var(--y); border-color: var(--k); }
+.fame-row .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; border: 1.5px solid var(--k); }
+.fame-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.fame-row .v { flex: none; font-variant-numeric: tabular-nums; }
