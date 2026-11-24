@@ -155,6 +155,11 @@ class BackNavigationTests(SimpleTestCase):
         # the AI path's first cards go back without reading again
         self.assertIn("}, function () { showAiStartCard(); });", self.html)
         self.assertIn("}, function () { runOverviewCheck(); });  // the overview read before (not read again)", self.html)
+        # the drawing coordination: its start, its result (kept, shown again without reading) and the member card
+        self.assertIn('onceClick(box.querySelector("#qty-coordination-back"), function () { runGeneralNotesCheck(state.stageCache.overview); });', self.html)
+        self.assertIn('state.stageCache.coordination = (data.results || {}).drawing_coordination || {};  // kept for ← 이전', self.html)
+        self.assertIn('}, function () { showDrawingCoordinationStart(); });', self.html)
+        self.assertIn('onceClick(back.querySelector("#qty-member-back"), function () {', self.html)
 
     def test_the_cad_cards_are_steps_that_go_both_ways(self):
         runner = self.html[self.html.index("async function runSteps(steps) {"):][:500]
