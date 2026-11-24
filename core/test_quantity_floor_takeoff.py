@@ -356,7 +356,7 @@ class TakeoffPageTests(SimpleTestCase):
         self.assertIn("if (takeoff) results.floor_takeoff = takeoff; else delete results.floor_takeoff;", html)
         self.assertIn('fetch("/api/quantity/floor-takeoff/"', html)
         self.assertIn("quantity_mass3d.js' %}?v=20261120-review", html)
-        self.assertIn("quantity_deck.css' %}?v=20261124-finishes", html)
+        self.assertIn("quantity_deck.css' %}?v=20261124-site", html)
 
     def test_the_3d_view_puts_the_slab_of_plan_n_plus_1_on_top_of_storey_n(self):
         js = Path(__file__).with_name("static").joinpath("core", "js", "quantity_mass3d.js").read_text()

@@ -156,7 +156,7 @@ class FinishPageTests(SimpleTestCase):
         self.assertIn("function archFinishSource(arch) {", html)  # whether the 실내재료마감표 was used
         self.assertIn("[bar, table, types, checkBox, finish]", html)
         self.assertIn('<span>마감 (바닥)</span>', html)
-        self.assertIn('"건축 벽체·창호·마감을 냈어요."', html)
+        self.assertIn('"CAD로 층별 수량·철근·토공·외부와 건축 벽체·창호·마감을 냈어요."', html)
 
 
 # ── the finish schedule (실내재료마감표) ──

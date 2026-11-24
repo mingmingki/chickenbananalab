@@ -6216,7 +6216,7 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261124-finishes">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261124-site">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261120-back"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261120-back"></script>
 <script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261120-review"></script>
@@ -7814,7 +7814,7 @@ body.cbl-modal-open {
       deck.close();  // the card before is done: the summary opens a card of its own
       var steps = flowSteps();
       await qCard({ eyebrow: "0" + steps, label: "Summary", art: false, wide: true, total: steps, index: steps }, "결과를 한눈에 정리했어요.",
-        (flow.arch ? "CAD로 층별 수량·철근과 건축 벽체·창호·마감을 냈어요." : "CAD로 층별 수량과 철근을 냈어요.") +
+        (flow.arch ? "CAD로 층별 수량·철근·토공·외부와 건축 벽체·창호·마감을 냈어요." : "CAD로 층별 수량·철근과 토공·외부를 냈어요.") +
         " AI 비용은 들지 않았어요. 임의로 정한 값은 앞 카드와 엑셀 '임의로 정한 것' 시트에 있어요." +
         (archPlans().length ? "" : " 건축 평면도 CAD를 함께 올리면 조적·ALC·건식벽 면적, 창·문 개수, 실별 마감도 내요."));
       deck.append(summary);
@@ -9915,6 +9915,39 @@ body.cbl-modal-open {
     return '<table><thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
   }
 
+  // earthwork per excavation and the outside per building, under the takeoff table
+  function siteWorksTable(takeoff) {
+    var earth = (takeoff && takeoff.earthwork) || {}, outside = (takeoff && takeoff.exterior) || {};
+    var groups = earth.groups || [], blds = (outside.buildings || []).filter(function (b) { return b.wall || b.basement_waterproof || (b.roof || {}).area; });
+    if (!groups.length && !blds.length) return "";
+    function n(v) { return archArea(v); }
+    var html = '';
+    if (groups.length) {
+      var shored = /흙막이/.test(earth.method || "");
+      html += '<b class="qd-arch-head">토공 — ' + esc(earth.method || "") + ' · 작업 여유폭 ' + esc(String(earth.margin)) + 'm' +
+        (earth.slope ? ' · 경사 1:' + esc(String(earth.slope)) : '') + '</b>' +
+        '<table><thead><tr><th>구간</th><th>굴착 깊이</th><th>굴착 ㎥</th><th>되메우기 ㎥</th><th>잔토처리 ㎥</th><th>버림콘크리트 ㎥</th>' +
+        (shored ? '<th>흙막이 m</th>' : '') + '</tr></thead><tbody>' +
+        groups.map(function (g) {
+          return '<tr title="' + esc("기초 " + n(g.area) + "㎡ · 둘레 " + n(g.perimeter) + "m" + (g.pits ? " · 동 매트 추가 굴착 " + n(g.pits) + "㎥" : "") +
+            " · 잔토 운반(×1.25) " + n(g.surplus_loose) + "㎥") + '"><td>' + esc(g.parts.join(" + ")) + '</td><td>' + esc(String(g.depth)) + 'm</td><td class="qd-strong">' +
+            n(g.excavation) + '</td><td>' + n(g.backfill) + '</td><td>' + n(g.surplus) + '</td><td>' + n(g.lean) + '</td>' +
+            (shored ? '<td>' + n(g.shoring_length) + '</td>' : '') + '</tr>';
+        }).join("") + '</tbody></table>';
+    }
+    if (blds.length) {
+      html += '<b class="qd-arch-head">외부 — 외벽 마감재: ' + esc(outside.finish || "") + '</b>' +
+        '<table><thead><tr><th>동</th><th>외벽 마감 ㎡</th><th>외벽 창·문 ㎡</th><th>지하 외벽 방수 ㎡</th><th>지붕 방수 ㎡</th><th>지붕 단열 ㎡</th></tr></thead><tbody>' +
+        blds.map(function (b) {
+          var roof = b.roof || {};
+          return '<tr title="' + esc((roof.storey ? "지붕 슬래브: " + roof.storey + " 위 " : "") + n(roof.area) + "㎡ · 치켜올림 둘레 " + n(roof.perimeter) + "m") + '"><td>' +
+            esc(b.name) + '</td><td class="qd-strong">' + n(b.wall) + '</td><td>' + n(b.openings) + '</td><td>' + n(b.basement_waterproof) + '</td><td>' +
+            n(roof.waterproof) + '</td><td>' + n(roof.insulation) + '</td></tr>';
+        }).join("") + '</tbody></table>';
+    }
+    return html;
+  }
+
   async function showFloorTakeoff(data) {
     var job = state.floorJob;
     if (!job || !job.id || !massModel()) return null;
@@ -9932,7 +9965,8 @@ body.cbl-modal-open {
       var res = await fetch("/api/quantity/floor-takeoff/", {
         method: "POST",
         headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
-        body: JSON.stringify({ floor_job_id: job.id, member_links: links, foundations: state.floorFoundations || undefined })
+        body: JSON.stringify({ floor_job_id: job.id, member_links: links, foundations: state.floorFoundations || undefined,
+                               excavation: (state.answers || {}).excavationType || undefined })
       });
       body = await res.json();
       if (!res.ok) body = { error: (body && body.error) || ("HTTP " + res.status) };
@@ -9960,7 +9994,11 @@ body.cbl-modal-open {
       }).join("") + '</div>';
       var building = buildings.filter(function (b) { return b.name === pick.name; })[0] || buildings[0];
       table.innerHTML = takeoffTable(building);
+      site.innerHTML = siteWorksTable(takeoff);
     }
+    var site = document.createElement("div");
+    site.className = "qd-mass-table qd-arch-types qd-site";
+    site.setAttribute("data-qd-keep", "");
     bar.addEventListener("click", function (e) {
       var chip = e.target.closest("[data-b]");
       if (!chip) return;
@@ -9969,6 +10007,7 @@ body.cbl-modal-open {
     });
     render();
     if (deck) { deck.append(bar); deck.append(table); } else { flowEl.appendChild(bar); flowEl.appendChild(table); }
+    if (site.innerHTML) { if (deck) deck.append(site); else flowEl.appendChild(site); }
     // the foundation: its thickness from the drawing, or confirmed here (until then it stays out of the totals)
     var feet = buildings.map(function (b) { return { name: b.name, info: ((b.rows || [])[0] || {}).foundation }; })
       .filter(function (f) { return f.info; });
@@ -10166,6 +10205,7 @@ body.cbl-modal-open {
     try {
       if (saved) await quantityPost("/api/quantity/floor-edits/", Object.assign({ floor_job_id: job.id }, saved));
       var common = { floor_job_id: job.id, member_links: cards.links || null, foundations: state.floorFoundations || undefined,
+                     excavation: (state.answers || {}).excavationType || undefined,
                      overrides: state.floorOverrides || {} };
       var fresh = await quantityPost("/api/quantity/floor-takeoff/", common);
       cards.takeoff.refresh(fresh.takeoff);
@@ -10218,6 +10258,8 @@ body.cbl-modal-open {
     var assumed = ((takeoff && takeoff.assumed) || []).concat((rebar && rebar.assumed) || [], (arch && arch.assumed) || []);
     var waiting = assumed.filter(function (a) { return a.left_out > 0; }).length;
     var archTotals = arch ? archTotal(arch) : null;
+    var earthTotals = ((takeoff || {}).earthwork || {}).totals || null;
+    var outsideTotals = ((takeoff || {}).exterior || {}).totals || null;
     var archFinish = arch ? (arch.buildings || []).reduce(function (acc, b) {
       var f = (b.totals || {}).finishes || {};
       ["floor", "wall", "ceiling"].forEach(function (s) { Object.keys(f[s] || {}).forEach(function (m) { acc[s] += Number(f[s][m]) || 0; }); });
@@ -10237,6 +10279,9 @@ body.cbl-modal-open {
         (archTotals ? '<div class="qd-summary-tile"><span>건축 벽</span><b>' + summaryNumber(archWallArea(arch)) + '<em>㎡</em></b>' +
           '<small>' + ARCH_WALLS.filter(function (k) { return archTotals[k[0]]; }).map(function (k) { return k[1] + ' ' + summaryNumber(archTotals[k[0]]); }).join(' · ') +
           ' · 문 ' + summaryNumber(archTotals.doors) + ' · 창 ' + summaryNumber(archTotals.windows) + '개 (창호 ' + summaryNumber(archTotals.door_area + archTotals.window_area) + '㎡)</small></div>' : '') +
+        (earthTotals && earthTotals.excavation ? '<div class="qd-summary-tile"><span>토공 (굴착) · 외부</span><b>' + summaryNumber(earthTotals.excavation) + '<em>㎥</em></b>' +
+          '<small>되메우기 ' + summaryNumber(earthTotals.backfill) + ' · 잔토 ' + summaryNumber(earthTotals.surplus) + '㎥' +
+          (outsideTotals ? ' · 외벽 ' + summaryNumber(outsideTotals.wall) + '㎡ · 지붕 방수 ' + summaryNumber(outsideTotals.roof_waterproof) + '㎡' : '') + '</small></div>' : '') +
         (archFinish && archFinish.floor ? '<div class="qd-summary-tile"><span>마감 (바닥)</span><b>' + summaryNumber(archFinish.floor) + '<em>㎡</em></b>' +
           '<small>벽 ' + summaryNumber(archFinish.wall) + '㎡ · 천장 ' + summaryNumber(archFinish.ceiling) + '㎡ · 방수 ' + summaryNumber(archFinish.waterproof) + '㎡</small></div>' : '') +
         '<button type="button" class="qd-summary-tile' + (waiting ? ' is-attention' : '') + '" data-show-assumed><span>임의로 정한 것</span><b>' + assumed.length + '<em>개</em></b>' +
@@ -10436,7 +10481,8 @@ body.cbl-modal-open {
       var res = await fetch("/api/quantity/floor-rebar/", {
         method: "POST",
         headers: { "X-CSRFToken": csrfToken(), "Content-Type": "application/json" },
-        body: JSON.stringify({ floor_job_id: job.id, member_links: links, general_spec: spec, foundations: state.floorFoundations || undefined })
+        body: JSON.stringify({ floor_job_id: job.id, member_links: links, general_spec: spec, foundations: state.floorFoundations || undefined,
+                               excavation: (state.answers || {}).excavationType || undefined })
       });
       body = await res.json();
       if (!res.ok) body = { error: (body && body.error) || ("HTTP " + res.status) };

@@ -1147,14 +1147,16 @@ def _assumed_items(assumed, overrides):
 
 
 def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, foundations=None, learned=None, overrides=None,
-                  opening_heights=None):
+                  opening_heights=None, excavation=None):
     """Rows per building and storey: walls/columns of the storey + slab/beams on top of it.
     ``edits``: people's fixes (quantity_edits.clean), added to the storeys using their plans.
     ``overrides``: values a person set in place of an assumption (quantity_assumed.EDITABLE);
     ``learned``: other jobs' values ({"override:slab_thickness": mm, "foundation:tower": m, ...});
     ``opening_heights``: {(building, storey key or None): m} the height of the outer openings from
     the window and door schedule (quantity_arch_takeoff.outer_opening_heights), used where a
-    person has not set one, instead of the assumed height."""
+    person has not set one, instead of the assumed height; ``excavation``: the project's
+    excavation method as answered (오픈컷 / CIP등 흙막이공사), for the earthwork
+    (quantity_site_works, with the outside of the buildings)."""
     opening_heights = opening_heights or {}
     overrides = clean_overrides(overrides)
     slab_mm, slab_from = pick("slab_thickness", overrides, learned, slab_thickness * 1000)
@@ -1246,12 +1248,14 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
             concrete = {"foundation": 0.0, "wall": (vertical_area - column_area) * wall_h, "column": column_area * wall_h, "beam": 0.0,
                         "slab": 0.0, "stair": 0.0}
             form = dict.fromkeys(FORM_KEYS, 0.0)
+            opening_used = None
             if gaps and kind != "basement":
                 # the wall left above and below the openings in the outer walls: their height from the
                 # window and door schedule where the architectural plan shows them, else assumed
                 listed = None if window_from == "person" else (
                     opening_heights.get((building.get("name"), level.get("key"))) or opening_heights.get((building.get("name"), None)))
                 height_m = listed or window_m
+                opening_used = height_m
                 left = max(wall_h - height_m, 0.0)
                 concrete["wall"] += gap_area * left
                 form["gang"] += gaps * left
@@ -1420,7 +1424,8 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                 "sheets": {"vertical": level.get("sheet"), "horizontal": above.get("sheet") if above else None},
                 "concrete": _round(concrete, 2), "formwork": _round(form, 2),
                 "measures": {"vertical_area": round(vertical_area, 2), "faces": round(faces, 1),
-                             "outside_faces": round(outside, 1), "slab_area": round(slab_area, 1)},
+                             "outside_faces": round(outside, 1), "slab_area": round(slab_area, 1),
+                             "window_gaps": round(gaps, 1), "opening_height": opening_used},
                 "approximate": approximate, "notes": notes, "fixed": fixed,
             })
         _flag_sparse_walls(name, levels, rows)
@@ -1434,8 +1439,15 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
         buildings.append({"name": building.get("name"), "rows": rows,
                           "totals": {g: _round(v, 1) for g, v in totals.items()},
                           "approximate_totals": {g: _round(v, 1) for g, v in approx.items()}})
+    from . import quantity_site_works as works
+    try:  # the earthwork and the outside never cost the takeoff its rows
+        earth = works.earthwork(buildings, all_buildings, host_name, match, overrides, learned, excavation, assumed)
+        outside_works = works.exterior(buildings, match, overrides, assumed)
+    except Exception as exc:
+        earth, outside_works = {"error": str(exc)[:200], "groups": []}, {"error": str(exc)[:200], "buildings": []}
     return {
         "version": TAKEOFF_VERSION, "rule": "N층 = N층 벽·기둥 + N+1층 바닥 슬래브·보",
+        "earthwork": earth, "exterior": outside_works,
         "assumptions": {"slab_thickness": slab_mm / 1000.0, "beam_depth_default": beam_depth,
                         "window_height": window_m},
         "overrides": overrides,

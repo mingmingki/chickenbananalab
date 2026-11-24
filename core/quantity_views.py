@@ -1921,6 +1921,12 @@ def _floor_openings(floor_job):
     return _quantity_state().get("floor_openings", floor_job) or None
 
 
+def _excavation_answer(body):
+    """The excavation method the person chose at the start (오픈컷 / CIP등 흙막이공사 / their own words)."""
+    value = (body or {}).get("excavation")
+    return value.strip()[:60] if isinstance(value, str) else None
+
+
 def _floor_finishes(floor_job):
     """The finish schedule read with a floor job (None without one)."""
     return _quantity_state().get("floor_finishes", floor_job) or None
@@ -2197,7 +2203,8 @@ def api_quantity_floor_rebar(request):
         learned, overrides = _learned_values(floor_job), _floor_overrides(floor_job, body)
         takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations,
                                                        learned=learned, overrides=overrides,
-                                                       opening_heights=_opening_heights(floor_job, result))
+                                                       opening_heights=_opening_heights(floor_job, result),
+                                                       excavation=_excavation_answer(body))
         extras = body.get("extras") if isinstance(body.get("extras"), dict) else None
         rebar = quantity_floor_rebar.build_rebar(model, links, takeoff, general_spec=spec, edits=edits, extras=extras,
                                                  overrides=overrides, learned=learned)
@@ -2584,7 +2591,8 @@ def api_quantity_floor_takeoff(request):
     try:
         takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations,
                                                        learned=_learned_values(floor_job), overrides=_floor_overrides(floor_job, body),
-                                                       opening_heights=_opening_heights(floor_job, result))
+                                                       opening_heights=_opening_heights(floor_job, result),
+                                                       excavation=_excavation_answer(body))
         from . import quantity_brain
         takeoff["review_notes"] = quantity_brain.review_notes("takeoff")
     except Exception:
@@ -8546,6 +8554,21 @@ def _write_summary_sheet(ws, takeoff, rebar, navy_fill, header_font, body_font, 
     if rebar:
         ws.cell(row=row + 2, column=1, value=f"철근 할증 {((rebar.get('loss_factor') or 1) - 1) * 100:.0f}% 포함 "
                                               f"{(rebar.get('with_loss_kg') or 0) / 1000:,.2f} t").font = body_font
+    earth = (takeoff.get("earthwork") or {}).get("totals") or {}
+    outside = (takeoff.get("exterior") or {}).get("totals") or {}
+    if earth.get("excavation") or outside.get("wall"):
+        row += 3
+        ws.cell(row=row, column=1, value=f"토공 ({(takeoff.get('earthwork') or {}).get('method') or ''}) · 외부").font = Font(name="맑은 고딕", bold=True)
+        row += 1
+        for col, text in enumerate(["굴착(㎥)", "되메우기(㎥)", "잔토처리(㎥)", "외벽 마감(㎡)", "지하 외벽 방수(㎡)", "지붕 방수(㎡)"], 1):
+            cell = ws.cell(row=row, column=col, value=text)
+            cell.font, cell.fill, cell.border, cell.alignment = header_font, navy_fill, thin, center
+        row += 1
+        for col, value in enumerate([earth.get("excavation"), earth.get("backfill"), earth.get("surplus"), outside.get("wall"),
+                                     outside.get("basement_waterproof"), outside.get("roof_waterproof")], 1):
+            cell = ws.cell(row=row, column=col, value=value)
+            cell.font, cell.border, cell.alignment = body_font, thin, center
+        row -= 2
     arch_buildings = (arch or {}).get("buildings") or []
     if arch_buildings:
         labels = arch.get("wall_labels") or {"masonry": "조적", "alc": "ALC", "dry": "건식벽"}
@@ -8608,6 +8631,50 @@ def _write_assumed_sheet(ws, takeoff, rebar, navy_fill, header_font, body_font, 
     for letter, width in zip("ABCDEFG", (10, 24, 30, 40, 14, 22, 50)):
         ws.column_dimensions[letter].width = width
     ws.freeze_panes = "A2"
+
+
+def _write_site_sheet(ws, takeoff, navy_fill, header_font, body_font, center, left, thin):
+    """토공·외부: 굴착 구간마다 굴착·되메우기·잔토처리·버림콘크리트·흙막이, 동마다 외벽 마감·지하 외벽 방수·지붕 방수·단열."""
+    from openpyxl.styles import Font
+    earth, outside = takeoff.get("earthwork") or {}, takeoff.get("exterior") or {}
+    ws.cell(row=1, column=1, value="토공·외부 — CAD 기초 외곽·층고로 낸 추정 (지반고 = 1층 바닥)").font = Font(name="맑은 고딕", bold=True, size=13)
+    ws.cell(row=2, column=1, value=f"굴착 방식: {earth.get('method') or '-'} · 작업 여유폭 {earth.get('margin') or '-'}m"
+                                   + (f" · 경사 1:{earth['slope']}" if earth.get("slope") else "") + " · 잔토 운반은 토량환산계수 L 1.25").font = body_font
+    headers = ["구간", "기초 면적(㎡)", "기초 둘레(m)", "굴착 깊이(m)", "굴착(㎥)", "되메우기(㎥)", "잔토처리(㎥)", "잔토 운반(㎥, L)", "버림콘크리트(㎥)",
+               "흙막이 길이(m)", "흙막이 면적(㎡)"]
+    row = 4
+    for col, text in enumerate(headers, 1):
+        cell = ws.cell(row=row, column=col, value=text)
+        cell.font, cell.fill, cell.border, cell.alignment = header_font, navy_fill, thin, center
+    for group in earth.get("groups") or []:
+        row += 1
+        values = [" + ".join(group.get("parts") or []), group.get("area"), group.get("perimeter"), group.get("depth"), group.get("excavation"),
+                  group.get("backfill"), group.get("surplus"), group.get("surplus_loose"), group.get("lean"), group.get("shoring_length"),
+                  group.get("shoring_area")]
+        for col, value in enumerate(values, 1):
+            cell = ws.cell(row=row, column=col, value=value)
+            cell.font, cell.border, cell.alignment = body_font, thin, left if col == 1 else center
+    totals = earth.get("totals") or {}
+    row += 1
+    for col, value in enumerate(["합계", None, None, None, totals.get("excavation"), totals.get("backfill"), totals.get("surplus"),
+                                 totals.get("surplus_loose"), totals.get("lean"), totals.get("shoring_length"), totals.get("shoring_area")], 1):
+        cell = ws.cell(row=row, column=col, value=value)
+        cell.font, cell.border, cell.alignment = Font(name="맑은 고딕", bold=True), thin, left if col == 1 else center
+    row += 3
+    ws.cell(row=row - 1, column=1, value=f"외부 — 외벽 마감재: {outside.get('finish') or '-'}").font = Font(name="맑은 고딕", bold=True)
+    for col, text in enumerate(["동", "외벽 마감(㎡)", "외벽 창·문(㎡)", "지하 외벽 방수(㎡)", "지붕 슬래브(㎡)", "지붕 방수(㎡)", "지붕 단열(㎡)", "지붕 슬래브 위치"], 1):
+        cell = ws.cell(row=row, column=col, value=text)
+        cell.font, cell.fill, cell.border, cell.alignment = header_font, navy_fill, thin, center
+    for building in outside.get("buildings") or []:
+        row += 1
+        roof = building.get("roof") or {}
+        values = [building.get("name"), building.get("wall"), building.get("openings"), building.get("basement_waterproof"),
+                  roof.get("area"), roof.get("waterproof"), roof.get("insulation"), (roof.get("storey") or "") + " 위"]
+        for col, value in enumerate(values, 1):
+            cell = ws.cell(row=row, column=col, value=value)
+            cell.font, cell.border, cell.alignment = body_font, thin, left if col in (1, 8) else center
+    for letter, width in zip("ABCDEFGHIJK", (22, 12, 12, 12, 12, 13, 13, 15, 15, 13, 14)):
+        ws.column_dimensions[letter].width = width
 
 
 FINISH_SURFACES = (("floor", "바닥"), ("wall", "벽"), ("ceiling", "천장"))
@@ -9195,8 +9262,8 @@ def _build_excel_response(request):
     has_floor_takeoff = isinstance(floor_takeoff, dict) and bool(floor_takeoff.get("buildings"))
     # "AI 없이 CAD로만 진행": no AI reading, so the floor sheets lead and the AI-only sheets are left out
     cad_only = has_floor_takeoff and not any(results.get(k) for k in ("structural", "architectural"))
-    CAD_ONLY_SHEETS = ("요약", "층별 집계(N층 기준)", "층별 철근(N층 기준)", "건축 집계(층별)", "창호 집계", "마감 집계(층별)", "실별 면적",
-                       "임의로 정한 것", "검토 사항", "3D 층 구성")
+    CAD_ONLY_SHEETS = ("요약", "층별 집계(N층 기준)", "토공·외부", "층별 철근(N층 기준)", "건축 집계(층별)", "창호 집계", "마감 집계(층별)",
+                       "실별 면적", "임의로 정한 것", "검토 사항", "3D 층 구성")
     floor_arch = results.get("floor_arch")
 
     # 구조 시트
@@ -9224,6 +9291,8 @@ def _build_excel_response(request):
         ws_floor_takeoff = wb.create_sheet(CAD_ONLY_SHEETS[1])
         _write_floor_takeoff_sheet(ws_floor_takeoff, floor_takeoff,
                                    navy_fill, yellow_fill, light_fill, header_font, body_font, center, left, thin)
+        if (floor_takeoff.get("earthwork") or {}).get("groups") or (floor_takeoff.get("exterior") or {}).get("buildings"):
+            _write_site_sheet(wb.create_sheet("토공·외부"), floor_takeoff, navy_fill, header_font, body_font, center, left, thin)
     if isinstance(floor_rebar, dict) and floor_rebar.get("buildings"):
         _write_floor_rebar_sheet(wb.create_sheet("층별 철근(N층 기준)"), floor_rebar,
                                  navy_fill, yellow_fill, header_font, body_font, center, left, thin)

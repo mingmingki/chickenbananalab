@@ -30,13 +30,18 @@ EDITABLE = {
     "door_height": {"kind": "number", "unit": "m", "min": 1.5, "max": 3.5, "step": 0.1, "label": "문 높이 (창호일람표에 없는 문)"},
     "window_opening_height": {"kind": "number", "unit": "m", "min": 0.3, "max": 3.0, "step": 0.1, "label": "창 높이 (창호일람표에 없는 창)"},
     "ceiling_height": {"kind": "number", "unit": "m", "min": 2.0, "max": 5.0, "step": 0.05, "label": "반자 높이 (벽 마감 높이)"},
+    "excavation_method": {"kind": "choice", "choices": ["오픈컷", "흙막이 (수직 굴착)"], "label": "굴착 방식"},
+    "excavation_margin": {"kind": "number", "unit": "m", "min": 0.3, "max": 3.0, "step": 0.1, "label": "작업 여유폭"},
+    "excavation_slope": {"kind": "number", "unit": "", "min": 0.2, "max": 2.0, "step": 0.1, "label": "굴착 경사 (1 : n)"},
+    "exterior_finish": {"kind": "choice", "choices": ["외부 수성페인트", "석재", "외단열 미장", "금속패널", "타일"], "label": "외벽 마감재"},
     "waterproof_rise": {"kind": "number", "unit": "m", "min": 0.1, "max": 3.0, "step": 0.1, "label": "욕실 벽 방수 높이"},
 }
-TAKEOFF_KEYS = ("slab_thickness", "beam_depth", "window_height", "parapet", "wall_footing_place")
+TAKEOFF_KEYS = ("slab_thickness", "beam_depth", "window_height", "parapet", "wall_footing_place",
+                "excavation_method", "excavation_margin", "excavation_slope", "exterior_finish")
 REBAR_KEYS = ("plain_wall_bars", "slab_bars", "stair_bars", "grade", "foundation_bars", "mat_extra_bars")
 ARCH_KEYS = ("slab_thickness", "door_height", "window_opening_height", "ceiling_height", "waterproof_rise")
 LEARNED = ("slab_thickness", "beam_depth", "window_height", "parapet", "stair_bars", "door_height", "window_opening_height",
-           "ceiling_height", "waterproof_rise")  # numbers other jobs start from
+           "ceiling_height", "waterproof_rise", "excavation_margin", "excavation_slope")  # numbers other jobs start from
 BAR_TEXT = re.compile(r"^[A-Z]{0,3}D(10|13|16|19|22|25|29|32|35)@(\d{2,4})$")
 
 

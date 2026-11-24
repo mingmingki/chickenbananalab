@@ -650,6 +650,8 @@
 .qd-arch-check { max-width: 640px; max-height: 240px; margin-top: 8px; }
 .qd-arch-schedule .qd-sub { margin: 10px 0 2px; font-size: 13px; }
 .qd-arch-finish { max-height: none; }
+.qd-site { max-width: none; max-height: none; }
+.qd-site td:not(:first-child), .qd-site th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
 .qd-arch-finish .qd-arch-finish-src { margin: 0 12px 8px; font-size: 12.5px; }
 .qd-arch-finish td:nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; }
 .qd-arch-storeys { padding: 4px 12px 10px; }
