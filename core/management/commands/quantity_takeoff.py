@@ -132,7 +132,7 @@ def load_cache(path):
 
 def save_cache(path, read):
     with gzip.open(path, "wt", encoding="utf-8") as handle:
-        json.dump({k: read[k] for k in ("floor_views", "links", "openings")}, handle, ensure_ascii=False, default=str)
+        json.dump({k: read.get(k) for k in ("floor_views", "links", "openings", "finishes")}, handle, ensure_ascii=False, default=str)
 
 
 def read_drawings(files, workdir, log=None):
@@ -156,7 +156,7 @@ def read_drawings(files, workdir, log=None):
         if not result.get("ok"):
             raise CommandError("평면도를 읽지 못했어요: " + str(result.get("error") or "알 수 없는 오류"))
         return {"floor_views": result["results"]["floor_views"], "links": qv._floor_links(job_id),
-                "openings": qv._floor_openings(job_id)}
+                "openings": qv._floor_openings(job_id), "finishes": qv._floor_finishes(job_id)}
 
 
 def compute(read, overrides=None, foundations=None, feedback=None):
@@ -179,8 +179,8 @@ def compute(read, overrides=None, foundations=None, feedback=None):
     rebar = quantity_floor_rebar.build_rebar(model, links, floor, general_spec=None, edits=edits, extras=None,
                                              overrides=overrides, learned={})
     arch = quantity_arch_takeoff.build(floor_views.get("views") or [], model, overrides=overrides, learned={},
-                                       schedule=openings)
-    return {"floor_views": floor_views, "model": model, "links": links, "openings": openings, "takeoff": floor,
+                                       schedule=openings, finish_schedule=read.get("finishes"))
+    return {"floor_views": floor_views, "model": model, "links": links, "openings": openings, "finishes": read.get("finishes"), "takeoff": floor,
             "rebar": rebar, "arch": arch,
             "feedback": {"storey_heights": feedback.get("storey_heights") or {}, "overrides": overrides,
                          "foundations": foundations, "edits": edits}}

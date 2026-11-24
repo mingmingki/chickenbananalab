@@ -6216,7 +6216,7 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261124-finish">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261124-finishes">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261120-back"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261120-back"></script>
 <script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261120-review"></script>
@@ -10607,7 +10607,18 @@ body.cbl-modal-open {
   }
 
   // finishes of a building: each finish material's total, then storey by storey
-  function archFinishTable(building) {
+  // whether the finish schedule (실내재료마감표) was read and which of its rows the plan rooms used
+  function archFinishSource(arch) {
+    var check = arch.finish_check || {};
+    if (!check.read) {
+      return '<p class="qd-sub qd-arch-finish-src">실내재료마감표가 없어 마감재는 실 이름으로 정했어요. 파일 이름에 "마감표"가 들어간 CAD를 건축 CAD 칸에 함께 올리면 표에 적힌 마감재와 천장고를 써요.</p>';
+    }
+    return '<p class="qd-sub qd-arch-finish-src">실내재료마감표 ' + (check.rows || []).length + '개 실 중 ' + (check.used || []).length + '개를 평면의 실에 썼어요' +
+      ((check.unused || []).length ? ' · 평면에서 못 찾은 행: ' + esc(check.unused.join(", ")) : '') +
+      ((check.by_name || []).length ? ' · 표에 없어 실 이름으로 정한 실: ' + esc(check.by_name.join(", ")) : '') + '</p>';
+  }
+
+  function archFinishTable(building, arch) {
     var total = (building.totals || {}).finishes || {};
     var rows = [];
     [["floor", "바닥"], ["wall", "벽"], ["ceiling", "천장"]].forEach(function (s) {
@@ -10626,13 +10637,16 @@ body.cbl-modal-open {
     var storeys = (building.rows || []).filter(function (r) { return r.finishes && (r.finishes.rooms || []).length; });
     function sum(o) { return Object.keys(o || {}).reduce(function (a, k) { return a + (Number(o[k]) || 0); }, 0); }
     return '<b class="qd-arch-head">마감 — 실 ' + (total.rooms || 0) + '개' + (unnamed.count ? ' · 이름 없는 실 ' + unnamed.count + '개(' + archArea(unnamed.area) + '㎡)는 뺐어요' : '') + '</b>' +
+      (arch ? archFinishSource(arch) : '') +
       '<table><thead><tr><th>구분</th><th>마감재</th><th>수량</th></tr></thead><tbody>' +
       rows.map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td><td class="qd-strong">' + archArea(r[2]) + ' ' + r[3] + '</td></tr>'; }).join("") +
       '</tbody></table>' +
       '<details class="qd-arch-storeys"><summary>층별로 보기</summary><table><thead><tr><th>층</th><th>바닥 ㎡</th><th>벽 ㎡</th><th>천장 ㎡</th><th>방수 ㎡</th><th>미장 ㎡</th><th>걸레받이 m</th><th>실</th></tr></thead><tbody>' +
       storeys.map(function (r) {
         var f = r.finishes;
-        var title = (f.rooms || []).filter(function (x) { return x.class; }).map(function (x) { return (x.names || []).join("·") + " " + archArea(x.area) + "㎡"; }).join(" / ");
+        var title = (f.rooms || []).filter(function (x) { return x.class; }).map(function (x) {
+          return (x.names || []).join("·") + " " + archArea(x.area) + "㎡" + (x.source === "schedule" ? " (마감표)" : "");
+        }).join(" / ");
         return '<tr title="' + esc(title) + '"><td>' + esc(r.label) + '</td><td>' + archArea(sum(f.floor)) + '</td><td>' + archArea(sum(f.wall)) + '</td><td>' +
           archArea(sum(f.ceiling)) + '</td><td>' + archArea(f.waterproof) + '</td><td>' + archArea(f.plaster) + '</td><td>' + archArea(f.base) + '</td><td>' +
           (f.rooms || []).filter(function (x) { return x.class; }).length + '</td></tr>';
@@ -10708,7 +10722,7 @@ body.cbl-modal-open {
       table.innerHTML = archTable(building);
       types.innerHTML = '<b class="qd-arch-head">창·문 종류</b>' + archOpeningTable(building);
       var open = finish.querySelector(".qd-arch-storeys[open]");
-      finish.innerHTML = archFinishTable(building);
+      finish.innerHTML = archFinishTable(building, arch);
       if (open && finish.querySelector(".qd-arch-storeys")) finish.querySelector(".qd-arch-storeys").open = true;
     }
     bar.addEventListener("click", function (e) {

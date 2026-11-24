@@ -152,7 +152,101 @@ class FinishPageTests(SimpleTestCase):
     def test_the_arch_card_and_the_summary_show_the_finishes(self):
         from pathlib import Path
         html = (Path(__file__).resolve().parent / "templates" / "core" / "home.html").read_text(encoding="utf-8")
-        self.assertIn("function archFinishTable(building) {", html)
+        self.assertIn("function archFinishTable(building, arch) {", html)
+        self.assertIn("function archFinishSource(arch) {", html)  # whether the 실내재료마감표 was used
         self.assertIn("[bar, table, types, checkBox, finish]", html)
         self.assertIn('<span>마감 (바닥)</span>', html)
         self.assertIn('"건축 벽체·창호·마감을 냈어요."', html)
+
+
+# ── the finish schedule (실내재료마감표) ──
+
+def finish_table(x0=0.0, y0=200.0, rows=None, with_height=True):
+    """[(text, x, y, h)] of a finish schedule table: a header row and a row per room, cells of several lines."""
+    out = []
+    columns = [("실명", 10), ("바닥", 50), ("걸레받이", 90), ("벽", 130), ("천장", 170)] + ([("천장고", 205)] if with_height else [])
+    for text, x in columns:
+        out.append((text, x0 + x, y0, 3.0))
+    rows = rows or [
+        ("거실/주방", ["강마루 THK7.5", "시멘트몰탈 THK40"], ["걸레받이"], ["실크벽지"], ["천장지"], ["2,300"]),
+        ("침실1", ["강마루"], ["걸레받이"], ["합지벽지"], ["천장지"], ["2,300"]),
+        ("욕실(공용)", ["포세린타일 300x300", "액체방수 2회"], ["-"], ["벽타일 300x600"], ["SMC 천장재"], ["2,200"]),
+        ("발코니", ["바닥타일", "액체방수"], ["-"], ["수성페인트 2회"], ["수성페인트"], [""]),
+    ]
+    for i, (room, *cells) in enumerate(rows):
+        y = y0 - 20 - i * 20
+        out.append((room, x0 + 10, y, 3.0))
+        for (_header, x), lines in zip(columns[1:], cells):
+            for j, line in enumerate(lines):
+                if line:
+                    out.append((line, x0 + x, y + 3 - j * 5, 2.5))
+    return out
+
+
+class FinishScheduleTests(SimpleTestCase):
+    def test_the_rows_give_each_rooms_finishes_and_ceiling_height(self):
+        from core import quantity_arch_finish_schedule as fs
+        rooms = fs.read_finish_schedule(finish_table(), "A-701")["rooms"]
+        self.assertEqual(set(rooms), {"거실", "주방", "침실", "욕실", "발코니"})
+        living = rooms["거실"]
+        self.assertEqual((living["floor"], living["base"], living["wall"], living["ceiling"]), ("강마루", "걸레받이", "실크벽지", "천장지"))
+        self.assertIs(rooms["주방"], living)  # one row for both names
+        bath = rooms["욕실"]
+        self.assertEqual((bath["floor"], bath["base"], bath["wall"], bath["ceiling"]), ("포세린타일", None, "벽타일", "SMC 천장재"))
+        self.assertTrue(bath["waterproof"])
+        self.assertEqual((bath["ceiling_height"], living["ceiling_height"], rooms["발코니"]["ceiling_height"]), (2.2, 2.3, None))
+        self.assertFalse(living["waterproof"])
+        self.assertEqual(fs.match({"rooms": rooms}, ["침실2"])["wall"], "합지벽지")
+        self.assertEqual(fs.room_keys("욕실1(공용), 파우더룸"), ["욕실", "파우더룸"])
+
+    def test_two_tables_on_one_sheet_and_the_file_name(self):
+        from core import quantity_arch_finish_schedule as fs
+        shared = finish_table(x0=300, rows=[("계단실", ["화강석"], ["화강석"], ["수성페인트"], ["텍스"], ["2,400"])])
+        rooms = fs.read_finish_schedule(finish_table() + shared)["rooms"]
+        self.assertEqual((rooms["계단실"]["floor"], rooms["계단실"]["ceiling"]), ("화강석", "텍스"))
+        self.assertEqual(rooms["거실"]["floor"], "강마루")
+        self.assertEqual([fs.is_finish_schedule_file(n) for n in ("A-701 실내재료마감표.dwg", "실내마감표.dxf", "A-501 창호도.dwg")],
+                         [True, True, False])
+
+    def test_the_schedule_replaces_the_finishes_picked_by_name(self):
+        from core import quantity_arch_finish_schedule as fs
+        schedule = fs.read_finish_schedule(finish_table(), "A-701")
+        found = rooms_of.find_rooms(*plan())
+        living, bath = found
+        done = fin.storey_finishes(found, clear=2.64, sizes=FinishTests().sizes, schedule=schedule)
+        self.assertEqual(sorted(done["floor"]), ["강마루", "포세린타일"])
+        self.assertEqual(sorted(done["wall"]), ["벽타일", "실크벽지"])
+        self.assertEqual(sorted(done["ceiling"]), ["SMC 천장재", "천장지"])
+        self.assertAlmostEqual(done["wall"]["벽타일"], bath["perimeter"] * 2.2 - 0.9 * 2.1, places=1)  # its own ceiling height
+        self.assertAlmostEqual(done["waterproof"], bath["area"] + bath["perimeter"] * 1.2, places=1)
+        self.assertAlmostEqual(done["base"], living["perimeter"] - 0.9, places=1)
+        self.assertEqual((done["from_schedule"], done["rule_area"], done["wall_by_height"]), (2, 0.0, 0.0))
+        self.assertEqual({r["source"] for r in done["rooms"]}, {"schedule"})
+
+
+class FinishScheduleJobTests(SimpleTestCase):
+    databases = "__all__"
+
+    def test_the_floor_job_reads_the_finish_schedule_and_the_takeoff_uses_it(self):
+        import os
+        import tempfile
+        import ezdxf
+        from core import quantity_arch_takeoff as at
+        from core import quantity_views as views
+        from core.test_quantity_arch import ArchTakeoffTests
+        doc = ezdxf.new()
+        for text, x, y, h in finish_table():
+            doc.modelspace().add_text(text, dxfattribs={"insert": (x, y), "height": h})
+        with tempfile.TemporaryDirectory() as work:
+            path = os.path.join(work, "000.dxf")
+            doc.saveas(path)
+            schedule = views._cad_finish_schedule("fv-9", [{"name": "A-701 실내재료마감표.dxf", "path": path}], [])
+        self.assertEqual(schedule["rooms"]["침실"]["sheet"], "A-701 실내재료마감표")
+        result = at.build(FinishTakeoffTests().views(), ArchTakeoffTests().model(), finish_schedule=schedule)
+        row = result["buildings"][0]["rows"][2]
+        self.assertEqual(sorted(row["finishes"]["wall"]), ["실크벽지", "합지벽지"])  # 거실 and 침실 rows
+        check = result["finish_check"]
+        self.assertEqual((check["read"], check["used"]), (True, ["거실/주방", "침실1"]))
+        self.assertIn("욕실(공용)", check["unused"])
+        self.assertNotIn("finish_rules", {a["key"] for a in result["assumed"]})  # every plan room had its row
+        self.assertNotIn("ceiling_height", {a["key"] for a in result["assumed"]})  # and its ceiling height

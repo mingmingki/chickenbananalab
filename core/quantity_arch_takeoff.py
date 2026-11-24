@@ -102,7 +102,7 @@ def outer_opening_heights(views, schedule):
     return out
 
 
-def build(views, model=None, overrides=None, learned=None, schedule=None):
+def build(views, model=None, overrides=None, learned=None, schedule=None, finish_schedule=None):
     """{"buildings": [{"name", "rows": [per storey], "totals", "openings": [by type]}], "assumed",
     "schedule": the check against the window and door schedule, ...}."""
     types = (schedule or {}).get("types") or {}
@@ -154,7 +154,7 @@ def build(views, model=None, overrides=None, learned=None, schedule=None):
 
         def sizes(opening_name, opening_kind, width, sized=sized):
             return sized.get(opening_name) or (width, door_h if opening_kind == "door" else window_h)
-        finished = finishes_of.storey_finishes(arch.get("rooms"), clear, sizes, ceiling_h, rise)
+        finished = finishes_of.storey_finishes(arch.get("rooms"), clear, sizes, ceiling_h, rise, finish_schedule)
         row["finishes"] = finished
         if any(w["above_openings"] for w in walls.values()):
             notes.append("문 위 벽, 창 위·아래 벽 포함 (" + ("창호일람표 높이" if not any(guessed.values()) else
@@ -180,10 +180,12 @@ def build(views, model=None, overrides=None, learned=None, schedule=None):
             assumed.add("ceiling_height", "반자 높이 (벽 마감 높이)", said(f"{ceiling_h:g}m", ceiling_from), name, storey,
                         finished["wall_by_height"], "㎡", "실내재료마감표·단면상세도의 반자 높이로 바꿔 주세요",
                         raw=ceiling_h, person=ceiling_from == "person")
-            floor_area = sum(finished["floor"].values())
-            assumed.add("finish_rules", "실별 마감재 (실 이름으로 정함)",
+        if finished["rule_area"]:
+            assumed.add("finish_rules", "실별 마감재 (실 이름으로 정함)" if not finish_schedule else "실별 마감재 (마감표에 없는 실은 실 이름으로)",
                         "거실·침실 강마루·벽지 · 욕실 타일·방수 · 발코니 타일·도장 · 공용부 타일·도장 · 기계실 에폭시",
-                        name, storey, floor_area, "㎡", "실내재료마감표와 다르면 엑셀 '마감 집계'에서 바꿔 주세요 (마감표 읽기는 다음 단계)")
+                        name, storey, finished["rule_area"], "㎡",
+                        "실내재료마감표 CAD(파일 이름에 '마감표')를 올리면 표에 적힌 마감재를 써요" if not finish_schedule
+                        else "마감표의 실 이름과 평면의 실 이름이 같아야 표의 마감재를 써요")
         if finished["rise_area"]:
             assumed.add("waterproof_rise", "욕실 벽 방수 높이", said(f"{rise:g}m", rise_from), name, storey, finished["rise_area"], "㎡",
                         "방수 상세도의 치켜올림 높이로 바꿔 주세요", raw=rise, person=rise_from == "person")
@@ -220,7 +222,7 @@ def build(views, model=None, overrides=None, learned=None, schedule=None):
                     "openings": sorted(by_type.values(), key=lambda t: (t["kind"], t["name"]))})
     assumed.keep_unused(overrides, ("door_height", "window_opening_height", "ceiling_height", "waterproof_rise"))
     check = schedule_check(out, types)
-    missing = ["콘크리트 벽(구조 산출에 포함)", "실내재료마감표 (마감재는 실 이름으로 정했어요)"]
+    missing = ["콘크리트 벽(구조 산출에 포함)"] + ([] if finish_schedule else ["실내재료마감표 (마감재는 실 이름으로 정했어요)"])
     rooms = [room for b in out for r in b["rows"] for room in (r.get("finishes") or {}).get("rooms") or []]
     if not rooms:
         missing.append("마감 (건축 평면에서 실을 찾지 못했어요)")
@@ -231,7 +233,24 @@ def build(views, model=None, overrides=None, learned=None, schedule=None):
     elif check["not_listed"]:
         missing.append("창호일람표에 없는 종류의 크기(블록 폭·가정 높이로 봤어요)")
     return {"version": ARCH_TAKEOFF_VERSION, "buildings": out, "assumed": assumed.items(), "overrides": overrides,
-            "wall_labels": WALL_LABELS, "schedule": check, "not_included": missing}
+            "wall_labels": WALL_LABELS, "schedule": check, "finish_check": finish_check(out, finish_schedule), "not_included": missing}
+
+
+def finish_check(buildings, finish_schedule):
+    """The plan rooms against the finish schedule: the rows read, the rows a plan room used, the
+    rows no plan room used, and the plan room names finished by their name instead."""
+    rows = (finish_schedule or {}).get("rooms") or {}
+    used, by_name = set(), set()
+    for building in buildings:
+        for row in building["rows"]:
+            for room in (row.get("finishes") or {}).get("rooms") or []:
+                if room.get("source") == "schedule":
+                    used.add(room.get("schedule_row"))
+                elif room.get("class") and room.get("names"):
+                    by_name.add("·".join(room["names"]))
+    labels = sorted({entry.get("label") for entry in rows.values()})
+    return {"read": bool(rows), "rows": labels, "used": sorted(label for label in labels if label in used),
+            "unused": sorted(label for label in labels if label not in used), "by_name": sorted(by_name)}
 
 
 def schedule_check(buildings, types):

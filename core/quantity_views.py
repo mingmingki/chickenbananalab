@@ -1686,10 +1686,11 @@ FLOOR_VIEWS_MIN_FREE_MB = 750
 
 
 def _floor_view_inputs(uploaded_files):
-    """(name, bytes) of the plan sheets, possible xrefs, section sheets and the other structural
-    sheets (schedules, slab and wall bars: the CAD-only takeoff reads them) among the uploads (ZIPs
-    unpacked)."""
+    """(name, bytes) of the plan sheets, possible xrefs, section sheets, the other structural sheets
+    (schedules, slab and wall bars: the CAD-only takeoff reads them) and the architectural window
+    and finish schedules among the uploads (ZIPs unpacked)."""
     from . import quantity_floor_views
+    from .quantity_arch_finish_schedule import is_finish_schedule_file
     found, names = [], set()
 
     def keep(name, data):
@@ -1698,7 +1699,7 @@ def _floor_view_inputs(uploaded_files):
             return
         if not (quantity_floor_views.is_plan_file(name) or quantity_floor_views.is_reference_file(name)
                 or quantity_floor_views.is_level_file(name) or quantity_floor_views._is_structural_file(name)
-                or quantity_floor_views.is_opening_schedule_file(name)):
+                or quantity_floor_views.is_opening_schedule_file(name) or is_finish_schedule_file(name)):
             return
         base, ext, n = name[:-4], name[-4:], 2
         while name in names:
@@ -1867,17 +1868,37 @@ def _cad_opening_schedule(job_id, files, manifest):
     size and count, for the architectural takeoff. Bounded in time like the structural schedules."""
     from . import quantity_arch_schedule
     from . import quantity_floor_views as fv
-    opened = {entry["name"]: entry for entry in manifest}
-    sheets = [f for f in files if fv.is_opening_schedule_file(f["name"])]
+    read = _read_arch_sheets(job_id, [f for f in files if fv.is_opening_schedule_file(f["name"])], manifest, "창호일람표",
+                             quantity_arch_schedule.read_opening_schedule)
+    merged = quantity_arch_schedule.merge(read)
+    return merged if merged["types"] else None
+
+
+def _cad_finish_schedule(job_id, files, manifest):
+    """The finish schedule (실내재료마감표) read from the architectural CAD (no AI): each room's
+    finishes and ceiling height, for the finishes of the architectural takeoff."""
+    from . import quantity_arch_finish_schedule as fs
+    read = _read_arch_sheets(job_id, [f for f in files if fs.is_finish_schedule_file(f["name"])], manifest, "마감표",
+                             fs.read_finish_schedule)
+    merged = fs.merge(read)
+    return merged if merged["rooms"] else None
+
+
+def _read_arch_sheets(job_id, sheets, manifest, label, reader):
+    """[reader(texts, sheet name)] of architectural schedule sheets, read one at a time within the
+    schedules' time budget (a sheet that fails is left out)."""
+    from . import quantity_arch_schedule
+    from . import quantity_floor_views as fv
     if not sheets:
-        return None
+        return []
+    opened = {entry["name"]: entry for entry in manifest}
     deadline = time.monotonic() + CAD_LINKS_TIME_BUDGET_SECONDS
     read = []
     for index, item in enumerate(sheets):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
-        _progress_set(job_id, "schedules", index, len(sheets) + 1, f"창호일람표 읽는 중 ({index + 1}/{len(sheets)})")
+        _progress_set(job_id, "schedules", index, len(sheets) + 1, f"{label} 읽는 중 ({index + 1}/{len(sheets)})")
         try:
             if item["name"] in opened:
                 doc = fv._read(opened[item["name"]])  # the converted text is UTF-8 whatever code page its header names
@@ -1887,18 +1908,22 @@ def _cad_opening_schedule(job_id, files, manifest):
                 text, _metadata = _cbl_free_dwg_to_dxf_text_v1(item["path"], timeout=remaining, wait=remaining, background=True)
                 doc = ezdxf.read(io.StringIO(text))
             sheet = os.path.splitext(item["name"])[0]
-            read.append(quantity_arch_schedule.read_opening_schedule(quantity_arch_schedule.drawing_texts(doc, decode=_cad_text), sheet))
+            read.append(reader(quantity_arch_schedule.drawing_texts(doc, decode=_cad_text), sheet))
         except Exception as exc:
-            logger.warning("quantity_opening_schedule_file_failed job=%s file=%s error=%s", job_id[:16], item["name"][:60], str(exc)[:160])
+            logger.warning("quantity_arch_schedule_file_failed job=%s file=%s error=%s", job_id[:16], item["name"][:60], str(exc)[:160])
         finally:
             doc = None
-    merged = quantity_arch_schedule.merge(read)
-    return merged if merged["types"] else None
+    return read
 
 
 def _floor_openings(floor_job):
     """The window and door schedule read with a floor job (None without one)."""
     return _quantity_state().get("floor_openings", floor_job) or None
+
+
+def _floor_finishes(floor_job):
+    """The finish schedule read with a floor job (None without one)."""
+    return _quantity_state().get("floor_finishes", floor_job) or None
 
 
 def _opening_heights(floor_job, result):
@@ -2045,6 +2070,12 @@ def _run_floor_views_job(job_id, inputs):
                     _quantity_state().put("floor_openings", job_id, openings, ttl=_RESULT_TTL_SEC)
             except Exception as exc:  # the architectural takeoff goes on with the block widths
                 logger.warning("quantity_opening_schedule_failed job=%s error=%s", job_id[:16], str(exc)[:200])
+            try:
+                finishes = _cad_finish_schedule(job_id, files, manifest)
+                if finishes:
+                    _quantity_state().put("floor_finishes", job_id, finishes, ttl=_RESULT_TTL_SEC)
+            except Exception as exc:  # the finishes go on by the room names
+                logger.warning("quantity_finish_schedule_failed job=%s error=%s", job_id[:16], str(exc)[:200])
             _render_floor_views(job_id, work, {"files": manifest, "plans": plan_names, "levels": level_names})
     except subprocess.TimeoutExpired:
         _result_set(job_id, {"ok": False, "error": "평면도를 칠하는 데 시간이 너무 오래 걸려 멈췄어요."})
@@ -2506,7 +2537,7 @@ def quantity_floor_review(request, floor_job):
         rebar = quantity_floor_rebar.build_rebar(model, links, takeoff, general_spec=None, edits=edits, extras=None,
                                                  overrides=overrides, learned=learned)
         arch = quantity_arch_takeoff.build(floor_views.get("views") or [], model, overrides=overrides, learned=learned,
-                                           schedule=_floor_openings(floor_job))
+                                           schedule=_floor_openings(floor_job), finish_schedule=_floor_finishes(floor_job))
     except Exception:
         logger.exception("quantity_floor_review_failed job=%s", floor_job[:16])
         return HttpResponse("수량을 계산하지 못했어요.", status=500)
@@ -2590,7 +2621,7 @@ def api_quantity_floor_arch(request):
     try:
         arch = quantity_arch_takeoff.build(floor_views.get("views") or [], _floor_model(floor_job, result),
                                            overrides=_floor_overrides(floor_job, body), learned=_learned_values(floor_job),
-                                           schedule=_floor_openings(floor_job))
+                                           schedule=_floor_openings(floor_job), finish_schedule=_floor_finishes(floor_job))
     except Exception:
         logger.exception("quantity_floor_arch_failed job=%s", floor_job[:16])
         return JsonResponse({"error": "건축 수량을 계산하지 못했어요."}, status=500)
@@ -8646,7 +8677,7 @@ def _write_finish_sheets(wb, arch, navy_fill, header_font, body_font, center, le
     ws.column_dimensions["A"].width = 12
     ws = wb.create_sheet("실별 면적")
     headers = ["동", "층", "실 이름", "구분", "바닥 면적(㎡)", "둘레(m)", "바닥 마감", "벽 마감", "벽 면적(㎡)", "창·문 뺀 면적(㎡)",
-               "천장 마감", "걸레받이(m)", "방수(㎡)", "미장(㎡)"]
+               "천장 마감", "걸레받이(m)", "방수(㎡)", "미장(㎡)", "반자 높이(m)", "마감 출처"]
     for col, text in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=text)
         cell.font, cell.fill, cell.border, cell.alignment = header_font, navy_fill, thin, center
@@ -8659,11 +8690,13 @@ def _write_finish_sheets(wb, arch, navy_fill, header_font, body_font, center, le
                 values = [building.get("name"), item.get("label"), "·".join(room.get("names") or []) or "(이름 없음)",
                           CLASS_LABELS.get(room.get("class"), "이름 없는 실"), room.get("area"), room.get("perimeter"),
                           room.get("floor"), room.get("wall_finish"), room.get("wall"), room.get("openings"), room.get("ceiling"),
-                          room.get("base"), room.get("waterproof"), room.get("plaster")]
+                          room.get("base"), room.get("waterproof"), room.get("plaster"), room.get("height"),
+                          ("마감표: " + (room.get("schedule_row") or "")) if room.get("source") == "schedule" else
+                          ("실 이름 기준" if room.get("class") else "")]
                 for col, value in enumerate(values, 1):
                     cell = ws.cell(row=row, column=col, value=value)
                     cell.font, cell.border, cell.alignment = body_font, thin, left
-    for letter, width in zip("ABCDEFGHIJKLMN", (10, 10, 16, 14, 11, 9, 10, 10, 11, 14, 11, 10, 9, 9)):
+    for letter, width in zip("ABCDEFGHIJKLMNOP", (10, 10, 16, 14, 11, 9, 10, 10, 11, 14, 11, 10, 9, 9, 11, 18)):
         ws.column_dimensions[letter].width = width
     ws.freeze_panes = "A2"
 
