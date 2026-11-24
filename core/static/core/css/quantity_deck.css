@@ -649,6 +649,11 @@
 .qd-arch-src.is-guess { background: rgba(252, 211, 77, .18); color: #fde68a; }
 .qd-arch-check { max-width: 640px; max-height: 240px; margin-top: 8px; }
 .qd-arch-schedule .qd-sub { margin: 10px 0 2px; font-size: 13px; }
+.qd-arch-finish { max-height: none; }
+.qd-arch-finish td:nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; }
+.qd-arch-storeys { padding: 4px 12px 10px; }
+.qd-arch-storeys summary { cursor: pointer; color: var(--qd-soft); font-weight: 800; font-size: 13px; padding: 4px 0; }
+.qd-arch-storeys td:not(:first-child), .qd-arch-storeys th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
 .qd-arch-check th, .qd-arch-check td { text-align: left; }
 .qpe-learn { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; background: rgba(250, 204, 21, .14); color: #fde68a; font-size: 12px; font-weight: 700; }
 .qpe-learn[hidden] { display: none; }

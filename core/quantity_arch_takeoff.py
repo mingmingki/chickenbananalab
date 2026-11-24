@@ -12,12 +12,16 @@ and the storey heights of the structural model (quantity_floor_views.build_model
   keep the width of their block and an assumed height. Each type's area (width × height) adds up
   to the window and door area of the storey, and the counts are set against the schedule's.
 
+The rooms the walls enclose give the finishes (quantity_arch_finishes): floor, wall and ceiling
+finishes by room name, baseboard, waterproofing and plaster.
+
 Concrete walls belong to the structural takeoff. Unit plans (단위세대) are not floors of a building
 and are left out. What is assumed (heights of doors and windows, the slab under the walls, default
 storey heights) is listed and can be changed (quantity_assumed).
 """
 from __future__ import annotations
 
+from . import quantity_arch_finishes as finishes_of
 from . import quantity_floor_views as fv
 from .quantity_assumed import ARCH_KEYS, Assumed, clean_overrides, pick, said
 
@@ -70,8 +74,8 @@ def _chosen_views(views):
 
 
 def outer_opening_heights(views, schedule):
-    """{(building, storey key): metres}: the height of the windows and doors set in the concrete
-    outer walls of each storey, from the window and door schedule (weighted by width), for the
+    """{(building, storey key): metres}: the height of the windows set in the concrete walls of
+    each storey, from the window and door schedule (weighted by width), for the
     structural takeoff's wall above and below the outer openings; (building, None) is the
     building's own, for its storeys without an architectural plan. Types the schedule does not
     give a height leave no value (the takeoff keeps its assumed one)."""
@@ -84,7 +88,7 @@ def outer_opening_heights(views, schedule):
         for opening in (view.get("arch") or {}).get("openings") or []:
             listed = types.get(opening.get("name")) or {}
             count = (opening.get("on") or {}).get("frame") or 0
-            if listed.get("height") and count:
+            if listed.get("height") and count and opening.get("kind") == "window":  # the doors in concrete are mostly inside (core)
                 width = (listed.get("width") or opening.get("width") or 0) * count
                 width_sum += width
                 weighted += width * listed["height"]
@@ -106,6 +110,8 @@ def build(views, model=None, overrides=None, learned=None, schedule=None):
     slab_mm, slab_from = pick("slab_thickness", overrides, learned, SLAB_MM)
     door_h, door_from = pick("door_height", overrides, learned, DOOR_HEIGHT)
     window_h, window_from = pick("window_opening_height", overrides, learned, WINDOW_HEIGHT)
+    ceiling_h, ceiling_from = pick("ceiling_height", overrides, learned, finishes_of.CEILING_HEIGHT)
+    rise, rise_from = pick("waterproof_rise", overrides, learned, finishes_of.WATERPROOF_RISE)
     slab = slab_mm / 1000.0
     levels = {(b.get("name"), l.get("key")): l for b in (model or {}).get("buildings") or [] for l in b.get("levels") or []}
     heights_drawn = bool((model or {}).get("heights_from_drawings"))
@@ -144,6 +150,12 @@ def build(views, model=None, overrides=None, learned=None, schedule=None):
                "door_area": round(sum(o["area"] for o in openings if o["kind"] == "door"), 2),
                "window_area": round(sum(o["area"] for o in openings if o["kind"] == "window"), 2),
                "openings": openings, "notes": notes}
+        sized = {o["name"]: (o["width"], o["height"]) for o in openings}
+
+        def sizes(opening_name, opening_kind, width, sized=sized):
+            return sized.get(opening_name) or (width, door_h if opening_kind == "door" else window_h)
+        finished = finishes_of.storey_finishes(arch.get("rooms"), clear, sizes, ceiling_h, rise)
+        row["finishes"] = finished
         if any(w["above_openings"] for w in walls.values()):
             notes.append("문 위 벽, 창 위·아래 벽 포함 (" + ("창호일람표 높이" if not any(guessed.values()) else
                          f"일람표에 없는 종류는 문 {door_h:g}m · 창 {window_h:g}m로 봤어요") + ")")
@@ -164,6 +176,21 @@ def build(views, model=None, overrides=None, learned=None, schedule=None):
                         "창호일람표 CAD를 올리면 종류별 높이를 써요", raw=window_h, person=window_from == "person")
         if not heights_drawn and wall_area:
             default_heights.append((name, storey, round(height, 3), wall_area))
+        if finished["wall_by_height"]:
+            assumed.add("ceiling_height", "반자 높이 (벽 마감 높이)", said(f"{ceiling_h:g}m", ceiling_from), name, storey,
+                        finished["wall_by_height"], "㎡", "실내재료마감표·단면상세도의 반자 높이로 바꿔 주세요",
+                        raw=ceiling_h, person=ceiling_from == "person")
+            floor_area = sum(finished["floor"].values())
+            assumed.add("finish_rules", "실별 마감재 (실 이름으로 정함)",
+                        "거실·침실 강마루·벽지 · 욕실 타일·방수 · 발코니 타일·도장 · 공용부 타일·도장 · 기계실 에폭시",
+                        name, storey, floor_area, "㎡", "실내재료마감표와 다르면 엑셀 '마감 집계'에서 바꿔 주세요 (마감표 읽기는 다음 단계)")
+        if finished["rise_area"]:
+            assumed.add("waterproof_rise", "욕실 벽 방수 높이", said(f"{rise:g}m", rise_from), name, storey, finished["rise_area"], "㎡",
+                        "방수 상세도의 치켜올림 높이로 바꿔 주세요", raw=rise, person=rise_from == "person")
+        if finished["unnamed"]["count"]:
+            assumed.add("unnamed_rooms", "이름 없는 실 (마감에서 뺐어요)", f"{finished['unnamed']['count']}개", name, storey,
+                        finished["unnamed"]["area"], "㎡", "평면의 실 이름(거실·욕실 …)이 그 실 안에 있어야 마감을 넣어요",
+                        counted=False)
     if default_heights:  # the heights used, storey by storey: "1층 3.25m · 2층~5층 2.85m"
         by_height = {}
         for _name, storey, height, _area in default_heights:
@@ -177,7 +204,8 @@ def build(views, model=None, overrides=None, learned=None, schedule=None):
     for name, rows in buildings.items():
         totals = {kind: round(sum(r["walls"].get(kind, {}).get("area", 0) for r in rows), 1) for kind in WALL_KINDS}
         totals.update(doors=sum(r["doors"] for r in rows), windows=sum(r["windows"] for r in rows),
-                      door_area=round(sum(r["door_area"] for r in rows), 2), window_area=round(sum(r["window_area"] for r in rows), 2))
+                      door_area=round(sum(r["door_area"] for r in rows), 2), window_area=round(sum(r["window_area"] for r in rows), 2),
+                      finishes=finishes_of.add_up(r.get("finishes") for r in rows))
         by_type = {}
         for r in rows:
             for o in r["openings"]:
@@ -190,9 +218,14 @@ def build(views, model=None, overrides=None, learned=None, schedule=None):
                 item["floors"].append(r["label"])
         out.append({"name": name, "rows": rows, "totals": totals,
                     "openings": sorted(by_type.values(), key=lambda t: (t["kind"], t["name"]))})
-    assumed.keep_unused(overrides, ("door_height", "window_opening_height"))
+    assumed.keep_unused(overrides, ("door_height", "window_opening_height", "ceiling_height", "waterproof_rise"))
     check = schedule_check(out, types)
-    missing = ["콘크리트 벽(구조 산출에 포함)", "미장·도장·타일 등 마감"]
+    missing = ["콘크리트 벽(구조 산출에 포함)", "실내재료마감표 (마감재는 실 이름으로 정했어요)"]
+    rooms = [room for b in out for r in b["rows"] for room in (r.get("finishes") or {}).get("rooms") or []]
+    if not rooms:
+        missing.append("마감 (건축 평면에서 실을 찾지 못했어요)")
+    elif not any(room.get("class") for room in rooms):
+        missing.append("마감 (실 이름이 없어 마감재를 정하지 못했어요)")
     if not types:
         missing.append("창호일람표(없어서 창·문 폭은 블록 크기, 높이는 가정값으로 봤어요)")
     elif check["not_listed"]:

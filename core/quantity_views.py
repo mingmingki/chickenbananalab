@@ -8532,6 +8532,19 @@ def _write_summary_sheet(ws, takeoff, rebar, navy_fill, header_font, body_font, 
             for col, value in enumerate(values, 1):
                 cell = ws.cell(row=row, column=col, value=value)
                 cell.font, cell.border, cell.alignment = body_font, thin, left if col == 1 else center
+        finish_rows = _finish_material_rows(arch_buildings)
+        if finish_rows:
+            row += 2
+            ws.cell(row=row, column=1, value="마감 (실 이름으로 정한 마감재 · 동 합계)").font = Font(name="맑은 고딕", bold=True)
+            row += 1
+            for col, text in enumerate(["구분", "마감재", "수량", "단위"], 1):
+                cell = ws.cell(row=row, column=col, value=text)
+                cell.font, cell.fill, cell.border, cell.alignment = header_font, navy_fill, thin, center
+            for values in finish_rows:
+                row += 1
+                for col, value in enumerate(values, 1):
+                    cell = ws.cell(row=row, column=col, value=value)
+                    cell.font, cell.border, cell.alignment = body_font, thin, left if col < 3 else center
         row -= 1  # the note below goes two rows under the last building
     assumed = (takeoff.get("assumed") or []) + ((rebar or {}).get("assumed") or []) + ((arch or {}).get("assumed") or [])
     waiting = sum(1 for item in assumed if item.get("left_out"))
@@ -8562,6 +8575,95 @@ def _write_assumed_sheet(ws, takeoff, rebar, navy_fill, header_font, body_font, 
     if row == 2:
         ws.cell(row=2, column=1, value="이 작업은 도면에 없는 값을 임의로 정하지 않았어요.").font = body_font
     for letter, width in zip("ABCDEFG", (10, 24, 30, 40, 14, 22, 50)):
+        ws.column_dimensions[letter].width = width
+    ws.freeze_panes = "A2"
+
+
+FINISH_SURFACES = (("floor", "바닥"), ("wall", "벽"), ("ceiling", "천장"))
+
+
+def _finish_material_rows(buildings):
+    """[(surface, material, quantity, unit)] of the finishes of all buildings added."""
+    total = {"floor": {}, "wall": {}, "ceiling": {}, "waterproof": 0.0, "plaster": 0.0, "base": 0.0}
+    for building in buildings:
+        finishes = (building.get("totals") or {}).get("finishes") or {}
+        for surface, _label in FINISH_SURFACES:
+            for material, value in (finishes.get(surface) or {}).items():
+                total[surface][material] = total[surface].get(material, 0.0) + (value or 0)
+        for key in ("waterproof", "plaster", "base"):
+            total[key] += finishes.get(key) or 0
+    rows = [(label, material, round(value, 1), "㎡") for surface, label in FINISH_SURFACES for material, value in sorted(total[surface].items())]
+    for key, label, material, unit in (("waterproof", "방수", "욕실·발코니 방수", "㎡"), ("plaster", "미장", "조적·ALC 벽 면", "㎡"),
+                                       ("base", "걸레받이", "거실·침실·공용부", "m")):
+        if total[key]:
+            rows.append((label, material, round(total[key], 1), unit))
+    return rows
+
+
+def _write_finish_sheets(wb, arch, navy_fill, header_font, body_font, center, left, thin):
+    """마감 집계(층별): 동·층마다 마감재별 바닥·벽·천장 면적, 걸레받이·방수·미장. 실별 면적: 실마다 면적·둘레·마감."""
+    from openpyxl.styles import Font
+    buildings = arch.get("buildings") or []
+    materials = []
+    for building in buildings:
+        for row in building.get("rows") or []:
+            for surface, _label in FINISH_SURFACES:
+                for material in ((row.get("finishes") or {}).get(surface) or {}):
+                    if (surface, material) not in materials:
+                        materials.append((surface, material))
+    labels = dict(FINISH_SURFACES)
+    ws = wb.create_sheet("마감 집계(층별)")
+    ws.cell(row=1, column=1, value="마감 집계 — 건축 평면의 실(방)과 실 이름으로 정한 마감재 (벽은 반자 높이까지, 창·문 뺌)").font = \
+        Font(name="맑은 고딕", bold=True, size=13)
+    headers = ["층", "반자 높이(m)"] + [f"{labels[s]}: {m}(㎡)" for s, m in materials] + ["걸레받이(m)", "방수(㎡)", "미장(㎡)", "실(개)", "이름 없는 실(㎡)"]
+    row = 3
+    for building in buildings:
+        ws.cell(row=row, column=1, value=f"[{building.get('name')}]").font = Font(name="맑은 고딕", bold=True)
+        row += 1
+        for col, text in enumerate(headers, 1):
+            cell = ws.cell(row=row, column=col, value=text)
+            cell.font, cell.fill, cell.border, cell.alignment = header_font, navy_fill, thin, center
+        for item in building.get("rows") or []:
+            finish = item.get("finishes") or {}
+            if not finish.get("rooms"):
+                continue
+            row += 1
+            values = [item.get("label"), finish.get("height")] + [(finish.get(s) or {}).get(m, 0) for s, m in materials] + \
+                     [finish.get("base") or 0, finish.get("waterproof") or 0, finish.get("plaster") or 0,
+                      len([r for r in finish.get("rooms") or [] if r.get("class")]), (finish.get("unnamed") or {}).get("area") or 0]
+            for col, value in enumerate(values, 1):
+                cell = ws.cell(row=row, column=col, value=value)
+                cell.font, cell.border, cell.alignment = body_font, thin, left if col == 1 else center
+        total = (building.get("totals") or {}).get("finishes") or {}
+        row += 1
+        values = ["합계", None] + [(total.get(s) or {}).get(m, 0) for s, m in materials] + \
+                 [total.get("base") or 0, total.get("waterproof") or 0, total.get("plaster") or 0, total.get("rooms") or 0,
+                  (total.get("unnamed") or {}).get("area") or 0]
+        for col, value in enumerate(values, 1):
+            cell = ws.cell(row=row, column=col, value=value)
+            cell.font, cell.border, cell.alignment = Font(name="맑은 고딕", bold=True), thin, left if col == 1 else center
+        row += 2
+    ws.column_dimensions["A"].width = 12
+    ws = wb.create_sheet("실별 면적")
+    headers = ["동", "층", "실 이름", "구분", "바닥 면적(㎡)", "둘레(m)", "바닥 마감", "벽 마감", "벽 면적(㎡)", "창·문 뺀 면적(㎡)",
+               "천장 마감", "걸레받이(m)", "방수(㎡)", "미장(㎡)"]
+    for col, text in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=text)
+        cell.font, cell.fill, cell.border, cell.alignment = header_font, navy_fill, thin, center
+    from .quantity_arch_finishes import CLASS_LABELS
+    row = 1
+    for building in buildings:
+        for item in building.get("rows") or []:
+            for room in (item.get("finishes") or {}).get("rooms") or []:
+                row += 1
+                values = [building.get("name"), item.get("label"), "·".join(room.get("names") or []) or "(이름 없음)",
+                          CLASS_LABELS.get(room.get("class"), "이름 없는 실"), room.get("area"), room.get("perimeter"),
+                          room.get("floor"), room.get("wall_finish"), room.get("wall"), room.get("openings"), room.get("ceiling"),
+                          room.get("base"), room.get("waterproof"), room.get("plaster")]
+                for col, value in enumerate(values, 1):
+                    cell = ws.cell(row=row, column=col, value=value)
+                    cell.font, cell.border, cell.alignment = body_font, thin, left
+    for letter, width in zip("ABCDEFGHIJKLMN", (10, 10, 16, 14, 11, 9, 10, 10, 11, 14, 11, 10, 9, 9)):
         ws.column_dimensions[letter].width = width
     ws.freeze_panes = "A2"
 
@@ -9060,8 +9162,8 @@ def _build_excel_response(request):
     has_floor_takeoff = isinstance(floor_takeoff, dict) and bool(floor_takeoff.get("buildings"))
     # "AI 없이 CAD로만 진행": no AI reading, so the floor sheets lead and the AI-only sheets are left out
     cad_only = has_floor_takeoff and not any(results.get(k) for k in ("structural", "architectural"))
-    CAD_ONLY_SHEETS = ("요약", "층별 집계(N층 기준)", "층별 철근(N층 기준)", "건축 집계(층별)", "창호 집계", "임의로 정한 것", "검토 사항",
-                       "3D 층 구성")
+    CAD_ONLY_SHEETS = ("요약", "층별 집계(N층 기준)", "층별 철근(N층 기준)", "건축 집계(층별)", "창호 집계", "마감 집계(층별)", "실별 면적",
+                       "임의로 정한 것", "검토 사항", "3D 층 구성")
     floor_arch = results.get("floor_arch")
 
     # 구조 시트
@@ -9094,6 +9196,9 @@ def _build_excel_response(request):
                                  navy_fill, yellow_fill, header_font, body_font, center, left, thin)
     if isinstance(floor_arch, dict) and floor_arch.get("buildings"):
         _write_floor_arch_sheets(wb, floor_arch, navy_fill, header_font, body_font, center, left, thin)
+        if any(room.get("class") for b in floor_arch["buildings"] for r in b.get("rows") or []
+               for room in (r.get("finishes") or {}).get("rooms") or []):
+            _write_finish_sheets(wb, floor_arch, navy_fill, header_font, body_font, center, left, thin)
     if has_floor_takeoff:
         _write_assumed_sheet(wb.create_sheet("임의로 정한 것"), floor_takeoff,
                              floor_rebar if isinstance(floor_rebar, dict) else None, navy_fill, header_font, body_font, left, thin,

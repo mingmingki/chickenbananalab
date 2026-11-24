@@ -103,15 +103,16 @@ def _text(entity):
         return ""
 
 
-def opening_inserts(doc, xrefs, limit=None, is_opening=None, key_of=None, tags=None, layer_kind=None):
+def opening_inserts(doc, xrefs, limit=None, is_opening=None, key_of=None, tags=None, layer_kind=None, names=None):
     """[(name, kind "door"/"window", x, y, width, tag)] of the window and door inserts of a drawing,
     in drawing coordinates (tag: a type code carried by the insert's own attributes, else None).
     ``is_opening(layer, block name)`` says whether an insert is one; ``layer_kind(layer)`` (the
     layer's material category) also finds the ones only their lines show (opening_by_content);
     other blocks and xrefs are walked into (a unit plan block holds its doors). ``key_of(path)``
     finds an xref's document in ``xrefs``. ``tags``, a list, gets the type tags written on the
-    drawing: [(code, x, y)]."""
+    drawing: [(code, x, y)]; ``names``, a list, gets the room names written on it: [(name, x, y)]."""
     from ezdxf.math import Matrix44, Vec3
+    from .quantity_arch_rooms import is_room_name
     from .quantity_arch_schedule import code_key
     out, cache = [], {}
 
@@ -124,14 +125,21 @@ def opening_inserts(doc, xrefs, limit=None, is_opening=None, key_of=None, tags=N
             if inside(point):
                 tags.append((key, float(point.x), float(point.y)))
 
+    def name_at(text, entity, matrix):
+        if names is not None and len(names) < MAX_TAGS and is_room_name(text):
+            point = matrix.transform(Vec3(entity.dxf.insert))
+            if inside(point):
+                names.append((re.sub(r"\s+", "", text), float(point.x), float(point.y)))
+
     def walk(document, entities, matrix, inherit, depth):
         for entity in entities:
             kind_of_entity = entity.dxftype()
             if kind_of_entity in ("TEXT", "MTEXT"):
-                if tags is not None:
+                if tags is not None or names is not None:
                     text = _text(entity)
                     if len(text) <= 24:
                         tag_at(code_key(text), entity, matrix)
+                        name_at(text, entity, matrix)
                 continue
             if len(out) >= MAX_INSERTS or kind_of_entity != "INSERT":
                 continue
@@ -169,8 +177,9 @@ def opening_inserts(doc, xrefs, limit=None, is_opening=None, key_of=None, tags=N
                 own = next((key for key, _a in attrib_keys if key), None)
                 out.append((name, kind, float(origin.x), float(origin.y), float(width), own, bool(has_arc)))
                 continue
-            for key, attrib in attrib_keys:  # a tag block: its attribute is the code
+            for key, attrib in attrib_keys:  # a tag block: its attribute is the code (or a room name)
                 tag_at(key, attrib, matrix)
+                name_at(_text(attrib), attrib, matrix)
             walk(document, block, placed, layer, depth + 1)
 
     walk(doc, doc.modelspace(), Matrix44(), None, 0)
@@ -221,11 +230,12 @@ def _without_copies(placed):
     return kept
 
 
-def measure(paths, box, inserts=(), tags=()):
+def measure(paths, box, inserts=(), tags=(), names=()):
     """Walls by material and the openings of one architectural frame.
 
     paths: quantity_floor_views paths [((category, layer) or category, x0, y0, x1, y1, points)];
-    box: the frame in drawing units (mm); inserts / tags: opening_inserts(...) of the drawing."""
+    box: the frame in drawing units (mm); inserts / tags / names: opening_inserts(...) of the drawing.
+    The rooms the walls enclose come with it (quantity_arch_rooms)."""
     from . import quantity_floor_takeoff as takeoff
     x0, y0, x1, y1 = box
     segments = {kind: [] for kind in WALL_KINDS + ("frame",)}
@@ -290,4 +300,14 @@ def measure(paths, box, inserts=(), tags=()):
     out = []
     for item in sorted(openings.values(), key=lambda i: (i["kind"], i["name"])):
         out.append(dict(item, width=round(item["width"] / item["count"], 3)))
-    return {"walls": walls, "openings": out}
+    result = {"walls": walls, "openings": out}
+    try:  # the rooms never cost the walls and openings their measure
+        from .quantity_arch_rooms import find_rooms
+        local_names = [(text, (nx - x0) / 1000.0, (ny - y0) / 1000.0) for text, nx, ny in names or ()
+                       if x0 <= nx <= x1 and y0 <= ny <= y1]
+        placed_openings = [(tag or block, kind_of(tag) if tag else kind, lx, ly, width / 1000.0)
+                           for (block, kind, lx, ly, width, _own, _arc), tag in zip(placed, types)]
+        result["rooms"] = find_rooms({k: v for k, v in segments.items() if v}, placed_openings, local_names)
+    except Exception as exc:
+        result["rooms_error"] = str(exc)[:200]
+    return result

@@ -6216,7 +6216,7 @@ body.cbl-modal-open {
 </div>
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage.css' %}?v=20261015-cards">
 <link rel="stylesheet" href="{% static 'core/css/quantity_stage_cards.css' %}?v=20261015-cards">
-<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261120-review">
+<link rel="stylesheet" href="{% static 'core/css/quantity_deck.css' %}?v=20261124-finish">
 <script src="{% static 'core/js/quantity_stage.js' %}?v=20261120-back"></script>
 <script src="{% static 'core/js/quantity_deck.js' %}?v=20261120-back"></script>
 <script src="{% static 'core/js/quantity_mass3d.js' %}?v=20261120-review"></script>
@@ -7813,9 +7813,9 @@ body.cbl-modal-open {
       deck.close();  // the card before is done: the summary opens a card of its own
       var steps = flowSteps();
       await qCard({ eyebrow: "0" + steps, label: "Summary", art: false, wide: true, total: steps, index: steps }, "결과를 한눈에 정리했어요.",
-        (flow.arch ? "CAD로 층별 수량·철근과 건축 벽체·창호를 냈어요." : "CAD로 층별 수량과 철근을 냈어요.") +
+        (flow.arch ? "CAD로 층별 수량·철근과 건축 벽체·창호·마감을 냈어요." : "CAD로 층별 수량과 철근을 냈어요.") +
         " AI 비용은 들지 않았어요. 임의로 정한 값은 앞 카드와 엑셀 '임의로 정한 것' 시트에 있어요." +
-        (archPlans().length ? "" : " 건축 평면도 CAD를 함께 올리면 조적·ALC·건식벽 면적과 창·문 개수도 세요."));
+        (archPlans().length ? "" : " 건축 평면도 CAD를 함께 올리면 조적·ALC·건식벽 면적, 창·문 개수, 실별 마감도 내요."));
       deck.append(summary);
     } else {
       await addBot("CAD로 층별 수량과 철근을 정리했어요. AI 비용은 들지 않았어요.", 150);
@@ -10209,6 +10209,12 @@ body.cbl-modal-open {
     var assumed = ((takeoff && takeoff.assumed) || []).concat((rebar && rebar.assumed) || [], (arch && arch.assumed) || []);
     var waiting = assumed.filter(function (a) { return a.left_out > 0; }).length;
     var archTotals = arch ? archTotal(arch) : null;
+    var archFinish = arch ? (arch.buildings || []).reduce(function (acc, b) {
+      var f = (b.totals || {}).finishes || {};
+      ["floor", "wall", "ceiling"].forEach(function (s) { Object.keys(f[s] || {}).forEach(function (m) { acc[s] += Number(f[s][m]) || 0; }); });
+      acc.waterproof += Number(f.waterproof) || 0;
+      return acc;
+    }, { floor: 0, wall: 0, ceiling: 0, waterproof: 0 }) : null;
     var box = document.createElement("section");
     box.className = "qd-summary";
     box.setAttribute("data-qd-keep", "");
@@ -10222,6 +10228,8 @@ body.cbl-modal-open {
         (archTotals ? '<div class="qd-summary-tile"><span>건축 벽</span><b>' + summaryNumber(archWallArea(arch)) + '<em>㎡</em></b>' +
           '<small>' + ARCH_WALLS.filter(function (k) { return archTotals[k[0]]; }).map(function (k) { return k[1] + ' ' + summaryNumber(archTotals[k[0]]); }).join(' · ') +
           ' · 문 ' + summaryNumber(archTotals.doors) + ' · 창 ' + summaryNumber(archTotals.windows) + '개 (창호 ' + summaryNumber(archTotals.door_area + archTotals.window_area) + '㎡)</small></div>' : '') +
+        (archFinish && archFinish.floor ? '<div class="qd-summary-tile"><span>마감 (바닥)</span><b>' + summaryNumber(archFinish.floor) + '<em>㎡</em></b>' +
+          '<small>벽 ' + summaryNumber(archFinish.wall) + '㎡ · 천장 ' + summaryNumber(archFinish.ceiling) + '㎡ · 방수 ' + summaryNumber(archFinish.waterproof) + '㎡</small></div>' : '') +
         '<button type="button" class="qd-summary-tile' + (waiting ? ' is-attention' : '') + '" data-show-assumed><span>임의로 정한 것</span><b>' + assumed.length + '<em>개</em></b>' +
           '<small>' + (waiting ? '확인하면 합계에 들어가는 것 ' + waiting + '개' : '모두 합계에 들어 있어요') + ' · 눌러서 보기·고치기</small></button>' +
       '</div>' +
@@ -10589,6 +10597,39 @@ body.cbl-modal-open {
       }).join("") + '</tbody></table>';
   }
 
+  // finishes of a building: each finish material's total, then storey by storey
+  function archFinishTable(building) {
+    var total = (building.totals || {}).finishes || {};
+    var rows = [];
+    [["floor", "바닥"], ["wall", "벽"], ["ceiling", "천장"]].forEach(function (s) {
+      Object.keys(total[s[0]] || {}).sort().forEach(function (m) { rows.push([s[1], m, total[s[0]][m], "㎡"]); });
+    });
+    if (total.waterproof) rows.push(["방수", "욕실·발코니 방수", total.waterproof, "㎡"]);
+    if (total.plaster) rows.push(["미장", "조적·ALC 벽 면", total.plaster, "㎡"]);
+    if (total.base) rows.push(["걸레받이", "거실·침실·공용부", total.base, "m"]);
+    var unnamed = total.unnamed || {};
+    if (!rows.length) {
+      return '<b class="qd-arch-head">마감</b><p class="qd-sub" style="margin:0 12px 10px">' + (unnamed.count
+        ? '벽으로 둘러싸인 실 ' + unnamed.count + '개(' + archArea(unnamed.area) + '㎡)를 찾았지만 실 이름(거실·욕실 …)이 안에 없어 마감재를 정하지 못했어요.'
+        : '건축 평면에서 벽으로 둘러싸인 실(방)을 찾지 못해 마감은 아직 못 냈어요.') +
+        ' 실 이름이 적힌 각 층 평면도면 실마다 바닥·벽·천장 마감을 내요.</p>';
+    }
+    var storeys = (building.rows || []).filter(function (r) { return r.finishes && (r.finishes.rooms || []).length; });
+    function sum(o) { return Object.keys(o || {}).reduce(function (a, k) { return a + (Number(o[k]) || 0); }, 0); }
+    return '<b class="qd-arch-head">마감 — 실 ' + (total.rooms || 0) + '개' + (unnamed.count ? ' · 이름 없는 실 ' + unnamed.count + '개(' + archArea(unnamed.area) + '㎡)는 뺐어요' : '') + '</b>' +
+      '<table><thead><tr><th>구분</th><th>마감재</th><th>수량</th></tr></thead><tbody>' +
+      rows.map(function (r) { return '<tr><td>' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td><td class="qd-strong">' + archArea(r[2]) + ' ' + r[3] + '</td></tr>'; }).join("") +
+      '</tbody></table>' +
+      '<details class="qd-arch-storeys"><summary>층별로 보기</summary><table><thead><tr><th>층</th><th>바닥 ㎡</th><th>벽 ㎡</th><th>천장 ㎡</th><th>방수 ㎡</th><th>미장 ㎡</th><th>걸레받이 m</th><th>실</th></tr></thead><tbody>' +
+      storeys.map(function (r) {
+        var f = r.finishes;
+        var title = (f.rooms || []).filter(function (x) { return x.class; }).map(function (x) { return (x.names || []).join("·") + " " + archArea(x.area) + "㎡"; }).join(" / ");
+        return '<tr title="' + esc(title) + '"><td>' + esc(r.label) + '</td><td>' + archArea(sum(f.floor)) + '</td><td>' + archArea(sum(f.wall)) + '</td><td>' +
+          archArea(sum(f.ceiling)) + '</td><td>' + archArea(f.waterproof) + '</td><td>' + archArea(f.plaster) + '</td><td>' + archArea(f.base) + '</td><td>' +
+          (f.rooms || []).filter(function (x) { return x.class; }).length + '</td></tr>';
+      }).join("") + '</tbody></table></details>';
+  }
+
   // the plans against the window and door schedule: what it gave, and the counts that differ
   function archScheduleBox(arch) {
     var check = arch.schedule || {};
@@ -10624,7 +10665,7 @@ body.cbl-modal-open {
     var job = state.floorJob;
     if (!job || !job.id || !archPlans().length) return null;
     await qCard({ eyebrow: "06", label: "Architecture", art: false, wide: true, total: 7, index: 6 },
-      "건축 벽체와 창호를 셌어요.",
+      "건축 벽체·창호·마감을 냈어요.",
       "건축 평면의 조적·ALC·건식벽 선 길이에 벽 높이(층고 − 슬래브)를 곱하고 문 위·창 위아래 벽을 더했어요. 창·문은 블록 종류별로 셌어요. 콘크리트 벽은 구조 수량에 들어 있어요.");
     var body;
     try {
@@ -10647,6 +10688,9 @@ body.cbl-modal-open {
     var types = document.createElement("div");
     types.className = "qd-mass-table qd-arch-types";
     types.setAttribute("data-qd-keep", "");
+    var finish = document.createElement("div");
+    finish.className = "qd-mass-table qd-arch-types qd-arch-finish";
+    finish.setAttribute("data-qd-keep", "");
     function render() {
       bar.innerHTML = '<div class="qd-mass-chips">' + buildings.map(function (b) {
         return '<button type="button" data-b="' + esc(b.name) + '"' + (b.name === pick.name ? ' class="is-on"' : '') + '>' + esc(b.name) + '</button>';
@@ -10654,6 +10698,9 @@ body.cbl-modal-open {
       var building = buildings.filter(function (b) { return b.name === pick.name; })[0] || buildings[0];
       table.innerHTML = archTable(building);
       types.innerHTML = '<b class="qd-arch-head">창·문 종류</b>' + archOpeningTable(building);
+      var open = finish.querySelector(".qd-arch-storeys[open]");
+      finish.innerHTML = archFinishTable(building);
+      if (open && finish.querySelector(".qd-arch-storeys")) finish.querySelector(".qd-arch-storeys").open = true;
     }
     bar.addEventListener("click", function (e) {
       var chip = e.target.closest("[data-b]");
@@ -10674,12 +10721,13 @@ body.cbl-modal-open {
       checkBox = nextCheck;
       var nextAssumed = assumedBox(arch.assumed, "건축 벽을");
       if (archAssumed) { if (nextAssumed) archAssumed.replaceWith(nextAssumed); else archAssumed.remove(); }
-      else if (nextAssumed) checkBox.parentNode.insertBefore(nextAssumed, checkBox.nextSibling);
+      else if (nextAssumed) finish.parentNode.insertBefore(nextAssumed, finish.nextSibling);
       archAssumed = nextAssumed;
     } };
-    [bar, table, types, checkBox].concat(archAssumed ? [archAssumed] : []).forEach(function (el) { if (deck) deck.append(el); else flowEl.appendChild(el); });
+    [bar, table, types, checkBox, finish].concat(archAssumed ? [archAssumed] : []).forEach(function (el) { if (deck) deck.append(el); else flowEl.appendChild(el); });
     appendLeft('<p class="qd-sub" style="margin:0">' + ((arch.not_included || []).length ? '아직 빠진 항목: ' + esc(arch.not_included.join(", ")) + '. ' : '') +
-      '행에 마우스를 올리면 도면·벽 길이·두께가, 창호 종류에 올리면 크기를 어디서 가져왔는지 보여요. 엑셀에는 "건축 집계(층별)"·"창호 집계" 시트로 담겨요.</p>');
+      '행에 마우스를 올리면 도면·벽 길이·두께가, 창호 종류에 올리면 크기를 어디서 가져왔는지, 층별 마감에 올리면 실 목록이 보여요. ' +
+      '엑셀에는 "건축 집계(층별)"·"창호 집계"·"마감 집계(층별)"·"실별 면적" 시트로 담겨요.</p>');
     return arch;
   }
 

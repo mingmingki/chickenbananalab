@@ -703,16 +703,16 @@ def _plan_views(name, doc, rows, xrefs, roles=None, left_out_for=None):
             row["frame_estimated"] = True  # the drawn extent, not a drawn frame: lines may run past it
     # architectural frames also get their measures: walls by material, windows and doors
     arch_rows = [row for row in plans if floor_of(row["drawing_title"])["discipline"] != "struct"]
-    inserts = []
+    inserts, tags, names = [], [], []
     if arch_rows:
         try:
             from . import quantity_arch
-            tags = []  # the type tags (AW1, SD-2 ...) written beside the windows and doors
+            tags, names = [], []  # the type tags (AW1, SD-2 ...) beside the windows and doors; the room names
             inserts = quantity_arch.opening_inserts(doc, xrefs, _frames_limit(arch_rows), _is_opening_insert,
                                                     lambda path: _key(re.split(r"[\\/]", path)[-1]), tags=tags,
-                                                    layer_kind=layer_category)
+                                                    layer_kind=layer_category, names=names)
         except Exception:
-            inserts, tags = [], []
+            inserts, tags, names = [], [], []
     views = []
     for row in plans:
         structural = floor_of(row["drawing_title"])["discipline"] == "struct"
@@ -729,7 +729,7 @@ def _plan_views(name, doc, rows, xrefs, roles=None, left_out_for=None):
         if not structural:
             try:
                 from . import quantity_arch
-                view["arch"] = quantity_arch.measure(paths, row["frame_bbox"], inserts, tags)
+                view["arch"] = quantity_arch.measure(paths, row["frame_bbox"], inserts, tags, names)
             except Exception as exc:  # the pictures never depend on the measures
                 view["arch"] = {"error": str(exc)[:200]}
         views.append(view)
