@@ -3,6 +3,7 @@ import { state, fmtDate } from './state.js';
 import { api, auth, Live, loadSessions, saveSession, forgetSession, SERVER, NATIVE } from './net.js';
 import { World3D } from './scene/scene.js';
 import { hydrateIcons } from './ui/icons.js';
+import { autoDecorate } from './ui/decorate.js';
 import { Creator } from './ui/creator.js';
 import { Hud } from './ui/hud.js';
 import { AskPanel } from './ui/asks.js';
@@ -67,6 +68,7 @@ function checkVersion(v) {
 
 async function boot() {
   hydrateIcons(document);
+  autoDecorate(document.body);   // 이모지 → 선 아이콘 (ui/decorate.js)
   $('#loading').classList.remove('hidden');
   // 앱처럼: 서비스 워커(빠른 재방문, 휴대폰 알림)
   if ('serviceWorker' in navigator && !NATIVE) navigator.serviceWorker.register('/sw.js').catch(() => {});

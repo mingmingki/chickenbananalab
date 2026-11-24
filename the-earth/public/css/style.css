@@ -902,3 +902,22 @@ input::placeholder { color: var(--ink-2); opacity: .8; }
 .life { position: relative; }
 .share-mini { margin-left: auto; align-self: center; border: 0; background: none; font-size: 15px; cursor: pointer; opacity: .55; padding: 2px 4px; }
 .share-mini:hover { opacity: 1; }
+
+/* 글리프: 이모지 대신 쓰는 선 아이콘 (ui/decorate.js) */
+svg.gl { width: 1.12em; height: 1.12em; vertical-align: -0.2em; fill: none; stroke: currentColor; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; flex: none; display: inline-block; }
+svg.gl.t-red { color: #e5484d; } svg.gl.t-pink { color: #e5508a; } svg.gl.t-amber { color: #e8930c; } svg.gl.t-green { color: #2f9e62; }
+svg.gl.t-blue { color: #2f80ed; } svg.gl.t-violet { color: #8e4ec6; } svg.gl.t-muted { color: currentColor; opacity: .55; }
+:root:not([data-theme=light]):not([data-theme=auto]) svg.gl.t-red { color: #ff6b6f; }
+:root:not([data-theme=light]):not([data-theme=auto]) svg.gl.t-pink { color: #ff7aa8; }
+:root:not([data-theme=light]):not([data-theme=auto]) svg.gl.t-amber { color: #ffb83f; }
+:root:not([data-theme=light]):not([data-theme=auto]) svg.gl.t-green { color: #4cd18a; }
+:root:not([data-theme=light]):not([data-theme=auto]) svg.gl.t-blue { color: #6aa8ff; }
+:root:not([data-theme=light]):not([data-theme=auto]) svg.gl.t-violet { color: #b98cf0; }
+/* 노란 띠·밝은 칸 위에서는 아이콘을 진하게 */
+.topbar .clock svg.gl, .ap-head svg.gl, .update-bar svg.gl, .btn.primary svg.gl, .chip.on svg.gl { color: var(--k) !important; opacity: 1; }
+/* 3D 이름표 · 말풍선의 아이콘 */
+.lbl.ann .e svg.gl { width: 13px; height: 13px; vertical-align: -2px; }
+.lbl.bubble svg.gl { width: 14px; height: 14px; }
+/* 연대기·소식의 앞 아이콘 칸 */
+.life > span svg.gl, .feed-item svg.gl { width: 16px; height: 16px; }
+.now .what .em svg.gl { width: 22px; height: 22px; vertical-align: -4px; }

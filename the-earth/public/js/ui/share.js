@@ -2,6 +2,7 @@
 // 휴대폰에서는 공유 창(카카오톡·문자·인스타)으로 바로 보내고, 안 되면 그림 저장 + 링크 복사.
 // 링크를 누른 사람은 그 앤을 바로 들여다본다 (/?w=서버&a=앤).
 import { avatarURL } from './avatar.js';
+import { glyphOf, glyphSVG } from './decorate.js';
 
 const W = 1080, H = 1350;
 const C = { paper: '#fff6e0', ink: '#1b1a17', k: '#1b1a17', y: '#ffd23f', soft: '#6b6458', line: '#e9dcc0' };
@@ -59,8 +60,14 @@ export async function drawCard(o) {
   g.beginPath(); g.arc(fx + 115, fy + 115, 115, 0, Math.PI * 2); g.lineWidth = 10; g.strokeStyle = C.k; g.stroke();
   // 큰 제목
   let y = 390;
-  g.fillStyle = C.ink; g.font = `112px ${BODY}`;
-  if (o.icon) { g.fillText(o.icon, 92, y - 6); }
+  // 제목 앞 아이콘: 이모지 대신 선 아이콘을 노란 동그라미 안에
+  if (o.icon) {
+    const gl = glyphOf(o.icon);
+    const ic = await img('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(glyphSVG(gl ? gl[0] : 'globe', C.ink, 84, 2.2)));
+    g.fillStyle = C.y; g.beginPath(); g.arc(152, y + 58, 60, 0, Math.PI * 2); g.fill(); g.lineWidth = 7; g.strokeStyle = C.k; g.stroke();
+    if (ic) g.drawImage(ic, 152 - 42, y + 58 - 42, 84, 84);
+  }
+  g.fillStyle = C.ink;
   g.font = `76px ${TITLE}`;
   for (const l of wrap(g, o.title, W - 200 - (o.icon ? 0 : 0)).slice(0, 3)) { g.fillText(l, o.icon ? 230 : 96, y + 14); y += 92; }
   y = Math.max(y + 10, 560);
