@@ -54,6 +54,50 @@ def _sized(opening, types, door_h, window_h):
                 area=round(width * height * opening["count"], 2))
 
 
+def _chosen_views(views):
+    """{(building, storey key): the architectural plan of that storey} (of two sheets for one floor,
+    the one drawing more walls); unit plans and plans that failed to measure are left out."""
+    chosen = {}
+    for view in views or []:
+        arch = view.get("arch") or {}
+        if view.get("discipline") != "arch" or not arch or arch.get("error") or view.get("group") in ("unit", "other"):
+            continue
+        for key in fv._storey_keys(view):
+            spot = (view.get("building"), key)
+            if spot not in chosen or _wall_length(view) > _wall_length(chosen[spot]):
+                chosen[spot] = view
+    return chosen
+
+
+def outer_opening_heights(views, schedule):
+    """{(building, storey key): metres}: the height of the windows and doors set in the concrete
+    outer walls of each storey, from the window and door schedule (weighted by width), for the
+    structural takeoff's wall above and below the outer openings; (building, None) is the
+    building's own, for its storeys without an architectural plan. Types the schedule does not
+    give a height leave no value (the takeoff keeps its assumed one)."""
+    types = (schedule or {}).get("types") or {}
+    if not types:
+        return {}
+    out, whole = {}, {}
+    for (name, key), view in _chosen_views(views).items():
+        width_sum = weighted = 0.0
+        for opening in (view.get("arch") or {}).get("openings") or []:
+            listed = types.get(opening.get("name")) or {}
+            count = (opening.get("on") or {}).get("frame") or 0
+            if listed.get("height") and count:
+                width = (listed.get("width") or opening.get("width") or 0) * count
+                width_sum += width
+                weighted += width * listed["height"]
+        if width_sum:
+            out[(name, key)] = round(weighted / width_sum, 3)
+            total = whole.setdefault(name, [0.0, 0.0])
+            total[0] += width_sum
+            total[1] += weighted
+    for name, (width_sum, weighted) in whole.items():
+        out[(name, None)] = round(weighted / width_sum, 3)
+    return out
+
+
 def build(views, model=None, overrides=None, learned=None, schedule=None):
     """{"buildings": [{"name", "rows": [per storey], "totals", "openings": [by type]}], "assumed",
     "schedule": the check against the window and door schedule, ...}."""
@@ -65,15 +109,7 @@ def build(views, model=None, overrides=None, learned=None, schedule=None):
     slab = slab_mm / 1000.0
     levels = {(b.get("name"), l.get("key")): l for b in (model or {}).get("buildings") or [] for l in b.get("levels") or []}
     heights_drawn = bool((model or {}).get("heights_from_drawings"))
-    chosen = {}
-    for view in views or []:
-        arch = view.get("arch") or {}
-        if view.get("discipline") != "arch" or not arch or arch.get("error") or view.get("group") in ("unit", "other"):
-            continue
-        for key in fv._storey_keys(view):
-            spot = (view.get("building"), key)
-            if spot not in chosen or _wall_length(view) > _wall_length(chosen[spot]):
-                chosen[spot] = view  # of two sheets for one floor, the one drawing more walls
+    chosen = _chosen_views(views)
     assumed = Assumed()
     buildings, default_heights = {}, []
     for (name, key), view in sorted(chosen.items(), key=lambda item: (item[0][0] or "", fv._level_order(item[0][1]))):

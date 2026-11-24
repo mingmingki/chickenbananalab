@@ -307,6 +307,16 @@ class OpeningScheduleTests(SimpleTestCase):
         self.assertEqual(sorted(check["differ"]), ["AW2", "WD1"])  # 5 in the plans against 12 and 20 (SD1: 5 and 5)
         self.assertEqual(check["not_listed"], [])
 
+    def test_the_outer_openings_height_for_the_structural_takeoff(self):
+        from core import quantity_arch_schedule as sch
+        from core import quantity_arch_takeoff as at
+        schedule = sch.read_opening_schedule(SCHEDULE_GRID, "A-601")
+        heights = at.outer_opening_heights(tagged_views(), schedule)
+        # the windows in the concrete outer walls are AW1 (1.5 m high); the inside AW2 and the doors are not outer
+        self.assertEqual(heights[("101동", "3")], 1.5)
+        self.assertEqual(heights[("101동", None)], 1.5)
+        self.assertEqual(at.outer_opening_heights(tagged_views(), None), {})
+
     def test_without_a_schedule_the_heights_are_assumed_and_said(self):
         from core import quantity_arch_takeoff as at
         result = at.build(tagged_views(), ArchTakeoffTests().model())
@@ -341,6 +351,7 @@ class OpeningScheduleJobTests(TestCase):
         qv._quantity_state().put("floor_openings", "fv-1", schedule, ttl=3600)
         arch = self.client.post("/api/quantity/floor-arch/", json.dumps({"floor_job_id": "fv-1"}), content_type="application/json").json()["arch"]
         self.assertTrue(arch["schedule"]["read"])
+        self.assertEqual(qv._opening_heights("fv-1", qv._result_get("fv-1"))[("101동", "2")], 1.5)  # for the structural takeoff
         self.assertEqual({t["name"]: t["width_from"] for t in arch["buildings"][0]["openings"]}["AW1"], "schedule")
 
 

@@ -1901,6 +1901,20 @@ def _floor_openings(floor_job):
     return _quantity_state().get("floor_openings", floor_job) or None
 
 
+def _opening_heights(floor_job, result):
+    """The outer openings' heights per storey from the window and door schedule (empty without one)."""
+    from . import quantity_arch_takeoff
+    schedule = _floor_openings(floor_job)
+    if not schedule:
+        return {}
+    views = (((result or {}).get("results") or {}).get("floor_views") or {}).get("views") or []
+    try:
+        return quantity_arch_takeoff.outer_opening_heights(views, schedule)
+    except Exception:
+        logger.exception("quantity_opening_heights_failed job=%s", floor_job[:16])
+        return {}
+
+
 def _floor_links(floor_job):
     """The CAD schedule links read with a floor job (None when there were no structural files)."""
     return (_quantity_state().get("floor_links", floor_job) or {}).get("links")
@@ -2151,7 +2165,8 @@ def api_quantity_floor_rebar(request):
     try:
         learned, overrides = _learned_values(floor_job), _floor_overrides(floor_job, body)
         takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations,
-                                                       learned=learned, overrides=overrides)
+                                                       learned=learned, overrides=overrides,
+                                                       opening_heights=_opening_heights(floor_job, result))
         extras = body.get("extras") if isinstance(body.get("extras"), dict) else None
         rebar = quantity_floor_rebar.build_rebar(model, links, takeoff, general_spec=spec, edits=edits, extras=extras,
                                                  overrides=overrides, learned=learned)
@@ -2486,7 +2501,8 @@ def quantity_floor_review(request, floor_job):
     foundations, overrides, learned = _floor_foundations(floor_job), _floor_overrides(floor_job), _learned_values(floor_job)
     try:
         takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations,
-                                                       learned=learned, overrides=overrides)
+                                                       learned=learned, overrides=overrides,
+                                                       opening_heights=_opening_heights(floor_job, result))
         rebar = quantity_floor_rebar.build_rebar(model, links, takeoff, general_spec=None, edits=edits, extras=None,
                                                  overrides=overrides, learned=learned)
         arch = quantity_arch_takeoff.build(floor_views.get("views") or [], model, overrides=overrides, learned=learned,
@@ -2536,7 +2552,8 @@ def api_quantity_floor_takeoff(request):
     foundations = _floor_foundations(floor_job, body)
     try:
         takeoff = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations,
-                                                       learned=_learned_values(floor_job), overrides=_floor_overrides(floor_job, body))
+                                                       learned=_learned_values(floor_job), overrides=_floor_overrides(floor_job, body),
+                                                       opening_heights=_opening_heights(floor_job, result))
         from . import quantity_brain
         takeoff["review_notes"] = quantity_brain.review_notes("takeoff")
     except Exception:

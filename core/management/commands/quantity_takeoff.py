@@ -173,8 +173,9 @@ def compute(read, overrides=None, foundations=None, feedback=None):
     overrides = dict(feedback.get("overrides") or {}, **(overrides or {}))       # the command line wins
     foundations = dict(feedback.get("foundations") or {}, **(foundations or {}))
     edits = feedback.get("edits") or []
+    heights = quantity_arch_takeoff.outer_opening_heights(floor_views.get("views") or [], openings) if openings else {}
     floor = quantity_floor_takeoff.build_takeoff(model, links, edits=edits, foundations=foundations, learned={},
-                                                 overrides=overrides)
+                                                 overrides=overrides, opening_heights=heights)
     rebar = quantity_floor_rebar.build_rebar(model, links, floor, general_spec=None, edits=edits, extras=None,
                                              overrides=overrides, learned={})
     arch = quantity_arch_takeoff.build(floor_views.get("views") or [], model, overrides=overrides, learned={},

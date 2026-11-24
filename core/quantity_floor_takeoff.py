@@ -1146,11 +1146,16 @@ def _assumed_items(assumed, overrides):
     return assumed.items()
 
 
-def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, foundations=None, learned=None, overrides=None):
+def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, foundations=None, learned=None, overrides=None,
+                  opening_heights=None):
     """Rows per building and storey: walls/columns of the storey + slab/beams on top of it.
     ``edits``: people's fixes (quantity_edits.clean), added to the storeys using their plans.
     ``overrides``: values a person set in place of an assumption (quantity_assumed.EDITABLE);
-    ``learned``: other jobs' values ({"override:slab_thickness": mm, "foundation:tower": m, ...})."""
+    ``learned``: other jobs' values ({"override:slab_thickness": mm, "foundation:tower": m, ...});
+    ``opening_heights``: {(building, storey key or None): m} the height of the outer openings from
+    the window and door schedule (quantity_arch_takeoff.outer_opening_heights), used where a
+    person has not set one, instead of the assumed height."""
+    opening_heights = opening_heights or {}
     overrides = clean_overrides(overrides)
     slab_mm, slab_from = pick("slab_thickness", overrides, learned, slab_thickness * 1000)
     beam_mm, beam_from = pick("beam_depth", overrides, learned, BEAM_DEPTH_DEFAULT * 1000)
@@ -1242,14 +1247,20 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                         "slab": 0.0, "stair": 0.0}
             form = dict.fromkeys(FORM_KEYS, 0.0)
             if gaps and kind != "basement":
-                # the wall left above and below the openings in the outer walls
-                left = max(wall_h - window_m, 0.0)
+                # the wall left above and below the openings in the outer walls: their height from the
+                # window and door schedule where the architectural plan shows them, else assumed
+                listed = None if window_from == "person" else (
+                    opening_heights.get((building.get("name"), level.get("key"))) or opening_heights.get((building.get("name"), None)))
+                height_m = listed or window_m
+                left = max(wall_h - height_m, 0.0)
                 concrete["wall"] += gap_area * left
                 form["gang"] += gaps * left
                 form["euro" if kind == "roof" else "al_vertical"] += gaps * left
-                notes.append(f"창·발코니 개구부 {gaps:.0f}m 위·아래 벽 포함 (개구부 높이 {window_m:g}m" + ("" if window_from == "person" else " 가정") + ")")
-                used.append(("window_height", "외벽 개구부 높이", said(f"{window_m:g}m", window_from) + " — 위·아래는 벽", gap_area * left, "",
-                             window_m, window_from == "person"))
+                notes.append(f"창·발코니 개구부 {gaps:.0f}m 위·아래 벽 포함 (개구부 높이 {height_m:g}m" +
+                             (" 창호일람표" if listed else ("" if window_from == "person" else " 가정")) + ")")
+                if not listed:
+                    used.append(("window_height", "외벽 개구부 높이", said(f"{window_m:g}m", window_from) + " — 위·아래는 벽", gap_area * left, "",
+                                 window_m, window_from == "person"))
             stair_area = sum(measure.get("stairs") or [])
             if stair_area and kind != "basement":
                 concrete["stair"] = stair_area * STAIR_CONCRETE_PER_M2
