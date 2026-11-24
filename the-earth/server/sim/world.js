@@ -682,15 +682,20 @@ export class World {
       const born = [];
       for (const raw of specs.slice(0, room)) {
         // 가정이 모자라면 이미 고른 가정에 형제·쌍둥이로
-        const fam = this.pickFamily(c.code, born.map(b => b.fam), player.id) || this.pickFamily(c.code, [], player.id);
+        const spec = sanitizeSpec(raw);
+        // 열일곱 살로 시작하면 부모가 서른넷은 넘은 집에서 자란 것으로
+        const youth = spec.start === 'youth';
+        const fam = (youth && (this.pickFamily(c.code, [], player.id, 34) || this.pickFamily(c.code, [], player.id, 31))) || this.pickFamily(c.code, born.map(b => b.fam), player.id) || this.pickFamily(c.code, [], player.id);
         if (!fam) break;
-        const baby = this.bornIntoFamily(player, sanitizeSpec(raw), fam);
+        const older = Math.min(ageOf(fam.a, this.clock), ageOf(fam.b, this.clock));
+        const baby = this.bornIntoFamily(player, spec, fam, youth && older >= 31 ? Math.min(17, older - 15) : 0);
         player.main = baby.id;
         born.push({ baby, fam });
       }
       if (born.length) {
         award(this, player, 'first_deploy');
-        this.news('player', `👶 ${player.name}의 앤 ${born.length}명이 ${c.name}의 가정에서 태어났다`, { country: c.code, anns: born.map(b => b.baby.id) }, 2);
+        const grown = ageOf(born[0].baby, this.clock) >= 10;
+        if (!grown) this.news('player', `👶 ${player.name}의 앤 ${born.length}명이 ${c.name}의 가정에서 태어났다`, { country: c.code, anns: born.map(b => b.baby.id) }, 2);
         this.rebuildResidents();
         return born.map(b => b.baby);
       }
@@ -722,7 +727,7 @@ export class World {
   }
 
   /** 아기를 맞을 수 있는 가정 (부부·연인, 같은 마을) */
-  pickFamily(code, exclude = [], prefer = null) {
+  pickFamily(code, exclude = [], prefer = null, minParentAge = 0) {
     const now = this.clock;
     const fams = [];
     for (const a of this.anns.values()) {
@@ -732,7 +737,7 @@ export class World {
       const b = this.anns.get(pid);
       if (!b || !b.alive || b.sid !== a.sid || b.travel) continue;
       const ages = [ageOf(a, now), ageOf(b, now)];
-      if (Math.min(...ages) < 18 || Math.max(...ages) > 58) continue;
+      if (Math.min(...ages) < Math.max(18, minParentAge) || Math.max(...ages) > (minParentAge ? 64 : 58)) continue;
       if (exclude.some(f => f.a === a)) continue;
       const mother = a.gender === 'F' ? a : b.gender === 'F' ? b : null;
       const father = a.gender === 'M' ? a : b.gender === 'M' ? b : null;
@@ -749,8 +754,9 @@ export class World {
     return fams[fams.length - 1];
   }
 
-  bornIntoFamily(player, spec, fam) {
-    const { a, b, mother, father, bio } = fam;
+  bornIntoFamily(player, spec, fam, startAge = 0) {
+    const { a, b, mother, father } = fam;
+    const bio = fam.bio || startAge > 0;
     const m = mother || a, f = father || b;
     const gender = spec.gender;
     const name = familyName(m.culture, gender, (father || a).name, givenOf(spec.name, m.culture));
@@ -765,7 +771,8 @@ export class World {
     this.anns.set(baby.id, baby);
     player.anns.push(baby.id);
     a.kids.push(baby.id); b.kids.push(baby.id);
-    if (bio) { mother.lastBirth = Math.round(this.clock); }
+    if (bio && !startAge) { mother.lastBirth = Math.round(this.clock); }
+    if (startAge) return this.grownUp(player, baby, fam, startAge);
     const home = a.home && this.buildings.get(a.home) || b.home && this.buildings.get(b.home);
     if (home) this.moveHome(baby, home);
     const s = this.settlements.get(a.sid);
@@ -791,6 +798,70 @@ export class World {
     this.news('family', `👶 ${parentsTxt}의 가정에 ${gender === 'M' ? '아들' : '딸'} ${ga(name)} ${bio ? '태어났다' : '찾아왔다'} (${this.players[player.id]?.name}의 앤)`, { anns: [baby.id, a.id, b.id], country: c.code }, 2);
     this.dirtyAnnMeta.add(baby.id); this.dirtyAnnMeta.add(a.id); this.dirtyAnnMeta.add(b.id);
     return baby;
+  }
+
+  /**
+   * 열일곱 살로 시작: 이 집에서 자란 지난 세월을 채운다 — 어린 시절 기록, 동네 친구, 배운 노래·놀이, 몸에 밴 솜씨.
+   * 그리고 바로 첫 갈림길을 묻는다: 어떤 사람으로 살까.
+   */
+  grownUp(player, me, fam, age) {
+    const { a, b } = fam;
+    const now = this.clock;
+    const s = this.settlements.get(a.sid), c = this.countries[a.country];
+    me.born = Math.round(now - age * YEAR - rand() * YEAR * 0.6);
+    const home = a.home && this.buildings.get(a.home) || b.home && this.buildings.get(b.home);
+    if (home) this.moveHome(me, home);
+    me.x = a.x + 1; me.z = a.z + 1;
+    // 몸에 밴 솜씨: 그 시대 아이들이 자라며 배우는 것
+    const up = (k, v) => { if (me.sk[k] != null) me.sk[k] = clamp(me.sk[k] + v); };
+    up('farming', 10 + rand() * 18); up('athletics', 8 + me.ab.ath * 0.2); up('crafting', 5 + me.ab.cre * 0.12); up('cooking', 4 + rand() * 10);
+    up('art', me.ab.cre * 0.15); up('leadership', me.ab.cha * 0.08);
+    me.edu = c.era >= 2 ? 25 + rand() * 25 : 5 + rand() * 10;
+    me.money = wageBase(c.era) * (2 + rand() * 3);
+    me.health = clamp(75 + me.ab.hea * 0.25);
+    const parentsTxt = `${wa(a.name)} ${b.name}`, child = me.gender === 'M' ? '아들' : '딸';
+    for (const p of [a, b]) {
+      const r = rel(p, me); r.a = 75 + rand() * 15; r.f = 85; r.t = 80; r.k = 'child'; r.n = 400;
+      const rb = rel(me, p); rb.a = 55 + rand() * 30; rb.f = 85; rb.t = 75; rb.k = 'parent'; rb.n = 400;
+    }
+    for (const sibId of [...new Set([...a.kids, ...b.kids])]) {
+      const sib = sibId !== me.id && this.anns.get(sibId);
+      if (sib && sib.alive) { const r = rel(sib, me); r.a = 45 + rand() * 30; r.f = 70; r.k = 'sibling'; const rb = rel(me, sib); rb.a = 45 + rand() * 30; rb.f = 70; rb.k = 'sibling'; }
+    }
+    // 동네 친구 두셋
+    const peers = this.residents(a.sid).filter(x => x.id !== me.id && !x.owner && !a.kids.includes(x.id) && Math.abs(ageOf(x, now) - age) <= 4).sort(() => rand() - 0.5).slice(0, 2 + Math.floor(rand() * 2));
+    for (const f of peers) {
+      for (const [x, y] of [[me, f], [f, me]]) { const r = rel(x, y); r.f = 55 + rand() * 25; r.a = 40 + rand() * 30; r.t = 50 + rand() * 20; r.n = 120; }
+      updateKind(this, me, f); updateKind(this, f, me);
+    }
+    // 어릴 때 배운 마을의 노래·이야기·놀이
+    const known = new Map();
+    for (const x of this.residents(a.sid)) for (const id of x.cre || []) known.set(id, (known.get(id) || 0) + 1);
+    me.cre = [...known.entries()].sort((p, q) => q[1] - p[1]).slice(0, 3).map(([id]) => id);
+    for (const id of me.cre) { const cr = this.creations.get(id); if (cr) cr.n++; }
+    // 어린 시절 연대기 (지난날로)
+    const at = y => Math.round(me.born + y * YEAR);
+    const L = (y, text, icon) => me.life.push({ t: at(y), text: fixJosa(text), icon });
+    me.life = [];
+    L(0, `${c.name} ${s.name}, ${parentsTxt}의 ${home ? BUILDINGS[home.type].name : '천막'}에서 태어났다`, '👶');
+    L(1.1, `첫 말 — "${pick(['엄마', '아빠', '맘마', '불', '멍멍'])}"`, '🗣️');
+    if (peers[0]) L(5 + rand() * 2, `${peers[0].name}와(과) 동무가 되었다`, '🤝');
+    const cr0 = me.cre[0] && this.creations.get(me.cre[0]);
+    if (cr0) L(8 + rand() * 3, `${cr0.byName}에게서 ${cr0.kind === 'game' ? '놀이' : cr0.kind === 'story' ? '이야기' : '노래'} '${cr0.name}'을(를) 배웠다`, '🎵');
+    L(11 + rand() * 2, pick([c.era >= 1 ? '처음으로 논밭 일을 거들었다' : '처음으로 어른들을 따라 사냥에 나섰다', '처음으로 혼자 물고기를 잡았다', '처음으로 집 짓는 일을 거들었다']), '💪');
+    if (c.history?.length) { const h = pick(c.history.slice(-6)); if (h) L(age - 0.5, `마을에 큰일이 있었다 — ${h.text}`, h.icon || '📜'); }
+    me.life.sort((p, q) => p.t - q.t);
+    lifeEvent(this, me, `열일곱 — 이제 스스로 살 길을 찾는다`, '🌱');
+    remember(this, me, `${s.name}에서 ${parentsTxt}의 ${child}로 자랐다`, 9, 0.7, [a.id, b.id], 'life');
+    if (peers[0]) remember(this, me, `어릴 적부터 ${peers[0].name}와(과) 늘 붙어 다녔다`, 6, 0.6, [peers[0].id], 'friend');
+    if (cr0) remember(this, me, `어릴 때 '${cr0.name}'을(를) 수없이 ${cr0.kind === 'song' ? '불렀다' : cr0.kind === 'game' ? '하고 놀았다' : '들었다'}`, 5, 0.6, [], 'art');
+    think(this, me, pick(['열일곱. 이제 나도 어른이다. 뭘 하며 살까?', '아버지 어머니처럼 살 수도, 전혀 다르게 살 수도 있다.', '세상은 넓다. 이 마을 밖엔 뭐가 있을까.']));
+    for (const p of [a, b]) remember(this, p, `${child} ${ga(me.name)} 어느새 열일곱이 되었다`, 5, 0.6, [me.id], 'family');
+    this.news('family', `🌱 ${parentsTxt}의 ${child} ${me.name}(${age}세) — ${this.players[player.id]?.name}의 앤이 자기 삶을 시작한다`, { anns: [me.id, a.id, b.id], country: c.code, sid: s.id }, 2);
+    this.dirtyAnnMeta.add(me.id); this.dirtyAnnMeta.add(a.id); this.dirtyAnnMeta.add(b.id);
+    // 첫 갈림길: 어떤 사람으로 살까
+    consult(this, me, 'first_path', {});
+    return me;
   }
 
   // ── 학교: 나이에 맞는 학교가 마을에 있어야 다닌다 ──
@@ -1596,6 +1667,7 @@ function sanitizeSpec(raw = {}) {
   const name = String(raw.name || '').trim().slice(0, 20) || '이름없음';
   return {
     name, gender: raw.gender === 'F' ? 'F' : 'M', age: num(raw.age, 22, 16, 45), traits, abilities, ambition: num(raw.ambition, rnd(22)),
+    start: raw.start === 'baby' ? 'baby' : 'youth',   // 열일곱 살로 시작(기본) · 아기로 태어나기
     orient: ['straight', 'gay', 'bi'].includes(raw.orient) ? raw.orient : undefined,
   };
 }

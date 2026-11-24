@@ -7,6 +7,7 @@ import { clamp, rand, pick, chance, ageOf, DAY, YEAR, ga, neun, reul, wa, fixJos
 import { remember, think, feel, lifeEvent } from './ann.js';
 import { siteFeatures } from './settlement.js';
 import { ERAS } from './data.js';
+import { consult } from './dilemma.js';
 
 export const KINDS = {
   song: { name: '노래', icon: '🎵', verb: '불렀다', learn: '배웠다' },
@@ -147,7 +148,12 @@ export function createDaily(world, a) {
     dance: [`'${name}'… 몸이 저절로 움직였다.`, '다음 모닥불 가에서 이 춤을 춰 봐야지.'],
   }[kind]));
   if (kind === 'tool') { const c = world.countries[a.country]; world.addTech(c, ERAS[c.era].wage * 6, 'tool'); a.techMade = (a.techMade || 0) + ERAS[c.era].wage * 6; }
-  if (a.owner) world.news('art', `${K.icon} ${ga(a.name)} ${K.name} '${name}'을(를) 지었다`, { anns: [a.id], country: a.country, sid: a.sid }, 1);
+  if (a.owner) {
+    world.news('art', `${K.icon} ${ga(a.name)} ${K.name} '${name}'을(를) 지었다`, { anns: [a.id], country: a.country, sid: a.sid }, 1);
+    // 내 앤이 지었으면 이름을 직접 붙여 줄 수 있다
+    const names = [...new Set([name, ...Array.from({ length: 6 }, () => fixJosa(nameFor(world, a, kind)).replace(/\s+/g, ' ').trim())])].slice(0, 3);
+    if (names.length >= 2) consult(world, a, 'name_creation', { cid: cr.id, names });
+  }
   world.dirtyDetail.add(a.id);
 }
 

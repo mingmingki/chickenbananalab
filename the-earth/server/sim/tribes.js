@@ -12,6 +12,7 @@ import { rel, marry } from './social.js';
 import { makeSettlement } from './settlement.js';
 import { getCountry, randomLandPoint, seaNear } from '../geo.js';
 import { leaveJob, setJob } from './economy.js';
+import { consult } from './dilemma.js';
 import { INDUSTRIES, BUILDINGS } from './data.js';
 
 // ── 땅 이름: 나라가 서기 전에는 땅을 지형으로 부른다 ──
@@ -241,7 +242,7 @@ export function seedLand(world, c, seedVillage, opts = {}) {
 }
 
 // ── 족장 ──
-function setChief(world, c, t, a, how) {
+export function setChief(world, c, t, a, how) {
   const prev = chiefOf(world, t);
   t.chief = a.id; t.since = Math.round(world.clock);
   remember(world, a, `${tribeLabel(t)}의 족장이 되었다`, 10, 1, [], 'power');
@@ -255,6 +256,7 @@ function setChief(world, c, t, a, how) {
   if (prev) world.dirtyAnnMeta.add(prev.id);
   world.dirtyCountries.add(c.code);
 }
+export function chiefOfTribe(world, t) { return chiefOf(world, t); }
 function chiefDaily(world, c, t, quiet = false) {
   const people = tribePeople(world, t);
   t.pop = people.length;
@@ -268,6 +270,11 @@ function chiefDaily(world, c, t, quiet = false) {
       else setChief(world, c, t, top, L ? '추대' : '추대');
     }
     return;
+  }
+  // 플레이어의 앤이 따르는 이가 많으면: 족장 자리에 나서 볼지 묻는다
+  if (!quiet && L && world.clock - (t.since || 0) > DAY * 20) for (const a of people) {
+    if (!a.owner || a.id === L.id || ageOf(a, world.clock) < 20 || !chance(0.015)) continue;
+    if (world.influence(a) >= world.influence(L) - 25) consult(world, a, 'chief_run', { c: c.code, tribe: t.id });
   }
   // 더 힘 있고 따르는 이가 많은 자가 나타나면 족장이 바뀐다
   if (L && world.clock - (t.since || 0) > DAY * 60 && chance(0.05)) {
@@ -320,10 +327,12 @@ function hungry(world, t) {
   for (const sid of t.sids) { const s = world.settlements.get(sid); if (s) { food += s.food; pop += s.pop; } }
   return pop > 0 && food < pop * 3;
 }
-function fighters(world, t, share = 0.35) {
-  const all = tribePeople(world, t).filter(a => { const g = ageOf(a, world.clock); return g >= 16 && g <= 50 && !a.travel && (a.sick || 0) < 0.5 && !a.preg; });
-  all.sort((x, y) => (y.ab.ath + (y.gender === 'M' ? 15 : 0)) - (x.ab.ath + (x.gender === 'M' ? 15 : 0)));
-  return all.slice(0, Math.max(2, Math.ceil(all.length * share)));
+/** 싸울 사람들: 나서겠다는 사람(want)이 먼저, 숨기로 한 사람(skip)은 빼고, 힘센 순으로 */
+function fighters(world, t, share = 0.35, want = null, skip = null) {
+  const all = tribePeople(world, t).filter(a => { const g = ageOf(a, world.clock); return g >= 16 && g <= 50 && !a.travel && (a.sick || 0) < 0.5 && !a.preg && !skip?.has(a.id); });
+  all.sort((x, y) => (want?.has(y.id) ? 1000 : 0) + (y.ab.ath + (y.gender === 'M' ? 15 : 0)) - (want?.has(x.id) ? 1000 : 0) - (x.ab.ath + (x.gender === 'M' ? 15 : 0)));
+  const n = Math.max(2, Math.ceil(all.length * share), want ? all.filter(a => want.has(a.id)).length : 0);
+  return all.slice(0, n);
 }
 function power(world, fs, L, home, known) {
   const k = 1 + (known.includes('석기 도구') ? 0.1 : 0) + (known.includes('사냥 기술') ? 0.15 : 0) + (known.includes('매듭과 밧줄') ? 0.05 : 0) + (known.includes('바퀴') ? 0.05 : 0);
@@ -338,11 +347,11 @@ function hurt(world, a, deathOk, cause) {
   return 'hurt';
 }
 /** 싸움 한 판: 공격하는 쪽이 이기면 true. kind: 습격 · 전투 */
-function clash(world, c, att, def, kind) {
-  const fa = fighters(world, att), fd = fighters(world, def);
+function clash(world, c, att, def, kind, o = {}) {
+  const fa = fighters(world, att, 0.35, o.join), fd = fighters(world, def, 0.35, o.guard, o.hide);
   if (!fa.length || !fd.length) return null;
   const LA = chiefOf(world, att), LD = chiefOf(world, def);
-  const pa = power(world, fa, LA, false, att.known || []), pd = power(world, fd, LD, true, def.known || []);
+  const pa = power(world, fa, LA, false, att.known || []), pd = power(world, fd, LD, true, def.known || []) * (o.warned ? 1.25 : 1);
   const win = chance(clamp(pa / (pa + pd) + gauss() * 0.08, 0.08, 0.92));
   const [lose, wonF, lostF] = win ? [def, fa, fd] : [att, fd, fa];
   let dead = 0, hurtN = 0;
@@ -352,6 +361,7 @@ function clash(world, c, att, def, kind) {
   // 습격에 나선 사람들은 반나절쯤 마을을 비운다
   const until = Math.round(world.clock + 240 + rand() * 300);
   for (const a of fa) if (a.alive && !a.travel) { a.act = null; a.travel = { until, from: a.sid, to: a.sid, kind: 'raid', where: tribeLabel(def) }; world.dirtyAnnMeta.add(a.id); }
+  for (const a of fa) if (a.alive && o.join?.has(a.id)) { a.fame = clamp((a.fame || 0) + (win ? 4 : 1), 0, 100); lifeEvent(world, a, `${tribeLabel(def)} ${kind}에 앞장섰다 — ${win ? '이겼다' : '졌다'}`, '⚔️'); }
   for (const a of fa) if (a.alive) remember(world, a, win ? `${tribeLabel(def)}을(를) ${kind === '습격' ? '습격해 이기고 돌아왔다' : '싸워 이겼다'}` : `${tribeLabel(def)}에 ${kind === '습격' ? '쳐들어갔다가 쫓겨났다' : '싸움에서 졌다'}`, 7, win ? 0.4 : -0.6, LA ? [LA.id] : [], 'war');
   for (const a of fd) if (a.alive) remember(world, a, win ? `${tribeLabel(att)}이(가) 쳐들어와 마을을 지키지 못했다` : `쳐들어온 ${tribeLabel(att)}을(를) 몰아냈다`, 7, win ? -0.7 : 0.6, LD ? [LD.id] : [], 'war');
   (win ? att : def).wins = ((win ? att : def).wins || 0) + 1; lose.losses = (lose.losses || 0) + 1;
@@ -410,6 +420,58 @@ function alliance(world, c, A, B) {
   return { groom, bride, gt: x, bt: y };
 }
 
+// ── 습격: 채비 → (플레이어에게 묻기) → 반나절 뒤 쳐들어간다 ──
+export function planRaid(world, c, att, def) {
+  c.raids = c.raids || [];
+  if (c.raids.some(r => r.att === att.id && r.def === def.id)) return null;
+  const plan = { id: world.newId(), att: att.id, def: def.id, at: Math.round(world.clock + DAY * (0.5 + rand() * 0.4)), join: [], hide: [], guard: [], warned: false };
+  c.raids.push(plan);
+  world.news('war', `🔥 ${tribeLabel(att)}이(가) ${reul(tribeLabel(def))} 칠 채비를 한다`, { country: c.code, sid: att.home }, 2);
+  for (const a of tribePeople(world, att)) { const g = ageOf(a, world.clock); if (a.owner && g >= 16 && g <= 50 && a.id !== att.chief) consult(world, a, 'join_raid', { c: c.code, plan: plan.id, foe: def.id }); }
+  for (const a of tribePeople(world, def)) if (a.owner && ageOf(a, world.clock) >= 13 && chance(0.7)) consult(world, a, 'raid_warn', { c: c.code, plan: plan.id, foe: att.id });
+  return plan;
+}
+export function raidPlan(world, code, id) { return (world.countries[code]?.raids || []).find(r => r.id === id) || null; }
+function raidsDaily(world, c) {
+  if (!c.raids?.length) return;
+  for (const plan of [...c.raids]) {
+    if (world.clock < plan.at) continue;
+    c.raids = c.raids.filter(r => r !== plan);
+    const att = c.tribes[plan.att], def = c.tribes[plan.def];
+    if (!att || !def || att.gone || def.gone) continue;
+    const res = clash(world, c, att, def, '습격', { join: new Set(plan.join), hide: new Set(plan.hide), guard: new Set(plan.guard), warned: plan.warned });
+    if (!res) continue;
+    const r = clamp((att.rel[def.id] ?? 0) - 15 - rand() * 12, -100, 100);
+    att.rel[def.id] = def.rel[att.id] = r;
+    const loot = res.win ? moveFood(world, def, att, 0.25 + rand() * 0.15) : 0;
+    const toll = [res.dead ? `${res.dead}명 숨짐` : '', res.hurt ? `${res.hurt}명 다침` : ''].filter(Boolean).join(', ');
+    world.news('war', `⚔️ ${tribeLabel(att)}이(가) ${reul(tribeLabel(def))} 습격했다 — ${res.win ? `${loot ? '곡식과 짐승을 빼앗아' : '마을을 휩쓸고'} 돌아갔다` : plan.warned ? '미리 알고 기다린 이들에게 쫓겨났다' : '되레 쫓겨났다'}${toll ? ` (${toll})` : ''}`, { country: c.code, sid: def.home }, 2);
+    c.history.push({ t: Math.round(world.clock), text: `${tribeLabel(att)}의 ${tribeLabel(def)} 습격 — ${res.win ? '승리' : '패배'}`, icon: '⚔️' });
+    const pw = t => power(world, fighters(world, t), chiefOf(world, t), false, t.known || []);
+    const winT = res.win ? att : def, loseT = res.win ? def : att;
+    if (pw(winT) / Math.max(0.1, pw(loseT)) > 1.8 && (loseT.losses || 0) >= 2 && chance(0.35)) absorb(world, c, winT, loseT, '굴복');
+  }
+}
+/** 선물로 달랜다 */
+export function sendGift(world, c, g, h) {
+  const what = pick(GIFTS[Math.min(1, c.era)]);
+  moveFood(world, g, h, 0.05);
+  const r = clamp((g.rel[h.id] ?? 0) + 10 + rand() * 8, -100, 100);
+  g.rel[h.id] = h.rel[g.id] = r;
+  world.news('town', `🎁 ${tribeLabel(g)}이(가) ${tribeLabel(h)}에 ${reul(what)} 보냈다`, { country: c.code, sid: h.home }, 1);
+  const Lh = chiefOf(world, h); if (Lh) remember(world, Lh, `${tribeLabel(g)}이(가) ${reul(what)} 보내왔다`, 4, 0.5, [], 'power');
+  return what;
+}
+/** 혼인으로 맺기 (두 부족 젊은이) */
+export function marryTribes(world, c, A, B) {
+  const m = alliance(world, c, A, B);
+  if (!m) return null;
+  const r = clamp((A.rel[B.id] ?? 0) + 12, -100, 100);
+  A.rel[B.id] = B.rel[A.id] = r;
+  world.news('love', `💞 ${tribeLabel(m.gt)}의 ${wa(m.groom.name)} ${tribeLabel(m.bt)}의 ${m.bride.name}이(가) 혼인으로 두 부족을 맺었다`, { country: c.code, anns: [m.groom.id, m.bride.id] }, 2);
+  return m;
+}
+
 const GIFTS = [['사슴 고기', '말린 생선', '산딸기 한 바구니', '돌도끼', '짐승 가죽'], ['곡식 몇 자루', '토기 항아리', '짠 옷감', '말린 고기', '씨앗']];
 function relationsDaily(world, c) {
   const ts = liveTribes(c);
@@ -453,17 +515,12 @@ function relationsDaily(world, c) {
       })[k]);
       if (kind === 'gift') {
         const [g, h] = chance(0.5) ? [A, B] : [B, A];
-        const what = pick(GIFTS[Math.min(1, c.era)]);
-        const amt = moveFood(world, g, h, 0.04);
-        r += 5 + rand() * 6;
-        world.news('town', `🎁 ${tribeLabel(g)}이(가) ${tribeLabel(h)}에 ${reul(what)} 보냈다${amt > 0 ? '' : ''}`, { country: c.code, sid: h.home }, 1);
-        const Lh = chiefOf(world, h); if (Lh) remember(world, Lh, `${tribeLabel(g)}이(가) ${reul(what)} 보내왔다`, 4, 0.5, [], 'power');
+        A.rel[B.id] = B.rel[A.id] = r;
+        sendGift(world, c, g, h);
+        r = A.rel[B.id];
       } else if (kind === 'marry') {
-        const m = alliance(world, c, A, B);
-        if (m) {
-          r += 12;
-          world.news('love', `💞 ${tribeLabel(m.gt)}의 ${wa(m.groom.name)} ${tribeLabel(m.bt)}의 ${m.bride.name}이(가) 혼인으로 두 부족을 맺었다`, { country: c.code, anns: [m.groom.id, m.bride.id] }, 2);
-        }
+        A.rel[B.id] = B.rel[A.id] = r;
+        if (marryTribes(world, c, A, B)) r = A.rel[B.id];
       } else if (kind === 'quarrel') {
         r -= 7 + rand() * 8;
         const why = pick(hunger ? ['얼마 남지 않은 사냥감', '도토리 숲', '물고기 많은 여울'] : ['사냥터 경계', '샘물', '길 잃은 짐승', '모욕적인 말 한마디']);
@@ -476,18 +533,10 @@ function relationsDaily(world, c) {
         // 더 굶주렸거나 더 사나운 족장이 먼저 친다
         const score = t => (hungry(world, t) ? 30 : 0) + (chiefOf(world, t)?.amb || 50) - (chiefOf(world, t)?.tr.A || 50) * 0.5 + rand() * 20;
         const [att, def] = score(A) >= score(B) ? [A, B] : [B, A];
-        const res = clash(world, c, att, def, '습격');
-        if (res) {
-          r -= 15 + rand() * 12;
-          const loot = res.win ? moveFood(world, def, att, 0.25 + rand() * 0.15) : 0;
-          const toll = [res.dead ? `${res.dead}명 숨짐` : '', res.hurt ? `${res.hurt}명 다침` : ''].filter(Boolean).join(', ');
-          world.news('war', `⚔️ ${tribeLabel(att)}이(가) ${reul(tribeLabel(def))} 습격했다 — ${res.win ? `${loot ? '곡식과 짐승을 빼앗아' : '마을을 휩쓸고'} 돌아갔다` : '되레 쫓겨났다'}${toll ? ` (${toll})` : ''}`, { country: c.code, sid: def.home }, 2);
-          c.history.push({ t: Math.round(world.clock), text: `${tribeLabel(att)}의 ${tribeLabel(def)} 습격 — ${res.win ? '승리' : '패배'}`, icon: '⚔️' });
-          // 이긴 쪽이 훨씬 세고 원한이 깊으면 그 자리에서 굴복을 받아 낸다
-          const winT = res.win ? att : def, loseT = res.win ? def : att;
-          const s2 = pw(winT) / Math.max(0.1, pw(loseT));
-          if (s2 > 1.8 && (loseT.losses || 0) >= 2 && chance(0.35 * unify)) absorb(world, c, winT, loseT, '굴복');
-        }
+        // 족장이 플레이어의 앤이면 묻는다 (칠까, 달랠까, 참을까). 아니면 채비를 한다
+        const LA = chiefOf(world, att);
+        if (!(LA?.owner && consult(world, LA, 'chief_raid', { c: c.code, foe: def.id }))) planRaid(world, c, att, def);
+        r -= 6;
       } else if (kind === 'union') {
         r += 5;
         absorb(world, c, big, small, '연합');
@@ -509,11 +558,13 @@ function relationsDaily(world, c) {
 }
 
 // ── 나라 세우기 ──
-function foundNation(world, c, t) {
+export function foundNation(world, c, t, chosen = null) {
+  if (c.nation || t.gone) return;
   const L = chiefOf(world, t) || tribePeople(world, t).filter(a => adult(world, a)).sort((x, y) => world.influence(y) - world.influence(x))[0];
   if (!L) return;
   const land = c.land || landName(c.code);
-  const name = nationName(world, c, t, L);
+  const name = chosen || nationName(world, c, t, L);
+  c.namingAsk = null;
   c.nation = { name, founded: Math.round(world.clock), founder: L.id, founderName: L.name, tribe: t.id };
   c.name = name;
   c.capital = t.home;
@@ -530,43 +581,78 @@ function foundNation(world, c, t) {
 }
 
 /** 하나로 묶으려는 족장: 땅이 고대 문명의 문턱에 이르면 가장 세고 야심 찬 부족이 이웃 부족들을 하나씩 품는다 */
+const tribePower = (world, t) => power(world, fighters(world, t), chiefOf(world, t), false, t.known || []);
+export const tribeStrength = tribePower;
+export function absorbTribe(world, c, win, lose, how, story = null) { if (!win.gone && !lose.gone) absorb(world, c, win, lose, how, story); }
+/** 말로 하나가 되자고 청한다 — 받아들이면 연합 */
+export function proposeUnion(world, c, lead, target) {
+  const L = chiefOf(world, lead), T = chiefOf(world, target);
+  const r = lead.rel[target.id] ?? 0, ratio = tribePower(world, lead) / Math.max(0.1, tribePower(world, target));
+  if (r >= 10 || (ratio > 1.4 && T && T.tr.A > 55) || !T || (ratio > 2.2 && chance(0.5))) {
+    absorb(world, c, lead, target, '연합', `${tribeLabel(lead)}의 ${ga(L?.name || '족장')} ${tribeLabel(target)}에 하나가 되자고 청했고, ${tribeLabel(target)}이(가) 받아들였다 — 두 부족이 하나로 합쳤다`);
+    return true;
+  }
+  lead.rel[target.id] = target.rel[lead.id] = clamp(r - 6, -100, 100);
+  world.news('power', `🙅 ${tribeLabel(target)}이(가) ${tribeLabel(lead)}의 하나가 되자는 청을 거절했다`, { country: c.code, anns: [L?.id, T?.id].filter(x => x != null) }, 2);
+  return false;
+}
+/** 굴복을 요구한다 — 상대 족장이 판단한다 (플레이어의 앤이면 묻는다) */
+export function demandYield(world, c, lead, target) {
+  const L = chiefOf(world, lead), T = chiefOf(world, target);
+  if (T?.owner && consult(world, T, 'chief_yield', { c: c.code, from: lead.id })) return 'asked';
+  const ratio = tribePower(world, lead) / Math.max(0.1, tribePower(world, target));
+  if (!T || ratio > 2 || T.tr.N > 62 || (ratio > 1.3 && chance(0.35))) {
+    if (T) world.news('war', `🏳️ ${tribeLabel(target)}의 족장 ${neun(T.name)} ${tribeLabel(lead)}의 요구에 싸우지 않고 고개를 숙였다`, { country: c.code, anns: [T.id, L?.id].filter(x => x != null) }, 2);
+    absorb(world, c, lead, target, '굴복');
+    return 'yield';
+  }
+  world.news('war', `🛡️ ${tribeLabel(target)}의 족장 ${neun(T.name)} ${tribeLabel(lead)}의 굴복 요구를 거절했다 — 싸움이 벌어졌다`, { country: c.code, anns: [T.id, L?.id].filter(x => x != null) }, 2);
+  fightTribe(world, c, lead, target);
+  return 'fight';
+}
+/** 힘으로 친다 — 이기면 대개 굴복을 받아 낸다 */
+export function fightTribe(world, c, lead, target) {
+  const L = chiefOf(world, lead);
+  const res = clash(world, c, lead, target, '전투');
+  if (!res) return null;
+  const toll = [res.dead ? `${res.dead}명 숨짐` : '', res.hurt ? `${res.hurt}명 다침` : ''].filter(Boolean).join(', ');
+  world.news('war', `⚔️ ${wa(tribeLabel(lead))} ${tribeLabel(target)}의 싸움 — ${res.win ? `${tribeLabel(lead)}이(가) 이겼다` : `${tribeLabel(target)}이(가) 막아 냈다`}${toll ? ` (${toll})` : ''}`, { country: c.code, sid: target.home }, 2);
+  c.history.push({ t: Math.round(world.clock), text: `${wa(tribeLabel(lead))} ${tribeLabel(target)}의 싸움 — ${res.win ? tribeLabel(lead) : tribeLabel(target)} 승리`, icon: '⚔️' });
+  lead.rel[target.id] = target.rel[lead.id] = clamp((lead.rel[target.id] ?? 0) - 15, -100, 100);
+  if (res.win && chance(0.65)) absorb(world, c, lead, target, '굴복');
+  else if (!res.win && L) { L.rep = clamp(L.rep - 8, -100, 100); remember(world, L, `${wa(tribeLabel(target))}의 싸움에서 졌다`, 8, -0.7, [], 'war'); }
+  return res;
+}
+/** 땅에서 가장 세고 야심 찬 부족 */
+function unifier(world, ts) {
+  const drive = t => { const L = chiefOf(world, t); return tribePower(world, t) * (0.6 + (L ? L.amb + L.sk.leadership * 0.5 : 40) / 150); };
+  return ts.slice().sort((x, y) => drive(y) - drive(x))[0];
+}
+export function unifyTarget(world, c, lead) {
+  return liveTribes(c).filter(t => t !== lead).sort((x, y) => tribeKm(world, lead, x) - tribeKm(world, lead, y))[0] || null;
+}
+/** 하나로 묶으려는 족장: 땅이 고대 문명의 문턱에 이르면 가장 세고 야심 찬 부족이 이웃 부족들을 하나씩 품는다 */
 function unifyDaily(world, c) {
   const ts = liveTribes(c);
   if (ts.length < 2 || c.era < 1 || c.tech < ERAS[2].tech * 0.7 || !chance(0.08)) return;
-  const pw = t => power(world, fighters(world, t), chiefOf(world, t), false, t.known || []);
-  const drive = t => { const L = chiefOf(world, t); return pw(t) * (0.6 + (L ? L.amb + L.sk.leadership * 0.5 : 40) / 150); };
-  const lead = ts.slice().sort((x, y) => drive(y) - drive(x))[0];
+  const lead = unifier(world, ts);
   const L = chiefOf(world, lead);
   if (!L || world.clock - (lead.lastUnify || -1e12) < DAY * 12) return;
   lead.lastUnify = Math.round(world.clock);
-  const target = ts.filter(t => t !== lead).sort((x, y) => tribeKm(world, lead, x) - tribeKm(world, lead, y))[0];
-  const T = chiefOf(world, target);
-  const r = lead.rel[target.id] ?? 0, ratio = pw(lead) / Math.max(0.1, pw(target));
+  const target = unifyTarget(world, c, lead);
+  if (!target) return;
   if (!lead.unifyNews) {
     lead.unifyNews = true;
     world.news('power', `🗺️ ${tribeLabel(lead)}의 족장 ${neun(L.name)} 이 땅의 부족들을 하나로 묶겠다고 나섰다`, { country: c.code, anns: [L.id] }, 3);
     think(world, L, '이 땅의 부족들이 하나가 되어야 한다. 그 일을 내가 하겠다.');
   }
-  // 사이가 괜찮거나, 상대 족장이 너그럽고 힘이 밀리면 말로 합친다
-  if (r >= 10 || (ratio > 1.4 && T && T.tr.A > 55) || !T) {
-    absorb(world, c, lead, target, '연합', `${tribeLabel(lead)}의 ${ga(L.name)} ${tribeLabel(target)}에 하나가 되자고 청했고, ${tribeLabel(target)}이(가) 받아들였다 — 두 부족이 하나로 합쳤다`);
-    return;
-  }
-  // 아니면 굴복을 요구한다: 겁이 많거나 힘이 크게 밀리면 굽히고, 아니면 맞서 싸운다
-  if (ratio > 2 || T.tr.N > 62 || (ratio > 1.3 && chance(0.35))) {
-    world.news('war', `🏳️ ${tribeLabel(target)}의 족장 ${neun(T.name)} ${tribeLabel(lead)}의 요구에 싸우지 않고 고개를 숙였다`, { country: c.code, anns: [T.id, L.id] }, 2);
-    absorb(world, c, lead, target, '굴복');
-    return;
-  }
-  world.news('war', `🛡️ ${tribeLabel(target)}의 족장 ${neun(T.name)} ${tribeLabel(lead)}의 굴복 요구를 거절했다 — 싸움이 벌어졌다`, { country: c.code, anns: [T.id, L.id] }, 2);
-  const res = clash(world, c, lead, target, '전투');
-  if (!res) return;
-  const toll = [res.dead ? `${res.dead}명 숨짐` : '', res.hurt ? `${res.hurt}명 다침` : ''].filter(Boolean).join(', ');
-  world.news('war', `⚔️ ${wa(tribeLabel(lead))} ${tribeLabel(target)}의 싸움 — ${res.win ? `${tribeLabel(lead)}이(가) 이겼다` : `${tribeLabel(target)}이(가) 막아 냈다`}${toll ? ` (${toll})` : ''}`, { country: c.code, sid: target.home }, 2);
-  c.history.push({ t: Math.round(world.clock), text: `${wa(tribeLabel(lead))} ${tribeLabel(target)}의 싸움 — ${res.win ? tribeLabel(lead) : tribeLabel(target)} 승리`, icon: '⚔️' });
-  lead.rel[target.id] = target.rel[lead.id] = clamp(r - 15, -100, 100);
-  if (res.win && chance(0.65)) absorb(world, c, lead, target, '굴복');
-  else if (!res.win) { L.rep = clamp(L.rep - 8, -100, 100); remember(world, L, `${tribeLabel(target)}과의 싸움에서 졌다`, 8, -0.7, [], 'war'); }
+  // 내 앤이 그 족장이면 어떻게 묶을지 묻는다
+  if (L.owner && consult(world, L, 'chief_unify', { c: c.code, target: target.id })) return;
+  const T = chiefOf(world, target);
+  const r = lead.rel[target.id] ?? 0, ratio = tribePower(world, lead) / Math.max(0.1, tribePower(world, target));
+  // 사이가 괜찮거나, 상대 족장이 너그럽고 힘이 밀리면 말로 합친다. 아니면 굴복을 요구한다
+  if (r >= 10 || (ratio > 1.4 && T && T.tr.A > 55) || !T) proposeUnion(world, c, lead, target);
+  else demandYield(world, c, lead, target);
 }
 
 /** 매일: 땅의 부족들 (나라가 서기 전) */
@@ -580,17 +666,28 @@ export function tribesDaily(world, c) {
     world.news('city', `🍂 ${tribeLabel(t)}은(는) 이제 남은 사람이 없다`, { country: c.code }, 1);
   }
   relationsDaily(world, c);
+  raidsDaily(world, c);
   unifyDaily(world, c);
   const ts = liveTribes(c);
   // 땅이 한 부족으로 묶이면, 농경 시대에 들어선 뒤 그 족장이 나라를 세운다
-  if (ts.length === 1 && c.era >= 1 && tribePeople(world, ts[0]).length >= 12) foundNation(world, c, ts[0]);
+  if (ts.length === 1 && c.era >= 1 && tribePeople(world, ts[0]).length >= 12) {
+    // 내 앤이 나라를 세우는 족장이면, 나라 이름을 묻는다 (하루 반 안에 답이 없으면 앤이 짓는다)
+    if (c.namingAsk && world.clock - c.namingAsk < DAY * 1.6) return;
+    const L = chiefOf(world, ts[0]);
+    if (!c.namingAsk && L?.owner) {
+      const names = [...new Set(Array.from({ length: 8 }, () => nationName(world, c, ts[0], L)))].slice(0, 4);
+      if (names.length >= 2 && consult(world, L, 'name_nation', { c: c.code, tribe: ts[0].id, names })) { c.namingAsk = Math.round(world.clock); return; }
+    }
+    foundNation(world, c, ts[0]);
+  }
 }
 
 // ── 나라 사이 ──
 function capitalOf(world, c) { return world.settlements.get(c.capital) || [...world.settlements.values()].find(s => s.country === c.code && !s.abandoned); }
 function nationPower(world, c, share) {
-  const people = [...world.anns.values()].filter(a => a.alive && a.country === c.code && !a.travel && ageOf(a, world.clock) >= 18 && ageOf(a, world.clock) <= 45 && (a.sick || 0) < 0.5);
-  people.sort((x, y) => (y.job?.id === 'soldier' ? 100 : 0) + y.ab.ath - ((x.job?.id === 'soldier' ? 100 : 0) + x.ab.ath));
+  const pref = a => (a.warPref && a.warPref.until > world.clock ? a.warPref.v : null);
+  const people = [...world.anns.values()].filter(a => a.alive && a.country === c.code && !a.travel && ageOf(a, world.clock) >= 18 && ageOf(a, world.clock) <= 45 && (a.sick || 0) < 0.5 && pref(a) !== 'stay');
+  people.sort((x, y) => (pref(y) === 'go' ? 1000 : 0) + (y.job?.id === 'soldier' ? 100 : 0) + y.ab.ath - ((pref(x) === 'go' ? 1000 : 0) + (x.job?.id === 'soldier' ? 100 : 0) + x.ab.ath));
   const army = people.slice(0, Math.max(3, Math.ceil(people.length * share)));
   const L = c.leader != null ? world.anns.get(c.leader) : null;
   const p = army.reduce((s, a) => s + 0.6 + a.ab.ath / 120 + (a.job?.id === 'soldier' ? 0.8 : 0), 0) * Math.sqrt(ERAS[c.era].prod) * (1 + (L?.sk.leadership || 0) / 300);
@@ -633,6 +730,23 @@ function endWar(world, A, B, war, why) {
   }
   world.news('war', `🕊️ ${text}`, { country: A.code }, 3);
 }
+export function declareWar(world, att, def) {
+  att.wars = att.wars || {}; def.wars = def.wars || {};
+  if (att.wars[def.code]) return null;
+  const name = `${att.name}-${def.name} 전쟁`;
+  const w = { att: att.code, since: Math.round(world.clock), score: 0, battles: 0, name };
+  att.wars[def.code] = w; def.wars[att.code] = w;
+  for (const n of [att, def]) n.history.push({ t: Math.round(world.clock), text: `${ga(att.name)} ${def.name}에 전쟁을 선포했다`, icon: '⚔️' });
+  world.news('war', `⚔️ ${ga(att.name)} ${def.name}에 전쟁을 선포했다!`, { country: att.code }, 4);
+  for (const a of world.anns.values()) if (a.alive && (a.country === att.code || a.country === def.code) && ageOf(a, world.clock) >= 12) {
+    if (chance(0.6)) { remember(world, a, `${ga(att.name)} ${def.name}에 전쟁을 선포했다`, 7, -0.5, [], 'war'); feel(a, -10, '불안', '전쟁'); }
+    // 플레이어의 앤: 싸우러 나갈지 묻는다
+    const g = ageOf(a, world.clock);
+    if (a.owner && g >= 18 && g <= 45) consult(world, a, 'war_enlist', { c: a.country, war: name, foe: a.country === att.code ? def.code : att.code });
+  }
+  world.dirtyCountries.add(att.code); world.dirtyCountries.add(def.code);
+  return w;
+}
 export function nationsDaily(world) {
   const ns = Object.values(world.countries).filter(c => c.nation && c.pop >= 10);
   for (let i = 0; i < ns.length; i++) for (let j = i + 1; j < ns.length; j++) {
@@ -667,15 +781,9 @@ export function nationsDaily(world) {
     const hawk = [LA, LB].map(L => L ? (L.amb - L.tr.A) : 0);
     if (r < -40 && Math.max(...hawk) > 10 && chance(0.03)) {
       const att = hawk[0] >= hawk[1] ? A : B, def = att === A ? B : A;
-      const name = `${att.name}-${def.name} 전쟁`;
-      const w = { att: att.code, since: Math.round(world.clock), score: 0, battles: 0, name };
-      A.wars[B.code] = w; B.wars[A.code] = w;
-      for (const n of [A, B]) n.history.push({ t: Math.round(world.clock), text: `${ga(att.name)} ${def.name}에 전쟁을 선포했다`, icon: '⚔️' });
-      world.news('war', `⚔️ ${ga(att.name)} ${def.name}에 전쟁을 선포했다!`, { country: att.code }, 4);
-      for (const a of world.anns.values()) if (a.alive && (a.country === A.code || a.country === B.code) && ageOf(a, world.clock) >= 12 && chance(0.6)) {
-        remember(world, a, `${ga(att.name)} ${def.name}에 전쟁을 선포했다`, 7, -0.5, [], 'war');
-        feel(a, -10, '불안', '전쟁');
-      }
+      const K = att === A ? LA : LB;
+      // 왕이 플레이어의 앤이면 묻는다
+      if (!(K?.owner && consult(world, K, 'king_war', { c: att.code, foe: def.code }))) declareWar(world, att, def);
     }
     A.drel[B.code] = B.drel[A.code] = clamp(r, -100, 100);
   }

@@ -18,6 +18,7 @@ import { seeDoctor } from './illness.js';
 import { JOBS, ERAS, INDUSTRIES, SCHOOLS, BUILDINGS } from './data.js';
 import { openings, apply, leaveJob, jobTitle } from './economy.js';
 import { book, refMonth, perUnit, ERA_MONEY } from './budget.js';
+import { tribeOfA, tribeLabel, chiefOfTribe, planRaid, raidPlan, sendGift, marryTribes, proposeUnion, demandYield, fightTribe, absorbTribe, tribeStrength, setChief, foundNation, declareWar } from './tribes.js';
 
 const SMALL_WAIT = 12 * 60;     // 일상 갈림길: 게임 12시간 (실제 30분)
 const BIG_WAIT = 24 * 60;       // 큰 갈림길: 게임 하루 (실제 1시간)
@@ -823,6 +824,162 @@ const X = (world, a) => enrich(ctx(world, a));
 const pubQ = q => ({ id: q.id, k: q.k, ann: q.ann, name: q.name, cat: q.cat, icon: q.icon, big: q.big, q: q.q, opts: q.opts, t: q.t, until: q.until });
 
 /** 앤이 마음속 목소리에게 묻는다. 물었으면 true (호출한 쪽은 답을 기다린다), 못 물었으면 false (앤이 바로 정한다) */
+// ══════════════════════════ 처음 (열일곱 살로 시작했을 때) ══════════════════════════
+D('first_path', {
+  cat: 'life', icon: '🌱', big: true, wait: 10 * 60,
+  ok: x => !x.a.job,
+  q: x => `열일곱, 이제 어떤 사람으로 살까? ${x.c.era <= 1 ? '마을 어른들은 저마다 잘하는 일이 있다.' : ''}`,
+  opts: x => {
+    const seen = new Set();
+    const ops = openings(x.w, x.a).filter(o => { if (seen.has(o.jobKey)) return false; seen.add(o.jobKey); return true; }).sort((p, q) => q.fit - p.fit).slice(0, 3);
+    const out = ops.map(o => O('j_' + o.jobKey, `${JOBS[o.jobKey]?.eraName?.[x.c.era] || JOBS[o.jobKey]?.name || o.jobKey}${o.co ? ` (${o.co.name})` : ''}이(가) 되겠다`, x => o.fit * 0.6 + rand() * 10, x => {
+      const again = openings(x.w, x.a).find(p => p.jobKey === o.jobKey);
+      if (!again) return '그사이 자리가 없어졌다';
+      apply(x.w, x.a, again);
+      x.think(pick(['좋아, 이걸로 시작이다.', '잘할 수 있을까? 아니, 잘해 낼 거다.']));
+      return { t: `${JOBS[o.jobKey]?.eraName?.[x.c.era] || JOBS[o.jobKey]?.name}의 길을 걷기 시작했다`, v: 1 };
+    }));
+    out.push(O('look', '조금 더 둘러보며 부모님 일을 돕는다', x => x.a.tr.O * 0.3, x => { x.think('서두를 것 없다. 천천히 찾아보자.'); return '조금 더 둘러보기로 했다'; }));
+    return out;
+  },
+});
+
+// ══════════════════════════ 부족 · 나라 (상황) ══════════════════════════
+// 내 앤이 족장·왕이면 습격·화친·혼인 동맹·굴복·통일·건국(나라 이름)·전쟁을 묻고,
+// 족장이 아니어도 부족 싸움에 나설지·숨을지, 족장 자리에 나설지, 나라의 전쟁에 나갈지를 묻는다.
+const TB = (x, code, id) => x.w.countries[code]?.tribes?.[id] || null;
+const myTribe = x => tribeOfA(x.w, x.a);
+const tribeOk = (x, d) => { const c = x.w.countries[d.c]; return c && !c.nation && c.code === x.a.country; };
+D('chief_raid', {
+  cat: 'tribe', icon: '⚔️', big: true, wait: 10 * 60,
+  ok: (x, d) => { const t = myTribe(x), f = TB(x, d.c, d.foe); return tribeOk(x, d) && t && f && !f.gone && t.chief === x.a.id; },
+  q: (x, d) => { const t = myTribe(x), f = TB(x, d.c, d.foe); return `${wa(tribeLabel(f))} 사이가 험악하다 (사이 ${Math.round(t.rel[f.id] ?? 0)}). ${x.s && x.s.food < x.s.pop * 3 ? '곡식도 넉넉지 않다. ' : ''}족장으로서 어떻게 할까?`; },
+  opts: (x, d) => {
+    const f = TB(x, d.c, d.foe), t = myTribe(x), c = x.c;
+    return [
+      O('raid', `${tribeLabel(f)}을(를) 치러 간다`, x => x.a.amb * 0.6 - x.a.tr.A * 0.4 + (x.s && x.s.food < x.s.pop * 3 ? 20 : 0), x => { planRaid(x.w, c, t, f); x.think('사람들을 모아라. 우리가 먼저 친다.'); return '젊은이들을 모아 습격할 채비를 시켰다'; }),
+      O('gift', '선물을 보내 달랜다', x => x.a.tr.A * 0.6, x => { const w = sendGift(x.w, c, t, f); x.rep(2); return `${tribeLabel(f)}에 ${reul(w)} 보냈다`; }),
+      O('marry', '혼인으로 두 부족을 맺자고 청한다', x => x.a.tr.A * 0.4 + x.a.val.family * 0.3, x => { const m = marryTribes(x.w, c, t, f); return m ? `${wa(m.groom.name)} ${reul(m.bride.name)} 짝지어 두 부족을 맺었다` : '짝지을 젊은이가 없어 뜻을 이루지 못했다'; }),
+      O('wait', '참고 기다린다', x => x.a.tr.N * 0.3 + 10, x => { x.think('지금은 참자. 피를 흘리면 돌이킬 수 없다.'); return '이번엔 참기로 했다'; }),
+    ];
+  },
+});
+D('join_raid', {
+  cat: 'tribe', icon: '🔥', big: true, wait: 8 * 60,
+  ok: (x, d) => { const pl = raidPlan(x.w, d.c, d.plan); const t = myTribe(x); return pl && t && pl.att === t.id && x.now < pl.at; },
+  q: (x, d) => { const t = myTribe(x), f = TB(x, d.c, d.foe), L = chiefOfTribe(x.w, t); return `족장 ${L ? L.name : ''}이(가) ${tribeLabel(f)}을(를) 치러 간다. 함께 나설까?`; },
+  opts: (x, d) => {
+    const pl = raidPlan(x.w, d.c, d.plan), t = myTribe(x), L = chiefOfTribe(x.w, t);
+    return [
+      O('go', '앞장선다', x => x.a.ab.ath * 0.4 + x.a.amb * 0.3 - x.a.tr.N * 0.3, x => { if (!pl.join.includes(x.a.id)) pl.join.push(x.a.id); x.think('내가 앞장서겠다. 우리 부족을 위해.'); x.feel(8, '결의'); return '창을 들고 앞장서기로 했다'; }),
+      O('home', '남아서 마을을 지킨다', x => x.a.tr.N * 0.4 + x.a.val.family * 0.3, x => { if (!pl.hide.includes(x.a.id)) pl.hide.push(x.a.id); return '마을에 남아 아이들과 노인들을 지키기로 했다'; }),
+      O('stop', '습격을 말린다', x => x.a.tr.A * 0.6 - x.a.amb * 0.2, x => {
+        const win = x.w.influence(x.a) + gauss() * 15 > (L ? x.w.influence(L) : 0) + 10;
+        if (win) { x.w.countries[d.c].raids = (x.w.countries[d.c].raids || []).filter(r => r !== pl); x.rep(5); x.w.news('town', `🕊️ ${ga(x.a.name)} 족장을 설득해 ${tribeLabel(TB(x, d.c, d.foe))} 습격을 막았다`, { anns: [x.a.id], country: d.c }, 2); return { t: '족장을 설득해 습격을 그만두게 했다', v: 1 }; }
+        if (L) x.bond(L, -8); return { t: '말렸지만 족장은 듣지 않았다', v: -1 };
+      }),
+    ];
+  },
+});
+D('raid_warn', {
+  cat: 'tribe', icon: '🛡️', big: true, wait: 8 * 60,
+  ok: (x, d) => { const pl = raidPlan(x.w, d.c, d.plan); const t = myTribe(x); return pl && t && pl.def === t.id && x.now < pl.at; },
+  q: (x, d) => { const f = TB(x, d.c, d.foe); return `${tribeLabel(f)}이(가) 쳐들어온다는 소문이 돈다. 어떻게 할까?`; },
+  opts: (x, d) => {
+    const pl = raidPlan(x.w, d.c, d.plan);
+    const age = x.age;
+    return [
+      age >= 16 ? O('guard', '창을 들고 마을을 지킨다', x => x.a.ab.ath * 0.4 + (100 - x.a.tr.N) * 0.3, x => { if (!pl.guard.includes(x.a.id)) pl.guard.push(x.a.id); pl.warned = true; x.think('오기만 해 봐라.'); return '마을 어귀에서 창을 들고 기다리기로 했다'; }) : null,
+      O('warn', '족장에게 알리고 망을 본다', x => x.a.tr.C * 0.5, x => { pl.warned = true; x.rep(3); return '족장에게 알렸다. 마을이 미리 채비를 한다'; }),
+      O('hide', '가족과 숲에 숨는다', x => x.a.tr.N * 0.5 + x.a.val.family * 0.3, x => { if (!pl.hide.includes(x.a.id)) pl.hide.push(x.a.id); for (const id of [x.a.spouse, ...x.a.kids]) if (id != null && !pl.hide.includes(id)) pl.hide.push(id); return '식구들을 데리고 숲으로 몸을 피하기로 했다'; }),
+    ];
+  },
+});
+D('chief_yield', {
+  cat: 'tribe', icon: '🏳️', big: true, wait: 12 * 60,
+  ok: (x, d) => { const t = myTribe(x), f = TB(x, d.c, d.from); return tribeOk(x, d) && t && f && !f.gone && !t.gone && t.chief === x.a.id; },
+  q: (x, d) => { const t = myTribe(x), f = TB(x, d.c, d.from), L = chiefOfTribe(x.w, f); const k = tribeStrength(x.w, f) / Math.max(0.1, tribeStrength(x.w, t)); return `${tribeLabel(f)}의 족장 ${L ? L.name : ''}이(가) 우리더러 굴복하라고 한다. 저쪽 힘이 ${k >= 1 ? `${k.toFixed(1)}배 세다` : '우리보다 약하다'}.`; },
+  opts: (x, d) => {
+    const t = myTribe(x), f = TB(x, d.c, d.from), c = x.c, k = tribeStrength(x.w, f) / Math.max(0.1, tribeStrength(x.w, t));
+    return [
+      O('yield', '받아들인다 (그 부족의 일부가 된다)', x => x.a.tr.N * 0.4 + (k > 2 ? 35 : 0) + x.a.tr.A * 0.2, x => { absorbTribe(x.w, c, f, t, '굴복'); return { t: `${tribeLabel(f)}에 굴복했다. 피는 흘리지 않았다`, v: 0 }; }),
+      O('fight', '맞서 싸운다', x => x.a.amb * 0.4 + (100 - x.a.tr.N) * 0.3 + (k < 1.3 ? 30 : 0), x => { const r = fightTribe(x.w, c, f, t); return r ? { t: r.win ? '싸웠지만 졌다' : '맞서 싸워 막아 냈다!', v: r.win ? -1 : 1 } : '싸움이 벌어지지 않았다'; }),
+      O('equal', '대등하게 하나가 되자고 한다', x => x.a.tr.A * 0.4 + x.a.ab.cha * 0.3, x => {
+        const L = chiefOfTribe(x.w, f);
+        if (!L || chance(0.45 + (f.rel[t.id] ?? 0) / 200 + (L.tr.A - 50) / 200)) { absorbTribe(x.w, c, f, t, '연합', `${tribeLabel(t)}의 ${ga(x.a.name)} 대등하게 하나가 되자고 했고, ${tribeLabel(f)}이(가) 받아들였다 — 두 부족이 하나로 합쳤다`); return { t: '대등하게 하나가 되었다. 원로로 남는다', v: 1 }; }
+        const r = fightTribe(x.w, c, f, t); return { t: `제안은 거절당했고 싸움이 벌어졌다${r ? (r.win ? ' — 졌다' : ' — 막아 냈다') : ''}`, v: -1 };
+      }),
+      O('marry', '혼인으로 맺자며 시간을 번다', x => x.a.tr.O * 0.3 + x.a.val.family * 0.3, x => { const m = marryTribes(x.w, c, t, f); f.lastUnify = Math.round(x.now); return m ? `${wa(m.groom.name)} ${reul(m.bride.name)} 짝지어 보냈다. 당분간은 조용할 것이다` : '혼인시킬 젊은이가 없었다'; }),
+    ];
+  },
+});
+D('chief_unify', {
+  cat: 'tribe', icon: '🗺️', big: true, wait: 12 * 60,
+  ok: (x, d) => { const t = myTribe(x), f = TB(x, d.c, d.target); return tribeOk(x, d) && t && f && !f.gone && t.chief === x.a.id; },
+  q: (x, d) => { const f = TB(x, d.c, d.target), t = myTribe(x); return `이 땅의 부족들을 하나로 묶을 때다. 가장 가까운 ${tribeLabel(f)}을(를) 어떻게 할까? (사이 ${Math.round(t.rel[f.id] ?? 0)})`; },
+  opts: (x, d) => {
+    const f = TB(x, d.c, d.target), t = myTribe(x), c = x.c;
+    return [
+      O('ask', '하나가 되자고 청한다', x => x.a.tr.A * 0.5 + (t.rel[f.id] ?? 0) * 0.4, x => proposeUnion(x.w, c, t, f) ? { t: `${tribeLabel(f)}이(가) 받아들여 하나가 되었다`, v: 1 } : { t: '거절당했다', v: -1 }),
+      O('demand', '굴복을 요구한다', x => x.a.amb * 0.5, x => { const r = demandYield(x.w, c, t, f); return r === 'yield' ? { t: '싸우지 않고 굴복을 받아 냈다', v: 1 } : r === 'asked' ? '저쪽 족장이 고민하고 있다' : '거절당해 싸움이 벌어졌다'; }),
+      O('force', '힘으로 친다', x => x.a.amb * 0.4 - x.a.tr.A * 0.3 + 10, x => { const r = fightTribe(x.w, c, t, f); return r ? { t: r.win ? '싸워 이겼다' : '쳐들어갔지만 막혔다', v: r.win ? 1 : -1 } : '싸움이 벌어지지 않았다'; }),
+      O('later', '아직은 때가 아니다', x => x.a.tr.N * 0.3, x => '조금 더 힘을 기르기로 했다'),
+    ];
+  },
+});
+D('chief_run', {
+  cat: 'tribe', icon: '👑', big: true, wait: 18 * 60,
+  ok: (x, d) => { const t = myTribe(x); return tribeOk(x, d) && t && t.id === d.tribe && t.chief !== x.a.id; },
+  q: (x, d) => { const t = myTribe(x), L = chiefOfTribe(x.w, t); return `${tribeLabel(t)}에서 나를 따르는 사람이 늘었다. 족장 자리에 나서 볼까? (지금 족장: ${L ? L.name : '없음'})`; },
+  opts: (x, d) => {
+    const t = myTribe(x), L = chiefOfTribe(x.w, t), c = x.c;
+    return [
+      O('run', '나선다', x => x.a.amb * 0.6 + x.a.conf * 0.2, x => {
+        const mine = x.w.influence(x.a) + gauss() * 12, theirs = (L ? x.w.influence(L) : 0) + 10;
+        if (mine > theirs || !L) { setChief(x.w, c, t, x.a, '도전'); if (L) remember(x.w, L, `${ga(x.a.name)} 족장 자리를 가져갔다`, 8, -0.7, [x.a.id], 'power'); return { t: `${tribeLabel(t)}의 족장이 되었다!`, v: 1 }; }
+        x.rep(-6); if (L) x.bond(L, -15); return { t: `사람들은 아직 ${L.name}을(를) 따랐다`, v: -1 };
+      }),
+      L ? O('help', `족장 ${L.name}을(를) 돕는다`, x => x.a.tr.A * 0.5, x => { x.bond(L, 10); x.sk('leadership', 2); x.rep(3); return '족장의 오른팔이 되기로 했다'; }) : null,
+      O('no', '관심 없다', x => (100 - x.a.amb) * 0.5, x => '족장 같은 건 내 길이 아니다'),
+    ];
+  },
+});
+D('name_nation', {
+  cat: 'tribe', icon: '🏯', big: true, wait: 20 * 60,
+  ok: (x, d) => { const c = x.w.countries[d.c]; const t = TB(x, d.c, d.tribe); return c && !c.nation && t && !t.gone; },
+  q: (x, d) => `${x.c.land || x.c.name}의 부족들이 모두 하나가 되었다. 이제 나라를 세운다 — 나라 이름을 무엇으로 할까?`,
+  opts: (x, d) => d.names.map((n, i) => O('n' + i, `'${n}'`, () => rand() * 10 + (i === 0 ? 3 : 0), x => { foundNation(x.w, x.w.countries[d.c], TB(x, d.c, d.tribe), n); return { t: `나라 이름을 '${n}'(으)로 지었다`, v: 1 }; })),
+});
+D('name_creation', {
+  cat: 'art', icon: '✍️', wait: 12 * 60,
+  ok: (x, d) => !!x.w.creations?.get(d.cid),
+  q: (x, d) => { const c = x.w.creations.get(d.cid); return `${c.kind === 'song' ? '노래' : c.kind === 'story' ? '이야기' : c.kind === 'game' ? '놀이' : c.kind === 'dish' ? '음식' : c.kind === 'tool' ? '도구' : c.kind === 'dance' ? '춤' : '말'}을(를) 하나 지었다. 이름을 뭐라고 붙일까?`; },
+  opts: (x, d) => d.names.map((n, i) => O('n' + i, `'${n}'`, () => rand() * 10 + (i === 0 ? 3 : 0), x => { const c = x.w.creations.get(d.cid); if (c) c.name = n; x.mem(`내가 지은 것에 '${n}'(이)라는 이름을 붙였다`, 5, 0.6); return `'${n}'(이)라고 이름 붙였다`; })),
+});
+D('king_war', {
+  cat: 'power', icon: '⚔️', big: true, wait: 18 * 60,
+  ok: (x, d) => { const me = x.w.countries[d.c], f = x.w.countries[d.foe]; return me && f && me.nation && f.nation && me.leader === x.a.id && !(me.wars || {})[d.foe]; },
+  q: (x, d) => { const me = x.w.countries[d.c], f = x.w.countries[d.foe]; return `${wa(f.name)} 사이가 아주 나쁘다 (사이 ${Math.round(me.drel?.[d.foe] ?? 0)}). 전쟁을 선포할까?`; },
+  opts: (x, d) => {
+    const me = x.w.countries[d.c], f = x.w.countries[d.foe];
+    const rel_ = v => { me.drel[d.foe] = f.drel[d.c] = clamp((me.drel[d.foe] ?? 0) + v, -100, 100); };
+    return [
+      O('war', '전쟁을 선포한다', x => x.a.amb * 0.6 - x.a.tr.A * 0.4, x => { declareWar(x.w, me, f); return { t: `${f.name}에 전쟁을 선포했다`, v: 0 }; }),
+      O('envoy', '사신을 보내 달랜다', x => x.a.tr.A * 0.6, x => { rel_(20); x.w.news('gov', `🕊️ ${ga(me.name)} ${f.name}에 사신을 보냈다`, { country: me.code }, 1); return { t: '사신을 보냈다. 당분간은 조용할 것이다', v: 1 }; }),
+      O('wait', '참는다', x => x.a.tr.N * 0.4, x => { rel_(5); return '이번엔 참기로 했다'; }),
+    ];
+  },
+});
+D('war_enlist', {
+  cat: 'power', icon: '🛡️', big: true, wait: 12 * 60,
+  ok: (x, d) => !!(x.c.wars || {})[d.foe],
+  q: (x, d) => `${ga(d.war)} 일어났다. 싸우러 나갈까?`,
+  opts: (x, d) => [
+    O('go', '자원해서 나간다', x => x.a.ab.ath * 0.3 + x.a.amb * 0.3 + (100 - x.a.tr.N) * 0.2, x => { x.a.warPref = { v: 'go', until: Math.round(x.now + 150 * DAY) }; x.think('나라를 지키러 간다.'); x.rep(4); return '창을 들고 자원했다'; }),
+    O('stay', '가족 곁에 남는다', x => x.a.val.family * 0.5 + x.a.tr.N * 0.3, x => { x.a.warPref = { v: 'stay', until: Math.round(x.now + 150 * DAY) }; return '가족 곁에 남기로 했다'; }),
+  ],
+});
+
 export function consult(world, a, id, d = {}) {
   const def = DEFS[id];
   if (!def || !a || !a.owner || !a.alive || a.ask || a.travel) return false;

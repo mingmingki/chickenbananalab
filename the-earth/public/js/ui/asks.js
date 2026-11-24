@@ -5,7 +5,7 @@ import { MIN_YEAR } from '../state.js';
 import { icon } from './icons.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const CAT = { love: '사랑', family: '가족', work: '일', money: '돈', school: '학교', life: '인생', friend: '친구', health: '건강', home: '집', power: '정치' };
+const CAT = { love: '사랑', family: '가족', work: '일', money: '돈', school: '학교', life: '인생', friend: '친구', health: '건강', home: '집', power: '정치·전쟁', tribe: '부족', art: '창작' };
 const MODES = [['all', '모두 물어보기', '작은 고민부터 인생의 큰 갈림길까지'], ['big', '큰 결정만', '연애·결혼·아이·일·이주·은퇴 같은 갈림길만'], ['off', '묻지 않기', '앤들이 모두 알아서 정합니다']];
 
 export class AskPanel {

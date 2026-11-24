@@ -4,6 +4,9 @@ import { josa } from './josa.js';
 import { avatarHTML } from './avatar.js';
 import { icon } from './icons.js';
 import { homeDesign } from '../scene/homes.js';
+import { shareCard, annLink } from './share.js';
+// 공유할 만한 순간 (연대기의 아이콘)
+const NOTABLE = new Set(['👑', '🏯', '⚔️', '💍', '💒', '👶', '🎵', '📜', '🪀', '💡', '🌟', '🏆', '🕯️', '🌱', '🎨', '🛠️', '💃', '🍲', '🏳️', '🤝', '🧭', '🎓', '🏢', '💞', '🔥', '🌾', '🛖', '🏠']);
 
 const landscapePhone = () => innerWidth <= 960 && innerHeight <= 500 && innerWidth > innerHeight;
 const isMobile = () => innerWidth <= 860 && !landscapePhone();
@@ -26,8 +29,8 @@ const mhFmt = v => `${Math.round(v).toLocaleString()}인시`;
 const ago = (now, t) => { const m = now - t; if (m < 60) return '방금'; if (m < 1440) return `${Math.floor(m / 60)}시간 전`; if (m < 1440 * 30) return `${Math.floor(m / 1440)}일 전`; return fmtDate(t); };
 
 export class Hud {
-  constructor({ state, w3d, live, me, meta, onDeployMore, onExit, onInbox, onSettings, onReport, fetchBuilding }) {
-    Object.assign(this, { state, w3d, live, me, meta, onDeployMore, onExit, onInbox, onSettings, onReport, fetchBuilding });
+  constructor({ state, w3d, live, me, meta, onDeployMore, onExit, onInbox, onSettings, onReport, fetchBuilding, modal, serverId, serverName }) {
+    Object.assign(this, { state, w3d, live, me, meta, onDeployMore, onExit, onInbox, onSettings, onReport, fetchBuilding, modal, serverId, serverName });
     this.unread = 0;
     this.el = document.getElementById('hud');
     this.left = document.getElementById('left-body');
@@ -41,7 +44,10 @@ export class Hud {
     this.lastEventId = state.events.length ? state.events[state.events.length - 1].id : 0;
     this.el.classList.remove('hidden');
     document.querySelectorAll('#left-tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === this.tab));
-    document.getElementById('btn-deploy-more').classList.toggle('hidden', !me);
+    // 구경꾼이면 '시작하기', 내 앤이 떠났으면 '다시 시작'
+    const dm = document.getElementById('btn-deploy-more');
+    dm.classList.toggle('hidden', !!me);
+    if (dm.lastChild?.nodeType === 3) dm.lastChild.textContent = me ? '다시 시작' : '시작하기';
     document.getElementById('btn-inbox').classList.toggle('hidden', !me);
     this.setUnread(0);
     this.bind();
@@ -96,6 +102,9 @@ export class Hud {
       if (act === 'close-ann') return () => this.select(null);
       if (act === 'follow') return () => this.toggleFollow();
       if (act === 'report') return () => this.detail && this.onReport?.(this.detail);
+      if (act === 'share') return () => this.shareAnn();
+      const sl = t.closest('[data-share-life]');
+      if (sl) return () => this.shareAnn(+sl.dataset.shareLife);
       return null;
     });
     this.el.onclick = e => {
@@ -116,6 +125,9 @@ export class Hud {
       const act = t.closest('[data-act]')?.dataset.act;
       if (act === 'close-ann') this.select(null);
       if (act === 'follow') this.toggleFollow();
+      if (act === 'share') this.shareAnn();
+      const sl = e.target.closest('[data-share-life]');
+      if (sl) this.shareAnn(+sl.dataset.shareLife);
       if (act === 'deploy-more') this.onDeployMore?.();
       if (act === 'inbox') { this.setUnread(0); this.onInbox?.(); }
       if (act === 'asks') this.asks?.toggle();
@@ -337,7 +349,9 @@ export class Hud {
     // 한 계정에 앤은 한 명: 내 앤이 살아 있는 동안엔 '다시 시작' 버튼을 숨긴다
     let hasMain = false;
     if (this.me) for (const a of st.anns.values()) if (a.o === this.me.id && a.al) { hasMain = true; break; }
-    document.getElementById('btn-deploy-more').classList.toggle('hidden', !this.me || hasMain);
+    const dm = document.getElementById('btn-deploy-more');
+    dm.classList.toggle('hidden', !!this.me && hasMain);
+    if (dm.lastChild?.nodeType === 3) dm.lastChild.textContent = this.me ? '다시 시작' : '시작하기';
   }
 
   /** 내 앤의 상세 (다른 앤을 보고 있을 때는 몇 초마다 따로 받아 온다) */
@@ -504,6 +518,24 @@ export class Hud {
   }
   /** 오늘날(2026년) 가치로 환산 — 옛 시대 돈이 얼마쯤인지 감 잡기 */
   todayWorth(units, era) { const M = this.meta.money?.[era]; return M && era < 6 ? ` <span class="sub small" style="margin:0">(오늘 돈 약 ${fmtMan(units * M.to2026)})</span>` : ''; }
+
+  /** 공유 카드: 앤의 일생, 또는 연대기의 한 순간 */
+  shareAnn(li = null) {
+    const d = this.detail;
+    if (!d || !this.serverId) return;
+    const st = this.state, c = st.countries.get(d.c), meta = st.anns.get(d.id) || {};
+    const ev = li != null ? d.life[li] : null;
+    const notable = d.life.filter(l => NOTABLE.has(l.icon) && l !== ev).slice(-5).reverse().map(l => `${l.text} (${l.t < 0 ? `${Math.floor((l.t - d.born) / MIN_YEAR)}살 때` : fmtDate(l.t).replace(/ \d+일$/, '')})`);
+    const polity = this.polityName(c, d.s);
+    const now = d.al ? `지금: ${d.job ? d.job.title : d.school ? d.school.name : d.age < 4 ? '아기' : d.age < 13 ? '아이' : d.age < 19 ? '자기 길을 찾는 청소년' : '일을 찾는 중'}${d.ld ? ` · ${d.ld}` : ''}` : '세상을 떠났다';
+    const owner = st.players.get(d.o);
+    shareCard({
+      ann: { ...meta, age: d.age }, color: owner?.color || '#58b4ff', icon: ev?.icon || '🌍',
+      title: ev ? ev.text : `${d.n}의 이야기`, sub: `${d.age}세 · ${polity}${owner ? ` · ${owner.name}의 앤` : ''}`,
+      lines: ev ? [`${fmtDate(ev.t)}`, ...notable.slice(0, 3), now] : [...notable.slice(0, 4), now],
+      foot: `${this.serverName || ''} · ${fmtDate(st.clock)}`, url: annLink(this.serverId, d.id),
+    }, { modal: this.modal, toast: m => this.toast(m) });
+  }
 
   /** 그 정착지가 속한 나라 이름 — 나라가 서기 전엔 부족 이름, 부족도 없으면 땅 이름 */
   polityName(c, sid) {
@@ -774,7 +806,7 @@ export class Hud {
       for (const l of d.life) { const g = ageAt(l.t); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(l); }
       const ages = [...groups.keys()].sort((x, y) => y - x);
       body += ages.map(g => `<div class="chron-age"><span>${g}살</span><i>${fmtDate(groups.get(g)[0].t).replace(/ \d+월 \d+일$/, '')}</i></div>` +
-        groups.get(g).slice().reverse().map(l => `<div class="life"><span>${l.icon}</span><div>${esc(l.text)}<time>${fmtDate(l.t)}</time></div></div>`).join('')).join('');
+        groups.get(g).slice().reverse().map(l => `<div class="life"><span>${l.icon}</span><div>${esc(l.text)}<time>${fmtDate(l.t)}</time></div>${NOTABLE.has(l.icon) ? `<button class="share-mini" data-share-life="${d.life.indexOf(l)}" title="이 순간 공유하기" aria-label="공유">📤</button>` : ''}</div>`).join('')).join('');
     } else if (tab === 'money') {
       body += this.moneyHTML(d);
     } else if (tab === 'dream') {
@@ -803,7 +835,7 @@ export class Hud {
         <div><h2>${esc(d.n)} <small style="font-size:13px;font-weight:600;opacity:.75">${d.g === 'M' ? '♂' : '♀'} ${d.age}세 · ${esc(d.stage)}</small>${d.ld ? `<span class="badge">${esc(d.ld)}</span>` : ''}</h2>
           <div class="meta">${d.school ? '🎒 ' + esc(d.school.name) : d.job ? esc(d.job.title) : d.retired ? '은퇴' : d.age < 4 ? '아기' : d.age < 19 ? '' : '무직'}${d.settlement ? ` · ${esc(d.country?.name)} <span class="linklike" data-town="${d.settlement.id}">${esc(d.settlement.name)}</span>` : ''}<br>
           ${d.owner ? `<span class="dot" style="background:${d.owner.color}"></span> ${esc(d.owner.name)}의 앤` : '🏡 마을 사람 (관리자의 앤)'}${d.gen > 1 ? ` · ${d.gen}세대` : ''}</div></div>
-        <div class="acts">${d.al ? `<button class="btn small ${follow ? 'primary' : ''}" data-act="follow">${icon('follow')}${follow ? '따라가는 중' : '따라가기'}</button>` : ''}${this.me && d.owner?.id !== this.me.id ? `<button class="btn small ghost icon-only" data-act="report" title="신고" aria-label="신고">${icon('report')}</button>` : ''}<button class="btn small ghost" data-act="close-ann">${icon('close')}닫기</button></div>
+        <div class="acts">${d.al ? `<button class="btn small ${follow ? 'primary' : ''}" data-act="follow">${icon('follow')}${follow ? '따라가는 중' : '따라가기'}</button>` : ''}<button class="btn small ghost icon-only" data-act="share" title="공유하기" aria-label="공유하기">📤</button>${this.me && d.owner?.id !== this.me.id ? `<button class="btn small ghost icon-only" data-act="report" title="신고" aria-label="신고">${icon('report')}</button>` : ''}<button class="btn small ghost" data-act="close-ann">${icon('close')}닫기</button></div>
       </div>
       <div class="ap-body">${nowBox}
         <div class="inner-tabs">${[['chron', '연대기'], ['money', '돈'], ['mind', '생각'], ['self', '성격·능력'], ['rels', '관계'], ['mem', '기억'], ['dream', '꿈·작품']].map(([k, n]) => `<button data-itab="${k}" class="${tab === k ? 'on' : ''}">${icon(k)}${n}</button>`).join('')}</div>

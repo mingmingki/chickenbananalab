@@ -59,7 +59,7 @@ export class Creator {
     $('#roster').innerHTML = this.anns.map((a, i) => `
       <div class="roster-item ${i === this.cur ? 'on' : ''}" data-i="${i}">
         <img src="${avatarURL({ ...a, g: a.gender, lk: { ...a.look, skin: '#e9c5a2', hair: '#2b2018' } }, '#58b4ff', 48)}" width="30" height="30" style="border-radius:50%">
-        <span class="nm">${esc(a.name)}<br><small class="sub small">${a.gender === 'M' ? '남' : '여'} · ${this.opts.mode === 'baby' ? '아기' : a.age + '세'}</small></span>
+        <span class="nm">${esc(a.name)}<br><small class="sub small">${a.gender === 'M' ? '남' : '여'} · ${this.opts.mode === 'baby' ? (a.start === 'baby' ? '아기' : '17세') : a.age + '세'}</small></span>
         <button class="x" data-del="${i}" title="빼기">×</button>
       </div>`).join('');
     $('#roster-room').textContent = `${this.anns.length} / ${this.opts.room}명 (한 플레이어 최대 ${this.opts.max}명)`;
@@ -81,8 +81,8 @@ export class Creator {
     const baby = this.opts.mode === 'baby';
     const banner = baby
       ? this.opts.village
-        ? `<div class="creator-mode">🏕️ <b>지금의 ${esc(this.opts.countryName)} 자리엔 아직 나라가 없어요.</b> 부족 서너 개가 움집에 흩어져 사는 <b>원시 시대</b>에서 시작하고, 당신의 앤은 그중 한 부족 가정에서 <b>아기로 태어납니다</b>. 처음엔 불도 돌도끼도 모릅니다 — 족장이 똑똑할수록 빨리 알아내요. 부족끼리 선물을 주고받고, 혼인으로 맺어지고, 싸우기도 하다가 하나로 뭉치면 나라가 생기고 그때 나라 이름을 짓습니다. 내 앤이 세상을 떠나면 그 아이나 손주로 대를 이을 수 있어요.</div>`
-        : `<div class="creator-mode">👶 <b>${esc(this.opts.countryName)}에는 지금 가정이 ${this.opts.families}개 있어요.</b>${this.opts.mine ? ` 그중 <b>${this.opts.mine}곳은 내 앤이 꾸린 가정</b>이라, 앤은 대개 그 집 아이로 태어나요.` : ''} 내 앤은 무작위로 고른 가정에서 <b>아기로 태어납니다</b> — 다른 플레이어의 앤이 꾸린 집의 아이가 될 수도 있어요. 성은 태어난 집안을 따르고, 여기서 정한 성격·능력·야망은 타고난 기질이 됩니다. 학교가 있어야 학교에 다니고, 자라서 스스로 일과 사랑을 찾습니다.</div>`
+        ? `<div class="creator-mode">🏕️ <b>지금의 ${esc(this.opts.countryName)} 자리엔 아직 나라가 없어요.</b> 부족 서너 개가 움집에 흩어져 사는 <b>원시 시대</b>에서 시작하고, 당신의 앤은 그중 한 부족 가정에서 <b>자라납니다</b> (열일곱 살 젊은이로 시작하거나, 아기로 태어나거나). 처음엔 불도 돌도끼도 모릅니다 — 족장이 똑똑할수록 빨리 알아내요. 부족끼리 선물을 주고받고, 혼인으로 맺어지고, 싸우기도 하다가 하나로 뭉치면 나라가 생기고 그때 나라 이름을 짓습니다. 내 앤이 세상을 떠나면 그 아이나 손주로 대를 이을 수 있어요.</div>`
+        : `<div class="creator-mode">👶 <b>${esc(this.opts.countryName)}에는 지금 가정이 ${this.opts.families}개 있어요.</b>${this.opts.mine ? ` 그중 <b>${this.opts.mine}곳은 내 앤이 꾸린 가정</b>이라, 앤은 대개 그 집 아이로 태어나요.` : ''} 내 앤은 무작위로 고른 가정의 <b>아이로 자랍니다</b> (열일곱 살로 시작하거나, 아기로 태어나거나) — 다른 플레이어의 앤이 꾸린 집의 아이가 될 수도 있어요. 성은 태어난 집안을 따르고, 여기서 정한 성격·능력·야망은 타고난 기질이 됩니다. 학교가 있어야 학교에 다니고, 자라서 스스로 일과 사랑을 찾습니다.</div>`
       : `<div class="creator-mode">🌱 <b>${esc(this.opts.countryName)}에는 아직 가정이 없어요.</b> 앤들은 <b>개척자(어른)</b>로 도착합니다. 산과 강과 바다, 숲뿐인 땅에서 먹을 것과 쉴 곳을 찾는 것부터 시작해요. 처음엔 손수 움집과 흙벽돌 초가집을 짓고(이웃끼리 품앗이), 벽돌 가마가 생겨야 기와집·벽돌집을, 건설회사가 생겨야 큰 건물과 아파트를, 학교가 생겨야 아이들이 공부를 할 수 있습니다.</div>`;
     ed.innerHTML = `${banner}
       <div>
@@ -92,7 +92,8 @@ export class Creator {
           <div class="seg"><button data-g="M" class="${a.gender === 'M' ? 'on' : ''}">남자</button><button data-g="F" class="${a.gender === 'F' ? 'on' : ''}">여자</button></div>
           <button class="btn small" data-act="rand-one">🎲 무작위</button>
         </div>
-        ${baby ? '<p class="sub small" style="margin:12px 0 0">🍼 갓난아기로 태어납니다</p>' : `<div class="slider" style="margin-top:12px"><span class="lab">나이</span><input type="range" min="16" max="45" value="${a.age}" data-f="age"><b>${a.age}</b></div>`}
+        ${baby ? `<div class="start-pick" style="margin-top:12px"><div class="seg"><button data-start="youth" class="${a.start !== 'baby' ? 'on' : ''}">🌱 열일곱 살로 시작</button><button data-start="baby" class="${a.start === 'baby' ? 'on' : ''}">👶 아기로 태어나기</button></div>
+          <p class="sub small" style="margin:8px 0 0">${a.start === 'baby' ? '갓난아기로 태어나 자라는 모습을 처음부터 지켜봅니다. 앤이 스스로 무언가를 하기까지 며칠이 걸려요.' : '마을의 한 가정에서 자라 열일곱이 된 모습으로 시작해요. 어린 시절 기억·동네 친구·배운 노래를 가진 채, 바로 "어떤 사람으로 살까?"를 고릅니다. <b>처음이라면 이쪽을 추천해요.</b>'}</p></div>` : `<div class="slider" style="margin-top:12px"><span class="lab">나이</span><input type="range" min="16" max="45" value="${a.age}" data-f="age"><b>${a.age}</b></div>`}
         <div class="slider"><span class="lab">야망<small>꿈의 크기</small></span><input type="range" min="1" max="100" value="${a.ambition}" data-f="ambition"><b>${a.ambition}</b></div>
       </div>
       <div>
@@ -134,6 +135,8 @@ export class Creator {
     ed.onclick = async e => {
       const g = e.target.closest('[data-g]');
       if (g) { a.gender = g.dataset.g; this.render(); return; }
+      const st = e.target.closest('[data-start]');
+      if (st) { a.start = st.dataset.start; this.render(); return; }
       if (e.target.closest('[data-act=rand-one]')) { this.anns[this.cur] = await this.randomAnn(a.gender); this.render(); }
     };
   }

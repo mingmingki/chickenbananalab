@@ -10,7 +10,8 @@ export function dateOf(min) {
   const mod = ((min % MIN_DAY) + MIN_DAY) % MIN_DAY;
   return { year, month: m + 1, day: doy + 1, hour: Math.floor(mod / 60), minute: Math.floor(mod % 60), doy: dayN % 365 };
 }
-export const fmtDate = min => { const d = dateOf(min); return `${d.year}년 ${d.month}월 ${d.day}일`; };
+// 세계가 열리기 전 (열일곱 살로 시작한 앤의 어린 시절): 'N년 전'으로
+export const fmtDate = min => { if (min < 0) return `세계가 열리기 ${Math.max(1, Math.round(-min / 525600))}년 전`; const d = dateOf(min); return `${d.year}년 ${d.month}월 ${d.day}일`; };
 export const fmtTime = min => { const d = dateOf(min); return `${String(d.hour).padStart(2, '0')}:${String(d.minute).padStart(2, '0')}`; };
 export const fmtDateTime = min => `${fmtDate(min)} ${fmtTime(min)}`;
 export const localHour = (min, lon) => ((((min / 60) + lon / 15) % 24) + 24) % 24;

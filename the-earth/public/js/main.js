@@ -139,6 +139,9 @@ function intro() {
     w3d.menuSpin(true);
   };
   w3d.playIntro(landed);
+  // 공유 링크로 들어왔으면 (/?w=서버&a=앤) 첫 화면을 건너뛰고 그 앤을 바로 보여 준다
+  const qp = new URLSearchParams(location.search), deepW = qp.get('w'), deepA = +qp.get('a') || null;
+  if (deepW) { history.replaceState(null, '', location.pathname); w3d.introSkip?.(); openShared(deepW, deepA); return; }
   $('#intro').onclick = e => {
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act === 'account') { account() ? openSettings() : accountModal({ toast, onChange: onAccount, ...loginKinds() }); return; }
@@ -217,6 +220,26 @@ async function showServers() {
       } catch (err) { forgetSession(sess.serverId, sess.token); toast(err.message); showServers(); }
     }
   };
+}
+
+/** 공유 링크: 그 서버에 들어가 그 앤을 따라간다 (내 앤이 그 서버에 있으면 내 계정으로, 없으면 구경꾼으로) */
+async function openShared(serverId, annId) {
+  try {
+    const servers = await api('/api/servers');
+    ctx.server = servers.find(s => s.id === serverId);
+    if (!ctx.server) { toast('없는 서버예요'); showServers(); return; }
+    const sess = allSessions().find(x => x.serverId === serverId);
+    if (sess) {
+      try { const me = await api(`/api/servers/${sess.serverId}/me?token=${encodeURIComponent(sess.token)}`); ctx.session = { ...sess, player: me.player, room: me.room }; } catch { ctx.session = null; }
+    } else ctx.session = null;
+    observe(false);
+    const pick = () => setTimeout(() => {
+      if (!hud || !annId) return;
+      hud.select(annId, true);
+      if (!ctx.session) hud.toast('공유받은 앤을 보고 있어요. 나도 앤을 만들어 함께 살아 보세요 — 오른쪽 위 🌱 시작하기');
+    }, 1500);
+    if (state.world) pick(); else state.on('init', function once() { pick(); });
+  } catch (e) { toast(e.message); showServers(); }
 }
 
 async function newServer() {
@@ -369,11 +392,11 @@ async function openCreator() {
 async function deploy() {
   if (!creator.anns.length) return toast('앤을 만들어 주세요');
   const ok = await modal(`<h3>🌱 ${esc(creator.anns[0].name)}을(를) 투입할까요?</h3>
-    <p class="sub">한 계정에 앤은 한 명이에요. 투입한 순간부터 앤은 스스로 생각하고 선택합니다. <b>더 이상 조종할 수 없습니다.</b><br>누구를 만나고, 어떤 일을 하고, 누구와 사랑에 빠질지 — 지켜보세요. 인생의 갈림길에선 앤이 <b>💭 마음속 목소리</b>인 당신에게 물어 오기도 합니다. 조언은 할 수 있지만, 결정은 앤의 몫이에요.</p>
+    <p class="sub">한 계정에 앤은 한 명이에요. 투입한 순간부터 앤은 스스로 생각하고 선택합니다.<br>대신 인생의 갈림길마다 앤이 <b>💭 마음속 목소리</b>인 당신에게 물어 와요 — 어떤 일을 할지, 누구에게 마음을 전할지, 부족 싸움에 나설지, 족장이 되면 습격할지 화친할지, 나라를 세우면 그 이름까지. 앤은 대개 당신의 말을 듣지만, 마음과 너무 다르면 자기 뜻대로 하기도 해요.</p>
     <div class="acts"><button class="btn ghost" data-m="cancel">조금 더 고민할래요</button><button class="btn primary" data-m="ok">투입하기</button></div>`);
   if (ok !== 'ok') return;
   try {
-    const specs = creator.anns.slice(0, 1).map(a => ({ name: a.name, gender: a.gender, age: a.age, traits: a.traits, abilities: a.abilities, ambition: a.ambition }));
+    const specs = creator.anns.slice(0, 1).map(a => ({ name: a.name, gender: a.gender, age: a.age, traits: a.traits, abilities: a.abilities, ambition: a.ambition, start: a.start === 'baby' ? 'baby' : 'youth' }));
     const r = await api(`/api/servers/${ctx.session.serverId}/deploy`, { token: ctx.session.token, anns: specs });
     sound.sfx('deploy');
     creator = null;
@@ -397,8 +420,10 @@ function observe(justDeployed = false, firstAnn = null, since = null) {
   hud = new Hud({
     state, w3d, live, me, meta,
     fetchBuilding: bid => api(`/api/servers/${ctx.server.id}/building/${bid}`),
+    modal, serverId: ctx.server.id, serverName: ctx.server.name,
     // 내 앤이 세상을 떠났을 때: 아이·손주로 대를 잇거나, 새로 태어나기
     onDeployMore: async () => {
+      if (!ctx.session) { pickCountry(); return; }   // 구경꾼: 이 서버에서 내 앤을 만든다
       const r = await api(`/api/servers/${ctx.session.serverId}/me?token=${encodeURIComponent(ctx.session.token)}`).catch(() => null);
       if (!r) return;
       if (r.main) return hud.toast('한 계정에 앤은 한 명이에요. 내 앤이 살아 있어요');
