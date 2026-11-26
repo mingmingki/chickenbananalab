@@ -188,3 +188,35 @@ class DeckEarthworkTests(SimpleTestCase):
         self.assertAlmostEqual(deck["basement_waterproof"], 180.0 * (3.6 + 3.5), places=1)
         self.assertEqual(tower["basement_waterproof"], 0.0)  # the deck's walls
         self.assertEqual(tower["roof"]["insulation"], 380.0)
+
+    def test_a_foundation_sheet_naming_its_storey_sets_the_bottom_of_the_dig(self):
+        from core import quantity_floor_views as fv
+        self.assertEqual(fv.floor_of("지하2층 기초구조평면도")["storey"], "B2")
+        self.assertNotIn("storey", fv.floor_of("101동 기초 구조평면도"))
+        plans = [{"floor": fv.floor_of(t), "sheet": s, "model": {"id": s}} for t, s in
+                 (("지하주차장 지하2층 기초구조평면도", "S-621"), ("지하주차장 지하1층 구조평면도", "S-631"), ("지하주차장 지붕 구조평면도", "S-641"))]
+        table = {"sections": {"지하주차장": {"elevations": {"B2": 45.5, "B1": 49.0}}, "공통": {"elevations": {"GL": 54.0}}}}
+        deck, = fv.build_model(plans, table, site=False)["buildings"]
+        self.assertEqual([l["key"] for l in deck["levels"]], ["B1", "R"])  # no storey of the takeoff added
+        self.assertEqual(deck["mat_elev"], 45.5)
+        self.assertNotIn("mat_elev", fv.build_model(plans, {"sections": {"지하주차장": {"elevations": {"B1": 49.0}}}}, site=False)["buildings"][0])
+        takeoff = [{"name": "지하주차장", "rows": [{"key": "FT", "foundation": {"area": 1000.0, "perimeter": 130.0, "thickness": 1.0}}]}]
+        group, = works.earthwork(takeoff, [dict(deck, ground_elev=54.0)], None, {})["groups"]
+        self.assertAlmostEqual(group["depth"], 54.0 - (45.5 - 1.0 - 0.06), places=2)
+
+
+class PenthouseRoofTests(SimpleTestCase):
+    def test_a_penthouse_without_a_plan_above_gets_the_slab_its_walls_close(self):
+        m = model()
+        roof = m["buildings"][0]["plans"][3]
+        roof.update(slab_area=40.0, slab_approximate=False)  # the penthouse outline on the roof sheet
+        m["buildings"][0]["plans"][2].update(slab_area=300.0, slab_approximate=False)
+        takeoff = ft.build_takeoff(m)
+        rows = {r["key"]: r for r in takeoff["buildings"][0]["rows"]}
+        t = takeoff["assumptions"]["slab_thickness"]
+        self.assertAlmostEqual(rows["R"]["concrete"]["slab"], 40.0 * t, places=2)
+        self.assertTrue(any("옥탑 지붕 슬래브" in n for n in rows["R"]["notes"]))
+        deck = {"buildings": [{"name": "지하주차장", "levels": [level("B1", 0, 3.5, "S-1"), level("R", 1, 3.0, "S-2")],
+                               "plans": [plan(300, 20, outside=70.0, outline=70.0), dict(plan(80, 5, outside=40.0, outline=40.0), slab_area=40.0)]}]}
+        rows = {r["key"]: r for r in ft.build_takeoff(deck)["buildings"][0]["rows"]}
+        self.assertEqual(rows["R"]["concrete"].get("slab", 0.0), 0.0)  # a parking deck's roof is no penthouse

@@ -58,8 +58,16 @@ def layer_category(layer):
     return None if rule == "skip" else rule
 
 
+# offices that name their layers by one letter: C concrete, B brick or block (F finish lines, H
+# hatching, X the cross of a shaft: no wall); also as a bound xref's layer ("XREF-평면$0$C")
+_LETTER_LAYERS = {"C": "frame", "B": "masonry"}
+
+
 def _layer_rule(layer):
     base = _nfc(layer).split("|")[-1]
+    letter = _LETTER_LAYERS.get(re.split(r"\$\d+\$", base)[-1].strip())
+    if letter:
+        return letter
     for name, rule in _LAYER_RULES:
         if rule.search(base):
             return name
@@ -120,7 +128,10 @@ def floor_of(title):
     if span and (span.group(1) or "") != "지하" and (span.group(3) or "") != "지하":
         floors = [(span.group(1) or "", span.group(2)), (span.group(3) or "", span.group(4))]
     if "기초" in text:
-        return {"building": building or "기타", "floor": "기초", "group": "basement", "order": -99, "discipline": discipline}
+        out = {"building": building or "기타", "floor": "기초", "group": "basement", "order": -99, "discipline": discipline}
+        if floors and floors[0][0] == "지하":  # "지하2층 기초구조평면도": the mat lies at that storey
+            out["storey"] = f"B{int(floors[0][1])}"
+        return out
     if "옥탑" in text:
         # a penthouse sheet: "옥탑1층" is the penthouse, never the first floor
         return dict(_roof_floor(text), building=building or "기타", discipline=discipline)
@@ -1204,6 +1215,16 @@ def _elevations(keys, table, section):
     return result
 
 
+def _section_level(table, section, key):
+    """The elevation the sections give a level of this building (its own, 주동 or 공통), or None."""
+    sections = (table or {}).get("sections") or {}
+    for name in (section, "주동", "공통"):
+        value = ((sections.get(name) or {}).get("elevations") or {}).get(key)
+        if value is not None:
+            return value
+    return None
+
+
 def _ground_elev(table, section, keys, elevations=None):
     """The ground level (GL, m) of a building from the sections and elevations, in the datum of its
     floor levels: only when the same drawings also give one of its floors. On a sloping site a
@@ -1248,7 +1269,13 @@ def build_model(plans, table, site=True):
             continue
         top = keys[-1]
         upper = {"R": "PH", "PH": "PHR"}.get(top) or (str(int(top) + 1) if top.isdigit() else ("1" if top == "B1" else None))
-        elevations = _elevations(keys + ([upper] if upper else []), table, name)
+        if upper == "PH" and not _section_level(table, name, "PH") and _section_level(table, name, "PHR"):
+            upper = "PHR"  # the sections give the penthouse roof only: the top storey (the penthouse) reaches it
+        # the storey a foundation sheet names ("지하2층 기초"), when no plan of its own gives it: the
+        # level the mat lies at (for the excavation), not a storey of the takeoff
+        mat = rows[foundation]["floor"].get("storey") if foundation is not None else None
+        mat = mat if mat and mat not in storeys and _level_order(mat) < _level_order(keys[0]) else None
+        elevations = _elevations(sorted(keys + ([upper] if upper else []) + ([mat] if mat else []), key=_level_order), table, name)
         levels = []
         for position, key in enumerate(keys):
             nxt = keys[position + 1] if position + 1 < len(keys) else upper
@@ -1263,8 +1290,12 @@ def build_model(plans, table, site=True):
                 label = "지붕층"  # the penthouse has storeys of its own
             levels.append({"key": key, "label": label, "elev": base, "height": height,
                            "plan": storeys[key], "sheet": rows[storeys[key]].get("sheet")})
-        buildings.append({"name": name, "levels": levels, "foundation": foundation,
-                          "ground_elev": _ground_elev(table, name, keys, elevations), "plans": [plan["model"] for plan in rows]})
+        building = {"name": name, "levels": levels, "foundation": foundation,
+                    "ground_elev": _ground_elev(table, name, keys, elevations), "plans": [plan["model"] for plan in rows]}
+        sections = (table or {}).get("sections") or {}
+        if mat and any(mat in ((sections.get(sec) or {}).get("elevations") or {}) for sec in (name, "주동", "공통")):
+            building["mat_elev"] = elevations[mat]  # only a level the sections give, never a default storey down
+        buildings.append(building)
     model = {"version": 1, "buildings": buildings, "heights_from_drawings": bool((table or {}).get("sections"))}
     if site:
         from . import quantity_site

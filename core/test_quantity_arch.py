@@ -393,6 +393,7 @@ class LetterSizeScheduleTests(SimpleTestCase):
         self.assertEqual(qs.listed_type(types, "단위세대_WD-1000")["code"], "WD1X2.2")
         self.assertEqual(qs.listed_type(types, "XR-101동$0$AW 900")["code"], "AW0.9X1.1")
         self.assertEqual(qs.listed_type(types, "PW-1500(D)"), {})  # no PW 1.5 m wide in the schedule
+        self.assertEqual(qs.listed_type(types, "XR-101동$0$UNIT BPW-3000")["code"], "PW3X2.1")  # a unit's balcony PW
         types["FSD1.1X2.3"] = dict(types["FSD1.1X2.1"], code="FSD1.1X2.3", height=2.3)
         self.assertEqual(qs.listed_type(types, "FSD-1100"), {})  # two heights for one width: not guessed
 

@@ -1318,8 +1318,18 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
                     notes.append("주차장 지붕은 아래층 평면에서 동 영역을 뺀 크기로 봤어요")
                 else:
                     slab_area = upper
+            # a tower's penthouse (its walls close a small outline on the roof sheet) with no plan above
+            # it, or an empty one: its roof slab covers what its walls close, the stair hall too
+            own_roof = (float(vplan.get("slab_area") or 0) if kind == "roof" and key != "PHR" and not vplan.get("slab_approximate")
+                        and any((l.get("key") or "").isdigit() for l in levels) else 0.0)
+            below_plan = _plan_at(building, levels[index - 1]) if index else None
+            below_slab = _net_slab(below_plan) or float((below_plan or {}).get("slab_area") or 0)
+            penthouse = own_roof > 0 and below_slab > 0 and own_roof < 0.5 * below_slab
             if slab_area > 0 or (podium_split and region is not None and next_is_basement):
                 pass
+            elif penthouse and (hplan is None or not (_net_slab(hplan) or hplan.get("slab_area"))):
+                slab_area = own_roof
+                notes.append("옥탑 지붕 슬래브는 옥탑 벽이 둘러싼 크기로 봤어요 (위 평면이 없거나 비어 있어요)")
             elif hplan is None and len(vplan.get("sub_slabs") or []) >= 2:
                 # the roof sheet also draws the penthouse roof: the smallest plan on it
                 slab_area = float(vplan["sub_slabs"][-1])

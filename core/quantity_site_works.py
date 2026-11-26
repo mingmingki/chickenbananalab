@@ -52,6 +52,8 @@ def _levels_and_ground(building):
     levels = building.get("levels") or []
     elev = {l.get("key"): float(l.get("elev") or 0.0) for l in levels}
     basement = [elev[k] for k in elev if (k or "").startswith("B")]
+    if building.get("mat_elev") is not None:  # the foundation sheet's storey ("지하2층 기초") under the plans' lowest
+        basement.append(float(building["mat_elev"]))
     stacked = sum(float(l.get("height") or 0) for l in levels if (l.get("key") or "").startswith("B"))
     floor = min(basement) if basement else elev.get("1", min(elev.values()) if elev else 0.0)
     if building.get("ground_elev") is not None:

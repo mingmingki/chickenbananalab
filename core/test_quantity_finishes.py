@@ -353,3 +353,47 @@ class PastedGroupDoorTests(SimpleTestCase):
         measured = quantity_arch.measure(paths, (0, 0, 10000, 6000), inserts=inserts, tags=(), names=())
         self.assertEqual({o["name"]: o["count"] for o in measured["openings"]}, {"A$Ce0037f0f": 1})
 
+
+    def test_an_xref_clipped_to_one_floor_gives_only_that_floors_openings(self):
+        import ezdxf
+        from ezdxf import xclip
+        from core import quantity_arch
+        from core import quantity_floor_views as fv
+        doc = ezdxf.new()
+        doc.layers.add("A-DOOR")
+        door = doc.blocks.new("SD-900")
+        door.add_line((0, 0), (900, 0), dxfattribs={"layer": "A-DOOR"})
+        door.add_arc((0, 0), 900, 0, 90, dxfattribs={"layer": "A-DOOR"})
+        building = doc.blocks.new("XR-101동")  # a bound building xref: every floor side by side
+        for x in (1000, 31000, 61000):          # 1층, 2층, 지붕 plans 30 m apart
+            building.add_blockref("SD-900", (x, 1000), dxfattribs={"layer": "A-DOOR"})
+        building.add_text("거실", dxfattribs={"insert": (31500, 2000), "height": 300})
+        building.add_text("거실", dxfattribs={"insert": (61500, 2000), "height": 300})
+        sheet = doc.modelspace().add_blockref("XR-101동", (-30000, 0))  # the 2층 plan moved into this frame
+        xclip.XClip(sheet).set_wcs_clipping_path([(-5000, -5000), (20000, 20000)])
+        names = []
+        inserts = quantity_arch.opening_inserts(doc, {}, None, fv._is_opening_insert, names=names)
+        self.assertEqual([(n, round(x)) for n, _k, x, *_ in inserts], [("SD-900", 1000)])  # not the 1층 or the roof's
+        self.assertEqual([(n, round(x)) for n, x, _y in names], [("거실", 1500)])
+
+
+class WallLayerTests(SimpleTestCase):
+    def test_one_letter_layers_c_concrete_and_b_block(self):
+        from core import quantity_floor_views as fv
+        self.assertEqual([fv.layer_category(n) for n in ("C", "B", "XREF-연결평면도$0$C", "F", "X", "CONC", "BEAM")],
+                         ["frame", "masonry", "frame", None, None, "frame", None])
+
+    def test_dry_partitions_drawn_by_their_boards_and_board_linings(self):
+        from core import quantity_arch
+        concrete = [(0.0, 0.0, 6.0, 0.0), (0.0, 0.2, 6.0, 0.2)]          # a 200 mm concrete wall
+        lining = [(0.0, 0.29, 6.0, 0.29), (0.0, 0.30, 6.0, 0.30)]         # a board 90 mm off its face: a lining
+        one_strip = [(2.0, 1.0, 2.0, 4.0), (2.03, 1.0, 2.03, 4.0)]        # a partition drawn as one 30 mm strip
+        two_boards = [(4.0, 1.0, 4.0, 3.5), (4.0125, 1.0, 4.0125, 3.5),  # both boards of a partition, the studs between not drawn
+                      (4.0875, 1.0, 4.0875, 3.5), (4.1, 1.0, 4.1, 3.5)]
+        lone = [(5.0, 1.0, 5.0, 2.0)]                                       # a lone line is no partition
+        found = quantity_arch.board_partitions(lining + one_strip + two_boards + lone, concrete)
+        self.assertAlmostEqual(found["length"], 3.0 + 2.5, places=2)
+        segments = [((kind, "L"), min(a, c) * 1000, min(b, d) * 1000, max(a, c) * 1000, max(b, d) * 1000, [(a * 1000, b * 1000), (c * 1000, d * 1000)])
+                    for kind, lines in (("frame", concrete), ("dry", lining + one_strip + two_boards + lone)) for a, b, c, d in lines]
+        measured = quantity_arch.measure(segments, (-1000, -1000, 8000, 6000))
+        self.assertAlmostEqual(measured["walls"]["dry"]["length"], 5.5, places=1)

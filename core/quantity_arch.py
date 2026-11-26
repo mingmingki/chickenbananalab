@@ -127,7 +127,8 @@ def opening_inserts(doc, xrefs, limit=None, is_opening=None, key_of=None, tags=N
     layer's material category) also finds the ones only their lines show (opening_by_content);
     other blocks and xrefs are walked into (a unit plan block holds its doors). ``key_of(path)``
     finds an xref's document in ``xrefs``. ``tags``, a list, gets the type tags written on the
-    drawing: [(code, x, y)]; ``names``, a list, gets the room names written on it: [(name, x, y)]."""
+    drawing: [(code, x, y)]; ``names``, a list, gets the room names written on it: [(name, x, y)].
+    An insert clipped with XCLIP gives only what lies inside its boundary."""
     from ezdxf.math import Matrix44, Vec3
     from .quantity_arch_rooms import is_room_name
     from .quantity_arch_schedule import code_key
@@ -174,8 +175,8 @@ def opening_inserts(doc, xrefs, limit=None, is_opening=None, key_of=None, tags=N
             if block.block_record.is_xref:
                 path = block.block.dxf.get("xref_path", "") or name
                 target = xrefs.get(key_of(path)) if key_of else None
-                if target is not None:
-                    walk(target, target.modelspace(), placed, None, depth + 1)
+                if target is not None and not is_key_map(name):
+                    clipped(entity, matrix, lambda: walk(target, target.modelspace(), placed, None, depth + 1))
                 continue
             attrib_keys = [(code_key(_text(a)), a) for a in entity.attribs]
             by_content = None if is_opening(layer, name) else opening_by_content(document, name, layer, layer_kind, cache)
@@ -202,8 +203,29 @@ def opening_inserts(doc, xrefs, limit=None, is_opening=None, key_of=None, tags=N
             for key, attrib in attrib_keys:  # a tag block: its attribute is the code (or a room name)
                 tag_at(key, attrib, matrix)
                 name_at(_text(attrib), attrib, matrix)
-            walk(document, block, placed, layer, depth + 1)
+            clipped(entity, matrix, lambda: walk(document, block, placed, layer, depth + 1))
 
+    def clipped(entity, matrix, go):
+        """Walk into an insert; with an XCLIP boundary keep only what it finds inside the boundary.
+        A sheet often inserts the whole building's xref (every floor side by side) in each frame,
+        clipped to the one floor it shows: the other floors' doors are no openings of this one."""
+        clip = _clip_polygon(entity, matrix)
+        marks = (len(out), len(tags) if tags is not None else 0, len(names) if names is not None else 0)
+        go()
+        if not clip:
+            return
+        polygon, inverted = clip
+
+        def kept(x, y):
+            return _point_inside(polygon, x, y) != inverted
+        out[marks[0]:] = [item for item in out[marks[0]:] if kept(item[2], item[3])]
+        if tags is not None:
+            tags[marks[1]:] = [item for item in tags[marks[1]:] if kept(item[1], item[2])]
+        if names is not None:
+            names[marks[2]:] = [item for item in names[marks[2]:] if kept(item[1], item[2])]
+
+    from .quantity_floor_views import _clip_polygon, is_key_map
+    from .quantity_floor_views import _inside as _point_inside
     walk(doc, doc.modelspace(), Matrix44(), None, 0)
     return out
 
@@ -274,6 +296,85 @@ def _without_copies(placed):
     return kept
 
 
+LINING_REACH_M = 0.15      # a board line this close along another wall is its lining (furring, insulation and board)
+BUNDLE_ACROSS_M = 0.2      # board lines this close across, side by side, are one partition
+BUNDLE_ANGLE = math.radians(5)
+
+
+def _lining(seg, grid, cell):
+    """Whether a dry-wall line runs along a wall of another kind (most of it within LINING_REACH_M
+    of a parallel line of a concrete, block or ALC wall): a board lining, not a partition."""
+    ax, ay, bx, by = seg
+    length = math.hypot(bx - ax, by - ay)
+    angle = math.atan2(by - ay, bx - ax)
+    n = max(2, int(length / 0.1))
+    near = 0
+    for i in range(n):
+        t = (i + 0.5) / n
+        px, py = ax + (bx - ax) * t, ay + (by - ay) * t
+        hit = False
+        for other in grid.get((int(math.floor(px / cell)), int(math.floor(py / cell))), ()):
+            ox0, oy0, ox1, oy1 = other
+            turn = abs((math.atan2(oy1 - oy0, ox1 - ox0) - angle + math.pi / 2) % math.pi - math.pi / 2)
+            if turn <= math.radians(10) and _distance(px, py, other) <= LINING_REACH_M:
+                hit = True
+                break
+        near += hit
+    return near >= 0.6 * n
+
+
+def board_partitions(dry, others):
+    """{"length", "thickness", "section", "drawn_as": "boards"} of dry partitions drawn by their
+    boards (lines 1-4 cm apart, the studs between not drawn): the lines along a concrete, block or
+    ALC wall are linings and left out; the rest, parallel and side by side within
+    BUNDLE_ACROSS_M (one board pair, or both boards of a partition), make one partition each,
+    as long as its lines run together. A lone line is no partition."""
+    cell = 1.0
+    grid = {}
+    for seg in others:
+        ax, ay, bx, by = seg
+        for gx in range(int(math.floor(min(ax, bx) / cell - LINING_REACH_M)), int(math.floor(max(ax, bx) / cell + LINING_REACH_M)) + 1):
+            for gy in range(int(math.floor(min(ay, by) / cell - LINING_REACH_M)), int(math.floor(max(ay, by) / cell + LINING_REACH_M)) + 1):
+                grid.setdefault((gx, gy), []).append(seg)
+    free = [seg for seg in dry if math.hypot(seg[2] - seg[0], seg[3] - seg[1]) >= 0.15 and not _lining(seg, grid, cell)]
+    lines = []
+    for ax, ay, bx, by in free:
+        angle = math.atan2(by - ay, bx - ax) % math.pi
+        ux, uy = math.cos(angle), math.sin(angle)
+        s0, s1 = sorted((ax * ux + ay * uy, bx * ux + by * uy))
+        lines.append((angle, -ax * uy + ay * ux, s0, s1))  # direction, offset across, extent along
+    parent = list(range(len(lines)))
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    order = sorted(range(len(lines)), key=lambda i: (round(lines[i][0], 2), lines[i][1]))
+    for a, i in enumerate(order):
+        ai, di, si0, si1 = lines[i]
+        for j in order[a + 1:a + 40]:
+            aj, dj, sj0, sj1 = lines[j]
+            turn = abs((aj - ai + math.pi / 2) % math.pi - math.pi / 2)
+            if turn > BUNDLE_ANGLE:
+                continue
+            shared = min(si1, sj1) - max(si0, sj0)
+            if abs(dj - di) <= BUNDLE_ACROSS_M and shared >= 0.5 * min(si1 - si0, sj1 - sj0):
+                parent[root(j)] = root(i)
+    bundles = {}
+    for i in range(len(lines)):
+        bundles.setdefault(root(i), []).append(lines[i])
+    length = spread = 0.0
+    for members in bundles.values():
+        if len(members) < 2:
+            continue
+        along = max(m[3] for m in members) - min(m[2] for m in members)
+        length += along
+        spread += along * (max(m[1] for m in members) - min(m[1] for m in members))
+    thickness = spread / length if length else 0.0
+    return {"length": round(length, 2), "thickness": round(thickness, 3), "section": round(spread, 3), "drawn_as": "boards"}
+
+
 def measure(paths, box, inserts=(), tags=(), names=()):
     """Walls by material and the openings of one architectural frame.
 
@@ -303,7 +404,12 @@ def measure(paths, box, inserts=(), tags=(), names=()):
             continue
         thickness = 2 * section / faces
         if thickness < MIN_WALL_M[kind]:
-            # board linings drawn on a wall layer (석고보드 on the concrete walls): 2-4 cm apart, no partition
+            # board lines 1-4 cm apart: linings on the walls (석고보드 on concrete) and, standing free,
+            # dry partitions drawn by their boards
+            if kind == "dry":
+                found = board_partitions(segments["dry"], segments["frame"] + segments["masonry"] + segments["alc"])
+                if found["length"] > 0:
+                    walls[kind] = found
             continue
         walls[kind] = {"length": round(faces / 2.0, 2), "thickness": round(thickness, 3), "section": round(section, 3)}
     grid = {}

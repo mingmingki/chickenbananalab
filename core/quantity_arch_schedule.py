@@ -198,11 +198,14 @@ def listed_type(types, name, width=None):
     if not match:
         return {}
     letters, wanted = match.group(1), int(match.group(2)) / 1000.0
-    found = []
+    by_letters = {}
     for key, entry in (types or {}).items():
         parts = LETTER_SIZE_KEY.match(key)
-        if parts and parts.group(1) == letters and entry.get("width") and abs(entry["width"] - wanted) <= 0.06:
-            found.append(entry)
+        if parts and entry.get("width") and abs(entry["width"] - wanted) <= 0.06:
+            by_letters.setdefault(parts.group(1), []).append(entry)
+    # the block's own letters, else a schedule code its letters end with (a unit's "BPW-1400" for PW)
+    found = by_letters.get(letters) or next((by_letters[code] for code in sorted(by_letters, key=len, reverse=True)
+                                              if len(code) >= 2 and letters.endswith(code)), [])
     heights = {entry.get("height") for entry in found}
     return found[0] if len(heights) == 1 else {}
 
