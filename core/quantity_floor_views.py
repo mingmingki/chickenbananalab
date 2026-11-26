@@ -29,9 +29,12 @@ _LAYER_RULES = (
                         r"hat|해치|print|점형|_name$|name$|grid|axis|leader", re.I)),
     ("beam", re.compile(r"str_(beam|girder)", re.I)),
     ("frame", re.compile(r"conc|콘크리트|str_(col|wall|conc|fdn|found|slab_edge)|옹벽", re.I)),
-    ("masonry", re.compile(r"brick|벽돌|조적|블록|블럭|block", re.I)),
+    # finishes and ceilings name a material but draw no wall: a board lining (마감 석고보드),
+    # a ceiling grid (경량철골천장틀)
+    ("skip", re.compile(r"마감|천장|천정|ceil|fin(ish)?($|[-_ ])", re.I)),
+    ("masonry", re.compile(r"brick|벽돌|조적|블록|블럭|block|masonry", re.I)),
     ("alc", re.compile(r"alc", re.I)),
-    ("dry", re.compile(r"석고|gboard|gypsum|건식|경량|drywall|stud", re.I)),
+    ("dry", re.compile(r"석고|gboard|gyp|건식|경량|drywall|(^|[-_ ])dry($|[-_ ])|stud", re.I)),
     ("opening", re.compile(r"win|door|창호|문틀", re.I)),
 )
 _PLAN_EXCLUDE = re.compile(r"배근|일람|상세|단면|입면|창호|방화|동선|장애인|배치|구적|위치|결정|단열|방수|결로|코아|코어|"
@@ -55,8 +58,16 @@ def layer_category(layer):
     return None if rule == "skip" else rule
 
 
+# offices that name their layers by one letter: C concrete, B brick or block (F finish lines, H
+# hatching, X the cross of a shaft: no wall); also as a bound xref's layer ("XREF-평면$0$C")
+_LETTER_LAYERS = {"C": "frame", "B": "masonry"}
+
+
 def _layer_rule(layer):
     base = _nfc(layer).split("|")[-1]
+    letter = _LETTER_LAYERS.get(re.split(r"\$\d+\$", base)[-1].strip())
+    if letter:
+        return letter
     for name, rule in _LAYER_RULES:
         if rule.search(base):
             return name
@@ -117,7 +128,13 @@ def floor_of(title):
     if span and (span.group(1) or "") != "지하" and (span.group(3) or "") != "지하":
         floors = [(span.group(1) or "", span.group(2)), (span.group(3) or "", span.group(4))]
     if "기초" in text:
-        return {"building": building or "기타", "floor": "기초", "group": "basement", "order": -99, "discipline": discipline}
+        out = {"building": building or "기타", "floor": "기초", "group": "basement", "order": -99, "discipline": discipline}
+        if floors and floors[0][0] == "지하":  # "지하2층 기초구조평면도": the mat lies at that storey
+            out["storey"] = f"B{int(floors[0][1])}"
+        return out
+    if "옥탑" in text:
+        # a penthouse sheet: "옥탑1층" is the penthouse, never the first floor
+        return dict(_roof_floor(text), building=building or "기타", discipline=discipline)
     if building and building.endswith("동") and re.search(r"(지하)?주차장지붕", text) and not re.search(r"\d+층", text):
         # a tower's "parking deck roof" plan is its ground-floor slab: the tower's 1st floor
         return {"building": building, "floor": "1층", "group": "ground", "order": 1, "discipline": discipline}
@@ -132,14 +149,26 @@ def floor_of(title):
             label = f"{first}층"
         return {"building": building or "기타", "floor": label, "group": "ground", "order": first,
                 "discipline": discipline}
-    if "지붕" in text or "옥탑" in text:
-        return {"building": building or "기타", "floor": "지붕·옥탑", "group": "roof", "order": 900,
-                "discipline": discipline}
+    if "지붕" in text:
+        return dict(_roof_floor(text), building=building or "기타", discipline=discipline)
     if "기준층" in text:
         return {"building": building or "기타", "floor": "기준층", "group": "ground", "order": 50,
                 "discipline": discipline}
     return {"building": building or "기타", "floor": raw.replace("평면도", "").strip() or "평면",
             "group": "other", "order": 950, "discipline": discipline}
+
+
+ROOF_FLOORS = {"R": ("지붕·옥탑", 900), "PH": ("옥탑층", 901), "PHR": ("옥탑지붕", 902)}
+
+
+def _roof_floor(text):
+    """The roof (R), the penthouse (PH) or the penthouse roof (PHR) of a roof-group title; a sheet
+    naming more than one of them ("지붕, 옥탑, 옥탑지붕") is one sheet at the lowest it names."""
+    rest = text.replace("옥탑지붕", "")
+    parts = [key for key, named in (("R", "지붕" in rest), ("PH", "옥탑" in rest), ("PHR", "옥탑지붕" in text)) if named]
+    key = parts[0] if parts else "R"
+    floor, order = ROOF_FLOORS[key]
+    return {"floor": floor, "group": "roof", "order": order}
 
 
 def is_plan_file(name):
@@ -175,6 +204,15 @@ _FORM_KEY = re.compile(r"form|시트|sheet|도곽|양식|title|border", re.I)
 def is_form_key(key):
     """A title-block xref (its name says form, sheet, 시트, 도곽...): used to find sheets, never members."""
     return bool(_FORM_KEY.search(key or ""))
+
+
+_KEY_MAP = re.compile(r"key\s*[-_ ]?\s*(map|plan)|키\s*[-_ ]?\s*(플랜|맵)", re.I)
+
+
+def is_key_map(name):
+    """A key map (the small site plan in a sheet's corner: "XR-KEY MAP", "XR-keyplan"): its building
+    outlines are drawn on layer 0 in pairs and would be read as walls, so it is never walked."""
+    return bool(_KEY_MAP.search(_nfc(name).split("$0$")[-1]))
 
 
 # ── drawing walk ──────────────────────────────
@@ -221,7 +259,7 @@ def _walk(doc, entities, matrix, inherit, xrefs, out, depth=0, classify=None, de
             layer = inherit
         if kind == "INSERT":
             block = doc.blocks.get(entity.dxf.name)
-            if block is None or depth > 8:
+            if block is None or depth > 8 or is_key_map(entity.dxf.name):
                 continue
             try:
                 placed = Matrix44.chain(entity.matrix44(), matrix)
@@ -632,6 +670,14 @@ def _svg(paths, box, other=True, left_out=None):
 VIEW_OF_ROLE = {"wall": "frame", "column": "frame", "beam": "beam"}
 
 
+OPENING_BLOCK_NAME = re.compile(r"DOOR|WINDOW|WIN[-_ ]|창호|^창|^문", re.I)
+
+
+def _is_opening_insert(layer, name):
+    """A window or door insert: on a window/door layer, or named like one."""
+    return layer_category(layer) == "opening" or bool(OPENING_BLOCK_NAME.search(_nfc(name)))
+
+
 def _plan_views(name, doc, rows, xrefs, roles=None, left_out_for=None):
     """Views of one drawing's plan frames; `xrefs` maps reference keys to loaded documents.
     ``roles`` (layer → member role, read from the drawing) colours the structural members of an
@@ -666,6 +712,18 @@ def _plan_views(name, doc, rows, xrefs, roles=None, left_out_for=None):
         for row in whole:
             row["frame_bbox"] = [round(v, 3) for v in box]
             row["frame_estimated"] = True  # the drawn extent, not a drawn frame: lines may run past it
+    # architectural frames also get their measures: walls by material, windows and doors
+    arch_rows = [row for row in plans if floor_of(row["drawing_title"])["discipline"] != "struct"]
+    inserts, tags, names = [], [], []
+    if arch_rows:
+        try:
+            from . import quantity_arch
+            tags, names = [], []  # the type tags (AW1, SD-2 ...) beside the windows and doors; the room names
+            inserts = quantity_arch.opening_inserts(doc, xrefs, _frames_limit(arch_rows), _is_opening_insert,
+                                                    lambda path: _key(re.split(r"[\\/]", path)[-1]), tags=tags,
+                                                    layer_kind=layer_category, names=names)
+        except Exception:
+            inserts, tags, names = [], [], []
     views = []
     for row in plans:
         structural = floor_of(row["drawing_title"])["discipline"] == "struct"
@@ -677,8 +735,15 @@ def _plan_views(name, doc, rows, xrefs, roles=None, left_out_for=None):
         variant = "구조평면" if floor["discipline"] == "struct" else "건축평면"
         if "보완" in _nfc(name):
             variant += " (보완)"
-        views.append(dict(floor, file=name, sheet=row.get("drawing_number"), title=row.get("drawing_title"),
-                          variant=variant, counts=counts, svg=svg, plan_id=plan_key(name, row)))
+        view = dict(floor, file=name, sheet=row.get("drawing_number"), title=row.get("drawing_title"),
+                    variant=variant, counts=counts, svg=svg, plan_id=plan_key(name, row))
+        if not structural:
+            try:
+                from . import quantity_arch
+                view["arch"] = quantity_arch.measure(paths, row["frame_bbox"], inserts, tags, names)
+            except Exception as exc:  # the pictures never depend on the measures
+                view["arch"] = {"error": str(exc)[:200]}
+        views.append(view)
     return views
 
 
@@ -734,6 +799,7 @@ _MODEL_RULES = (
     ("above", re.compile(r"str_conc_above$", re.I)),
 )
 DEFAULT_STOREY_M = {"basement": 3.5, "1": 3.25, "ground": 2.85, "roof": 3.0}
+PARAPET_M = 1.2  # walls standing on the penthouse roof: its parapets (assumed height)
 LEVEL_FILE = re.compile(r"단면도|입면도")
 LEVEL_FILE_EXCLUDE = re.compile(r"단위세대|코아|코어|상세|계단|경사로|창호|부대|경비")
 
@@ -1074,7 +1140,7 @@ def _storey_keys(floor):
         match = re.search(r"지하(\d+)층", label)
         return ["B" + match.group(1)] if match else ["FT"]
     if floor["group"] == "roof":
-        return ["R"]
+        return [next((key for key, (label, _order) in ROOF_FLOORS.items() if label == floor["floor"]), "R")]
     match = re.match(r"(\d+)~(\d+)층", label)
     if match:
         return [str(n) for n in range(int(match.group(1)), int(match.group(2)) + 1)]
@@ -1092,6 +1158,9 @@ def _level_order(key):
     return {"R": 500, "PH": 501, "PHR": 502}.get(key, 999)
 
 
+TYPICAL_STOREY_RANGE_M = (2.4, 4.5)
+
+
 def _elevations(keys, table, section):
     """Floor elevation (m) of each level key; read from the level table, gaps filled with defaults."""
     sections = (table or {}).get("sections") or {}
@@ -1103,8 +1172,23 @@ def _elevations(keys, table, section):
     if "1" not in known and "GL" in known:
         known["1"] = known["GL"]
     if "1" in known and "1" not in keys and "R" in keys and not any(k.isdigit() for k in keys):
-        known.setdefault("R", known["1"])  # a parking deck: its roof is the ground floor of the towers
+        # a parking deck: its roof is the ground floor of the towers, unless that makes its top
+        # basement taller than a basement storey (a deck under sloping ground and roads)
+        below = [known[k] for k in keys if k.startswith("B") and k in known]
+        if not below or known["1"] - max(below) <= TYPICAL_STOREY_RANGE_M[1]:
+            known.setdefault("R", known["1"])
     ordered = sorted(set(keys), key=_level_order)
+    # typical floors a section leaves unmarked between two marked ones ("2층" and "15층" only)
+    # share the gap evenly instead of stepping by the default height
+    marked = [i for i, key in enumerate(ordered) if key in known]
+    for i, j in zip(marked, marked[1:]):
+        between = ordered[i + 1:j]
+        if not between or not all(k.isdigit() for k in [ordered[i]] + between):
+            continue
+        each = (known[ordered[j]] - known[ordered[i]]) / (j - i)
+        if TYPICAL_STOREY_RANGE_M[0] <= each <= TYPICAL_STOREY_RANGE_M[1]:
+            for n, key in enumerate(between, 1):
+                known[key] = round(known[ordered[i]] + n * each, 3)
     first = next((i for i, key in enumerate(ordered) if key in known), None)
     result = {}
     if first is not None:
@@ -1131,6 +1215,36 @@ def _elevations(keys, table, section):
     return result
 
 
+def _section_level(table, section, key):
+    """The elevation the sections give a level of this building (its own, 주동 or 공통), or None."""
+    sections = (table or {}).get("sections") or {}
+    for name in (section, "주동", "공통"):
+        value = ((sections.get(name) or {}).get("elevations") or {}).get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _ground_elev(table, section, keys, elevations=None):
+    """The ground level (GL, m) of a building from the sections and elevations, in the datum of its
+    floor levels: only when the same drawings also give one of its floors. On a sloping site a
+    legend pairs each building's GL with its ground floor ("GL = EL+10.40 / 1FL+11.00"); the pair
+    of this building's ground floor wins over a GL mark on its sheets (one sheet often draws
+    several buildings' sections)."""
+    from .quantity_levels import ground_for_floor
+    paired = ground_for_floor(table, (elevations or {}).get("1")) if "1" in keys else None
+    if paired is not None:
+        return paired
+    sections = (table or {}).get("sections") or {}
+    known = {}
+    for name in (section, "주동", "공통"):
+        for level, value in ((sections.get(name) or {}).get("elevations") or {}).items():
+            known.setdefault(level, value)
+    if "GL" in known and any(key in known for key in keys if key != "GL"):
+        return round(float(known["GL"]), 3)
+    return None
+
+
 def build_model(plans, table, site=True):
     """Buildings as stacks of storeys from structural plans.
 
@@ -1154,20 +1268,34 @@ def build_model(plans, table, site=True):
         if not keys:
             continue
         top = keys[-1]
-        upper = {"R": "PH"}.get(top) or (str(int(top) + 1) if top.isdigit() else ("1" if top == "B1" else None))
-        elevations = _elevations(keys + ([upper] if upper else []), table, name)
+        upper = {"R": "PH", "PH": "PHR"}.get(top) or (str(int(top) + 1) if top.isdigit() else ("1" if top == "B1" else None))
+        if upper == "PH" and not _section_level(table, name, "PH") and _section_level(table, name, "PHR"):
+            upper = "PHR"  # the sections give the penthouse roof only: the top storey (the penthouse) reaches it
+        # the storey a foundation sheet names ("지하2층 기초"), when no plan of its own gives it: the
+        # level the mat lies at (for the excavation), not a storey of the takeoff
+        mat = rows[foundation]["floor"].get("storey") if foundation is not None else None
+        mat = mat if mat and mat not in storeys and _level_order(mat) < _level_order(keys[0]) else None
+        elevations = _elevations(sorted(keys + ([upper] if upper else []) + ([mat] if mat else []), key=_level_order), table, name)
         levels = []
         for position, key in enumerate(keys):
             nxt = keys[position + 1] if position + 1 < len(keys) else upper
             base = elevations.get(key, 0.0)
             height = round((elevations.get(nxt) - base) if nxt in elevations else DEFAULT_STOREY_M["ground"], 3)
-            if not 1.5 <= height <= 12:
+            if key == "PHR" and nxt is None:
+                height = PARAPET_M  # nothing stands on the penthouse roof but its parapets
+            elif not 1.5 <= height <= 12:
                 height = DEFAULT_STOREY_M["basement" if key.startswith("B") else "ground"]
-            levels.append({"key": key, "label": ("지하" + key[1:] + "층") if key.startswith("B") else
-                           ("지붕·옥탑" if key == "R" else key + "층"), "elev": base, "height": height,
+            label = ("지하" + key[1:] + "층") if key.startswith("B") else ROOF_FLOORS[key][0] if key in ROOF_FLOORS else key + "층"
+            if key == "R" and ("PH" in keys or "PHR" in keys):
+                label = "지붕층"  # the penthouse has storeys of its own
+            levels.append({"key": key, "label": label, "elev": base, "height": height,
                            "plan": storeys[key], "sheet": rows[storeys[key]].get("sheet")})
-        buildings.append({"name": name, "levels": levels, "foundation": foundation,
-                          "plans": [plan["model"] for plan in rows]})
+        building = {"name": name, "levels": levels, "foundation": foundation,
+                    "ground_elev": _ground_elev(table, name, keys, elevations), "plans": [plan["model"] for plan in rows]}
+        sections = (table or {}).get("sections") or {}
+        if mat and any(mat in ((sections.get(sec) or {}).get("elevations") or {}) for sec in (name, "주동", "공통")):
+            building["mat_elev"] = elevations[mat]  # only a level the sections give, never a default storey down
+        buildings.append(building)
     model = {"version": 1, "buildings": buildings, "heights_from_drawings": bool((table or {}).get("sections"))}
     if site:
         from . import quantity_site
@@ -1342,6 +1470,12 @@ def main(manifest_path, out_path):
             members, role_report, member_roles = structural_members(
                 doc, xrefs, [row["frame_bbox"] for row in structural], manifest.get("knowledge"), manifest.get("corrections"))
             layer_roles[name] = role_report
+            try:  # a frame drawing two towers (or a roof and its penthouse) under their own captions
+                rows = split_frames(rows, evidence[name], members)
+                structural = [row for row in rows if row.get("frame_bbox") and is_plan_title(row.get("drawing_title"))
+                              and floor_of(row["drawing_title"])["discipline"] == "struct"]
+            except Exception as exc:  # never cost the plans their pictures
+                warnings.append({"file": name, "split_failed": str(exc)[:200]})
         left_out = {}
 
         def left_out_for(row, members=members, name=name):
@@ -1364,6 +1498,118 @@ def main(manifest_path, out_path):
         os.remove(out_path + ".partial")
     except OSError:
         pass
+
+
+# ── frames that draw several plans, each under its own caption ──
+CAPTION_REFERENCE = re.compile(r"참\s*조|참\s*고|REFER|SEE\s", re.I)
+SPLIT_GAP_MM = 3000.0   # member lines this far apart belong to different drawings
+SPLIT_MARGIN_MM = 500.0
+
+
+def frame_captions(row, evidence):
+    """Plan captions drawn inside a frame ("102동 3~25층 구조평면도", "옥탑지붕 구조평면도"): plan titles
+    naming a building or a floor, in type at least 40 % of the title block's, notes that refer to
+    another plan left out. [{"text", "x", "y", "key": (building, floor)}]."""
+    from . import quantity_sheet_identity as identity
+    own = set(row.get("text_handles") or [])
+    title_h = max((t.get("h") or 0 for t in evidence.get("texts", []) if t.get("handle") in own), default=0)
+    out = []
+    for text in identity.frame_texts(row, evidence):
+        value = re.sub(r"\s+", " ", _nfc(text.get("text"))).strip()
+        if not is_plan_title(value) or CAPTION_REFERENCE.search(value) or (text.get("h") or 0) < 0.4 * title_h:
+            continue
+        floor = floor_of(value)
+        if floor["group"] in ("other", "unit"):
+            continue
+        out.append({"text": value, "x": float(text["x"]) + len(value) * 0.4 * float(text.get("h") or 0),
+                    "y": float(text["y"]), "key": (floor["building"], floor["floor"])})
+    return out
+
+
+def _line_groups(segments, gap):
+    """Bounding boxes of the groups of segments lying within about ``gap`` of each other: the
+    ``gap``-sized cells they cover, joined where cells touch (side or corner)."""
+    cells = defaultdict(list)
+    for i, (x0, y0, x1, y1) in enumerate(segments):
+        for gx in range(int(math.floor(x0 / gap)), int(math.floor(x1 / gap)) + 1):
+            for gy in range(int(math.floor(y0 / gap)), int(math.floor(y1 / gap)) + 1):
+                cells[(gx, gy)].append(i)
+    seen, boxes = set(), []
+    for start in cells:
+        if start in seen:
+            continue
+        seen.add(start)
+        stack, box = [start], None
+        while stack:
+            cx, cy = stack.pop()
+            for i in cells[(cx, cy)]:
+                x0, y0, x1, y1 = segments[i]
+                box = [x0, y0, x1, y1] if box is None else [min(box[0], x0), min(box[1], y0), max(box[2], x1), max(box[3], y1)]
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    near = (cx + dx, cy + dy)
+                    if near in cells and near not in seen:
+                        seen.add(near)
+                        stack.append(near)
+        boxes.append(box)
+    return boxes
+
+
+def _box_distance(box, x, y):
+    dx = max(box[0] - x, 0.0, x - box[2])
+    dy = max(box[1] - y, 0.0, y - box[3])
+    return math.hypot(dx, dy)
+
+
+def split_frame(row, captions, members):
+    """Sub-frames of a frame drawing several plans under their own captions (two towers side by
+    side, a roof and its penthouse roof): the frame's member lines grouped by gaps over 3 m, each
+    group going to its nearest caption. Returns [row] unchanged unless two or more captions
+    naming different plans each get lines."""
+    keys = {c["key"] for c in captions}
+    if len(keys) < 2:
+        return [row]
+    x0, y0, x1, y1 = row["frame_bbox"]
+    segments = [(min(ax, bx), min(ay, by), max(ax, bx), max(ay, by)) for _c, ax, ay, bx, by, _p in members
+                if not (bx < x0 or ax > x1 or by < y0 or ay > y1)]
+    if not segments:
+        return [row]
+    by_caption = defaultdict(list)
+    for box in _line_groups(segments, SPLIT_GAP_MM):
+        nearest = min(captions, key=lambda c: _box_distance(box, c["x"], c["y"]))
+        by_caption[nearest["key"]].append((box, nearest))
+    if len(by_caption) < 2:
+        return [row]
+    out = []
+    for key, items in by_caption.items():
+        caption = max((c for _b, c in items), key=lambda c: len(c["text"]))
+        box = [max(min(b[0] for b, _c in items) - SPLIT_MARGIN_MM, x0), max(min(b[1] for b, _c in items) - SPLIT_MARGIN_MM, y0),
+               min(max(b[2] for b, _c in items) + SPLIT_MARGIN_MM, x1), min(max(b[3] for b, _c in items) + SPLIT_MARGIN_MM, y1)]
+        title = caption["text"]
+        if not floor_of(title)["building"] or floor_of(title)["building"] == "기타":
+            title = (floor_of(row["drawing_title"])["building"] + " " + title)  # "옥탑지붕 구조평면도" under 101동's title
+        out.append(dict(row, frame_bbox=[round(v, 3) for v in box], drawing_title=title,
+                        split_from=row.get("drawing_title"), frame_estimated=True))
+    out.sort(key=lambda r: (r["frame_bbox"][0], -r["frame_bbox"][1]))
+    return out
+
+
+def split_frames(rows, evidence, members):
+    """Every structural plan frame split by its captions (see split_frame); other rows unchanged."""
+    out = []
+    for row in rows:
+        if row.get("frame_bbox") and is_plan_title(row.get("drawing_title")) and \
+                floor_of(row["drawing_title"])["discipline"] == "struct" and row["frame_bbox"][2] - row["frame_bbox"][0] < 1e11:
+            out.extend(split_frame(row, frame_captions(row, evidence), members))
+        else:
+            out.append(row)
+    return out
+
+
+def is_opening_schedule_file(name):
+    """An architectural window and door schedule (창호일람표, 창호도) by its file name."""
+    text = re.sub(r"\s+", "", _nfc(os.path.basename(name)))
+    return "창호" in text and not _is_structural_file(name) and "평면도" not in text
 
 
 def _is_structural_file(name):

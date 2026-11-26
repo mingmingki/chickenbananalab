@@ -136,7 +136,8 @@ class RebarPageTests(SimpleTestCase):
         html = (CORE / "templates" / "core" / "home.html").read_text()
         self.assertIn("레미콘 확정 → 철근 배근", html)
         flow = html[html.index("async function finishQuantityAnalysisFlow(data, cancelRequestedFlag) {"):][:6000]
-        self.assertLess(flow.index("await showFloorTakeoff(data);"), flow.index("await showFloorRebar(data);"))
+        self.assertLess(flow.index("takeoffStep(aiFlow)"), flow.index("rebarStep(aiFlow)"))
+        self.assertIn("var rebar = await showFloorRebar(flow.data);", html)
         self.assertIn('fetch("/api/quantity/floor-rebar/"', html)
         self.assertIn("mass.viewer.setRebar(rebar);", html)
         js = (CORE / "static" / "core" / "js" / "quantity_mass3d.js").read_text()

@@ -33,9 +33,9 @@ def state_db(test):
 class FloorInputsTests(SimpleTestCase):
     def test_structural_sheets_ride_along_with_the_plans(self):
         names = ["S-111 1층 구조평면도.dwg", "S-311~324 벽체일람표.dwg", "S-211 단위세대 슬래브배근도.dwg",
-                 "A-501 창호도.dwg", "readme.txt"]
+                 "A-501 창호도.dwg", "A-701 실내재료마감표.dwg", "A-801 계단 상세도.dwg", "readme.txt"]
         kept = [name for name, _data in views._floor_view_inputs([SimpleUploadedFile(n, b"x") for n in names])]
-        self.assertEqual(kept, names[:3])
+        self.assertEqual(kept, names[:5])  # the window and finish schedules too (the architectural takeoff reads them)
 
 
 class CadLinksTests(TestCase):
@@ -143,7 +143,7 @@ class CadOnlyApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         workbook = openpyxl.load_workbook(io.BytesIO(response.content))
         # the floor sheets lead; no "구조도면 데이터 없음" page and no empty AI evidence sheets
-        self.assertEqual(workbook.sheetnames, ["층별 집계(N층 기준)", "층별 철근(N층 기준)", "검토 사항"])
+        self.assertEqual(workbook.sheetnames, ["요약", "층별 집계(N층 기준)", "토공·외부", "층별 철근(N층 기준)", "임의로 정한 것", "검토 사항", "3D 층 구성"])
         texts = [c.value for row in workbook["층별 집계(N층 기준)"].iter_rows() for c in row if isinstance(c.value, str)]
         self.assertIn("[101동]", texts)
 
@@ -167,18 +167,23 @@ class CadOnlyPageTests(SimpleTestCase):
 
     def test_the_free_path_goes_3d_then_takeoff_then_rebar_then_excel(self):
         html = HOME.read_text()
-        flow = html[html.index("async function runCadOnlyFlow() {"):][:3000]
-        order = [flow.index(step) for step in ("job.status !== \"running\"", "await showMassStage();",
-                                               "await showFloorTakeoff(data);", "await showFloorRebar(data);",
-                                               "lastAnalysisResults = data.results;", "downloadExcel")]
+        flow = html[html.index("async function runCadOnlyFlow() {"):][:4500]
+        order = [flow.index(step) for step in ("job.status !== \"running\"", "massSteps(true)", "takeoffStep(flow)",
+                                               "rebarStep(flow)", "archStep(flow)", "summaryStep(flow)",
+                                               'if (way === "back") showAiStartCard();')]
         self.assertEqual(order, sorted(order))
+        summary = html[html.index("async function summaryStep(flow) {"):][:3000]
+        self.assertIn("lastAnalysisResults = flow.data.results;", summary)
+        self.assertIn('addEventListener("click", downloadExcel);', summary)
         self.assertIn('state.cadOnly ? "CAD 도면을 다 읽었습니다.', html)
 
-    def test_the_pdf_step_can_be_skipped_when_cad_is_there(self):
+    def test_one_upload_card_goes_on_with_cad_alone_or_pdf_alone(self):
         html = HOME.read_text()
-        card = html[html.index("async function showPdfUploadCard() {"):][:2500]
-        self.assertIn('(uploadCount("cad") ? \'<button type="button" class="qd-btn" id="qty-pdf-skip">PDF 없이 진행 (CAD만)</button>\' : \'\')', card)
-        self.assertIn('addUser("PDF 없이 진행");', card)
+        card = html[html.index("async function showUploadCard() {"):][:2600]
+        self.assertIn('next.disabled = !(uploadCount("cad") + uploadCount("pdf"));', card)
+        self.assertIn("runCheckZip();", card)
+        self.assertIn('"구조 CAD로 콘크리트·철근을, 건축 CAD로 조적·창호를 무료로 산출해요."', html)
+        self.assertIn('"무료 산출(콘크리트·철근)에는 구조 CAD가 있어야 해요."', html)
         self.assertIn('"어떻게 읽어 갈까요?"', html)
 
 

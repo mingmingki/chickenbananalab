@@ -32,6 +32,7 @@ MIN_MAIN = 5.0            # m: a plan whose main drawing is shorter than this sh
 PLACE_SURE = 0.8          # one level fitting this well places a building (above chance, see fits)
 PLACE_MIN_M = 60.0        # m of wall lines at least in a drawing used to place a building
 PLACE_AGREE = 0.6         # or two levels agreeing on the place, each at least this well
+PLACE_CONSENSUS = 0.2     # or three levels agreeing, each at least this well
 AGREE_M = 1.5             # m: two levels agree when their places are this close (same turn)
 ALIGN_MIN = 0.5           # floors of one building: a better fit than this moves a sheet
 ALIGN_GAIN = 0.15         # ... and only when it beats leaving it where it is by this much
@@ -320,7 +321,7 @@ def _level_rank(key):
         return -int(key[1:])
     if key.isdigit():
         return int(key)
-    return {"R": 500, "PH": 501}.get(key, 900)
+    return {"R": 500, "PH": 501, "PHR": 502}.get(key, 900)
 
 
 def align_floors(building):
@@ -419,7 +420,10 @@ def place_buildings(buildings):
                 home["levels"].append(h["via"])
                 home["scores"].append(h["score"])
         good = [p for p in places if p["scores"][0] >= PLACE_SURE or
-                (len(p["scores"]) >= 2 and sorted(p["scores"])[-2] >= PLACE_AGREE)]
+                (len(p["scores"]) >= 2 and sorted(p["scores"])[-2] >= PLACE_AGREE) or
+                # three levels landing on one place: a tower whose basement sheets also draw the
+                # parking around it fits weakly at each level, but never by chance at all three
+                (len(p["scores"]) >= 3 and min(p["scores"]) >= PLACE_CONSENSUS)]
         good.sort(key=lambda p: (-p["scores"][0], -len(p["scores"])))
         if good:
             chosen.append((building, good))

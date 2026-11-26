@@ -16,9 +16,15 @@ import re
 import unicodedata
 from collections import Counter, defaultdict
 
-EL_VALUE = re.compile(r"EL\.?\s*(?P<sign>[+＋\-−])?\s*(?P<value>\d+(?:,\d{3})*(?:\.\d+)?)", re.I)
+EL_VALUE = re.compile(r"(?:EL|(?<![A-Z])S\.?L|(?<![A-Z\d])F\.?L)\.?\s*[=:]?\s*(?P<sign>[+＋\-−±])?\s*"
+                      r"(?P<value>\d+(?:,\d{3})*(?:\.\d+)?)", re.I)
 SECTION_MARK = re.compile(r"\bS\.?L\b|^\s*G\.?\s*L\.?\s*$|\bF\.?L\b", re.I)
+# a legend pairing a building's ground with its ground floor: "GL = EL+10.40 / 1FL+11.00"
+GROUND_PAIR = re.compile(r"G\.?\s*L\s*[=:]?\s*(?:E\.?L\.?)?\s*(?P<gl>[+\-]?\s*\d+(?:\.\d+)?)\s*[/,]\s*"
+                         r"(?:1\s*F\.?\s*L|1\s*층\s*(?:F\.?L|바닥)?)\s*[=:]?\s*(?P<fl>[+\-]?\s*\d+(?:\.\d+)?)", re.I)
 TOLERANCE_M = 0.02
+MAX_FLOOR = 99
+TYPICAL_STOREY_M = (2.4, 4.5)  # unmarked floors between two marked ones share the gap only in this range
 
 
 def _norm(text):
@@ -36,7 +42,7 @@ def level_key(text):
     if "지붕" in compact:
         return "R"
     match = re.search(r"(지하)?(\d{1,3})층", compact)
-    if match:
+    if match and int(match.group(2)) <= MAX_FLOOR:  # "101층 도로" is a 101동 road mistyped
         return ("B" if match.group(1) else "") + str(int(match.group(2)))
     match = re.search(r"\b(B)?(\d{1,2})\s*F(?:L)?\b", text.upper())
     if match:
@@ -58,9 +64,13 @@ def rank(level):
 
 
 def parse_elevation(text):
-    match = EL_VALUE.search(_norm(text))
-    if not match:
+    """Metres of a level mark: "EL+22.30", "SL +4.70", "FL-3.60", "G.L +11.00". A legend line naming
+    several values ("GL = EL+9.70 / 1FL+10.30") is no level of its own."""
+    text = _norm(text)
+    found = list(EL_VALUE.finditer(text))
+    if len(found) != 1 or len(re.findall(r"\d+\.\d+", text)) > 1:
         return None
+    match = found[0]
     value = float(match.group("value").replace(",", ""))
     if value > 500:  # written in millimetres
         value /= 1000.0
@@ -77,6 +87,21 @@ def section_area(text):
     if "주동" in compact or "아파트" in compact:
         return "주동"
     return None
+
+
+def ground_pairs(texts):
+    """[(GL, 1st floor level)] in metres from the legend lines of a sloping site ("GL = EL+ 9.70 /
+    1FL+10.30", one line per building): each building's ground beside its ground floor."""
+    out = []
+    for text in texts:
+        match = GROUND_PAIR.search(_norm(text["text"]))
+        if not match:
+            continue
+        gl, fl = (float(match.group(k).replace(" ", "")) for k in ("gl", "fl"))
+        gl, fl = (v / 1000.0 if abs(v) > 500 else v for v in (gl, fl))
+        if abs(fl - gl) <= 3.0 and (round(gl, 3), round(fl, 3)) not in out:
+            out.append((round(gl, 3), round(fl, 3)))
+    return out
 
 
 def read_sheet_levels(texts):
@@ -127,6 +152,9 @@ def read_sheet_levels(texts):
             unique.append(row)
     if unique:
         result["section_heights"] = unique
+    pairs = ground_pairs(texts)
+    if pairs:
+        result["ground_pairs"] = pairs
     return result or None
 
 
@@ -144,6 +172,16 @@ def _storeys(elevations, uncertain=()):
             out[low] = height
         else:
             rejected.append({"level": low, "values": [elevations[low], elevations[high]], "reason": "storey_height_out_of_range"})
+    # typical floors a section leaves unmarked ("지상2층" and "지상15층" only): the gap shared evenly
+    for low, high in zip(ordered, ordered[1:]):
+        if not (low.isdigit() and high.isdigit()) or int(high) - int(low) < 2 or low in uncertain or high in uncertain:
+            continue
+        each = round((elevations[high] - elevations[low]) / (int(high) - int(low)), 3)
+        if TYPICAL_STOREY_M[0] <= each <= TYPICAL_STOREY_M[1]:
+            for floor in range(int(low), int(high)):
+                out.setdefault(str(floor), each)
+        else:
+            rejected.append({"level": low, "values": [elevations[low], elevations[high]], "reason": "storey_height_out_of_range"})
     return out, rejected
 
 
@@ -153,6 +191,7 @@ def build_level_table(*cad_sets):
 
     by_section = defaultdict(lambda: {"elevations": defaultdict(Counter), "sheets": defaultdict(set), "mixed": set()})
     section_rows = defaultdict(list)
+    pairs = Counter()
     for cad in cad_sets:
         for data in (cad or {}).values():
             if not isinstance(data, dict):
@@ -161,6 +200,7 @@ def build_level_table(*cad_sets):
                 levels = sheet.get("levels")
                 if not levels:
                     continue
+                pairs.update(tuple(pair) for pair in levels.get("ground_pairs") or [])
                 title = sheet.get("drawing_title") or ""
                 section = links.parse_sheet_scope(title)["section"] or section_area(title) or "공통"
                 for level, value in (levels.get("elevations") or {}).items():
@@ -208,7 +248,21 @@ def build_level_table(*cad_sets):
                 continue
             if not known:
                 target["heights"][level] = {"height_m": height, "source": "section_detail", "sheets": sorted(sheets[level])}
-    return {"schema": "quantity_levels_v1", "sections": sections, "conflicts": conflicts}
+    table = {"schema": "quantity_levels_v1", "sections": sections, "conflicts": conflicts}
+    if pairs:  # the site's ground beside each ground floor (a sloping site): [[GL, 1FL]]
+        table["ground_pairs"] = [list(pair) for pair in sorted(pairs)]
+    return table
+
+
+def ground_for_floor(table, first_floor, reach=0.2):
+    """The GL a legend pairs with a ground floor at ``first_floor`` (m; the legend may give the
+    finished floor and the plans the slab, so within ``reach``), else None."""
+    if first_floor is None:
+        return None
+    near = sorted((abs(fl - first_floor), gl) for gl, fl in (table or {}).get("ground_pairs") or [])
+    if near and near[0][0] <= reach and (len(near) == 1 or near[1][0] - near[0][0] > 0.05):
+        return round(near[0][1], 3)
+    return None
 
 
 def storey_height(table, section, level):

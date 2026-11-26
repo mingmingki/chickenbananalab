@@ -182,6 +182,23 @@ class FloorRuleTests(SimpleTestCase):
         self.assertAlmostEqual(one["formwork"]["stair"], 10 * ft.STAIR_FORM_PER_M2, places=2)
         self.assertTrue(any("개구부" in n for n in one["notes"]))
 
+    def test_the_window_schedule_height_replaces_the_assumed_opening_height(self):
+        model = self.model()
+        model["buildings"][0]["plans"][1]["measure"].update(window_gaps=20.0, window_gap_area=4.0)
+        listed = ft.build_takeoff(model, opening_heights={("101동", "1"): 1.5})
+        one = {r["key"]: r for r in listed["buildings"][0]["rows"]}["1"]
+        self.assertAlmostEqual(one["concrete"]["wall"], 30 * 2.64 + 4.0 * (2.64 - 1.5), places=2)
+        self.assertTrue(any("개구부 높이 1.5m 창호일람표" in n for n in one["notes"]))
+        self.assertNotIn("window_height", {a["key"] for a in listed["assumed"]})
+        # the building's own height serves its storeys without an architectural plan
+        whole = ft.build_takeoff(model, opening_heights={("101동", None): 1.2})
+        one = {r["key"]: r for r in whole["buildings"][0]["rows"]}["1"]
+        self.assertAlmostEqual(one["concrete"]["wall"], 30 * 2.64 + 4.0 * (2.64 - 1.2), places=2)
+        # a height a person set wins over the schedule
+        person = ft.build_takeoff(model, overrides={"window_height": 2.0}, opening_heights={("101동", "1"): 1.5})
+        one = {r["key"]: r for r in person["buildings"][0]["rows"]}["1"]
+        self.assertAlmostEqual(one["concrete"]["wall"], 30 * 2.64 + 4.0 * (2.64 - 2.0), places=2)
+
     def test_schedule_sizes_read_millimetres(self):
         self.assertEqual(ft._size("500 X 1,300"), (0.5, 1.3))
         self.assertEqual(ft._size("180 X 건축치수"), (0.18, None))
@@ -334,11 +351,12 @@ class TakeoffPageTests(SimpleTestCase):
         html = HOME.read_text()
         finish = html.index("async function finishQuantityAnalysisFlow(data, cancelRequestedFlag) {")
         body = html[finish:finish + 5000]
-        self.assertLess(body.index("await showMassStage();"), body.index("await showFloorTakeoff(data);"))
-        self.assertLess(body.index("data.results.floor_takeoff = takeoff"), body.index("lastAnalysisResults = data.results || {};"))
+        self.assertLess(body.index("massSteps(false)"), body.index("takeoffStep(aiFlow)"))
+        self.assertLess(body.index("takeoffStep(aiFlow)"), body.index("lastAnalysisResults = data.results || {};"))
+        self.assertIn("if (takeoff) results.floor_takeoff = takeoff; else delete results.floor_takeoff;", html)
         self.assertIn('fetch("/api/quantity/floor-takeoff/"', html)
-        self.assertIn("quantity_mass3d.js' %}?v=20261112-tools2", html)
-        self.assertIn("quantity_deck.css' %}?v=20261112-tools2", html)
+        self.assertIn("quantity_mass3d.js' %}?v=20261120-review", html)
+        self.assertIn("quantity_deck.css' %}?v=20261124-site", html)
 
     def test_the_3d_view_puts_the_slab_of_plan_n_plus_1_on_top_of_storey_n(self):
         js = Path(__file__).with_name("static").joinpath("core", "js", "quantity_mass3d.js").read_text()
