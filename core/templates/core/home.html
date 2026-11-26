@@ -9926,11 +9926,12 @@ body.cbl-modal-open {
       var shored = /흙막이/.test(earth.method || "");
       html += '<b class="qd-arch-head">토공 — ' + esc(earth.method || "") + ' · 작업 여유폭 ' + esc(String(earth.margin)) + 'm' +
         (earth.slope ? ' · 경사 1:' + esc(String(earth.slope)) : '') + '</b>' +
-        '<table><thead><tr><th>구간</th><th>굴착 깊이</th><th>굴착 ㎥</th><th>되메우기 ㎥</th><th>잔토처리 ㎥</th><th>버림콘크리트 ㎥</th>' +
+        '<table><thead><tr><th>구간</th><th>지반</th><th>굴착 깊이</th><th>굴착 ㎥</th><th>되메우기 ㎥</th><th>잔토처리 ㎥</th><th>버림콘크리트 ㎥</th>' +
         (shored ? '<th>흙막이 m</th>' : '') + '</tr></thead><tbody>' +
         groups.map(function (g) {
           return '<tr title="' + esc("기초 " + n(g.area) + "㎡ · 둘레 " + n(g.perimeter) + "m" + (g.pits ? " · 동 매트 추가 굴착 " + n(g.pits) + "㎥" : "") +
-            " · 잔토 운반(×1.25) " + n(g.surplus_loose) + "㎥") + '"><td>' + esc(g.parts.join(" + ")) + '</td><td>' + esc(String(g.depth)) + 'm</td><td class="qd-strong">' +
+            " · 잔토 운반(×1.25) " + n(g.surplus_loose) + "㎥") + '"><td>' + esc(g.parts.join(" + ")) + '</td><td>' +
+            ({ drawing: "GL (단면도)", deck_roof: "주차장 지붕 (가정)" }[g.ground_from] || "1층 바닥 (가정)") + '</td><td>' + esc(String(g.depth)) + 'm</td><td class="qd-strong">' +
             n(g.excavation) + '</td><td>' + n(g.backfill) + '</td><td>' + n(g.surplus) + '</td><td>' + n(g.lean) + '</td>' +
             (shored ? '<td>' + n(g.shoring_length) + '</td>' : '') + '</tr>';
         }).join("") + '</tbody></table>';

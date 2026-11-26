@@ -1204,6 +1204,19 @@ def _elevations(keys, table, section):
     return result
 
 
+def _ground_elev(table, section, keys):
+    """The ground level (GL, m) of a building from the sections and elevations, in the datum of its
+    floor levels: only when the same drawings also give one of its floors."""
+    sections = (table or {}).get("sections") or {}
+    known = {}
+    for name in (section, "주동", "공통"):
+        for level, value in ((sections.get(name) or {}).get("elevations") or {}).items():
+            known.setdefault(level, value)
+    if "GL" in known and any(key in known for key in keys if key != "GL"):
+        return round(float(known["GL"]), 3)
+    return None
+
+
 def build_model(plans, table, site=True):
     """Buildings as stacks of storeys from structural plans.
 
@@ -1244,7 +1257,7 @@ def build_model(plans, table, site=True):
             levels.append({"key": key, "label": label, "elev": base, "height": height,
                            "plan": storeys[key], "sheet": rows[storeys[key]].get("sheet")})
         buildings.append({"name": name, "levels": levels, "foundation": foundation,
-                          "plans": [plan["model"] for plan in rows]})
+                          "ground_elev": _ground_elev(table, name, keys), "plans": [plan["model"] for plan in rows]})
     model = {"version": 1, "buildings": buildings, "heights_from_drawings": bool((table or {}).get("sections"))}
     if site:
         from . import quantity_site

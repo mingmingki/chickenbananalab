@@ -16,14 +16,17 @@ from __future__ import annotations
 
 import re
 
+FINISH_WORD = r"(\s*마\s*감(\s*재)?)?"
 HEADERS = (
-    ("height", re.compile(r"^(천\s*장\s*고|반\s*자\s*높\s*이|C\.?\s*H\.?|CH)$", re.I)),
-    ("room", re.compile(r"^(실\s*명|실|ROOM|구\s*분|실\s*구\s*분)$", re.I)),
-    ("floor", re.compile(r"^(바\s*닥|FLOOR)$", re.I)),
-    ("base", re.compile(r"^(걸\s*레\s*받\s*이|BASE)$", re.I)),
-    ("wall", re.compile(r"^(벽|벽\s*체|WALL)$", re.I)),
-    ("ceiling", re.compile(r"^(천\s*장|반\s*자|CEILING)$", re.I)),
+    ("height", re.compile(r"^(천\s*[장정]\s*고|반\s*자\s*(높\s*이|고)|C\.?\s*H\.?|CH)$", re.I)),
+    ("room", re.compile(r"^(실\s*명|실|ROOM(\s*NAME)?|구\s*분|실\s*구\s*분)$", re.I)),
+    ("floor", re.compile(r"^(바\s*닥|FLOOR)" + FINISH_WORD + "$", re.I)),
+    ("base", re.compile(r"^(걸\s*레\s*받\s*이|굽\s*도\s*리|BASE(\s*BOARD)?)$", re.I)),
+    ("wall", re.compile(r"^(벽|벽\s*체|WALL)" + FINISH_WORD + "$", re.I)),
+    ("ceiling", re.compile(r"^(천\s*[장정]|반\s*자|CEILING)" + FINISH_WORD + "$", re.I)),
 )
+# the second header line under a column (its finish and its base), never a material
+SUBHEAD = re.compile(r"^(마\s*감(\s*재)?|바\s*탕(\s*재)?|하\s*지|재\s*료|규\s*격|두\s*께|비\s*고|FINISH|BASE\s*COAT)$", re.I)
 FINISH_COLUMNS = ("floor", "base", "wall", "ceiling")
 NOTHING = re.compile(r"^[-─—_/]+$|^없음$|^N/?A$", re.I)
 NOTES = re.compile(r"\(.*?\)|THK\.?\s*[\d.]+|T\s*=?\s*[\d.]+(?:mm)?|\d+\s*[xX×*]\s*\d+|\d+\s*회|@\s*\d+|H\s*=\s*\d+", re.I)
@@ -133,7 +136,7 @@ def read_finish_schedule(texts, name=None):
         rows = [{"label": t, "y": y, "cells": {}} for t, y in labels]
         for text, x, y, _h in cells:
             kind = column(x)
-            if kind in (None, "room"):  # (the header row itself is above the cells: a cell may read like one)
+            if kind in (None, "room") or SUBHEAD.match(text):  # (the header row itself is above the cells)
                 continue
             row = min(rows, key=lambda r: abs(r["y"] - y))
             row["cells"].setdefault(kind, []).append((y, x, text))

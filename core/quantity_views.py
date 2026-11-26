@@ -8637,11 +8637,11 @@ def _write_site_sheet(ws, takeoff, navy_fill, header_font, body_font, center, le
     """토공·외부: 굴착 구간마다 굴착·되메우기·잔토처리·버림콘크리트·흙막이, 동마다 외벽 마감·지하 외벽 방수·지붕 방수·단열."""
     from openpyxl.styles import Font
     earth, outside = takeoff.get("earthwork") or {}, takeoff.get("exterior") or {}
-    ws.cell(row=1, column=1, value="토공·외부 — CAD 기초 외곽·층고로 낸 추정 (지반고 = 1층 바닥)").font = Font(name="맑은 고딕", bold=True, size=13)
+    ws.cell(row=1, column=1, value="토공·외부 — CAD 기초 외곽·층 레벨로 낸 추정 (지반은 단면도의 GL, 없으면 1층 바닥)").font = Font(name="맑은 고딕", bold=True, size=13)
     ws.cell(row=2, column=1, value=f"굴착 방식: {earth.get('method') or '-'} · 작업 여유폭 {earth.get('margin') or '-'}m"
                                    + (f" · 경사 1:{earth['slope']}" if earth.get("slope") else "") + " · 잔토 운반은 토량환산계수 L 1.25").font = body_font
     headers = ["구간", "기초 면적(㎡)", "기초 둘레(m)", "굴착 깊이(m)", "굴착(㎥)", "되메우기(㎥)", "잔토처리(㎥)", "잔토 운반(㎥, L)", "버림콘크리트(㎥)",
-               "흙막이 길이(m)", "흙막이 면적(㎡)"]
+               "흙막이 길이(m)", "흙막이 면적(㎡)", "지반 기준"]
     row = 4
     for col, text in enumerate(headers, 1):
         cell = ws.cell(row=row, column=col, value=text)
@@ -8650,7 +8650,7 @@ def _write_site_sheet(ws, takeoff, navy_fill, header_font, body_font, center, le
         row += 1
         values = [" + ".join(group.get("parts") or []), group.get("area"), group.get("perimeter"), group.get("depth"), group.get("excavation"),
                   group.get("backfill"), group.get("surplus"), group.get("surplus_loose"), group.get("lean"), group.get("shoring_length"),
-                  group.get("shoring_area")]
+                  group.get("shoring_area"), {"drawing": "GL (단면도)", "deck_roof": "주차장 지붕 (가정)"}.get(group.get("ground_from"), "1층 바닥 (가정)")]
         for col, value in enumerate(values, 1):
             cell = ws.cell(row=row, column=col, value=value)
             cell.font, cell.border, cell.alignment = body_font, thin, left if col == 1 else center
@@ -8673,7 +8673,7 @@ def _write_site_sheet(ws, takeoff, navy_fill, header_font, body_font, center, le
         for col, value in enumerate(values, 1):
             cell = ws.cell(row=row, column=col, value=value)
             cell.font, cell.border, cell.alignment = body_font, thin, left if col in (1, 8) else center
-    for letter, width in zip("ABCDEFGHIJK", (22, 12, 12, 12, 12, 13, 13, 15, 15, 13, 14)):
+    for letter, width in zip("ABCDEFGHIJKL", (22, 12, 12, 12, 12, 13, 13, 15, 15, 13, 14, 18)):
         ws.column_dimensions[letter].width = width
 
 

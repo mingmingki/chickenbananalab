@@ -111,3 +111,28 @@ class SiteSheetTests(SimpleTestCase):
         self.assertIn("excavation: (state.answers || {}).excavationType || undefined", html)
         self.assertIn('<span>토공 (굴착) · 외부</span>', html)
         self.assertEqual(views._excavation_answer({"excavation": " 오픈컷 "}), "오픈컷")
+
+
+class GroundLevelTests(SimpleTestCase):
+    def test_the_ground_level_from_the_sections_sets_the_depth(self):
+        m = model()
+        levels = m["buildings"][0]["levels"]
+        for item, elev in zip(levels, (6.5, 10.0, 13.0, 15.85, 18.7)):
+            item["elev"] = elev  # B1 at EL+6.5, 1층 at EL+10.0
+        m["buildings"][0]["ground_elev"] = 9.5  # GL half a metre under the ground floor
+        takeoff = ft.build_takeoff(m)
+        thickness = next(r for r in takeoff["buildings"][0]["rows"] if r["key"] == "FT")["foundation"]["thickness"]
+        group, = takeoff["earthwork"]["groups"]
+        self.assertAlmostEqual(group["depth"], 9.5 - (6.5 - thickness - 0.06), places=2)
+        self.assertEqual(group["ground_from"], "drawing")
+        self.assertNotIn("ground_level", {a["key"] for a in takeoff["assumed"]})
+        del m["buildings"][0]["ground_elev"]
+        assumed = ft.build_takeoff(m)
+        self.assertAlmostEqual(assumed["earthwork"]["groups"][0]["depth"], 10.0 - (6.5 - thickness - 0.06), places=2)
+        self.assertIn("ground_level", {a["key"] for a in assumed["assumed"]})
+
+    def test_the_model_takes_the_ground_level_only_in_the_floors_datum(self):
+        from core import quantity_floor_views as fv
+        table = {"sections": {"101동": {"elevations": {"GL": 9.5, "1": 10.0, "B1": 6.5}}}}
+        self.assertEqual(fv._ground_elev(table, "101동", ["B1", "1", "2"]), 9.5)
+        self.assertIsNone(fv._ground_elev({"sections": {"공통": {"elevations": {"GL": 9.5}}}}, "101동", ["B1", "1"]))

@@ -3,9 +3,10 @@
 Earthwork (토공) — per excavation: a building on its own, or a parking deck with the towers
 standing in it (their mats go deeper than the deck's):
 
-* depth below ground (the ground floor's level is taken as the ground) = the basement storeys'
-  heights + the foundation's thickness + the lean concrete (60 mm); a building without a
-  basement digs to its foundation, at least the frost depth (0.9 m);
+* depth = the ground level (GL from the sections and elevations, else the ground floor's level,
+  or a parking deck's roof) less the bottom: the lowest floor less the foundation's thickness
+  and the lean concrete (60 mm); a building without a basement digs at least the frost depth
+  (0.9 m);
 * excavation = the footprint (the foundation's outline) widened by the working space each side
   (1.0 m), sloped 1 : 1.0 for an open cut or straight down behind shoring (흙막이), plus the
   deeper pits under the towers' mats;
@@ -42,10 +43,26 @@ METHODS = ("오픈컷", "흙막이 (수직 굴착)")
 EXTERIOR_FINISHES = ("외부 수성페인트", "석재", "외단열 미장", "금속패널", "타일")
 
 
-def _depths(building):
-    """(basement depth below the ground floor, has a basement) from the 3D model's levels."""
-    basement = [float(l.get("height") or 0) for l in building.get("levels") or [] if (l.get("key") or "").startswith("B")]
-    return sum(basement), bool(basement)
+def _levels_and_ground(building):
+    """(lowest floor's level, ground level, where the ground came from, has a basement) from the
+    3D model: the ground is the drawn GL, else the ground floor (a deck's roof), else the lowest."""
+    levels = building.get("levels") or []
+    elev = {l.get("key"): float(l.get("elev") or 0.0) for l in levels}
+    basement = [elev[k] for k in elev if (k or "").startswith("B")]
+    stacked = sum(float(l.get("height") or 0) for l in levels if (l.get("key") or "").startswith("B"))
+    floor = min(basement) if basement else elev.get("1", min(elev.values()) if elev else 0.0)
+    if building.get("ground_elev") is not None:
+        ground, source = float(building["ground_elev"]), "drawing"
+    elif "1" in elev:
+        ground, source = elev["1"], "first_floor"
+    elif "R" in elev and basement:
+        ground, source = elev["R"], "deck_roof"
+    else:
+        ground, source = floor + stacked, "first_floor"
+    if basement and floor >= ground - 0.01:
+        # levels without elevations: the basement storeys' heights stacked under the ground
+        floor = ground - stacked
+    return floor, ground, source, bool(basement)
 
 
 def _method(overrides, excavation, deepest):
@@ -71,12 +88,14 @@ def earthwork(buildings, model_buildings, host_name, match, overrides=None, lear
         foundation = next((r.get("foundation") for r in building.get("rows") or [] if r.get("key") == "FT"), None)
         if not foundation or not foundation.get("area"):
             continue
-        depth_b, has_basement = _depths(levels.get(building["name"]) or {})
+        floor, ground, ground_from, has_basement = _levels_and_ground(levels.get(building["name"]) or {})
         thickness = float(foundation.get("thickness") or 0)
-        depth = depth_b + thickness + LEAN_M if has_basement else max(thickness + LEAN_M, FROST_M)
+        bottom = floor - thickness - LEAN_M
+        depth = ground - bottom if has_basement else max(ground - bottom, FROST_M)
         parts[building["name"]] = {"name": building["name"], "area": float(foundation["area"]),
                                    "perimeter": float(foundation.get("perimeter") or 0), "depth": round(depth, 3),
-                                   "below": depth_b + thickness, "basement": has_basement}
+                                   "below": max(min(depth - LEAN_M, ground - (floor - thickness)), 0.0), "basement": has_basement,
+                                   "ground": round(ground, 3), "ground_from": ground_from}
     groups = []
     inside = set(match or {}) if host_name in parts else set()
     for name, part in parts.items():
@@ -105,6 +124,7 @@ def earthwork(buildings, model_buildings, host_name, match, overrides=None, lear
         surplus = volume - backfill
         shoring_length = perimeter + 8 * margin if shored else 0.0
         item = {"name": group["name"], "parts": [m["name"] for m in group["members"]], "area": round(area, 1),
+                "ground_from": base["ground_from"], "ground": base["ground"],
                 "perimeter": round(perimeter, 1), "depth": round(depth, 2), "pits": round(pits, 1),
                 "excavation": round(volume, 1), "backfill": round(backfill, 1), "surplus": round(surplus, 1),
                 "surplus_loose": round(surplus * LOOSE, 1), "lean": round(lean, 2),
@@ -114,8 +134,10 @@ def earthwork(buildings, model_buildings, host_name, match, overrides=None, lear
             totals[key] += item[key]
         if assumed is not None:
             where = group["name"]
-            assumed.add("ground_level", "지반고", "1층 바닥 = 지반 (굴착 깊이 = 지하층 높이 + 기초 + 버림 60mm)", where, "토공",
-                        volume, "㎥", "지반고(GL)가 1층 바닥과 다르면 단면도의 GL 표기로 바로잡아야 해요 (다음 단계)")
+            if base["ground_from"] != "drawing":
+                assumed.add("ground_level", "지반고 (GL)",
+                            ("주차장 지붕 = 지반" if base["ground_from"] == "deck_roof" else "1층 바닥 = 지반") + " (굴착 깊이 = 지반 − 맨 아래층 바닥 + 기초 + 버림 60mm)",
+                            where, "토공", volume, "㎥", "단면도·입면도에 GL 레벨(예: GL±0=EL+16.20)을 함께 올리면 그 높이를 써요")
             assumed.add("excavation_margin", "작업 여유폭", f"{margin:g}m" + {"person": " (입력값)", "learned": " (다른 현장 입력값)"}.get(margin_from, ""),
                         where, "토공", (perimeter + 4 * margin) * margin * depth, "㎥", "흙막이·기초 상세도의 여유폭으로 바꿔 주세요",
                         raw=margin, person=margin_from == "person")

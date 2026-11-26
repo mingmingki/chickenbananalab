@@ -194,6 +194,28 @@ def _distance(px, py, seg):
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
+LINE_DOOR = "문(블록 없음)"
+
+
+def _swing(points):
+    """(hinge x, y, leaf width) of a door swing drawn as plain lines: a quarter arc (60–120°) of
+    0.5–1.3 m radius, the points (metres) on one circle; None for anything else."""
+    if len(points) < 3:
+        return None
+    (ax, ay), (bx, by), (cx, cy) = points[0], points[len(points) // 2], points[-1]
+    d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+    if abs(d) < 1e-9:
+        return None
+    ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d
+    uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d
+    r = math.hypot(ax - ux, ay - uy)
+    if not 0.5 <= r <= 1.3 or any(abs(math.hypot(px - ux, py - uy) - r) > 0.03 + 0.05 * r for px, py in points):
+        return None
+    cos = ((ax - ux) * (cx - ux) + (ay - uy) * (cy - uy)) / (r * r)
+    sweep = math.degrees(math.acos(max(-1.0, min(1.0, cos))))
+    return (ux, uy, r) if 60 <= sweep <= 120 else None
+
+
 def _type_tags(placed, tags):
     """The type of each opening: its own attribute, else the nearest tag within 1.5 m (a window tag
     never goes to a swing door), else the tag its block's other copies all carry."""
@@ -276,6 +298,18 @@ def measure(paths, box, inserts=(), tags=(), names=()):
         if (x0 <= px <= x1 and y0 <= py <= y1) and width > 0:
             placed.append((name, kind, (px - x0) / 1000.0, (py - y0) / 1000.0, width, own, arc))
     placed = _without_copies(placed)
+    # doors drawn as plain lines on a door layer (no block): their swing arcs, where no door block stands
+    for _category, ax, ay, bx, by, points in paths:
+        kind = _category[0] if isinstance(_category, tuple) else _category
+        if kind != "opening" or bx < x0 or ax > x1 or by < y0 or ay > y1:
+            continue
+        swing = _swing([((px - x0) / 1000.0, (py - y0) / 1000.0) for px, py in points])
+        if swing is None:
+            continue
+        hx, hy, leaf = swing
+        if any(math.hypot(hx - item[2], hy - item[3]) <= max(leaf, 0.6) for item in placed):
+            continue  # the arc of a door block (or of a line door already taken)
+        placed.append((LINE_DOOR, "door", hx, hy, leaf * 1000.0, None, True))
     local_tags = [(key, (tx - x0) / 1000.0, (ty - y0) / 1000.0) for key, tx, ty in tags or () if x0 <= tx <= x1 and y0 <= ty <= y1]
     types = _type_tags(placed, local_tags)
     openings = {}

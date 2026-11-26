@@ -250,3 +250,45 @@ class FinishScheduleJobTests(SimpleTestCase):
         self.assertIn("욕실(공용)", check["unused"])
         self.assertNotIn("finish_rules", {a["key"] for a in result["assumed"]})  # every plan room had its row
         self.assertNotIn("ceiling_height", {a["key"] for a in result["assumed"]})  # and its ceiling height
+
+
+class LineDoorTests(SimpleTestCase):
+    def test_a_door_drawn_without_a_block_closes_the_room_and_counts(self):
+        from core import quantity_arch
+        frame, masonry = plan()[0]["frame"], plan()[0]["masonry"]
+
+        def path(kind, segments):
+            out = []
+            for ax, ay, bx, by in segments:  # metres → millimetres, as the plan paths come
+                pts = [(ax * 1000, ay * 1000), (bx * 1000, by * 1000)]
+                out.append(((kind, "A-WALL"), min(ax, bx) * 1000, min(ay, by) * 1000, max(ax, bx) * 1000, max(ay, by) * 1000, pts))
+            return out
+        paths = path("frame", frame) + path("masonry", masonry)
+        import math
+        arc = [(6050 + 900 * math.cos(math.radians(a)), 1000 + 900 * math.sin(math.radians(a))) for a in range(0, 91, 10)]
+        paths.append((("opening", "A-DOOR"), 6050, 1000, 6950, 1900, arc))  # the swing, hinged on the partition at y = 1.0 m
+        names = [("거실", 3000.0, 3000.0), ("욕실", 8000.0, 3000.0)]
+        window = ("AW1", "window", 2000.0, 0.0, 2000.0, None, False)  # the outer wall's window (a block)
+        measured = quantity_arch.measure(paths, (0, 0, 10000, 6000), inserts=[window], tags=(), names=names)
+        doors = {o["name"]: o for o in measured["openings"]}
+        self.assertEqual(doors[quantity_arch.LINE_DOOR]["count"], 1)
+        self.assertAlmostEqual(doors[quantity_arch.LINE_DOOR]["width"], 0.9, places=2)
+        self.assertEqual(sorted(r["names"][0] for r in measured["rooms"] if r["names"]), ["거실", "욕실"])  # not one room
+        # a door block on the same spot: its own arc is no second door
+        inserts = [window, ("D1", "door", 6050.0, 1000.0, 900.0, None, True)]
+        again = quantity_arch.measure(paths, (0, 0, 10000, 6000), inserts=inserts, tags=(), names=names)
+        self.assertEqual({o["name"]: o["count"] for o in again["openings"]}, {"AW1": 1, "D1": 1})
+
+
+class FinishScheduleVariantTests(SimpleTestCase):
+    def test_headers_with_finish_words_and_a_second_header_line(self):
+        from core import quantity_arch_finish_schedule as fs
+        texts = [("실명", 10, 200, 3), ("바닥 마감", 60, 200, 3), ("굽도리", 110, 200, 3), ("벽체 마감재", 160, 200, 3), ("천정", 210, 200, 3),
+                 ("반자고", 250, 200, 3),
+                 # the second header line: each column's finish and its base
+                 ("마감", 50, 192, 2.5), ("바탕", 70, 192, 2.5), ("마감", 150, 192, 2.5), ("바탕", 170, 192, 2.5),
+                 ("거실", 10, 175, 3), ("강마루", 50, 175, 2.5), ("시멘트몰탈", 70, 175, 2.5), ("PVC 굽도리", 110, 175, 2.5),
+                 ("실크벽지", 150, 175, 2.5), ("석고보드 2겹", 170, 175, 2.5), ("천장지", 210, 175, 2.5), ("2,400", 250, 175, 2.5)]
+        room = fs.read_finish_schedule(texts)["rooms"]["거실"]
+        self.assertEqual((room["floor"], room["base"], room["wall"], room["ceiling"], room["ceiling_height"]),
+                         ("강마루", "PVC 굽도리", "실크벽지", "천장지", 2.4))
