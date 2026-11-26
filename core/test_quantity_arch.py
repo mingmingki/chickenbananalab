@@ -375,3 +375,32 @@ class OpeningExcelTests(TestCase):
         self.assertIn(("WD1", 0.9, 2.1, 5, 20, "개수 다름"), [tuple(r[:6]) for r in rows])
         headers = [c.value for c in next(workbook["건축 집계(층별)"].iter_rows(min_row=4, max_row=4))]
         self.assertIn("창 면적(㎡)", headers)
+
+
+class LetterSizeScheduleTests(SimpleTestCase):
+    def test_types_named_by_letters_and_size_and_the_plan_blocks_that_find_them(self):
+        from core import quantity_arch_schedule as qs
+        texts = [("1.1x2.1", 46, 206, 1.5), ("FSD", 48, 201.6, 1.5),        # metres in one text
+                 ("30X21", 37, 253.5, 1.2), ("PW", 38, 250, 1.2),           # decimetres
+                 ("1.0", 170, 572, 2.4), ("2.2", 175, 572, 2.4), ("WD", 172, 568, 2.4),  # metres side by side
+                 ("0.9x1.1", 214, 206.5, 1.5), ("AW", 216, 202, 1.5),
+                 ("FSD", 300, 0, 1.5)]                                      # letters with no size: no type
+        types = qs.read_opening_schedule(texts, "A-651")["types"]
+        self.assertEqual({k: (v["kind"], v["width"], v["height"]) for k, v in types.items()},
+                         {"FSD1.1X2.1": ("door", 1.1, 2.1), "PW3X2.1": ("window", 3.0, 2.1), "WD1X2.2": ("door", 1.0, 2.2),
+                          "AW0.9X1.1": ("window", 0.9, 1.1)})
+        self.assertEqual(qs.listed_type(types, "XR-102동$0$FSD-1100")["code"], "FSD1.1X2.1")
+        self.assertEqual(qs.listed_type(types, "단위세대_WD-1000")["code"], "WD1X2.2")
+        self.assertEqual(qs.listed_type(types, "XR-101동$0$AW 900")["code"], "AW0.9X1.1")
+        self.assertEqual(qs.listed_type(types, "PW-1500(D)"), {})  # no PW 1.5 m wide in the schedule
+        types["FSD1.1X2.3"] = dict(types["FSD1.1X2.1"], code="FSD1.1X2.3", height=2.3)
+        self.assertEqual(qs.listed_type(types, "FSD-1100"), {})  # two heights for one width: not guessed
+
+    def test_the_takeoff_takes_the_height_of_a_block_found_by_letters_and_width(self):
+        from core import quantity_arch_takeoff as at
+        types = {"FSD1.1X2.3": {"code": "FSD1.1X2.3", "kind": "door", "width": 1.1, "height": 2.3}}
+        opening = {"name": "XR-101동$0$FSD-1100", "kind": "door", "width": 1.1, "count": 2}
+        sized = at._sized(opening, types, 2.1, 1.5)
+        self.assertEqual((sized["height"], sized["height_from"], sized["area"]), (2.3, "schedule", round(1.1 * 2.3 * 2, 2)))
+        check = at.schedule_check([{"openings": [dict(opening, count=2)]}], types)
+        self.assertEqual((check["matched"], check["not_listed"]), (1, []))

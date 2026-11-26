@@ -40,15 +40,21 @@ ROOM_CLASSES = (
     ("room", re.compile(r"거실|침실|안방|^방\s*\d*$|주방|식당|드레스|알파룸|서재|팬트리|가족실|다목적|ROOM|KITCHEN|LIVING|DINING", re.I)),
 )
 ROOM_NAME = re.compile("|".join(p.pattern for _c, p in ROOM_CLASSES), re.I)
+TIE_ORDER = ("room", "wet", "balcony", "entrance", "service", "common")  # a space several names share, on a tie
 
 
 def room_class(names):
     """The finish class of a room from its names: shaft, wet, balcony, entrance, service, common,
-    room; None when no name says."""
-    for kind, pattern in ROOM_CLASSES:
-        if any(pattern.search(n) for n in names):
-            return kind
-    return None
+    room; None when no name says. Each name has its class; a space several names share (rooms a
+    missing door left open into one: 거실/침실1/발코니/PS) takes the class most of its names have,
+    the rooms (거실·침실) on a tie, and a shaft's label (PS, AD) never decides when another name is
+    there (its shaft not walled off on the plan)."""
+    classes = [next((kind for kind, pattern in ROOM_CLASSES if pattern.search(n)), None) for n in names]
+    classes = [kind for kind in classes if kind]
+    rest = [kind for kind in classes if kind != "shaft"]
+    if not rest:
+        return classes[0] if classes else None
+    return max(TIE_ORDER, key=lambda kind: (rest.count(kind), -TIE_ORDER.index(kind)))
 
 
 def is_room_name(text):

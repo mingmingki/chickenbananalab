@@ -1442,7 +1442,7 @@ def build_takeoff(model, links=None, slab_thickness=SLAB_THICKNESS, edits=None, 
     from . import quantity_site_works as works
     try:  # the earthwork and the outside never cost the takeoff its rows
         earth = works.earthwork(buildings, all_buildings, host_name, match, overrides, learned, excavation, assumed)
-        outside_works = works.exterior(buildings, match, overrides, assumed)
+        outside_works = works.exterior(buildings, match, overrides, assumed, all_buildings)
     except Exception as exc:
         earth, outside_works = {"error": str(exc)[:200], "groups": []}, {"error": str(exc)[:200], "buildings": []}
     return {

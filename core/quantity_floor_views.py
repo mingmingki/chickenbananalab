@@ -1204,9 +1204,16 @@ def _elevations(keys, table, section):
     return result
 
 
-def _ground_elev(table, section, keys):
+def _ground_elev(table, section, keys, elevations=None):
     """The ground level (GL, m) of a building from the sections and elevations, in the datum of its
-    floor levels: only when the same drawings also give one of its floors."""
+    floor levels: only when the same drawings also give one of its floors. On a sloping site a
+    legend pairs each building's GL with its ground floor ("GL = EL+10.40 / 1FL+11.00"); the pair
+    of this building's ground floor wins over a GL mark on its sheets (one sheet often draws
+    several buildings' sections)."""
+    from .quantity_levels import ground_for_floor
+    paired = ground_for_floor(table, (elevations or {}).get("1")) if "1" in keys else None
+    if paired is not None:
+        return paired
     sections = (table or {}).get("sections") or {}
     known = {}
     for name in (section, "주동", "공통"):
@@ -1257,7 +1264,7 @@ def build_model(plans, table, site=True):
             levels.append({"key": key, "label": label, "elev": base, "height": height,
                            "plan": storeys[key], "sheet": rows[storeys[key]].get("sheet")})
         buildings.append({"name": name, "levels": levels, "foundation": foundation,
-                          "ground_elev": _ground_elev(table, name, keys), "plans": [plan["model"] for plan in rows]})
+                          "ground_elev": _ground_elev(table, name, keys, elevations), "plans": [plan["model"] for plan in rows]})
     model = {"version": 1, "buildings": buildings, "heights_from_drawings": bool((table or {}).get("sections"))}
     if site:
         from . import quantity_site

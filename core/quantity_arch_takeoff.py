@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from . import quantity_arch_finishes as finishes_of
 from . import quantity_floor_views as fv
+from .quantity_arch_schedule import listed_type
 from .quantity_assumed import ARCH_KEYS, Assumed, clean_overrides, pick, said
 
 ARCH_TAKEOFF_VERSION = 2
@@ -48,7 +49,7 @@ def _wall_length(view):
 def _sized(opening, types, door_h, window_h):
     """The opening with the size it is counted at: the schedule's, else its block width and the
     assumed height."""
-    listed = types.get(opening["name"]) or {}
+    listed = listed_type(types, opening["name"], opening["width"])
     door = opening["kind"] == "door"
     width = listed.get("width") or opening["width"]
     height = listed.get("height") or (door_h if door else window_h)
@@ -86,7 +87,7 @@ def outer_opening_heights(views, schedule):
     for (name, key), view in _chosen_views(views).items():
         width_sum = weighted = 0.0
         for opening in (view.get("arch") or {}).get("openings") or []:
-            listed = types.get(opening.get("name")) or {}
+            listed = listed_type(types, opening.get("name"), opening.get("width"))
             count = (opening.get("on") or {}).get("frame") or 0
             if listed.get("height") and count and opening.get("kind") == "window":  # the doors in concrete are mostly inside (core)
                 width = (listed.get("width") or opening.get("width") or 0) * count
@@ -214,7 +215,7 @@ def build(views, model=None, overrides=None, learned=None, schedule=None, finish
                 item = by_type.setdefault(o["name"], {
                     "name": o["name"], "kind": o["kind"], "count": 0, "width": o["width"], "height": o["height"], "area": 0.0,
                     "width_from": o["width_from"], "height_from": o["height_from"], "blocks": list(o.get("blocks") or []),
-                    "schedule_count": (types.get(o["name"]) or {}).get("count"), "floors": []})
+                    "schedule_count": listed_type(types, o["name"]).get("count"), "floors": []})
                 item["count"] += o["count"]
                 item["area"] = round(item["area"] + o["area"], 2)
                 item["floors"].append(r["label"])
@@ -256,11 +257,12 @@ def finish_check(buildings, finish_schedule):
 def schedule_check(buildings, types):
     """The plans against the window and door schedule: each type's count in the plans (all
     buildings) and in the schedule, the schedule's types the plans never show, and the plan types
-    the schedule does not list."""
+    the schedule does not list (a plan block found by its letters and width counts for its type)."""
     counted = {}
     for building in buildings:
         for item in building["openings"]:
-            counted[item["name"]] = counted.get(item["name"], 0) + item["count"]
+            key = listed_type(types, item["name"]).get("code") or item["name"]
+            counted[key] = counted.get(key, 0) + item["count"]
     rows = []
     for key in sorted(set(counted) | set(types), key=lambda k: ((types.get(k) or {}).get("kind") or "", k)):
         listed = types.get(key) or {}

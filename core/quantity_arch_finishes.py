@@ -55,12 +55,13 @@ def storey_finishes(rooms, clear, sizes, ceiling_h=CEILING_HEIGHT, rise=WATERPRO
     sizes(name, kind, width) → (width, height) of a window or door as counted; schedule:
     quantity_arch_finish_schedule.read_finish_schedule(...) or None."""
     from .quantity_arch_finish_schedule import match
+    from .quantity_arch_rooms import room_class
     default_height = min(ceiling_h, clear) if clear else ceiling_h
     out = {"floor": {}, "wall": {}, "ceiling": {}, "base": 0.0, "waterproof": 0.0, "plaster": 0.0,
            "rooms": [], "unnamed": {"count": 0, "area": 0.0}, "wall_by_height": 0.0, "rise_area": 0.0,
            "rule_area": 0.0, "from_schedule": 0}
     for room in rooms or []:
-        kind = room.get("class")
+        kind = room_class(room["names"]) if room.get("names") else room.get("class")  # (rooms read before the class rules changed)
         entry = match(schedule, room.get("names")) if schedule else None
         rule = RULES.get(kind) or (RULES["room"] if entry else None)
         area, perimeter = float(room.get("area") or 0), float(room.get("perimeter") or 0)

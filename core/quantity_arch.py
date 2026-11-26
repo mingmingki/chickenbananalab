@@ -33,7 +33,7 @@ OPENING_REACH_M = 0.6
 OPENING_SHARE = 0.6
 OPENING_BLOCK_MM = (300.0, 6000.0)
 DUPLICATE_M = 0.1  # two openings of one kind this close are one opening drawn twice
-ANONYMOUS_BLOCK = re.compile(r"^(?:\*|[A-Z]\$C[0-9A-F]{6,}$)")
+ANONYMOUS_BLOCK = re.compile(r"^(?:\*|[A-Z]\$C[0-9A-Fa-f]{6,}$)")
 TAG_REACH_M = 1.5
 MAX_TAGS = 20000
 DOOR_NAME = re.compile(r"DOOR|DR|문|^(?:A|W|S|F|P|SS|H)?D\d|WD|AD|SD|FD|PD", re.I)
@@ -59,6 +59,23 @@ def _block_info(doc, name, cache):
             info = (0.0, 0.0, False)
     cache[key] = info
     return info
+
+
+def _block_center(doc, name, cache):
+    """(x, y) of the middle of a block's own extents (block units), cached; None when empty."""
+    key = (id(doc), name, "center")
+    if key not in cache:
+        cache[key] = None
+        block = doc.blocks.get(name)
+        if block is not None:
+            try:
+                from ezdxf import bbox
+                box = bbox.extents(block, fast=True)
+                if box.has_data:
+                    cache[key] = (float(box.center.x), float(box.center.y))
+            except Exception:
+                pass
+    return cache[key]
 
 
 LINE_KINDS = ("LINE", "LWPOLYLINE", "POLYLINE", "ARC")
@@ -164,6 +181,11 @@ def opening_inserts(doc, xrefs, limit=None, is_opening=None, key_of=None, tags=N
             by_content = None if is_opening(layer, name) else opening_by_content(document, name, layer, layer_kind, cache)
             if by_content or is_opening(layer, name):
                 origin = placed.transform(Vec3(0, 0, 0))
+                center = _block_center(document, name, cache) if ANONYMOUS_BLOCK.match(name.split("$0$")[-1]) else None
+                if center is not None:
+                    # a pasted group (A$C…) sits at the point it was pasted from, often far from the
+                    # door it draws: it stands where its lines are (its swing is then no second door)
+                    origin = placed.transform(Vec3(center[0], center[1], 0))
                 if not inside(origin):
                     continue
                 w, h, has_arc = _block_info(document, name, cache)

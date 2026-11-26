@@ -136,3 +136,55 @@ class GroundLevelTests(SimpleTestCase):
         table = {"sections": {"101동": {"elevations": {"GL": 9.5, "1": 10.0, "B1": 6.5}}}}
         self.assertEqual(fv._ground_elev(table, "101동", ["B1", "1", "2"]), 9.5)
         self.assertIsNone(fv._ground_elev({"sections": {"공통": {"elevations": {"GL": 9.5}}}}, "101동", ["B1", "1"]))
+
+    def test_a_legend_pairs_each_buildings_ground_with_its_ground_floor(self):
+        from core import quantity_floor_views as fv
+        from core import quantity_levels as lv
+        texts = [{"text": t, "x": 0.0, "y": 0.0, "h": 1.0} for t in
+                 ("GL = EL+ 9.70 / 1FL+10.30", "GL = EL+10.40 / 1FL+11.00", "GL = EL+11.10 / 1FL+11.70", "- GL±0=EL+16.20")]
+        self.assertEqual(lv.ground_pairs(texts), [(9.7, 10.3), (10.4, 11.0), (11.1, 11.7)])
+        table = lv.build_level_table({"A-421.dwg": {"sheets": [{"drawing_title": "동 주단면도", "levels": lv.read_sheet_levels(texts)}]}})
+        self.assertEqual(table["ground_pairs"], [[9.7, 10.3], [10.4, 11.0], [11.1, 11.7]])
+        # the plans give the slab (SL+10.2), the legend the finished floor (1FL+10.30): within 0.2 m
+        table["sections"] = {"103동": {"elevations": {"GL": 10.4, "1": 10.2}}}  # a GL read off a neighbour's section
+        self.assertEqual(fv._ground_elev(table, "103동", ["B1", "1", "2"], {"B1": 4.7, "1": 10.2}), 9.7)
+        self.assertEqual(fv._ground_elev(table, "101동", ["B1", "1"], {"B1": 4.7, "1": 11.6}), 11.1)
+        self.assertIsNone(lv.ground_for_floor(table, 13.0))
+
+
+class DeckEarthworkTests(SimpleTestCase):
+    def deck_and_tower(self, deck_ground=None):
+        takeoff = [{"name": "지하주차장", "rows": [{"key": "FT", "foundation": {"area": 2000.0, "perimeter": 200.0, "thickness": 0.6}}]},
+                   {"name": "101동", "rows": [{"key": "FT", "foundation": {"area": 400.0, "perimeter": 80.0, "thickness": 1.0}}]}]
+        model = [{"name": "지하주차장", "ground_elev": deck_ground, "site": {"placed": True, "host": True},
+                  "levels": [{"key": "B2", "elev": 1.1, "height": 3.6}, {"key": "B1", "elev": 4.7, "height": 3.5}, {"key": "R", "elev": 8.2, "height": 3.0}]},
+                 {"name": "101동", "ground_elev": 11.1, "site": {"placed": True, "on": "지하주차장"},
+                  "levels": [{"key": "B2", "elev": 1.1, "height": 3.6}, {"key": "B1", "elev": 4.7, "height": 6.9}, {"key": "1", "elev": 11.6, "height": 4.1}]}]
+        return takeoff, model
+
+    def test_a_tower_placed_on_the_deck_is_dug_with_it_from_the_towers_ground(self):
+        takeoff, model = self.deck_and_tower()
+        earth = works.earthwork(takeoff, model, None, {}, excavation="CIP등 흙막이공사")  # no outlines matched on the deck's plans
+        group, = earth["groups"]
+        self.assertEqual((group["name"], group["parts"]), ("지하주차장", ["지하주차장", "101동"]))
+        self.assertEqual((group["ground"], group["ground_from"]), (11.1, "towers"))  # not the deck's roof (8.2)
+        self.assertAlmostEqual(group["depth"], 11.1 - (1.1 - 0.6 - 0.06), places=2)
+        self.assertAlmostEqual(group["pits"], 400.0 * 0.4, places=1)  # the tower's mat 0.4 m deeper than the deck's
+        self.assertAlmostEqual(group["shoring_length"], 200.0 + 8.0, places=1)  # one shoring line round the deck
+        # a GL the deck's own details give that disagrees with its towers': the towers' wins
+        takeoff, model = self.deck_and_tower(deck_ground=13.5)
+        self.assertEqual(works.earthwork(takeoff, model, None, {})["groups"][0]["ground"], 11.1)
+
+    def test_a_deck_roof_is_waterproofed_not_insulated_and_its_towers_basements_are_its_own(self):
+        def row(key, faces, height, slab=0.0):
+            return {"key": key, "label": key, "height": height, "measures": {"outside_faces": faces, "slab_area": slab}}
+        buildings = [{"name": "지하주차장", "rows": [row("B2", 180.0, 3.6, 2000.0), row("B1", 180.0, 3.5, 2000.0), row("R", 0.0, 3.0)]},
+                     {"name": "101동", "rows": [row("B1", 80.0, 6.9, 400.0), row("1", 80.0, 4.1, 380.0), row("R", 60.0, 2.8)]}]
+        model = [{"name": "지하주차장"}, {"name": "101동", "site": {"placed": True, "on": "지하주차장"}}]
+        outside = {b["name"]: b for b in works.exterior(buildings, {}, model_buildings=model)["buildings"]}
+        deck, tower = outside["지하주차장"], outside["101동"]
+        self.assertEqual(deck["roof"]["insulation"], 0.0)
+        self.assertAlmostEqual(deck["roof"]["waterproof"], 2000.0 + 180.0 * 0.3, places=1)
+        self.assertAlmostEqual(deck["basement_waterproof"], 180.0 * (3.6 + 3.5), places=1)
+        self.assertEqual(tower["basement_waterproof"], 0.0)  # the deck's walls
+        self.assertEqual(tower["roof"]["insulation"], 380.0)

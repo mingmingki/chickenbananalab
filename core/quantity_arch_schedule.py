@@ -9,6 +9,11 @@ nearest code above it or beside it, every text to one code only (greedy, nearest
 The code also gives the kind: the last letter before the number is D for a door, W for a window
 (WD = wood door, AW = aluminium window). The same codes tag the windows and doors on the plans
 (quantity_arch reads them), which is how the plans find their sizes here.
+
+Other offices name a type by its letters and its size instead of a number: "FSD" under
+"1.1x2.1" (metres), "PW" under "30X21" (decimetres), or "WD" under "1.0" and "2.2". Such a type
+is keyed FSD1.1X2.1, and a plan window or door without a tag finds it by the letters and width in
+its block name ("FSD-1100", "UNIT BPW-1400", "AW 1000"): listed_type.
 """
 from __future__ import annotations
 
@@ -26,6 +31,14 @@ COUNT_INLINE = re.compile(r"(?:수\s*량|Q'?TY)\s*[:：]?\s*(\d{1,4})|(\d{1,4})\
 COUNT_LABEL = re.compile(r"^\s*(?:수\s*량|Q'?TY|QUANTITY)\s*$", re.I)
 PLAIN_NUMBER = re.compile(r"^\s*(\d{1,4})\s*$")
 MAX_TEXTS = 60000
+# schedules that name a type by its letters and size ("FSD" under "1.1x2.1", "PW" under "30X21",
+# "WD" under "1.0" "2.2"): the type is FSD1.1X2.1 (metres)
+LETTERS = re.compile(r"^\s*([A-Z]{1,4}[WD])\s*$")
+SMALL = r"(\d{1,2}(?:\.\d{1,2})?)"
+SMALL_SIZE = re.compile(r"^\s*" + SMALL + r"\s*[xX×*]\s*" + SMALL + r"\s*$")
+METRES = re.compile(r"^\s*(\d\.\d{1,2})\s*$")
+LETTER_SIZE_KEY = re.compile(r"^([A-Z]{1,4})(\d+(?:\.\d+)?)X(\d+(?:\.\d+)?)$")
+BLOCK_SIZE = re.compile(r"(?<![A-Z])([A-Z]{1,4})[\s\-_]*W?(\d{3,4})(?!\d)")
 
 
 def code_key(text):
@@ -122,12 +135,84 @@ def _pair(codes, items, reach_of):
     return out
 
 
+def _small_metres(a, b):
+    """(w, h) in metres of a size written small: metres ("1.1x2.1") or decimetres ("24X23.5")."""
+    if a < 10 and b < 10:
+        return a, b
+    if a < 100 and b < 100:
+        return a / 10.0, b / 10.0
+    return None
+
+
+def letter_size_key(letters, width, height):
+    return f"{letters}{round(width, 2):g}X{round(height, 2):g}"
+
+
+def _letter_size_types(texts, name=None):
+    """{key: type} of a schedule naming each type by its letters with its size just above them:
+    "1.1x2.1" (m) or "30X21" (dm) in one text, or "1.1" and "2.2" (m) side by side. Each letters
+    text takes the nearest size above it (within six text heights up, half a column across)."""
+    heads = [(m.group(1), x, y, max(h, 1e-6)) for t, x, y, h in texts if (m := LETTERS.match(t)) and len(m.group(1)) >= 2]
+    if not heads:
+        return {}
+    sizes = []
+    for text, x, y, h in texts:
+        match = SMALL_SIZE.match(text)
+        if match:
+            size = _small_metres(float(match.group(1)), float(match.group(2)))
+            if size and 0.3 <= size[0] <= 12 and 0.3 <= size[1] <= 6:
+                sizes.append((size, x, y))
+    plain = sorted(((float(m.group(1)), x, y, h) for t, x, y, h in texts if (m := METRES.match(t))), key=lambda item: (item[2], item[1]))
+    for (w, x, y, h), (hh, x2, y2, _h2) in zip(plain, plain[1:]):
+        if abs(y2 - y) <= 0.3 * h and 0 < x2 - x <= 4 * h and 0.3 <= w <= 12 and 0.3 <= hh <= 6:
+            sizes.append(((w, hh), x, y))
+    pairs = []
+    for hi, (_letters, hx, hy, hh) in enumerate(heads):
+        for si, (_size, sx, sy) in enumerate(sizes):
+            dy, dx = sy - hy, sx - hx
+            if 0 < dy <= 6 * hh and abs(dx) <= 12 * hh:
+                pairs.append((abs(dx) + abs(dy), hi, si))
+    used_h, used_s, out = set(), set(), {}
+    for _d, hi, si in sorted(pairs):
+        if hi in used_h or si in used_s:
+            continue
+        used_h.add(hi)
+        used_s.add(si)
+        letters = heads[hi][0]
+        width, height = sizes[si][0]
+        key = letter_size_key(letters, width, height)
+        out.setdefault(key, {"code": key, "kind": kind_of(letters), "width": round(width, 3), "height": round(height, 3),
+                             "count": None, "sheet": name})
+    return out
+
+
+def listed_type(types, name, width=None):
+    """The schedule's type of a plan window or door: by its tag, else, for a schedule naming types
+    by letters and size (FSD1.1X2.1), by the letters and width in its block name ("FSD-1100",
+    "UNIT BPW-1400", "AW 1000") or its drawn width; {} when none fits (or several heights do)."""
+    item = (types or {}).get(name)
+    if item:
+        return item
+    last = str(name or "").split("$0$")[-1].split("|")[-1].upper()
+    match = BLOCK_SIZE.search(last)
+    if not match:
+        return {}
+    letters, wanted = match.group(1), int(match.group(2)) / 1000.0
+    found = []
+    for key, entry in (types or {}).items():
+        parts = LETTER_SIZE_KEY.match(key)
+        if parts and parts.group(1) == letters and entry.get("width") and abs(entry["width"] - wanted) <= 0.06:
+            found.append(entry)
+    heights = {entry.get("height") for entry in found}
+    return found[0] if len(heights) == 1 else {}
+
+
 def read_opening_schedule(texts, name=None):
     """{"types": {code: {"code", "kind", "width", "height", "count", "sheet"}}} from the texts of a
     schedule drawing (drawing_texts). Sizes in metres; a type without a size keeps width/height None."""
     codes = [(code_key(t), x, y, max(h, 1e-6)) for t, x, y, h in texts if code_key(t) and len(t) <= 24]
     if not codes:
-        return {"types": {}}
+        return {"types": _letter_size_types(texts, name)}
     heights = sorted(h for *_rest, h in codes)
     unit = heights[len(heights) // 2]
     reach = lambda h: 60 * max(h, unit)

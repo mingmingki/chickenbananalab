@@ -3,13 +3,15 @@
 Earthwork (토공) — per excavation: a building on its own, or a parking deck with the towers
 standing in it (their mats go deeper than the deck's):
 
-* depth = the ground level (GL from the sections and elevations, else the ground floor's level,
-  or a parking deck's roof) less the bottom: the lowest floor less the foundation's thickness
-  and the lean concrete (60 mm); a building without a basement digs at least the frost depth
-  (0.9 m);
+* depth = the ground level (GL from the sections and elevations, on a sloping site the GL its
+  legend pairs with the building's ground floor; a parking deck takes the GL of the towers
+  standing in it; else the ground floor's level, or a deck's roof) less the bottom: the lowest
+  floor less the foundation's thickness and the lean concrete (60 mm); a building without a
+  basement digs at least the frost depth (0.9 m);
 * excavation = the footprint (the foundation's outline) widened by the working space each side
   (1.0 m), sloped 1 : 1.0 for an open cut or straight down behind shoring (흙막이), plus the
-  deeper pits under the towers' mats;
+  deeper pits under the towers' mats (a tower matched to the deck's plans or placed on it by the
+  3D layout is dug with the deck, not on its own);
 * backfill (되메우기) = the excavation less what is built below the ground (the basement box and
   the foundation) and the lean concrete; surplus soil (잔토처리) = the rest, also loosened (×1.25);
 * shoring (흙막이) = the excavation's outline × its depth (the toe below the bottom not included);
@@ -22,7 +24,8 @@ The outside (외부):
 * basement outer wall waterproofing = the basement storeys' outer wall faces × their height
   (the deck's, for towers standing in a deck);
 * roof waterproofing = the roof slab (the slab over the top storey below the roof) and a 0.3 m
-  rise round its edge; roof insulation = the roof slab. A parking deck's roof is waterproofed too.
+  rise round its edge; roof insulation = the roof slab. A parking deck's roof is waterproofed too,
+  not insulated.
 
 Every value it assumes is listed (quantity_assumed); the method, the working space, the slope and
 the outer finish can be changed in place.
@@ -83,6 +86,10 @@ def earthwork(buildings, model_buildings, host_name, match, overrides=None, lear
     margin, margin_from = pick("excavation_margin", overrides, learned, MARGIN_M)
     slope, slope_from = pick("excavation_slope", overrides, learned, SLOPE)
     levels = {b.get("name"): b for b in model_buildings or []}
+    # the towers standing in the parking deck are dug with it: those matched to the outlines of its
+    # plans, and those the 3D layout placed on it
+    host_name = host_name or next(((b.get("site") or {}).get("on") for b in model_buildings or [] if (b.get("site") or {}).get("on")), None)
+    placed = {name for name, b in levels.items() if host_name and (b.get("site") or {}).get("on") == host_name}
     parts = {}
     for building in buildings:
         foundation = next((r.get("foundation") for r in building.get("rows") or [] if r.get("key") == "FT"), None)
@@ -90,18 +97,29 @@ def earthwork(buildings, model_buildings, host_name, match, overrides=None, lear
             continue
         floor, ground, ground_from, has_basement = _levels_and_ground(levels.get(building["name"]) or {})
         thickness = float(foundation.get("thickness") or 0)
-        bottom = floor - thickness - LEAN_M
-        depth = ground - bottom if has_basement else max(ground - bottom, FROST_M)
         parts[building["name"]] = {"name": building["name"], "area": float(foundation["area"]),
-                                   "perimeter": float(foundation.get("perimeter") or 0), "depth": round(depth, 3),
-                                   "below": max(min(depth - LEAN_M, ground - (floor - thickness)), 0.0), "basement": has_basement,
-                                   "ground": round(ground, 3), "ground_from": ground_from}
+                                   "perimeter": float(foundation.get("perimeter") or 0), "floor": floor, "thickness": thickness,
+                                   "bottom": floor - thickness - LEAN_M, "basement": has_basement,
+                                   "ground": ground, "ground_from": ground_from}
+    inside = (set(match or {}) | placed) & set(parts) if host_name in parts else set()
+    host = parts.get(host_name)
+    drawn = [parts[t]["ground"] for t in inside if parts[t]["ground_from"] == "drawing"]
+    if host and drawn:
+        # a deck under the site's ground takes its towers' GL (drawn with their ground floors on the
+        # sections), not its roof or a level read on one of its details
+        ground = sum(drawn) / len(drawn)
+        if host["ground_from"] != "drawing" or abs(host["ground"] - ground) > 0.3:
+            host.update(ground=ground, ground_from="towers")
+    for part in parts.values():
+        depth = part["ground"] - part["bottom"]
+        depth = depth if part["basement"] else max(depth, FROST_M)
+        part.update(depth=round(depth, 3), ground=round(part["ground"], 3),
+                    below=max(min(depth - LEAN_M, part["ground"] - (part["floor"] - part["thickness"])), 0.0))
     groups = []
-    inside = set(match or {}) if host_name in parts else set()
     for name, part in parts.items():
         if name in inside:
             continue
-        members = [part] + [parts[t] for t in sorted(inside) if name == host_name and t in parts]
+        members = [part] + [parts[t] for t in sorted(inside) if name == host_name]
         groups.append({"name": name, "members": members})
     deepest = max((p["depth"] for p in parts.values()), default=0.0)
     method, method_from = _method(overrides, excavation, deepest)
@@ -116,7 +134,7 @@ def earthwork(buildings, model_buildings, host_name, match, overrides=None, lear
         volume = depth * widened
         if not shored:
             volume += slope * depth * depth * (perimeter + 8 * margin) / 2 + 4 * slope * slope * depth ** 3 / 3
-        pits = sum(m["area"] * max(m["depth"] - depth, 0.0) for m in group["members"][1:])  # the towers' deeper mats
+        pits = sum(m["area"] * max(base["bottom"] - m["bottom"], 0.0) for m in group["members"][1:])  # the towers' deeper mats
         volume += pits
         built = sum(m["area"] * m["below"] for m in group["members"])
         lean = (area + perimeter * LEAN_MARGIN) * LEAN_M
@@ -134,7 +152,7 @@ def earthwork(buildings, model_buildings, host_name, match, overrides=None, lear
             totals[key] += item[key]
         if assumed is not None:
             where = group["name"]
-            if base["ground_from"] != "drawing":
+            if base["ground_from"] not in ("drawing", "towers"):
                 assumed.add("ground_level", "지반고 (GL)",
                             ("주차장 지붕 = 지반" if base["ground_from"] == "deck_roof" else "1층 바닥 = 지반") + " (굴착 깊이 = 지반 − 맨 아래층 바닥 + 기초 + 버림 60mm)",
                             where, "토공", volume, "㎥", "단면도·입면도에 GL 레벨(예: GL±0=EL+16.20)을 함께 올리면 그 높이를 써요")
@@ -159,11 +177,14 @@ def earthwork(buildings, model_buildings, host_name, match, overrides=None, lear
             "totals": {k: round(v, 1) for k, v in totals.items()}}
 
 
-def exterior(buildings, match, overrides=None, assumed=None):
-    """{"finish", "buildings": [{"name", "wall", "openings", "basement_waterproof", "roof", "rows"}], "totals"}."""
+def exterior(buildings, match, overrides=None, assumed=None, model_buildings=None):
+    """{"finish", "buildings": [{"name", "wall", "openings", "basement_waterproof", "roof", "rows"}], "totals"}.
+    A tower standing in the parking deck (matched to its plans or placed on it by the 3D layout)
+    leaves its basement walls to the deck; a deck's roof is waterproofed but not insulated (the
+    parking under it is not heated)."""
     chosen = (overrides or {}).get("exterior_finish")
     finish = chosen if chosen in EXTERIOR_FINISHES else EXTERIOR_FINISHES[0]
-    inside = set(match or {})
+    inside = set(match or {}) | {b.get("name") for b in model_buildings or [] if (b.get("site") or {}).get("on")}
     out = []
     totals = dict.fromkeys(("wall", "openings", "basement_waterproof", "roof_waterproof", "roof_insulation"), 0.0)
     for building in buildings:
@@ -192,8 +213,10 @@ def exterior(buildings, match, overrides=None, assumed=None):
         roof_row = roof_row or (rows[-1] if rows else None)
         roof_area = float(((roof_row or {}).get("measures") or {}).get("slab_area") or 0)
         roof_edge = float(((roof_row or {}).get("measures") or {}).get("outside_faces") or 0) or 4 * roof_area ** 0.5
+        deck = not any((r.get("key") or "").isdigit() for r in rows)  # basements and a roof only: a parking deck
         roof = {"area": round(roof_area, 1), "perimeter": round(roof_edge, 1), "storey": (roof_row or {}).get("label"),
-                "waterproof": round(roof_area + roof_edge * ROOF_RISE, 1) if roof_area else 0.0, "insulation": round(roof_area, 1)}
+                "waterproof": round(roof_area + roof_edge * ROOF_RISE, 1) if roof_area else 0.0,
+                "insulation": 0.0 if deck else round(roof_area, 1)}
         out.append({"name": name, "wall": round(wall_sum, 1), "openings": round(openings_sum, 1),
                     "basement_waterproof": round(basement_sum, 1), "roof": roof, "rows": lines})
         totals["wall"] += wall_sum

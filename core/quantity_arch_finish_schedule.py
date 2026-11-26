@@ -28,6 +28,13 @@ HEADERS = (
 # the second header line under a column (its finish and its base), never a material
 SUBHEAD = re.compile(r"^(마\s*감(\s*재)?|바\s*탕(\s*재)?|하\s*지|재\s*료|규\s*격|두\s*께|비\s*고|FINISH|BASE\s*COAT)$", re.I)
 FINISH_COLUMNS = ("floor", "base", "wall", "ceiling")
+# the sub-columns under a finish column on a second header line: the finish itself and its base
+SUB_FINISH = re.compile(r"^(마\s*감(\s*재)?|FINISH)$", re.I)
+SUB_BASE = re.compile(r"^(바\s*탕(\s*재)?|하\s*지|BASE\s*COAT)$", re.I)
+ROOM_NAME_HEAD = re.compile(r"^(실\s*명|ROOM(\s*NAME)?)$", re.I)
+GROUP_HEAD = re.compile(r"^(층\s*별|구\s*분|위\s*치|부\s*위)$")
+# a waterproofing layer, not a board or a curb named for water (방수석고보드, 방수합판, 방수턱)
+WATERPROOF = re.compile(r"방수(?!\s*(석고|합판|보드|턱|코킹|높이|문))")
 NOTHING = re.compile(r"^[-─—_/]+$|^없음$|^N/?A$", re.I)
 NOTES = re.compile(r"\(.*?\)|THK\.?\s*[\d.]+|T\s*=?\s*[\d.]+(?:mm)?|\d+\s*[xX×*]\s*\d+|\d+\s*회|@\s*\d+|H\s*=\s*\d+", re.I)
 
@@ -107,6 +114,44 @@ def _tables(texts):
     return out
 
 
+def _subcolumns(texts, head_y, head_h, order, left, right):
+    """[(x, role)] of a table with a second header line, where each finish column splits into
+    바탕 / 마감 / 두께 / 비고 …: role "<kind>" for its 마감 (the finish), ("base", kind) for its
+    바탕, "height" for a 천장고 among them, None for the rest; with the room-name column ("room")
+    and a group column (층별 / 구분 beside a 실명 column: None) left of the finishes. [] for a table
+    with one header line (each finish column is then read whole)."""
+    low, high = head_y - 4.5 * head_h, head_y - 0.5 * head_h
+    subs = [(t, x) for t, x, y, _h in texts if low < y < high and left <= x < right and (SUBHEAD.match(t) or header_kind(t) == "height")]
+    if not any(SUB_FINISH.match(t) for t, _x in subs):
+        return []
+    spans = sorted(order, key=lambda item: item[1])  # the first header line's columns, left to right
+    edges = [(a[1] + b[1]) / 2 for a, b in zip(spans, spans[1:])]
+
+    def parent(x):
+        return sum(1 for edge in edges if x >= edge)  # the index of the column the sub-column stands under
+    out, covered = [], set()
+    for text, x in subs:
+        kind = spans[parent(x)][0]
+        covered.add(parent(x))
+        if header_kind(text) == "height":
+            out.append((x, "height"))
+        elif SUB_FINISH.match(text) and kind in FINISH_COLUMNS:
+            out.append((x, kind))
+        elif SUB_BASE.match(text) and kind in FINISH_COLUMNS:
+            out.append((x, ("base", kind)))
+        else:
+            out.append((x, None))
+    # a column with nothing under it is read whole
+    out += [(x, kind) for i, (kind, x) in enumerate(spans) if i not in covered and kind != "room"]
+    first = min(x for kind, x in order if kind in FINISH_COLUMNS)
+    heads = [(t, x) for t, x, y, _h in texts if low < y < head_y + 1.5 * head_h and left <= x < first
+             and (header_kind(t) == "room" or GROUP_HEAD.match(t))]
+    named = any(ROOM_NAME_HEAD.match(t) for t, _x in heads)
+    for text, x in heads:
+        out.append((x, "room" if (ROOM_NAME_HEAD.match(text) or not named and header_kind(text) == "room") else None))
+    return sorted(out, key=lambda item: item[0])
+
+
 def read_finish_schedule(texts, name=None):
     """{"rooms": {room key: {"names", "floor", "base", "wall", "ceiling", "waterproof",
     "ceiling_height", "cells", "sheet"}}} from the texts of a finish schedule drawing
@@ -119,32 +164,39 @@ def read_finish_schedule(texts, name=None):
         columns = dict(order)
         xs = [x for _k, x in order]
         bounds = [left] + [(a + b) / 2 for a, b in zip(xs, xs[1:])] + [right]
+        subs = _subcolumns(texts, head_y, head_h, order, left, right)
 
-        def column(x, order=order, bounds=bounds):
+        def column(x, order=order, bounds=bounds, subs=subs):
+            if subs:  # a second header line: the nearest sub-column decides
+                return min(subs, key=lambda item: abs(item[0] - x))[1]
             for k, (kind, _cx) in enumerate(order):
                 if bounds[k] <= x < bounds[k + 1]:
                     return kind
             return None
         cells = [(t, x, y, h) for t, x, y, h in texts if below < y < head_y - 0.5 * head_h and left <= x < right]
         first_finish = min(x for kind, x in order if kind in FINISH_COLUMNS)
-        room_col = "room" if "room" in columns else None
+        room_col = "room" if ("room" in columns or any(role == "room" for _x, role in subs)) else None
         labels = sorted(((t, y) for t, x, y, h in cells
                          if (column(x) == "room" if room_col else x < first_finish - 0.5 * head_h)
-                         and len(t) <= 24), key=lambda item: -item[1])
+                         and len(t) <= 24 and not SUBHEAD.match(t) and not GROUP_HEAD.match(t) and not header_kind(t)),
+                        key=lambda item: -item[1])
         if not labels:
             continue
-        rows = [{"label": t, "y": y, "cells": {}} for t, y in labels]
+        rows = [{"label": t, "y": y, "cells": {}, "under": []} for t, y in labels]
         for text, x, y, _h in cells:
             kind = column(x)
             if kind in (None, "room") or SUBHEAD.match(text):  # (the header row itself is above the cells)
                 continue
             row = min(rows, key=lambda r: abs(r["y"] - y))
+            if isinstance(kind, tuple):  # the base under a finish: only its waterproofing counts
+                row["under"].append(text)
+                continue
             row["cells"].setdefault(kind, []).append((y, x, text))
         for row in rows:
             lines = {kind: [text for _y, _x, text in sorted(items, key=lambda item: (-item[0], item[1]))]
                      for kind, items in row["cells"].items()}
             entry = {"names": room_keys(row["label"]), "label": row["label"], "sheet": name,
-                     "waterproof": any("방수" in text for items in lines.values() for text in items),
+                     "waterproof": any(WATERPROOF.search(text) for items in list(lines.values()) + [row["under"]] for text in items),
                      "ceiling_height": _height(lines.get("height") or []),
                      "cells": {kind: " / ".join(items) for kind, items in lines.items()}}
             for kind in FINISH_COLUMNS:

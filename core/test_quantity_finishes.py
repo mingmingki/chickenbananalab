@@ -44,6 +44,12 @@ class RoomTests(SimpleTestCase):
     def test_room_names(self):
         self.assertEqual([rooms_of.room_class([n]) for n in ("거실", "침실2", "욕실1", "PS", "발코니", "현관", "계단실", "전기실", "창고")],
                          ["room", "room", "wet", "shaft", "balcony", "entrance", "common", "service", "service"])
+        # a shaft's label inside a room another name names: the room, not a shaft; rooms a missing door
+        # left open into one space: the class most of the names have (the rooms on a tie)
+        self.assertEqual([rooms_of.room_class(n) for n in (["AD", "발코니"], ["거실", "PS"], ["PS", "DA"], ["욕실2", "PS"],
+                                                            ["침실3", "발코니1", "침실1", "현관", "주방/식당", "PS", "거실"],
+                                                            ["PS", "ELEV", "ELEV.홀", "발코니2"], ["발코니", "거실"])],
+                         ["balcony", "room", "shaft", "wet", "room", "common", "room"])
         self.assertEqual([rooms_of.is_room_name(t) for t in ("거실", "주방/식당", "D10@200", "101동", "2,000 x 1,500")],
                          [True, True, False, False, False])
 
@@ -292,3 +298,58 @@ class FinishScheduleVariantTests(SimpleTestCase):
         room = fs.read_finish_schedule(texts)["rooms"]["거실"]
         self.assertEqual((room["floor"], room["base"], room["wall"], room["ceiling"], room["ceiling_height"]),
                          ("강마루", "PVC 굽도리", "실크벽지", "천장지", 2.4))
+
+    def test_each_column_split_into_its_base_finish_and_note_takes_the_finish(self):
+        from core import quantity_arch_finish_schedule as fs
+        heads = [("바 닥", 49, 137), ("걸 레 받 이", 79, 137), ("벽 체", 113, 137), ("천 장", 148, 137),
+                 ("층 별", 12, 135.5), ("실 명", 24, 135.5), ("비 고", 175, 135.5)]
+        subs = [(t, x, 134) for x0 in (39, 72, 102, 135) for t, x in (("바 탕", x0), ("마 감", x0 + 11), ("비 고", x0 + 21))]
+        rows = [("거 실", 128.4, ["판넬히팅/시멘트몰탈", "강마루", "-", "", "PVC 걸레받이", "-", "콘크리트면처리 or 석고보드", "실크 벽지", "-",
+                                 "천장틀/석고보드", "실크 천장지", "-"]),
+                ("주방 및 식당", 125.4, ["판넬히팅/시멘트몰탈", "강마루", "-", "", "PVC 걸레받이", "-", "or 방수석고보드", "실크 벽지", "-",
+                                    "천장틀/석고보드", "실크 천장지", "-"]),
+                ("욕 실", 119.4, ["시멘트 액체방수/", "지정 타일", "-", "", "", "-", "시멘트 액체방수", "지정 타일", "방수높이 : 비고참조",
+                                 "천장틀", "PVC 천장재", "-"])]
+        texts = [(t, x, y, 1.0) for t, x, y in heads + subs]
+        for name, y, cells in rows:
+            texts.append((name, 24, y, 0.75))
+            texts += [(cell, x, y, 0.75) for cell, (_t, x, _y) in zip(cells, subs) if cell]
+        texts.append(("지 상 층", 11, 123, 1.0))  # the 층별 column: a group, not a room
+        texts.append(("* 욕실방수 높이", 168, 128.4, 0.75))  # the table's own note column
+        rooms = fs.read_finish_schedule(texts)["rooms"]
+        self.assertNotIn("지상층", rooms)
+        living, kitchen, bath = rooms["거실"], rooms["주방"], rooms["욕실"]
+        self.assertEqual((living["floor"], living["base"], living["wall"], living["ceiling"]), ("강마루", "PVC 걸레받이", "실크 벽지", "실크 천장지"))
+        self.assertEqual((bath["floor"], bath["wall"], bath["ceiling"]), ("지정 타일", "지정 타일", "PVC 천장재"))
+        self.assertTrue(bath["waterproof"])  # the waterproofing written under the tiles
+        self.assertFalse(living["waterproof"] or kitchen["waterproof"])  # a water-resistant board is no waterproofing
+
+
+class PastedGroupDoorTests(SimpleTestCase):
+    def test_a_pasted_group_drawing_a_door_far_from_its_insert_point_is_one_door(self):
+        import math
+        import ezdxf
+        from core import quantity_arch
+        from core import quantity_floor_views as fv
+        doc = ezdxf.new()
+        doc.layers.add("A-DOOR")
+        group = doc.blocks.new("A$Ce0037f0f")  # a door pasted with its frame, base point at the sheet origin
+        group.add_lwpolyline([(6050, 1000), (6050, 1900)], dxfattribs={"layer": "A-DOOR"})
+        group.add_arc((6050, 1000), 900, 0, 90, dxfattribs={"layer": "A-DOOR"})
+        group.add_lwpolyline([(6000, 950), (7000, 950), (7000, 1050), (6000, 1050)], close=True, dxfattribs={"layer": "A-DOOR"})
+        doc.modelspace().add_blockref("A$Ce0037f0f", (0, 0), dxfattribs={"layer": "A-DOOR"})
+        inserts = quantity_arch.opening_inserts(doc, {}, is_opening=fv._is_opening_insert)
+        (name, kind, x, y, _width, _tag, _arc), = inserts
+        self.assertEqual((name, kind), ("A$Ce0037f0f", "door"))
+        self.assertLess(math.hypot(x - 6450, y - 1400), 300)  # where its lines are, not the paste point
+        frame, masonry = plan()[0]["frame"], plan()[0]["masonry"]
+        paths = []
+        for category, segments in (("frame", frame), ("masonry", masonry)):
+            for ax, ay, bx, by in segments:
+                pts = [(ax * 1000, ay * 1000), (bx * 1000, by * 1000)]
+                paths.append(((category, "A-WALL"), min(ax, bx) * 1000, min(ay, by) * 1000, max(ax, bx) * 1000, max(ay, by) * 1000, pts))
+        arc = [(6050 + 900 * math.cos(math.radians(a)), 1000 + 900 * math.sin(math.radians(a))) for a in range(0, 91, 10)]
+        paths.append((("opening", "A-DOOR"), 6050, 1000, 6950, 1900, arc))  # the group's swing, as the plan paths give it
+        measured = quantity_arch.measure(paths, (0, 0, 10000, 6000), inserts=inserts, tags=(), names=())
+        self.assertEqual({o["name"]: o["count"] for o in measured["openings"]}, {"A$Ce0037f0f": 1})
+
